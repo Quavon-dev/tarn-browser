@@ -372,8 +372,74 @@ fn start(root: &Path) -> bool {
 pub fn subprocess() -> Option<i32> {
     let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
     let args = args::Args::new();
-    let code = execute_process(Some(args.as_main_args()), None::<&mut App>, sandbox_info());
+    let code = execute_process(Some(args.as_main_args()), Some(&mut ChildApp::new()), sandbox_info());
     (code >= 0).then_some(code)
+}
+
+/// The message a renderer sends with its process id when it starts a main-frame document.
+#[cfg(windows)]
+pub(super) const RENDERER_PID: &str = "tarn.renderer-pid";
+
+#[cfg(windows)]
+wrap_app! {
+    struct ChildApp;
+
+    impl App {
+        fn render_process_handler(&self) -> Option<RenderProcessHandler> {
+            Some(ChildRenderer::new())
+        }
+    }
+}
+
+#[cfg(windows)]
+wrap_render_process_handler! {
+    struct ChildRenderer;
+
+    impl RenderProcessHandler {
+        fn load_handler(&self) -> Option<LoadHandler> {
+            Some(ChildLoad::new())
+        }
+    }
+}
+
+#[cfg(windows)]
+wrap_load_handler! {
+    struct ChildLoad;
+
+    impl LoadHandler {
+        fn on_load_start(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, _transition_type: TransitionType) {
+            let Some(frame) = frame.filter(|f| f.is_main() == 1) else { return };
+            let Some(mut message) = process_message_create(Some(&CefString::from(RENDERER_PID))) else { return };
+            let Ok(pid) = i32::try_from(std::process::id()) else { return };
+            if message.argument_list().is_some_and(|a| a.set_int(0, pid) == 1) {
+                frame.send_process_message(ProcessId::BROWSER, Some(&mut message));
+            }
+        }
+    }
+}
+
+/// Whether `pid` is another running process of this Tarn executable (a Chromium child).
+#[cfg(windows)]
+pub(super) fn tarn_process(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
+    static OWN: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    if pid == std::process::id() {
+        return false;
+    }
+    let Some(own) = OWN.get_or_init(|| std::env::current_exe().and_then(std::fs::canonicalize).ok()) else { return false };
+    // SAFETY: a handle opened here is closed below; null means no access.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return false;
+    }
+    let mut path = [0u16; 32_768];
+    let mut len = path.len() as u32;
+    // SAFETY: `process` is open with query access; `path` holds `len` UTF-16 units.
+    let read = unsafe { QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, path.as_mut_ptr(), &raw mut len) } != 0;
+    // SAFETY: closes the handle opened above.
+    unsafe { CloseHandle(process) };
+    read && std::fs::canonicalize(String::from_utf16_lossy(&path[..len as usize])).is_ok_and(|p| &p == own)
 }
 
 /// Prepares the browser process before GPUI starts: GPUI must draw without DirectComposition,
@@ -686,6 +752,17 @@ fn schedule(delay_ns: i64, work: extern "C" fn(*mut c_void)) {
 #[cfg(test)]
 mod tests {
     use super::{LOCKED, REFUSED, SWITCHES, lock_preferences, write_preferences};
+
+    #[cfg(windows)]
+    #[test]
+    fn a_reported_renderer_must_be_another_process_of_this_executable() {
+        assert!(!super::tarn_process(std::process::id()), "not this process");
+        assert!(!super::tarn_process(0));
+        let mut other = std::process::Command::new("cmd").args(["/c", "ping -n 5 127.0.0.1 >nul"]).spawn().unwrap();
+        assert!(!super::tarn_process(other.id()), "another program");
+        other.kill().ok();
+        other.wait().ok();
+    }
 
     #[test]
     fn tarn_never_adds_a_switch_it_refuses() {
