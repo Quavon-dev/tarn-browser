@@ -1,9 +1,11 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationElement, AnimationExt, AnyView, App, AppContext, BoxShadow, Context, Div, ElementId, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Svg, Transformation, Window, div, percentage, point,
-    prelude::FluentBuilder, px,
+    Animation, AnimationElement, AnimationExt, AnyView, AnyWindowHandle, App, AppContext, Bounds, BoxShadow, Context, DisplayId, Div, ElementId, FontWeight,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Svg,
+    Transformation, Window, WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, percentage, point, prelude::FluentBuilder, px,
 };
 
 use crate::icon::{Icon, icon};
@@ -247,8 +249,8 @@ pub struct Tooltip {
     keys: Option<SharedString>,
 }
 
-impl Render for Tooltip {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+impl Tooltip {
+    fn card(&self) -> Div {
         div()
             .px_2()
             .py(px(3.))
@@ -258,7 +260,6 @@ impl Render for Tooltip {
             .bg(Theme::surface())
             .border_1()
             .border_color(Theme::surface_edge())
-            .shadow(Theme::elevation(2., 6.))
             .text_size(px(TEXT_SMALL))
             .text_color(Theme::text())
             .child(self.text.clone())
@@ -266,10 +267,100 @@ impl Render for Tooltip {
     }
 }
 
+impl Render for Tooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        self.card()
+    }
+}
+
+/// Where a tooltip's pop-up window is in its life.
+enum TooltipPopup {
+    Closed,
+    Opening,
+    Open(AnyWindowHandle),
+    /// The tooltip was hidden; a pop-up still opening closes as soon as it is open.
+    Gone,
+}
+
+/// What GPUI shows as a tooltip: the card, laid out but not painted where GPUI places it, and a
+/// pop-up window over that spot that paints it. GPUI draws inside its window, under the native
+/// web view, so a card drawn there is cut off where it meets the page.
+struct TooltipAnchor {
+    tip: Tooltip,
+    popup: Rc<RefCell<TooltipPopup>>,
+    _release: Subscription,
+}
+
+impl TooltipAnchor {
+    fn new(tip: Tooltip, cx: &mut Context<Self>) -> Self {
+        let popup = Rc::new(RefCell::new(TooltipPopup::Closed));
+        let release = cx.on_release({
+            let popup = popup.clone();
+            move |_, cx| {
+                if let TooltipPopup::Open(handle) = popup.replace(TooltipPopup::Gone) {
+                    cx.defer(move |cx| drop(handle.update(cx, |_, window, _| window.remove_window())));
+                }
+            }
+        });
+        TooltipAnchor { tip, popup, _release: release }
+    }
+}
+
+impl Render for TooltipAnchor {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let (tip, popup) = (self.tip.clone(), self.popup.clone());
+        div().invisible().child(self.tip.card()).on_children_prepainted(move |cards, window, cx| {
+            let Some(card) = cards.first().filter(|_| matches!(*popup.borrow(), TooltipPopup::Closed)) else { return };
+            *popup.borrow_mut() = TooltipPopup::Opening;
+            let bounds = Bounds::new(window.bounds().origin + card.origin, card.size);
+            let (display, shell) = (window.display(cx).map(|d| d.id()), engine::Host::from_window(window));
+            let (tip, popup) = (tip.clone(), popup.clone());
+            cx.defer(move |cx| {
+                let handle = cx.open_window(popup_options(bounds, display, false), |window, cx| {
+                    if let Some(host) = engine::Host::from_window(window) {
+                        host.strip_frame();
+                        host.ignore_mouse();
+                        host.round_corners(0., 0., 0., 0., f64::from(Theme::radius_small()));
+                        if let Some(shell) = &shell {
+                            shell.follow(&host);
+                        }
+                    }
+                    cx.new(|_| tip)
+                });
+                let Ok(handle) = handle else { return };
+                let mut state = popup.borrow_mut();
+                if matches!(*state, TooltipPopup::Opening) {
+                    *state = TooltipPopup::Open(handle.into());
+                } else {
+                    drop(handle.update(cx, |_, window, _| window.remove_window()));
+                }
+            });
+        })
+    }
+}
+
 /// A tooltip for `.tooltip(...)`: a label and, optionally, its shortcut in muted text.
 pub fn tooltip(text: impl Into<SharedString>, keys: Option<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     let tip = Tooltip { text: text.into(), keys: keys.filter(|k| !k.is_empty()).map(|k| SharedString::from(self::keys(&k))) };
-    move |_, cx| cx.new(|_| tip.clone()).into()
+    move |_, cx| cx.new(|cx| TooltipAnchor::new(tip.clone(), cx)).into()
+}
+
+/// A borderless pop-up window at `bounds` in screen points, for what must show over the page.
+pub fn popup_options(bounds: Bounds<Pixels>, display_id: Option<DisplayId>, focus: bool) -> WindowOptions {
+    #[cfg(windows)]
+    engine::chromium::open_next_window_inactive(!focus);
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        titlebar: None,
+        focus,
+        kind: WindowKind::PopUp,
+        is_movable: false,
+        is_resizable: false,
+        is_minimizable: false,
+        display_id,
+        window_background: WindowBackgroundAppearance::Transparent,
+        ..Default::default()
+    }
 }
 
 pub fn radio(on: bool) -> Div {

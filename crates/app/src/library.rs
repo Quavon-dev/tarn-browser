@@ -1334,7 +1334,7 @@ impl Render for LibraryWindow {
                         Item::Url(url) => site_icon(b, url, 16.),
                         Item::Folder(_) => icon(Icon::Folder, 16., Theme::muted()).into_any_element(),
                         Item::Page(Page::History) => icon(Icon::History, 16., Theme::muted()).into_any_element(),
-                        Item::Page(Page::Downloads) => icon(Icon::Folder, 16., Theme::muted()).into_any_element(),
+                        Item::Page(Page::Downloads) => icon(Icon::Download, 16., Theme::muted()).into_any_element(),
                         Item::Download(d) => site_icon(b, &d.url, 16.),
                         Item::Snapshot(_) | Item::Page(Page::Snapshots) => icon(Icon::Group, 16., Theme::muted()).into_any_element(),
                         Item::ClearDownloads => icon(Icon::Trash, 16., Theme::muted()).into_any_element(),

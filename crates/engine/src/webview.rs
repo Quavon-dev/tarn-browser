@@ -97,6 +97,13 @@ impl Host {
         }
     }
 
+    /// Lets the pointer pass through this pop-up window to the window below, as a tooltip must.
+    pub fn ignore_mouse(&self) {
+        if let Some(window) = self.view.window() {
+            window.setIgnoresMouseEvents(true);
+        }
+    }
+
     /// macOS draws a pop-up's transparent margin as it is; Windows clips it (see there).
     pub fn round_corners(&self, _top: f64, _left: f64, _right: f64, _bottom: f64, _radius: f64) {}
 

@@ -192,20 +192,12 @@ fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl In
     let level = site.url.as_ref().map(|u| b.level_for(u.as_str())).unwrap_or_default();
     let overridden = site.host.as_deref().is_some_and(|h| b.has_override(h));
     let shield_color = if level == ShieldLevel::Standard { Secure::muted() } else { Secure::shield_raised() };
-    div()
-        .id("shield")
+    chip_frame("shield", b.site_popover.window.is_none())
         .occlude()
-        .h(px(22.))
-        .px_1p5()
-        .flex()
-        .items_center()
         .gap_1()
-        .rounded(px(Theme::radius_small()))
         .text_size(px(TEXT_SMALL))
         .when(overridden, |d| d.bg(Secure::pressed()))
         .text_color(shield_color)
-        .when(b.site_popover.window.is_none(), |d| d.hover(|s| s.bg(Secure::hover())))
-        .active(|s| s.bg(Secure::pressed()))
         .relative()
         .child(measure(b.site_popover.anchor.clone()))
         .when(b.site_popover.window.is_some(), |d| d.bg(Secure::pressed()))
@@ -218,11 +210,28 @@ fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl In
         }))
 }
 
+/// A button inside the origin chip: shorter than the chip, so its hover fill keeps clear of the chip's edge.
+fn chip_frame(id: &'static str, enabled: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(22.))
+        .px_1p5()
+        .flex()
+        .flex_none()
+        .items_center()
+        .rounded(px(Theme::radius_small()))
+        .when(enabled, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())).cursor_pointer())
+}
+
+fn chip_button(id: &'static str, glyph: Icon, enabled: bool) -> Stateful<Div> {
+    chip_frame(id, enabled).child(icon(glyph, 14., if enabled { Secure::muted() } else { Secure::faint() }))
+}
+
 fn bookmark_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl IntoElement {
     let url = site.url.as_ref().map(Url::to_string);
     let marked = url.as_deref().is_some_and(|u| b.is_bookmarked(u));
     let (glyph, tip) = if marked { (Icon::StarFill, "Remove Bookmark") } else { (Icon::Star, "Bookmark This Tab") };
-    icon_button("bookmark", glyph, url.is_some())
+    chip_button("bookmark", glyph, url.is_some())
         .occlude()
         .tooltip(tooltip(tip, (!marked).then(|| crate::shortcuts::shown(&crate::BookmarkTab, cx).into())))
         .on_click(cx.listener(move |b, _, _, cx| {
@@ -238,7 +247,7 @@ fn bookmark_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl 
 fn reader_button(b: &Browser, cx: &mut Context<Browser>) -> Option<impl IntoElement> {
     b.model.active.filter(|k| b.page(*k).article)?;
     Some(
-        icon_button("reader", Icon::BookOpen, true)
+        chip_button("reader", Icon::BookOpen, true)
             .tooltip(tooltip("Reader", Some(crate::shortcuts::shown(&crate::reader::ToggleReader, cx).into())))
             .on_click(cx.listener(|b, _, window, cx| {
                 cx.stop_propagation();
@@ -249,7 +258,7 @@ fn reader_button(b: &Browser, cx: &mut Context<Browser>) -> Option<impl IntoElem
 
 fn mute_button(b: &Browser, cx: &mut Context<Browser>) -> Option<impl IntoElement> {
     let key = b.model.active.filter(|k| b.tab_muted(*k))?;
-    Some(icon_button("unmute", Icon::VolumeX, true).occlude().tooltip(tooltip("Unmute Site", None)).on_click(cx.listener(move |b, _, _, cx| {
+    Some(chip_button("unmute", Icon::VolumeX, true).occlude().tooltip(tooltip("Unmute Site", None)).on_click(cx.listener(move |b, _, _, cx| {
         cx.stop_propagation();
         b.toggle_site_muted(key, cx);
     })))
