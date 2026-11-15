@@ -84,4 +84,4 @@ pub fn set_root(root: &std::path::Path) {
     runtime::set_root(root);
 }
 
-pub use view::WebView;
+pub use view::{EditCommand, WebView};
