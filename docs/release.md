@@ -77,6 +77,8 @@ xcrun notarytool store-credentials tarn-notary --apple-id "<apple-id>" --team-id
 ```sh
 TARN_NOTARY_PROFILE=tarn-notary scripts/notarize.sh      # default: target/release/Tarn.app
 ditto -c -k --keepParent target/release/Tarn.app "Tarn-v1.2.3.zip"
+TARN_SIGN_IDENTITY="Developer ID Application: Quavon UG (haftungsbeschrankt) (CFV35FGSHF)" \
+  TARN_NOTARY_PROFILE=tarn-notary scripts/dmg.sh target/release/Tarn.app Tarn-v1.2.3.dmg
 ```
 
 The `tarn-notary` profile (team CFV35FGSHF) is stored on the maintainer's Mac since 2026-11-14.
@@ -88,7 +90,26 @@ fails unless the status is `Accepted` (printing the `notarytool log` command oth
 the ticket, runs `stapler validate`, and fails unless `spctl -a -vv -t execute` reports
 `source=Notarized Developer ID`.
 
-Upload `Tarn-v1.2.3.zip` to the draft release, then publish it.
+`scripts/dmg.sh` is the download for people installing Tarn: it refuses an app `spctl` does not
+report as notarised, packs it beside an `Applications` link into an HFS+ disk image named Tarn
+(opening it shows the window to drag Tarn into Applications), signs, notarises and staples the
+image, fails unless `spctl -t open` reports it notarised, and mounts it to check it holds exactly
+those two items with the app's signature intact. Sparkle updates keep using the zip.
+
+Upload `Tarn-v1.2.3.zip` and `Tarn-v1.2.3.dmg` to the draft release. Anyone with write access can
+replace a draft's files, so before publishing download both from the draft, mount the image with
+`hdiutil attach -readonly` and unpack the zip, then check the image and both apps:
+
+```sh
+req='=anchor apple generic and certificate leaf[subject.OU] = "CFV35FGSHF"'
+codesign --verify --deep --strict -R "$req" Tarn-v1.2.3.dmg <mounted>/Tarn.app <unpacked>/Tarn.app
+# both must report source=Notarized Developer ID
+spctl -a -vv -t open --context context:primary-signature Tarn-v1.2.3.dmg
+spctl -a -vv -t execute <mounted>/Tarn.app
+```
+
+and that each app's `CFBundleShortVersionString` is the tag's version, so an older genuine file
+cannot stand in. Then publish it.
 
 ## Updates (Sparkle)
 
@@ -358,8 +379,12 @@ configuration (so no other `SU*` key and no changed pinned value), or a helper w
 Then it signs Sparkle inside out (`Installer.xpc`, `Autoupdate`, `Updater.app`, the framework,
 the order of Sparkle's Developer ID instructions), the helpers with its own
 `Helper-JIT.entitlements` and the app, all with hardened runtime and a timestamp, notarises,
-staples and uploads `Tarn-<tag>.zip` to the draft.
-`scripts/sign-release.test.sh` (run by the `macos` CI job) checks every refusal on fixtures.
+staples and uploads `Tarn-<tag>.zip` to the draft, and with it `Tarn-<tag>.dmg`: the stapled app
+beside an `Applications` link in an HFS+ image, signed, notarised and stapled, refused unless
+`spctl -t open` reports it notarised. The maintainer checks both files' team and version before
+publishing (above).
+`scripts/sign-release.test.sh` (run by the `macos` CI job) checks every refusal before signing on
+fixtures; the signing, notarisation and disk-image steps run only on the signing Mac.
 
 Not built: the signing Mac does not yet run `scripts/appcast.sh` or publish; until then the
 maintainer does both by hand for each signed draft (above). The second route is only as independent as its setup: a proxy on

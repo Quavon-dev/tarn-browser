@@ -89,7 +89,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy $CRATES --all-targets --locked -- -D warnings
       - run: cargo test $CRATES --locked
-      - run: scripts/sign-release.test.sh
+      - run: scripts/sign-release.test.sh && scripts/dmg.test.sh
       - name: Chromium feature
         run: |
           scripts/fetch-ninja.sh "$RUNNER_TEMP/ninja"

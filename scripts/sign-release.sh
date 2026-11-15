@@ -374,7 +374,19 @@ sign_tag() {
   xcrun stapler staple "$app"
   spctl --assess --type execute "$app"
   ditto -c -k --keepParent "$app" "$work/Tarn-$tag.zip"
-  gh release upload "$tag" "$work/Tarn-$tag.zip" --repo "$repo" --clobber
+  local dmg="$work/Tarn-$tag.dmg"
+  mkdir "$work/dmg"
+  ditto "$app" "$work/dmg/Tarn.app"
+  ln -s /Applications "$work/dmg/Applications"
+  hdiutil create -quiet -volname Tarn -srcfolder "$work/dmg" -format UDZO -fs HFS+ "$dmg"
+  codesign --force --timestamp -s "$identity" "$dmg"
+  xcrun notarytool submit "$dmg" --keychain-profile "$notary" --wait --output-format json > "$work/notary-dmg.json"
+  jq -e '.status == "Accepted"' "$work/notary-dmg.json" >/dev/null || refuse "notarisation of the disk image: $(jq -c . "$work/notary-dmg.json")"
+  xcrun stapler staple "$dmg"
+  local assessment
+  assessment="$(spctl -a -vv -t open --context context:primary-signature "$dmg" 2>&1)" && [[ "$assessment" == *"source=Notarized Developer ID"* ]] \
+    || refuse "Gatekeeper does not accept the disk image as notarised"
+  gh release upload "$tag" "$work/Tarn-$tag.zip" "$dmg" --repo "$repo" --clobber
 
   mkdir -p "$state/signed"
   printf '%s\n' "tag=$tag" "commit=$commit" "app_version=$app_version" "chromium_version=$chromium" > "$state/last"
