@@ -409,7 +409,7 @@ fn sidebar(ui: Ui) -> View {
                 .flex_1()
                 .truncate(),
         )
-        .child(icon_button(icons::FOLDER, "New folder", move || act(ui, |b| b.new_folder())))
+        .child(icon_button(icons::FOLDER_PLUS, "New folder", move || act(ui, |b| b.new_folder())))
         .child(icon_button(icons::BOOKMARK, "Reading List", move || show(ui, Panel::ReadingList)))
         .child(downloads_button(ui));
     let new = controls::pressable("New Tab", move || new_tab(ui))

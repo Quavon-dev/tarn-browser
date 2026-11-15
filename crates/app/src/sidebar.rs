@@ -417,7 +417,7 @@ fn content(b: &mut Browser, inset: f32, cx: &mut Context<Browser>) -> Div {
         .gap_1()
         .child(titles)
         .child(icon_button("new-group", Icon::Group, true).on_click(cx.listener(|b, _, w, cx| b.new_group(b.model.active, w, cx))))
-        .child(icon_button("new-folder", Icon::Folder, true).on_click(cx.listener(|b, _, w, cx| b.new_folder(None, w, cx))))
+        .child(icon_button("new-folder", Icon::FolderPlus, true).on_click(cx.listener(|b, _, w, cx| b.new_folder(None, w, cx))))
         .child(crate::downloads::header_button(b, cx));
     div()
         .flex()
