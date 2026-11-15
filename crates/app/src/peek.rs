@@ -4,9 +4,9 @@ use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
     App, AppContext, Bounds, Context, DisplayId, InteractiveElement, IntoElement, MouseExitEvent, ParentElement, Pixels, Render, StatefulInteractiveElement,
-    Styled, Subscription, Task, WeakEntity, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div, point, px,
-    size,
+    Styled, Subscription, Task, WeakEntity, Window, WindowHandle, canvas, div, point, px, size,
 };
+pub use ui::controls::popup_options;
 use ui::motion::FADE;
 use ui::theme::TOOLBAR_HEIGHT;
 
@@ -93,23 +93,6 @@ pub struct Peek {
 impl Peek {
     pub fn is_window(&self, window: &Window) -> bool {
         self.window.is_some_and(|h| h.window_id() == window.window_handle().window_id())
-    }
-}
-
-pub fn popup_options(bounds: Bounds<Pixels>, display_id: Option<DisplayId>, focus: bool) -> WindowOptions {
-    #[cfg(windows)]
-    engine::chromium::open_next_window_inactive(!focus);
-    WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
-        titlebar: None,
-        focus,
-        kind: WindowKind::PopUp,
-        is_movable: false,
-        is_resizable: false,
-        is_minimizable: false,
-        display_id,
-        window_background: WindowBackgroundAppearance::Transparent,
-        ..Default::default()
     }
 }
 
