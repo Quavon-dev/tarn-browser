@@ -66,7 +66,7 @@ if [ -d "$out/apt/pool" ]; then
     apt-ftparchive -o APT::FTPArchive::Release::Origin=Tarn -o APT::FTPArchive::Release::Label=Tarn \
       -o "APT::FTPArchive::Release::Suite=$suite" -o "APT::FTPArchive::Release::Codename=$suite" \
       -o "APT::FTPArchive::Release::Architectures=$archs" \
-      -o APT::FTPArchive::Release::Components=main release "dists/$suite" > "$GNUPGHOME/Release"
+      -o APT::FTPArchive::Release::Components=main -o APT::FTPArchive::Release::ValidTime=1209600 release "dists/$suite" > "$GNUPGHOME/Release"
     mv "$GNUPGHOME/Release" "dists/$suite/Release"
     sign --clearsign -o "dists/$suite/InRelease" "dists/$suite/Release"
     sign --detach-sign --armor -o "dists/$suite/Release.gpg" "dists/$suite/Release"

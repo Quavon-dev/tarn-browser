@@ -1,9 +1,12 @@
 name: Linux repositories
 
-# Started by release-published.yml or by hand; rebuilds the apt and dnf repositories on GitHub Pages
-# from the newest published releases and updates the AUR package (docs/release.md).
+# Started by release-published.yml, by hand or weekly; rebuilds the apt and dnf repositories on GitHub
+# Pages from the newest published releases, re-signing them before Valid-Until lapses, and updates the
+# AUR package.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
 
 permissions: {}
 
@@ -75,6 +78,7 @@ jobs:
 
   aur:
     needs: build
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     environment: aur
     permissions:
