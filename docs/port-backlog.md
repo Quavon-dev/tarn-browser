@@ -20,6 +20,19 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
+### Tile grid (2026-11-16)
+
+What it does: the tiles above the pinned tabs arrange themselves: one row while they fit, then as
+few rows as fit, filled evenly (six tiles in a 256 pt sidebar make 3 × 2); Add to Tiles and
+Remove from Tiles in a tab's menu.
+Shared API: `browser_core::tabs::tile_columns`, `browser_core::tabs::Model::tile_toggle`.
+macOS reference: `crates/app/src/sidebar.rs` (`tiles`), `crates/app/src/browser/context.rs` (`Cmd::ToggleTile`).
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/ui.rs` (`tiles`), `linux/src/ui/panels.rs` (This Tab panel)
+- [ ] iOS — the tab sheet in `mobile/app/src/ui/panels.rs` shows every tab as a card and has no pinned tabs or tiles yet; tiles need pinning on mobile first
+- [ ] Android — same as iOS
+
 ### Background tab memory budget (2026-11-15)
 
 What it does: once a minute, awake background tabs whose web processes together hold more than

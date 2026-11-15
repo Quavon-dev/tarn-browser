@@ -8,6 +8,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Tiles arrange themselves: one row while they fit, then as few rows as fit, filled evenly; Add to
+  Tiles and Remove from Tiles in a tab's menu (macOS, Windows, Linux).
 - Linux, iOS and Android apps on Native Shell over the same core crates.
 - Cookie-banner blocking.
 - Signed filter-list updates from this repository's releases, once a day.
@@ -41,6 +43,12 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- macOS Chromium tabs: ⌘ and ⌃ shortcuts reach Tarn again; editing keys stay with the page.
+- Chromium tabs: the page menu keeps Chrome's copy, media, look-up and history items, and Inspect
+  where Web Inspector is on (Settings › Developer or a developer profile).
+- Closing several tabs at once reloads the sidebar once and picks the nearest tab that stays open; a
+  closed Chromium page no longer lingers on screen; rows close up at once under the pointer, so
+  repeated clicks close the next tab.
 - File upload fields open the system file picker on macOS (WebKit and Chromium) and Android.
 - Picking a tab in the sidebar, or with ⌘1–9 or Ctrl-Tab, closes an open new-tab launcher.
 - ⌘T works again after closing the new-tab launcher by picking a tab in the floating sidebar.

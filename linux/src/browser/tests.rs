@@ -315,6 +315,19 @@ fn a_blocked_popup_opens_in_a_new_tab_only_on_the_users_offer_and_once() {
 }
 
 #[test]
+fn tiles_leave_the_rows_for_the_tile_grid_and_come_back() {
+    let (_dir, mut b) = browser();
+    let key = active(&b);
+    b.tile_toggle(key);
+    assert_eq!(b.model.tab(key).unwrap().kind, TabKind::Tile);
+    assert!(crate::snapshot::rows(&b).iter().all(|r| r.kind != crate::snapshot::RowKind::Tab(key)));
+    assert_eq!(crate::snapshot::tiles(&b).iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), [crate::snapshot::RowKind::Tab(key)]);
+    b.tile_toggle(key);
+    assert_eq!(b.model.tab(key).unwrap().kind, TabKind::Ephemeral);
+    assert!(crate::snapshot::tiles(&b).is_empty());
+}
+
+#[test]
 fn rows_of_tabs_without_a_live_view_are_asleep() {
     let (_dir, mut b) = browser();
     let first = active(&b);

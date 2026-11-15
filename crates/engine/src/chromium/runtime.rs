@@ -625,6 +625,12 @@ pub fn shutdown() {
     }
 }
 
+/// Whether AppKit is dispatching an event right now, so `NSApp.currentEvent` is the one being handled.
+#[cfg(target_os = "macos")]
+pub(super) fn in_send_event() -> bool {
+    HANDLING_SEND_EVENT.get()
+}
+
 #[cfg(target_os = "macos")]
 extern "C-unwind" fn is_handling_send_event(_: &AnyObject, _: Sel) -> Bool {
     Bool::new(HANDLING_SEND_EVENT.get())

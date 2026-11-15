@@ -235,6 +235,13 @@ impl Model {
         self.tabs.iter().filter(|t| t.kind == tab.kind && t.folder_id == tab.folder_id && t.position < tab.position).count()
     }
 
+    /// Where adding `key` to the tiles or taking it out moves it: to the end of the tiles, or back
+    /// to the end of the unpinned tabs.
+    pub fn tile_toggle(&self, key: TabKey) -> Option<(TabKind, usize)> {
+        let kind = if self.tab(key)?.kind == TabKind::Tile { TabKind::Ephemeral } else { TabKind::Tile };
+        Some((kind, self.zone_len(kind, None)))
+    }
+
     /// Where pinning or unpinning `key` moves it: the other kind, at the end of its loose tabs.
     pub fn pin_toggle(&self, key: TabKey) -> Option<(TabKind, usize)> {
         let kind = if self.tab(key)?.kind == TabKind::Ephemeral { TabKind::Pinned } else { TabKind::Ephemeral };
@@ -250,10 +257,16 @@ impl Model {
         self.tabs.iter().map(|t| self.key(t)).filter(|k| *k != key).collect()
     }
 
-    /// The unpinned tab next to `key` in the sidebar, the previous one first when `previous_first`.
-    pub fn close_neighbour(&self, key: TabKey, previous_first: bool) -> Option<TabKey> {
-        let order: Vec<Id> =
-            self.visible_tab_order().into_iter().filter(|k| self.tab(*k).is_some_and(|t| t.kind == TabKind::Ephemeral)).map(|k| k.id).collect();
+    /// The unpinned tab nearest `key` in the sidebar that is not in `closing`, the previous one first
+    /// when `previous_first`.
+    pub fn close_neighbour(&self, key: TabKey, closing: &[TabKey], previous_first: bool) -> Option<TabKey> {
+        let order: Vec<Id> = self
+            .visible_tab_order()
+            .into_iter()
+            .filter(|k| *k == key || !closing.contains(k))
+            .filter(|k| self.tab(*k).is_some_and(|t| t.kind == TabKind::Ephemeral))
+            .map(|k| k.id)
+            .collect();
         neighbour(&order, key.id, previous_first).map(|id| TabKey { private: key.private, id })
     }
 
@@ -441,6 +454,16 @@ pub fn duplicates(tabs: &[Tab], active: Option<Id>, url: impl Fn(&Tab) -> String
         .filter(|t| t.kind == TabKind::Ephemeral)
         .map(|t| t.id)
         .collect()
+}
+
+/// The narrowest a tile gets before the tile grid starts another row.
+pub const TILE_MIN_WIDTH: f32 = 40.;
+
+/// Columns of the tile grid for `count` tiles in `width` points with `gap` between them: one row
+/// while every tile fits at `TILE_MIN_WIDTH`, else as few rows as fit, filled evenly.
+pub fn tile_columns(count: usize, width: f32, gap: f32) -> usize {
+    let fit = (((width + gap) / (TILE_MIN_WIDTH + gap)).floor() as usize).max(1);
+    if count <= fit { count.max(1) } else { count.div_ceil(count.div_ceil(fit)) }
 }
 
 /// The tab next to `closed` in `order`, the previous one first when `previous_first` is set.
@@ -691,6 +714,16 @@ mod tests {
     }
 
     #[test]
+    fn tiles_share_one_row_while_they_fit_and_then_fill_rows_evenly() {
+        use super::tile_columns;
+        let width = 238.;
+        assert_eq!([0, 1, 2, 3, 4, 5].map(|n| tile_columns(n, width, 8.)), [1, 1, 2, 3, 4, 5]);
+        assert_eq!([6, 7, 8, 9, 10, 11].map(|n| tile_columns(n, width, 8.)), [3, 4, 4, 5, 5, 4]);
+        assert_eq!(tile_columns(6, 400., 8.), 6, "a wide sidebar keeps them in one row");
+        assert_eq!(tile_columns(4, 10., 8.), 1, "a sidebar narrower than one tile stacks them");
+    }
+
+    #[test]
     fn slots_cycles_and_neighbours_follow_the_visible_order() {
         let (_dir, core, mut model) = opened();
         let s = model.spaces[0].space.id;
@@ -702,12 +735,20 @@ mod tests {
         assert_eq!((model.slot(1), model.slot(9)), (Some(pinned), Some(ids[2])));
         model.active = Some(ids[2]);
         assert_eq!(model.cycled(true), Some(pinned));
-        assert_eq!(model.close_neighbour(ids[1], false), Some(ids[2]));
-        assert_eq!(model.close_neighbour(ids[0], true), Some(ids[1]), "a pinned tab is no neighbour");
+        assert_eq!(model.close_neighbour(ids[1], &[], false), Some(ids[2]));
+        assert_eq!(model.close_neighbour(ids[0], &[], true), Some(ids[1]), "a pinned tab is no neighbour");
+        assert_eq!(model.close_neighbour(ids[0], &[ids[0], ids[1]], false), Some(ids[2]), "tabs closing with it are skipped");
+        assert_eq!(model.close_neighbour(ids[2], &[ids[1], ids[2]], true), Some(ids[0]));
+        assert_eq!(model.close_neighbour(ids[1], &ids, false), None);
         assert_eq!(model.ephemeral_keys(), ids);
         assert_eq!(model.other_tabs(pinned), ids);
         assert_eq!(model.pin_toggle(pinned), Some((TabKind::Ephemeral, 3)));
         assert_eq!(model.pin_toggle(ids[0]), Some((TabKind::Pinned, 1)));
+        assert_eq!(model.tile_toggle(pinned), Some((TabKind::Tile, 0)));
+        let tile = TabKey { private: false, id: core.disk.create_tab(s, TabKind::Tile, None, "https://t.test/", "").unwrap().id };
+        model.reload_space(&core);
+        assert_eq!(model.tile_toggle(ids[0]), Some((TabKind::Tile, 1)));
+        assert_eq!(model.tile_toggle(tile), Some((TabKind::Ephemeral, 3)));
     }
 
     #[test]

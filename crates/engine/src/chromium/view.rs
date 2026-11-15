@@ -3,9 +3,11 @@ use std::rc::Rc;
 
 use cef::*;
 #[cfg(target_os = "macos")]
+use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
 use objc2::rc::Retained;
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSView, NSWindow, NSWindowOrderingMode};
+use objc2_app_kit::{NSApplication, NSEvent, NSEventType, NSView, NSWindow, NSWindowOrderingMode};
 use url::Url;
 #[cfg(windows)]
 use windows_sys::Win32::Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn};
@@ -46,6 +48,8 @@ struct Tab {
     /// private address (S10).
     shell_chain: Cell<bool>,
     last_find: RefCell<String>,
+    /// Web Inspector may open from the page's menu, as in WebKit tabs (S10).
+    inspectable: Cell<bool>,
     #[cfg(target_os = "macos")]
     download_notice: Cell<Option<std::time::Instant>>,
     recent_popups: RefCell<std::collections::VecDeque<std::time::Instant>>,
@@ -445,7 +449,7 @@ wrap_client! {
         }
 
         fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
-            Some(TarnContextMenu::new())
+            Some(TarnContextMenu::new(self.id))
         }
 
         fn jsdialog_handler(&self) -> Option<JsdialogHandler> {
@@ -453,10 +457,7 @@ wrap_client! {
         }
 
         fn keyboard_handler(&self) -> Option<KeyboardHandler> {
-            #[cfg(windows)]
-            return Some(TarnKeys::new());
-            #[cfg(not(windows))]
-            None
+            Some(TarnKeys::new())
         }
 
         #[cfg(windows)]
@@ -969,14 +970,30 @@ wrap_command_handler! {
 
     impl CommandHandler {
         fn on_chrome_command(&self, _browser: Option<&mut Browser>, command_id: i32, _disposition: WindowOpenDisposition) -> i32 {
-            i32::from(!PAGE_COMMANDS.contains(&command_id))
+            if PAGE_COMMANDS.contains(&command_id) {
+                return 0;
+            }
+            // Chrome runs the shortcuts it reserves (close tab, new tab, ...) before any key handler,
+            // so a refused command from a key press goes to the shell as that key press.
+            #[cfg(target_os = "macos")]
+            if let Some(event) = MainThreadMarker::new()
+                .filter(|_| super::runtime::in_send_event())
+                .and_then(|mtm| NSApplication::sharedApplication(mtm).currentEvent())
+                .filter(|e| e.r#type() == NSEventType::KeyDown)
+            {
+                to_shell(&event);
+            }
+            1
         }
     }
 }
 
-/// Context-menu items kept from Chrome's menu: editing and spelling only, nothing that opens
-/// Chrome UI, a window, a download or DevTools.
-const EDIT_ITEMS: [i32; 11] = [
+/// Context-menu items kept from Chrome's menu: editing, spelling, copying and the page's own
+/// history and media controls, nothing that opens Chrome UI, a window or a download.
+const KEPT_ITEMS: [i32; 23] = [
+    sys::IDC_BACK,
+    sys::IDC_FORWARD,
+    sys::IDC_RELOAD,
     sys::IDC_CONTENT_CONTEXT_UNDO,
     sys::IDC_CONTENT_CONTEXT_REDO,
     sys::IDC_CONTENT_CONTEXT_CUT,
@@ -986,21 +1003,47 @@ const EDIT_ITEMS: [i32; 11] = [
     sys::IDC_CONTENT_CONTEXT_DELETE,
     sys::IDC_CONTENT_CONTEXT_SELECTALL,
     sys::IDC_CONTENT_CONTEXT_COPYLINKLOCATION,
+    sys::IDC_CONTENT_CONTEXT_COPYLINKTEXT,
+    sys::IDC_CONTENT_CONTEXT_COPYIMAGE,
+    sys::IDC_CONTENT_CONTEXT_COPYIMAGELOCATION,
+    sys::IDC_CONTENT_CONTEXT_COPYVIDEOFRAME,
+    sys::IDC_CONTENT_CONTEXT_COPYAVLOCATION,
+    sys::IDC_CONTENT_CONTEXT_LOOP,
+    sys::IDC_CONTENT_CONTEXT_CONTROLS,
+    sys::IDC_CONTENT_CONTEXT_LOOK_UP,
+    sys::IDC_CONTENT_CONTEXT_EMOJI,
     sys::IDC_CONTENT_CONTEXT_SPELLING_SUGGESTION,
     sys::IDC_SPELLCHECK_ADD_TO_DICTIONARY,
 ];
 
+/// Whether the context-menu command `id` stays; Inspect only where Web Inspector is on.
+fn kept_item(id: i32, inspectable: bool) -> bool {
+    KEPT_ITEMS.contains(&id)
+        || (sys::IDC_SPELLCHECK_SUGGESTION_0..sys::IDC_SPELLCHECK_LANGUAGES_FIRST).contains(&id)
+        || (inspectable && id == sys::IDC_CONTENT_CONTEXT_INSPECTELEMENT)
+}
+
 wrap_context_menu_handler! {
-    struct TarnContextMenu;
+    struct TarnContextMenu {
+        id: u64,
+    }
 
     impl ContextMenuHandler {
         fn on_before_context_menu(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _params: Option<&mut ContextMenuParams>, model: Option<&mut MenuModel>) {
             let Some(model) = model else { return };
+            let inspectable = tab(self.id).is_some_and(|t| t.inspectable.get());
+            // A separator stays only between two kept items.
+            let mut after_item = false;
             for index in (0..model.count()).rev() {
-                let id = model.command_id_at(index);
-                if !(EDIT_ITEMS.contains(&id) || (sys::IDC_SPELLCHECK_SUGGESTION_0..sys::IDC_SPELLCHECK_LANGUAGES_FIRST).contains(&id)) {
+                let keep = if model.type_at(index) == MenuItemType::SEPARATOR { std::mem::replace(&mut after_item, false) } else { kept_item(model.command_id_at(index), inspectable) };
+                if keep {
+                    after_item |= model.type_at(index) != MenuItemType::SEPARATOR;
+                } else {
                     model.remove_at(index);
                 }
+            }
+            if model.count() > 0 && model.type_at(0) == MenuItemType::SEPARATOR {
+                model.remove_at(0);
             }
         }
     }
@@ -1021,14 +1064,14 @@ wrap_find_handler! {
     }
 }
 
-#[cfg(windows)]
 wrap_keyboard_handler! {
     struct TarnKeys;
 
     impl KeyboardHandler {
-        // Key presses with Ctrl or Alt are the shell's shortcuts too. Chromium would take some for
-        // its own commands, which Tarn refuses, so each goes to the GPUI window that holds the tab
-        // before the page sees it. Editing keys stay the page's alone.
+        // Key presses with the shortcut modifiers are the shell's shortcuts too. Chromium would take
+        // some for its own commands, which Tarn refuses, so each goes to the shell window that holds
+        // the tab before the page sees it. Editing keys stay the page's alone.
+        #[cfg(windows)]
         fn on_pre_key_event(&self, _browser: Option<&mut Browser>, event: Option<&KeyEvent>, os_event: Option<&mut sys::MSG>, _is_keyboard_shortcut: Option<&mut i32>) -> i32 {
             let (Some(event), Some(msg)) = (event, os_event) else { return 0 };
             if event.type_ == KeyEventType::RAWKEYDOWN && forwarded(event.modifiers, event.windows_key_code) {
@@ -1041,26 +1084,65 @@ wrap_keyboard_handler! {
             }
             0
         }
+
+        // The page sees a key press only when the shell has no shortcut for it.
+        #[cfg(target_os = "macos")]
+        fn on_pre_key_event(&self, _browser: Option<&mut Browser>, event: Option<&KeyEvent>, os_event: *mut u8, _is_keyboard_shortcut: Option<&mut i32>) -> i32 {
+            if !event.is_some_and(|e| e.type_ == KeyEventType::RAWKEYDOWN && forwarded(e.modifiers, e.windows_key_code)) {
+                return 0;
+            }
+            // SAFETY: on macOS CEF passes the NSEvent of this key press, or null.
+            let Some(native) = (unsafe { os_event.cast::<NSEvent>().as_ref() }) else { return 0 };
+            i32::from(to_shell(native))
+        }
     }
 }
 
+/// Hands a key press in a Chromium window to the shell window it is a child of, where WebKit tabs'
+/// key presses arrive by themselves; true when the shell had a shortcut for it.
+#[cfg(target_os = "macos")]
+fn to_shell(event: &NSEvent) -> bool {
+    thread_local! {
+        static LAST: Cell<(f64, bool)> = const { Cell::new((-1., false)) };
+    }
+    let Some(mtm) = MainThreadMarker::new() else { return false };
+    // Chrome's reserved commands and the key handler may both pass on one key press; it acts once.
+    let (last, handled) = LAST.get();
+    if event.timestamp() == last {
+        return handled;
+    }
+    let handled = event.window(mtm).and_then(|w| w.parentWindow()).is_some_and(|shell| shell.performKeyEquivalent(event));
+    LAST.set((event.timestamp(), handled));
+    handled
+}
+
 /// Whether a key press with these CEF modifiers and Windows virtual-key code also goes to the shell:
-/// Ctrl or Alt with a key, but not AltGr (Ctrl and Alt together types characters), a modifier
-/// alone, or the editing and caret keys pages use with Ctrl.
-#[cfg(windows)]
+/// on Windows Ctrl or Alt with a key, but not AltGr (Ctrl and Alt together types characters); on
+/// macOS ⌘ or ⌃ with a key. Never a modifier alone, nor the editing and caret keys pages use with
+/// the shortcut modifier.
+#[cfg(any(windows, target_os = "macos"))]
 fn forwarded(modifiers: u32, key: i32) -> bool {
-    let (ctrl, alt) = (sys::cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32, sys::cef_event_flags_t::EVENTFLAG_ALT_DOWN.0 as u32);
-    let shift = modifiers & sys::cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0 as u32 != 0;
+    use sys::cef_event_flags_t as F;
+    let has = |flag: F| u64::from(modifiers) & flag.0 as u64 != 0;
     // Backspace, Enter, Shift, Ctrl, Alt, the caret keys and Delete, the Windows keys.
     const PAGE_KEYS: [i32; 16] = [0x08, 0x0d, 0x10, 0x11, 0x12, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2e, 0x5b, 0x5c];
-    // Select all, copy, paste, cut, undo, redo; with Shift only paste as text and redo.
-    let letters: &[u8] = if shift { b"VZ" } else { b"ACVXYZ" };
+    // Select all, copy, paste, cut, undo, redo (Ctrl+Y on Windows); with Shift only paste as text and redo.
+    let letters: &[u8] = if has(F::EVENTFLAG_SHIFT_DOWN) {
+        b"VZ"
+    } else if cfg!(windows) {
+        b"ACVXYZ"
+    } else {
+        b"ACVXZ"
+    };
     let editing = u8::try_from(key).is_ok_and(|k| letters.contains(&k)) || PAGE_KEYS.contains(&key);
-    match (modifiers & ctrl != 0, modifiers & alt != 0) {
+    #[cfg(windows)]
+    return match (has(F::EVENTFLAG_CONTROL_DOWN), has(F::EVENTFLAG_ALT_DOWN)) {
         (true, true) | (false, false) => false,
         (true, false) => !editing,
         (false, true) => key != 0x12,
-    }
+    };
+    #[cfg(target_os = "macos")]
+    if has(F::EVENTFLAG_COMMAND_DOWN) { !editing } else { has(F::EVENTFLAG_CONTROL_DOWN) && !PAGE_KEYS.contains(&key) }
 }
 
 #[cfg(target_os = "macos")]
@@ -1170,12 +1252,13 @@ impl WebView {
     /// `root` holds Chromium's data; `profile` is the Tarn profile's own UUID. `None` when
     /// Chromium cannot run here or belongs to another profile.
     #[cfg(target_os = "macos")]
-    pub fn new(host: &Host, data: &crate::DataStore, root: &std::path::Path, profile: &str, sink: Rc<dyn Fn(Event)>) -> Option<Self> {
+    pub fn new(host: &Host, data: &crate::DataStore, root: &std::path::Path, profile: &str, inspectable: bool, sink: Rc<dyn Fn(Event)>) -> Option<Self> {
         if super::runtime::retired() || !crate::chromium_owner::claim(root, profile) || !super::runtime::ensure_started(root) {
             return None;
         }
         super::cookies::attach(data);
         let inner = Self::inner(host, String::new(), String::new(), data.site_styles(), sink);
+        inner.tab.inspectable.set(inspectable);
         let weak = Rc::downgrade(&inner);
         super::runtime::with_context(move |mut context| {
             if let Some(inner) = weak.upgrade() {
@@ -1189,9 +1272,10 @@ impl WebView {
     /// in memory. A view made while CEF cannot run stays blank and reports its first load as
     /// failed.
     #[cfg(windows)]
-    pub(crate) fn for_store(host: &Host, data: &crate::DataStore, lockdown: bool, filtered: bool, sink: Rc<dyn Fn(Event)>) -> Self {
+    pub(crate) fn for_store(host: &Host, data: &crate::DataStore, lockdown: bool, filtered: bool, inspectable: bool, sink: Rc<dyn Fn(Event)>) -> Self {
         let (key, shield, cache) = (data.context_key().to_owned(), data.shield_key().to_owned(), data.cache_dir());
         let inner = Self::inner(host, shield.clone(), key.clone(), None, sink);
+        inner.tab.inspectable.set(inspectable);
         inner.tab.lockdown_view.set(lockdown);
         inner.tab.filtered.set(filtered);
         let _ = inner.tab.downloads.set(data.downloads());
@@ -1228,6 +1312,7 @@ impl WebView {
             shell_load: RefCell::new(None),
             shell_chain: Cell::new(false),
             last_find: RefCell::new(String::new()),
+            inspectable: Cell::new(false),
             #[cfg(target_os = "macos")]
             download_notice: Cell::new(None),
             recent_popups: RefCell::default(),
@@ -1899,10 +1984,11 @@ impl Drop for WebView {
         if !super::runtime::running() {
             return;
         }
+        // Chromium closes the page later; until then it must not stay on screen over the next tab.
+        self.show(false);
         self.0.tab.browser.take();
         #[cfg(target_os = "macos")]
         {
-            self.detach();
             if let Some((_, window)) = self.0.created.borrow_mut().take() {
                 window.close();
             }
@@ -1911,6 +1997,40 @@ impl Drop for WebView {
         if let Some(host) = self.0.created.borrow_mut().take().and_then(|b| b.host()) {
             host.close_browser(1);
         }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod mac_tests {
+    #[test]
+    fn command_shortcuts_reach_the_shell_and_editing_keys_stay_with_the_page() {
+        let (ctrl, alt, shift, cmd) = (4, 8, 2, 128);
+        assert!(super::forwarded(cmd, i32::from(b'T')));
+        assert!(super::forwarded(cmd | shift, i32::from(b'C')), "Copy Link");
+        assert!(super::forwarded(cmd | ctrl, i32::from(b'F')), "full screen");
+        assert!(super::forwarded(ctrl, 0x09), "Ctrl+Tab");
+        assert!(super::forwarded(ctrl, i32::from(b'1')), "a space");
+        assert!(super::forwarded(cmd, i32::from(b'Y')), "history");
+        for key in *b"ACVXZ" {
+            assert!(!super::forwarded(cmd, i32::from(key)));
+        }
+        assert!(!super::forwarded(cmd | shift, i32::from(b'Z')), "redo");
+        assert!(!super::forwarded(cmd, 0x25), "Cmd+Left");
+        assert!(!super::forwarded(cmd, 0x08), "Cmd+Backspace");
+        assert!(!super::forwarded(ctrl, 0x27), "Ctrl+Right");
+        assert!(!super::forwarded(alt, i32::from(b'L')), "Option types characters");
+        assert!(!super::forwarded(shift, i32::from(b'L')));
+    }
+
+    #[test]
+    fn the_page_menu_keeps_safe_items_and_inspect_only_where_web_inspector_is_on() {
+        use cef::sys;
+        assert!(super::kept_item(sys::IDC_CONTENT_CONTEXT_COPYIMAGE, false));
+        assert!(super::kept_item(sys::IDC_RELOAD, false));
+        assert!(!super::kept_item(sys::IDC_CONTENT_CONTEXT_INSPECTELEMENT, false));
+        assert!(super::kept_item(sys::IDC_CONTENT_CONTEXT_INSPECTELEMENT, true));
+        assert!(!super::kept_item(sys::IDC_CONTENT_CONTEXT_SAVELINKAS, true));
+        assert!(!super::kept_item(sys::IDC_CONTENT_CONTEXT_OPENLINKNEWTAB, true));
     }
 }
 

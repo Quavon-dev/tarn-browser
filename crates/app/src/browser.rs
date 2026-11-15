@@ -835,10 +835,12 @@ impl Browser {
             return None;
         }
         #[cfg(feature = "chromium")]
+        let developer = self.developer;
+        #[cfg(feature = "chromium")]
         let chromium = wants_chromium
             .then(|| self.runtime(private, profile_id))
             .flatten()
-            .and_then(|rt| WebView::chromium(&host, &rt.data, &data_dir().join("Chromium"), &rt.own_store, sink.clone()));
+            .and_then(|rt| WebView::chromium(&host, &rt.data, &data_dir().join("Chromium"), &rt.own_store, developer || rt.profile.is_dev, sink.clone()));
         #[cfg(not(feature = "chromium"))]
         let chromium = None;
         #[cfg(feature = "chromium")]
@@ -1051,19 +1053,14 @@ impl Browser {
         self.close_tabs(vec![key], window, cx);
     }
 
-    /// Unloads a pinned tab, or closes an unpinned one and returns what reopening it needs.
-    fn close_one(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) -> Option<ClosedTab> {
+    /// Unloads a pinned tab, or closes an unpinned one and returns what reopening it needs. The
+    /// caller reloads the space and picks the next active tab.
+    fn close_one(&mut self, key: TabKey, cx: &mut Context<Self>) -> Option<ClosedTab> {
         let tab = self.model.tab(key).cloned()?;
-        self.hide_hover_card(cx);
         if tab.kind != TabKind::Ephemeral {
-            let was_active = self.model.active == Some(key);
             self.hibernate(key, cx);
-            if was_active {
-                self.pick_active(window, cx);
-            }
             return None;
         }
-        let neighbour = self.model.close_neighbour(key, self.pref(crate::prefs::Pref::ClosePrevious));
         let closed = self.closed_tab(&tab, key);
         self.tab_leaving(&tab, cx);
         self.take_view(key);
@@ -1074,20 +1071,9 @@ impl Browser {
         self.model.lifecycle.remove(key);
         self.pages.remove(&key);
         self.store(key.private).delete_tab(key.id).ok();
-        self.reload_space();
-        if self.model.burner_shown() {
-            self.leave_burner(window, cx);
-            return None;
-        }
-        let was_active = self.model.active == Some(key);
-        if was_active {
+        if self.model.active == Some(key) {
             self.model.active = None;
-            match neighbour {
-                Some(next) if !crate::shared::live_elsewhere(next, cx) => self.activate(next, window, cx),
-                _ => self.pick_active(window, cx),
-            }
         }
-        cx.notify();
         Some(closed)
     }
 

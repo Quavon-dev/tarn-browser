@@ -263,6 +263,10 @@ impl Render for Browser {
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Back), cx.listener(|b, _, _, _| b.swipe_history(true)))
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Forward), cx.listener(|b, _, _, _| b.swipe_history(false)));
         let shown = self.sidebar_shown();
+        // A list taken away under the pointer sends no hover-out.
+        if shown < 1. {
+            self.motion.pointer = None;
+        }
         let sidebar = (shown > 0.).then(|| {
             div()
                 .flex_none()

@@ -351,7 +351,7 @@ impl Browser {
         for key in &keys {
             let Some(tab) = self.model.tab(*key).cloned() else { continue };
             if next == Some(*key) {
-                next = self.model.close_neighbour(*key, false).filter(|k| !keys.contains(k));
+                next = self.model.close_neighbour(*key, &keys, false);
             }
             let url = self.pages.get(key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url.clone());
             let title = self.pages.get(key).map(|p| p.title.clone()).unwrap_or(tab.title.clone());
@@ -424,6 +424,12 @@ impl Browser {
 
     pub fn pin_toggle(&mut self, key: TabKey) {
         let Some((kind, index)) = self.model.pin_toggle(key) else { return };
+        self.core.store(key.private).move_tab(key.id, kind, None, index).ok();
+        self.model.reload_space(&self.core);
+    }
+
+    pub fn tile_toggle(&mut self, key: TabKey) {
+        let Some((kind, index)) = self.model.tile_toggle(key) else { return };
         self.core.store(key.private).move_tab(key.id, kind, None, index).ok();
         self.model.reload_space(&self.core);
     }

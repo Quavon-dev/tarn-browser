@@ -19,6 +19,7 @@ pub enum Cmd {
     Duplicate(TabKey),
     CopyLink(TabKey, bool),
     TogglePin(TabKey),
+    ToggleTile(TabKey),
     MoveToSpace(TabKey, usize),
     Close(TabKey),
     CloseOthers(TabKey),
@@ -104,6 +105,8 @@ impl Browser {
             Item::Separator,
             Item::action(if ephemeral { "Pin Tab" } else { "Unpin Tab" }, Cmd::TogglePin(key))
                 .key(if active { crate::shortcuts::keys(&crate::TogglePin, cx) } else { String::new() })
+                .enabled(!self.model.burner_shown()),
+            Item::action(if tab.kind == TabKind::Tile { "Remove from Tiles" } else { "Add to Tiles" }, Cmd::ToggleTile(key))
                 .enabled(!self.model.burner_shown()),
         ]);
         items.push(Item::action("Rename…", Cmd::Rename(RenameTarget::Tab(key.id))).enabled(tab.kind != TabKind::Tile));
@@ -317,6 +320,11 @@ impl Browser {
             Cmd::Duplicate(key) => self.duplicate_tab(key, window, cx),
             Cmd::CopyLink(key, clean) => self.copy_link(key, clean, cx),
             Cmd::TogglePin(key) => self.toggle_pin_tab(key, cx),
+            Cmd::ToggleTile(key) => {
+                if let Some((kind, end)) = self.model.tile_toggle(key) {
+                    self.move_tab(key, kind, None, end, cx);
+                }
+            }
             Cmd::MoveToSpace(key, ix) => self.move_to_space(key, ix, window, cx),
             Cmd::Close(key) => self.close_tab(key, window, cx),
             Cmd::CloseOthers(key) => {
@@ -445,19 +453,31 @@ impl Browser {
         self.close_batch(keys, None, window, cx);
     }
 
-    /// Closes the tabs as one entry of the reopen stack and offers to undo it.
-    /// The active tab closes last, so no tab about to close is loaded as its successor.
+    /// Closes the tabs as one entry of the reopen stack and offers to undo it. The space reloads
+    /// once, and the next active tab is the nearest one that stays open.
     pub(crate) fn close_batch(&mut self, keys: Vec<TabKey>, group: Option<(String, String)>, window: &mut Window, cx: &mut Context<Self>) {
         let Some((private, profile_id, space_id)) = self.model.current_space().map(|s| (s.private, s.space.profile_id, s.space.id)) else { return };
         // Closing the burner's tab leaves the burner, so whether it was shown is read first.
         let burner = self.model.burner_shown();
-        let (active, rest): (Vec<_>, Vec<_>) = keys.into_iter().partition(|k| self.model.active == Some(*k));
-        let mut tabs: Vec<ClosedTab> = rest.into_iter().chain(active).filter_map(|key| self.close_one(key, window, cx)).collect();
+        let active = self.model.active.filter(|a| keys.contains(a));
+        let next = active.and_then(|a| self.model.close_neighbour(a, &keys, self.pref(crate::prefs::Pref::ClosePrevious)));
+        self.hide_hover_card(cx);
+        let mut tabs: Vec<ClosedTab> = keys.into_iter().filter_map(|key| self.close_one(key, cx)).collect();
+        self.reload_space();
+        if burner && !tabs.is_empty() {
+            self.leave_burner(window, cx);
+        } else if active.is_some() && self.model.active.is_none() {
+            match next.filter(|k| self.model.tab(*k).is_some()) {
+                Some(next) if !crate::shared::live_elsewhere(next, cx) => self.activate(next, window, cx),
+                _ => self.pick_active(window, cx),
+            }
+        }
         // SQLite reuses a deleted tab's id, so no other window may keep a view under it.
         Self::sync_other_windows(cx);
+        cx.notify();
         tabs.sort_by_key(|t| t.position);
         // A burner tab never goes on the reopen stack, nor does a group closed in the burner.
-        if tabs.is_empty() && (group.is_none() || burner) {
+        if burner || (tabs.is_empty() && group.is_none()) {
             return;
         }
         let text = match (&group, tabs.len()) {
