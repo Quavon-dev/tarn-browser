@@ -34,6 +34,7 @@ icons! {
     Forward => "forward",
     Reload => "reload",
     Folder => "folder",
+    FolderPlus => "folder-plus",
     ChevronRight => "chevron-right",
     ChevronDown => "chevron-down",
     Plus => "plus",

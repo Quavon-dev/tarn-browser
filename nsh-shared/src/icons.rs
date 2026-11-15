@@ -19,6 +19,7 @@ pub const COFFEE: &str = include_str!("../../crates/ui/icons/coffee.svg");
 pub const DUMBBELL: &str = include_str!("../../crates/ui/icons/dumbbell.svg");
 pub const FLASK_CONICAL: &str = include_str!("../../crates/ui/icons/flask-conical.svg");
 pub const FOLDER: &str = include_str!("../../crates/ui/icons/folder.svg");
+pub const FOLDER_PLUS: &str = include_str!("../../crates/ui/icons/folder-plus.svg");
 pub const FORWARD: &str = include_str!("../../crates/ui/icons/forward.svg");
 pub const GAMEPAD_2: &str = include_str!("../../crates/ui/icons/gamepad-2.svg");
 pub const GEAR: &str = include_str!("../../crates/ui/icons/gear.svg");

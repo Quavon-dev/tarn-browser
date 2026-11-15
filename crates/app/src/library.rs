@@ -1390,7 +1390,7 @@ impl Render for LibraryWindow {
                             .map(|n| div().flex_none().px_1().text_size(px(TEXT_SMALL)).font_weight(FontWeight::NORMAL).text_color(Theme::muted()).child(n)),
                     )
                     .when(on_bookmarks, |d| {
-                        d.child(icon_button("library-new-folder", Icon::Folder, true).on_click(cx.listener(|this, _, window, cx| {
+                        d.child(icon_button("library-new-folder", Icon::FolderPlus, true).on_click(cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
                             this.new_folder(window, cx);
                         })))
