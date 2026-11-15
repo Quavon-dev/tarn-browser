@@ -10,6 +10,7 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 - Linux, iOS and Android apps on Native Shell over the same core crates.
 - Cookie-banner blocking.
+- Signed filter-list updates from this repository's releases, once a day.
 - App icons for the iOS and Android apps.
 - CI builds and tests Windows; a `v*` tag builds a draft release for macOS, Windows, Linux, iOS and
   Android, with a licence list for the Windows build.
