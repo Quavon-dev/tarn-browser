@@ -90,7 +90,11 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   switches, and a site where blocking is paused gets none. One CSS rule per selector, so a selector
   Chromium rejects drops only itself. With the bundled lists a page gets about 20,000 rules
   (≈0.8 MB, ≈0.6 ms to assemble; Chrome parses it in ≈10–15 ms). Unlike WebKit's rule lists, it
-  reaches only the top frame, is a `<style>` element the page can read, and a page shows its ads
+  reaches subframes only at their load start, through CEF's `Frame::execute_java_script` in the
+  frame's own page world (each gets its own host's rules, by the top page's pause state at that
+  load; a later pause or list switch reaches a subframe when it loads again, and a sheet sent as a
+  frame swaps documents can miss the new one), is a
+  `<style>` element the page can read, and a page shows its ads
   for a moment while it loads. A Lockdown view gets no sheet. The Shield card counts the requests
   each profile's Chromium blocked. A link
   handed to an elevated Tarn is refused by Windows (UIPI) and gets the "already running" alert.
@@ -156,18 +160,18 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
 
 **Open, in order:**
 1. Extensions: a gap until CEF can scope them (§8). Translation stays macOS-only: Windows has no on-device
-   translation. The memory panel lists no tabs and the background memory budget sleeps none: CEF does not say
-   which renderer shows a page.
-2. List element hiding reaches only the top frame (see above).
-3. ARM64: no build or installer yet.
-4. Data: a store wiped while Chromium has it open is emptied of cookies, cache and credentials at
+   translation. The memory panel and budget measure each tab's main-frame renderer, which reports its own
+   process id at each main-frame load (`RENDERER_PID`); Tarn takes it only when that process runs Tarn's own
+   executable. A page whose renderer sends no report keeps the last one until the next.
+2. ARM64: no build or installer yet.
+3. Data: a store wiped while Chromium has it open is emptied of cookies, cache and credentials at
    once and its folder goes before CEF starts at the next launch (`<data>/Chromium/WIPED`);
    site storage stays until then. Delete Everything on a profile that keeps its store clears
    cookies, cache and the storage of the sites its open tabs show; storage of other sites stays
    (no CEF call clears all origins). Clear Site Data reaches storage only through an open tab of
    the same store. Request contexts of closed private spaces stay in memory until quit. A profile
    folder Chromium cannot write leaves its tabs blank without a notice.
-5. Profiles that share a store have their own Shield in their tabs; requests of service workers
+4. Profiles that share a store have their own Shield in their tabs; requests of service workers
    follow the Shield of the profile that opened the store first.
 
 ## 1. Approach

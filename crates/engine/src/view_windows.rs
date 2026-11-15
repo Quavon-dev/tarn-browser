@@ -117,9 +117,8 @@ impl WebView {
         done(String::new());
     }
 
-    /// CEF does not say which renderer process shows a page.
     pub fn process_id(&self) -> Option<i32> {
-        None
+        self.view.process_id()
     }
 
     pub fn is_muted(&self) -> bool {

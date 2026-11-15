@@ -82,6 +82,9 @@ struct Tab {
     /// Finishes the view once CEF made its browser; Windows creates browsers asynchronously.
     #[cfg(windows)]
     created_hook: RefCell<Option<CreatedHook>>,
+    /// The renderer process of the main frame, as it reported itself (`RENDERER_PID`).
+    #[cfg(windows)]
+    renderer: Cell<Option<u32>>,
 }
 
 thread_local! {
@@ -455,6 +458,19 @@ wrap_client! {
             #[cfg(not(windows))]
             None
         }
+
+        #[cfg(windows)]
+        fn on_process_message_received(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, _source: ProcessId, message: Option<&mut ProcessMessage>) -> i32 {
+            let Some(message) = message.filter(|m| CefString::from(&m.name()).to_string() == super::runtime::RENDERER_PID) else { return 0 };
+            // Only the main frame's process counts, and a renderer is untrusted: the pid must name one of Tarn's own processes.
+            if frame.is_some_and(|f| f.is_main() == 1)
+                && let Some(tab) = tab(self.id)
+                && let Some(pid) = message.argument_list().and_then(|a| u32::try_from(a.int(0)).ok()).filter(|p| super::runtime::tarn_process(*p))
+            {
+                tab.renderer.set(Some(pid));
+            }
+            1
+        }
     }
 }
 
@@ -479,6 +495,15 @@ wrap_load_handler! {
         fn on_load_start(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, _transition_type: TransitionType) {
             let (Some(tab), Some(frame)) = (tab(self.id), frame) else { return };
             if frame.is_main() != 1 {
+                // A subframe, often in a renderer of its own, gets its host's list hiding through CEF, which reaches any frame.
+                #[cfg(windows)]
+                if !tab.lockdown_view.get()
+                    && let Some(top) = browser.and_then(|b| b.main_frame()).and_then(|f| Url::parse(&CefString::from(&f.url()).to_string()).ok())
+                    && let Ok(url) = Url::parse(&CefString::from(&frame.url()).to_string())
+                    && let Some(script) = crate::data_store_windows::frame_hiding_of(&tab.profile, &top, &url)
+                {
+                    frame.execute_java_script(Some(&CefString::from(script.as_str())), None, 0);
+                }
                 return;
             }
             tab.loading.set(true);
@@ -1228,6 +1253,8 @@ impl WebView {
             opener: RefCell::new(None),
             #[cfg(windows)]
             created_hook: RefCell::new(None),
+            #[cfg(windows)]
+            renderer: Cell::new(None),
         });
         Rc::new(Inner {
             created: RefCell::new(None),
@@ -1764,6 +1791,12 @@ impl WebView {
 
     pub fn is_muted(&self) -> bool {
         self.0.muted.get()
+    }
+
+    /// The process that renders the top document.
+    #[cfg(windows)]
+    pub fn process_id(&self) -> Option<i32> {
+        self.0.tab.renderer.get().filter(|p| super::runtime::tarn_process(*p)).and_then(|p| i32::try_from(p).ok())
     }
 
     /// Whether the top document is playing video or audio now. The page answers for itself, so

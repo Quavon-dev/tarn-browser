@@ -71,6 +71,15 @@ fn list_hiding(profile: &str, page: &url::Url) -> Option<(String, String)> {
     Some((host.trim_end_matches('.').to_owned(), shield.matcher.hide_css(host))).filter(|(_, css)| !css.is_empty())
 }
 
+/// The switched-on lists' element hiding for a subframe showing `frame`, by the frame's host, while
+/// the top document is on `top`; none where the profile's Shield pauses filtering for the top page.
+pub(crate) fn frame_hiding_of(profile: &str, top: &url::Url, frame: &url::Url) -> Option<String> {
+    let shield = crate::chromium::shield_for(profile)?;
+    let host = frame.host_str().filter(|_| matches!(frame.scheme(), "http" | "https") && (shield.site_for)(top).filtered)?;
+    let css = shield.matcher.hide_css(host);
+    (!css.is_empty()).then(|| crate::page_scripts::frame_hiding_script(host, &css))
+}
+
 #[derive(Clone)]
 pub struct DataStore {
     key: String,
@@ -476,5 +485,31 @@ mod style_tests {
         }
         assert!(super::site_styles_of("s:none", Some(&page("https://news.test/"))).is_none());
         crate::chromium::drop_shield("s:lists");
+    }
+
+    #[test]
+    fn frame_hiding_takes_the_frame_host_and_the_top_page_pause() {
+        use crate::nav_policy::{PopupRule, Site};
+        let site_for = |url: &url::Url| Site {
+            level: shield::ShieldLevel::Standard,
+            filtered: url.host_str() != Some("paused.test"),
+            blocked: None,
+            malware: false,
+            popups: PopupRule::Default,
+        };
+        let matcher = shield::matcher::Matcher::new(
+            &["##.ad
+ads.test##.promo
+"],
+            &[],
+            &[],
+        );
+        crate::chromium::set_shield_for("s:frames", crate::request_filter::Shield { site_for: Box::new(site_for), matcher });
+        let page = |u: &str| url::Url::parse(u).unwrap();
+        let frame = super::frame_hiding_of("s:frames", &page("https://news.test/"), &page("https://ads.test/f")).unwrap();
+        assert!(frame.contains("\"ads.test\"") && frame.contains(".ad{") && frame.contains(".promo{"), "{frame}");
+        assert!(super::frame_hiding_of("s:frames", &page("https://paused.test/"), &page("https://ads.test/f")).is_none(), "the top page is paused");
+        assert!(super::frame_hiding_of("s:frames", &page("https://news.test/"), &page("about:blank")).is_none());
+        crate::chromium::drop_shield("s:frames");
     }
 }

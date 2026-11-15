@@ -267,6 +267,19 @@ pub fn site_styles_script(styles: &[(String, String)]) -> Option<String> {
     ))
 }
 
+/// A script that gives a frame on `host` the filter lists' element hiding `css` as a `<style>`
+/// element; it does nothing in a document of another host.
+pub fn frame_hiding_script(host: &str, css: &str) -> String {
+    format!(
+        "(() => {{ if (location.hostname.replace(/\\.$/, '').toLowerCase() !== {}) return; \
+        const s = document.createElement('style'); s.textContent = {}; \
+        const add = () => {{ const r = document.documentElement; if (r) r.append(s); return !!r; }}; \
+        if (!add()) new MutationObserver((_, o) => {{ if (add()) o.disconnect(); }}).observe(document, {{ childList: true }}); }})();",
+        handover::js_string(&host.trim_end_matches('.').to_ascii_lowercase()),
+        handover::js_string(css)
+    )
+}
+
 pub const MAX_THEME_SHEETS: usize = 64 * 1024;
 
 pub fn outside_lockdown(script: String, levels: &crate::view_policy::Levels) -> String {
@@ -357,6 +370,14 @@ mod tests {
         assert_eq!(site_styles_script(&[]), None);
         let script = site_styles_script(&[("a.test".into(), HOSTILE_CSS.into())]).unwrap();
         assert!(!script.contains(['<', '\n', '\u{2028}']) && script.contains(&crate::handover::js_string(HOSTILE_CSS)));
+    }
+
+    #[test]
+    fn frame_hiding_names_its_host_and_quotes_the_sheet() {
+        let css = ".ad{display:none}\"'";
+        let script = frame_hiding_script("Ads.Example.", css);
+        assert!(script.contains(&format!("!== {}) return;", handover::js_string("ads.example"))), "{script}");
+        assert!(script.contains(&format!("s.textContent = {};", handover::js_string(css))), "{script}");
     }
 
     #[test]

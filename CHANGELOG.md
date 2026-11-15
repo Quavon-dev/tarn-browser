@@ -21,6 +21,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Linux, iOS and Android: Open Anyway on local-network notices, page-text search after a typing
   pause, the redesigned Library, Settings and Shield card, the reload spinner, and fog, effects and
   spinners that stop in the background.
+- Windows: the memory panel measures each tab and the memory budget sleeps tabs; filter-list
+  element hiding reaches subframes, including cross-site ones.
 - Linux: New Window (Ctrl+N), greyed sleeping tabs, two-finger space swipe, and Open in New Tab for
   blocked pop-ups.
 - iOS and Android: Share sits in the address field and the toolbar gets a New Tab button that opens
