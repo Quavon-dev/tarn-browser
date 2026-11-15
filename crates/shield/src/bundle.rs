@@ -7,10 +7,11 @@ use sha2::{Digest, Sha256};
 use crate::domains::{ENTRY_BYTES, MAX_ENTRIES};
 
 /// Set by the maintainer to the key printed by `filter-bundle keygen`; all zeros rejects every bundle.
-pub const FILTER_BUNDLE_PUBLIC_KEY: [u8; 32] = [0; 32];
+pub const FILTER_BUNDLE_PUBLIC_KEY: [u8; 32] =
+    [172, 36, 119, 177, 98, 84, 108, 114, 136, 3, 118, 93, 99, 188, 221, 59, 237, 103, 140, 205, 108, 25, 46, 190, 220, 234, 160, 89, 101, 186, 5, 83];
 /// `https://github.com/<owner>/<repo>/releases/download/filter-lists/`, set with the key; the app
 /// downloads nothing while either is unset.
-pub const FILTER_BUNDLE_URL: &str = "";
+pub const FILTER_BUNDLE_URL: &str = "https://github.com/Quavon-dev/tarn-browser/releases/download/filter-lists/";
 pub const FORMAT: u32 = 2;
 pub const MAX_BUNDLE_BYTES: u64 = 32 << 20;
 pub const MAX_MANIFEST_BYTES: usize = 64 << 10;
@@ -225,7 +226,7 @@ mod tests {
         let manifest = manifest_json(FORMAT, 5, &[("easylist.txt", LIST)]);
         let sig = key().sign(&manifest).to_bytes();
         let f = files();
-        let result = verify(&manifest, &sig, &|n, _| f.get(n).cloned(), &FILTER_BUNDLE_PUBLIC_KEY, None);
+        let result = verify(&manifest, &sig, &|n, _| f.get(n).cloned(), &[0; 32], None);
         assert_eq!(result.unwrap_err(), BundleError::NoPublicKey);
     }
 
