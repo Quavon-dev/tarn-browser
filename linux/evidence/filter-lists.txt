@@ -1,0 +1,21 @@
+# filter-lists: http://public.test:8765/filters.html
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://public.test:8765/filters.html"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://public.test:8765/filters.html"}
+[tarn] event title {"title":"filters ad-blocked control-loaded"}
+# server
+public.test:8765 GET /filters.html "GET /filters.html HTTP/1.1" 200 -
+public.test:8765 GET /pixel?control "GET /pixel?control HTTP/1.1" 200 -
+tarn: filter list ads ready (1 chunks)
+tarn: filter list trackers ready (0 chunks)
+tarn: filter list cosmetic ready (0 chunks)
+tarn: filter list malware ready (0 chunks)
+# block ads switched off
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://public.test:8765/filters.html"}
+[tarn] event title {"title":"filters"}
+[tarn] event title {"title":"filters ad-loaded"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"filters ad-loaded","url":"http://public.test:8765/filters.html"}
+[tarn] event title {"title":"filters ad-loaded control-loaded"}
+# server
+public.test:8765 GET /filters.html "GET /filters.html HTTP/1.1" 304 -
+public.test:8765 GET /pixel?tarn-ad-marker "GET /pixel?tarn-ad-marker HTTP/1.1" 200 -
+public.test:8765 GET /pixel?control "GET /pixel?control HTTP/1.1" 200 -

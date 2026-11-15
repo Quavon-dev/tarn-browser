@@ -1,0 +1,2 @@
+11-14 17:57:47.754 25520 25520 I tarn    : tab n4 event download {state=started, name=evil_name.bin}
+11-14 17:57:47.874 25520 25520 I tarn    : tab n4 event download {state=finished, name=evil_name.bin, path=/data/user/0/dev.tarn.browser/files/Downloads/evil_name.bin, url=http://localhost:8771/download, quarantined=false}

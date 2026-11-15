@@ -1,0 +1,4 @@
+11-14 15:28:32.344 32359 32359 I tarn    : tab n4 event download {state=started, name=evil_name.bin}
+11-14 15:28:32.849 32359 32359 I tarn    : tab n4 event download {state=started, name=evil_name.bin}
+11-14 15:28:33.190 32359 32359 I tarn    : tab n4 event download {state=started, name=evil_name.bin}
+11-14 15:28:33.522 32359 32359 I tarn    : tab n4 event download {state=failed, name=evil_name.bin, message=Too many downloads at once.}

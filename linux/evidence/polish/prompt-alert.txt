@@ -1,0 +1,8 @@
+# prompt-alert: http://127.0.0.1:8765/dialogs.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/dialogs.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/dialogs.html"}
+[tarn] event title {"title":"dialogs"}
+[tarn] event prompt {"default":null,"id":1,"kind":"alert","message":"hello from the page","origin":"http://127.0.0.1:8765"}
+# server
+127.0.0.1:8765 GET /dialogs.html "GET /dialogs.html HTTP/1.1" 200 -

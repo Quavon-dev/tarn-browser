@@ -1,0 +1,16 @@
+8a9
+> d920b3c60304feb9a645769c6903d2fd62b23bae  ./Library/WebKit/dev.tarn.browser/ContentRuleLists/ContentRuleList-tarn.builtin.lockdown
+24,25c25,26
+< 707e07bbfc2453f404e424f654dc3762abe9a249  ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/6897a391-8415-417a-9e25-624fc7718dd8/AlternativeServices/AlternativeService.sqlite-shm
+< a4d7551857c50f7e8aebff47755514a7df81e451  ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/6897a391-8415-417a-9e25-624fc7718dd8/AlternativeServices/AlternativeService.sqlite-wal
+---
+> e00d7af7968ff377f7b4bc59a46b3268d247e87e  ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/6897a391-8415-417a-9e25-624fc7718dd8/AlternativeServices/AlternativeService.sqlite-shm
+> 031912c3c9a371f3fcdd1000e25bce8e3bbd1a90  ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/6897a391-8415-417a-9e25-624fc7718dd8/AlternativeServices/AlternativeService.sqlite-wal
+29c30
+< 43747136756133debd5428571c4857a6bae2dc5e  ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/6897a391-8415-417a-9e25-624fc7718dd8/EnhancedSecurity/EnhancedSecuritySites.db-shm
+---
+> 83c8501fbce492b419a7d7a1e54e1a6f6c6ff676  ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/6897a391-8415-417a-9e25-624fc7718dd8/EnhancedSecurity/EnhancedSecuritySites.db-shm
+34c35
+< b79463b26a5d514ff1cfba374fd853cdb4998773  ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/6897a391-8415-417a-9e25-624fc7718dd8/ResourceLoadStatistics/observations.db-shm
+---
+> e6c78f5a96ec34c93221a891444e4ab22229249c  ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/6897a391-8415-417a-9e25-624fc7718dd8/ResourceLoadStatistics/observations.db-shm

@@ -1,0 +1,6 @@
+/root/.local/share/tarn/webkit/11eb9bf5-a4e8-4784-8f78-e81c16a2055e/data
+127.0.0.1|tarn|a
+/root/.local/share/tarn/webkit/d3840140-e5be-414f-b32f-043d462cd9a9/data
+127.0.0.1|tarn|set
+1|Personal|11eb9bf5-a4e8-4784-8f78-e81c16a2055e
+2|Profile 2|d3840140-e5be-414f-b32f-043d462cd9a9

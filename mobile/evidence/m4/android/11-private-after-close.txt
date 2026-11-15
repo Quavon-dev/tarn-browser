@@ -1,0 +1,8 @@
+# ps after Close
+u0_a233      30641   462   42854176 228192 0                   0 S dev.tarn.browser
+# ls private/
+total 16
+drwx------  2 u0_a233 u0_a233 4096 2026-11-14 18:33 .
+drwx------ 10 u0_a233 u0_a233 4096 2026-11-14 18:33 ..
+# files containing M4PHONE1794677601
+end

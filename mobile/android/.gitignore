@@ -1,0 +1,7 @@
+target/
+host/build/
+host/.gradle/
+host/local.properties
+*.keystore
+*.jks
+build/

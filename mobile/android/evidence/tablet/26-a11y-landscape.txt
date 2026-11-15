@@ -1,0 +1,4 @@
+@e3 [text-field] "https://www.whatismybrowser.com/detect/is-javascript-enabled/" [focused] [editable]
+@e39 [text-field] "alpha" [editable]
+@e46 [group] "Web content"
+@e47 [group] "Web content"

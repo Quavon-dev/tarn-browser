@@ -1,0 +1,74 @@
+--------- beginning of main
+11-14 12:43:30.593  1195  1257 I tarn    : verdict=0 us=55 kind=0 url=http://public.test/cookie?set=A top=http://public.test/filter pending=http://public.test/cookie?set=A
+11-14 12:43:30.616  1195  1195 I tarn    : started http://public.test/cookie?set=A
+11-14 12:43:30.628  1195  1195 I tarn    : tab t1 event title {title=public.test/cookie?set=A}
+11-14 12:43:30.628  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/cookie?set=A, title=public.test/cookie?set=A, canGoBack=true, canGoForward=false}
+11-14 12:43:30.635  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/cookie?set=A, title=public.test/cookie?set=A, canGoBack=true, canGoForward=false}
+11-14 12:43:30.636  1195  1257 I tarn    : verdict=0 us=107 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie?set=A pending=null
+11-14 12:43:34.742  1195  1257 I tarn    : verdict=0 us=72 kind=0 url=http://public.test/cookie top=http://public.test/cookie?set=A pending=http://public.test/cookie
+11-14 12:43:34.752  1195  1195 I tarn    : started http://public.test/cookie
+11-14 12:43:34.756  1195  1195 I tarn    : tab t1 event title {title=public.test/cookie}
+11-14 12:43:34.757  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=true, canGoForward=false}
+11-14 12:43:34.761  1195  1257 I tarn    : verdict=0 us=82 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie?set=A pending=http://public.test/cookie
+11-14 12:43:34.780  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=true, canGoForward=false}
+11-14 12:43:38.429  1195  1195 I tarn    : tab t2 web view on store tarn-0d9e8f7a-6b5c-4d3e-8f1a-2b3c4d5e6f70
+11-14 12:43:38.441  1195  1284 I tarn    : verdict=0 us=66 kind=0 url=http://public.test/opened top=null pending=http://public.test/opened
+11-14 12:43:38.476  1195  1195 I tarn    : tab t1 web view on store tarn-0d9e8f7a-6b5c-4d3e-8f1a-2b3c4d5e6f70
+11-14 12:43:38.490  1195  1285 I tarn    : verdict=0 us=65 kind=0 url=http://public.test/cookie top=null pending=http://public.test/cookie
+11-14 12:43:38.596  1195  1195 I tarn    : started http://public.test/opened
+11-14 12:43:38.599  1195  1195 I tarn    : started http://public.test/cookie
+11-14 12:43:38.616  1195  1195 I tarn    : tab t2 event title {title=public.test/opened}
+11-14 12:43:38.616  1195  1195 I tarn    : tab t2 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 12:43:38.622  1195  1195 I tarn    : tab t1 event title {title=public.test/cookie}
+11-14 12:43:38.624  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 12:43:38.624  1195  1257 I tarn    : verdict=0 us=86 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/opened
+11-14 12:43:38.624  1195  1257 I tarn    : verdict=0 us=33 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/cookie
+11-14 12:43:38.653  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 12:43:42.660  1195  1257 I tarn    : verdict=0 us=57 kind=0 url=http://public.test/cookie top=http://public.test/cookie pending=http://public.test/cookie
+11-14 12:43:42.676  1195  1195 I tarn    : started http://public.test/cookie
+11-14 12:43:42.683  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 12:43:42.687  1195  1257 I tarn    : verdict=0 us=92 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie pending=http://public.test/cookie
+11-14 12:43:42.697  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 12:43:46.324  1195  1195 I tarn    : tab t2 web view on store tarn-private-36982ba8153f42de8d130bc73f830d79
+11-14 12:43:46.330  1195  1302 I tarn    : verdict=0 us=57 kind=0 url=http://public.test/opened top=null pending=http://public.test/opened
+11-14 12:43:46.359  1195  1195 I tarn    : tab t1 web view on store tarn-private-36982ba8153f42de8d130bc73f830d79
+11-14 12:43:46.367  1195  1285 I tarn    : verdict=0 us=66 kind=0 url=http://public.test/cookie top=null pending=http://public.test/cookie
+11-14 12:43:46.456  1195  1195 I tarn    : started http://public.test/opened
+11-14 12:43:46.462  1195  1195 I tarn    : started http://public.test/cookie
+11-14 12:43:46.470  1195  1195 I tarn    : tab t1 event title {title=public.test/cookie}
+11-14 12:43:46.471  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 12:43:46.471  1195  1195 I tarn    : tab t2 event title {title=public.test/opened}
+11-14 12:43:46.471  1195  1195 I tarn    : tab t2 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 12:43:46.474  1195  1284 I tarn    : verdict=0 us=99 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/cookie
+11-14 12:43:46.474  1195  1284 I tarn    : verdict=0 us=20 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/opened
+11-14 12:43:46.487  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 12:43:50.527  1195  1257 I tarn    : verdict=0 us=83 kind=0 url=http://public.test/cookie?set=E top=http://public.test/cookie pending=http://public.test/cookie?set=E
+11-14 12:43:50.546  1195  1195 I tarn    : started http://public.test/cookie?set=E
+11-14 12:43:50.554  1195  1195 I tarn    : tab t1 event title {title=public.test/cookie?set=E}
+11-14 12:43:50.555  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/cookie?set=E, title=public.test/cookie?set=E, canGoBack=true, canGoForward=false}
+11-14 12:43:50.558  1195  1257 I tarn    : verdict=0 us=84 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie pending=http://public.test/cookie?set=E
+11-14 12:43:50.566  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/cookie?set=E, title=public.test/cookie?set=E, canGoBack=true, canGoForward=false}
+11-14 12:43:54.644  1195  1257 I tarn    : verdict=0 us=65 kind=0 url=http://public.test/cookie top=http://public.test/cookie?set=E pending=http://public.test/cookie
+11-14 12:43:54.668  1195  1195 I tarn    : started http://public.test/cookie
+11-14 12:43:54.675  1195  1195 I tarn    : tab t1 event title {title=public.test/cookie}
+11-14 12:43:54.675  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=true, canGoForward=false}
+11-14 12:43:54.677  1195  1257 I tarn    : verdict=0 us=88 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie?set=E pending=http://public.test/cookie
+11-14 12:43:54.688  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=true, canGoForward=false}
+11-14 12:43:58.042  1195  1195 I tarn    : tab t2 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 12:43:58.048  1195  1285 I tarn    : verdict=0 us=57 kind=0 url=http://public.test/opened top=null pending=http://public.test/opened
+11-14 12:43:58.061  1195  1195 I tarn    : tab t1 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 12:43:58.065  1195  1257 I tarn    : verdict=0 us=37 kind=0 url=http://public.test/cookie top=null pending=http://public.test/cookie
+11-14 12:43:58.084  1195  1195 I tarn    : started http://public.test/opened
+11-14 12:43:58.087  1195  1195 I tarn    : tab t2 event title {title=public.test/opened}
+11-14 12:43:58.087  1195  1195 I tarn    : tab t2 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 12:43:58.089  1195  1257 I tarn    : verdict=0 us=68 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/opened
+11-14 12:43:58.094  1195  1257 I tarn    : verdict=0 us=37 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/cookie
+11-14 12:43:58.099  1195  1195 I tarn    : started http://public.test/cookie
+11-14 12:43:58.099  1195  1195 I tarn    : tab t1 event title {title=public.test/cookie}
+11-14 12:43:58.100  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 12:43:58.100  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 12:44:02.230  1195  1257 I tarn    : verdict=0 us=63 kind=0 url=http://public.test/cookie top=http://public.test/cookie pending=http://public.test/cookie
+11-14 12:44:02.256  1195  1195 I tarn    : started http://public.test/cookie
+11-14 12:44:02.256  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 12:44:02.260  1195  1257 I tarn    : verdict=0 us=75 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie pending=http://public.test/cookie
+11-14 12:44:02.264  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}

@@ -1,0 +1,9 @@
+# third-party sign-in: http://localhost:8765/third-party-auth.html embeds an image and a frame from http://127.0.0.1:8765/auth (401)
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://localhost:8765/third-party-auth.html"}
+[tarn] event title {"title":"auth-third"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"auth-third","url":"http://localhost:8765/third-party-auth.html"}
+# server
+localhost:8765 GET /third-party-auth.html "GET /third-party-auth.html HTTP/1.1" 200 -
+127.0.0.1:8765 GET /auth "GET /auth HTTP/1.1" 401 -
+127.0.0.1:8765 GET /auth "GET /auth HTTP/1.1" 401 -

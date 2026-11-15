@@ -1,0 +1,13 @@
+--------- beginning of main
+11-14 12:47:09.359  1195  1195 I tarn    : debug renderer terminated=true
+11-14 12:47:09.391  1195  1195 I tarn    : tab t2 event committed {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 12:47:09.402  1195  1195 I tarn    : tab t1 event found {matched=0}
+11-14 12:47:09.403  1195  1195 I tarn    : tab t1 event crashed {}
+11-14 12:47:09.404  1195  1195 I tarn    : tab t2 event crashed {}
+11-14 12:47:13.031  1195  1195 I tarn    : tab t1 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 12:47:13.039  1195  1257 I tarn    : verdict=0 us=69 kind=0 url=http://localhost:8771/find top=null pending=http://localhost:8771/find
+11-14 12:47:13.143  1195  1195 I tarn    : started http://localhost:8771/find
+11-14 12:47:13.147  1195  1195 I tarn    : tab t1 event title {title=localhost:8771/find}
+11-14 12:47:13.147  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=false, canGoForward=false}
+11-14 12:47:13.149  1195  1257 I tarn    : verdict=0 us=98 kind=2 url=http://localhost:8771/favicon.ico top=null pending=http://localhost:8771/find
+11-14 12:47:13.184  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=false, canGoForward=false}

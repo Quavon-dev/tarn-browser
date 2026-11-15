@@ -1,0 +1,6 @@
+73:[tarn] event title {"title":"dialogs"}
+74:[tarn] event prompt {"default":null,"id":1,"kind":"alert","message":"hello from the page","origin":"http://127.0.0.1:8765"}
+75:[tarn] event prompt {"default":null,"id":2,"kind":"confirm","message":"sure?","origin":"http://127.0.0.1:8765"}
+76:[tarn] event title {"title":"confirm:true"}
+77:[tarn] event prompt {"id":3,"kind":"location","origin":"http://127.0.0.1:8765","topOrigin":"http://127.0.0.1:8765"}
+78:[tarn] event title {"title":"geo:2"}

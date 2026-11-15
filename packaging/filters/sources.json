@@ -1,0 +1,168 @@
+{
+  "sources": [
+    {
+      "name": "easylist",
+      "url": "https://easylist.to/easylist/easylist.txt",
+      "category": "ads",
+      "format": "filters",
+      "licence": "GPL-3.0-or-later OR CC-BY-SA-3.0-or-later, by The EasyList authors (https://easylist.to/)",
+      "min": 30000,
+      "max": 250000
+    },
+    {
+      "name": "adguard-base",
+      "url": "https://filters.adtidy.org/extension/ublock/filters/2_without_easylist.txt",
+      "category": "ads",
+      "format": "filters",
+      "licence": "GPL-3.0",
+      "min": 20000,
+      "max": 200000
+    },
+    {
+      "name": "ubo-filters",
+      "url": "https://ublockorigin.github.io/uAssets/filters/filters.txt",
+      "category": "ads",
+      "format": "filters",
+      "licence": "GPL-3.0",
+      "min": 8000,
+      "max": 100000
+    },
+    {
+      "name": "ubo-unbreak",
+      "url": "https://ublockorigin.github.io/uAssets/filters/unbreak.txt",
+      "category": "ads",
+      "format": "filters",
+      "licence": "GPL-3.0",
+      "min": 800,
+      "max": 15000
+    },
+    {
+      "name": "easyprivacy",
+      "url": "https://easylist.to/easylist/easyprivacy.txt",
+      "category": "trackers",
+      "format": "filters",
+      "licence": "GPL-3.0-or-later OR CC-BY-SA-3.0-or-later, by The EasyList authors (https://easylist.to/)",
+      "min": 20000,
+      "max": 200000
+    },
+    {
+      "name": "ubo-privacy",
+      "url": "https://ublockorigin.github.io/uAssets/filters/privacy.txt",
+      "category": "trackers",
+      "format": "filters",
+      "licence": "GPL-3.0",
+      "min": 500,
+      "max": 15000
+    },
+    {
+      "name": "easylist-cookie",
+      "url": "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
+      "category": "annoyances",
+      "format": "filters",
+      "licence": "GPL-3.0-or-later OR CC-BY-SA-3.0-or-later, by The EasyList authors (https://easylist.to/)",
+      "min": 15000,
+      "max": 80000
+    },
+    {
+      "name": "ubo-cookies",
+      "url": "https://ublockorigin.github.io/uAssets/filters/annoyances-cookies.txt",
+      "category": "annoyances",
+      "format": "filters",
+      "licence": "GPL-3.0",
+      "min": 1000,
+      "max": 15000
+    },
+    {
+      "name": "urlhaus",
+      "url": "https://malware-filter.gitlab.io/malware-filter/urlhaus-filter-domains.txt",
+      "category": "malware",
+      "format": "domains",
+      "licence": "CC0-1.0 AND MIT",
+      "min": 2000,
+      "max": 150000,
+      "rules": true
+    },
+    {
+      "name": "ubo-badware",
+      "url": "https://ublockorigin.github.io/uAssets/filters/badware.txt",
+      "category": "malware",
+      "format": "domains",
+      "licence": "GPL-3.0",
+      "min": 1000,
+      "max": 30000,
+      "rules": true
+    },
+    {
+      "name": "cert-pl",
+      "url": "https://hole.cert.pl/domains/v2/domains.txt",
+      "category": "malware",
+      "format": "domains",
+      "licence": "CERT Polska open data, any purpose including commercial",
+      "min": 40000,
+      "max": 500000
+    },
+    {
+      "name": "scam-blocklist",
+      "url": "https://raw.githubusercontent.com/durablenapkin/scamblocklist/master/hosts.txt",
+      "category": "malware",
+      "format": "domains",
+      "licence": "MIT",
+      "min": 500,
+      "max": 30000
+    },
+    {
+      "name": "anti-scam",
+      "url": "https://raw.githubusercontent.com/elliotwutingfeng/GlobalAntiScamOrg-blocklist/main/global-anti-scam-org-scam-urls-pihole.txt",
+      "category": "malware",
+      "format": "domains",
+      "licence": "BSD-3-Clause",
+      "min": 2000,
+      "max": 100000
+    },
+    {
+      "name": "stalkerware",
+      "url": "https://raw.githubusercontent.com/AssoEchap/stalkerware-indicators/master/generated/hosts",
+      "category": "malware",
+      "format": "domains",
+      "licence": "CC-BY-4.0",
+      "min": 200,
+      "max": 10000
+    },
+    {
+      "name": "hagezi-tif-mini",
+      "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif.mini-onlydomains.txt",
+      "category": "malware",
+      "format": "domains",
+      "licence": "GPL-3.0",
+      "min": 60000,
+      "max": 500000
+    },
+    {
+      "name": "oisd-nsfw",
+      "url": "https://nsfw.oisd.nl/domainswild2",
+      "category": "adult",
+      "format": "domains",
+      "licence": "GPL-3.0",
+      "min": 150000,
+      "max": 900000
+    },
+    {
+      "name": "hagezi-nsfw",
+      "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/nsfw-onlydomains.txt",
+      "category": "adult",
+      "format": "domains",
+      "licence": "GPL-3.0",
+      "min": 25000,
+      "max": 300000
+    },
+    {
+      "name": "hagezi-popups",
+      "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/popupads-onlydomains.txt",
+      "category": "popups",
+      "format": "domains",
+      "licence": "GPL-3.0",
+      "min": 25000,
+      "max": 300000
+    }
+  ]
+}

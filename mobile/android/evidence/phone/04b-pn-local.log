@@ -1,0 +1,13 @@
+--------- beginning of main
+11-14 12:37:42.184  1195  1257 I tarn    : verdict=0 us=86 kind=0 url=http://localhost:8771/pn top=http://public.test/pn pending=http://localhost:8771/pn
+11-14 12:37:42.205  1195  1285 I tarn    : verdict=1 us=225 kind=2 url=http://127.0.0.1:8771/pixel?via=127 top=http://public.test/pn pending=http://localhost:8771/pn
+11-14 12:37:42.207  1195  1257 I tarn    : verdict=1 us=92 kind=2 url=http://localhost:8771/pixel?via=localhost top=http://public.test/pn pending=http://localhost:8771/pn
+11-14 12:37:42.211  1195  1284 I tarn    : verdict=1 us=101 kind=2 url=http://10.0.2.2:8771/pixel?via=10 top=http://public.test/pn pending=http://localhost:8771/pn
+11-14 12:37:42.216  1195  1195 I tarn    : tab t1 event blocked {url=http://127.0.0.1:8771/pixel?via=127, reason=shield}
+11-14 12:37:42.217  1195  1195 I tarn    : tab t1 event blocked {url=http://10.0.2.2:8771/pixel?via=10, reason=shield}
+11-14 12:37:42.217  1195  1195 I tarn    : started http://localhost:8771/pn
+11-14 12:37:42.217  1195  1195 I tarn    : tab t1 event blocked {url=http://localhost:8771/pixel?via=localhost, reason=shield}
+11-14 12:37:42.242  1195  1195 I tarn    : tab t1 event title {title=localhost:8771/pn}
+11-14 12:37:42.243  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/pn, title=localhost:8771/pn, canGoBack=true, canGoForward=false}
+11-14 12:37:42.243  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/pn, title=localhost:8771/pn, canGoBack=true, canGoForward=false}
+11-14 12:37:42.244  1195  1257 I tarn    : verdict=0 us=72 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/pn pending=null

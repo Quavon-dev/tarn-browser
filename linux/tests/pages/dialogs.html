@@ -1,0 +1,7 @@
+<!doctype html><title>dialogs</title>
+<button onclick="alert('hello from the page')">alert</button>
+<button onclick="document.title = 'confirm:' + confirm('sure?')">confirm</button>
+<button onclick="document.title = 'prompt:' + prompt('name?', 'tarn')">prompt</button>
+<button onclick="for (let i = 0; i < 20; i++) alert('flood ' + i); document.title = 'flood done'">flood</button>
+<button onclick="navigator.geolocation.getCurrentPosition(() => document.title = 'geo:ok', e => document.title = 'geo:' + e.code)">location</button>
+<button onclick="navigator.mediaDevices.getUserMedia({video: true}).then(() => document.title = 'cam:ok', e => document.title = 'cam:' + e.name)">camera</button>

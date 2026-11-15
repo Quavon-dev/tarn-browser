@@ -1,0 +1,8 @@
+# cookie-personal: 127.0.0.1:8765/cookie.html#personal
+[tarn] event found {"matched":0}
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/cookie.html#personal"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/cookie.html#personal"}
+[tarn] event title {"title":"cookie before=(none)"}
+# server
+127.0.0.1:8765 GET /cookie.html "GET /cookie.html HTTP/1.1" 200 -

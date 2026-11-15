@@ -1,0 +1,8 @@
+# private-network-public: http://public.test:8765/pn.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://public.test:8765/pn.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://public.test:8765/pn.html"}
+[tarn] event title {"title":"img-error"}
+[tarn] event blocked {"reason":"shield","url":"http://127.0.0.1:8765/pixel?nav"}
+# server
+public.test:8765 GET /pn.html "GET /pn.html HTTP/1.1" 304 -

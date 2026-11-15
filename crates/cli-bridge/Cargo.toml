@@ -1,0 +1,20 @@
+[package]
+name = "cli-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Experimental sandboxed bridge that runs a local AI CLI for Tarn; not wired into the app."
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "tarn-cli-bridge"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

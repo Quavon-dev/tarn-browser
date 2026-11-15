@@ -1,0 +1,7 @@
+# private-network: http://public.test:8765/pn.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://public.test:8765/pn.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://public.test:8765/pn.html"}
+[tarn] event title {"title":"img-error"}
+# server
+public.test:8765 GET /pn.html "GET /pn.html HTTP/1.1" 200 -

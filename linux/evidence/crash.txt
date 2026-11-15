@@ -1,0 +1,7 @@
+[tarn] event crashed null
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"https://trusted.test:8443/cookie.html#lock"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"https://trusted.test:8443/cookie.html#lock"}
+[tarn] event title {"title":"cookie"}
+[tarn] event crashed null
+[tarn] event title {"title":""}

@@ -1,0 +1,8 @@
+pid before 30641 after 30641
+@e2 [button] "Back"
+@e3 [button] "Forward"
+@e4 [button] "Reload"
+@e5 [button] "Shield: Standard"
+@e8 [button] "Share"
+@e9 [button] "Tabs 2"
+@e11 [button] "Menu"

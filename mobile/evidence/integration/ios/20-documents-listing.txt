@@ -1,0 +1,4 @@
+total 8
+drwxr-xr-x  3 user     staff  96 Nov 14 13:57 .
+drwxr-xr-x  3 user     staff  96 Nov 14 13:57 ..
+-rw-r--r--  1 user     staff  19 Nov 14 13:57 _tarn report.txt

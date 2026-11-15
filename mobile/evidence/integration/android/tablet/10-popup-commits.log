@@ -1,0 +1,2 @@
+ 10141 10141 I tarn    : tab n2 event popup {url=http://public.test/popup-target}
+ 10141 10141 I tarn    : tab n3 event committed {url=http://public.test/popup-target, title=public.test/popup-target, canGoBack=false, canGoForward=false}

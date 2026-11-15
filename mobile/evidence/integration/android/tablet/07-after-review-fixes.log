@@ -1,0 +1,4 @@
+  8604  8604 I tarn    : tab n1 event committed {url=http://public.test/links, title=public.test/links, canGoBack=false, canGoForward=false}
+  8604  8604 I tarn    : tab n1 event finished {url=http://public.test/links, title=public.test/links, canGoBack=false, canGoForward=false}
+  8604  8604 I tarn    : tab n1 event popup {url=http://public.test/redirect-local}
+  8604  8604 I tarn    : tab n2 event blocked {url=http://localhost:8771/local-from-public, reason=shield}

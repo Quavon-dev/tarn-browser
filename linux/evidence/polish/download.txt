@@ -1,0 +1,11 @@
+# download: http://127.0.0.1:8765/nav.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"nav","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event download {"name":"evil_gpj.sh","path":"/root/Downloads/evil_gpj.sh","state":"started"}
+[tarn] event download {"name":"evil_gpj.sh","path":"/root/Downloads/evil_gpj.sh","quarantined":true,"state":"finished","url":"http://127.0.0.1:8765/download"}
+# server
+127.0.0.1:8765 GET /nav.html "GET /nav.html HTTP/1.1" 200 -
+127.0.0.1:8765 GET /download "GET /download HTTP/1.1" 200 -

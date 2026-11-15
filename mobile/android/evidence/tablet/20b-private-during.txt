@@ -1,0 +1,26 @@
+# 13:08:15 processes
+u0_a215       8194   451   42710284 150568 0                   0 S dev.tarn.browser
+u0_a215      11845   451   42414252 403248 0                   0 S dev.tarn.browser:private
+# private/ tree
+private
+private/e904f08d94c945290861a5c79a692533
+private/e904f08d94c945290861a5c79a692533/data
+private/e904f08d94c945290861a5c79a692533/data/webview
+private/e904f08d94c945290861a5c79a692533/data/textures
+private/e904f08d94c945290861a5c79a692533/cache
+private/e904f08d94c945290861a5c79a692533/cache/WebView
+no_backup
+no_backup/.webview
+no_backup/.webview/BrowserMetrics-spare.pma
+no_backup/private-tokens
+# files containing marker TABMARK1
+./private/e904f08d94c945290861a5c79a692533/data/webview/Default/Local Storage/leveldb/000003.log
+./private/e904f08d94c945290861a5c79a692533/data/webview/Default/Cookies
+./private/e904f08d94c945290861a5c79a692533/data/webview/Default/IndexedDB/http_localhost_8771.indexeddb.leveldb/000003.log
+./private/e904f08d94c945290861a5c79a692533/data/webview/Default/Service Worker/CacheStorage/6749fbd1b33388f290f13e983ef2103e0f7523a3/80a36ac5-55a4-46e8-b5b7-1729ebbe8434/e88dd3a3c6919056_0
+# shared_prefs
+total 32
+drwxrwx--x  2 u0_a215 u0_a215 4096 2026-11-14 13:07 .
+drwx------ 10 u0_a215 u0_a215 4096 2026-11-14 13:07 ..
+-rw-rw----  1 u0_a215 u0_a215  502 2026-11-14 13:06 AwOriginVisitLoggerPrefs.xml
+-rw-rw----  1 u0_a215 u0_a215  298 2026-11-14 13:07 WebViewChromiumPrefs.xml

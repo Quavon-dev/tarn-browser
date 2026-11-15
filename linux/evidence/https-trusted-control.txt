@@ -1,0 +1,6 @@
+# https-trusted-control: https://trusted.test:8443/cookie.html
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"https://trusted.test:8443/cookie.html"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"https://trusted.test:8443/cookie.html"}
+[tarn] event title {"title":"cookie before=(none)"}
+# server
+trusted.test:8443 GET /cookie.html "GET /cookie.html HTTP/1.1" 200 -

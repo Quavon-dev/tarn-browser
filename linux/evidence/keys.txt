@@ -1,0 +1,20 @@
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"about:blank"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"about:blank"}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/cookie.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/cookie.html"}
+[tarn] event title {"title":"cookie before=(none)"}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/cookie.html"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/cookie.html"}
+[tarn] event title {"title":"cookie before=tarn=set"}
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/find.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/find.html"}
+[tarn] event title {"title":"find"}
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":false,"canGoForward":true,"title":"","url":"http://127.0.0.1:8765/cookie.html"}
+[tarn] event title {"title":"cookie before=tarn=set"}
+[tarn] event finished {"canGoBack":false,"canGoForward":true,"title":"cookie before=tarn=set","url":"http://127.0.0.1:8765/cookie.html"}
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/find.html"}
+[tarn] event title {"title":"find"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"find","url":"http://127.0.0.1:8765/find.html"}

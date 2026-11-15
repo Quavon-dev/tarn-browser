@@ -1,0 +1,11 @@
+<meta name=viewport content="width=device-width"><style>body{font:18px -apple-system;margin:12px}a,button{display:block;margin:10px 0;font-size:18px}</style><title>Prompts</title><h2>Prompts</h2><p id=out>no answer</p>
+<button onclick="alert('Hello from Tarn');out.textContent='alert closed'">alert</button>
+<button onclick="out.textContent='confirm '+confirm('Continue?')">confirm</button>
+<button onclick="out.textContent='prompt '+prompt('Your name?','Ada')">prompt</button>
+<button onclick="for(let i=0;i<30;i++)alert('flood '+i);out.textContent='flood done'">flood</button>
+<button onclick="window.open('/local.html')">open popup</button>
+<a target=_blank href="/local.html">blank link</a>
+<a href="/auth">sign in</a>
+<a href="/download.txt">download</a>
+<button onclick="navigator.mediaDevices.getUserMedia({video:true}).then(()=>out.textContent='camera on',e=>out.textContent='camera '+e.name)">camera</button>
+<script>setTimeout(()=>window.open('/pixel?from=auto-popup'),300)</script>

@@ -1,0 +1,22 @@
+pkgname=tarn
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Private web browser on the system WebKitGTK 6.0'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Quavon-dev/tarn-browser'
+license=('GPL-3.0-or-later')
+depends=('webkitgtk-6.0' 'gtk4' 'glib2' 'gstreamer' 'gst-plugins-base-libs' 'hicolor-icon-theme')
+makedepends=('cargo')
+options=('!lto' '!debug')
+source=("tarn-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "tarn-browser-$pkgver/linux"
+  cargo build --release --locked
+}
+
+package() {
+  cd "tarn-browser-$pkgver"
+  TARN_BIN=${CARGO_TARGET_DIR:-linux/target}/release/tarn sh linux/packaging/install.sh "$pkgdir"
+}

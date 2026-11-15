@@ -1,0 +1,26 @@
+# 12:49:27 processes
+u0_a230       1195   462   42965376 225164 0                   0 S dev.tarn.browser
+u0_a230       5107   462   42654168 416464 0                   0 S dev.tarn.browser:private
+# private/ tree
+private
+private/2f2129eb25f094ff01afcd57739a7470
+private/2f2129eb25f094ff01afcd57739a7470/data
+private/2f2129eb25f094ff01afcd57739a7470/data/webview
+private/2f2129eb25f094ff01afcd57739a7470/data/textures
+private/2f2129eb25f094ff01afcd57739a7470/cache
+private/2f2129eb25f094ff01afcd57739a7470/cache/WebView
+no_backup
+no_backup/.webview
+no_backup/.webview/BrowserMetrics-spare.pma
+no_backup/private-tokens
+# files containing marker PRIVMARK1
+./private/2f2129eb25f094ff01afcd57739a7470/data/webview/Default/Local Storage/leveldb/000003.log
+./private/2f2129eb25f094ff01afcd57739a7470/data/webview/Default/Cookies
+./private/2f2129eb25f094ff01afcd57739a7470/data/webview/Default/Service Worker/CacheStorage/6749fbd1b33388f290f13e983ef2103e0f7523a3/d746b1c2-92c5-4390-b05a-e8e0ec5dc3b3/cf21aa8e6ffaf48d_0
+./private/2f2129eb25f094ff01afcd57739a7470/data/webview/Default/IndexedDB/http_localhost_8771.indexeddb.leveldb/000003.log
+# shared_prefs
+total 32
+drwxrwx--x  2 u0_a230 u0_a230 4096 2026-11-14 12:47 .
+drwx------ 10 u0_a230 u0_a230 4096 2026-11-14 12:47 ..
+-rw-rw----  1 u0_a230 u0_a230  538 2026-11-14 12:45 AwOriginVisitLoggerPrefs.xml
+-rw-rw----  1 u0_a230 u0_a230  298 2026-11-14 12:47 WebViewChromiumPrefs.xml

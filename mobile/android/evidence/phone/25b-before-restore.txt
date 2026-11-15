@@ -1,0 +1,24 @@
+# 12:53:29 processes
+# private/ tree
+private
+private/514608cc433095d4a9841e661fdba0e0
+private/514608cc433095d4a9841e661fdba0e0/data
+private/514608cc433095d4a9841e661fdba0e0/data/webview
+private/514608cc433095d4a9841e661fdba0e0/data/textures
+private/514608cc433095d4a9841e661fdba0e0/cache
+private/514608cc433095d4a9841e661fdba0e0/cache/WebView
+no_backup
+no_backup/.webview
+no_backup/.webview/BrowserMetrics-spare.pma
+no_backup/private-tokens
+# files containing marker PRIVMARK3
+./private/514608cc433095d4a9841e661fdba0e0/data/webview/Default/Local Storage/leveldb/000003.log
+./private/514608cc433095d4a9841e661fdba0e0/data/webview/Default/IndexedDB/http_localhost_8771.indexeddb.leveldb/000003.log
+./private/514608cc433095d4a9841e661fdba0e0/data/webview/Default/Service Worker/CacheStorage/6749fbd1b33388f290f13e983ef2103e0f7523a3/ad3efc64-1803-4078-811f-c231a1dead6f/1fb8e6abf29eaa0e_0
+# shared_prefs
+total 40
+drwxrwx--x  2 u0_a230 u0_a230 4096 2026-11-14 12:52 .
+drwx------ 10 u0_a230 u0_a230 4096 2026-11-14 12:52 ..
+-rw-rw----  1 u0_a230 u0_a230  430 2026-11-14 12:51 AwOriginVisitLoggerPrefs.xml
+-rw-rw----  1 u0_a230 u0_a230  298 2026-11-14 12:52 WebViewChromiumPrefs.xml
+-rw-rw----  1 u0_a230 u0_a230   65 2026-11-14 12:51 WebViewProfilePrefsWebViewProfilePrefsProfile 3.xml

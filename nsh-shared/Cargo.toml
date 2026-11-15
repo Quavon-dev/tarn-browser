@@ -1,0 +1,23 @@
+[package]
+name = "tarn-nsh-shared"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+rust-version = "1.97"
+description = "Design tokens, icons and controls shared by Tarn's Native Shell apps (Linux, iOS, Android)"
+
+[workspace]
+
+[dependencies]
+browser-core = { path = "../crates/browser-core" }
+store = { path = "../crates/store" }
+shield = { path = "../crates/shield" }
+nsh-core = "=0.5.0"
+nsh-base = "=0.5.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dev-dependencies]
+tempfile = "=3.27.0"

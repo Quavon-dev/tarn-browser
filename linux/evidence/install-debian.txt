@@ -1,0 +1,16 @@
+## package
+Version: 0.1.0
+Depends: libc6 (>= 2.39), libcairo2 (>= 1.14.0), libfontconfig1 (>= 2.12.6), libgcc-s1 (>= 4.2), libglib2.0-0t64 (>= 2.54.0), libgraphene-1.0-0 (>= 1.5.4), libgstreamer-plugins-base1.0-0 (>= 1.10.0), libgstreamer1.0-0 (>= 1.12.0), libgtk-4-1 (>= 4.13.8), libharfbuzz0b (>= 2.6.0), libpango-1.0-0 (>= 1.50.3), libpangocairo-1.0-0 (>= 1.14.0), libpangoft2-1.0-0 (>= 1.37.2), libsoup-3.0-0 (>= 3.0.3), libwebkitgtk-6.0-4 (>= 2.39.7)
+ii  libwebkitgtk-6.0-4:arm64 2.54.0-1~deb13u3 arm64        Web content engine library for GTK
+## linked WebKitGTK
+	libwebkitgtk-6.0.so.4 => /lib/aarch64-linux-gnu/libwebkitgtk-6.0.so.4 (0x0000ffff77ca0000)
+	libgtk-4.so.1 => /lib/aarch64-linux-gnu/libgtk-4.so.1 (0x0000ffff771b0000)
+	libjavascriptcoregtk-6.0.so.1 => /lib/aarch64-linux-gnu/libjavascriptcoregtk-6.0.so.1 (0x0000ffff74120000)
+## desktop entry
+/usr/share/applications/dev.tarn.Tarn.desktop
+/usr/share/icons/hicolor/scalable/apps/dev.tarn.Tarn.svg
+## running
+8710 tarn
+1 sh -c  set -e export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-get install -y -qq /dist/tarn_0.1.0_debian13_arm64.deb xvfb imagemagick dbus >/dev/null echo '## package'; dpkg -s tarn | grep -E "^(Version|Depends)"; dpkg -l "libwebkitgtk-6.0-4*" | tail -1 echo '## linked WebKitGTK'; ldd /usr/bin/tarn | grep -E 'webkitgtk|gtk-4|javascriptcore' echo '## desktop entry'; ls /usr/share/applications/dev.tarn.Tarn.desktop /usr/share/icons/hicolor/scalable/apps/dev.tarn.Tarn.svg Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 & mkdir -p /run/dbus; dbus-daemon --session --address=unix:path=/tmp/bus --fork >/dev/null sleep 2 DISPLAY=:99 DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/bus LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 TARN_LOG_EVENTS=1 tarn >/tmp/tarn.log 2>&1 & sleep 25 echo '## running'; pgrep -a tarn || echo 'tarn is not running'; pgrep -af WebKitWebProcess | head -1 || true echo '## app log'; grep -E '^.tarn.|^tarn:|panicked' /tmp/tarn.log | head || true DISPLAY=:99 import -window root /evidence/install-debian.png 
+## app log
+tarn: no filter lists installed (Missing("manifest.json"))

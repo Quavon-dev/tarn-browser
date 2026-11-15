@@ -1,0 +1,32 @@
+@tarn-theme { name: "Ember"; author: "Tarn"; version: "1"; scheme: dark; }
+
+:root {
+  --tarn-backdrop: linear-gradient(160deg, #1c110b, #120a06);
+  --tarn-sidebar: linear-gradient(180deg, #2a170d, #1e1009);
+  --tarn-sidebar-edge: #ffb37a29;
+  --tarn-space-label: #ffb37a;
+  --tarn-surface: #2b1a12;
+  --tarn-surface-edge: #ffb37a2e;
+  --tarn-page: #170d08;
+  --tarn-panel: #1c110b;
+  --tarn-panel-nav: #25150d;
+  --tarn-panel-row: #2b1a12;
+  --tarn-separator: #ffb37a1f;
+  --tarn-control: #ffffff1c;
+  --tarn-raised: #ffb37a14;
+  --tarn-group: #ffb37a17;
+  --tarn-hover: #ffb37a1a;
+  --tarn-pressed: #ffb37a33;
+  --tarn-hairline: #ffb37a1f;
+  --tarn-text: #fff4ec;
+  --tarn-muted: #ffe2ccbf;
+  --tarn-faint: #ffe2cc73;
+  --tarn-accent: #c2410c;
+  --tarn-fog-1: #3a1c0e;
+  --tarn-fog-2: #7a3412;
+  --tarn-fog-3: #ffe6c7;
+  --tarn-fog-4: #ff9a3c;
+  --tarn-fog: still;
+  --tarn-search-effect: flames;
+  --tarn-search-color: #ff6a00;
+}

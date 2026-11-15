@@ -1,0 +1,3 @@
+[tarn] event prompt {"id":6,"kind":"location","origin":"http://127.0.0.1:8765","topOrigin":"http://127.0.0.1:8765"}
+[tarn] event title {"title":"geo:1"}
+[tarn] event title {"title":"cam:OverconstrainedError"}

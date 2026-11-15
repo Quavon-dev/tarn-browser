@@ -1,0 +1,59 @@
+1794656261 593 ./.com.apple.mobile_container_manager.metadata.plist
+1794656760 19 ./Documents/Downloads/_tarn report.txt
+1794656272 4096 ./Library/Application Support/nsh/dev.tarn.browser/tarn.db
+1794656858 32768 ./Library/Application Support/nsh/dev.tarn.browser/tarn.db-shm
+1794657016 844632 ./Library/Application Support/nsh/dev.tarn.browser/tarn.db-wal
+1794656379 180224 ./Library/Caches/com.apple.WebKit.GPU/functions.data
+1794657017 1388 ./Library/Caches/com.apple.WebKit.GPU/functions.list
+1794656396 180224 ./Library/Caches/com.apple.WebKit.GPU/libraries.data
+1794657017 604 ./Library/Caches/com.apple.WebKit.GPU/libraries.list
+1794656963 1429 ./Library/LanguageModeling/en-dynamic.lm/Info.plist
+1794656858 1264 ./Library/Saved Application State/dev.tarn.browser.savedState/KnownSceneSessions/data.data
+1794656852 2316 ./Library/SplashBoard/Snapshots/dev.tarn.browser - {DEFAULT GROUP}/106D966A-EDD1-4EFC-947E-0E38A6A8F0EA@3x.ktx
+1794656852 2316 ./Library/SplashBoard/Snapshots/dev.tarn.browser - {DEFAULT GROUP}/26752486-4715-4942-AE04-7DF8030573B0@3x.ktx
+1794656852 2292 ./Library/SplashBoard/Snapshots/dev.tarn.browser - {DEFAULT GROUP}/5340F488-6C07-49A0-AF8B-91F2CAF757AE@3x.ktx
+1794656852 2292 ./Library/SplashBoard/Snapshots/dev.tarn.browser - {DEFAULT GROUP}/D634DB76-ECB9-43D0-A00D-D09E6582C7B1@3x.ktx
+1794656498 125088 ./Library/WebKit/dev.tarn.browser/ContentRuleLists/ContentRuleList-tarn.builtin.lockdown
+1794656858 124908 ./Library/WebKit/dev.tarn.browser/ContentRuleLists/ContentRuleList-tarn.builtin.standard
+1794656371 125088 ./Library/WebKit/dev.tarn.browser/ContentRuleLists/ContentRuleList-tarn.builtin.strict
+1794656960 16384 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/AlternativeServices/AlternativeService.sqlite
+1794656940 32768 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/AlternativeServices/AlternativeService.sqlite-shm
+1794656960 0 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/AlternativeServices/AlternativeService.sqlite-wal
+1794656942 8 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/CacheStorage/salt
+1794656960 20480 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/EnhancedSecurity/EnhancedSecuritySites.db
+1794656939 32768 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/EnhancedSecurity/EnhancedSecuritySites.db-shm
+1794656960 0 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/EnhancedSecurity/EnhancedSecuritySites.db-wal
+1794656939 8 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/MediaKeys/v1/salt
+1794656943 964 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/NetworkCache/Version 17/Records/BABE87418910E80C9D231E980F2F1ECE5495F0A4/Resource/73643D831601294B2B3FDABB777D844DA82353E5
+1794656940 8 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/NetworkCache/Version 17/salt
+1794656940 8 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/Origins/salt
+1794656960 118784 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/ResourceLoadStatistics/observations.db
+1794656940 32768 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/ResourceLoadStatistics/observations.db-shm
+1794656960 0 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/41658d88-2280-4865-9503-e057dc0be128/ResourceLoadStatistics/observations.db-wal
+1794656304 4096 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/AlternativeServices/AlternativeService.sqlite
+1794657014 32768 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/AlternativeServices/AlternativeService.sqlite-shm
+1794657014 37112 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/AlternativeServices/AlternativeService.sqlite-wal
+1794656306 8 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/CacheStorage/salt
+1794656972 256 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/Cookies/Cookies.binarycookies
+1794656782 140 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/DeviceIdHashSalts/1/D906CC717AD75EEB837747F953A3872AEF98F056AD480A63
+1794656858 20480 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/EnhancedSecurity/EnhancedSecuritySites.db
+1794657014 32768 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/EnhancedSecurity/EnhancedSecuritySites.db-shm
+1794657014 0 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/EnhancedSecurity/EnhancedSecuritySites.db-wal
+1794656303 8 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/MediaKeys/v1/salt
+1794656693 959 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/81D8CB5C76B36201B47B6E5269038DA224DC2932/Resource/02512ED5EF1D5F2B5CDFAD2253BBBC3BB1957C5E
+1794656518 546 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/81D8CB5C76B36201B47B6E5269038DA224DC2932/Resource/05F127C783D05E54A92572130B260687EB9D8BAB
+1794656963 976 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/81D8CB5C76B36201B47B6E5269038DA224DC2932/Resource/63B189C39E5AD04DFE9537E97C2EC93E1AE4EA18
+1794656747 576 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/81D8CB5C76B36201B47B6E5269038DA224DC2932/Resource/8E817C1F41360EFB10F3E9E4B8BD7EF9F0E8B7FE
+1794656861 604 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/81D8CB5C76B36201B47B6E5269038DA224DC2932/Resource/948D4684DB783C59977EAD07761DF6C588717D7E
+1794656417 558 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/81D8CB5C76B36201B47B6E5269038DA224DC2932/Resource/B78EAB12B5D92A03CC1CFF2600FDDD0E478D88D3
+1794656528 1519 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/81D8CB5C76B36201B47B6E5269038DA224DC2932/Resource/CEE38A95166142F2832A57FF9AC887857E82AA0A
+1794657017 964 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/81D8CB5C76B36201B47B6E5269038DA224DC2932/Resource/F11CE74E16BB3EC78AA76A9CCA0D43CD08478721
+1794656395 10237 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/C9690AACCD9B2E219AB45F164C6B3EFAD511B8B8/Resource/7D155B6420A76C73C5B00F17BB76AB5AB65727DE
+1794656395 2689 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/C9690AACCD9B2E219AB45F164C6B3EFAD511B8B8/Resource/80D20DAFA55738D5607FDE4A9D53FFD62502B331
+1794656401 10211 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/C9690AACCD9B2E219AB45F164C6B3EFAD511B8B8/Resource/A89EBF20DEC6B96EF9CF6BE42005087DB23F1C79
+1794656374 5029 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/Records/FFDB37F5341AF03EC4A3D5A87DC6710643A005DA/Resource/1CA6C01B3CEE1E2D0877BE882FF40B68A99FC7D7
+1794656304 8 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/NetworkCache/Version 17/salt
+1794656304 8 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/Origins/salt
+1794656859 118784 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/ResourceLoadStatistics/observations.db
+1794657014 32768 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/ResourceLoadStatistics/observations.db-shm
+1794657014 0 ./Library/WebKit/dev.tarn.browser/WebsiteDataStore/5c91ca1d-e509-4d76-91fe-876974e1d35a/ResourceLoadStatistics/observations.db-wal

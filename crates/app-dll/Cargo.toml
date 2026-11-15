@@ -1,0 +1,19 @@
+[package]
+name = "app-dll"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Tarn app as the DLL CEF's sandbox launcher loads on Windows (shipped as tarn.dll beside the launcher as tarn.exe)."
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[target.'cfg(windows)'.dependencies]
+app = { path = "../app" }
+engine.workspace = true
+
+[lints]
+workspace = true

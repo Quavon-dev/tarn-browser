@@ -1,0 +1,8 @@
+--------- beginning of main
+11-14 12:39:56.478  1195  1195 I tarn    : tab t1 event popup {url=http://public.test/opened}
+11-14 12:39:56.493  1195  1257 I tarn    : verdict=0 us=63 kind=0 url=http://public.test/opened top=http://public.test/popup-target pending=http://public.test/opened
+11-14 12:39:56.537  1195  1195 I tarn    : started http://public.test/opened
+11-14 12:39:56.538  1195  1195 I tarn    : tab t2 event title {title=public.test/opened}
+11-14 12:39:56.539  1195  1195 I tarn    : tab t2 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=true, canGoForward=false}
+11-14 12:39:56.541  1195  1257 I tarn    : verdict=0 us=109 kind=2 url=http://public.test/favicon.ico top=http://public.test/popup-target pending=http://public.test/opened
+11-14 12:39:56.572  1195  1195 I tarn    : tab t2 event committed {url=http://public.test/opened, title=public.test/opened, canGoBack=true, canGoForward=false}

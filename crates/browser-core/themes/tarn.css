@@ -1,0 +1,29 @@
+@tarn-theme { name: "Tarn"; author: "Tarn"; version: "1"; scheme: dark; }
+
+:root {
+  --tarn-backdrop: linear-gradient(160deg, #10243a, #0c1d31);
+  --tarn-sidebar: linear-gradient(180deg, #173a5a, #112d48);
+  --tarn-sidebar-edge: #8ed1f729;
+  --tarn-space-label: #8ed1f7;
+  --tarn-surface: #173350;
+  --tarn-surface-edge: #8ed1f72e;
+  --tarn-page: #0e2134;
+  --tarn-panel: #10243a;
+  --tarn-panel-nav: #153049;
+  --tarn-panel-row: #1a3854;
+  --tarn-separator: #8ed1f71f;
+  --tarn-control: #ffffff1c;
+  --tarn-raised: #8ed1f714;
+  --tarn-group: #8ed1f717;
+  --tarn-hover: #8ed1f71a;
+  --tarn-pressed: #8ed1f733;
+  --tarn-hairline: #8ed1f71f;
+  --tarn-text: #f4f9fd;
+  --tarn-muted: #d9ecfabf;
+  --tarn-faint: #d9ecfa73;
+  --tarn-accent: #1f75b0;
+  --tarn-fog-1: #2a5478;
+  --tarn-fog-2: #4f8bb8;
+  --tarn-fog-3: #e3f3fd;
+  --tarn-fog-4: #8ed1f7;
+}

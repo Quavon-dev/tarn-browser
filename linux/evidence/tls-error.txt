@@ -1,0 +1,4 @@
+# tls-error: https://localhost:8443/
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"about:blank"}
+[tarn] event failed {"message":"The site's certificate is not trusted (TlsCertificateFlags(UNKNOWN_CA)); the page was not loaded.","url":"https://localhost:8443/"}
+# server

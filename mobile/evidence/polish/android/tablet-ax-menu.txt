@@ -1,0 +1,28 @@
+Page: dev.tarn.browser
+App: dev.tarn.browser
+Snapshot: 24 visible nodes (40 total)
+Collapsed 16 Android helper nodes from the agent-facing text snapshot; use --raw or --json for the full hierarchy.
+@e1 [group] "Menu, Zoom, Settings, Spaces and Profiles, Downloads, History, Shield for This Site, +, 100%, −, Find in Page, Reopen Closed Tab, Private Space, New Tab, Done" [focused]
+@e2 [button] "Back"
+@e3 [button] "Forward"
+@e4 [button] "Reload"
+@e5 [button] "Shield: Standard"
+@e6 [group] "Address"
+@e7 [text-field] "Not Secure — public.test" [editable]
+@e8 [button] "Share"
+@e9 [button] "Tabs 4"
+@e11 [button] "Menu"
+@e13 [button] "Done"
+@e15 [scroll-area] [scrollable]
+@e16 [button] "New Tab"
+@e18 [button] "Private Space"
+@e20 [button] "Reopen Closed Tab"
+@e22 [button] "Find in Page"
+@e25 [button] "Zoom Out"
+@e27 [button] "Actual Size"
+@e29 [button] "Zoom In"
+@e31 [button] "Shield for This Site"
+@e33 [button] "History"
+@e35 [button] "Downloads"
+@e37 [button] "Spaces and Profiles"
+@e39 [button] "Settings"

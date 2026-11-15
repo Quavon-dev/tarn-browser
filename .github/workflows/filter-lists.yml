@@ -1,0 +1,144 @@
+name: Filter lists
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      allow_change:
+        description: Sign even if a list shrank by more than a fifth or grew by half since the last bundle
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: filter-lists
+  cancel-in-progress: false
+
+jobs:
+  # The signer is built and hashed in a job that reads no upstream list, and the signing key never
+  # enters a job that compiles code: `sign` runs only this job's binary, checked against its hash.
+  signer:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.hash.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+      - run: cargo build --release --locked -p filter-bundle
+      - id: hash
+        run: |
+          mkdir -p signer
+          cp target/release/filter-bundle signer/
+          echo "sha256=$(sha256sum signer/filter-bundle | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signer
+          path: signer/
+          if-no-files-found: error
+
+  # Upstream lists are untrusted input; a fresh GitHub-hosted runner keeps them off the persistent pool.
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+      - run: cargo build --release --locked -p filter-bundle
+      - name: Download lists
+        # Every URL comes from packaging/filters/sources.json; `!#include` names are limited to
+        # plain file names in the same folder upstream.
+        run: |
+          mkdir -p raw previous
+          fetch() {
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --max-redirs 2 \
+              --max-filesize 16777216 --max-time 120 --output "$2" "$1"
+          }
+          target/release/filter-bundle sources packaging/filters/sources.json > sources.tsv
+          while IFS=$'\t' read -r name url; do
+            fetch "$url" "raw/$name"
+            { grep -E '^!#include [A-Za-z0-9][A-Za-z0-9._-]*\.txt$' "raw/$name" || true; } | cut -d' ' -f2 | sort -u | head -n 16 | while read -r include; do
+              fetch "${url%/*}/$include" "raw/$name+$include"
+            done
+          done < sources.tsv
+          fetch "https://github.com/${GITHUB_REPOSITORY}/releases/download/filter-lists/manifest.json" previous/manifest.json \
+            || rm -f previous/manifest.json
+      - name: Prepare
+        env:
+          ALLOW_CHANGE: ${{ inputs.allow_change }}
+        run: |
+          mkdir -p input
+          extra=""
+          if [ "$ALLOW_CHANGE" = "true" ]; then extra="--allow-change"; fi
+          target/release/filter-bundle prepare --sources packaging/filters/sources.json --raw raw \
+            --youtube packaging/filters/youtube.json --theme-revocations packaging/filters/theme-revocations.json \
+            --previous previous $extra --out input/prepared
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prepared
+          path: input/prepared/
+          if-no-files-found: error
+
+  sign:
+    needs: [signer, build]
+    runs-on: ubuntu-24.04
+    # FILTER_SIGNING_KEY lives in this environment, which only main may use.
+    environment: filter-signing
+    permissions: {}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signer
+          path: input
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: prepared
+          path: input/prepared
+      - name: Build signed bundle
+        env:
+          FILTER_SIGNING_KEY: ${{ secrets.FILTER_SIGNING_KEY }}
+          SIGNER_SHA256: ${{ needs.signer.outputs.sha256 }}
+        run: |
+          echo "$SIGNER_SHA256  input/filter-bundle" | sha256sum --check --strict
+          chmod +x input/filter-bundle
+          input/filter-bundle build --in input/prepared --version "$(date -u +%s)" --out bundle
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundle
+          path: bundle/
+          if-no-files-found: error
+
+  publish:
+    needs: sign
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bundle
+          path: bundle
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        # Lists first, signature last: a client that reads mid-upload sees a mismatch and keeps its last good bundle.
+        run: |
+          gh release view filter-lists >/dev/null 2>&1 \
+            || gh release create filter-lists --title "Filter lists" \
+                 --notes "Signed filter-list bundle, rebuilt daily. Sources and licences: licenses.txt." --latest=false
+          find bundle -type f ! -name 'manifest.*' -print0 | xargs -0 gh release upload filter-lists --clobber
+          gh release upload filter-lists bundle/manifest.json --clobber
+          gh release upload filter-lists bundle/manifest.sig --clobber

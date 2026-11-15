@@ -1,0 +1,5 @@
+pid 7055 -> 7055
+@e2 [group] "Address"
+@e46 [group] "Web content"
+@e47 [group] "Web content"
+@e48 [webview] [focused]

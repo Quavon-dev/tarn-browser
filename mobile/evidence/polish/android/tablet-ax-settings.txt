@@ -1,0 +1,29 @@
+Page: dev.tarn.browser
+App: dev.tarn.browser
+Snapshot: 25 visible nodes (46 total)
+Collapsed 21 Android helper nodes from the agent-facing text snapshot; use --raw or --json for the full hierarchy.
+@e1 [group] "Settings, DEFAULT SHIELD LEVEL, SEARCH ENGINE, FILTER LISTS, No filter lists are installed yet; Shield's built-in rules always apply., DATA, Clear Browsing Data…, Malware, Trackers, Ads, Bing, Google, Ecosia, Brave Search, Startpage, DuckDuckGo, Lockdown, Strict, Standard, Done"
+@e2 [button] "Back"
+@e3 [button] "Forward"
+@e4 [button] "Reload"
+@e5 [button] "Shield: Standard"
+@e6 [group] "Address"
+@e7 [text-field] "Not Secure — localhost" [editable]
+@e8 [button] "Share"
+@e9 [button] "Tabs 4"
+@e11 [button] "Menu"
+@e13 [button] "Done"
+@e15 [scroll-area] [scrollable]
+@e17 [button] "Standard" [selected]
+@e19 [button] "Strict"
+@e21 [button] "Lockdown"
+@e24 [button] "DuckDuckGo" [selected]
+@e26 [button] "Startpage"
+@e28 [button] "Brave Search"
+@e30 [button] "Ecosia"
+@e32 [button] "Google"
+@e34 [button] "Bing"
+@e37 [switch] "Ads: On" [selected]
+@e39 [switch] "Trackers: On" [selected]
+@e41 [switch] "Malware: On" [selected]
+@e45 [button] "Clear Browsing Data…"

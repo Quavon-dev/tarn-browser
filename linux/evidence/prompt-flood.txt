@@ -1,0 +1,10 @@
+1
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/dialogs.html"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/dialogs.html"}
+[tarn] event title {"title":"dialogs"}
+[tarn] event prompt {"default":null,"id":1,"kind":"alert","message":"flood 0","origin":"http://127.0.0.1:8765"}
+[tarn] event prompt {"default":null,"id":2,"kind":"alert","message":"flood 1","origin":"http://127.0.0.1:8765"}
+[tarn] event prompt {"default":null,"id":3,"kind":"alert","message":"flood 2","origin":"http://127.0.0.1:8765"}
+[tarn] event prompt {"default":null,"id":4,"kind":"alert","message":"flood 3","origin":"http://127.0.0.1:8765"}
+[tarn] event prompt {"default":null,"id":5,"kind":"alert","message":"flood 4","origin":"http://127.0.0.1:8765"}
+[tarn] event title {"title":"flood done"}

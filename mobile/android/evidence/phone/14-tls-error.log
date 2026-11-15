@@ -1,0 +1,4 @@
+--------- beginning of main
+11-14 12:45:38.156  1195  1257 I tarn    : verdict=0 us=278 kind=0 url=https://public.test/plain top=https://localhost:8771/title pending=https://public.test/plain
+11-14 12:45:38.219  1195  1195 I tarn    : tab t1 event failed {url=https://public.test/plain, message=The site's certificate is not valid}
+11-14 12:45:38.229  1195  1195 I tarn    : tab t1 event finished {url=https://public.test/plain, title=Webpage not available, canGoBack=true, canGoForward=false}

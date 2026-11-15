@@ -1,0 +1,7 @@
+# profile-a-cookie-2: 127.0.0.1:8765/cookie.html#a
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/cookie.html#a"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/cookie.html#a"}
+[tarn] event title {"title":"cookie before=tarn=a"}
+# server
+127.0.0.1:8765 GET /cookie.html "GET /cookie.html HTTP/1.1" 200 -

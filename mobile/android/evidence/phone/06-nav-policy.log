@@ -1,0 +1,19 @@
+--------- beginning of main
+11-14 12:38:50.266  1195  1257 I tarn    : verdict=0 us=59 kind=0 url=http://public.test/links top=http://public.test/links pending=http://public.test/links
+11-14 12:38:50.307  1195  1195 I tarn    : started http://public.test/links
+11-14 12:38:50.310  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 12:38:50.314  1195  1257 I tarn    : verdict=0 us=77 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=http://public.test/links
+11-14 12:38:50.331  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 12:38:57.817  1195  1195 I tarn    : tab t1 event external {url=mailto:a@example.com}
+11-14 12:38:57.837  1195  1257 I tarn    : verdict=0 us=128 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 12:39:00.897  1195  1195 I tarn    : tab t1 event external {url=intent://scan/#Intent;scheme=zxing;end}
+11-14 12:39:00.903  1195  1257 I tarn    : verdict=0 us=124 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 12:39:03.968  1195  1195 I tarn    : tab t1 event blocked {url=http://localhost:8771/local-from-public, reason=nav_policy}
+11-14 12:39:03.985  1195  1257 I tarn    : verdict=0 us=88 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 12:39:07.119  1195  1284 I tarn    : verdict=0 us=64 kind=0 url=http://public.test/redirect-local top=http://public.test/links pending=http://public.test/redirect-local
+11-14 12:39:07.122  1195  1195 I tarn    : tab t1 event blocked {url=http://localhost:8771/local-from-public, reason=nav_policy}
+11-14 12:39:07.128  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/local-from-public, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 12:39:07.145  1195  1257 I tarn    : verdict=0 us=121 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=http://public.test/redirect-local
+11-14 12:39:10.197  1195  1257 I tarn    : verdict=0 us=113 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=http://public.test/redirect-local
+11-14 12:39:10.204  1195  1195 I tarn    : tab t1 event title {title=JS-LINK-RAN}
+11-14 12:39:10.205  1195  1195 I tarn    : tab t1 event title {title=public.test/links}

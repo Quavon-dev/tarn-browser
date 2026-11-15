@@ -1,0 +1,22 @@
+[package]
+name = "filter-bundle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Build tool that turns downloaded filter lists into the signed bundles Shield ships with."
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+shield.workspace = true
+base64 = "=0.22.1"
+ed25519-dalek = "=3.0.0"
+getrandom = "=0.3.4"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

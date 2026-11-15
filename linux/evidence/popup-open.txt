@@ -1,0 +1,12 @@
+# popup-open: localhost:8765/nav.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/nav.html"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+[tarn] event popup {"url":"http://localhost:8765/cookie.html"}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/cookie.html"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/cookie.html"}
+[tarn] event title {"title":"cookie before=(none)"}
+# server
+localhost:8765 GET /nav.html
+localhost:8765 GET /cookie.html

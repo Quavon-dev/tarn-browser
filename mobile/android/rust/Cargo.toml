@@ -1,0 +1,19 @@
+[package]
+name = "tarn-mobile-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+browser-core.workspace = true
+engine.workspace = true
+shield.workspace = true
+jni.workspace = true
+serde_json.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,47 @@
+14/Nov/2026 19:33:46 REQ GET http://localhost:8771/auth cookie=''
+14/Nov/2026 19:33:46 "GET /auth HTTP/1.1" 401 -
+=== third-party sign-in
+14/Nov/2026 19:33:53 REQ GET http://localhost:8771/auth-third?via=127.0.0.1:8771 cookie=''
+14/Nov/2026 19:33:53 "GET /auth-third?via=127.0.0.1:8771 HTTP/1.1" 200 -
+14/Nov/2026 19:33:53 REQ GET http://127.0.0.1:8771/auth cookie=''
+14/Nov/2026 19:33:53 "GET /auth HTTP/1.1" 401 -
+14/Nov/2026 19:33:53 REQ GET http://127.0.0.1:8771/auth cookie=''
+14/Nov/2026 19:33:53 "GET /auth HTTP/1.1" 401 -
+14/Nov/2026 19:33:53 REQ GET http://127.0.0.1:8771/auth cookie=''
+14/Nov/2026 19:33:53 "GET /auth HTTP/1.1" 401 -
+14/Nov/2026 19:33:53 REQ GET http://127.0.0.1:8771/auth cookie=''
+14/Nov/2026 19:33:53 "GET /auth HTTP/1.1" 401 -
+=== own-origin sign-in, wrong passwords
+14/Nov/2026 19:34:04 REQ GET http://localhost:8771/auth cookie=''
+14/Nov/2026 19:34:04 "GET /auth HTTP/1.1" 401 -
+14/Nov/2026 19:34:11 REQ GET http://localhost:8771/auth cookie=''
+14/Nov/2026 19:34:11 "GET /auth HTTP/1.1" 401 -
+14/Nov/2026 19:34:18 REQ GET http://localhost:8771/auth cookie=''
+14/Nov/2026 19:34:18 "GET /auth HTTP/1.1" 401 -
+14/Nov/2026 19:34:25 REQ GET http://localhost:8771/auth cookie=''
+14/Nov/2026 19:34:25 "GET /auth HTTP/1.1" 401 -
+14/Nov/2026 19:34:25 REQ GET http://localhost:8771/auth cookie=''
+14/Nov/2026 19:34:25 "GET /auth HTTP/1.1" 401 -
+14/Nov/2026 19:34:50 REQ GET http://localhost:8771/popups cookie=''
+14/Nov/2026 19:34:50 "GET /popups HTTP/1.1" 200 -
+14/Nov/2026 19:35:19 REQ GET http://localhost:8771/popups cookie=''
+14/Nov/2026 19:35:19 "GET /popups HTTP/1.1" 200 -
+=== popup burst start 19:35:31
+=== popup burst 2 start 19:36:02
+=== popup burst 3 start 19:36:41, tabs before: 13
+=== tabs after: "Tabs 18"
+=== popup burst (5 clicks in 14s): "Tabs 18" -> "Tabs 18"
+14/Nov/2026 19:38:11 REQ GET http://localhost:8771/popups cookie=''
+14/Nov/2026 19:38:11 "GET /popups HTTP/1.1" 200 -
+=== one click calling window.open five times; "Tabs 18"
+14/Nov/2026 19:38:26 REQ GET http://localhost:8771/opened?n=0 cookie=''
+14/Nov/2026 19:38:26 "GET /opened?n=0 HTTP/1.1" 200 -
+14/Nov/2026 19:38:26 REQ GET http://localhost:8771/opened?n=1 cookie=''
+14/Nov/2026 19:38:26 "GET /opened?n=1 HTTP/1.1" 200 -
+14/Nov/2026 19:38:26 REQ GET http://localhost:8771/opened?n=2 cookie=''
+14/Nov/2026 19:38:26 "GET /opened?n=2 HTTP/1.1" 200 -
+=== after: "Tabs 21"
+=== no-gesture window.open after 300 ms: http://localhost:8771/links; "Tabs 21"
+14/Nov/2026 19:38:56 REQ GET http://localhost:8771/links cookie=''
+14/Nov/2026 19:38:56 "GET /links HTTP/1.1" 200 -
+=== after: "Tabs 21"

@@ -1,0 +1,302 @@
+--------- beginning of system
+11-14 13:25:52.795 W/ActivityManager(  658): Slow operation: 52ms so far, now at startProcess: done updating battery stats
+11-14 13:25:52.795 W/ActivityManager(  658): Slow operation: 52ms so far, now at startProcess: building log message
+11-14 13:25:52.795 I/ActivityManager(  658): Start proc 2664:com.google.android.googlequicksearchbox:googleapp/u0a149 for service {com.google.android.googlequicksearchbox/com.google.android.apps.search.googleapp.search.suggest.plugins.onesearch.server.OneSearchSuggestService}
+11-14 13:25:52.795 W/ActivityManager(  658): Slow operation: 52ms so far, now at startProcess: starting to update pids map
+11-14 13:25:52.795 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:52.795 W/ActivityManager(  658): Slow operation: 52ms so far, now at startProcess: done updating pids map
+11-14 13:25:52.856 W/ActivityManager(  658): Slow operation: 59ms so far, now at attachApplicationLocked: after updateOomAdjLocked
+11-14 13:25:53.581 I/ActivityManager(  658): Start proc 2776:com.android.camera2/u0a151 for broadcast {com.android.camera2/com.android.camera.SetActivitiesCameraReceiver}
+11-14 13:25:53.588 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:53.594 I/ActivityManager(  658): Force stopping dev.tarn.browser appid=10215 user=0: from pid 2764
+11-14 13:25:53.944 W/ActivityManager(  658): Slow operation: 142ms so far, now at attachApplicationLocked: immediately after bindApplication
+11-14 13:25:53.944 W/ActivityManager(  658): Slow operation: 142ms so far, now at attachApplicationLocked: after updateLruProcessLocked
+11-14 13:25:53.944 W/ActivityManager(  658): Slow operation: 142ms so far, now at attachApplicationLocked: after updateOomAdjLocked
+11-14 13:25:54.058 I/ActivityManager(  658): Background started FGS: Allowed [callingPackage: com.google.android.apps.wellbeing; callingUid: 10148; uidState: BTOP; uidBFSL: [BFSL]; intent: Intent { xflg=0x4 cmp=com.google.android.apps.wellbeing/com.google.apps.tiktok.concurrent.InternalForegroundService (has extras) }; code:BACKGROUND_ACTIVITY_PERMISSION; tempAllowListReason:<null>; allowWiu:58; targetSdkVersion:37; callerTargetSdkVersion:37; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+11-14 13:25:54.313 I/ActivityManager(  658): Start proc 2833:com.android.devicediagnostics/u0a102 for broadcast {com.android.devicediagnostics/com.android.devicediagnostics.BootCompleteReceiver}
+11-14 13:25:54.313 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:54.421 W/ActivityManager(  658): Slow operation: 75ms so far, now at attachApplicationLocked: immediately after bindApplication
+11-14 13:25:54.422 W/ActivityManager(  658): Slow operation: 75ms so far, now at attachApplicationLocked: after updateLruProcessLocked
+11-14 13:25:54.423 W/ActivityManager(  658): Slow operation: 76ms so far, now at attachApplicationLocked: after updateOomAdjLocked
+11-14 13:25:54.439 I/ActivityManager(  658): Start proc 2855:dev.tarn.browser/u0a215 for next-top-activity {dev.tarn.browser/dev.tarn.android.MainActivity}
+11-14 13:25:54.439 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:54.693 W/ActivityManager(  658): Slow operation: 51ms so far, now at attachApplicationLocked: immediately after bindApplication
+11-14 13:25:54.693 W/ActivityManager(  658): Slow operation: 51ms so far, now at attachApplicationLocked: after updateLruProcessLocked
+11-14 13:25:54.696 W/ActivityManager(  658): Slow operation: 53ms so far, now at attachApplicationLocked: after updateOomAdjLocked
+11-14 13:25:54.806 I/ActivityManager(  658): Start proc 2891:com.android.vending/u0a146 for service {com.android.vending/com.google.android.finsky.contentfilterui.ContentFiltersService}
+11-14 13:25:54.806 I/ActivityManager(  658): ProcessObserver broadcast disabled
+--------- beginning of main
+11-14 13:25:54.932 I/tarn    ( 2855): private sweep removed 0 files
+11-14 13:25:54.964 I/ActivityManager(  658): Start proc 2910:com.android.dynsystem/1000 for broadcast {com.android.dynsystem/com.android.dynsystem.BootCompletedReceiver}
+11-14 13:25:54.964 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:55.390 I/ActivityManager(  658): Start proc 2927:com.android.providers.calendar/u0a99 for broadcast {com.android.providers.calendar/com.android.providers.calendar.CalendarProviderBroadcastReceiver}
+11-14 13:25:55.390 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:55.405 I/ActivityManager(  658): Start proc 2936:com.android.dynsystem:dynsystem/1000 for service {com.android.dynsystem/com.android.dynsystem.DynamicSystemInstallationService}
+11-14 13:25:55.405 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:55.491 I/ActivityManager(  658): Start proc 2963:com.android.managedprovisioning/u0a108 for broadcast {com.android.managedprovisioning/com.android.managedprovisioning.BootReminder}
+11-14 13:25:55.491 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:55.885 W/ActivityManager(  658): Slow operation: 275ms so far, now at startProcess: done updating battery stats
+11-14 13:25:55.885 W/ActivityManager(  658): Slow operation: 275ms so far, now at startProcess: building log message
+11-14 13:25:55.885 I/ActivityManager(  658): Start proc 2999:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0ai9000 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:0}
+11-14 13:25:55.885 W/ActivityManager(  658): Slow operation: 275ms so far, now at startProcess: starting to update pids map
+11-14 13:25:55.906 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:55.906 W/ActivityManager(  658): Slow operation: 296ms so far, now at startProcess: done updating pids map
+11-14 13:25:55.939 W/ActivityManager(  658): Slow operation: 55ms so far, now at attachApplicationLocked: after updateOomAdjLocked
+11-14 13:25:56.054 W/ActivityManager(  658): Slow operation: 445ms so far, now at startProcess: returned from zygote!
+11-14 13:25:56.059 W/ActivityManager(  658): Slow operation: 195ms so far, now at startProcess: asking zygote to start proc
+11-14 13:25:56.090 W/ActivityManager(  658): Slow operation: 226ms so far, now at startProcess: returned from zygote!
+11-14 13:25:56.109 W/ActivityManager(  658): Slow operation: 245ms so far, now at startProcess: done updating battery stats
+11-14 13:25:56.109 W/ActivityManager(  658): Slow operation: 245ms so far, now at startProcess: building log message
+11-14 13:25:56.111 I/ActivityManager(  658): Start proc 3030:com.android.settings/1000 for broadcast {com.android.settings/com.android.settings.development.Enable16KBootReceiver}
+11-14 13:25:56.111 W/ActivityManager(  658): Slow operation: 246ms so far, now at startProcess: starting to update pids map
+11-14 13:25:56.116 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:56.116 W/ActivityManager(  658): Slow operation: 251ms so far, now at startProcess: done updating pids map
+11-14 13:25:56.117 I/tarn    ( 2855): debug proxy localhost:8771
+11-14 13:25:56.443 I/ActivityManager(  658): Process com.android.traceur (pid 2619) has died: cch+65 CEM 
+11-14 13:25:56.483 I/ActivityManager(  658): Process com.android.printspooler (pid 1655) has died: cch+65 CEM 
+11-14 13:25:56.491 I/ActivityManager(  658): Process com.google.android.apps.restore (pid 2257) has died: cch+55 CEM 
+11-14 13:25:56.679 I/ActivityManager(  658): Start proc 3093:com.android.shell/2000 for broadcast {com.android.shell/com.android.shell.HeapDumpReceiver}
+11-14 13:25:56.679 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:56.699 I/ActivityManager(  658): Process com.google.android.onetimeinitializer (pid 2643) has died: cch+55 CEM 
+11-14 13:25:56.731 I/ActivityManager(  658): Process com.google.android.dialer (pid 2099) has died: cch+45 CEM 
+11-14 13:25:57.231 I/tarn    ( 2855): tab t1 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 13:25:57.300 I/tarn    ( 2855): tab t2 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 13:25:57.343 I/ActivityManager(  658): Process com.android.imsserviceentitlement (pid 2420) has died: cch+85 CEM 
+11-14 13:25:57.363 W/ActivityManager(  658): Slow operation: 82ms so far, now at startProcess: done updating battery stats
+11-14 13:25:57.363 W/ActivityManager(  658): Slow operation: 82ms so far, now at startProcess: building log message
+11-14 13:25:57.363 I/ActivityManager(  658): Start proc 3160:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:1/u0i1 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:1}
+11-14 13:25:57.363 W/ActivityManager(  658): Slow operation: 82ms so far, now at startProcess: starting to update pids map
+11-14 13:25:57.363 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:57.363 W/ActivityManager(  658): Slow operation: 82ms so far, now at startProcess: done updating pids map
+11-14 13:25:57.468 W/ActivityManager(  658): Slow operation: 109ms so far, now at startProcess: returned from zygote!
+11-14 13:25:57.529 W/ActivityManager(  658): Slow operation: 220ms so far, now at startProcess: asking zygote to start proc
+11-14 13:25:57.551 W/ActivityManager(  658): Slow operation: 63ms so far, now at finishAttachApplicationInner: after mServices.attachApplicationLocked
+11-14 13:25:57.551 W/ActivityManager(  658): Slow operation: 63ms so far, now at finishAttachApplicationInner: after dispatching broadcasts
+11-14 13:25:57.650 W/ActivityManager(  658): Slow operation: 340ms so far, now at startProcess: returned from zygote!
+11-14 13:25:57.650 W/ActivityManager(  658): Slow operation: 341ms so far, now at startProcess: done updating battery stats
+11-14 13:25:57.650 W/ActivityManager(  658): Slow operation: 341ms so far, now at startProcess: building log message
+11-14 13:25:57.650 I/ActivityManager(  658): Start proc 3194:com.google.android.apps.safetyhub/u0a143 for broadcast {com.google.android.apps.safetyhub/com.google.android.apps.safetyhub.startup.StartupBroadcastReceiver_Receiver}
+11-14 13:25:57.650 W/ActivityManager(  658): Slow operation: 341ms so far, now at startProcess: starting to update pids map
+11-14 13:25:57.650 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:57.650 W/ActivityManager(  658): Slow operation: 341ms so far, now at startProcess: done updating pids map
+11-14 13:25:57.650 W/ActivityManager(  658): Slow operation: 80ms so far, now at startProcess: asking zygote to start proc
+11-14 13:25:57.664 I/ActivityManager(  658): Process com.android.devicediagnostics (pid 2833) has died: cch+65 CEM 
+11-14 13:25:57.698 I/ActivityManager(  658): Process com.android.camera2 (pid 2776) has died: cch+75 CEM 
+11-14 13:25:57.717 W/ActivityManager(  658): Slow operation: 147ms so far, now at startProcess: returned from zygote!
+11-14 13:25:57.736 I/ActivityManager(  658): Process com.android.dynsystem (pid 2910) has died: cch+45 CEM 
+11-14 13:25:57.747 I/ActivityManager(  658): Process com.google.android.apps.photos (pid 1712) has died: cch+55 CEM 
+11-14 13:25:57.750 W/ActivityManager(  658): Slow operation: 179ms so far, now at startProcess: done updating battery stats
+11-14 13:25:57.750 W/ActivityManager(  658): Slow operation: 179ms so far, now at startProcess: building log message
+11-14 13:25:57.750 I/ActivityManager(  658): Start proc 3219:com.google.android.gms.unstable/u0a147 for service {com.google.android.gms/com.google.android.gms.droidguard.DroidGuardService}
+11-14 13:25:57.750 W/ActivityManager(  658): Slow operation: 179ms so far, now at startProcess: starting to update pids map
+11-14 13:25:57.750 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:57.750 W/ActivityManager(  658): Slow operation: 179ms so far, now at startProcess: done updating pids map
+11-14 13:25:57.784 W/ActivityManager(  658): Slow operation: 58ms so far, now at startProcess: returned from zygote!
+11-14 13:25:57.795 W/ActivityManager(  658): Slow operation: 69ms so far, now at startProcess: done updating battery stats
+11-14 13:25:57.795 W/ActivityManager(  658): Slow operation: 69ms so far, now at startProcess: building log message
+11-14 13:25:57.795 I/ActivityManager(  658): Start proc 3232:com.callstack.agentdevice.imehelper/u0a216 for service {com.callstack.agentdevice.imehelper/com.callstack.agentdevice.imehelper.TestInputMethodService}
+11-14 13:25:57.795 W/ActivityManager(  658): Slow operation: 69ms so far, now at startProcess: starting to update pids map
+11-14 13:25:57.796 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:57.796 W/ActivityManager(  658): Slow operation: 69ms so far, now at startProcess: done updating pids map
+11-14 13:25:58.002 I/ActivityManager(  658): Process com.google.android.calendar (pid 1722) has died: cch+35 CEM 
+11-14 13:25:58.013 I/ActivityManager(  658): Process com.android.providers.calendar (pid 2927) has died: cch+25 CEM 
+11-14 13:25:58.026 I/ActivityManager(  658): Process com.android.dynsystem:dynsystem (pid 2936) has died: cch+15 CEM 
+11-14 13:25:58.042 I/ActivityManager(  658): Process com.android.managedprovisioning (pid 2963) has died: cch+5 CEM 
+11-14 13:25:58.133 I/ActivityManager(  658): Process com.google.android.deskclock (pid 2224) has died: cch+5 CEM 
+11-14 13:25:58.139 I/ActivityManager(  658): Process com.android.shell (pid 3093) has died: cch+5 CEM 
+11-14 13:25:58.177 I/ActivityManager(  658): Process com.android.vending (pid 2891) has died: cch+5 CEM 
+11-14 13:25:58.206 I/ActivityManager(  658): Process com.android.settings (pid 3030) has died: cch+5 CEM 
+11-14 13:25:58.218 I/ActivityManager(  658): Process com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0 (pid 2999) has died: cch CACC
+11-14 13:25:58.223 W/ActivityManager(  658): Scheduling restart of crashed service dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:0 in 30000ms for connection
+11-14 13:25:58.282 I/ActivityManager(  658): Start proc 3274:com.google.android.webview:webview_service/u0a167 for service {com.google.android.webview/org.chromium.android_webview.services.VariationsSeedServer}
+11-14 13:25:58.282 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:58.665 I/tarn    ( 2855): rule lists built: 242 rules in 3670342 us
+11-14 13:25:58.815 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: start instr
+11-14 13:25:58.937 I/ActivityManager(  658): Start proc 3319:com.callstack.agentdevice.snapshothelper/u0a217 for added application com.callstack.agentdevice.snapshothelper
+11-14 13:25:58.937 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:59.273 I/ActivityManager(  658): Start proc 3358:com.google.android.configupdater/u0a132 for broadcast {com.google.android.configupdater/com.google.android.configupdater.MainReceiver}
+11-14 13:25:59.273 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:59.526 I/ActivityManager(  658): Start proc 3393:com.google.android.federatedcompute/u0a205 for broadcast {com.google.android.federatedcompute/com.android.federatedcompute.services.FederatedComputeBroadcastReceiver}
+11-14 13:25:59.526 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:59.581 I/ActivityManager(  658): Start proc 3414:com.google.android.healthconnect.controller/u0a207 for broadcast {com.google.android.healthconnect.controller/com.android.healthconnect.controller.safetycenter.SafetySourceBroadcastReceiver}
+11-14 13:25:59.582 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:59.627 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: finished inst
+11-14 13:25:59.627 E/ActivityManager(  658): Unable to freeze binder for 3319: -11
+11-14 13:25:59.633 I/ActivityManager(  658): Killing 3319:com.callstack.agentdevice.snapshothelper/u0a217 (adj 0): stop com.callstack.agentdevice.snapshothelper due to finished inst
+11-14 13:25:59.812 I/ActivityManager(  658): Start proc 3436:com.google.android.ondevicepersonalization.services/u0a204 for broadcast {com.google.android.ondevicepersonalization.services/com.android.ondevicepersonalization.services.OnDevicePersonalizationBroadcastReceiver}
+11-14 13:25:59.812 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:59.897 I/ActivityManager(  658): Start proc 3449:com.google.android.partnersetup/u0a140 for broadcast {com.google.android.partnersetup/com.google.android.partnersetup.BootReceiver}
+11-14 13:25:59.897 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:59.952 I/ActivityManager(  658): Start proc 3464:com.google.android.projection.gearhead:car/u0a133 for broadcast {com.google.android.projection.gearhead/com.google.android.apps.auto.carservice.gmscorecompatstub.StubComponentInitReceiver}
+11-14 13:25:59.952 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:25:59.984 I/ActivityManager(  658): Start proc 3480:com.google.android.rkpdapp/u0a206 for service {com.google.android.rkpdapp/com.android.rkpdapp.service.RemoteProvisioningService}
+11-14 13:25:59.984 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:00.014 I/ActivityManager(  658): Start proc 3493:com.google.android.photopicker/u0a202 for broadcast {com.google.android.photopicker/com.android.photopicker.PhotopickerDeviceConfigReceiver}
+11-14 13:26:00.015 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:00.049 E/ActivityManager(  658): Sending non-protected broadcast android.intent.action.UPDATE_CT_LOGS from system uid 1000 pkg android
+11-14 13:26:00.049 E/ActivityManager(  658): java.lang.Throwable
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.am.BroadcastController.checkBroadcastFromSystem(BroadcastController.java:2145)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.am.BroadcastController.broadcastIntentLockedTraced(BroadcastController.java:1646)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.am.BroadcastController.broadcastIntentLocked(BroadcastController.java:807)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.am.BroadcastController.broadcastIntentInPackage(BroadcastController.java:774)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.am.ActivityManagerService$LocalService.broadcastIntentInPackage(ActivityManagerService.java:17221)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.am.PendingIntentRecord.sendInner(PendingIntentRecord.java:674)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.am.PendingIntentRecord.sendWithResult(PendingIntentRecord.java:380)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.am.ActivityManagerService.sendIntentSender(ActivityManagerService.java:5618)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at android.app.PendingIntent.sendAndReturnResult(PendingIntent.java:1116)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at android.app.PendingIntent.send(PendingIntent.java:1082)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.alarm.AlarmManagerService$DeliveryTracker.deliverLocked(AlarmManagerService.java:5358)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.alarm.AlarmManagerService.deliverAlarmsLocked(AlarmManagerService.java:4322)
+11-14 13:26:00.049 E/ActivityManager(  658): 	at com.android.server.alarm.AlarmManagerService$AlarmThread.run(AlarmManagerService.java:4598)
+11-14 13:26:00.191 I/ActivityManager(  658): Start proc 3519:com.android.externalstorage/u0a103 for broadcast {com.android.externalstorage/com.android.externalstorage.MountReceiver}
+11-14 13:26:00.191 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:00.286 I/ActivityManager(  658): Start proc 3543:com.google.android.packageinstaller/u0a105 for broadcast {com.google.android.packageinstaller/com.android.packageinstaller.PackageInstalledReceiver}
+11-14 13:26:00.286 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:00.341 I/ActivityManager(  658): Start proc 3568:com.android.vending:background/u0a146 for broadcast {com.android.vending/com.google.android.finsky.packagemonitor.backgroundimpl.BackgroundPackageMonitorReceiverImpl$RegisteredReceiver}
+11-14 13:26:00.341 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:00.732 I/ActivityManager(  658): Start proc 3600:com.google.android.settings.intelligence/u0a144 for broadcast {com.google.android.settings.intelligence/com.google.android.settings.intelligence.modules.contextualcards.impl.JobBootBroadcastReceiver}
+11-14 13:26:00.732 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:00.869 I/ActivityManager(  658): Start proc 3632:com.android.chrome/u0a150 for broadcast {com.android.chrome/com.google.android.apps.chrome.rlz.RevenueStatsConfigurationUpdateReceiver}
+11-14 13:26:00.869 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:00.915 I/ActivityManager(  658): Finished processing BOOT_COMPLETED for u0
+11-14 13:26:00.916 W/ActivityManager(  658): pid 3600 com.google.android.settings.intelligence sent binder code 6 with flags 2 to frozen apps and got error -74
+11-14 13:26:00.953 I/ActivityManager(  658): Start proc 3677:com.android.settings/1000 for content provider {com.android.settings/com.android.settings.search.SettingsSearchIndexablesProvider}
+11-14 13:26:00.953 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:01.224 I/ActivityManager(  658): Start proc 3724:com.android.vending/u0a146 for service {com.android.vending/com.google.android.finsky.scheduler.process.mainimpl.PhoneskyJobServiceMain}
+11-14 13:26:01.224 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:01.944 I/ActivityManager(  658): Start proc 3801:com.android.traceur/u0a131 for content provider {com.android.traceur/com.android.traceur.SearchProvider}
+11-14 13:26:01.944 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:01.970 I/ActivityManager(  658): Start proc 3809:com.google.android.accessibility.switchaccess/u0a166 for content provider {com.google.android.accessibility.switchaccess/com.google.android.accessibility.switchaccess.systemsettings.search.SwitchAccessSearchIndexablesProvider}
+11-14 13:26:01.970 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:01.982 I/ActivityManager(  658): Start proc 3836:com.google.android.gms.ui/u0a147 for content provider {com.google.android.gms/com.google.android.gms.accountsettings.content.SettingsSearchContentProvider}
+11-14 13:26:01.983 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:02.012 I/ActivityManager(  658): Start proc 3843:com.google.android.cellbroadcastreceiver/u0a198 for content provider {com.google.android.cellbroadcastreceiver/com.android.cellbroadcastreceiver.CellBroadcastSearchIndexableProvider}
+11-14 13:26:02.013 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:02.100 I/ActivityManager(  658): Process com.google.android.webview:webview_service (pid 3274) has died: cch+55 CEM 
+11-14 13:26:02.140 I/ActivityManager(  658): Process com.google.android.googlequicksearchbox:googleapp (pid 2664) has died: cch+45 CEM 
+11-14 13:26:02.164 I/ActivityManager(  658): Process com.google.android.tts (pid 2311) has died: cch+25 CEM 
+11-14 13:26:02.185 I/ActivityManager(  658): Process com.google.android.configupdater (pid 3358) has died: cch+15 CEM 
+11-14 13:26:02.193 I/ActivityManager(  658): Process com.google.android.federatedcompute (pid 3393) has died: cch+5 CEM 
+11-14 13:26:02.198 I/ActivityManager(  658): Start proc 3906:com.google.android.marvin.talkback/u0a173 for content provider {com.google.android.marvin.talkback/com.google.android.accessibility.talkback.preference.search.TalkBackSearchIndexablesProvider}
+11-14 13:26:02.199 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:02.245 I/ActivityManager(  658): Process com.google.android.ondevicepersonalization.services (pid 3436) has died: cch+5 CEM 
+11-14 13:26:06.308 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: start instr
+11-14 13:26:06.334 I/ActivityManager(  658): Start proc 4044:com.callstack.agentdevice.snapshothelper/u0a217 for added application com.callstack.agentdevice.snapshothelper
+11-14 13:26:06.334 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:07.228 I/ActivityManager(  658): Start proc 4081:com.google.android.apps.photos/u0a170 for service {com.google.android.apps.photos/com.google.android.libraries.social.mediamonitor.MediaMonitorJobSchedulerService}
+11-14 13:26:07.228 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:07.443 I/ActivityManager(  658): Process com.google.android.projection.gearhead:car (pid 3464) has died: cch+95 CEM 
+11-14 13:26:07.448 I/ActivityManager(  658): Process com.google.android.photopicker (pid 3493) has died: cch+85 CEM 
+11-14 13:26:07.904 I/tarn    ( 2855): verdict=0 us=1418 kind=0 url=http://public.test/pn top=null pending=http://public.test/pn
+11-14 13:26:07.965 I/tarn    ( 2855): started http://public.test/pn
+11-14 13:26:07.976 I/tarn    ( 2855): verdict=1 us=1629 kind=2 url=http://127.0.0.1:8771/pixel?via=127 top=null pending=http://public.test/pn
+11-14 13:26:07.977 I/tarn    ( 2855): verdict=1 us=779 kind=2 url=http://localhost:8771/pixel?via=localhost top=null pending=http://public.test/pn
+11-14 13:26:07.979 I/tarn    ( 2855): tab t1 event blocked {url=http://127.0.0.1:8771/pixel?via=127, reason=shield}
+11-14 13:26:07.979 I/tarn    ( 2855): tab t1 event blocked {url=http://localhost:8771/pixel?via=localhost, reason=shield}
+11-14 13:26:07.986 I/tarn    ( 2855): verdict=1 us=1780 kind=2 url=http://10.0.2.2:8771/pixel?via=10 top=null pending=http://public.test/pn
+11-14 13:26:07.996 I/tarn    ( 2855): tab t1 event blocked {url=http://10.0.2.2:8771/pixel?via=10, reason=shield}
+11-14 13:26:08.056 I/tarn    ( 2855): tab t1 event committed {url=http://public.test/pn, title=public.test/pn, canGoBack=false, canGoForward=false}
+11-14 13:26:08.072 I/tarn    ( 2855): verdict=0 us=2643 kind=2 url=http://public.test/favicon.ico top=http://public.test/pn pending=null
+11-14 13:26:08.080 I/tarn    ( 2855): tab t1 event title {title=public.test/pn}
+11-14 13:26:08.081 I/tarn    ( 2855): tab t1 event finished {url=http://public.test/pn, title=public.test/pn, canGoBack=false, canGoForward=false}
+11-14 13:26:16.651 I/ActivityManager(  658): Waited long enough for: ServiceRecord{6f5661a u0 com.android.settings/.SettingsDumpService c:com.android.settings}
+11-14 13:26:17.169 I/tarn    ( 2855): upgraded http://public.test/links -> https://public.test/links
+11-14 13:26:17.192 I/tarn    ( 2855): verdict=0 us=9629 kind=0 url=https://public.test/links top=http://public.test/pn pending=https://public.test/links
+11-14 13:26:17.442 I/tarn    ( 2855): tab t1 event failed {url=https://public.test/links, message=The site's certificate is not valid}
+11-14 13:26:17.531 I/tarn    ( 2855): tab t1 event finished {url=https://public.test/links, title=public.test/pn, canGoBack=false, canGoForward=false}
+11-14 13:26:26.312 I/tarn    ( 2855): verdict=0 us=363 kind=0 url=http://public.test/links top=http://public.test/pn pending=http://public.test/links
+11-14 13:26:26.422 I/tarn    ( 2855): started http://public.test/links
+11-14 13:26:26.438 I/tarn    ( 2855): tab t1 event title {title=public.test/links}
+11-14 13:26:26.438 I/tarn    ( 2855): tab t1 event finished {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 13:26:26.444 I/tarn    ( 2855): verdict=0 us=1045 kind=2 url=http://public.test/favicon.ico top=http://public.test/pn pending=http://public.test/links
+11-14 13:26:26.497 I/tarn    ( 2855): tab t1 event committed {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 13:26:31.594 I/tarn    ( 2855): tab t1 event external {url=mailto:a@example.com}
+11-14 13:26:31.657 I/tarn    ( 2855): verdict=0 us=1067 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 13:26:35.058 I/tarn    ( 2855): tab t1 event blocked {url=http://localhost:8771/local-from-public, reason=nav_policy}
+11-14 13:26:35.084 I/tarn    ( 2855): verdict=0 us=136 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 13:26:38.169 I/tarn    ( 2855): verdict=0 us=910 kind=0 url=http://public.test/redirect-local top=http://public.test/links pending=http://public.test/redirect-local
+11-14 13:26:38.182 I/tarn    ( 2855): tab t1 event blocked {url=http://localhost:8771/local-from-public, reason=nav_policy}
+11-14 13:26:38.183 I/tarn    ( 2855): tab t1 event finished {url=http://localhost:8771/local-from-public, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 13:26:38.188 I/tarn    ( 2855): verdict=0 us=277 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=http://public.test/redirect-local
+11-14 13:26:41.308 I/tarn    ( 2855): tab t1 event popup {url=http://public.test/opened}
+11-14 13:26:41.326 I/tarn    ( 2855): verdict=0 us=98 kind=0 url=http://public.test/opened top=null pending=http://public.test/opened
+11-14 13:26:41.327 I/ActivityManager(  658): Start proc 4328:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:2/u0i2 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:2}
+11-14 13:26:41.329 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:26:41.361 I/tarn    ( 2855): started http://public.test/opened
+11-14 13:26:41.361 I/tarn    ( 2855): tab t2 event title {title=public.test/opened}
+11-14 13:26:41.361 I/tarn    ( 2855): tab t2 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 13:26:41.367 I/tarn    ( 2855): verdict=0 us=91 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/opened
+11-14 13:26:41.406 I/tarn    ( 2855): tab t2 event committed {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 13:26:53.323 I/tarn    ( 2855): verdict=0 us=598 kind=0 url=http://localhost:8771/find top=http://public.test/opened pending=http://localhost:8771/find
+11-14 13:26:53.376 I/tarn    ( 2855): started http://localhost:8771/find
+11-14 13:26:53.387 I/tarn    ( 2855): tab t2 event title {title=localhost:8771/find}
+11-14 13:26:53.387 I/tarn    ( 2855): tab t2 event finished {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=true, canGoForward=false}
+11-14 13:26:53.406 I/tarn    ( 2855): verdict=1 us=5269 kind=2 url=http://localhost:8771/favicon.ico top=http://public.test/opened pending=http://localhost:8771/find
+11-14 13:26:53.426 I/tarn    ( 2855): tab t2 event blocked {url=http://localhost:8771/favicon.ico, reason=shield}
+11-14 13:26:53.505 I/tarn    ( 2855): tab t2 event committed {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=true, canGoForward=false}
+11-14 13:27:00.306 I/tarn    ( 2855): tab t1 event popup {url=http://public.test/redirect-local}
+11-14 13:27:00.441 I/tarn    ( 2855): verdict=0 us=400 kind=0 url=http://public.test/redirect-local top=http://localhost:8771/find pending=http://public.test/redirect-local
+11-14 13:27:00.541 I/tarn    ( 2855): tab t2 event blocked {url=http://localhost:8771/local-from-public, reason=nav_policy}
+11-14 13:27:00.603 I/tarn    ( 2855): tab t2 event finished {url=http://localhost:8771/local-from-public, title=localhost:8771/find, canGoBack=true, canGoForward=false}
+11-14 13:27:10.363 I/tarn    ( 2855): verdict=0 us=268 kind=0 url=http://public.test/title top=http://public.test/links pending=http://public.test/title
+11-14 13:27:10.426 I/tarn    ( 2855): started http://public.test/title
+11-14 13:27:10.426 I/tarn    ( 2855): tab t1 event title {title=first}
+11-14 13:27:10.426 I/tarn    ( 2855): tab t1 event finished {url=http://public.test/title, title=first, canGoBack=true, canGoForward=false}
+11-14 13:27:10.427 I/tarn    ( 2855): verdict=0 us=486 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=http://public.test/title
+11-14 13:27:10.453 I/tarn    ( 2855): tab t1 event committed {url=http://public.test/title, title=first, canGoBack=true, canGoForward=false}
+11-14 13:27:11.925 I/tarn    ( 2855): tab t1 event title {title=LATE-TITLE}
+11-14 13:27:16.075 I/tarn    ( 2855): verdict=0 us=149 kind=0 url=http://public.test/dialogs top=http://public.test/title pending=http://public.test/dialogs
+11-14 13:27:16.122 I/tarn    ( 2855): started http://public.test/dialogs
+11-14 13:27:16.146 I/tarn    ( 2855): tab t1 event title {title=public.test/dialogs}
+11-14 13:27:16.149 I/tarn    ( 2855): tab t1 event finished {url=http://public.test/dialogs, title=public.test/dialogs, canGoBack=true, canGoForward=false}
+11-14 13:27:16.153 I/tarn    ( 2855): verdict=0 us=273 kind=2 url=http://public.test/favicon.ico top=http://public.test/title pending=http://public.test/dialogs
+11-14 13:27:16.163 I/tarn    ( 2855): tab t1 event committed {url=http://public.test/dialogs, title=public.test/dialogs, canGoBack=true, canGoForward=false}
+11-14 13:27:19.813 I/tarn    ( 2855): verdict=0 us=158 kind=0 url=http://public.test/title top=http://public.test/dialogs pending=http://public.test/title
+11-14 13:27:19.857 I/tarn    ( 2855): started http://public.test/title
+11-14 13:27:19.859 I/tarn    ( 2855): tab t1 event title {title=first}
+11-14 13:27:19.863 I/tarn    ( 2855): tab t1 event finished {url=http://public.test/title, title=first, canGoBack=true, canGoForward=true}
+11-14 13:27:19.864 I/tarn    ( 2855): verdict=0 us=128 kind=2 url=http://public.test/favicon.ico top=http://public.test/dialogs pending=http://public.test/title
+11-14 13:27:19.897 I/tarn    ( 2855): tab t1 event committed {url=http://public.test/title, title=first, canGoBack=true, canGoForward=true}
+11-14 13:27:21.350 I/tarn    ( 2855): tab t1 event title {title=LATE-TITLE}
+11-14 13:27:23.249 I/tarn    ( 2855): verdict=0 us=91 kind=0 url=http://public.test/dialogs top=http://public.test/title pending=http://public.test/dialogs
+11-14 13:27:23.270 I/tarn    ( 2855): started http://public.test/dialogs
+11-14 13:27:23.271 I/tarn    ( 2855): tab t1 event title {title=public.test/dialogs}
+11-14 13:27:23.271 I/tarn    ( 2855): tab t1 event finished {url=http://public.test/dialogs, title=public.test/dialogs, canGoBack=true, canGoForward=false}
+11-14 13:27:23.273 I/tarn    ( 2855): verdict=0 us=487 kind=2 url=http://public.test/favicon.ico top=http://public.test/title pending=http://public.test/dialogs
+11-14 13:27:23.288 I/tarn    ( 2855): tab t1 event committed {url=http://public.test/dialogs, title=public.test/dialogs, canGoBack=true, canGoForward=false}
+11-14 13:27:27.904 I/tarn    ( 2855): private sweep removed 0 files
+11-14 13:27:28.012 W/ActivityManager(  658): Slow operation: 69ms so far, now at startProcess: returned from zygote!
+11-14 13:27:28.012 W/ActivityManager(  658): Slow operation: 70ms so far, now at startProcess: done updating battery stats
+11-14 13:27:28.012 W/ActivityManager(  658): Slow operation: 70ms so far, now at startProcess: building log message
+11-14 13:27:28.012 I/ActivityManager(  658): Start proc 4500:dev.tarn.browser:private/u0a215 for next-top-activity {dev.tarn.browser/dev.tarn.android.PrivateActivity}
+11-14 13:27:28.012 W/ActivityManager(  658): Slow operation: 70ms so far, now at startProcess: starting to update pids map
+11-14 13:27:28.013 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:27:28.013 W/ActivityManager(  658): Slow operation: 70ms so far, now at startProcess: done updating pids map
+11-14 13:27:28.485 I/ActivityManager(  658): Start proc 4527:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0i3 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:0}
+11-14 13:27:28.485 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:27:28.700 I/tarn    ( 4500): debug proxy localhost:8771
+11-14 13:27:29.635 I/tarn    ( 4500): tab t1 web view on store process default
+11-14 13:27:29.684 I/tarn    ( 4500): tab t2 web view on store process default
+11-14 13:27:30.488 I/tarn    ( 4500): rule lists built: 242 rules in 2166753 us
+11-14 13:27:30.978 I/ActivityManager(  658): Start proc 4595:com.google.android.webview:webview_service/u0a167 for service {com.google.android.webview/org.chromium.android_webview.services.VariationsSeedServer}
+11-14 13:27:30.978 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:27:35.209 I/tarn    ( 4500): verdict=0 us=614 kind=0 url=http://localhost:8771/private?m=R2 top=null pending=http://localhost:8771/private?m=R2
+11-14 13:27:35.319 I/tarn    ( 4500): started http://localhost:8771/private?m=R2
+11-14 13:27:35.324 I/tarn    ( 4500): tab t1 event title {title=stored R2}
+11-14 13:27:35.354 I/tarn    ( 4500): tab t1 event finished {url=http://localhost:8771/private?m=R2, title=stored R2, canGoBack=false, canGoForward=false}
+11-14 13:27:35.358 I/tarn    ( 4500): verdict=0 us=130 kind=2 url=http://localhost:8771/favicon.ico top=null pending=http://localhost:8771/private?m=R2
+11-14 13:27:35.383 I/tarn    ( 4500): tab t1 event committed {url=http://localhost:8771/private?m=R2, title=stored R2, canGoBack=false, canGoForward=false}
+11-14 13:27:39.717 I/ActivityManager(  658): Process dev.tarn.browser:private (pid 4500) has died: fg  TOP 
+11-14 13:27:39.723 I/ActivityManager(  658): Killing 4527:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0a215i3 (adj 0): isolated not needed
+11-14 13:27:39.730 W/ActivityManager(  658): setHasOverlayUi called on unknown pid: 4500
+11-14 13:27:39.807 I/tarn    ( 2855): private session swept, 101 files
+11-14 13:27:39.845 W/ActivityManager(  658): pid 3232 com.callstack.agentdevice.imehelper sent binder code 9 with flags 1 to frozen apps and got error -32
+11-14 13:27:40.335 W/ActivityManager(  658): pid 658 system sent binder code 7 with flags 1 to frozen apps and got error -32
+11-14 13:27:42.802 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: from pid 4641
+11-14 13:27:42.803 I/ActivityManager(  658): Killing 4044:com.callstack.agentdevice.snapshothelper/u0a217 (adj 0): stop com.callstack.agentdevice.snapshothelper due to from pid 4641
+11-14 13:27:42.806 W/ActivityManager(  658): Crash of app com.callstack.agentdevice.snapshothelper running instrumentation ComponentInfo{com.callstack.agentdevice.snapshothelper/com.callstack.agentdevice.snapshothelper.SnapshotInstrumentation}
+11-14 13:27:42.807 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: finished inst
+11-14 13:27:42.807 W/ActivityManager(  658): pid 658 system sent binder code 2 with flags 0 to frozen apps and got error -32
+11-14 13:27:42.807 I/ActivityManager(  658): Failure reporting to instrumentation watcher: comp=ComponentInfo{com.callstack.agentdevice.snapshothelper/com.callstack.agentdevice.snapshothelper.SnapshotInstrumentation} results=Bundle[{shortMsg=Process crashed.}]
+11-14 13:27:42.808 W/ActivityManager(  658): pid 658 system sent binder code 18 with flags 1 to frozen apps and got error -32
+11-14 13:27:42.808 W/ActivityManager(  658): Error shutting down UiAutomationConnection

@@ -1,0 +1,40 @@
+Page: dev.tarn.browser
+App: dev.tarn.browser
+Snapshot: 36 nodes
+Simulator AX snapshot unavailable (circuit-disabled); used XCTest for this app generation.
+@e1 [application] "Tarn"
+@e2 [other] "3 Menu Done New Tab Private Space Reopen Closed Tab Find in Page Zoom − 100% + Shield for This Site History Downloads Spaces and Profiles Settings 3"
+@e3 [other] "3"
+@e4 [button] "Back"
+@e5 [button] "Forward"
+@e6 [button] "Reload"
+@e7 [other] "Shield: Standard"
+@e8 [button] "Shield: Standard"
+@e9 [other] "Address"
+@e10 [text-field] "Not Secure — 127.0.0.1" [editable]
+@e11 [button] "Share"
+@e12 [button] "Tabs 3"
+@e13 [button] "Menu"
+@e14 [other] "Menu Done New Tab Private Space Reopen Closed Tab Find in Page Zoom − 100% + Shield for This Site History Downloads Spaces and Profiles Settings"
+@e15 [other] "Menu Done"
+@e16 [other] "Menu"
+@e17 [button] "Done"
+@e18 [scroll-area] "New Tab Private Space Reopen Closed Tab Find in Page Zoom − 100% + Shield for This Site History Downloads Spaces and Profiles Settings" [scrollable]
+@e19 [other] [same label as parent]
+@e20 [cell] "New Tab Private Space Reopen Closed Tab"
+@e21 [button] "New Tab"
+@e22 [button] "Private Space"
+@e23 [button] "Reopen Closed Tab"
+@e24 [cell] "Find in Page Zoom − 100% + Shield for This Site"
+@e25 [button] "Find in Page"
+@e26 [cell] "Zoom − 100% +"
+@e27 [button] "Zoom Out"
+@e28 [button] "Actual Size"
+@e29 [button] "Zoom In"
+@e30 [text] "Zoom"
+@e31 [button] "Shield for This Site"
+@e32 [other] "History Downloads Spaces and Profiles Settings"
+@e33 [button] "History"
+@e34 [button] "Downloads"
+@e35 [button] "Spaces and Profiles"
+@e36 [button] "Settings"

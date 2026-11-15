@@ -1,0 +1,2 @@
+14/Nov/2026 18:32:59 REQ CONNECT CONNECT public.test:443 cookie=''
+14/Nov/2026 18:32:59 "CONNECT public.test:443 HTTP/1.1" 200 -

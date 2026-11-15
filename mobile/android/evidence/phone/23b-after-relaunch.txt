@@ -1,0 +1,13 @@
+# 12:52:10 processes
+u0_a230       6386   462   42663168 393936 0                   0 S dev.tarn.browser
+# private/ tree
+find: 'private': No such file or directory
+no_backup
+no_backup/.webview
+# files containing marker PRIVMARK2
+# shared_prefs
+total 32
+drwxrwx--x 2 u0_a230 u0_a230 4096 2026-11-14 12:51 .
+drwx------ 9 u0_a230 u0_a230 4096 2026-11-14 12:51 ..
+-rw-rw---- 1 u0_a230 u0_a230  361 2026-11-14 12:51 WebViewChromiumPrefs.xml
+-rw-rw---- 1 u0_a230 u0_a230   65 2026-11-14 12:51 WebViewProfilePrefsWebViewProfilePrefsProfile 3.xml

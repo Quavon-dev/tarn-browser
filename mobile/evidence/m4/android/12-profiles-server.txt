@@ -1,0 +1,2 @@
+14/Nov/2026 18:34:34 REQ GET http://public.test/cookie?set=personal cookie='tarn=personal'
+14/Nov/2026 18:34:37 REQ GET http://public.test/cookie cookie='tarn=personal'

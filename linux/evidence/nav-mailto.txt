@@ -1,0 +1,8 @@
+# nav-mailto: localhost:8765/nav.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://localhost:8765/nav.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://localhost:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+[tarn] event external {"url":"mailto:a@example.com"}
+# server
+localhost:8765 GET /nav.html

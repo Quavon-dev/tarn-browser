@@ -1,0 +1,62 @@
+--------- beginning of main
+11-14 19:26:10.211 12353 12353 I tarn    : private sweep removed 0 files
+11-14 19:26:10.888 12353 12353 I tarn    : debug proxy localhost:8771
+11-14 19:26:11.858 12353 12353 I tarn    : tab n1 web view on store tarn-e862b8a6-e790-4dce-9400-d432b5f51d11
+11-14 19:26:12.491 12353 12368 I tarn    : rule lists built: 242 rules in 2247400 us
+11-14 19:26:17.254 12353 12388 I tarn    : verdict=0 main frame url=http://public.test/auth-third pending=http://public.test/auth-third
+11-14 19:26:17.501 12353 12353 I tarn    : started http://public.test/auth-third
+11-14 19:26:17.508 12353 12353 I tarn    : tab n1 event committed {url=http://public.test/auth-third, title=public.test/auth-third, canGoBack=false, canGoForward=false}
+11-14 19:26:17.541 12353 12388 I tarn    : verdict=0 us=1950 kind=2 url=http://other.test/auth top=http://public.test/auth-third pending=null
+11-14 19:26:17.576 12353 12391 I tarn    : verdict=0 us=56 kind=1 url=http://other.test/auth top=http://public.test/auth-third pending=null
+11-14 19:26:17.648 12353 12353 I tarn    : tab n1 event title {title=public.test/auth-third}
+11-14 19:26:17.650 12353 12353 I tarn    : tab n1 event finished {url=http://public.test/auth-third, title=public.test/auth-third, canGoBack=false, canGoForward=false}
+11-14 19:26:17.652 12353 12388 I tarn    : verdict=0 us=56 kind=2 url=http://public.test/favicon.ico top=http://public.test/auth-third pending=null
+11-14 19:26:30.167 12353 12388 I tarn    : verdict=0 main frame url=http://public.test/auth pending=http://public.test/auth
+11-14 19:26:30.173 12353 12353 I tarn    : tab n1 event prompt {id=1, kind=credentials, origin=http://public.test, realm=tarn test, insecure=true}
+11-14 19:26:40.967 12353 12353 I tarn    : tab n1 event prompt {id=2, kind=credentials, origin=http://public.test, realm=tarn test, insecure=true}
+11-14 19:26:44.620 12353 12353 I tarn    : tab n1 event prompt {id=3, kind=credentials, origin=http://public.test, realm=tarn test, insecure=true}
+11-14 19:26:48.253 12353 12353 I tarn    : started http://public.test/auth
+11-14 19:26:48.253 12353 12353 I tarn    : tab n1 event committed {url=http://public.test/auth, title=public.test/auth, canGoBack=true, canGoForward=false}
+11-14 19:26:48.260 12353 12353 I tarn    : tab n1 event title {title=public.test/auth}
+11-14 19:26:48.260 12353 12353 I tarn    : tab n1 event finished {url=http://public.test/auth, title=public.test/auth, canGoBack=true, canGoForward=false}
+11-14 19:26:48.265 12353 12388 I tarn    : verdict=0 us=343 kind=2 url=http://public.test/favicon.ico top=http://public.test/auth pending=null
+11-14 19:26:59.286 12353 12388 I tarn    : verdict=0 main frame url=http://public.test/popups pending=http://public.test/popups
+11-14 19:26:59.326 12353 12353 I tarn    : started http://public.test/popups
+11-14 19:26:59.327 12353 12353 I tarn    : tab n1 event committed {url=http://public.test/popups, title=public.test/popups, canGoBack=true, canGoForward=false}
+11-14 19:26:59.336 12353 12353 I tarn    : tab n1 event title {title=public.test/popups}
+11-14 19:26:59.337 12353 12353 I tarn    : tab n1 event finished {url=http://public.test/popups, title=public.test/popups, canGoBack=true, canGoForward=false}
+11-14 19:26:59.337 12353 12388 I tarn    : verdict=0 us=79 kind=2 url=http://public.test/favicon.ico top=http://public.test/popups pending=null
+11-14 19:27:02.751 12353 12353 I tarn    : tab n1 event popup {url=http://public.test/opened}
+11-14 19:27:02.783 12353 12353 I tarn    : tab n2 web view on store tarn-e862b8a6-e790-4dce-9400-d432b5f51d11
+11-14 19:27:02.794 12353 12388 I tarn    : verdict=0 main frame url=http://public.test/opened pending=http://public.test/opened
+11-14 19:27:02.847 12353 12353 I tarn    : started http://public.test/opened
+11-14 19:27:02.856 12353 12353 I tarn    : tab n2 event committed {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 19:27:02.863 12353 12353 I tarn    : tab n2 event title {title=public.test/opened}
+11-14 19:27:02.868 12353 12353 I tarn    : tab n2 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 19:27:02.872 12353 12388 I tarn    : verdict=0 us=62 kind=2 url=http://public.test/favicon.ico top=http://public.test/opened pending=null
+11-14 19:27:36.032 12353 12353 I tarn    : tab n1 event popup {url=http://public.test/opened}
+11-14 19:27:36.074 12353 12353 I tarn    : tab n3 web view on store tarn-e862b8a6-e790-4dce-9400-d432b5f51d11
+11-14 19:27:36.084 12353 12388 I tarn    : verdict=0 main frame url=http://public.test/opened pending=http://public.test/opened
+11-14 19:27:36.154 12353 12353 I tarn    : started http://public.test/opened
+11-14 19:27:36.154 12353 12353 I tarn    : tab n3 event committed {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 19:27:36.161 12353 12353 I tarn    : tab n3 event title {title=public.test/opened}
+11-14 19:27:36.162 12353 12353 I tarn    : tab n3 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 19:27:36.163 12353 12388 I tarn    : verdict=0 us=62 kind=2 url=http://public.test/favicon.ico top=http://public.test/opened pending=null
+11-14 19:27:38.061 12353 12353 I tarn    : tab n1 event popup {url=http://public.test/opened}
+11-14 19:27:38.108 12353 12353 I tarn    : tab n4 web view on store tarn-e862b8a6-e790-4dce-9400-d432b5f51d11
+11-14 19:27:38.118 12353 12392 I tarn    : verdict=0 main frame url=http://public.test/opened pending=http://public.test/opened
+11-14 19:27:38.158 12353 12353 I tarn    : started http://public.test/opened
+11-14 19:27:38.159 12353 12353 I tarn    : tab n4 event committed {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 19:27:38.165 12353 12353 I tarn    : tab n4 event title {title=public.test/opened}
+11-14 19:27:38.166 12353 12353 I tarn    : tab n4 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 19:27:38.177 12353 12388 I tarn    : verdict=0 us=75 kind=2 url=http://public.test/favicon.ico top=http://public.test/opened pending=null
+11-14 19:27:40.104 12353 12353 I tarn    : tab n1 event popup {url=http://public.test/opened}
+11-14 19:27:40.135 12353 12353 I tarn    : tab n5 web view on store tarn-e862b8a6-e790-4dce-9400-d432b5f51d11
+11-14 19:27:40.141 12353 12388 I tarn    : verdict=0 main frame url=http://public.test/opened pending=http://public.test/opened
+11-14 19:27:40.163 12353 12353 I tarn    : started http://public.test/opened
+11-14 19:27:40.163 12353 12353 I tarn    : tab n5 event committed {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 19:27:40.172 12353 12353 I tarn    : tab n5 event title {title=public.test/opened}
+11-14 19:27:40.176 12353 12353 I tarn    : tab n5 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 19:27:40.177 12353 12388 I tarn    : verdict=0 us=65 kind=2 url=http://public.test/favicon.ico top=http://public.test/opened pending=null
+11-14 19:27:42.207 12353 12353 I tarn    : popup over the burst limit refused
+11-14 19:27:44.215 12353 12353 I tarn    : popup over the burst limit refused

@@ -1,0 +1,4 @@
+[env]
+# SQLite's macOS allocator sizes blocks through malloc_default_zone(), which changes when
+# Chromium's PartitionAlloc loads; with this it keeps its own size header instead.
+LIBSQLITE3_FLAGS = { value = "SQLITE_WITHOUT_ZONEMALLOC", force = true }

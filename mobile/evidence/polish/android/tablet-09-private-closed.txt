@@ -1,0 +1,6 @@
+# after Close Private Space
+u0_a219      25520   454   42683532 237332 0                   0 S dev.tarn.browser
+# private/
+total 16
+drwx------  2 u0_a219 u0_a219 4096 2026-11-14 17:59 .
+drwx------ 10 u0_a219 u0_a219 4096 2026-11-14 17:58 ..

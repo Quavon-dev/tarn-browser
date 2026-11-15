@@ -1,0 +1,244 @@
+name: Chromium update
+
+# Proposes, tests, merges and builds a newer CEF build of the cef
+# crate's branch. Nothing here signs; the signing Mac decides (scripts/sign-release.sh).
+on:
+  schedule:
+    - cron: "41 */3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: chromium-update
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      cef_version: ${{ steps.find.outputs.cef_version }}
+      chromium_version: ${{ steps.find.outputs.chromium_version }}
+      release_date: ${{ steps.find.outputs.release_date }}
+      sha256_macosarm64: ${{ steps.find.outputs.sha256_macosarm64 }}
+      sha256_macosx64: ${{ steps.find.outputs.sha256_macosx64 }}
+      sha256_windows64: ${{ steps.find.outputs.sha256_windows64 }}
+      stale: ${{ steps.find.outputs.stale }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          fetch() { curl --proto '=https' --tlsv1.2 -sSfL --max-time 900 "$@"; }
+          newer() { [[ "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" == "$1" ]]; }
+          history=https://versionhistory.googleapis.com/v1/chrome/platforms/mac/channels
+          pinned="$(grep -E '^chromium_version=' packaging/cef.lock | cut -d= -f2-)"
+          crate="$(grep -A1 '^name = "cef-dll-sys"$' Cargo.lock | sed -n 's/^version = ".*+\(.*\)"$/\1/p')"
+          [[ "$crate" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+
+          fetch -o serving.json "$history/stable/versions/all/releases?filter=endtime=none"
+          latest="$(jq -r '[.releases[] | {v: .version, d: .serving.startTime[:10]}] | sort_by(.v | split(".") | map(tonumber)) | last | "\(.v) \(.d)"' serving.json)"
+          stale=false
+          if newer "${latest% *}" "$pinned" && [[ "${latest#* }" < "$(date -u -d '7 days ago' +%F)" ]]; then stale=true; fi
+          none() { echo "$1"; echo "stale=$stale" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          # cef-dll-sys builds only against its own CEF or an older build of its branch.
+          fetch -o index.json https://cef-builds.spotifycdn.com/index.json
+          builds="$(jq -r --arg branch "${crate%.*}." '[.macosarm64.versions[], .macosx64.versions[], .windows64.versions[]]
+            | map(select(.channel == "stable" and (.cef_version | startswith($branch))) | .cef_version)
+            | group_by(.) | map(select(length == 3) | .[0]) | .[]' index.json | sort -V)"
+          cef=""
+          while read -r version; do
+            [[ -z "$version" ]] || newer "${version%%+*}" "$crate" || cef="$version"
+          done <<<"$builds"
+          [[ -n "$cef" ]] || none "no stable CEF build of the cef crate's CEF $crate"
+          [[ "$cef" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+g[0-9a-f]{7}\+chromium-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          chromium="${cef##*+chromium-}"
+          newer "$chromium" "$pinned" || none "CEF $cef is not newer than Chromium $pinned"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/chromium-update/${cef//+/%2B}" >/dev/null 2>&1; then none "CEF $cef already proposed"; fi
+          # CEF's stable builds follow Chrome's extended stable channel as often as its stable one.
+          fetch -o releases.json "$history/all/versions/all/releases?filter=version=$chromium"
+          date="$(jq -r '[.releases[] | select(.name | test("/channels/(stable|extended)/")) | .serving.startTime[:10]] | min // empty' releases.json)"
+          [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || none "Chromium $chromium is not on Google's stable list"
+
+          {
+            echo "cef_version=$cef"
+            echo "chromium_version=$chromium"
+            echo "release_date=$date"
+            for platform in macosarm64 macosx64 windows64; do
+              name="cef_binary_${cef}_${platform}_minimal"
+              fetch -o "$platform.tar.bz2" "https://cef-builds.spotifycdn.com/${name//+/%2B}.tar.bz2"
+              echo "sha256_$platform=$(sha256sum "$platform.tar.bz2" | cut -d' ' -f1)"
+            done
+          } >> "$GITHUB_OUTPUT"
+
+  propose:
+    needs: watch
+    if: needs.watch.outputs.cef_version != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      commit: ${{ steps.commit.outputs.commit }}
+      base: ${{ steps.commit.outputs.base }}
+      branch: ${{ steps.commit.outputs.branch }}
+      tag: ${{ steps.commit.outputs.tag }}
+    env:
+      CEF_VERSION: ${{ needs.watch.outputs.cef_version }}
+      CHROMIUM_VERSION: ${{ needs.watch.outputs.chromium_version }}
+      RELEASE_DATE: ${{ needs.watch.outputs.release_date }}
+      SHA256_MACOSARM64: ${{ needs.watch.outputs.sha256_macosarm64 }}
+      SHA256_MACOSX64: ${{ needs.watch.outputs.sha256_macosx64 }}
+      SHA256_WINDOWS64: ${{ needs.watch.outputs.sha256_windows64 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+      - id: commit
+        # Only this file's commands run; nothing from the branch is executed.
+        run: |
+          branch="chromium-update/$CEF_VERSION"
+          printf '%s\n' "cef_version=$CEF_VERSION" "chromium_version=$CHROMIUM_VERSION" "release_date=$RELEASE_DATE" \
+            "host=cef-builds.spotifycdn.com" "sha256_macosarm64=$SHA256_MACOSARM64" "sha256_macosx64=$SHA256_MACOSX64" \
+            "sha256_windows64=$SHA256_WINDOWS64" > packaging/cef.lock
+          old="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)"
+          new="${old%.*}.$(( ${old##*.} + 1 ))"
+          sed -i "/^\[workspace.package\]/,/^\[/s/^version = \"$old\"$/version = \"$new\"/" Cargo.toml
+          cargo update --workspace
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -m "build: Chromium $CHROMIUM_VERSION (CEF $CEF_VERSION)" -- packaging/cef.lock Cargo.toml Cargo.lock
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "base=$(git rev-parse HEAD^)"
+            echo "branch=$branch"
+            echo "tag=v$new"
+          } >> "$GITHUB_OUTPUT"
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
+        run: git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BRANCH"
+
+  test:
+    needs: propose
+    if: needs.propose.outputs.commit != ''
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      commit: ${{ needs.propose.outputs.commit }}
+
+  merge:
+    needs: [propose, test]
+    runs-on: ubuntu-24.04
+    # The app that may bypass main's ruleset; its key is a secret of an environment only main can use,
+    # so a workflow on another branch cannot merge with it.
+    environment: chromium-update
+    permissions: {}
+    outputs:
+      commit: ${{ steps.merge.outputs.commit }}
+    env:
+      COMMIT: ${{ needs.propose.outputs.commit }}
+      BASE: ${{ needs.propose.outputs.base }}
+      BRANCH: ${{ needs.propose.outputs.branch }}
+      TAG: ${{ needs.propose.outputs.tag }}
+    steps:
+      - id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.CHROMIUM_UPDATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CHROMIUM_UPDATE_APP_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - id: merge
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        # The app opens the pull request: a workflow token that can open one can also approve one.
+        # The merge names the tested commit, so anything pushed to the branch since is refused. It
+        # merges only onto the main commit the tests ran on, so the merge has the tested tree; if
+        # main moved, the branch goes and the next run proposes again on the new main.
+        run: |
+          api="repos/$GITHUB_REPOSITORY"
+          pulls="$(gh api "$api/pulls?head=${GITHUB_REPOSITORY_OWNER}:${BRANCH//+/%2B}&state=all" --jq '[.[] | select(.base.ref == "main")]')"
+          if jq -e --arg commit "$COMMIT" 'any(.state == "closed" and .merged_at == null and .head.sha == $commit)' <<<"$pulls" >/dev/null; then
+            echo "a maintainer closed the pull request of $COMMIT without merging it"
+            exit 1
+          fi
+          pr="$(jq -r '[.[] | select(.state == "open" or .merged_at != null)][0].number // empty' <<<"$pulls")"
+          if [[ -z "$pr" ]]; then
+            pr="$(gh api "$api/pulls" -f base=main -f head="$BRANCH" -f title="build: ${BRANCH#chromium-update/}" \
+              -f body="Automatic engine update, tested in run $GITHUB_RUN_ID." --jq .number)"
+          fi
+          IFS=$'\t' read -r head merged sha < <(gh api "$api/pulls/$pr" --jq '[.head.sha, .merged, .merge_commit_sha] | @tsv')
+          [[ "$head" == "$COMMIT" ]] || { echo "the branch moved after its tests ran"; exit 1; }
+          if [[ "$merged" != true ]]; then
+            main="$(gh api "$api/git/ref/heads/main" --jq .object.sha)"
+            if [[ "$main" != "$BASE" ]]; then
+              gh api -X DELETE "$api/git/refs/heads/${BRANCH//+/%2B}"
+              echo "main moved from $BASE to $main while the tests ran; deleted the branch, closing pull request $pr, for the next run"
+              exit 0
+            fi
+            sha="$(gh api -X PUT "$api/pulls/$pr/merge" -f sha="$COMMIT" -f merge_method=merge --jq .sha)"
+          fi
+          parents="$(gh api "$api/commits/$sha" --jq '[.parents[].sha] | join(" ")')"
+          # The merge API takes no expected base: main moving between the check and the merge lands
+          # an untested merge, which is then never tagged (docs/release.md).
+          [[ "$parents" == "$BASE $COMMIT" ]] \
+            || { echo "main moved during the merge: $sha (parents $parents) is untested and stays untagged"; exit 1; }
+          tagged="$(gh api "$api/git/ref/tags/$TAG" --jq .object.sha 2>/dev/null || true)"
+          if [[ -z "$tagged" ]]; then
+            gh api "$api/git/refs" -f ref="refs/tags/$TAG" -f sha="$sha" >/dev/null
+          elif [[ "$tagged" != "$sha" ]]; then
+            echo "$TAG already names $tagged"
+            exit 1
+          fi
+          echo "commit=$sha" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [propose, merge]
+    if: needs.merge.outputs.commit != ''
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release.yml
+    with:
+      commit: ${{ needs.merge.outputs.commit }}
+      tag: ${{ needs.propose.outputs.tag }}
+
+  report:
+    needs: [watch, propose, test, merge, build]
+    if: always() && (contains(needs.*.result, 'failure') || needs.watch.outputs.stale == 'true')
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      FAILED: ${{ contains(needs.*.result, 'failure') }}
+      CEF_VERSION: ${{ needs.watch.outputs.cef_version }}
+    steps:
+      - run: |
+          if [[ "$FAILED" == true ]]; then
+            title="Chromium update ${CEF_VERSION:-check} failed"
+          else
+            title="No usable CEF build seven days after a Chrome stable release"
+          fi
+          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          open="$(gh issue list --label security --state open --search "\"$title\" in:title" --json number --jq length)"
+          [[ "$open" != 0 ]] || gh issue create --label security --title "$title" \
+            --body "See $run and docs/release.md (Automatic engine updates) for how to retry."

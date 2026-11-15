@@ -1,0 +1,40 @@
+[workspace]
+resolver = "3"
+members = ["app", "ios", "android/rust"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+rust-version = "1.97"
+
+[workspace.dependencies]
+browser-core = { path = "../crates/browser-core" }
+engine = { path = "../crates/engine" }
+shield = { path = "../crates/shield" }
+store = { path = "../crates/store" }
+tarn-mobile-ios = { path = "ios" }
+tarn-mobile-android = { path = "android/rust" }
+tarn-nsh-shared = { path = "../nsh-shared" }
+jni = "=0.21.1"
+nsh-core = "=0.5.0"
+nsh-base = "=0.5.0"
+nsh-engine = "=0.5.0"
+nsh-testing = "=0.5.0"
+nsh-platform-ios = { version = "=0.5.0", default-features = false }
+serde_json = "1"
+url = "=2.5.8"
+uuid = { version = "1", features = ["v4"] }
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"

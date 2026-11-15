@@ -1,0 +1,8 @@
+11-14 17:56:47.108 25520 25557 I tarn    : verdict=0 main frame url=http://public.test/links pending=http://public.test/links
+11-14 17:56:47.125 25520 25520 I tarn    : started http://public.test/links
+11-14 17:56:47.125 25520 25520 I tarn    : tab n3 event committed {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 17:56:47.134 25520 25520 I tarn    : tab n3 event title {title=public.test/links}
+11-14 17:56:47.134 25520 25520 I tarn    : tab n3 event finished {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 17:56:47.136 25520 25557 I tarn    : verdict=0 us=74 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 17:56:51.436 25520 25520 I tarn    : tab n3 event external {url=mailto:a@example.com, origin=http://public.test}
+11-14 17:56:51.442 25520 25557 I tarn    : verdict=0 us=89 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null

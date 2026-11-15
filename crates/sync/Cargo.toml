@@ -1,0 +1,22 @@
+[package]
+name = "sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Experimental encrypted sync file format and merge core; not wired into the app."
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+argon2 = { version = "=0.6.0", default-features = false, features = ["alloc", "zeroize"] }
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc", "zeroize"] }
+engine.workspace = true
+shield.workspace = true
+getrandom = "=0.4.3"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+url.workspace = true
+zeroize = "=1.9.1"
+
+[lints]
+workspace = true

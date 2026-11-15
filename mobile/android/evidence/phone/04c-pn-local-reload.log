@@ -1,0 +1,9 @@
+--------- beginning of main
+11-14 12:37:57.344  1195  1257 I tarn    : verdict=0 us=105 kind=0 url=http://localhost:8771/pn top=http://localhost:8771/pn pending=http://localhost:8771/pn
+11-14 12:37:57.376  1195  1195 I tarn    : started http://localhost:8771/pn
+11-14 12:37:57.377  1195  1257 I tarn    : verdict=0 us=109 kind=2 url=http://127.0.0.1:8771/pixel?via=127 top=http://localhost:8771/pn pending=http://localhost:8771/pn
+11-14 12:37:57.378  1195  1284 I tarn    : verdict=0 us=42 kind=2 url=http://localhost:8771/pixel?via=localhost top=http://localhost:8771/pn pending=http://localhost:8771/pn
+11-14 12:37:57.378  1195  1257 I tarn    : verdict=0 us=38 kind=2 url=http://10.0.2.2:8771/pixel?via=10 top=http://localhost:8771/pn pending=http://localhost:8771/pn
+11-14 12:37:57.387  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/pn, title=localhost:8771/pn, canGoBack=true, canGoForward=false}
+11-14 12:37:57.388  1195  1257 I tarn    : verdict=0 us=70 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/pn pending=http://localhost:8771/pn
+11-14 12:37:57.401  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/pn, title=localhost:8771/pn, canGoBack=true, canGoForward=false}

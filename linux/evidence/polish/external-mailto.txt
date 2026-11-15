@@ -1,0 +1,7 @@
+# external-mailto: http://127.0.0.1:8765/nav.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+[tarn] event external {"origin":"http://127.0.0.1:8765","url":"mailto:a@example.com"}
+# server

@@ -1,0 +1,12 @@
+--------- beginning of main
+11-14 12:41:12.428  1195  1257 I tarn    : verdict=0 us=59 kind=0 url=http://localhost:8771/perm top=http://public.test/auth pending=http://localhost:8771/perm
+11-14 12:41:12.460  1195  1195 I tarn    : started http://localhost:8771/perm
+11-14 12:41:12.467  1195  1195 I tarn    : tab t1 event title {title=localhost:8771/perm}
+11-14 12:41:12.468  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/perm, title=localhost:8771/perm, canGoBack=true, canGoForward=false}
+11-14 12:41:12.472  1195  1257 I tarn    : verdict=1 us=143 kind=2 url=http://localhost:8771/favicon.ico top=http://public.test/auth pending=http://localhost:8771/perm
+11-14 12:41:12.481  1195  1195 I tarn    : tab t1 event blocked {url=http://localhost:8771/favicon.ico, reason=shield}
+11-14 12:41:12.504  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/perm, title=localhost:8771/perm, canGoBack=true, canGoForward=false}
+11-14 12:41:15.768  1195  1195 I tarn    : tab t1 event prompt {id=9, kind=location, origin=http://localhost:8771, topOrigin=http://localhost:8771}
+11-14 12:41:18.940  1195  1195 I tarn    : tab t1 event title {title=geo 2}
+11-14 12:41:23.109  1195  1195 I tarn    : tab t1 event prompt {id=10, kind=camera, origin=http://localhost:8771, topOrigin=http://localhost:8771}
+11-14 12:41:26.450  1195  1195 I tarn    : tab t1 event title {title=cam NotAllowedError}

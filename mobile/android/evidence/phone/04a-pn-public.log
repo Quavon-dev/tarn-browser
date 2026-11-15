@@ -1,0 +1,18 @@
+--------- beginning of main
+11-14 12:36:52.023  1195  1195 I tarn    : private sweep removed 0 files
+11-14 12:36:52.561  1195  1195 I tarn    : debug proxy localhost:8771
+11-14 12:36:53.681  1195  1195 I tarn    : tab t1 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 12:36:53.801  1195  1195 I tarn    : tab t2 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 12:36:55.237  1195  1232 I tarn    : rule lists built: 242 rules in 3145990 us
+11-14 12:37:30.041  1195  1257 I tarn    : verdict=0 us=686 kind=0 url=http://public.test/pn top=null pending=http://public.test/pn
+11-14 12:37:30.183  1195  1195 I tarn    : started http://public.test/pn
+11-14 12:37:30.203  1195  1257 I tarn    : verdict=1 us=493 kind=2 url=http://127.0.0.1:8771/pixel?via=127 top=null pending=http://public.test/pn
+11-14 12:37:30.216  1195  1195 I tarn    : tab t1 event blocked {url=http://127.0.0.1:8771/pixel?via=127, reason=shield}
+11-14 12:37:30.222  1195  1284 I tarn    : verdict=1 us=10377 kind=2 url=http://localhost:8771/pixel?via=localhost top=null pending=http://public.test/pn
+11-14 12:37:30.232  1195  1195 I tarn    : tab t1 event blocked {url=http://localhost:8771/pixel?via=localhost, reason=shield}
+11-14 12:37:30.241  1195  1257 I tarn    : verdict=1 us=506 kind=2 url=http://10.0.2.2:8771/pixel?via=10 top=null pending=http://public.test/pn
+11-14 12:37:30.252  1195  1195 I tarn    : tab t1 event blocked {url=http://10.0.2.2:8771/pixel?via=10, reason=shield}
+11-14 12:37:30.324  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/pn, title=public.test/pn, canGoBack=false, canGoForward=false}
+11-14 12:37:30.405  1195  1257 I tarn    : verdict=0 us=234 kind=2 url=http://public.test/favicon.ico top=http://public.test/pn pending=null
+11-14 12:37:30.421  1195  1195 I tarn    : tab t1 event title {title=public.test/pn}
+11-14 12:37:30.421  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/pn, title=public.test/pn, canGoBack=false, canGoForward=false}

@@ -1,0 +1,3 @@
+# during the private session
+private/d73881e4fe0a0bbea6faa058b2773853/Downloads/evil_name.bin
+# after close

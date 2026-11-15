@@ -1,0 +1,27 @@
+[package]
+name = "import"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Reads cookies, history and bookmarks from other browsers for Tarn's import."
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+aes = "=0.8.4"
+cbc = "=0.1.2"
+pbkdf2 = { version = "=0.12.2", default-features = false, features = ["hmac"] }
+rusqlite = { workspace = true, features = ["limits"] }
+serde_json = "=1.0.154"
+sha1 = "=0.10.7"
+sha2 = "=0.10.9"
+zeroize = "=1.9.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "=3.7.0"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

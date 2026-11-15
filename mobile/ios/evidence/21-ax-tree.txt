@@ -1,0 +1,27 @@
+Page: dev.tarn.browser
+App: dev.tarn.browser
+Snapshot: 23 nodes
+Simulator AX snapshot unavailable (circuit-disabled); used XCTest for this app generation.
+@e1 [application] "Tarn"
+  @e2 [other] "Standard Back Forward Share Tabs 5 Menu"
+    @e3 [other] "Standard"
+      @e4 [button] "Standard"
+      @e5 [other] "Address"
+        @e6 [text-field] "http://127.0.0.1:8765/cookie.html" [editable]
+    @e7 [other] "Vertical scroll bar, 1 page"
+      @e8 [webview] [same label as parent]
+        @e9 [webview] "Cookie"
+          @e10 [other] "Cookie"
+            @e11 [other] "Cookie"
+              @e12 [other] "Cookie" [focused]
+                @e13 [text] "Cookie" [focused]
+              @e14 [other] "before: tarn=A | after: tarn=A" [focused]
+                @e15 [text] "before: tarn=A | after: tarn=A" [focused]
+        @e16 [other] "0%"
+        @e17 [other] "Horizontal scroll bar, 1 page"
+    @e18 [other] "Back Forward Share Tabs 5 Menu"
+      @e19 [button] "Back"
+      @e20 [button] "Forward"
+      @e21 [button] "Share"
+      @e22 [button] "Tabs 5"
+      @e23 [button] "Menu"

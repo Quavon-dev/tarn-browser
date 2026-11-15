@@ -1,0 +1,21 @@
+# popup-flood: localhost:8765/nav.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://localhost:8765/nav.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://localhost:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+[tarn] event popup {"url":"http://localhost:8765/find.html?0"}
+[tarn] event popup {"url":"http://localhost:8765/find.html?1"}
+[tarn] event popup {"url":"http://localhost:8765/find.html?2"}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/find.html?0"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/find.html?0"}
+[tarn] event title {"title":"find"}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/find.html?1"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/find.html?1"}
+[tarn] event title {"title":"find"}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/find.html?2"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/find.html?2"}
+[tarn] event title {"title":"find"}
+# server
+localhost:8765 GET /find.html?0
+localhost:8765 GET /find.html?1
+localhost:8765 GET /find.html?2

@@ -1,0 +1,23 @@
+# 13:09:19 processes
+# private/ tree
+private
+private/39f29f6cae67334ec3a503e33c71ceca
+private/39f29f6cae67334ec3a503e33c71ceca/data
+private/39f29f6cae67334ec3a503e33c71ceca/data/webview
+private/39f29f6cae67334ec3a503e33c71ceca/data/textures
+private/39f29f6cae67334ec3a503e33c71ceca/cache
+private/39f29f6cae67334ec3a503e33c71ceca/cache/WebView
+no_backup
+no_backup/.webview
+no_backup/.webview/BrowserMetrics-spare.pma
+no_backup/private-tokens
+# files containing marker TABMARK2
+./private/39f29f6cae67334ec3a503e33c71ceca/data/webview/Default/Local Storage/leveldb/000003.log
+./private/39f29f6cae67334ec3a503e33c71ceca/data/webview/Default/IndexedDB/http_localhost_8771.indexeddb.leveldb/000003.log
+./private/39f29f6cae67334ec3a503e33c71ceca/data/webview/Default/Service Worker/CacheStorage/6749fbd1b33388f290f13e983ef2103e0f7523a3/ffaa9d91-83a4-4632-b9c0-bd69daa2cc5f/366478d4cf1bb462_0
+# shared_prefs
+total 32
+drwxrwx--x  2 u0_a215 u0_a215 4096 2026-11-14 13:08 .
+drwx------ 10 u0_a215 u0_a215 4096 2026-11-14 13:08 ..
+-rw-rw----  1 u0_a215 u0_a215  502 2026-11-14 13:06 AwOriginVisitLoggerPrefs.xml
+-rw-rw----  1 u0_a215 u0_a215  298 2026-11-14 13:08 WebViewChromiumPrefs.xml

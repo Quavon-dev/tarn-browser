@@ -1,0 +1,14 @@
+# 13:08:49 processes
+u0_a215       8194   451   42723268 124604 0                   0 S dev.tarn.browser
+# private/ tree
+find: 'private': No such file or directory
+no_backup
+no_backup/.webview
+no_backup/.webview/BrowserMetrics-spare.pma
+# files containing marker TABMARK1
+# shared_prefs
+total 32
+drwxrwx--x 2 u0_a215 u0_a215 4096 2026-11-14 13:07 .
+drwx------ 9 u0_a215 u0_a215 4096 2026-11-14 13:08 ..
+-rw-rw---- 1 u0_a215 u0_a215  502 2026-11-14 13:06 AwOriginVisitLoggerPrefs.xml
+-rw-rw---- 1 u0_a215 u0_a215  298 2026-11-14 13:07 WebViewChromiumPrefs.xml

@@ -1,0 +1,44 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+exclude = ["mobile", "linux", "nsh-shared"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "A privacy-first web browser for macOS, Windows, Linux, iOS and Android."
+repository = "https://github.com/Quavon-dev/tarn-browser"
+homepage = "https://github.com/Quavon-dev/tarn-browser"
+publish = false
+rust-version = "1.90"
+
+[workspace.dependencies]
+store = { path = "crates/store" }
+shield = { path = "crates/shield" }
+engine = { path = "crates/engine" }
+browser-core = { path = "crates/browser-core" }
+platform = { path = "crates/platform" }
+import = { path = "crates/import" }
+ui = { path = "crates/ui" }
+devkit = { path = "crates/devkit" }
+block2 = "=0.6.2"
+rusqlite = { version = "=0.42.0", features = ["bundled"] }
+url = "=2.5.8"
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+# The Shield card is projected pixel by pixel on every frame; unoptimised it cannot keep up.
+[profile.dev.package.ui]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

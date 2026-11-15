@@ -1,0 +1,6 @@
+# https-only-typed-default: http://example.com/
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":""}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"https://example.com/"}
+[tarn] event title {"title":"Example Domain"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"Example Domain","url":"https://example.com/"}
+# server

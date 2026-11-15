@@ -1,0 +1,7 @@
+Filtering the log data using "composedMessage CONTAINS[c] "WebsiteDataStore" OR composedMessage CONTAINS[c] "destroySession""
+2026-11-14 23:55:31.379 Df Tarn[54388:44ed4b9] [com.apple.WebKit:Storage] 0x10b90b488 - WebsiteDataStore::~WebsiteDataStore sessionID=2
+2026-11-14 23:55:31.380 Df com.apple.WebKit.Networking[54805:44ed7a2] [com.apple.WebKit:Storage] 0x1100541e0 - NetworkProcess::destroySession sessionID=2 identifier=ae49b281-2475-4b3c-9e28-6b4a176e56a8
+2026-11-14 23:55:36.706 Df Tarn[54388:44ed4b9] [com.apple.WebKit:Storage] 0x13d731188 - WebsiteDataStore::WebsiteDataStore sessionID=9223372036854775810 identifier=null
+2026-11-14 23:55:45.197 Df Tarn[54388:44ed4b9] [com.apple.WebKit:Storage] 0x13fc53988 - WebsiteDataStore::WebsiteDataStore sessionID=3 identifier=ae49b281-2475-4b3c-9e28-6b4a176e56a8
+2026-11-14 23:55:45.247 Df Tarn[54388:44ed4b9] [com.apple.WebKit:Storage] 0x13d731188 - WebsiteDataStore::~WebsiteDataStore sessionID=9223372036854775810
+2026-11-14 23:55:45.254 Df com.apple.WebKit.Networking[55839:44ee3be] [com.apple.WebKit:Storage] 0x1120541e0 - NetworkProcess::destroySession sessionID=9223372036854775810 identifier=null

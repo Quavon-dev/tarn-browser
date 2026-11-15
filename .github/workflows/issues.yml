@@ -1,0 +1,121 @@
+name: Issues
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/issues.yml]
+  issues:
+    types: [opened, reopened, labeled]
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: issues-${{ github.event.issue.number || github.event.pull_request.number || 'all' }}
+
+jobs:
+  triage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const LABELS = {
+              'type: bug': ['d73a4a', 'Something does not work'],
+              'type: feature': ['0e8a16', 'New capability, needs a vote'],
+              'type: change': ['5319e7', 'Large refactor or behaviour change, needs a vote'],
+              'type: docs': ['0075ca', 'Documentation only'],
+              'status: triage': ['fbca04', 'Waiting for a maintainer to look'],
+              'status: voting': ['c5def5', 'Waiting for a 👍 from another maintainer'],
+              'status: approved': ['0e8a16', 'Approved, ready to build'],
+              'status: rejected': ['b60205', 'Voted down'],
+              'status: in progress': ['1d76db', 'A pull request is open'],
+              'security': ['b60205', 'Security problem, also opened by the Chromium update workflow'],
+            };
+            const VOTE = ['status: voting', 'status: approved', 'status: rejected'];
+            const NEEDS_VOTE = ['type: feature', 'type: change'];
+            const MAINTAINER = ['admin', 'maintain', 'write'];
+            const repo = context.repo;
+            const permissions = new Map();
+
+            async function isMaintainer(user) {
+              if (user.type === 'Bot') return false;
+              if (!permissions.has(user.login)) {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ ...repo, username: user.login })
+                  .catch(() => ({ data: { permission: 'none' } }));
+                permissions.set(user.login, MAINTAINER.includes(data.permission));
+              }
+              return permissions.get(user.login);
+            }
+
+            async function setStatus(issue, names, target) {
+              for (const name of [...VOTE, 'status: triage'].filter((n) => n !== target && names.includes(n))) {
+                await github.rest.issues.removeLabel({ ...repo, issue_number: issue.number, name });
+              }
+              if (!names.includes(target)) {
+                await github.rest.issues.addLabels({ ...repo, issue_number: issue.number, labels: [target] });
+                core.info(`#${issue.number} -> ${target}`);
+              }
+            }
+
+            async function tally(issue) {
+              if (issue.pull_request || issue.state !== 'open') return;
+              const names = issue.labels.map((l) => (typeof l === 'string' ? l : l.name));
+              if (!names.some((n) => VOTE.includes(n) || NEEDS_VOTE.includes(n))) return;
+              const reactions = await github.paginate(github.rest.reactions.listForIssue, { ...repo, issue_number: issue.number, per_page: 100 });
+              let up = 0, down = 0;
+              for (const r of reactions) {
+                if (!['+1', '-1'].includes(r.content) || r.user.login === issue.user.login) continue;
+                if (!(await isMaintainer(r.user))) continue;
+                r.content === '+1' ? up++ : down++;
+              }
+              await setStatus(issue, names, up > down ? 'status: approved' : down > up ? 'status: rejected' : 'status: voting');
+            }
+
+            async function syncLabels() {
+              const existing = new Set((await github.paginate(github.rest.issues.listLabelsForRepo, { ...repo, per_page: 100 })).map((l) => l.name));
+              for (const [name, [color, description]] of Object.entries(LABELS)) {
+                const label = { ...repo, name, color, description };
+                existing.has(name) ? await github.rest.issues.updateLabel(label) : await github.rest.issues.createLabel(label);
+              }
+            }
+
+            async function linkPullRequest(pr) {
+              const numbers = [...new Set([...(pr.body || '').matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)/gi)].map((m) => Number(m[1])))];
+              const blocked = [];
+              for (const issue_number of numbers) {
+                const { data: issue } = await github.rest.issues.get({ ...repo, issue_number }).catch(() => ({ data: null }));
+                if (!issue || issue.pull_request) continue;
+                const names = issue.labels.map((l) => l.name);
+                if (names.includes('status: voting') || names.includes('status: rejected')) blocked.push(`#${issue_number}`);
+                // Only a maintainer's pull request moves an issue to in progress.
+                if (issue.state === 'open' && !names.includes('status: in progress') && (await isMaintainer(pr.user))) {
+                  await github.rest.issues.addLabels({ ...repo, issue_number, labels: ['status: in progress'] });
+                }
+              }
+              if (blocked.length) core.setFailed(`Not approved yet: ${blocked.join(', ')}`);
+            }
+
+            switch (context.eventName) {
+              case 'push':
+              case 'workflow_dispatch':
+                await syncLabels();
+              case 'schedule': {
+                const issues = await github.paginate(github.rest.issues.listForRepo, { ...repo, state: 'open', per_page: 100 });
+                for (const issue of issues) await tally(issue);
+                break;
+              }
+              case 'pull_request_target':
+                await linkPullRequest(context.payload.pull_request);
+                break;
+              default:
+                await tally((await github.rest.issues.get({ ...repo, issue_number: context.payload.issue.number })).data);
+            }

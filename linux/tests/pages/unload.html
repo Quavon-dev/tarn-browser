@@ -1,0 +1,7 @@
+<!doctype html><title>unload</title>
+<body onpagehide="new Image().src='/pixel?ev=pagehide'" onbeforeunload="new Image().src='/pixel?ev=beforeunload'" onunload="new Image().src='/pixel?ev=unload'">
+<h1>UNLOAD-PAGE</h1>
+<button onclick="new Image().src='/pixel?ev=click'" style="font-size:40px">beacon</button>
+<form action="https://open.test:8443/slow"><button style="font-size:40px">send form</button></form>
+<a href="https://open.test:8443/slow" style="font-size:40px">slow link</a>
+</body>

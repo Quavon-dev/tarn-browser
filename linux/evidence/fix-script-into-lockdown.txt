@@ -1,0 +1,14 @@
+# fix-script-into-lockdown: http://public.test:8765/pn.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://public.test:8765/pn.html"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://public.test:8765/pn.html"}
+[tarn] event title {"title":"img-error"}
+[tarn] event title {"title":""}
+[tarn] event blocked {"reason":"rebuild","url":"https://trusted.test:8443/cookie.html#via-script"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"https://trusted.test:8443/cookie.html#via-script"}
+[tarn] event title {"title":"cookie"}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"https://trusted.test:8443/cookie.html#via-script"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"https://trusted.test:8443/cookie.html#via-script"}
+[tarn] event title {"title":"cookie"}
+# server
+public.test:8765 GET /pn.html "GET /pn.html HTTP/1.1" 200 -

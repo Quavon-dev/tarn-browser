@@ -1,0 +1,340 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_call:
+    inputs:
+      commit:
+        type: string
+        required: true
+      tag:
+        type: string
+        required: true
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  CYCLONEDX_VERSION: 0.5.10
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    # The update app's tag is built by chromium-update.yml, which calls this workflow itself.
+    if: inputs.commit != '' || github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
+    runs-on: macos-15
+    permissions:
+      contents: read
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    env:
+      # Left unsigned for the signing Mac (docs/release.md).
+      TARN_SIGN_IDENTITY: none
+      # The unsandboxed bundle moves a sandboxed install's data out of its container once.
+      TARN_RELEASE_BUILD: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+      - run: |
+          scripts/fetch-ninja.sh "$RUNNER_TEMP/ninja"
+          echo "$RUNNER_TEMP/ninja" >> "$GITHUB_PATH"
+      - run: scripts/bundle.sh
+      - run: |
+          mkdir dist
+          ditto -c -k --keepParent target/release/Tarn.app "dist/Tarn-${TAG}-unsigned.zip"
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundle
+          path: dist/
+          if-no-files-found: error
+
+  windows:
+    # Engine updates (chromium-update.yml) ship the macOS bundle alone, without waiting for the rest.
+    if: inputs.commit == '' && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    env:
+      INNO_SETUP_URL: https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe
+      INNO_SETUP_SHA256: 9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+      - run: scripts/check-version.sh "$TAG"
+      - run: echo "CEF_PATH=$(cygpath -w "$(scripts/fetch-cef.sh windows64)")" >> "$GITHUB_ENV"
+      - run: cargo build --release --locked -p app-dll
+        env:
+          TARN_RELEASE_BUILD: "1"
+      - run: |
+          curl -fsSL -o "$RUNNER_TEMP/innosetup.exe" "$INNO_SETUP_URL"
+          echo "$INNO_SETUP_SHA256  $RUNNER_TEMP/innosetup.exe" | sha256sum -c -
+          MSYS2_ARG_CONV_EXCL='*' "$RUNNER_TEMP/innosetup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /PORTABLE=1 "/DIR=$(cygpath -w "$RUNNER_TEMP/inno")"
+          echo "ISCC=$RUNNER_TEMP/inno/ISCC.exe" >> "$GITHUB_ENV"
+      - run: |
+          rm -rf dist
+          scripts/package-windows.sh dist/Tarn
+          scripts/installer-windows.sh dist/Tarn dist
+          mv "dist/Tarn-${TAG}-windows-x64-setup.exe" "dist/Tarn-${TAG}-windows-x64-setup-unsigned.exe"
+          cd dist && 7z a -tzip "Tarn-${TAG}-windows-x64-unsigned.zip" Tarn >/dev/null && rm -rf Tarn
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: dist/
+          if-no-files-found: error
+
+  linux:
+    # Engine updates (chromium-update.yml) ship the macOS bundle alone, without waiting for the rest.
+    if: inputs.commit == '' && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - run: scripts/check-version.sh "$TAG"
+      - run: for package in deb-debian deb-ubuntu rpm arch; do TARN_PKG_PLATFORM=linux/amd64 linux/packaging/build-all.sh "$package"; done
+      - run: |
+          mkdir dist
+          find linux/dist -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.zst' \) -exec cp {} dist/ \;
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux
+          path: dist/
+          if-no-files-found: error
+
+  mobile:
+    # Engine updates (chromium-update.yml) ship the macOS bundle alone, without waiting for the rest.
+    if: inputs.commit == '' && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
+    outputs:
+      ios: ${{ steps.ios.outputs.artifact-id }}
+      android: ${{ steps.android.outputs.artifact-id }}
+    runs-on: macos-15
+    permissions:
+      contents: read
+    env:
+      NSH_RELEASE: https://github.com/longbridge/nsh/releases/download/v0.5.0
+      NSH_SHA256: e6722427b391b00cf7ec13137db9366e78d1e7a045f2933cf00b340365309d9d
+      NSH_ANDROID_SHA256: bd9f42c043c08f0c29c874d2a8247e389258f88778a5160d646f73fc2ccfbe73
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+          targets: aarch64-apple-ios, aarch64-linux-android, armv7-linux-androideabi
+      - run: scripts/check-version.sh "$TAG"
+      - run: |
+          curl -fsSL -o "$RUNNER_TEMP/nsh.tar.gz" "$NSH_RELEASE/nsh-macos-arm64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/nsh-android.tar.gz" "$NSH_RELEASE/nsh-android.tar.gz"
+          echo "$NSH_SHA256  $RUNNER_TEMP/nsh.tar.gz" | shasum -a 256 -c -
+          echo "$NSH_ANDROID_SHA256  $RUNNER_TEMP/nsh-android.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/nsh.tar.gz" -C "$RUNNER_TEMP"
+          tar -xzf "$RUNNER_TEMP/nsh-android.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/nsh/bin" >> "$GITHUB_PATH"
+      - name: iOS (unsigned)
+        run: |
+          (cd mobile/app && nsh package --target ios -o "$RUNNER_TEMP/ios")
+          mkdir "$RUNNER_TEMP/out-ios"
+          ditto -c -k --keepParent "$RUNNER_TEMP/ios/Tarn.app" "$RUNNER_TEMP/out-ios/Tarn-${TAG}-ios-unsigned.zip"
+      - name: Android (unsigned)
+        run: |
+          GRADLE_TASK=assembleRelease mobile/android/build.sh
+          mkdir "$RUNNER_TEMP/out-android"
+          cp mobile/android/host/build/outputs/apk/release/*.apk "$RUNNER_TEMP/out-android/Tarn-${TAG}-android-unsigned.apk"
+      - id: ios
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios
+          path: ${{ runner.temp }}/out-ios/
+          if-no-files-found: error
+      - id: android
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android
+          path: ${{ runner.temp }}/out-android/
+          if-no-files-found: error
+
+  # Compiles cargo-cyclonedx from crates.io, so it only writes the SBOM and never touches the release files.
+  sbom:
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    needs: build
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+      - run: cargo install cargo-cyclonedx --version "=$CYCLONEDX_VERSION" --locked
+      - run: cargo cyclonedx --format json --spec-version 1.5 --override-filename tarn.cdx --all-features
+      - run: |
+          mkdir "$RUNNER_TEMP/sbom"
+          cp crates/app/tarn.cdx.json "$RUNNER_TEMP/sbom/Tarn-${TAG}.cdx.json"
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/sbom/
+          if-no-files-found: error
+
+  # Runs no build code: it takes each build job's files by their fixed names, so no job can replace
+  # another platform's file, then writes SHA256SUMS and attests the binaries. Engine updates
+  # (chromium-update.yml) ship the macOS bundle alone, without waiting for the rest.
+  assets:
+    needs: [build, sbom, windows, linux, mobile]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.sbom.result == 'success' && (inputs.commit != '' || (needs.windows.result == 'success' && needs.linux.result == 'success' && needs.mobile.result == 'success')) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact }}
+          path: artifacts/bundle
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.sbom.outputs.artifact }}
+          path: artifacts/sbom
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: inputs.commit == ''
+        with:
+          artifact-ids: ${{ needs.windows.outputs.artifact }}
+          path: artifacts/windows
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: inputs.commit == ''
+        with:
+          artifact-ids: ${{ needs.linux.outputs.artifact }}
+          path: artifacts/linux
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: inputs.commit == ''
+        with:
+          artifact-ids: ${{ needs.mobile.outputs.ios }}
+          path: artifacts/ios
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: inputs.commit == ''
+        with:
+          artifact-ids: ${{ needs.mobile.outputs.android }}
+          path: artifacts/android
+          merge-multiple: true
+      - name: Collect assets
+        env:
+          ENGINE_UPDATE: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          mkdir dist
+          version="${TAG#v}"
+          # Each artifact must hold exactly the files named here, one per pattern.
+          take() {
+            local dir="artifacts/$1" pattern file count=0
+            shift
+            for pattern in "$@"; do
+              file="$(find "$dir" -mindepth 1 -maxdepth 1 -type f -name "$pattern")"
+              [[ -n "$file" && "$(wc -l <<<"$file")" -eq 1 && ! -e "dist/${file##*/}" ]] \
+                || { echo "artifact ${dir##*/} must hold exactly one file matching $pattern" >&2; exit 1; }
+              cp "$file" dist/
+              count=$((count + 1))
+            done
+            [[ "$(find "$dir" -mindepth 1 | wc -l)" -eq "$count" ]] || { echo "artifact ${dir##*/} holds other files" >&2; exit 1; }
+          }
+          take bundle "Tarn-${TAG}-unsigned.zip"
+          take sbom "Tarn-${TAG}.cdx.json"
+          if [[ -z "$ENGINE_UPDATE" ]]; then
+            take windows "Tarn-${TAG}-windows-x64-unsigned.zip" "Tarn-${TAG}-windows-x64-setup-unsigned.exe"
+            take linux "tarn_${version}_debian*_amd64.deb" "tarn_${version}_ubuntu*_amd64.deb" \
+              "tarn-${version}-*.x86_64.rpm" "tarn-${version}-*-x86_64.pkg.tar.zst"
+            take ios "Tarn-${TAG}-ios-unsigned.zip"
+            take android "Tarn-${TAG}-android-unsigned.apk"
+          fi
+          cd dist && sha256sum ./* > SHA256SUMS
+      - id: predicate
+        env:
+          COMMIT: ${{ inputs.commit || github.sha }}
+        run: |
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "commit $COMMIT is not a full SHA" >&2; exit 1; }
+          echo "json=$(jq -nc --arg commit "$COMMIT" --arg tag "$TAG" '{commit: $commit, tag: $tag}')" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.zip
+            dist/*.exe
+            dist/*.deb
+            dist/*.rpm
+            dist/*.pkg.tar.zst
+            dist/*.apk
+          predicate-type: https://github.com/Quavon-dev/tarn-browser/attestations/release/v1
+          predicate: ${{ steps.predicate.outputs.json }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: assets
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      # Windows checks windows-update.json in the latest release; an engine update carries the last
+      # signed one over unchanged, so its signature still holds and Windows keeps a verified feed.
+      - if: inputs.commit != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          assets="$(gh release view --json assets --jq '.assets[].name')"
+          if grep -qx windows-update.json <<<"$assets" && grep -qx windows-update.json.sig <<<"$assets"; then
+            gh release download --pattern windows-update.json --pattern windows-update.json.sig --dir dist
+          elif grep -qx 'windows-update.json\(\.sig\)\?' <<<"$assets"; then
+            echo "the latest release holds only half of the Windows update feed" >&2
+            exit 1
+          else
+            echo "::warning::the latest release has no Windows update feed to carry over"
+          fi
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$TAG" dist/* --draft --verify-tag --title "$TAG"

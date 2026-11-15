@@ -1,0 +1,6 @@
+# typed https://open.test:8443/slow while the Lockdown page is shown; beacon clicked twice during the 6 s load
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"https://open.test:8443/slow"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"https://open.test:8443/slow"}
+[tarn] event title {"title":"SLOW-JS-RAN"}
+# server
+open.test:8443 GET /slow "GET /slow HTTP/1.1" 200 -

@@ -1,0 +1,7 @@
+# GET form from a Lockdown page (https://trusted.test:8443/unload.html) to a JavaScript-on page (https://open.test:8443/slow, 6 s); beacon clicked before and twice during the load
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"https://open.test:8443/slow?"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"https://open.test:8443/slow?"}
+[tarn] event title {"title":"slow"}
+# server
+open.test:8443 GET /slow? "GET /slow? HTTP/1.1" 200 -

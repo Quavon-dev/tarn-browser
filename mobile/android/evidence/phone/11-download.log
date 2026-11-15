@@ -1,0 +1,21 @@
+--------- beginning of main
+11-14 12:42:41.558  1195  1257 I tarn    : verdict=0 us=94 kind=0 url=http://localhost:8771/downloads top=http://localhost:8771/download pending=http://localhost:8771/downloads
+11-14 12:42:41.575  1195  1195 I tarn    : started http://localhost:8771/downloads
+11-14 12:42:41.591  1195  1195 I tarn    : tab t1 event title {title=localhost:8771/downloads}
+11-14 12:42:41.592  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/downloads, title=localhost:8771/downloads, canGoBack=true, canGoForward=false}
+11-14 12:42:41.594  1195  1257 I tarn    : verdict=0 us=111 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/download pending=http://localhost:8771/downloads
+11-14 12:42:41.598  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/downloads, title=localhost:8771/downloads, canGoBack=true, canGoForward=false}
+11-14 12:42:44.925  1195  1284 I tarn    : verdict=0 us=59 kind=0 url=http://localhost:8771/download top=http://localhost:8771/downloads pending=http://localhost:8771/download
+11-14 12:42:44.942  1195  1257 I tarn    : verdict=0 us=117 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/downloads pending=http://localhost:8771/download
+11-14 12:42:44.967  1195  1195 I tarn    : tab t1 event download {state=started, name=download.bin}
+11-14 12:42:45.059  1195  1195 I tarn    : tab t1 event download {state=finished, name=download.bin, path=/data/user/0/dev.tarn.browser/files/Downloads/download.bin}
+--------- beginning of main
+11-14 12:43:01.027  1195  1257 I tarn    : verdict=0 us=102 kind=0 url=http://localhost:8771/downloads top=http://localhost:8771/downloads pending=http://localhost:8771/downloads
+11-14 12:43:01.052  1195  1195 I tarn    : started http://localhost:8771/downloads
+11-14 12:43:01.060  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/downloads, title=localhost:8771/downloads, canGoBack=true, canGoForward=false}
+11-14 12:43:01.061  1195  1257 I tarn    : verdict=0 us=116 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/downloads pending=http://localhost:8771/downloads
+11-14 12:43:01.067  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/downloads, title=localhost:8771/downloads, canGoBack=true, canGoForward=false}
+11-14 12:43:04.408  1195  1257 I tarn    : verdict=0 us=82 kind=0 url=http://localhost:8771/download top=http://localhost:8771/downloads pending=http://localhost:8771/download
+11-14 12:43:04.424  1195  1257 I tarn    : verdict=0 us=81 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/downloads pending=http://localhost:8771/download
+11-14 12:43:04.425  1195  1195 I tarn    : tab t1 event download {state=started, name=evil_name.bin}
+11-14 12:43:04.447  1195  1195 I tarn    : tab t1 event download {state=finished, name=evil_name.bin, path=/data/user/0/dev.tarn.browser/files/Downloads/evil_name.bin}

@@ -1,0 +1,41 @@
+Page: dev.tarn.browser
+App: dev.tarn.browser
+Snapshot: 35 visible nodes
+Simulator AX snapshot unavailable (circuit-disabled); used XCTest for this app generation.
+@e1 [application] "Tarn"
+@e2 [other] "Strict Menu Done New Tab Private Space Reopen Closed Tab Find in Page Zoom − 100% + Shield for This Site History Downloads Spaces and Profiles Settings 5"
+@e3 [other] "Strict"
+@e4 [button] "Shield: Strict"
+@e5 [other] "Address"
+@e6 [text-field] "example.com" [editable]
+@e7 [other] "Menu Done New Tab Private Space Reopen Closed Tab Find in Page Zoom − 100% + Shield for This Site History Downloads Spaces and Profiles Settings"
+@e8 [other] "Menu Done"
+@e9 [button] "Done"
+@e10 [other] "Menu"
+@e11 [scroll-area] "New Tab Private Space Reopen Closed Tab Find in Page Zoom − 100% + Shield for This Site History Downloads Spaces and Profiles Settings" [scrollable]
+  [content above scroll-area hidden]
+  [content below scroll-area hidden]
+@e12 [other] [same label as parent]
+@e13 [cell] "New Tab Private Space Reopen Closed Tab"
+@e14 [button] "New Tab"
+@e15 [button] "Private Space"
+@e16 [button] "Reopen Closed Tab"
+@e17 [cell] "Find in Page Zoom − 100% + Shield for This Site"
+@e18 [button] "Find in Page"
+@e19 [cell] "Zoom − 100% +"
+@e20 [button] "Zoom Out"
+@e21 [button] "Actual Size"
+@e22 [button] "Zoom In"
+@e23 [text] "Zoom"
+@e24 [button] "Shield for This Site"
+@e25 [other] "History Downloads Spaces and Profiles Settings"
+@e26 [button] "History"
+@e27 [button] "Downloads"
+@e28 [button] "Spaces and Profiles"
+@e29 [button] "Settings"
+@e30 [other] "5"
+@e31 [button] "Back"
+@e32 [button] "Forward"
+@e33 [button] "Share"
+@e34 [button] "Tabs 5"
+@e35 [button] "Menu"

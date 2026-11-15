@@ -1,0 +1,34 @@
+14/Nov/2026 13:19:13 REQ GET http://public.test/links cookie=''
+14/Nov/2026 13:19:13 "GET http://public.test/links HTTP/1.1" 200 -
+14/Nov/2026 13:19:13 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:19:13 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:19:18 REQ GET http://public.test/opened cookie=''
+14/Nov/2026 13:19:18 "GET http://public.test/opened HTTP/1.1" 200 -
+14/Nov/2026 13:19:18 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:19:18 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:19:24 REQ GET http://public.test/redirect-local cookie=''
+14/Nov/2026 13:19:24 "GET http://public.test/redirect-local HTTP/1.1" 302 -
+14/Nov/2026 13:19:33 REQ GET http://public.test/pn cookie=''
+14/Nov/2026 13:19:33 "GET http://public.test/pn HTTP/1.1" 200 -
+14/Nov/2026 13:19:33 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:19:33 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:19:38 REQ GET http://public.test/title cookie=''
+14/Nov/2026 13:19:38 "GET http://public.test/title HTTP/1.1" 200 -
+14/Nov/2026 13:19:38 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:19:38 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:19:57 REQ GET http://localhost:8771/downloads cookie=''
+14/Nov/2026 13:19:57 "GET /downloads HTTP/1.1" 200 -
+14/Nov/2026 13:19:57 REQ GET http://localhost:8771/favicon.ico cookie=''
+14/Nov/2026 13:19:57 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:20:00 REQ GET http://localhost:8771/download cookie=''
+14/Nov/2026 13:20:00 "GET /download HTTP/1.1" 200 -
+14/Nov/2026 13:20:00 REQ GET http://localhost:8771/favicon.ico cookie=''
+14/Nov/2026 13:20:00 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:20:00 REQ GET http://localhost:8771/download cookie=''
+14/Nov/2026 13:20:00 "GET /download HTTP/1.1" 200 -
+14/Nov/2026 13:20:39 REQ GET http://localhost:8771/private?m=REOPEN cookie=''
+14/Nov/2026 13:20:39 "GET /private?m=REOPEN HTTP/1.1" 200 -
+14/Nov/2026 13:20:39 REQ CONNECT CONNECT content-autofill.googleapis.com:443 cookie=''
+14/Nov/2026 13:20:39 REQ GET http://localhost:8771/favicon.ico cookie='tarnsession=REOPEN; tarnpersist=REOPEN'
+14/Nov/2026 13:20:39 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:20:39 "CONNECT content-autofill.googleapis.com:443 HTTP/1.1" 200 -

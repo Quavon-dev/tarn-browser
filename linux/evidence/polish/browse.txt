@@ -1,0 +1,6 @@
+# browse: http://127.0.0.1:8765/nav.html
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+# server
+127.0.0.1:8765 GET /nav.html "GET /nav.html HTTP/1.1" 200 -

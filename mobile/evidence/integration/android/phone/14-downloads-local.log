@@ -1,0 +1,2 @@
+11-14 15:29:13.790 32359 32359 I tarn    : tab n4 event download {state=started, name=evil_name.bin}
+11-14 15:29:13.833 32359 32359 I tarn    : tab n4 event download {state=finished, name=evil_name.bin, path=/data/user/0/dev.tarn.browser/files/Downloads/evil_name.bin}

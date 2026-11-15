@@ -1,0 +1,26 @@
+name: Change proposal
+description: A large refactor, architecture, dependency or behaviour change. Needs a 👍 from another maintainer before work starts.
+labels: ["type: change", "status: voting"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Maintainers vote with 👍 or 👎 on this issue. One 👍 from a maintainer other than the author (and more 👍 than 👎) moves it to `status: approved`; more 👎 than 👍 moves it to `status: rejected`.
+  - type: textarea
+    id: change
+    attributes:
+      label: Change
+      description: What changes and why now.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Crates, users, data, privacy or security affected, and what could break.
+    validations:
+      required: true
+  - type: textarea
+    id: plan
+    attributes:
+      label: Plan and rollback

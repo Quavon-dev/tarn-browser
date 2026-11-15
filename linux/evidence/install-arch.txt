@@ -1,0 +1,17 @@
+warning: mesa-1:26.2.7-1 is up to date -- skipping
+## package
+Version         : 0.1.0-1
+Depends On      : webkitgtk-6.0  gtk4  glib2  gstreamer  gst-plugins-base-libs  hicolor-icon-theme
+webkitgtk-6.0 2.54.2-1
+## linked WebKitGTK
+	libwebkitgtk-6.0.so.4 => /usr/lib/libwebkitgtk-6.0.so.4 (0x00007ffff6dbc000)
+	libgtk-4.so.1 => /usr/lib/libgtk-4.so.1 (0x00007ffff613f000)
+	libjavascriptcoregtk-6.0.so.1 => /usr/lib/libjavascriptcoregtk-6.0.so.1 (0x00007ffff2bfa000)
+## desktop entry
+/usr/share/applications/dev.tarn.Tarn.desktop
+/usr/share/icons/hicolor/scalable/apps/dev.tarn.Tarn.svg
+## running
+794 /run/rosetta/rosetta /usr/sbin/tarn tarn
+1 /run/rosetta/rosetta /usr/sbin/sh sh -c  set -e sed -i "s/^#DisableSandboxSyscalls/DisableSandboxSyscalls/" /etc/pacman.conf; pacman --disable-sandbox -Sy --noconfirm >/dev/null; pacman --disable-sandbox -U --noconfirm /dist/tarn-0.1.0-1-x86_64.pkg.tar.zst >/dev/null; pacman --disable-sandbox -S --noconfirm --needed xorg-server-xvfb imagemagick mesa >/dev/null echo '## package'; pacman -Qi tarn | grep -E "^(Version|Depends On)"; pacman -Q webkitgtk-6.0 echo '## linked WebKitGTK'; ldd /usr/bin/tarn | grep -E 'webkitgtk|gtk-4|javascriptcore' echo '## desktop entry'; ls /usr/share/applications/dev.tarn.Tarn.desktop /usr/share/icons/hicolor/scalable/apps/dev.tarn.Tarn.svg Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 & mkdir -p /run/dbus; dbus-daemon --session --address=unix:path=/tmp/bus --fork >/dev/null sleep 2 DISPLAY=:99 DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/bus LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 TARN_LOG_EVENTS=1 tarn >/tmp/tarn.log 2>&1 & sleep 25 echo '## running'; pgrep -a tarn || echo 'tarn is not running'; pgrep -af WebKitWebProcess | head -1 || true echo '## app log'; grep -E '^.tarn.|^tarn:|panicked' /tmp/tarn.log | head || true DISPLAY=:99 import -window root /evidence/install-arch.png 
+## app log
+tarn: no filter lists installed (Missing("manifest.json"))

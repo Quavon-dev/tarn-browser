@@ -1,0 +1,7 @@
+ 10141 10141 I tarn    : tab n1 event committed {url=http://public.test/links, title=public.test/links, canGoBack=false, canGoForward=false}
+ 10141 10141 I tarn    : tab n1 event finished {url=http://public.test/links, title=public.test/links, canGoBack=false, canGoForward=false}
+ 10141 10141 I tarn    : tab n1 event popup {url=http://public.test/redirect-local}
+ 10141 10141 I tarn    : tab n2 event blocked {url=http://localhost:8771/local-from-public, reason=shield}
+ 10141 10141 I tarn    : tab n2 event failed {url=http://nowhere.invalid/, message=net::ERR_CLEARTEXT_NOT_PERMITTED}
+ 10141 10141 I tarn    : tab n2 event finished {url=http://nowhere.invalid/, title=Webpage not available, canGoBack=false, canGoForward=false}
+ 10141 10141 I tarn    : tab n2 event committed {url=http://nowhere.invalid/, title=Webpage not available, canGoBack=false, canGoForward=false}

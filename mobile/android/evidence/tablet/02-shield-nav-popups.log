@@ -1,0 +1,38 @@
+--------- beginning of main
+11-14 13:03:18.325  8194  8292 I tarn    : verdict=0 us=413 kind=0 url=http://public.test/links top=http://localhost:8771/pn pending=http://public.test/links
+11-14 13:03:18.428  8194  8194 I tarn    : started http://public.test/links
+11-14 13:03:18.493  8194  8194 I tarn    : tab t1 event title {title=public.test/links}
+11-14 13:03:18.493  8194  8194 I tarn    : tab t1 event finished {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 13:03:18.532  8194  8292 I tarn    : verdict=0 us=3799 kind=2 url=http://public.test/favicon.ico top=http://localhost:8771/pn pending=http://public.test/links
+11-14 13:03:18.614  8194  8194 I tarn    : tab t1 event committed {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 13:03:24.169  8194  8194 I tarn    : tab t1 event blocked {url=http://public.test/plain, reason=https_only}
+11-14 13:03:24.191  8194  8292 I tarn    : verdict=0 us=218 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 13:03:30.491  8194  8292 I tarn    : verdict=0 us=258 kind=0 url=http://public.test/links top=http://public.test/links pending=http://public.test/links
+11-14 13:03:30.543  8194  8194 I tarn    : started http://public.test/links
+11-14 13:03:30.543  8194  8194 I tarn    : tab t1 event finished {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 13:03:30.548  8194  8292 I tarn    : verdict=0 us=146 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=http://public.test/links
+11-14 13:03:30.566  8194  8194 I tarn    : tab t1 event committed {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 13:03:38.544  8194  8194 I tarn    : tab t1 event external {url=mailto:a@example.com}
+11-14 13:03:38.610  8194  8292 I tarn    : verdict=0 us=33253 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 13:03:42.059  8194  8194 I tarn    : tab t1 event external {url=intent://scan/#Intent;scheme=zxing;end}
+11-14 13:03:42.104  8194  8292 I tarn    : verdict=0 us=14394 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 13:03:45.469  8194  8194 I tarn    : tab t1 event blocked {url=http://localhost:8771/local-from-public, reason=nav_policy}
+11-14 13:03:45.490  8194  8292 I tarn    : verdict=0 us=497 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 13:03:48.677  8194  8292 I tarn    : verdict=0 us=117 kind=0 url=http://public.test/redirect-local top=http://public.test/links pending=http://public.test/redirect-local
+11-14 13:03:48.686  8194  8194 I tarn    : tab t1 event blocked {url=http://localhost:8771/local-from-public, reason=nav_policy}
+11-14 13:03:48.689  8194  8194 I tarn    : tab t1 event finished {url=http://localhost:8771/local-from-public, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 13:03:48.691  8194  8292 I tarn    : verdict=0 us=121 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=http://public.test/redirect-local
+11-14 13:03:51.855  8194  8194 I tarn    : tab t1 event popup {url=http://public.test/popup-target}
+11-14 13:03:51.899  8194  8292 I tarn    : verdict=0 us=824 kind=0 url=http://public.test/popup-target top=null pending=http://public.test/popup-target
+11-14 13:03:51.958  8194  8194 I tarn    : started http://public.test/popup-target
+11-14 13:03:51.958  8194  8194 I tarn    : tab t2 event title {title=public.test/popup-target}
+11-14 13:03:51.958  8194  8194 I tarn    : tab t2 event finished {url=http://public.test/popup-target, title=public.test/popup-target, canGoBack=false, canGoForward=false}
+11-14 13:03:51.963  8194  8292 I tarn    : verdict=0 us=94 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/popup-target
+11-14 13:03:51.969  8194  8194 I tarn    : tab t2 event committed {url=http://public.test/popup-target, title=public.test/popup-target, canGoBack=false, canGoForward=false}
+11-14 13:03:58.601  8194  8194 I tarn    : tab t1 event popup {url=http://public.test/opened}
+11-14 13:03:58.621  8194  8292 I tarn    : verdict=0 us=85 kind=0 url=http://public.test/opened top=http://public.test/popup-target pending=http://public.test/opened
+11-14 13:03:58.674  8194  8194 I tarn    : started http://public.test/opened
+11-14 13:03:58.674  8194  8194 I tarn    : tab t2 event title {title=public.test/opened}
+11-14 13:03:58.674  8194  8194 I tarn    : tab t2 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=true, canGoForward=false}
+11-14 13:03:58.676  8194  8292 I tarn    : verdict=0 us=104 kind=2 url=http://public.test/favicon.ico top=http://public.test/popup-target pending=http://public.test/opened
+11-14 13:03:58.695  8194  8194 I tarn    : tab t2 event committed {url=http://public.test/opened, title=public.test/opened, canGoBack=true, canGoForward=false}

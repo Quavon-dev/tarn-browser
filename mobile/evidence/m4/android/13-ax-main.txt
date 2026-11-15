@@ -1,0 +1,15 @@
+Page: dev.tarn.browser
+App: dev.tarn.browser
+Snapshot: 11 visible nodes (13 total)
+Collapsed 2 Android helper nodes from the agent-facing text snapshot; use --raw or --json for the full hierarchy.
+@e1 [group] "cookie: tarn=personal" [focused]
+@e2 [button] "Shield: Standard"
+@e3 [group] "Address"
+@e4 [text-field] "Not Secure — public.test" [editable]
+@e5 [group] "Web content"
+@e6 [webview] [focused]
+@e8 [button] "Back"
+@e9 [button] "Forward"
+@e10 [button] "Share"
+@e11 [button] "Tabs 2"
+@e13 [button] "Menu"

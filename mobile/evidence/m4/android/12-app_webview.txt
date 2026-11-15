@@ -1,0 +1,8 @@
+Default
+Profile 1
+Profile 2
+last-exit-info
+pref_store
+variations_seed_new
+variations_stamp
+webview_data.lock

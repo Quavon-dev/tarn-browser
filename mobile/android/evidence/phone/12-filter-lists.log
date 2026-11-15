@@ -1,0 +1,12 @@
+--------- beginning of main
+11-14 12:43:17.464  1195  1257 I tarn    : verdict=0 us=75 kind=0 url=http://public.test/filter top=http://localhost:8771/downloads pending=http://public.test/filter
+11-14 12:43:17.487  1195  1195 I tarn    : started http://public.test/filter
+11-14 12:43:17.493  1195  1257 I tarn    : verdict=1 us=110 kind=4 url=http://ads.test/ad.js top=http://localhost:8771/downloads pending=http://public.test/filter
+11-14 12:43:17.495  1195  1285 I tarn    : verdict=0 us=57 kind=2 url=http://ok.test/pixel?via=ok top=http://localhost:8771/downloads pending=http://public.test/filter
+11-14 12:43:17.495  1195  1284 I tarn    : verdict=1 us=23 kind=2 url=http://ads.test/pixel?via=ad top=http://localhost:8771/downloads pending=http://public.test/filter
+11-14 12:43:17.495  1195  1195 I tarn    : tab t1 event blocked {url=http://ads.test/pixel?via=ad, reason=shield}
+11-14 12:43:17.498  1195  1195 I tarn    : tab t1 event blocked {url=http://ads.test/ad.js, reason=shield}
+11-14 12:43:17.506  1195  1257 I tarn    : verdict=0 us=91 kind=2 url=http://public.test/favicon.ico top=http://localhost:8771/downloads pending=http://public.test/filter
+11-14 12:43:17.514  1195  1195 I tarn    : tab t1 event title {title=public.test/filter}
+11-14 12:43:17.516  1195  1195 I tarn    : tab t1 event finished {url=http://public.test/filter, title=public.test/filter, canGoBack=true, canGoForward=false}
+11-14 12:43:17.532  1195  1195 I tarn    : tab t1 event committed {url=http://public.test/filter, title=public.test/filter, canGoBack=true, canGoForward=false}

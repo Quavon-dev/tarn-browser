@@ -1,0 +1,9 @@
+# private-network-local-control: http://127.0.0.1:8765/pn.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/pn.html"}
+[tarn] event title {"title":"pn"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"pn","url":"http://127.0.0.1:8765/pn.html"}
+[tarn] event title {"title":"img-loaded"}
+# server
+127.0.0.1:8765 GET /pn.html "GET /pn.html HTTP/1.1" 304 -
+127.0.0.1:8765 GET /pixel?from-pn "GET /pixel?from-pn HTTP/1.1" 200 -

@@ -1,0 +1,12 @@
+# popups: localhost:8765/nav.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://localhost:8765/nav.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://localhost:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+[tarn] event popup {"url":"http://localhost:8765/find.html"}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/find.html"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/find.html"}
+[tarn] event title {"title":"find"}
+# server
+localhost:8765 GET /nav.html
+localhost:8765 GET /find.html

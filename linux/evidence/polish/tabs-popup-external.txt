@@ -1,0 +1,12 @@
+# tabs-popup-external: http://127.0.0.1:8765/nav.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+[tarn] event popup {"url":"http://localhost:8765/find.html"}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/find.html"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://localhost:8765/find.html"}
+[tarn] event title {"title":"find"}
+# server
+127.0.0.1:8765 GET /nav.html "GET /nav.html HTTP/1.1" 200 -
+localhost:8765 GET /find.html "GET /find.html HTTP/1.1" 200 -

@@ -1,0 +1,10 @@
+burner tab opened 00:12:35, burned 00:12:54 while big (3).bin was at 3 MB, download finished ~00:13:40
+2026-11-15 00:12:27.139656+0100 0x45136fd  Default     0x0                  15593  0    Tarn: (WebKit) [com.apple.WebKit:Storage] 0x105bf1188 - WebsiteDataStore::~WebsiteDataStore sessionID=2
+2026-11-15 00:12:27.139887+0100 0x4513936  Default     0x0                  15923  0    com.apple.WebKit.Networking: (WebKit) [com.apple.WebKit:Storage] 0x1110541e0 - NetworkProcess::destroySession sessionID=2 identifier=ae49b281-2475-4b3c-9e28-6b4a176e56a8
+2026-11-15 00:12:35.242452+0100 0x45136fd  Default     0x0                  15593  0    Tarn: (WebKit) [com.apple.WebKit:Storage] 0x1602e9908 - WebsiteDataStore::WebsiteDataStore sessionID=9223372036854775810 identifier=null
+2026-11-15 00:12:53.559148+0100 0x45136fd  Default     0x0                  15593  0    Tarn: (WebKit) [com.apple.WebKit:Storage] 0x1602fea88 - WebsiteDataStore::WebsiteDataStore sessionID=3 identifier=ae49b281-2475-4b3c-9e28-6b4a176e56a8
+2026-11-15 00:13:41.390315+0100 0x4523c1a  Default     0x0                  44253  0    com.apple.WebKit.Networking: (WebKit) [com.apple.WebKit:Storage] 0x10e0541e0 - NetworkProcess::destroySession sessionID=9223372036854775810 identifier=null
+2026-11-15 00:13:41.389414+0100 0x45136fd  Default     0x0                  15593  0    Tarn: (WebKit) [com.apple.WebKit:Storage] 0x1602e9908 - WebsiteDataStore::~WebsiteDataStore sessionID=9223372036854775810
+2026-11-15 00:15:03.454670+0100 0x45136fd  Default     0x0                  15593  0    Tarn: (WebKit) [com.apple.WebKit:Storage] 0x1602fea88 - WebsiteDataStore::~WebsiteDataStore sessionID=3
+2026-11-15 00:15:03.454815+0100 0x4523c1a  Default     0x0                  44253  0    com.apple.WebKit.Networking: (WebKit) [com.apple.WebKit:Storage] 0x10e0541e0 - NetworkProcess::destroySession sessionID=3 identifier=ae49b281-2475-4b3c-9e28-6b4a176e56a8
+2026-11-15 00:15:10.175405+0100 0x45136fd  Default     0x0                  15593  0    Tarn: (WebKit) [com.apple.WebKit:Storage] 0x1602fed08 - WebsiteDataStore::WebsiteDataStore sessionID=4 identifier=ae49b281-2475-4b3c-9e28-6b4a176e56a8

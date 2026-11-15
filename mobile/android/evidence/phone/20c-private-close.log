@@ -1,0 +1,3 @@
+12:50:25.447   660   997 I ActivityManager: Process dev.tarn.browser:private (pid 5107) has died: fg  TOP 
+12:50:25.455   660   997 W ActivityManager: Exception when unbinding service dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:1
+12:50:25.523  1195  5909 I tarn    : private sweep removed 103 files

@@ -1,0 +1,42 @@
+14/Nov/2026 19:24:27 REQ CONNECT CONNECT locked.test:443 cookie=''
+14/Nov/2026 19:24:27 "CONNECT locked.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:24:27 REQ GET http://locked.test/unload cookie=''
+14/Nov/2026 19:24:27 "GET /unload HTTP/1.1" 200 -
+14/Nov/2026 19:24:27 REQ GET http://locked.test/favicon.ico cookie=''
+14/Nov/2026 19:24:27 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 19:24:36 REQ GET http://locked.test/unload cookie=''
+14/Nov/2026 19:24:36 "GET /unload HTTP/1.1" 200 -
+14/Nov/2026 19:24:36 REQ GET http://locked.test/favicon.ico cookie=''
+14/Nov/2026 19:24:36 "GET /favicon.ico HTTP/1.1" 200 -
+=== BASELINE (245a1c1 TarnWebView.java): typed https://open.test/slow from Lockdown page
+14/Nov/2026 19:24:41 REQ CONNECT CONNECT open.test:443 cookie=''
+14/Nov/2026 19:24:41 "CONNECT open.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:24:41 REQ GET http://open.test/slow cookie=''
+14/Nov/2026 19:24:47 "GET /slow HTTP/1.1" 200 -
+14/Nov/2026 19:24:47 REQ GET http://open.test/favicon.ico cookie=''
+14/Nov/2026 19:24:47 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 19:24:59 REQ CONNECT CONNECT locked.test:443 cookie=''
+14/Nov/2026 19:24:59 "CONNECT locked.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:24:59 REQ GET http://locked.test/unload cookie=''
+14/Nov/2026 19:24:59 "GET /unload HTTP/1.1" 200 -
+14/Nov/2026 19:24:59 REQ GET http://locked.test/favicon.ico cookie=''
+14/Nov/2026 19:24:59 "GET /favicon.ico HTTP/1.1" 200 -
+=== BASELINE: typed https://open.test/slow, then click beacon during the load
+14/Nov/2026 19:25:06 REQ CONNECT CONNECT open.test:443 cookie=''
+14/Nov/2026 19:25:06 "CONNECT open.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:25:06 REQ GET http://open.test/slow cookie=''
+14/Nov/2026 19:25:12 "GET /slow HTTP/1.1" 200 -
+14/Nov/2026 19:25:12 REQ GET http://open.test/favicon.ico cookie=''
+14/Nov/2026 19:25:12 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 19:25:24 REQ CONNECT CONNECT locked.test:443 cookie=''
+14/Nov/2026 19:25:24 "CONNECT locked.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:25:24 REQ GET http://locked.test/unload cookie=''
+14/Nov/2026 19:25:24 "GET /unload HTTP/1.1" 200 -
+14/Nov/2026 19:25:24 REQ GET http://locked.test/favicon.ico cookie=''
+14/Nov/2026 19:25:24 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 19:25:29 REQ CONNECT CONNECT open.test:443 cookie=''
+14/Nov/2026 19:25:29 "CONNECT open.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:25:29 REQ GET http://open.test/slow cookie=''
+14/Nov/2026 19:25:35 "GET /slow HTTP/1.1" 200 -
+14/Nov/2026 19:25:35 REQ GET http://open.test/favicon.ico cookie=''
+14/Nov/2026 19:25:35 "GET /favicon.ico HTTP/1.1" 200 -

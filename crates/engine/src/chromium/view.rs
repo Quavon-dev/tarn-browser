@@ -1,0 +1,1918 @@
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+use cef::*;
+#[cfg(target_os = "macos")]
+use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSView, NSWindow, NSWindowOrderingMode};
+use url::Url;
+#[cfg(windows)]
+use windows_sys::Win32::Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn};
+#[cfg(windows)]
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GA_ROOT, GetAncestor, HWND_TOP, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetParent, SetWindowPos, ShowWindow,
+};
+
+use crate::handover::{self, Storage, js_string};
+use crate::nav_policy::{self, Decision, GateAction, Source};
+use crate::{Event, Host, Protection};
+
+type Found = Box<dyn Fn(bool)>;
+type Reply = Box<dyn FnOnce(Option<Value>)>;
+#[cfg(windows)]
+type CreatedHook = Box<dyn FnOnce(Browser)>;
+
+const ADD_SCRIPT: &str = "Page.addScriptToEvaluateOnNewDocument";
+
+struct Tab {
+    id: u64,
+    /// Whose Shield choices apply (`DataStore::shield_key`); empty on macOS.
+    profile: String,
+    /// The data store whose request context the tab uses (`DataStore::context_key`); empty on macOS.
+    store: String,
+    browser: RefCell<Option<Browser>>,
+    calls: RefCell<std::collections::HashMap<i32, Reply>>,
+    next_call: Cell<i32>,
+    devtools: RefCell<Option<Registration>>,
+    handover_script: RefCell<Option<String>>,
+    sink: RefCell<Rc<dyn Fn(Event)>>,
+    title: RefCell<String>,
+    history: Cell<(bool, bool)>,
+    loading: Cell<bool>,
+    found: RefCell<Option<Found>>,
+    shell_load: RefCell<Option<Url>>,
+    /// The main-frame navigation under way started in the shell, so its redirects may reach a
+    /// private address (S10).
+    shell_chain: Cell<bool>,
+    last_find: RefCell<String>,
+    #[cfg(target_os = "macos")]
+    download_notice: Cell<Option<std::time::Instant>>,
+    recent_popups: RefCell<std::collections::VecDeque<std::time::Instant>>,
+    /// Downloads this tab started lately; a popup is a tab of its own, and pages open few of them.
+    #[cfg(windows)]
+    recent_downloads: RefCell<std::collections::VecDeque<std::time::Instant>>,
+    recent_prompts: RefCell<std::collections::VecDeque<std::time::Instant>>,
+    silenced: Rc<Cell<bool>>,
+    /// The URLs a back, forward or reload the shell asked for may go to, and whether the main frame's current
+    /// navigation was started by the user (shell, click or history), which its redirects keep.
+    history_step: RefCell<Vec<Url>>,
+    user_started: Cell<bool>,
+    /// The profile's download events, which outlive the tab.
+    #[cfg(windows)]
+    downloads: std::cell::OnceCell<Rc<dyn Fn(Event)>>,
+    /// A Lockdown view: no JavaScript and no site styles; only Lockdown sites load in it.
+    #[cfg(windows)]
+    lockdown_view: Cell<bool>,
+    /// A hash of the style script the page last got, so a restyle that changes nothing sends nothing.
+    #[cfg(windows)]
+    styled: Cell<u64>,
+    /// A view where the profile pauses no blocking at creation: it runs the profile's page script.
+    #[cfg(windows)]
+    filtered: Cell<bool>,
+    /// The hash of the page script the view should run (0 for none) and the identifier Chromium
+    /// gave the registered one.
+    #[cfg(windows)]
+    page_hash: Cell<u64>,
+    #[cfg(windows)]
+    page_script: RefCell<Option<String>>,
+    /// The page whose link this view was rebuilt for, judged as the page left until the view shows one.
+    #[cfg(windows)]
+    opener: RefCell<Option<Url>>,
+    /// Finishes the view once CEF made its browser; Windows creates browsers asynchronously.
+    #[cfg(windows)]
+    created_hook: RefCell<Option<CreatedHook>>,
+}
+
+thread_local! {
+    static OPEN: Cell<usize> = const { Cell::new(0) };
+    static TABS: RefCell<std::collections::HashMap<u64, Rc<Tab>>> = RefCell::new(std::collections::HashMap::new());
+    static NEXT_ID: Cell<u64> = const { Cell::new(0) };
+    #[cfg(target_os = "macos")]
+    static WINDOWS: RefCell<Vec<cef::Window>> = const { RefCell::new(Vec::new()) };
+    static VISIBLE: Cell<usize> = const { Cell::new(0) };
+}
+
+pub(crate) fn any_visible() -> bool {
+    VISIBLE.get() > 0
+}
+
+/// Whether the owning profile's choices put `url` at `lockdown`; before the first snapshot every
+/// URL counts as one, as the request filter cancels everything until then.
+fn lockdown(profile: &str, url: &Url) -> bool {
+    super::filter::shield_for(profile).is_none_or(|s| (s.site_for)(url).level == shield::ShieldLevel::Lockdown)
+}
+
+/// The page a fresh view (about:blank) was opened from stands in for it; without one, about:blank
+/// stays and counts as public.
+#[cfg(windows)]
+fn with_opener(tab: &Tab, page: Option<Url>) -> Option<Url> {
+    match (page, tab.opener.borrow().clone()) {
+        (Some(p), Some(opener)) if p.as_str() == "about:blank" => Some(opener),
+        (page, _) => page,
+    }
+}
+
+/// Views rebuilt across the Lockdown boundary in the burst window, for all tabs: a page that keeps
+/// switching, or a decision the shell does not share, cannot rebuild views forever.
+#[cfg(windows)]
+const REBUILD_BURST: usize = 4;
+
+#[cfg(windows)]
+thread_local! {
+    static REBUILDS: RefCell<std::collections::VecDeque<std::time::Instant>> = RefCell::default();
+}
+
+/// Handlers carry only this id: CEF asks the client for some handlers on its IO thread, where an
+/// `Rc` must not be touched. The tab itself is looked up on the UI thread.
+fn tab(id: u64) -> Option<Rc<Tab>> {
+    TABS.with_borrow(|t| t.get(&id).cloned())
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn notify(id: u64, event: Event) {
+    if let Some(tab) = tab(id) {
+        emit(&tab, event);
+    }
+}
+
+fn emit(tab: &Tab, event: Event) {
+    let sink = tab.sink.borrow().clone();
+    sink(event);
+}
+
+fn string(s: Option<&CefString>) -> String {
+    s.map(|s| s.to_string()).unwrap_or_default()
+}
+
+pub(crate) fn open_count() -> usize {
+    OPEN.get()
+}
+
+pub(crate) fn close_all() {
+    #[cfg(target_os = "macos")]
+    for window in WINDOWS.with_borrow_mut(std::mem::take) {
+        window.close();
+    }
+    #[cfg(windows)]
+    for tab in TABS.with_borrow(|t| t.values().cloned().collect::<Vec<_>>()) {
+        if let Some(host) = tab.browser.borrow().as_ref().and_then(|b| b.host()) {
+            host.close_browser(1);
+        }
+    }
+}
+
+/// Sends one DevTools method to the tab's page; `reply` gets the parsed result, or `None`.
+fn call(tab: &Tab, host: &BrowserHost, method: &str, params: &str, reply: impl FnOnce(Option<Value>) + 'static) {
+    if tab.devtools.borrow().is_none() {
+        *tab.devtools.borrow_mut() = host.add_dev_tools_message_observer(Some(&mut TarnDevTools::new(tab.id)));
+    }
+    if tab.devtools.borrow().is_none() {
+        return reply(None);
+    }
+    let id = tab.next_call.get() + 1;
+    tab.next_call.set(id);
+    tab.calls.borrow_mut().insert(id, Box::new(reply));
+    let message = format!("{{\"id\":{id},\"method\":{},\"params\":{params}}}", js_string(method));
+    if host.send_dev_tools_message(Some(message.as_bytes())) != 1 {
+        let failed = tab.calls.borrow_mut().remove(&id);
+        if let Some(reply) = failed {
+            reply(None);
+        }
+    }
+}
+
+/// The handover script applies to the tab's first page only, whether that page loads or fails.
+fn drop_handover(tab: &Tab, browser: Option<&mut Browser>) {
+    if let Some(host) = browser.and_then(|b| b.host())
+        && let Some(identifier) = tab.handover_script.borrow_mut().take()
+    {
+        remove_script(tab, &host, &identifier);
+    }
+}
+
+fn remove_script(tab: &Tab, host: &BrowserHost, identifier: &str) {
+    call(tab, host, "Page.removeScriptToEvaluateOnNewDocument", &format!("{{\"identifier\":{}}}", js_string(identifier)), |_| {});
+}
+
+/// The profile's page script for a view that runs it: never in a Lockdown view (no JavaScript) or
+/// one made for a site where blocking is paused.
+#[cfg(windows)]
+fn page_script_for(tab: &Tab) -> Option<String> {
+    crate::data_store_windows::page_script_of(&tab.profile).filter(|_| tab.filtered.get() && !tab.lockdown_view.get())
+}
+
+/// Keeps the page script Chromium registered as `identifier` while it is still the one wanted and
+/// none is registered yet; replies to an earlier change can arrive after a later change.
+#[cfg(windows)]
+fn keep_page_script(tab: &Tab, hash: u64, identifier: Option<String>) {
+    let Some(identifier) = identifier else {
+        if tab.page_hash.get() == hash && tab.page_script.borrow().is_none() {
+            tab.page_hash.set(0);
+        }
+        return;
+    };
+    if tab.page_hash.get() == hash && tab.page_script.borrow().is_none() {
+        *tab.page_script.borrow_mut() = Some(identifier);
+    } else if let Some(host) = tab.browser.borrow().as_ref().and_then(|b| b.host()) {
+        remove_script(tab, &host, &identifier);
+    }
+}
+
+#[cfg(windows)]
+fn add_page_script(source: &str) -> String {
+    format!("{{\"source\":{}}}", js_string(source))
+}
+
+/// Gives every filtered view of the profile with this Shield key its current page script for the
+/// next document, replacing the one it had.
+#[cfg(windows)]
+pub(crate) fn rescript(profile: &str) {
+    let tabs: Vec<Rc<Tab>> = TABS.with_borrow(|t| t.values().filter(|t| t.profile == profile).cloned().collect());
+    for tab in tabs {
+        let script = page_script_for(&tab);
+        let hash = script.as_deref().map_or(0, |s| style_hash(s) | 1);
+        let Some(host) = tab.browser.borrow().as_ref().and_then(|b| b.host()) else { continue };
+        if tab.page_hash.replace(hash) == hash {
+            continue;
+        }
+        if let Some(old) = tab.page_script.take() {
+            remove_script(&tab, &host, &old);
+        }
+        let Some(script) = script else { continue };
+        let weak = Rc::downgrade(&tab);
+        call(&tab, &host, ADD_SCRIPT, &add_page_script(&script), move |result| {
+            if let Some(tab) = weak.upgrade() {
+                keep_page_script(&tab, hash, string_at(result, &["identifier"]));
+            }
+        });
+    }
+}
+
+/// The value at `path` as a copy of its own: CEF's nested values refer into their parents, which
+/// are kept until it is copied.
+fn value_at(value: Option<Value>, path: &[&str]) -> Option<Value> {
+    let mut chain = vec![value?];
+    for key in path {
+        let next = chain.last()?.dictionary()?.value(Some(&CefString::from(*key)))?;
+        chain.push(next);
+    }
+    chain.last()?.copy()
+}
+
+/// Runs `body` as an async function in an isolated world of the tab's top frame; `done` gets the
+/// string it returns, or an empty string.
+fn isolated(tab: &Rc<Tab>, host: BrowserHost, body: &str, gesture: bool, done: impl Fn(String) + 'static) {
+    let (tab2, expression) = (tab.clone(), js_string(&format!("(async () => {{ {body} }})()")));
+    call(tab, &host.clone(), "Page.getFrameTree", "{}", move |tree| {
+        let Some(frame) = string_at(tree, &["frameTree", "frame", "id"]) else { return done(String::new()) };
+        let params = format!("{{\"frameId\":{},\"worldName\":\"tarn\",\"grantUniveralAccess\":false}}", js_string(&frame));
+        let tab3 = tab2.clone();
+        call(&tab2, &host.clone(), "Page.createIsolatedWorld", &params, move |world| {
+            let Some(context) = value_at(world, &["executionContextId"]).filter(|v| v.get_type() == ValueType::INT).map(|v| v.int()) else {
+                return done(String::new());
+            };
+            let params =
+                format!("{{\"expression\":{expression},\"contextId\":{context},\"awaitPromise\":true,\"returnByValue\":true,\"userGesture\":{gesture}}}");
+            call(&tab3, &host, "Runtime.evaluate", &params, move |result| done(string_at(result, &["result", "value"]).unwrap_or_default()));
+        });
+    });
+}
+
+#[cfg(windows)]
+fn style_hash(script: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    script.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Runs a style script built for `page` in the tab's top frame; one that lands in a document of
+/// another host does nothing, and one that did not run lets the next restyle send it again.
+#[cfg(windows)]
+fn send_style(tab: &Rc<Tab>, host: BrowserHost, script: &str, page: Option<&Url>) {
+    let guard = page.and_then(Url::host_str).map(|h| {
+        format!("if (location.hostname.replace(/\\.$/, '').toLowerCase() !== {}) return ''; ", js_string(&h.trim_end_matches('.').to_ascii_lowercase()))
+    });
+    let weak = Rc::downgrade(tab);
+    isolated(tab, host, &format!("{}{script}\nreturn 'ok';", guard.unwrap_or_default()), false, move |ran| {
+        if let Some(tab) = weak.upgrade().filter(|_| ran.is_empty()) {
+            tab.styled.set(0);
+        }
+    });
+}
+
+/// Puts the current site styles and hidden elements of the profile with this Shield key into
+/// every page of its tabs now; new documents get them from `on_load_start`.
+#[cfg(windows)]
+pub(crate) fn restyle(profile: &str) {
+    let tabs: Vec<Rc<Tab>> = TABS.with_borrow(|t| t.values().filter(|t| t.profile == profile && !t.lockdown_view.get()).cloned().collect());
+    for tab in tabs {
+        let (host, page) = tab
+            .browser
+            .borrow()
+            .as_ref()
+            .map_or((None, None), |b| (b.host(), b.main_frame().and_then(|f| Url::parse(&CefString::from(&f.url()).to_string()).ok())));
+        if let Some(host) = host {
+            let script =
+                crate::data_store_windows::site_styles_of(profile, page.as_ref()).unwrap_or_else(|| crate::page_scripts::REMOVE_SITE_STYLES.to_owned());
+            let hash = style_hash(&script);
+            if tab.styled.replace(hash) != hash {
+                send_style(&tab, host, &script, page.as_ref());
+            }
+        }
+    }
+}
+
+/// The bytes of a base64 answer of DevTools.
+fn decode(data: Option<String>) -> Option<Vec<u8>> {
+    let binary = base64_decode(Some(&CefString::from(data?.as_str())))?;
+    let mut bytes = vec![0; binary.size()];
+    (binary.data(Some(&mut bytes), 0) == bytes.len() && !bytes.is_empty()).then_some(bytes)
+}
+
+fn string_at(value: Option<Value>, path: &[&str]) -> Option<String> {
+    value_at(value, path).filter(|v| v.get_type() == ValueType::STRING).map(|v| CefString::from(&v.string()).to_string())
+}
+
+type Step = (&'static str, String, Option<String>);
+
+/// Each call names its host, which is recorded again if the clear fails.
+fn clear_storage_calls(host: &str, origins: &[String]) -> Vec<Step> {
+    let defaults = [format!("https://{host}"), format!("http://{host}")];
+    defaults
+        .iter()
+        .chain(origins)
+        .map(|origin| ("Storage.clearDataForOrigin", format!("{{\"origin\":{},\"storageTypes\":\"all\"}}", js_string(origin)), Some(host.to_owned())))
+        .collect()
+}
+
+/// Clears `host`'s storage through an open Chromium tab of the data store `store` (empty on
+/// macOS, where all tabs share the one profile); false when none is open.
+pub(crate) fn clear_site_storage(store: &str, host: &str) -> bool {
+    let tabs: Vec<Rc<Tab>> = TABS.with_borrow(|t| t.values().filter(|t| t.store == store).cloned().collect());
+    let open = |tab: &Rc<Tab>| tab.browser.borrow().clone();
+    let origins: Vec<String> = tabs
+        .iter()
+        .filter_map(open)
+        .filter_map(|b| Url::parse(&CefString::from(&b.main_frame()?.url()).to_string()).ok())
+        .filter(|u| u.host_str().is_some_and(|h| h.trim_end_matches('.').eq_ignore_ascii_case(host)))
+        .filter_map(|u| crate::page::serialized_origin(&u))
+        .collect();
+    let Some((tab, host_handle)) = tabs.iter().find_map(|t| Some((t.clone(), open(t)?.host()?))) else { return false };
+    for (method, params, site) in clear_storage_calls(host, &origins) {
+        call(&tab, &host_handle, method, &params, move |result| {
+            if let (None, Some(site)) = (result, site) {
+                super::data::record(&site);
+            }
+        });
+    }
+    true
+}
+
+/// Clears the storage of every site an open tab of the data store `store` shows.
+#[cfg(windows)]
+pub(crate) fn clear_store_storage(store: &str) {
+    let hosts: std::collections::BTreeSet<String> = TABS.with_borrow(|t| {
+        t.values()
+            .filter(|t| t.store == store)
+            .filter_map(|t| Url::parse(&CefString::from(&t.browser.borrow().as_ref()?.main_frame()?.url()).to_string()).ok()?.host_str().map(str::to_owned))
+            .collect()
+    });
+    for host in hosts {
+        clear_site_storage(store, &host);
+    }
+}
+
+wrap_dev_tools_message_observer! {
+    struct TarnDevTools {
+        id: u64,
+    }
+
+    impl DevToolsMessageObserver {
+        fn on_dev_tools_method_result(&self, _browser: Option<&mut Browser>, message_id: i32, success: i32, result: Option<&[u8]>) {
+            let Some(tab) = tab(self.id) else { return };
+            let reply = tab.calls.borrow_mut().remove(&message_id);
+            if let Some(reply) = reply {
+                reply(result.filter(|_| success == 1).and_then(|r| parse_json_buffer(Some(r), JsonParserOptions::default())));
+            }
+        }
+    }
+}
+
+wrap_client! {
+    struct TarnClient {
+        id: u64,
+        profile: String,
+        store: String,
+        lockdown_view: bool,
+    }
+
+    impl Client {
+        fn load_handler(&self) -> Option<LoadHandler> {
+            Some(TarnLoad::new(self.id))
+        }
+
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            Some(TarnDisplay::new(self.id))
+        }
+
+        fn request_handler(&self) -> Option<RequestHandler> {
+            Some(TarnRequest::new(self.id, self.profile.clone(), self.lockdown_view))
+        }
+
+        fn life_span_handler(&self) -> Option<LifeSpanHandler> {
+            Some(TarnLifeSpan::new(self.id))
+        }
+
+        fn find_handler(&self) -> Option<FindHandler> {
+            Some(TarnFind::new(self.id))
+        }
+
+        fn permission_handler(&self) -> Option<PermissionHandler> {
+            Some(TarnPermission::new())
+        }
+
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(TarnDownload::new(self.id, self.store.clone()))
+        }
+
+        fn command_handler(&self) -> Option<CommandHandler> {
+            Some(TarnCommand::new())
+        }
+
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(TarnContextMenu::new())
+        }
+
+        fn jsdialog_handler(&self) -> Option<JsdialogHandler> {
+            Some(TarnJsDialog::new(self.id))
+        }
+
+        fn keyboard_handler(&self) -> Option<KeyboardHandler> {
+            #[cfg(windows)]
+            return Some(TarnKeys::new());
+            #[cfg(not(windows))]
+            None
+        }
+    }
+}
+
+wrap_load_handler! {
+    struct TarnLoad {
+        id: u64,
+    }
+
+    impl LoadHandler {
+        fn on_loading_state_change(&self, browser: Option<&mut Browser>, is_loading: i32, can_go_back: i32, can_go_forward: i32) {
+            let Some(tab) = tab(self.id) else { return };
+            let history = (can_go_back == 1, can_go_forward == 1);
+            // Chromium settles the back list after the load ends, so the shell hears it here.
+            if tab.history.replace(history) != history
+                && is_loading == 0
+                && let Some(url) = browser.and_then(|b| b.main_frame()).and_then(|f| Url::parse(&CefString::from(&f.url()).to_string()).ok())
+            {
+                emit(&tab, Event::UrlChanged { url, can_go_back: history.0, can_go_forward: history.1 });
+            }
+        }
+
+        fn on_load_start(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, _transition_type: TransitionType) {
+            let (Some(tab), Some(frame)) = (tab(self.id), frame) else { return };
+            if frame.is_main() != 1 {
+                return;
+            }
+            tab.loading.set(true);
+            tab.silenced.set(false);
+            // Windows views take the profile's current style sheets with each page, so a change
+            // reaches the next page of every tab.
+            #[cfg(windows)]
+            if let (false, Some(host)) = (tab.lockdown_view.get(), tab.browser.borrow().as_ref().and_then(|b| b.host())) {
+                let page = Url::parse(&CefString::from(&frame.url()).to_string()).ok();
+                let script = crate::data_store_windows::site_styles_of(&tab.profile, page.as_ref());
+                tab.styled.set(style_hash(script.as_deref().unwrap_or(crate::page_scripts::REMOVE_SITE_STYLES)));
+                if let Some(script) = script {
+                    send_style(&tab, host, &script, page.as_ref());
+                }
+            }
+            let Ok(url) = Url::parse(&CefString::from(&frame.url()).to_string()) else { return };
+            if url.as_str() != "about:blank" {
+                drop_handover(&tab, browser);
+                #[cfg(windows)]
+                tab.opener.take();
+            }
+            let (can_go_back, can_go_forward) = tab.history.get();
+            let title = tab.title.borrow().clone();
+            emit(&tab, Event::Committed { url, title, can_go_back, can_go_forward });
+        }
+
+        fn on_load_end(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, _http_status_code: i32) {
+            let (Some(tab), Some(frame)) = (tab(self.id), frame) else { return };
+            if frame.is_main() != 1 {
+                return;
+            }
+            tab.loading.set(false);
+            tab.history_step.take();
+            super::cookies::changed_in_chromium();
+            let Ok(url) = Url::parse(&CefString::from(&frame.url()).to_string()) else { return };
+            let (can_go_back, can_go_forward) = tab.history.get();
+            let title = tab.title.borrow().clone();
+            emit(&tab, Event::Finished { url, title, can_go_back, can_go_forward });
+        }
+
+        fn on_load_error(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, error_code: Errorcode, error_text: Option<&CefString>, failed_url: Option<&CefString>) {
+            let (Some(tab), Some(frame)) = (tab(self.id), frame) else { return };
+            let code = sys::cef_errorcode_t::from(error_code);
+            if frame.is_main() != 1 {
+                return;
+            }
+            tab.loading.set(false);
+            if !string(failed_url).starts_with("about:") {
+                drop_handover(&tab, browser);
+            }
+            if code == sys::cef_errorcode_t::ERR_ABORTED {
+                return;
+            }
+            let url = Url::parse(&string(failed_url)).ok();
+            emit(&tab, Event::Failed { url, code: code as isize, message: crate::page::bounded(&string(error_text)) });
+        }
+    }
+}
+
+wrap_display_handler! {
+    struct TarnDisplay {
+        id: u64,
+    }
+
+    impl DisplayHandler {
+        fn on_title_change(&self, browser: Option<&mut Browser>, title: Option<&CefString>) {
+            let Some(tab) = tab(self.id) else { return };
+            let title = crate::page::bounded(&string(title));
+            *tab.title.borrow_mut() = title.clone();
+            emit(&tab, Event::TitleChanged(title));
+        }
+
+        fn on_address_change(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, url: Option<&CefString>) {
+            let (Some(tab), Some(frame)) = (tab(self.id), frame) else { return };
+            // An address change between load start and end belongs to that document load; any
+            // other is same-document (pushState, fragment), which is what `UrlChanged` means.
+            if frame.is_main() == 1 && !tab.loading.get() {
+                tab.history_step.take();
+                if let Ok(url) = Url::parse(&string(url)) {
+                    let (can_go_back, can_go_forward) = tab.history.get();
+                    emit(&tab, Event::UrlChanged { url, can_go_back, can_go_forward });
+                }
+            }
+        }
+    }
+}
+
+wrap_request_handler! {
+    struct TarnRequest {
+        id: u64,
+        profile: String,
+        lockdown_view: bool,
+    }
+
+    impl RequestHandler {
+        fn on_before_browse(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, request: Option<&mut Request>, user_gesture: i32, is_redirect: i32) -> i32 {
+            let (Some(tab), Some(frame), Some(request)) = (tab(self.id), frame, request) else { return 1 };
+            let Ok(url) = Url::parse(&CefString::from(&request.url()).to_string()) else { return 1 };
+            if frame.is_main() != 1 {
+                return i32::from(!nav_policy::chromium_subframe_allowed(&url) || (!self.lockdown_view && lockdown(&self.profile, &url)));
+            }
+            if super::outdated() {
+                emit(&tab, Event::WebEngineOutdated);
+                return 1;
+            }
+            let (shell, user_started) = if is_redirect == 1 {
+                (false, tab.user_started.get())
+            } else {
+                let (shell, step) = (tab.shell_load.take().is_some_and(|u| u == url), tab.history_step.take().contains(&url));
+                (shell, shell || user_gesture == 1 || step)
+            };
+            tab.user_started.set(user_started);
+            let source = if shell { Source::Typed } else { Source::Link };
+            match nav_policy::decide_chromium(&url, source) {
+                #[cfg(target_os = "macos")]
+                Decision::Allow if lockdown(&self.profile, &url) => {
+                    if crate::page::within_burst(&tab.recent_popups, crate::page::POPUP_BURST) {
+                        emit(&tab, Event::WebEngineRequired(url));
+                    }
+                    return 1;
+                }
+                Decision::Allow => {}
+                Decision::Prompt | Decision::Block => {
+                    emit(&tab, Event::Blocked { url, message: "Chromium tabs open only web pages.".into(), category: None });
+                    return 1;
+                }
+            }
+            // S10: a public page may not send the top frame to a private address; typed loads,
+            // their redirects, Back, Forward and Reload are the user's own.
+            if shell || is_redirect == 0 {
+                tab.shell_chain.set(shell);
+            }
+            let transition = request.transition_type().get_raw();
+            let history = transition & TransitionType::FORWARD_BACK_FLAG.get_raw() != 0 || transition & 0xff == TransitionType::RELOAD.get_raw();
+            let own = tab.shell_chain.get() || history;
+            let from = browser.as_ref().and_then(|b| b.main_frame()).and_then(|f| Url::parse(&CefString::from(&f.url()).to_string()).ok());
+            #[cfg(windows)]
+            let from = with_opener(&tab, from);
+            // A page without an origin of its own (about:blank) counts as public: only a fresh tab has no URL.
+            if !own && from.is_some_and(|f| !nav_policy::local_page(&f)) && shield::rules::local_target(&url) {
+                let message = nav_policy::LOCAL_NETWORK_BLOCKED.into();
+                emit(&tab, Event::Protected(Protection::LocalNetwork, None));
+                emit(&tab, Event::Blocked { url, message, category: None });
+                return 1;
+            }
+            let Some(shield) = super::filter::shield_for(&self.profile) else { return 1 };
+            let site = (shield.site_for)(&url);
+            match nav_policy::gate(site.blocked, true, shell, false) {
+                GateAction::Allow => {}
+                GateAction::Warn(category) | GateAction::Notice(category) => {
+                    emit(&tab, Event::Blocked { message: crate::page::blocked_message(category, &url), url, category: Some(category) });
+                    return 1;
+                }
+                GateAction::Cancel => return 1,
+            }
+            // JavaScript cannot be switched off for one navigation in Chromium.
+            #[cfg(target_os = "macos")]
+            if !site.level.policy().javascript {
+                emit(&tab, Event::Blocked { url, message: "This site is set to Lockdown and opens in WebKit.".into(), category: None });
+                return 1;
+            }
+            // The request filter upgrades plain HTTP unless the URL names a port; that one is
+            // refused as WebKit refuses it.
+            let left_url = browser.and_then(|b| b.main_frame()).and_then(|f| Url::parse(&CefString::from(&f.url()).to_string()).ok());
+            #[cfg(windows)]
+            let left_url = with_opener(&tab, left_url);
+            let left = left_url.clone().or_else(|| Url::parse("about:blank").ok()).map_or(site.level, |u| (shield.site_for)(&u).level);
+            if nav_policy::into_private_network(&url, left_url.as_ref(), user_started, left.policy().block_private_network) {
+                emit(&tab, Event::Protected(Protection::LocalNetwork, None));
+                emit(&tab, Event::Blocked { url, message: nav_policy::LOCAL_NETWORK_BLOCKED.into(), category: None });
+                return 1;
+            }
+            if url.port().is_some() && nav_policy::level_action(site, left, site.filtered, shell, &url) == nav_policy::LevelAction::BlockInsecure {
+                emit(&tab, Event::Blocked { url, message: "This site is set to HTTPS only; the insecure link was blocked.".into(), category: None });
+                return 1;
+            }
+            // Windows has no WebKit: a Lockdown site gets a Chromium view of its own without JavaScript,
+            // and leaving Lockdown a normal one. The shell rebuilds the view and loads the URL again,
+            // as typed only when the user's own, so the new view judges a page's navigation as the page's.
+            #[cfg(windows)]
+            if matches!(url.scheme(), "http" | "https") && (site.level == shield::ShieldLevel::Lockdown) != self.lockdown_view {
+                // The user's own first step is not counted; its redirect hops are, so a redirect loop
+                // across the boundary cannot rebuild views forever.
+                if (own && is_redirect == 0) || REBUILDS.with(|r| crate::page::within_burst(r, REBUILD_BURST)) {
+                    emit(&tab, if own { Event::ShieldLevelChanged(url) } else { Event::RebuildForLink(url) });
+                } else {
+                    emit(&tab, Event::Blocked { url, message: "This page keeps switching in and out of Lockdown, so Tarn stopped it.".into(), category: None });
+                }
+                return 1;
+            }
+            if (shell || user_gesture == 1) && is_redirect == 0 {
+                super::cookies::bridge_navigation(&url, self.id);
+            }
+            // The request filter upgrades it, by the page's rules or the one it leaves; a redirect
+            // hop or history step is the same page.
+            if is_redirect == 0 && !history && nav_policy::upgrades_to_https(&url, site.level.policy().https_only || left.policy().https_only) {
+                emit(&tab, Event::Protected(Protection::HttpsUpgrade, url.host_str().map(str::to_owned)));
+            }
+            0
+        }
+
+        // CEF's IO thread: every request is filtered; a main-frame navigation of a site being
+        // bridged also waits for its cookies.
+        fn resource_request_handler(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, request: Option<&mut Request>, is_navigation: i32, _is_download: i32, _request_initiator: Option<&CefString>, _disable_default_handling: Option<&mut i32>) -> Option<ResourceRequestHandler> {
+            let hold = match (frame, request) {
+                (Some(frame), Some(request)) if is_navigation == 1 && frame.is_main() == 1 => super::cookies::hold_for(&CefString::from(&request.url()).to_string()),
+                _ => None,
+            };
+            Some(super::filter::TarnFilter::new(hold, self.profile.clone(), self.lockdown_view))
+        }
+
+        fn on_open_urlfrom_tab(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, target_url: Option<&CefString>, target_disposition: WindowOpenDisposition, user_gesture: i32) -> i32 {
+            if target_disposition == WindowOpenDisposition::CURRENT_TAB {
+                return 0;
+            }
+            offer_popup(self.id, target_url, user_gesture);
+            1
+        }
+
+        fn on_certificate_error(&self, _browser: Option<&mut Browser>, _cert_error: Errorcode, _request_url: Option<&CefString>, _ssl_info: Option<&mut Sslinfo>, callback: Option<&mut Callback>) -> i32 {
+            if let Some(callback) = callback {
+                callback.cancel();
+            }
+            1
+        }
+
+        fn on_render_process_terminated(&self, browser: Option<&mut Browser>, _status: TerminationStatus, _error_code: i32, _error_string: Option<&CefString>) {
+            if let Some(tab) = tab(self.id) {
+                emit(&tab, Event::ContentProcessTerminated);
+            }
+        }
+    }
+}
+
+wrap_life_span_handler! {
+    struct TarnLifeSpan {
+        id: u64,
+    }
+
+    impl LifeSpanHandler {
+        #[allow(clippy::too_many_arguments)]
+        // Chromium never opens the window itself. An allowed popup is reported as blocked, whose
+        // notice offers to open it: a tab opened by that click is the user's load, not the page's.
+        fn on_before_popup(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _popup_id: i32, target_url: Option<&CefString>, _target_frame_name: Option<&CefString>, _target_disposition: WindowOpenDisposition, user_gesture: i32, _popup_features: Option<&PopupFeatures>, _window_info: Option<&mut WindowInfo>, _client: Option<&mut Option<Client>>, _settings: Option<&mut BrowserSettings>, _extra_info: Option<&mut Option<DictionaryValue>>, _no_javascript_access: Option<&mut i32>) -> i32 {
+            offer_popup(self.id, target_url, user_gesture);
+            1
+        }
+
+        fn on_after_created(&self, browser: Option<&mut Browser>) {
+            OPEN.set(OPEN.get() + 1);
+            if let (Some(tab), Some(browser)) = (tab(self.id), browser) {
+                *tab.browser.borrow_mut() = Some(browser.clone());
+                #[cfg(windows)]
+                if let Some(hook) = tab.created_hook.take() {
+                    let browser = browser.clone();
+                    super::runtime::after(std::time::Duration::ZERO, move || hook(browser));
+                }
+            }
+        }
+
+        fn on_before_close(&self, _browser: Option<&mut Browser>) {
+            OPEN.set(OPEN.get().saturating_sub(1));
+            if let Some(tab) = TABS.with_borrow_mut(|t| t.remove(&self.id)) {
+                tab.browser.take();
+                tab.devtools.take();
+                for (_, reply) in tab.calls.take() {
+                    reply(None);
+                }
+            }
+        }
+    }
+}
+
+// DISMISS, unlike DENY, writes no content setting; Chromium only counts dismissals per origin.
+wrap_permission_handler! {
+    struct TarnPermission;
+
+    impl PermissionHandler {
+        fn on_request_media_access_permission(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _requesting_origin: Option<&CefString>, _requested_permissions: u32, callback: Option<&mut MediaAccessCallback>) -> i32 {
+            if let Some(callback) = callback {
+                callback.cancel();
+            }
+            1
+        }
+
+        fn on_show_permission_prompt(&self, _browser: Option<&mut Browser>, _prompt_id: u64, _requesting_origin: Option<&CefString>, _requested_permissions: u32, callback: Option<&mut PermissionPromptCallback>) -> i32 {
+            if let Some(callback) = callback {
+                callback.cont(PermissionRequestResult::DISMISS);
+            }
+            1
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+const DOWNLOAD_NOTICE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[cfg(target_os = "macos")]
+fn refuse_download(id: u64) {
+    if let Some(tab) = tab(id)
+        && tab.download_notice.get().is_none_or(|at| at.elapsed() > DOWNLOAD_NOTICE_INTERVAL)
+    {
+        tab.download_notice.set(Some(std::time::Instant::now()));
+        emit(&tab, Event::DownloadFailed { id: None, message: "Downloads in Chromium tabs are not supported yet.".into() });
+    }
+}
+
+wrap_download_handler! {
+    struct TarnDownload {
+        id: u64,
+        store: String,
+    }
+
+    impl DownloadHandler {
+        fn can_download(&self, _browser: Option<&mut Browser>, _url: Option<&CefString>, _request_method: Option<&CefString>) -> i32 {
+            #[cfg(windows)]
+            return 1;
+            #[cfg(target_os = "macos")]
+            {
+                refuse_download(self.id);
+                0
+            }
+        }
+
+        // Returning 1 without running the callback cancels; 0 would hand the download to Chrome.
+        fn on_before_download(&self, browser: Option<&mut Browser>, download_item: Option<&mut DownloadItem>, suggested_name: Option<&CefString>, callback: Option<&mut BeforeDownloadCallback>) -> i32 {
+            #[cfg(windows)]
+            if let (Some(tab), Some(item), Some(callback)) = (tab(self.id), download_item, callback) {
+                let sink = tab.downloads.get().cloned().unwrap_or_else(|| tab.sink.borrow().clone());
+                if !crate::page::within_burst(&tab.recent_downloads, crate::page::DOWNLOAD_BURST) {
+                    sink(Event::DownloadFailed { id: None, message: "Too many downloads from this page; blocked.".into() });
+                    return 1;
+                }
+                let page = browser.and_then(|b| b.main_frame()).and_then(|f| Url::parse(&CefString::from(&f.url()).to_string()).ok());
+                let asker = super::downloads_windows::Asker { sink: tab.sink.borrow().clone(), silenced: tab.silenced.clone(), profile: tab.profile.clone(), page: with_opener(&tab, page) };
+                super::downloads_windows::begin(sink, &self.store, item, &string(suggested_name), callback, asker);
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let _ = (browser, download_item, suggested_name, callback, &self.store);
+                refuse_download(self.id);
+            }
+            1
+        }
+
+        fn on_download_updated(&self, _browser: Option<&mut Browser>, download_item: Option<&mut DownloadItem>, callback: Option<&mut DownloadItemCallback>) {
+            #[cfg(windows)]
+            {
+                if let Some(item) = download_item {
+                    super::downloads_windows::update(&self.store, item, callback);
+                }
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let _ = download_item;
+                refuse_download(self.id);
+                if let Some(callback) = callback {
+                    callback.cancel();
+                }
+            }
+        }
+    }
+}
+
+/// Chrome commands that act on the page only and draw no Chrome UI; every other one is refused.
+const PAGE_COMMANDS: [i32; 8] =
+    [sys::IDC_BACK, sys::IDC_FORWARD, sys::IDC_RELOAD, sys::IDC_RELOAD_BYPASSING_CACHE, sys::IDC_STOP, sys::IDC_CUT, sys::IDC_COPY, sys::IDC_PASTE];
+
+fn offer_popup(id: u64, target_url: Option<&CefString>, user_gesture: i32) {
+    let Some(tab) = tab(id) else { return };
+    let Ok(url) = Url::parse(&string(target_url)) else { return };
+    if user_gesture == 1
+        && nav_policy::decide_chromium(&url, Source::Popup) == Decision::Allow
+        && crate::page::within_burst(&tab.recent_popups, crate::page::POPUP_BURST)
+    {
+        emit(&tab, Event::PopupBlocked(Some(url)));
+    }
+}
+
+wrap_navigation_entry_visitor! {
+    struct HistoryUrls {
+        urls: Rc<RefCell<Vec<Option<Url>>>>,
+        current: Rc<Cell<Option<usize>>>,
+    }
+
+    impl NavigationEntryVisitor {
+        fn visit(&self, entry: Option<&mut NavigationEntry>, current: i32, _index: i32, _total: i32) -> i32 {
+            if current == 1 {
+                self.current.set(Some(self.urls.borrow().len()));
+            }
+            self.urls.borrow_mut().push(entry.and_then(|e| Url::parse(&CefString::from(&e.url()).to_string()).ok()));
+            1
+        }
+    }
+}
+
+/// The URLs of the history entries whose index `side` picks against the current one: where the
+/// shell's step may go, since Chromium's back skips entries a page added without a gesture. A step
+/// to any other URL, a same-document one included, is not the user's.
+fn history_urls(browser: &Browser, side: impl Fn(usize, usize) -> bool) -> Vec<Url> {
+    let (urls, current) = (Rc::new(RefCell::new(Vec::new())), Rc::new(Cell::new(None)));
+    if let Some(host) = browser.host() {
+        host.navigation_entries(Some(&mut HistoryUrls::new(urls.clone(), current.clone())), 0);
+    }
+    let Some(current) = current.get() else { return Vec::new() };
+    urls.take().into_iter().enumerate().filter(|(i, _)| side(*i, current)).filter_map(|(_, url)| url).collect()
+}
+
+fn page_origin(browser: Option<&mut Browser>) -> Option<String> {
+    let url = CefString::from(&browser?.main_frame()?.url()).to_string();
+    Url::parse(&url).ok().as_ref().and_then(crate::page::serialized_origin)
+}
+
+wrap_jsdialog_handler! {
+    struct TarnJsDialog {
+        id: u64,
+    }
+
+    impl JsdialogHandler {
+        fn on_jsdialog(&self, browser: Option<&mut Browser>, origin_url: Option<&CefString>, dialog_type: JsdialogType, message_text: Option<&CefString>, default_prompt_text: Option<&CefString>, callback: Option<&mut JsdialogCallback>, suppress_message: Option<&mut i32>) -> i32 {
+            let origin = Url::parse(&string(origin_url)).ok().as_ref().and_then(crate::page::serialized_origin);
+            let Some(callback) = callback else {
+                if let Some(suppress) = suppress_message {
+                    *suppress = 1;
+                }
+                return 0;
+            };
+            let allowed = tab(self.id).filter(|t| !t.silenced.get() && crate::page::within_burst(&t.recent_prompts, crate::page::PROMPT_BURST));
+            let (Some(tab), Some(origin), Some(page)) = (allowed, origin, page_origin(browser)) else {
+                callback.cont(0, None);
+                return 1;
+            };
+            let kind = if dialog_type == JsdialogType::CONFIRM {
+                crate::PromptKind::Confirm
+            } else if dialog_type == JsdialogType::PROMPT {
+                crate::PromptKind::Text { default: crate::page::bounded(&string(default_prompt_text)) }
+            } else {
+                crate::PromptKind::Alert
+            };
+            let callback = callback.clone();
+            let reply = Box::new(move |answer: Option<(String, Option<(String, String)>)>| match answer {
+                Some((text, _)) => callback.cont(1, Some(&CefString::from(text.as_str()))),
+                None => callback.cont(0, None),
+            });
+            let top_origin = (page != origin).then_some(page);
+            let message = crate::page::bounded(&string(message_text));
+            emit(&tab, Event::Prompt(crate::Prompt::answered(origin, top_origin, false, message, kind, reply, tab.silenced.clone())));
+            1
+        }
+
+        // Leaving a page is never held up by it, as in WebKit tabs.
+        fn on_before_unload_dialog(&self, _browser: Option<&mut Browser>, _message_text: Option<&CefString>, _is_reload: i32, callback: Option<&mut JsdialogCallback>) -> i32 {
+            if let Some(callback) = callback {
+                callback.cont(1, None);
+            }
+            1
+        }
+    }
+}
+
+wrap_command_handler! {
+    struct TarnCommand;
+
+    impl CommandHandler {
+        fn on_chrome_command(&self, _browser: Option<&mut Browser>, command_id: i32, _disposition: WindowOpenDisposition) -> i32 {
+            i32::from(!PAGE_COMMANDS.contains(&command_id))
+        }
+    }
+}
+
+/// Context-menu items kept from Chrome's menu: editing and spelling only, nothing that opens
+/// Chrome UI, a window, a download or DevTools.
+const EDIT_ITEMS: [i32; 11] = [
+    sys::IDC_CONTENT_CONTEXT_UNDO,
+    sys::IDC_CONTENT_CONTEXT_REDO,
+    sys::IDC_CONTENT_CONTEXT_CUT,
+    sys::IDC_CONTENT_CONTEXT_COPY,
+    sys::IDC_CONTENT_CONTEXT_PASTE,
+    sys::IDC_CONTENT_CONTEXT_PASTE_AND_MATCH_STYLE,
+    sys::IDC_CONTENT_CONTEXT_DELETE,
+    sys::IDC_CONTENT_CONTEXT_SELECTALL,
+    sys::IDC_CONTENT_CONTEXT_COPYLINKLOCATION,
+    sys::IDC_CONTENT_CONTEXT_SPELLING_SUGGESTION,
+    sys::IDC_SPELLCHECK_ADD_TO_DICTIONARY,
+];
+
+wrap_context_menu_handler! {
+    struct TarnContextMenu;
+
+    impl ContextMenuHandler {
+        fn on_before_context_menu(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _params: Option<&mut ContextMenuParams>, model: Option<&mut MenuModel>) {
+            let Some(model) = model else { return };
+            for index in (0..model.count()).rev() {
+                let id = model.command_id_at(index);
+                if !(EDIT_ITEMS.contains(&id) || (sys::IDC_SPELLCHECK_SUGGESTION_0..sys::IDC_SPELLCHECK_LANGUAGES_FIRST).contains(&id)) {
+                    model.remove_at(index);
+                }
+            }
+        }
+    }
+}
+
+wrap_find_handler! {
+    struct TarnFind {
+        id: u64,
+    }
+
+    impl FindHandler {
+        fn on_find_result(&self, browser: Option<&mut Browser>, _identifier: i32, count: i32, _selection_rect: Option<&Rect>, _active_match_ordinal: i32, final_update: i32) {
+            let Some(tab) = tab(self.id) else { return };
+            if final_update == 1 && let Some(found) = tab.found.borrow().as_ref() {
+                found(count > 0);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+wrap_keyboard_handler! {
+    struct TarnKeys;
+
+    impl KeyboardHandler {
+        // Key presses with Ctrl or Alt are the shell's shortcuts too. Chromium would take some for
+        // its own commands, which Tarn refuses, so each goes to the GPUI window that holds the tab
+        // before the page sees it. Editing keys stay the page's alone.
+        fn on_pre_key_event(&self, _browser: Option<&mut Browser>, event: Option<&KeyEvent>, os_event: Option<&mut sys::MSG>, _is_keyboard_shortcut: Option<&mut i32>) -> i32 {
+            let (Some(event), Some(msg)) = (event, os_event) else { return 0 };
+            if event.type_ == KeyEventType::RAWKEYDOWN && forwarded(event.modifiers, event.windows_key_code) {
+                // SAFETY: `msg.hwnd` is Chromium's window inside the shell window, on this thread; the key
+                // state the shell reads is still this key press's.
+                unsafe {
+                    let root = GetAncestor(msg.hwnd.0.cast(), GA_ROOT);
+                    SendMessageW(root, msg.message, msg.wParam as usize, msg.lParam as isize);
+                }
+            }
+            0
+        }
+    }
+}
+
+/// Whether a key press with these CEF modifiers and Windows virtual-key code also goes to the shell:
+/// Ctrl or Alt with a key, but not AltGr (Ctrl and Alt together types characters), a modifier
+/// alone, or the editing and caret keys pages use with Ctrl.
+#[cfg(windows)]
+fn forwarded(modifiers: u32, key: i32) -> bool {
+    let (ctrl, alt) = (sys::cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32, sys::cef_event_flags_t::EVENTFLAG_ALT_DOWN.0 as u32);
+    let shift = modifiers & sys::cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0 as u32 != 0;
+    // Backspace, Enter, Shift, Ctrl, Alt, the caret keys and Delete, the Windows keys.
+    const PAGE_KEYS: [i32; 16] = [0x08, 0x0d, 0x10, 0x11, 0x12, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2e, 0x5b, 0x5c];
+    // Select all, copy, paste, cut, undo, redo; with Shift only paste as text and redo.
+    let letters: &[u8] = if shift { b"VZ" } else { b"ACVXYZ" };
+    let editing = u8::try_from(key).is_ok_and(|k| letters.contains(&k)) || PAGE_KEYS.contains(&key);
+    match (modifiers & ctrl != 0, modifiers & alt != 0) {
+        (true, true) | (false, false) => false,
+        (true, false) => !editing,
+        (false, true) => key != 0x12,
+    }
+}
+
+#[cfg(target_os = "macos")]
+wrap_browser_view_delegate! {
+    struct TarnBrowserViewDelegate {}
+
+    impl ViewDelegate {}
+
+    impl BrowserViewDelegate {
+        fn browser_runtime_style(&self) -> RuntimeStyle {
+            RuntimeStyle::CHROME
+        }
+
+        fn chrome_toolbar_type(&self, _browser_view: Option<&mut BrowserView>) -> ChromeToolbarType {
+            ChromeToolbarType::NONE
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+wrap_window_delegate! {
+    struct TarnWindowDelegate {
+        browser_view: BrowserView,
+    }
+
+    impl ViewDelegate {}
+
+    impl PanelDelegate {}
+
+    impl WindowDelegate {
+        fn on_window_created(&self, window: Option<&mut cef::Window>) {
+            let Some(window) = window else { return };
+            let mut view = View::from(&self.browser_view);
+            window.add_child_view(Some(&mut view));
+            WINDOWS.with_borrow_mut(|w| w.push(window.clone()));
+        }
+
+        fn on_window_destroyed(&self, window: Option<&mut cef::Window>) {
+            let Some(window) = window else { return };
+            WINDOWS.with_borrow_mut(|w| w.retain(|other| other.is_same(Some(&mut View::from(&*window))) != 1));
+        }
+
+        fn is_frameless(&self, _window: Option<&mut cef::Window>) -> i32 {
+            1
+        }
+
+        fn can_close(&self, _window: Option<&mut cef::Window>) -> i32 {
+            1
+        }
+
+        fn can_resize(&self, _window: Option<&mut cef::Window>) -> i32 {
+            1
+        }
+
+        fn window_runtime_style(&self) -> RuntimeStyle {
+            RuntimeStyle::CHROME
+        }
+    }
+}
+
+/// A Chromium tab: a frameless Chrome-style CEF window kept as a child window over the shell
+/// window's content rectangle. CEF creates it once the profile's request context is ready;
+/// until then the view keeps its frame, visibility and first URL.
+pub struct WebView(Rc<Inner>);
+
+#[cfg(target_os = "macos")]
+type Created = (BrowserView, cef::Window);
+/// A windowed browser in a child window of the shell window.
+#[cfg(windows)]
+type Created = Browser;
+
+struct Inner {
+    created: RefCell<Option<Created>>,
+    host: RefCell<Host>,
+    tab: Rc<Tab>,
+    frame: Cell<Option<(f64, f64, f64, f64)>>,
+    /// The page's corner radius in points, and the window, width, height and corner diameter in
+    /// pixels of the region last set on it.
+    #[cfg(windows)]
+    radius: Cell<f64>,
+    #[cfg(windows)]
+    clip: Cell<Option<(isize, i32, i32, i32)>>,
+    visible: Cell<bool>,
+    muted: Cell<bool>,
+    first_load: RefCell<Option<Url>>,
+    /// The waiting first load is a page's link (`load_link`), not the user's.
+    first_link: Cell<bool>,
+    handover: RefCell<Option<String>>,
+    /// The profile's site style sheets when the view was created (`DataStore::set_site_styles`).
+    site_styles: Option<String>,
+    gated: Cell<bool>,
+    /// CEF could not start; loads fail at once.
+    dead: Cell<bool>,
+}
+
+impl WebView {
+    /// `root` holds Chromium's data; `profile` is the Tarn profile's own UUID. `None` when
+    /// Chromium cannot run here or belongs to another profile.
+    #[cfg(target_os = "macos")]
+    pub fn new(host: &Host, data: &crate::DataStore, root: &std::path::Path, profile: &str, sink: Rc<dyn Fn(Event)>) -> Option<Self> {
+        if super::runtime::retired() || !crate::chromium_owner::claim(root, profile) || !super::runtime::ensure_started(root) {
+            return None;
+        }
+        super::cookies::attach(data);
+        let inner = Self::inner(host, String::new(), String::new(), data.site_styles(), sink);
+        let weak = Rc::downgrade(&inner);
+        super::runtime::with_context(move |mut context| {
+            if let Some(inner) = weak.upgrade() {
+                WebView(inner).create(&mut context);
+            }
+        });
+        Some(WebView(inner))
+    }
+
+    /// A view of the data store `key`, whose Chromium profile lives in `cache` or, without one,
+    /// in memory. A view made while CEF cannot run stays blank and reports its first load as
+    /// failed.
+    #[cfg(windows)]
+    pub(crate) fn for_store(host: &Host, data: &crate::DataStore, lockdown: bool, filtered: bool, sink: Rc<dyn Fn(Event)>) -> Self {
+        let (key, shield, cache) = (data.context_key().to_owned(), data.shield_key().to_owned(), data.cache_dir());
+        let inner = Self::inner(host, shield.clone(), key.clone(), None, sink);
+        inner.tab.lockdown_view.set(lockdown);
+        inner.tab.filtered.set(filtered);
+        let _ = inner.tab.downloads.set(data.downloads());
+        let started = super::runtime::root().is_some_and(|root| super::runtime::ensure_started(&root));
+        if started {
+            let weak = Rc::downgrade(&inner);
+            super::runtime::with_store_context(key, shield, cache, move |mut context| {
+                if let Some(inner) = weak.upgrade() {
+                    WebView(inner).create(&mut context);
+                }
+            });
+        }
+        inner.dead.set(!started);
+        WebView(inner)
+    }
+
+    fn inner(host: &Host, profile: String, store: String, site_styles: Option<String>, sink: Rc<dyn Fn(Event)>) -> Rc<Inner> {
+        let id = NEXT_ID.get();
+        NEXT_ID.set(id + 1);
+        let tab = Rc::new(Tab {
+            id,
+            profile,
+            store,
+            browser: RefCell::new(None),
+            calls: RefCell::default(),
+            next_call: Cell::new(0),
+            devtools: RefCell::new(None),
+            handover_script: RefCell::new(None),
+            sink: RefCell::new(sink),
+            title: RefCell::new(String::new()),
+            history: Cell::new((false, false)),
+            loading: Cell::new(false),
+            found: RefCell::new(None),
+            shell_load: RefCell::new(None),
+            shell_chain: Cell::new(false),
+            last_find: RefCell::new(String::new()),
+            #[cfg(target_os = "macos")]
+            download_notice: Cell::new(None),
+            recent_popups: RefCell::default(),
+            #[cfg(windows)]
+            recent_downloads: RefCell::default(),
+            recent_prompts: RefCell::default(),
+            silenced: Rc::default(),
+            history_step: RefCell::default(),
+            user_started: Cell::new(false),
+            #[cfg(windows)]
+            downloads: std::cell::OnceCell::new(),
+            #[cfg(windows)]
+            lockdown_view: Cell::new(false),
+            #[cfg(windows)]
+            styled: Cell::new(0),
+            #[cfg(windows)]
+            filtered: Cell::new(false),
+            #[cfg(windows)]
+            page_hash: Cell::new(0),
+            #[cfg(windows)]
+            page_script: RefCell::new(None),
+            #[cfg(windows)]
+            opener: RefCell::new(None),
+            #[cfg(windows)]
+            created_hook: RefCell::new(None),
+        });
+        Rc::new(Inner {
+            created: RefCell::new(None),
+            host: RefCell::new(host.clone()),
+            tab,
+            frame: Cell::new(None),
+            #[cfg(windows)]
+            radius: Cell::new(0.),
+            #[cfg(windows)]
+            clip: Cell::new(None),
+            visible: Cell::new(false),
+            muted: Cell::new(false),
+            first_load: RefCell::new(None),
+            first_link: Cell::new(false),
+            handover: RefCell::new(None),
+            site_styles,
+            gated: Cell::new(false),
+            dead: Cell::new(false),
+        })
+    }
+
+    fn create(&self, context: &mut RequestContext) {
+        if !super::runtime::running() {
+            return;
+        }
+        let id = self.0.tab.id;
+        TABS.with_borrow_mut(|t| t.insert(id, self.0.tab.clone()));
+        #[cfg(windows)]
+        let lockdown_view = self.0.tab.lockdown_view.get();
+        #[cfg(target_os = "macos")]
+        let lockdown_view = false;
+        let mut client = TarnClient::new(id, self.0.tab.profile.clone(), self.0.tab.store.clone(), lockdown_view);
+        let start = CefString::from("about:blank");
+        #[cfg(target_os = "macos")]
+        let created = {
+            let mut delegate = TarnBrowserViewDelegate::new();
+            browser_view_create(Some(&mut client), Some(&start), Some(&BrowserSettings::default()), None, Some(context), Some(&mut delegate)).and_then(
+                |browser_view| {
+                    let mut window_delegate = TarnWindowDelegate::new(browser_view.clone());
+                    window_create_top_level(Some(&mut window_delegate)).map(|window| (browser_view, window))
+                },
+            )
+        };
+        // Created hidden at zero size; `placed` sizes and shows it once CEF made it, which for a
+        // new profile waits until its request context is initialised.
+        #[cfg(windows)]
+        {
+            let parent = sys::HWND(self.0.host.borrow().hwnd.cast());
+            let info = WindowInfo { runtime_style: RuntimeStyle::CHROME, ..Default::default() }.set_as_child(parent, &Rect::default());
+            let info = WindowInfo { style: info.style & !windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE, ..info };
+            let weak = Rc::downgrade(&self.0);
+            *self.0.tab.created_hook.borrow_mut() = Some(Box::new(move |browser| {
+                match weak.upgrade() {
+                    Some(inner) => {
+                        *inner.created.borrow_mut() = Some(browser);
+                        WebView(inner).placed();
+                    }
+                    // The view was dropped while CEF was making its browser.
+                    None => {
+                        if let Some(host) = browser.host() {
+                            host.close_browser(1);
+                        }
+                    }
+                }
+            }));
+            let javascript = if self.0.tab.lockdown_view.get() { State::DISABLED } else { State::DEFAULT };
+            let settings = BrowserSettings { javascript, ..Default::default() };
+            if browser_host_create_browser(Some(&info), Some(&mut client), Some(&start), Some(&settings), None, Some(context)) != 1 {
+                self.0.tab.created_hook.take();
+                TABS.with_borrow_mut(|t| t.remove(&id));
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let Some(created) = created else {
+                TABS.with_borrow_mut(|t| t.remove(&id));
+                return;
+            };
+            *self.0.created.borrow_mut() = Some(created);
+            if let Some(child) = self.ns_window() {
+                child.setHasShadow(false);
+            }
+            self.placed();
+        }
+    }
+
+    /// Gives a new browser the frame, visibility and mute state asked for before it existed, and
+    /// loads the first URL.
+    fn placed(&self) {
+        if let Some((x, y, w, h)) = self.0.frame.get() {
+            self.set_frame(x, y, w, h);
+        }
+        // Chrome style shows a new child window whatever its style says.
+        if self.0.visible.get() || cfg!(windows) {
+            self.show(self.0.visible.get());
+        }
+        if self.0.muted.get() {
+            self.set_muted(true);
+        }
+        self.load_first();
+    }
+
+    /// Clears storage of sites cleared before this tab existed and installs the site style
+    /// sheets and a handed-over storage script, then loads the first URL once Chromium has
+    /// confirmed all of them.
+    fn load_first(&self) {
+        let host = self.browser_host();
+        let mut steps: Vec<Step> = Vec::new();
+        let mut handover_step = None;
+        #[cfg(windows)]
+        let mut bypass_step = None;
+        #[cfg(windows)]
+        let mut page_step = None;
+        if host.is_some() {
+            steps.extend(super::data::take_pending_sites().iter().flat_map(|h| clear_storage_calls(h, &[])));
+            let handover = self.0.handover.borrow_mut().take();
+            // A service worker the site registered before it was set to Lockdown would run its
+            // script on the site's pages; a Lockdown view loads past them.
+            #[cfg(windows)]
+            if self.0.tab.lockdown_view.get() {
+                steps.push(("Network.enable", "{}".into(), None));
+                bypass_step = Some(steps.len());
+                steps.push(("Network.setBypassServiceWorker", "{\"bypass\":true}".into(), None));
+            }
+            #[cfg(windows)]
+            let page_world = !self.0.tab.lockdown_view.get();
+            #[cfg(target_os = "macos")]
+            let page_world = false;
+            if self.0.site_styles.is_some() || handover.is_some() || page_world {
+                // The page agent runs new-document scripts only once the Page domain is enabled.
+                steps.push(("Page.enable", "{}".into(), None));
+            }
+            for (source, is_handover) in [(self.0.site_styles.clone(), false), (handover, true)] {
+                let Some(source) = source else { continue };
+                if is_handover {
+                    handover_step = Some(steps.len());
+                }
+                steps.push((ADD_SCRIPT, format!("{{\"source\":{},\"worldName\":\"tarn\"}}", js_string(&source)), None));
+            }
+            // Page-world scripts, as WebKit's: they must change what the page itself sees. Both are
+            // compiled in and hold no bridge to the shell (S24).
+            #[cfg(windows)]
+            if page_world {
+                steps.push((ADD_SCRIPT, add_page_script(crate::page_scripts::ALWAYS_VISIBLE), None));
+                if let Some(script) = page_script_for(&self.0.tab) {
+                    let hash = style_hash(&script) | 1;
+                    self.0.tab.page_hash.set(hash);
+                    page_step = Some((steps.len(), hash));
+                    steps.push((ADD_SCRIPT, add_page_script(&script), None));
+                }
+            }
+        }
+        let Some(host) = host.filter(|_| !steps.is_empty()) else {
+            // Without DevTools a Lockdown view cannot keep service workers out, so it loads nothing.
+            #[cfg(windows)]
+            if self.0.tab.lockdown_view.get() {
+                let url = self.0.first_load.borrow_mut().take();
+                return emit(&self.0.tab, Event::Failed { url, code: 0, message: "Tarn could not open this Lockdown page.".into() });
+            }
+            if let Some(url) = self.0.first_load.borrow_mut().take() {
+                self.start(&url, self.0.first_link.get());
+            }
+            return;
+        };
+        self.0.gated.set(true);
+        let left = Rc::new(Cell::new(steps.len()));
+        let refused = Rc::new(Cell::new(false));
+        for (i, (method, params, site)) in steps.into_iter().enumerate() {
+            let (weak, left, refused) = (Rc::downgrade(&self.0), left.clone(), refused.clone());
+            call(&self.0.tab, &host, method, &params, move |result| {
+                // A Lockdown page must not load if its service workers could still run.
+                #[cfg(windows)]
+                if bypass_step == Some(i) && result.is_none() {
+                    refused.set(true);
+                }
+                if let (None, Some(site)) = (&result, &site) {
+                    super::data::record(site);
+                }
+                let Some(inner) = weak.upgrade() else { return };
+                let identifier = string_at(result, &["identifier"]);
+                if handover_step == Some(i) {
+                    *inner.tab.handover_script.borrow_mut() = identifier.clone();
+                }
+                #[cfg(windows)]
+                if let Some((_, hash)) = page_step.filter(|(step, _)| *step == i) {
+                    keep_page_script(&inner.tab, hash, identifier);
+                }
+                left.set(left.get() - 1);
+                if left.get() == 0 {
+                    inner.gated.set(false);
+                    let (url, link) = (inner.first_load.borrow_mut().take(), inner.first_link.get());
+                    if refused.get() {
+                        let message = "Tarn could not keep this site's service workers out, so the Lockdown page did not load.".into();
+                        emit(&inner.tab, Event::Failed { url, code: 0, message });
+                    } else if let Some(url) = url {
+                        WebView(inner).start(&url, link);
+                    }
+                }
+            });
+        }
+    }
+
+    /// Writes `storage` into the first document this view loads, if it has that origin; call
+    /// before the first load. Only for a switch the user started, in the same profile.
+    pub fn hand_over(&self, storage: Storage) {
+        *self.0.handover.borrow_mut() = Some(handover::write_script(&storage));
+    }
+
+    /// The storage of the top-level origin, read in an isolated world; `None` for a non-web
+    /// page, empty storage or more than `handover::MAX_BYTES`.
+    pub fn read_storage(&self, done: impl FnOnce(Option<Storage>) + 'static) {
+        let Some(origin) = self.url().as_ref().and_then(crate::page::serialized_origin) else { return done(None) };
+        let script = format!("return {};", handover::read_script(&origin));
+        let done = RefCell::new(Some(done));
+        self.run_isolated(&script, move |json| {
+            if let Some(done) = done.take() {
+                done(Storage::new(&origin, json));
+            }
+        });
+    }
+
+    pub fn find_text(&self, query: &str, done: impl Fn(Vec<String>) + 'static) {
+        self.run_isolated(&crate::page_scripts::find_text_script(query), move |found| done(crate::page_scripts::find_snippets(&found)));
+    }
+
+    pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
+        match crate::page_scripts::icon_links_script(origin) {
+            Some(script) => self.run_isolated(&script, done),
+            None => done(String::new()),
+        }
+    }
+
+    /// The page's article for `reader::Article::parse`, or "1" with `probe` when it has one; empty
+    /// when it has none. Read in the engine's isolated world.
+    pub fn article(&self, origin: &Url, probe: bool, done: impl Fn(String) + 'static) {
+        self.run_isolated(&crate::reader::script(&origin.origin().ascii_serialization(), probe), done);
+    }
+
+    pub fn fetch_icon(&self, origin: &Url, urls: &[Url], max_bytes: usize, done: impl Fn(String) + 'static) {
+        match crate::page_scripts::fetch_icon_script(origin, urls, max_bytes) {
+            Some(script) => self.run_isolated(&script, done),
+            None => done(String::new()),
+        }
+    }
+
+    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String) + 'static) {
+        match crate::page_scripts::page_text_script(origin, max_chars) {
+            Some(script) => self.run_isolated(&script, done),
+            None => done(String::new()),
+        }
+    }
+
+    pub fn pick_element(&self, done: impl Fn(String) + 'static) {
+        self.run_isolated_as_gesture(crate::page_scripts::PICKER, true, done);
+    }
+
+    pub fn json_text(&self, origin: &Url, max_bytes: usize, done: impl Fn(String) + 'static) {
+        match crate::page_scripts::json_text_script(origin, max_bytes) {
+            Some(script) => self.run_isolated(&script, done),
+            None => done(String::new()),
+        }
+    }
+
+    pub fn picture_in_picture(&self, done: impl Fn(String) + 'static) {
+        self.run_isolated_as_gesture(crate::page_scripts::PICTURE_IN_PICTURE, true, done);
+    }
+
+    /// The visible page as PNG, scaled to `width` points when given.
+    pub fn snapshot_png(&self, width: Option<f64>, done: impl Fn(Option<Vec<u8>>) + 'static) {
+        let Some(host) = self.browser_host() else { return done(None) };
+        let tab = self.0.tab.clone();
+        call(&self.0.tab, &host.clone(), "Page.getLayoutMetrics", "{}", move |metrics| {
+            let number = |key| {
+                value_at(metrics.clone(), &["cssVisualViewport", key]).map(|v| if v.get_type() == ValueType::INT { f64::from(v.int()) } else { v.double() })
+            };
+            let size = |key| number(key).filter(|v| *v > 0.);
+            let (x, y) = (number("pageX").unwrap_or(0.), number("pageY").unwrap_or(0.));
+            let clip = match (size("clientWidth"), size("clientHeight"), width) {
+                (Some(w), Some(h), Some(target)) => {
+                    format!(",\"clip\":{{\"x\":{x},\"y\":{y},\"width\":{w},\"height\":{h},\"scale\":{}}}", (target / w).min(1.))
+                }
+                _ => String::new(),
+            };
+            call(&tab, &host, "Page.captureScreenshot", &format!("{{\"format\":\"png\"{clip}}}"), move |shot| done(decode(string_at(shot, &["data"]))));
+        });
+    }
+
+    /// The page printed to PDF.
+    pub fn pdf(&self, done: impl Fn(Option<Vec<u8>>) + 'static) {
+        let Some(host) = self.browser_host() else { return done(None) };
+        call(&self.0.tab, &host, "Page.printToPDF", "{\"printBackground\":true}", move |pdf| done(decode(string_at(pdf, &["data"]))));
+    }
+
+    /// Runs `body` as an async function in an isolated world of the top frame; `done` gets the
+    /// string it returns, or an empty string.
+    fn run_isolated(&self, body: &str, done: impl Fn(String) + 'static) {
+        self.run_isolated_as_gesture(body, false, done);
+    }
+
+    /// `gesture` marks the run as the user's action, which a page's own script then shares, so it
+    /// is only for what the user just asked for (picture in picture, picking an element).
+    fn run_isolated_as_gesture(&self, body: &str, gesture: bool, done: impl Fn(String) + 'static) {
+        let Some(host) = self.browser_host() else { return done(String::new()) };
+        isolated(&self.0.tab, host, body, gesture, done);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn window(&self) -> Option<cef::Window> {
+        self.0.created.borrow().as_ref().map(|(_, w)| w.clone())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn browser(&self) -> Option<Browser> {
+        self.0.created.borrow().as_ref()?.0.browser()
+    }
+
+    #[cfg(windows)]
+    fn browser(&self) -> Option<Browser> {
+        self.0.created.borrow().clone()
+    }
+
+    /// The browser's own child window of the shell window.
+    #[cfg(windows)]
+    fn hwnd(&self) -> Option<windows_sys::Win32::Foundation::HWND> {
+        let handle = self.browser_host()?.window_handle();
+        (!handle.0.is_null()).then_some(handle.0.cast())
+    }
+
+    fn browser_host(&self) -> Option<BrowserHost> {
+        self.browser()?.host()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn ns_window(&self) -> Option<Retained<NSWindow>> {
+        let handle = self.window()?.window_handle();
+        if handle.is_null() {
+            return None;
+        }
+        // SAFETY: CEF returns the live NSView of its Views window on the main thread.
+        unsafe { &*handle.cast::<NSView>() }.window()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn attach(&self) {
+        let (Some(child), Some(parent)) = (self.ns_window(), self.0.host.borrow().view.window()) else { return };
+        // SAFETY: both windows are live and belong to this process.
+        unsafe { parent.addChildWindow_ordered(&child, NSWindowOrderingMode::Above) };
+    }
+
+    #[cfg(target_os = "macos")]
+    fn detach(&self) {
+        let (Some(child), Some(parent)) = (self.ns_window(), self.0.host.borrow().view.window()) else { return };
+        parent.removeChildWindow(&child);
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn rehost(self, host: &Host, sink: Rc<dyn Fn(Event)>) -> Self {
+        self.detach();
+        *self.0.host.borrow_mut() = host.clone();
+        *self.0.tab.sink.borrow_mut() = sink;
+        if self.0.visible.get() {
+            self.attach();
+        }
+        self
+    }
+
+    #[cfg(windows)]
+    pub fn rehost(self, host: &Host, sink: Rc<dyn Fn(Event)>) -> Self {
+        *self.0.host.borrow_mut() = host.clone();
+        *self.0.tab.sink.borrow_mut() = sink;
+        if let Some(child) = self.hwnd() {
+            // SAFETY: both windows belong to this thread.
+            unsafe { SetParent(child, host.hwnd) };
+        }
+        if let Some((x, y, w, h)) = self.0.frame.get() {
+            self.set_frame(x, y, w, h);
+        }
+        self
+    }
+
+    pub fn load(&self, url: &Url) {
+        self.start(url, false);
+    }
+
+    /// Loads `url` as a page's link: without the shell's mark, so S10 judges it and every redirect
+    /// hop as the page's, and a tab with no page yet counts as public.
+    pub fn load_link(&self, url: &Url) {
+        self.start(url, true);
+    }
+
+    /// As `load_link`, from `opener`, the page of the view this one replaced.
+    #[cfg(windows)]
+    pub(crate) fn load_link_from(&self, url: &Url, opener: Option<&Url>) {
+        *self.0.tab.opener.borrow_mut() = opener.cloned();
+        self.start(url, true);
+    }
+
+    fn start(&self, url: &Url, link: bool) {
+        if self.0.dead.get() {
+            emit(&self.0.tab, Event::Failed { url: Some(url.clone()), code: 0, message: "Chromium could not start.".into() });
+            return;
+        }
+        let Some(frame) = self.browser().and_then(|b| b.main_frame()).filter(|_| !self.0.gated.get()) else {
+            *self.0.first_load.borrow_mut() = Some(url.clone());
+            self.0.first_link.set(link);
+            return;
+        };
+        *self.0.tab.shell_load.borrow_mut() = (!link).then(|| url.clone());
+        frame.load_url(Some(&CefString::from(url.as_str())));
+    }
+
+    pub fn set_frame(&self, x: f64, y: f64, width: f64, height: f64) {
+        self.0.frame.set(Some((x, y, width, height)));
+        let host = self.0.host.borrow();
+        #[cfg(windows)]
+        if let Some(child) = self.hwnd() {
+            let (x, y, width, height) = host.pixels(x, y, width, height);
+            let diameter = (self.0.radius.get() * 2. * host.scale()).round() as i32;
+            // SAFETY: a child window of this thread; the window owns the region once it is set,
+            // and no region removes the clip.
+            unsafe {
+                SetWindowPos(child, std::ptr::null_mut(), x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+                let clip = (child as isize, width, height, diameter);
+                if self.0.clip.replace(Some(clip)) != Some(clip) {
+                    let region = if diameter > 0 { CreateRoundRectRgn(0, 0, width + 1, height + 1, diameter, diameter) } else { std::ptr::null_mut() };
+                    if SetWindowRgn(child, region, 1) == 0 && !region.is_null() {
+                        DeleteObject(region);
+                        self.0.clip.set(None);
+                    }
+                }
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let (Some(child), Some(parent)) = (self.ns_window(), host.view.window()) else { return };
+            let rect = host.view.convertRect_toView(host.rect(x, y, width, height), None);
+            child.setFrame_display(parent.convertRectToScreen(rect), true);
+        }
+    }
+
+    /// Rounds the page's window to the card's corners.
+    #[cfg(windows)]
+    pub(crate) fn set_corner_radius(&self, radius: f64) {
+        self.0.radius.set(radius);
+        if let Some((x, y, w, h)) = self.0.frame.get() {
+            self.set_frame(x, y, w, h);
+        }
+    }
+
+    /// Chrome's own two-finger swipe back and forward.
+    #[cfg(windows)]
+    pub(crate) fn set_gestures(&self, on: bool) {
+        super::runtime::set_swipe_navigation(on);
+    }
+
+    pub fn set_visible(&self, visible: bool) {
+        if self.0.visible.replace(visible) != visible {
+            VISIBLE.set(if visible { VISIBLE.get() + 1 } else { VISIBLE.get().saturating_sub(1) });
+            self.show(visible);
+            if !visible {
+                super::cookies::changed_in_chromium();
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    fn show(&self, visible: bool) {
+        let (Some(child), Some(host)) = (self.hwnd(), self.browser_host()) else { return };
+        host.was_hidden(i32::from(!visible));
+        // SAFETY: a child window of this thread; a shown page goes above the other tabs' pages.
+        unsafe {
+            ShowWindow(child, if visible { SW_SHOWNA } else { SW_HIDE });
+            if visible {
+                SetWindowPos(child, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn show(&self, visible: bool) {
+        let Some(window) = self.window() else { return };
+        if visible {
+            window.show();
+            self.attach();
+        } else {
+            self.detach();
+            window.hide();
+        }
+    }
+
+    /// Fades apply to the macOS child window only; a Windows child window has no alpha.
+    #[cfg_attr(windows, allow(unused_variables))]
+    pub fn set_alpha(&self, alpha: f64) {
+        #[cfg(target_os = "macos")]
+        if let Some(child) = self.ns_window() {
+            child.setAlphaValue(alpha);
+        }
+    }
+
+    pub fn raise(&self) {
+        #[cfg(target_os = "macos")]
+        if self.0.visible.get() {
+            self.detach();
+            self.attach();
+        }
+        #[cfg(windows)]
+        if let Some(child) = self.hwnd() {
+            // SAFETY: a child window of this thread.
+            unsafe { SetWindowPos(child, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) };
+        }
+    }
+
+    pub fn focus(&self) {
+        if let Some(host) = self.browser_host() {
+            host.set_focus(1);
+        }
+    }
+
+    pub fn url(&self) -> Option<Url> {
+        let frame = self.browser()?.main_frame()?;
+        Url::parse(&CefString::from(&frame.url()).to_string()).ok()
+    }
+
+    pub fn title(&self) -> String {
+        self.0.tab.title.borrow().clone()
+    }
+
+    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(bool) + 'static) {
+        let Some(host) = self.browser_host() else { return found(false) };
+        *self.0.tab.found.borrow_mut() = Some(Box::new(found));
+        let next = self.0.tab.last_find.replace(text.to_owned()) == text;
+        host.find(Some(&CefString::from(text)), i32::from(!backwards), 0, i32::from(next));
+    }
+
+    pub fn is_muted(&self) -> bool {
+        self.0.muted.get()
+    }
+
+    /// Whether the top document is playing video or audio now. The page answers for itself, so
+    /// at worst it keeps its own tab awake.
+    pub fn media_playing(&self, done: impl Fn(bool) + 'static) {
+        let Some(host) = self.browser_host() else { return done(false) };
+        let script = "[...document.querySelectorAll('video,audio')].some(m => !m.paused && !m.ended)";
+        let params = format!("{{\"expression\":{},\"returnByValue\":true}}", js_string(script));
+        call(&self.0.tab, &host, "Runtime.evaluate", &params, move |result| {
+            done(value_at(result, &["result", "value"]).is_some_and(|v| v.get_type() == ValueType::BOOL && v.bool() != 0));
+        });
+    }
+
+    pub fn set_muted(&self, muted: bool) {
+        self.0.muted.set(muted);
+        if let Some(host) = self.browser_host() {
+            host.set_audio_muted(i32::from(muted));
+        }
+    }
+
+    pub fn print(&self) {
+        if let Some(host) = self.browser_host() {
+            host.print();
+        }
+    }
+
+    pub fn back(&self) {
+        if let Some(b) = self.browser() {
+            *self.0.tab.history_step.borrow_mut() = if b.can_go_back() == 1 { history_urls(&b, |i, current| i < current) } else { Vec::new() };
+            b.go_back();
+        }
+    }
+
+    pub fn forward(&self) {
+        if let Some(b) = self.browser() {
+            *self.0.tab.history_step.borrow_mut() = if b.can_go_forward() == 1 { history_urls(&b, |i, current| i > current) } else { Vec::new() };
+            b.go_forward();
+        }
+    }
+
+    pub fn reload(&self) {
+        if let Some(b) = self.browser() {
+            *self.0.tab.history_step.borrow_mut() = history_urls(&b, |i, current| i == current);
+            b.reload();
+        }
+    }
+
+    /// Reloads a page whose renderer ended; not the user's navigation, as a page can end its own renderer.
+    pub fn recover(&self) {
+        if let Some(b) = self.browser() {
+            b.reload();
+        }
+    }
+
+    pub fn reload_from_origin(&self) {
+        if let Some(b) = self.browser() {
+            *self.0.tab.history_step.borrow_mut() = history_urls(&b, |i, current| i == current);
+            b.reload_ignore_cache();
+        }
+    }
+
+    pub fn stop(&self) {
+        if let Some(b) = self.browser() {
+            b.stop_load();
+        }
+    }
+
+    pub fn zoom(&self) -> f64 {
+        self.browser_host().map_or(1.0, |h| 1.2f64.powf(h.zoom_level()))
+    }
+
+    pub fn set_zoom(&self, zoom: f64) {
+        if let Some(host) = self.browser_host() {
+            host.set_zoom_level(zoom.max(crate::MIN_ZOOM).ln() / 1.2f64.ln());
+        }
+    }
+}
+
+impl Drop for WebView {
+    fn drop(&mut self) {
+        if Rc::strong_count(&self.0) > 1 {
+            return;
+        }
+        if self.0.visible.get() {
+            VISIBLE.set(VISIBLE.get().saturating_sub(1));
+        }
+        if !super::runtime::running() {
+            return;
+        }
+        self.0.tab.browser.take();
+        #[cfg(target_os = "macos")]
+        {
+            self.detach();
+            if let Some((_, window)) = self.0.created.borrow_mut().take() {
+                window.close();
+            }
+        }
+        #[cfg(windows)]
+        if let Some(host) = self.0.created.borrow_mut().take().and_then(|b| b.host()) {
+            host.close_browser(1);
+        }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    #[test]
+    fn shortcuts_reach_the_shell_and_editing_keys_stay_with_the_page() {
+        let (ctrl, alt, shift) = (4, 8, 2);
+        assert!(super::forwarded(ctrl, i32::from(b'L')));
+        assert!(super::forwarded(ctrl | shift, i32::from(b'T')));
+        assert!(super::forwarded(alt, 0x25));
+        assert!(!super::forwarded(ctrl | alt, i32::from(b'Q')), "AltGr types characters");
+        assert!(!super::forwarded(ctrl, 0x11), "Ctrl alone");
+        assert!(!super::forwarded(alt, 0x12), "Alt alone");
+        assert!(!super::forwarded(ctrl, 0x08), "Ctrl+Backspace");
+        assert!(!super::forwarded(ctrl, 0x25), "Ctrl+Left");
+        for key in *b"ACVXYZ" {
+            assert!(!super::forwarded(ctrl, i32::from(key)));
+        }
+        for key in *b"VZ" {
+            assert!(!super::forwarded(ctrl | shift, i32::from(key)));
+        }
+        assert!(super::forwarded(ctrl | shift, i32::from(b'C')), "Copy Link");
+        assert!(super::forwarded(ctrl | shift, i32::from(b'A')), "Library");
+        assert!(!super::forwarded(shift, i32::from(b'L')));
+        assert!(!super::forwarded(0, i32::from(b'L')));
+    }
+
+    #[test]
+    fn page_scripts_skip_lockdown_and_paused_views() {
+        let host = crate::Host { hwnd: std::ptr::null_mut() };
+        let inner = super::WebView::inner(&host, "s:ps".into(), "e:ps".into(), None, std::rc::Rc::new(|_| {}));
+        let tab = &inner.tab;
+        crate::data_store_windows::set_page_script_for_test("s:ps", Some("yt"));
+        tab.filtered.set(true);
+        assert_eq!(super::page_script_for(tab).as_deref(), Some("yt"));
+        tab.filtered.set(false);
+        assert_eq!(super::page_script_for(tab), None, "a paused site gets no page script");
+        tab.filtered.set(true);
+        tab.lockdown_view.set(true);
+        assert_eq!(super::page_script_for(tab), None, "a Lockdown view runs no script");
+        crate::data_store_windows::set_page_script_for_test("s:ps", None);
+    }
+
+    #[test]
+    fn late_page_script_replies_never_leave_two_registered() {
+        let host = crate::Host { hwnd: std::ptr::null_mut() };
+        let inner = super::WebView::inner(&host, "s:t".into(), "e:t".into(), None, std::rc::Rc::new(|_| {}));
+        let tab = &inner.tab;
+        tab.page_hash.set(2);
+        super::keep_page_script(tab, 1, Some("a".into()));
+        assert_eq!(*tab.page_script.borrow(), None, "a script replaced before its reply is dropped");
+        super::keep_page_script(tab, 2, Some("b".into()));
+        assert_eq!(tab.page_script.borrow().as_deref(), Some("b"));
+        super::keep_page_script(tab, 2, Some("b2".into()));
+        assert_eq!(tab.page_script.borrow().as_deref(), Some("b"), "the same script registered twice runs once");
+        tab.page_script.take();
+        super::keep_page_script(tab, 2, None);
+        assert_eq!(tab.page_hash.get(), 0, "a refused script lets the next change register it");
+    }
+}

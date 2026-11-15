@@ -1,0 +1,9 @@
+--------- beginning of main
+11-14 12:41:38.115  1195  1257 I tarn    : verdict=0 us=137 kind=0 url=http://localhost:8771/perm top=http://localhost:8771/perm pending=http://localhost:8771/perm
+11-14 12:41:38.156  1195  1195 I tarn    : started http://localhost:8771/perm
+11-14 12:41:38.163  1195  1195 I tarn    : tab t1 event title {title=localhost:8771/perm}
+11-14 12:41:38.178  1195  1257 I tarn    : verdict=0 us=126 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/perm pending=http://localhost:8771/perm
+11-14 12:41:38.185  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/perm, title=localhost:8771/perm, canGoBack=true, canGoForward=false}
+11-14 12:41:38.234  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/perm, title=localhost:8771/perm, canGoBack=true, canGoForward=false}
+11-14 12:41:41.577  1195  1195 I tarn    : tab t1 event prompt {id=11, kind=location, origin=http://localhost:8771, topOrigin=http://localhost:8771}
+11-14 12:41:44.714  1195  1195 I tarn    : tab t1 event title {title=geo 1}

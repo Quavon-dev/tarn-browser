@@ -1,0 +1,7 @@
+cef_version=156.0.26+g8ea0c73+chromium-156.0.8078.88
+chromium_version=156.0.8078.88
+release_date=2026-11-03
+host=cef-builds.spotifycdn.com
+sha256_macosarm64=6d7936cdd55ef30cf351a6358b2d922becefe87b25a8a8870a2b9ff5af2d39f6
+sha256_macosx64=28b343526664cacb8d855891ce112c62437684b4d9cbdc55fb5a6d7e5eac18fb
+sha256_windows64=2b0aa070793a6bb858b737f5edf9cb01a3ef7b9adcad5efe1e08affaf250f809

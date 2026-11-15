@@ -1,0 +1,7 @@
+<!doctype html><title>pn</title>
+<p>private network test</p>
+<img id="i" src="http://127.0.0.1:8765/pixel?from-pn" onload="document.title='img-loaded'" onerror="document.title='img-error'">
+<p><a href="http://127.0.0.1:8765/pixel?nav">navigate to a local address</a></p>
+<p><a href="http://127.0.0.1:8765/pixel?popup" target="_blank">open a local address in a new window</a></p>
+<p><a href="https://trusted.test:8443/cookie.html#via-link">link to a Lockdown site</a></p>
+<p><button onclick="setTimeout(() => location = 'https://trusted.test:8443/cookie.html#via-script', 50)">script navigation to a Lockdown site</button></p>

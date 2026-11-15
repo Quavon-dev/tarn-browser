@@ -1,0 +1,8 @@
+--------- beginning of main
+11-14 12:38:09.634  1195  1195 I tarn    : upgraded http://public.test/links -> https://public.test/links
+11-14 12:38:09.643  1195  1257 I tarn    : verdict=0 us=992 kind=0 url=https://public.test/links top=http://localhost:8771/pn pending=https://public.test/links
+11-14 12:38:09.655  1195  1195 I tarn    : started https://public.test/links
+11-14 12:38:09.655  1195  1195 I tarn    : tab t1 event failed {url=https://public.test/links, message=net::ERR_TUNNEL_CONNECTION_FAILED}
+11-14 12:38:09.658  1195  1195 I tarn    : tab t1 event finished {url=https://public.test/links, title=localhost:8771/pn, canGoBack=true, canGoForward=false}
+11-14 12:38:09.671  1195  1195 I tarn    : tab t1 event title {title=Webpage not available}
+11-14 12:38:09.703  1195  1195 I tarn    : tab t1 event committed {url=https://public.test/links, title=Webpage not available, canGoBack=true, canGoForward=false}

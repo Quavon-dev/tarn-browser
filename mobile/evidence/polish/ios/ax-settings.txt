@@ -1,0 +1,46 @@
+Page: dev.tarn.browser
+App: dev.tarn.browser
+Snapshot: 40 visible nodes
+Simulator AX snapshot unavailable (circuit-disabled); used XCTest for this app generation.
+@e1 [application] "Tarn"
+@e2 [other] "Settings Done DEFAULT SHIELD LEVEL Standard Strict Lockdown SEARCH ENGINE DuckDuckGo Startpage Brave Search Ecosia Google Bing FILTER LISTS Ads Trackers Malware No filter lists are installed yet; Shield's built-in rules always apply. DATA Clear Browsing Data… 4"
+@e3 [other] "Shield: Standard"
+@e4 [button] "Shield: Standard"
+@e5 [other] "Address"
+@e6 [text-field] "Not Secure — 127.0.0.1" [editable]
+@e7 [other] "Settings Done DEFAULT SHIELD LEVEL Standard Strict Lockdown SEARCH ENGINE DuckDuckGo Startpage Brave Search Ecosia Google Bing FILTER LISTS Ads Trackers Malware No filter lists are installed yet; Shield's built-in rules always apply. DATA Clear Browsing Data…"
+@e8 [other] "Settings Done"
+@e9 [button] "Done"
+@e10 [other] "Settings"
+@e11 [scroll-area] "DEFAULT SHIELD LEVEL Standard Strict Lockdown SEARCH ENGINE DuckDuckGo Startpage Brave Search Ecosia Google Bing FILTER LISTS Ads Trackers Malware No filter lists are installed yet; Shield's built-in rules always apply. DATA Clear Browsing Data…" [scrollable]
+  [content above scroll-area hidden]
+  [content below scroll-area hidden]
+@e12 [other] [same label as parent]
+@e13 [text] "DEFAULT SHIELD LEVEL"
+@e14 [cell] "Standard Strict Lockdown"
+@e15 [button] "Standard"
+@e16 [button] "Strict" [selected]
+@e17 [button] "Lockdown"
+@e18 [text] "SEARCH ENGINE"
+@e19 [cell] "DuckDuckGo Startpage Brave Search Ecosia Google Bing"
+@e20 [button] "DuckDuckGo" [selected]
+@e21 [button] "Startpage"
+@e22 [button] "Brave Search"
+@e23 [button] "Ecosia"
+@e24 [button] "Google"
+@e25 [button] "Bing"
+@e26 [text] "FILTER LISTS"
+@e27 [cell] "Ads Trackers Malware"
+@e28 [button] "Ads: On" [selected]
+@e29 [button] "Trackers: On" [selected]
+@e30 [button] "Malware: On" [selected]
+@e31 [text] "No filter lists are installed yet; Shield's built-in rules always apply."
+@e32 [text] "DATA"
+@e33 [cell] "Clear Browsing Data…"
+@e34 [button] "Clear Browsing Data…"
+@e35 [other] "4"
+@e36 [button] "Back"
+@e37 [button] "Forward"
+@e38 [button] "Share"
+@e39 [button] "Tabs 4"
+@e40 [button] "Menu"

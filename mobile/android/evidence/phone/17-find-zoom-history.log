@@ -1,0 +1,27 @@
+--------- beginning of main
+11-14 12:46:44.765  1195  1257 I tarn    : verdict=0 us=2122 kind=0 url=http://localhost:8771/find top=http://localhost:8771/title pending=http://localhost:8771/find
+11-14 12:46:44.783  1195  1195 I tarn    : started http://localhost:8771/find
+11-14 12:46:44.789  1195  1195 I tarn    : tab t1 event title {title=localhost:8771/find}
+11-14 12:46:44.790  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=true, canGoForward=false}
+11-14 12:46:44.792  1195  1257 I tarn    : verdict=0 us=107 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/title pending=http://localhost:8771/find
+11-14 12:46:44.820  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=true, canGoForward=false}
+11-14 12:46:48.984  1195  1195 I tarn    : tab t1 event found {matched=3}
+11-14 12:46:51.626  1195  1195 I tarn    : tab t1 event found {matched=3}
+11-14 12:46:56.144  1195  1257 I tarn    : verdict=0 us=94 kind=0 url=http://localhost:8771/title top=http://localhost:8771/find pending=http://localhost:8771/title
+11-14 12:46:56.171  1195  1195 I tarn    : started http://localhost:8771/title
+11-14 12:46:56.175  1195  1195 I tarn    : tab t1 event found {matched=0}
+11-14 12:46:56.177  1195  1195 I tarn    : tab t1 event found {matched=0}
+11-14 12:46:56.179  1195  1195 I tarn    : tab t1 event title {title=first}
+11-14 12:46:56.179  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/title, title=first, canGoBack=true, canGoForward=true}
+11-14 12:46:56.182  1195  1195 I tarn    : tab t1 event found {matched=0}
+11-14 12:46:56.182  1195  1257 I tarn    : verdict=0 us=100 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/find pending=http://localhost:8771/title
+11-14 12:46:56.220  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/title, title=first, canGoBack=true, canGoForward=true}
+11-14 12:46:57.681  1195  1195 I tarn    : tab t1 event title {title=LATE-TITLE}
+11-14 12:46:59.522  1195  1257 I tarn    : verdict=0 us=98 kind=0 url=http://localhost:8771/find top=http://localhost:8771/title pending=http://localhost:8771/find
+11-14 12:46:59.563  1195  1195 I tarn    : tab t1 event found {matched=0}
+11-14 12:46:59.565  1195  1195 I tarn    : started http://localhost:8771/find
+11-14 12:46:59.566  1195  1195 I tarn    : tab t1 event title {title=localhost:8771/find}
+11-14 12:46:59.566  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=true, canGoForward=false}
+11-14 12:46:59.567  1195  1195 I tarn    : tab t1 event found {matched=3}
+11-14 12:46:59.568  1195  1284 I tarn    : verdict=0 us=113 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/title pending=http://localhost:8771/find
+11-14 12:46:59.614  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=true, canGoForward=false}

@@ -1,0 +1,113 @@
+--------- beginning of main
+11-14 18:30:11.376 I/tarn    (30641): private sweep removed 0 files
+11-14 18:30:12.077 I/tarn    (30641): debug proxy localhost:8771
+11-14 18:30:13.269 I/tarn    (30641): tab n1 web view on store tarn-79c21562-b779-436f-a180-c6ae50669a2e
+11-14 18:30:14.913 I/tarn    (30641): rule lists built: 242 rules in 3523338 us
+11-14 18:30:23.361 I/tarn    (30641): verdict=0 main frame url=http://public.test/pn pending=http://public.test/pn
+11-14 18:30:23.633 I/tarn    (30641): started http://public.test/pn
+11-14 18:30:23.634 I/tarn    (30641): tab n1 event committed {url=http://public.test/pn, title=public.test/pn, canGoBack=false, canGoForward=false}
+11-14 18:30:23.663 I/tarn    (30641): verdict=1 us=335 kind=2 url=http://127.0.0.1:8771/pixel?via=127 top=http://public.test/pn pending=null
+11-14 18:30:23.672 I/tarn    (30641): verdict=1 us=8197 kind=2 url=http://localhost:8771/pixel?via=localhost top=http://public.test/pn pending=null
+11-14 18:30:23.672 I/tarn    (30641): tab n1 event blocked {url=http://127.0.0.1:8771/pixel?via=127, reason=shield}
+11-14 18:30:23.672 I/tarn    (30641): tab n1 event blocked {url=http://localhost:8771/pixel?via=localhost, reason=shield}
+11-14 18:30:23.705 I/tarn    (30641): verdict=1 us=132 kind=2 url=http://10.0.2.2:8771/pixel?via=10 top=http://public.test/pn pending=null
+11-14 18:30:23.705 I/tarn    (30641): tab n1 event blocked {url=http://10.0.2.2:8771/pixel?via=10, reason=shield}
+11-14 18:30:23.925 I/tarn    (30641): verdict=0 us=91 kind=2 url=http://public.test/favicon.ico top=http://public.test/pn pending=null
+11-14 18:30:23.958 I/tarn    (30641): tab n1 event title {title=public.test/pn}
+11-14 18:30:23.959 I/tarn    (30641): tab n1 event finished {url=http://public.test/pn, title=public.test/pn, canGoBack=false, canGoForward=false}
+11-14 18:30:35.671 I/tarn    (30641): verdict=0 main frame url=http://public.test/links pending=http://public.test/links
+11-14 18:30:35.716 I/tarn    (30641): started http://public.test/links
+11-14 18:30:35.716 I/tarn    (30641): tab n1 event committed {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 18:30:35.732 I/tarn    (30641): tab n1 event title {title=public.test/links}
+11-14 18:30:35.732 I/tarn    (30641): tab n1 event finished {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 18:30:35.736 I/tarn    (30641): verdict=0 us=406 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 18:30:41.577 I/tarn    (30641): tab n1 event popup {url=http://public.test/popup-target}
+11-14 18:30:41.686 I/tarn    (30641): tab n2 web view on store tarn-79c21562-b779-436f-a180-c6ae50669a2e
+11-14 18:30:41.692 I/tarn    (30641): verdict=0 main frame url=http://public.test/popup-target pending=http://public.test/popup-target
+11-14 18:30:41.814 I/tarn    (30641): started http://public.test/popup-target
+11-14 18:30:41.814 I/tarn    (30641): tab n2 event committed {url=http://public.test/popup-target, title=public.test/popup-target, canGoBack=false, canGoForward=false}
+11-14 18:30:41.821 I/tarn    (30641): tab n2 event title {title=public.test/popup-target}
+11-14 18:30:41.822 I/tarn    (30641): tab n2 event finished {url=http://public.test/popup-target, title=public.test/popup-target, canGoBack=false, canGoForward=false}
+11-14 18:30:41.824 I/tarn    (30641): verdict=0 us=249 kind=2 url=http://public.test/favicon.ico top=http://public.test/popup-target pending=null
+11-14 18:30:51.534 I/tarn    (30641): verdict=0 main frame url=http://public.test/links pending=http://public.test/links
+11-14 18:30:51.565 I/tarn    (30641): started http://public.test/links
+11-14 18:30:51.565 I/tarn    (30641): tab n2 event committed {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 18:30:51.572 I/tarn    (30641): tab n2 event title {title=public.test/links}
+11-14 18:30:51.573 I/tarn    (30641): tab n2 event finished {url=http://public.test/links, title=public.test/links, canGoBack=true, canGoForward=false}
+11-14 18:30:51.574 I/tarn    (30641): verdict=0 us=73 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 18:30:53.077 I/tarn    (30641): tab n2 event external {url=mailto:a@example.com, origin=http://public.test}
+11-14 18:30:53.090 I/tarn    (30641): verdict=0 us=83 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 18:31:01.243 I/tarn    (30641): tab n2 event blocked {url=http://localhost:8771/local-from-public, reason=shield}
+11-14 18:31:01.255 I/tarn    (30641): verdict=0 us=246 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=null
+11-14 18:31:09.719 I/tarn    (30641): verdict=0 main frame url=http://public.test/dialogs pending=http://public.test/dialogs
+11-14 18:31:09.895 I/tarn    (30641): started http://public.test/dialogs
+11-14 18:31:09.895 I/tarn    (30641): tab n2 event committed {url=http://public.test/dialogs, title=public.test/dialogs, canGoBack=true, canGoForward=false}
+11-14 18:31:09.909 I/tarn    (30641): tab n2 event title {title=public.test/dialogs}
+11-14 18:31:09.909 I/tarn    (30641): tab n2 event finished {url=http://public.test/dialogs, title=public.test/dialogs, canGoBack=true, canGoForward=false}
+11-14 18:31:09.911 I/tarn    (30641): verdict=0 us=125 kind=2 url=http://public.test/favicon.ico top=http://public.test/dialogs pending=null
+11-14 18:31:11.295 I/tarn    (30641): tab n2 event prompt {id=1, kind=confirm, origin=http://public.test, message=sure?}
+11-14 18:31:16.923 I/tarn    (30641): tab n2 event title {title=confirm true}
+11-14 18:31:19.522 I/tarn    (30641): verdict=0 main frame url=http://public.test/find pending=http://public.test/find
+11-14 18:31:19.552 I/tarn    (30641): started http://public.test/find
+11-14 18:31:19.552 I/tarn    (30641): tab n2 event committed {url=http://public.test/find, title=public.test/find, canGoBack=true, canGoForward=false}
+11-14 18:31:19.559 I/tarn    (30641): tab n2 event title {title=public.test/find}
+11-14 18:31:19.559 I/tarn    (30641): tab n2 event finished {url=http://public.test/find, title=public.test/find, canGoBack=true, canGoForward=false}
+11-14 18:31:19.561 I/tarn    (30641): verdict=0 us=77 kind=2 url=http://public.test/favicon.ico top=http://public.test/find pending=null
+11-14 18:31:37.550 I/tarn    (30641): tab n2 event found {matched=3}
+11-14 18:32:38.319 I/tarn    (30641): verdict=0 main frame url=http://localhost:8771/downloads pending=http://localhost:8771/downloads
+11-14 18:32:38.344 I/tarn    (30641): started http://localhost:8771/downloads
+11-14 18:32:38.349 I/tarn    (30641): tab n2 event committed {url=http://localhost:8771/downloads, title=localhost:8771/downloads, canGoBack=true, canGoForward=false}
+11-14 18:32:38.351 I/tarn    (30641): tab n2 event found {matched=0}
+11-14 18:32:38.363 I/tarn    (30641): tab n2 event found {matched=0}
+11-14 18:32:38.363 I/tarn    (30641): tab n2 event title {title=localhost:8771/downloads}
+11-14 18:32:38.364 I/tarn    (30641): tab n2 event finished {url=http://localhost:8771/downloads, title=localhost:8771/downloads, canGoBack=true, canGoForward=false}
+11-14 18:32:38.364 I/tarn    (30641): tab n2 event found {matched=0}
+11-14 18:32:38.365 I/tarn    (30641): verdict=0 us=83 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/downloads pending=null
+11-14 18:32:39.851 I/tarn    (30641): verdict=0 main frame url=http://localhost:8771/download pending=http://localhost:8771/download
+11-14 18:32:39.883 I/tarn    (30641): tab n2 event download {state=started, name=evil_name.bin}
+11-14 18:32:39.890 I/tarn    (30641): verdict=0 us=37 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/downloads pending=null
+11-14 18:32:39.956 I/tarn    (30641): tab n2 event download {state=finished, name=evil_name.bin, path=/data/user/0/dev.tarn.browser/files/Downloads/evil_name.bin, url=http://localhost:8771/download, quarantined=false}
+11-14 18:32:59.253 I/tarn    (30641): upgraded http://public.test/plain -> https://public.test/plain
+11-14 18:32:59.257 I/tarn    (30641): verdict=0 main frame url=https://public.test/plain pending=https://public.test/plain
+11-14 18:32:59.371 I/tarn    (30641): tab n2 event failed {url=https://public.test/plain, message=The site's certificate is not valid}
+11-14 18:32:59.385 I/tarn    (30641): tab n2 event finished {url=https://public.test/plain, title=localhost:8771/downloads, canGoBack=true, canGoForward=false}
+11-14 18:33:14.048 I/tarn    (30641): private sweep removed 0 files
+11-14 18:33:15.165 I/tarn    (32026): debug proxy localhost:8771
+11-14 18:33:15.800 I/tarn    (32026): tab p1 web view on store process default
+11-14 18:33:16.966 I/tarn    (32026): rule lists built: 242 rules in 2175481 us
+11-14 18:33:22.567 I/tarn    (32026): verdict=0 main frame url=http://public.test/private?m=M4PHONE1794677601 pending=http://public.test/private?m=M4PHONE1794677601
+11-14 18:33:22.716 I/tarn    (32026): started http://public.test/private?m=M4PHONE1794677601
+11-14 18:33:22.716 I/tarn    (32026): tab p1 event committed {url=http://public.test/private?m=M4PHONE1794677601, title=public.test/private?m=M4PHONE1794677601, canGoBack=false, canGoForward=false}
+11-14 18:33:22.730 I/tarn    (32026): tab p1 event title {title=stored M4PHONE1794677601}
+11-14 18:33:22.760 I/tarn    (32026): tab p1 event finished {url=http://public.test/private?m=M4PHONE1794677601, title=stored M4PHONE1794677601, canGoBack=false, canGoForward=false}
+11-14 18:33:22.767 I/tarn    (32026): verdict=0 us=81 kind=2 url=http://public.test/favicon.ico top=http://public.test/private?m=M4PHONE1794677601 pending=null
+11-14 18:33:40.302 I/tarn    (30641): private session swept, 94 files
+11-14 18:33:51.169 I/tarn    (30641): verdict=0 main frame url=http://public.test/cookie?set=personal pending=http://public.test/cookie?set=personal
+11-14 18:33:51.216 I/tarn    (30641): started http://public.test/cookie?set=personal
+11-14 18:33:51.217 I/tarn    (30641): tab n2 event committed {url=http://public.test/cookie?set=personal, title=public.test/cookie?set=personal, canGoBack=true, canGoForward=false}
+11-14 18:33:51.223 I/tarn    (30641): tab n2 event found {matched=0}
+11-14 18:33:51.234 I/tarn    (30641): tab n2 event found {matched=0}
+11-14 18:33:51.240 I/tarn    (30641): tab n2 event found {matched=0}
+11-14 18:33:51.241 I/tarn    (30641): tab n2 event title {title=public.test/cookie?set=personal}
+11-14 18:33:51.242 I/tarn    (30641): tab n2 event finished {url=http://public.test/cookie?set=personal, title=public.test/cookie?set=personal, canGoBack=true, canGoForward=false}
+11-14 18:33:51.243 I/tarn    (30641): verdict=0 us=80 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie?set=personal pending=null
+11-14 18:34:17.951 I/tarn    (30641): tab n3 web view on store tarn-4f1a7e67-eb36-44ba-95a6-d10ff4ef0260
+11-14 18:34:25.019 I/tarn    (30641): verdict=0 main frame url=http://public.test/cookie pending=http://public.test/cookie
+11-14 18:34:25.098 I/tarn    (30641): started http://public.test/cookie
+11-14 18:34:25.099 I/tarn    (30641): tab n3 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 18:34:25.106 I/tarn    (30641): tab n3 event title {title=public.test/cookie}
+11-14 18:34:25.107 I/tarn    (30641): tab n3 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 18:34:25.108 I/tarn    (30641): verdict=0 us=66 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie pending=null
+11-14 18:34:34.180 I/tarn    (30641): tab n2 web view on store tarn-79c21562-b779-436f-a180-c6ae50669a2e
+11-14 18:34:34.192 I/tarn    (30641): verdict=0 main frame url=http://public.test/cookie?set=personal pending=http://public.test/cookie?set=personal
+11-14 18:34:34.226 I/tarn    (30641): started http://public.test/cookie?set=personal
+11-14 18:34:34.226 I/tarn    (30641): tab n2 event committed {url=http://public.test/cookie?set=personal, title=public.test/cookie?set=personal, canGoBack=false, canGoForward=false}
+11-14 18:34:34.236 I/tarn    (30641): tab n2 event title {title=public.test/cookie?set=personal}
+11-14 18:34:34.253 I/tarn    (30641): tab n2 event finished {url=http://public.test/cookie?set=personal, title=public.test/cookie?set=personal, canGoBack=false, canGoForward=false}
+11-14 18:34:34.269 I/tarn    (30641): verdict=0 us=80 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie?set=personal pending=null
+11-14 18:34:37.302 I/tarn    (30641): verdict=0 main frame url=http://public.test/cookie pending=http://public.test/cookie
+11-14 18:34:37.328 I/tarn    (30641): started http://public.test/cookie
+11-14 18:34:37.329 I/tarn    (30641): tab n2 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=true, canGoForward=false}
+11-14 18:34:37.338 I/tarn    (30641): tab n2 event title {title=public.test/cookie}
+11-14 18:34:37.338 I/tarn    (30641): tab n2 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=true, canGoForward=false}
+11-14 18:34:37.339 I/tarn    (30641): verdict=0 us=69 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie pending=null

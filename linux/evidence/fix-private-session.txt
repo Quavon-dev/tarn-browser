@@ -1,0 +1,7 @@
+# private space: cookie set with #keepme, switched to Home and back (views unmounted and remounted)
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"https://trusted.test:8443/cookie.html#via-link"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"https://trusted.test:8443/cookie.html#via-link"}
+[tarn] event title {"title":"cookie"}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://public.test:8765/cookie.html#keepme"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://public.test:8765/cookie.html#keepme"}
+[tarn] event title {"title":"cookie before=tarn=keepme"}

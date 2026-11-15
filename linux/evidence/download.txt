@@ -1,0 +1,20 @@
+# download: 127.0.0.1:8765/nav.html
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"nav","url":"http://127.0.0.1:8765/nav.html"}
+[tarn] event download {"name":"evil_gpj.sh","path":"/root/Downloads/evil_gpj.sh","state":"started"}
+[tarn] event download {"name":"evil_gpj.sh","path":"/root/Downloads/evil_gpj.sh","quarantined":true,"state":"finished","url":"http://127.0.0.1:8765/download"}
+# server
+127.0.0.1:8765 GET /nav.html "GET /nav.html HTTP/1.1" 200 -
+127.0.0.1:8765 GET /download "GET /download HTTP/1.1" 200 -
+total 12
+drwxr-xr-x 2 root root 4096 Nov 14 12:12 .
+dr-xr-x--- 1 root root 4096 Nov 14 12:12 ..
+-rw-r--r-- 1 root root   26 Nov 14 12:12 evil_gpj.sh
+/root/Downloads/evil_gpj.sh
+# file: root/Downloads/evil_gpj.sh
+user.xdg.origin.url="http://127.0.0.1:8765/download"
+
+total 4
+-rw-r--r-- 1 root root 26 Nov 14 12:12 evil_gpj.sh

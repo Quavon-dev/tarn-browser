@@ -1,0 +1,14 @@
+98,100c98
+< /root/.local/share/tarn/tarn.db 4096 1794658306.3747960010
+< /root/.local/share/tarn/tarn.db-shm 32768 1794658583.3493130040
+< /root/.local/share/tarn/tarn.db-wal 704552 1794658596.6673130100
+---
+> /root/.local/share/tarn/tarn.db 172032 1794658623.7674570090
+111,112d108
+< /root/.local/share/tarn/webkit/11eb9bf5-a4e8-4784-8f78-e81c16a2055e/data/storage/aCH_3q0bq7Qrci5OaSNOuqlE7Ssv_dxlV5pJ8nbjNSA/aCH_3q0bq7Qrci5OaSNOuqlE7Ssv_dxlV5pJ8nbjNSA/LocalStorage/localstorage.sqlite3-shm 32768 1794658592.8197231340
+< /root/.local/share/tarn/webkit/11eb9bf5-a4e8-4784-8f78-e81c16a2055e/data/storage/aCH_3q0bq7Qrci5OaSNOuqlE7Ssv_dxlV5pJ8nbjNSA/aCH_3q0bq7Qrci5OaSNOuqlE7Ssv_dxlV5pJ8nbjNSA/LocalStorage/localstorage.sqlite3-wal 0 1794658592.8197231340
+286c282
+< /tmp/xvfb.log 5541 1794658460.4392879610
+---
+> /tmp/xvfb.log 7388 1794658623.8325998010
+grep-exit=1

@@ -1,0 +1,5 @@
+# IME_FLAG_NO_PERSONALIZED_LEARNING = 0x01000000
+# private space, page <input> focused (WebView editor, inputType 0xc0a1):
+        inputType=0xc0a1 imeOptions=0x13000002 privateImeOptions=null
+# private space, NSH address field focused (above, before tapping the page): inputType=0xc001 imeOptions=0x9000006
+# main process NSH address field, from the IME's history: inputType=0xc001 imeOptions=0x8000006 (flag absent)

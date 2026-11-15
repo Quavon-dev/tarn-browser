@@ -1,0 +1,36 @@
+--------- beginning of main
+11-14 19:22:32.843 10816 10816 I tarn    : private sweep removed 0 files
+11-14 19:22:33.487 10816 10816 I tarn    : debug proxy localhost:8771
+11-14 19:22:34.764 10816 10816 I tarn    : tab n1 web view on store tarn-bb03c334-ef95-4fc4-9cd1-aa74a3d67a87
+11-14 19:22:35.638 10816 10831 I tarn    : rule lists built: 242 rules in 2783412 us
+11-14 19:22:44.114 10816 10856 I tarn    : verdict=0 main frame url=https://locked.test/unload pending=https://locked.test/unload
+11-14 19:22:44.444 10816 10816 I tarn    : started https://locked.test/unload
+11-14 19:22:44.444 10816 10816 I tarn    : tab n1 event committed {url=https://locked.test/unload, title=locked.test/unload, canGoBack=false, canGoForward=false}
+11-14 19:22:44.507 10816 10816 I tarn    : tab n1 event title {title=locked.test/unload}
+11-14 19:22:44.508 10816 10816 I tarn    : tab n1 event finished {url=https://locked.test/unload, title=locked.test/unload, canGoBack=false, canGoForward=false}
+11-14 19:22:44.560 10816 10856 I tarn    : verdict=0 us=100 kind=2 url=https://locked.test/favicon.ico top=https://locked.test/unload pending=null
+11-14 19:22:58.607 10816 10856 I tarn    : verdict=0 main frame url=https://locked.test/unload pending=https://locked.test/unload
+11-14 19:22:58.686 10816 10816 I tarn    : started https://locked.test/unload
+11-14 19:22:58.686 10816 10816 I tarn    : tab n1 event committed {url=https://locked.test/unload, title=locked.test/unload, canGoBack=false, canGoForward=false}
+11-14 19:22:58.704 10816 10816 I tarn    : tab n1 event finished {url=https://locked.test/unload, title=locked.test/unload, canGoBack=false, canGoForward=false}
+11-14 19:22:58.711 10816 10856 I tarn    : verdict=0 us=71 kind=2 url=https://locked.test/favicon.ico top=https://locked.test/unload pending=null
+11-14 19:23:11.313 10816 10816 I tarn    : tab n1 web view on store tarn-bb03c334-ef95-4fc4-9cd1-aa74a3d67a87
+11-14 19:23:11.332 10816 10871 I tarn    : verdict=0 main frame url=https://open.test/slow pending=https://open.test/slow
+11-14 19:23:17.387 10816 10816 I tarn    : started https://open.test/slow
+11-14 19:23:17.388 10816 10816 I tarn    : tab n1 event committed {url=https://open.test/slow, title=open.test/slow, canGoBack=false, canGoForward=false}
+11-14 19:23:17.396 10816 10816 I tarn    : tab n1 event title {title=SLOW-JS-RAN}
+11-14 19:23:17.398 10816 10816 I tarn    : tab n1 event finished {url=https://open.test/slow, title=SLOW-JS-RAN, canGoBack=false, canGoForward=false}
+11-14 19:23:17.400 10816 10856 I tarn    : verdict=0 us=809 kind=2 url=https://open.test/favicon.ico top=https://open.test/slow pending=null
+11-14 19:23:30.135 10816 10856 I tarn    : verdict=0 main frame url=https://locked.test/unload pending=https://locked.test/unload
+11-14 19:23:30.189 10816 10816 I tarn    : started https://locked.test/unload
+11-14 19:23:30.191 10816 10816 I tarn    : tab n1 event committed {url=https://locked.test/unload, title=locked.test/unload, canGoBack=true, canGoForward=false}
+11-14 19:23:30.205 10816 10816 I tarn    : tab n1 event title {title=locked.test/unload}
+11-14 19:23:30.205 10816 10816 I tarn    : tab n1 event finished {url=https://locked.test/unload, title=locked.test/unload, canGoBack=true, canGoForward=false}
+11-14 19:23:30.206 10816 10856 I tarn    : verdict=0 us=95 kind=2 url=https://locked.test/favicon.ico top=https://locked.test/unload pending=null
+11-14 19:23:33.424 10816 10816 I tarn    : tab n1 web view on store tarn-bb03c334-ef95-4fc4-9cd1-aa74a3d67a87
+11-14 19:23:33.427 10816 10861 I tarn    : verdict=0 main frame url=https://open.test/slow pending=https://open.test/slow
+11-14 19:23:39.470 10816 10816 I tarn    : started https://open.test/slow
+11-14 19:23:39.470 10816 10816 I tarn    : tab n1 event committed {url=https://open.test/slow, title=open.test/slow, canGoBack=false, canGoForward=false}
+11-14 19:23:39.480 10816 10816 I tarn    : tab n1 event title {title=SLOW-JS-RAN}
+11-14 19:23:39.480 10816 10816 I tarn    : tab n1 event finished {url=https://open.test/slow, title=SLOW-JS-RAN, canGoBack=false, canGoForward=false}
+11-14 19:23:39.481 10816 10856 I tarn    : verdict=0 us=80 kind=2 url=https://open.test/favicon.ico top=https://open.test/slow pending=null

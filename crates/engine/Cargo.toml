@@ -1,0 +1,80 @@
+[package]
+name = "engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Web view abstraction over WebKit and Chromium, with the platform-neutral page policies."
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+shield.workspace = true
+psl = "=2.1.252"
+qrcode = { version = "=0.14.1", default-features = false }
+regex = "=1.13.1"
+serde_json = "=1.0.154"
+sha2 = "=0.11.1"
+url.workspace = true
+
+[features]
+chromium = ["dep:cef"]
+translation = []
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2.workspace = true
+cef = { version = "=156.4.0", default-features = false, features = ["sandbox"], optional = true }
+core-foundation = "=0.10.0"
+dispatch2 = "=0.3.1"
+objc2 = "=0.6.5"
+objc2-app-kit = { version = "=0.3.2", features = ["objc2-quartz-core"] }
+objc2-quartz-core = "=0.3.2"
+objc2-foundation = "=0.3.2"
+objc2-local-authentication = { version = "=0.3.2", default-features = false, features = ["std", "block2", "LAContext"] }
+objc2-web-kit = { version = "=0.3.2", features = ["block2", "objc2-app-kit"] }
+raw-window-handle = "=0.6.2"
+security-framework = "=3.7.0"
+
+[target.'cfg(windows)'.dependencies]
+cef = { version = "=156.4.0", default-features = false }
+qrcode = { version = "=0.14.1", default-features = false }
+windows = { version = "=0.61.3", features = ["ApplicationModel_DataTransfer", "Foundation", "Foundation_Collections", "Media_Core", "Media_Playback", "Media_SpeechSynthesis", "Storage_Streams", "Win32_Foundation", "Win32_UI_Shell"] }
+raw-window-handle = "=0.6.2"
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[test]]
+name = "early_malloc_zone"
+harness = false
+required-features = ["chromium"]
+
+[lints]
+workspace = true
+
+[[test]]
+name = "extension_access"
+harness = false
+
+[[test]]
+name = "import_cookies"
+harness = false
+
+[[test]]
+name = "translation"
+harness = false
+required-features = ["translation"]

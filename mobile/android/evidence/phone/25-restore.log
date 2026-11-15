@@ -1,0 +1,11 @@
+12:52:27.886   660  1904 I ActivityManager: Killing 6386:dev.tarn.browser/u0a230 (adj 920): kill background
+12:52:27.896   660  1904 I ActivityManager: Killing 6742:dev.tarn.browser:private/u0a230 (adj 700): kill background
+12:52:42.556   660   694 I ActivityManager: Start proc 7025:dev.tarn.browser:private/u0a230 for next-top-activity {dev.tarn.browser/dev.tarn.android.PrivateActivity}
+12:52:43.477  7025  7025 W tarn    : private space not resumed: no fresh session
+12:52:43.516   660   694 I ActivityManager: Start proc 7055:dev.tarn.browser/u0a230 for service {dev.tarn.browser/dev.tarn.android.SweepService}
+12:52:43.544   660  1675 I ActivityManager: Process dev.tarn.browser:private (pid 7025) has died: fg  TOP 
+12:52:44.324  7055  7055 I tarn    : private sweep removed 104 files
+12:52:45.171   660   694 I ActivityManager: Start proc 7084:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0i28 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:0}
+12:52:45.438  7055  7055 I tarn    : debug proxy localhost:8771
+12:52:45.448  7055  7116 I tarn    : private sweep removed 0 files
+12:52:46.265  7055  7076 I tarn    : rule lists built: 242 rules in 1864149 us

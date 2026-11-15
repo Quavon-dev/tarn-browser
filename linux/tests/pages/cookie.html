@@ -1,0 +1,10 @@
+<!doctype html><title>cookie</title>
+<p id="p"></p>
+<script>
+const before = document.cookie || '(none)';
+const stored = localStorage.getItem('tarn') || '(none)';
+document.cookie = 'tarn=' + (location.hash.slice(1) || 'set') + '; max-age=86400';
+localStorage.setItem('tarn', location.hash.slice(1) || 'set');
+document.getElementById('p').textContent = 'before=' + before + ' storage=' + stored;
+document.title = 'cookie before=' + before;
+</script>

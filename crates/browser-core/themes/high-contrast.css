@@ -1,0 +1,27 @@
+@tarn-theme { name: "High Contrast"; author: "Tarn"; version: "1"; scheme: dark; }
+
+:root {
+  --tarn-backdrop: #000000;
+  --tarn-sidebar: #0a0a0a;
+  --tarn-sidebar-edge: #ffffff99;
+  --tarn-space-label: #ffffff;
+  --tarn-surface: #000000;
+  --tarn-surface-edge: #ffffffcc;
+  --tarn-page: #000000;
+  --tarn-panel: #000000;
+  --tarn-panel-nav: #0f0f0f;
+  --tarn-panel-row: #000000;
+  --tarn-separator: #ffffff80;
+  --tarn-control: #ffffff33;
+  --tarn-raised: #ffffff1f;
+  --tarn-group: #ffffff14;
+  --tarn-hover: #ffffff33;
+  --tarn-pressed: #ffffff4d;
+  --tarn-hairline: #ffffff99;
+  --tarn-text: #ffffff;
+  --tarn-muted: #ffffffe6;
+  --tarn-faint: #ffffffb3;
+  --tarn-accent: #0060df;
+  --tarn-fog: off;
+  --tarn-shadow: 0;
+}

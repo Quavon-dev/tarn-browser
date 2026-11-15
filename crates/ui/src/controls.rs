@@ -1,0 +1,348 @@
+use std::time::Duration;
+
+use gpui::{
+    Animation, AnimationElement, AnimationExt, AnyView, App, AppContext, BoxShadow, Context, Div, ElementId, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Svg, Transformation, Window, div, percentage, point,
+    prelude::FluentBuilder, px,
+};
+
+use crate::icon::{Icon, icon};
+use crate::theme::{SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, Theme};
+
+pub fn button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
+    let colors = if primary { (Theme::accent(), Theme::surface_edge()) } else { (Theme::control(), Theme::hairline()) };
+    pill(id, text, primary, colors, if primary { Theme::on_accent() } else { Theme::text() })
+}
+
+/// A button on a security surface (prompts, banners, blocking pages), in colours no theme sets.
+pub fn secure_button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
+    let colors = if primary { (Secure::accent(), Secure::surface_edge()) } else { (Secure::control(), Secure::hairline()) };
+    pill(id, text, primary, colors, if primary { Theme::on_accent() } else { Secure::text() }).font_family(SYSTEM_FONT)
+}
+
+fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(26.))
+        .px_3()
+        .flex()
+        .items_center()
+        .gap_1p5()
+        .rounded_full()
+        .cursor_pointer()
+        .text_size(px(TEXT))
+        .border_1()
+        .border_color(edge)
+        .bg(fill)
+        .when(primary, |d| d.font_weight(FontWeight::MEDIUM))
+        .text_color(color)
+        .hover(|s| s.opacity(0.88))
+        .active(|s| s.opacity(0.7))
+        .child(text.into())
+}
+
+/// A key hint inside a button, such as "ESC" or "↩".
+pub fn key_hint(text: impl Into<SharedString>) -> Div {
+    div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(keys(&text.into()))
+}
+
+/// A shortcut written with macOS glyphs (`⇧⌘J`) as the platform shows it. Windows writes
+/// `Ctrl+Shift+J`; Ctrl with Cmd and Ctrl with a digit use Alt there (`app::bind_keys`).
+pub fn keys(glyphs: &str) -> String {
+    if !cfg!(windows) {
+        return glyphs.to_owned();
+    }
+    glyphs.split(' ').map(|chord| if chord.is_empty() { String::new() } else { windows_chord(chord) }).collect::<Vec<_>>().join(" ")
+}
+
+fn windows_chord(glyphs: &str) -> String {
+    let has = |c| glyphs.contains(c);
+    let key: String = glyphs.chars().filter(|c| !"⌃⌥⇧⌘".contains(*c)).collect();
+    let key = if key.len() > 1 { key.trim_start_matches('-').to_owned() } else { key };
+    let key = match key.as_str() {
+        "⇥" => "Tab".to_owned(),
+        "F" if has('⌘') && has('⌃') => return "F11".to_owned(),
+        _ => key,
+    };
+    let (ctrl, alt, shift) = match (has('⌘'), has('⌃')) {
+        (true, true) => (false, true, true),
+        (true, false) => (true, has('⌥'), has('⇧')),
+        (false, true) if !key.is_empty() && key.chars().all(|c| c.is_ascii_digit()) => (false, true, has('⇧')),
+        (false, true) => (true, has('⌥'), has('⇧')),
+        (false, false) => (false, has('⌥'), has('⇧')),
+    };
+    let mods = [(ctrl, "Ctrl"), (alt, "Alt"), (shift, "Shift")];
+    mods.iter().filter(|(on, _)| *on).map(|(_, m)| *m).chain((!key.is_empty()).then_some(key.as_str())).collect::<Vec<_>>().join("+")
+}
+
+fn ring(color: Rgba, spread: f32, blur: f32) -> BoxShadow {
+    BoxShadow { color: color.into(), offset: point(px(0.), px(0.)), blur_radius: px(blur), spread_radius: px(spread) }
+}
+
+/// The flat opaque card behind every popover, banner, toast and centred card.
+pub fn surface(radius: f32) -> Div {
+    div().rounded(px(radius)).bg(Theme::surface()).border_1().border_color(Theme::surface_edge()).font_family(Theme::font()).overflow_hidden()
+}
+
+/// `surface` in the fixed security palette and the system font, for prompts, banners and
+/// blocking pages (threat model S29).
+pub fn secure_surface(radius: f32) -> Div {
+    div()
+        .rounded(px(radius))
+        .bg(Secure::surface())
+        .border_1()
+        .border_color(Secure::surface_edge())
+        .text_color(Secure::text())
+        .font_family(SYSTEM_FONT)
+        .overflow_hidden()
+}
+
+/// A text field frame with a macOS focus ring.
+pub fn field(focused: bool) -> Div {
+    // A shadow would tint the translucent fill, so the ring is a border just outside the field.
+    let ring = div()
+        .absolute()
+        .top(px(-3.))
+        .left(px(-3.))
+        .right(px(-3.))
+        .bottom(px(-3.))
+        .rounded(px(Theme::radius_row() + 3.))
+        .border_3()
+        .border_color(Theme::accent_soft());
+    div()
+        .relative()
+        .px_2p5()
+        .py_1()
+        .rounded(px(Theme::radius_row()))
+        .bg(Theme::raised())
+        .border_1()
+        .border_color(if focused { Theme::accent() } else { Theme::hairline() })
+        .when(focused, |d| d.child(ring))
+}
+
+pub fn switch(on: bool) -> Div {
+    div()
+        .w(px(34.))
+        .h(px(20.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .p(px(2.))
+        .rounded_full()
+        .bg(if on { Theme::accent() } else { Theme::control() })
+        .when(on, |d| d.justify_end())
+        .child(div().w(px(16.)).h(px(16.)).rounded_full().bg(Theme::on_accent()).shadow(vec![ring(rgba_black(), 0., 2.)]))
+}
+
+fn rgba_black() -> Rgba {
+    gpui::rgba(0x0000004d)
+}
+
+pub fn segmented() -> Div {
+    div().flex().flex_none().p(px(2.)).gap(px(2.)).rounded_full().bg(Theme::control())
+}
+
+pub fn segment(id: impl Into<ElementId>, text: impl Into<SharedString>, selected: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(22.))
+        .px_3()
+        .flex()
+        .items_center()
+        .rounded_full()
+        .cursor_pointer()
+        .text_size(px(TEXT_SMALL))
+        .when(selected, |d| d.bg(Theme::selected()).text_color(Theme::text()).font_weight(FontWeight::MEDIUM))
+        .when(!selected, |d| d.text_color(Theme::muted()).hover(|s| s.bg(Theme::hover()).text_color(Theme::text())))
+        .active(|s| s.bg(Theme::pressed()))
+        .child(text.into())
+}
+
+/// A colour circle; the selected one gets a ring like the macOS accent picker.
+pub fn swatch(id: impl Into<ElementId>, color: Rgba, selected: bool, size: f32) -> Stateful<Div> {
+    div()
+        .id(id)
+        .w(px(size))
+        .h(px(size))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .cursor_pointer()
+        .bg(color)
+        .border_1()
+        .border_color(Theme::surface_edge())
+        .when(selected, |d| d.shadow(vec![ring(Theme::text(), 2., 0.)]))
+        .hover(|s| s.opacity(0.85))
+        .active(|s| s.opacity(0.7))
+}
+
+/// What the platform calls showing a file in its folder.
+pub const REVEAL: &str = if cfg!(windows) { "Show in File Explorer" } else { "Show in Finder" };
+/// The user's computer, as the platform names it.
+pub const THIS_DEVICE: &str = if cfg!(windows) { "this PC" } else { "this Mac" };
+
+/// Minimize, maximize and close for a window without a system title bar; macOS draws its own.
+pub fn window_controls() -> Option<Div> {
+    use gpui::WindowControlArea;
+    let control = |id: &'static str, area: WindowControlArea, glyph: gpui::AnyElement, close: bool| {
+        div()
+            .id(id)
+            .w(px(40.))
+            .h(px(28.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(Theme::radius_small()))
+            .text_color(Theme::muted())
+            .hover(move |s| if close { s.bg(gpui::rgb(0xc42b1c)).text_color(gpui::white()) } else { s.bg(Theme::hover()) })
+            .occlude()
+            .window_control_area(area)
+            .child(glyph)
+    };
+    let line = || div().w(px(10.)).h(px(1.)).bg(Theme::muted());
+    let square = || div().w(px(10.)).h(px(10.)).border_1().border_color(Theme::muted());
+    cfg!(windows).then(|| {
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .child(control("window-minimize", WindowControlArea::Min, line().into_any_element(), false))
+            .child(control("window-maximize", WindowControlArea::Max, square().into_any_element(), false))
+            .child(control("window-close", WindowControlArea::Close, icon(Icon::Close, 14., Theme::muted()).into_any_element(), true))
+    })
+}
+
+pub fn icon_button(id: impl Into<ElementId>, glyph: Icon, enabled: bool) -> Stateful<Div> {
+    icon_frame(id, enabled).child(icon(glyph, 16., if enabled { Theme::muted() } else { Theme::faint() }))
+}
+
+/// The reload arrow turning once per `TURN`, for a page that is loading.
+pub fn spinner(id: impl Into<ElementId>, size: f32, color: Rgba) -> AnimationElement<Svg> {
+    icon(Icon::Reload, size, color)
+        .with_animation(id, Animation::new(TURN).repeat(), |arrow, t| arrow.with_transformation(Transformation::rotate(percentage(t))))
+}
+
+const TURN: Duration = Duration::from_millis(900);
+
+/// An icon button's frame, for a glyph the caller draws itself, such as a spinning one.
+pub fn icon_frame(id: impl Into<ElementId>, enabled: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .w(px(28.))
+        .h(px(28.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(Theme::radius_row()))
+        .when(enabled, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())).cursor_pointer())
+}
+
+#[derive(Clone)]
+pub struct Tooltip {
+    text: SharedString,
+    keys: Option<SharedString>,
+}
+
+impl Render for Tooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py(px(3.))
+            .flex()
+            .gap_1p5()
+            .rounded(px(Theme::radius_small()))
+            .bg(Theme::surface())
+            .border_1()
+            .border_color(Theme::surface_edge())
+            .shadow(Theme::elevation(2., 6.))
+            .text_size(px(TEXT_SMALL))
+            .text_color(Theme::text())
+            .child(self.text.clone())
+            .children(self.keys.clone().map(|keys| div().text_color(Theme::muted()).child(keys)))
+    }
+}
+
+/// A tooltip for `.tooltip(...)`: a label and, optionally, its shortcut in muted text.
+pub fn tooltip(text: impl Into<SharedString>, keys: Option<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    let tip = Tooltip { text: text.into(), keys: keys.filter(|k| !k.is_empty()).map(|k| SharedString::from(self::keys(&k))) };
+    move |_, cx| cx.new(|_| tip.clone()).into()
+}
+
+pub fn radio(on: bool) -> Div {
+    div()
+        .w(px(16.))
+        .h(px(16.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .border_1()
+        .border_color(if on { Theme::accent() } else { Theme::faint() })
+        .when(on, |d| {
+            d.bg(Theme::accent()).shadow(vec![ring(Theme::accent_soft(), 2., 0.)]).child(div().w(px(6.)).h(px(6.)).rounded_full().bg(Theme::on_accent()))
+        })
+}
+
+/// A site's initial on its stable tint, standing in for a favicon.
+pub fn favicon(host: &str, size: f32) -> Div {
+    let letter = host.trim_start_matches("www.").chars().next().map(|c| c.to_uppercase().to_string());
+    let base = div().w(px(size)).h(px(size)).flex().flex_none().items_center().justify_center().rounded(px(size * 0.28));
+    match letter {
+        Some(letter) => base.bg(Theme::monogram(host)).text_size(px(size * 0.62)).font_weight(FontWeight::BOLD).text_color(Theme::on_accent()).child(letter),
+        None => base.bg(Theme::control()),
+    }
+}
+
+pub fn group() -> Div {
+    div().flex().flex_col().rounded(px(Theme::radius_group())).bg(Theme::panel_row()).border_1().border_color(Theme::surface_edge()).overflow_hidden()
+}
+
+pub fn row(first: bool) -> Div {
+    div()
+        .relative()
+        .min_h(px(40.))
+        .px_3()
+        .py_1p5()
+        .flex()
+        .items_center()
+        .gap_3()
+        .text_size(px(TEXT))
+        .when(!first, |d| d.child(div().absolute().top_0().left(px(12.)).right_0().h(px(1.)).bg(Theme::separator())))
+}
+
+pub fn section(title: impl Into<SharedString>) -> Div {
+    div().pt_5().pb_2().px_1().text_size(px(TEXT)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::text()).child(title.into())
+}
+
+pub fn note(text: impl Into<SharedString>) -> Div {
+    div().pt_1p5().px_1().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(text.into())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn shortcuts_read_as_the_platform_writes_them() {
+        let cases = [
+            ("⇧⌘J", "Ctrl+Shift+J"),
+            ("⌘,", "Ctrl+,"),
+            ("⌥⌘G", "Ctrl+Alt+G"),
+            ("⌃1", "Alt+1"),
+            ("⌃⌘N", "Alt+Shift+N"),
+            ("⌃⌘F", "F11"),
+            ("⌃⇥", "Ctrl+Tab"),
+            ("Esc", "Esc"),
+            ("⌘[  ⌘]", "Ctrl+[  Ctrl+]"),
+            ("⇧-click", "Shift+click"),
+            ("⌘-", "Ctrl+-"),
+            ("Ctrl+T", "Ctrl+T"),
+        ];
+        for (glyphs, windows) in cases {
+            assert_eq!(super::keys(glyphs), if cfg!(windows) { windows } else { glyphs });
+        }
+    }
+}

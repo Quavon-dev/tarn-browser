@@ -1,0 +1,7 @@
+Content-process crash check, iPhone 17 simulator, tab showing http://127.0.0.1:8765/cookie.html.
+The simulator's only WebContent process was killed with SIGKILL from the host.
+
+12:50:33 kill WebContent 10687 -> `crashed`, the shell reloaded the tab (new WebContent 11047 started; page served from WebKit's cache, so no new server.log line)
+12:50:37 kill WebContent 11047 (4 s later) -> no reload, the tab shows "This page stopped working. Reload it to try again." (19-crash-second.png)
+         Reload pressed by hand later: page back (20-landscape-reloaded.png)
+12:51:38 kill WebContent 12426 (65 s after the first automatic reload) -> reloaded automatically, page shows "before: tarn=A" (19-crash-reloaded.png), new WebContent 21575

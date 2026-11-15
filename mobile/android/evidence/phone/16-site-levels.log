@@ -1,0 +1,13 @@
+--------- beginning of main
+11-14 12:46:26.915  1195  1195 I tarn    : upgraded http://public.test/title -> https://public.test/title
+11-14 12:46:26.925  1195  1257 I tarn    : verdict=0 us=97 kind=0 url=https://public.test/title top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=https://public.test/title
+11-14 12:46:26.947  1195  1195 I tarn    : tab t1 event failed {url=https://public.test/title, message=The site's certificate is not valid}
+11-14 12:46:26.963  1195  1195 I tarn    : tab t1 event finished {url=https://public.test/title, title=Is JavaScript enabled? - WhatIsMyBrowser.com, canGoBack=true, canGoForward=false}
+11-14 12:46:31.983  1195  1257 I tarn    : verdict=0 us=111 kind=0 url=http://localhost:8771/title top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=http://localhost:8771/title
+11-14 12:46:32.015  1195  1195 I tarn    : started http://localhost:8771/title
+11-14 12:46:32.033  1195  1195 I tarn    : tab t1 event title {title=first}
+11-14 12:46:32.037  1195  1257 I tarn    : verdict=1 us=352 kind=2 url=http://localhost:8771/favicon.ico top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=http://localhost:8771/title
+11-14 12:46:32.049  1195  1195 I tarn    : tab t1 event finished {url=http://localhost:8771/title, title=first, canGoBack=true, canGoForward=false}
+11-14 12:46:32.049  1195  1195 I tarn    : tab t1 event blocked {url=http://localhost:8771/favicon.ico, reason=shield}
+11-14 12:46:32.074  1195  1195 I tarn    : tab t1 event committed {url=http://localhost:8771/title, title=first, canGoBack=true, canGoForward=false}
+11-14 12:46:33.534  1195  1195 I tarn    : tab t1 event title {title=LATE-TITLE}

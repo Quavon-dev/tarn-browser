@@ -1,0 +1,8 @@
+# https-only-link-port: http://public.test:8765/nav.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":false,"canGoForward":false,"title":"","url":"http://public.test:8765/nav.html"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"","url":"http://public.test:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+[tarn] event finished {"canGoBack":false,"canGoForward":false,"title":"nav","url":"http://public.test:8765/nav.html"}
+[tarn] event failed {"message":"Error performing TLS handshake: An unexpected TLS packet was received.","url":"https://localhost:8765/insecure"}
+# server

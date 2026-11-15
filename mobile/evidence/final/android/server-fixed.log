@@ -1,0 +1,32 @@
+14/Nov/2026 19:22:44 REQ CONNECT CONNECT locked.test:443 cookie=''
+14/Nov/2026 19:22:44 "CONNECT locked.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:22:44 REQ GET http://locked.test/unload cookie=''
+14/Nov/2026 19:22:44 "GET /unload HTTP/1.1" 200 -
+14/Nov/2026 19:22:44 REQ GET http://locked.test/favicon.ico cookie=''
+14/Nov/2026 19:22:44 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 19:22:58 REQ CONNECT CONNECT locked.test:443 cookie=''
+14/Nov/2026 19:22:58 "CONNECT locked.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:22:58 REQ GET http://locked.test/unload cookie=''
+14/Nov/2026 19:22:58 "GET /unload HTTP/1.1" 200 -
+14/Nov/2026 19:22:58 REQ GET http://locked.test/favicon.ico cookie=''
+14/Nov/2026 19:22:58 "GET /favicon.ico HTTP/1.1" 200 -
+=== typed https://open.test/slow from Lockdown page
+14/Nov/2026 19:23:11 REQ CONNECT CONNECT open.test:443 cookie=''
+14/Nov/2026 19:23:11 "CONNECT open.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:23:11 REQ GET http://open.test/slow cookie=''
+14/Nov/2026 19:23:17 "GET /slow HTTP/1.1" 200 -
+14/Nov/2026 19:23:17 REQ GET http://open.test/favicon.ico cookie=''
+14/Nov/2026 19:23:17 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 19:23:30 REQ CONNECT CONNECT locked.test:443 cookie=''
+14/Nov/2026 19:23:30 "CONNECT locked.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:23:30 REQ GET http://locked.test/unload cookie=''
+14/Nov/2026 19:23:30 "GET /unload HTTP/1.1" 200 -
+14/Nov/2026 19:23:30 REQ GET http://locked.test/favicon.ico cookie=''
+14/Nov/2026 19:23:30 "GET /favicon.ico HTTP/1.1" 200 -
+=== Back from Lockdown page to https://open.test/slow
+14/Nov/2026 19:23:33 REQ CONNECT CONNECT open.test:443 cookie=''
+14/Nov/2026 19:23:33 "CONNECT open.test:443 HTTP/1.1" 200 -
+14/Nov/2026 19:23:33 REQ GET http://open.test/slow cookie=''
+14/Nov/2026 19:23:39 "GET /slow HTTP/1.1" 200 -
+14/Nov/2026 19:23:39 REQ GET http://open.test/favicon.ico cookie=''
+14/Nov/2026 19:23:39 "GET /favicon.ico HTTP/1.1" 200 -

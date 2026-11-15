@@ -1,0 +1,43 @@
+[package]
+name = "tarn-linux"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+rust-version = "1.97"
+description = "Tarn web browser for Linux (Native Shell and WebKitGTK 6.0)"
+
+[workspace]
+
+[[bin]]
+name = "tarn"
+path = "src/main.rs"
+
+[dependencies]
+browser-core = { path = "../crates/browser-core" }
+engine = { path = "../crates/engine" }
+shield = { path = "../crates/shield" }
+store = { path = "../crates/store" }
+tarn-nsh-shared = { path = "../nsh-shared" }
+nsh-core = { version = "=0.5.0", features = ["svg"] }
+nsh-base = "=0.5.0"
+nsh-platform-linux = { version = "=0.5.0", default-features = false }
+webkit6 = { version = "=0.6.1", features = ["v2_42"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+url = "=2.5.8"
+uuid = { version = "1", features = ["v4"] }
+xattr = "=1.7.0"
+futures-channel = "=0.3.34"
+futures-util = { version = "=0.3.34", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

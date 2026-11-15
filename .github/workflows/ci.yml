@@ -1,0 +1,217 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      commit:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    # engine, app, ui and ai need macOS (WebKit, AppKit, Keychain), sync depends on engine, and
+    # platform's XPC code is macOS-only; the macos job checks them. browser-core builds everywhere.
+    runs-on: ubuntu-24.04
+    env:
+      CRATES: -p store -p shield -p devkit -p filter-bundle -p cli-bridge -p platform -p chromium-helper -p browser-core
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: for d in . nsh-shared mobile linux; do (cd "$d" && cargo fmt --all --check); done
+      - run: scripts/check-workflows.sh && scripts/check-workflows.test.sh
+      - run: scripts/third-party-licenses.sh --check
+      - run: cargo clippy $CRATES --all-targets --locked -- -D warnings
+      - run: cargo test $CRATES --locked
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      CRATES: -p engine -p browser-core -p app -p ui -p sync -p ai -p platform
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy $CRATES --all-targets --locked -- -D warnings
+      - run: cargo test $CRATES --locked
+      - run: scripts/sign-release.test.sh
+      - name: Chromium feature
+        run: |
+          scripts/fetch-ninja.sh "$RUNNER_TEMP/ninja"
+          export PATH="$RUNNER_TEMP/ninja:$PATH"
+          cef="$(scripts/fetch-cef.sh)"
+          CEF_PATH="$cef" cargo clippy -p app -p engine -p chromium-helper --features app/chromium,chromium-helper/chromium --all-targets --locked -- -D warnings
+          CEF_PATH="$cef" cargo test -p engine --features chromium --test early_malloc_zone --locked
+
+  windows:
+    if: ${{ !inputs.commit }}
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: echo "CEF_PATH=$(cygpath -w "$(scripts/fetch-cef.sh windows64)")" >> "$GITHUB_ENV"
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      # Links tarn.dll, whose delay-load flags apply only to the real cdylib.
+      - run: cargo build --locked -p app-dll
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.test.ps1
+
+  nsh-shared:
+    if: ${{ !inputs.commit }}
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: nsh-shared
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: nsh-shared
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+
+  mobile:
+    if: ${{ !inputs.commit }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      NSH_RELEASE: https://github.com/longbridge/nsh/releases/download/v0.5.0
+      NSH_SHA256: e6722427b391b00cf7ec13137db9366e78d1e7a045f2933cf00b340365309d9d
+      NSH_ANDROID_SHA256: bd9f42c043c08f0c29c874d2a8247e389258f88778a5160d646f73fc2ccfbe73
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+          components: clippy
+          targets: aarch64-apple-ios-sim, aarch64-linux-android, armv7-linux-androideabi
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: mobile
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - name: iOS simulator
+        run: cargo clippy --target aarch64-apple-ios-sim --all-targets --locked -- -D warnings
+      - name: Android
+        # nsh-testing's QuickJS bindings do not build for Android, so tests and dev-dependencies stay on the host.
+        run: |
+          bin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+          export CC_aarch64_linux_android="$bin/aarch64-linux-android28-clang" AR_aarch64_linux_android="$bin/llvm-ar"
+          cargo clippy --target aarch64-linux-android --locked -- -D warnings
+      - name: Android debug APK
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/nsh.tar.gz" "$NSH_RELEASE/nsh-macos-arm64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/nsh-android.tar.gz" "$NSH_RELEASE/nsh-android.tar.gz"
+          echo "$NSH_SHA256  $RUNNER_TEMP/nsh.tar.gz" | shasum -a 256 -c -
+          echo "$NSH_ANDROID_SHA256  $RUNNER_TEMP/nsh-android.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/nsh.tar.gz" -C "$RUNNER_TEMP"
+          tar -xzf "$RUNNER_TEMP/nsh-android.tar.gz" -C "$RUNNER_TEMP"
+          PATH="$RUNNER_TEMP/nsh/bin:$PATH" android/build.sh
+
+  linux:
+    if: ${{ !inputs.commit }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container: fedora:43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5
+    steps:
+      - run: >-
+          dnf -y install git gcc gcc-c++ clang pkgconf-pkg-config gtk4-devel webkitgtk6.0-devel
+          gstreamer1-devel gstreamer1-plugins-base-devel xorg-x11-server-Xvfb mesa-dri-drivers dbus-daemon python3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: "1.99.1"
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: linux
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --all-targets --locked -- -D warnings
+        working-directory: linux
+      - run: cargo test --locked
+        working-directory: linux
+      - name: WebKitGTK display tests (Xvfb)
+        run: linux/scripts/display-tests.sh
+
+  deny:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          # A new advisory in any crate must not hold back chromium-update.yml's engine update;
+          # audit.yml checks advisories nightly.
+          command: check ${{ inputs.commit && 'bans licenses sources' || 'advisories bans licenses sources' }}
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        if: ${{ !inputs.commit }}
+        with:
+          manifest-path: mobile/Cargo.toml
+          command: check advisories bans licenses sources
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        if: ${{ !inputs.commit }}
+        with:
+          manifest-path: nsh-shared/Cargo.toml
+          command: check advisories bans licenses sources

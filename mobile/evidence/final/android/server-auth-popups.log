@@ -1,0 +1,42 @@
+=== third-party sign-in: http://public.test/auth-third
+14/Nov/2026 19:26:17 REQ GET http://public.test/auth-third cookie=''
+14/Nov/2026 19:26:17 "GET http://public.test/auth-third HTTP/1.1" 200 -
+14/Nov/2026 19:26:17 REQ GET http://other.test/auth cookie=''
+14/Nov/2026 19:26:17 "GET http://other.test/auth HTTP/1.1" 401 -
+14/Nov/2026 19:26:17 REQ GET http://other.test/auth cookie=''
+14/Nov/2026 19:26:17 "GET http://other.test/auth HTTP/1.1" 401 -
+14/Nov/2026 19:26:17 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 19:26:17 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+=== own-origin sign-in: http://public.test/auth
+14/Nov/2026 19:26:30 REQ GET http://public.test/auth cookie=''
+14/Nov/2026 19:26:30 "GET http://public.test/auth HTTP/1.1" 401 -
+14/Nov/2026 19:26:41 REQ GET http://public.test/auth cookie=''
+14/Nov/2026 19:26:41 "GET http://public.test/auth HTTP/1.1" 401 -
+14/Nov/2026 19:26:44 REQ GET http://public.test/auth cookie=''
+14/Nov/2026 19:26:44 "GET http://public.test/auth HTTP/1.1" 401 -
+14/Nov/2026 19:26:48 REQ GET http://public.test/auth cookie=''
+14/Nov/2026 19:26:48 "GET http://public.test/auth HTTP/1.1" 401 -
+14/Nov/2026 19:26:48 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 19:26:48 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+=== popups: five quick clicks on a target=_blank link
+14/Nov/2026 19:26:59 REQ GET http://public.test/popups cookie=''
+14/Nov/2026 19:26:59 "GET http://public.test/popups HTTP/1.1" 200 -
+14/Nov/2026 19:26:59 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 19:26:59 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 19:27:03 REQ GET http://public.test/opened cookie=''
+14/Nov/2026 19:27:03 "GET http://public.test/opened HTTP/1.1" 200 -
+14/Nov/2026 19:27:03 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 19:27:03 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+=== popups: start burst 19:27:36
+14/Nov/2026 19:27:36 REQ GET http://public.test/opened cookie=''
+14/Nov/2026 19:27:36 "GET http://public.test/opened HTTP/1.1" 200 -
+14/Nov/2026 19:27:36 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 19:27:36 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 19:27:38 REQ GET http://public.test/opened cookie=''
+14/Nov/2026 19:27:38 "GET http://public.test/opened HTTP/1.1" 200 -
+14/Nov/2026 19:27:38 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 19:27:38 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 19:27:40 REQ GET http://public.test/opened cookie=''
+14/Nov/2026 19:27:40 "GET http://public.test/opened HTTP/1.1" 200 -
+14/Nov/2026 19:27:40 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 19:27:40 "GET http://public.test/favicon.ico HTTP/1.1" 200 -

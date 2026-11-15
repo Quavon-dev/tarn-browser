@@ -1,0 +1,8 @@
+# nav-data: localhost:8765/nav.html
+[tarn] event title {"title":""}
+[tarn] event committed {"canGoBack":true,"canGoForward":false,"title":"","url":"http://localhost:8765/nav.html"}
+[tarn] event finished {"canGoBack":true,"canGoForward":false,"title":"","url":"http://localhost:8765/nav.html"}
+[tarn] event title {"title":"nav"}
+[tarn] event blocked {"reason":"nav_policy","url":"data:text/html,%3Ch1%3EDATA-LOADED%3C/h1%3E"}
+# server
+localhost:8765 GET /nav.html

@@ -1,0 +1,210 @@
+14/Nov/2026 13:00:41 REQ GET http://public.test/pn cookie=''
+14/Nov/2026 13:00:41 "GET http://public.test/pn HTTP/1.1" 200 -
+14/Nov/2026 13:00:42 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:00:42 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:00:48 REQ GET http://localhost:8771/pn cookie=''
+14/Nov/2026 13:00:48 "GET /pn HTTP/1.1" 200 -
+14/Nov/2026 13:00:49 REQ GET http://localhost:8771/favicon.ico cookie=''
+14/Nov/2026 13:00:49 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:00:53 REQ GET http://localhost:8771/pn cookie=''
+14/Nov/2026 13:00:53 "GET /pn HTTP/1.1" 200 -
+14/Nov/2026 13:00:53 REQ GET http://localhost:8771/pixel?via=localhost cookie=''
+14/Nov/2026 13:00:53 "GET /pixel?via=localhost HTTP/1.1" 200 -
+14/Nov/2026 13:00:53 REQ GET http://127.0.0.1:8771/pixel?via=127 cookie=''
+14/Nov/2026 13:00:53 "GET /pixel?via=127 HTTP/1.1" 200 -
+14/Nov/2026 13:00:53 REQ GET http://localhost:8771/favicon.ico cookie=''
+14/Nov/2026 13:00:53 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:01:00 REQ CONNECT CONNECT public.test:443 cookie=''
+14/Nov/2026 13:01:00 "CONNECT public.test:443 HTTP/1.1" 200 -
+14/Nov/2026 13:01:08 REQ GET http://public.test/links cookie=''
+14/Nov/2026 13:01:08 "GET http://public.test/links HTTP/1.1" 200 -
+14/Nov/2026 13:01:08 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:01:08 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:01:14 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:01:14 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:01:20 REQ GET http://public.test/links cookie=''
+14/Nov/2026 13:01:20 "GET http://public.test/links HTTP/1.1" 200 -
+14/Nov/2026 13:01:20 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:01:20 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:01:28 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:01:28 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:01:31 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:01:31 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:01:34 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:01:34 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:01:37 REQ GET http://public.test/redirect-local cookie=''
+14/Nov/2026 13:01:37 "GET http://public.test/redirect-local HTTP/1.1" 302 -
+14/Nov/2026 13:01:37 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:01:37 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:01:41 REQ GET http://public.test/popup-target cookie=''
+14/Nov/2026 13:01:41 "GET http://public.test/popup-target HTTP/1.1" 200 -
+14/Nov/2026 13:01:41 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:01:41 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:02:54 REQ GET http://public.test/pn cookie=''
+14/Nov/2026 13:02:54 "GET http://public.test/pn HTTP/1.1" 200 -
+14/Nov/2026 13:02:54 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:02:54 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:03:00 REQ GET http://localhost:8771/pn cookie=''
+14/Nov/2026 13:03:00 "GET /pn HTTP/1.1" 200 -
+14/Nov/2026 13:03:04 REQ GET http://localhost:8771/pn cookie=''
+14/Nov/2026 13:03:04 "GET /pn HTTP/1.1" 200 -
+14/Nov/2026 13:03:04 REQ GET http://localhost:8771/pixel?via=localhost cookie=''
+14/Nov/2026 13:03:04 "GET /pixel?via=localhost HTTP/1.1" 200 -
+14/Nov/2026 13:03:04 REQ GET http://127.0.0.1:8771/pixel?via=127 cookie=''
+14/Nov/2026 13:03:04 "GET /pixel?via=127 HTTP/1.1" 200 -
+14/Nov/2026 13:03:04 REQ GET http://localhost:8771/favicon.ico cookie=''
+14/Nov/2026 13:03:04 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:03:11 REQ CONNECT CONNECT public.test:443 cookie=''
+14/Nov/2026 13:03:11 "CONNECT public.test:443 HTTP/1.1" 200 -
+14/Nov/2026 13:03:18 REQ GET http://public.test/links cookie=''
+14/Nov/2026 13:03:18 "GET http://public.test/links HTTP/1.1" 200 -
+14/Nov/2026 13:03:18 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:03:18 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:03:24 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:03:24 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:03:30 REQ GET http://public.test/links cookie=''
+14/Nov/2026 13:03:30 "GET http://public.test/links HTTP/1.1" 200 -
+14/Nov/2026 13:03:30 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:03:30 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:03:38 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:03:38 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:03:42 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:03:42 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:03:45 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:03:45 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:03:48 REQ GET http://public.test/redirect-local cookie=''
+14/Nov/2026 13:03:48 "GET http://public.test/redirect-local HTTP/1.1" 302 -
+14/Nov/2026 13:03:48 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:03:48 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:03:51 REQ GET http://public.test/popup-target cookie=''
+14/Nov/2026 13:03:51 "GET http://public.test/popup-target HTTP/1.1" 200 -
+14/Nov/2026 13:03:51 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:03:51 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:03:58 REQ GET http://public.test/opened cookie=''
+14/Nov/2026 13:03:58 "GET http://public.test/opened HTTP/1.1" 200 -
+14/Nov/2026 13:03:58 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:03:58 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:04:27 REQ GET http://public.test/pn cookie=''
+14/Nov/2026 13:04:27 "GET http://public.test/pn HTTP/1.1" 200 -
+14/Nov/2026 13:04:27 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:04:27 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:04:33 REQ GET http://public.test/dialogs cookie=''
+14/Nov/2026 13:04:33 "GET http://public.test/dialogs HTTP/1.1" 200 -
+14/Nov/2026 13:04:33 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:04:33 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:04:50 REQ GET http://public.test/auth cookie=''
+14/Nov/2026 13:04:50 "GET http://public.test/auth HTTP/1.1" 401 -
+14/Nov/2026 13:04:54 REQ GET http://public.test/auth cookie=''
+14/Nov/2026 13:04:54 "GET http://public.test/auth HTTP/1.1" 200 -
+14/Nov/2026 13:04:55 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:04:55 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:04:59 REQ GET http://localhost:8771/downloads cookie=''
+14/Nov/2026 13:04:59 "GET /downloads HTTP/1.1" 200 -
+14/Nov/2026 13:05:00 REQ GET http://localhost:8771/favicon.ico cookie=''
+14/Nov/2026 13:05:00 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:05:03 REQ GET http://localhost:8771/download cookie=''
+14/Nov/2026 13:05:03 "GET /download HTTP/1.1" 200 -
+14/Nov/2026 13:05:03 REQ GET http://localhost:8771/favicon.ico cookie=''
+14/Nov/2026 13:05:03 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:05:03 REQ GET http://localhost:8771/download cookie=''
+14/Nov/2026 13:05:03 "GET /download HTTP/1.1" 200 -
+14/Nov/2026 13:05:09 REQ GET http://public.test/filter cookie=''
+14/Nov/2026 13:05:09 "GET http://public.test/filter HTTP/1.1" 200 -
+14/Nov/2026 13:05:09 REQ GET http://ok.test/pixel?via=ok cookie=''
+14/Nov/2026 13:05:09 "GET http://ok.test/pixel?via=ok HTTP/1.1" 200 -
+14/Nov/2026 13:05:09 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:05:09 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:05:15 REQ GET http://localhost:8771/find cookie=''
+14/Nov/2026 13:05:15 "GET /find HTTP/1.1" 200 -
+14/Nov/2026 13:05:15 REQ GET http://localhost:8771/favicon.ico cookie=''
+14/Nov/2026 13:05:15 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:05:23 REQ CONNECT CONNECT public.test:443 cookie=''
+14/Nov/2026 13:05:23 "CONNECT public.test:443 HTTP/1.1" 200 -
+14/Nov/2026 13:05:31 REQ GET http://localhost:8771/find cookie=''
+14/Nov/2026 13:05:31 "GET /find HTTP/1.1" 200 -
+14/Nov/2026 13:05:31 REQ GET http://localhost:8771/favicon.ico cookie=''
+14/Nov/2026 13:05:31 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:05:50 REQ GET http://public.test/cookie?set=A cookie=''
+14/Nov/2026 13:05:50 "GET http://public.test/cookie?set=A HTTP/1.1" 200 -
+14/Nov/2026 13:05:50 REQ GET http://public.test/favicon.ico cookie='tarn=A'
+14/Nov/2026 13:05:50 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:05:54 REQ GET http://public.test/opened cookie=''
+14/Nov/2026 13:05:54 REQ GET http://public.test/cookie?set=A cookie=''
+14/Nov/2026 13:05:54 "GET http://public.test/opened HTTP/1.1" 200 -
+14/Nov/2026 13:05:54 "GET http://public.test/cookie?set=A HTTP/1.1" 200 -
+14/Nov/2026 13:05:54 REQ GET http://public.test/favicon.ico cookie='tarn=A'
+14/Nov/2026 13:05:54 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:05:54 REQ GET http://public.test/favicon.ico cookie='tarn=A'
+14/Nov/2026 13:05:54 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:05:58 REQ GET http://public.test/cookie cookie='tarn=A'
+14/Nov/2026 13:05:58 "GET http://public.test/cookie HTTP/1.1" 200 -
+14/Nov/2026 13:05:58 REQ GET http://public.test/favicon.ico cookie='tarn=A'
+14/Nov/2026 13:05:58 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:06:01 REQ GET http://public.test/opened cookie=''
+14/Nov/2026 13:06:01 "GET http://public.test/opened HTTP/1.1" 200 -
+14/Nov/2026 13:06:01 REQ GET http://public.test/cookie cookie=''
+14/Nov/2026 13:06:01 "GET http://public.test/cookie HTTP/1.1" 200 -
+14/Nov/2026 13:06:01 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:06:01 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:06:01 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:06:01 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:06:05 REQ GET http://public.test/cookie cookie=''
+14/Nov/2026 13:06:05 "GET http://public.test/cookie HTTP/1.1" 200 -
+14/Nov/2026 13:06:05 REQ GET http://public.test/favicon.ico cookie=''
+14/Nov/2026 13:06:05 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:06:08 REQ GET http://public.test/opened cookie='tarn=A'
+14/Nov/2026 13:06:08 "GET http://public.test/opened HTTP/1.1" 200 -
+14/Nov/2026 13:06:08 REQ GET http://public.test/cookie cookie='tarn=A'
+14/Nov/2026 13:06:08 "GET http://public.test/cookie HTTP/1.1" 200 -
+14/Nov/2026 13:06:08 REQ GET http://public.test/favicon.ico cookie='tarn=A'
+14/Nov/2026 13:06:08 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:06:08 REQ GET http://public.test/favicon.ico cookie='tarn=A'
+14/Nov/2026 13:06:08 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:06:13 REQ GET http://public.test/cookie cookie='tarn=A'
+14/Nov/2026 13:06:13 "GET http://public.test/cookie HTTP/1.1" 200 -
+14/Nov/2026 13:06:13 REQ GET http://public.test/favicon.ico cookie='tarn=A'
+14/Nov/2026 13:06:13 "GET http://public.test/favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:06:19 REQ CONNECT CONNECT www.whatismybrowser.com:443 cookie=''
+14/Nov/2026 13:06:19 "CONNECT www.whatismybrowser.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:20 REQ CONNECT CONNECT cdn.whatismybrowser.com:443 cookie=''
+14/Nov/2026 13:06:20 "CONNECT cdn.whatismybrowser.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:30 REQ CONNECT CONNECT www.whatismybrowser.com:443 cookie=''
+14/Nov/2026 13:06:30 "CONNECT www.whatismybrowser.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:31 REQ CONNECT CONNECT cdn.whatismybrowser.com:443 cookie=''
+14/Nov/2026 13:06:31 REQ CONNECT CONNECT pagead2.googlesyndication.com:443 cookie=''
+14/Nov/2026 13:06:31 REQ CONNECT CONNECT analytics.ahrefs.com:443 cookie=''
+14/Nov/2026 13:06:31 "CONNECT cdn.whatismybrowser.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:31 "CONNECT analytics.ahrefs.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:31 "CONNECT pagead2.googlesyndication.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:31 REQ CONNECT CONNECT analytics.ahrefs.com:443 cookie=''
+14/Nov/2026 13:06:31 "CONNECT analytics.ahrefs.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:31 REQ CONNECT CONNECT googleads.g.doubleclick.net:443 cookie=''
+14/Nov/2026 13:06:31 REQ CONNECT CONNECT pagead2.googlesyndication.com:443 cookie=''
+14/Nov/2026 13:06:32 "CONNECT pagead2.googlesyndication.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:32 "CONNECT googleads.g.doubleclick.net:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:32 REQ CONNECT CONNECT fundingchoicesmessages.google.com:443 cookie=''
+14/Nov/2026 13:06:32 "CONNECT fundingchoicesmessages.google.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:32 REQ CONNECT CONNECT fundingchoicesmessages.google.com:443 cookie=''
+14/Nov/2026 13:06:32 "CONNECT fundingchoicesmessages.google.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:32 REQ CONNECT CONNECT fonts.googleapis.com:443 cookie=''
+14/Nov/2026 13:06:32 REQ CONNECT CONNECT fonts.gstatic.com:443 cookie=''
+14/Nov/2026 13:06:32 "CONNECT fonts.googleapis.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:06:32 "CONNECT fonts.gstatic.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:07:29 REQ GET http://localhost:8771/private?m=TABMARK1 cookie=''
+14/Nov/2026 13:07:29 "GET /private?m=TABMARK1 HTTP/1.1" 200 -
+14/Nov/2026 13:07:29 REQ CONNECT CONNECT content-autofill.googleapis.com:443 cookie=''
+14/Nov/2026 13:07:29 REQ GET http://localhost:8771/favicon.ico cookie='tarnsession=TABMARK1; tarnpersist=TABMARK1'
+14/Nov/2026 13:07:29 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:07:29 "CONNECT content-autofill.googleapis.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:09:06 REQ GET http://localhost:8771/private?m=TABMARK2 cookie=''
+14/Nov/2026 13:09:06 "GET /private?m=TABMARK2 HTTP/1.1" 200 -
+14/Nov/2026 13:09:06 REQ CONNECT CONNECT content-autofill.googleapis.com:443 cookie=''
+14/Nov/2026 13:09:06 REQ GET http://localhost:8771/favicon.ico cookie='tarnsession=TABMARK2; tarnpersist=TABMARK2'
+14/Nov/2026 13:09:06 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:09:06 "CONNECT content-autofill.googleapis.com:443 HTTP/1.1" 200 -
+14/Nov/2026 13:09:45 REQ GET http://localhost:8771/private?m=TABMARK3 cookie=''
+14/Nov/2026 13:09:45 "GET /private?m=TABMARK3 HTTP/1.1" 200 -
+14/Nov/2026 13:09:46 REQ CONNECT CONNECT content-autofill.googleapis.com:443 cookie=''
+14/Nov/2026 13:09:46 REQ GET http://localhost:8771/favicon.ico cookie='tarnsession=TABMARK3; tarnpersist=TABMARK3'
+14/Nov/2026 13:09:46 "GET /favicon.ico HTTP/1.1" 200 -
+14/Nov/2026 13:09:46 "CONNECT content-autofill.googleapis.com:443 HTTP/1.1" 200 -

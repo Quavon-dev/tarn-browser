@@ -1,0 +1,35 @@
+Page: dev.tarn.browser
+App: dev.tarn.browser
+Snapshot: 31 nodes
+Simulator AX snapshot unavailable (circuit-disabled); used XCTest for this app generation.
+@e1 [application] "Tarn"
+  @e2 [other] "Lockdown 4 4"
+    @e3 [other] "Lockdown 4"
+      @e4 [other] "Back"
+        @e5 [button] "Back"
+        @e6 [button] "Forward"
+        @e7 [button] "Reload"
+      @e8 [other] "Lockdown"
+        @e9 [button] "Shield: Lockdown"
+        @e10 [other] "Address"
+          @e11 [text-field] "127.0.0.1" [editable]
+      @e12 [other] "4"
+        @e13 [button] "Share"
+        @e14 [button] "Tabs 4"
+        @e15 [button] "Menu"
+    @e16 [other] "Vertical scroll bar, 1 page"
+      @e17 [webview] [same label as parent]
+        @e18 [webview] "Tarn test"
+          @e19 [other] "Tarn test"
+            @e20 [other] "Tarn test"
+              @e21 [other] "Tarn test" [focused]
+                @e22 [other] "Tarn test" [focused]
+                  @e23 [text] "Tarn test" [focused]
+                @e24 [link] "prompts" [focused]
+                  @e25 [text] "prompts" [focused]
+                @e26 [link] "local" [focused]
+                  @e27 [text] "local" [focused]
+                @e28 [link] "public" [focused]
+                  @e29 [text] "public" [focused]
+        @e30 [other] "0%"
+        @e31 [other] "Horizontal scroll bar, 1 page"

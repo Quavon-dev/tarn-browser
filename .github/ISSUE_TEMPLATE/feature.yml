@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose something new. Needs a 👍 from another maintainer before work starts.
+labels: ["type: feature", "status: voting"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Maintainers vote with 👍 or 👎 on this issue. One 👍 from a maintainer other than the author (and more 👍 than 👎) moves it to `status: approved`; more 👎 than 👍 moves it to `status: rejected`.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is missing or painful today, and for whom.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What Tarn should do.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: privacy
+    attributes:
+      label: Privacy impact
+      options:
+        - None
+        - New network request or third party
+        - Stores new user data
+        - Unsure
+    validations:
+      required: true

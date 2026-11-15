@@ -1,0 +1,4 @@
+18:37:49 public-https Host=127.0.0.1.nip.io:8446 /public.html
+18:38:24 public-https Host=127.0.0.1.nip.io:8446 /redirect?to=https://127.0.0.1:8447/pixel?from=public-popup-redirect
+18:38:44 local-https Host=127.0.0.1:8447 /local.html
+18:38:44 local-https Host=127.0.0.1:8447 /pixel?from=local-img-https

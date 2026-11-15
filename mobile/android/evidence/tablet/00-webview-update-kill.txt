@@ -1,0 +1,16 @@
+11-14 13:01:00.835   658   718 I ActivityManager: Force stopping com.android.vending appid=10146 user=-1: installPackageLI
+11-14 13:01:00.841   658   718 I ActivityManager: Killing 1848:com.android.vending/u0a146 (adj 227): stop com.android.vending due to installPackageLI
+11-14 13:01:00.899   658   718 I ActivityManager: Killing 3363:com.android.vending:background/u0a146 (adj 227): stop com.android.vending due to installPackageLI
+11-14 13:01:00.901   658   718 I ActivityManager: Killing 3865:com.android.vending:quick_launch/u0a146 (adj 227): stop com.android.vending due to installPackageLI
+11-14 13:01:44.347   658   718 I ActivityManager: Force stopping com.google.android.webview appid=10167 user=-1: installPackageLI
+11-14 13:01:44.363   658   718 I ActivityManager: Killing 3689:dev.tarn.browser/u0a215 (adj 0): stop com.google.android.webview due to installPackageLI
+11-14 13:01:44.439   658   791 I WindowManager: WINDOW DIED Window{9eebb7f u0 dev.tarn.browser/dev.tarn.android.MainActivity}
+11-14 13:01:47.111   658   718 I ActivityManager: Force stopping com.google.android.partnersetup appid=10140 user=-1: installPackageLI
+11-14 13:01:47.147   658   718 I ActivityManager: Killing 6058:com.google.android.partnersetup/u0a140 (adj 925): stop com.google.android.partnersetup due to installPackageLI
+11-14 13:01:51.315   658   718 I ActivityManager: Force stopping com.google.android.as.oss appid=10134 user=-1: installPackageLI
+11-14 13:01:51.324   658   718 I ActivityManager: Killing 2202:com.google.android.as.oss/u0a134 (adj 915): stop com.google.android.as.oss due to installPackageLI
+11-14 13:01:54.489   658   718 I ActivityManager: Force stopping com.google.android.apps.wellbeing appid=10148 user=-1: installPackageLI
+11-14 13:01:54.498   658   718 I ActivityManager: Killing 1486:com.google.android.apps.wellbeing/u0a148 (adj 0): stop com.google.android.apps.wellbeing due to installPackageLI
+11-14 13:01:56.583   658   718 I ActivityManager: Force stopping com.google.android.apps.restore appid=10139 user=-1: installPackageLI
+11-14 13:01:56.595   658   718 I ActivityManager: Killing 4977:com.google.android.apps.restore/u0a139 (adj 915): stop com.google.android.apps.restore due to installPackageLI
+11-14 13:02:03.445   658   718 I ActivityManager: Force stopping com.google.android.tts appid=10152 user=-1: installPackageLI

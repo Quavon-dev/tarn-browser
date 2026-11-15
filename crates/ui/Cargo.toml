@@ -1,0 +1,18 @@
+[package]
+name = "ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared GPUI theme, icons and controls for the Tarn desktop app."
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+browser-core.workspace = true
+engine.workspace = true
+gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "wayland", "x11", "runtime_shaders"] }
+unicode-segmentation = "1"
+url.workspace = true
+
+[lints]
+workspace = true

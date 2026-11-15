@@ -1,0 +1,19 @@
+--------- beginning of main
+11-14 12:40:15.648  1195  1195 I tarn    : tab t1 event prompt {id=1, kind=confirm, origin=http://public.test, message=sure?}
+11-14 12:40:18.688  1195  1195 I tarn    : tab t1 event title {title=confirm true}
+11-14 12:40:21.331  1195  1195 I tarn    : tab t1 event prompt {id=2, kind=text, origin=http://public.test, message=name?, default=tarn}
+11-14 12:40:24.958  1195  1195 I tarn    : tab t1 event title {title=text answered}
+11-14 12:40:27.584  1195  1195 I tarn    : tab t1 event prompt {id=3, kind=alert, origin=http://public.test, message=flood 0}
+11-14 12:40:30.180  1195  1195 I tarn    : tab t1 event prompt {id=4, kind=alert, origin=http://public.test, message=flood 1}
+11-14 12:40:32.447  1195  1195 I tarn    : tab t1 event prompt {id=5, kind=alert, origin=http://public.test, message=flood 2}
+--------- beginning of main
+11-14 12:40:15.648  1195  1195 I tarn    : tab t1 event prompt {id=1, kind=confirm, origin=http://public.test, message=sure?}
+11-14 12:40:18.688  1195  1195 I tarn    : tab t1 event title {title=confirm true}
+11-14 12:40:21.331  1195  1195 I tarn    : tab t1 event prompt {id=2, kind=text, origin=http://public.test, message=name?, default=tarn}
+11-14 12:40:24.958  1195  1195 I tarn    : tab t1 event title {title=text answered}
+11-14 12:40:27.584  1195  1195 I tarn    : tab t1 event prompt {id=3, kind=alert, origin=http://public.test, message=flood 0}
+11-14 12:40:30.180  1195  1195 I tarn    : tab t1 event prompt {id=4, kind=alert, origin=http://public.test, message=flood 1}
+11-14 12:40:32.447  1195  1195 I tarn    : tab t1 event prompt {id=5, kind=alert, origin=http://public.test, message=flood 2}
+11-14 12:40:42.251  1195  1195 I tarn    : tab t1 event prompt {id=6, kind=alert, origin=http://public.test, message=flood 3}
+11-14 12:40:44.583  1195  1195 I tarn    : tab t1 event prompt {id=7, kind=alert, origin=http://public.test, message=flood 4}
+11-14 12:40:46.898  1195  1195 I tarn    : tab t1 event title {title=flood done}

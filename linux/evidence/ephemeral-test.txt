@@ -1,0 +1,4 @@
+running 1 test
+test webview::session::display_tests::the_ephemeral_store_writes_no_website_data_to_disk ... control data found in ["/tmp/tmp.skBxqbzdkF/data/tarn/webkit/display-control/data/storage/oEMKEXCEVnN4HqCFm8CT_Oz2i12tEZ0RkAgdw04suIM/oEMKEXCEVnN4HqCFm8CT_Oz2i12tEZ0RkAgdw04suIM/IndexedDB/7BDC25D1694EF984782A16F6F1710C1C6BC83BA7A131B515BAF532BEA021D011/IndexedDB.sqlite3", "/tmp/tmp.skBxqbzdkF/data/tarn/webkit/display-control/data/cookies.sqlite"]; no private data under /tmp/tmp.skBxqbzdkF
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out; finished in 5.80s

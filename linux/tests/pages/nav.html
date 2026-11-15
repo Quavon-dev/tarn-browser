@@ -1,0 +1,14 @@
+<!doctype html><title>nav</title>
+<h1 id="h">nav</h1>
+<ul>
+<li><a id="data" href="data:text/html,%3Ch1%3EDATA-LOADED%3C/h1%3E">data link</a>
+<li><a id="mailto" href="mailto:a@example.com">mailto link</a>
+<li><a id="js" href="javascript:void(document.getElementById('h').textContent='JS-LINK-RAN')">javascript link</a>
+<li><a id="insecure" href="http://localhost:8765/insecure">http localhost:8765</a>
+<li><a id="local" href="http://127.0.0.1:8765/pixel">local address</a>
+<li><a id="blank" href="http://localhost:8765/find.html" target="_blank">new window link</a>
+<li><a id="download" href="/download">download</a>
+<li><button id="open" onclick="window.open('http://localhost:8765/cookie.html')">window.open</button>
+<li><button onclick="for (let i = 0; i < 10; i++) window.open('http://localhost:8765/find.html?' + i)">popup flood</button>
+</ul>
+<script>window.addEventListener('load', () => setTimeout(() => window.open('http://localhost:8765/find.html?nogesture'), 300));</script>

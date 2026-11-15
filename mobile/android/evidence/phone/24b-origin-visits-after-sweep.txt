@@ -1,0 +1,21 @@
+# after relaunch (file deleted by the launch sweep), normal browsing in profile A
+total 40
+drwxrwx--x 2 u0_a230 u0_a230 4096 2026-11-14 12:51 .
+drwx------ 9 u0_a230 u0_a230 4096 2026-11-14 12:51 ..
+-rw-rw---- 1 u0_a230 u0_a230  430 2026-11-14 12:51 AwOriginVisitLoggerPrefs.xml
+-rw-rw---- 1 u0_a230 u0_a230  361 2026-11-14 12:51 WebViewChromiumPrefs.xml
+-rw-rw---- 1 u0_a230 u0_a230   65 2026-11-14 12:51 WebViewProfilePrefsWebViewProfilePrefsProfile 3.xml
+# contents
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <long name="sites_visited_weekly_time" value="1794657095511" />
+    <string name="origins_visited_date">11/14/26</string>
+    <set name="origins_visited_set">
+        <string>2673108353</string>
+        <string>693891610</string>
+    </set>
+    <set name="sites_visited_weekly_set">
+        <string>0</string>
+        <string>406169075</string>
+    </set>
+</map>

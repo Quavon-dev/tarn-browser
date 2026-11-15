@@ -1,0 +1,355 @@
+--------- beginning of main
+11-14 13:04:27.553 I/tarn    ( 8194): verdict=0 us=3866 kind=0 url=http://public.test/pn top=http://public.test/links pending=http://public.test/pn
+--------- beginning of system
+11-14 13:04:27.666 W/ActivityManager(  658): pid 5332 com.google.android.gms.persistent sent binder code 2 with flags 1 to frozen apps and got error -32
+11-14 13:04:27.704 I/ActivityManager(  658): Start proc 9996:com.google.android.googlequicksearchbox:googleapp/u0a149 for broadcast {com.google.android.googlequicksearchbox/com.google.android.libraries.search.integrations.tiktok.phenotype.GoogleAppProcessPhenotypeConfigurationUpdatedReceiver_Receiver}
+11-14 13:04:27.705 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:04:27.712 I/tarn    ( 8194): verdict=1 us=496 kind=2 url=http://127.0.0.1:8771/pixel?via=127 top=http://public.test/links pending=http://public.test/pn
+11-14 13:04:27.716 I/tarn    ( 8194): started http://public.test/pn
+11-14 13:04:27.717 I/tarn    ( 8194): tab t1 event blocked {url=http://127.0.0.1:8771/pixel?via=127, reason=shield}
+11-14 13:04:27.720 I/tarn    ( 8194): verdict=1 us=6563 kind=2 url=http://localhost:8771/pixel?via=localhost top=http://public.test/links pending=http://public.test/pn
+11-14 13:04:27.720 I/tarn    ( 8194): tab t1 event blocked {url=http://localhost:8771/pixel?via=localhost, reason=shield}
+11-14 13:04:27.725 I/tarn    ( 8194): verdict=1 us=1151 kind=2 url=http://10.0.2.2:8771/pixel?via=10 top=http://public.test/links pending=http://public.test/pn
+11-14 13:04:27.726 I/tarn    ( 8194): tab t1 event blocked {url=http://10.0.2.2:8771/pixel?via=10, reason=shield}
+11-14 13:04:27.767 I/tarn    ( 8194): tab t1 event title {title=public.test/pn}
+11-14 13:04:27.768 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/pn, title=public.test/pn, canGoBack=true, canGoForward=false}
+11-14 13:04:27.819 I/tarn    ( 8194): verdict=0 us=3637 kind=2 url=http://public.test/favicon.ico top=http://public.test/links pending=http://public.test/pn
+11-14 13:04:27.832 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/pn, title=public.test/pn, canGoBack=true, canGoForward=false}
+11-14 13:04:33.292 I/tarn    ( 8194): verdict=0 us=336 kind=0 url=http://public.test/dialogs top=http://public.test/pn pending=http://public.test/dialogs
+11-14 13:04:33.316 I/tarn    ( 8194): started http://public.test/dialogs
+11-14 13:04:33.319 I/tarn    ( 8194): tab t1 event title {title=public.test/dialogs}
+11-14 13:04:33.320 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/dialogs, title=public.test/dialogs, canGoBack=true, canGoForward=false}
+11-14 13:04:33.322 I/tarn    ( 8194): verdict=0 us=726 kind=2 url=http://public.test/favicon.ico top=http://public.test/pn pending=http://public.test/dialogs
+11-14 13:04:33.332 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/dialogs, title=public.test/dialogs, canGoBack=true, canGoForward=false}
+11-14 13:04:35.155 W/ActivityManager(  658): stopServiceToken startId 25 is last, but have 1 remaining args
+11-14 13:04:36.455 I/tarn    ( 8194): tab t1 event prompt {id=1, kind=confirm, origin=http://public.test, message=sure?}
+11-14 13:04:39.715 I/tarn    ( 8194): tab t1 event title {title=confirm true}
+11-14 13:04:41.959 I/tarn    ( 8194): tab t1 event prompt {id=2, kind=text, origin=http://public.test, message=name?, default=tarn}
+11-14 13:04:43.654 I/ActivityManager(  658): Force stopping com.google.android.youtube appid=10171 user=-1: installPackageLI
+11-14 13:04:43.671 I/ActivityManager(  658): Force stopping com.google.android.youtube appid=10171 user=0: pkg removed
+11-14 13:04:44.514 I/ActivityManager(  658): Process com.google.android.googlequicksearchbox:search (pid 9383) has died: cch+5 CEM 
+11-14 13:04:46.469 I/ActivityManager(  658): Force stopping com.google.android.contacts appid=10153 user=-1: installPackageLI
+11-14 13:04:46.474 I/ActivityManager(  658): Force stopping com.google.android.contacts appid=10153 user=0: pkg removed
+11-14 13:04:46.775 I/tarn    ( 8194): tab t1 event title {title=text tablet}
+11-14 13:04:47.350 I/ActivityManager(  658): Force stopping com.google.android.accessibility.switchaccess appid=10166 user=-1: installPackageLI
+11-14 13:04:47.353 I/ActivityManager(  658): Force stopping com.google.android.accessibility.switchaccess appid=10166 user=0: pkg removed
+11-14 13:04:50.244 I/tarn    ( 8194): verdict=0 us=1274 kind=0 url=http://public.test/auth top=http://public.test/dialogs pending=http://public.test/auth
+11-14 13:04:50.301 I/tarn    ( 8194): tab t1 event prompt {id=3, kind=credentials, origin=http://public.test, topOrigin=http://public.test, realm=tarn test, insecure=true}
+11-14 13:04:51.663 I/ActivityManager(  658): Start proc 10356:com.google.android.photopicker/u0a202 for broadcast {com.google.android.photopicker/com.android.photopicker.PhotopickerDeviceConfigReceiver}
+11-14 13:04:51.663 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:04:53.526 W/ActivityManager(  658): pid 5332 com.google.android.gms.persistent sent binder code 2 with flags 1 to frozen apps and got error -32
+11-14 13:04:53.546 I/ActivityManager(  658): Start proc 10387:com.google.android.googlequicksearchbox:search/u0a149 for broadcast {com.google.android.googlequicksearchbox/com.google.android.libraries.phenotype.client.stable.PhenotypeUpdateBackgroundBroadcastReceiver}
+11-14 13:04:53.546 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:04:55.155 I/tarn    ( 8194): started http://public.test/auth
+11-14 13:04:55.183 I/tarn    ( 8194): tab t1 event title {title=public.test/auth}
+11-14 13:04:55.183 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/auth, title=public.test/auth, canGoBack=true, canGoForward=false}
+11-14 13:04:55.197 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/auth, title=public.test/auth, canGoBack=true, canGoForward=false}
+11-14 13:04:55.209 I/tarn    ( 8194): verdict=0 us=4304 kind=2 url=http://public.test/favicon.ico top=http://public.test/auth pending=null
+11-14 13:04:59.865 I/tarn    ( 8194): verdict=0 us=2424 kind=0 url=http://localhost:8771/downloads top=http://public.test/auth pending=http://localhost:8771/downloads
+11-14 13:05:00.084 I/tarn    ( 8194): started http://localhost:8771/downloads
+11-14 13:05:00.201 I/tarn    ( 8194): tab t1 event title {title=localhost:8771/downloads}
+11-14 13:05:00.202 I/tarn    ( 8194): tab t1 event finished {url=http://localhost:8771/downloads, title=localhost:8771/downloads, canGoBack=true, canGoForward=false}
+11-14 13:05:00.221 I/tarn    ( 8194): tab t1 event committed {url=http://localhost:8771/downloads, title=localhost:8771/downloads, canGoBack=true, canGoForward=false}
+11-14 13:05:00.280 I/tarn    ( 8194): verdict=0 us=16333 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/downloads pending=null
+11-14 13:05:02.498 I/ActivityManager(  658): Force stopping com.google.android.gm appid=10172 user=-1: installPackageLI
+11-14 13:05:02.536 I/ActivityManager(  658): Force stopping com.google.android.gm appid=10172 user=0: pkg removed
+11-14 13:05:03.600 I/tarn    ( 8194): verdict=0 us=103 kind=0 url=http://localhost:8771/download top=http://localhost:8771/downloads pending=http://localhost:8771/download
+11-14 13:05:03.629 I/tarn    ( 8194): verdict=0 us=3176 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/downloads pending=http://localhost:8771/download
+11-14 13:05:03.719 I/tarn    ( 8194): tab t1 event download {state=started, name=evil_name.bin}
+11-14 13:05:03.897 I/tarn    ( 8194): tab t1 event download {state=finished, name=evil_name.bin, path=/data/user/0/dev.tarn.browser/files/Downloads/evil_name.bin}
+11-14 13:05:08.147 I/ActivityManager(  658): Start proc 10618:com.google.android.calendar/u0a154 for service {com.google.android.calendar/androidx.work.impl.background.systemjob.SystemJobService}
+11-14 13:05:08.148 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:05:08.859 I/ActivityManager(  658): Start proc 10664:com.android.providers.calendar/u0a99 for content provider {com.android.providers.calendar/com.android.providers.calendar.CalendarProvider2}
+11-14 13:05:08.859 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:05:09.649 I/tarn    ( 8194): verdict=0 us=215 kind=0 url=http://public.test/filter top=http://localhost:8771/downloads pending=http://public.test/filter
+11-14 13:05:09.742 I/tarn    ( 8194): started http://public.test/filter
+11-14 13:05:09.756 I/tarn    ( 8194): verdict=1 us=1262 kind=4 url=http://ads.test/ad.js top=http://localhost:8771/downloads pending=http://public.test/filter
+11-14 13:05:09.756 I/tarn    ( 8194): verdict=1 us=870 kind=2 url=http://ads.test/pixel?via=ad top=http://localhost:8771/downloads pending=http://public.test/filter
+11-14 13:05:09.756 I/tarn    ( 8194): tab t1 event blocked {url=http://ads.test/ad.js, reason=shield}
+11-14 13:05:09.756 I/tarn    ( 8194): tab t1 event blocked {url=http://ads.test/pixel?via=ad, reason=shield}
+11-14 13:05:09.762 I/tarn    ( 8194): verdict=0 us=8046 kind=2 url=http://ok.test/pixel?via=ok top=http://localhost:8771/downloads pending=http://public.test/filter
+11-14 13:05:09.847 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/filter, title=public.test/filter, canGoBack=true, canGoForward=false}
+11-14 13:05:09.871 I/tarn    ( 8194): tab t1 event title {title=public.test/filter}
+11-14 13:05:09.871 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/filter, title=public.test/filter, canGoBack=true, canGoForward=false}
+11-14 13:05:09.876 I/tarn    ( 8194): verdict=0 us=101 kind=2 url=http://public.test/favicon.ico top=http://public.test/filter pending=null
+11-14 13:05:10.320 I/ActivityManager(  658): Process com.google.android.googlequicksearchbox:googleapp (pid 9996) has died: cch+5 CEM 
+11-14 13:05:10.368 W/ActivityManager(  658): pid 5332 com.google.android.gms.persistent sent binder code 2 with flags 1 to frozen apps and got error -32
+11-14 13:05:12.291 I/ActivityManager(  658): Force stopping com.google.android.inputmethod.latin appid=10160 user=-1: installPackageLI
+11-14 13:05:12.308 I/ActivityManager(  658): Killing 1506:com.google.android.inputmethod.latin/u0a160 (adj 100): stop com.google.android.inputmethod.latin due to installPackageLI
+11-14 13:05:12.333 I/ActivityManager(  658): Force stopping com.google.android.inputmethod.latin appid=10160 user=0: pkg removed
+11-14 13:05:12.353 W/ActivityManager(  658): setHasOverlayUi called on unknown pid: 1506
+11-14 13:05:12.404 I/ActivityManager(  658): Start proc 10786:com.google.android.inputmethod.latin/u0a160 for broadcast {com.google.android.inputmethod.latin/com.google.android.apps.inputmethod.latin.core.ApkUpdatedReceiver}
+11-14 13:05:12.405 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:05:14.312 W/ActivityManager(  658): pid 8194 dev.tarn.browser sent binder code 2 with flags 1 to frozen apps and got error -32
+11-14 13:05:15.262 I/tarn    ( 8194): verdict=0 us=1483 kind=0 url=http://localhost:8771/find top=http://public.test/filter pending=http://localhost:8771/find
+11-14 13:05:15.336 I/tarn    ( 8194): started http://localhost:8771/find
+11-14 13:05:15.407 I/tarn    ( 8194): tab t1 event title {title=localhost:8771/find}
+11-14 13:05:15.407 I/tarn    ( 8194): tab t1 event finished {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=true, canGoForward=false}
+11-14 13:05:15.420 I/tarn    ( 8194): tab t1 event committed {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=true, canGoForward=false}
+11-14 13:05:15.453 I/tarn    ( 8194): verdict=0 us=4303 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/find pending=null
+11-14 13:05:16.080 I/ActivityManager(  658): Force stopping com.google.android.calendar appid=10154 user=-1: installPackageLI
+11-14 13:05:16.091 I/ActivityManager(  658): Killing 10618:com.google.android.calendar/u0a154 (adj 915): stop com.google.android.calendar due to installPackageLI
+11-14 13:05:16.112 I/ActivityManager(  658): Force stopping com.google.android.calendar appid=10154 user=0: pkg removed
+11-14 13:05:16.171 I/ActivityManager(  658): Start proc 10890:com.google.android.calendar/u0a154 for broadcast {com.google.android.calendar/com.google.android.apps.calendar.appsearch.impl.AppSearchBroadcastReceiver}
+11-14 13:05:16.172 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:05:19.828 I/tarn    ( 8194): tab t1 event found {matched=3}
+11-14 13:05:21.814 I/ActivityManager(  658): Process com.google.android.googlequicksearchbox:search (pid 10387) has died: cch+5 CEM 
+11-14 13:05:23.215 I/tarn    ( 8194): verdict=0 us=162 kind=0 url=https://public.test/plain top=http://localhost:8771/find pending=https://public.test/plain
+11-14 13:05:23.243 I/tarn    ( 8194): tab t1 event failed {url=https://public.test/plain, message=The site's certificate is not valid}
+11-14 13:05:23.248 I/tarn    ( 8194): tab t1 event finished {url=https://public.test/plain, title=localhost:8771/find, canGoBack=true, canGoForward=false}
+11-14 13:05:24.733 W/ActivityManager(  658): pid 5332 com.google.android.gms.persistent sent binder code 2 with flags 1 to frozen apps and got error -32
+11-14 13:05:24.786 I/ActivityManager(  658): Start proc 11086:com.google.android.googlequicksearchbox:search/u0a149 for broadcast {com.google.android.googlequicksearchbox/com.google.android.libraries.phenotype.client.stable.PhenotypeUpdateBackgroundBroadcastReceiver}
+11-14 13:05:24.786 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:05:25.137 I/ActivityManager(  658): Start proc 11140:com.google.android.googlequicksearchbox:googleapp/u0a149 for broadcast {com.google.android.googlequicksearchbox/com.google.android.libraries.search.integrations.tiktok.phenotype.GoogleAppProcessPhenotypeConfigurationUpdatedReceiver_Receiver}
+11-14 13:05:25.137 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:05:27.626 I/tarn    ( 8194): debug renderer terminated=true
+11-14 13:05:27.631 I/ActivityManager(  658): Killing 8447:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:1/u0a215i6 (adj 0): isolated not needed
+11-14 13:05:27.686 I/tarn    ( 8194): tab t1 event found {matched=0}
+11-14 13:05:27.695 I/tarn    ( 8194): tab t1 event crashed {}
+11-14 13:05:27.696 I/tarn    ( 8194): tab t2 event crashed {}
+11-14 13:05:31.091 I/tarn    ( 8194): tab t1 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 13:05:31.096 I/tarn    ( 8194): verdict=0 us=105 kind=0 url=http://localhost:8771/find top=null pending=http://localhost:8771/find
+11-14 13:05:31.117 I/ActivityManager(  658): Start proc 11212:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:2/u0i7 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:2}
+11-14 13:05:31.117 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:05:31.140 W/ActivityManager(  658): Slow operation: 52ms so far, now at startProcess: returned from zygote!
+11-14 13:05:31.251 I/tarn    ( 8194): started http://localhost:8771/find
+11-14 13:05:31.304 I/tarn    ( 8194): tab t1 event title {title=localhost:8771/find}
+11-14 13:05:31.304 I/tarn    ( 8194): tab t1 event finished {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=false, canGoForward=false}
+11-14 13:05:31.309 I/tarn    ( 8194): verdict=0 us=2539 kind=2 url=http://localhost:8771/favicon.ico top=null pending=http://localhost:8771/find
+11-14 13:05:31.347 I/tarn    ( 8194): tab t1 event committed {url=http://localhost:8771/find, title=localhost:8771/find, canGoBack=false, canGoForward=false}
+11-14 13:05:49.812 W/ActivityManager(  658): pid 8194 dev.tarn.browser sent binder code 2 with flags 1 to frozen apps and got error -32
+11-14 13:05:50.686 I/tarn    ( 8194): verdict=0 us=609 kind=0 url=http://public.test/cookie?set=A top=http://localhost:8771/find pending=http://public.test/cookie?set=A
+11-14 13:05:50.711 I/tarn    ( 8194): started http://public.test/cookie?set=A
+11-14 13:05:50.711 I/tarn    ( 8194): tab t1 event title {title=public.test/cookie?set=A}
+11-14 13:05:50.711 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/cookie?set=A, title=public.test/cookie?set=A, canGoBack=true, canGoForward=false}
+11-14 13:05:50.721 I/tarn    ( 8194): verdict=0 us=545 kind=2 url=http://public.test/favicon.ico top=http://localhost:8771/find pending=http://public.test/cookie?set=A
+11-14 13:05:50.741 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/cookie?set=A, title=public.test/cookie?set=A, canGoBack=true, canGoForward=false}
+11-14 13:05:54.093 I/tarn    ( 8194): tab t2 web view on store tarn-0d9e8f7a-6b5c-4d3e-8f1a-2b3c4d5e6f70
+11-14 13:05:54.098 I/tarn    ( 8194): verdict=0 us=73 kind=0 url=http://public.test/opened top=null pending=http://public.test/opened
+11-14 13:05:54.107 I/tarn    ( 8194): tab t1 web view on store tarn-0d9e8f7a-6b5c-4d3e-8f1a-2b3c4d5e6f70
+11-14 13:05:54.120 I/tarn    ( 8194): verdict=0 us=82 kind=0 url=http://public.test/cookie?set=A top=null pending=http://public.test/cookie?set=A
+11-14 13:05:54.126 I/ActivityManager(  658): Start proc 11342:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:3/u0i8 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:3}
+11-14 13:05:54.126 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:05:54.202 I/tarn    ( 8194): started http://public.test/opened
+11-14 13:05:54.206 I/tarn    ( 8194): started http://public.test/cookie?set=A
+11-14 13:05:54.210 I/tarn    ( 8194): tab t2 event title {title=public.test/opened}
+11-14 13:05:54.211 I/tarn    ( 8194): tab t2 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 13:05:54.213 I/tarn    ( 8194): tab t1 event title {title=public.test/cookie?set=A}
+11-14 13:05:54.213 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/cookie?set=A, title=public.test/cookie?set=A, canGoBack=false, canGoForward=false}
+11-14 13:05:54.214 I/tarn    ( 8194): verdict=0 us=88 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/opened
+11-14 13:05:54.217 I/tarn    ( 8194): verdict=0 us=82 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/cookie?set=A
+11-14 13:05:54.238 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/cookie?set=A, title=public.test/cookie?set=A, canGoBack=false, canGoForward=false}
+11-14 13:05:58.462 I/tarn    ( 8194): verdict=0 us=96 kind=0 url=http://public.test/cookie top=http://public.test/cookie?set=A pending=http://public.test/cookie
+11-14 13:05:58.475 I/tarn    ( 8194): started http://public.test/cookie
+11-14 13:05:58.475 I/tarn    ( 8194): tab t1 event title {title=public.test/cookie}
+11-14 13:05:58.475 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=true, canGoForward=false}
+11-14 13:05:58.476 I/tarn    ( 8194): verdict=0 us=115 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie?set=A pending=http://public.test/cookie
+11-14 13:05:58.507 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=true, canGoForward=false}
+11-14 13:06:01.606 I/tarn    ( 8194): tab t2 web view on store tarn-private-918240a7e1284915bc5ea62de90f3c8a
+11-14 13:06:01.610 I/tarn    ( 8194): verdict=0 us=2476 kind=0 url=http://public.test/opened top=null pending=http://public.test/opened
+11-14 13:06:01.623 I/ActivityManager(  658): Start proc 11423:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:4/u0i9 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:4}
+11-14 13:06:01.623 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:06:01.629 I/tarn    ( 8194): tab t1 web view on store tarn-private-918240a7e1284915bc5ea62de90f3c8a
+11-14 13:06:01.631 I/tarn    ( 8194): verdict=0 us=57 kind=0 url=http://public.test/cookie top=null pending=http://public.test/cookie
+11-14 13:06:01.677 I/tarn    ( 8194): started http://public.test/opened
+11-14 13:06:01.677 I/tarn    ( 8194): started http://public.test/cookie
+11-14 13:06:01.683 I/tarn    ( 8194): tab t2 event title {title=public.test/opened}
+11-14 13:06:01.685 I/tarn    ( 8194): tab t2 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 13:06:01.692 I/tarn    ( 8194): verdict=0 us=101 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/opened
+11-14 13:06:01.696 I/tarn    ( 8194): verdict=0 us=79 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/cookie
+11-14 13:06:01.698 I/tarn    ( 8194): tab t1 event title {title=public.test/cookie}
+11-14 13:06:01.699 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 13:06:01.699 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 13:06:04.821 W/ActivityManager(  658): pid 8194 dev.tarn.browser sent binder code 2 with flags 1 to frozen apps and got error -32
+11-14 13:06:05.661 I/tarn    ( 8194): verdict=0 us=76 kind=0 url=http://public.test/cookie top=http://public.test/cookie pending=http://public.test/cookie
+11-14 13:06:05.681 I/tarn    ( 8194): verdict=0 us=85 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie pending=http://public.test/cookie
+11-14 13:06:05.681 I/tarn    ( 8194): started http://public.test/cookie
+11-14 13:06:05.682 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 13:06:05.697 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 13:06:08.780 I/tarn    ( 8194): tab t2 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 13:06:08.793 I/tarn    ( 8194): verdict=0 us=82 kind=0 url=http://public.test/opened top=null pending=http://public.test/opened
+11-14 13:06:08.799 I/tarn    ( 8194): tab t1 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 13:06:08.801 I/tarn    ( 8194): verdict=0 us=54 kind=0 url=http://public.test/cookie top=null pending=http://public.test/cookie
+11-14 13:06:08.819 I/tarn    ( 8194): started http://public.test/opened
+11-14 13:06:08.819 I/tarn    ( 8194): started http://public.test/cookie
+11-14 13:06:08.819 I/tarn    ( 8194): tab t2 event title {title=public.test/opened}
+11-14 13:06:08.819 I/tarn    ( 8194): tab t2 event finished {url=http://public.test/opened, title=public.test/opened, canGoBack=false, canGoForward=false}
+11-14 13:06:08.819 I/tarn    ( 8194): tab t1 event title {title=public.test/cookie}
+11-14 13:06:08.819 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 13:06:08.821 I/tarn    ( 8194): verdict=0 us=94 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/opened
+11-14 13:06:08.821 I/tarn    ( 8194): verdict=0 us=68 kind=2 url=http://public.test/favicon.ico top=null pending=http://public.test/cookie
+11-14 13:06:08.830 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 13:06:13.233 I/tarn    ( 8194): verdict=0 us=196 kind=0 url=http://public.test/cookie top=http://public.test/cookie pending=http://public.test/cookie
+11-14 13:06:13.244 I/tarn    ( 8194): started http://public.test/cookie
+11-14 13:06:13.244 I/tarn    ( 8194): tab t1 event finished {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 13:06:13.246 I/tarn    ( 8194): verdict=0 us=87 kind=2 url=http://public.test/favicon.ico top=http://public.test/cookie pending=http://public.test/cookie
+11-14 13:06:13.259 I/tarn    ( 8194): tab t1 event committed {url=http://public.test/cookie, title=public.test/cookie, canGoBack=false, canGoForward=false}
+11-14 13:06:18.559 W/ActivityManager(  658): pid 8194 dev.tarn.browser sent binder code 2 with flags 1 to frozen apps and got error -32
+11-14 13:06:19.468 I/tarn    ( 8194): verdict=0 us=965 kind=0 url=https://www.whatismybrowser.com/detect/is-javascript-enabled/ top=http://public.test/cookie pending=https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:20.145 I/tarn    ( 8194): verdict=0 us=1053 kind=3 url=https://cdn.whatismybrowser.com/prod-website/static/main/css/site.min.css?time=1793943511 top=http://public.test/cookie pending=https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:20.145 I/tarn    ( 8194): started https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:20.146 I/tarn    ( 8194): tab t1 event title {title=Is JavaScript enabled? - WhatIsMyBrowser.com}
+11-14 13:06:20.363 I/tarn    ( 8194): tab t1 event finished {url=https://www.whatismybrowser.com/detect/is-javascript-enabled/, title=Is JavaScript enabled? - WhatIsMyBrowser.com, canGoBack=true, canGoForward=false}
+11-14 13:06:20.364 I/tarn    ( 8194): verdict=0 us=208 kind=2 url=https://cdn.whatismybrowser.com/prod-website/static/main/images/logo/wimb-192.png top=http://public.test/cookie pending=https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:20.368 I/tarn    ( 8194): verdict=0 us=116 kind=2 url=https://cdn.whatismybrowser.com/prod-website/static/favicon.ico top=http://public.test/cookie pending=https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:20.380 I/tarn    ( 8194): tab t1 event committed {url=https://www.whatismybrowser.com/detect/is-javascript-enabled/, title=Is JavaScript enabled? - WhatIsMyBrowser.com, canGoBack=true, canGoForward=false}
+11-14 13:06:29.594 W/ActivityManager(  658): pid 8194 dev.tarn.browser sent binder code 2 with flags 1 to frozen apps and got error -32
+11-14 13:06:30.850 I/tarn    ( 8194): verdict=0 us=71 kind=0 url=https://www.whatismybrowser.com/detect/is-javascript-enabled/ top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:31.457 I/tarn    ( 8194): verdict=0 us=70 kind=0 url=https://www.whatismybrowser.com/detect/is-javascript-enabled/ top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:31.712 I/tarn    ( 8194): verdict=0 us=115 kind=3 url=https://cdn.whatismybrowser.com/prod-website/static/main/css/site.min.css?time=1793943512 top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:31.712 I/tarn    ( 8194): started https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:31.712 I/tarn    ( 8194): tab t1 event title {title=Is JavaScript enabled? - WhatIsMyBrowser.com}
+11-14 13:06:31.712 I/tarn    ( 8194): verdict=0 us=787 kind=4 url=https://cdn.whatismybrowser.com/prod-website/static/main/js/site.min.js?cb=1787008049 top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:31.713 I/tarn    ( 8194): verdict=0 us=69 kind=4 url=https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8548565564007782 top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:31.714 I/tarn    ( 8194): verdict=0 us=58 kind=4 url=https://analytics.ahrefs.com/analytics.js top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=https://www.whatismybrowser.com/detect/is-javascript-enabled/
+11-14 13:06:31.867 I/tarn    ( 8194): tab t1 event committed {url=https://www.whatismybrowser.com/detect/is-javascript-enabled/, title=Is JavaScript enabled? - WhatIsMyBrowser.com, canGoBack=true, canGoForward=false}
+11-14 13:06:31.923 I/tarn    ( 8194): verdict=0 us=186 kind=10 url=https://analytics.ahrefs.com/api/event top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:31.988 I/tarn    ( 8194): verdict=0 us=131 kind=4 url=https://pagead2.googlesyndication.com/pagead/managed/js/adsense/m202611100101/show_ads_impl_fy2021.js top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:32.269 I/tarn    ( 8194): verdict=0 us=139 kind=10 url=https://fundingchoicesmessages.google.com/i/ca-pub-8548565564007782?href=https%3A%2F%2Fwww.whatismybrowser.com%2Fdetect%2Fis-javascript-enabled&ers=2 top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:32.556 I/tarn    ( 8194): verdict=0 us=121 kind=10 url=https://fundingchoicesmessages.google.com/el/AGSKWxVVT33HY7L5lEyqhalm44LZC02RGJ4Oy2F_5VdqzRYFhG5-h2O374BIz-rwrl7LQ8ErKf5aBPLI9kfjVsV-g_h80AEDaWhxF70EfsijpkjjIawgbFPm6O8_Yl2nKGyP5jPm94wppg== top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:32.559 I/tarn    ( 8194): verdict=0 us=50 kind=10 url=https://fundingchoicesmessages.google.com/el/AGSKWxVVT33HY7L5lEyqhalm44LZC02RGJ4Oy2F_5VdqzRYFhG5-h2O374BIz-rwrl7LQ8ErKf5aBPLI9kfjVsV-g_h80AEDaWhxF70EfsijpkjjIawgbFPm6O8_Yl2nKGyP5jPm94wppg== top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:32.562 I/tarn    ( 8194): verdict=0 us=108 kind=10 url=https://fundingchoicesmessages.google.com/el/AGSKWxVVT33HY7L5lEyqhalm44LZC02RGJ4Oy2F_5VdqzRYFhG5-h2O374BIz-rwrl7LQ8ErKf5aBPLI9kfjVsV-g_h80AEDaWhxF70EfsijpkjjIawgbFPm6O8_Yl2nKGyP5jPm94wppg== top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:32.568 I/tarn    ( 8194): verdict=0 us=89 kind=10 url=https://fundingchoicesmessages.google.com/f/AGSKWxXCjm9IHXZbcNYSS-3-XatiashDxJJtDBrV1inyF4fECzCjlkgEICAImtrz19HpOFPwHiJunV0JTJKzHi8aySb56oBysoYct-5zMuKVmZmZXR9X8BkQzTWYa81rMmUrpN96UEeIAQ==?fccs=W251bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLFsxNzk0NjU3OTkyLDU2NzAwMDAwMF0sbnVsbCxudWxsLG51bGwsW251bGwsWzddXSwiaHR0cHM6Ly93d3cud2hhdGlzbXlicm93c2VyLmNvbS9kZXRlY3QvaXMtamF2YXNjcmlwdC1lbmFibGVkLyIsbnVsbCxbWzgsInNCZFdSZklIYks0Il0sWzksImVuLVVTIl0sWzE4LCJbW1tudWxsLDE0MjAsbnVsbCxudWxsLG51bGwsMV1dXSJdLFszNSwiMTc5NDY1Nzk5MiJdLFsxOSwiMSJdLFsxNywiWzBdIl0sWzI0LCIiXSxbMjksImZhbHNlIl1dXQ top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:32.737 I/tarn    ( 8194): verdict=0 us=165 kind=3 url=https://fonts.googleapis.com/css?family=Archivo:400,500|Arimo:400,500|Bitter:400,500|EB+Garamond:400,500|Lato|Libre+Baskervill|Libre+Franklin:400,500|Lora:400,500|Google+Sans:regular,medium:400,500|Material+Icons|Google+Symbols|Merriweather|Montserrat:400,500|Mukta:400,500|Muli:400,500|Nunito:400,500|Open+Sans:400,500,600|Open+Sans+Condensed:400,600|Oswald:500|Playfair+Display:400,500|Poppins:400,500|Raleway:400,500|Roboto:400,500|Roboto+Condensed:400,500|Roboto+Slab:400,500|Slabo+27px|Source+Sans+Pro|Ubuntu:400,500|Volkhov&display=swap top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:32.755 I/tarn    ( 8194): verdict=0 us=100 kind=5 url=https://fonts.gstatic.com/s/opensans/v40/memvYaGs126MiZpBA-UvWbX2vVnXBbObj2OVTS-mu0SC55I.woff2 top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:32.758 I/tarn    ( 8194): verdict=0 us=62 kind=10 url=https://fundingchoicesmessages.google.com/el/AGSKWxVVT33HY7L5lEyqhalm44LZC02RGJ4Oy2F_5VdqzRYFhG5-h2O374BIz-rwrl7LQ8ErKf5aBPLI9kfjVsV-g_h80AEDaWhxF70EfsijpkjjIawgbFPm6O8_Yl2nKGyP5jPm94wppg== top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:32.759 I/tarn    ( 8194): verdict=0 us=34 kind=10 url=https://fundingchoicesmessages.google.com/el/AGSKWxVVT33HY7L5lEyqhalm44LZC02RGJ4Oy2F_5VdqzRYFhG5-h2O374BIz-rwrl7LQ8ErKf5aBPLI9kfjVsV-g_h80AEDaWhxF70EfsijpkjjIawgbFPm6O8_Yl2nKGyP5jPm94wppg== top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:32.759 I/tarn    ( 8194): verdict=0 us=29 kind=10 url=https://fundingchoicesmessages.google.com/el/AGSKWxVVT33HY7L5lEyqhalm44LZC02RGJ4Oy2F_5VdqzRYFhG5-h2O374BIz-rwrl7LQ8ErKf5aBPLI9kfjVsV-g_h80AEDaWhxF70EfsijpkjjIawgbFPm6O8_Yl2nKGyP5jPm94wppg== top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:33.003 I/tarn    ( 8194): verdict=0 us=115 kind=5 url=https://fonts.gstatic.com/s/roboto/v51/KFO7CnqEu92Fr1ME7kSn66aGLdTylUAMa3yUBHMdazQ.woff2 top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:33.005 I/tarn    ( 8194): verdict=0 us=54 kind=5 url=https://fonts.gstatic.com/s/roboto/v51/KFO7CnqEu92Fr1ME7kSn66aGLdTylUAMa3KUBHMdazTgWw.woff2 top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:33.008 I/tarn    ( 8194): tab t1 event finished {url=https://www.whatismybrowser.com/detect/is-javascript-enabled/, title=Is JavaScript enabled? - WhatIsMyBrowser.com, canGoBack=true, canGoForward=false}
+11-14 13:06:33.199 I/tarn    ( 8194): verdict=0 us=121 kind=2 url=https://cdn.whatismybrowser.com/prod-website/static/main/images/logo/wimb-192.png top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:06:33.199 I/tarn    ( 8194): verdict=0 us=25 kind=2 url=https://cdn.whatismybrowser.com/prod-website/static/favicon.ico top=https://www.whatismybrowser.com/detect/is-javascript-enabled/ pending=null
+11-14 13:07:20.584 I/ActivityManager(  658): Start proc 11845:dev.tarn.browser:private/u0a215 for next-top-activity {dev.tarn.browser/dev.tarn.android.PrivateActivity}
+11-14 13:07:20.584 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:07:21.214 I/tarn    (11845): debug proxy localhost:8771
+11-14 13:07:21.760 I/tarn    (11845): tab t1 web view on store process default
+11-14 13:07:21.772 I/tarn    (11845): tab t2 web view on store process default
+11-14 13:07:21.807 I/ActivityManager(  658): Start proc 11912:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:1/u0i10 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:1}
+11-14 13:07:21.807 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:07:22.607 I/tarn    (11845): rule lists built: 242 rules in 1694155 us
+11-14 13:07:23.573 I/ActivityManager(  658): Start proc 11950:com.google.android.webview:webview_service/u0a167 for service {com.google.android.webview/org.chromium.android_webview.services.VariationsSeedServer}
+11-14 13:07:23.573 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:07:29.093 I/tarn    (11845): verdict=0 us=737 kind=0 url=http://localhost:8771/private?m=TABMARK1 top=null pending=http://localhost:8771/private?m=TABMARK1
+11-14 13:07:29.269 I/tarn    (11845): started http://localhost:8771/private?m=TABMARK1
+11-14 13:07:29.284 I/tarn    (11845): tab t1 event title {title=stored TABMARK1}
+11-14 13:07:29.357 I/tarn    (11845): tab t1 event finished {url=http://localhost:8771/private?m=TABMARK1, title=stored TABMARK1, canGoBack=false, canGoForward=false}
+11-14 13:07:29.359 I/tarn    (11845): verdict=0 us=1633 kind=2 url=http://localhost:8771/favicon.ico top=null pending=http://localhost:8771/private?m=TABMARK1
+11-14 13:07:29.388 I/tarn    (11845): tab t1 event committed {url=http://localhost:8771/private?m=TABMARK1, title=stored TABMARK1, canGoBack=false, canGoForward=false}
+11-14 13:08:23.192 W/ActivityManager(  658): pid 8035 com.google.android.dialer sent binder code 24 with flags 0 to frozen apps and got error -2147483646
+11-14 13:08:23.208 I/ActivityManager(  658): Process android.process.acore (pid 1387) early provider death
+11-14 13:08:23.224 I/ActivityManager(  658): Process android.process.acore (pid 1387) has died: cch+5 CEM 
+11-14 13:08:42.176 I/ActivityManager(  658): Process dev.tarn.browser:private (pid 11845) has died: fg  TOP 
+11-14 13:08:42.177 I/ActivityManager(  658): Killing 11912:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:1/u0a215i10 (adj 0): isolated not needed
+11-14 13:08:42.204 W/ActivityManager(  658): setHasOverlayUi called on unknown pid: 11845
+11-14 13:08:42.361 I/tarn    ( 8194): private sweep removed 103 files
+11-14 13:08:42.498 W/ActivityManager(  658): pid 4179 com.callstack.agentdevice.imehelper sent binder code 9 with flags 1 to frozen apps and got error -32
+11-14 13:08:43.436 W/ActivityManager(  658): pid 658 system sent binder code 7 with flags 1 to frozen apps and got error -32
+11-14 13:08:45.124 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: from pid 12272
+11-14 13:08:45.127 I/ActivityManager(  658): Killing 5245:com.callstack.agentdevice.snapshothelper/u0a217 (adj 0): stop com.callstack.agentdevice.snapshothelper due to from pid 12272
+11-14 13:08:45.127 W/ActivityManager(  658): Crash of app com.callstack.agentdevice.snapshothelper running instrumentation ComponentInfo{com.callstack.agentdevice.snapshothelper/com.callstack.agentdevice.snapshothelper.SnapshotInstrumentation}
+11-14 13:08:45.128 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: finished inst
+11-14 13:08:45.128 W/ActivityManager(  658): pid 658 system sent binder code 2 with flags 0 to frozen apps and got error -32
+11-14 13:08:45.128 I/ActivityManager(  658): Failure reporting to instrumentation watcher: comp=ComponentInfo{com.callstack.agentdevice.snapshothelper/com.callstack.agentdevice.snapshothelper.SnapshotInstrumentation} results=Bundle[{shortMsg=Process crashed.}]
+11-14 13:08:45.128 W/ActivityManager(  658): pid 658 system sent binder code 18 with flags 1 to frozen apps and got error -32
+11-14 13:08:45.128 W/ActivityManager(  658): Error shutting down UiAutomationConnection
+11-14 13:08:52.774 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: start instr
+11-14 13:08:52.782 I/ActivityManager(  658): Start proc 12414:com.callstack.agentdevice.snapshothelper/u0a217 for added application com.callstack.agentdevice.snapshothelper
+11-14 13:08:52.782 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:08:53.459 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: finished inst
+11-14 13:08:53.459 E/ActivityManager(  658): Unable to freeze binder for 12414: -11
+11-14 13:08:53.460 I/ActivityManager(  658): Killing 12414:com.callstack.agentdevice.snapshothelper/u0a217 (adj 0): stop com.callstack.agentdevice.snapshothelper due to finished inst
+11-14 13:08:56.096 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: start instr
+11-14 13:08:56.103 I/ActivityManager(  658): Start proc 12462:com.callstack.agentdevice.snapshothelper/u0a217 for added application com.callstack.agentdevice.snapshothelper
+11-14 13:08:56.103 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:08:57.206 I/ActivityManager(  658): Start proc 12489:dev.tarn.browser:private/u0a215 for next-top-activity {dev.tarn.browser/dev.tarn.android.PrivateActivity}
+11-14 13:08:57.206 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:08:58.491 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: finished inst
+11-14 13:08:58.491 E/ActivityManager(  658): Unable to freeze binder for 12462: -11
+11-14 13:08:58.493 I/ActivityManager(  658): Killing 12462:com.callstack.agentdevice.snapshothelper/u0a217 (adj 0): stop com.callstack.agentdevice.snapshothelper due to finished inst
+11-14 13:08:58.651 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: from pid 12553
+11-14 13:08:58.693 I/tarn    (12489): debug proxy localhost:8771
+11-14 13:08:59.222 I/tarn    (12489): tab t1 web view on store process default
+11-14 13:08:59.319 I/tarn    (12489): tab t2 web view on store process default
+11-14 13:08:59.396 W/ActivityManager(  658): Slow operation: 69ms so far, now at startProcess: returned from zygote!
+11-14 13:08:59.397 W/ActivityManager(  658): Slow operation: 70ms so far, now at startProcess: done updating battery stats
+11-14 13:08:59.397 W/ActivityManager(  658): Slow operation: 70ms so far, now at startProcess: building log message
+11-14 13:08:59.397 I/ActivityManager(  658): Start proc 12574:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:1/u0i11 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:1}
+11-14 13:08:59.397 W/ActivityManager(  658): Slow operation: 70ms so far, now at startProcess: starting to update pids map
+11-14 13:08:59.426 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:08:59.426 W/ActivityManager(  658): Slow operation: 98ms so far, now at startProcess: done updating pids map
+11-14 13:09:00.477 I/tarn    (12489): rule lists built: 242 rules in 2503583 us
+11-14 13:09:04.564 I/ActivityManager(  658): Force stopping com.callstack.agentdevice.snapshothelper appid=10217 user=0: start instr
+11-14 13:09:04.574 I/ActivityManager(  658): Start proc 12623:com.callstack.agentdevice.snapshothelper/u0a217 for added application com.callstack.agentdevice.snapshothelper
+11-14 13:09:04.574 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:09:06.019 I/tarn    (12489): verdict=0 us=1409 kind=0 url=http://localhost:8771/private?m=TABMARK2 top=null pending=http://localhost:8771/private?m=TABMARK2
+11-14 13:09:06.063 I/tarn    (12489): started http://localhost:8771/private?m=TABMARK2
+11-14 13:09:06.088 I/tarn    (12489): tab t1 event title {title=stored TABMARK2}
+11-14 13:09:06.131 I/tarn    (12489): verdict=0 us=2572 kind=2 url=http://localhost:8771/favicon.ico top=null pending=http://localhost:8771/private?m=TABMARK2
+11-14 13:09:06.132 I/tarn    (12489): tab t1 event finished {url=http://localhost:8771/private?m=TABMARK2, title=stored TABMARK2, canGoBack=false, canGoForward=false}
+11-14 13:09:06.132 I/tarn    (12489): tab t1 event committed {url=http://localhost:8771/private?m=TABMARK2, title=stored TABMARK2, canGoBack=false, canGoForward=false}
+11-14 13:09:16.939 I/ActivityManager(  658): Force stopping dev.tarn.browser appid=10215 user=0: from pid 12704
+11-14 13:09:16.940 I/ActivityManager(  658): Killing 8194:dev.tarn.browser/u0a215 (adj 700): stop dev.tarn.browser due to from pid 12704
+11-14 13:09:16.942 I/ActivityManager(  658): Killing 11212:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:2/u0a215i7 (adj 0): isolated not needed
+11-14 13:09:16.943 I/ActivityManager(  658): Killing 8280:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0a215i5 (adj 0): isolated not needed
+11-14 13:09:16.944 I/ActivityManager(  658): Killing 11342:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:3/u0a215i8 (adj 0): isolated not needed
+11-14 13:09:16.950 I/ActivityManager(  658): Killing 12489:dev.tarn.browser:private/u0a215 (adj 0): stop dev.tarn.browser due to from pid 12704
+11-14 13:09:16.965 I/ActivityManager(  658): Killing 12574:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:1/u0a215i11 (adj 0): isolated not needed
+11-14 13:09:16.965 I/ActivityManager(  658): Killing 11423:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:4/u0a215i9 (adj 0): isolated not needed
+11-14 13:09:17.026 W/ActivityManager(  658): setHasOverlayUi called on unknown pid: 12489
+11-14 13:09:17.076 W/ActivityManager(  658): setHasOverlayUi called on unknown pid: 8194
+11-14 13:09:17.270 W/ActivityManager(  658): pid 4179 com.callstack.agentdevice.imehelper sent binder code 9 with flags 1 to frozen apps and got error -32
+11-14 13:09:18.232 W/ActivityManager(  658): pid 658 system sent binder code 7 with flags 1 to frozen apps and got error -32
+11-14 13:09:19.552 I/ActivityManager(  658): Start proc 12746:dev.tarn.browser/u0a215 for next-top-activity {dev.tarn.browser/dev.tarn.android.MainActivity}
+11-14 13:09:19.561 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:09:20.007 I/tarn    (12746): private sweep removed 104 files
+11-14 13:09:20.314 I/ActivityManager(  658): Start proc 12775:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0i12 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:0}
+11-14 13:09:20.314 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:09:20.394 I/tarn    (12746): profile tarn-private-918240a7e1284915bc5ea62de90f3c8a deleted=true
+11-14 13:09:20.547 I/tarn    (12746): debug proxy localhost:8771
+11-14 13:09:21.013 I/tarn    (12746): tab t1 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 13:09:21.164 I/tarn    (12746): tab t2 web view on store tarn-6f1c2a9e-3b7d-4c55-9a0e-1d2f3a4b5c6d
+11-14 13:09:21.204 W/ActivityManager(  658): Slow operation: 54ms so far, now at startProcess: done updating battery stats
+11-14 13:09:21.204 W/ActivityManager(  658): Slow operation: 54ms so far, now at startProcess: building log message
+11-14 13:09:21.204 I/ActivityManager(  658): Start proc 12881:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:1/u0i13 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:1}
+11-14 13:09:21.204 W/ActivityManager(  658): Slow operation: 54ms so far, now at startProcess: starting to update pids map
+11-14 13:09:21.204 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:09:21.204 W/ActivityManager(  658): Slow operation: 54ms so far, now at startProcess: done updating pids map
+11-14 13:09:22.155 I/tarn    (12746): rule lists built: 242 rules in 1978264 us
+11-14 13:09:34.833 I/ActivityManager(  658): Start proc 12959:dev.tarn.browser:private/u0a215 for next-top-activity {dev.tarn.browser/dev.tarn.android.PrivateActivity}
+11-14 13:09:34.833 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:09:35.905 I/tarn    (12959): debug proxy localhost:8771
+11-14 13:09:36.826 I/tarn    (12959): tab t1 web view on store process default
+11-14 13:09:36.859 I/tarn    (12959): tab t2 web view on store process default
+11-14 13:09:36.891 I/ActivityManager(  658): Start proc 13033:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:2/u0i14 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:2}
+11-14 13:09:36.891 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:09:37.547 I/tarn    (12959): rule lists built: 242 rules in 2411404 us
+11-14 13:09:44.952 I/tarn    (12959): verdict=0 us=1272 kind=0 url=http://localhost:8771/private?m=TABMARK3 top=null pending=http://localhost:8771/private?m=TABMARK3
+11-14 13:09:45.867 I/tarn    (12959): started http://localhost:8771/private?m=TABMARK3
+11-14 13:09:45.918 I/tarn    (12959): tab t1 event title {title=stored TABMARK3}
+11-14 13:09:45.971 I/tarn    (12959): tab t1 event committed {url=http://localhost:8771/private?m=TABMARK3, title=stored TABMARK3, canGoBack=false, canGoForward=false}
+11-14 13:09:45.971 I/tarn    (12959): tab t1 event finished {url=http://localhost:8771/private?m=TABMARK3, title=stored TABMARK3, canGoBack=false, canGoForward=false}
+11-14 13:09:46.013 I/tarn    (12959): verdict=0 us=3196 kind=2 url=http://localhost:8771/favicon.ico top=http://localhost:8771/private?m=TABMARK3 pending=null
+11-14 13:09:51.095 I/ActivityManager(  658): Killing 12746:dev.tarn.browser/u0a215 (adj 920): kill background
+11-14 13:09:51.101 I/ActivityManager(  658): Killing 12775:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0a215i12 (adj 0): isolated not needed
+11-14 13:09:51.104 I/ActivityManager(  658): Killing 12959:dev.tarn.browser:private/u0a215 (adj 700): kill background
+11-14 13:09:51.104 I/ActivityManager(  658): Killing 12881:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:1/u0a215i13 (adj 0): isolated not needed
+11-14 13:09:51.105 I/ActivityManager(  658): Killing 13033:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:2/u0a215i14 (adj 0): isolated not needed
+11-14 13:09:51.135 W/ActivityManager(  658): setHasOverlayUi called on unknown pid: 12959
+11-14 13:09:51.146 W/ActivityManager(  658): setHasOverlayUi called on unknown pid: 12746
+11-14 13:09:56.287 I/ActivityManager(  658): Start proc 13175:dev.tarn.browser:private/u0a215 for next-top-activity {dev.tarn.browser/dev.tarn.android.PrivateActivity}
+11-14 13:09:56.287 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:09:56.558 W/ActivityManager(  658): Slow operation: 60ms so far, now at attachApplicationLocked: immediately after bindApplication
+11-14 13:09:56.558 W/ActivityManager(  658): Slow operation: 60ms so far, now at attachApplicationLocked: after updateLruProcessLocked
+11-14 13:09:56.562 W/ActivityManager(  658): Slow operation: 64ms so far, now at attachApplicationLocked: after updateOomAdjLocked
+11-14 13:09:56.790 W/tarn    (13175): private space not resumed: no fresh session
+11-14 13:09:56.798 I/ActivityManager(  658): Start proc 13204:dev.tarn.browser/u0a215 for service {dev.tarn.browser/dev.tarn.android.SweepService}
+11-14 13:09:56.798 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:09:56.829 I/ActivityManager(  658): Process dev.tarn.browser:private (pid 13175) has died: fg  TOP 
+11-14 13:09:56.976 I/tarn    (13204): private sweep removed 104 files
+11-14 13:09:57.232 I/ActivityManager(  658): Start proc 13226:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0i15 for  {dev.tarn.browser/org.chromium.content.app.SandboxedProcessService0:0}
+11-14 13:09:57.232 I/ActivityManager(  658): ProcessObserver broadcast disabled
+11-14 13:09:57.380 I/tarn    (13204): debug proxy localhost:8771
+11-14 13:09:57.383 I/tarn    (13204): private sweep removed 0 files
+11-14 13:09:57.407 W/ActivityManager(  658): stopServiceToken startId 1 is last, but have 1 remaining args
+11-14 13:09:59.128 I/tarn    (13204): rule lists built: 242 rules in 2113826 us

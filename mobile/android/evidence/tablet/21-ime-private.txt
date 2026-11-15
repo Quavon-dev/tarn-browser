@@ -1,0 +1,4 @@
+# private page input focused
+        inputType=0xc0a1 imeOptions=0x13000002 privateImeOptions=null
+# private NSH address field focused
+        inputType=0xc001 imeOptions=0x9000006 privateImeOptions=null
