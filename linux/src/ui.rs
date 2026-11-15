@@ -53,7 +53,8 @@ thread_local! {
     static BROWSERS: RefCell<HashMap<u64, Browser>> = RefCell::default();
     static WINDOWS: RefCell<Vec<Ui>> = const { RefCell::new(Vec::new()) };
     static NEXT_WINDOW: Cell<u64> = const { Cell::new(0) };
-    static REFS: RefCell<HashMap<(u64, TabKey), ElementRef>> = RefCell::default();
+    /// Each window's web views by tab, with the wake number the view was made for.
+    static REFS: RefCell<HashMap<(u64, TabKey), (u64, ElementRef)>> = RefCell::default();
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -93,6 +94,8 @@ pub struct Ui {
     answer_password: Signal<String>,
     find_tabs: Signal<bool>,
     css: Signal<Option<String>>,
+    /// The host `css` was read for; the field follows the page to another host.
+    css_host: Signal<String>,
     css_error: Signal<Option<String>>,
     qr: Signal<Option<(Vec<Vec<bool>>, String)>>,
     keys_rev: Signal<u64>,
@@ -145,7 +148,7 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser)) {
     }
     tools::expire_toast(ui);
     for (key, name, args) in commands {
-        if let Some(r) = REFS.with_borrow(|refs| refs.get(&(ui.window, key)).copied()) {
+        if let Some(r) = REFS.with_borrow(|refs| refs.get(&(ui.window, key)).map(|(_, r)| *r)) {
             r.command(name, args);
         }
     }
@@ -190,13 +193,17 @@ fn new_tab(ui: Ui) {
 fn web_views(ui: Ui) -> View {
     view().flex_col().child(each(
         move || ui.snap.with(|s| s.views.clone()),
-        |v| v.key,
+        |v| (v.key, v.born),
         move |item, _| {
-            let key = item.with_untracked(|v| v.key);
+            let (key, born) = item.with_untracked(|v| (v.key, v.born));
             let web = element_ref();
-            REFS.with_borrow_mut(|refs| refs.insert((ui.window, key), web));
+            REFS.with_borrow_mut(|refs| refs.insert((ui.window, key), (born, web)));
             cleanup(move || {
-                REFS.with_borrow_mut(|refs| refs.remove(&(ui.window, key)));
+                REFS.with_borrow_mut(|refs| {
+                    if refs.get(&(ui.window, key)).is_some_and(|(b, _)| *b == born) {
+                        refs.remove(&(ui.window, key));
+                    }
+                });
             });
             native(webview::NAME)
                 .prop("tab", JsonValue::from(format!("{}-{}", key.private, key.id)))
@@ -1092,7 +1099,7 @@ fn escape(ui: Ui) {
             }
         });
         if let Some(key) = ui.snap.with_untracked(|s| s.views.iter().find(|v| v.active).map(|v| v.key))
-            && let Some(r) = REFS.with_borrow(|refs| refs.get(&(ui.window, key)).copied())
+            && let Some(r) = REFS.with_borrow(|refs| refs.get(&(ui.window, key)).map(|(_, r)| *r))
         {
             r.command("pickCancel", JsonValue::Null);
         }
@@ -1224,6 +1231,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         answer_password: signal(String::new()),
         find_tabs: signal(false),
         css: signal(None),
+        css_host: signal(String::new()),
         css_error: signal(None),
         qr: signal(None),
         keys_rev: signal(0),
@@ -1240,6 +1248,20 @@ fn new_ui(row: SavedWindow) -> Ui {
         settings_pane: signal(tarn_nsh_shared::panes::Pane::Profile),
         root: Owner::current(),
     };
+    let shown_space = std::cell::Cell::new(None);
+    effect(move || {
+        let space = ui.snap.with(|s| s.space);
+        if shown_space.replace(Some(space)).is_some_and(|before| before != space) {
+            untracked(|| {
+                ui.command.set(String::new());
+                ui.suggest.set(Vec::new());
+                if ui.editing.get() {
+                    ui.editing.set(false);
+                    ui.address_ref.blur();
+                }
+            });
+        }
+    });
     WINDOWS.with_borrow_mut(|windows| windows.push(ui));
     ui
 }

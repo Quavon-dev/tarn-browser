@@ -440,3 +440,16 @@ fn the_qr_code_and_share_take_only_web_pages() {
     assert_eq!(host, "a.test");
     assert!(code.len() > 21);
 }
+
+#[test]
+fn a_new_tab_reusing_a_closed_tabs_id_gets_its_own_view() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://a.test/", "A");
+    let closed = active(&shell);
+    let born = shell.views().iter().find(|v| v.key == closed).map(|v| v.born);
+    shell.close_tab(closed);
+    let reused = active(&shell);
+    assert_eq!(reused, closed, "the store hands the freed id to the next tab");
+    let now = shell.views().iter().find(|v| v.key == reused).map(|v| v.born);
+    assert!(born.is_some() && now.is_some() && born != now, "a fresh web view, not the closed tab's page");
+}

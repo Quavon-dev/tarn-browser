@@ -478,9 +478,10 @@ impl Browser {
         for archive in archives {
             let private = archive.private();
             let urls = archive.stale().iter().map(|t| self.tab_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone())).collect();
-            archive.run(&core, now, urls, |key| {
+            let emptied = archive.run(&core, now, urls, |key| {
                 self.discard_tab(key, cx);
             });
+            self.forget_groups(private, &emptied, cx);
         }
         if changed {
             self.reload_space();

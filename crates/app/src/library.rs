@@ -358,13 +358,14 @@ impl Browser {
         // GPUI cannot move a window and resizes it from the top, so the popover keeps the height of
         // the page it opened on; other pages scroll inside it.
         let sources = if page == Page::Import { detect_sources() } else { Vec::new() };
-        let height = px(card_height(&entries(self, page, "", &[], &downloads, &snapshots, &sources), room.max(ROW * 3.)));
+        let history = self.model.current_space().and_then(|s| self.store(s.private).history(s.space.profile_id, 2000).ok()).unwrap_or_default();
+        let rows: Vec<&HistoryEntry> = history.iter().collect();
+        let height = px(card_height(&entries(self, page, "", &rows, &downloads, &snapshots, &sources), room.max(ROW * 3.)));
         let bounds = Bounds::new(
             point(anchor.origin.x + px(inset + 4.), anchor.origin.y + anchor.size.height - px(inset + SPACE_ROW) - height),
             size(px(CARD_WIDTH), height),
         );
         let display = window.display(cx).map(|d| d.id());
-        let history = self.model.current_space().and_then(|s| self.store(s.private).history(s.space.profile_id, 2000).ok()).unwrap_or_default();
         let browser = cx.entity().downgrade();
         // The new window renders from the browser at once, so it must open after this update ends.
         cx.defer(move |cx| {
@@ -626,6 +627,8 @@ pub struct LibraryWindow {
     /// The selectable rows the last render showed, with their child index in the list.
     shown: Vec<(usize, Row)>,
     downloads: Vec<Download>,
+    /// The browser's download change count and profile `downloads` was read for.
+    downloads_seen: Option<(u64, Option<(bool, Id)>)>,
     snapshots: Vec<Snapshot>,
     sources: Vec<Source>,
     renaming: Option<(Named, Entity<TextInput>, [Subscription; 2])>,
@@ -658,7 +661,17 @@ impl LibraryWindow {
                 }
             }),
         ];
-        subscriptions.extend(browser.upgrade().map(|b| cx.observe(&b, |_, _, cx| cx.notify())));
+        subscriptions.extend(browser.upgrade().map(|b| {
+            cx.observe(&b, |this, b, cx| {
+                let b = b.read(cx);
+                let seen = (b.downloads_popover.changed, b.model.current_space().map(|s| (s.private, s.space.profile_id)));
+                if this.downloads_seen != Some(seen) {
+                    this.downloads_seen = Some(seen);
+                    this.downloads = b.downloads();
+                }
+                cx.notify();
+            })
+        }));
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             while this.update(cx, |this, cx| this.sample_on_memory_page(cx)).is_ok() {
                 cx.background_executor().timer(MEMORY_REFRESH).await;
@@ -678,6 +691,7 @@ impl LibraryWindow {
             history_hits: RefCell::new(None),
             shown: Vec::new(),
             downloads,
+            downloads_seen: None,
             snapshots: Vec::new(),
             sources: Vec::new(),
             renaming: None,
@@ -1299,7 +1313,16 @@ impl Render for LibraryWindow {
         let reduce = b.pref(Pref::ReduceMotion);
         let on_bookmarks = matches!(self.page, Page::Bookmarks(_));
         let entries = self.entries(b, cx);
+        let tab_at = |shown: &[(usize, Row)], ix: usize| match shown.get(ix).map(|(_, r)| &r.item) {
+            Some(Item::Tab(key)) => Some(*key),
+            _ => None,
+        };
+        let selected_tab = tab_at(&self.shown, self.selected);
         self.shown = entries.iter().enumerate().filter_map(|(ix, e)| if let Entry::Row(r) = e { Some((ix, r.clone())) } else { None }).collect();
+        // The Memory page re-sorts by use; the highlight stays on the tab it was on.
+        if let Some(ix) = selected_tab.and_then(|key| (0..self.shown.len()).find(|ix| tab_at(&self.shown, *ix) == Some(key))) {
+            self.selected = ix;
+        }
         let entries: Vec<(Entry, Option<AnyElement>)> = entries
             .into_iter()
             .map(|e| {

@@ -98,8 +98,10 @@ fn site_extras(ui: Ui, host: &str) -> View {
     else {
         return view();
     };
-    if ui.css.with_untracked(|c| c.is_none()) {
+    if ui.css.with_untracked(|c| c.is_none()) || ui.css_host.with_untracked(|h| h != host) {
         ui.css.set(Some(css));
+        ui.css_host.set(host.to_owned());
+        ui.css_error.set(None);
     }
     let mut routes = vec![(None, "Any Space".to_owned())];
     routes.extend(spaces.into_iter().map(|(id, name)| (Some(id), name)));

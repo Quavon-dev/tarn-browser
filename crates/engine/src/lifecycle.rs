@@ -10,35 +10,50 @@ pub const HEAVY_IDLE: Duration = Duration::from_secs(60);
 
 pub struct Lifecycle<T> {
     max_live: usize,
-    live: VecDeque<T>,
+    /// Each live tab with the number it got when it became live.
+    live: VecDeque<(T, u64)>,
+    next: u64,
 }
 
 impl<T: Copy + Eq + Hash> Lifecycle<T> {
     pub fn new(max_live: usize) -> Self {
-        Lifecycle { max_live: max_live.max(1), live: VecDeque::new() }
+        Lifecycle { max_live: max_live.max(1), live: VecDeque::new(), next: 0 }
     }
 
     /// Marks `tab` active and returns the tabs that must be hibernated now.
     pub fn activate(&mut self, tab: T) -> Vec<T> {
-        self.live.retain(|t| *t != tab);
-        self.live.push_front(tab);
-        self.live.split_off(self.max_live.min(self.live.len())).into()
+        let born = self.born(tab).unwrap_or_else(|| self.take_number());
+        self.live.retain(|(t, _)| *t != tab);
+        self.live.push_front((tab, born));
+        self.live.split_off(self.max_live.min(self.live.len())).into_iter().map(|(t, _)| t).collect()
     }
 
     /// Puts back, as the least recently used, a tab whose hibernation was put off; the next
     /// activation evicts it again.
     pub fn keep(&mut self, tab: T) {
-        if !self.live.contains(&tab) {
-            self.live.push_back(tab);
+        if self.born(tab).is_none() {
+            let born = self.take_number();
+            self.live.push_back((tab, born));
         }
     }
 
     pub fn remove(&mut self, tab: T) {
-        self.live.retain(|t| *t != tab);
+        self.live.retain(|(t, _)| *t != tab);
     }
 
     pub fn live(&self) -> impl Iterator<Item = T> + '_ {
-        self.live.iter().copied()
+        self.live.iter().map(|(t, _)| *t)
+    }
+
+    /// A number `tab` keeps while it stays live and that no later wake repeats, so a shell keying
+    /// its web views by it never hands a closed tab's view to a new tab that reuses the tab's id.
+    pub fn born(&self, tab: T) -> Option<u64> {
+        self.live.iter().find(|(t, _)| *t == tab).map(|(_, born)| *born)
+    }
+
+    fn take_number(&mut self) -> u64 {
+        self.next += 1;
+        self.next
     }
 }
 
@@ -139,6 +154,22 @@ mod tests {
         assert_eq!(lc.activate(4), [2]);
         lc.remove(4);
         assert_eq!(lc.live().collect::<Vec<_>>(), [1, 3]);
+    }
+
+    #[test]
+    fn a_tab_live_again_after_removal_gets_a_new_number() {
+        let mut lc = Lifecycle::new(3);
+        lc.activate(1);
+        let first = lc.born(1);
+        lc.activate(2);
+        lc.activate(1);
+        assert_eq!(lc.born(1), first, "staying live keeps the number");
+        lc.remove(1);
+        assert_eq!(lc.born(1), None);
+        lc.activate(1);
+        assert!(lc.born(1).is_some() && lc.born(1) != first, "a reused id is a new view");
+        lc.keep(3);
+        assert!(lc.born(3).is_some_and(|n| Some(n) != lc.born(1)));
     }
 
     #[test]

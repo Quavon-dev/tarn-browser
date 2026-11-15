@@ -244,6 +244,15 @@ pub fn reading_list(ui: Ui) -> impl IntoElement {
 
 pub fn site(ui: Ui) -> impl IntoElement {
     let css = signal(ui.read(|s| s.site_css()));
+    // The field follows the page to another host, so a save never lands on the wrong site.
+    let css_host = std::cell::RefCell::new(ui.read(|s| s.active_host()));
+    effect(move || {
+        let host = ui.read(|s| s.active_host());
+        if host.is_some() && *css_host.borrow() != host {
+            css_host.replace(host);
+            css.set(untracked(|| ui.read(|s| s.site_css())));
+        }
+    });
     let has_site = move || ui.read(|s| s.active_host().is_some());
     view().gap_2().child(dynamic(move || {
         has_site().then(|| {

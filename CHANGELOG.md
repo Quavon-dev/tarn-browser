@@ -67,6 +67,22 @@ All notable changes to Tarn are documented in this file. The format is based on
   working afterwards, and no longer shows another tab's page under a reused tab.
 - ⌘T in split view keeps the split, and Esc on the start page returns to both panes.
 - Extension updates queued in a window that closes carry on in another window.
+- Linux, iOS and Android: a new tab that reuses a closed tab's id gets its own page instead of the
+  closed tab's, which kept running and wrote its address and history to the new tab.
+- Linux: switching spaces clears the start card's text and suggestions, so a private space's
+  history no longer shows in another space; closing or moving a background tab keeps Reader open
+  on the current one.
+- iOS and Android: opening the tabs or menu sheet while editing the address closes the keyboard,
+  so the address field works again afterwards.
+- History opened from the menu shows at full height; Library › Downloads updates as downloads
+  progress; the Memory page keeps the selection on its tab while the list re-sorts.
+- Live Tabs and Auto-hide Sidebar apply to every open window.
+- Site CSS follows the page when it moves to another site while the site card is open.
+- Dropping a tab on a row puts it at that row after tabs were closed; a tab can no longer be
+  moved into another space's folder.
+- Reopening a closed tab no longer puts it into a new group that took a deleted group's place,
+  archiving deletes only the groups it emptied, and private and normal folders open and close
+  separately.
 - The menu bar shows a changed shortcut at once, while Settings is still in front.
 - A closed private tab's row no longer flashes in the matching normal space, and reopening a tab
   right after closing it no longer drops its collapsing row early.

@@ -181,6 +181,7 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
             b.set_transfer((private, profile_id, id), None, cx);
         }
         b.download = Some(DownloadNotice { private, profile_id, result: result.clone() });
+        b.downloads_popover.changed += 1;
         cx.notify();
     });
 }
@@ -2648,9 +2649,7 @@ impl Browser {
         for key in keys {
             self.hibernate(key, cx);
         }
-        for id in folders {
-            self.model.expanded.remove(&id);
-        }
+        self.model.forget_folders(private, &folders);
         if self.download.as_ref().is_some_and(|d| (d.private, d.profile_id) == target) {
             self.download = None;
         }

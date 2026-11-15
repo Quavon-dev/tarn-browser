@@ -76,6 +76,16 @@ pub struct ClosedTabs {
 }
 
 impl ClosedTabs {
+    /// A deleted group's id goes to the next new group, often under the same name, so tabs closed
+    /// from it no longer go back into a group.
+    pub fn forget_group(&mut self, private: bool, id: Id) {
+        for (_, closed) in self.entries.iter_mut().filter(|(_, c)| c.private == private) {
+            for tab in closed.tabs.iter_mut().filter(|t| t.group.as_ref().is_some_and(|(g, _)| *g == id)) {
+                tab.group = None;
+            }
+        }
+    }
+
     pub fn push(&mut self, closed: Closed) -> u64 {
         if self.entries.len() == MAX_CLOSED_TABS {
             self.entries.remove(0);
@@ -175,10 +185,11 @@ impl Archive {
 
     /// Bookmarks each stale tab's page, `urls` in the order of `stale`, once in the folder; a tab
     /// whose bookmark failed stays. `discard` drops a tab's live state just before its row goes,
-    /// and groups left empty go last. Archives nothing unless `urls` has one entry per stale tab.
-    pub fn run<D: WebsiteData>(self, core: &Core<D>, now: i64, urls: Vec<String>, mut discard: impl FnMut(TabKey)) {
+    /// and groups the archive left empty go last; returns those groups. Archives nothing unless
+    /// `urls` has one entry per stale tab.
+    pub fn run<D: WebsiteData>(self, core: &Core<D>, now: i64, urls: Vec<String>, mut discard: impl FnMut(TabKey)) -> Vec<Id> {
         if urls.len() != self.stale.len() {
-            return;
+            return Vec::new();
         }
         let store = core.store(self.private);
         let mut kept: Vec<String> =
@@ -193,9 +204,13 @@ impl Archive {
             store.delete_tab(tab.id).ok();
         }
         let left = store.tabs(self.space_id).unwrap_or_default();
+        let mut emptied = Vec::new();
         for group in empty_groups(&store.groups(self.space_id).unwrap_or_default(), &left) {
-            store.delete_group(group).ok();
+            if self.stale.iter().any(|t| t.group_id == Some(group)) && store.delete_group(group).is_ok() {
+                emptied.push(group);
+            }
         }
+        emptied
     }
 }
 
@@ -342,6 +357,24 @@ mod tests {
     }
 
     #[test]
+    fn a_deleted_group_is_forgotten_in_its_own_store() {
+        let mut stack = ClosedTabs::default();
+        let closed = |private| Closed {
+            private,
+            profile_id: 1,
+            space_id: 1,
+            tabs: vec![ClosedTab { group: Some((5, "Group 2".into())), ..tab("https://a.test/") }],
+            group: None,
+        };
+        stack.push(closed(true));
+        stack.push(closed(false));
+        stack.forget_group(false, 5);
+        let group = |stack: &mut ClosedTabs| stack.entries.pop().map(|(_, c)| c.tabs[0].group.clone());
+        assert_eq!(group(&mut stack), Some(None), "a new group with the old id and name is not the old one");
+        assert_eq!(group(&mut stack), Some(Some((5, "Group 2".into()))), "the other store's ids are its own");
+    }
+
+    #[test]
     fn a_closed_group_comes_back_with_its_tabs() {
         let dir = tempfile::tempdir().unwrap();
         let core = TestCore::open(dir.path(), false);
@@ -442,22 +475,26 @@ mod tests {
         let elsewhere = tab(work, "https://a.test/", "", 10);
         let group = core.disk.create_group(space, "G").unwrap().id;
         core.disk.set_tab_group(old.id, Some(group)).unwrap();
+        let waiting = core.disk.create_group(space, "Empty").unwrap().id;
         model.active = Some(TabKey { private: false, id: active.id });
         let mut discarded = Vec::new();
         let archives = model.archive_unused(&core, 500, 1000);
         assert_eq!(archives.len(), 2);
+        let mut emptied = Vec::new();
         for archive in archives {
             let urls = archive.stale().iter().map(|t| t.url.clone()).collect();
-            archive.run(&core, 1000, urls, |k| {
+            emptied.extend(archive.run(&core, 1000, urls, |k| {
                 assert!(core.disk.tab(k.id).is_ok(), "the shell drops a tab's live state while its row exists");
                 discarded.push(k.id);
-            });
+            }));
         }
+        assert_eq!(emptied, [group]);
         assert_eq!(discarded, [old.id, twin.id, elsewhere.id]);
         let left: Vec<Id> = core.disk.tabs(space).unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(left, [fresh.id, active.id]);
         assert!(core.disk.tabs(work).unwrap().is_empty());
-        assert!(core.disk.groups(space).unwrap().is_empty(), "an emptied group goes too");
+        let groups: Vec<Id> = core.disk.groups(space).unwrap().into_iter().map(|g| g.id).collect();
+        assert_eq!(groups, [waiting], "a group the archive emptied goes, one already empty stays");
         let marks = core.disk.bookmarks(profile).unwrap();
         let folder = marks.iter().find(|b| b.title == ARCHIVE_FOLDER).unwrap().id;
         let archived: Vec<(&str, &str)> = marks.iter().filter(|b| b.parent_id == Some(folder)).map(|b| (b.url.as_deref().unwrap(), b.title.as_str())).collect();

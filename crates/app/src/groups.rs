@@ -84,14 +84,26 @@ impl Browser {
         let private = self.model.private();
         self.close_batch(keys, Some(group), window, cx);
         self.store(private).delete_group(id).ok();
+        self.forget_groups(private, &[id], cx);
         self.reload_space();
         cx.notify();
     }
 
     pub fn ungroup(&mut self, id: Id, cx: &mut Context<Self>) {
-        self.store(self.model.private()).ungroup(id).ok();
+        let private = self.model.private();
+        self.store(private).ungroup(id).ok();
+        self.forget_groups(private, &[id], cx);
         self.reload_space();
         cx.notify();
+    }
+
+    /// Deleted groups leave every window's reopen stack, since a new group can take their ids.
+    pub(crate) fn forget_groups(&mut self, private: bool, ids: &[Id], cx: &mut Context<Self>) {
+        for id in ids {
+            self.model.closed_tabs.forget_group(private, *id);
+        }
+        let ids = ids.to_vec();
+        crate::shared::others(cx, move |b, _, _| ids.iter().for_each(|id| b.model.closed_tabs.forget_group(private, *id)));
     }
 
     pub fn new_tab_in_group(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {

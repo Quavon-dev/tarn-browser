@@ -32,7 +32,12 @@ pub struct Model {
     pub tabs: Vec<Tab>,
     pub folders: Vec<Folder>,
     pub groups: Vec<Group>,
+    /// The open folders of the current space's store.
     pub expanded: HashSet<Id>,
+    /// The other store's open folders; private and on-disk folders number their ids apart.
+    other_expanded: HashSet<Id>,
+    /// Whether `expanded` holds the private store's folders.
+    expanded_private: bool,
     pub active: Option<TabKey>,
     pub lifecycle: Lifecycle<TabKey>,
     pub closed_tabs: ClosedTabs,
@@ -53,6 +58,8 @@ impl Model {
             folders: Vec::new(),
             groups: Vec::new(),
             expanded: HashSet::new(),
+            other_expanded: HashSet::new(),
+            expanded_private: false,
             active: None,
             lifecycle: Lifecycle::new(live_tabs),
             closed_tabs: ClosedTabs::default(),
@@ -164,6 +171,10 @@ impl Model {
         }
         self.active = None;
         let from = std::mem::replace(&mut self.space_ix, ix);
+        if self.private() != self.expanded_private {
+            std::mem::swap(&mut self.expanded, &mut self.other_expanded);
+            self.expanded_private = self.private();
+        }
         let old = (std::mem::take(&mut self.tabs), std::mem::take(&mut self.folders), std::mem::take(&mut self.groups));
         self.reload_space(core);
         Some((from, old))
@@ -218,6 +229,12 @@ impl Model {
         self.tabs.iter().filter(|t| t.kind == kind && t.folder_id == folder).count()
     }
 
+    /// `tab`'s index in its zone, the index `Store::move_tab` takes; stored positions keep gaps
+    /// after a close, so they are not indexes.
+    pub fn zone_index(&self, tab: &Tab) -> usize {
+        self.tabs.iter().filter(|t| t.kind == tab.kind && t.folder_id == tab.folder_id && t.position < tab.position).count()
+    }
+
     /// Where pinning or unpinning `key` moves it: the other kind, at the end of its loose tabs.
     pub fn pin_toggle(&self, key: TabKey) -> Option<(TabKind, usize)> {
         let kind = if self.tab(key)?.kind == TabKind::Ephemeral { TabKind::Pinned } else { TabKind::Ephemeral };
@@ -267,6 +284,12 @@ impl Model {
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == key.id) {
             t.last_active = now;
         }
+    }
+
+    /// Forgets that `ids` of the `private` store are open, as when its folders are deleted.
+    pub fn forget_folders(&mut self, private: bool, ids: &[Id]) {
+        let set = if private == self.expanded_private { &mut self.expanded } else { &mut self.other_expanded };
+        set.retain(|id| !ids.contains(id));
     }
 
     pub fn toggle_folder(&mut self, id: Id) {
@@ -613,6 +636,36 @@ mod tests {
         model.switch_space(&core, 0);
         assert_eq!(model.pick(|_| false), Some(TabKey { private: false, id: in_a.id }), "the saved tab first");
         assert!(model.restore_tab.is_none(), "and only once");
+    }
+
+    #[test]
+    fn open_folders_belong_to_their_store() {
+        let (_dir, core, mut model) = opened();
+        let disk = core.disk.create_folder(model.spaces[0].space.id, None, "Disk").unwrap().id;
+        let ix = model.private_space(&core).unwrap();
+        let private = core.store(true).create_folder(model.spaces[ix].space.id, None, "Private").unwrap().id;
+        assert_eq!(disk, private, "both stores number from the start");
+        model.toggle_folder(disk);
+        model.switch_space(&core, ix).unwrap();
+        assert!(!model.expanded.contains(&private), "the private folder with that id stays shut");
+        model.switch_space(&core, 0).unwrap();
+        assert!(model.expanded.contains(&disk), "the open folder is open again");
+    }
+
+    #[test]
+    fn dropping_on_a_row_uses_its_index_not_a_position_with_gaps() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let tab = || core.disk.create_tab(s, TabKind::Ephemeral, None, "https://a.test/", "").unwrap().id;
+        let (a, b, c, d) = (tab(), tab(), tab(), tab());
+        core.disk.delete_tab(b).unwrap();
+        model.reload_space(&core);
+        let at = |id| model.tabs.iter().find(|t| t.id == id).map(|t| model.zone_index(t)).unwrap();
+        assert_eq!((at(a), at(c), at(d)), (0, 1, 2));
+        core.disk.move_tab(c, TabKind::Ephemeral, None, at(c)).unwrap();
+        model.reload_space(&core);
+        let order: Vec<_> = model.tabs.iter().map(|t| t.id).collect();
+        assert_eq!(order, [a, c, d], "dropping a tab on its own row keeps it in place");
     }
 
     #[test]

@@ -273,6 +273,7 @@ impl Browser {
             }
             if pref == Pref::AutoHideSidebar {
                 self.set_sidebar_open(!on, cx);
+                crate::shared::others(cx, |b, _, cx| b.set_sidebar_open(!on, cx));
             }
             if pref == Pref::HistoryText && !on {
                 self.core.disk.clear_history_text().ok();
@@ -358,7 +359,11 @@ impl Browser {
         }
         match choice {
             Choice::Accent => crate::themes::apply(&self.core, crate::themes::system_light(cx)),
-            Choice::LiveTabs => self.set_live_tabs(live_tabs(&self.core.disk), cx),
+            Choice::LiveTabs => {
+                let max = live_tabs(&self.core.disk);
+                self.set_live_tabs(max, cx);
+                crate::shared::others(cx, |b, _, cx| b.set_live_tabs(max, cx));
+            }
             Choice::SleepAfter => {
                 // Idle times keep counting under Never for the heavy marker; turning sleep on starts them afresh.
                 if was_never && sleep_after(&self.core.disk).is_some() {

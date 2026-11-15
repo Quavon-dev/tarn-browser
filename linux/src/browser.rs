@@ -370,7 +370,8 @@ impl Browser {
             self.show_toast(text, Some(ToastAction::Undo(serial)));
         }
         self.model.reload_space(&self.core);
-        self.model.active = None;
+        // A tab still open and still the next one stays active, with its Reader.
+        self.model.active = self.model.active.filter(|a| next == Some(*a) && self.model.tab(*a).is_some());
         match next.filter(|k| self.model.tab(*k).is_some() && !self.elsewhere.contains(k)).or_else(|| self.model.pick(|k| self.elsewhere.contains(&k))) {
             Some(next) => self.activate(next),
             None => {
@@ -448,8 +449,11 @@ impl Browser {
         let url = self.pages.get(&key).map(|p| p.url.clone()).unwrap_or_default();
         if self.model.move_to_space(&self.core, key, ix, &url) {
             self.forget_tab(key);
-            self.model.active = None;
             self.model.reload_space(&self.core);
+            if self.model.active.is_some_and(|a| a != key && self.model.tab(a).is_some()) {
+                return;
+            }
+            self.model.active = None;
             match self.model.pick(|k| self.elsewhere.contains(&k)) {
                 Some(next) => self.activate(next),
                 None => {

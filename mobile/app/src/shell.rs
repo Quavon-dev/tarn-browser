@@ -49,6 +49,8 @@ pub struct Load {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewProps {
     pub key: TabKey,
+    /// The key's wake number; a new view replaces the old one when a closed tab's id is reused.
+    pub born: u64,
     pub tab: String,
     pub profile: String,
     pub level: ShieldLevel,
@@ -231,6 +233,7 @@ impl<D: Platform> Shell<D> {
         keys.into_iter()
             .map(|key| ViewProps {
                 key,
+                born: self.model.lifecycle.born(key).unwrap_or_default(),
                 tab: format!("{}{}", if key.private { "p" } else { "n" }, key.id),
                 profile: profile.clone(),
                 level: rt.profile.shield_level,

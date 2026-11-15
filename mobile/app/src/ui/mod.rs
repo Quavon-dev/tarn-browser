@@ -84,6 +84,9 @@ impl Ui {
     }
 
     pub fn show(self, screen: Screen) {
+        if self.editing.get_untracked() {
+            dismiss_keyboard();
+        }
         self.editing.set(false);
         self.fresh.set(None);
         self.screen.set(screen);
@@ -289,7 +292,7 @@ pub fn App() -> impl IntoElement {
         .child(
             view()
                 .flex_1()
-                .child(each(pages, |v: &ViewProps| v.key, move |item, _| web_view(ui, item)))
+                .child(each(pages, |v: &ViewProps| (v.key, v.born), move |item, _| web_view(ui, item)))
                 .child(start(ui))
                 .child(bars::suggestions(ui))
                 .child(prompt::prompt_panel(ui))

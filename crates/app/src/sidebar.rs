@@ -569,7 +569,7 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
                 .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
                 .drag_over::<DraggedTab>(|s, _, _, _| s.border_color(Theme::accent()))
-                .on_drop(cx.listener(tab_drop(TabKind::Tile, None, None, Some(t.position as usize))))
+                .on_drop(cx.listener(tab_drop(TabKind::Tile, None, None, Some(b.model.zone_index(t)))))
         }))
 }
 
@@ -687,7 +687,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
         .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
         .drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft()))
-        .on_drop(cx.listener(tab_drop(t.kind, t.folder_id, t.group_id, Some(t.position as usize))));
+        .on_drop(cx.listener(tab_drop(t.kind, t.folder_id, t.group_id, Some(b.model.zone_index(t)))));
     animate(row, ("tab-in", t.id as u64), FADE, b.pref(Pref::ReduceMotion), move |el, p| {
         let el = el.opacity(p);
         if entering { el.h(px(TAB_ROW * p)) } else { el }

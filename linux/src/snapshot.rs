@@ -50,6 +50,8 @@ impl Row {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewItem {
     pub key: TabKey,
+    /// The key's wake number; a new view replaces the old one when a closed tab's id is reused.
+    pub born: u64,
     pub profile: String,
     pub level: String,
     pub levels: Value,
@@ -69,6 +71,8 @@ pub struct Snapshot {
     pub profile_color: String,
     pub space_name: String,
     pub space_icon: String,
+    /// The current space, private or not; the start card's text belongs to it.
+    pub space: Option<(bool, Id)>,
     pub blank: bool,
     pub secure: bool,
     pub private: bool,
@@ -187,6 +191,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 site.entry((key.private, b.model.profile_of(&b.core, key))).or_insert_with(|| (b.styles(key), b.theme_styles(key), b.zaps(key))).clone();
             ViewItem {
                 key,
+                born: b.model.lifecycle.born(key).unwrap_or_default(),
                 profile: b.store_prop(key),
                 level: page.map(|p| p.level).unwrap_or_default().as_str().to_owned(),
                 levels: b.levels(key),
@@ -234,6 +239,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
             .unwrap_or_default(),
         space_name: b.model.current_space().map(|s| if s.private { space_label(b, b.model.space_ix) } else { s.space.name.clone() }).unwrap_or_default(),
         space_icon: b.model.current_space().map(|s| s.space.icon.clone()).unwrap_or_default(),
+        space: b.model.current_space().map(|s| (s.private, s.space.id)),
         blank,
         secure: !page.url.starts_with("http:"),
         private,

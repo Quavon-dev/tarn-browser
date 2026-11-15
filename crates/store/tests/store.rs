@@ -38,6 +38,18 @@ fn move_tab_renumbers_and_drop_on_folder_pins() {
 }
 
 #[test]
+fn a_tab_never_moves_into_another_spaces_folder() {
+    let (store, space) = seeded();
+    let profile = store.profiles().unwrap()[0].id;
+    let other = store.create_space(profile, "Other", "").unwrap().id;
+    let elsewhere = store.create_folder(other, None, "Elsewhere").unwrap();
+    let t = store.create_tab(space, TabKind::Ephemeral, None, "https://a.test/", "").unwrap();
+    assert!(store.move_tab(t.id, TabKind::Pinned, Some(elsewhere.id), 0).is_err());
+    let tab = store.tab(t.id).unwrap();
+    assert_eq!((tab.kind, tab.folder_id), (TabKind::Ephemeral, None));
+}
+
+#[test]
 fn folder_constraint_rejects_unpinned_tab_in_folder() {
     let (store, space) = seeded();
     let folder = store.create_folder(space, None, "Work").unwrap();

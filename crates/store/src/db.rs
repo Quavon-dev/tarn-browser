@@ -585,11 +585,17 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Moves a tab into the zone `(kind, folder_id)` of its space at `index`, renumbering both zones.
+    /// Moves a tab into the zone `(kind, folder_id)` of its space at `index`, renumbering both zones;
+    /// refused for a folder of another space.
     pub fn move_tab(&self, id: Id, kind: TabKind, folder_id: Option<Id>, index: usize) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         let (space_id, old_kind, old_folder): (Id, String, Option<Id>) =
             tx.query_row("SELECT space_id, kind, folder_id FROM tabs WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        if let Some(folder) = folder_id
+            && !tx.query_row("SELECT EXISTS (SELECT 1 FROM folders WHERE id = ?1 AND space_id = ?2)", params![folder, space_id], |r| r.get::<_, bool>(0))?
+        {
+            return Err(Error::Invalid("folder"));
+        }
         tx.execute(
             "UPDATE tabs SET kind = ?2, folder_id = ?3, group_id = CASE WHEN ?2 = 'ephemeral' THEN group_id END,
                              pinned_url = CASE WHEN ?2 != 'ephemeral' THEN COALESCE(pinned_url, url) END
