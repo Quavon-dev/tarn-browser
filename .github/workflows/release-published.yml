@@ -1,0 +1,20 @@
+name: Release published
+
+# linux-repo.yml enters environments, which no workflow started by a release event may do
+# (scripts/check-workflows.sh), so this one only starts it on main.
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  linux-repo:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run linux-repo.yml --ref main
