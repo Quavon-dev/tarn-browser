@@ -30,6 +30,7 @@ cef="${version%%+*}"
 [[ "$(field host)" == "cef-builds.spotifycdn.com" ]] || { echo "cef.lock names another download host" >&2; exit 1; }
 [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] || { echo "bad sha256_$platform" >&2; exit 1; }
 
+sha() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 tmp=""
 part=""
 trap 'rm -rf "$tmp" "$part"' EXIT
@@ -38,13 +39,13 @@ cache="$root/target/cef/downloads"
 archive="$cache/$name.tar.bz2"
 dest="$root/target/cef/$platform"
 mkdir -p "$cache"
-if [[ ! -f "$archive" ]] || [[ "$(shasum -a 256 "$archive" | cut -d' ' -f1)" != "$sha256" ]]; then
+if [[ ! -f "$archive" ]] || [[ "$(sha "$archive")" != "$sha256" ]]; then
   part="$(mktemp "$archive.XXXXXX")"
   curl --proto '=https' --tlsv1.2 -sSfL -o "$part" "https://cef-builds.spotifycdn.com/${name//+/%2B}.tar.bz2"
   mv "$part" "$archive"
   part=""
 fi
-actual="$(shasum -a 256 "$archive" | cut -d' ' -f1)"
+actual="$(sha "$archive")"
 if [[ "$actual" != "$sha256" ]]; then
   rm -f "$archive"
   echo "SHA-256 mismatch for $name: expected $sha256, got $actual" >&2
