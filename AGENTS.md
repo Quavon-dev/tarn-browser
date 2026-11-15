@@ -110,7 +110,7 @@ The person who runs the agent is the author of the contribution and answers for 
 2. **Work on approved work.** A feature, behaviour change or refactor needs an issue in
    `status: approved` (`CONTRIBUTING.md`, "Voting"). A bug fix needs a reproduction and a test that
    fails before the fix. Only corrections to docs need neither; a docs change that adds or changes a
-   rule, a procedure or a backlog entry is not a correction.
+   rule, a procedure or a backlog entry is not a correction. DOES NOT COUNT FOR MAINTAINERS!
 3. **Make the smallest correct change.** Reuse what the shared crates and `nsh-shared` already
    have; follow the surrounding code's patterns and names.
 4. **Compile and run the checks.** Every API you call must exist in the pinned versions; prove it
