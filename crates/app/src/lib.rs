@@ -227,6 +227,17 @@ impl Render for Browser {
         root = tabs::listen(root, cx);
         root = qr::listen(reader::listen(root, cx), cx);
         root = find_tabs::listen(capture::listen(split::listen(shortcuts::listen(root, cx), cx), cx), cx);
+        #[cfg(windows)]
+        {
+            use engine::chromium::EditCommand as E;
+            root = root
+                .on_action(cx.listener(|b, _: &Undo, w, _| b.edit_page(E::Undo, w)))
+                .on_action(cx.listener(|b, _: &Redo, w, _| b.edit_page(E::Redo, w)))
+                .on_action(cx.listener(|b, _: &text_input::Cut, w, _| b.edit_page(E::Cut, w)))
+                .on_action(cx.listener(|b, _: &text_input::Copy, w, _| b.edit_page(E::Copy, w)))
+                .on_action(cx.listener(|b, _: &text_input::Paste, w, _| b.edit_page(E::Paste, w)))
+                .on_action(cx.listener(|b, _: &text_input::SelectAll, w, _| b.edit_page(E::SelectAll, w)));
+        }
         indexed_actions!(switch_space: Space1 => 0, Space2 => 1, Space3 => 2, Space4 => 3, Space5 => 4, Space6 => 5, Space7 => 6, Space8 => 7, Space9 => 8);
         root = root
             .on_action(cx.listener(|b, _: &ReopenClosedTab, w, cx| b.reopen_closed_tab(w, cx)))

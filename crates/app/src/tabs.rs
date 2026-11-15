@@ -20,7 +20,7 @@ use crate::memory::Cost;
 
 actions!(tarn, [RenameTab, ResetTabTitle, ReturnToPinnedUrl, SetPinnedUrl, SleepOtherTabs, ReloadInChromium, ReloadInWebKit, CloseDuplicateTabs]);
 
-const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+pub(crate) const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const PRESSURE_IDLE: std::time::Duration = std::time::Duration::from_secs(60);
 const HEAVY_TABS: usize = 3;
 

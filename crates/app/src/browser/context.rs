@@ -266,6 +266,15 @@ impl Browser {
         .detach();
     }
 
+    /// The Edit menu on the page when no field of the shell has the keyboard; on macOS the
+    /// menu's own commands reach the page through the responder chain.
+    #[cfg(windows)]
+    pub(crate) fn edit_page(&mut self, command: engine::chromium::EditCommand, window: &Window) {
+        if let Some(view) = self.active_view().filter(|_| self.focus.is_focused(window)) {
+            view.edit(command);
+        }
+    }
+
     /// Windows has no menu bar, so the toolbar's menu button shows the app's menus as one native
     /// menu and runs the chosen command in this window.
     pub(crate) fn open_app_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {

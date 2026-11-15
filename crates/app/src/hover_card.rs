@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use futures::channel::mpsc;
+use futures::future::{Either, select};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, Bounds, Context, FontWeight, IntoElement, ObjectFit, ParentElement, Render, RenderImage, SharedString, Styled, StyledImage, Task, Window,
@@ -200,16 +201,24 @@ impl Browser {
         let Some(view) = self.views.get(&key) else { return };
         self.hover_card.asked = Some((key, Instant::now()));
         self.hover_card.waiting = true;
-        let (tx, mut rx) = mpsc::unbounded();
+        let (weak, (tx, mut rx)) = (std::rc::Rc::downgrade(view), mpsc::unbounded());
         view.snapshot_png(Some(f64::from(SHOT_WIDTH)), move |png| drop(tx.unbounded_send(png)));
         cx.spawn(async move |this, cx| {
-            let image = match rx.next().await.flatten() {
+            // A page that never answers, such as one with a hung process, must not hold `waiting` for good.
+            let timeout = std::pin::pin!(cx.background_executor().timer(crate::tabs::PROBE_TIMEOUT));
+            let png = match select(rx.next(), timeout).await {
+                Either::Left((png, _)) => png.flatten(),
+                Either::Right(_) => None,
+            };
+            let image = match png {
                 Some(png) => cx.background_spawn(async move { decode(&png) }).await,
                 None => None,
             };
             this.update(cx, |b, cx| {
                 b.hover_card.waiting = false;
-                let Some(image) = image.filter(|_| b.hover_card.rest.due(Instant::now()).is_some_and(|(k, _)| k == key)) else { return };
+                let Some(image) = image.filter(|_| b.same_view(key, &weak) && b.hover_card.rest.due(Instant::now()).is_some_and(|(k, _)| k == key)) else {
+                    return;
+                };
                 b.hover_card.shot = Some((key, image.clone()));
                 if let Some(handle) = b.hover_card.window.filter(|_| b.hover_card.live) {
                     cx.defer(move |cx| {

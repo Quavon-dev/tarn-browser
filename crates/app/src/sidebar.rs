@@ -40,7 +40,8 @@ const DRAG_IDLE: Duration = Duration::from_secs(2);
 #[derive(Default)]
 pub struct Motion {
     entering: Vec<(Id, Instant)>,
-    leaving: Vec<Tab>,
+    /// Private stores number tabs on their own, so a row is told apart by store and by when it left.
+    leaving: Vec<(bool, Instant, Tab)>,
     pub(crate) toggled_group: Option<(Id, Instant)>,
     resizing: bool,
     /// The row whose close button shows, since when, and how far it had grown then.
@@ -305,12 +306,12 @@ impl Browser {
         if self.pref(Pref::ReduceMotion) || tab.kind != TabKind::Ephemeral {
             return;
         }
-        self.motion.leaving.push(tab.clone());
-        let id = tab.id;
+        let at = Instant::now();
+        self.motion.leaving.push((self.model.private(), at, tab.clone()));
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(FADE).await;
             this.update(cx, |b, cx| {
-                b.motion.leaving.retain(|t| t.id != id);
+                b.motion.leaving.retain(|(_, left, _)| *left != at);
                 cx.notify();
             })
             .ok();
@@ -718,7 +719,13 @@ fn rows(b: &Browser, group: Option<Id>, show: impl Fn(&Tab) -> bool, cx: &mut Co
         .iter()
         .filter(|t| t.kind == TabKind::Ephemeral && t.group_id == group && show(t))
         .map(|t| (t, false))
-        .chain(b.motion.leaving.iter().filter(|t| Some(t.space_id) == space && t.group_id == group).map(|t| (t, true)))
+        .chain(
+            b.motion
+                .leaving
+                .iter()
+                .filter(|(private, _, t)| *private == b.model.private() && Some(t.space_id) == space && t.group_id == group)
+                .map(|(.., t)| (t, true)),
+        )
         .collect();
     tabs.sort_by_key(|(t, _)| t.position);
     tabs.into_iter().map(|(t, leaving)| if leaving { leaving_row(b, t) } else { tab_row(b, t, 0., cx) }).collect()

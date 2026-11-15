@@ -178,6 +178,10 @@ impl WebView {
         self.view.stop();
     }
 
+    pub fn edit(&self, command: crate::chromium::EditCommand) {
+        self.view.edit(command);
+    }
+
     pub fn zoom(&self) -> f64 {
         self.view.zoom()
     }

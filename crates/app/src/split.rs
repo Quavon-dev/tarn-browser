@@ -134,7 +134,8 @@ impl Browser {
     /// of sight while the page is covered.
     pub(crate) fn settle_split(&mut self, cx: &mut Context<Self>) {
         let Some(split) = &self.split else { return };
-        let other = self.model.active.and_then(|a| split.partner(a));
+        // The start page hides its tab for a moment; Esc brings it back with its partner.
+        let other = self.model.active.or(self.launcher_from).and_then(|a| split.partner(a));
         let Some(view) = other.filter(|_| split.panes.iter().all(|k| self.views.contains_key(k))).and_then(|k| self.views.get(&k)) else {
             return self.close_split(cx);
         };

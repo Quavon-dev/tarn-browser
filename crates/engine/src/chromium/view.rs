@@ -1096,6 +1096,16 @@ wrap_window_delegate! {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EditCommand {
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+}
+
 /// A Chromium tab: a frameless Chrome-style CEF window kept as a child window over the shell
 /// window's content rectangle. CEF creates it once the profile's request context is ready;
 /// until then the view keeps its frame, visibility and first URL.
@@ -1818,6 +1828,19 @@ impl WebView {
     pub fn stop(&self) {
         if let Some(b) = self.browser() {
             b.stop_load();
+        }
+    }
+
+    /// An Edit menu command on the page's focused frame, for a menu that does not reach the page.
+    pub fn edit(&self, command: EditCommand) {
+        let Some(frame) = self.browser().and_then(|b| b.focused_frame()) else { return };
+        match command {
+            EditCommand::Undo => frame.undo(),
+            EditCommand::Redo => frame.redo(),
+            EditCommand::Cut => frame.cut(),
+            EditCommand::Copy => frame.copy(),
+            EditCommand::Paste => frame.paste(),
+            EditCommand::SelectAll => frame.select_all(),
         }
     }
 

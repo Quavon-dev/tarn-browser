@@ -132,6 +132,10 @@ pub(crate) fn rebind(cx: &mut App) {
     cx.clear_key_bindings();
     crate::bind_keys(cx, &keymap(&stored));
     crate::shared::each(cx, |b, _, _| b.menu.reset());
+    // Settings is in front while recording, and the menu bar lists the front browser's menus.
+    if let Some(front) = cx.window_stack().into_iter().flatten().find_map(|w| w.downcast::<crate::browser::Browser>()) {
+        front.update(cx, |b, _, cx| b.refresh_menus(cx)).ok();
+    }
     cx.refresh_windows();
 }
 
