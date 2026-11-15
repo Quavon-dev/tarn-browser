@@ -11,8 +11,9 @@ use windows_sys::Win32::UI::Shell::{
     SetWindowSubclass, ShellExecuteW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWLP_HWNDPARENT, GetClientRect, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId, HWND_TOP, MB_ICONWARNING, MB_OK, MessageBoxW,
-    SPI_GETCLIENTAREAANIMATION, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos, SystemParametersInfoW, WM_NCDESTROY, WM_SIZE,
+    GWLP_HWNDPARENT, GetClientRect, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId, HTTRANSPARENT, HWND_TOP, MB_ICONWARNING, MB_OK, MessageBoxW,
+    SPI_GETCLIENTAREAANIMATION, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos, SystemParametersInfoW, WM_NCDESTROY,
+    WM_NCHITTEST, WM_SIZE,
 };
 
 pub(crate) fn wide(s: &str) -> Vec<u16> {
@@ -65,6 +66,12 @@ impl Host {
         // SAFETY: a window of this thread; the subclass is removed when the window is destroyed.
         unsafe { SetWindowSubclass(self.hwnd, Some(card_window), 1, 0) };
         clip(self.hwnd);
+    }
+
+    /// Lets the pointer pass through this pop-up window to the shell window below, as a tooltip must.
+    pub fn ignore_mouse(&self) {
+        // SAFETY: a window of this thread; the subclass is removed when the window is destroyed.
+        unsafe { SetWindowSubclass(self.hwnd, Some(see_through_window), 2, 0) };
     }
 
     /// A pop-up that `follow`s its browser window goes behind other apps with it, so nothing
@@ -141,6 +148,19 @@ unsafe extern "system" fn card_window(hwnd: HWND, message: u32, wparam: WPARAM, 
             unsafe { RemoveWindowSubclass(hwnd, Some(card_window), 1) };
         }
         _ => {}
+    }
+    // SAFETY: hands the message to the window's own procedure.
+    unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
+}
+
+/// Hit-tests as transparent, so the pointer goes to the window of this thread below.
+unsafe extern "system" fn see_through_window(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM, _id: usize, _data: usize) -> LRESULT {
+    if message == WM_NCHITTEST {
+        return HTTRANSPARENT as LRESULT;
+    }
+    if message == WM_NCDESTROY {
+        // SAFETY: removes the subclass this module installed.
+        unsafe { RemoveWindowSubclass(hwnd, Some(see_through_window), 2) };
     }
     // SAFETY: hands the message to the window's own procedure.
     unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
