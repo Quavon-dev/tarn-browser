@@ -66,6 +66,7 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The tab preview waits at most five seconds for a page that does not answer, so it keeps
   working afterwards, and no longer shows another tab's page under a reused tab.
 - ⌘T in split view keeps the split, and Esc on the start page returns to both panes.
+- Extension updates queued in a window that closes carry on in another window.
 - The menu bar shows a changed shortcut at once, while Settings is still in front.
 - A closed private tab's row no longer flashes in the matching normal space, and reopening a tab
   right after closing it no longer drops its collapsing row early.

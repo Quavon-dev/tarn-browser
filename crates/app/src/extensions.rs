@@ -624,8 +624,8 @@ impl Install {
     }
 }
 
-/// The window that started an install is gone: removes what it unpacked and frees the shared
-/// busy state, unless a newer install holds it.
+/// The window that started an install is gone: removes what it unpacked, frees the shared busy
+/// state unless a newer install holds it, and lets another window carry on with queued updates.
 fn release_install(core: &crate::shared::AppCore, generation: u64, leftover: Option<PathBuf>, cx: &mut gpui::AsyncApp) {
     if let Some(dir) = leftover {
         ext_package::remove_tree(&dir).ok();
@@ -635,7 +635,16 @@ fn release_install(core: &crate::shared::AppCore, generation: u64, leftover: Opt
         ext.busy = None;
     }
     drop(ext);
-    cx.update(|cx| cx.refresh_windows()).ok();
+    cx.update(|cx| {
+        let mut resumed = false;
+        crate::shared::each(cx, |b, _, cx| {
+            if !std::mem::replace(&mut resumed, true) {
+                b.next_update(cx);
+            }
+        });
+        cx.refresh_windows();
+    })
+    .ok();
 }
 
 impl Browser {
