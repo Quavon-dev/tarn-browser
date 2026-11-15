@@ -737,7 +737,7 @@ fn pinned(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .flex()
         .flex_col()
         .gap(px(ROW_GAP))
-        .pt_1()
+        .mt_1()
         .min_h(px(12.))
         .rounded(px(Theme::radius_row()))
         .drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft()))
