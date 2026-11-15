@@ -95,9 +95,14 @@ pub fn unpack(bytes: &[u8], dest: &Path, wrapped: bool) -> Result<()> {
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let temp = parent.join(format!("{TEMP_PREFIX}{}", uuid::Uuid::new_v4()));
     let unpacked = extract(zip, &temp, wrapped).and_then(|()| check_manifest(&temp));
+    // macOS 15 refuses to rename a directory without write permission, so the top is sealed after the move.
     let done = unpacked.and_then(|()| {
-        seal(&temp).map_err(|e| e.to_string())?;
-        fs::rename(&temp, dest).map_err(|e| e.to_string())
+        seal(&temp).and_then(|()| set_mode(&temp, 0o700)).map_err(|e| e.to_string())?;
+        fs::rename(&temp, dest).map_err(|e| e.to_string())?;
+        set_mode(dest, 0o555).map_err(|e| {
+            remove_tree(dest).ok();
+            e.to_string()
+        })
     });
     if done.is_err() {
         remove_tree(&temp).ok();
