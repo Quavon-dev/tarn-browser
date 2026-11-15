@@ -22,7 +22,31 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    # Jobs a change does not touch are skipped; a skipped required job counts as passed.
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      shared: ${{ steps.diff.outputs.shared }}
+      nsh: ${{ steps.diff.outputs.nsh }}
+      mobile: ${{ steps.diff.outputs.mobile }}
+      linux: ${{ steps.diff.outputs.linux }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - id: diff
+        env:
+          EVENT: ${{ inputs.commit && 'workflow_call' || github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: scripts/ci-changes.sh >> "$GITHUB_OUTPUT"
+
   check:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     # engine, app, ui and ai need macOS (WebKit, AppKit, Keychain), sync depends on engine, and
     # platform's XPC code is macOS-only; the macos job checks them. browser-core builds everywhere.
     runs-on: ubuntu-24.04
@@ -39,12 +63,14 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: for d in . nsh-shared mobile linux; do (cd "$d" && cargo fmt --all --check); done
-      - run: scripts/check-workflows.sh && scripts/check-workflows.test.sh
+      - run: scripts/check-workflows.sh && scripts/check-workflows.test.sh && scripts/ci-changes.test.sh
       - run: scripts/third-party-licenses.sh --check
       - run: cargo clippy $CRATES --all-targets --locked -- -D warnings
       - run: cargo test $CRATES --locked
 
   macos:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.shared != 'false' }}
     runs-on: macos-15
     timeout-minutes: 45
     env:
@@ -73,7 +99,8 @@ jobs:
           CEF_PATH="$cef" cargo test -p engine --features chromium --test early_malloc_zone --locked
 
   windows:
-    if: ${{ !inputs.commit }}
+    needs: changes
+    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.shared != 'false' }}
     runs-on: windows-2025
     timeout-minutes: 60
     defaults:
@@ -99,7 +126,8 @@ jobs:
       - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.test.ps1
 
   nsh-shared:
-    if: ${{ !inputs.commit }}
+    needs: changes
+    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.nsh != 'false' }}
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -121,7 +149,8 @@ jobs:
       - run: cargo test --locked
 
   mobile:
-    if: ${{ !inputs.commit }}
+    needs: changes
+    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.mobile != 'false' }}
     runs-on: macos-15
     timeout-minutes: 60
     defaults:
@@ -166,7 +195,8 @@ jobs:
           PATH="$RUNNER_TEMP/nsh/bin:$PATH" android/build.sh
 
   linux:
-    if: ${{ !inputs.commit }}
+    needs: changes
+    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.linux != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     container: fedora:43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5
@@ -194,6 +224,8 @@ jobs:
         run: linux/scripts/display-tests.sh
 
   deny:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
