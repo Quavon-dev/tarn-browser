@@ -3,19 +3,20 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, GetKeyState, SetFocus, VK_ESCAPE, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CBT_CREATEWNDW, CBTACTIVATESTRUCT, CallNextHookEx, CreateWindowExW, DefWindowProcW, GetClassNameW, GetCursorPos, HCBT_ACTIVATE, HCBT_CREATEWND,
-    HCBT_DESTROYWND, HTCAPTION, HWND_MESSAGE, IsZoomed, KillTimer, MSG, PM_REMOVE, PostMessageW, RegisterClassW, SC_MAXIMIZE, SC_RESTORE, SetTimer,
-    SetWindowsHookExW, TranslateMessage, WH_CBT, WH_GETMESSAGE, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_NCLBUTTONDBLCLK,
-    WM_NCLBUTTONDOWN, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NULL, WM_RBUTTONDOWN, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW,
-    WindowFromPoint,
+    CBT_CREATEWNDW, CBTACTIVATESTRUCT, CallNextHookEx, CreateWindowExW, DefWindowProcW, GA_ROOT, GetAncestor, GetClassNameW, GetCursorPos, HCBT_ACTIVATE,
+    HCBT_CREATEWND, HCBT_DESTROYWND, HTCAPTION, HWND_MESSAGE, IsZoomed, KillTimer, MSG, PM_REMOVE, PostMessageW, RegisterClassW, SC_MAXIMIZE, SC_RESTORE,
+    SetTimer, SetWindowsHookExW, TranslateMessage, WH_CBT, WH_GETMESSAGE, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_NCLBUTTONDBLCLK,
+    WM_NCLBUTTONDOWN, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NULL, WM_RBUTTONDOWN, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    WNDCLASSW, WS_EX_TOOLWINDOW, WindowFromPoint, XBUTTON1,
 };
 
 use crate::host_windows::wide;
@@ -39,6 +40,95 @@ thread_local! {
     static CLEARING: Cell<bool> = const { Cell::new(false) };
     static INACTIVE_NEXT: Cell<bool> = const { Cell::new(false) };
     static INACTIVE: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+    static WATCHES: RefCell<Vec<(usize, HWND, Rc<Watch>)>> = const { RefCell::new(Vec::new()) };
+    static NEXT_WATCH: Cell<usize> = const { Cell::new(0) };
+}
+
+/// What a `Host` event monitor watches in its window, the counterpart of AppKit's local monitors:
+/// Chromium's child windows take the mouse and keys there, so GPUI never sees them.
+pub(crate) enum Watch {
+    /// The mouse's back (`true`) and forward buttons over a page, kept from the page.
+    Buttons(Box<dyn Fn(bool)>),
+    /// Each pointer move over any window of the thread, in the host's points, and whether a button is down.
+    Moved(Box<dyn Fn(f64, f64, bool)>),
+    /// A left or right press over a page.
+    PageDown(Box<dyn Fn()>),
+    /// Esc anywhere in the host's window, kept from its target.
+    Escape(Box<dyn Fn()>),
+    /// Each left press in the host's window, in its points; the press still reaches its target.
+    Down(Box<dyn Fn(f64, f64)>),
+}
+
+pub(crate) fn watch(host: HWND, watch: Watch) -> usize {
+    let id = NEXT_WATCH.get();
+    NEXT_WATCH.set(id.wrapping_add(1));
+    WATCHES.with_borrow_mut(|w| w.push((id, host, Rc::new(watch))));
+    id
+}
+
+pub(crate) fn unwatch(id: usize) {
+    WATCHES.with_borrow_mut(|w| w.retain(|(i, ..)| *i != id));
+}
+
+/// Runs the monitors that `msg` concerns; true when one keeps it from its target.
+fn run_watches(msg: &MSG) -> bool {
+    if !matches!(msg.message, WM_MOUSEMOVE | WM_NCMOUSEMOVE | WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_NCLBUTTONDOWN | WM_XBUTTONDOWN | WM_XBUTTONUP | WM_KEYDOWN) {
+        return false;
+    }
+    // SAFETY: a plain query; a destroyed window gives null.
+    let root = unsafe { GetAncestor(msg.hwnd, GA_ROOT) };
+    let watches: Vec<(usize, HWND, Rc<Watch>)> = WATCHES.with_borrow(|w| {
+        w.iter()
+            .filter(|(_, host, watch)| match &**watch {
+                Watch::Moved(_) => matches!(msg.message, WM_MOUSEMOVE | WM_NCMOUSEMOVE),
+                Watch::Buttons(_) => *host == root && matches!(msg.message, WM_XBUTTONDOWN | WM_XBUTTONUP),
+                Watch::PageDown(_) => *host == root && matches!(msg.message, WM_LBUTTONDOWN | WM_RBUTTONDOWN),
+                Watch::Escape(_) => *host == root && msg.message == WM_KEYDOWN && msg.wParam == usize::from(VK_ESCAPE),
+                Watch::Down(_) => *host == root && matches!(msg.message, WM_LBUTTONDOWN | WM_NCLBUTTONDOWN),
+            })
+            .cloned()
+            .collect()
+    });
+    if watches.is_empty() {
+        return false;
+    }
+    let over_page = !is_gpui(msg.hwnd);
+    // GetKeyState is the thread's input state as of this message, like `msg.pt` is its position.
+    // SAFETY: reads this thread's key state.
+    let pressed = [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON].iter().any(|vk| unsafe { GetKeyState(i32::from(*vk)) } < 0);
+    let mut swallow = false;
+    for (id, host, watch) in watches {
+        // A monitor dropped by an earlier one in this loop does not run.
+        if !WATCHES.with_borrow(|w| w.iter().any(|(i, ..)| *i == id)) {
+            continue;
+        }
+        let at = || crate::Host { hwnd: host }.points_of(msg.pt);
+        match &*watch {
+            Watch::Moved(moved) => {
+                if let Some((x, y)) = at() {
+                    moved(x, y, pressed);
+                }
+            }
+            Watch::Buttons(navigate) if over_page => {
+                if msg.message == WM_XBUTTONDOWN {
+                    navigate((msg.wParam >> 16) as u16 == XBUTTON1);
+                }
+                swallow = true;
+            }
+            Watch::PageDown(clicked) if over_page => clicked(),
+            Watch::Escape(pressed) => {
+                pressed();
+                swallow = true;
+            }
+            Watch::Down(clicked) => {
+                if let Some((x, y)) = at() {
+                    clicked(x, y);
+                }
+            }
+            _ => {}
+        }
+    }
+    swallow
 }
 
 static MAIN_THREAD: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
@@ -154,6 +244,9 @@ unsafe extern "system" fn translate_keys(code: i32, wparam: WPARAM, lparam: LPAR
     unsafe {
         if code == 0 && wparam == PM_REMOVE as usize {
             let msg = &mut *(lparam as *mut MSG);
+            if run_watches(msg) {
+                msg.message = WM_NULL;
+            }
             if msg.wParam == HTCAPTION as usize && matches!(msg.message, WM_NCLBUTTONDOWN | WM_NCLBUTTONDBLCLK) && is_gpui(msg.hwnd) {
                 let command = match msg.message {
                     WM_NCLBUTTONDOWN => SC_DRAGMOVE,

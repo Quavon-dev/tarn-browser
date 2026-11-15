@@ -220,8 +220,55 @@ pub fn decide_chromium(url: &Url, source: Source) -> Decision {
     }
 }
 
+/// A link from a Chromium page to another app's scheme (`mailto:`, `tel:`), which the shell
+/// offers to hand off as WebKit tabs do; Chromium's own schemes are never one.
+pub fn chromium_external(url: &Url, source: Source) -> bool {
+    !matches!(
+        url.scheme(),
+        "chrome"
+            | "chrome-error"
+            | "chrome-extension"
+            | "chrome-native"
+            | "chrome-untrusted"
+            | "chrome-search"
+            | "devtools"
+            | "edge"
+            | "isolated-app"
+            | "blob"
+            | "filesystem"
+            | "ws"
+            | "wss"
+            | "ftp"
+    ) && decide(url, source) == Decision::Prompt
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn chromium_hands_off_only_app_schemes() {
+        use super::Source::*;
+        let external = |s: &str, source| super::chromium_external(&url::Url::parse(s).unwrap(), source);
+        assert!(external("mailto:a@b.test", Link));
+        assert!(external("tel:+491234", Popup));
+        assert!(external("zoommtg://zoom.us/join", Typed));
+        assert!(!external("mailto:a@b.test", Sync));
+        for blocked in [
+            "https://a.test/",
+            "chrome://settings",
+            "chrome-error://chromewebdata/",
+            "wss://a.test/",
+            "chrome-extension://abc/x",
+            "devtools://devtools/x",
+            "file:///c:/x",
+            "javascript:alert(1)",
+            "data:text/html,x",
+            "view-source:https://a.test/",
+            "blob:https://a.test/x",
+        ] {
+            assert!(!external(blocked, Link), "{blocked}");
+        }
+    }
+
     #[test]
     fn only_portless_plain_http_is_upgraded() {
         let u = |s: &str| url::Url::parse(s).unwrap();

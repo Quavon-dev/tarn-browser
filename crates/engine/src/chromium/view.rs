@@ -62,6 +62,13 @@ struct Tab {
     /// navigation was started by the user (shell, click or history), which its redirects keep.
     history_step: RefCell<Vec<Url>>,
     user_started: Cell<bool>,
+    /// The origin of the main-frame navigation last let through, which may ask for credentials
+    /// before it commits, and how often credentials were asked for since a page last finished.
+    navigating: RefCell<Option<String>>,
+    auth_attempts: Cell<u32>,
+    /// The shell is loading a page's link (`load_link`): the next main-frame load is not the
+    /// user's, whatever URL Chromium reports for it.
+    link_load: Cell<bool>,
     /// The profile's download events, which outlive the tab.
     #[cfg(windows)]
     downloads: std::cell::OnceCell<Rc<dyn Fn(Event)>>,
@@ -484,6 +491,10 @@ wrap_load_handler! {
         fn on_loading_state_change(&self, browser: Option<&mut Browser>, is_loading: i32, can_go_back: i32, can_go_forward: i32) {
             let Some(tab) = tab(self.id) else { return };
             let history = (can_go_back == 1, can_go_forward == 1);
+            // A navigation that ends without a page (a download, a 204, a cancel) leaves no origin that may ask.
+            if is_loading == 0 {
+                tab.navigating.take();
+            }
             // Chromium settles the back list after the load ends, so the shell hears it here.
             if tab.history.replace(history) != history
                 && is_loading == 0
@@ -509,6 +520,7 @@ wrap_load_handler! {
             }
             tab.loading.set(true);
             tab.silenced.set(false);
+            tab.navigating.take();
             // Windows views take the profile's current style sheets with each page, so a change
             // reaches the next page of every tab.
             #[cfg(windows)]
@@ -538,6 +550,7 @@ wrap_load_handler! {
             }
             tab.loading.set(false);
             tab.history_step.take();
+            tab.auth_attempts.set(0);
             super::cookies::changed_in_chromium();
             let Ok(url) = Url::parse(&CefString::from(&frame.url()).to_string()) else { return };
             let (can_go_back, can_go_forward) = tab.history.get();
@@ -614,7 +627,9 @@ wrap_request_handler! {
                 (false, tab.user_started.get())
             } else {
                 let (shell, step) = (tab.shell_load.take().is_some_and(|u| u == url), tab.history_step.take().contains(&url));
-                (shell, shell || user_gesture == 1 || step)
+                // CEF reports the shell's own LoadURL as a gesture; a link the shell loads for a page stays the page's.
+                let link = tab.link_load.take();
+                (shell, !link && (shell || user_gesture == 1 || step))
             };
             tab.user_started.set(user_started);
             let source = if shell { Source::Typed } else { Source::Link };
@@ -627,6 +642,14 @@ wrap_request_handler! {
                     return 1;
                 }
                 Decision::Allow => {}
+                Decision::Prompt | Decision::Block if nav_policy::chromium_external(&url, source) => {
+                    // A redirect's prompt names no page: the one being left did not ask for it.
+                    let origin = (!shell && is_redirect == 0).then(|| page_url(browser.as_deref())).flatten().as_ref().and_then(crate::page::serialized_origin);
+                    if shell || crate::page::within_burst(&tab.recent_prompts, crate::page::PROMPT_BURST) {
+                        emit(&tab, Event::ExternalScheme { url, origin });
+                    }
+                    return 1;
+                }
                 Decision::Prompt | Decision::Block => {
                     emit(&tab, Event::Blocked { url, message: "Chromium tabs open only web pages.".into(), category: None });
                     return 1;
@@ -703,7 +726,19 @@ wrap_request_handler! {
             if is_redirect == 0 && !history && nav_policy::upgrades_to_https(&url, site.level.policy().https_only || left.policy().https_only) {
                 emit(&tab, Event::Protected(Protection::HttpsUpgrade, url.host_str().map(str::to_owned)));
             }
+            *tab.navigating.borrow_mut() = crate::page::serialized_origin(&url);
             0
+        }
+
+        // CEF's IO thread: the tab answers on the UI thread. Only Basic and Digest are asked
+        // for, as in WebKit tabs; proxies and integrated schemes are refused.
+        fn auth_credentials(&self, _browser: Option<&mut Browser>, origin_url: Option<&CefString>, is_proxy: i32, _host: Option<&CefString>, _port: i32, realm: Option<&CefString>, scheme: Option<&CefString>, callback: Option<&mut AuthCallback>) -> i32 {
+            let Some(callback) = callback else { return 0 };
+            if is_proxy == 1 || !matches!(string(scheme).to_ascii_lowercase().as_str(), "basic" | "digest") {
+                return 0;
+            }
+            let mut task = AskCredentials::new(self.id, string(origin_url), string(realm), callback.clone());
+            i32::from(post_task(ThreadId::UI, Some(&mut task)) == 1)
         }
 
         // CEF's IO thread: every request is filtered; a main-frame navigation of a site being
@@ -716,11 +751,18 @@ wrap_request_handler! {
             Some(super::filter::TarnFilter::new(hold, self.profile.clone(), self.lockdown_view))
         }
 
-        fn on_open_urlfrom_tab(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, target_url: Option<&CefString>, target_disposition: WindowOpenDisposition, user_gesture: i32) -> i32 {
+        fn on_open_urlfrom_tab(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, target_url: Option<&CefString>, target_disposition: WindowOpenDisposition, user_gesture: i32) -> i32 {
             if target_disposition == WindowOpenDisposition::CURRENT_TAB {
                 return 0;
             }
-            offer_popup(self.id, frame, target_url, user_gesture);
+            // A Shift-click asks for a new window: as in WebKit tabs, the link opens in a peek.
+            let tab_disposition = [WindowOpenDisposition::NEW_FOREGROUND_TAB, WindowOpenDisposition::NEW_BACKGROUND_TAB];
+            if user_gesture == 1 && (target_disposition == WindowOpenDisposition::NEW_WINDOW || tab_disposition.contains(&target_disposition)) {
+                let background = (target_disposition != WindowOpenDisposition::NEW_WINDOW).then_some(target_disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB);
+                peek(self.id, &self.profile, target_url, page_url(browser.as_deref()), background);
+            } else {
+                offer_popup(self.id, frame, target_url, user_gesture);
+            }
             1
         }
 
@@ -903,11 +945,88 @@ wrap_download_handler! {
 const PAGE_COMMANDS: [i32; 8] =
     [sys::IDC_BACK, sys::IDC_FORWARD, sys::IDC_RELOAD, sys::IDC_RELOAD_BYPASSING_CACHE, sys::IDC_STOP, sys::IDC_CUT, sys::IDC_COPY, sys::IDC_PASTE];
 
+wrap_task! {
+    struct AskCredentials {
+        id: u64,
+        origin: String,
+        realm: String,
+        callback: AuthCallback,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            ask_credentials(self.id, &self.origin, &self.realm, &self.callback);
+        }
+    }
+}
+
+/// Only the page's own origin, or the one its main frame is navigating to, may ask for
+/// credentials, not embedded third parties or other ports of the same host.
+fn ask_credentials(id: u64, origin_url: &str, realm: &str, callback: &AuthCallback) {
+    let challenge = Url::parse(origin_url).ok();
+    let origin = challenge.as_ref().and_then(crate::page::serialized_origin);
+    let (Some(tab), Some(challenge), Some(origin)) = (tab(id), challenge, origin) else { return callback.cancel() };
+    let (page, navigating) = (page_url(tab.browser.borrow().as_ref()), tab.navigating.borrow().as_deref().and_then(|o| Url::parse(o).ok()));
+    let failures = tab.auth_attempts.get();
+    let own = [page, navigating].iter().any(|p| crate::view_policy::may_ask_credentials(&challenge, p.as_ref(), failures));
+    if !own || tab.silenced.get() || !crate::page::within_burst(&tab.recent_prompts, crate::page::PROMPT_BURST) {
+        return callback.cancel();
+    }
+    tab.auth_attempts.set(tab.auth_attempts.get() + 1);
+    let callback = callback.clone();
+    let reply = Box::new(move |answer: Option<(String, Option<(String, String)>)>| match answer {
+        Some((_, Some((user, password)))) => callback.cont(Some(&CefString::from(user.as_str())), Some(&CefString::from(password.as_str()))),
+        _ => callback.cancel(),
+    });
+    let insecure = !origin.starts_with("https:");
+    let kind = crate::PromptKind::Credentials { realm: crate::page::bounded(realm) };
+    emit(&tab, Event::Prompt(crate::Prompt::answered(origin, None, insecure, String::new(), kind, reply, tab.silenced.clone())));
+}
+
+fn page_url(browser: Option<&Browser>) -> Option<Url> {
+    Url::parse(&CefString::from(&browser?.main_frame()?.url()).to_string()).ok()
+}
+
+/// A peek, or a tab opened by a click (`background` set), is a window the page could open with a
+/// synthetic click: it gets the pop-up rules, their rate limit and the S10 check.
+fn peek(id: u64, profile: &str, target_url: Option<&CefString>, page: Option<Url>, background: Option<bool>) {
+    let (Some(tab), Ok(url)) = (tab(id), Url::parse(&string(target_url))) else { return };
+    #[cfg(windows)]
+    let page = with_opener(&tab, page);
+    if nav_policy::decide_chromium(&url, Source::Popup) != Decision::Allow {
+        return offer_popup(id, None, target_url, 1);
+    }
+    let Some(shield) = super::filter::shield_for(profile) else { return };
+    let opener = (shield.site_for)(page.as_ref().unwrap_or(&Url::parse("about:blank").expect("about:blank parses")));
+    let local = nav_policy::into_private_network(&url, page.as_ref(), false, opener.level.policy().block_private_network);
+    if crate::page::within_burst(&tab.recent_popups, crate::page::POPUP_BURST) && nav_policy::popup_allowed(opener, Some((shield.site_for)(&url))) && !local {
+        emit(
+            &tab,
+            match background {
+                Some(background) => Event::OpenTab { url, from: page, background },
+                None => Event::PeekLink(url, page),
+            },
+        );
+    } else {
+        if local {
+            emit(&tab, Event::Protected(Protection::LocalNetwork, None));
+        }
+        emit(&tab, Event::PopupBlocked(Some(url)));
+    }
+}
+
 /// A clicked pop-up the site's rule and the block lists allow is offered; one they refuse is
 /// reported as blocked, as in WebKit tabs. Without a click nothing opens, in both engines.
 fn offer_popup(id: u64, frame: Option<&mut Frame>, target_url: Option<&CefString>, user_gesture: i32) {
     let Some(tab) = tab(id) else { return };
     let Ok(url) = Url::parse(&string(target_url)) else { return };
+    if user_gesture == 1 && nav_policy::chromium_external(&url, Source::Popup) {
+        if crate::page::within_burst(&tab.recent_prompts, crate::page::PROMPT_BURST) {
+            let origin = page_url(tab.browser.borrow().as_ref()).as_ref().and_then(crate::page::serialized_origin);
+            emit(&tab, Event::ExternalScheme { url, origin });
+        }
+        return;
+    }
     if user_gesture != 1
         || nav_policy::decide_chromium(&url, Source::Popup) != Decision::Allow
         || !crate::page::within_burst(&tab.recent_popups, crate::page::POPUP_BURST)
@@ -1031,9 +1150,15 @@ wrap_command_handler! {
     }
 }
 
-/// Context-menu items kept from Chrome's menu: editing, spelling, copying and the page's own
-/// history and media controls, nothing that opens Chrome UI, a window or a download.
-const KEPT_ITEMS: [i32; 23] = [
+/// Context-menu items kept from Chrome's menu: editing, spelling, copying, the page's own history
+/// and media controls, and opening or saving a link, image or media, whose tabs and downloads take
+/// Tarn's own paths; nothing that opens Chrome UI or a window.
+const KEPT_ITEMS: [i32; 28] = [
+    sys::IDC_CONTENT_CONTEXT_OPENLINKNEWTAB,
+    sys::IDC_CONTENT_CONTEXT_OPENIMAGENEWTAB,
+    sys::IDC_CONTENT_CONTEXT_SAVELINKAS,
+    sys::IDC_CONTENT_CONTEXT_SAVEIMAGEAS,
+    sys::IDC_CONTENT_CONTEXT_SAVEAVAS,
     sys::IDC_BACK,
     sys::IDC_FORWARD,
     sys::IDC_RELOAD,
@@ -1365,6 +1490,9 @@ impl WebView {
             silenced: Rc::default(),
             history_step: RefCell::default(),
             user_started: Cell::new(false),
+            navigating: RefCell::new(None),
+            auth_attempts: Cell::new(0),
+            link_load: Cell::new(false),
             #[cfg(windows)]
             downloads: std::cell::OnceCell::new(),
             #[cfg(windows)]
@@ -1791,6 +1919,7 @@ impl WebView {
             return;
         };
         *self.0.tab.shell_load.borrow_mut() = (!link).then(|| url.clone());
+        self.0.tab.link_load.set(link);
         frame.load_url(Some(&CefString::from(url.as_str())));
     }
 

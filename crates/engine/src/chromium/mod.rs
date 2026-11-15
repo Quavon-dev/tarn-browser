@@ -36,6 +36,8 @@ pub use filter::take_blocked;
 pub(crate) use filter::{drop_shield, set_shield_for, shield_for, take_blocked_for};
 #[cfg(windows)]
 pub use pump_windows::open_next_window_inactive;
+#[cfg(windows)]
+pub(crate) use pump_windows::{Watch, unwatch, watch};
 pub use runtime::shutdown;
 #[cfg(windows)]
 pub use runtime::{prepare_browser_process, set_sandbox_info, subprocess};

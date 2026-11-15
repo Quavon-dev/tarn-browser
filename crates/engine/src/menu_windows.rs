@@ -104,28 +104,46 @@ pub fn natural_scrolling() -> bool {
 }
 
 /// Removes the event monitor when dropped.
-pub struct EventMonitor(());
+pub struct EventMonitor(usize);
+
+impl Drop for EventMonitor {
+    fn drop(&mut self) {
+        crate::chromium::unwatch(self.0);
+    }
+}
 
 impl Host {
-    /// Pages get mouse events themselves on Windows; GPUI sees those outside the page.
-    pub fn on_navigation_buttons(&self, _navigate: impl Fn(bool) + 'static) -> Option<EventMonitor> {
-        None
+    fn watch(&self, watch: crate::chromium::Watch) -> Option<EventMonitor> {
+        Some(EventMonitor(crate::chromium::watch(self.hwnd, watch)))
     }
 
-    pub fn on_mouse_moved(&self, _moved: impl Fn(f64, f64, bool) + 'static) -> Option<EventMonitor> {
-        None
+    /// Calls `navigate(true)` for the mouse's back button and `navigate(false)` for forward over
+    /// the host's pages, and keeps them from the page; GPUI sees the buttons outside the pages.
+    pub fn on_navigation_buttons(&self, navigate: impl Fn(bool) + 'static) -> Option<EventMonitor> {
+        self.watch(crate::chromium::Watch::Buttons(Box::new(navigate)))
     }
 
-    pub fn on_page_mouse_down(&self, _clicked: impl Fn() + 'static) -> Option<EventMonitor> {
-        None
+    /// Calls `moved(x, y, pressed)` for each pointer move over the app's windows, pages
+    /// included, in the host's top-left points; `pressed` while any mouse button is down.
+    pub fn on_mouse_moved(&self, moved: impl Fn(f64, f64, bool) + 'static) -> Option<EventMonitor> {
+        self.watch(crate::chromium::Watch::Moved(Box::new(moved)))
     }
 
-    pub fn on_escape(&self, _pressed: impl Fn() + 'static) -> Option<EventMonitor> {
-        None
+    /// Calls `clicked` when a mouse button goes down over a page in the host's window.
+    pub fn on_page_mouse_down(&self, clicked: impl Fn() + 'static) -> Option<EventMonitor> {
+        self.watch(crate::chromium::Watch::PageDown(Box::new(clicked)))
     }
 
-    pub fn on_mouse_down(&self, _clicked: impl Fn(f64, f64) + 'static) -> Option<EventMonitor> {
-        None
+    /// Calls `pressed` for Esc in the host's window, also while a page has keyboard focus, and
+    /// keeps the key from the page.
+    pub fn on_escape(&self, pressed: impl Fn() + 'static) -> Option<EventMonitor> {
+        self.watch(crate::chromium::Watch::Escape(Box::new(pressed)))
+    }
+
+    /// Calls `clicked(x, y)` for each left mouse-down in the host's window, in its top-left
+    /// points; the click still reaches its target.
+    pub fn on_mouse_down(&self, clicked: impl Fn(f64, f64) + 'static) -> Option<EventMonitor> {
+        self.watch(crate::chromium::Watch::Down(Box::new(clicked)))
     }
 }
 

@@ -53,6 +53,19 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   since GPUI shows every window activated; the library and other focused pop-ups take keys.
   Shortcut hints read Ctrl/Alt/Shift (`ui::controls::keys`): ⌘ is Ctrl, ⌃+digit is Alt, ⌃⌘ is
   Alt+Shift, full screen is F11. Back/forward state follows Chromium's settled history.
+  AppKit's event monitors (`Host::on_mouse_moved`, `on_mouse_down`, `on_page_mouse_down`,
+  `on_escape`, `on_navigation_buttons`) are the same thread hook watching the messages of
+  Chromium's child windows: the floating sidebar and hover card follow the pointer over pages, a
+  click in a pane focuses it, Esc closes a peek from its page, and the mouse's back and forward
+  buttons over a page step the tab's history.
+- **Page requests:** camera and microphone ask with the page's origin as in WebKit tabs (screen
+  capture is refused); HTTP Basic and Digest ask only for the page's own origin or the one its
+  main frame is navigating to, three times at most per page load (proxy and integrated
+  authentication are refused); a link to another app's scheme (`mailto:`, `tel:`) asks before it
+  is handed to Windows. Shift-click opens a link in a peek; Ctrl- and middle-click and the page
+  menu's Open Link in New Tab open a tab under the pop-up rules, its first load judged as the
+  page's link (S10). The page menu keeps Chrome's editing, link, image and media items; saving
+  goes through Tarn's downloads.
 - **Downloads:** saved without a dialog to `~\Downloads` under a cleaned, unused name (device names
   and `<>"|?*` replaced), with a `Zone.Identifier` stream (zone 3, `HostUrl` without credentials)
   so SmartScreen treats the file as downloaded; never opened. File pickers use the system dialog.
@@ -159,7 +172,9 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   stream, library search by keyboard, importing history from Edge.
 
 **Open, in order:**
-1. Extensions: a gap until CEF can scope them (§8). Translation stays macOS-only: Windows has no on-device
+1. Inspect Element: not built yet; a DevTools window CEF opens without Tarn's client would load
+   what it opens outside the request filter, so it waits for a client of its own.
+   Extensions: a gap until CEF can scope them (§8). Translation stays macOS-only: Windows has no on-device
    translation. The memory panel and budget measure each tab's main-frame renderer, which reports its own
    process id at each main-frame load (`RENDERER_PID`); Tarn takes it only when that process runs Tarn's own
    executable. A page whose renderer sends no report keeps the last one until the next.

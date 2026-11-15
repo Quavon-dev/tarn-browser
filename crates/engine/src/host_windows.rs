@@ -1,7 +1,7 @@
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use url::Url;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, CreateRoundRectRgn, SetWindowRgn};
+use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, CreateRoundRectRgn, ScreenToClient, SetWindowRgn};
 use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegGetValueW, RegSetKeyValueW};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
@@ -82,6 +82,16 @@ impl Host {
     pub fn follow(&self, popup: &Host) {
         // SAFETY: windows of this thread; GWLP_HWNDPARENT sets a top-level window's owner.
         unsafe { SetWindowLongPtrW(popup.hwnd, GWLP_HWNDPARENT, self.hwnd as isize) };
+    }
+
+    /// A screen point in this window's client area, in points from its top-left corner.
+    pub(crate) fn points_of(&self, mut at: POINT) -> Option<(f64, f64)> {
+        // SAFETY: a valid out-pointer; a destroyed window makes the call fail.
+        if unsafe { ScreenToClient(self.hwnd, &mut at) } == 0 {
+            return None;
+        }
+        let scale = self.scale();
+        Some((f64::from(at.x) / scale, f64::from(at.y) / scale))
     }
 
     /// Device pixels per GPUI point.

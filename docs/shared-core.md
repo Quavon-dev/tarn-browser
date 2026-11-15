@@ -26,6 +26,8 @@ Every shell's web view offers the same operations and reports the same events. T
 - `Committed`, `Finished`, `TitleChanged`, `UrlChanged`, `Failed`;
 - `Blocked`, `PopupBlocked`, `Popup`, `ShieldLevelChanged`;
 - `Prompt`, `PeekLink`, `ExternalScheme`, `ContentProcessTerminated`;
+- `OpenTab`: Chromium views only, where a link opened in a new tab cannot become a `Popup`;
+  WebKit views report it as a `Popup`;
 - `DownloadFinished`, `DownloadFailed`, `DownloadsActive`.
 
 **Rules for every implementation:**

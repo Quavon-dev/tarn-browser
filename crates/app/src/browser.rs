@@ -216,7 +216,7 @@ pub struct Browser {
     pub sidebar_width: f32,
     pub(crate) toast: crate::toast::Toasts,
     /// New tabs whose first load is a page's link, so S10 judges every redirect hop.
-    link_loads: HashSet<TabKey>,
+    link_loads: HashMap<TabKey, Option<Url>>,
     pub suggestions: Vec<Suggestion>,
     pub selected: usize,
     history_cache: Vec<HistoryEntry>,
@@ -396,7 +396,7 @@ impl Browser {
             sidebar_open,
             sidebar_width,
             toast: Default::default(),
-            link_loads: HashSet::new(),
+            link_loads: HashMap::new(),
             suggestions: Vec::new(),
             selected: 0,
             history_cache: Vec::new(),
@@ -549,7 +549,7 @@ impl Browser {
             if !from_app || nav_policy::app_link_typed(&url, self.pref(crate::prefs::Pref::LocalhostFromApps)) {
                 self.new_tab(&url, window, cx);
             } else if let Some(key) = self.model.new_tab(&self.core, url.as_str(), self.saved.web_engine) {
-                self.link_loads.insert(key);
+                self.link_loads.insert(key, None);
                 self.reload_space();
                 self.activate(key, window, cx);
             }
@@ -963,7 +963,7 @@ impl Browser {
         }
         let left = Instant::now();
         self.seen.extend(self.model.active.into_iter().chain([key]).map(|k| (k, left)));
-        let as_link = self.link_loads.remove(&key);
+        let as_link = self.link_loads.get(&key).cloned();
         let mut evicted: Vec<TabKey> = partners.iter().flat_map(|p| self.model.lifecycle.activate(*p)).collect();
         evicted.extend(self.model.lifecycle.activate(key));
         for evicted in evicted {
@@ -986,7 +986,10 @@ impl Browser {
                         if let Ok(url) = Url::parse(&tab.url)
                             && nav_policy::decide(&url, Source::Sync) == Decision::Allow
                         {
-                            if as_link { view.load_link(&url, None) } else { view.load(&url) }
+                            match &as_link {
+                                Some(from) => view.load_link(&url, from.as_ref()),
+                                None => view.load(&url),
+                            }
                         }
                     }
                 }
@@ -1103,6 +1106,7 @@ impl Browser {
         let closed = self.closed_tab(&tab, key);
         self.tab_leaving(&tab, cx);
         self.take_view(key);
+        self.link_loads.remove(&key);
         self.json_pages.remove(&key);
         self.drop_reader(key);
         self.view_generation.remove(&key);
@@ -1630,6 +1634,10 @@ impl Browser {
         match event {
             Event::Committed { url, title, can_go_back, can_go_forward } => {
                 engine::startup::mark("first page commit");
+                // A link stays the page's until it shows a page: a view slept or never made loads it as a link again.
+                if url.as_str() != "about:blank" {
+                    self.link_loads.remove(&key);
+                }
                 self.drop_prompts(key, cx);
                 self.json_pages.remove(&key);
                 let previous = self.store(key.private).tab(key.id).ok().and_then(|t| tab_host(&t.url));
@@ -1793,6 +1801,26 @@ impl Browser {
             Event::PeekLink(url, from) => {
                 if self.model.active == Some(key) {
                     self.open_link_peek(key, url, from, window, cx);
+                }
+            }
+            // As a pop-up's tab: never in the burner, and its first load is the page's link, so S10 judges every hop.
+            Event::OpenTab { url, from, background } => {
+                let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown()) else { return cx.notify() };
+                let engine = opener.web_engine.or(self.saved.web_engine);
+                let routed = self.routed_space(&url);
+                if let Some(ix) = routed {
+                    self.switch_space(ix, window, cx);
+                }
+                if let Some(tab) = self.model.new_tab(&self.core, url.as_str(), engine) {
+                    self.reload_space();
+                    self.link_loads.insert(tab, from.clone());
+                    if !background || routed.is_some() {
+                        self.activate(tab, window, cx);
+                    } else if let Some(view) = self.create_view(tab, url.as_str(), cx) {
+                        // Loaded now, as a pop-up is: a tab restored later would load its URL as the user's own.
+                        view.set_visible(false);
+                        view.load_link(&url, from.as_ref());
+                    }
                 }
             }
             Event::ExternalScheme { url, origin } => {

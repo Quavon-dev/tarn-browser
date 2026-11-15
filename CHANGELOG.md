@@ -16,6 +16,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   Windows).
 - Tiles arrange themselves: one row while they fit, then as few rows as fit, filled evenly; Add to
   Tiles and Remove from Tiles in a tab's menu (macOS, Windows, Linux).
+- Windows: camera and microphone requests, HTTP sign-in prompts, and links to other apps
+  (`mailto:`, `tel:`) ask as on macOS; Shift-click opens a link in a peek, Ctrl- and middle-click
+  open it in a new tab, and the page menu offers link, image and media items.
+- Windows: the floating sidebar and hover card follow the pointer over pages, a click focuses a
+  split pane, Esc closes a peek, and the mouse's back and forward buttons work over pages.
 - Linux, iOS and Android apps on Native Shell over the same core crates.
 - Cookie-banner blocking.
 - Signed filter-list updates from this repository's releases, once a day.
