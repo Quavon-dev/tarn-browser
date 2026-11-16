@@ -47,6 +47,13 @@ const LATE: &str = "<title>LATE</title><p>late</p><script>\
     const f = document.createElement('iframe'); f.src = 'http://localhost:' + location.port + '/sub?late'; document.body.append(f);\
     </script>";
 
+/// A page with one cross-site frame that navigates itself three seconds after loading.
+const HELD: &str = "<title>HELD</title><p>held</p><script>\
+    const f = document.createElement('iframe'); f.src = 'http://localhost:' + location.port + '/sub?held'; document.body.append(f);\
+    </script>";
+
+const SUB_HELD: &str = "<title>SUB</title><script>addEventListener('load', () => setTimeout(() => { location.search = '?ok&released'; }, 3000));</script>";
+
 const SUB_LATE: &str = "<title>SUB</title><script>setTimeout(() => { location.search = '?ok&again'; }, 4000);</script>";
 
 /// Serves the test site; `seen` gets `host path` of every request.
@@ -86,6 +93,8 @@ pub fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {
                     "/probe" => ("text/html", PROBE),
                     "/frames" => ("text/html", FRAMES),
                     "/sub" if path.ends_with("?late") => ("text/html", SUB_LATE),
+                    "/sub" if path.ends_with("?held") => ("text/html", SUB_HELD),
+                    "/held" => ("text/html", HELD),
                     "/sub" => ("text/html", SUB),
                     "/late" => ("text/html", LATE),
                     "/beacon" => ("text/plain", ""),
