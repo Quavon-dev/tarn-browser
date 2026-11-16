@@ -1,0 +1,19 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/Quavon-dev/tarn-browser/blob/main/docs/vex.json",
+  "author": "Tarn maintainers",
+  "timestamp": "2026-11-16T00:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "RUSTSEC-2023-0071",
+        "aliases": ["CVE-2023-49092", "GHSA-c38w-74pg-36hr", "GHSA-4grx-2x9w-596c"]
+      },
+      "products": [{ "@id": "pkg:github/Quavon-dev/tarn-browser" }],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "rsa 0.10.0-rc.19 is reached only through the nsh-testing dev-dependency of the mobile workspace (quickjs-jit-stdlib); no released client links it (cargo tree -i rsa -e normal,build --target all is empty). Suppressed in mobile/deny.toml."
+    }
+  ]
+}

@@ -24,5 +24,5 @@ cp "$OUT/apk/lib/arm64-v8a/libnsh.so" "$OUT/jni/arm64-v8a/"
 mkdir -p "$OUT/assets"
 cp -R "$OUT/apk/assets/." "$OUT/assets/"
 
-(cd host && ./gradlew --quiet clean "${GRADLE_TASK:-assembleDebug}")
+./gradle.sh --quiet clean "${GRADLE_TASK:-assembleDebug}"
 ls -l host/build/outputs/apk/*/*.apk

@@ -321,7 +321,8 @@ Checks per workspace (each runs in its own directory; CI runs all of them):
 `cargo deny check` runs where a workspace has a `deny.toml`. `unsafe` code is allowed only in
 `crates/engine` (and later `crates/platform`); every other crate is `#![forbid(unsafe_code)]`.
 How to contribute: [`CONTRIBUTING.md`](CONTRIBUTING.md); AI-assisted contributions follow
-[`AGENTS.md`](AGENTS.md).
+[`AGENTS.md`](AGENTS.md). All of Tarn's code, packaging and release automation live in this
+repository; no other repository is part of the codebase.
 
 <details>
 <summary><b>On-device translation</b></summary>

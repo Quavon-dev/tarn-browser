@@ -20,6 +20,7 @@
 /linux/packaging/ @Quavon-dev/maintainers
 /mobile/Cargo.lock @Quavon-dev/maintainers
 /mobile/android/build.sh @Quavon-dev/maintainers
+/mobile/android/gradle.sh @Quavon-dev/maintainers
 /mobile/android/host/ @Quavon-dev/maintainers
 /nsh-shared/Cargo.lock @Quavon-dev/maintainers
 /linux/Cargo.toml @Quavon-dev/maintainers
@@ -28,6 +29,7 @@
 /crates/**/Cargo.toml @Quavon-dev/maintainers
 /crates/app/src/extensions.rs @Quavon-dev/maintainers
 /mobile/deny.toml @Quavon-dev/maintainers
+/linux/deny.toml @Quavon-dev/maintainers
 /nsh-shared/deny.toml @Quavon-dev/maintainers
 /LICENSE @Quavon-dev/maintainers
 /LICENSE-APP-STORE.md @Quavon-dev/maintainers
@@ -68,3 +70,8 @@ GEMINI.md @Quavon-dev/maintainers
 .devcontainer/ @Quavon-dev/maintainers
 .envrc @Quavon-dev/maintainers
 /crates/cli-bridge/ @Quavon-dev/maintainers
+/MAINTAINERS.md @Quavon-dev/maintainers
+/fuzz/Cargo.toml @Quavon-dev/maintainers
+/fuzz/Cargo.lock @Quavon-dev/maintainers
+/fuzz/deny.toml @Quavon-dev/maintainers
+/.clusterfuzzlite/ @Quavon-dev/maintainers

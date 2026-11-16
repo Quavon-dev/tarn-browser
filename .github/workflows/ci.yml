@@ -176,7 +176,6 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: "1.99.1"
@@ -190,7 +189,7 @@ jobs:
           cache-directories: |
             mobile/app/target
             ~/.gradle/caches
-            ~/.gradle/wrapper
+            mobile/android/build/gradle-*
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
@@ -299,6 +298,12 @@ jobs:
         with:
           manifest-path: fuzz/Cargo.toml
           command: check advisories bans licenses sources
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        if: ${{ !inputs.commit }}
+        with:
+          manifest-path: linux/Cargo.toml
+          command: check advisories bans licenses sources
+      - run: scripts/check-vex.sh
 
   coverage:
     needs: changes

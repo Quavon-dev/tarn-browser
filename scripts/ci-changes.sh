@@ -28,14 +28,14 @@ classify() {
     [[ -n "$path" ]] || continue
     case "$path" in
       # browser-core's tests read docs/themes.md.
-      docs/themes.md) ;;
+      docs/themes.md | docs/vex.json) ;;
       *.md | docs/* | */evidence/* | LICENSE* | .github/ISSUE_TEMPLATE/* | .github/CODEOWNERS | .editorconfig) continue ;;
     esac
     code=true
     case "$path" in
       # Other workflows and GitHub settings run none of the builds; the check job lints them.
       .github/workflows/ci.yml) shared=true ;;
-      .github/*) ;;
+      .github/* | docs/vex.json) ;;
       linux/*) linux=true ;;
       mobile/*) mobile=true ;;
       nsh-shared/*) nsh=true ;;

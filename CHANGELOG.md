@@ -6,6 +6,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Every release carries a CycloneDX SBOM for each client (macOS, Windows, Linux, iOS, Android),
+  and `SECURITY.md` explains how to verify a download's checksum, attestation and signature.
+
 ### Changed
 
 - A split's tabs show side by side in one row of the sidebar, and in one card of the tab grid on

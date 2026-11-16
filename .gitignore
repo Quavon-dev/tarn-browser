@@ -2,3 +2,13 @@
 .DS_Store
 /.claude/worktrees/
 /linux/packaging/flatpak/de.quavon.tarn.local.yml
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.pem
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
