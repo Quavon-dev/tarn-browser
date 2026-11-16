@@ -33,6 +33,9 @@ classify() {
     esac
     code=true
     case "$path" in
+      # Other workflows and GitHub settings run none of the builds; the check job lints them.
+      .github/workflows/ci.yml) shared=true ;;
+      .github/*) ;;
       linux/*) linux=true ;;
       mobile/*) mobile=true ;;
       nsh-shared/*) nsh=true ;;
