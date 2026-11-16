@@ -314,7 +314,8 @@ decisions come from `browser_core::tarn_ext`.
   gate script looks its document up in the decisions, defines `__tarnExtPost` and runs the bootstrap and the
   CSS, and every JS file of the world checks the gate's answer first, so nothing runs in a frame the gate did
   not approve. Subframes are numbered by a per-document token and checked against the origin WebKit reports
-  for the frame, which also goes with each subframe message for the router's grant check. Messages over 1 MiB are dropped. Network rules are compiled into
+  for the frame, which also goes with each subframe message for the router's grant check. A reply to a subframe runs only
+  where the document's token matches (`engine::tarn_ext::reply`), so it never runs in the frame's next document. Messages over 1 MiB are dropped. Network rules are compiled into
   `WKContentRuleList`s and added to views of the profile not at Lockdown. `tarn.extpage` serves
   `tarn-extension://` through a `WKURLSchemeHandler` from the profile's resolver (status, MIME type, the
   page CSP) for its own origin only, only navigates its main frame inside its own origin, gets the profile level's built-in rules,

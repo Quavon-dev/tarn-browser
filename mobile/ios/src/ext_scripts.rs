@@ -9,10 +9,10 @@ pub const MESSAGE: &str = "extensionMessage";
 pub const POST: &str = "extensionPost";
 pub const FRAME: &str = "extensionFrame";
 /// Hex digits of the per-document token a frame's messages start with.
-pub const TOKEN: usize = 32;
+pub const TOKEN: usize = engine::tarn_ext::DOCUMENT_LEN;
 pub const SETUP: &str = "const h = globalThis.webkit && webkit.messageHandlers && webkit.messageHandlers.tarnExt; if (!h) return; \
     const b = new Uint8Array(16); crypto.getRandomValues(b); const token = Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); \
-    h.postMessage(token); globalThis.__tarnExtPost = s => h.postMessage(token + String(s));";
+    globalThis.__tarnExtDoc = token; h.postMessage(token); globalThis.__tarnExtPost = s => h.postMessage(token + String(s));";
 
 /// The transport and bootstrap of an install's own page, in its main world and main frame only.
 pub fn page_script(origin_id: &str, bootstrap: &str) -> String {
@@ -21,11 +21,6 @@ pub fn page_script(origin_id: &str, bootstrap: &str) -> String {
         const h = webkit.messageHandlers.{HANDLER}; globalThis.__tarnExtPost = s => h.postMessage(String(s));\n{bootstrap}\n}})();",
         js_string(origin_id)
     )
-}
-
-/// Calls the world's receiver with `json`.
-pub fn receive(json: &str) -> String {
-    format!("if (typeof globalThis.{} === 'function') globalThis.{}({});", engine::tarn_ext::RECEIVE, engine::tarn_ext::RECEIVE, js_string(json))
 }
 
 #[cfg(test)]
@@ -51,11 +46,17 @@ mod tests {
     }
 
     #[test]
+    fn a_subframe_document_keeps_the_token_its_replies_must_match() {
+        assert!(SETUP.contains(&format!("globalThis.{} = token; h.postMessage(token);", engine::tarn_ext::DOCUMENT)));
+        assert!(SETUP.find("crypto.getRandomValues(b)") < SETUP.find("globalThis.__tarnExtDoc = token"));
+    }
+
+    #[test]
     fn pages_get_the_transport_only_on_their_own_origin() {
         let script = page_script("abc", "BOOT();");
         assert!(script.contains("location.host !== \"abc\"") && script.contains("window.top !== window") && script.ends_with("BOOT();\n})();"));
         assert_eq!(
-            receive("{\"a\":\"</script>\"}"),
+            engine::tarn_ext::reply(None, "{\"a\":\"</script>\"}"),
             format!("if (typeof globalThis.__tarnExtReceive === 'function') globalThis.__tarnExtReceive({});", js_string("{\"a\":\"</script>\"}"))
         );
     }

@@ -22,7 +22,7 @@ use shield::rules::builtin_rules;
 use url::Url;
 
 use crate::data::{StoreKind, store_kind};
-use crate::ext_scripts::{HANDLER, MESSAGE, POST, page_script, receive};
+use crate::ext_scripts::{HANDLER, MESSAGE, POST, page_script};
 use crate::webkit::WebView;
 use crate::{stores, tarn_ext};
 
@@ -177,7 +177,7 @@ impl Page {
         let Some(json) = args.get("json").and_then(Value::as_str) else { return };
         // SAFETY: main thread (marker); the extension's own page runs in the page world.
         let world = unsafe { WKContentWorld::pageWorld(self.mtm) };
-        built.web.evaluate(&NSString::from_str(&receive(json)), None, &world, None);
+        built.web.evaluate(&NSString::from_str(&engine::tarn_ext::reply(None, json)), None, &world, None);
     }
 }
 

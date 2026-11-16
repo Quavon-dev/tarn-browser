@@ -19,7 +19,7 @@ use url::Url;
 
 use crate::component::{Built, Inner};
 use crate::data::{StoreKind, store_kind};
-use crate::ext_scripts::{HANDLER, SETUP, TOKEN, receive};
+use crate::ext_scripts::{HANDLER, SETUP, TOKEN};
 use crate::tarn_ext;
 use crate::webkit::WebView;
 
@@ -338,17 +338,17 @@ impl Inner {
             let built = self.built.borrow();
             let Some(built) = built.as_ref().filter(|b| b.ext.worlds.iter().any(|w| w.world == world)) else { return };
             let subframes = built.ext.frames.iter().filter(|((w, _), _)| *w == world);
-            let targets: Vec<Option<Retained<WKFrameInfo>>> = match frame {
-                None => std::iter::once(None).chain(subframes.map(|(_, (_, info, _))| Some(info.clone()))).collect(),
-                Some(0) => vec![None],
-                Some(n) => subframes.filter(|(_, (id, _, _))| *id == n).map(|(_, (_, info, _))| Some(info.clone())).collect(),
+            let subframe = |((_, token), (_, info, _)): (&(World, String), &(u64, Retained<WKFrameInfo>, String))| (Some(info.clone()), Some(token.clone()));
+            let targets: Vec<(Option<Retained<WKFrameInfo>>, Option<String>)> = match frame {
+                None => std::iter::once((None, None)).chain(subframes.map(subframe)).collect(),
+                Some(0) => vec![(None, None)],
+                Some(n) => subframes.filter(|(_, (id, _, _))| *id == n).map(subframe).collect(),
             };
             (built.web.clone(), targets)
         };
-        let script = NSString::from_str(&receive(json));
         let content = content_world(&world, self.mtm);
-        for target in targets {
-            web.evaluate(&script, target.as_deref(), &content, None);
+        for (target, token) in targets {
+            web.evaluate(&NSString::from_str(&engine::tarn_ext::reply(token.as_deref(), json)), target.as_deref(), &content, None);
         }
     }
 }
