@@ -34,7 +34,7 @@ Expect 'unsigned installer feed' $true ((Get-FeedJson '0.4.0' $false 'x' 1 'y' -
 function Throws([scriptblock]$Block, [string]$Like) { try { & $Block; $false } catch { $_.Exception.Message -like $Like } }
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
 [void](New-Item -ItemType Directory $tmp)
-foreach ($name in 'Tarn-v0.4.0-windows-x64-setup-UNSIGNED.exe', 'Tarn-v0.4.0-windows-x64-setup-foo.exe') {
+foreach ($name in 'Tarn-v0.4.0-windows-x64-setup-unsigned.exe', 'Tarn-v0.4.0-windows-x64-setup-UNSIGNED.exe', 'Tarn-v0.4.0-windows-x64-setup-foo.exe') {
     [System.IO.File]::WriteAllBytes((Join-Path $tmp $name), [byte[]](1, 2, 3))
     Expect "feed refuses $name" $true (Throws { Write-Feed (Join-Path $tmp $name) 'SIG' $false $tmp } '*is not named*')
 }

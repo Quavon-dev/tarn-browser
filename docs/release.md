@@ -283,9 +283,9 @@ that has the signed installer, downloads the unsigned one, checks it against the
 and against an attestation whose certificate names `release.yml` at that tag and commit, run from
 the tag on a GitHub-hosted runner (`scripts/windows-feed.test.sh` covers each refusal), signs it and
 the feed with the update key, and asks before uploading `windows-update.json` and its `.sig`.
-`publish-release.sh --no-windows` runs it while the draft has no feed and, before publishing, checks
-that the feed is for this version, names the unsigned installer on the draft and verifies with the
-update key; run it by hand for
+`publish-release.sh --no-windows` runs it while the draft has no feed. Before publishing, with or
+without `--no-windows`, `publish-release.sh` checks that the draft's feed is for this version, names
+the URL and SHA-256 of the installer on the draft and verifies with the update key; run it by hand for
 a release that is already published without a feed (delete a local tag that differs from origin's
 first). The
 client checks the Ed25519 signatures, length and SHA-256, not Authenticode, so it verifies and
