@@ -4,6 +4,9 @@ rules:
       # Runs only this file's github-script from the base branch: no checkout, no PR code, no
       # expression interpolation; PR bodies and issues are read through the API as data.
       - issues.yml
+      # Cancels CI runs of a closed pull request: no checkout, only gh with the head SHA passed
+      # through env, and actions: write as its single permission.
+      - ci-cancel.yml
   self-repository:
     ignore:
       # Reusable workflows called at the commit under test; ./ is the form actionlint validates.
