@@ -25,6 +25,14 @@ pub fn secure_button(id: impl Into<ElementId>, text: impl Into<SharedString>, pr
         .when(!primary, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
 }
 
+/// A borderless button on a security surface, for the quietest answer, such as Deny.
+pub fn secure_ghost_button(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
+    pill(id, text, false, (Secure::surface(), Secure::surface()), Secure::text())
+        .font_family(SYSTEM_FONT)
+        .hover(|s| s.bg(Secure::hover()))
+        .active(|s| s.bg(Secure::pressed()))
+}
+
 fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
     div()
         .id(id)
@@ -207,7 +215,37 @@ pub fn switch(on: bool) -> Div {
         .rounded_full()
         .bg(if on { Theme::accent() } else { Theme::faint() })
         .when(on, |d| d.justify_end())
-        .child(div().w(px(16.)).h(px(16.)).rounded_full().bg(Theme::on_accent()).shadow(vec![ring(rgba_black(), 0., 2.)]))
+        .child(knob())
+}
+
+thread_local! {
+    /// Each sliding switch's last state and how often it changed, so a switch slides when it
+    /// flips and not when it first appears.
+    static SWITCHES: RefCell<std::collections::HashMap<ElementId, (bool, u64)>> = RefCell::default();
+}
+
+/// `switch` whose knob slides to its new side (`POP`) when `on` changes, unless motion is reduced.
+pub fn sliding_switch(id: impl Into<ElementId>, on: bool) -> gpui::AnyElement {
+    let id = id.into();
+    let flips = SWITCHES.with(|s| {
+        let mut s = s.borrow_mut();
+        let entry = s.entry(id.clone()).or_insert((on, 0));
+        if entry.0 != on {
+            *entry = (on, entry.1 + 1);
+        }
+        entry.1
+    });
+    if flips == 0 || crate::motion::reduced() {
+        return switch(on).into_any_element();
+    }
+    let track = div().relative().w(px(34.)).h(px(20.)).flex_none().rounded_full().bg(if on { Theme::accent() } else { Theme::faint() });
+    let (from, to) = if on { (2., 16.) } else { (16., 2.) };
+    let key = ElementId::NamedChild(Box::new(id), SharedString::from(format!("flip-{flips}")));
+    crate::motion::animate(track, key, crate::motion::POP, false, move |track, t| track.child(knob().absolute().top(px(2.)).left(px(from + (to - from) * t))))
+}
+
+fn knob() -> Div {
+    div().w(px(16.)).h(px(16.)).rounded_full().bg(Theme::on_accent()).shadow(vec![ring(rgba_black(), 0., 2.)])
 }
 
 fn rgba_black() -> Rgba {
@@ -496,7 +534,9 @@ pub fn row(first: bool) -> Div {
 /// A row that toggles its switch: the whole row is the target, with hover and pressed fills, and
 /// a tab stop. `body` is the row's text.
 pub fn switch_row(id: impl Into<ElementId>, first: bool, body: impl IntoElement, on: bool) -> Stateful<Div> {
-    tab_stop(row(first).id(id).cursor_pointer().hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())).child(body).child(switch(on)))
+    let id = id.into();
+    let knob = sliding_switch(ElementId::NamedChild(Box::new(id.clone()), "switch".into()), on);
+    tab_stop(row(first).id(id).cursor_pointer().hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())).child(body).child(knob))
 }
 
 /// An interactive list row: one line high (`ROW_HEIGHT`), highlighted while `selected`,

@@ -4,7 +4,7 @@ use gpui::{
     AnyElement, Context, Focusable, FontWeight, HighlightStyle, InteractiveElement, IntoElement, ParentElement, Rgba, SharedString, Stateful,
     StatefulInteractiveElement, Styled, StyledText, Window, canvas, div, img, prelude::FluentBuilder, px, relative,
 };
-use ui::controls::{button, field, icon_button, list_row, secure_button, secure_surface, surface, tooltip};
+use ui::controls::{button, field, icon_button, list_row, secure_button, secure_ghost_button, secure_surface, surface, tooltip};
 use ui::icon::{ICON_MEDIUM, ICON_SMALL, Icon, MARK, icon};
 use ui::motion::{EXIT, FADE, SLIDE, pop_in, pop_out, progress};
 use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
@@ -231,41 +231,45 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 "find-bar",
                 String::new(),
                 Theme::text(),
-                surface(Theme::radius_panel())
-                    .mb_2()
-                    .flex_none()
-                    .shadow(Elevation::Floating.shadow())
-                    .text_size(px(TEXT))
-                    .h(px(44.))
-                    .pl_3()
-                    .pr_2()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(icon(Icon::Search, 14., Theme::muted()))
-                    .child(field(focused).w(px(260.)).py_0p5().child(b.find_input.clone()))
-                    .child(
-                        div()
-                            .text_size(px(TEXT_SMALL))
-                            .text_color(if b.find_count == Some(0) { Theme::danger() } else { Theme::muted() })
-                            .child(browser_core::find::count_label(b.find_count)),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        icon_button("find-prev", Icon::ChevronUp, true)
-                            .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
-                            .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
-                    )
-                    .child(
-                        icon_button("find-next", Icon::ChevronDown, true)
-                            .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
-                            .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
-                    )
-                    .child(
-                        icon_button("find-close", Icon::Close, true)
-                            .tooltip(tooltip("Done", Some("Esc".into())))
-                            .on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
-                    ),
+                div().mb_2().flex_none().flex().justify_end().child(
+                    surface(12.)
+                        .w(px(400.))
+                        .flex_none()
+                        .shadow(Elevation::Floating.shadow())
+                        .when(focused, |d| d.border_color(Theme::accent()))
+                        .text_size(px(TEXT))
+                        .h(px(40.))
+                        .pl_3()
+                        .pr_1()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(icon(Icon::Search, 14., Theme::muted()))
+                        .child(div().flex_1().min_w_0().overflow_hidden().child(b.find_input.clone()))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(px(TEXT_SMALL))
+                                .text_color(if b.find_count == Some(0) { Theme::danger() } else { Theme::faint() })
+                                .child(browser_core::find::count_label(b.find_count)),
+                        )
+                        .child(div().w(px(1.)).h(px(18.)).flex_none().bg(Theme::separator()))
+                        .child(
+                            icon_button("find-prev", Icon::ChevronUp, true)
+                                .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
+                                .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
+                        )
+                        .child(
+                            icon_button("find-next", Icon::ChevronDown, true)
+                                .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
+                                .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
+                        )
+                        .child(
+                            icon_button("find-close", Icon::Close, true)
+                                .tooltip(tooltip("Done", Some("Esc".into())))
+                                .on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
+                        ),
+                ),
             );
         }
     }
@@ -353,6 +357,19 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
 
 const MAX_PROMPT_MESSAGE: usize = 600;
 
+/// The prompt's kind as `browser_core::glyphs` and `browser_core::prompts` name it.
+fn kind_name(kind: &PromptKind) -> &'static str {
+    match kind {
+        PromptKind::Alert | PromptKind::Confirm | PromptKind::Text { .. } => "confirm",
+        PromptKind::Camera => "camera",
+        PromptKind::Microphone => "microphone",
+        PromptKind::CameraAndMicrophone => "camera+microphone",
+        PromptKind::Credentials { .. } => "credentials",
+        PromptKind::ExtensionAccess { .. } => "extension",
+        PromptKind::MaliciousDownload { .. } => "malicious download",
+    }
+}
+
 fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Option<(String, gpui::Div)> {
     let prompt = b.active_prompt()?;
     let origin = match &prompt.top_origin {
@@ -363,64 +380,93 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
     if prompt.message.chars().count() > MAX_PROMPT_MESSAGE {
         message.push('…');
     }
-    let title = match &prompt.kind {
-        PromptKind::Alert | PromptKind::Confirm | PromptKind::Text { .. } => format!("{origin} says"),
-        PromptKind::Camera => format!("{origin} wants to use your camera"),
-        PromptKind::Microphone => format!("{origin} wants to use your microphone"),
-        PromptKind::CameraAndMicrophone => format!("{origin} wants to use your camera and microphone"),
+    let (lead, ask) = match &prompt.kind {
+        PromptKind::Alert | PromptKind::Confirm | PromptKind::Text { .. } => (origin, "says".to_owned()),
+        PromptKind::Camera => (origin, "wants to use your camera".into()),
+        PromptKind::Microphone => (origin, "wants to use your microphone".into()),
+        PromptKind::CameraAndMicrophone => (origin, "wants to use your camera and microphone".into()),
         PromptKind::Credentials { realm } => {
-            format!("{origin} asks you to sign in{}", if realm.is_empty() { String::new() } else { format!(" ({})", ui::text::bounded_title(realm)) })
+            (origin, format!("asks you to sign in{}", if realm.is_empty() { String::new() } else { format!(" ({})", ui::text::bounded_title(realm)) }))
         }
-        PromptKind::ExtensionAccess { extension, key } => {
-            format!("The extension \u{201C}{}\u{201D} ({}) wants to read and change {}", crate::extensions::shown(extension), b.extension_badge(key), origin)
-        }
-        PromptKind::MaliciousDownload { file } => format!("Keep \u{201C}{}\u{201D} from {origin}?", ui::text::bounded_title(file)),
+        PromptKind::ExtensionAccess { extension, key } => (
+            format!("The extension \u{201C}{}\u{201D}", crate::extensions::shown(extension)),
+            format!("({}) wants to read and change {origin}", b.extension_badge(key)),
+        ),
+        PromptKind::MaliciousDownload { file } => (format!("Keep \u{201C}{}\u{201D}", ui::text::bounded_title(file)), format!("from {origin}?")),
     };
+    let title = format!("{lead} {ask}");
+    let kind = kind_name(&prompt.kind);
+    let detail = if message.is_empty() { browser_core::prompts::meaning(kind).map(str::to_owned) } else { Some(message) };
     let remember_allowed = matches!(prompt.kind, PromptKind::ExtensionAccess { .. })
         || b.model.active.is_some_and(|key| {
             let page = prompt.top_origin.as_deref().unwrap_or(&prompt.origin);
             b.level_for_tab(key, page).max(b.level_for_tab(key, &prompt.origin)) == shield::ShieldLevel::Standard
         });
     let field = |input: gpui::Entity<ui::text_input::TextInput>| field(input.focus_handle(cx).is_focused(window)).w(px(320.)).py_0p5().child(input);
-    let (accept, decline) = match &prompt.kind {
-        PromptKind::Alert => ("OK", None),
-        PromptKind::Credentials { .. } => ("Sign In", Some("Cancel")),
-        PromptKind::MaliciousDownload { .. } => ("Keep Anyway", Some("Cancel Download")),
-        k if k.is_permission() => ("Allow", Some("Deny")),
-        _ => ("OK", Some("Cancel")),
+    let warn = matches!(prompt.kind, PromptKind::MaliciousDownload { .. } | PromptKind::Alert | PromptKind::Confirm | PromptKind::Text { .. });
+    let glyph = Icon::named(browser_core::glyphs::glyph(kind)).unwrap_or(Icon::Info);
+    let tile = div().size(px(30.)).flex_none().flex().items_center().justify_center().rounded(px(Theme::radius_row())).bg(Secure::control()).child(icon(
+        glyph,
+        16.,
+        if warn { Secure::warning() } else { Secure::accent() },
+    ));
+    let answer = |remember: bool, accept: bool| {
+        cx.listener(move |b: &mut Browser, _, w, cx| {
+            if accept && b.prompt_guarded() {
+                return;
+            }
+            b.remember_permission = remember;
+            b.answer_prompt(accept, false, w, cx);
+        })
+    };
+    let buttons = div().flex().flex_none().gap_2().items_center();
+    let buttons = match &prompt.kind {
+        k if k.is_permission() => buttons
+            .child(secure_ghost_button("prompt-silence", "Block requests from this page").on_click(cx.listener(|b, _, w, cx| {
+                b.remember_permission = false;
+                b.answer_prompt(false, true, w, cx);
+            })))
+            .child(secure_ghost_button("prompt-decline", "Deny").on_click(answer(false, false)))
+            .child(secure_button("prompt-accept", "Allow Once", !remember_allowed).on_click(answer(false, true)))
+            .when(remember_allowed, |d| d.child(secure_button("prompt-remember", "Always Allow", true).on_click(answer(true, true)))),
+        PromptKind::Alert => buttons.child(secure_button("prompt-accept", "OK", true).on_click(answer(false, true))),
+        PromptKind::MaliciousDownload { .. } => buttons
+            .child(secure_button("prompt-accept", "Keep Anyway", false).text_color(Secure::danger()).on_click(answer(false, true)))
+            .child(secure_button("prompt-decline", "Cancel Download", true).on_click(answer(false, false))),
+        PromptKind::Credentials { .. } => buttons
+            .child(secure_ghost_button("prompt-decline", "Cancel").on_click(answer(false, false)))
+            .child(secure_button("prompt-accept", "Sign In", true).on_click(answer(false, true))),
+        _ => buttons
+            .child(secure_ghost_button("prompt-decline", "Cancel").on_click(answer(false, false)))
+            .child(secure_button("prompt-accept", "OK", true).on_click(answer(false, true))),
     };
     let card = floating()
-        .px_4()
-        .py_3()
+        .px_3()
+        .py_2p5()
         .flex()
         .flex_col()
         .gap_2()
-        .child(div().font_weight(FontWeight::SEMIBOLD).child(title.clone()))
-        .when(prompt.insecure, |d| d.child(div().text_color(Theme::warning()).child("This connection is not secure: the password would be sent unencrypted.")))
-        .when(!message.is_empty(), |d| d.child(div().text_color(Secure::muted()).child(message)))
-        .when(matches!(prompt.kind, PromptKind::Text { .. }), |d| d.child(field(b.prompt_input.clone())))
-        .when(matches!(prompt.kind, PromptKind::Credentials { .. }), |d| d.child(field(b.auth_user.clone())).child(field(b.auth_pass.clone())))
         .child(
             div()
                 .flex()
-                .gap_2()
                 .items_center()
-                .child(secure_button("prompt-accept", accept, true).on_click(cx.listener(|b, _, w, cx| b.answer_prompt(true, false, w, cx))))
-                .when_some(decline, |d, label| {
-                    d.child(secure_button("prompt-decline", label, false).on_click(cx.listener(|b, _, w, cx| b.answer_prompt(false, false, w, cx))))
-                })
-                .when(prompt.kind.is_permission() && remember_allowed, |d| {
-                    d.child(
-                        secure_button("prompt-remember", if b.remember_permission { "✓ Remember" } else { "Remember" }, false)
-                            .on_click(cx.listener(|b, _, _, cx| b.toggle_remember(cx))),
-                    )
-                })
-                .child(div().flex_1())
+                .gap_3()
+                .child(tile)
                 .child(
-                    secure_button("prompt-silence", "Block requests from this page", false)
-                        .on_click(cx.listener(|b, _, w, cx| b.answer_prompt(false, true, w, cx))),
-                ),
-        );
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_0p5()
+                        .child(div().child(div().flex().flex_wrap().gap_x_1().child(div().font_weight(FontWeight::BOLD).child(lead)).child(ask)))
+                        .when_some(detail, |d, detail| d.child(div().text_size(px(TEXT_SMALL)).text_color(Secure::muted()).child(detail))),
+                )
+                .child(buttons),
+        )
+        .when(prompt.insecure, |d| d.child(div().text_color(Secure::warning()).child("This connection is not secure: the password would be sent unencrypted.")))
+        .when(matches!(prompt.kind, PromptKind::Text { .. }), |d| d.child(field(b.prompt_input.clone())))
+        .when(matches!(prompt.kind, PromptKind::Credentials { .. }), |d| d.child(field(b.auth_user.clone())).child(field(b.auth_pass.clone())));
     Some((title, card))
 }
 

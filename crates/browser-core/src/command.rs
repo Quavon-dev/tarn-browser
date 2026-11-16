@@ -173,6 +173,39 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Open in Split View", "split-add"),
     ("Open in Private", "hand"),
     ("Inspect", "code"),
+    ("Open", "arrow-up-right"),
+    ("Open in New Tab", "app-window"),
+    ("Duplicate", "copy"),
+    ("Copy Download Link", "link"),
+    ("Paste and Go", "arrow-up-right"),
+    ("Pin Tab", "pin"),
+    ("Unpin Tab", "pin"),
+    ("Mute Site", "volume-x"),
+    ("Unmute Site", "volume-2"),
+    ("Add to Tiles", "layout-grid"),
+    ("Remove from Tiles", "layout-grid"),
+    ("Rename", "pencil"),
+    ("Reset Title", "undo-2"),
+    ("Return to ", "undo-2"),
+    ("Close Tab", "close"),
+    ("Close Other Tabs", "close"),
+    ("Close Tabs Below", "close"),
+    ("Close Group", "close"),
+    ("Unload Tab", "moon"),
+    ("Sleep Tab", "moon"),
+    ("New Group", "group"),
+    ("Ungroup", "group"),
+    ("Remove from Group", "group"),
+    ("New Folder", "folder-plus"),
+    ("New Subfolder", "folder-plus"),
+    ("Delete", "trash"),
+    ("Remove from List", "close"),
+    ("Restore in", "history"),
+    ("Rotate Layout", "reload"),
+    ("Customize in Settings", "gear"),
+    ("Show Tabs in Sidebar", "sidebar"),
+    ("Auto-Hide Tabs", "sidebar"),
+    ("Classic Toolbar", "app-window"),
 ];
 
 /// The glyph for `label`: the longest entry of `GLYPHS` it starts with, else `command`.
@@ -448,5 +481,52 @@ mod tests {
         assert_eq!((glyph("Unpin"), glyph("Remove from Tiles"), glyph("New Burner Tab")), ("pin", "layout-grid", "flame"));
         assert_eq!((glyph("Close Tabs Below"), glyph("Close All Tabs")), ("close", "close"));
         assert_eq!(glyph("Something New"), "command");
+    }
+
+    #[test]
+    fn every_fixed_context_menu_label_has_a_glyph() {
+        let labels = [
+            "Open",
+            "Duplicate",
+            "Reload in WebKit",
+            "Copy Link",
+            "Copy Clean Link",
+            "Bookmark Tab…",
+            "Pin Tab",
+            "Unpin Tab",
+            "Add to Tiles",
+            "Remove from Tiles",
+            "Rename",
+            "Reset Title",
+            "Return to tarn.example",
+            "Set Pinned URL to Current Page",
+            "Close Tab",
+            "Unload Tab",
+            "Sleep Tab",
+            "Close Other Tabs",
+            "Close Tabs Below",
+            "New Group",
+            "Ungroup",
+            "Remove from Group",
+            "New Folder",
+            "Delete Folder…",
+            "Delete Space…",
+            "Edit Space…",
+            "Open in Split View",
+            "Rotate Layout",
+            "Close Split View",
+            "Paste and Go",
+            "Restore in New Space",
+            "Customize in Settings…",
+            "Show Tabs in Sidebar",
+            "Classic Toolbar",
+            "Compact Toolbar",
+            "Site Settings…",
+        ];
+        for label in labels {
+            assert_ne!(glyph(label), "command", "{label}");
+        }
+        assert_eq!(glyph("Open in New Tab"), "app-window");
+        assert_eq!(glyph("Delete…"), "trash");
     }
 }

@@ -19,6 +19,7 @@ mod hover_card;
 mod library;
 mod link_peek;
 mod memory;
+mod menu_glyphs;
 mod menubar;
 mod peek;
 mod prefs;
@@ -26,6 +27,7 @@ mod profiles;
 mod qr;
 mod reader;
 mod settings;
+mod share;
 mod shared;
 mod shield_card;
 mod shortcuts;
@@ -153,6 +155,7 @@ impl Render for Browser {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         engine::startup::mark("first window render");
         self.follow_theme();
+        ui::motion::set_reduced(self.pref(prefs::Pref::ReduceMotion));
         // The menu bar is the app's; only the window in front decides what it lists.
         if window.is_window_active() {
             self.refresh_menus(cx);

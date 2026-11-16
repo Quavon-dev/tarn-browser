@@ -307,6 +307,7 @@ pub struct Browser {
     pub(crate) address: crate::address::Address,
     pub(crate) hover_card: crate::hover_card::HoverCard,
     pub(crate) site_popover: crate::site_settings::SitePopover,
+    pub(crate) share_menu: crate::share::ShareMenu,
     /// The Windows menu button, as last painted, so its menu drops from it.
     pub(crate) app_menu_anchor: Rc<Cell<Bounds<Pixels>>>,
     pub(crate) link_peek: crate::link_peek::LinkPeek,
@@ -484,6 +485,7 @@ impl Browser {
             address: Default::default(),
             hover_card: Default::default(),
             site_popover: Default::default(),
+            share_menu: Default::default(),
             app_menu_anchor: Default::default(),
             link_peek: Default::default(),
             splits: Default::default(),
@@ -2278,16 +2280,8 @@ impl Browser {
 
     /// A permission prompt's Allow and Remember, and Keep Anyway on a malware warning, ignore clicks for a
     /// moment after they appear, so a page cannot time a click to land on them.
-    fn prompt_guarded(&self) -> bool {
+    pub(crate) fn prompt_guarded(&self) -> bool {
         self.active_prompt().is_some_and(|p| p.kind.is_permission() || matches!(p.kind, PromptKind::MaliciousDownload { .. })) && !self.layout_stable()
-    }
-
-    pub fn toggle_remember(&mut self, cx: &mut Context<Self>) {
-        if self.prompt_guarded() {
-            return;
-        }
-        self.remember_permission = !self.remember_permission;
-        cx.notify();
     }
 
     fn on_prompt_input_event(&mut self, input: &Entity<TextInput>, event: &TextInputEvent, window: &mut Window, cx: &mut Context<Self>) {

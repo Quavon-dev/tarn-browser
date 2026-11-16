@@ -110,12 +110,26 @@ pub fn days_text(days: i64) -> String {
 }
 
 pub const SHORT: [(&str, &str); 3] = [("Parameters", "removed"), ("HTTPS", "upgrades"), ("Local visits", "blocked")];
+/// The captions under the card's three numbers where they show beside it.
+pub const NUMBERS: [&str; 3] = ["parameters removed", "HTTPS upgrades", "local visits blocked"];
 
 pub fn motto(level: ShieldLevel) -> (&'static str, &'static str) {
     match level {
         ShieldLevel::Standard => ("Standard", "Trackers blocked, links cleaned"),
         ShieldLevel::Strict => ("Strict", "No cross-site referrers"),
         ShieldLevel::Lockdown => ("Lockdown", "No scripts, nothing kept"),
+    }
+}
+
+/// The line under a site's Shield control: what its own level does, or for a site that follows
+/// its profile, which level that is and what it does.
+pub fn site_level_line(site: Option<ShieldLevel>, profile: ShieldLevel) -> String {
+    match site {
+        Some(level) => format!("{}.", motto(level).1),
+        None => {
+            let (name, meaning) = motto(profile);
+            format!("Follows the profile: {name} — {}.", meaning.to_lowercase())
+        }
     }
 }
 
@@ -482,6 +496,12 @@ pub fn back(card: &Card, dark: bool) -> (&'static str, String, Vec<Label>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_site_line_names_the_level_it_follows() {
+        assert_eq!(site_level_line(None, ShieldLevel::Standard), "Follows the profile: Standard — trackers blocked, links cleaned.");
+        assert_eq!(site_level_line(Some(ShieldLevel::Lockdown), ShieldLevel::Standard), "No scripts, nothing kept.");
+    }
 
     fn card(name: &str) -> Card {
         Card {
