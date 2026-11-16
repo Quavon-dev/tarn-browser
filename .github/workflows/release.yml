@@ -709,14 +709,12 @@ jobs:
               cat unreleased.md >> notes.md
             fi
           fi
-          # A release finishing after a newer one (an engine update waiting for its signing
-          # approval) must not take over the latest release, which both update feeds read.
-          latest="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name 2>/dev/null || echo v0.0.0)"
-          if [[ "$(printf '%s\n%s\n' "${latest#v}" "${TAG#v}" | sort -V | tail -n1)" == "${TAG#v}" ]]; then
-            latest_flag=--latest
-          else
-            latest_flag=--latest=false
-            echo "::warning::$latest is newer than $TAG; $TAG is published without becoming the latest release"
-          fi
-          gh release create "$TAG" dist/* --verify-tag "$latest_flag" --title "$TAG" --notes-file notes.md
+          gh release create "$TAG" dist/* --verify-tag --latest=false --title "$TAG" --notes-file notes.md
+          # Both update feeds read the latest release, so it is always the highest published version,
+          # set after creating: whichever of two overlapping releases finishes last corrects it.
+          highest="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" | jq -r '[.[][] | select(.draft == false and .prerelease == false)
+            | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last')"
+          [[ "$highest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "no published release found after creating $TAG" >&2; exit 1; }
+          gh release edit "$highest" --latest
+          [[ "$highest" == "$TAG" ]] || echo "::warning::$highest is newer than $TAG and stays the latest release"
           gh workflow run linux-repo.yml --ref main
