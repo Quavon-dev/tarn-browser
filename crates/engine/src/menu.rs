@@ -168,7 +168,7 @@ fn build<T>(mtm: MainThreadMarker, target: &Retained<Target>, items: Vec<Item<T>
                 entry.setSubmenu(Some(&build(mtm, target, children, values)));
                 entry
             }
-            Item::Action { title, key, checked, enabled, value } => {
+            Item::Action { title, key, checked, enabled, value, .. } => {
                 let (equivalent, modifiers) = key_equivalent(&key);
                 // SAFETY: `choose:` is implemented by `Target` with the `(id)sender` signature
                 // AppKit sends. Menu items hold their target weakly; the represented object

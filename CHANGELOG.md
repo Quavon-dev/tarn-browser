@@ -21,6 +21,10 @@ All notable changes to Tarn are documented in this file. The format is based on
   open it in a new tab, and the page menu offers link, image and media items.
 - Windows: the floating sidebar and hover card follow the pointer over pages, a click focuses a
   split pane, Esc closes a peek, and the mouse's back and forward buttons work over pages.
+- Windows: sign-in and payment pop-ups open as tabs that keep their link to the page; a video's
+  full screen fills the screen; Inspect opens DevTools in a window kept away from the web; the
+  menu shows colour dots and site icons; pages fade on a tab switch; two-finger swipes over the
+  sidebar and toolbar switch spaces and tabs; Arc's history and bookmarks can be imported.
 - Linux, iOS and Android apps on Native Shell over the same core crates.
 - Cookie-banner blocking.
 - Signed filter-list updates from this repository's releases, once a day.

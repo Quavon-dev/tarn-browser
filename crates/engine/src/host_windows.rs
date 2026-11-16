@@ -20,17 +20,20 @@ pub(crate) fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
-/// Chromium never hands a new window to the shell on Windows; pop-ups are offered as notices,
-/// so no `Popup` is ever made.
+/// A pop-up Chromium made for an allowed click, with the events it sent before the shell adopted
+/// it (`WebView::adopt`); dropping it closes the pop-up.
 pub struct Popup {
     pub url: Option<Url>,
+    /// Always false on Windows: Chromium reports a link's new window and a script's `window.open`
+    /// alike, and routing a pop-up elsewhere would cost it `window.opener`.
     pub link: bool,
-    pub(crate) never: std::convert::Infallible,
+    pub(crate) view: crate::chromium::WebView,
+    pub(crate) pending: std::rc::Rc<std::cell::RefCell<Vec<crate::Event>>>,
 }
 
 impl std::fmt::Debug for Popup {
-    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.never {}
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Popup").field("url", &self.url).field("link", &self.link).finish_non_exhaustive()
     }
 }
 

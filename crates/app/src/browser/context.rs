@@ -285,14 +285,14 @@ impl Browser {
         cx.stop_propagation();
         let Some(host) = self.host.clone() else { return };
         // This window's menus, not the app-wide ones another window may have set last.
-        let (menus, marks) = crate::menus(self.dynamic_menus());
+        let (menus, mut marks) = crate::menus(self.dynamic_menus());
         let items = menus
             .into_iter()
             .map(|m| {
-                let marked: Vec<(String, bool)> = marks
-                    .iter()
+                let marked: Vec<Marked> = marks
+                    .iter_mut()
                     .find(|(name, _)| m.name == *name)
-                    .map(|(_, marks)| marks.iter().map(|k| (k.title.clone(), k.checked)).collect())
+                    .map(|(_, marks)| marks.drain(..).map(|k| (k.title, k.checked, k.image)).collect())
                     .unwrap_or_default();
                 app_menu(m.owned(), &mut marked.into_iter().peekable(), cx)
             })
@@ -660,30 +660,33 @@ impl Browser {
     }
 }
 
+/// A menu entry's title, check mark and image, as `crate::menus` gives them.
+type Marked = (String, bool, Option<engine::menu::Image>);
+
 /// One of the app's menus as a native submenu with its shortcuts and the check marks the menu
 /// bar would show, matched in order by title (`menubar::Dynamic::marks`); headings and commands
 /// with nothing to do here are greyed, macOS-only commands and system menus left out, and so are
 /// separators that would end up doubled or at an edge.
-fn app_menu(menu: gpui::OwnedMenu, marks: &mut std::iter::Peekable<std::vec::IntoIter<(String, bool)>>, cx: &gpui::App) -> Item<Box<dyn gpui::Action>> {
+fn app_menu(menu: gpui::OwnedMenu, marks: &mut std::iter::Peekable<std::vec::IntoIter<Marked>>, cx: &gpui::App) -> Item<Box<dyn gpui::Action>> {
     let mut items: Vec<Item<Box<dyn gpui::Action>>> = Vec::new();
     for item in menu.items {
         let next = match item {
             gpui::OwnedMenuItem::Separator => Item::Separator,
             gpui::OwnedMenuItem::Submenu(submenu) => {
-                marks.next_if(|(title, _)| *title == submenu.name.as_ref());
+                marks.next_if(|(title, ..)| *title == submenu.name.as_ref());
                 app_menu(submenu, marks, cx)
             }
             gpui::OwnedMenuItem::SystemMenu(_) => continue,
             gpui::OwnedMenuItem::Action { name, action, .. } if crate::shortcuts::macos_only(&*action) => {
-                marks.next_if(|(title, _)| *title == name);
+                marks.next_if(|(title, ..)| *title == name);
                 continue;
             }
             gpui::OwnedMenuItem::Action { name, action, .. } => {
-                let checked = marks.next_if(|(title, _)| *title == name).is_some_and(|(_, on)| on);
+                let (checked, image) = marks.next_if(|(title, ..)| *title == name).map_or((false, None), |(_, on, image)| (on, image));
                 let idle =
                     action.partial_eq(&crate::menubar::Heading) || (action.partial_eq(&crate::CheckForUpdates) && crate::shared::core(cx).updater.is_none());
                 let keys = crate::shortcuts::keys(&*action, cx);
-                Item::action(name, action).key(keys).checked(checked).enabled(!idle)
+                Item::action(name, action).key(keys).checked(checked).enabled(!idle).image(image)
             }
         };
         if matches!(next, Item::Separator) && items.last().is_none_or(|last| matches!(last, Item::Separator)) {

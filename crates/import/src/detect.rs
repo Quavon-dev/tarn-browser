@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
@@ -18,7 +18,7 @@ pub fn available() -> bool {
 pub fn sources(home: &Path) -> Vec<Source> {
     let mut out = Vec::new();
     for browser in Browser::ALL {
-        let Some(root) = browser.profiles_dir().map(|dir| home.join(dir)) else { continue };
+        let Some(root) = browser.profiles_dir().and_then(|dir| resolve(home, dir)) else { continue };
         let Ok(entries) = std::fs::read_dir(&root) else { continue };
         let mut found: Vec<Source> = entries
             .filter_map(Result::ok)
@@ -45,6 +45,24 @@ pub fn sources(home: &Path) -> Vec<Source> {
         out.extend(found);
     }
     out
+}
+
+/// `home` joined with `dir`; a part ending in `*` is the folder whose name starts with the rest,
+/// as a packaged app's folder carries its publisher's hash.
+fn resolve(home: &Path, dir: &str) -> Option<PathBuf> {
+    let mut path = home.to_path_buf();
+    for part in dir.split('/') {
+        path = match part.strip_suffix('*') {
+            Some(prefix) => std::fs::read_dir(&path)
+                .ok()?
+                .filter_map(Result::ok)
+                .filter(|e| e.file_name().to_str().is_some_and(|n| n.starts_with(prefix)) && e.file_type().is_ok_and(|t| t.is_dir()))
+                .map(|e| e.path())
+                .min()?,
+            None => path.join(part),
+        };
+    }
+    Some(path)
 }
 
 /// `Local State`'s profile names, keyed by folder name.
@@ -107,5 +125,26 @@ mod tests {
         std::fs::write(firefox.join("places.sqlite"), "").unwrap();
         let found: Vec<(Browser, String)> = sources(home.path()).into_iter().map(|s| (s.browser, s.label)).collect();
         assert_eq!(found, [(Browser::Edge, "Default".into()), (Browser::Firefox, "default-release".into())]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn finds_arc_in_its_package_folder() {
+        let home = tempfile::tempdir().unwrap();
+        let packages = home.path().join("AppData/Local/Packages");
+        let arc = packages.join("TheBrowserCompany.Arc_ab12cd34/LocalCache/Local/Arc/User Data/Default");
+        std::fs::create_dir_all(&arc).unwrap();
+        std::fs::write(arc.join("Preferences"), "{}").unwrap();
+        std::fs::create_dir_all(packages.join("Other.App_1")).unwrap();
+        std::fs::write(packages.join("TheBrowserCompany.Arc_file"), "").unwrap();
+        let found: Vec<(Browser, String, PathBuf)> = sources(home.path()).into_iter().map(|s| (s.browser, s.label, s.dir)).collect();
+        assert_eq!(found, [(Browser::Arc, "Default".into(), arc)]);
+    }
+
+    #[test]
+    fn a_missing_package_folder_finds_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        assert_eq!(resolve(home.path(), "Packages/Some.App_*/Data"), None);
+        assert_eq!(resolve(home.path(), "a/b"), Some(home.path().join("a").join("b")));
     }
 }

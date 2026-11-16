@@ -27,8 +27,13 @@ impl WebView {
         false
     }
 
-    pub fn adopt(popup: Popup, _host: &Host, _inspectable: bool, _sink: Rc<dyn Fn(Event)>) -> Option<Self> {
-        match popup.never {}
+    pub fn adopt(popup: Popup, host: &Host, inspectable: bool, sink: Rc<dyn Fn(Event)>) -> Option<Self> {
+        let view = popup.view.rehost(host, sink.clone());
+        view.set_inspectable(inspectable);
+        for event in popup.pending.take() {
+            sink(event);
+        }
+        Some(WebView { filtered: view.filtered(), view })
     }
 
     pub fn rehost(self, host: &Host, sink: Rc<dyn Fn(Event)>) -> Self {

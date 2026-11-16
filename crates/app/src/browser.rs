@@ -258,6 +258,8 @@ pub struct Browser {
     next_generation: u64,
     pub privacy_notice: Option<((bool, Id), String)>,
     pub developer: bool,
+    /// A page shows an element full screen, and whether that put the window into full screen.
+    pub(crate) page_fullscreen: Option<bool>,
     pub responsive: Option<usize>,
     zoom_before_responsive: HashMap<TabKey, f64>,
     clear_site_armed: Option<(TabKey, String)>,
@@ -269,6 +271,9 @@ pub struct Browser {
     _subscriptions: Vec<Subscription>,
     pub swipe: crate::gestures::Swipe,
     pub(crate) pan: crate::gestures::Pan,
+    /// The region of a Windows touchpad gesture under way and the timer that ends it (`gestures`).
+    #[cfg(windows)]
+    pub(crate) wheel: Option<(Option<bool>, gpui::Task<()>)>,
     pub(crate) slide: Option<crate::sidebar::Slide>,
     nav_buttons: Option<engine::menu::EventMonitor>,
     page_clicks: Option<engine::menu::EventMonitor>,
@@ -426,6 +431,7 @@ impl Browser {
             next_generation: 0,
             privacy_notice: None,
             developer: false,
+            page_fullscreen: None,
             responsive: None,
             zoom_before_responsive: HashMap::new(),
             clear_site_armed: None,
@@ -437,6 +443,8 @@ impl Browser {
             _subscriptions: [subscription, find_sub].into_iter().chain(prompt_subs).collect(),
             swipe: crate::gestures::Swipe::new(engine::menu::natural_scrolling()),
             pan: Default::default(),
+            #[cfg(windows)]
+            wheel: None,
             slide: None,
             nav_buttons: None,
             page_clicks: None,
@@ -945,6 +953,9 @@ impl Browser {
     pub fn activate(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tab) = self.model.tab(key).cloned() else { return };
         let switched = self.model.active != Some(key);
+        if switched {
+            self.leave_page_fullscreen(window);
+        }
         let mut fading = false;
         if switched
             && let Some((outgoing, _)) = self.page_fade.take()
@@ -1794,7 +1805,13 @@ impl Browser {
                     }
                 }
             }
-            Event::Prompt(prompt) => self.queue_prompt(key, prompt, window, cx),
+            Event::Prompt(prompt) => {
+                // A prompt shows with the shell's origin chip, never over a full-screen page.
+                if self.model.active == Some(key) {
+                    self.leave_page_fullscreen(window);
+                }
+                self.queue_prompt(key, prompt, window, cx);
+            }
             Event::Popup(popup) => self.adopt_popup(key, popup, window, cx),
             Event::ShieldLevelChanged(url) => self.rebuild_view(key, &url, cx),
             Event::RebuildForLink(url) => self.rebuild_view_for_link(key, &url, cx),
@@ -1854,7 +1871,11 @@ impl Browser {
                     self.count_shield(key.private, profile_id, counter, 1, host.as_deref(), cx);
                 }
             }
+            Event::FullScreen(on) => self.set_page_fullscreen(key, on, window),
             Event::ContentProcessTerminated => {
+                if self.model.active == Some(key) {
+                    self.leave_page_fullscreen(window);
+                }
                 self.drop_prompts(key, cx);
                 let page = self.pages.entry(key).or_default();
                 if page.crashed {
@@ -1866,6 +1887,55 @@ impl Browser {
             }
         }
         cx.notify();
+    }
+
+    /// The active tab's page alone fills the window, in full screen, while it shows an element
+    /// full screen; leaving restores the window as it was.
+    fn set_page_fullscreen(&mut self, key: TabKey, on: bool, window: &mut Window) {
+        if self.model.active != Some(key) {
+            return;
+        }
+        if !on {
+            return self.leave_page_fullscreen(window);
+        }
+        // Nothing the shell must show may be hidden: a pending prompt keeps the toolbar and its origin.
+        if self.active_prompt().is_some() {
+            return;
+        }
+        let Some(view) = self.views.get(&key).filter(|_| self.page_fullscreen.is_none()).cloned() else { return };
+        let entered = !window.is_fullscreen();
+        if entered {
+            window.toggle_fullscreen();
+        }
+        self.page_fullscreen = Some(entered);
+        view.set_corner_radius(0.);
+        view.raise();
+        self.layout_changed();
+    }
+
+    /// Whether the window may show the full-screen page alone: no prompt, overlay, address field,
+    /// find bar or notice of the shell waits to be seen, and the page is still the active one.
+    pub(crate) fn page_fullscreen_holds(&self) -> bool {
+        self.active_view().is_some()
+            && self.active_prompt().is_none()
+            && !self.overlay_open()
+            && self.command_mode.is_none()
+            && !self.find_open
+            && self.model.active.and_then(|k| self.pages.get(&k)).is_none_or(|p| p.notice.is_none() && p.blocked.is_none())
+    }
+
+    /// Gives the window back its sidebar, toolbar and size: when the page leaves full screen, and
+    /// when a prompt, another tab or a crash needs the shell. The page itself may stay full screen
+    /// inside the tab until it is put away.
+    pub(crate) fn leave_page_fullscreen(&mut self, window: &mut Window) {
+        let Some(entered) = self.page_fullscreen.take() else { return };
+        if entered && window.is_fullscreen() {
+            window.toggle_fullscreen();
+        }
+        if let Some(view) = self.active_view() {
+            view.set_corner_radius(page_corner());
+        }
+        self.layout_changed();
     }
 
     fn record_visit(&mut self, key: TabKey, url: &Url, title: &str, typed: bool) {
@@ -2180,8 +2250,10 @@ impl Browser {
             return;
         };
         let key = TabKey { private, id: tab.id };
-        // Only WebKit views adopt pop-ups, so an opener with an engine of its own ran in WebKit.
-        self.store(private).set_tab_web_engine(tab.id, self.model.tab(opener).and_then(|t| t.web_engine).map(|_| WebEngine::WebKit)).ok();
+        // On macOS only WebKit views adopt pop-ups, so an opener with an engine of its own ran in WebKit.
+        if cfg!(target_os = "macos") {
+            self.store(private).set_tab_web_engine(tab.id, self.model.tab(opener).and_then(|t| t.web_engine).map(|_| WebEngine::WebKit)).ok();
+        }
         let inspectable = self.developer || self.is_dev_tab(opener);
         let Some(view) = WebView::adopt(popup, &host, inspectable, self.sink(key)) else {
             self.store(private).delete_tab(tab.id).ok();

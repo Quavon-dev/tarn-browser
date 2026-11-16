@@ -65,7 +65,26 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   is handed to Windows. Shift-click opens a link in a peek; Ctrl- and middle-click and the page
   menu's Open Link in New Tab open a tab under the pop-up rules, its first load judged as the
   page's link (S10). The page menu keeps Chrome's editing, link, image and media items; saving
-  goes through Tarn's downloads.
+  goes through Tarn's downloads. With developer tools on, the page menu's Inspect opens DevTools
+  in a window of its own (no debugging port, S22) whose client shows only `devtools://` pages,
+  cancels every web request it would make, refuses downloads and offers the links it opens in the
+  inspected tab, where the user's click opens them.
+- **Pop-up windows:** a clicked pop-up the site's rule and the block lists allow (`window.open`,
+  `target=_blank`) is made by Chromium as a view of Tarn's own, hidden in the browser window, and
+  the shell adopts it into a tab (`Event::Popup`, `WebView::adopt`), so it keeps `window.opener`
+  for sign-in and payment windows; the events it sends before that wait in the `Popup`. It is
+  never routed to another space, which would cost it the opener. A Lockdown view's pop-ups are
+  offered instead: their page must not load before its service workers are bypassed. It is
+  judged by the page that opened it (S10, downloads), takes the opener's Lockdown and filtering,
+  and gets the page scripts from its next page on. A page that sets no background of its own
+  shows on Chrome's dark window colour instead of white, in pop-ups and after a page's own
+  navigation; typed loads are white (CEF's background settings and DevTools' override do not
+  reach it).
+- **Page full screen:** a page's element full screen (a video) makes the window full screen with
+  the page alone in it (`Event::FullScreen`) while Chrome's own bubble names the origin and Esc;
+  leaving, Esc, another tab, a crash, or anything the shell must show (a prompt, the address
+  field, find, a notice) restores the window and the tab, and a page cannot return to it while a
+  prompt waits.
 - **Downloads:** saved without a dialog to `~\Downloads` under a cleaned, unused name (device names
   and `<>"|?*` replaced), with a `Zone.Identifier` stream (zone 3, `HostUrl` without credentials)
   so SmartScreen treats the file as downloaded; never opened. File pickers use the system dialog.
@@ -74,7 +93,8 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   and removes its part. It waits paused. A host the user has not let through with "Visit Anyway"
   is still refused by the request filter before any request, as macOS's gate does.
   Chromium's PDF viewer is the only extension frame allowed.
-- **Import:** profiles of Chrome, Edge, Brave and Firefox under `%LOCALAPPDATA%`/`%APPDATA%`;
+- **Import:** profiles of Chrome, Edge, Brave and Firefox under `%LOCALAPPDATA%`/`%APPDATA%`, and
+  Arc's in its app package's folder (`Packages\TheBrowserCompany.Arc_*`);
   history and bookmarks from all, cookies from Firefox. Firefox's cookies go into the profile's
   Chromium jar (`CookieManager::set_cookie`) under the macOS import's rules, shared as
   `engine::cookies::admit_imported`: nothing that overlaps a cookie the jar holds, the bridge's
@@ -127,6 +147,9 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   the request filter drops the `Referer` of every cross-origin request a Strict page sends,
   navigations included, which Windows views decide per page rather than per view; Chromium's own
   `strict-origin-when-cross-origin` caps what `document.referrer` can show to the origin.
+- **Tab fade and menus:** the page's child window fades through `WS_EX_LAYERED` and is plain
+  again once the fade ends. The toolbar's menu shows the menu bar's colour dots and site icons as
+  menu bitmaps (PNG data read as an icon image); system symbols have no Windows counterpart.
 - **Pop-ups:** GPUI draws transparency only with DirectComposition, which would cover Chromium's
   child windows, so each pop-up is clipped to its card's rounded rectangle
   (`Host::round_corners`); the card's shadow, and the downloads panel's caret, are not drawn on
@@ -139,7 +162,11 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   is app-wide anyway). CEF refuses to change it while running, so Tarn writes it into Local State
   after Chromium shuts down and it holds from the next launch. Chrome shows its arrow instead of WebKit's sliding page, and swipes only
   when the page cannot scroll further sideways. Pinch to zoom stays on when gestures are off:
-  Chrome has no run-time switch for it.
+  Chrome has no run-time switch for it. GPUI reports a touchpad's two-finger scrolling as wheel
+  lines without touch phases, so the sidebar's and toolbar's swipes take a burst of them as one
+  gesture, started after a pause of 180 ms and ended at the next. Only fractions of a line count,
+  which a touchpad sends and a notched wheel does not; a free-spinning or fine-step mouse wheel
+  can still swipe.
 - **Updater** (`platform::updater`, release builds only): at launch and then daily (wall-clock,
   an hour after a failed check) while automatic checks are on, and on Check for Updates…, Tarn
   fetches `windows-update.json` and its `.sig` from the latest GitHub release next to the feed in
@@ -172,9 +199,7 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   stream, library search by keyboard, importing history from Edge.
 
 **Open, in order:**
-1. Inspect Element: not built yet; a DevTools window CEF opens without Tarn's client would load
-   what it opens outside the request filter, so it waits for a client of its own.
-   Extensions: a gap until CEF can scope them (§8). Translation stays macOS-only: Windows has no on-device
+1. Extensions: a gap until CEF can scope them (§8). Translation stays macOS-only: Windows has no on-device
    translation. The memory panel and budget measure each tab's main-frame renderer, which reports its own
    process id at each main-frame load (`RENDERER_PID`); Tarn takes it only when that process runs Tarn's own
    executable. A page whose renderer sends no report keeps the last one until the next.
@@ -305,7 +330,9 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
 - **Private profile on disk:** WebView2 InPrivate keeps temporary data in the user data folder
   during the session. The private profile's "never touches disk" rule cannot be met strictly; mitigation is a dedicated folder deleted on
   close and at next launch. Needs a maintainer decision to accept this deviation.
-- **No `interactionState`:** hibernated tabs lose their back list on Windows.
+- **No `interactionState`:** CEF and the DevTools protocol can read a tab's back list but not set
+  one, so a tab that sleeps, is reopened or is restored at launch keeps only its page on Windows,
+  not its back and forward history.
 - **AppContainer:** may not be feasible with WebView2 and GPUI's DirectX device; then S12 is
   weaker on Windows than on macOS.
 - **Request filtering cost:** `WebResourceRequested` for every request is slower than compiled

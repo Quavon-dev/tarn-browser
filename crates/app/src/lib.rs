@@ -44,7 +44,7 @@ mod zaps;
 use browser::{Browser, CommandMode};
 use gpui::{
     App, Application, Context, Focusable, InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, MouseButton, NavigationDirection, OsAction,
-    ParentElement, Render, Styled, SystemMenuType, Window, actions, div, prelude::FluentBuilder, px,
+    ParentElement, Render, Styled, SystemMenuType, Window, actions, canvas, div, prelude::FluentBuilder, px,
 };
 use ui::text_input;
 use ui::theme::Theme;
@@ -170,7 +170,10 @@ impl Render for Browser {
             .on_action(cx.listener(|b, _: &ToggleSidebar, _, cx| b.toggle_sidebar(cx)))
             .on_action(cx.listener(|b, _: &Settings, w, cx| b.open_settings(w, cx)))
             .on_action(cx.listener(|b, _: &AboutTarn, w, cx| b.open_settings_pane(settings::SettingsPane::General, w, cx)))
-            .on_action(cx.listener(|_, _: &ToggleFullScreen, w, _| w.toggle_fullscreen()))
+            .on_action(cx.listener(|b, _: &ToggleFullScreen, w, _| {
+                // Out of a page's full screen, the shell's toolbar and origin come back with the window.
+                if b.page_fullscreen.is_some() { b.leave_page_fullscreen(w) } else { w.toggle_fullscreen() }
+            }))
             .on_action(cx.listener(|b, _: &CloseOverlay, w, cx| {
                 if b.overlay_open() {
                     b.dismiss_overlay(w, cx);
@@ -276,8 +279,26 @@ impl Render for Browser {
                 .child(sidebar::render(self, cx))
                 .when(shown < 1., |d| d.w(px((self.sidebar_width + sidebar::SIDEBAR_MARGIN) * shown)).overflow_hidden().opacity(shown))
         });
+        if self.page_fullscreen.is_some() && !self.page_fullscreen_holds() {
+            self.leave_page_fullscreen(window);
+        }
+        if let Some(view) = self.page_fullscreen.and_then(|_| self.active_view()) {
+            let page = canvas(
+                move |bounds, _, _| {
+                    view.set_frame(
+                        f32::from(bounds.origin.x).into(),
+                        f32::from(bounds.origin.y).into(),
+                        f32::from(bounds.size.width).into(),
+                        f32::from(bounds.size.height).into(),
+                    )
+                },
+                |_, _, _, _| {},
+            );
+            return root.bg(gpui::black()).child(page.size_full()).into_any_element();
+        }
         root.children(sidebar)
             .child(div().flex_1().min_w_0().h_full().flex().flex_col().child(toolbar::render(self, cx)).child(content::render(self, window, cx)))
+            .into_any_element()
     }
 }
 

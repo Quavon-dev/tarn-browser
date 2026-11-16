@@ -95,6 +95,9 @@ pub enum Event {
         origin: Option<String>,
     },
     ContentProcessTerminated,
+    /// A Chromium page on Windows entered (`true`) or left full screen for an element (a video); the
+    /// shell shows the page alone, filling the screen. WebKit opens its own full-screen window.
+    FullScreen(bool),
     /// With the upgraded page's host for an HTTPS upgrade; the shell names a refusal by the tab's page.
     Protected(Protection, Option<String>),
     /// Saved and never opened automatically. `quarantined` is false if the quarantine
