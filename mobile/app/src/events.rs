@@ -43,6 +43,11 @@ impl<D: Platform> Shell<D> {
         }
         match name {
             "committed" | "finished" => return self.page_event(key, name == "committed", data, now),
+            "started" | "stopped" => {
+                if let Some(page) = self.pages.get_mut(&key) {
+                    page.loading = name == "started";
+                }
+            }
             "title" => {
                 let title = text(data, "title").unwrap_or_default();
                 let committed = self.pages.get_mut(&key).and_then(|page| {

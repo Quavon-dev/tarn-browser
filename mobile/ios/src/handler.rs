@@ -81,6 +81,11 @@ define_class!(
             handler.call((if is_download(response) { WKNavigationResponsePolicy::Download } else { WKNavigationResponsePolicy::Allow },));
         }
 
+        #[unsafe(method(webView:didStartProvisionalNavigation:))]
+        fn did_start_provisional(&self, _web: &WebView, _navigation: Option<&WKNavigation>) {
+            self.emit("started", json!({}));
+        }
+
         #[unsafe(method(webView:didCommitNavigation:))]
         fn did_commit(&self, web: &WebView, _navigation: Option<&WKNavigation>) {
             if let Some(inner) = self.inner() {
@@ -240,7 +245,7 @@ impl Handler {
     fn failed(&self, error: &NSError) {
         let (domain, code) = (error.domain().to_string(), error.code());
         if CANCELLED.iter().any(|(d, c)| *d == domain && *c == code) {
-            return;
+            return self.emit("stopped", json!({}));
         }
         let key = NSString::from_str("NSErrorFailingURLStringKey");
         let url = error.userInfo().objectForKey(&key).and_then(|v| v.downcast::<NSString>().ok()).map(|s| s.to_string());

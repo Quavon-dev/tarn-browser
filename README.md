@@ -299,7 +299,8 @@ Library › Memory (or Show Memory Use in the command bar) lists the space's tab
 CPU of their web content process, with Sleep per tab and Sleep All Inactive Tabs; the sidebar's
 heavy-tab dot ranks by the same figures. Once awake background tabs hold more than 1 GB together,
 the heaviest of those unused for a minute sleep, pinned tabs only after 30 minutes unused (tabs
-playing media stay awake; off when sleeping is Never). Chromium tabs are not measured. Resting the
+playing media stay awake; off when sleeping is Never). Chromium tabs count by their renderer
+process. Resting the
 pointer on a tab row shows its full title, address and state. Right-click a space (its name or
 icon) and choose Edit Space… to change its name, colour and icon.
 

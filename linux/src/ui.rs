@@ -376,114 +376,19 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
             let depth = item.with_untracked(|r| r.depth) as f32;
             let name = move || item.with(|r| r.label.clone());
             match kind {
-                RowKind::Tab(key) => {
-                    let active = move || item.with(|r| r.active);
-                    let hovered = signal(false);
-                    let slot = element_ref();
-                    let close = (!pinned).then(|| {
-                        let shown = move || hovered.get() as u8 as f32;
-                        view()
-                            .element_ref(&slot)
-                            .flex_shrink_0()
-                            .overflow_hidden()
-                            .w(move || px(CLOSE_WIDTH * shown()))
-                            .ml(move || px(-CLOSE_GAP * (1. - shown())))
-                            .opacity(shown)
-                            .transition_opacity()
-                            .child(icon_button(icons::CLOSE, "Close tab", move || act(ui, |b| b.close_tab(key))))
-                    });
-                    let hover = move |on: bool| {
-                        if !pinned && !reduce_motion() {
-                            slot.animate_layout(LayoutTransition::new(LayoutCurve::EaseOut, tarn_nsh_shared::motion::FADE.as_secs_f32() * 1000.));
-                        }
-                        hovered.set(on);
-                    };
-                    let dropping = move || ui.split_drop.with(|d| d.filter(|(k, _)| *k == key).map(|(_, does)| does));
-                    // The other tabs of a split carry the edge too: in the accent for the split on screen.
-                    let edge = move || match (active(), item.with(|r| r.split)) {
-                        (true, _) | (false, Some(true)) => Some(Theme::accent()),
-                        (false, Some(false)) => Some(Theme::faint()),
-                        (false, None) => None,
-                    };
-                    let tab = row(move || Some(SharedString::from(name())), move || act(ui, |b| b.activate(key)))
-                        .on_press_down(move || ui.dragging.set(Some(key)))
-                        .h(px(TAB_ROW))
-                        .relative()
-                        .pl(px(10. + depth * 16.))
-                        .pr_1()
-                        .gap(px(CLOSE_GAP))
-                        .bg(move || match (dropping().is_some(), active()) {
-                            (true, _) => Theme::accent_soft(),
-                            (false, true) => Theme::selected(),
-                            (false, false) => rgba(0),
-                        })
-                        .child(dynamic(move || {
-                            edge().map(|color| view().absolute().left(px(0.)).top(px(7.)).bottom(px(7.)).w(px(3.)).rounded_full().bg(color))
-                        }))
-                        .child(when(
-                            move || dropping().is_some(),
-                            || view().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent()),
-                        ))
-                        .child({
-                            let mark = computed(move || item.with(|r| (r.loading && !reduce_motion(), r.host.clone())));
-                            dynamic(move || match mark.get() {
-                                (true, _) => view()
-                                    .text_color(Theme::space_label())
-                                    .child(tarn_nsh_shared::motion::spinner(14., icons::icon(icons::RELOAD, 14.)))
-                                    .into_element(),
-                                (false, host) => site_tile(&host, 16.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element(),
-                            })
-                        })
-                        .child(
-                            body(name)
-                                .text_color(move || match item.with(|r| (r.active, r.asleep)) {
-                                    (true, _) => Theme::text(),
-                                    (false, true) => Theme::asleep(),
-                                    (false, false) => Theme::muted(),
-                                })
-                                .flex_1()
-                                .truncate(),
-                        )
-                        .child(dynamic(move || {
-                            let (burner, heavy) = item.with(|r| (r.burner, r.heavy));
-                            let mark = if burner {
-                                Some((icons::FLAME, Theme::warning(), "Burner tab: nothing is kept after it closes"))
-                            } else if heavy {
-                                Some((icons::GAUGE, Theme::muted(), "Awake in the background and using memory. Sleep Tab frees it."))
-                            } else {
-                                None
-                            };
-                            mark.map(|(icon, tint, name)| {
-                                view().text_color(tint).accessible(true).label(name).tooltip(controls::tip(name, Placement::Top)).child(icons::icon(icon, 13.))
-                            })
-                        }))
-                        .child(dynamic(move || dropping().map(|does| small(does).text_color(Theme::accent()))))
-                        .children(close);
-                    // Where the dragged tab lands when dropped here: after this row when it comes from above in the same zone.
-                    let landing = move || {
-                        let dragged = ui.dragging.get().filter(|d| *d != key && hovered.get() && dropping().is_none())?;
-                        read(ui, |b| match (b.model.tab(dragged), b.model.tab(key)) {
-                            (Some(d), Some(t)) => d.kind == t.kind && d.folder_id == t.folder_id && d.position < t.position,
-                            _ => false,
-                        })
-                    };
-                    view()
-                        .relative()
-                        .on_mouse_up(move |_: &MouseEvent| split::drop_on_row(ui, key))
-                        .on_mouse_enter(move |_: &MouseEvent| hover(true))
-                        .on_mouse_leave(move |_: &MouseEvent| {
-                            hover(false);
-                            split::drop_leave(ui, key);
-                        })
-                        .on_mouse_move(move |e: &MouseEvent| split::drop_over(ui, key, browser_core::split::drops_into(e.position.y.0 / TAB_ROW)))
-                        .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
-                        .child(tab)
-                        .child(dynamic(move || {
-                            let line = view().absolute().left(px(6.)).right(px(6.)).h(px(2.)).rounded_full().bg(Theme::accent());
-                            landing().map(|after| if after { line.bottom(px(-2.)) } else { line.top(px(-2.)) })
-                        }))
-                        .into_element()
-                }
+                RowKind::Tab(key) => tab_row(ui, pinned, key, item),
+                RowKind::Split(_) => view()
+                    .flex_row()
+                    .gap(px(2.))
+                    .child(each(
+                        move || item.with(|r| r.panes.clone()),
+                        |r| r.id(),
+                        move |pane, _| {
+                            let RowKind::Tab(key) = pane.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
+                            view().flex_1().min_w_0().child(tab_row(ui, pinned, key, pane)).into_element()
+                        },
+                    ))
+                    .into_element(),
                 RowKind::Folder(id) => view()
                     .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
                     .child(
@@ -502,6 +407,111 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
             }
         },
     )
+}
+
+fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -> AnyElement {
+    let depth = item.with_untracked(|r| r.depth) as f32;
+    let name = move || item.with(|r| r.label.clone());
+    let active = move || item.with(|r| r.active);
+    let hovered = signal(false);
+    let slot = element_ref();
+    let close = (!pinned).then(|| {
+        let shown = move || hovered.get() as u8 as f32;
+        view()
+            .element_ref(&slot)
+            .flex_shrink_0()
+            .overflow_hidden()
+            .w(move || px(CLOSE_WIDTH * shown()))
+            .ml(move || px(-CLOSE_GAP * (1. - shown())))
+            .opacity(shown)
+            .transition_opacity()
+            .child(icon_button(icons::CLOSE, "Close tab", move || act(ui, |b| b.close_tab(key))))
+    });
+    let hover = move |on: bool| {
+        if !pinned && !reduce_motion() {
+            slot.animate_layout(LayoutTransition::new(LayoutCurve::EaseOut, tarn_nsh_shared::motion::FADE.as_secs_f32() * 1000.));
+        }
+        hovered.set(on);
+    };
+    let dropping = move || ui.split_drop.with(|d| d.filter(|(k, _)| *k == key).map(|(_, does)| does));
+    // The other tabs of a split carry the edge too: in the accent for the split on screen.
+    let edge = move || match (active(), item.with(|r| r.split)) {
+        (true, _) | (false, Some(true)) => Some(Theme::accent()),
+        (false, Some(false)) => Some(Theme::faint()),
+        (false, None) => None,
+    };
+    let tab = row(move || Some(SharedString::from(name())), move || act(ui, |b| b.activate(key)))
+        .on_press_down(move || ui.dragging.set(Some(key)))
+        .h(px(TAB_ROW))
+        .relative()
+        .pl(px(10. + depth * 16.))
+        .pr_1()
+        .gap(px(CLOSE_GAP))
+        .bg(move || match (dropping().is_some(), active()) {
+            (true, _) => Theme::accent_soft(),
+            (false, true) => Theme::selected(),
+            (false, false) => rgba(0),
+        })
+        .child(dynamic(move || edge().map(|color| view().absolute().left(px(0.)).top(px(7.)).bottom(px(7.)).w(px(3.)).rounded_full().bg(color))))
+        .child(when(move || dropping().is_some(), || view().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent())))
+        .child({
+            let mark = computed(move || item.with(|r| (r.loading && !reduce_motion(), r.host.clone())));
+            dynamic(move || match mark.get() {
+                (true, _) => {
+                    view().text_color(Theme::space_label()).child(tarn_nsh_shared::motion::spinner(14., icons::icon(icons::RELOAD, 14.))).into_element()
+                }
+                (false, host) => site_tile(&host, 16.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element(),
+            })
+        })
+        .child(
+            body(name)
+                .text_color(move || match item.with(|r| (r.active, r.asleep)) {
+                    (true, _) => Theme::text(),
+                    (false, true) => Theme::asleep(),
+                    (false, false) => Theme::muted(),
+                })
+                .flex_1()
+                .truncate(),
+        )
+        .child(dynamic(move || {
+            let (burner, heavy) = item.with(|r| (r.burner, r.heavy));
+            let mark = if burner {
+                Some((icons::FLAME, Theme::warning(), "Burner tab: nothing is kept after it closes"))
+            } else if heavy {
+                Some((icons::GAUGE, Theme::muted(), "Awake in the background and using memory. Sleep Tab frees it."))
+            } else {
+                None
+            };
+            mark.map(|(icon, tint, name)| {
+                view().text_color(tint).accessible(true).label(name).tooltip(controls::tip(name, Placement::Top)).child(icons::icon(icon, 13.))
+            })
+        }))
+        .child(dynamic(move || dropping().map(|does| small(does).text_color(Theme::accent()))))
+        .children(close);
+    // Where the dragged tab lands when dropped here: after this row when it comes from above in the same zone.
+    let landing = move || {
+        let dragged = ui.dragging.get().filter(|d| *d != key && hovered.get() && dropping().is_none())?;
+        read(ui, |b| match (b.model.tab(dragged), b.model.tab(key)) {
+            (Some(d), Some(t)) => d.kind == t.kind && d.folder_id == t.folder_id && d.position < t.position,
+            _ => false,
+        })
+    };
+    view()
+        .relative()
+        .on_mouse_up(move |_: &MouseEvent| split::drop_on_row(ui, key))
+        .on_mouse_enter(move |_: &MouseEvent| hover(true))
+        .on_mouse_leave(move |_: &MouseEvent| {
+            hover(false);
+            split::drop_leave(ui, key);
+        })
+        .on_mouse_move(move |e: &MouseEvent| split::drop_over(ui, key, browser_core::split::drops_into(e.position.y.0 / TAB_ROW)))
+        .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
+        .child(tab)
+        .child(dynamic(move || {
+            let line = view().absolute().left(px(6.)).right(px(6.)).h(px(2.)).rounded_full().bg(Theme::accent());
+            landing().map(|after| if after { line.bottom(px(-2.)) } else { line.top(px(-2.)) })
+        }))
+        .into_element()
 }
 
 fn space_bar(ui: Ui) -> View {
