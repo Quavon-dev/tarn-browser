@@ -153,7 +153,9 @@ impl State {
         self.content.replace(None);
         if let Some(old) = self.view.replace(None) {
             old.stop_loading();
-            self.container().remove(&old);
+            if old.parent().is_some() {
+                self.container().remove(&old);
+            }
         }
     }
 }
@@ -266,8 +268,25 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
     }
     connect(state, &web);
     state.note_processes();
-    state.container().append(&web);
+    attach_when_sized(state, &web);
     *state.view.borrow_mut() = Some(web);
+}
+
+/// WebKitGTK never paints a view that was mapped at no size, so the page joins its container only
+/// once the page area has been laid out.
+fn attach_when_sized(state: &Rc<State>, web: &WebView) {
+    let weak = Rc::downgrade(state);
+    let web = web.clone();
+    state.container().add_tick_callback(move |container, _| {
+        let current = weak.upgrade().is_some_and(|s| s.web().as_ref() == Some(&web));
+        if current && (container.width() == 0 || container.height() == 0) {
+            return glib::ControlFlow::Continue;
+        }
+        if current {
+            container.append(&web);
+        }
+        glib::ControlFlow::Break
+    });
 }
 
 fn apply_zaps(state: &Rc<State>) {
