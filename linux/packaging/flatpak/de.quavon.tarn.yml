@@ -29,7 +29,6 @@ modules:
       - install -Dm644 crates/ui/brand/mark.svg /app/share/icons/hicolor/scalable/apps/de.quavon.tarn.svg
       - install -Dm644 de.quavon.tarn.metainfo.xml /app/share/metainfo/de.quavon.tarn.metainfo.xml
       - install -Dm644 LICENSE /app/share/licenses/de.quavon.tarn/LICENSE
-      - install -Dm644 packaging/third-party-licenses-linux.txt /app/share/licenses/de.quavon.tarn/third-party-licenses.txt
     sources:
       - type: git
         url: https://github.com/Quavon-dev/tarn-browser.git
