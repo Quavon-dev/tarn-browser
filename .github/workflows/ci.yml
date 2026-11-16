@@ -183,11 +183,11 @@ jobs:
           targets: aarch64-apple-ios-sim, aarch64-linux-android, armv7-linux-androideabi
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          # nsh builds the iOS and Android apps into mobile/app/target.
-          workspaces: |
-            mobile -> target
-            mobile/app -> target
+          workspaces: mobile -> target
+          # nsh builds the apps as its own generated workspace into mobile/app/target; a workspace
+          # entry would prune that workspace's crates (nsh-platform-android, ...) before saving.
           cache-directories: |
+            mobile/app/target
             ~/.gradle/caches
             ~/.gradle/wrapper
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -232,7 +232,9 @@ jobs:
           targets: aarch64-apple-ios
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: mobile/app -> target
+          workspaces: mobile -> target
+          # As in the mobile job: kept whole, since it holds nsh's generated workspace.
+          cache-directories: mobile/app/target
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: |
           curl -fsSL -o "$RUNNER_TEMP/nsh.tar.gz" "$NSH_RELEASE/nsh-macos-arm64.tar.gz"
