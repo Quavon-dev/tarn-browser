@@ -179,7 +179,7 @@ pub fn segmented(options: Vec<Segment>) -> View {
             let size = if touch { TEXT } else { TEXT_SMALL };
             pressable(name.clone(), press)
                 .min_h(px(m.segment_height))
-                .px_3()
+                .px(px(if touch { 8. } else { 12. }))
                 .items_center()
                 .justify_center()
                 .rounded(px(m.segment_radius))

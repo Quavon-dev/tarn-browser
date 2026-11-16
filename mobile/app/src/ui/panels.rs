@@ -79,12 +79,12 @@ pub(super) fn leave(ui: Ui, to: Screen) {
 
 fn sheet(ui: Ui, screen: Screen, body: AnyElement) -> impl IntoElement {
     let name = title(screen);
-    let header = view().flex_row().items_center().pr_2().pt_2();
+    let header = view().flex_row().items_center().pt_2();
     let header = match parent(screen) {
         Some(up) => {
             header.pl_1().child(tarn_nsh_shared::controls::icon_button(icon(icons::BACK, Theme::text), format!("Back to {}", title(up)), move || leave(ui, up)))
         }
-        None => header.pl_4(),
+        None => header.pl_3(),
     };
     surface(Theme::radius_card())
         .flex_1()
