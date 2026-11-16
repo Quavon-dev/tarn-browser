@@ -52,12 +52,15 @@ const LATE: &str = "<title>LATE</title><p>late</p><script>\
     const f = document.createElement('iframe'); f.src = 'http://localhost:' + location.port + '/sub?late'; document.body.append(f);\
     </script>";
 
-/// A page with one cross-site frame that navigates itself three seconds after loading.
+/// A page with one cross-site frame that moves to `/sub?wait`, which the server answers only after
+/// the test has put `release` into the requests seen, and from there to `/sub?ok&released`.
 const HELD: &str = "<title>HELD</title><p>held</p><script>\
     const f = document.createElement('iframe'); f.src = 'http://localhost:' + location.port + '/sub?held'; document.body.append(f);\
     </script>";
 
-const SUB_HELD: &str = "<title>SUB</title><script>addEventListener('load', () => setTimeout(() => { location.search = '?ok&released'; }, 3000));</script>";
+const SUB_HELD: &str = "<title>SUB</title><script>addEventListener('load', () => setTimeout(() => { location.search = '?wait'; }, 500));</script>";
+
+const SUB_WAIT: &str = "<title>SUB</title><script>addEventListener('load', () => setTimeout(() => { location.search = '?ok&released'; }, 500));</script>";
 
 const SUB_LATE: &str = "<title>SUB</title><script>setTimeout(() => { location.search = '?ok&again'; }, 4000);</script>";
 
@@ -88,6 +91,10 @@ pub fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {
                     std::thread::sleep(Duration::from_millis(1500));
                 }
                 let route = path.split('?').next().unwrap_or_default();
+                let until = Instant::now() + Duration::from_secs(30);
+                while path.ends_with("?wait") && !seen.lock().unwrap().iter().any(|s| s == "release") && Instant::now() < until {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
                 if route == "/nocontent" {
                     std::thread::sleep(Duration::from_millis(1000));
                     write!(stream, "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n").ok();
@@ -100,6 +107,7 @@ pub fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {
                     "/twice" => ("text/html", TWICE),
                     "/sub" if path.ends_with("?late") => ("text/html", SUB_LATE),
                     "/sub" if path.ends_with("?held") => ("text/html", SUB_HELD),
+                    "/sub" if path.ends_with("?wait") => ("text/html", SUB_WAIT),
                     "/held" => ("text/html", HELD),
                     "/sub" => ("text/html", SUB),
                     "/late" => ("text/html", LATE),

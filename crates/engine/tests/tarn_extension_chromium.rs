@@ -243,11 +243,15 @@ mod window {
 
         messages.borrow_mut().clear();
         let readded = open(&here("127.0.0.1", "/held"), true);
-        spin(10.0, &|| !heard(&world, &here("localhost", "/sub?held")).is_empty());
+        let waiting = format!("localhost:{port} /sub?wait");
+        spin(10.0, &|| !heard(&world, &here("localhost", "/sub?held")).is_empty() && requested(&waiting) == 1);
         assert!(!heard(&world, &here("localhost", "/sub?held")).is_empty(), "the cross-site frame is attached and runs the install");
+        assert_eq!(requested(&waiting), 1, "the frame's move waits for the test");
         readded.remove_extension_scripts(&world);
         readded.add_extension_scripts(scripts.clone());
+        spin(1.0, &|| false);
         assert_eq!(requested(&format!("localhost:{port} /sub?ok&released")), 0, "the frame starts its next document only after the install came back");
+        seen.lock().unwrap().push("release".into());
         let released = here("localhost", "/sub?ok&released");
         spin(15.0, &|| !heard(&world, &released).is_empty());
         assert!(
