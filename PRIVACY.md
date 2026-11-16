@@ -3,28 +3,30 @@
 Tarn has no accounts, no telemetry and no servers of its own. Browsing data stays on your device.
 
 Tarn is published by Quavon UG (haftungsbeschränkt), Langbehnstraße 39, 83022 Rosenheim, Germany,
-contact@tarnbrowser.com ([imprint](https://tarnbrowser.com/imprint)), the controller under the GDPR for
-this notice. Tarn runs on macOS, Windows, Linux, iOS and Android; paths and menus below are macOS's
-unless a passage names another client. A summary, with the privacy notice of Tarn's website, is at https://tarnbrowser.com/privacy.
+contact@tarnbrowser.com ([imprint](https://tarnbrowser.com/imprint)), the controller under the GDPR
+for this notice. Tarn runs on macOS, Windows, Linux, iOS and Android; paths and menus below are
+macOS's unless a passage names another client. A summary, with the privacy notice of Tarn's website,
+is at https://tarnbrowser.com/privacy.
 
 ## What stays on your device
 
-History (and, only if you turn on Settings › Search › Search the text of visited pages, up to
-4 KB of each visited page's text), cookies, cache, open tabs, permissions, downloads, favicons, settings and the Shield
-card's counters (tracking parameters removed, pages upgraded to HTTPS, local-network visits blocked,
-pages on block lists stopped, pop-ups blocked and requests blocked by the Chromium
+History (and, only if you turn on Settings › Search › Search the text of visited pages, up to 4 KB
+of each visited page's text), cookies, cache, open tabs, permissions, downloads, favicons, settings
+and the Shield card's counters (tracking parameters removed, pages upgraded to HTTPS, local-network
+visits blocked, pages on block lists stopped, pop-ups blocked and requests blocked by the Chromium
 engine's filter; in total, per day for the last seven days and per site for the sites protected
-most) with its design value are stored only
-on your Mac, separately for each profile, in `~/Library/Application Support/Tarn` and in WebKit's
-per-profile website data stores in `~/Library/WebKit/de.quavon.tarn`; Chromium's data for the one
-profile that uses it lives in `~/Library/Application Support/Tarn/Chromium`. Tarn runs without the
-App Sandbox, so these folders are protected by your user account's file permissions and FileVault;
-Chromium's helper processes and WebKit's content processes keep their own sandboxes. The database file is readable only by your user account. The
-private space keeps everything in memory and writes none of it to disk; on Android, whose system
-WebView has no in-memory store, it keeps its data in its own folder in the app's private storage,
-deleted when the space closes or, after a crash or force-stop, at the next start. A burner tab (⌥⇧⌘N) goes
-further: it gets its own in-memory website data store at Strict, records no history, site icons or
-downloads list entries, is never restored, and everything it held is dropped when it closes.
+most) with its design value are stored only on your Mac, separately for each profile, in
+`~/Library/Application Support/Tarn` and in WebKit's per-profile website data stores in
+`~/Library/WebKit/de.quavon.tarn`; Chromium's data for the one profile that uses it lives in
+`~/Library/Application Support/Tarn/Chromium`. Tarn runs without the App Sandbox, so these folders
+are protected by your user account's file permissions and FileVault; Chromium's helper processes and
+WebKit's content processes keep their own sandboxes. The database file is readable only by your user
+account. The private space keeps everything in memory and writes none of it to disk; on Android,
+whose system WebView has no in-memory store, it keeps its data in its own folder in the app's
+private storage, deleted when the space closes or, after a crash or force-stop, at the next start. A
+burner tab (⌥⇧⌘N) goes further: it gets its own in-memory website data store at Strict, records no
+history, site icons or downloads list entries, is never restored, and everything it held is dropped
+when it closes.
 
 Importing from another browser (Library › Import) copies its history, bookmarks and, where Tarn can
 read them, cookies into the profile you choose, on this device only; nothing is sent. On Windows
@@ -52,12 +54,12 @@ and the part already saved is removed when you quit before resuming.
 Read Aloud in the reader speaks the article with the system's on-device voices on every client;
 nothing is sent.
 
-On macOS and Windows, Settings › Privacy › Your data exports a profile's stored data as a JSON file in your Downloads
-folder and deletes everything in a profile: spaces, tabs, snapshots, history, site icons, site settings,
-Shield counters and WebKit's cookies, cache and storage; deleted rows are overwritten in the
-database file. On Linux, iOS and Android, Clear Browsing Data removes history, the downloads list,
-closed tabs and website data. Clearing history also removes kept page text and the Shield card's list of
-protected sites. Files you downloaded are not deleted.
+On macOS and Windows, Settings › Privacy › Your data exports a profile's stored data as a JSON file
+in your Downloads folder and deletes everything in a profile: spaces, tabs, snapshots, history, site
+icons, site settings, Shield counters and WebKit's cookies, cache and storage; deleted rows are
+overwritten in the database file. On Linux, iOS and Android, Clear Browsing Data removes history,
+the downloads list, closed tabs and website data. Clearing history also removes kept page text and
+the Shield card's list of protected sites. Files you downloaded are not deleted.
 
 ## Connections the browser itself makes
 
@@ -101,14 +103,16 @@ Tarn tells you that Chromium connects to Google. When a profile uses Chromium:
 
 ## Blocking
 
-On macOS and Windows, ad, tracker, cookie-banner, malware, phishing, adult-content and pop-up blocking runs on your device against lists in
-the signed bundle above: EasyList, EasyPrivacy, EasyList Cookie, AdGuard Base, uBlock Origin's filters, URLhaus,
-CERT Polska, the Scam Blocklist, the Global Anti-Scam Org list, the stalkerware indicators,
-HaGeZi's threat, adult and pop-up lists and OISD's adult list. `licenses.txt` in the bundle names
-each source and its licence. Linux, iOS and Android do not download these lists. Which sites you visit, which ones were blocked and which ones you let
-through are not sent anywhere; apart from the Shield counters above, which name the page a block
-happened on, they are not logged. Ad and tracker blocks in WebKit tabs are not counted, because
-WebKit does not report what its blocking rules stop. "Visit Anyway" is remembered only until you quit.
+On macOS and Windows, ad, tracker, cookie-banner, malware, phishing, adult-content and pop-up
+blocking runs on your device against lists in the signed bundle above: EasyList, EasyPrivacy,
+EasyList Cookie, AdGuard Base, uBlock Origin's filters, URLhaus, CERT Polska, the Scam Blocklist,
+the Global Anti-Scam Org list, the stalkerware indicators, HaGeZi's threat, adult and pop-up lists
+and OISD's adult list. `licenses.txt` in the bundle names each source and its licence. Linux, iOS
+and Android do not download these lists. Which sites you visit, which ones were blocked and which
+ones you let through are not sent anywhere; apart from the Shield counters above, which name the
+page a block happened on, they are not logged. Ad and tracker blocks in WebKit tabs are not counted,
+because WebKit does not report what its blocking rules stop. "Visit Anyway" is remembered only until
+you quit.
 
 ## Search
 
@@ -140,13 +144,13 @@ may process this data in the United States, which the EU–US Data Privacy Frame
 companies certified under it. Apple's App Store and Google Play process your store account and
 download under their own terms; Quavon receives only aggregated statistics from them.
 
-If you write to contact@tarnbrowser.com, Quavon uses your message only to answer it (Art. 6(1)(b) or (f)
-GDPR) and deletes it when the matter is settled, unless the law requires keeping it. Issues and
+If you write to contact@tarnbrowser.com, Quavon uses your message only to answer it (Art. 6(1)(b) or
+(f) GDPR) and deletes it when the matter is settled, unless the law requires keeping it. Issues and
 pull requests on GitHub are public: do not put personal data or privacy requests there.
 
-You have the right of access, rectification, erasure, restriction, data portability and to object
-to processing based on legitimate interest (Art. 15 to 21 GDPR); write to contact@tarnbrowser.com. You may
-complain to a data protection authority; the one responsible for Quavon is the Bayerisches
+You have the right of access, rectification, erasure, restriction, data portability and to object to
+processing based on legitimate interest (Art. 15 to 21 GDPR); write to contact@tarnbrowser.com. You
+may complain to a data protection authority; the one responsible for Quavon is the Bayerisches
 Landesamt für Datenschutzaufsicht (BayLDA), Promenade 18, 91522 Ansbach, Germany. Tarn makes no
 automated decisions about you and needs no data from you to work.
 
