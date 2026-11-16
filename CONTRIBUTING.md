@@ -89,15 +89,20 @@ git commit -s
 ```
 
 This adds a `Signed-off-by: Your Name <you@example.com>` line with the name and email of your Git
-identity.
+identity. The `dco` check refuses a pull request while any of its commits (other than merges) lacks
+a sign-off with its author's email; `git rebase --signoff main` signs off a whole branch. Commits
+made in GitHub's web editor are signed off by GitHub, which the repository requires.
 
 ## AI-assisted contributions
 
 AI agents and AI-assisted tools are allowed. They follow the "Rules for AI agents" in
-[`AGENTS.md`](AGENTS.md); you are the author of what they produce, you review it before you submit
-it, and you sign it off yourself. The rules cannot be waived; the only exceptions are the ones a rule
-itself names. Maintainers
-close pull requests that break them.
+[`AGENTS.md`](AGENTS.md); you are the author of what they produce and answer for it. In your first
+session the agent asks you to accept the AI agreement (`scripts/ai-agreement.sh show`): you review
+everything it writes before it is committed or submitted, make sure it is correct, tested, secure
+and of known origin, and certify the DCO for it. With that agreement the agent adds your sign-off to
+the commits it makes for you; without it, it commits nothing. Your acceptance stays in your clone's
+Git directory and is never committed. The rules cannot be waived; the only exceptions are the ones a
+rule itself names. Maintainers close pull requests that break them.
 
 ## Issues
 
@@ -140,8 +145,8 @@ issue. Run the **Issues** workflow by hand to count right away.
 ## Pull requests
 
 Every pull request to `main` needs the approval of a maintainer who did not author it; no person
-can merge past that rule. The only exception is the update app, whose Chromium update pull
-requests merge once CI on them has passed (`docs/release.md`, "Automatic engine updates").
+can merge past that rule, and neither can automation: the update app's Chromium update pull
+requests also wait for a maintainer's review (`docs/release.md`, "Automatic engine updates").
 
 A change to `Cargo.lock` needs `scripts/third-party-licenses.sh` run and its output committed; CI
 checks it.

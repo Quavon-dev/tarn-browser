@@ -695,10 +695,9 @@ Not run in this pass: `Medium_Phone_API_36.1` (the emulator had 344 MB free and 
   `ubuntu-24.04`. No secrets. Each command was run locally (macOS 27, NDK 28.2; the APK from a fresh nsh
   install; `nsh-shared` in an `ubuntu:24.04` container). The nsh CLI and its Android runtime
   (`nsh-android.tar.gz`) are both downloaded with pinned SHA-256 sums. The simulator app itself is not
-  packaged in CI (`nsh package --target ios-simulator`), only checked. The NSH jobs are skipped when
-  `chromium-update.yml` calls `ci.yml`: that workflow bumps the root version, which the `mobile/`,
-  `linux/` and `nsh-shared/` lockfiles record for the path crates, and it may change only the root
-  lock files.
+  packaged in CI (`nsh package --target ios-simulator`), only checked. Engine update pull requests
+  run these jobs like any other; `chromium-update.yml` refreshes the `mobile/`, `linux/` and
+  `nsh-shared/` lockfiles together with the root version bump.
 - **Threat model:** `docs/threat-model.md`, section "iOS, Android and Linux", including the Android
   private-space wording (S8).
 - **Retried checks** (`mobile/evidence/m4/README.md`): the iOS private-network block from a public top

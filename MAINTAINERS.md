@@ -12,6 +12,7 @@ themselves are described in [`docs/release.md`](docs/release.md), "Secrets and c
 | [@rgxdev](https://github.com/rgxdev) | Maintainer, organisation owner | Admin on the repository; member of `@Quavon-dev/maintainers`, so a Code Owner and an approver of `release-signing` |
 | [@MadebyLeopold](https://github.com/MadebyLeopold) | Maintainer, organisation owner | Same as above |
 | [@quavondev](https://github.com/quavondev) | Maintainer, organisation owner | Same as above |
+| [@eliasnau](https://github.com/eliasnau) | Tarn maintainer | Write on the repository through `@Quavon-dev/tarn-maintainer`: branches, reviews and triage, no merge to `main` |
 
 Organisation owners can change repository and organisation settings, rulesets, environments and
 their secrets. GitHub never shows a secret's value, but an owner who changes an environment's rules
@@ -34,6 +35,17 @@ for their contribution and its licence terms.
 - approves `release-signing` deployments only for a release they mean to ship
   (`docs/release.md`);
 - rotates secrets as `docs/release.md` describes and reviews this list once a year.
+
+**Tarn maintainer** (write access through `@Quavon-dev/tarn-maintainer`):
+- pushes branches and opens pull requests;
+- reviews pull requests, and their approval counts as the non-author approval `main` requires
+  (not as Code Owner review);
+- labels, assigns, closes and reopens issues and pull requests, and votes on issues (the Issues
+  workflow counts every account with write access, `CONTRIBUTING.md`, "Voting");
+- cannot merge into `main` (only `@Quavon-dev/maintainers` may update it, ruleset "main
+  merges"), create `v*` tags, approve a `release-signing` deployment, read secrets or change
+  settings. GitHub's write role on this plan also lets them start workflows and edit GitHub
+  releases; signing and publishing still need a maintainer's approval.
 
 **Organisation owner**: a maintainer who also manages the organisation, its members, two-factor
 requirement, rulesets, environments and secrets, and changes them only as `docs/release.md`,
