@@ -36,8 +36,13 @@ fn answer(ui: Ui, accept: bool, remember: bool, text: Option<String>, user: Opti
     ui.act(|s| s.answer(Answer { accept, text, user, password, remember }));
 }
 
+/// A prompt's answer field, in the `Secure` colours no theme reaches.
 fn field(value: Signal<String>, label: &'static str, masked: bool) -> Input {
     super::text_field(label, label)
+        .bg(Secure::control)
+        .border_color(Secure::hairline)
+        .placeholder_color(Secure::faint)
+        .text_color(Secure::text)
         .value(move || value.get())
         .on_change(move |v: &str| value.set(v.to_owned()))
         .masked(masked)

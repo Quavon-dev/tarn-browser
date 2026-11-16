@@ -759,3 +759,22 @@ fn views_share_the_profile_props_read_once() {
     assert_eq!(shell.views_from(props.as_ref()), shell.views());
     assert!(shell.views_from(None).is_empty());
 }
+
+#[test]
+fn waking_a_sleeping_pane_keeps_the_live_panes_views() {
+    let (_dir, mut shell) = open();
+    shell.set_wide(true);
+    let a = active(&shell);
+    let b = shell.new_tab(Some("https://b.example/")).unwrap();
+    shell.activate(a);
+    shell.split_with(b);
+    shell.activate(a);
+    for _ in 1..tarn_mobile::shell::LIVE_TABS {
+        shell.new_tab(Some("https://more.example/"));
+    }
+    let before = shell.model.lifecycle.born(a);
+    assert!(before.is_some() && shell.model.lifecycle.born(b).is_none(), "a is still live, b sleeps");
+    shell.activate(a);
+    assert_eq!(shell.model.lifecycle.born(a), before, "waking b does not renumber a's view");
+    assert!(shell.model.lifecycle.born(b).is_some());
+}

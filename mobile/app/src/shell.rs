@@ -298,8 +298,9 @@ impl<D: Platform> Shell<D> {
             self.external = None;
         }
         let partners = self.splits.of(key).filter(|_| self.wide).map(|s| s.others(key)).unwrap_or_default();
-        let mut gone: Vec<TabKey> = partners.iter().flat_map(|p| self.model.lifecycle.activate(*p)).collect();
-        gone.extend(self.model.lifecycle.activate(key));
+        // Live panes first, so waking a sleeping one cannot evict them and renumber their views.
+        let (live, asleep): (Vec<TabKey>, Vec<TabKey>) = partners.iter().chain([&key]).partition(|p| self.model.lifecycle.born(**p).is_some());
+        let gone: Vec<TabKey> = live.into_iter().chain(asleep).chain([key]).flat_map(|p| self.model.lifecycle.activate(p)).collect();
         for gone in gone {
             if gone == key || partners.contains(&gone) {
                 self.model.lifecycle.keep(gone);
