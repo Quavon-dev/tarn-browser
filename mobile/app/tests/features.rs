@@ -534,6 +534,15 @@ fn a_closed_tab_does_not_hold_its_sites_icon_request() {
     shell.new_tab(None);
     shell.close_tab(closed);
     assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some(), "the next tab on the site asks again");
+
+    shell.new_tab(None);
+    let mover = active(&shell);
+    assert!(command(&visit(&mut shell, "https://b.test/", "B"), "readIconLinks").is_some());
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_none(), "the other tab still asks for a.test");
+    shell.close_tab(mover);
+    shell.new_tab(None);
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_none(), "the other tab's request is kept");
+    assert!(command(&visit(&mut shell, "https://b.test/", "B"), "readIconLinks").is_some(), "closing releases the site the tab asked for");
 }
 
 #[test]

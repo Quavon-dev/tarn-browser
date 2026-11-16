@@ -100,9 +100,7 @@ impl<D: Platform> Shell<D> {
     /// A view that goes away never answers, so its questions are dropped and its icon request must
     /// not hold the host for the rest of the session.
     pub(crate) fn drop_scripts(&mut self, key: TabKey) {
-        let asked_icon = self.scripts.values().any(|(k, s)| *k == key && matches!(s, Script::IconLinks | Script::Icon));
-        let page = self.pages.get(&key).and_then(|p| p.committed.clone()).filter(|_| asked_icon);
-        if let Some((profile, host)) = page.and_then(|url| self.icon_key(key, &url)) {
+        for (profile, host) in self.icon_asks.remove(&key).unwrap_or_default() {
             self.icons.withdraw(&profile, &host);
         }
         self.scripts.retain(|_, (k, _)| *k != key);
@@ -167,6 +165,7 @@ impl<D: Platform> Shell<D> {
         if !self.icons.request(&profile, &host) {
             return Vec::new();
         }
+        self.icon_asks.entry(key).or_default().insert((profile, host));
         self.ask(key, Script::IconLinks, "readIconLinks", json!({}))
     }
 
@@ -176,6 +175,7 @@ impl<D: Platform> Shell<D> {
         match self.answer_for(key, data, script) {
             Some(url) if self.icons.is_requested(&profile, &host) => Some((url, profile, host)),
             _ => {
+                self.icon_done(key, &profile, &host);
                 self.icons.withdraw(&profile, &host);
                 None
             }
@@ -187,6 +187,7 @@ impl<D: Platform> Shell<D> {
         let urls: Vec<String> =
             Url::parse(&url).map(|page| favicon::candidates(&page, &text(data, "text"))).unwrap_or_default().into_iter().map(String::from).collect();
         if urls.is_empty() {
+            self.icon_done(key, &profile, &host);
             self.icons.withdraw(&profile, &host);
             return Vec::new();
         }
@@ -205,6 +206,7 @@ impl<D: Platform> Shell<D> {
 
     fn icon_data(&mut self, key: TabKey, data: &Value, png: Option<Vec<u8>>) {
         let Some((_, profile, host)) = self.icon_answer(key, data, Script::Icon) else { return };
+        self.icon_done(key, &profile, &host);
         self.keep_icon(profile, &host, png);
     }
 
@@ -215,6 +217,12 @@ impl<D: Platform> Shell<D> {
         self.load_icons(profile);
         if self.icons.request(&profile, &host) {
             self.keep_icon(profile, &host, png);
+        }
+    }
+
+    fn icon_done(&mut self, key: TabKey, profile: &(bool, Id), host: &str) {
+        if let Some(asks) = self.icon_asks.get_mut(&key) {
+            asks.remove(&(*profile, host.to_owned()));
         }
     }
 

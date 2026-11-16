@@ -311,7 +311,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         loading: page.loading,
         level: page.level.as_str().to_owned(),
         overridden,
-        site_total: profile_id.zip(url::Url::parse(&page.url).ok()).map_or(0, |(p, url)| b.core.site_stopped(private, p, &url)),
+        site_total: b.model.active_profile(&b.core).zip(url::Url::parse(&page.url).ok()).map_or(0, |((private, p), url)| b.core.site_stopped(private, p, &url)),
         host,
         zoom: if page.zoom > 0.0 { page.zoom } else { 1.0 },
         found: page.found,

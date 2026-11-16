@@ -372,6 +372,12 @@ impl Model {
         self.spaces.iter().find(|s| s.private == key.private && s.space.id == space_id).map(|s| s.space.profile_id)
     }
 
+    /// The profile of the active tab, which a split pane can take from another space.
+    pub fn active_profile<D: WebsiteData>(&self, core: &Core<D>) -> Option<(bool, Id)> {
+        let key = self.active?;
+        Some((key.private, self.profile_of(core, key)?))
+    }
+
     /// Whether the space at `ix` belongs to the profile, and the side, of the tab.
     pub fn same_profile<D: WebsiteData>(&self, core: &Core<D>, key: TabKey, ix: usize) -> bool {
         self.spaces.get(ix).is_some_and(|s| holds(s, key, self.profile_of(core, key)))
