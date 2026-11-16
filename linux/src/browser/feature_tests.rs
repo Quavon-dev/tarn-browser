@@ -328,7 +328,10 @@ fn a_split_shows_its_panes_and_a_closed_pane_hands_the_focus_on() {
     assert_eq!(shown.len(), 3);
     assert!(shown.contains(&(first, Some(0))) && shown.contains(&(second, Some(2))));
     assert_eq!(snap.split.as_ref().map(|s| (s.panes.len(), s.dividers.len())), Some((3, 2)));
-    assert!(crate::snapshot::rows(&b).iter().all(|r| r.split == Some(true)));
+    let rows = crate::snapshot::rows(&b);
+    assert_eq!(rows.iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), [crate::snapshot::RowKind::Split(first)], "a split lists as one row");
+    assert_eq!(rows[0].panes.iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), [first, third, second].map(crate::snapshot::RowKind::Tab), "in layout order");
+    assert!(rows[0].panes.iter().all(|r| r.split == Some(true)));
     assert!(crate::snapshot::snapshot(&b, false).split.is_none(), "a panel covers the split");
 
     b.close_tab(second);
@@ -350,7 +353,7 @@ fn a_split_out_of_sight_waits_and_its_edge_fades() {
     let other = b.new_tab("https://c.test/").unwrap();
     assert!(b.shown_split().is_none());
     let rows = crate::snapshot::rows(&b);
-    let edge = |key| rows.iter().find(|r| r.kind == crate::snapshot::RowKind::Tab(key)).map(|r| r.split);
+    let edge = |key| rows.iter().flat_map(|r| [r].into_iter().chain(&r.panes)).find(|r| r.kind == crate::snapshot::RowKind::Tab(key)).map(|r| r.split);
     assert_eq!((edge(first), edge(second), edge(other)), (Some(Some(false)), Some(Some(false)), Some(None)));
     b.on_event(first, "pressed", &Value::Null);
     assert_eq!(b.model.active, Some(other), "a hidden pane takes no clicks");

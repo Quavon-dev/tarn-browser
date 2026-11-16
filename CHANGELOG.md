@@ -6,6 +6,21 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- A split's tabs show side by side in one row of the sidebar, and in one card of the tab grid on
+  iPad and Android tablets (macOS, Windows, Linux, iOS, Android).
+
+### Fixed
+
+- Chromium tabs on macOS count toward the memory budget and the heavy-tab dot, so heavy
+  background Chromium tabs sleep like WebKit tabs instead of holding their memory.
+- The loading spinner starts when a page starts loading instead of when it first draws, stops
+  when a Chromium page is stopped or cancelled, and turns evenly (macOS, Windows, Linux, iOS,
+  Android).
+- When Tarn could not open its database, it no longer deletes Chromium's cookies and site data at
+  start and quit as if their profile were gone.
+
 ## [0.1.1] - 2026-11-16
 
 ### Added

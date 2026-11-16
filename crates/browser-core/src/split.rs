@@ -276,6 +276,15 @@ impl<K: PartialEq + Copy> Splits<K> {
             member,
         }
     }
+
+    /// What a tab list in `keys` order shows at `key`'s place: its split's panes that are in
+    /// `keys`, in layout order, at the place of the first of them, and nothing at the others'
+    /// places. A tab in no split shows alone.
+    pub fn entry(&self, key: K, keys: &[K]) -> Option<Vec<K>> {
+        let Some(split) = self.of(key) else { return Some(vec![key]) };
+        let panes: Vec<K> = split.panes.iter().copied().filter(|p| keys.contains(p)).collect();
+        (keys.iter().find(|k| panes.contains(k)) == Some(&key)).then_some(panes)
+    }
 }
 
 #[cfg(test)]
@@ -289,6 +298,16 @@ mod tests {
 
     fn panes(splits: &Splits<u8>) -> Vec<&[u8]> {
         splits.0.iter().map(Split::panes).collect()
+    }
+
+    #[test]
+    fn a_split_lists_as_one_entry_at_its_first_pane() {
+        let s = splits(&[&[4, 2]]);
+        let keys = [1, 2, 3, 4];
+        let entries: Vec<Vec<u8>> = keys.iter().filter_map(|k| s.entry(*k, &keys)).collect();
+        assert_eq!(entries, vec![vec![1], vec![4, 2], vec![3]]);
+        assert_eq!(s.entry(2, &[2, 9]), Some(vec![2]));
+        assert_eq!(s.entry(4, &[1]), None);
     }
 
     #[test]
