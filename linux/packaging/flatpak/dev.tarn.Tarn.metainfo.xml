@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.tarn.Tarn</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Tarn</name>
+  <summary>A fast, private browser with a native interface</summary>
+  <developer id="dev.tarn">
+    <name>Quavon UG (haftungsbeschränkt)</name>
+  </developer>
+  <description>
+    <p>Tarn is a fast, private browser with a native interface on every platform. It is written in Rust, with no telemetry, no accounts and no Electron. On Linux it renders pages with WebKitGTK.</p>
+    <ul>
+      <li>Shield blocks trackers and ads, strips tracking parameters and keeps pages off your local network. Strict adds HTTPS-only and no cross-site referrer; Lockdown turns off JavaScript and keeps no site data. Every level can be set per site.</li>
+      <li>Blocking you can switch: ads, trackers, cookie banners, pop-ups, malware, phishing and scam sites. Lists are signed and updated daily.</li>
+      <li>Keyboard first: one field for addresses, search, open tabs and app actions, and rebindable shortcuts.</li>
+      <li>Spaces and profiles: profiles keep cookies, history and site data fully apart. Private spaces and burner tabs live in memory only.</li>
+      <li>Reader view, per-site zoom, dark mode and CSS, and full-text history search.</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">dev.tarn.Tarn.desktop</launchable>
+  <provides>
+    <binary>tarn</binary>
+  </provides>
+  <url type="homepage">https://github.com/Quavon-dev/tarn-browser</url>
+  <url type="bugtracker">https://github.com/Quavon-dev/tarn-browser/issues</url>
+  <url type="vcs-browser">https://github.com/Quavon-dev/tarn-browser</url>
+  <url type="contribute">https://github.com/Quavon-dev/tarn-browser/blob/main/CONTRIBUTING.md</url>
+  <categories>
+    <category>Network</category>
+    <category>WebBrowser</category>
+  </categories>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <content_rating type="oars-1.1"/>
+  <branding>
+    <color type="primary" scheme_preference="light">#8ed1f7</color>
+    <color type="primary" scheme_preference="dark">#1f75b0</color>
+  </branding>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Site settings with the Shield level per site</caption>
+      <image type="source" width="1440" height="900">https://raw.githubusercontent.com/Quavon-dev/tarn-browser/main/linux/evidence/design-shield.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>An article in Reader view</caption>
+      <image type="source" width="1440" height="900">https://raw.githubusercontent.com/Quavon-dev/tarn-browser/main/linux/evidence/feature-reader.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Settings</caption>
+      <image type="source" width="1440" height="900">https://raw.githubusercontent.com/Quavon-dev/tarn-browser/main/linux/evidence/design-settings.png</image>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="0.1.0" date="2026-11-16" type="development">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
