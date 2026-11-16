@@ -899,7 +899,7 @@ fn protected_sites(card: &Card) -> Div {
             .items_center()
             .gap_2()
             .child(ui::controls::favicon(&host, 16.))
-            .child(label(host).flex_none().w(px(110.)))
+            .child(div().flex_none().w(px(110.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(host))
             .child(
                 div()
                     .flex_1()
