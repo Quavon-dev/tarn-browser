@@ -13,6 +13,9 @@ expect "" ""
 expect "code shared nsh mobile linux" docs/themes.md
 expect "code shared nsh mobile linux" crates/app/src/lib.rs README.md
 expect "code shared nsh mobile linux" .github/workflows/ci.yml
+expect "code" .github/workflows/ci-retry.yml .github/zizmor.yml
+expect "code" .github/workflows/release.yml
+expect "code shared nsh mobile linux" .github/workflows/nightly.yml scripts/appcast.sh
 expect "code shared nsh mobile linux" Cargo.lock
 expect "code shared nsh mobile linux" mobile/app/assets/brand/icon.png crates/store/src/lib.rs
 expect "code linux" linux/src/main.rs linux/README.md
