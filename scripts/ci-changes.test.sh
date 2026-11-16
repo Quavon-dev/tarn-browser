@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-script="$(dirname "$0")/ci-changes.sh"
+script="$(cd "$(dirname "$0")" && pwd)/ci-changes.sh"
 status=0
 expect() {
   local want="$1" got
@@ -20,7 +20,16 @@ expect "code mobile" mobile/app/src/lib.rs
 expect "code mobile" mobile/app/assets/brand/icon.png
 expect "code nsh mobile linux" nsh-shared/src/theme.rs
 [[ "$(EVENT=workflow_dispatch "$script" | grep -c '=true')" == 5 ]] || { echo "ci-changes: manual runs must run every job" >&2; status=1; }
-[[ "$(EVENT=push BEFORE=0000000000000000000000000000000000000000 "$script" | grep -c '=true')" == 5 ]] || { echo "ci-changes: a new branch must run every job" >&2; status=1; }
-[[ "$(EVENT=push BEFORE=deadbeef "$script" | grep -c '=true')" == 5 ]] || { echo "ci-changes: an unknown range must run every job" >&2; status=1; }
-[[ "$(EVENT=push BEFORE=ffffffffffffffffffffffffffffffffffffffff "$script" | grep -c '=true')" == 5 ]] || { echo "ci-changes: a missing commit must run every job" >&2; status=1; }
+for event in push workflow_dispatch workflow_call; do
+  [[ "$(EVENT=$event "$script" | grep -c '=true')" == 5 ]] || { echo "ci-changes: $event must run every job" >&2; status=1; }
+done
+repo="$(mktemp -d)"
+trap 'rm -rf "$repo"' EXIT
+(
+  cd "$repo"
+  git init -q
+  mkdir -p crates/x && seq 1 50 > crates/x/sec.rs && git add . && git -c commit.gpgsign=false -c user.name=t -c user.email=t@t commit -qm a
+  mkdir docs && git mv crates/x/sec.rs docs/sec.rs && git -c commit.gpgsign=false -c user.name=t -c user.email=t@t commit -qm b
+  [[ "$(EVENT=pull_request "$script" | grep -c '=true')" == 5 ]]
+) || { echo "ci-changes: moving code into docs/ must still run every job" >&2; status=1; }
 exit "$status"
