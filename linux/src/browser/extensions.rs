@@ -89,6 +89,13 @@ impl Browser {
         }
     }
 
+    pub fn answer_site_prompt(&mut self, id: u64, accept: bool, remember: bool) {
+        let asked = self.model.active.and_then(|k| self.pages.get(&k)).is_some_and(|p| p.prompts.iter().any(|p| p.id == id && p.kind == PROMPT_KIND));
+        if let Some((key, prompt)) = asked.then(|| self.take_prompt(id)).flatten() {
+            self.answer_extension(key, &prompt, accept, remember);
+        }
+    }
+
     pub(super) fn answer_extension(&mut self, key: TabKey, prompt: &Prompt, accept: bool, remember: bool) {
         let Some(asked) = self.ext_prompts.remove(&prompt.id) else { return };
         if extensions::answer(asked.profile, &asked.install, &asked.host, accept, remember, key.id as u64) {

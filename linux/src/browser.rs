@@ -686,11 +686,15 @@ impl Browser {
         self.core.profiles.borrow().get(&(private, id)).map(|rt| rt.data.key.clone())
     }
 
+    fn take_prompt(&mut self, id: u64) -> Option<(TabKey, Prompt)> {
+        let key = self.model.active?;
+        let page = self.pages.get_mut(&key)?;
+        let at = page.prompts.iter().position(|p| p.id == id)?;
+        page.prompts.remove(at).map(|prompt| (key, prompt))
+    }
+
     pub fn answer(&mut self, id: u64, accept: bool, remember: bool, text: &str, user: &str, password: &str) {
-        let Some(key) = self.model.active else { return };
-        let Some(page) = self.pages.get_mut(&key) else { return };
-        let Some(at) = page.prompts.iter().position(|p| p.id == id) else { return };
-        let prompt = page.prompts.remove(at).expect("position is valid");
+        let Some((key, prompt)) = self.take_prompt(id) else { return };
         if prompt.kind == extensions::PROMPT_KIND {
             return self.answer_extension(key, &prompt, accept, remember);
         }

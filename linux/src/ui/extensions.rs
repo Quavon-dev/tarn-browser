@@ -113,7 +113,7 @@ pub(super) fn site_prompt(ui: Ui, prompt: &Prompt) -> View {
     let reply = move |accept: bool| {
         let remember = ui.remember.get_untracked();
         ui.remember.set(false);
-        act(ui, |b| b.answer(id, accept, remember, "", "", ""));
+        act(ui, |b| b.answer_site_prompt(id, accept, remember));
     };
     let remember = ui.remember.get();
     let toggle = crate::controls::switch(remember, "Remember for this site", move || ui.remember.update(|r| *r = !*r));

@@ -198,6 +198,16 @@ fn prompts_queue_and_remembered_permissions_answer_themselves() {
 }
 
 #[test]
+fn a_site_prompt_answer_leaves_the_page_s_own_prompts_alone() {
+    let (_dir, mut b) = browser();
+    let key = active(&b);
+    b.on_event(key, "prompt", &json!({ "id": 1, "kind": "camera", "origin": "https://cam.test" }));
+    b.answer_site_prompt(1, true, true);
+    assert_eq!(b.pages[&key].prompts.len(), 1, "a page's prompt is not an extension's");
+    assert!(b.outbox.is_empty());
+}
+
+#[test]
 fn a_permission_the_component_cannot_place_in_a_frame_is_never_remembered() {
     let (_dir, mut b) = browser();
     let key = active(&b);
