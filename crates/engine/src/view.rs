@@ -43,8 +43,8 @@ impl WebView {
     /// profile's WebKit store, whose cookies the bridge shares. `None` when Chromium cannot run in
     /// this build or belongs to another profile.
     #[cfg(feature = "chromium")]
-    pub fn chromium(host: &Host, data: &DataStore, root: &std::path::Path, profile: &str, sink: Rc<dyn Fn(Event)>) -> Option<Self> {
-        crate::chromium::WebView::new(host, data, root, profile, sink).map(WebView::Chromium)
+    pub fn chromium(host: &Host, data: &DataStore, root: &std::path::Path, profile: &str, inspectable: bool, sink: Rc<dyn Fn(Event)>) -> Option<Self> {
+        crate::chromium::WebView::new(host, data, root, profile, inspectable, sink).map(WebView::Chromium)
     }
 
     pub fn is_chromium(&self) -> bool {

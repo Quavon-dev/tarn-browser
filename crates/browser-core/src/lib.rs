@@ -13,6 +13,7 @@ use shield::matcher::Matcher;
 use store::{Id, Profile, Store, WebEngine};
 use url::Url;
 
+pub mod cleanup;
 pub mod closed;
 pub mod command;
 #[cfg(target_os = "macos")]
@@ -23,12 +24,14 @@ pub mod find;
 pub mod fog;
 pub mod github;
 pub mod import;
+pub mod permissions;
 pub mod prompts;
 pub mod routing;
 pub mod schedule;
 pub mod shield_card;
 pub mod site;
 pub mod snapshot;
+pub mod split;
 #[cfg(any(target_os = "macos", windows))]
 pub mod staleness;
 pub mod suggest;
@@ -198,6 +201,36 @@ impl<D: WebsiteData> Core<D> {
         if level.policy().strip_tracking_params { shield::url_clean::strip_tracking_params(&url).unwrap_or(url) } else { url }
     }
 
+    /// Allows, blocks or (with `None`) forgets a remembered permission; a pop-up rule also reaches
+    /// the views of the profile if it is open.
+    pub fn set_permission(&self, private: bool, profile_id: Id, origin: &str, kind: &str, allow: Option<bool>) -> Result<(), store::Error> {
+        permissions::set(self.store(private), profile_id, origin, kind, allow)?;
+        if kind == site::POPUPS
+            && let Some(rt) = self.profiles.borrow().get(&(private, profile_id))
+        {
+            let mut popups = rt.rules.popups.borrow_mut();
+            match allow {
+                None => {
+                    popups.remove(origin);
+                }
+                Some(allow) => {
+                    popups.insert(origin.to_owned(), if allow { engine::nav_policy::PopupRule::Allow } else { engine::nav_policy::PopupRule::Block });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// As `clean_user_url`, and counts the parameters taken out on the profile's Shield card.
+    pub fn clean_counted_url(&self, profile: Option<(bool, Id)>, url: Url) -> Url {
+        let clean = self.clean_user_url(profile, url.clone());
+        let removed = shield::url_clean::removed_params(&url, &clean);
+        if let Some((private, id)) = profile.filter(|(private, id)| removed > 0 && self.keeps_records(*private, *id)) {
+            self.store(private).count(id, store::Counter::TrackingParams, removed, site::site_host(&clean)).ok();
+        }
+        clean
+    }
+
     /// Whether an opened profile has its own level for `host`.
     pub fn has_override(&self, private: bool, profile_id: Id, host: &str) -> bool {
         self.profiles.borrow().get(&(private, profile_id)).is_some_and(|rt| rt.overrides.borrow().contains_key(host.trim_end_matches('.')))
@@ -297,6 +330,34 @@ mod tests {
 
     fn downloads() -> Rc<dyn Fn(Event)> {
         Rc::new(|_| {})
+    }
+
+    #[test]
+    fn a_changed_popup_permission_reaches_the_open_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = TestCore::open(dir.path(), false);
+        let profile = core.disk.profiles().unwrap().remove(0);
+        core.open_profile(false, profile.id, downloads);
+        let rule = |core: &TestCore| core.profiles.borrow()[&(false, profile.id)].rules.popups.borrow().get("https://a.test").copied();
+        core.set_permission(false, profile.id, "https://a.test", site::POPUPS, Some(true)).unwrap();
+        assert_eq!(rule(&core), Some(engine::nav_policy::PopupRule::Allow));
+        core.set_permission(false, profile.id, "https://a.test", site::POPUPS, None).unwrap();
+        assert_eq!(rule(&core), None);
+        assert!(core.disk.permissions(profile.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn typed_addresses_lose_tracking_parameters_and_count_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = TestCore::open(dir.path(), false);
+        let profile = core.disk.profiles().unwrap().remove(0);
+        core.open_profile(false, profile.id, downloads);
+        let url = Url::parse("https://shop.test/item?id=4&utm_source=x&fbclid=y").unwrap();
+        let clean = core.clean_counted_url(Some((false, profile.id)), url);
+        assert_eq!(clean.as_str(), "https://shop.test/item?id=4");
+        assert_eq!(core.disk.shield_stats(profile.id).unwrap().tracking_params, 2);
+        core.clean_counted_url(Some((false, profile.id)), clean);
+        assert_eq!(core.disk.shield_stats(profile.id).unwrap().tracking_params, 2, "nothing removed, nothing counted");
     }
 
     #[test]

@@ -150,7 +150,7 @@ impl Browser {
     /// show; each newly visited page still costs one rebuild.
     pub(crate) fn refresh_menus(&mut self, cx: &mut App) {
         let mut hash = DefaultHasher::new();
-        (self.model.space_ix, self.menu.history, self.menu.bookmarks, self.favicons.len(), self.profile_editor.is_some()).hash(&mut hash);
+        (self.model.space_ix, self.menu.history, self.menu.bookmarks, self.profile_editor.is_some()).hash(&mut hash);
         for s in &self.model.spaces {
             (s.private, s.space.id, s.space.profile_id, &s.space.name).hash(&mut hash);
         }

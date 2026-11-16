@@ -20,7 +20,7 @@ pub(crate) enum Keys {
 }
 
 /// Keys no rebindable action may take: the fixed rows' bindings, text fields' own and ⌘⇥.
-pub(crate) const RESERVED: [&str; 28] = [
+pub(crate) const RESERVED: [&str; 35] = [
     "cmd-1",
     "cmd-2",
     "cmd-3",
@@ -46,7 +46,14 @@ pub(crate) const RESERVED: [&str; 28] = [
     "cmd-a",
     "cmd-left",
     "cmd-right",
+    "shift-cmd-left",
+    "shift-cmd-right",
+    "cmd-backspace",
+    "cmd-delete",
     "ctrl-cmd-space",
+    "ctrl-a",
+    "ctrl-e",
+    "ctrl-k",
     "cmd-tab",
     "cmd-q",
 ];
@@ -92,8 +99,9 @@ fn unparse(keystroke: &Keystroke) -> String {
 pub(crate) fn conflict(keys: &str, action: &dyn Action, keymap: &[(String, &'static dyn Action)]) -> Option<&'static str> {
     let bound = |keys: &str| Keystroke::parse(&platform(keys)).map(|k| k.unparse()).ok();
     let mine = bound(keys);
-    // ⌘⇥ and ⌃⌘Space are macOS's own; on Windows the first would land on Ctrl+Tab, Tarn's next tab.
-    let os_only = |r: &&str| cfg!(windows) && matches!(*r, "cmd-tab" | "ctrl-cmd-space");
+    // ⌘⇥, ⌃⌘Space and the Emacs keys are macOS's own; on Windows ⌘⇥ would land on Ctrl+Tab, Tarn's
+    // next tab, and ⌃E on Ctrl+E, which ⌘E maps to.
+    let os_only = |r: &&str| cfg!(windows) && matches!(*r, "cmd-tab" | "ctrl-cmd-space" | "ctrl-a" | "ctrl-e" | "ctrl-k");
     if RESERVED.iter().filter(|r| !os_only(r)).any(|r| bound(r) == mine) {
         return Some("a fixed shortcut");
     }

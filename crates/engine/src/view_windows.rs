@@ -19,8 +19,8 @@ impl WebView {
     /// is enforced through the data store's Shield, which the shell keeps current with
     /// `DataStore::set_shield`.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(host: &Host, data: &DataStore, level: ShieldLevel, filtered: bool, _inspectable: bool, _site_for: SiteFor, sink: Rc<dyn Fn(Event)>) -> Self {
-        WebView { view: crate::chromium::WebView::for_store(host, data, level == ShieldLevel::Lockdown, filtered, sink), filtered }
+    pub fn new(host: &Host, data: &DataStore, level: ShieldLevel, filtered: bool, inspectable: bool, _site_for: SiteFor, sink: Rc<dyn Fn(Event)>) -> Self {
+        WebView { view: crate::chromium::WebView::for_store(host, data, level == ShieldLevel::Lockdown, filtered, inspectable, sink), filtered }
     }
 
     pub fn is_chromium(&self) -> bool {

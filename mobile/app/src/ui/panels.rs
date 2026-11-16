@@ -7,7 +7,7 @@ use shield::ShieldLevel;
 
 use super::controls::icon;
 use super::sheets;
-use super::{Screen, Ui, caption, heading, icon_button, icons, label, pill, row, segmented, small, surface, switch_row};
+use super::{Screen, Ui, accent_pill, caption, heading, icon_button, icons, label, pill, row, segmented, small, surface, switch_row};
 use crate::shell::{FILTER_SWITCHES, SpaceItem};
 use crate::theme::{GAP, SHEET_WIDTH, Secure, TAB_MIN_WIDTH, TAB_PREVIEW_HEIGHT, TEXT_TITLE, TOUCH_TARGET, Theme};
 use tarn_nsh_shared::panes::{self, Pane};
@@ -453,6 +453,8 @@ fn settings(ui: Ui) -> impl IntoElement {
             .border_color(Theme::separator)
         }).collect::<Vec<_>>())))
         .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1())
+        .child(pane_heading(Pane::Permissions))
+        .child(permissions(ui))
         .child(section("Your data"))
         .child(framed(group().child(row(icons::CLOSE, "Clear Browsing Data…", move || {
             let answer = alert_dialog()
@@ -470,6 +472,51 @@ fn settings(ui: Ui) -> impl IntoElement {
                 }
             });
         }))))
+}
+
+/// The profile's remembered site permissions, each with Allow, Block and Forget.
+fn permissions(ui: Ui) -> impl IntoElement {
+    dynamic(move || {
+        let rows = ui.read(|s| s.profile_id().map(|p| browser_core::permissions::list(s.store(), p)).unwrap_or_default());
+        if rows.is_empty() {
+            return caption("No site has asked yet. A camera, microphone or location answer you remember shows here.").number_of_lines(0).px_1().into_element();
+        }
+        let set = move |origin: String, kind: String, allow: Option<bool>| {
+            move || {
+                ui.act(|s| {
+                    if let Some((private, profile)) = s.model.profile() {
+                        s.core.set_permission(private, profile, &origin, &kind, allow).ok();
+                    }
+                    Vec::new()
+                })
+            }
+        };
+        let items: Vec<AnyElement> = rows
+            .into_iter()
+            .map(|p| {
+                let choice = |on: bool, name: &str, allow: bool| {
+                    let press = set(p.origin.clone(), p.kind.clone(), Some(allow));
+                    if on { accent_pill(name, press).into_element() } else { pill(name, press).into_element() }
+                };
+                view()
+                    .gap_1()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(Theme::separator)
+                    .child(label(format!("{} · {}", p.site, p.label)).number_of_lines(1))
+                    .child(
+                        view()
+                            .flex_row()
+                            .gap_2()
+                            .child(choice(p.allowed, "Allow", true))
+                            .child(choice(!p.allowed, "Block", false))
+                            .child(pill("Forget", set(p.origin.clone(), p.kind.clone(), None))),
+                    )
+                    .into_element()
+            })
+            .collect();
+        framed(group().px_3().child(items)).into_element()
+    })
 }
 
 fn link_pill(ui: Ui, name: &'static str, url: &'static str) -> impl IntoElement {

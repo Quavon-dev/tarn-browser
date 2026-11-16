@@ -383,14 +383,11 @@ or entry, a Sparkle licence that differs, an `Info.plist` that is not the tag's
 `packaging/Info.plist` with the app version plus `SUFeedURL` and `SUPublicEDKey` from its
 configuration (so no other `SU*` key and no changed pinned value), or a helper with `SU*` keys.
 Then it signs Sparkle inside out (`Installer.xpc`, `Autoupdate`, `Updater.app`, the framework,
-the order of Sparkle's Developer ID instructions), the helpers with its own
-`Helper-JIT.entitlements` and the app, all with hardened runtime and a timestamp, notarises,
-staples and uploads `Tarn-<tag>.zip` to the draft, and with it `Tarn-<tag>.dmg`: the stapled app
-beside an `Applications` link in an HFS+ image, signed, notarised and stapled, refused unless
-`spctl -t open` reports it notarised. The maintainer checks both files' team and version before
-publishing (above).
-`scripts/sign-release.test.sh` (run by the `macos` CI job) checks every refusal before signing on
-fixtures; the signing, notarisation and disk-image steps run only on the signing Mac.
+the order of Sparkle's Developer ID instructions), the GPU and renderer helpers with its own
+`Helper-JIT.entitlements`, the plain helper and the app with its own `Tarn.entitlements` (camera
+and microphone), all with hardened runtime and a timestamp, notarises,
+staples and uploads `Tarn-<tag>.zip` to the draft.
+`scripts/sign-release.test.sh` (run by the `macos` CI job) checks every refusal on fixtures.
 
 Not built: the signing Mac does not yet run `scripts/appcast.sh` or publish; until then the
 maintainer does both by hand for each signed draft (above). The second route is only as independent as its setup: a proxy on
@@ -409,7 +406,7 @@ Setup, once:
    repository only, with contents read and write and attestations read, stored with
    `security add-generic-password -s tarn-release-token -a tarn-sign -w`.
 3. Install `scripts/sign-release.sh` from a reviewed commit, by hand, to
-   `/usr/local/libexec/tarn-sign/`, together with `packaging/Helper-JIT.entitlements` and an
+   `/usr/local/libexec/tarn-sign/`, together with `packaging/Helper-JIT.entitlements`, `packaging/Tarn.entitlements` and an
    `allowed_signers` file listing the maintainers' SSH signing keys
    (`<email> ssh-ed25519 AAAA...`). Never update it from the pipeline.
 4. `git clone --bare https://github.com/Quavon-dev/tarn-browser.git ~/tarn.git`; the script
@@ -422,6 +419,7 @@ Setup, once:
    state=/Users/tarn-sign/state
    allowed_signers=/usr/local/libexec/tarn-sign/allowed_signers
    jit_entitlements=/usr/local/libexec/tarn-sign/Helper-JIT.entitlements
+   media_entitlements=/usr/local/libexec/tarn-sign/Tarn.entitlements
    identity=Developer ID Application: <Name> (<TEAMID>)
    notary_profile=tarn-notary
    unpack_user=tarn-unpack

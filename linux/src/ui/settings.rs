@@ -181,6 +181,32 @@ fn hidden(ui: Ui, private: bool) -> View {
     view().flex_col().children(rows)
 }
 
+fn permissions(ui: Ui) -> View {
+    let rows = read(ui, |b| b.permissions()).unwrap_or_default();
+    if rows.is_empty() {
+        return view()
+            .child(note("No site has asked yet. When a site asks for the camera, microphone or location and you choose Remember, the answer shows here."));
+    }
+    let rows: Vec<AnyElement> = rows
+        .into_iter()
+        .map(|p| {
+            let set = |allow: Option<bool>| {
+                let (origin, kind) = (p.origin.clone(), p.kind.clone());
+                move || act(ui, |b| b.set_permission(&origin, &kind, allow))
+            };
+            let mark = |on: bool, name: &'static str, allow: bool| {
+                if on { accent_pill(name, set(Some(allow))).into_element() } else { pill(name, set(Some(allow))).into_element() }
+            };
+            line(format!("{} · {}", p.site, p.label))
+                .child(mark(p.allowed, "Allow", true))
+                .child(mark(!p.allowed, "Block", false))
+                .child(pill("Forget", set(None)))
+                .into_element()
+        })
+        .collect();
+    view().flex_col().children(rows)
+}
+
 fn nav(ui: Ui, current: Pane) -> View {
     let rows: Vec<AnyElement> = PANES
         .iter()
@@ -300,6 +326,9 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             )
             .child(section("Space Rules"))
             .child(rules(ui)),
+        Pane::Permissions => body
+            .child(note("This profile's answers to sites. A site you forget asks again next time; Lockdown sites never ask."))
+            .child(view().pt_2().child(permissions(ui))),
         Pane::Shortcuts => body.child(view().pt_3().child(shortcut_rows(ui))),
     })
 }

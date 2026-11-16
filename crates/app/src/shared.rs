@@ -207,7 +207,9 @@ pub(crate) fn start(cx: &mut App) -> bool {
         loop {
             cx.background_executor().timer(ARCHIVE_INTERVAL).await;
             let archived = cx.update(|cx| {
-                each(cx, |b, _, cx| b.archive_unused_tabs(cx));
+                each(cx, |b, _, cx| {
+                    b.archive_unused_tabs(cx);
+                });
                 each(cx, |b, window, cx| b.sync_shared(window, cx));
                 #[cfg(any(feature = "chromium", windows))]
                 check_chromium(cx);
@@ -429,7 +431,9 @@ fn restore_windows(cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
         saved.push(new_window_row(cx));
     }
     let opened: Vec<_> = saved.into_iter().filter_map(|row| open_window(row, None, cx)).collect();
-    each(cx, |b, _, cx| b.archive_unused_tabs(cx));
+    each(cx, |b, _, cx| {
+        b.archive_unused_tabs(cx);
+    });
     opened.first().copied()
 }
 

@@ -49,7 +49,7 @@ pub struct Motion {
     /// The row the pointer last left, when, and how far its button had grown.
     pub(crate) unhovered: Option<(TabKey, Instant, f32)>,
     /// Where the pointer last moved over the list.
-    pointer: Option<Point<Pixels>>,
+    pub(crate) pointer: Option<Point<Pixels>>,
     /// Where the pointer rested when rows moved under it; the row there already shows its button.
     pub(crate) rested: Option<Point<Pixels>>,
 }
@@ -170,8 +170,10 @@ fn tab_icon(b: &Browser, url: &str, size: f32, asleep: bool) -> AnyElement {
     }
 }
 
-fn tile_width(sidebar: f32) -> f32 {
-    (sidebar - 2. - 4. * TILE_GAP) / 3.
+/// Columns of the tile grid for `count` tiles in a sidebar `sidebar` points wide.
+fn tile_columns(sidebar: f32, count: usize) -> u16 {
+    let inner = sidebar - 2. - 2. * TILE_GAP;
+    u16::try_from(browser_core::tabs::tile_columns(count, inner, TILE_GAP)).unwrap_or(u16::MAX)
 }
 
 fn space_tint(s: &SpaceRef) -> Option<Rgba> {
@@ -302,8 +304,10 @@ impl Browser {
     }
 
     /// Keeps a closed tab's row on screen while it collapses.
+    /// Rows close up at once under a pointer over the list, so the next row's close button is
+    /// where the last one was.
     pub(crate) fn tab_leaving(&mut self, tab: &Tab, cx: &mut Context<Self>) {
-        if self.pref(Pref::ReduceMotion) || tab.kind != TabKind::Ephemeral {
+        if self.pref(Pref::ReduceMotion) || tab.kind != TabKind::Ephemeral || self.motion.pointer.is_some() {
             return;
         }
         let at = Instant::now();
@@ -321,6 +325,9 @@ impl Browser {
 }
 
 pub fn render(b: &mut Browser, cx: &mut Context<Browser>) -> AnyElement {
+    if !cx.has_active_drag() {
+        b.split_drop = None;
+    }
     let bg = background(b);
     content(b, NOTCH_WIDTH + 10., cx)
         .relative()
@@ -537,10 +544,11 @@ fn chevron(b: &Browser, id: Id, open: bool) -> AnyElement {
 
 fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let tiles: Vec<&Tab> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Tile).collect();
+    let reduce = b.pref(Pref::ReduceMotion);
     div()
         .id("tiles")
-        .flex()
-        .flex_wrap()
+        .grid()
+        .grid_cols(tile_columns(b.sidebar_width, tiles.len()))
         .gap(px(TILE_GAP))
         .when(!tiles.is_empty(), |d| d.pb_1())
         .min_h(px(if tiles.is_empty() && cx.has_active_drag() { 46. } else { 6. }))
@@ -551,9 +559,8 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
             let key = b.model.key(t);
             let active = b.model.active == Some(key);
             let title: SharedString = label(t).into();
-            div()
+            let tile = div()
                 .id(("tile", t.id as u64))
-                .w(px(tile_width(b.sidebar_width)))
                 .h(px(46.))
                 .flex()
                 .items_center()
@@ -569,7 +576,8 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
                 .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
                 .drag_over::<DraggedTab>(|s, _, _, _| s.border_color(Theme::accent()))
-                .on_drop(cx.listener(tab_drop(TabKind::Tile, None, None, Some(b.model.zone_index(t)))))
+                .on_drop(cx.listener(tab_drop(TabKind::Tile, None, None, Some(b.model.zone_index(t)))));
+            animate(tile, ("tile-in", t.id as u64), FADE, reduce, |el, p| el.opacity(p))
         }))
 }
 
@@ -606,7 +614,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .when(!active, |d| d.hover(|s| s.bg(Theme::hover())))
         .cursor_pointer()
         .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(match (loading, b.still()) {
-            (true, false) => spinner(("tab-spin", t.id as u64), 14., Theme::space_label()).into_any_element(),
+            (true, false) => spinner(14., Theme::space_label()).into_any_element(),
             (true, true) => div().opacity(0.5).child(tab_icon(b, &t.url, 16., asleep)).into_any_element(),
             _ => tab_icon(b, &t.url, 16., asleep),
         }))
@@ -686,8 +694,29 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .on_mouse_down(MouseButton::Left, cx.listener(|b, _, _, cx| b.hide_hover_card(cx)))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
         .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
-        .drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft()))
-        .on_drop(cx.listener(tab_drop(t.kind, t.folder_id, t.group_id, Some(b.model.zone_index(t)))));
+        .when(b.split_drop != Some(key), |d| d.drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft())))
+        .when(b.split_drop == Some(key), |d| d.border_1().border_color(Theme::accent()).bg(Theme::accent_soft()))
+        .on_drag_move(cx.listener(move |b, e: &DragMoveEvent<DraggedTab>, _, cx| {
+            let inside = e.bounds.contains(&e.event.position);
+            let share = (e.event.position.y - e.bounds.origin.y) / e.bounds.size.height;
+            let joins = inside && b.drop_splits(e.drag(cx).key, key) && browser_core::split::drops_into(share);
+            let target = if joins { Some(key) } else { b.split_drop.filter(|k| *k != key) };
+            if b.split_drop != target {
+                b.split_drop = target;
+                cx.notify();
+            }
+        }))
+        .on_drop(cx.listener({
+            let reorder = tab_drop(t.kind, t.folder_id, t.group_id, Some(b.model.zone_index(t)));
+            move |b, dragged: &DraggedTab, window, cx| {
+                if b.split_drop.take() == Some(key) {
+                    b.activate(key, window, cx);
+                    b.split_with(dragged.key, window, cx);
+                } else {
+                    reorder(b, dragged, window, cx);
+                }
+            }
+        }));
     animate(row, ("tab-in", t.id as u64), FADE, b.pref(Pref::ReduceMotion), move |el, p| {
         let el = el.opacity(p);
         if entering { el.h(px(TAB_ROW * p)) } else { el }
@@ -848,6 +877,27 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .child("New Tab")
                 .on_click(cx.listener(|b, _, window, cx| b.new_tab_page(window, cx))),
         )
+        .when(b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id.is_none()).count() >= 2 && !b.model.burner_shown(), |d| {
+            d.child(
+                div()
+                    .id("clean-up")
+                    .h(px(TAB_ROW))
+                    .pl(px(10.))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap_2p5()
+                    .rounded(px(Theme::radius_row()))
+                    .text_color(Theme::muted())
+                    .cursor_pointer()
+                    .hover(|s| s.bg(Theme::hover()).text_color(Theme::text()))
+                    .active(|s| s.bg(Theme::pressed()))
+                    .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(icon(Icon::Sparkles, 13., Theme::space_label())))
+                    .child("Clean Up")
+                    .tooltip(tooltip("Sorts tabs into groups and archives tabs unused for longer than Settings › Tabs allows. Runs on this device.", None))
+                    .on_click(cx.listener(|b, _, _, cx| b.clean_up_tabs(cx))),
+            )
+        })
         .children(b.model.groups.iter().enumerate().map(|(ix, g)| group_card(b, ix, g, cx)).collect::<Vec<_>>())
         .children(rows(b, None, |_| true, cx))
 }
@@ -988,7 +1038,7 @@ fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
 
 #[cfg(test)]
 mod tests {
-    use super::{Motion, SIDEBAR_WIDTH, TAB_ROW, TILE_GAP, inner_height, mix, tile_width};
+    use super::{Motion, SIDEBAR_WIDTH, TAB_ROW, inner_height, mix, tile_columns};
     use crate::browser::TabKey;
     use gpui::{Rgba, point, px};
     use std::time::{Duration, Instant};
@@ -1018,10 +1068,9 @@ mod tests {
     }
 
     #[test]
-    fn three_tiles_fill_a_row_at_any_width() {
-        for width in [200., SIDEBAR_WIDTH, 420.] {
-            assert_eq!(3. * tile_width(width) + 4. * TILE_GAP + 2., width);
-        }
+    fn tiles_keep_one_row_at_the_default_width_until_a_sixth_arrives() {
+        assert_eq!([1, 3, 5, 6, 8].map(|n| tile_columns(SIDEBAR_WIDTH, n)), [1, 3, 5, 3, 4]);
+        assert_eq!(tile_columns(420., 6), 6, "a wider sidebar fits more in a row");
     }
 
     #[test]

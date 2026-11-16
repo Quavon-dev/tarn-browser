@@ -13,7 +13,35 @@ use unicode_segmentation::*;
 
 actions!(
     text_input,
-    [Backspace, Delete, Left, Right, SelectLeft, SelectRight, SelectAll, Home, End, ShowCharacterPalette, Paste, Cut, Copy, Submit, Cancel, Up, Down,]
+    [
+        Backspace,
+        Delete,
+        DeleteToBeginning,
+        DeleteToEnd,
+        DeleteWordLeft,
+        DeleteWordRight,
+        Left,
+        Right,
+        WordLeft,
+        WordRight,
+        SelectLeft,
+        SelectRight,
+        SelectWordLeft,
+        SelectWordRight,
+        SelectToBeginning,
+        SelectToEnd,
+        SelectAll,
+        Home,
+        End,
+        ShowCharacterPalette,
+        Paste,
+        Cut,
+        Copy,
+        Submit,
+        Cancel,
+        Up,
+        Down,
+    ]
 );
 
 pub enum TextInputEvent {
@@ -39,6 +67,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-x", Cut, ctx),
         KeyBinding::new("home", Home, ctx),
         KeyBinding::new("end", End, ctx),
+        KeyBinding::new("shift-home", SelectToBeginning, ctx),
+        KeyBinding::new("shift-end", SelectToEnd, ctx),
         KeyBinding::new("cmd-left", Home, ctx),
         KeyBinding::new("cmd-right", End, ctx),
         KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, ctx),
@@ -47,6 +77,40 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("up", Up, ctx),
         KeyBinding::new("down", Down, ctx),
     ]);
+    cx.bind_keys(editing_keys(ctx));
+}
+
+/// The system's own text editing keys: ⌘ for line ends, ⌥ for words and the Emacs keys.
+#[cfg(target_os = "macos")]
+fn editing_keys(ctx: Option<&str>) -> Vec<KeyBinding> {
+    vec![
+        KeyBinding::new("shift-cmd-left", SelectToBeginning, ctx),
+        KeyBinding::new("shift-cmd-right", SelectToEnd, ctx),
+        KeyBinding::new("cmd-backspace", DeleteToBeginning, ctx),
+        KeyBinding::new("cmd-delete", DeleteToEnd, ctx),
+        KeyBinding::new("alt-left", WordLeft, ctx),
+        KeyBinding::new("alt-right", WordRight, ctx),
+        KeyBinding::new("alt-shift-left", SelectWordLeft, ctx),
+        KeyBinding::new("alt-shift-right", SelectWordRight, ctx),
+        KeyBinding::new("alt-backspace", DeleteWordLeft, ctx),
+        KeyBinding::new("alt-delete", DeleteWordRight, ctx),
+        KeyBinding::new("ctrl-a", Home, ctx),
+        KeyBinding::new("ctrl-e", End, ctx),
+        KeyBinding::new("ctrl-k", DeleteToEnd, ctx),
+    ]
+}
+
+/// The system's own text editing keys: Ctrl for words.
+#[cfg(not(target_os = "macos"))]
+fn editing_keys(ctx: Option<&str>) -> Vec<KeyBinding> {
+    vec![
+        KeyBinding::new("secondary-left", WordLeft, ctx),
+        KeyBinding::new("secondary-right", WordRight, ctx),
+        KeyBinding::new("secondary-shift-left", SelectWordLeft, ctx),
+        KeyBinding::new("secondary-shift-right", SelectWordRight, ctx),
+        KeyBinding::new("secondary-backspace", DeleteWordLeft, ctx),
+        KeyBinding::new("secondary-delete", DeleteWordRight, ctx),
+    ]
 }
 
 pub struct TextInput {
@@ -168,6 +232,30 @@ impl TextInput {
         self.select_to(self.content.len(), cx)
     }
 
+    fn word_left(&mut self, _: &WordLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(word_left(&self.content, self.selected_range.start), cx);
+    }
+
+    fn word_right(&mut self, _: &WordRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(word_right(&self.content, self.selected_range.end), cx);
+    }
+
+    fn select_word_left(&mut self, _: &SelectWordLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(word_left(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn select_word_right(&mut self, _: &SelectWordRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(word_right(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn select_to_beginning(&mut self, _: &SelectToBeginning, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(0, cx);
+    }
+
+    fn select_to_end(&mut self, _: &SelectToEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(self.content.len(), cx);
+    }
+
     fn home(&mut self, _: &Home, _: &mut Window, cx: &mut Context<Self>) {
         self.move_to(0, cx);
     }
@@ -187,6 +275,35 @@ impl TextInput {
         if self.selected_range.is_empty() {
             self.select_to(self.next_boundary(self.cursor_offset()), cx)
         }
+        self.replace_text_in_range(None, "", window, cx)
+    }
+
+    fn delete_word_left(&mut self, _: &DeleteWordLeft, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected_range.is_empty() {
+            self.select_to(word_left(&self.content, self.cursor_offset()), cx)
+        }
+        self.replace_text_in_range(None, "", window, cx)
+    }
+
+    fn delete_word_right(&mut self, _: &DeleteWordRight, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected_range.is_empty() {
+            self.select_to(word_right(&self.content, self.cursor_offset()), cx)
+        }
+        self.replace_text_in_range(None, "", window, cx)
+    }
+
+    fn delete_to_beginning(&mut self, _: &DeleteToBeginning, window: &mut Window, cx: &mut Context<Self>) {
+        self.delete_through(0, window, cx)
+    }
+
+    fn delete_to_end(&mut self, _: &DeleteToEnd, window: &mut Window, cx: &mut Context<Self>) {
+        self.delete_through(self.content.len(), window, cx)
+    }
+
+    /// Deletes the selection together with everything between it and `offset`.
+    fn delete_through(&mut self, offset: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.selected_range = extend(&self.selected_range, offset);
+        self.selection_reversed = false;
         self.replace_text_in_range(None, "", window, cx)
     }
 
@@ -332,6 +449,25 @@ impl TextInput {
         self.is_selecting = false;
         self.inserted = false;
     }
+}
+
+/// `range` grown to reach `offset`, so an inline completion is removed along with the typed text.
+fn extend(range: &Range<usize>, offset: usize) -> Range<usize> {
+    range.start.min(offset)..range.end.max(offset)
+}
+
+fn is_word(segment: &str) -> bool {
+    segment.chars().any(char::is_alphanumeric)
+}
+
+/// The start of the word before `offset`, past any spaces or punctuation in between.
+fn word_left(text: &str, offset: usize) -> usize {
+    text[..offset].split_word_bound_indices().rev().find(|(_, segment)| is_word(segment)).map_or(0, |(ix, _)| ix)
+}
+
+/// The end of the word after `offset`, past any spaces or punctuation in between.
+fn word_right(text: &str, offset: usize) -> usize {
+    text[offset..].split_word_bound_indices().find(|(_, segment)| is_word(segment)).map_or(text.len(), |(ix, segment)| offset + ix + segment.len())
 }
 
 impl EntityInputHandler for TextInput {
@@ -576,6 +712,16 @@ impl Render for TextInput {
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
+            .on_action(cx.listener(Self::delete_to_beginning))
+            .on_action(cx.listener(Self::delete_to_end))
+            .on_action(cx.listener(Self::delete_word_left))
+            .on_action(cx.listener(Self::delete_word_right))
+            .on_action(cx.listener(Self::word_left))
+            .on_action(cx.listener(Self::word_right))
+            .on_action(cx.listener(Self::select_word_left))
+            .on_action(cx.listener(Self::select_word_right))
+            .on_action(cx.listener(Self::select_to_beginning))
+            .on_action(cx.listener(Self::select_to_end))
             .on_action(cx.listener(Self::left))
             .on_action(cx.listener(Self::right))
             .on_action(cx.listener(Self::select_left))
@@ -605,5 +751,51 @@ impl Render for TextInput {
 impl Focusable for TextInput {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extend, word_left, word_right};
+
+    #[test]
+    fn delete_to_beginning_takes_everything_before_the_caret() {
+        assert_eq!(extend(&(5..5), 0), 0..5);
+    }
+
+    #[test]
+    fn delete_to_beginning_takes_a_selected_completion_too() {
+        assert_eq!(extend(&(3..11), 0), 0..11);
+    }
+
+    #[test]
+    fn delete_to_end_takes_everything_after_the_selection() {
+        assert_eq!(extend(&(2..4), 9), 2..9);
+    }
+
+    #[test]
+    fn word_left_stops_at_the_start_of_each_word() {
+        let url = "https://example.com/some-path";
+        assert_eq!(word_left(url, url.len()), 25);
+        assert_eq!(word_left(url, 25), 20);
+        assert_eq!(word_left(url, 20), 8, "a host is one word");
+        assert_eq!(word_left(url, 8), 0);
+        assert_eq!(word_left(url, 3), 0);
+        assert_eq!(word_left(url, 0), 0);
+    }
+
+    #[test]
+    fn word_right_stops_at_the_end_of_each_word() {
+        let query = "  rust   gpui ";
+        assert_eq!(word_right(query, 0), 6);
+        assert_eq!(word_right(query, 6), 13);
+        assert_eq!(word_right(query, 13), query.len());
+    }
+
+    #[test]
+    fn words_hold_non_latin_letters() {
+        let text = "grüße Αθήνα";
+        assert_eq!(word_left(text, text.len()), "grüße ".len());
+        assert_eq!(word_right(text, 0), "grüße".len());
     }
 }

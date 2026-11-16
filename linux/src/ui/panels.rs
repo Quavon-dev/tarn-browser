@@ -237,7 +237,7 @@ fn downloads_panel(ui: Ui) -> AnyElement {
 
 fn tab_panel(ui: Ui) -> AnyElement {
     let Some(key) = read(ui, |b| b.model.active).flatten() else { return view().into_element() };
-    let (pinned, folders, targets) = ui.snap.with(|s| (s.pinned, s.folders.clone(), s.move_targets.clone()));
+    let (pinned, tile, folders, targets) = ui.snap.with(|s| (s.pinned, s.tile, s.folders.clone(), s.move_targets.clone()));
     let folder_buttons: Vec<AnyElement> =
         folders.into_iter().map(|(id, name)| pill(name, move || act(ui, |b| b.move_to_folder(key, id))).into_element()).collect();
     let space_buttons: Vec<AnyElement> = targets
@@ -267,6 +267,7 @@ fn tab_panel(ui: Ui) -> AnyElement {
         tools.push(tool("Close Duplicate Tabs", super::tools::Command::CloseDuplicates));
     }
     let pin = (!burner).then(|| pill(if pinned { "Unpin" } else { "Pin" }, move || act(ui, |b| b.pin_toggle(key))));
+    let tiles = (!burner).then(|| pill(if tile { "Remove from Tiles" } else { "Add to Tiles" }, move || act(ui, |b| b.tile_toggle(key))));
     popover()
         .child(title("This Tab"))
         .child(
@@ -274,6 +275,7 @@ fn tab_panel(ui: Ui) -> AnyElement {
                 .flex_row()
                 .gap_2()
                 .children(pin)
+                .children(tiles)
                 .child(pill("Close Tab", move || {
                     ui.panel.set(Panel::None);
                     act(ui, |b| b.close_tab(key));
