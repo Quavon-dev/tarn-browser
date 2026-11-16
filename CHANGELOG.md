@@ -124,9 +124,6 @@ All notable changes to Tarn are documented in this file. The format is based on
   Android).
 - When Tarn could not open its database, it no longer deletes Chromium's cookies and site data at
   start and quit as if their profile were gone.
-- Sign-ins made in WebKit reach Chromium tabs again on macOS. WebKit reports cookies without
-  `SameSite` as `SameSite=None`, so the bridge skipped them, or would have given Chromium a less
-  restricted copy; it now reads them as `Lax`, as Chromium does.
 - A Lockdown profile that shares another profile's website data no longer clears that data when it
   opens; it clears only its own (macOS, Windows).
 - iOS and Android: Back and Forward are dimmed when there is nowhere to go, also after a page
@@ -222,6 +219,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Tarn is now licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`).
   Only Quavon UG (haftungsbeschränkt) may distribute it through app stores
   (`LICENSE-APP-STORE.md`), and the Tarn name, logo and app icon are trademarks (`TRADEMARKS.md`).
+
+### Security
+
+- The cookie bridge between WebKit and Chromium no longer gives Chromium a less restricted copy of
+  a cookie set without `SameSite` (macOS): WebKit reports such cookies as `SameSite=None`, and the
+  bridge now reads them as `Lax`, as Chromium does. Sign-ins made in WebKit reach Chromium tabs
+  again.
 
 ## [0.1.0] - 2026-11-14
 
