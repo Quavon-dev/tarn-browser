@@ -11,6 +11,31 @@ NEW="$(cd "$(dirname "$0")/.." && pwd)"
 IDENTITY=${TARN_SIGN_IDENTITY:-"Developer ID Application: Quavon UG (haftungsbeschrankt) (CFV35FGSHF)"}
 NOTARY=${TARN_NOTARY_PROFILE:-tarn-notary}
 
+# The release page shows these labels; file names stay as the updaters and package repositories need them.
+label() {
+  local v=${VERSION//./\\.} n=$1
+  case "$n" in
+    "Tarn-$TAG.dmg") echo "macOS (Apple silicon): installer (.dmg)" ;;
+    "Tarn-$TAG.zip") echo "macOS (Apple silicon): app for updates (.zip)" ;;
+    "Tarn-$TAG-unsigned.zip") echo "macOS (Apple silicon): unsigned build (.zip)" ;;
+    appcast.xml) echo "macOS update feed" ;;
+    "Tarn-$TAG-windows-x64-setup.exe") echo "Windows (x64): installer (.exe)" ;;
+    "Tarn-$TAG-windows-x64-setup-unsigned.exe") echo "Windows (x64): unsigned installer (.exe)" ;;
+    "Tarn-$TAG-windows-x64-unsigned.zip") echo "Windows (x64): unsigned build (.zip)" ;;
+    windows-update.json) echo "Windows update feed" ;;
+    windows-update.json.sig) echo "Windows update feed signature" ;;
+    "Tarn-$TAG-ios-unsigned.zip") echo "iOS: unsigned build (.zip)" ;;
+    "Tarn-$TAG-android-unsigned.apk") echo "Android: unsigned build (.apk)" ;;
+    "Tarn-$TAG.cdx.json") echo "Software bill of materials (CycloneDX)" ;;
+    SHA256SUMS) echo "SHA-256 checksums" ;;
+    *) if [[ "$n" =~ ^tarn_${v}_debian([0-9.]+)_amd64\.deb$ ]]; then echo "Linux: Debian ${BASH_REMATCH[1]} (x64, .deb)"
+       elif [[ "$n" =~ ^tarn_${v}_ubuntu([0-9.]+)_amd64\.deb$ ]]; then echo "Linux: Ubuntu ${BASH_REMATCH[1]} (x64, .deb)"
+       elif [[ "$n" =~ ^tarn-${v}-[0-9]+\.fc([0-9]+)\.x86_64\.rpm$ ]]; then echo "Linux: Fedora ${BASH_REMATCH[1]} (x64, .rpm)"
+       elif [[ "$n" =~ ^tarn-${v}-[0-9]+-x86_64\.pkg\.tar\.zst$ ]]; then echo "Linux: Arch (x64, .pkg.tar.zst)"
+       fi ;;
+  esac
+}
+
 say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 ask() { local a; read -r -p "$1 [y/N] " a; [[ $a == [yY]* ]]; }
 assets() { gh release view "$TAG" -R "$R" --json assets --jq '.assets[].name' 2>/dev/null || true; }
@@ -120,6 +145,13 @@ if verify_mac; then ok=true; else ok=false; fi
 hdiutil detach -quiet "$mnt"; rm -rf "$chk"
 $ok || { echo "The macOS files on the draft failed the team, notarisation or version check. Not publishing."; exit 1; }
 echo "zip and dmg: team CFV35FGSHF, notarised, version $VERSION."
+
+say "Label the files"
+gh api "repos/$R/releases/$(gh release view "$TAG" -R "$R" --json databaseId --jq .databaseId)/assets" --paginate \
+  --jq '.[] | "\(.id) \(.name)"' | while read -r id name; do
+  l=$(label "$name")
+  [ -n "$l" ] && gh api -X PATCH "repos/$R/releases/assets/$id" -f label="$l" >/dev/null && echo "  $name -> $l"
+done
 
 say "5/5 Publish"
 echo "Publishing makes $TAG the latest release: Macs and Windows PCs update to it within a day,"
