@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use gpui::{
-    Action, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement, KeyBinding, Keystroke, ParentElement, StatefulInteractiveElement,
-    Styled, Window, actions, div, px,
+    Action, AnyElement, AnyView, App, Context, Div, FontWeight, InteractiveElement, IntoElement, KeyBinding, Keystroke, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Window, actions, div, px,
 };
 use ui::controls::{key_hint, surface};
 use ui::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
@@ -246,6 +246,12 @@ pub(crate) fn shown(action: &dyn Action, cx: &App) -> String {
     if keys.is_empty() { keys } else { ui::controls::keys(&display(&keys)) }
 }
 
+/// A tooltip naming `action`'s keys, looked up when it opens rather than on every frame.
+pub(crate) fn tip(text: impl Into<SharedString>, action: &'static dyn Action) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    let text = text.into();
+    move |window, cx| ui::controls::tooltip(text.clone(), Some(shown(action, cx).into()))(window, cx)
+}
+
 pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
     root.on_action(cx.listener(|b, _: &ToggleShortcuts, w, cx| b.toggle_shortcuts(w, cx)))
 }
@@ -271,7 +277,7 @@ impl Browser {
     }
 }
 
-pub fn render(cx: &App) -> AnyElement {
+pub fn render(cx: &mut Context<Browser>) -> AnyElement {
     let column = |(title, items): &(&'static str, &'static [(&'static str, Keys)])| {
         div()
             .w(px(250.))
@@ -310,7 +316,18 @@ pub fn render(cx: &App) -> AnyElement {
                 .child(key_hint("Esc to close")),
         )
         .child(div().flex().flex_wrap().gap_6().children(SHORTCUTS.iter().map(column)));
-    div().flex_1().min_h_0().flex().justify_center().items_start().pt(px(48.)).px_4().child(card).into_any_element()
+    // A click beside the sheet closes it, as one outside a pop-up does.
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .justify_center()
+        .items_start()
+        .pt(px(48.))
+        .px_4()
+        .on_mouse_down(gpui::MouseButton::Left, cx.listener(|b, _, w, cx| b.dismiss_overlay(w, cx)))
+        .child(card.occlude())
+        .into_any_element()
 }
 
 #[cfg(test)]

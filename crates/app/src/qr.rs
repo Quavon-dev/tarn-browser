@@ -1,6 +1,6 @@
 use gpui::{
     AppContext, Bounds, Context, Div, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, SharedString, Styled, Subscription,
-    Window, actions, canvas, div, fill, point, px, size,
+    Window, WindowHandle, actions, canvas, div, fill, point, px, size,
 };
 use ui::controls::surface;
 use ui::motion::fade_in;
@@ -44,6 +44,11 @@ impl Browser {
 
     /// A card with the active page's QR code below the address field; Esc or a click elsewhere closes it.
     fn show_qr_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(handle) = self.qr.take()
+            && handle.update(cx, |_, window, _| window.remove_window()).is_ok()
+        {
+            return;
+        }
         let Some(url) = self.active_url() else { return };
         let Some(code) = engine::share::qr_code(&url) else {
             return self.show_toast("No QR code for this link", None, cx);
@@ -59,15 +64,19 @@ impl Browser {
         let bounds = Bounds::new(point(frame.origin.x + x, frame.origin.y + top), size(px(WIDTH), px(HEIGHT)));
         let display = window.display(cx).map(|d| d.id());
         let reduce = self.pref(Pref::ReduceMotion);
+        let main = window.window_handle().downcast::<Browser>().or(self.peek.main);
+        let browser = cx.entity().downgrade();
         cx.defer(move |cx| {
-            cx.open_window(popup_options(bounds, display, true), |window, cx| {
-                if let Some(host) = engine::Host::from_window(window) {
-                    host.strip_frame();
-                    host.round_corners(0., 0., 0., 0., f64::from(ui::theme::Theme::radius_panel()));
-                }
-                cx.new(|cx| QrWindow::new(code, label.into(), reduce, window, cx))
-            })
-            .ok();
+            let handle = cx
+                .open_window(popup_options(bounds, display, true), |window, cx| {
+                    if let Some(host) = engine::Host::from_window(window) {
+                        host.strip_frame();
+                        host.round_corners(0., 0., 0., 0., f64::from(ui::theme::Theme::radius_panel()));
+                    }
+                    cx.new(|cx| QrWindow::new(code, label.into(), reduce, main, window, cx))
+                })
+                .ok();
+            browser.update(cx, |b, _| b.qr = handle).ok();
         });
     }
 }
@@ -76,12 +85,13 @@ pub struct QrWindow {
     code: Vec<Vec<bool>>,
     label: SharedString,
     reduce: bool,
+    main: Option<WindowHandle<Browser>>,
     focus: FocusHandle,
     _activation: Subscription,
 }
 
 impl QrWindow {
-    fn new(code: Vec<Vec<bool>>, label: SharedString, reduce: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(code: Vec<Vec<bool>>, label: SharedString, reduce: bool, main: Option<WindowHandle<Browser>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let activation = cx.observe_window_activation(window, |_, window, _| {
@@ -89,12 +99,20 @@ impl QrWindow {
                 window.remove_window();
             }
         });
-        QrWindow { code, label, reduce, focus, _activation: activation }
+        QrWindow { code, label, reduce, main, focus, _activation: activation }
+    }
+
+    /// Esc and the menu command hand the focus back to the page the card was opened from.
+    fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.remove_window();
+        if let Some(main) = self.main {
+            main.update(cx, |_, window, _| window.activate_window()).ok();
+        }
     }
 }
 
 impl Render for QrWindow {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let code = self.code.clone();
         let module = (CODE / (code.len() + 2 * QUIET) as f32).floor();
         let side = module * code.len() as f32;
@@ -112,18 +130,19 @@ impl Render for QrWindow {
         .size(px(side));
         let card = surface(Theme::radius_panel())
             .track_focus(&self.focus)
-            .on_key_down(|e: &KeyDownEvent, window, _| {
+            .on_action(cx.listener(|this, _: &ShowQrCode, window, cx| this.close(window, cx)))
+            .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                 if e.keystroke.key == "escape" {
-                    window.remove_window();
+                    this.close(window, cx);
                 }
-            })
+            }))
             .size_full()
             .flex()
             .flex_col()
             .items_center()
             .justify_center()
             .gap_2()
-            .child(div().size(px(CODE)).rounded(px(6.)).bg(gpui::white()).flex().items_center().justify_center().child(modules))
+            .child(div().size(px(CODE)).rounded(px(Theme::radius_small())).bg(gpui::white()).flex().items_center().justify_center().child(modules))
             .child(
                 div()
                     .max_w(px(CODE))

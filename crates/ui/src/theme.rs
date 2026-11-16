@@ -13,7 +13,8 @@ pub const TEXT: f32 = 13.;
 pub const TEXT_SMALL: f32 = 11.5;
 pub const TEXT_TITLE: f32 = 15.;
 /// Clearance for the window's traffic lights, matching `traffic_light_position` in the app.
-pub const TRAFFIC_LIGHT_INSET: f32 = 84.;
+/// Windows draws its window controls at the toolbar's right instead.
+pub const TRAFFIC_LIGHT_INSET: f32 = if cfg!(target_os = "macos") { 84. } else { 10. };
 /// GPUI's name for the platform's interface font.
 pub const SYSTEM_FONT: &str = ".SystemUIFont";
 
@@ -167,6 +168,12 @@ impl Theme {
     /// Text and glyphs drawn on the accent: white in every theme, as on macOS.
     pub fn on_accent() -> Rgba {
         rgb(0xf4f9fd)
+    }
+    /// Text and glyphs on `fill`, a user or theme colour such as the accent: white unless
+    /// that drops under 3:1 there.
+    pub fn on_fill(fill: Rgba) -> Rgba {
+        let b = |v: f32| (v * 255.).round() as u32;
+        rgba(browser_core::theme::on_fill(b(fill.r) << 24 | b(fill.g) << 16 | b(fill.b) << 8 | 0xff))
     }
     /// Replaces the theme's accent with `color` (`0xRRGGBB`), the user's pick in Settings.
     pub fn set_accent(color: u32) {
@@ -368,5 +375,14 @@ mod tests {
         assert_eq!(hex(Theme::selected()), 0x0a7aff52);
         Theme::set_tokens(Tokens::DARK, Scheme::Dark, None);
         assert_eq!(Theme::font(), SYSTEM_FONT);
+    }
+
+    #[test]
+    fn an_off_switch_track_shows_on_its_surface() {
+        for t in [Tokens::LIGHT, Tokens::DARK] {
+            for bg in [t.surface, t.panel, t.panel_row] {
+                assert!(contrast(t.faint, bg) >= 2.5, "{:08x} on {bg:08x}", t.faint);
+            }
+        }
     }
 }

@@ -53,7 +53,7 @@ fn reload_button(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> St
     if !spinning {
         let enabled = b.model.active.is_some();
         return icon_button("reload", Icon::Reload, enabled)
-            .tooltip(tooltip("Reload", Some(crate::shortcuts::shown(&crate::Reload, cx).into())))
+            .tooltip(crate::shortcuts::tip("Reload", &crate::Reload))
             .on_click(cx.listener(|b, _, _, cx| b.reload(cx)));
     }
     // Past a finished cached reload the arrow still turns for `SPIN`; a click then reloads again.
@@ -102,17 +102,13 @@ fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
         .gap(px(2.))
         .child(
             icon_button("toggle-sidebar", Icon::Sidebar, true)
-                .tooltip(tooltip(sidebar, Some(crate::shortcuts::shown(&crate::ToggleSidebar, cx).into())))
+                .tooltip(crate::shortcuts::tip(sidebar, &crate::ToggleSidebar))
                 .on_click(cx.listener(|b, _, _, cx| b.toggle_sidebar(cx))),
         )
-        .child(
-            icon_button("back", Icon::Back, page.can_back)
-                .tooltip(tooltip("Back", Some(crate::shortcuts::shown(&crate::Back, cx).into())))
-                .on_click(cx.listener(|b, _, _, _| b.back())),
-        )
+        .child(icon_button("back", Icon::Back, page.can_back).tooltip(crate::shortcuts::tip("Back", &crate::Back)).on_click(cx.listener(|b, _, _, _| b.back())))
         .child(
             icon_button("forward", Icon::Forward, page.can_forward)
-                .tooltip(tooltip("Forward", Some(crate::shortcuts::shown(&crate::Forward, cx).into())))
+                .tooltip(crate::shortcuts::tip("Forward", &crate::Forward))
                 .on_click(cx.listener(|b, _, _, _| b.forward())),
         )
         .child(reload)
@@ -122,7 +118,7 @@ fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
 fn settings(cx: &mut Context<Browser>) -> Stateful<Div> {
     icon_button("settings", Icon::Gear, true)
         .occlude()
-        .tooltip(tooltip("Settings", Some(crate::shortcuts::shown(&crate::Settings, cx).into())))
+        .tooltip(crate::shortcuts::tip("Settings", &crate::Settings))
         .on_click(cx.listener(|b, _, w, cx| b.open_settings(w, cx)))
 }
 
@@ -131,7 +127,7 @@ fn app_menu_button(cx: &mut Context<Browser>) -> Option<Stateful<Div>> {
     cfg!(windows).then(|| {
         icon_button("app-menu", Icon::Ellipsis, true)
             .occlude()
-            .tooltip(tooltip("Menu", Some(crate::shortcuts::shown(&crate::OpenAppMenu, cx).into())))
+            .tooltip(crate::shortcuts::tip("Menu", &crate::OpenAppMenu))
             .on_click(cx.listener(|b, _, w, cx| b.open_app_menu(w, cx)))
     })
 }
@@ -245,15 +241,13 @@ fn bookmark_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl 
 }
 
 fn reader_button(b: &Browser, cx: &mut Context<Browser>) -> Option<impl IntoElement> {
-    b.model.active.filter(|k| b.page(*k).article)?;
-    Some(
-        chip_button("reader", Icon::BookOpen, true)
-            .tooltip(tooltip("Reader", Some(crate::shortcuts::shown(&crate::reader::ToggleReader, cx).into())))
-            .on_click(cx.listener(|b, _, window, cx| {
-                cx.stop_propagation();
-                b.toggle_reader(window, cx);
-            })),
-    )
+    b.model.active.filter(|k| b.pages.get(k).is_some_and(|p| p.article))?;
+    Some(chip_button("reader", Icon::BookOpen, true).tooltip(crate::shortcuts::tip("Reader", &crate::reader::ToggleReader)).on_click(cx.listener(
+        |b, _, window, cx| {
+            cx.stop_propagation();
+            b.toggle_reader(window, cx);
+        },
+    )))
 }
 
 fn mute_button(b: &Browser, cx: &mut Context<Browser>) -> Option<impl IntoElement> {
@@ -296,10 +290,12 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .on_scroll_wheel(cx.listener(|b, e, w, cx| b.toolbar_swipe(e, true, w, cx)))
         .relative()
         .child(measure(b.address.field.clone()))
-        .child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, 13., Secure::faint())))
-        .child(tail_first(div().flex_1(), text, color))
+        // Both sides share the spare room equally, so the host stays centred in the chip.
+        .child(div().flex_1().flex().child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, 13., Secure::faint()))))
+        .child(tail_first(div(), text, color))
         .child(
             div()
+                .flex_1()
                 .min_w(px(28.))
                 .flex()
                 .items_center()
@@ -393,12 +389,7 @@ fn open_field(b: &Browser, t: f32, editing: bool, centered: bool, cx: &mut Conte
                 .flex()
                 .items_center()
                 .gap_2()
-                .on_key_down(cx.listener(|b, e: &KeyDownEvent, _, cx| {
-                    if e.keystroke.key == "tab" {
-                        cx.stop_propagation();
-                        b.select_suggestion(!e.keystroke.modifiers.shift, cx);
-                    }
-                }))
+                .on_key_down(cx.listener(|b, e: &KeyDownEvent, _, cx| b.suggestion_key(e, cx)))
                 .child(icon(Icon::Search, 13., Theme::faint()))
                 .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(content))
                 .child(measure(b.address.field.clone())),

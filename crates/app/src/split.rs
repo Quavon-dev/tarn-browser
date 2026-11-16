@@ -97,8 +97,7 @@ impl Browser {
     /// copy of the active tab, and focuses the new pane.
     pub fn open_split(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(active) = self.model.active.filter(|a| !self.splits.contains(*a)) else { return };
-        let recent =
-            self.model.tabs.iter().filter(|t| self.splits.can_join(active, self.model.key(t))).max_by_key(|t| t.last_active).map(|t| self.model.key(t));
+        let recent = self.splits.partner(active, self.model.tabs.iter().map(|t| (self.model.key(t), t.last_active)));
         let partner = match recent {
             Some(partner) => partner,
             // The burner has one tab, and a copy would load in it instead of beside it.

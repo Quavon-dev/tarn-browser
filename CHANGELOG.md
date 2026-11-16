@@ -17,6 +17,12 @@ All notable changes to Tarn are documented in this file. The format is based on
   Rotate Split Layout stacks the panes, and the tab menu has a Split View submenu. New shortcuts
   focus the next or previous pane (⌃⌘] / ⌃⌘[), swap panes (⌃⌘S), rotate (⌃⌘R) and remove a tab
   (⌃⌘W).
+- macOS and Windows: `>` in the address field lists every command in a scrolling list, leaves out
+  commands with nothing to act on and names Pin, Mute and Split by state; suggestions wrap at the
+  ends and Page Up / Page Down jump to the first and last row; Esc declines a page's dialog or
+  permission prompt and Enter accepts an alert or confirm; the tab, space and folder menus are
+  regrouped (Rename Space, New Subfolder), library rows offer Copy Link, menus show colour dots
+  and check marks, and a toast with a button stays 10 seconds.
 - Linux: Up and Down pick address suggestions, right click opens the menu of any tab, the find bar
   counts matches and Ctrl+G / Ctrl+Shift+G step through them, icon buttons have tooltips, and Clear
   History, Clear Website Data and snapshot Delete ask for a confirmation.
@@ -68,6 +74,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- macOS and Windows: the loading spinner stops when a load fails or the tab sleeps; banners show
+  up to three lines; the site settings popover scrolls when it is tall; the hover card stays
+  inside the window; the reader's controls stay in view while the article scrolls; a switch that
+  is off is visible in the light theme and a primary button's label stays readable on any accent;
+  Windows no longer leaves room for macOS window buttons.
 - iOS and Android: opening a sheet or the address field no longer pauses the page's audio and
   video, and banners float over the page instead of pushing it down.
 - Sites can use the camera and microphone again on macOS: the app declares both and asks macOS;

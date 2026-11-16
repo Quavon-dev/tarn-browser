@@ -20,6 +20,27 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
+### Keyboard, labels and contrast from the desktop UI review (2026-11-16)
+
+What it does: Up and Down wrap at the ends of a suggestion list and Page Up/Page Down jump to its
+first and last row; `>` lists every command in a scrolling list; the command list leaves out
+commands with nothing to act on (Reset Tab Title, Return to Pinned URL, Reopen Closed Tab, Close
+Duplicate Tabs, split commands outside a split) and names Pin/Mute/Split by state. Esc declines a
+page's dialog or permission prompt without remembering it, Enter accepts an alert or confirm, and
+Esc closes the find bar, whose "No matches" clears while typing. A primary button's label turns
+dark when white would drop under 3:1 on the accent. A toast with a button stays 10 s. The tab
+menu is regrouped, the space menu offers Rename for the current space, a folder offers New
+Subfolder, and library rows offer Copy Link.
+Shared API: `browser_core::suggest::step_selection`, `browser_core::theme::on_fill`.
+macOS reference: `crates/app/src/browser.rs` (`select_suggestion`, `suggestion_key`, `suggest`,
+`dismiss_prompt`, `prompt_key`), `crates/app/src/browser/context.rs` (`tab_menu`, `space_menu`,
+`folder_menu`), `crates/app/src/toast.rs`, `crates/ui/src/controls.rs` (`button`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — suggestion keys and command filtering in `linux/src/ui.rs`, prompt keys, find bar, `on_fill` for `accent_pill` labels in `nsh-shared`
+- [ ] iOS — command filtering and `on_fill` labels in `mobile/app`; prompt and suggestion keys with a hardware keyboard
+- [ ] Android — same as iOS
+
 ### Split view with up to four tabs, drag to split (2026-11-16)
 
 What it does: a split shows two to four tabs of a space (two side by side, three with the right

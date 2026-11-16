@@ -162,6 +162,12 @@ impl<K: PartialEq + Copy> Splits<K> {
         self.of(key).is_some()
     }
 
+    /// The tab `active` splits with: the most recently used of `tabs`, with their last use, that
+    /// may join it.
+    pub fn partner(&self, active: K, tabs: impl IntoIterator<Item = (K, i64)>) -> Option<K> {
+        tabs.into_iter().filter(|(k, _)| self.can_join(active, *k)).max_by_key(|(_, used)| *used).map(|(k, _)| k)
+    }
+
     /// Whether `key`, a tab in no split, may join `anchor`: in its split while that has room, else
     /// the two start one. A full split is never replaced.
     pub fn can_join(&self, anchor: K, key: K) -> bool {
@@ -349,6 +355,14 @@ mod tests {
         assert_eq!(split(&[a, b, d]).others(a), [b, d]);
         assert_eq!(split(&[a, b]).others(b), [a]);
         assert!(split(&[a, b]).others(c).is_empty(), "a private tab with the same id is another tab");
+    }
+
+    #[test]
+    fn the_partner_is_the_most_recently_used_tab_that_may_join() {
+        let s = splits(&[&[1, 2]]);
+        assert_eq!(s.partner(3, [(1, 9), (3, 8), (4, 5), (5, 7)]), Some(5), "split panes and the tab itself are skipped");
+        assert_eq!(s.partner(1, [(3, 1), (4, 2)]), Some(4), "a pane's split takes another tab");
+        assert_eq!(s.partner(3, [(1, 9), (3, 8)]), None);
     }
 
     #[test]

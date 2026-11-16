@@ -52,7 +52,9 @@ impl Browser {
     /// The "Color" submenu of a group's context menu; `cmd` wraps each choice in the menu's command type.
     pub(crate) fn group_color_menu<T>(&self, id: Id, cmd: impl Fn(GroupCmd) -> T) -> Item<T> {
         let current = self.model.groups.iter().find(|g| g.id == id).map(|g| g.color.as_str());
-        let colors = PROFILE_COLORS.iter().map(|(name, _)| Item::action(capitalized(name), cmd(GroupCmd::Color(id, name))).checked(current == Some(*name)));
+        let colors = PROFILE_COLORS.iter().map(|(name, rgb)| {
+            Item::action(capitalized(name), cmd(GroupCmd::Color(id, name))).checked(current == Some(*name)).image(Some(engine::menu::Image::Dot(*rgb)))
+        });
         Item::Submenu("Color".into(), colors.collect())
     }
 

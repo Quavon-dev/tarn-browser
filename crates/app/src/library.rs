@@ -17,7 +17,7 @@ use store::{Bookmark, Download, HistoryEntry, Id, Snapshot, Tab};
 use ui::command::fuzzy_score;
 use ui::controls::{button, icon_button, key_hint, surface};
 use ui::icon::{Icon, icon};
-use ui::motion::{FADE, POP, animate};
+use ui::motion::{EXIT, POP, animate};
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
@@ -134,6 +134,7 @@ fn subtree(bookmarks: &[Bookmark], id: Id) -> HashSet<Id> {
 
 impl Browser {
     pub(crate) fn reload_bookmarks(&mut self, cx: &mut Context<Self>) {
+        self.bookmarks_of = self.model.profile();
         if let Some(space) = self.model.current_space() {
             self.set_bookmarks(self.store(space.private).bookmarks(space.space.profile_id).unwrap_or_default());
         }
@@ -1148,14 +1149,16 @@ impl LibraryWindow {
                 MenuItem::action("Restore in This Space", Cmd::Restore(saved.clone(), false)),
                 MenuItem::Separator,
                 MenuItem::action("Rename", Cmd::Rename(Named::Snapshot(saved.id))),
-                MenuItem::action("Delete", Cmd::Delete(Named::Snapshot(saved.id))),
+                MenuItem::action("Delete…", Cmd::Delete(Named::Snapshot(saved.id))),
             ],
             _ => vec![MenuItem::action("Open", Cmd::Open(item))],
         };
         let bookmarked = url.as_deref().is_some_and(|url| b.is_bookmarked(url));
-        items.extend(url.map(|url| MenuItem::action("Open in New Tab", Cmd::OpenInNewTab(url))));
+        if let Some(url) = url {
+            items.extend([MenuItem::action("Open in New Tab", Cmd::OpenInNewTab(url.clone())), MenuItem::action("Copy Link", Cmd::CopyLink(url))]);
+        }
         if let Item::Tab(key) = item_key {
-            items.push(MenuItem::action(if bookmarked { "Remove Bookmark" } else { "Bookmark" }, Cmd::ToggleBookmark(key)));
+            items.push(MenuItem::action(if bookmarked { "Remove Bookmark" } else { "Bookmark Tab" }, Cmd::ToggleBookmark(key)));
         }
         if let Some(Named::Bookmark(id)) = named {
             let parent = b.bookmarks.iter().find(|bm| bm.id == id).and_then(|bm| bm.parent_id);
@@ -1445,7 +1448,7 @@ impl Render for LibraryWindow {
             surface(Theme::radius_panel()).absolute().left_0().right_0().bottom_0().h(px(height)).text_size(px(TEXT)).text_color(Theme::text()).child(body);
         let reveal = move |el: gpui::Div, t: f32| el.opacity(t).h(px(height * (0.9 + 0.1 * t)));
         let card = if self.closing {
-            animate(card, "library-out", FADE, reduce, move |el, t| reveal(el, 1. - t))
+            animate(card, "library-out", EXIT, reduce, move |el, t| reveal(el, 1. - t))
         } else {
             animate(card, "library-in", POP, reduce, reveal)
         };

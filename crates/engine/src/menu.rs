@@ -110,17 +110,21 @@ fn mark_items(menu: &NSMenu, marks: &mut std::iter::Peekable<std::slice::Iter<Ma
             if mark.checked {
                 item.setState(NSControlStateValueOn);
             }
-            item.setImage(mark.image.as_ref().and_then(image).as_deref());
-            if item.respondsToSelector(sel!(setPreferredImageVisibility:)) {
-                // SAFETY: macOS 27's `preferredImageVisibility` takes an NSInteger; 1 is
-                // `NSMenuItemImageVisibilityVisible`, without which AppKit hides most item images.
-                unsafe {
-                    let _: () = msg_send![&*item, setPreferredImageVisibility: 1isize];
-                }
-            }
+            set_image(&item, mark.image.as_ref());
         }
         if let Some(submenu) = item.submenu() {
             mark_items(&submenu, marks);
+        }
+    }
+}
+
+fn set_image(item: &NSMenuItem, image: Option<&Image>) {
+    item.setImage(image.and_then(self::image).as_deref());
+    if item.respondsToSelector(sel!(setPreferredImageVisibility:)) {
+        // SAFETY: macOS 27's `preferredImageVisibility` takes an NSInteger; 1 is
+        // `NSMenuItemImageVisibilityVisible`, without which AppKit hides most item images.
+        unsafe {
+            let _: () = msg_send![item, setPreferredImageVisibility: 1isize];
         }
     }
 }
@@ -168,7 +172,7 @@ fn build<T>(mtm: MainThreadMarker, target: &Retained<Target>, items: Vec<Item<T>
                 entry.setSubmenu(Some(&build(mtm, target, children, values)));
                 entry
             }
-            Item::Action { title, key, checked, enabled, value, .. } => {
+            Item::Action { title, key, checked, enabled, value, image } => {
                 let (equivalent, modifiers) = key_equivalent(&key);
                 // SAFETY: `choose:` is implemented by `Target` with the `(id)sender` signature
                 // AppKit sends. Menu items hold their target weakly; the represented object
@@ -189,6 +193,9 @@ fn build<T>(mtm: MainThreadMarker, target: &Retained<Target>, items: Vec<Item<T>
                 entry.setEnabled(enabled);
                 if checked {
                     entry.setState(NSControlStateValueOn);
+                }
+                if image.is_some() {
+                    set_image(&entry, image.as_ref());
                 }
                 values.push(value);
                 entry

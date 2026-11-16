@@ -9,7 +9,7 @@ use gpui::{
 use store::{Download, Id};
 use ui::controls::{button, icon_button, surface, tooltip};
 use ui::icon::{Icon, icon};
-use ui::motion::{FADE, animate};
+use ui::motion::{EXIT, FADE, animate};
 use ui::text::bounded_title;
 use ui::theme::{TEXT, TEXT_SMALL, Theme};
 
@@ -177,6 +177,8 @@ impl Browser {
             (false, true) => SIDEBAR_MARGIN + HEADER_HEIGHT - 4.,
             (false, false) => ui::theme::TOOLBAR_HEIGHT,
         };
+        // Under the toolbar there is no button for the caret to point at.
+        let caret = self.peek.is_window(window) || self.sidebar_open;
         let anchor = window.bounds();
         let saving = self.transfers().len();
         let rows = (self.downloads().len() + saving).min(MAX_ROWS) + saving.min(MAX_ROWS);
@@ -194,7 +196,7 @@ impl Browser {
                     host.strip_frame();
                     host.round_corners(f64::from(CARET), f64::from(SHADOW), f64::from(SHADOW), f64::from(SHADOW), f64::from(ui::theme::Theme::radius_panel()));
                 }
-                cx.new(|cx| DownloadsWindow::new(browser.clone(), main, window, cx))
+                cx.new(|cx| DownloadsWindow::new(browser.clone(), main, caret, window, cx))
             });
             browser
                 .update(cx, |b, cx| {
@@ -212,7 +214,7 @@ pub fn header_button(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement
     let share = saved_share(b.transfers().iter().map(|(_, t)| t));
     icon_button("downloads", Icon::Download, true)
         .relative()
-        .when(!b.downloads_popover.is_open(), |d| d.tooltip(tooltip("Downloads", Some(crate::shortcuts::shown(&crate::ToggleDownloads, cx).into()))))
+        .when(!b.downloads_popover.is_open(), |d| d.tooltip(crate::shortcuts::tip("Downloads", &crate::ToggleDownloads)))
         .when(b.downloads_popover.is_open(), |d| d.bg(Theme::selected()))
         .when_some(share, |d, share| d.child(ring(share)))
         .when(share.is_none() && b.active_downloads() > 0, |d| {
@@ -228,11 +230,12 @@ pub struct DownloadsWindow {
     rows: Vec<Download>,
     seen: Option<u64>,
     closing: bool,
+    caret: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl DownloadsWindow {
-    fn new(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, caret: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let mut subscriptions = vec![cx.observe_window_activation(window, |this, window, cx| {
@@ -241,7 +244,7 @@ impl DownloadsWindow {
             }
         })];
         subscriptions.extend(browser.upgrade().map(|b| cx.observe(&b, |_, _, cx| cx.notify())));
-        DownloadsWindow { browser, main, focus, rows: Vec::new(), seen: None, closing: false, _subscriptions: subscriptions }
+        DownloadsWindow { browser, main, focus, rows: Vec::new(), seen: None, closing: false, caret, _subscriptions: subscriptions }
     }
 
     fn close(&mut self, refocus: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -310,7 +313,7 @@ impl DownloadsWindow {
                             .child(SharedString::from(subtitle(d))),
                     ),
             )
-            .child(icon_button(("reveal", d.id as u64), Icon::Search, true).tooltip(tooltip(ui::controls::REVEAL, None)).on_click(move |_, _, cx| {
+            .child(icon_button(("reveal", d.id as u64), Icon::Folder, true).tooltip(tooltip(ui::controls::REVEAL, None)).on_click(move |_, _, cx| {
                 cx.stop_propagation();
                 button_reveal();
             }))
@@ -375,7 +378,7 @@ impl Render for DownloadsWindow {
             });
         let saving: Vec<_> = transfers.iter().take(fit).map(|(id, t)| self.transfer_row(*id, t, cx).into_any_element()).collect();
         let empty = (self.rows.is_empty() && transfers.is_empty())
-            .then(|| div().h(px(ROW)).flex_none().px_2().flex().items_center().text_color(Theme::faint()).child("No downloads yet"));
+            .then(|| div().h(px(ROW)).flex_none().px_2().flex().items_center().text_color(Theme::muted()).child("No downloads yet"));
         let footer = div()
             .id("downloads-all")
             .mt(px(PAD))
@@ -415,9 +418,9 @@ impl Render for DownloadsWindow {
             .w(px(2. * CARET))
             .h(px(CARET + 1.))
             .text_color(Theme::surface());
-        let content = div().relative().size_full().text_size(px(TEXT)).text_color(Theme::text()).child(card).child(caret);
+        let content = div().relative().size_full().text_size(px(TEXT)).text_color(Theme::text()).child(card).when(self.caret, |d| d.child(caret));
         let content = if self.closing {
-            animate(content, "downloads-out", FADE, reduce, |el, t| el.opacity(1. - t))
+            animate(content, "downloads-out", EXIT, reduce, |el, t| el.opacity(1. - t))
         } else {
             animate(content, "downloads-in", FADE, reduce, |el, t| el.opacity(t).top(px(-6. * (1. - t))))
         };

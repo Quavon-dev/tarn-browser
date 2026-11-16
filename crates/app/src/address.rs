@@ -5,15 +5,15 @@ use std::time::Instant;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AppContext, Bounds, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Render, Styled, Subscription, WeakEntity, Window,
-    WindowHandle, canvas, div, point, px, size,
+    AppContext, Bounds, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Render, StatefulInteractiveElement, Styled, Subscription,
+    WeakEntity, Window, WindowHandle, canvas, div, point, px, size,
 };
 use ui::controls::surface;
 use ui::motion::{EXIT, FADE, fade_in, progress};
 use ui::theme::{TEXT, Theme};
 
 use crate::browser::Browser;
-use crate::content::{SUGGESTION_ROW, suggestion_row};
+use crate::content::{SHOWN_SUGGESTIONS, SUGGESTION_ROW, suggestion_row};
 use crate::peek::popup_options;
 use crate::prefs::Pref;
 
@@ -148,7 +148,7 @@ impl Browser {
         if slot.size.width <= px(0.) || self.address.opening || self.address.placed == Some((slot, self.suggestions.len())) {
             return;
         }
-        let height = PAD * 2. + SUGGESTION_ROW * self.suggestions.len() as f32;
+        let height = PAD * 2. + SUGGESTION_ROW * self.suggestions.len().min(SHOWN_SUGGESTIONS) as f32;
         let (x, y, width) = (f32::from(slot.origin.x), f32::from(slot.bottom()) + GAP, f32::from(slot.size.width));
         if let (Some(host), Some(popup)) = (self.host.clone(), self.address.popup.as_ref().map(|p| p.1.clone())) {
             self.address.placed = Some((slot, self.suggestions.len()));
@@ -216,7 +216,8 @@ impl Render for Suggestions {
                 main.update(cx, |b, window, cx| b.submit_command(ix, window, cx)).ok();
             })
         });
-        let card = surface(Theme::radius_panel()).size_full().py(px(PAD)).text_size(px(TEXT)).text_color(Theme::text()).children(rows);
+        let list = div().id("suggestion-rows").track_scroll(&b.suggestions_scroll).size_full().overflow_y_scroll().children(rows);
+        let card = surface(Theme::radius_panel()).size_full().py(px(PAD)).text_size(px(TEXT)).text_color(Theme::text()).child(list);
         fade_in(card, "suggestions", b.pref(Pref::ReduceMotion))
     }
 }

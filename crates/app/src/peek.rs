@@ -7,7 +7,7 @@ use gpui::{
     Styled, Subscription, Task, WeakEntity, Window, WindowHandle, canvas, div, point, px, size,
 };
 pub use ui::controls::popup_options;
-use ui::motion::FADE;
+use ui::motion::EXIT;
 use ui::theme::TOOLBAR_HEIGHT;
 
 use crate::browser::Browser;
@@ -102,7 +102,7 @@ pub fn remove_after_exit<V: 'static>(reduce: bool, window: &mut Window, cx: &mut
         return window.remove_window();
     }
     cx.spawn_in(window, async move |_, cx| {
-        cx.background_executor().timer(FADE).await;
+        cx.background_executor().timer(EXIT).await;
         cx.update(|window, _| window.remove_window()).ok();
     })
     .detach();
@@ -248,6 +248,9 @@ impl Browser {
             handle.update(cx, |_, window, _| window.remove_window()).ok();
         }
         if let Some(handle) = self.settings_window.take() {
+            handle.update(cx, |_, window, _| window.remove_window()).ok();
+        }
+        if let Some(handle) = self.qr.take() {
             handle.update(cx, |_, window, _| window.remove_window()).ok();
         }
         self.toast.popup = None;

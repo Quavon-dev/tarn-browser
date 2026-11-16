@@ -109,7 +109,7 @@ fn banner(text: impl Into<SharedString>) -> gpui::Div {
         .flex()
         .items_center()
         .gap_2()
-        .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(text.into()))
+        .child(div().flex_1().min_w_0().line_clamp(3).text_ellipsis().child(text.into()))
 }
 
 pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -> AnyElement {
@@ -235,7 +235,11 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 "find-bar",
                 String::new(),
                 Theme::text(),
-                floating()
+                surface(Theme::radius_panel())
+                    .mb_2()
+                    .flex_none()
+                    .shadow(Theme::elevation(4., 14.))
+                    .text_size(px(TEXT))
                     .h(px(44.))
                     .pl_3()
                     .pr_2()
@@ -419,6 +423,8 @@ fn suggestion_icon(b: &Browser, target: &Target) -> AnyElement {
 }
 
 pub const SUGGESTION_ROW: f32 = 34.;
+/// Rows a suggestion list shows before it scrolls.
+pub const SHOWN_SUGGESTIONS: usize = 10;
 
 pub fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div> {
     let selected = ix == b.selected;
@@ -476,12 +482,20 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
             .text_size(px(TEXT_SMALL))
             .text_color(Theme::muted())
     };
-    let suggestions = div().py_1p5().border_t_1().border_color(Theme::hairline()).children(
-        b.suggestions
-            .iter()
-            .enumerate()
-            .map(|(ix, s)| suggestion_row(b, ix, s).on_click(cx.listener(move |b, _, window, cx| b.submit_command(ix, window, cx)))),
-    );
+    let suggestions = div()
+        .id("start-suggestions")
+        .track_scroll(&b.suggestions_scroll)
+        .max_h(px(SUGGESTION_ROW * SHOWN_SUGGESTIONS as f32 + 12.))
+        .overflow_y_scroll()
+        .py_1p5()
+        .border_t_1()
+        .border_color(Theme::hairline())
+        .children(
+            b.suggestions
+                .iter()
+                .enumerate()
+                .map(|(ix, s)| suggestion_row(b, ix, s).on_click(cx.listener(move |b, _, window, cx| b.submit_command(ix, window, cx)))),
+        );
     let card = surface(Theme::radius_card())
         .id("start-card")
         .border_color(Theme::accent_soft())
@@ -499,12 +513,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
                 .items_center()
                 .gap_3()
                 .text_size(px(TEXT_TITLE))
-                .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, _, cx| {
-                    if e.keystroke.key == "tab" {
-                        cx.stop_propagation();
-                        b.select_suggestion(!e.keystroke.modifiers.shift, cx);
-                    }
-                }))
+                .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, _, cx| b.suggestion_key(e, cx)))
                 .child(icon(Icon::Search, 17., Theme::accent()))
                 .child(div().flex_1().overflow_hidden().child(input)),
         )
@@ -523,6 +532,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
     let servers = b.devtools_on().then(|| {
         let ports = b.local_servers.clone().unwrap_or_default();
         surface(Theme::radius_panel())
+            .occlude()
             .w(px(680.))
             .max_w_full()
             .p_2()
@@ -558,11 +568,17 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .px_4()
         .gap_7()
         .child(img(MARK).w(px(64.)).h(px(64.)))
-        .child(pop_in(div().relative().w(px(680.)).max_w_full().child(b.search_fx.clone()).child(card), ("start-card", typing as usize), reduce))
+        .child(pop_in(div().relative().w(px(680.)).max_w_full().child(b.search_fx.clone()).child(card.occlude()), ("start-card", typing as usize), reduce))
         .children(servers);
     b.fog.update(cx, |fog, _| fog.reduce = reduce);
     b.search_fx.update(cx, |fx, _| fx.reduce = reduce);
-    div().flex_1().relative().child(b.fog.clone()).child(column).into_any_element()
+    div()
+        .flex_1()
+        .relative()
+        .when(typing, |d| d.on_mouse_down(gpui::MouseButton::Left, cx.listener(|b, _, w, cx| b.dismiss_overlay(w, cx))))
+        .child(b.fog.clone())
+        .child(column)
+        .into_any_element()
 }
 
 #[cfg(target_os = "macos")]

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::{Id, Profile, WebEngine};
 use ui::command::ENGINES;
-use ui::controls::{button, group, note, radio, row, section, segment, segmented, swatch, switch};
+use ui::controls::{button, disabled_segment, group, note, radio, row, section, segment, segmented, swatch, switch};
 use ui::icon::{Icon, icon};
 use ui::motion::fade_in;
 use ui::text::bounded_title;
@@ -1142,8 +1142,11 @@ impl SettingsWindow {
         };
         let options = [WebEngine::WebKit, WebEngine::Chromium].into_iter().enumerate().map(|(ix, engine)| {
             let available = engine == WebEngine::WebKit || (s.chromium_allowed && closed.is_none());
-            segment(("web-engine", ix), crate::tabs::web_engine_name(engine), engine == s.web_engine)
-                .when(!available, |d| d.opacity(0.4))
+            let (name, selected) = (crate::tabs::web_engine_name(engine), engine == s.web_engine);
+            if !available && !selected {
+                return disabled_segment(("web-engine", ix), name);
+            }
+            segment(("web-engine", ix), name, selected)
                 .when(available, |d| d.on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.set_default_web_engine(engine, w, cx)))))
         });
         row(true).child(text_block("Default web engine", detail)).child(segmented().children(options))

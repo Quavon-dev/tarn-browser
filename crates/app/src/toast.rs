@@ -15,7 +15,11 @@ use crate::prefs::Pref;
 use crate::sidebar::SIDEBAR_MARGIN;
 
 const TOAST_TIME: Duration = Duration::from_secs(5);
+/// A toast with a button stays longer, so the action is still there after a glance away.
+const ACTION_TIME: Duration = Duration::from_secs(10);
 const WIDTH: f32 = 340.;
+/// Room for the message beside the widest button, "Restart to Update".
+const ACTION_WIDTH: f32 = 440.;
 const HEIGHT: f32 = 40.;
 /// Between the toast and the window's bottom edge.
 const MARGIN: f32 = 24.;
@@ -55,7 +59,7 @@ pub struct Toasts {
     pub(crate) window: Option<WindowHandle<ToastWindow>>,
     pub(crate) popup: Option<engine::Host>,
     /// Where the popup sits in the window, so it follows the sidebar and window size.
-    placed: (f32, f32),
+    placed: (f32, f32, f32),
     opening: bool,
 }
 
@@ -92,10 +96,11 @@ impl Toasts {
 
 impl Browser {
     pub(crate) fn show_toast(&mut self, text: impl Into<SharedString>, action: Option<Action>, cx: &mut Context<Self>) {
+        let wait = if action.is_some() { ACTION_TIME } else { TOAST_TIME };
         let serial = self.toast.show(text.into(), action);
         cx.notify();
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(TOAST_TIME).await;
+            cx.background_executor().timer(wait).await;
             let fade = this.update(cx, |b, cx| {
                 cx.notify();
                 (b.toast.fade(serial) && !b.pref(Pref::ReduceMotion)).then_some(FADE)
@@ -128,29 +133,29 @@ impl Browser {
 
     /// Opens the toast's popup while a toast is live and closes it once none is.
     pub(crate) fn sync_toast(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.toast.live(self.model.closed_tabs.newest()).is_none() {
+        let Some(width) = self.toast.live(self.model.closed_tabs.newest()).map(|t| if t.action.is_some() { ACTION_WIDTH } else { WIDTH }) else {
             return self.close_toast_window(cx);
-        }
+        };
         if self.toast.opening {
             return;
         }
         let frame = window.bounds();
         let left = (self.sidebar_width + SIDEBAR_MARGIN) * self.sidebar_shown();
-        let x = (left + (f32::from(frame.size.width) - left - WIDTH) / 2.).clamp(0., (f32::from(frame.size.width) - WIDTH).max(0.));
+        let x = (left + (f32::from(frame.size.width) - left - width) / 2.).clamp(0., (f32::from(frame.size.width) - width).max(0.));
         let y = f32::from(frame.size.height) - HEIGHT - MARGIN;
         if self.toast.window.is_some() {
             if let (Some(host), Some(popup)) = (self.host.clone(), self.toast.popup.clone())
-                && self.toast.placed != (x, y)
+                && self.toast.placed != (x, y, width)
             {
-                self.toast.placed = (x, y);
+                self.toast.placed = (x, y, width);
                 // GPUI handles the resize this causes only outside an update, so the frame is set from a task.
-                cx.spawn(async move |_, _| host.place(&popup, x.into(), y.into(), WIDTH.into(), HEIGHT.into())).detach();
+                cx.spawn(async move |_, _| host.place(&popup, x.into(), y.into(), width.into(), HEIGHT.into())).detach();
             }
             return;
         }
         let Some(main) = window.window_handle().downcast::<Browser>() else { return };
-        self.toast.placed = (x, y);
-        let bounds = Bounds::new(point(frame.origin.x + px(x), frame.origin.y + px(y)), size(px(WIDTH), px(HEIGHT)));
+        self.toast.placed = (x, y, width);
+        let bounds = Bounds::new(point(frame.origin.x + px(x), frame.origin.y + px(y)), size(px(width), px(HEIGHT)));
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
         self.toast.opening = true;

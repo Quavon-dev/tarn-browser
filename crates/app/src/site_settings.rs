@@ -14,7 +14,7 @@ use store::Id;
 use ui::controls::field;
 use ui::controls::{button, icon_button, segment, segmented, surface, switch, tooltip};
 use ui::icon::{Icon, icon};
-use ui::motion::{FADE, animate};
+use ui::motion::{EXIT, FADE, animate};
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{TEXT, TEXT_SMALL, Theme};
@@ -261,9 +261,11 @@ impl Browser {
         let center = if anchor.size.width > px(0.) { anchor.center().x } else { origin.size.width / 2. };
         let x = (center - px(WIDTH / 2. + SHADOW)).clamp(px(0.), (origin.size.width - px(WIDTH + 2. * SHADOW)).max(px(0.)));
         let top = if anchor.size.height > px(0.) { anchor.bottom() + px(GAP) } else { px(ui::theme::TOOLBAR_HEIGHT) };
+        // Many hidden elements or permissions scroll inside the card rather than run off the window.
+        let room = (origin.size.height - top - px(GAP)).max(px(200.));
         let bounds = Bounds::new(
             point(origin.origin.x + x, origin.origin.y + top),
-            size(px(WIDTH + 2. * SHADOW), px(card_height(rows, !self.model.private(), zaps) + SHADOW)),
+            size(px(WIDTH + 2. * SHADOW), px(card_height(rows, !self.model.private(), zaps) + SHADOW).min(room)),
         );
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
@@ -435,7 +437,7 @@ impl SiteSettingsWindow {
         ];
         let segments = choices.into_iter().enumerate().map(|(ix, (level, text))| {
             let host = host.to_owned();
-            segment(("shield-level", ix), text, site == level).px_2().on_click(cx.listener(move |this, _, _, cx| {
+            segment(("shield-level", ix), text, site == level).on_click(cx.listener(move |this, _, _, cx| {
                 let host = host.clone();
                 this.on_main(cx, move |b, w, cx| b.set_site_shield(&host, level, w, cx));
             }))
@@ -485,7 +487,7 @@ impl SiteSettingsWindow {
         let choices = [(PopupRule::Default, "Default"), (PopupRule::Allow, "Allow"), (PopupRule::Block, "Block")];
         let segments = choices.into_iter().enumerate().map(|(ix, (choice, text))| {
             let origin = origin.to_owned();
-            segment(("popups", ix), text, rule == choice).px_2().on_click(cx.listener(move |this, _, _, cx| {
+            segment(("popups", ix), text, rule == choice).on_click(cx.listener(move |this, _, _, cx| {
                 this.browser.update(cx, |b, cx| b.set_site_popups(&origin, choice, cx)).ok();
             }))
         });
@@ -525,7 +527,7 @@ impl SiteSettingsWindow {
     fn permission(&self, key: TabKey, ix: usize, row: &PermissionRow, cx: &mut Context<Self>) -> gpui::Div {
         let segments = DECISIONS.into_iter().enumerate().map(|(n, (decision, text))| {
             let (origin, kind) = (row.origin.clone(), row.kind.clone());
-            segment(("permission", ix * DECISIONS.len() + n), text, row.decision == decision).px_2().on_click(cx.listener(move |this, _, _, cx| {
+            segment(("permission", ix * DECISIONS.len() + n), text, row.decision == decision).on_click(cx.listener(move |this, _, _, cx| {
                 this.browser.update(cx, |b, cx| b.set_site_permission(key, &origin, &kind, Some(decision), cx)).ok();
             }))
         });
@@ -574,16 +576,14 @@ impl Render for SiteSettingsWindow {
             .collect();
         let dark_host = host.clone();
         let typing = self.css.focus_handle(cx).is_focused(window);
-        let card = surface(Theme::radius_panel())
-            .absolute()
-            .top_0()
-            .left(px(SHADOW))
-            .right(px(SHADOW))
+        let rows = div()
+            .id("site-rows")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
             .flex()
             .flex_col()
             .pb(px(PAD))
-            .shadow(Theme::elevation(2., 5.))
-            .child(Self::header(&url, &shown))
             .child(self.shield(&host, site_level, default, cx))
             .child(self.zoom(percent, cx))
             .child(Self::row("Mute this site").child(switch(muted).id("mute-site").cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
@@ -618,9 +618,20 @@ impl Render for SiteSettingsWindow {
                         cx.notify();
                     }))),
             );
+        let card = surface(Theme::radius_panel())
+            .absolute()
+            .top_0()
+            .left(px(SHADOW))
+            .right(px(SHADOW))
+            .bottom(px(SHADOW))
+            .flex()
+            .flex_col()
+            .shadow(Theme::elevation(2., 5.))
+            .child(Self::header(&url, &shown))
+            .child(rows);
         let content = div().relative().size_full().text_size(px(TEXT)).text_color(Theme::text()).child(card);
         let content = if self.closing {
-            animate(content, "site-out", FADE, reduce, |el, t| el.opacity(1. - t))
+            animate(content, "site-out", EXIT, reduce, |el, t| el.opacity(1. - t))
         } else {
             animate(content, "site-in", FADE, reduce, |el, t| el.opacity(t).top(px(-6. * (1. - t))))
         };

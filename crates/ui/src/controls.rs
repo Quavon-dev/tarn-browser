@@ -13,13 +13,16 @@ use crate::theme::{SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, Theme};
 
 pub fn button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
     let colors = if primary { (Theme::accent(), Theme::surface_edge()) } else { (Theme::control(), Theme::hairline()) };
-    pill(id, text, primary, colors, if primary { Theme::on_accent() } else { Theme::text() })
+    let label = if primary { Theme::on_fill(Theme::accent()) } else { Theme::text() };
+    pill(id, text, primary, colors, label).when(!primary, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
 }
 
 /// A button on a security surface (prompts, banners, blocking pages), in colours no theme sets.
 pub fn secure_button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
     let colors = if primary { (Secure::accent(), Secure::surface_edge()) } else { (Secure::control(), Secure::hairline()) };
-    pill(id, text, primary, colors, if primary { Theme::on_accent() } else { Secure::text() }).font_family(SYSTEM_FONT)
+    pill(id, text, primary, colors, if primary { Theme::on_accent() } else { Secure::text() })
+        .font_family(SYSTEM_FONT)
+        .when(!primary, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
 }
 
 fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
@@ -39,8 +42,7 @@ fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, 
         .bg(fill)
         .when(primary, |d| d.font_weight(FontWeight::MEDIUM))
         .text_color(color)
-        .hover(|s| s.opacity(0.88))
-        .active(|s| s.opacity(0.7))
+        .when(primary, |d| d.hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7)))
         .child(text.into())
 }
 
@@ -132,7 +134,7 @@ pub fn switch(on: bool) -> Div {
         .items_center()
         .p(px(2.))
         .rounded_full()
-        .bg(if on { Theme::accent() } else { Theme::control() })
+        .bg(if on { Theme::accent() } else { Theme::faint() })
         .when(on, |d| d.justify_end())
         .child(div().w(px(16.)).h(px(16.)).rounded_full().bg(Theme::on_accent()).shadow(vec![ring(rgba_black(), 0., 2.)]))
 }
@@ -149,7 +151,7 @@ pub fn segment(id: impl Into<ElementId>, text: impl Into<SharedString>, selected
     div()
         .id(id)
         .h(px(22.))
-        .px_3()
+        .px_2p5()
         .flex()
         .items_center()
         .rounded_full()
@@ -159,6 +161,11 @@ pub fn segment(id: impl Into<ElementId>, text: impl Into<SharedString>, selected
         .when(!selected, |d| d.text_color(Theme::muted()).hover(|s| s.bg(Theme::hover()).text_color(Theme::text())))
         .active(|s| s.bg(Theme::pressed()))
         .child(text.into())
+}
+
+/// A segment that cannot be picked: dimmed, with no hover or pressed state.
+pub fn disabled_segment(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
+    div().id(id).h(px(22.)).px_2p5().flex().items_center().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).opacity(0.4).child(text.into())
 }
 
 /// A colour circle; the selected one gets a ring like the macOS accent picker.

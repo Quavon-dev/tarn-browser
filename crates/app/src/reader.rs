@@ -244,7 +244,7 @@ pub fn render(b: &Browser, cx: &mut Context<Browser>) -> Option<AnyElement> {
             button("reader-larger", "A+", false).on_click(cx.listener(|b, _, _, cx| b.set_reader_layout(|l| l.size = (l.size + 1).min(SIZES.len() - 1), cx))),
         )
         .child(segmented().children(WIDTHS.iter().enumerate().map(|(ix, (_, name))| {
-            segment(("reader-width", ix), *name, ix == width).px_2().on_click(cx.listener(move |b, _, _, cx| b.set_reader_layout(|l| l.width = ix, cx)))
+            segment(("reader-width", ix), *name, ix == width).on_click(cx.listener(move |b, _, _, cx| b.set_reader_layout(|l| l.width = ix, cx)))
         })))
         .child(button("reader-speak", speak, false).on_click(cx.listener(|b, _, _, cx| b.read_aloud(cx))))
         .when(reader.reading.is_some(), |d| d.child(button("reader-stop", "Stop", false).on_click(cx.listener(|b, _, _, cx| b.stop_reading(cx)))))
@@ -256,7 +256,7 @@ pub fn render(b: &Browser, cx: &mut Context<Browser>) -> Option<AnyElement> {
         .child(key_hint("Esc to close"));
     let reading = reader.reading.as_ref().map(|r| r.block);
     let blocks = reader.blocks.iter().enumerate().map(|(ix, (t, heading))| {
-        let block = div().rounded(px(6.)).when(reading == Some(ix), |d| d.bg(Theme::selected()));
+        let block = div().rounded(px(Theme::radius_small())).when(reading == Some(ix), |d| d.bg(Theme::selected()));
         match heading {
             true => block.pt(px(text * 0.6)).text_size(px(text * 1.2)).font_weight(FontWeight::SEMIBOLD).child(t.clone()),
             false => block.child(t.clone()),
@@ -273,18 +273,17 @@ pub fn render(b: &Browser, cx: &mut Context<Browser>) -> Option<AnyElement> {
         .child(div().text_size(px(text * 1.7)).line_height(px(text * 2.1)).font_weight(FontWeight::BOLD).child(reader.title.clone()))
         .when(!reader.byline.is_empty(), |d| d.child(div().text_size(px(TEXT_SMALL + 1.)).text_color(Theme::muted()).child(reader.byline.clone())))
         .children(blocks);
-    let card = surface(Theme::radius_card())
-        .id("reader")
+    // The controls stay put while the article scrolls under them.
+    let article = div().id("reader").flex_1().min_h_0().w_full().overflow_y_scroll().flex().flex_col().items_center().px_6().pb_6().child(page);
+    let card = surface(Theme::radius_page())
         .size_full()
-        .overflow_y_scroll()
+        .shadow(Theme::elevation(6., 24.))
         .flex()
         .flex_col()
-        .items_center()
         .gap_6()
-        .p_6()
-        .child(div().w_full().flex().justify_end().child(controls))
-        .child(page);
-    Some(div().flex_1().min_h_0().flex().p(px(8.)).pt_0().child(card).into_any_element())
+        .child(div().flex_none().w_full().px_6().pt_6().flex().justify_end().child(controls))
+        .child(article);
+    Some(div().flex_1().min_h_0().flex().child(card).into_any_element())
 }
 
 #[cfg(test)]

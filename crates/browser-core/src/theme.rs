@@ -923,6 +923,13 @@ pub fn contrast(fg: u32, bg: u32) -> f32 {
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
 
+/// The label colour on an opaque `fill` (`0xRRGGBBAA`), such as a primary button in the accent:
+/// white as on macOS while it keeps 3:1 there, otherwise the light scheme's text.
+pub fn on_fill(fill: u32) -> u32 {
+    const WHITE: u32 = 0xf4f9fdff;
+    if contrast(WHITE, fill) >= 3. { WHITE } else { Tokens::LIGHT.text }
+}
+
 /// Text colours and the contrast each needs on every background: body text, secondary text, the
 /// space name and placeholders.
 const FLOORS: [(&str, f32); 4] = [("text", 4.5), ("muted", 3.), ("space-label", 3.), ("faint", 2.)];
@@ -1319,6 +1326,15 @@ impl Active {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn labels_on_a_fill_keep_three_to_one() {
+        for fill in [0x1f75b0ff, 0x0a7affff, 0xa550a7ff, 0xf74f9eff, 0xff5257ff, 0xf7821bff, 0xd9a400ff, 0x62ba46ff, 0x8c8c8cff, 0xd9ecfaff, 0xffffffff] {
+            assert!(contrast(on_fill(fill), fill) >= 3., "{fill:08x}");
+        }
+        assert_eq!(on_fill(0x1f75b0ff), 0xf4f9fdff, "the default accent keeps white");
+        assert_eq!(on_fill(0xd9a400ff), Tokens::LIGHT.text);
+    }
 
     #[test]
     fn the_authoring_reference_lists_every_token() {

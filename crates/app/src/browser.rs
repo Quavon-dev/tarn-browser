@@ -201,6 +201,7 @@ pub struct Browser {
     pub command: Entity<TextInput>,
     pub command_mode: Option<CommandMode>,
     pub(crate) settings_window: Option<WindowHandle<SettingsWindow>>,
+    pub(crate) qr: Option<WindowHandle<crate::qr::QrWindow>>,
     pub(crate) favicons: HashMap<IconKey, Arc<Image>>,
     /// `favicon` results by page URL for one profile, emptied whenever `favicons` changes.
     favicon_memo: RefCell<Option<((bool, Id), FaviconMemo)>>,
@@ -219,6 +220,7 @@ pub struct Browser {
     link_loads: HashMap<TabKey, Option<Url>>,
     pub suggestions: Vec<Suggestion>,
     pub selected: usize,
+    pub(crate) suggestions_scroll: gpui::ScrollHandle,
     history_cache: Vec<HistoryEntry>,
     /// The last page-text search: profile, query and the visits it found.
     history_text: Option<(Id, String, Vec<HistoryEntry>)>,
@@ -252,6 +254,8 @@ pub struct Browser {
     pub(crate) reload_spin: Option<(TabKey, Instant)>,
     /// A timer redraws the window while spinners turn.
     spinning: bool,
+    /// The profile whose bookmarks `bookmarks` holds; `reload_bookmarks` refreshes them.
+    pub(crate) bookmarks_of: Option<(bool, Id)>,
     /// The space the burner tab was opened from, shown again when it burns.
     pub(crate) burner_return: Option<(bool, Id)>,
     view_generation: HashMap<TabKey, u64>,
@@ -391,6 +395,7 @@ impl Browser {
             command,
             command_mode: None,
             settings_window: None,
+            qr: None,
             favicons: HashMap::new(),
             favicon_memo: RefCell::new(None),
             favicon_requested: HashSet::new(),
@@ -405,6 +410,7 @@ impl Browser {
             link_loads: HashMap::new(),
             suggestions: Vec::new(),
             selected: 0,
+            suggestions_scroll: gpui::ScrollHandle::new(),
             history_cache: Vec::new(),
             history_text: None,
             history_text_search: None,
@@ -427,6 +433,7 @@ impl Browser {
             space_switched_at: None,
             reload_spin: None,
             spinning: false,
+            bookmarks_of: None,
             burner_return: None,
             view_generation: HashMap::new(),
             next_generation: 0,
@@ -613,13 +620,15 @@ impl Browser {
 
     /// Drops views of tabs that are no longer stored; true when the active tab was one of them.
     pub(crate) fn drop_gone_views(&mut self, cx: &mut Context<Self>) -> bool {
-        let gone: Vec<TabKey> = self.views.keys().copied().filter(|k| self.store(k.private).tab(k.id).is_err()).collect();
+        let ids = [false, true].map(|private| self.store(private).tab_ids().unwrap_or_default());
+        let live = move |k: &TabKey| ids[usize::from(k.private)].contains(&k.id);
+        let gone: Vec<TabKey> = self.views.keys().copied().filter(|k| !live(k)).collect();
         let lost_active = self.model.active.is_some_and(|a| gone.contains(&a));
         for key in gone {
             self.discard_tab(key, cx);
         }
-        self.pages.retain(|k, _| self.core.store(k.private).tab(k.id).is_ok());
-        self.splits.retain(|k| self.core.store(k.private).tab(k.id).is_ok());
+        self.pages.retain(|k, _| live(k));
+        self.splits.retain(|k| live(&k));
         lost_active
     }
 
@@ -700,7 +709,7 @@ impl Browser {
     }
 
     /// Redraws the window `SPIN_FPS` times a second while a spinner of this space turns.
-    pub(crate) fn keep_spinning(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn keep_spinning(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let wanted = |b: &Browser| {
             let reloading = b.reload_spin.is_some_and(|(_, at)| at.elapsed() < crate::toolbar::SPIN);
             !b.still() && (reloading || b.model.tabs.iter().any(|t| b.loading(b.model.key(t))))
@@ -710,16 +719,22 @@ impl Browser {
         }
         self.spinning = true;
         let step = std::time::Duration::from_millis(1000 / u64::from(ui::controls::SPIN_FPS));
-        cx.spawn(async move |this, cx| {
+        // Redraws only the windows that draw spinners, not every observer of the browser.
+        cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor().timer(step).await;
-                let again = this.update(cx, |b, cx| {
+                let Ok((again, peek)) = this.update_in(cx, |b, window, _| {
                     b.spinning = wanted(b);
                     // The last tick redraws too, so a finished spinner leaves the screen.
-                    cx.notify();
-                    b.spinning
-                });
-                if !again.unwrap_or(false) {
+                    window.refresh();
+                    (b.spinning, b.peek.window)
+                }) else {
+                    break;
+                };
+                if let Some(peek) = peek {
+                    peek.update(cx, |_, window, _| window.refresh()).ok();
+                }
+                if !again {
                     break;
                 }
             }
@@ -745,12 +760,14 @@ impl Browser {
     /// that fade in and its bookmarks.
     fn space_shown(&mut self, old: &[Tab]) {
         self.note_new_tabs(old);
-        let Some((private, profile_id)) = self.model.profile() else {
-            self.set_bookmarks(Vec::new());
-            return;
-        };
-        self.load_favicons(private, profile_id);
-        self.set_bookmarks(self.store(private).bookmarks(profile_id).unwrap_or_default());
+        let profile = self.model.profile();
+        if let Some((private, profile_id)) = profile {
+            self.load_favicons(private, profile_id);
+        }
+        if profile != self.bookmarks_of {
+            self.bookmarks_of = profile;
+            self.set_bookmarks(profile.map(|(private, id)| self.store(private).bookmarks(id).unwrap_or_default()).unwrap_or_default());
+        }
     }
 
     /// A space's tabs, folders and groups as stored, with its profile's site icons loaded.
@@ -1086,6 +1103,9 @@ impl Browser {
         self.view_generation.remove(&key);
         self.drop_prompts(key, cx);
         self.model.lifecycle.remove(key);
+        if let Some(page) = self.pages.get_mut(&key) {
+            page.loading = false;
+        }
         if self.model.active == Some(key) {
             self.model.active = None;
         }
@@ -1337,8 +1357,25 @@ impl Browser {
     }
 
     pub(crate) fn select_suggestion(&mut self, forward: bool, cx: &mut Context<Self>) {
-        self.selected = if forward { (self.selected + 1).min(self.suggestions.len().saturating_sub(1)) } else { self.selected.saturating_sub(1) };
+        self.select_suggestion_at(suggest::step_selection(self.selected, self.suggestions.len(), forward), cx);
+    }
+
+    pub(crate) fn select_suggestion_at(&mut self, ix: usize, cx: &mut Context<Self>) {
+        self.selected = ix.min(self.suggestions.len().saturating_sub(1));
+        self.suggestions_scroll.scroll_to_item(self.selected);
         cx.notify();
+    }
+
+    /// Tab, Page Up and Page Down move the highlight in the field's suggestion list.
+    pub(crate) fn suggestion_key(&mut self, event: &gpui::KeyDownEvent, cx: &mut Context<Self>) {
+        let last = self.suggestions.len().saturating_sub(1);
+        match event.keystroke.key.as_str() {
+            "tab" => self.select_suggestion(!event.keystroke.modifiers.shift, cx),
+            "pageup" => self.select_suggestion_at(0, cx),
+            "pagedown" => self.select_suggestion_at(last, cx),
+            _ => return,
+        }
+        cx.stop_propagation();
     }
 
     fn on_command_event(&mut self, _: &Entity<TextInput>, event: &TextInputEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -1390,22 +1427,50 @@ impl Browser {
         let to = self.model.active.and_then(|k| self.web_engine_switch(k));
         let private = self.model.private();
         let zappable = self.site().is_some_and(|(k, u)| self.zappable(k, &u));
+        let titled = self.model.active_tab().is_some_and(|t| !t.custom_title.is_empty());
+        let drifted = self.model.active.and_then(|k| self.pinned_drift(k)).is_some();
+        let split = self.model.active.is_some_and(|a| self.splits.contains(a));
+        let pinned = self.model.active_tab().is_some_and(|t| t.kind != store::TabKind::Ephemeral);
+        let muted = self.model.active.is_some_and(|k| self.tab_muted(k));
+        let reopenable = !self.model.closed_tabs.is_empty();
+        let duplicates = !self.duplicate_tabs().is_empty();
         commands.retain(|ix| {
             let action = crate::COMMANDS[*ix].2;
-            !(action.partial_eq(&crate::tabs::ReloadInChromium) && to != Some(WebEngine::Chromium)
-                || action.partial_eq(&crate::tabs::ReloadInWebKit) && to != Some(WebEngine::WebKit)
-                || private && (action.partial_eq(&crate::library::SaveSnapshot) || action.partial_eq(&crate::library::RestoreSnapshot))
-                || !zappable && action.partial_eq(&crate::zaps::ZapElement))
+            let is = |a: &dyn gpui::Action| action.partial_eq(a);
+            !(is(&crate::tabs::ReloadInChromium) && to != Some(WebEngine::Chromium)
+                || is(&crate::tabs::ReloadInWebKit) && to != Some(WebEngine::WebKit)
+                || private && (is(&crate::library::SaveSnapshot) || is(&crate::library::RestoreSnapshot))
+                || !zappable && is(&crate::zaps::ZapElement)
+                || !titled && is(&crate::tabs::ResetTabTitle)
+                || !drifted && (is(&crate::tabs::ReturnToPinnedUrl) || is(&crate::tabs::SetPinnedUrl))
+                || !reopenable && is(&crate::ReopenClosedTab)
+                || !duplicates && is(&crate::tabs::CloseDuplicateTabs)
+                || !split
+                    && (is(&crate::split::FocusNextPane)
+                        || is(&crate::split::FocusPreviousPane)
+                        || is(&crate::split::SwapPanes)
+                        || is(&crate::split::RotateSplitLayout)
+                        || is(&crate::split::RemoveFromSplitView)
+                        || is(&crate::split::CloseSplitView)))
         });
         let command = |ix: usize| {
             let (label, _, action) = crate::COMMANDS[ix];
+            let is = |a: &dyn gpui::Action| action.partial_eq(a);
+            let label = if is(&crate::TogglePin) {
+                if pinned { "Unpin Tab" } else { "Pin Tab" }
+            } else if is(&crate::menubar::ToggleMute) {
+                if muted { "Unmute Site" } else { "Mute Site" }
+            } else if is(&crate::split::ToggleSplitView) {
+                if split { "Close Split View" } else { "Open in Split View" }
+            } else {
+                label
+            };
             Suggestion { label: label.to_owned(), detail: crate::shortcuts::shown(action, cx), target: Target::Input(Input::Command(ix)) }
         };
         let space_rows = self.space_commands(&query);
         if query.starts_with('>') {
-            self.suggestions = commands.into_iter().map(command).chain(space_rows).take(MAX_SUGGESTIONS).collect();
-            self.selected = 0;
-            cx.notify();
+            self.suggestions = commands.into_iter().map(command).chain(space_rows).collect();
+            self.select_suggestion_at(0, cx);
             return;
         }
         let engine = &command::ENGINES[self.search_engine()];
@@ -1760,6 +1825,7 @@ impl Browser {
                 // The latches stay: a page can make a load fail at will while it keeps showing, and an
                 // undercount after a failed upgrade beats a counter a page can run up.
                 let page = self.pages.entry(key).or_default();
+                page.loading = false;
                 if let Some(url) = url {
                     suggest::typed_visit(&mut page.typed, url.as_str());
                 }
@@ -1881,6 +1947,7 @@ impl Browser {
                 if let Some(profile_id) = self.profile_of(key) {
                     self.core.downloads.unbounded_send((key.private, profile_id, event)).ok();
                 }
+                return;
             }
             Event::Protected(protection, target) => {
                 let page = self.pages.entry(key).or_default();
@@ -1905,6 +1972,7 @@ impl Browser {
                 self.drop_prompts(key, cx);
                 let page = self.pages.entry(key).or_default();
                 if page.crashed {
+                    page.loading = false;
                     page.error = Some("The page crashed again and was not reloaded.".into());
                 } else if let Some(view) = self.views.get(&key) {
                     page.crashed = true;
@@ -2170,6 +2238,23 @@ impl Browser {
         self.after_prompt(window, cx);
     }
 
+    /// Esc declines the prompt in front, as Cancel or Deny does, without remembering the answer.
+    pub(crate) fn dismiss_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.remember_permission = false;
+        self.answer_prompt(false, false, window, cx);
+    }
+
+    /// Enter answers an alert or confirm whose card holds the focus; permission and download
+    /// warnings stay mouse-only, behind their click guard.
+    pub(crate) fn prompt_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let simple = self.active_prompt().is_some_and(|p| matches!(p.kind, PromptKind::Alert | PromptKind::Confirm));
+        let plain = !event.keystroke.modifiers.modified();
+        if event.keystroke.key == "enter" && !event.is_held && plain && simple && !self.overlay_open() && self.focus.is_focused(window) {
+            cx.stop_propagation();
+            self.answer_prompt(true, false, window, cx);
+        }
+    }
+
     fn after_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for input in [&self.prompt_input, &self.auth_user, &self.auth_pass] {
             input.update(cx, |i, cx| i.set_text("", cx));
@@ -2250,7 +2335,10 @@ impl Browser {
             TextInputEvent::Submit | TextInputEvent::Down => self.find(false, cx),
             TextInputEvent::Up => self.find(true, cx),
             TextInputEvent::Cancel => self.close_find(window, cx),
-            TextInputEvent::Changed => {}
+            TextInputEvent::Changed => {
+                self.find_missing = false;
+                cx.notify();
+            }
         }
     }
 
