@@ -42,4 +42,6 @@ done
 git config user.email "x|.*"
 commit six -m "Signed-off-by: Anyone <evil@x>"
 expect 1 "email read as a pattern"
+"$script" deadbeefdeadbeefdeadbeefdeadbeefdeadbeef HEAD >/dev/null 2>&1 &&
+  { echo "check-dco: unknown base: exit 0, expected failure" >&2; status=1; }
 exit "$status"

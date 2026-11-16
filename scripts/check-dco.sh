@@ -4,6 +4,7 @@
 set -euo pipefail
 base="${1:?usage: check-dco.sh BASE HEAD}"
 head="${2:?usage: check-dco.sh BASE HEAD}"
+git rev-list --quiet "$base..$head"
 status=0
 while IFS= read -r commit; do
   email="$(git show -s --format=%ae "$commit")"
