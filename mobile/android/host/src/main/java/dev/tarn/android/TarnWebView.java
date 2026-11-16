@@ -30,6 +30,7 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
 import androidx.webkit.ScriptHandler;
+import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
@@ -496,7 +497,7 @@ final class TarnWebView implements NshComponent {
         CookieManager cookies = Stores.cookies(name);
         if (cookies != null) cookies.setAcceptThirdPartyCookies(view, false);
         view.setWebViewClient(new Client());
-        view.setWebChromeClient(javaScriptOn ? new IconChrome() : new Chrome());
+        siteIcons(view);
         view.setDownloadListener(this::download);
         view.setOnTouchListener((touched, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) emit("pressed");
@@ -532,7 +533,14 @@ final class TarnWebView implements NshComponent {
     private void setJavaScript(int action) {
         javaScriptOn = action == Native.CONTINUE_JS;
         web.getSettings().setJavaScriptEnabled(javaScriptOn);
-        web.setWebChromeClient(javaScriptOn ? new IconChrome() : new Chrome());
+        siteIcons(web);
+    }
+
+    private void siteIcons(WebView view) {
+        view.setWebChromeClient(javaScriptOn ? new IconChrome() : new Chrome());
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOWNLOAD_FAVICONS_ENABLED)) {
+            WebSettingsCompat.setDownloadFaviconsEnabled(view.getSettings(), javaScriptOn);
+        }
     }
 
     private boolean admitPopup(long now) {
