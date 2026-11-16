@@ -1,0 +1,183 @@
+name: Fuzz
+
+on:
+  pull_request:
+    paths:
+      - "**.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "fuzz/**"
+      - ".clusterfuzzlite/**"
+      - ".github/workflows/fuzz.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "fuzz/**"
+      - ".clusterfuzzlite/**"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: fuzz-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-build-fuzzers:v1@sha256:6cf6c58751d21ec3dcfe7792c78e07fe83ec705cbdb07b89793596213c8094a7
+        env:
+          BAD_BUILD_CHECK: 'true'
+          CFL_PLATFORM: 'github'
+          DRY_RUN: 'false'
+          GITHUB_TOKEN: ${{ github.token }}
+          KEEP_UNAFFECTED_FUZZ_TARGETS: 'false'
+          LANGUAGE: 'rust'
+          LOW_DISK_SPACE: 'True'
+          SANITIZER: 'address'
+          UPLOAD_BUILD: 'false'
+      - uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers:v1@sha256:eb0fda81bc8fe8b9be6f220817879b1c1ddf8d285db61810d90901e11f976354
+        env:
+          CFL_PLATFORM: 'github'
+          DRY_RUN: 'false'
+          FUZZ_SECONDS: '300'
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_STORE_BRANCH: 'main'
+          GIT_STORE_BRANCH_COVERAGE: 'gh-pages'
+          LANGUAGE: 'rust'
+          LOW_DISK_SPACE: 'True'
+          MINIMIZE_CRASHES: 'False'
+          MODE: 'code-change'
+          OUTPUT_SARIF: 'false'
+          PARALLEL_FUZZING: 'false'
+          REPORT_UNREPRODUCIBLE_CRASHES: 'False'
+          SANITIZER: 'address'
+
+  build:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-build-fuzzers:v1@sha256:6cf6c58751d21ec3dcfe7792c78e07fe83ec705cbdb07b89793596213c8094a7
+        env:
+          BAD_BUILD_CHECK: 'true'
+          CFL_PLATFORM: 'github'
+          DRY_RUN: 'false'
+          GITHUB_TOKEN: ${{ github.token }}
+          KEEP_UNAFFECTED_FUZZ_TARGETS: 'false'
+          LANGUAGE: 'rust'
+          LOW_DISK_SPACE: 'True'
+          SANITIZER: 'address'
+          UPLOAD_BUILD: 'true'
+
+  batch:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-build-fuzzers:v1@sha256:6cf6c58751d21ec3dcfe7792c78e07fe83ec705cbdb07b89793596213c8094a7
+        env:
+          BAD_BUILD_CHECK: 'true'
+          CFL_PLATFORM: 'github'
+          DRY_RUN: 'false'
+          GITHUB_TOKEN: ${{ github.token }}
+          KEEP_UNAFFECTED_FUZZ_TARGETS: 'false'
+          LANGUAGE: 'rust'
+          LOW_DISK_SPACE: 'True'
+          SANITIZER: 'address'
+          UPLOAD_BUILD: 'false'
+      - uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers:v1@sha256:eb0fda81bc8fe8b9be6f220817879b1c1ddf8d285db61810d90901e11f976354
+        env:
+          CFL_PLATFORM: 'github'
+          DRY_RUN: 'false'
+          FUZZ_SECONDS: '3600'
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_STORE_BRANCH: 'main'
+          GIT_STORE_BRANCH_COVERAGE: 'gh-pages'
+          LANGUAGE: 'rust'
+          LOW_DISK_SPACE: 'True'
+          MINIMIZE_CRASHES: 'False'
+          MODE: 'batch'
+          OUTPUT_SARIF: 'false'
+          PARALLEL_FUZZING: 'false'
+          REPORT_UNREPRODUCIBLE_CRASHES: 'False'
+          SANITIZER: 'address'
+
+  prune:
+    needs: batch
+    if: ${{ !cancelled() && needs.batch.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-build-fuzzers:v1@sha256:6cf6c58751d21ec3dcfe7792c78e07fe83ec705cbdb07b89793596213c8094a7
+        env:
+          BAD_BUILD_CHECK: 'true'
+          CFL_PLATFORM: 'github'
+          DRY_RUN: 'false'
+          GITHUB_TOKEN: ${{ github.token }}
+          KEEP_UNAFFECTED_FUZZ_TARGETS: 'false'
+          LANGUAGE: 'rust'
+          LOW_DISK_SPACE: 'True'
+          SANITIZER: 'address'
+          UPLOAD_BUILD: 'false'
+      - uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers:v1@sha256:eb0fda81bc8fe8b9be6f220817879b1c1ddf8d285db61810d90901e11f976354
+        env:
+          CFL_PLATFORM: 'github'
+          DRY_RUN: 'false'
+          FUZZ_SECONDS: '600'
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_STORE_BRANCH: 'main'
+          GIT_STORE_BRANCH_COVERAGE: 'gh-pages'
+          LANGUAGE: 'rust'
+          LOW_DISK_SPACE: 'True'
+          MINIMIZE_CRASHES: 'False'
+          MODE: 'prune'
+          OUTPUT_SARIF: 'false'
+          PARALLEL_FUZZING: 'false'
+          REPORT_UNREPRODUCIBLE_CRASHES: 'False'
+          SANITIZER: 'address'
+
+  coverage:
+    needs: prune
+    if: ${{ !cancelled() && needs.prune.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-build-fuzzers:v1@sha256:6cf6c58751d21ec3dcfe7792c78e07fe83ec705cbdb07b89793596213c8094a7
+        env:
+          BAD_BUILD_CHECK: 'true'
+          CFL_PLATFORM: 'github'
+          DRY_RUN: 'false'
+          GITHUB_TOKEN: ${{ github.token }}
+          KEEP_UNAFFECTED_FUZZ_TARGETS: 'false'
+          LANGUAGE: 'rust'
+          LOW_DISK_SPACE: 'True'
+          SANITIZER: 'coverage'
+          UPLOAD_BUILD: 'false'
+      - uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers:v1@sha256:eb0fda81bc8fe8b9be6f220817879b1c1ddf8d285db61810d90901e11f976354
+        env:
+          CFL_PLATFORM: 'github'
+          DRY_RUN: 'false'
+          FUZZ_SECONDS: '600'
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_STORE_BRANCH: 'main'
+          GIT_STORE_BRANCH_COVERAGE: 'gh-pages'
+          LANGUAGE: 'rust'
+          LOW_DISK_SPACE: 'True'
+          MINIMIZE_CRASHES: 'False'
+          MODE: 'coverage'
+          OUTPUT_SARIF: 'false'
+          PARALLEL_FUZZING: 'false'
+          REPORT_UNREPRODUCIBLE_CRASHES: 'False'
+          SANITIZER: 'coverage'

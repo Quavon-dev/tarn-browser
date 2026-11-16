@@ -12,7 +12,7 @@ use nsh_core::picker::FilePickRequest;
 use nsh_core::prelude::*;
 use store::{Id, Store};
 
-use crate::controls::{Segment, accent_pill, group, label, pill, secure_button, segmented, switch_row};
+use crate::controls::{Segment, accent_pill, group, label, pill, section, secure_button, segmented, switch_row};
 use crate::theme::{SYSTEM_FONT, Secure, TEXT_SMALL, Theme};
 
 pub trait Host: Copy + 'static {
@@ -322,10 +322,6 @@ fn badge(content: String) -> Text {
 
 fn note(content: impl Into<SharedString>, error: bool) -> Text {
     text(content.into()).text_size(px(TEXT_SMALL)).text_color(if error { Secure::warning() } else { Theme::muted() })
-}
-
-fn section(name: &str) -> Text {
-    label(name.to_owned()).font_weight(FontWeight::SEMIBOLD).pt_5().pb_2().px_1()
 }
 
 fn row() -> View {

@@ -11,11 +11,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::{Id, Profile, WebEngine};
 use ui::command::ENGINES;
-use ui::controls::{button, group, note, radio, row, section, segment, segmented, swatch, switch};
+use ui::controls::{button, disabled_segment, group, note, radio, row, section, segment, segmented, swatch, switch, switch_row, tab_stop, text_block};
 use ui::icon::{Icon, icon};
 use ui::motion::fade_in;
 use ui::text::bounded_title;
-use ui::theme::{ACCENTS, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
+use ui::theme::{ACCENTS, TEXT, TEXT_TITLE, Theme};
 
 use crate::browser::Browser;
 
@@ -75,6 +75,11 @@ pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
             ("Pin or unpin tab", Bound("cmd-d", &crate::TogglePin)),
             ("New tab group", Bound("cmd-alt-g", &crate::NewGroup)),
             ("Open or close split view", Bound("cmd-ctrl-n", &crate::split::ToggleSplitView)),
+            ("Focus next split pane", Bound("cmd-ctrl-]", &crate::split::FocusNextPane)),
+            ("Focus previous split pane", Bound("cmd-ctrl-[", &crate::split::FocusPreviousPane)),
+            ("Swap split panes", Bound("cmd-ctrl-s", &crate::split::SwapPanes)),
+            ("Rotate split layout", Bound("cmd-ctrl-r", &crate::split::RotateSplitLayout)),
+            ("Remove tab from split view", Bound("cmd-ctrl-w", &crate::split::RemoveFromSplitView)),
         ],
     ),
     (
@@ -139,7 +144,7 @@ pub(crate) fn level_description(level: ShieldLevel) -> &'static str {
         }
         ShieldLevel::Strict => "Standard, plus HTTPS-only browsing and no referrer sent to other sites unless a page asks for one.",
         ShieldLevel::Lockdown => {
-            "Strict, plus JavaScript off, no saved page state, no site permission requests and no website data kept after Tarn quits. Choosing it deletes the cookies and site data this profile has stored."
+            "Strict, plus JavaScript off, no saved page state, no site permission requests and no website data kept after Tarn quits. Choosing it deletes the cookies and site data this profile has stored, except data it shares with another profile."
         }
     }
 }
@@ -170,10 +175,6 @@ fn licenses() -> Option<std::path::PathBuf> {
         path.is_file().then_some(path)
     });
     PATH.clone()
-}
-
-fn text_block(title: impl Into<SharedString>, detail: impl Into<SharedString>) -> Div {
-    div().flex_1().min_w_0().flex().flex_col().child(title.into()).child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
 }
 
 fn danger(id: impl Into<ElementId>, idle: &'static str, armed_text: &'static str, armed: bool) -> Stateful<Div> {
@@ -284,7 +285,8 @@ impl SettingsWindow {
                         crate::shared::each(cx, |_, _, cx| cx.notify());
                     }
                 });
-                let focus = cx.focus_handle();
+                // The pane list is a tab stop, so Tab and Shift+Tab come back to its Up and Down.
+                let focus = cx.focus_handle().tab_stop(true);
                 window.focus(&focus);
                 let repo_input = cx.new(|cx| ui::text_input::TextInput::new("owner/repository or a github.com address", cx));
                 SettingsWindow {
@@ -399,13 +401,7 @@ impl SettingsWindow {
     }
 
     fn pref_row(&self, first: bool, pref: Pref, title: &'static str, detail: impl Into<SharedString>, on: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        row(first)
-            .id(title)
-            .cursor_pointer()
-            .hover(|s| s.bg(Theme::hover()))
-            .active(|s| s.bg(Theme::pressed()))
-            .child(text_block(title, detail))
-            .child(switch(on))
+        switch_row(title, first, text_block(title, detail), on)
             .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_pref(pref, !on, cx))))
     }
 
@@ -749,6 +745,8 @@ impl Render for SettingsWindow {
                 let step = match event.keystroke.key.as_str() {
                     "up" => -1,
                     "down" => 1,
+                    "tab" if this.recording.is_none() && event.keystroke.modifiers.shift => return window.focus_prev(),
+                    "tab" if this.recording.is_none() => return window.focus_next(),
                     _ => return,
                 };
                 if !this.focus.is_focused(window) || this.recording.is_some() || event.keystroke.modifiers.modified() {
@@ -819,7 +817,7 @@ fn week(card: &Card) -> Div {
                 .flex()
                 .flex_col()
                 .justify_end()
-                .rounded_sm()
+                .rounded(px(Theme::radius_small()))
                 .overflow_hidden()
                 .bg(Theme::raised())
                 .child(div().h(px(fill)).bg(Theme::accent()))
@@ -1054,23 +1052,31 @@ impl SettingsWindow {
                 )
             })))
             .child(section("Updates"))
-            .child(group().child(if s.updater {
-                self.pref_row(
-                    true,
-                    Pref::UpdateChecks,
-                    "Check for updates automatically",
-                    if cfg!(windows) {
-                        "Once a day from GitHub. Updates are signed; Tarn offers to restart once one is downloaded."
-                    } else {
-                        "Once a day from GitHub. Updates are signed and install when you quit Tarn."
-                    },
-                    s.prefs.get(Pref::UpdateChecks),
-                    cx,
-                )
-                .into_any_element()
+            .child(if s.updater {
+                group()
+                    .child(self.pref_row(
+                        true,
+                        Pref::UpdateChecks,
+                        "Check for updates automatically",
+                        if cfg!(windows) {
+                            "Once a day from GitHub. Updates are signed; Tarn offers to restart once one is downloaded."
+                        } else {
+                            "Once a day from GitHub. Updates are signed and install when you quit Tarn."
+                        },
+                        s.prefs.get(Pref::UpdateChecks),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::NightlyUpdates,
+                        "Nightly builds",
+                        "Signed builds of the latest changes, every day, before they are tested in a release. Switching back keeps this build until a newer release.",
+                        s.prefs.get(Pref::NightlyUpdates),
+                        cx,
+                    ))
             } else {
-                row(true).child(label("Check for updates automatically")).child(value("Not set up in this build")).into_any_element()
-            }))
+                group().child(row(true).child(label("Check for updates automatically")).child(value("Not set up in this build")))
+            })
             .when(cfg!(feature = "chromium"), |d| d.child(section("Web engine")).child(group().child(self.web_engine_row(s, cx))))
             .child(section("Downloads"))
             .child(group().child(self.pref_row(
@@ -1102,7 +1108,7 @@ impl SettingsWindow {
             .child(section("About"))
             .child(
                 group()
-                    .child(row(true).child(label("Tarn version")).child(value(env!("CARGO_PKG_VERSION"))))
+                    .child(row(true).child(label("Tarn version")).child(value(platform::updater::VERSION)))
                     .child(self.link_row("about-licence", browser_core::LICENCE, "Free software you may share and change.", browser_core::LICENCE_URL, cx))
                     .child(self.link_row("about-source", "Source code", "Tarn's full source is public on GitHub.", browser_core::SOURCE_URL, cx))
                     .when_some(licenses(), |d, path| {
@@ -1137,8 +1143,11 @@ impl SettingsWindow {
         };
         let options = [WebEngine::WebKit, WebEngine::Chromium].into_iter().enumerate().map(|(ix, engine)| {
             let available = engine == WebEngine::WebKit || (s.chromium_allowed && closed.is_none());
-            segment(("web-engine", ix), crate::tabs::web_engine_name(engine), engine == s.web_engine)
-                .when(!available, |d| d.opacity(0.4))
+            let (name, selected) = (crate::tabs::web_engine_name(engine), engine == s.web_engine);
+            if !available && !selected {
+                return disabled_segment(("web-engine", ix), name);
+            }
+            segment(("web-engine", ix), name, selected)
                 .when(available, |d| d.on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.set_default_web_engine(engine, w, cx)))))
         });
         row(true).child(text_block("Default web engine", detail)).child(segmented().children(options))
@@ -1669,7 +1678,7 @@ impl SettingsWindow {
                 let on = e.enabled;
                 let (install_id, app_path) = (e.install_id.clone(), e.app_path.clone());
                 let mut r = row(ix == 0).child(text_block(format!("{} \u{00B7} {}", e.name, e.badge), e.permissions)).child(
-                    div().id(("extension-switch", ix)).cursor_pointer().child(switch(on)).on_click(cx.listener(move |this, _, _, cx| {
+                    tab_stop(div().id(("extension-switch", ix))).cursor_pointer().child(switch(on)).on_click(cx.listener(move |this, _, _, cx| {
                         let (install_id, app_path) = (install_id.clone(), app_path.clone());
                         this.with_browser(cx, move |b, w, cx| match (install_id, app_path) {
                             (Some(id), _) => b.set_extension(&id, !on, w, cx),

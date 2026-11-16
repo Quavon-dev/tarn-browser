@@ -25,7 +25,8 @@ use crate::delegates::{Delegate, DelegateState, serialized_origin, to_url};
 use crate::extensions::Tab;
 use crate::handover::{self, Storage};
 use crate::page_scripts::{
-    PICKER, PICTURE_IN_PICTURE, fetch_icon_script, find_snippets, find_text_script, icon_links_script, json_text_script, page_text_script,
+    PICKER, PICTURE_IN_PICTURE, fetch_icon_script, find_count, find_count_script, find_snippets, find_text_script, icon_links_script, json_text_script,
+    page_text_script,
 };
 use crate::{DataStore, Event};
 
@@ -319,16 +320,30 @@ impl WebView {
         self._delegate.shown_url(to_url(unsafe { self.view.URL() }))
     }
 
-    /// Highlights the next (or previous) match; `found` receives whether there was one.
-    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(bool) + 'static) {
+    /// Highlights the next (or previous) match; `found` receives how many matches the page has.
+    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize) + 'static) {
         let mtm = self.view.mtm();
+        let found = Rc::new(found);
+        let view = self.view.clone();
+        let count = find_count_script(text);
+        // No script of Tarn's runs on a Lockdown page, so the native result stands as one match.
+        let lockdown = self._delegate.level() == ShieldLevel::Lockdown;
         // SAFETY: main-thread calls on a fresh configuration and a live web view; the block is
         // copied by WebKit and receives a valid result.
         unsafe {
             let config = WKFindConfiguration::new(mtm);
             config.setBackwards(backwards);
             config.setWraps(true);
-            let done = RcBlock::new(move |result: std::ptr::NonNull<WKFindResult>| found(result.as_ref().matchFound()));
+            let done = RcBlock::new(move |result: std::ptr::NonNull<WKFindResult>| {
+                if !result.as_ref().matchFound() {
+                    return found(0);
+                }
+                if lockdown {
+                    return found(1);
+                }
+                let found = found.clone();
+                run_isolated(&view, &count, move |answer| found(find_count(true, &answer)));
+            });
             self.view.findString_withConfiguration_completionHandler(&NSString::from_str(text), Some(&config), &done);
         }
     }
@@ -435,17 +450,7 @@ impl WebView {
     /// Runs `body` as an async function in WebKit's client content world, which page scripts can
     /// neither see nor alter; `done` receives its string result, or an empty string.
     fn run_isolated(&self, body: &str, done: impl Fn(String) + 'static) {
-        let mtm = self.view.mtm();
-        // SAFETY: main-thread call on a live web view; WebKit copies the block and passes a
-        // retained result or null, which is only read as an NSString after a class check.
-        unsafe {
-            let world = WKContentWorld::defaultClientWorld(mtm);
-            let handler = RcBlock::new(move |result: *mut objc2::runtime::AnyObject, _error: *mut objc2_foundation::NSError| {
-                let text = result.as_ref().and_then(|r| r.downcast_ref::<NSString>()).map(|s| s.to_string()).unwrap_or_default();
-                done(text);
-            });
-            self.view.callAsyncJavaScript_arguments_inFrame_inContentWorld_completionHandler(&NSString::from_str(body), None, None, &world, Some(&handler));
-        }
+        run_isolated(&self.view, body, done);
     }
 
     pub fn is_muted(&self) -> bool {
@@ -810,4 +815,20 @@ pub fn alert(message: &str, detail: &str) {
 /// Hands a URL to the app registered for its scheme. Callers must have asked the user first.
 pub fn open_external(url: &Url) -> bool {
     NSURL::URLWithString(&NSString::from_str(url.as_str())).is_some_and(|u| NSWorkspace::sharedWorkspace().openURL(&u))
+}
+
+/// Runs `body` as an async function in the shell's isolated world and hands `done` its string
+/// answer, empty for anything else.
+fn run_isolated(view: &WKWebView, body: &str, done: impl Fn(String) + 'static) {
+    let mtm = view.mtm();
+    // SAFETY: main-thread call on a live web view; WebKit copies the block and passes a
+    // retained result or null, which is only read as an NSString after a class check.
+    unsafe {
+        let world = WKContentWorld::defaultClientWorld(mtm);
+        let handler = RcBlock::new(move |result: *mut objc2::runtime::AnyObject, _error: *mut objc2_foundation::NSError| {
+            let text = result.as_ref().and_then(|r| r.downcast_ref::<NSString>()).map(|s| s.to_string()).unwrap_or_default();
+            done(text);
+        });
+        view.callAsyncJavaScript_arguments_inFrame_inContentWorld_completionHandler(&NSString::from_str(body), None, None, &world, Some(&handler));
+    }
 }

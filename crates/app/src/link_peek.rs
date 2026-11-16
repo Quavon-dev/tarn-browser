@@ -4,11 +4,11 @@ use engine::{Event, Host, WebView};
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AppContext, Bounds, Context, FontWeight, IntoElement, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    WeakEntity, Window, WindowHandle, div, point, px, size,
+    Bounds, Context, FontWeight, IntoElement, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity,
+    Window, WindowHandle, div, point, px, size,
 };
 use store::{Id, TabKind};
-use ui::controls::{button, icon_button, surface, tooltip};
+use ui::controls::{button, icon_button, open_popup, surface, tooltip};
 use ui::icon::Icon;
 use ui::motion::pop_in;
 use ui::text::bounded_title;
@@ -16,7 +16,6 @@ use ui::theme::{Secure, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
 use url::Url;
 
 use crate::browser::{Browser, TabKey, page_corner};
-use crate::peek::popup_options;
 use crate::prefs::Pref;
 
 const MAX_WIDTH: f32 = 1100.;
@@ -79,22 +78,10 @@ impl Browser {
         self.link_peek.web_engine = self.model.tab(opener).and_then(|t| t.web_engine).map(|_| store::WebEngine::WebKit);
         // The new window renders from the browser at once, so it must open after this update ends.
         cx.defer(move |cx| {
-            let mut popup = None;
-            let handle = cx.open_window(popup_options(bounds, display, true), |window, cx| {
-                popup = Host::from_window(window);
-                if let Some(host) = &popup {
-                    host.strip_frame();
-                    host.round_corners(
-                        f64::from(SHADOW / 2.),
-                        f64::from(SHADOW),
-                        f64::from(SHADOW),
-                        f64::from(SHADOW),
-                        f64::from(ui::theme::Theme::radius_panel()),
-                    );
-                }
-                cx.new(|cx| LinkPeekWindow::new(browser.clone(), reduce, window, cx))
-            });
-            let (Ok(handle), Some(popup)) = (handle, popup) else { return };
+            let inset = [SHADOW / 2., SHADOW, SHADOW, SHADOW];
+            let (handle, popup) =
+                open_popup(cx, bounds, display, true, inset, Theme::radius_panel(), |window, cx| LinkPeekWindow::new(browser.clone(), reduce, window, cx));
+            let (Some(handle), Some(popup)) = (handle, popup) else { return };
             browser.update(cx, |b, cx| b.attach_link_peek(handle, &popup, opener.private, profile_id, url, page, cx)).ok();
         });
     }

@@ -170,7 +170,7 @@ impl<D: Platform> Shell<D> {
         Vec::new()
     }
 
-    fn tab_title(&self, key: TabKey) -> String {
+    pub fn tab_title(&self, key: TabKey) -> String {
         let page = self.pages.get(&key).map(|p| p.title.clone()).filter(|t| !t.is_empty());
         let title = page.or_else(|| self.model.tab(key).map(|t| t.title.clone()).filter(|t| !t.is_empty()));
         title.unwrap_or_else(|| self.tab_url(key))

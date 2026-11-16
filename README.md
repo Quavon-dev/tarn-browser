@@ -8,6 +8,7 @@
 Written in Rust. No telemetry, no accounts, no Electron.
 
 [![CI](https://github.com/Quavon-dev/tarn-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/Quavon-dev/tarn-browser/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Quavon-dev/tarn-browser/badge)](https://scorecard.dev/viewer/?uri=github.com/Quavon-dev/tarn-browser)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux%20%C2%B7%20iOS%20%C2%B7%20Android-1f75b0.svg)
 
@@ -230,7 +231,11 @@ be changed in Settings › Shortcuts; tab and space numbers, Esc, Undo/Redo and 
 | ⌃⇥ / ⌃⇧⇥ | Next / previous tab (wraps around) |
 | ⇧⌘C | Copy link of the current tab |
 | ⌥⇧⌘C | Copy link as Markdown, `[title](url)` (Copy Title is in the Tabs menu) |
-| ⌃⌘N | Open or close Split View: the current tab beside the space's last used tab |
+| ⌃⌘N | Open or close Split View: the current tab beside the space's last used tab outside a split, or a copy of it |
+| ⌃⌘] / ⌃⌘[ | Focus the next / previous split pane |
+| ⌃⌘S | Swap the focused split pane with the next one |
+| ⌃⌘R | Rotate the split layout: side by side or stacked |
+| ⌃⌘W | Remove the current tab from Split View |
 | ⌥⌘S | Screenshot of the visible page to Downloads and the clipboard (Save Page as PDF is in the File menu) |
 | ⌃⌘P | Picture in Picture for the page's largest playing video |
 | ⌘/ | Keyboard shortcut cheat sheet |
@@ -294,7 +299,8 @@ Library › Memory (or Show Memory Use in the command bar) lists the space's tab
 CPU of their web content process, with Sleep per tab and Sleep All Inactive Tabs; the sidebar's
 heavy-tab dot ranks by the same figures. Once awake background tabs hold more than 1 GB together,
 the heaviest of those unused for a minute sleep, pinned tabs only after 30 minutes unused (tabs
-playing media stay awake; off when sleeping is Never). Chromium tabs are not measured. Resting the
+playing media stay awake; off when sleeping is Never). Chromium tabs count by their renderer
+process. Resting the
 pointer on a tab row shows its full title, address and state. Right-click a space (its name or
 icon) and choose Edit Space… to change its name, colour and icon.
 
@@ -315,7 +321,8 @@ Checks per workspace (each runs in its own directory; CI runs all of them):
 `cargo deny check` runs where a workspace has a `deny.toml`. `unsafe` code is allowed only in
 `crates/engine` (and later `crates/platform`); every other crate is `#![forbid(unsafe_code)]`.
 How to contribute: [`CONTRIBUTING.md`](CONTRIBUTING.md); AI-assisted contributions follow
-[`AGENTS.md`](AGENTS.md).
+[`AGENTS.md`](AGENTS.md). All of Tarn's code, packaging and release automation live in this
+repository; no other repository is part of the codebase.
 
 <details>
 <summary><b>On-device translation</b></summary>
@@ -367,10 +374,10 @@ scripts/third-party-licenses.sh # regenerates the macOS and Windows licence list
 ```
 
 `scripts/bundle.sh` builds for the Mac it runs on; there is no universal binary.
-`TARN_SIGN_IDENTITY=none` leaves the bundle unsigned for the signing Mac; an ad-hoc signature
+`TARN_SIGN_IDENTITY=none` leaves the bundle unsigned for CI's signing job; an ad-hoc signature
 cannot load the CEF framework. The app runs without the App Sandbox (Chromium's helpers and
 WebKit's content processes keep theirs): its data lives in `~/Library/Application Support/Tarn`
-and `~/Library/WebKit/dev.tarn.browser`, and the first start after a sandboxed version moves it
+and `~/Library/WebKit/de.quavon.tarn`, and the first start after a sandboxed version moves it
 there once. WebKit stays the default engine; Chromium is offered while automatic updates are on.
 A bundle whose update feed it cannot reach (a private repository, or no release yet) never gets a
 verified check and so never opens Chromium; `TARN_LOCAL_CHROMIUM=1 TARN_SIGN_IDENTITY=<identity>

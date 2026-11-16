@@ -24,13 +24,23 @@ Every shell's web view offers the same operations and reports the same events. T
 
 **Events:**
 - `Committed`, `Finished`, `TitleChanged`, `UrlChanged`, `Failed`;
+- `Loading(bool)` on macOS and Windows, `started` and `stopped` on Linux, iOS and Android: a
+  main-frame load began before it commits, or ended without `Finished` or `Failed` (a stop, a
+  cancel, a load that turned into a download);
 - `Blocked`, `PopupBlocked`, `Popup`, `ShieldLevelChanged`;
 - `Prompt`, `PeekLink`, `ExternalScheme`, `ContentProcessTerminated`;
 - `OpenTab`: Chromium views only, for a link the user opens in a new tab (Ctrl- or middle-click,
   the page menu); WebKit views report it as a `Popup`;
 - `FullScreen`: Chromium views on Windows only, whose element full screen fills the browser's
   view; WebKit and the other engines open their own full-screen window;
-- `DownloadFinished`, `DownloadFailed`, `DownloadsActive`.
+- `DownloadFinished`, `DownloadFailed`, `DownloadsActive`;
+- `pressed`: Linux, iOS and Android, a pointer or touch press on the page, which still reaches the
+  page, so a split pane takes the focus. macOS and Windows see the same press through the shell's
+  mouse monitor (`engine::menu::EventMonitor::on_mouse_down`);
+- `history`: iOS and Android, whether the view can go back and forward after a same-document
+  navigation (`pushState`, a fragment), which commits nothing: what `UrlChanged` carries in
+  `can_go_back` and `can_go_forward` on macOS and Windows. Linux sends `finished` with
+  `canGoBack` and `canGoForward` when the URL changes without a load, which covers the same case.
 
 **Rules for every implementation:**
 - **Decisions inside the web view:** policy decisions are made inside the web view, synchronously,

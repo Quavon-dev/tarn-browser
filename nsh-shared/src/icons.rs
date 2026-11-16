@@ -2,6 +2,7 @@ use nsh_core::element::ImageSrc;
 use nsh_core::prelude::*;
 
 pub const APP_WINDOW: &str = include_str!("../../crates/ui/icons/app-window.svg");
+pub const ARROW_UP_RIGHT: &str = include_str!("../../crates/ui/icons/arrow-up-right.svg");
 pub const ARROW_DOWN: &str = include_str!("../../crates/ui/icons/arrow-down.svg");
 pub const BACK: &str = include_str!("../../crates/ui/icons/back.svg");
 pub const BOOK_OPEN: &str = include_str!("../../crates/ui/icons/book-open.svg");

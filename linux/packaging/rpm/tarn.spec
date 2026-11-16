@@ -1,5 +1,5 @@
 Name:           tarn
-Version:        0.1.0
+Version:        0.1.1
 Release:        1%{?dist}
 Summary:        Private web browser on the system WebKitGTK 6.0
 License:        GPL-3.0-or-later
@@ -31,6 +31,6 @@ TARN_BIN=${CARGO_TARGET_DIR:-linux/target}/release/tarn sh linux/packaging/insta
 %files
 %license LICENSE
 %{_bindir}/tarn
-%{_datadir}/applications/dev.tarn.Tarn.desktop
-%{_datadir}/icons/hicolor/scalable/apps/dev.tarn.Tarn.svg
+%{_datadir}/applications/de.quavon.tarn.desktop
+%{_datadir}/icons/hicolor/scalable/apps/de.quavon.tarn.svg
 %exclude %{_datadir}/licenses/tarn

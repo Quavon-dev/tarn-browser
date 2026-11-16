@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Message;
 import android.os.SystemClock;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
@@ -524,6 +525,10 @@ final class TarnWebView implements NshComponent {
         view.setWebViewClient(new Client());
         view.setWebChromeClient(new Chrome());
         view.setDownloadListener(this::download);
+        view.setOnTouchListener((touched, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) emit("pressed");
+            return false;
+        });
         view.setFindListener((activeMatch, matches, done) -> {
             if (!done) return;
             emit("found", "matched", matches);
@@ -832,6 +837,7 @@ final class TarnWebView implements NshComponent {
     private void block(String url, String reason) {
         refusedUrl = url;
         emit("blocked", "url", url, "reason", reason);
+        emit("stopped");
     }
 
     private void emit(String event, Object... pairs) {
@@ -968,6 +974,7 @@ final class TarnWebView implements NshComponent {
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             Hooks.log("started " + url);
+            if (url == null || !url.equals(refusedUrl)) emit("started");
         }
 
         @Override
@@ -996,6 +1003,7 @@ final class TarnWebView implements NshComponent {
 
         @Override
         public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+            emit("history", "canGoBack", view.canGoBack(), "canGoForward", view.canGoForward());
             Page next = pending;
             if (next != null && next.url().equals(url)) {
                 commit(view, url);

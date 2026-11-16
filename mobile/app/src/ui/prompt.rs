@@ -1,15 +1,16 @@
-use nsh_base::input;
+use nsh_base::Input;
+use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 
 use nsh_base::ButtonElement;
 use tarn_nsh_shared::controls::{secure_button, secure_surface};
 use tarn_nsh_shared::theme::Secure;
 
-use super::Ui;
+use super::{Screen, Ui};
 
 use crate::events::Answer;
 use crate::shell::PromptRequest;
-use crate::theme::{TEXT_HEADING, TEXT_TITLE, TOUCH_TARGET, Theme};
+use crate::theme::{TEXT_HEADING, Theme};
 
 fn label(content: impl IntoReactive<SharedString>) -> Text {
     super::label(content).text_color(Secure::text)
@@ -35,24 +36,18 @@ fn answer(ui: Ui, accept: bool, remember: bool, text: Option<String>, user: Opti
     ui.act(|s| s.answer(Answer { accept, text, user, password, remember }));
 }
 
-fn field(value: Signal<String>, label: &'static str, masked: bool) -> impl IntoElement {
-    input()
+/// A prompt's answer field, in the `Secure` colours no theme reaches.
+fn field(value: Signal<String>, label: &'static str, masked: bool) -> Input {
+    super::text_field(label, label)
+        .bg(Secure::control)
+        .border_color(Secure::hairline)
+        .placeholder_color(Secure::faint)
+        .text_color(Secure::text)
         .value(move || value.get())
         .on_change(move |v: &str| value.set(v.to_owned()))
         .masked(masked)
         .auto_capitalize(AutoCapitalize::None)
-        .placeholder(label)
-        .label(label)
         .test_id(label)
-        .h(px(TOUCH_TARGET))
-        .px_3()
-        .rounded(px(Theme::radius_row()))
-        .bg(Theme::raised)
-        .border_1()
-        .border_color(Theme::hairline)
-        .placeholder_color(Theme::faint)
-        .text_size(px(TEXT_TITLE))
-        .text_color(Theme::text)
 }
 
 fn title(prompt: &PromptRequest) -> String {
@@ -75,7 +70,7 @@ fn body(ui: Ui, prompt: PromptRequest) -> AnyElement {
             let value = signal(prompt.default.clone().unwrap_or_default());
             view()
                 .gap_2()
-                .child(field(value, "Answer", false))
+                .child(field(value, "Answer", false).on_submit(move |v: &str| answer(ui, true, false, Some(v.to_owned()), None, None)))
                 .child(
                     buttons
                         .child(accent_pill("OK", move || answer(ui, true, false, Some(value.get_untracked()), None, None)))
@@ -90,7 +85,9 @@ fn body(ui: Ui, prompt: PromptRequest) -> AnyElement {
                 .child(prompt.realm.clone().map(|r| caption(format!("Realm: {r}"))))
                 .child(prompt.insecure.then(|| caption("This connection is not secure: the password would be sent unencrypted.").text_color(Secure::warning)))
                 .child(field(user, "User name", false))
-                .child(field(password, "Password", true))
+                .child(
+                    field(password, "Password", true).on_submit(move |v: &str| answer(ui, true, false, None, Some(user.get_untracked()), Some(v.to_owned()))),
+                )
                 .child(
                     buttons
                         .child(accent_pill("Sign In", move || answer(ui, true, false, None, Some(user.get_untracked()), Some(password.get_untracked()))))
@@ -106,6 +103,15 @@ fn body(ui: Ui, prompt: PromptRequest) -> AnyElement {
     }
 }
 
+/// Esc declines without remembering the answer; Enter, not held, accepts an alert or a confirm
+/// only while neither a field nor the page has the keyboard, so typing cannot answer it.
+fn keys(decline: impl Fn() + 'static, accept: Option<impl Fn() + 'static>) {
+    on_key_with("escape", KeyOptions { when: When::Always, ..KeyOptions::default() }, move |_| decline());
+    if let Some(accept) = accept {
+        on_key_with("enter", KeyOptions { when: When::NotEditing, ..KeyOptions::default() }, move |_| accept());
+    }
+}
+
 fn card() -> View {
     secure_surface(Theme::radius_panel()).flex_col().gap_3().p_4().m_3().shadow(Theme::elevation(4., 14.))
 }
@@ -118,6 +124,9 @@ pub fn prompt_panel(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         if let Some((_, url)) = external.get() {
             let from = ui.read(|s| s.external_origin.clone());
+            if !ui.editing.get() && ui.screen.get() == Screen::Browse {
+                keys(move || ui.act(|s| s.confirm_external(false)), None::<fn()>);
+            }
             let asked = if from.is_empty() { "This address opens another app:".to_owned() } else { format!("{from} wants to open:") };
             return Some(
                 card()
@@ -136,6 +145,11 @@ pub fn prompt_panel(ui: Ui) -> impl IntoElement {
         }
         let Some(prompt) = first.get() else { return super::extensions::ask(ui).map(IntoElement::into_element) };
         let prompt: PromptRequest = prompt;
+        let simple = matches!(prompt.kind.as_str(), "alert" | "confirm");
+        // The address field and the sheets keep their own Esc and Enter.
+        if !ui.editing.get() && ui.screen.get() == Screen::Browse {
+            keys(move || answer(ui, false, false, None, None, None), simple.then_some(move || answer(ui, true, false, None, None, None)));
+        }
         Some(
             card()
                 .child(label(title(&prompt)).font_weight(FontWeight::SEMIBOLD).text_color(Secure::text))

@@ -1,0 +1,1 @@
+[["example.com,*.a.example","body{color:red}"],["*","p{}"],["bad host","x"]]

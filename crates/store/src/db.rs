@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 #[cfg(unix)]
 use std::fs::{self, Permissions};
 use std::fs::{DirBuilder, OpenOptions};
@@ -321,6 +322,11 @@ impl Store {
         Self::init(Connection::open_in_memory()?)
     }
 
+    /// False for the in-memory stand-in `Core::open` uses when the database cannot be opened.
+    pub fn on_disk(&self) -> bool {
+        self.conn.path().is_some_and(|p| !p.is_empty())
+    }
+
     fn init(conn: Connection) -> Result<Self> {
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
@@ -585,6 +591,13 @@ impl Store {
 
     pub fn tab(&self, id: Id) -> Result<Tab> {
         Ok(self.conn.prepare_cached(&format!("SELECT {TAB_COLUMNS} FROM tabs WHERE id = ?1"))?.query_row([id], tab_row)?)
+    }
+
+    /// Ids of every stored tab, for checking many tabs at once.
+    pub fn tab_ids(&self) -> Result<HashSet<Id>> {
+        let mut stmt = self.conn.prepare_cached("SELECT id FROM tabs")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn tabs(&self, space_id: Id) -> Result<Vec<Tab>> {
@@ -1674,6 +1687,13 @@ mod tests {
     }
 
     #[test]
+    fn only_a_file_store_is_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(Store::open(dir.path()).unwrap().on_disk());
+        assert!(!Store::open_in_memory().unwrap().on_disk());
+    }
+
+    #[test]
     fn profile_tables_cover_the_schema() {
         let store = Store::open_in_memory().unwrap();
         let mut stmt = store.conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").unwrap();
@@ -1883,6 +1903,17 @@ mod tests {
         assert!(store.extension_storage(p.id, "i1").unwrap().is_empty());
         assert!(store.extensions(p.id).unwrap().is_empty());
         assert!(store.extension_hosts(p.id, "i1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn tab_ids_lists_stored_tabs_only() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "uuid", false).unwrap();
+        let space = store.create_space(p.id, "S", "").unwrap();
+        let kept = store.create_tab(space.id, TabKind::Ephemeral, None, "https://a.test/", "A").unwrap();
+        let gone = store.create_tab(space.id, TabKind::Pinned, None, "https://b.test/", "B").unwrap();
+        store.delete_tab(gone.id).unwrap();
+        assert_eq!(store.tab_ids().unwrap(), HashSet::from([kept.id]));
     }
 
     #[test]

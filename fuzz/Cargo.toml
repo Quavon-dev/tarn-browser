@@ -1,0 +1,131 @@
+[package]
+name = "tarn-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+browser-core = { path = "../crates/browser-core" }
+devkit = { path = "../crates/devkit" }
+ed25519-dalek = "=3.0.0"
+engine = { path = "../crates/engine" }
+import = { path = "../crates/import" }
+libfuzzer-sys = "=0.4.13"
+serde_json = "=1.0.154"
+shield = { path = "../crates/shield" }
+store = { path = "../crates/store" }
+url = "=2.5.8"
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "shield_lists"
+path = "fuzz_targets/shield_lists.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shield_matcher"
+path = "fuzz_targets/shield_matcher.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shield_domains"
+path = "fuzz_targets/shield_domains.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shield_url_clean"
+path = "fuzz_targets/shield_url_clean.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shield_youtube"
+path = "fuzz_targets/shield_youtube.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shield_revocations"
+path = "fuzz_targets/shield_revocations.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shield_catalog"
+path = "fuzz_targets/shield_catalog.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shield_bundle"
+path = "fuzz_targets/shield_bundle.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "theme_parse"
+path = "fuzz_targets/theme_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "github_fetch"
+path = "fuzz_targets/github_fetch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "reader_parse"
+path = "fuzz_targets/reader_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "page_scripts"
+path = "fuzz_targets/page_scripts.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "history_text"
+path = "fuzz_targets/history_text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_profile"
+path = "fuzz_targets/import_profile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json_view"
+path = "fuzz_targets/json_view.rs"
+test = false
+doc = false
+bench = false

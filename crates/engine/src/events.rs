@@ -20,6 +20,9 @@ pub enum Protection {
 
 #[derive(Debug)]
 pub enum Event {
+    /// The page started (`true`) or stopped (`false`) loading, before it commits or after it ends;
+    /// WebKit says only when a main-frame load starts, `Finished` and `Failed` end it.
+    Loading(bool),
     /// The main frame committed to a new URL.
     Committed {
         url: Url,

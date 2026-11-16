@@ -8,10 +8,10 @@ use gpui::{
 };
 use store::{Folder, Group, Id, Tab, TabKind};
 use ui::controls::{favicon, icon_button, spinner, tooltip};
-use ui::icon::{Icon, icon};
-use ui::motion::{FADE, POP, SLIDE, animate, fade_in, progress};
+use ui::icon::{ICON, ICON_SMALL, Icon, icon};
+use ui::motion::{EXIT, FADE, POP, SLIDE, animate, fade_in, progress};
 use ui::text::bounded_title;
-use ui::theme::{PROFILE_COLORS, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
+use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_SMALL, TEXT_TINY, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
 
 use crate::browser::{Browser, SpaceRef, TabKey, folder_tree, tab_host};
 use crate::gestures::{Step, follow};
@@ -151,6 +151,11 @@ fn drag_chip(title: SharedString) -> Div {
         .border_color(Theme::surface_edge())
         .text_color(Theme::text())
         .text_size(px(TEXT))
+        .max_w(px(220.))
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis()
+        .shadow(Elevation::Popover.shadow())
         .child(title)
 }
 
@@ -195,7 +200,12 @@ fn background(b: &Browser) -> Background {
 }
 
 pub fn group_color(g: &Group) -> Rgba {
-    Theme::profile_color(&g.color).unwrap_or_else(|| rgb(PROFILE_COLORS[g.id.unsigned_abs() as usize % PROFILE_COLORS.len()].1))
+    rgb(group_rgb(g))
+}
+
+/// A group's colour as `0xRRGGBB`: its pick, or one fixed by its id.
+pub fn group_rgb(g: &Group) -> u32 {
+    PROFILE_COLORS.iter().find(|(n, _)| *n == g.color).unwrap_or(&PROFILE_COLORS[g.id.unsigned_abs() as usize % PROFILE_COLORS.len()]).1
 }
 
 impl Browser {
@@ -339,7 +349,7 @@ pub fn render(b: &mut Browser, cx: &mut Context<Browser>) -> AnyElement {
         .border_1()
         .border_color(Theme::sidebar_edge())
         .bg(bg)
-        .shadow(Theme::elevation(10., 30.))
+        .shadow(Elevation::Page.shadow())
         .child(resize_handle(cx))
         .into_any_element()
 }
@@ -391,7 +401,7 @@ pub fn floating(b: &mut Browser, height: Pixels, closing: bool, cx: &mut Context
     let away = SIDEBAR_MARGIN + width + GRACE;
     let reduce = b.pref(Pref::ReduceMotion);
     if closing {
-        animate(card, "peek-out", FADE, reduce, move |el, t| el.left(px(SIDEBAR_MARGIN - away * t)).opacity(1. - t))
+        animate(card, "peek-out", EXIT, reduce, move |el, t| el.left(px(SIDEBAR_MARGIN - away * t)).opacity(1. - t))
     } else {
         animate(card, "peek-in", POP, reduce, move |el, t| el.left(px(SIDEBAR_MARGIN - away * (1. - t))).opacity(t))
     }
@@ -423,8 +433,6 @@ fn content(b: &mut Browser, inset: f32, cx: &mut Context<Browser>) -> Div {
         .items_center()
         .gap_1()
         .child(titles)
-        .child(icon_button("new-group", Icon::Group, true).on_click(cx.listener(|b, _, w, cx| b.new_group(b.model.active, w, cx))))
-        .child(icon_button("new-folder", Icon::FolderPlus, true).on_click(cx.listener(|b, _, w, cx| b.new_folder(None, w, cx))))
         .child(crate::downloads::header_button(b, cx));
     div()
         .flex()
@@ -505,10 +513,10 @@ fn tab_drop(
     kind: TabKind,
     folder: Option<Id>,
     group: Option<Id>,
-    index: Option<usize>,
+    before: Option<TabKey>,
 ) -> impl Fn(&mut Browser, &DraggedTab, &mut Window, &mut Context<Browser>) {
     move |b, dragged, _, cx| {
-        let index = index.unwrap_or_else(|| b.model.zone_len(kind, folder));
+        let index = before.and_then(|k| b.model.tab(k)).map_or_else(|| b.model.zone_len(kind, folder), |t| b.model.drop_index(dragged.key, t));
         b.move_tab(dragged.key, kind, folder, index, cx);
         if kind == TabKind::Ephemeral {
             b.set_tab_group(dragged.key, group, cx);
@@ -536,7 +544,7 @@ fn name(b: &Browser, target: RenameTarget, name: &str, cx: &mut Context<Browser>
 /// A chevron that turns between closed and open each time `open` changes.
 fn chevron(b: &Browser, id: Id, open: bool) -> AnyElement {
     let turn = move |t: f32| percentage(if open { 0.25 * t } else { 0.25 * (1. - t) });
-    let glyph = icon(Icon::ChevronRight, 11., Theme::muted()).with_transformation(Transformation::rotate(turn(1.)));
+    let glyph = icon(Icon::ChevronRight, ICON_SMALL, Theme::muted()).with_transformation(Transformation::rotate(turn(1.)));
     animate(glyph, (if open { "open" } else { "shut" }, id as u64), FADE, b.pref(Pref::ReduceMotion), move |g, t| {
         g.with_transformation(Transformation::rotate(turn(t)))
     })
@@ -568,15 +576,25 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .rounded(px(Theme::radius_tile()))
                 .bg(if active { Theme::selected() } else { Theme::raised() })
                 .border_1()
-                .border_color(if active { Theme::sidebar_edge() } else { Theme::hairline() })
+                .border_color(match (active, b.in_split(key), b.splits.contains(key)) {
+                    (true, _, _) => Theme::sidebar_edge(),
+                    (false, true, _) => Theme::accent(),
+                    (false, false, true) => Theme::faint(),
+                    (false, false, false) => Theme::hairline(),
+                })
                 .when(!active, |d| d.hover(|s| s.bg(Theme::hover())))
                 .cursor_pointer()
-                .child(site_icon(b, &t.url, 22.))
+                .child(match (b.loading(key), b.still()) {
+                    (true, false) => spinner(18., Theme::space_label()).into_any_element(),
+                    _ => tab_icon(b, &t.url, 22., b.sleeping(key)),
+                })
                 .on_click(cx.listener(move |b, _, window, cx| b.switch_to(key, window, cx)))
+                .on_hover(cx.listener(move |b, hovered: &bool, window, cx| b.hover_tab(key, *hovered, window, cx)))
+                .on_mouse_down(MouseButton::Left, cx.listener(|b, _, _, cx| b.hide_hover_card(cx)))
                 .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
                 .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
                 .drag_over::<DraggedTab>(|s, _, _, _| s.border_color(Theme::accent()))
-                .on_drop(cx.listener(tab_drop(TabKind::Tile, None, None, Some(b.model.zone_index(t)))));
+                .on_drop(cx.listener(tab_drop(TabKind::Tile, None, None, Some(key))));
             animate(tile, ("tile-in", t.id as u64), FADE, reduce, |el, p| el.opacity(p))
         }))
 }
@@ -593,6 +611,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
     let entering = b.motion.entering.iter().any(|(id, _)| *id == t.id);
     let engine = b.tab_web_engine(key);
     let burner = b.model.burner_shown();
+    let edge = |color| div().absolute().left_0().top(px(9.)).bottom(px(9.)).w(px(3.)).rounded_full().bg(color);
     let row = div()
         .id(("tab", t.id as u64))
         .group("tab")
@@ -607,10 +626,11 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .gap_2p5()
         .rounded(px(Theme::radius_row()))
         .when(active, |d| {
-            let edge = div().absolute().left_0().top(px(9.)).bottom(px(9.)).w(px(3.)).rounded_full().bg(Theme::accent());
-            let highlight = div().absolute().inset_0().rounded(px(Theme::radius_row())).bg(Theme::selected()).child(edge);
+            let highlight = div().absolute().inset_0().rounded(px(Theme::radius_row())).bg(Theme::selected()).child(edge(Theme::accent()));
             d.child(fade_in(highlight, ("tab-active", t.id as u64), b.pref(Pref::ReduceMotion)))
         })
+        // The other tabs of a split carry the edge too: in the accent for the split on screen.
+        .when(!active && b.splits.contains(key), |d| d.child(edge(if b.in_split(key) { Theme::accent() } else { Theme::faint() })))
         .when(!active, |d| d.hover(|s| s.bg(Theme::hover())))
         .cursor_pointer()
         .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(match (loading, b.still()) {
@@ -631,6 +651,9 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
             div()
                 .flex_1()
                 .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
                 .text_color(if asleep && !active { Theme::asleep() } else { Theme::text() })
                 .when(active, |d| d.font_weight(FontWeight::MEDIUM))
                 .child(name(b, RenameTarget::Tab(t.id), &title, cx)),
@@ -662,12 +685,12 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
             let leaving = b.motion.unhovered.filter(|(k, at, _)| *k == key && at.elapsed() < FADE).map(|(_, _, reached)| reached);
             // The row's gap goes with the button, so a hidden button leaves the title the whole row.
             let shown = |el: Stateful<Div>, p: f32| el.w(px(CLOSE_WIDTH * p)).ml(px(-CLOSE_GAP * (1. - p))).opacity(p);
-            let button = shown(icon_button(("close", t.id as u64), Icon::Close, true).overflow_hidden(), if hovered.is_some() { 1. } else { 0. }).on_click(
-                cx.listener(move |b, _, window, cx| {
+            let button = shown(icon_button(("close", t.id as u64), Icon::Close, true).overflow_hidden(), if hovered.is_some() { 1. } else { 0. })
+                .tooltip(crate::shortcuts::tip("Close Tab", &crate::CloseTab))
+                .on_click(cx.listener(move |b, _, window, cx| {
                     cx.stop_propagation();
                     b.close_tab(key, window, cx);
-                }),
-            );
+                }));
             let reduce = b.pref(Pref::ReduceMotion);
             d.child(match (hovered, leaving) {
                 (Some((at, from)), _) if at.elapsed() < FADE => {
@@ -694,24 +717,32 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .on_mouse_down(MouseButton::Left, cx.listener(|b, _, _, cx| b.hide_hover_card(cx)))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
         .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
-        .when(b.split_drop != Some(key), |d| d.drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft())))
-        .when(b.split_drop == Some(key), |d| d.border_1().border_color(Theme::accent()).bg(Theme::accent_soft()))
+        .map(|d| match b.split_drop.filter(|(k, _)| *k == key) {
+            None => d,
+            // A line where the tab will land, before this row.
+            Some((_, None)) => d.child(div().absolute().top_0().left(px(6.)).right(px(6.)).h(px(2.)).rounded_full().bg(Theme::accent())),
+            // Outlined and named, so a drop that splits reads apart from one that moves the tab.
+            Some((_, Some(does))) => d
+                .bg(Theme::accent_soft())
+                .child(div().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent()))
+                .child(div().flex_none().pr_1p5().text_size(px(TEXT_SMALL)).text_color(Theme::accent()).child(does)),
+        })
         .on_drag_move(cx.listener(move |b, e: &DragMoveEvent<DraggedTab>, _, cx| {
             let inside = e.bounds.contains(&e.event.position);
             let share = (e.event.position.y - e.bounds.origin.y) / e.bounds.size.height;
-            let joins = inside && b.drop_splits(e.drag(cx).key, key) && browser_core::split::drops_into(share);
-            let target = if joins { Some(key) } else { b.split_drop.filter(|k| *k != key) };
+            let dragged = e.drag(cx).key;
+            let does = b.splits.drop_label(key, dragged).filter(|_| browser_core::split::drops_into(share));
+            let target = if inside && dragged != key { Some((key, does)) } else { b.split_drop.filter(|(k, _)| *k != key) };
             if b.split_drop != target {
                 b.split_drop = target;
                 cx.notify();
             }
         }))
         .on_drop(cx.listener({
-            let reorder = tab_drop(t.kind, t.folder_id, t.group_id, Some(b.model.zone_index(t)));
+            let reorder = tab_drop(t.kind, t.folder_id, t.group_id, Some(key));
             move |b, dragged: &DraggedTab, window, cx| {
-                if b.split_drop.take() == Some(key) {
-                    b.activate(key, window, cx);
-                    b.split_with(dragged.key, window, cx);
+                if b.split_drop.take().is_some_and(|(k, does)| k == key && does.is_some()) {
+                    b.drop_on_pane(key, dragged.key, window, cx);
                 } else {
                     reorder(b, dragged, window, cx);
                 }
@@ -757,7 +788,28 @@ fn rows(b: &Browser, group: Option<Id>, show: impl Fn(&Tab) -> bool, cx: &mut Co
         )
         .collect();
     tabs.sort_by_key(|(t, _)| t.position);
-    tabs.into_iter().map(|(t, leaving)| if leaving { leaving_row(b, t) } else { tab_row(b, t, 0., cx) }).collect()
+    tab_rows(b, &tabs, 0., cx)
+}
+
+/// One row per tab, a split's panes side by side in one row at the place of the first of them.
+fn tab_rows(b: &Browser, tabs: &[(&Tab, bool)], indent: f32, cx: &mut Context<Browser>) -> Vec<AnyElement> {
+    let keys: Vec<TabKey> = tabs.iter().filter(|(_, leaving)| !leaving).map(|(t, _)| b.model.key(t)).collect();
+    tabs.iter()
+        .filter_map(|&(t, leaving)| {
+            if leaving {
+                return Some(leaving_row(b, t));
+            }
+            Some(match b.splits.entry(b.model.key(t), &keys)?.as_slice() {
+                [_] => tab_row(b, t, indent, cx),
+                panes => div()
+                    .flex()
+                    .gap(px(ROW_GAP))
+                    .pl(px(indent))
+                    .children(panes.iter().filter_map(|k| b.model.tab(*k)).map(|t| div().flex_1().min_w_0().flex().flex_col().child(tab_row(b, t, 0., cx))))
+                    .into_any_element(),
+            })
+        })
+        .collect()
 }
 
 fn pinned(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
@@ -787,9 +839,8 @@ fn pinned(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                     .child("Drag tabs here to pin them"),
             )
         });
-    for t in b.model.tabs.iter().filter(|t| t.kind == TabKind::Pinned && t.folder_id.is_none()) {
-        col = col.child(tab_row(b, t, 0., cx));
-    }
+    let loose: Vec<(&Tab, bool)> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Pinned && t.folder_id.is_none()).map(|t| (t, false)).collect();
+    col = col.children(tab_rows(b, &loose, 0., cx));
     let folders: Vec<AnyElement> = b.model.folders.iter().filter(|f| f.parent_id.is_none()).map(|f| folder(b, f, 0, cx)).collect();
     col.drag_over::<DraggedFolder>(|s, _, _, _| s.bg(Theme::accent_soft()))
         .on_drop(cx.listener(|b, dragged: &DraggedFolder, _, cx| b.move_folder(dragged.id, None, cx)))
@@ -827,7 +878,7 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
             }
         }))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.folder_menu(id, w, cx)))
-        .child(icon(Icon::Folder, 15., Theme::space_label()))
+        .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(icon(Icon::Folder, ICON, Theme::space_label())))
         .child(name(b, RenameTarget::Folder(id), &f.name, cx))
         .child(chevron(b, id, open));
     let col = div().flex().flex_col().gap(px(ROW_GAP)).child(header);
@@ -837,8 +888,8 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
         let active = b.model.tabs.iter().filter(|t| t.folder_id.is_some_and(|f| tree.contains(&f)) && b.model.active == Some(b.model.key(t)));
         return col.children(active.map(|t| tab_row(b, t, indent + 16., cx)).collect::<Vec<_>>()).into_any_element();
     }
-    let tabs: Vec<AnyElement> =
-        b.model.tabs.iter().filter(|t| t.kind == TabKind::Pinned && t.folder_id == Some(id)).map(|t| tab_row(b, t, indent + 16., cx)).collect();
+    let tabs: Vec<(&Tab, bool)> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Pinned && t.folder_id == Some(id)).map(|t| (t, false)).collect();
+    let tabs = tab_rows(b, &tabs, indent + 16., cx);
     let subfolders: Vec<AnyElement> = b.model.folders.iter().filter(|c| c.parent_id == Some(id)).map(|c| folder(b, c, depth + 1, cx)).collect();
     let col = col.children(tabs).children(subfolders);
     if depth == 0 { col.my_1().p(px(INNER_PAD)).rounded(px(Theme::radius_tile())).bg(Theme::group()) } else { col }.into_any_element()
@@ -853,13 +904,14 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .min_h(px(120.))
         .pb(px(TAB_ROW * 2.))
         .rounded(px(Theme::radius_row()))
-        .drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::raised()))
+        .drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft()))
         .on_drop(cx.listener(tab_drop(TabKind::Ephemeral, None, None, None)))
         .child(
             div()
                 .id("new-tab")
                 .h(px(TAB_ROW))
                 .pl(px(10.))
+                .pr_0p5()
                 .flex()
                 .flex_none()
                 .items_center()
@@ -869,12 +921,24 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .cursor_pointer()
                 .hover(|s| s.bg(Theme::hover()).text_color(Theme::text()))
                 .active(|s| s.bg(Theme::pressed()))
-                .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().rounded(px(5.)).bg(Theme::accent()).child(icon(
-                    Icon::Plus,
-                    11.,
-                    Theme::text(),
+                .child(
+                    div().size(px(16.)).flex().flex_none().items_center().justify_center().rounded(px(Theme::radius_small())).bg(Theme::accent()).child(icon(
+                        Icon::Plus,
+                        11.,
+                        Theme::on_fill(Theme::accent()),
+                    )),
+                )
+                .child(div().flex_1().child("New Tab"))
+                .child(icon_button("new-group", Icon::Group, true).tooltip(crate::shortcuts::tip("New Tab Group", &crate::NewGroup)).on_click(cx.listener(
+                    |b, _, w, cx| {
+                        cx.stop_propagation();
+                        b.new_group(b.model.active, w, cx);
+                    },
                 )))
-                .child("New Tab")
+                .child(icon_button("new-folder", Icon::FolderPlus, true).tooltip(tooltip("New Folder", None)).on_click(cx.listener(|b, _, w, cx| {
+                    cx.stop_propagation();
+                    b.new_folder(None, w, cx);
+                })))
                 .on_click(cx.listener(|b, _, window, cx| b.new_tab_page(window, cx))),
         )
         .when(b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id.is_none()).count() >= 2 && !b.model.burner_shown(), |d| {
@@ -892,7 +956,7 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                     .cursor_pointer()
                     .hover(|s| s.bg(Theme::hover()).text_color(Theme::text()))
                     .active(|s| s.bg(Theme::pressed()))
-                    .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(icon(Icon::Sparkles, 13., Theme::space_label())))
+                    .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(icon(Icon::Sparkles, ICON_SMALL, Theme::space_label())))
                     .child("Clean Up")
                     .tooltip(tooltip("Sorts tabs into groups and archives tabs unused for longer than Settings › Tabs allows. Runs on this device.", None))
                     .on_click(cx.listener(|b, _, _, cx| b.clean_up_tabs(cx))),
@@ -912,9 +976,9 @@ fn avatar(color: Rgba, name: &str) -> impl IntoElement {
         .justify_center()
         .rounded_full()
         .bg(color)
-        .text_size(px(10.))
+        .text_size(px(TEXT_TINY))
         .font_weight(FontWeight::BOLD)
-        .text_color(Theme::text())
+        .text_color(Theme::on_fill(color))
         .child(initial)
 }
 
@@ -951,13 +1015,17 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         .child(name(b, RenameTarget::Group(id), &g.name, cx))
         .child(chevron(b, id, !g.collapsed))
         .child(div().flex_1())
-        .child(icon_button(("close-group", id as u64), Icon::Close, true).on_click(cx.listener(move |b, _, window, cx| {
-            cx.stop_propagation();
-            b.close_group(id, window, cx);
-        })));
+        .child(icon_button(("close-group", id as u64), Icon::Close, true).tooltip(tooltip("Close Group and Its Tabs", None)).on_click(cx.listener(
+            move |b, _, window, cx| {
+                cx.stop_propagation();
+                b.close_group(id, window, cx);
+            },
+        )));
     let toggling = b.motion.toggled_group.is_some_and(|(gid, at)| gid == id && at.elapsed() < FADE);
     let is_active = |t: &Tab| b.model.active == Some(b.model.key(t));
-    let all = b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(id)).count();
+    let keys: Vec<TabKey> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(id)).map(|t| b.model.key(t)).collect();
+    // A split shows as one row.
+    let all = keys.iter().filter(|k| b.splits.entry(**k, &keys).is_some()).count();
     let active = b.model.tabs.iter().filter(|t| t.group_id == Some(id) && is_active(t)).count();
     let tabs = rows(b, Some(id), |t| !g.collapsed || toggling || is_active(t), cx);
     let (from, to) = if g.collapsed { (inner_height(all), inner_height(active)) } else { (inner_height(active), inner_height(all)) };
@@ -997,43 +1065,58 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
 }
 
 fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
+    let dots = b.model.spaces.iter().enumerate().map(|(ix, s)| {
+        let current = ix == b.model.space_ix;
+        let color = match (current, s.private, space_tint(s)) {
+            (true, true, _) => Theme::warning(),
+            (true, false, tint) => tint.unwrap_or(Theme::text()),
+            (false, _, Some(tint)) => Rgba { a: 0.45, ..tint },
+            (false, _, None) => Theme::faint(),
+        };
+        let name = bounded_title(&s.space.name);
+        div()
+            .id(("space", ix))
+            .w(px(20.))
+            .h(px(20.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .cursor_pointer()
+            .when(current, |d| d.bg(Theme::hover()))
+            .hover(|st| st.bg(Theme::hover()))
+            .child(icon(if s.private && Some(s.space.id) == b.model.burner { Icon::Flame } else { ui::icon::space_icon(&s.space.icon) }, 13., color))
+            .map(|d| match crate::menubar::SPACES.get(ix) {
+                Some(action) => d.tooltip(crate::shortcuts::tip(name, *action)),
+                None => d.tooltip(tooltip(name, None)),
+            })
+            .on_click(cx.listener(move |b, _, window, cx| b.switch_space(ix, window, cx)))
+            .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.space_menu(ix, w, cx)))
+    });
+    // Centred while they fit; past that the row scrolls instead of squeezing the dots.
+    let fits = b.model.spaces.len() as f32 * 22. + 56. + 16. <= b.sidebar_width;
     div()
         .h(px(36.))
         .flex_none()
         .px_2()
         .flex()
         .items_center()
-        .justify_center()
         .gap_0p5()
         .child(
             icon_button("library", Icon::ChevronUp, true)
-                .mr_auto()
+                .flex_none()
+                .tooltip(crate::shortcuts::tip("Library", &crate::ToggleLibrary))
                 .when(b.library.is_some(), |d| d.bg(Theme::selected()))
                 .on_click(cx.listener(|b, _, window, cx| b.toggle_library(window, cx))),
         )
-        .children(b.model.spaces.iter().enumerate().map(|(ix, s)| {
-            let current = ix == b.model.space_ix;
-            let color = match (current, s.private, space_tint(s)) {
-                (true, true, _) => Theme::warning(),
-                (true, false, tint) => tint.unwrap_or(Theme::text()),
-                (false, _, Some(tint)) => Rgba { a: 0.45, ..tint },
-                (false, _, None) => Theme::faint(),
-            };
-            div()
-                .id(("space", ix))
-                .w(px(20.))
-                .h(px(20.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_full()
-                .cursor_pointer()
-                .hover(|st| st.bg(Theme::hover()))
-                .child(icon(if s.private && Some(s.space.id) == b.model.burner { Icon::Flame } else { ui::icon::space_icon(&s.space.icon) }, 13., color))
-                .on_click(cx.listener(move |b, _, window, cx| b.switch_space(ix, window, cx)))
-                .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.space_menu(ix, w, cx)))
-        }))
-        .child(icon_button("new-space", Icon::Plus, true).ml_auto().on_click(cx.listener(|b, _, window, cx| b.new_space(window, cx))))
+        .child(div().id("space-dots").flex_1().min_w_0().flex().when(fits, |d| d.justify_center()).gap_0p5().overflow_x_scroll().children(dots))
+        .child(
+            icon_button("new-space", Icon::Plus, true)
+                .flex_none()
+                .tooltip(crate::shortcuts::tip("New Space", &crate::NewSpace))
+                .on_click(cx.listener(|b, _, window, cx| b.new_space(window, cx))),
+        )
 }
 
 #[cfg(test)]

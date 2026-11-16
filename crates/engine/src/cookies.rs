@@ -306,8 +306,9 @@ pub fn first_bridge(site_key: &str, webkit: &Jar, chromium: &Jar, now: i64) -> R
     Ok(plan)
 }
 
-/// WebKit cannot hold an explicit `SameSite=None` (it reads back as unspecified, which the bridge
-/// reads as `Lax`), and Chromium refuses `None` without `Secure`.
+/// WebKit cannot hold an explicit `SameSite=None` (it reports it as `none`, as it reports a cookie
+/// without `SameSite`, and the bridge reads both as `Lax`), and Chromium refuses `None` without
+/// `Secure`.
 fn write(plan: &mut Plan, cookie: &Cookie, target: Side, existing: &[Cookie], site_key: &str, now: i64) {
     let same_site_ok = cookie.same_site != SameSite::None || (target == Side::Chromium && cookie.secure);
     let faithful = cookie.valid_for(site_key) && same_site_ok;

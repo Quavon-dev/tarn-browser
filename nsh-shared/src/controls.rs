@@ -5,7 +5,7 @@ use nsh_base::{ButtonElement, button};
 use nsh_core::element::IntoProp;
 use nsh_core::prelude::*;
 
-use crate::theme::{Paint, RADIUS_ROW, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
+use crate::theme::{Paint, RADIUS_GROUP, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Density {
@@ -30,12 +30,15 @@ const TOUCH: Metrics = Metrics {
     text: TEXT_TITLE,
     pill_height: 44.,
     segment_height: 44.,
-    segment_radius: RADIUS_ROW,
+    segment_radius: RADIUS_GROUP - SEGMENT_INSET,
     switch_row: 44.,
     track: (51., 31.),
     thumb: 27.,
     icon: 20.,
 };
+
+/// The group's padding around its segments and the gap between them, so their corners stay concentric.
+const SEGMENT_INSET: f32 = 4.;
 
 const DESKTOP: Metrics =
     Metrics { target: 28., text: TEXT, pill_height: 26., segment_height: 22., segment_radius: 11., switch_row: 40., track: (34., 20.), thumb: 16., icon: 16. };
@@ -81,19 +84,23 @@ pub fn icon_button<M>(icon: impl IntoElement, name: impl IntoProp<Option<SharedS
 
 fn pill_button(name: String, press: impl Fn() + 'static, primary: bool) -> ButtonElement {
     let m = metrics();
-    let button = pressable(name.clone(), press)
-        .flex_row()
-        .items_center()
-        .justify_center()
-        .border_1()
-        .border_color(if primary { Theme::surface_edge } else { Theme::hairline })
-        .bg(if primary { Theme::accent } else { Theme::control });
+    let button = if primary {
+        button().accessibility_label(name.clone()).on_press(press).hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7))
+    } else {
+        pressable(name.clone(), press)
+    }
+    .flex_row()
+    .items_center()
+    .justify_center()
+    .border_1()
+    .border_color(if primary { Theme::surface_edge } else { Theme::hairline })
+    .bg(if primary { Theme::accent } else { Theme::control });
     let text = label(name);
     match density() {
         Density::Touch => button.min_h(px(m.pill_height)).px_4().rounded_full(),
         Density::Desktop => button.h(px(m.pill_height)).px_3().rounded(px(m.pill_height / 2.)),
     }
-    .child(if primary { text.font_weight(FontWeight::MEDIUM) } else { text })
+    .child(if primary { text.font_weight(FontWeight::MEDIUM).text_color(|| Theme::on_fill(Theme::accent())) } else { text })
 }
 
 pub fn secure_button(name: impl Into<String>, press: impl Fn() + 'static, primary: bool) -> ButtonElement {
@@ -109,9 +116,9 @@ pub fn secure_button(name: impl Into<String>, press: impl Fn() + 'static, primar
         .border_1()
         .border_color(edge)
         .bg(fill)
-        .hover(|s| s.bg(Secure::hover()))
-        .active(|s| s.bg(Secure::pressed()));
-    let text = text(name).text_size(px(m.text)).font_family(SYSTEM_FONT).text_color(if primary { Theme::on_accent() } else { Secure::text() });
+        .hover(move |s| if primary { s.opacity(0.88) } else { s.bg(Secure::hover()) })
+        .active(move |s| if primary { s.opacity(0.7) } else { s.bg(Secure::pressed()) });
+    let text = text(name).text_size(px(m.text)).font_family(SYSTEM_FONT).text_color(if primary { Theme::on_fill(Secure::accent()) } else { Secure::text() });
     match density() {
         Density::Touch => button.min_h(px(m.pill_height)).px_4().rounded_full(),
         Density::Desktop => button.h(px(m.pill_height)).px_3().rounded(px(m.pill_height / 2.)),
@@ -168,8 +175,9 @@ pub fn segmented(options: Vec<Segment>) -> View {
                 .into_element()
         })
         .collect();
-    let group = view().flex_row().flex_wrap().gap_1().children(segments);
-    if touch { group.p_1().rounded(px(Theme::radius_group())).bg(Theme::group) } else { group.p(px(2.)).gap(px(2.)).rounded_full().bg(Theme::control) }
+    let inset = if touch { SEGMENT_INSET } else { 2. };
+    let group = view().flex_row().flex_wrap().p(px(inset)).gap(px(inset)).children(segments);
+    if touch { group.rounded(px(Theme::radius_group())).bg(Theme::group) } else { group.rounded_full().bg(Theme::control) }
 }
 
 pub fn switch_row(name: impl Into<String>, on: impl Fn() -> bool + Copy + 'static, toggle: impl Fn() + 'static) -> ButtonElement {
@@ -196,10 +204,34 @@ pub fn switch_row(name: impl Into<String>, on: impl Fn() -> bool + Copy + 'stati
                 .p(px((height - m.thumb) / 2.))
                 .rounded_full()
                 .flex_row()
-                .bg(move || if on() { Theme::accent() } else { Theme::control() })
+                .bg(move || match (on(), Theme::is_light()) {
+                    (true, _) => Theme::accent(),
+                    (false, true) => Theme::faint(),
+                    (false, false) => Theme::control(),
+                })
                 .style_when(on, |s| s.justify_end())
-                .child(view().w(px(m.thumb)).h(px(m.thumb)).rounded_full().bg(Theme::text).shadow(Theme::elevation(1., 2.))),
+                .child(
+                    view()
+                        .w(px(m.thumb))
+                        .h(px(m.thumb))
+                        .rounded_full()
+                        .bg(move || if on() { Theme::on_fill(Theme::accent()) } else { Theme::on_accent() })
+                        .shadow(Theme::elevation(1., 2.)),
+                ),
         )
+}
+
+pub fn section(name: impl IntoReactive<SharedString>) -> Text {
+    let header = label(name).font_weight(FontWeight::SEMIBOLD).px_1();
+    match density() {
+        Density::Touch => header.pt_3(),
+        Density::Desktop => header.pt_5().pb_2(),
+    }
+}
+
+/// The line a list or panel shows in place of rows it does not have yet.
+pub fn empty_state(content: impl IntoReactive<SharedString>) -> Text {
+    label(content).text_color(Theme::muted).text_center().px_4().py_6()
 }
 
 pub fn group() -> View {

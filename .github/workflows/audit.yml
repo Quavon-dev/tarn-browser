@@ -5,7 +5,7 @@ on:
     - cron: "17 3 * * *"
   push:
     branches: [main]
-    paths: ["Cargo.lock", "deny.toml", "mobile/Cargo.lock", "mobile/deny.toml", "nsh-shared/Cargo.lock", "nsh-shared/deny.toml"]
+    paths: ["Cargo.lock", "deny.toml", "mobile/Cargo.lock", "mobile/deny.toml", "nsh-shared/Cargo.lock", "nsh-shared/deny.toml", "linux/Cargo.lock", "linux/deny.toml", "fuzz/Cargo.lock", "fuzz/deny.toml"]
   workflow_dispatch:
 
 permissions:
@@ -28,4 +28,12 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           manifest-path: nsh-shared/Cargo.toml
+          command: check advisories
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: linux/Cargo.toml
+          command: check advisories
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: fuzz/Cargo.toml
           command: check advisories

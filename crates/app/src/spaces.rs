@@ -3,14 +3,15 @@ use gpui::{
     div, prelude::FluentBuilder, px, rgb,
 };
 use store::{Id, Schedule, Space};
-use ui::controls::{button, field};
+use ui::controls::{button, caption, field};
 use ui::icon::{SPACE_ICONS, icon};
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{PROFILE_COLORS, TEXT_SMALL, Theme};
 
 use crate::browser::{Browser, SpaceRef};
-use crate::profiles::{Parts, ProfileEditor, caption, choice_row, color_row, focus_ring, profile_dot, valid_name};
+
+use crate::profiles::{Parts, ProfileEditor, choice_row, color_row, focus_ring, profile_dot, valid_name};
 
 actions!(spaces, [EditSpace]);
 

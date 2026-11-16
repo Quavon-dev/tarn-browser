@@ -1,15 +1,20 @@
 use browser_core::command::ENGINES;
 use browser_core::tabs::TabKey;
 use nsh_base::{alert_dialog, button, input};
+use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use serde_json::json;
 use shield::ShieldLevel;
 
 use super::controls::icon;
 use super::sheets;
-use super::{Screen, Ui, accent_pill, caption, heading, icon_button, icons, label, pill, row, segmented, small, surface, switch_row};
+use super::{
+    Screen, Ui, accent_pill, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface, switch_row,
+    text_field,
+};
 use crate::shell::{FILTER_SWITCHES, SpaceItem};
 use crate::theme::{GAP, SHEET_WIDTH, Secure, TAB_MIN_WIDTH, TAB_PREVIEW_HEIGHT, TEXT_TITLE, TOUCH_TARGET, Theme};
+use tarn_nsh_shared::controls::empty_state;
 use tarn_nsh_shared::panes::{self, Pane};
 
 fn title(screen: Screen) -> &'static str {
@@ -49,11 +54,36 @@ pub fn panel(ui: Ui) -> impl IntoElement {
             Screen::Extensions => super::extensions::pane(ui),
             Screen::ExtensionPopup => return Some(super::extensions::popup(ui).into_element()),
         };
-        Some(sheet(ui, title(screen), body).into_element())
+        Some(sheet(ui, screen, body).into_element())
     })
 }
 
-fn sheet(ui: Ui, name: &'static str, body: AnyElement) -> impl IntoElement {
+pub(super) fn parent(screen: Screen) -> Option<Screen> {
+    match screen {
+        Screen::Move(_) => Some(Screen::Tabs),
+        Screen::SpaceEdit(_) => Some(Screen::Spaces),
+        Screen::History | Screen::Downloads | Screen::Spaces | Screen::Settings | Screen::Qr | Screen::ReadingList | Screen::FindTabs => Some(Screen::Menu),
+        _ => None,
+    }
+}
+
+pub(super) fn leave(ui: Ui, to: Screen) {
+    ui.act(|s| {
+        s.close_reader();
+        Vec::new()
+    });
+    ui.show(to);
+}
+
+fn sheet(ui: Ui, screen: Screen, body: AnyElement) -> impl IntoElement {
+    let name = title(screen);
+    let header = view().flex_row().items_center().pr_2().pt_2();
+    let header = match parent(screen) {
+        Some(up) => {
+            header.pl_1().child(tarn_nsh_shared::controls::icon_button(icon(icons::BACK, Theme::text), format!("Back to {}", title(up)), move || leave(ui, up)))
+        }
+        None => header.pl_4(),
+    };
     surface(Theme::radius_card())
         .flex_1()
         .style_when(move || ui.wide(), |s| s.self_center().w(px(SHEET_WIDTH)))
@@ -62,35 +92,21 @@ fn sheet(ui: Ui, name: &'static str, body: AnyElement) -> impl IntoElement {
         .mb_2()
         .overflow_hidden()
         .child(
-            view().flex_row().items_center().pl_4().pr_2().pt_2().child(view().flex_1().child(heading(name))).child(
+            header.child(view().flex_1().child(heading(name))).child(
                 button()
                     .accessibility_label("Done")
                     .h(px(TOUCH_TARGET))
                     .px_3()
                     .justify_center()
-                    .on_press(move || {
-                        ui.act(|s| {
-                            s.close_reader();
-                            Vec::new()
-                        });
-                        ui.show(Screen::Browse);
-                    })
+                    .on_press(move || leave(ui, Screen::Browse))
                     .child(text("Done").text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::accent)),
             ),
         )
         .child(scroll().key(name).flex_1().child(view().gap_3().px_3().pt_2().pb_6().child(body)))
 }
 
-fn section(name: &'static str) -> impl IntoElement {
-    label(name).font_weight(FontWeight::SEMIBOLD).px_1().pt_3()
-}
-
 fn group() -> View {
     view().mb(px(-1.))
-}
-
-fn framed(rows: View) -> View {
-    tarn_nsh_shared::controls::group().overflow_hidden().child(rows)
 }
 
 fn card_width(ui: Ui) -> Points {
@@ -99,75 +115,59 @@ fn card_width(ui: Ui) -> Points {
     px(((sheet - GAP * 4.0 - (columns - 1.0) * GAP) / columns).max(TAB_MIN_WIDTH))
 }
 
+/// A card of `panes` tabs side by side, as wide as that many cards and their gaps, within the sheet.
+fn card_span(ui: Ui, panes: usize) -> Points {
+    let card = card_width(ui).0;
+    let n = panes as f32;
+    px((card * n + GAP * (n - 1.0)).min(window().width.0.min(SHEET_WIDTH) - GAP * 4.0).max(card))
+}
+
 fn tabs(ui: Ui) -> impl IntoElement {
     let cards = move || {
         ui.read(|s| {
-            s.model
-                .tabs
-                .iter()
-                .map(|t| {
-                    let key = s.model.key(t);
-                    let page = s.pages.get(&key);
-                    let url = page.map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(t.url.clone());
-                    let title = page.map(|p| p.title.clone()).filter(|t| !t.is_empty()).unwrap_or(t.title.clone());
-                    (key, if title.is_empty() { "New Tab".to_owned() } else { title }, url)
-                })
-                .collect::<Vec<(TabKey, String, String)>>()
+            let keys: Vec<TabKey> = s.model.tabs.iter().map(|t| s.model.key(t)).collect();
+            let card = |key: TabKey| {
+                let t = s.model.tab(key)?;
+                let page = s.pages.get(&key);
+                let url = page.map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(t.url.clone());
+                let title = page.map(|p| p.title.clone()).filter(|t| !t.is_empty()).unwrap_or(t.title.clone());
+                Some((key, if title.is_empty() { "New Tab".to_owned() } else { title }, url))
+            };
+            keys.iter()
+                .filter_map(|k| s.splits.entry(*k, &keys))
+                .map(|panes| panes.into_iter().filter_map(card).collect())
+                .collect::<Vec<Vec<(TabKey, String, String)>>>()
         })
+    };
+    let split = move |f: fn(&mut super::AppShell, TabKey) -> bool| {
+        move || {
+            ui.act(|s| {
+                if let Some(active) = s.model.active {
+                    f(s, active);
+                }
+                Vec::new()
+            })
+        }
     };
     view()
         .gap_3()
         .child(caption(move || ui.read(|s| s.model.current_space().map(|c| c.space.name.clone()).unwrap_or_default())).text_color(Theme::space_label).px_1())
         .child(view().flex_row().flex_wrap().gap_3().child(each(
             cards,
-            |c: &(TabKey, String, String)| c.0,
+            |c: &Vec<(TabKey, String, String)>| c.iter().map(|p| p.0).collect::<Vec<_>>(),
             move |card, _| {
-                let (key, title, url) = card.get_untracked();
-                let current = move || ui.read(|s| s.model.active == Some(key));
+                let panes = card.get_untracked();
+                let keys: Vec<TabKey> = panes.iter().map(|p| p.0).collect();
+                let count = panes.len();
+                let current = move || ui.read(|s| s.model.active.is_some_and(|a| keys.contains(&a)));
                 view()
-                    .w(move || card_width(ui))
+                    .w(move || card_span(ui, count))
                     .rounded(px(Theme::radius_tile()))
                     .bg(Theme::surface)
                     .border_2()
                     .border_color(move || if current() { Theme::accent() } else { Theme::surface_edge() })
                     .shadow(Theme::elevation(2., 6.))
-                    .child(
-                        view()
-                            .flex_row()
-                            .items_center()
-                            .pl_3()
-                            .child(dynamic(move || ui.read(|s| s.in_burner()).then(|| icon(icons::FLAME, Secure::warning))))
-                            .child(label(title.clone()).font_weight(FontWeight::SEMIBOLD).number_of_lines(1).flex_1())
-                            .child(dynamic(move || {
-                                ui.read(|s| !s.in_burner() && !s.move_targets(key).is_empty())
-                                    .then(|| icon_button(icons::FORWARD, "Move to Space", move || ui.show(Screen::Move(key))))
-                            }))
-                            .child(icon_button(icons::CLOSE, "Close Tab", move || {
-                                ui.act(|s| {
-                                    s.close_tab(key);
-                                    Vec::new()
-                                })
-                            })),
-                    )
-                    .child(
-                        button()
-                            .accessibility_label(title.clone())
-                            .h(px(TAB_PREVIEW_HEIGHT))
-                            .mx_2()
-                            .mb_2()
-                            .p_2()
-                            .rounded(px(Theme::radius_row()))
-                            .bg(Theme::page)
-                            .active(|s| s.bg(Theme::panel_row))
-                            .on_press(move || {
-                                ui.act(|s| {
-                                    s.activate(key);
-                                    Vec::new()
-                                });
-                                ui.show(Screen::Browse);
-                            })
-                            .child(caption(url).number_of_lines(3)),
-                    )
+                    .child(view().flex_row().children(panes.into_iter().map(|(key, title, url)| tab_card(ui, key, title, url).flex_1().min_w_0())))
             },
         )))
         .child(
@@ -189,14 +189,90 @@ fn tabs(ui: Ui) -> impl IntoElement {
                     });
                     ui.show(Screen::Browse);
                 }))
-                .child(pill("Close Duplicates", move || {
-                    ui.act(|s| {
-                        s.close_duplicates();
-                        Vec::new()
+                .child(dynamic(move || {
+                    ui.read(|s| !s.duplicate_tabs().is_empty()).then(|| {
+                        pill("Close Duplicates", move || {
+                            ui.act(|s| {
+                                s.close_duplicates();
+                                Vec::new()
+                            })
+                        })
+                    })
+                }))
+                .child(dynamic(move || {
+                    (ui.wide() && ui.read(|s| s.shown_split().is_some())).then(|| {
+                        view()
+                            .flex_row()
+                            .gap_2()
+                            .child(pill("Rotate Layout", split(|s, k| s.splits.rotate(k))))
+                            .child(pill("Close Split View", split(|s, k| s.splits.close(k))))
                     })
                 }))
                 .child(pill("Find in Tabs", move || ui.show(Screen::FindTabs)))
                 .child(pill("Spaces", move || ui.show(Screen::Spaces))),
+        )
+}
+
+fn tab_card(ui: Ui, key: TabKey, title: String, url: String) -> View {
+    let current = move || ui.read(|s| s.model.active == Some(key));
+    let movable = move || ui.read(|s| !s.in_burner() && !s.move_targets(key).is_empty());
+    view()
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .pl_3()
+                .child(dynamic(move || ui.read(|s| s.in_burner()).then(|| icon(icons::FLAME, Secure::warning))))
+                .child(label(title.clone()).font_weight(FontWeight::SEMIBOLD).number_of_lines(1).flex_1())
+                .child(dynamic(move || movable().then(|| icon_button(icons::CHEVRON_RIGHT, "Move to Space", move || ui.show(Screen::Move(key))))))
+                .child(dynamic(move || {
+                    let menu = ui.read(|s| s.splits.menu(s.model.active, key));
+                    (ui.wide() && menu.enabled).then(|| {
+                        icon_button(icons::APP_WINDOW, menu.entry.label(), move || {
+                            ui.act(|s| {
+                                s.split_with(key);
+                                Vec::new()
+                            });
+                            ui.show(Screen::Browse);
+                        })
+                    })
+                }))
+                .child(dynamic(move || {
+                    (ui.wide() && ui.read(|s| s.splits.contains(key))).then(|| {
+                        icon_button(icons::SHARE, "Remove from Split View", move || {
+                            ui.act(|s| {
+                                s.leave_split(key);
+                                Vec::new()
+                            })
+                        })
+                    })
+                }))
+                .child(icon_button(icons::CLOSE, "Close Tab", move || {
+                    ui.act(|s| {
+                        s.close_tab(key);
+                        Vec::new()
+                    })
+                })),
+        )
+        .child(
+            button()
+                .accessibility_label(title.clone())
+                .h(px(TAB_PREVIEW_HEIGHT))
+                .mx_2()
+                .mb_2()
+                .p_2()
+                .rounded(px(Theme::radius_row()))
+                .bg(Theme::page)
+                .active(|s| s.bg(Theme::panel_row))
+                .selected(current)
+                .on_press(move || {
+                    ui.act(|s| {
+                        s.activate(key);
+                        Vec::new()
+                    });
+                    ui.show(Screen::Browse);
+                })
+                .child(caption(browser_core::command::display_host(&url)).number_of_lines(1)),
         )
 }
 
@@ -208,6 +284,8 @@ fn menu(ui: Ui) -> impl IntoElement {
             s.zoom(if delta == 0.0 { 1.0 } else { z + delta })
         })
     };
+    let level = computed(move || ui.read(|s| (s.active_page().map_or(1.0, |p| p.zoom) * 100.).round() as i64));
+    let shareable = computed(move || ui.read(|s| s.share_url().is_some()));
     view()
         .gap_2()
         .child(framed(
@@ -251,20 +329,24 @@ fn menu(ui: Ui) -> impl IntoElement {
                         })
                     })
                 }))
-                .child(row(icons::UNDO, "Reopen Closed Tab", move || {
-                    ui.act(|s| {
-                        if !s.reopen_closed() {
-                            s.notice = Some("No closed tab to reopen.".into());
-                        }
-                        Vec::new()
-                    });
-                    ui.show(Screen::Browse);
+                .child(dynamic(move || {
+                    ui.read(|s| !s.model.closed_tabs.is_empty()).then(|| {
+                        row(icons::UNDO, "Reopen Closed Tab", move || {
+                            ui.act(|s| {
+                                if !s.reopen_closed() {
+                                    s.notice = Some("No closed tab to reopen.".into());
+                                }
+                                Vec::new()
+                            });
+                            ui.show(Screen::Browse);
+                        })
+                    })
                 })),
         ))
         .child(framed(
             group()
                 .child(row(icons::SEARCH, "Find in Page", move || ui.show(Screen::Find)))
-                .child(row(icons::SEARCH, "Find in Tabs", move || ui.show(Screen::FindTabs)))
+                .child(row(icons::APP_WINDOW, "Find in Tabs", move || ui.show(Screen::FindTabs)))
                 .child(dynamic(move || ui.read(|s| s.offers_reader()).then(|| row(icons::BOOK_OPEN, "Reader", move || ui.act(|s| s.open_reader())))))
                 .child(
                     view()
@@ -278,13 +360,17 @@ fn menu(ui: Ui) -> impl IntoElement {
                         .border_color(Theme::separator)
                         .child(label("Zoom").flex_1())
                         .child(pill("−", move || zoom(-0.1)).accessibility_label("Zoom Out"))
-                        .child(pill("100%", move || zoom(0.0)).accessibility_label("Actual Size"))
+                        .child(dynamic(move || Some(pill(format!("{}%", level.get()), move || zoom(0.0)).accessibility_label("Actual Size"))))
                         .child(pill("+", move || zoom(0.1)).accessibility_label("Zoom In")),
                 )
                 .child(row(icons::SHIELD, "Shield and Settings for This Site", move || ui.show(Screen::Shield)))
-                .child(row(icons::CLOSE, "Zap Element", move || {
-                    ui.show(Screen::Browse);
-                    ui.act(|s| s.pick());
+                .child(dynamic(move || {
+                    ui.read(|s| s.zappable()).then(|| {
+                        row(icons::CLOSE, "Zap Element", move || {
+                            ui.show(Screen::Browse);
+                            ui.act(|s| s.pick());
+                        })
+                    })
                 })),
         ))
         .child(framed(
@@ -298,25 +384,30 @@ fn menu(ui: Ui) -> impl IntoElement {
         .child(super::extensions::actions(ui))
         .child(framed(
             group()
-                .child(row(icons::SHARE, "Share…", move || share(ui)))
-                .child(row(icons::APP_WINDOW, "Show QR Code", move || ui.show(Screen::Qr)))
-                .child(row(icons::CHECK, "Copy Clean Link", move || {
-                    let mut copied = None;
-                    ui.act(|s| {
-                        copied = s.copy_clean_link();
-                        Vec::new()
-                    });
-                    if let Some(url) = copied {
-                        set_clipboard(url);
-                    }
-                    ui.show(Screen::Browse);
-                }))
-                .child(row(icons::BOOKMARK, "Save to Reading List", move || {
-                    ui.act(|s| {
-                        s.save_for_later(browser_core::now());
-                        Vec::new()
-                    });
-                    ui.show(Screen::Browse);
+                .child(dynamic(move || {
+                    shareable.get().then(|| {
+                        view()
+                            .child(row(icons::SHARE, "Share…", move || share(ui)))
+                            .child(row(icons::SMARTPHONE, "Show QR Code", move || ui.show(Screen::Qr)))
+                            .child(row(icons::CHECK, "Copy Clean Link", move || {
+                                let mut copied = None;
+                                ui.act(|s| {
+                                    copied = s.copy_clean_link();
+                                    Vec::new()
+                                });
+                                if let Some(url) = copied {
+                                    set_clipboard(url);
+                                }
+                                ui.show(Screen::Browse);
+                            }))
+                            .child(row(icons::BOOKMARK, "Save to Reading List", move || {
+                                ui.act(|s| {
+                                    s.save_for_later(browser_core::now());
+                                    Vec::new()
+                                });
+                                ui.show(Screen::Browse);
+                            }))
+                    })
                 }))
                 .child(row(icons::BOOK_OPEN, "Reading List", move || ui.show(Screen::ReadingList))),
         ))
@@ -371,7 +462,7 @@ fn site_shield(ui: Ui) -> impl IntoElement {
                 }, true)
             })
         }))
-        .child(caption(move || format!("Profile default: {}", ui.read(|s| s.default_level().as_str()))))
+        .child(caption(move || format!("Profile default: {}", ui.read_data(|s| s.default_level().as_str()))))
         .child(caption("Standard blocks trackers and private-network requests. Strict adds HTTPS-only. Lockdown also turns JavaScript off and keeps website data in memory."))
         .child(sheets::site(ui))
 }
@@ -400,7 +491,7 @@ fn settings(ui: Ui) -> impl IntoElement {
         .child(sheets::shield_card(ui))
         .child(pane_heading(Pane::General))
         .child(section("Downloads"))
-        .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
+        .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
             ui.act(|s| {
                 let on = s.setting_on(crate::scripts::SORT_DOWNLOADS);
                 s.set_setting_on(crate::scripts::SORT_DOWNLOADS, !on)
@@ -419,7 +510,7 @@ fn settings(ui: Ui) -> impl IntoElement {
                 .map(|(ix, engine)| {
                     (
                         engine.name.to_owned(),
-                        Box::new(move || ui.read(|s| s.search_engine()) == ix) as Box<dyn Fn() -> bool>,
+                        Box::new(move || ui.read_data(|s| s.search_engine()) == ix) as Box<dyn Fn() -> bool>,
                         Box::new(move || ui.act(|s| {
                             s.set_search_engine(ix);
                             Vec::new()
@@ -429,7 +520,7 @@ fn settings(ui: Ui) -> impl IntoElement {
                 .collect(),
         ))
         .child(section("History"))
-        .child(framed(group().child(switch_row("Search the text of visited pages", move || ui.read(|s| s.setting_on(crate::scripts::HISTORY_TEXT)), move || {
+        .child(framed(group().child(switch_row("Search the text of visited pages", move || ui.read_data(|s| s.setting_on(crate::scripts::HISTORY_TEXT)), move || {
             ui.act(|s| {
                 let on = s.setting_on(crate::scripts::HISTORY_TEXT);
                 s.set_setting_on(crate::scripts::HISTORY_TEXT, !on)
@@ -438,7 +529,7 @@ fn settings(ui: Ui) -> impl IntoElement {
         .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1())
         .child(pane_heading(Pane::Privacy))
         .child(section("Shield"))
-        .child(levels(move || Some(ui.read(|s| s.default_level())), move |level| {
+        .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
             ui.act(|s| {
                 if let Some(level) = level {
                     s.set_default_level(level);
@@ -448,7 +539,7 @@ fn settings(ui: Ui) -> impl IntoElement {
         }, false))
         .child(section("Filter lists"))
         .child(framed(group().child(FILTER_SWITCHES.iter().map(|(key, name, _)| {
-            switch_row(*name, move || ui.read(|s| s.filter_switch(key)), move || {
+            switch_row(*name, move || ui.read_data(|s| s.filter_switch(key)), move || {
                 ui.act(|s| {
                     s.set_filter_switch(key, !s.filter_switch(key));
                     Vec::new()
@@ -463,30 +554,32 @@ fn settings(ui: Ui) -> impl IntoElement {
         .child(section("Extensions"))
         .child(framed(group().child(row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions)))))
         .child(section("Your data"))
-        .child(framed(group().child(row(icons::CLOSE, "Clear Browsing Data…", move || {
-            let answer = alert_dialog()
-                .title("Clear browsing data?")
-                .description("History, downloads list, closed tabs and this profile's website data are removed.")
-                .cancel("cancel", "Cancel")
-                .destructive("clear", "Clear")
-                .show();
-            spawn(async move {
-                if answer.await.is_ok_and(|a| a.action.as_deref() == Some("clear")) {
-                    ui.act(|s| {
-                        s.clear_data();
-                        Vec::new()
-                    });
-                }
-            });
+        .child(framed(group().child(row(icons::TRASH, "Clear Browsing Data…", move || {
+            confirm("Clear browsing data?", "History, downloads list, closed tabs and this profile's website data are removed.", "Clear", move || {
+                ui.act(|s| {
+                    s.clear_data();
+                    Vec::new()
+                })
+            })
         }))))
+}
+
+/// Asks before a destructive action, which runs only on `action`.
+pub(super) fn confirm(title: &'static str, description: &'static str, action: &'static str, then: impl FnOnce() + 'static) {
+    let answer = alert_dialog().title(title).description(description).cancel("cancel", "Cancel").destructive("confirm", action).show();
+    spawn(async move {
+        if answer.await.is_ok_and(|a| a.action.as_deref() == Some("confirm")) {
+            then();
+        }
+    });
 }
 
 /// The profile's remembered site permissions, each with Allow, Block and Forget.
 fn permissions(ui: Ui) -> impl IntoElement {
     dynamic(move || {
-        let rows = ui.read(|s| s.profile_id().map(|p| browser_core::permissions::list(s.store(), p)).unwrap_or_default());
+        let rows = ui.read_data(|s| s.permissions());
         if rows.is_empty() {
-            return caption("No site has asked yet. A camera, microphone or location answer you remember shows here.").number_of_lines(0).px_1().into_element();
+            return empty_state("No site has asked yet. A camera, microphone or location answer you remember shows here.").into_element();
         }
         let set = move |origin: String, kind: String, allow: Option<bool>| {
             move || {
@@ -540,11 +633,7 @@ fn history(ui: Ui) -> impl IntoElement {
     let query = signal(String::new());
     let found = signal(Vec::new());
     let lookup = move |v: &str, text: bool| found.set(untracked(|| ui.read(|s| if text { s.search_history(v) } else { s.filter_history(v) })));
-    effect(move || {
-        ui.read(|_| ());
-        let v = query.get_untracked();
-        lookup(&v, browser_core::suggest::searches_text(v.trim()));
-    });
+    lookup("", false);
     let search = move |v: &str| {
         let v = v.to_owned();
         query.set(v.clone());
@@ -560,28 +649,12 @@ fn history(ui: Ui) -> impl IntoElement {
     let rows = move || found.get();
     view()
         .gap_2()
-        .child(
-            input()
-                .value(move || query.get())
-                .on_change(search)
-                .auto_capitalize(AutoCapitalize::None)
-                .placeholder("Search history")
-                .placeholder_color(Theme::faint)
-                .label("Search history")
-                .h(px(TOUCH_TARGET))
-                .px_3()
-                .rounded(px(Theme::radius_row()))
-                .bg(Theme::raised)
-                .border_1()
-                .border_color(Theme::hairline)
-                .text_size(px(TEXT_TITLE))
-                .text_color(Theme::text),
-        )
+        .child(text_field("Search history", "Search history").value(move || query.get()).on_change(search).auto_capitalize(AutoCapitalize::None))
         .child(dynamic(move || {
             let (count, q) = (found.with(Vec::len), query.get());
             Some(match (count, q.trim().is_empty()) {
-                (0, true) => caption("No history yet").px_1().into_element(),
-                (0, false) => caption(format!("No results for “{}”", q.trim())).px_1().into_element(),
+                (0, true) => empty_state("No history yet").into_element(),
+                (0, false) => empty_state(format!("No results for “{}”", q.trim())).into_element(),
                 (n, _) => small(if n == 1 { "1 page".to_owned() } else { format!("{n} pages") }).px_1().into_element(),
             })
         }))
@@ -593,23 +666,10 @@ fn history(ui: Ui) -> impl IntoElement {
                 let url = entry.url.clone();
                 let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title };
                 let host = url::Url::parse(&entry.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or(entry.url);
-                button()
-                    .accessibility_label(SharedString::from(name.clone()))
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .min_h(px(TOUCH_TARGET))
-                    .px_3()
-                    .py_1()
-                    .border_b_1()
-                    .border_color(Theme::separator)
-                    .active(|s| s.bg(Theme::pressed))
-                    .on_press(move || {
-                        ui.show(Screen::Browse);
-                        ui.act(|s| s.navigate(&url));
-                    })
-                    .child(icon(icons::GLOBE, Theme::muted))
-                    .child(view().flex_1().child(label(name).number_of_lines(1)).child(caption(host).number_of_lines(1)))
+                detail_row(Some(icons::GLOBE), name, Some(caption(host).number_of_lines(1)), move || {
+                    ui.show(Screen::Browse);
+                    ui.act(|s| s.navigate(&url));
+                })
             },
         ))))
 }
@@ -620,12 +680,13 @@ fn downloads(ui: Ui) -> impl IntoElement {
         .gap_2()
         .child(caption("Downloads are saved in the Files app under Tarn › Downloads and are never opened automatically.").px_1())
         .child(sheets::transfers(ui))
-        .child(dynamic(move || rows().is_empty().then(|| caption("No downloads yet").px_1())))
+        .child(dynamic(move || rows().is_empty().then(|| empty_state("No downloads yet"))))
         .child(framed(group().child(each(
             rows,
             |d: &store::Download| d.id,
             move |d, _| {
                 let d = d.get_untracked();
+                let finished = d.state == "finished";
                 view()
                     .flex_row()
                     .items_center()
@@ -634,18 +695,15 @@ fn downloads(ui: Ui) -> impl IntoElement {
                     .px_3()
                     .border_b_1()
                     .border_color(Theme::separator)
-                    .child({
-                        let finished = d.state == "finished";
-                        icon(icons::DOWNLOADS, move || if finished { Theme::success() } else { Theme::danger() })
-                    })
-                    .child(view().flex_1().child(label(d.url.clone()).number_of_lines(1)).child(caption(d.state.clone())))
+                    .child(icon(icons::DOWNLOADS, move || if finished { Theme::success() } else { Theme::danger() }))
+                    .child(view().flex_1().child(label(d.url.clone()).number_of_lines(1)).child(caption(if finished { "Saved" } else { "Failed" })))
             },
         ))))
 }
 
 fn spaces(ui: Ui) -> impl IntoElement {
     let name = signal(String::new());
-    let rows = move || ui.read(|s| s.spaces());
+    let rows = move || ui.read_data(|s| s.spaces());
     let current = move || ui.read(|s| s.model.space_ix);
     let add = move |profile: bool| {
         let n = name.get_untracked();
@@ -706,23 +764,7 @@ fn spaces(ui: Ui) -> impl IntoElement {
             },
         ))))
         .child(section("New"))
-        .child(
-            input()
-                .value(move || name.get())
-                .on_change(move |v: &str| name.set(v.to_owned()))
-                .placeholder("Name")
-                .placeholder_color(Theme::faint)
-                .label("Name")
-                .test_id("Name")
-                .h(px(TOUCH_TARGET))
-                .px_3()
-                .rounded(px(Theme::radius_row()))
-                .bg(Theme::raised)
-                .border_1()
-                .border_color(Theme::hairline)
-                .text_size(px(TEXT_TITLE))
-                .text_color(Theme::text),
-        )
+        .child(text_field("Name", "Name").value(move || name.get()).on_change(move |v: &str| name.set(v.to_owned())).test_id("Name"))
         .child(view().flex_row().gap_2().child(pill("Add Space", move || add(false))).child(pill("Add Profile", move || add(true))))
         .child(caption("A profile keeps its own cookies and website data; its spaces share them.").px_1())
         .child(dynamic(move || (!ui.read(|s| s.model.private())).then(|| sheets::snapshots(ui, name))))
@@ -734,6 +776,11 @@ fn find(ui: Ui) -> impl IntoElement {
         let text = query.get_untracked();
         ui.act(|s| s.active_command("find", json!({ "text": text, "backwards": backwards })));
     };
+    let count = move || ui.read(|s| s.found).filter(|_| !query.get().is_empty());
+    let always = KeyOptions { when: When::Always, ..KeyOptions::default() };
+    on_key_with("escape", always, move |_| ui.show(Screen::Browse));
+    on_key_with("mod+g", always, move |_| search(false));
+    on_key_with("shift+mod+g", always, move |_| search(true));
     surface(Theme::radius_panel())
         .flex_row()
         .items_center()
@@ -747,7 +794,19 @@ fn find(ui: Ui) -> impl IntoElement {
                 .flex_1()
                 .auto_focus(true)
                 .value(move || query.get())
-                .on_change(move |v: &str| query.set(v.to_owned()))
+                .on_change(move |v: &str| {
+                    let typed = v.to_owned();
+                    query.set(typed.clone());
+                    ui.act_on_screen(|s| {
+                        s.found = None;
+                        Vec::new()
+                    });
+                    set_timeout(sheets::FIND_DELAY, move || {
+                        if query.get_untracked() == typed {
+                            search(false);
+                        }
+                    });
+                })
                 .on_submit(move |_: &str| search(false))
                 .return_key_type(ReturnKeyType::Search)
                 .placeholder("Find in page")
@@ -759,13 +818,13 @@ fn find(ui: Ui) -> impl IntoElement {
                 .text_color(Theme::text),
         )
         .child(
-            small(move || match ui.read(|s| s.found) {
+            small(move || match count() {
                 Some(0) => "No matches".to_owned(),
                 Some(1) => "1 match".to_owned(),
                 Some(n) => format!("{n} matches"),
                 None => String::new(),
             })
-            .text_color(move || if ui.read(|s| s.found) == Some(0) { Theme::danger() } else { Theme::faint() }),
+            .text_color(move || if count() == Some(0) { Theme::danger() } else { Theme::faint() }),
         )
         .child(icon_button(icons::BACK, "Previous", move || search(true)))
         .child(icon_button(icons::FORWARD, "Next", move || search(false)))

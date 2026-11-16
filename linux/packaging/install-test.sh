@@ -26,7 +26,7 @@ set -e
 $setup
 echo '## package'; $info
 echo '## linked WebKitGTK'; ldd /usr/bin/tarn | grep -E 'webkitgtk|gtk-4|javascriptcore'
-echo '## desktop entry'; ls /usr/share/applications/dev.tarn.Tarn.desktop /usr/share/icons/hicolor/scalable/apps/dev.tarn.Tarn.svg
+echo '## desktop entry'; ls /usr/share/applications/de.quavon.tarn.desktop /usr/share/icons/hicolor/scalable/apps/de.quavon.tarn.svg
 Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &
 mkdir -p /run/dbus; dbus-daemon --session --address=unix:path=/tmp/bus --fork >/dev/null
 sleep 2

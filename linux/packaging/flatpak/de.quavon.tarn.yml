@@ -1,0 +1,42 @@
+app-id: de.quavon.tarn
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: tarn
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=pulseaudio
+  - --filesystem=xdg-download
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+modules:
+  - name: tarn
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/tarn/cargo
+        CARGO_NET_OFFLINE: 'true'
+    build-commands:
+      - cargo --offline build --release --locked --manifest-path linux/Cargo.toml
+      - install -Dm755 linux/target/release/tarn /app/bin/tarn
+      - install -Dm644 linux/packaging/de.quavon.tarn.desktop /app/share/applications/de.quavon.tarn.desktop
+      - install -Dm644 crates/ui/brand/mark.svg /app/share/icons/hicolor/scalable/apps/de.quavon.tarn.svg
+      - install -Dm644 de.quavon.tarn.metainfo.xml /app/share/metainfo/de.quavon.tarn.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/de.quavon.tarn/LICENSE
+    sources:
+      - type: git
+        url: https://github.com/Quavon-dev/tarn-browser.git
+        tag: v0.1.0
+        commit: c9fe47adc8811a16e6b8ed5761fa6d2f7c646d57
+        x-checker-data:
+          type: git
+          tag-pattern: ^v([\d.]+)$
+      - cargo-sources.json
+      - type: file
+        path: de.quavon.tarn.metainfo.xml

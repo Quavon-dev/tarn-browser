@@ -19,7 +19,7 @@ use tarn_nsh_shared::{icons, theme};
 use nsh_platform_linux as platform;
 use nsh_platform_linux::{ComponentContext, Components, NativeComponent};
 
-const APP_ID: &str = "dev.tarn.Tarn";
+const APP_ID: &str = "de.quavon.tarn";
 
 fn main() -> impl std::process::Termination {
     set_density(Density::Desktop);

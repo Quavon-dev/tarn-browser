@@ -121,6 +121,16 @@ pub fn rank_history<'a>(query: &str, history: &'a [HistoryEntry], max: usize, no
     top_history(query, history, &pages, max, now)
 }
 
+/// The row a keyboard step moves the highlight to: Down past the last row wraps to the first and
+/// Up past the first to the last.
+pub fn step_selection(selected: usize, len: usize, forward: bool) -> usize {
+    match (len, forward) {
+        (0, _) => 0,
+        (_, true) => (selected + 1) % len,
+        (_, false) => (selected + len - 1) % len,
+    }
+}
+
 /// Whether the field may prefill after an edit: text was added at the end, and it reads as an
 /// address rather than a search or a command.
 pub fn may_complete(text: &str, inserted: bool, caret_at_end: bool) -> bool {
@@ -254,6 +264,16 @@ mod tests {
     use super::*;
 
     const NOW: i64 = 1_000 * DAY;
+
+    #[test]
+    fn selection_steps_wrap_at_both_ends() {
+        assert_eq!(step_selection(0, 3, true), 1);
+        assert_eq!(step_selection(2, 3, true), 0);
+        assert_eq!(step_selection(0, 3, false), 2);
+        assert_eq!(step_selection(1, 3, false), 0);
+        assert_eq!(step_selection(0, 0, true), 0);
+        assert_eq!(step_selection(0, 0, false), 0);
+    }
 
     fn page(url: &'static str, title: &'static str, visits: i64, days_ago: i64) -> Page<'static> {
         Page { url, title, visits, typed: visits, last_visit: NOW - days_ago * DAY, open: false }

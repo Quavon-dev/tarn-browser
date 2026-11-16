@@ -81,7 +81,7 @@ fn each_except(cx: &mut App, skip: Option<gpui::EntityId>, mut f: impl FnMut(&mu
 /// app's data. `Ok` carries what kept it there; an error means nothing may start.
 #[cfg(target_os = "macos")]
 fn move_container() -> Result<Option<String>, std::io::Error> {
-    use browser_core::container::{BUNDLE_ID, Outcome, move_out};
+    use browser_core::container::{BUNDLE_ID, Outcome, SANDBOXED_ID, move_out};
     if option_env!("TARN_RELEASE_BUILD").is_none_or(str::is_empty)
         || std::env::var_os("TARN_DATA_DIR").is_some()
         || platform::xpc::sandboxed()
@@ -90,9 +90,10 @@ fn move_container() -> Result<Option<String>, std::io::Error> {
         return Ok(None);
     }
     let Some(home) = std::env::home_dir() else { return Ok(None) };
+    browser_core::container::move_renamed(&home)?;
     Ok(match move_out(&home)? {
         Outcome::TargetExists(target) => {
-            Some(format!("Data of the sandboxed Tarn is still in ~/Library/Containers/{BUNDLE_ID}: nothing was moved because {} exists.", target.display()))
+            Some(format!("Data of the sandboxed Tarn is still in ~/Library/Containers/{SANDBOXED_ID}: nothing was moved because {} exists.", target.display()))
         }
         Outcome::Moved(skipped) if !skipped.is_empty() => {
             let names: Vec<String> = skipped.iter().map(|p| p.display().to_string()).collect();
@@ -118,7 +119,7 @@ pub(crate) fn start(cx: &mut App) -> bool {
         Err(e) => {
             let detail = format!(
                 "{e}\n\nYour data is unchanged in ~/Library/Containers/{}. Fix the cause (a symbolic link or a folder Tarn cannot write) and open Tarn again; it quits without opening anything until then.",
-                browser_core::container::BUNDLE_ID
+                browser_core::container::SANDBOXED_ID
             );
             engine::alert("Tarn could not move its data out of the App Sandbox container.", &detail);
             cx.quit();
@@ -142,9 +143,8 @@ pub(crate) fn start(cx: &mut App) -> bool {
     filters.updates = core.disk.setting(crate::filters::SETTING).ok().flatten().as_deref() != Some("off");
     let prefs = Cell::new(Prefs::load(&core.disk));
     let (reports, mut update_reports) = mpsc::unbounded();
-    let updater = platform::updater::Updater::start(prefs.get().get(crate::prefs::Pref::UpdateChecks), &data_dir().join("updates"), move |report| {
-        drop(reports.unbounded_send(report))
-    });
+    let (checks, nightly) = (prefs.get().get(crate::prefs::Pref::UpdateChecks), prefs.get().get(crate::prefs::Pref::NightlyUpdates));
+    let updater = platform::updater::Updater::start(checks, nightly, &data_dir().join("updates"), move |report| drop(reports.unbounded_send(report)));
     let (downloads, mut download_events) = mpsc::unbounded();
     let core = Rc::new(AppCore {
         core,

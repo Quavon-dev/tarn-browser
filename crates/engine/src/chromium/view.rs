@@ -21,7 +21,7 @@ use crate::nav_policy::{self, Decision, GateAction, Source};
 use crate::tarn_ext::{ExtensionView, FrameId, Gate, PageSpec, World, WorldScripts};
 use crate::{Event, Host, Protection};
 
-type Found = Box<dyn Fn(bool)>;
+type Found = Box<dyn Fn(usize)>;
 type Reply = Box<dyn FnOnce(Option<Value>)>;
 #[cfg(windows)]
 type CreatedHook = Box<dyn FnOnce(Browser)>;
@@ -99,7 +99,6 @@ struct Tab {
     #[cfg(windows)]
     created_hook: RefCell<Option<CreatedHook>>,
     /// The renderer process of the main frame, as it reported itself (`RENDERER_PID`).
-    #[cfg(windows)]
     renderer: Cell<Option<u32>>,
     /// The back and forward lists of a restored tab beyond Chromium's own, which cannot be given
     /// back to it, and the saved state they came from, kept until the tab shows a page.
@@ -523,7 +522,6 @@ wrap_client! {
             Some(TarnKeys::new())
         }
 
-        #[cfg(windows)]
         fn on_process_message_received(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, _source: ProcessId, message: Option<&mut ProcessMessage>) -> i32 {
             let Some(message) = message.filter(|m| CefString::from(&m.name()).to_string() == super::runtime::RENDERER_PID) else { return 0 };
             // Only the main frame's process counts, and a renderer is untrusted: the pid must name one of Tarn's own processes.
@@ -549,6 +547,8 @@ wrap_load_handler! {
             #[cfg(windows)]
             let can_go_back = i32::from(can_go_back == 1 && browser.as_deref().is_some_and(native_back));
             let history = (can_go_back == 1, can_go_forward == 1);
+            // Chromium tells no load error for a stop or a cancel, so the shell learns the end here.
+            emit(&tab, Event::Loading(is_loading == 1));
             // A navigation that ends without a page (a download, a 204, a cancel) leaves no origin that may ask.
             if is_loading == 0 {
                 tab.navigating.take();
@@ -1513,7 +1513,7 @@ wrap_find_handler! {
         fn on_find_result(&self, browser: Option<&mut Browser>, _identifier: i32, count: i32, _selection_rect: Option<&Rect>, _active_match_ordinal: i32, final_update: i32) {
             let Some(tab) = tab(self.id) else { return };
             if final_update == 1 && let Some(found) = tab.found.borrow().as_ref() {
-                found(count > 0);
+                found(usize::try_from(count).unwrap_or(0).min(crate::page_scripts::FIND_COUNT_MAX));
             }
         }
     }
@@ -1853,7 +1853,6 @@ impl WebView {
             opener: RefCell::new(None),
             #[cfg(windows)]
             created_hook: RefCell::new(None),
-            #[cfg(windows)]
             renderer: Cell::new(None),
             #[cfg(windows)]
             restored: RefCell::default(),
@@ -2439,8 +2438,8 @@ impl WebView {
         self.0.tab.title.borrow().clone()
     }
 
-    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(bool) + 'static) {
-        let Some(host) = self.browser_host() else { return found(false) };
+    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize) + 'static) {
+        let Some(host) = self.browser_host() else { return found(0) };
         *self.0.tab.found.borrow_mut() = Some(Box::new(found));
         let next = self.0.tab.last_find.replace(text.to_owned()) == text;
         host.find(Some(&CefString::from(text)), i32::from(!backwards), 0, i32::from(next));
@@ -2451,7 +2450,6 @@ impl WebView {
     }
 
     /// The process that renders the top document.
-    #[cfg(windows)]
     pub fn process_id(&self) -> Option<i32> {
         self.0.tab.renderer.get().filter(|p| super::runtime::tarn_process(*p)).and_then(|p| i32::try_from(p).ok())
     }

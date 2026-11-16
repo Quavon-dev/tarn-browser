@@ -85,7 +85,7 @@ impl WebView {
         self.view.url()
     }
 
-    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(bool) + 'static) {
+    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize) + 'static) {
         self.view.find(text, backwards, found);
     }
 

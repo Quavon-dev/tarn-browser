@@ -44,9 +44,11 @@ jobs:
             [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unexpected tag $tag" >&2; exit 1; }
             gh release download "$tag" --pattern '*.deb' --pattern '*.rpm' --dir "downloads/$tag"
             for file in "downloads/$tag"/*; do
-              gh attestation verify "$file" --repo "$GH_REPO" \
-                --signer-workflow "$GH_REPO/.github/workflows/release.yml" --source-ref "refs/tags/$tag" \
-                --predicate-type https://github.com/Quavon-dev/tarn-browser/attestations/release/v1 >/dev/null
+              attested="$(gh attestation verify "$file" --repo "$GH_REPO" --deny-self-hosted-runners \
+                --cert-identity-regex "^https://github\\.com/$GH_REPO/\\.github/workflows/release\\.yml@refs/(tags/${tag//./\\.}|heads/main)\$" \
+                --predicate-type https://github.com/Quavon-dev/tarn-browser/attestations/release/v1 \
+                --format json --jq '.[].verificationResult.statement.predicate.tag' | sort -u)"
+              [[ "$attested" == "$tag" ]] || { echo "$file is attested for '${attested:-nothing}', not $tag" >&2; exit 1; }
               mv "$file" packages/
             done
           done

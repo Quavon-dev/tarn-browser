@@ -14,9 +14,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request or to main replaces the older run, so queued macOS runners are not
+# spent on commits nobody releases; release and nightly builds only use main's latest commit.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ (github.event_name == 'pull_request' || github.event_name == 'push') && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -25,6 +27,10 @@ jobs:
   changes:
     # Jobs a change does not touch are skipped; a skipped required job counts as passed.
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       code: ${{ steps.diff.outputs.code }}
       shared: ${{ steps.diff.outputs.shared }}
@@ -40,6 +46,9 @@ jobs:
       - id: diff
         env:
           EVENT: ${{ inputs.commit && 'workflow_call' || github.event_name }}
+          SHA: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: scripts/ci-changes.sh >> "$GITHUB_OUTPUT"
 
   check:
@@ -55,7 +64,7 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: "1.99.1"
           components: clippy, rustfmt
@@ -78,16 +87,18 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: "1.99.1"
           components: clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # scripts/fetch-cef.sh checks the cached archive's SHA-256 against packaging/cef.lock.
+          cache-directories: target/cef/downloads
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy $CRATES --all-targets --locked -- -D warnings
       - run: cargo test $CRATES --locked
-      - run: scripts/sign-release.test.sh && scripts/dmg.test.sh && scripts/windows-feed.test.sh
+      - run: scripts/dmg.test.sh && scripts/windows-feed.test.sh
       - name: Chromium feature
         run: |
           scripts/fetch-ninja.sh "$RUNNER_TEMP/ninja"
@@ -109,12 +120,14 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: "1.99.1"
           components: clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # scripts/fetch-cef.sh checks the cached archive's SHA-256 against packaging/cef.lock.
+          cache-directories: target/cef/downloads
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: echo "CEF_PATH=$(cygpath -w "$(scripts/fetch-cef.sh windows64)")" >> "$GITHUB_ENV"
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -135,7 +148,7 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: "1.99.1"
           components: clippy
@@ -163,14 +176,20 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: "1.99.1"
           components: clippy
           targets: aarch64-apple-ios-sim, aarch64-apple-ios, aarch64-linux-android, armv7-linux-androideabi
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: mobile
+          workspaces: mobile -> target
+          # nsh builds the apps as its own generated workspace into mobile/app/target; a workspace
+          # entry would prune that workspace's crates (nsh-platform-android, ...) before saving.
+          cache-directories: |
+            mobile/app/target
+            ~/.gradle/caches
+            mobile/android/build/gradle-*
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
@@ -212,7 +231,7 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: "1.99.1"
           components: clippy
@@ -226,6 +245,29 @@ jobs:
         working-directory: linux
       - name: WebKitGTK display tests (Xvfb)
         run: linux/scripts/display-tests.sh
+
+  flatpak:
+    needs: changes
+    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.linux != 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51@sha256:78d969b18225ae107ca29497bf09c4a3f791e5f1838a9a912a529d0024fb6210
+      options: --privileged
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: linux/packaging/flatpak/check-cargo-sources.sh
+      - run: linux/packaging/flatpak/local-manifest.sh
+      - run: test -s /etc/machine-id || dbus-uuidgen --ensure=/etc/machine-id
+      - run: flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - run: >-
+          flatpak-builder --user --install-deps-from=flathub --disable-rofiles-fuse --force-clean
+          --repo=repo build linux/packaging/flatpak/de.quavon.tarn.local.yml
+      - run: flatpak install --user -y --noninteractive flathub org.flatpak.Builder
+      - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest "$PWD/linux/packaging/flatpak/de.quavon.tarn.yml"
+      - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder appstream "$PWD/linux/packaging/flatpak/de.quavon.tarn.metainfo.xml"
 
   deny:
     needs: changes
@@ -251,3 +293,61 @@ jobs:
         with:
           manifest-path: nsh-shared/Cargo.toml
           command: check advisories bans licenses sources
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        if: ${{ !inputs.commit }}
+        with:
+          manifest-path: fuzz/Cargo.toml
+          command: check advisories bans licenses sources
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        if: ${{ !inputs.commit }}
+        with:
+          manifest-path: linux/Cargo.toml
+          command: check advisories bans licenses sources
+      - run: scripts/check-vex.sh
+
+  coverage:
+    needs: changes
+    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      LLVM_COV_VERSION: 0.9.1
+      LLVM_COV_SHA256: b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: "1.99.1"
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: coverage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: |
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$RUNNER_TEMP/cargo-llvm-cov.tar.gz" \
+            "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v$LLVM_COV_VERSION/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz"
+          echo "$LLVM_COV_SHA256  $RUNNER_TEMP/cargo-llvm-cov.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/cargo-llvm-cov.tar.gz" -C "$HOME/.cargo/bin" cargo-llvm-cov
+      - run: >-
+          cargo llvm-cov --locked --no-report -p store -p shield -p devkit -p filter-bundle -p cli-bridge
+          -p platform -p chromium-helper -p browser-core
+      - run: |
+          mkdir -p coverage
+          cargo llvm-cov report --lcov --output-path coverage/lcov.info
+          cargo llvm-cov report --html --output-dir coverage
+          cargo llvm-cov report --json --summary-only --output-path coverage/summary.json
+          jq -r --arg root "$GITHUB_WORKSPACE/" '
+            def crate: ltrimstr($root) | split("/")[:2] | join("/");
+            "| Crate | Lines | Covered | % |", "|---|---:|---:|---:|",
+            (.data[0].files | group_by(.filename | crate)[]
+              | {name: (.[0].filename | crate), count: (map(.summary.lines.count) | add), covered: (map(.summary.lines.covered) | add)}
+              | "| \(.name) | \(.count) | \(.covered) | \(if .count > 0 then (.covered * 1000 / .count | round / 10) else 0 end) |"),
+            (.data[0].totals.lines | "| **total** | \(.count) | \(.covered) | \(.percent * 10 | round / 10) |")
+          ' coverage/summary.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: error

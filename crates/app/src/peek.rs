@@ -3,11 +3,11 @@ use std::time::{Duration, Instant};
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    App, AppContext, Bounds, Context, DisplayId, InteractiveElement, IntoElement, MouseExitEvent, ParentElement, Pixels, Render, StatefulInteractiveElement,
-    Styled, Subscription, Task, WeakEntity, Window, WindowHandle, canvas, div, point, px, size,
+    AnyWindowHandle, App, Bounds, Context, DisplayId, InteractiveElement, IntoElement, MouseExitEvent, ParentElement, Pixels, Render,
+    StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window, WindowHandle, canvas, div, point, px, size,
 };
 pub use ui::controls::popup_options;
-use ui::motion::FADE;
+use ui::motion::EXIT;
 use ui::theme::TOOLBAR_HEIGHT;
 
 use crate::browser::Browser;
@@ -102,7 +102,7 @@ pub fn remove_after_exit<V: 'static>(reduce: bool, window: &mut Window, cx: &mut
         return window.remove_window();
     }
     cx.spawn_in(window, async move |_, cx| {
-        cx.background_executor().timer(FADE).await;
+        cx.background_executor().timer(EXIT).await;
         cx.update(|window, _| window.remove_window()).ok();
     })
     .detach();
@@ -192,20 +192,10 @@ impl Browser {
         let browser = cx.entity().downgrade();
         // The new window renders from the browser at once, so it must open after this update ends.
         cx.defer(move |cx| {
-            let handle = cx.open_window(popup_options(bounds, display, false), |window, cx| {
-                if let Some(host) = engine::Host::from_window(window) {
-                    host.strip_frame();
-                    host.round_corners(
-                        0.,
-                        f64::from(crate::sidebar::SIDEBAR_MARGIN),
-                        f64::from(GRACE),
-                        f64::from(crate::sidebar::SIDEBAR_MARGIN),
-                        f64::from(ui::theme::Theme::radius_tile()),
-                    );
-                }
-                cx.new(|cx| PeekWindow::new(browser.clone(), cx))
-            });
-            browser.update(cx, |b, _| b.peek.window = handle.ok()).ok();
+            let inset = [0., crate::sidebar::SIDEBAR_MARGIN, GRACE, crate::sidebar::SIDEBAR_MARGIN];
+            let (handle, _) =
+                ui::controls::open_popup(cx, bounds, display, false, inset, ui::theme::Theme::radius_tile(), |_, cx| PeekWindow::new(browser.clone(), cx));
+            browser.update(cx, |b, _| b.peek.window = handle).ok();
         });
     }
 
@@ -229,29 +219,19 @@ impl Browser {
 
     /// Popups belong to this browser; they go with it instead of outliving the main window.
     pub(crate) fn close_popups(&mut self, cx: &mut App) {
-        if let Some(handle) = self.hover_card.window.take() {
-            handle.update(cx, |_, window, _| window.remove_window()).ok();
-        }
-        if let Some(handle) = self.site_popover.window.take() {
-            handle.update(cx, |_, window, _| window.remove_window()).ok();
-        }
-        if let Some(handle) = self.link_peek.window.take() {
-            handle.update(cx, |_, window, _| window.remove_window()).ok();
-        }
-        if let Some(handle) = self.peek.window.take() {
-            handle.update(cx, |_, window, _| window.remove_window()).ok();
-        }
-        if let Some(handle) = self.library.take() {
-            handle.update(cx, |_, window, _| window.remove_window()).ok();
-        }
-        if let Some(handle) = self.downloads_popover.window.take() {
-            handle.update(cx, |_, window, _| window.remove_window()).ok();
-        }
-        if let Some(handle) = self.settings_window.take() {
-            handle.update(cx, |_, window, _| window.remove_window()).ok();
-        }
         self.toast.popup = None;
-        if let Some(handle) = self.toast.window.take() {
+        let popups: [Option<AnyWindowHandle>; 9] = [
+            self.hover_card.window.take().map(Into::into),
+            self.site_popover.window.take().map(Into::into),
+            self.link_peek.window.take().map(Into::into),
+            self.peek.window.take().map(Into::into),
+            self.library.take().map(Into::into),
+            self.downloads_popover.window.take().map(Into::into),
+            self.settings_window.take().map(Into::into),
+            self.qr.take().map(Into::into),
+            self.toast.window.take().map(Into::into),
+        ];
+        for handle in popups.into_iter().flatten() {
             handle.update(cx, |_, window, _| window.remove_window()).ok();
         }
     }

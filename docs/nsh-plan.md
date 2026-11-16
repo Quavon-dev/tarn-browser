@@ -145,6 +145,7 @@ Gaps, with their reason:
 | **Data directory** | App container | App-private storage | `$XDG_DATA_HOME/tarn`, mode `0700` |
 | **Default browser** | `com.apple.developer.web-browser` entitlement | `ROLE_BROWSER` via `RoleManager` | `.desktop` file and `xdg-settings` |
 | **Updates** | App Store | Play Store, plus a signed APK on GitHub | Distribution packages; engine updates come from the distribution |
+| **Nightly channel** | Gap: the App Store installs only what Apple reviewed; TestFlight is the place for nightlies | Gap: the Play Store decides which build installs; its internal testing track is the place for nightlies | Gap: the package manager installs from the repositories the user added; `linux-repo.yml` publishes releases only |
 | **Claude CLI bridge** | No | No | Unix socket in `$XDG_RUNTIME_DIR`, peer checked with `SO_PEERCRED` (later) |
 | **Sync** (M9) | Encrypted file in iCloud Drive or Files | Storage Access Framework folder | Folder picker |
 

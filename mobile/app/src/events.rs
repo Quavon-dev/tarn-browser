@@ -43,6 +43,11 @@ impl<D: Platform> Shell<D> {
         }
         match name {
             "committed" | "finished" => return self.page_event(key, name == "committed", data, now),
+            "started" | "stopped" => {
+                if let Some(page) = self.pages.get_mut(&key) {
+                    page.loading = name == "started";
+                }
+            }
             "title" => {
                 let title = text(data, "title").unwrap_or_default();
                 let committed = self.pages.get_mut(&key).and_then(|page| {
@@ -91,6 +96,13 @@ impl<D: Platform> Shell<D> {
             crate::extensions::MESSAGE => return self.extension_message(key, data, std::time::Instant::now()),
             "article" | "pageText" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
             "found" => self.found = data.get("matched").and_then(Value::as_u64),
+            "history" => {
+                if let Some(page) = self.pages.get_mut(&key) {
+                    page.back = data.get("canGoBack").and_then(Value::as_bool).unwrap_or(page.back);
+                    page.forward = data.get("canGoForward").and_then(Value::as_bool).unwrap_or(page.forward);
+                }
+            }
+            "pressed" if self.wide && self.model.active != Some(key) && self.shown_split().is_some_and(|s| s.panes().contains(&key)) => self.activate(key),
             "crashed" => return self.crashed(key),
             _ => {}
         }

@@ -8,10 +8,17 @@ use crate::browser::Browser;
 use crate::browser::spaces::SpaceCommand;
 use crate::controls::{accent_pill, body, icon_button, label, pill, small};
 use crate::icons;
+use crate::shortcuts::Action;
 use crate::speech::{self, SPEEDS};
-use crate::theme::{Paint, ROW_HEIGHT, Theme};
+use crate::theme::{ROW_HEIGHT, Theme};
+use nsh_core::{RevealOptions, ScrollAlignment};
+use store::TabKind;
 
 const TOAST_TIME: Duration = Duration::from_secs(5);
+/// A toast with a button stays longer, so there is time to reach it.
+const ACTION_TIME: Duration = Duration::from_secs(10);
+/// How many command rows the field lists before a `>` list scrolls.
+const LISTED: f32 = 8.;
 const READER_SIZES: [f32; 6] = [14., 16., 18., 20., 23., 26.];
 const READER_WIDTHS: [(f32, &str); 2] = [(620., "Narrow"), (820., "Wide")];
 const QR_SIZE: f32 = 204.;
@@ -32,10 +39,14 @@ pub enum Command {
     Memory,
     ReadingList,
     NewWindow,
+    Key(Action),
+    CloseSplit,
     Space(SpaceCommand),
 }
 
-const COMMANDS: [(&str, &str, Command); 14] = [
+const COMMANDS: [(&str, &str, Command); 23] = [
+    ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
+    ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
     ("Zap Element", "hide remove element block", Command::ZapElement),
     ("Reader", "article reading view text", Command::Reader),
@@ -50,17 +61,57 @@ const COMMANDS: [(&str, &str, Command); 14] = [
     ("Memory", "process cpu ram usage sleep", Command::Memory),
     ("Reading List", "read later saved pages", Command::ReadingList),
     ("New Window", "open another browser window", Command::NewWindow),
+    ("Open or Close Split View", "side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
+    ("Focus Next Pane", "split view switch", Command::Key(Action::FocusNextPane)),
+    ("Focus Previous Pane", "split view switch", Command::Key(Action::FocusPreviousPane)),
+    ("Swap Split Panes", "split view exchange move", Command::Key(Action::SwapPanes)),
+    ("Rotate Split Layout", "split view stacked side by side rows columns", Command::Key(Action::RotateSplitLayout)),
+    ("Remove Tab from Split View", "split pane leave", Command::Key(Action::RemoveFromSplitView)),
+    ("Close Split View", "split panes end separate", Command::CloseSplit),
 ];
 
+/// Whether `query` asks for the command list: every command it names, and nothing else.
+pub fn listing(query: &str) -> bool {
+    query.trim_start().starts_with('>')
+}
+
+/// The commands `query` names, leaving out those with nothing to act on, and those that toggle
+/// named by what they do now.
 pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
     if query.trim().is_empty() {
         return Vec::new();
     }
-    let spaces = read(ui, Browser::space_commands).unwrap_or_default();
-    let mut rows: Vec<(String, &str, Command)> = COMMANDS.iter().map(|(l, k, c)| ((*l).to_owned(), *k, *c)).collect();
+    let Some((spaces, pinned, split, reopenable, duplicates)) = read(ui, |b| {
+        let active = b.model.active;
+        (
+            b.space_commands(),
+            active.and_then(|k| b.model.tab(k)).is_some_and(|t| t.kind != TabKind::Ephemeral),
+            active.is_some_and(|k| b.splits.contains(k)),
+            b.model.closed_tabs.newest().is_some(),
+            !b.duplicate_tabs().is_empty(),
+        )
+    }) else {
+        return Vec::new();
+    };
+    let shown = |command: &Command| match command {
+        Command::CloseDuplicates => duplicates,
+        Command::Key(Action::ReopenClosedTab) => reopenable,
+        Command::CloseSplit
+        | Command::Key(Action::FocusNextPane | Action::FocusPreviousPane | Action::SwapPanes | Action::RotateSplitLayout | Action::RemoveFromSplitView) => {
+            split
+        }
+        _ => true,
+    };
+    let mut rows: Vec<(String, &str, Command)> = COMMANDS.iter().filter(|(_, _, c)| shown(c)).map(|(l, k, c)| ((*l).to_owned(), *k, *c)).collect();
     rows.extend(spaces.into_iter().map(|(l, c)| (l, "space workspace", Command::Space(c))));
     let ranked = rank_commands(query, rows.iter().map(|(l, k, _)| (l.as_str(), *k)));
-    ranked.into_iter().take(4).map(|ix| (rows[ix].0.clone(), rows[ix].2)).collect()
+    let named = |(label, _, command): &(String, &str, Command)| match command {
+        Command::Key(Action::TogglePin) => (if pinned { "Unpin Tab" } else { "Pin Tab" }).to_owned(),
+        Command::Key(Action::ToggleSplitView) => (if split { "Close Split View" } else { "Open in Split View" }).to_owned(),
+        _ => label.clone(),
+    };
+    let room = if listing(query) { rows.len() } else { 4 };
+    ranked.into_iter().take(room).map(|ix| (named(&rows[ix]), rows[ix].2)).collect()
 }
 
 pub fn run(ui: Ui, command: Command) {
@@ -80,8 +131,18 @@ pub fn run(ui: Ui, command: Command) {
         Command::Memory => show(ui, Panel::Memory),
         Command::ReadingList => show(ui, Panel::ReadingList),
         Command::NewWindow => super::new_window(ui),
+        Command::Key(action) => super::run_action(ui, action),
+        Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),
         Command::Space(c) => act(ui, |b| b.run_space_command(c)),
     }
+}
+
+/// Runs a command row of the address field or the start card.
+pub fn pick(ui: Ui, command: Command) {
+    ui.editing.set(false);
+    ui.address_ref.blur();
+    ui.command.set(String::new());
+    run(ui, command);
 }
 
 pub fn copy_link(ui: Ui, clean: bool) {
@@ -116,7 +177,8 @@ pub fn expire_toast(ui: Ui) {
         return;
     }
     ui.toast_timer.set(serial);
-    ui.root.run(|| drop(set_timeout(TOAST_TIME, move || act(ui, |b| b.expire_toast(serial)))));
+    let time = if ui.snap.with_untracked(|s| s.toast.as_ref().is_some_and(|t| t.action.is_some())) { ACTION_TIME } else { TOAST_TIME };
+    ui.root.run(|| drop(set_timeout(time, move || act(ui, |b| b.expire_toast(serial)))));
 }
 
 pub fn toast_bar(ui: Ui) -> AnyElement {
@@ -124,9 +186,10 @@ pub fn toast_bar(ui: Ui) -> AnyElement {
         let toast = ui.snap.with(|s| s.toast.clone())?;
         let action = toast.action.map(|_| accent_pill("Undo", move || act(ui, Browser::take_toast_action)));
         Some(view().flex_row().justify_center().child(
-            bar().mb_0().mt_2().min_w(px(300.)).child(label(toast.text).flex_1().truncate()).children(action).child(icon_button(
+            bar().mb_0().mt_2().min_w(px(300.)).child(label(toast.text).flex_1().truncate()).children(action).child(crate::controls::icon_button_at(
                 icons::CLOSE,
                 "Dismiss",
+                Placement::Left,
                 move || act(ui, |b| b.expire_toast(toast.serial)),
             )),
         ))
@@ -138,21 +201,25 @@ pub fn command_rows(ui: Ui, query: Signal<String>) -> AnyElement {
         let rows = commands(ui, &query.get());
         let items: Vec<AnyElement> = rows
             .into_iter()
-            .map(|(name, command)| {
-                super::suggestion_row(name.clone(), move || {
-                    ui.editing.set(false);
-                    ui.address_ref.blur();
-                    ui.command.set(String::new());
-                    run(ui, command);
-                })
-                .text_color(Theme::muted())
-                .child(view().w(px(18.)).items_center().child(icons::icon(icons::GEAR, 14.)))
-                .child(label(name).flex_1().truncate())
-                .child(super::detail("Command"))
-                .into_element()
+            .enumerate()
+            .map(|(ix, (name, command))| {
+                let at = element_ref();
+                effect(move || {
+                    if ui.picked.get() == ix + 1 {
+                        at.reveal(RevealOptions::default().vertical(ScrollAlignment::Nearest));
+                    }
+                });
+                super::suggestion_row(name.clone(), move || pick(ui, command))
+                    .element_ref(&at)
+                    .bg(move || super::picked_fill(ui, ix + 1))
+                    .text_color(Theme::muted())
+                    .child(view().w(px(18.)).items_center().child(icons::icon(icons::GEAR, 14.)))
+                    .child(label(name).flex_1().truncate())
+                    .child(super::detail("Command"))
+                    .into_element()
             })
             .collect();
-        view().flex_col().gap(px(2.)).children(items)
+        scroll().max_h(px(LISTED * (ROW_HEIGHT + 2.))).child(view().flex_col().gap(px(2.)).children(items))
     })
 }
 
@@ -169,7 +236,7 @@ pub fn find_rows(ui: Ui) -> View {
                 close_find_tabs(ui);
                 ui.find.set(query.clone());
                 ui.finding.set(true);
-                act(ui, |b| b.find(&query, false));
+                act(ui, |b| b.find_typed(&query));
             })
             .child(view().w(px(18.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::SEARCH, 14.)))
             .child(label(row.label.clone()).flex_1().truncate())
@@ -195,16 +262,11 @@ pub fn close_find_tabs(ui: Ui) {
 
 pub fn qr_panel(ui: Ui) -> AnyElement {
     let Some((code, host)) = ui.qr.get_untracked() else { return view().into_element() };
-    view()
-        .flex_col()
+    super::panels::popover()
         .items_center()
-        .gap_3()
-        .p_4()
         .w(px(260.))
         .self_center()
-        .rounded(px(Theme::radius_card()))
-        .surface()
-        .shadow(Theme::elevation(4., 14.))
+        .child(super::panels::heading(ui, small("Scan to open on a phone")).w_full())
         .child(view().p_2().rounded(px(Theme::radius_row())).bg(rgb(0xffffff)).child(tarn_nsh_shared::qr::qr_code(
             &code,
             crate::browser::tools::QUIET,
