@@ -9,13 +9,12 @@ use gpui::{
     AppContext, Bounds, Context, FontWeight, IntoElement, ObjectFit, ParentElement, Render, RenderImage, SharedString, Styled, StyledImage, Task, Window,
     WindowHandle, div, img, point, px, size,
 };
-use ui::controls::surface;
+use ui::controls::{POPOVER_INSET, open_popup, popover};
 use ui::motion::fade_in;
 use ui::theme::{TEXT, TEXT_SMALL, Theme};
 use url::Url;
 
 use crate::browser::{Browser, TabKey};
-use crate::peek::popup_options;
 use crate::prefs::Pref;
 use crate::sidebar::SIDEBAR_MARGIN;
 
@@ -24,6 +23,8 @@ const WIDTH: f32 = 300.;
 /// Segoe UI, the Windows font, sets lines taller than macOS's.
 const HEIGHT: f32 = if cfg!(windows) { 108. } else { 96. };
 const GAP: f32 = 8.;
+/// The state line ("Sleeping · Muted") and its gap; a card without one is that much shorter.
+const STATE_LINE: f32 = 16.;
 /// The larger card shown while ⌥ is held, with a snapshot of the page above the lines.
 const PEEK_WIDTH: f32 = 400.;
 const SHOT_WIDTH: f32 = PEEK_WIDTH - 24.;
@@ -65,7 +66,8 @@ impl Rest {
 #[derive(Default)]
 pub struct HoverCard {
     rest: Rest,
-    anchor: Option<(Bounds<gpui::Pixels>, Option<gpui::DisplayId>)>,
+    /// Where the card opens, its display, and the bottom edge of the window it must stay above.
+    anchor: Option<(Bounds<gpui::Pixels>, Option<gpui::DisplayId>, gpui::Pixels)>,
     pub(crate) window: Option<WindowHandle<CardWindow>>,
     timer: Option<Task<()>>,
     /// Whether the open card is the ⌥ peek.
@@ -126,7 +128,8 @@ impl Browser {
         let origin = window.bounds().origin;
         let x = origin.x + px(SIDEBAR_MARGIN + self.sidebar_width + GAP);
         let y = origin.y + window.mouse_position().y - px(LIFT);
-        self.hover_card.anchor = Some((Bounds::new(point(x, y), size(px(WIDTH), px(HEIGHT))), window.display(cx).map(|d| d.id())));
+        let bottom = window.bounds().bottom();
+        self.hover_card.anchor = Some((Bounds::new(point(x, y), size(px(WIDTH), px(HEIGHT))), window.display(cx).map(|d| d.id()), bottom));
         self.hover_card.rest.enter(key, Instant::now());
         self.schedule_hover_card(window, cx);
     }
@@ -158,26 +161,29 @@ impl Browser {
         if live {
             self.request_shot(key, cx);
         }
-        let (Some((mut bounds, display)), Some(lines)) = (self.hover_card.anchor, lines(self, key)) else { return };
         if self.hover_card.window.is_some() {
             return;
         }
+        let (Some((mut bounds, display, bottom)), Some(lines)) = (self.hover_card.anchor, lines(self, key)) else { return };
         if live {
             bounds.size = size(px(PEEK_WIDTH), px(HEIGHT + SHOT_HEIGHT + 8.));
         }
+        if lines.2.is_empty() {
+            bounds.size.height -= px(STATE_LINE);
+        }
+        bounds.origin.y = bounds.origin.y.min(bottom - bounds.size.height - px(GAP));
+        let bounds = bounds.dilate(px(POPOVER_INSET));
         let shot = self.hover_card.shot.as_ref().filter(|(k, _)| *k == key).map(|(_, image)| image.clone());
         self.hover_card.live = live;
         let reduce = self.pref(Pref::ReduceMotion);
         let browser = cx.entity().downgrade();
         cx.defer(move |cx| {
-            let handle = cx.open_window(popup_options(bounds, display, false), |window, cx| {
-                if let Some(host) = engine::Host::from_window(window) {
-                    host.strip_frame();
-                    host.round_corners(0., 0., 0., 0., f64::from(ui::theme::Theme::radius_panel()));
-                }
-                cx.new(|_| CardWindow { lines, reduce, live, shot })
-            });
-            let Ok(handle) = handle else { return };
+            let (handle, host) =
+                open_popup(cx, bounds, display, false, [POPOVER_INSET; 4], Theme::radius_panel(), |_, _| CardWindow { lines, reduce, live, shot });
+            if let Some(host) = host {
+                host.ignore_mouse();
+            }
+            let Some(handle) = handle else { return };
             let kept = browser.update(cx, |b, _| {
                 let current =
                     b.hover_card.rest.due(Instant::now()).is_some_and(|(k, _)| k == key) && b.hover_card.window.is_none() && b.hover_card.live == live;
@@ -271,8 +277,7 @@ impl CardWindow {
 impl Render for CardWindow {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let (title, place, state) = self.lines.clone();
-        let card = surface(Theme::radius_panel())
-            .size_full()
+        let card = popover(Theme::radius_panel(), POPOVER_INSET)
             .px_3()
             .py_2p5()
             .flex()
@@ -298,7 +303,7 @@ impl Render for CardWindow {
                     .text_ellipsis()
                     .child(SharedString::from(place)),
             )
-            .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(SharedString::from(state)));
+            .when(!state.is_empty(), |d| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(SharedString::from(state))));
         fade_in(card, "hover-card", self.reduce)
     }
 }

@@ -10,6 +10,16 @@ pub fn named<'a>(tabs: &'a [Tab], query: &str, title: impl Fn(&Tab) -> String) -
     tabs.iter().filter(|t| !query.is_empty() && (title(t).to_lowercase().contains(&lower) || t.url.to_lowercase().contains(&lower))).take(MAX_ROWS).collect()
 }
 
+/// What the find bar says about `count` matches; nothing before a search ran.
+pub fn count_label(count: Option<usize>) -> String {
+    match count {
+        None => String::new(),
+        Some(0) => "No matches".to_owned(),
+        Some(1) => "1 match".to_owned(),
+        Some(n) => format!("{n} matches"),
+    }
+}
+
 /// Puts `rows` after the `text_rows` already listed, keeps the selection on its row and at most `MAX_ROWS` rows.
 pub fn insert_text_rows<T>(list: &mut Vec<T>, selected: &mut usize, text_rows: &mut usize, rows: Vec<T>) {
     let at = *text_rows;
@@ -29,6 +39,14 @@ mod tests {
 
     fn rows(labels: &[&'static str]) -> Vec<&'static str> {
         labels.to_vec()
+    }
+
+    #[test]
+    fn the_find_bar_names_the_count() {
+        assert_eq!(count_label(None), "");
+        assert_eq!(count_label(Some(0)), "No matches");
+        assert_eq!(count_label(Some(1)), "1 match");
+        assert_eq!(count_label(Some(12)), "12 matches");
     }
 
     #[test]

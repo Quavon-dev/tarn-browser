@@ -1,7 +1,7 @@
 use engine::menu::{self, Item};
 use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
-use gpui::{ClipboardItem, Context, PromptLevel, Window};
+use gpui::{ClipboardItem, Context, PromptLevel, Window, px};
 use store::{Counter, Id, Tab, TabKind, WebEngine};
 use url::Url;
 
@@ -54,7 +54,11 @@ pub enum Cmd {
     SetPinnedUrl(TabKey),
     Sleep(Vec<TabKey>),
     SiteSettings,
+    PasteAndGo,
     Split(TabKey),
+    LeaveSplit(TabKey),
+    RotateSplit(TabKey),
+    CloseSplit(TabKey),
     SwitchWebEngine(TabKey, WebEngine),
 }
 
@@ -91,26 +95,24 @@ impl Browser {
             });
         }
         items.extend([
+            Item::Separator,
             Item::action("Copy Link", Cmd::CopyLink(key, false)).key(if active { crate::shortcuts::keys(&crate::CopyLink, cx) } else { String::new() }),
             Item::action("Copy Clean Link", Cmd::CopyLink(key, true)).key(if active {
                 crate::shortcuts::keys(&crate::CopyCleanLink, cx)
             } else {
                 String::new()
             }),
-            // The shortcut opens or closes the whole split, so only those entries name it.
-            Item::action(self.split_label(key), Cmd::Split(key)).key(if active && matches!(self.split_label(key), "Open in Split View" | "Close Split View") {
-                crate::shortcuts::keys(&crate::split::ToggleSplitView, cx)
-            } else {
-                String::new()
-            }),
+            Item::action("Bookmark Tab…", Cmd::Bookmark(key)).key(if active { crate::shortcuts::keys(&crate::BookmarkTab, cx) } else { String::new() }),
             Item::Separator,
-            Item::action(if ephemeral { "Pin Tab" } else { "Unpin Tab" }, Cmd::TogglePin(key))
+            self.split_menu(key, cx),
+            Item::Separator,
+            Item::action(crate::tabs::state_label(&crate::TogglePin, !ephemeral).unwrap_or_default(), Cmd::TogglePin(key))
                 .key(if active { crate::shortcuts::keys(&crate::TogglePin, cx) } else { String::new() })
                 .enabled(!self.model.burner_shown()),
             Item::action(if tab.kind == TabKind::Tile { "Remove from Tiles" } else { "Add to Tiles" }, Cmd::ToggleTile(key))
                 .enabled(!self.model.burner_shown()),
         ]);
-        items.push(Item::action("Rename…", Cmd::Rename(RenameTarget::Tab(key.id))).enabled(tab.kind != TabKind::Tile));
+        items.push(Item::action("Rename", Cmd::Rename(RenameTarget::Tab(key.id))).enabled(tab.kind != TabKind::Tile));
         if !tab.custom_title.is_empty() {
             items.push(Item::action("Reset Title", Cmd::ResetTitle(key)));
         }
@@ -118,6 +120,7 @@ impl Browser {
             items.push(Item::action(format!("Return to {host}"), Cmd::ReturnToPinned(key)));
             items.push(Item::action("Set Pinned URL to Current Page", Cmd::SetPinnedUrl(key)));
         }
+        items.push(Item::Separator);
         if !spaces.is_empty() {
             items.push(Item::Submenu("Move to Space".into(), spaces));
         }
@@ -127,7 +130,10 @@ impl Browser {
                 .groups
                 .iter()
                 .filter(|g| Some(g.id) != group)
-                .map(|g| Item::action(ui::text::bounded_title(&g.name), Cmd::SetGroup(key, Some(g.id))))
+                .map(|g| {
+                    let dot = engine::menu::Image::Dot(crate::sidebar::group_rgb(g));
+                    Item::action(ui::text::bounded_title(&g.name), Cmd::SetGroup(key, Some(g.id))).image(Some(dot))
+                })
                 .collect();
             if !groups.is_empty() {
                 groups.push(Item::Separator);
@@ -138,12 +144,11 @@ impl Browser {
                 items.push(Item::action("Remove from Group", Cmd::SetGroup(key, None)));
             }
         }
-        items.push(Item::action("Bookmark…", Cmd::Bookmark(key)).key(if active { crate::shortcuts::keys(&crate::BookmarkTab, cx) } else { String::new() }));
-        items.push(self.mute_item(key));
         let rest = self.model.other_tabs(key);
         let sleepers = rest.iter().any(|k| !self.sleeping(*k) && self.model.active != Some(*k));
         items.extend([
             Item::Separator,
+            self.mute_item(key),
             Item::action("Sleep Tab", Cmd::Sleep(vec![key])).enabled(!active && !self.sleeping(key)),
             Item::action("Sleep Other Tabs", Cmd::Sleep(rest)).enabled(sleepers),
             Item::Separator,
@@ -157,14 +162,13 @@ impl Browser {
             items.push(Item::action("Close Other Tabs", Cmd::CloseOthers(key)).enabled(others));
             items.push(Item::action("Close Tabs Below", Cmd::CloseBelow(key)).enabled(below));
         }
-        items.push(Item::action("Close Duplicate Tabs", Cmd::CloseDuplicates).enabled(!self.duplicate_tabs().is_empty()));
         self.show_menu(items, window, cx);
     }
 
     pub fn folder_menu(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
         let items = vec![
             Item::action("Rename", Cmd::Rename(RenameTarget::Folder(id))),
-            Item::action("New Folder", Cmd::NewFolder(Some(id))),
+            Item::action("New Subfolder", Cmd::NewFolder(Some(id))),
             Item::Separator,
             Item::action("Delete Folder…", Cmd::DeleteFolder(id)),
         ];
@@ -178,6 +182,7 @@ impl Browser {
             self.group_color_menu(id, Cmd::Group),
             Item::Separator,
             Item::action("Ungroup", Cmd::Ungroup(id)),
+            Item::Separator,
             Item::action("Close Group", Cmd::CloseGroup(id)),
         ];
         self.show_menu(items, window, cx);
@@ -191,7 +196,10 @@ impl Browser {
             .profiles()
             .unwrap_or_default()
             .into_iter()
-            .map(|p| Item::action(ui::text::bounded_title(&p.name), Cmd::EditProfile(p.id)).checked(current == Some(p.id)))
+            .map(|p| {
+                let dot = ui::theme::PROFILE_COLORS.iter().find(|(name, _)| *name == p.color).map(|(_, rgb)| engine::menu::Image::Dot(*rgb));
+                Item::action(ui::text::bounded_title(&p.name), Cmd::EditProfile(p.id)).checked(current == Some(p.id)).image(dot)
+            })
             .collect();
         let items = vec![
             Item::action("New Tab", Cmd::NewTab).key(crate::shortcuts::keys(&crate::NewTab, cx)),
@@ -212,17 +220,23 @@ impl Browser {
             Item::action("Close All Tabs", Cmd::CloseAll)
                 .key(crate::shortcuts::keys(&crate::CloseAllTabs, cx))
                 .enabled(!self.model.ephemeral_keys().is_empty()),
+            Item::action("Close Duplicate Tabs", Cmd::CloseDuplicates).enabled(!self.duplicate_tabs().is_empty()),
         ];
         self.show_menu(items, window, cx);
     }
 
     pub fn space_menu(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let items = vec![
+        let mut items = Vec::new();
+        // The space name is edited inline in the sidebar header, which shows the current space only.
+        if ix == self.model.space_ix {
+            items.push(Item::action("Rename", Cmd::Rename(RenameTarget::Space(self.model.spaces[ix].space.id))));
+        }
+        items.extend([
             Item::action("Edit Space…", Cmd::EditSpace(ix)),
             Item::action("New Space…", Cmd::NewSpace).key(crate::shortcuts::keys(&crate::NewSpace, cx)),
             Item::Separator,
             Item::action("Delete Space…", Cmd::DeleteSpace(ix)).enabled(self.model.can_delete_space(ix)),
-        ];
+        ]);
         self.show_menu(items, window, cx);
     }
 
@@ -242,9 +256,25 @@ impl Browser {
         self.show_menu(items, window, cx);
     }
 
+    /// The address at rest: copy it, or go to the address or search on the clipboard.
+    pub fn address_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(key) = self.model.active else { return };
+        let clipboard = cx.read_from_clipboard().and_then(|item| item.text()).is_some_and(|t| !t.trim().is_empty());
+        let mut items = vec![
+            Item::action("Copy Link", Cmd::CopyLink(key, false)).key(crate::shortcuts::keys(&crate::CopyLink, cx)),
+            Item::action("Copy Clean Link", Cmd::CopyLink(key, true)).key(crate::shortcuts::keys(&crate::CopyCleanLink, cx)),
+            Item::action("Paste and Go", Cmd::PasteAndGo).enabled(clipboard),
+        ];
+        if self.site().is_some() {
+            items.extend([Item::Separator, Item::action("Site Settings…", Cmd::SiteSettings)]);
+        }
+        self.show_menu(items, window, cx);
+    }
+
     fn mute_item(&self, key: TabKey) -> Item<Cmd> {
         let host = self.tab_url(key).and_then(|u| super::tab_host(&u));
-        Item::action(if self.tab_muted(key) { "Unmute Site" } else { "Mute Site" }, Cmd::ToggleMute(key)).enabled(host.is_some())
+        Item::action(crate::tabs::state_label(&crate::menubar::ToggleMute, self.tab_muted(key)).unwrap_or_default(), Cmd::ToggleMute(key))
+            .enabled(host.is_some())
     }
 
     /// The menu runs AppKit's modal tracking loop, so it opens from a task, outside this update.
@@ -256,7 +286,7 @@ impl Browser {
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, items, move |cmd| {
+            menu::show(&host, items, None, move |cmd| {
                 tx.send(cmd).ok();
             });
             this.update(cx, |b, _| b.menu_open = false).ok();
@@ -286,6 +316,15 @@ impl Browser {
         let Some(host) = self.host.clone() else { return };
         // This window's menus, not the app-wide ones another window may have set last.
         let (menus, mut marks) = crate::menus(self.dynamic_menus());
+        let (can_back, can_forward) = self.model.active.and_then(|k| self.pages.get(&k)).map_or((false, false), |p| (p.can_back, p.can_forward));
+        let (no_closed, no_tabs, no_active) = (self.model.closed_tabs.is_empty(), self.model.ephemeral_keys().is_empty(), self.model.active.is_none());
+        let idle = move |a: &dyn gpui::Action| {
+            a.partial_eq(&crate::Back) && !can_back
+                || a.partial_eq(&crate::Forward) && !can_forward
+                || a.partial_eq(&crate::ReopenClosedTab) && no_closed
+                || a.partial_eq(&crate::CloseAllTabs) && no_tabs
+                || no_active && (a.partial_eq(&crate::CloseTab) || a.partial_eq(&crate::BookmarkTab) || a.partial_eq(&crate::Print))
+        };
         let items = menus
             .into_iter()
             .map(|m| {
@@ -294,13 +333,15 @@ impl Browser {
                     .find(|(name, _)| m.name == *name)
                     .map(|(_, marks)| marks.drain(..).map(|k| (k.title, k.checked, k.image)).collect())
                     .unwrap_or_default();
-                app_menu(m.owned(), &mut marked.into_iter().peekable(), cx)
+                app_menu(m.owned(), &mut marked.into_iter().peekable(), &idle, cx)
             })
             .collect();
+        let button = self.app_menu_anchor.get();
+        let at = (button.size.width > px(0.)).then(|| (f32::from(button.origin.x).into(), f32::from(button.bottom()).into()));
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, items, move |action: Box<dyn gpui::Action>| {
+            menu::show(&host, items, at, move |action: Box<dyn gpui::Action>| {
                 tx.send(action).ok();
             });
             this.update(cx, |b, _| b.menu_open = false).ok();
@@ -373,10 +414,32 @@ impl Browser {
             Cmd::SetPinnedUrl(key) => self.set_pinned_url(key, cx),
             Cmd::Sleep(keys) => self.sleep_tabs(keys, cx),
             Cmd::SiteSettings => self.toggle_site_settings(window, cx),
-            Cmd::Split(key) if self.in_split(key) => self.leave_split(key, window, cx),
+            Cmd::PasteAndGo => {
+                self.open_command(super::CommandMode::Current, window, cx);
+                self.command.update(cx, |input, cx| input.paste_and_go(window, cx));
+            }
             Cmd::Split(key) => self.split_with(key, window, cx),
+            Cmd::LeaveSplit(key) => self.leave_split(key, window, cx),
+            Cmd::RotateSplit(key) => self.rotate_split(key, cx),
+            Cmd::CloseSplit(key) => self.close_split(key, cx),
             Cmd::SwitchWebEngine(key, engine) => self.switch_web_engine(key, engine, window, cx),
         }
+    }
+
+    /// The tab menu's Split View entries. The shortcuts act on the active tab, so only its menu
+    /// names them.
+    fn split_menu(&self, key: TabKey, cx: &gpui::App) -> Item<Cmd> {
+        let menu = self.splits.menu(self.model.active, key);
+        let keys = |action: &dyn gpui::Action, on: bool| if on && self.model.active == Some(key) { crate::shortcuts::keys(action, cx) } else { String::new() };
+        Item::Submenu(
+            "Split View".into(),
+            vec![
+                Item::action(menu.entry.label(), Cmd::Split(key)).enabled(menu.enabled).key(keys(&crate::split::ToggleSplitView, menu.enabled)),
+                Item::action("Remove from Split View", Cmd::LeaveSplit(key)).enabled(menu.member).key(keys(&crate::split::RemoveFromSplitView, menu.member)),
+                Item::action("Rotate Layout", Cmd::RotateSplit(key)).enabled(menu.member).key(keys(&crate::split::RotateSplitLayout, menu.member)),
+                Item::action("Close Split View", Cmd::CloseSplit(key)).enabled(menu.member).key(keys(&crate::split::ToggleSplitView, menu.member)),
+            ],
+        )
     }
 
     pub(crate) fn tab_url(&self, key: TabKey) -> Option<String> {
@@ -461,7 +524,9 @@ impl Browser {
         // Closing the burner's tab leaves the burner, so whether it was shown is read first.
         let burner = self.model.burner_shown();
         let active = self.model.active.filter(|a| keys.contains(a));
-        let next = active.and_then(|a| self.model.close_neighbour(a, &keys, self.pref(crate::prefs::Pref::ClosePrevious)));
+        // A split that keeps two panes keeps the focus too.
+        let next =
+            active.and_then(|a| self.splits.heir(a, &keys).or_else(|| self.model.close_neighbour(a, &keys, self.pref(crate::prefs::Pref::ClosePrevious))));
         self.hide_hover_card(cx);
         let mut tabs: Vec<ClosedTab> = keys.into_iter().filter_map(|key| self.close_one(key, cx)).collect();
         self.reload_space();
@@ -549,6 +614,7 @@ impl Browser {
     /// Drops a tab's live state and its row without remembering it as closed.
     pub(crate) fn discard_tab(&mut self, key: TabKey, cx: &mut Context<Self>) -> bool {
         let was_active = self.model.active == Some(key);
+        self.splits.leave(key);
         self.hibernate(key, cx);
         self.pages.remove(&key);
         was_active
@@ -665,16 +731,21 @@ type Marked = (String, bool, Option<engine::menu::Image>);
 
 /// One of the app's menus as a native submenu with its shortcuts and the check marks the menu
 /// bar would show, matched in order by title (`menubar::Dynamic::marks`); headings and commands
-/// with nothing to do here are greyed, macOS-only commands and system menus left out, and so are
+/// with nothing to do here (`idle`) are greyed, macOS-only commands and system menus left out, and so are
 /// separators that would end up doubled or at an edge.
-fn app_menu(menu: gpui::OwnedMenu, marks: &mut std::iter::Peekable<std::vec::IntoIter<Marked>>, cx: &gpui::App) -> Item<Box<dyn gpui::Action>> {
+fn app_menu(
+    menu: gpui::OwnedMenu,
+    marks: &mut std::iter::Peekable<std::vec::IntoIter<Marked>>,
+    idle: &dyn Fn(&dyn gpui::Action) -> bool,
+    cx: &gpui::App,
+) -> Item<Box<dyn gpui::Action>> {
     let mut items: Vec<Item<Box<dyn gpui::Action>>> = Vec::new();
     for item in menu.items {
         let next = match item {
             gpui::OwnedMenuItem::Separator => Item::Separator,
             gpui::OwnedMenuItem::Submenu(submenu) => {
                 marks.next_if(|(title, ..)| *title == submenu.name.as_ref());
-                app_menu(submenu, marks, cx)
+                app_menu(submenu, marks, idle, cx)
             }
             gpui::OwnedMenuItem::SystemMenu(_) => continue,
             gpui::OwnedMenuItem::Action { name, action, .. } if crate::shortcuts::macos_only(&*action) => {
@@ -683,8 +754,9 @@ fn app_menu(menu: gpui::OwnedMenu, marks: &mut std::iter::Peekable<std::vec::Int
             }
             gpui::OwnedMenuItem::Action { name, action, .. } => {
                 let (checked, image) = marks.next_if(|(title, ..)| *title == name).map_or((false, None), |(_, on, image)| (on, image));
-                let idle =
-                    action.partial_eq(&crate::menubar::Heading) || (action.partial_eq(&crate::CheckForUpdates) && crate::shared::core(cx).updater.is_none());
+                let idle = idle(&*action)
+                    || action.partial_eq(&crate::menubar::Heading)
+                    || (action.partial_eq(&crate::CheckForUpdates) && crate::shared::core(cx).updater.is_none());
                 let keys = crate::shortcuts::keys(&*action, cx);
                 Item::action(name, action).key(keys).checked(checked).enabled(!idle).image(image)
             }

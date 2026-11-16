@@ -3,59 +3,23 @@ use std::time::Duration;
 use browser_core::shield_card::{Card, H, Label, W, back, face, front, thousands, week_rows};
 use browser_core::tabs::TabKey;
 use engine::reader::Block;
-use nsh_base::{button, input};
+use nsh_base::button;
 use nsh_core::prelude::*;
 use store::Schedule;
 use tarn_nsh_shared::card::{Words, picture, week_bars};
 
-use super::{Screen, Ui, accent_pill, caption, icon_button, icons, label, pill, segmented, small, surface, switch_row};
+use super::{
+    Screen, Ui, accent_pill, caption, detail_row, framed, icon_button, icons, label, pill, section, segmented, small, surface, switch_row, text_field,
+};
 use crate::scripts::{FindRow, Transfer, TransferState};
 use crate::theme::{TEXT_HEADING, TEXT_TITLE, TOUCH_TARGET, Theme};
 
 const QR_SIZE: f32 = 240.;
+pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-fn section(name: &'static str) -> impl IntoElement {
-    label(name).font_weight(FontWeight::SEMIBOLD).px_1().pt_3()
-}
-
-fn framed(rows: View) -> View {
-    tarn_nsh_shared::controls::group().overflow_hidden().child(rows)
-}
-
-fn field(value: Signal<String>, name: &'static str) -> impl IntoElement {
-    input()
-        .value(move || value.get())
-        .on_change(move |v: &str| value.set(v.to_owned()))
-        .auto_capitalize(AutoCapitalize::None)
-        .placeholder(name)
-        .placeholder_color(Theme::faint)
-        .label(name)
-        .test_id(name)
-        .h(px(TOUCH_TARGET))
-        .px_3()
-        .rounded(px(Theme::radius_row()))
-        .bg(Theme::raised)
-        .border_1()
-        .border_color(Theme::hairline)
-        .text_size(px(TEXT_TITLE))
-        .text_color(Theme::text)
-}
-
 fn row_button(name: String, detail: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
-    button()
-        .accessibility_label(SharedString::from(name.clone()))
-        .flex_row()
-        .items_center()
-        .gap_3()
-        .min_h(px(TOUCH_TARGET))
-        .px_3()
-        .py_1()
-        .border_b_1()
-        .border_color(Theme::separator)
-        .active(|s| s.bg(Theme::pressed))
-        .on_press(press)
-        .child(view().flex_1().child(label(name).number_of_lines(1)).child(detail.map(|d| caption(d).number_of_lines(2))))
+    detail_row(None, name, detail.map(|d| caption(d).number_of_lines(2)), press)
 }
 
 pub fn reader(ui: Ui) -> impl IntoElement {
@@ -133,31 +97,20 @@ pub fn find_tabs(ui: Ui) -> impl IntoElement {
     view()
         .gap_2()
         .child(
-            input()
+            text_field("Find in this space's tabs", "Find in Tabs")
                 .auto_focus(true)
                 .value(move || query.get())
                 .on_change(move |v: &str| {
                     let typed = v.to_owned();
                     query.set(typed.clone());
-                    set_timeout(Duration::from_millis(150), move || {
+                    set_timeout(FIND_DELAY, move || {
                         if query.get_untracked() == typed {
                             ui.act(|s| s.find_in_tabs(&typed));
                         }
                     });
                 })
                 .return_key_type(ReturnKeyType::Search)
-                .placeholder("Find in this space's tabs")
-                .placeholder_color(Theme::faint)
-                .label("Find in Tabs")
-                .test_id("find-tabs")
-                .h(px(TOUCH_TARGET))
-                .px_3()
-                .rounded(px(Theme::radius_row()))
-                .bg(Theme::raised)
-                .border_1()
-                .border_color(Theme::hairline)
-                .text_size(px(TEXT_TITLE))
-                .text_color(Theme::text),
+                .test_id("find-tabs"),
         )
         .child(framed(view().child(each(
             rows,
@@ -215,7 +168,7 @@ pub fn qr(ui: Ui) -> impl IntoElement {
 }
 
 pub fn reading_list(ui: Ui) -> impl IntoElement {
-    let rows = move || ui.read(|s| s.reading_list());
+    let rows = move || ui.read_data(|s| s.reading_list());
     view().gap_2().child(caption("Pages you saved for later, kept as bookmarks in the Reading List folder.").px_1()).child(framed(view().child(each(
         rows,
         |b: &store::Bookmark| b.id,
@@ -271,7 +224,13 @@ pub fn site(ui: Ui) -> impl IntoElement {
                 ))))
                 .child(caption("Inverts the page's colours for sites without a dark mode of their own. Off under Lockdown.").px_1())
                 .child(section("Site CSS"))
-                .child(field(css, "Site CSS"))
+                .child(
+                    text_field("Site CSS", "Site CSS")
+                        .value(move || css.get())
+                        .on_change(move |v: &str| css.set(v.to_owned()))
+                        .auto_capitalize(AutoCapitalize::None)
+                        .test_id("Site CSS"),
+                )
                 .child(view().flex_row().gap_2().child(pill("Save CSS", move || {
                     let value = css.get_untracked();
                     ui.act(|s| {
@@ -436,7 +395,7 @@ pub fn space_edit(ui: Ui, ix: usize) -> impl IntoElement {
 }
 
 pub fn snapshots(ui: Ui, name: Signal<String>) -> impl IntoElement {
-    let rows = move || ui.read(|s| s.snapshots());
+    let rows = move || ui.read_data(|s| s.snapshots());
     let none = move || rows().is_empty();
     view()
         .gap_2()
@@ -473,9 +432,12 @@ pub fn snapshots(ui: Ui, name: Signal<String>) -> impl IntoElement {
                             .flex_1(),
                         )
                         .child(icon_button(icons::TRASH, "Delete Snapshot", move || {
-                            ui.act(|s| {
-                                s.delete_snapshot(&remove);
-                                Vec::new()
+                            let remove = remove.clone();
+                            super::panels::confirm("Delete this snapshot?", "Its saved tabs cannot be restored afterwards.", "Delete", move || {
+                                ui.act(|s| {
+                                    s.delete_snapshot(&remove);
+                                    Vec::new()
+                                })
                             })
                         }))
                 },
@@ -637,6 +599,7 @@ pub fn picking_banner(ui: Ui) -> impl IntoElement {
                 .pl_4()
                 .pr_1()
                 .py_1()
+                .shadow(Theme::elevation(4., 14.))
                 .child(label("Tap an element to hide it on this site.").flex_1())
                 .child(pill("Cancel", move || ui.act(|s| s.cancel_pick())))
         })

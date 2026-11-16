@@ -8,10 +8,49 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- The find bar counts the matches on the page ("3 matches") on macOS and Windows.
+- Right click on the address shows Copy Link, Copy Clean Link, Paste and Go and Site Settings;
+  every text field offers Cut, Copy, Paste and Select All, the address field also Paste and Go
+  (macOS, Windows).
+- Tab and Shift+Tab move through the controls of Site Settings, Downloads and Settings with a
+  visible focus ring; Enter or Space acts on the focused one, and Up/Down walk the downloads list
+  (macOS, Windows).
 - Settings › Permissions lists the camera, microphone, location and pop-up answers a profile
   remembered, with Allow, Block and Forget (macOS, Windows, Linux, iOS, Android).
 - Split view holds up to four tabs; drop a tab on another tab in the sidebar to split them
-  (macOS, Windows).
+  (macOS, Windows, Linux). A window keeps several splits for the session, and selecting one of
+  their tabs shows that split again. Each pane has a header to focus it, open its tab menu, remove
+  or close it, or drag it onto another pane to swap the two; both dividers drag, a double click
+  evens them out, Rotate Split Layout stacks the panes, and the tab menu has a Split View submenu.
+  New shortcuts focus the next or previous pane (⌃⌘] / ⌃⌘[ on macOS, Ctrl+Alt+] / [ on Linux),
+  swap panes, rotate and remove a tab. On iOS and Android tablets a split shows its panes side by
+  side with a header each, and the Tabs sheet opens, rotates and closes it.
+- macOS and Windows: `>` in the address field lists every command in a scrolling list, leaves out
+  commands with nothing to act on and names Pin, Mute and Split by state; suggestions wrap at the
+  ends and Page Up / Page Down jump to the first and last row; Esc declines a page's dialog or
+  permission prompt and Enter accepts an alert or confirm; the tab, space and folder menus are
+  regrouped (Rename Space, New Subfolder), library rows offer Copy Link, menus show colour dots
+  and check marks, and a toast with a button stays 10 seconds.
+- Linux: Up and Down pick address suggestions, right click opens the menu of any tab, the find bar
+  counts matches and Ctrl+G / Ctrl+Shift+G step through them, icon buttons have tooltips, and Clear
+  History, Clear Website Data and snapshot Delete ask for a confirmation.
+- Linux: `>` lists every command in a scrolling list, leaves out commands with nothing to act on
+  and names Pin and Split by state; suggestions wrap and Page Up / Page Down jump to the ends; Esc
+  declines a page's dialog or permission prompt and Enter accepts an alert or confirm; the find
+  bar's count clears while typing; a toast with a button stays 10 seconds; the space and folder
+  panels rename (New Subfolder in a folder's), History and Reading List rows offer Copy Link, each
+  panel closes from its header, both Clear buttons for downloads ask for a confirmation, the
+  sidebar's space buttons are 28 points and wrap to a second row, and dragging a tab row onto
+  another row's edge moves it there.
+- Android: the system back gesture closes a prompt, a sheet or the address field before it goes
+  back in the page; iOS and Android sheets have a Back button to the sheet they came from.
+- iOS and Android tablets: a split's dividers drag and a double tap evens them out, a pane header
+  dropped on another pane swaps the two, and a tap on a pane's page focuses it. With a hardware
+  keyboard, Esc declines a page's dialog or permission prompt without remembering it, Enter
+  accepts an alert or confirm, arrows and Page Up / Page Down pick address suggestions, and
+  ⌘G / ⇧⌘G (Ctrl on Android) and Esc work in the find bar. The menu and Tabs sheet leave out
+  Reopen Closed Tab, Close Duplicates and Zap Element when they have nothing to act on, every tab
+  card offers Move to Space, and deleting a snapshot asks first.
 - Clean Up under New Tab sorts tabs into groups on this device and archives unused tabs (macOS,
   Windows).
 - Tiles arrange themselves: one row while they fit, then as few rows as fit, filled evenly; Add to
@@ -60,6 +99,18 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- iOS and Android: Back and Forward are dimmed when there is nowhere to go, also after a page
+  changes its address in place (`pushState`, a fragment); on iOS, typing in the find bar starts
+  again at the first match instead of stepping forward with every key; a primary button's label
+  turns dark when white would drop under 3:1 on a theme's accent (also Linux); the switch's thumb
+  and off track keep their contrast in the light theme.
+- macOS and Windows: the loading spinner stops when a load fails or the tab sleeps; banners show
+  up to three lines; the site settings popover scrolls when it is tall; the hover card stays
+  inside the window; the reader's controls stay in view while the article scrolls; a switch that
+  is off is visible in the light theme and a primary button's label stays readable on any accent;
+  Windows no longer leaves room for macOS window buttons.
+- iOS and Android: opening a sheet or the address field no longer pauses the page's audio and
+  video, and banners float over the page instead of pushing it down.
 - Windows: pages without a background of their own no longer turn dark grey after a link or a
   pop-up in dark mode.
 - Chromium tabs closed because no update check has verified yet, as on a new install, say so
@@ -131,6 +182,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Pop-ups share one look and motion on macOS and Windows: toasts, the QR code card, the tab hover
+  card and tooltips cast the same shadow as Site Settings and Downloads, the QR card fades out,
+  the shortcuts sheet and reader rise in, and shadows follow one elevation scale. Menus opened from
+  a button (the Windows menu button, "Always open in") drop from the button instead of the pointer.
+  The find bar uses icon buttons with their shortcuts in tooltips. Dragging a tab over another
+  shows a line where it will land. The start page's fog and search effect animate only in the
+  front window.
 - Tarn is now licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`).
   Only Quavon UG (haftungsbeschränkt) may distribute it through app stores
   (`LICENSE-APP-STORE.md`), and the Tarn name, logo and app icon are trademarks (`TRADEMARKS.md`).

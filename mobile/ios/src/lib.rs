@@ -7,6 +7,8 @@ pub mod find;
 #[cfg(target_os = "ios")]
 mod handler;
 #[cfg(target_os = "ios")]
+mod page_root;
+#[cfg(target_os = "ios")]
 mod scripts;
 #[cfg(target_os = "ios")]
 mod stores;

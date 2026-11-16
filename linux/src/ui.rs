@@ -2,6 +2,7 @@ mod appearance;
 mod library;
 mod panels;
 mod settings;
+mod split;
 mod tools;
 
 use std::cell::{Cell, RefCell};
@@ -39,13 +40,15 @@ const CARD_WIDTH: f32 = 680.;
 const ADDRESS_WIDTH: f32 = 560.;
 const CLOSE_WIDTH: f32 = 28.;
 const CLOSE_GAP: f32 = 10.;
-const CLOSE_MS: f32 = 130.;
 const TILE_GAP: f32 = 6.;
 const TILE_HEIGHT: f32 = 40.;
+/// A space button as big as the footer's icon buttons; more spaces than fit wrap to another row.
+const SPACE_BUTTON: f32 = 28.;
 /// The sidebar list's width inside its border and padding.
 const LIST_WIDTH: f32 = SIDEBAR_WIDTH - 2. - 16.;
 use crate::webview;
 
+const ELLIPSIS: &str = include_str!("../../crates/ui/icons/ellipsis.svg");
 const PLACEMENT: &str = "linux.window_placement";
 const SCHEDULE_TICK: std::time::Duration = std::time::Duration::from_secs(60);
 const SAMPLE_TICK: std::time::Duration = std::time::Duration::from_secs(5);
@@ -73,6 +76,7 @@ pub enum Panel {
     Memory,
     ReadingList,
     Qr,
+    Folder(store::Id),
 }
 
 #[derive(Clone, Copy)]
@@ -114,16 +118,39 @@ pub struct Ui {
     toast_timer: Signal<u64>,
     reloaded: Signal<u64>,
     settings_pane: Signal<tarn_nsh_shared::panes::Pane>,
+    /// The suggestion row the arrow keys chose; 0 is what was typed.
+    picked: Signal<usize>,
+    /// The address history of the profile it was read for.
+    history: Signal<(Option<Profile>, Rc<Vec<store::HistoryEntry>>)>,
+    /// The tab the Tab panel is about; `None` is the active one.
+    tab_menu: Signal<Option<TabKey>>,
+    confirm: Signal<Option<String>>,
+    /// The name field of the space or folder panel; empty until it shows the current name.
+    rename: Signal<String>,
+    /// What `rename` names, so a panel that changes target starts from the new name.
+    rename_for: Signal<String>,
     open: Signal<bool>,
+    /// The page area's size, which places the panes of a split.
+    area: Signal<(f32, f32)>,
+    /// The tab whose row or pane header is being dragged, and what dropping it now does where.
+    dragging: Signal<Option<TabKey>>,
+    split_drop: Signal<Option<(TabKey, &'static str)>>,
+    resizing: Signal<Option<browser_core::split::Divider>>,
     root: Owner,
 }
 
 pub fn act(ui: Ui, f: impl FnOnce(&mut Browser)) {
     let mut f = Some(f);
-    act_dyn(ui, &mut |b| f.take().into_iter().for_each(|f| f(b)));
+    act_dyn(ui, &mut |b| f.take().into_iter().for_each(|f| f(b)), true);
 }
 
-fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser)) {
+/// `act` for timers and page events: the open panel is rebuilt only when what it shows may have changed.
+fn act_quietly(ui: Ui, f: impl FnOnce(&mut Browser)) {
+    let mut f = Some(f);
+    act_dyn(ui, &mut |b| f.take().into_iter().for_each(|f| f(b)), false);
+}
+
+fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
     let shown = ui.panel.get_untracked() == Panel::None;
     let done = BROWSERS.with_borrow_mut(|windows| {
         let elsewhere = live_elsewhere(windows, ui.window);
@@ -143,6 +170,13 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser)) {
         ))
     });
     let Some((commands, released, cancelled, snap, moved, forgotten)) = done else { return };
+    let rebuild = rebuild
+        || ui.snap.with_untracked(|s| *s != snap)
+        || match ui.panel.get_untracked() {
+            Panel::Memory | Panel::Downloads => true,
+            Panel::Settings => ui.settings_pane.get_untracked() == tarn_nsh_shared::panes::Pane::Profile,
+            _ => false,
+        };
     ui.snap.set(snap);
     if !(released.is_empty() && cancelled.is_empty()) {
         drop(run_on_main_thread(move || {
@@ -156,15 +190,17 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser)) {
             r.command(name, args);
         }
     }
-    ui.rev.update(|r| *r += 1);
+    if rebuild {
+        ui.rev.update(|r| *r += 1);
+    }
     for other in WINDOWS.with_borrow(Vec::clone).into_iter().filter(|o| o.window != ui.window) {
         if let Some(key) = moved
             && read(other, |b| b.model.lifecycle.live().any(|k| k == key)) == Some(true)
         {
-            act_dyn(other, &mut |b| b.give_up(key));
+            act_dyn(other, &mut |b| b.give_up(key), true);
         }
         if read(other, |b| forgotten.iter().any(|k| b.model.tab(*k).is_some() || b.pages.contains_key(k))) == Some(true) {
-            act_dyn(other, &mut Browser::sync_shared);
+            act_dyn(other, &mut Browser::sync_shared, true);
         }
     }
 }
@@ -181,8 +217,36 @@ pub fn show(ui: Ui, panel: Panel) {
     let next = if ui.panel.get_untracked() == panel { Panel::None } else { panel };
     ui.css.set(None);
     ui.css_error.set(None);
+    ui.shortcut_edit.set(None);
+    ui.confirm.set(None);
+    ui.rename.set(String::new());
+    ui.rename_for.set(String::new());
     ui.panel.set(next);
     act(ui, |_| {});
+}
+
+fn tab_menu(ui: Ui, key: TabKey) {
+    ui.tab_menu.set(Some(key));
+    if ui.panel.get_untracked() == Panel::Tab {
+        act(ui, |_| {});
+    } else {
+        show(ui, Panel::Tab);
+    }
+}
+
+pub(super) fn confirmed(ui: Ui, id: String, name: &'static str, run: impl Fn() + Clone + 'static) -> AnyElement {
+    dynamic(move || {
+        let (id, run) = (id.clone(), run.clone());
+        if ui.confirm.with(|c| c.as_deref() == Some(id.as_str())) {
+            let confirm = controls::accent_pill(format!("Confirm {name}"), move || {
+                ui.confirm.set(None);
+                run();
+            });
+            view().flex_row().items_center().gap_2().child(confirm).child(pill("Cancel", move || ui.confirm.set(None))).into_element()
+        } else {
+            pill(name, move || ui.confirm.set(Some(id.clone()))).into_element()
+        }
+    })
 }
 
 fn new_tab(ui: Ui) {
@@ -195,38 +259,52 @@ fn new_tab(ui: Ui) {
 }
 
 fn web_views(ui: Ui) -> View {
-    view().flex_col().child(each(
-        move || ui.snap.with(|s| s.views.clone()),
-        |v| (v.key, v.born),
-        move |item, _| {
-            let (key, born) = item.with_untracked(|v| (v.key, v.born));
-            let web = element_ref();
-            REFS.with_borrow_mut(|refs| refs.insert((ui.window, key), (born, web)));
-            cleanup(move || {
-                REFS.with_borrow_mut(|refs| {
-                    if refs.get(&(ui.window, key)).is_some_and(|(b, _)| *b == born) {
-                        refs.remove(&(ui.window, key));
-                    }
+    view()
+        .relative()
+        .on_layout(move |b: &Bounds<Points>| ui.area.set((b.size.width.0, b.size.height.0)))
+        .on_mouse_move(move |e: &MouseEvent| split::pointer_moved(ui, e))
+        .on_mouse_up(move |_: &MouseEvent| split::released(ui))
+        .child(split::layer(ui))
+        .child(each(
+            move || ui.snap.with(|s| s.views.clone()),
+            |v| (v.key, v.born),
+            move |item, _| {
+                let (key, born) = item.with_untracked(|v| (v.key, v.born));
+                let web = element_ref();
+                REFS.with_borrow_mut(|refs| refs.insert((ui.window, key), (born, web)));
+                cleanup(move || {
+                    REFS.with_borrow_mut(|refs| {
+                        if refs.get(&(ui.window, key)).is_some_and(|(b, _)| *b == born) {
+                            refs.remove(&(ui.window, key));
+                        }
+                    });
                 });
-            });
-            native(webview::NAME)
-                .prop("tab", JsonValue::from(format!("{}-{}", key.private, key.id)))
-                .prop("profile", move || JsonValue::from(item.with(|v| v.profile.clone())))
-                .prop("level", move || JsonValue::from(item.with(|v| v.level.clone())))
-                .prop("levels", move || item.with(|v| v.levels.clone()))
-                .prop("lists", move || JsonValue::from(item.with(|v| v.lists.clone())))
-                .prop("styles", move || item.with(|v| v.styles.clone()))
-                .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
-                .prop("zaps", move || item.with(|v| v.zaps.clone()))
-                .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
-                .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s }))))
-                .prop("active", move || JsonValue::from(item.with(|v| v.active)))
-                .on_native_event(move |event: &NativeEvent| act(ui, |b| b.on_event(key, &event.name, &event.data)))
-                .element_ref(&web)
-                .flex_grow(move || if item.with(|v| v.active) { 1.0_f32 } else { 0.0 })
-                .h(px(0.0))
-        },
-    ))
+                let rect = move || item.with(|v| split::view_rect(ui, v.active, v.pane));
+                native(webview::NAME)
+                    .prop("tab", JsonValue::from(format!("{}-{}", key.private, key.id)))
+                    .prop("profile", move || JsonValue::from(item.with(|v| v.profile.clone())))
+                    .prop("level", move || JsonValue::from(item.with(|v| v.level.clone())))
+                    .prop("levels", move || item.with(|v| v.levels.clone()))
+                    .prop("lists", move || JsonValue::from(item.with(|v| v.lists.clone())))
+                    .prop("styles", move || item.with(|v| v.styles.clone()))
+                    .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
+                    .prop("zaps", move || item.with(|v| v.zaps.clone()))
+                    .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
+                    .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s }))))
+                    .prop("active", move || JsonValue::from(item.with(|v| v.active)))
+                    .on_native_event(move |event: &NativeEvent| {
+                        if &*event.name != "pressed" || read(ui, |b| b.in_split(key) && b.model.active != Some(key)) == Some(true) {
+                            act_quietly(ui, |b| b.on_event(key, &event.name, &event.data));
+                        }
+                    })
+                    .element_ref(&web)
+                    .absolute()
+                    .left(move || px(rect().0))
+                    .top(move || px(rect().1))
+                    .w(move || px(rect().2))
+                    .h(move || px(rect().3))
+            },
+        ))
 }
 
 pub fn site_tile(host: &str, size: f32) -> View {
@@ -280,6 +358,7 @@ fn tiles(ui: Ui) -> View {
                 .rounded(px(Theme::radius_tile()))
                 .border_1()
                 .border_color(move || if active() { Theme::sidebar_edge() } else { Theme::hairline() })
+                .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
                 .child(tile)
                 .into_element()
         },
@@ -315,18 +394,36 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
                     });
                     let hover = move |on: bool| {
                         if !pinned && !reduce_motion() {
-                            slot.animate_layout(LayoutTransition::new(LayoutCurve::EaseOut, CLOSE_MS));
+                            slot.animate_layout(LayoutTransition::new(LayoutCurve::EaseOut, tarn_nsh_shared::motion::FADE.as_secs_f32() * 1000.));
                         }
                         hovered.set(on);
                     };
+                    let dropping = move || ui.split_drop.with(|d| d.filter(|(k, _)| *k == key).map(|(_, does)| does));
+                    // The other tabs of a split carry the edge too: in the accent for the split on screen.
+                    let edge = move || match (active(), item.with(|r| r.split)) {
+                        (true, _) | (false, Some(true)) => Some(Theme::accent()),
+                        (false, Some(false)) => Some(Theme::faint()),
+                        (false, None) => None,
+                    };
                     let tab = row(move || Some(SharedString::from(name())), move || act(ui, |b| b.activate(key)))
+                        .on_press_down(move || ui.dragging.set(Some(key)))
                         .h(px(TAB_ROW))
                         .relative()
                         .pl(px(10. + depth * 16.))
                         .pr_1()
                         .gap(px(CLOSE_GAP))
-                        .bg(move || if active() { Theme::selected() } else { rgba(0) })
-                        .child(when(active, || view().absolute().left(px(0.)).top(px(7.)).bottom(px(7.)).w(px(3.)).rounded_full().bg(Theme::accent())))
+                        .bg(move || match (dropping().is_some(), active()) {
+                            (true, _) => Theme::accent_soft(),
+                            (false, true) => Theme::selected(),
+                            (false, false) => rgba(0),
+                        })
+                        .child(dynamic(move || {
+                            edge().map(|color| view().absolute().left(px(0.)).top(px(7.)).bottom(px(7.)).w(px(3.)).rounded_full().bg(color))
+                        }))
+                        .child(when(
+                            move || dropping().is_some(),
+                            || view().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent()),
+                        ))
                         .child({
                             let mark = computed(move || item.with(|r| (r.loading && !reduce_motion(), r.host.clone())));
                             dynamic(move || match mark.get() {
@@ -356,21 +453,51 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
                             } else {
                                 None
                             };
-                            mark.map(|(icon, tint, name)| view().text_color(tint).accessible(true).label(name).child(icons::icon(icon, 13.)))
+                            mark.map(|(icon, tint, name)| {
+                                view().text_color(tint).accessible(true).label(name).tooltip(controls::tip(name, Placement::Top)).child(icons::icon(icon, 13.))
+                            })
                         }))
+                        .child(dynamic(move || dropping().map(|does| small(does).text_color(Theme::accent()))))
                         .children(close);
-                    view().on_mouse_enter(move |_: &MouseEvent| hover(true)).on_mouse_leave(move |_: &MouseEvent| hover(false)).child(tab).into_element()
+                    // Where the dragged tab lands when dropped here: after this row when it comes from above in the same zone.
+                    let landing = move || {
+                        let dragged = ui.dragging.get().filter(|d| *d != key && hovered.get() && dropping().is_none())?;
+                        read(ui, |b| match (b.model.tab(dragged), b.model.tab(key)) {
+                            (Some(d), Some(t)) => d.kind == t.kind && d.folder_id == t.folder_id && d.position < t.position,
+                            _ => false,
+                        })
+                    };
+                    view()
+                        .relative()
+                        .on_mouse_up(move |_: &MouseEvent| split::drop_on_row(ui, key))
+                        .on_mouse_enter(move |_: &MouseEvent| hover(true))
+                        .on_mouse_leave(move |_: &MouseEvent| {
+                            hover(false);
+                            split::drop_leave(ui, key);
+                        })
+                        .on_mouse_move(move |e: &MouseEvent| split::drop_over(ui, key, browser_core::split::drops_into(e.position.y.0 / TAB_ROW)))
+                        .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
+                        .child(tab)
+                        .child(dynamic(move || {
+                            let line = view().absolute().left(px(6.)).right(px(6.)).h(px(2.)).rounded_full().bg(Theme::accent());
+                            landing().map(|after| if after { line.bottom(px(-2.)) } else { line.top(px(-2.)) })
+                        }))
+                        .into_element()
                 }
-                RowKind::Folder(id) => row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
-                    .h(px(TAB_ROW))
-                    .pl(px(8. + depth * 16.))
+                RowKind::Folder(id) => view()
+                    .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
                     .child(
-                        view()
-                            .text_color(Theme::muted())
-                            .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
+                        row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
+                            .h(px(TAB_ROW))
+                            .pl(px(8. + depth * 16.))
+                            .child(
+                                view()
+                                    .text_color(Theme::muted())
+                                    .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
+                            )
+                            .child(view().text_color(Theme::space_label()).child(icons::icon(icons::FOLDER, 15.)))
+                            .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
                     )
-                    .child(view().text_color(Theme::space_label()).child(icons::icon(icons::FOLDER, 15.)))
-                    .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate())
                     .into_element(),
             }
         },
@@ -385,8 +512,9 @@ fn space_bar(ui: Ui) -> View {
             let (ix, icon, name, private, color) = space.with_untracked(|s| (s.ix, s.icon.clone(), s.label.clone(), s.private, s.color.clone()));
             let source = if private { icons::PERSON } else { icons::space_icon(&icon) };
             controls::row(name, move || act(ui, |b| b.switch_space_by_user(ix)))
-                .w(px(20.))
-                .h(px(20.))
+                .w(px(SPACE_BUTTON))
+                .h(px(SPACE_BUTTON))
+                .flex_none()
                 .px_0()
                 .justify_center()
                 .rounded_full()
@@ -401,11 +529,12 @@ fn space_bar(ui: Ui) -> View {
     view()
         .flex_row()
         .items_center()
-        .h(px(40.))
+        .min_h(px(40.))
+        .py(px(6.))
         .px_1()
-        .child(icon_button(icons::CHEVRON_UP, "History", move || show(ui, Panel::History)))
-        .child(view().flex_row().flex_1().items_center().justify_center().gap(px(2.)).child(spaces))
-        .child(icon_button(icons::GEAR, "This space", move || show(ui, Panel::Space)))
+        .child(icon_button(icons::HISTORY, "History", move || show(ui, Panel::History)))
+        .child(view().flex_row().flex_wrap().flex_1().items_center().justify_center().gap(px(2.)).child(spaces))
+        .child(icon_button(ELLIPSIS, "This space", move || show(ui, Panel::Space)))
         .child(icon_button(icons::PLUS, "New space", move || act(ui, |b| b.new_space())))
 }
 
@@ -448,7 +577,7 @@ fn sidebar(ui: Ui) -> View {
                 .flex_1()
                 .truncate(),
         )
-        .child(icon_button(icons::FOLDER_PLUS, "New folder", move || act(ui, |b| b.new_folder())))
+        .child(icon_button(icons::FOLDER_PLUS, "New folder", move || act(ui, |b| b.new_folder(None))))
         .child(icon_button(icons::BOOKMARK, "Reading List", move || show(ui, Panel::ReadingList)))
         .child(downloads_button(ui));
     let new = controls::pressable("New Tab", move || new_tab(ui))
@@ -498,13 +627,36 @@ fn sidebar(ui: Ui) -> View {
         .child(space_bar(ui))
 }
 
-fn history(ui: Ui) -> Vec<store::HistoryEntry> {
-    read(ui, |b| b.model.profile().map(|(p, id)| b.core.store(p).history(id, 500).unwrap_or_default()).unwrap_or_default()).unwrap_or_default()
+/// Whether a space is private, and its profile.
+type Profile = (bool, store::Id);
+
+fn load_history(ui: Ui) {
+    let (profile, rows) = read(ui, |b| {
+        let profile = b.model.profile();
+        (profile, profile.map(|(p, id)| b.core.store(p).history(id, 500).unwrap_or_default()).unwrap_or_default())
+    })
+    .unwrap_or_default();
+    ui.history.set((profile, Rc::new(rows)));
+}
+
+/// Clears the profile's history, and the cache that would still suggest it.
+fn clear_history(ui: Ui) {
+    act(ui, |b| b.clear_history());
+    ui.history.set(Default::default());
+}
+
+/// The cached history, read again when the space's profile changed since it was loaded.
+fn history(ui: Ui) -> Rc<Vec<store::HistoryEntry>> {
+    if read(ui, |b| b.model.profile()).flatten() != ui.history.with_untracked(|h| h.0) {
+        load_history(ui);
+    }
+    ui.history.with_untracked(|h| h.1.clone())
 }
 
 fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: Signal<String>) {
     let found = read(ui, |b| b.cached_text_matches(query)).flatten();
     let shown = crate::input::with_text(rows.clone(), found.as_deref().unwrap_or_default(), SUGGESTIONS);
+    ui.picked.set(usize::from(tools::listing(query)));
     ui.suggest.set(shown.clone());
     if found.is_some() {
         return;
@@ -521,11 +673,45 @@ fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: S
     });
 }
 
-fn open_tabs(ui: Ui) -> Vec<store::Tab> {
-    read(ui, |b| b.model.tabs.clone()).unwrap_or_default()
+/// Moves the picked row for `key`: up and down wrap at the ends, page up and page down jump to them.
+/// A `>` list has only the command rows, from row 1.
+fn step_pick(ui: Ui, query: Signal<String>, key: &str) {
+    let query = query.get_untracked();
+    let commands = tools::commands(ui, &query).len();
+    let (first, rows) = if tools::listing(&query) { (1, commands) } else { (0, 1 + commands + ui.suggest.with_untracked(Vec::len)) };
+    ui.picked.update(|p| {
+        *p = first
+            + match key {
+                "pageup" => 0,
+                "pagedown" => rows.saturating_sub(1),
+                _ => browser_core::suggest::step_selection(p.saturating_sub(first), rows, key == "down"),
+            }
+    });
+}
+
+/// Enter in the address field or the start card: the picked row of `query`, or what was typed.
+fn submit(ui: Ui, query: Signal<String>, text: String) {
+    let picked = ui.picked.get_untracked();
+    // The command list shows commands only: Enter runs the picked one, or nothing.
+    if tools::listing(&query.get_untracked()) {
+        if let Some((_, command)) = tools::commands(ui, &query.get_untracked()).get(picked.saturating_sub(1)) {
+            tools::pick(ui, *command);
+        }
+        return;
+    }
+    if picked == 0 || ui.find_tabs.get_untracked() {
+        return go(ui, text);
+    }
+    let commands = tools::commands(ui, &query.get_untracked());
+    if let Some((_, command)) = commands.get(picked - 1) {
+        return tools::pick(ui, *command);
+    }
+    let url = ui.suggest.with_untracked(|s| s.get(picked - 1 - commands.len()).map(|(_, url)| url.clone()));
+    go(ui, url.unwrap_or(text));
 }
 
 fn go(ui: Ui, text: String) {
+    ui.picked.set(0);
     if ui.find_tabs.get_untracked() {
         if let Some(row) = ui.snap.with_untracked(|s| s.find_rows.first().cloned()) {
             let mut query = String::new();
@@ -533,7 +719,7 @@ fn go(ui: Ui, text: String) {
             tools::close_find_tabs(ui);
             ui.find.set(query.clone());
             ui.finding.set(true);
-            act(ui, |b| b.find(&query, false));
+            act(ui, |b| b.find_typed(&query));
         }
         return;
     }
@@ -575,6 +761,8 @@ fn address(ui: Ui) -> View {
             ui.address.set(url.clone());
             ui.typed.set(String::new());
             ui.completed.set(None);
+            ui.picked.set(0);
+            load_history(ui);
             ui.editing.set(true);
             ui.address_ref.set_selection(0, url.chars().count() as u32);
         })
@@ -590,10 +778,14 @@ fn address(ui: Ui) -> View {
                 let query = value.to_owned();
                 act(ui, |b| b.find_in_tabs(&query));
             } else if ui.editing.get_untracked() && value != ui.address.get_untracked() {
-                let history = history(ui);
-                let (rows, completion) = suggest::edit(&ui.typed.get_untracked(), value, &open_tabs(ui), &history, SUGGESTIONS, browser_core::now());
+                let (history, typed) = (history(ui), ui.typed.get_untracked());
+                let edit = read(ui, |b| {
+                    let (rows, completion) = suggest::edit(&typed, value, &b.model.tabs, &history, SUGGESTIONS, browser_core::now());
+                    (rows.into_iter().map(|h| (h.title.clone(), h.url.clone())).collect(), completion)
+                });
+                let Some((rows, completion)) = edit else { return };
                 ui.typed.set(value.to_owned());
-                show_suggestions(ui, rows.into_iter().map(|h| (h.title.clone(), h.url.clone())).collect(), value, ui.typed);
+                show_suggestions(ui, rows, value, ui.typed);
                 let full = format!("{value}{}", completion.as_ref().map_or("", |c| c.suffix.as_str()));
                 ui.completed.set(completion.map(|c| (full.clone(), c.url.to_string())));
                 ui.address.set(full.clone());
@@ -602,7 +794,7 @@ fn address(ui: Ui) -> View {
                 }
             }
         })
-        .on_submit(move |value: &str| go(ui, value.to_owned()))
+        .on_submit(move |value: &str| submit(ui, ui.address, value.to_owned()))
         .placeholder(move || if ui.find_tabs.get() { "Find in this space's tabs" } else { "Search or enter address" })
         .label("Address")
         .element_ref(&ui.address_ref)
@@ -648,23 +840,32 @@ fn address(ui: Ui) -> View {
 
 fn toolbar(ui: Ui) -> View {
     let navigation = move || {
-        let enabled = |on: bool| if on { Theme::muted() } else { Theme::faint() };
+        let button = |icon: &str, name: &str, press: fn(Ui)| controls::icon_button_at(icon, name, Placement::Right, move || press(ui));
         view()
             .flex_row()
             .items_center()
             .gap(px(2.))
-            .child(icon_button(icons::SIDEBAR, "Toggle sidebar", move || ui.sidebar.update(|o| *o = !*o)))
-            .child(icon_button(icons::BACK, "Back", move || act(ui, |b| b.back())).text_color(move || enabled(ui.snap.with(|s| s.can_back))))
-            .child(icon_button(icons::FORWARD, "Forward", move || act(ui, |b| b.forward())).text_color(move || enabled(ui.snap.with(|s| s.can_forward))))
+            .child(button(icons::SIDEBAR, "Toggle sidebar", |ui| ui.sidebar.update(|o| *o = !*o)))
+            .child(
+                button(icons::BACK, "Back", |ui| act(ui, |b| b.back()))
+                    .disabled(move || !ui.snap.with(|s| s.can_back))
+                    .disabled_style(|s| s.text_color(Theme::faint())),
+            )
+            .child(
+                button(icons::FORWARD, "Forward", |ui| act(ui, |b| b.forward()))
+                    .disabled(move || !ui.snap.with(|s| s.can_forward))
+                    .disabled_style(|s| s.text_color(Theme::faint())),
+            )
             .child(reload_button(ui))
             .child(private_mark(ui))
     };
     let actions = move || {
-        view().flex_row().items_center().gap(px(2.)).child(icon_button(icons::APP_WINDOW, "Tab", move || show(ui, Panel::Tab))).child(icon_button(
-            icons::GEAR,
-            "Settings",
-            move || show(ui, Panel::Settings),
-        ))
+        let tab = controls::icon_button_at(icons::APP_WINDOW, "Tab", Placement::Left, move || {
+            ui.tab_menu.set(None);
+            show(ui, Panel::Tab);
+        });
+        let settings = controls::icon_button_at(icons::GEAR, "Settings", Placement::Left, move || show(ui, Panel::Settings));
+        view().flex_row().items_center().gap(px(2.)).child(tab).child(settings)
     };
     view().flex_row().items_center().gap_2().h(px(TOOLBAR_HEIGHT)).child(themed(navigation)).child(address(ui)).child(themed(actions))
 }
@@ -688,12 +889,12 @@ fn reload_button(ui: Ui) -> AnyElement {
     dynamic(move || {
         let (loading, reloaded) = state.get();
         if !loading && !reloaded {
-            return icon_button(icons::RELOAD, "Reload", reload).into_element();
+            return controls::icon_button_at(icons::RELOAD, "Reload", Placement::Right, reload).into_element();
         }
         let press = move || if ui.snap.with_untracked(|s| s.loading) { act(ui, |b| b.stop()) } else { reload() };
         let name = if loading { "Stop Loading" } else { "Reload" };
         if reduce_motion() {
-            return icon_button(icons::CLOSE, name, press).into_element();
+            return controls::icon_button_at(icons::CLOSE, name, Placement::Right, press).into_element();
         }
         tarn_nsh_shared::controls::icon_button(tarn_nsh_shared::motion::spinner(16., icons::icon(icons::RELOAD, 16.)), name, press)
             .text_color(Theme::text())
@@ -715,6 +916,7 @@ fn private_mark(ui: Ui) -> AnyElement {
                 .text_color(Secure::warning())
                 .accessible(true)
                 .label(name)
+                .tooltip(controls::tip(name, Placement::Right))
                 .child(icons::icon(glyph, 14.))
         })
     })
@@ -732,6 +934,9 @@ pub(super) fn detail(content: impl IntoReactive<SharedString>) -> Text {
 fn input_row(ui: Ui, query: Signal<String>) -> AnyElement {
     dynamic(move || {
         let text = query.get();
+        if tools::listing(&text) {
+            return None;
+        }
         let engine = read(ui, |b| b.search_engine()).unwrap_or_default();
         let (name, note, rejected) = match classify_input(&text, &ENGINES[engine]) {
             Some(Input::Navigate(u)) => (u.to_string(), "Open".to_owned(), false),
@@ -739,24 +944,41 @@ fn input_row(ui: Ui, query: Signal<String>) -> AnyElement {
             Some(Input::Rejected) => (text.clone(), "This kind of address cannot be opened".to_owned(), true),
             _ => (text.clone(), format!("Search {}", ENGINES[engine].name), false),
         };
-        suggestion_row(name.clone(), move || go(ui, query.get_untracked()))
-            .bg(Theme::selected())
-            .text_color(Theme::muted())
-            .child(view().w(px(18.)).items_center().child(icons::icon(icons::SEARCH, 15.)))
-            .child(body(name).text_color(if rejected { Theme::danger() } else { Theme::text() }).flex_1().truncate())
-            .child(detail(note))
+        Some(
+            suggestion_row(name.clone(), move || go(ui, query.get_untracked()))
+                .bg(move || picked_fill(ui, 0))
+                .text_color(Theme::muted())
+                .child(view().w(px(18.)).items_center().child(icons::icon(icons::SEARCH, 15.)))
+                .child(body(name).text_color(if rejected { Theme::danger() } else { Theme::text() }).flex_1().truncate())
+                .child(detail(note)),
+        )
     })
 }
 
-fn suggestion_rows(ui: Ui, query: Signal<String>) -> View {
+pub(super) fn picked_fill(ui: Ui, row: usize) -> Rgba {
+    if ui.picked.get() == row { Theme::selected() } else { rgba(0) }
+}
+
+fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
+    let first = computed(move || 1 + tools::commands(ui, &query.get()).len());
+    for key in ["up", "down", "pageup", "pagedown"] {
+        let options = KeyOptions { when: nsh_core::keymap::When::Always, repeat: true, ..KeyOptions::default() };
+        // The start card's rows and the address field's can both be on screen; only the edited field's move.
+        on_key_with(key, options, move |_| {
+            if ui.editing.get_untracked() == address {
+                step_pick(ui, query, key);
+            }
+        });
+    }
     view().flex_col().gap(px(2.)).py(px(6.)).child(input_row(ui, query)).child(tools::command_rows(ui, query)).child(each(
-        move || ui.suggest.get(),
+        move || if query.with(|q| tools::listing(q)) { Vec::new() } else { ui.suggest.get() },
         |(_, url)| url.clone(),
-        move |item, _| {
+        move |item, ix| {
             let (title, url) = item.get_untracked();
             let host = host_of(&url);
             let target = url.clone();
             suggestion_row(url.clone(), move || go(ui, target.clone()))
+                .bg(move || picked_fill(ui, first.get() + ix.get()))
                 .child(view().w(px(18.)).items_center().child(site_tile(&host, 18.)))
                 .child(label(if title.is_empty() { url.clone() } else { title }).flex_1().truncate())
                 .child(detail(url.trim_start_matches("https://").trim_end_matches('/').to_owned()))
@@ -767,10 +989,10 @@ fn suggestion_rows(ui: Ui, query: Signal<String>) -> View {
 fn address_suggestions(ui: Ui) -> AnyElement {
     dynamic(move || {
         if ui.find_tabs.get() {
-            return Some(controls::card().mb_2().shadow(Theme::elevation(4., 14.)).child(tools::find_rows(ui)).into_element());
+            return Some(controls::card().mb_2().child(tools::find_rows(ui)).into_element());
         }
         let shown = ui.editing.get() && ui.address.with(|a| !a.trim().is_empty() && ui.snap.with(|s| *a != s.url));
-        shown.then(|| controls::card().mb_2().shadow(Theme::elevation(4., 14.)).child(suggestion_rows(ui, ui.address)).into_element())
+        shown.then(|| controls::card().mb_2().child(suggestion_rows(ui, ui.address, true)).into_element())
     })
     .into_element()
 }
@@ -786,13 +1008,16 @@ fn start_card(ui: Ui) -> AnyElement {
             let field = input()
                 .value(move || ui.command.get())
                 .on_change(move |v: &str| {
+                    // A new query reads the history again, so visits since the last one show.
+                    if ui.command.with_untracked(String::is_empty) {
+                        load_history(ui);
+                    }
                     ui.command.set(v.to_owned());
                     show_suggestions(ui, crate::input::suggestions(&history(ui), &[], v, SUGGESTIONS), v, ui.command);
                 })
                 .on_submit(move |v: &str| {
-                    let v = v.to_owned();
+                    submit(ui, ui.command, v.to_owned());
                     ui.command.set(String::new());
-                    go(ui, v);
                 })
                 .placeholder("Search or enter address")
                 .label("Search or enter address")
@@ -828,7 +1053,7 @@ fn start_card(ui: Ui) -> AnyElement {
                 .surface()
                 .shadow(Theme::elevation(18., 48.))
                 .child(input_row)
-                .child(when(typing, move || suggestion_rows(ui, ui.command).mb_1().border_t_1().border_color(Theme::hairline())))
+                .child(when(typing, move || suggestion_rows(ui, ui.command, false).mb_1().border_t_1().border_color(Theme::hairline())))
                 .child(footer);
             let column = view()
                 .flex_col()
@@ -854,18 +1079,7 @@ fn fog() -> View {
 }
 
 pub fn bar() -> View {
-    view()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .min_h(px(42.))
-        .pl(px(14.))
-        .pr_2()
-        .py_1()
-        .mb_2()
-        .rounded(px(Theme::radius_panel()))
-        .surface()
-        .shadow(Theme::elevation(4., 14.))
+    view().flex_row().items_center().gap_2().min_h(px(42.)).pl(px(14.)).pr_2().py_1().mb_2().rounded(px(Theme::radius_panel())).surface()
 }
 
 pub(super) fn text_field_multiline(ui: Ui, placeholder: &str) -> nsh_base::Input {
@@ -941,21 +1155,39 @@ fn notice_bar(ui: Ui) -> AnyElement {
             return Some(bar().child(label(message).flex_1().truncate()).children(buttons));
         }
         let surface = secure_surface(Theme::radius_panel()).flex_row().items_center().gap_2().min_h(px(42.)).pl(px(14.)).pr_2().py_1().mb_2();
-        Some(surface.shadow(Theme::elevation(4., 14.)).child(body(message).text_color(Secure::text()).flex_1().truncate()).children(buttons))
+        Some(surface.shadow(Theme::elevation(4., 12.)).child(body(message).text_color(Secure::text()).flex_1().truncate()).children(buttons))
     })
 }
 
-fn prompt_bar(ui: Ui) -> AnyElement {
+/// Answers the page's prompt in front without remembering the answer.
+fn answer_prompt(ui: Ui, id: u64, accept: bool) {
+    let (t, u, p) = (ui.answer_text.get_untracked(), ui.answer_user.get_untracked(), ui.answer_password.get_untracked());
+    ui.answer_text.set(String::new());
+    ui.answer_user.set(String::new());
+    ui.answer_password.set(String::new());
+    act(ui, |b| b.answer(id, accept, false, &t, &u, &p));
+}
+
+/// Enter, not held, accepts an alert or a confirm only while neither a field nor the page has the
+/// keyboard, so typing cannot answer it; a permission prompt stays pointer-only.
+fn prompt_enter(ui: Ui, prompt: Memo<Option<browser_core::prompts::Prompt>>) -> AnyElement {
     dynamic(move || {
-        let prompt = ui.snap.with(|s| s.prompt.clone())?;
+        let id = prompt.with(|p| p.as_ref().filter(|p| matches!(p.kind.as_str(), "alert" | "confirm")).map(|p| p.id))?;
+        if !ui.editing.get() && !ui.finding.get() && ui.panel.get() == Panel::None {
+            on_key_with("enter", KeyOptions { when: nsh_core::keymap::When::NotEditing, ..KeyOptions::default() }, move |_| answer_prompt(ui, id, true));
+        }
+        None::<View>
+    })
+    .into_element()
+}
+
+fn prompt_bar(ui: Ui) -> AnyElement {
+    let shown = computed(move || ui.snap.with(|s| s.prompt.clone()));
+    let enter = prompt_enter(ui, shown);
+    let card = dynamic(move || {
+        let prompt = shown.get()?;
         let id = prompt.id;
-        let reply = move |accept: bool, remember: bool| {
-            let (t, u, p) = (ui.answer_text.get_untracked(), ui.answer_user.get_untracked(), ui.answer_password.get_untracked());
-            ui.answer_text.set(String::new());
-            ui.answer_user.set(String::new());
-            ui.answer_password.set(String::new());
-            act(ui, |b| b.answer(id, accept, remember, &t, &u, &p));
-        };
+        let reply = move |accept: bool| answer_prompt(ui, id, accept);
         let title = match prompt.kind.as_str() {
             "alert" | "confirm" | "text" => format!("{} says", prompt.origin),
             "credentials" => format!(
@@ -986,8 +1218,8 @@ fn prompt_bar(ui: Ui) -> AnyElement {
             .flex_row()
             .items_center()
             .gap_2()
-            .child(secure_button(accept, move || reply(true, false), true))
-            .children(decline.map(|name| secure_button(name, move || reply(false, false), false)));
+            .child(secure_button(accept, move || reply(true), true))
+            .children(decline.map(|name| secure_button(name, move || reply(false), false)));
         let insecure = prompt.insecure.then(|| body("This connection is not secure: the password would be sent unencrypted.").text_color(Secure::warning()));
         Some(
             secure_surface(Theme::radius_panel())
@@ -996,7 +1228,7 @@ fn prompt_bar(ui: Ui) -> AnyElement {
                 .px_4()
                 .py_3()
                 .mb_2()
-                .shadow(Theme::elevation(4., 14.))
+                .shadow(Theme::elevation(4., 12.))
                 .role(AccessibilityRole::Alert)
                 .child(body(title).font_weight(FontWeight::SEMIBOLD).text_color(Secure::text()))
                 .children(insecure)
@@ -1004,19 +1236,29 @@ fn prompt_bar(ui: Ui) -> AnyElement {
                 .children(fields)
                 .child(buttons),
         )
-    })
+    });
+    view().child(enter).child(card).into_element()
 }
 
 fn close_find(ui: Ui) {
     ui.finding.set(false);
     ui.find.set(String::new());
-    act(ui, |b| b.find("", false));
+    act(ui, |b| b.find_typed(""));
+}
+
+fn find_again(ui: Ui, backwards: bool) {
+    if ui.finding.get_untracked() {
+        let text = ui.find.get_untracked();
+        act(ui, |b| b.find(&text, backwards));
+    }
 }
 
 fn find_bar(ui: Ui) -> AnyElement {
-    let search = move |backwards: bool| {
-        let text = ui.find.get_untracked();
-        act(ui, |b| b.find(&text, backwards));
+    let matches = move || match ui.snap.with(|s| s.found).filter(|_| !ui.find.with(String::is_empty)) {
+        None => String::new(),
+        Some(0) => "No matches".to_owned(),
+        Some(1) => "1 match".to_owned(),
+        Some(n) => format!("{n} matches"),
     };
     when(
         move || ui.finding.get(),
@@ -1025,21 +1267,20 @@ fn find_bar(ui: Ui) -> AnyElement {
                 .on_change(move |v: &str| {
                     ui.find.set(v.to_owned());
                     let text = v.to_owned();
-                    act(ui, |b| b.find(&text, false));
+                    act(ui, |b| b.find_typed(&text));
                 })
-                .on_submit(move |_: &str| search(false))
+                .on_submit(move |_: &str| find_again(ui, false))
                 .auto_focus(true)
                 .element_ref(&ui.find_ref);
             bar()
-                .h(px(44.))
                 .pl_3()
                 .text_color(Theme::muted())
                 .child(icons::icon(icons::SEARCH, 14.))
                 .child(field)
-                .child(small(move || if ui.snap.with(|s| s.found == Some(0)) { "No matches" } else { "" }).text_color(Theme::danger()).flex_1())
-                .child(pill("Previous", move || search(true)))
-                .child(controls::accent_pill("Next", move || search(false)))
-                .child(pill("Done", move || close_find(ui)))
+                .child(small(matches).text_color(move || if ui.snap.with(|s| s.found == Some(0)) { Theme::danger() } else { Theme::muted() }).flex_1())
+                .child(icon_button(icons::CHEVRON_UP, "Previous match", move || find_again(ui, true)))
+                .child(icon_button(icons::CHEVRON_DOWN, "Next match", move || find_again(ui, false)))
+                .child(icon_button(icons::CLOSE, "Close find bar", move || close_find(ui)))
         },
     )
     .into_element()
@@ -1058,7 +1299,8 @@ fn error_bar(ui: Ui) -> AnyElement {
 }
 
 fn content(ui: Ui) -> View {
-    let bare = move || ui.snap.with(|s| s.blank || s.reader.is_some()) || ui.panel.get() != Panel::None;
+    let covered = move || ui.snap.with(|s| s.blank || s.reader.is_some()) || ui.panel.get() != Panel::None;
+    let bare = move || covered() || ui.snap.with(|s| s.split.is_some());
     view()
         .flex_col()
         .flex_1()
@@ -1070,7 +1312,7 @@ fn content(ui: Ui) -> View {
         .child(panels::panel_view(ui))
         .child(themed(move || tools::reader_view(ui)))
         .child(themed(move || start_card(ui)))
-        .child(web_views(ui).flex_grow(move || if bare() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
+        .child(web_views(ui).flex_grow(move || if covered() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
 }
 
 fn run_action(ui: Ui, action: Action) {
@@ -1104,6 +1346,12 @@ fn run_action(ui: Ui, action: Action) {
         Action::PrivateSpace => act(ui, |b| b.private_space()),
         Action::Settings => show(ui, Panel::Settings),
         Action::NewWindow => new_window(ui),
+        Action::ToggleSplitView => act(ui, Browser::toggle_split),
+        Action::FocusNextPane => act(ui, |b| b.focus_pane(true)),
+        Action::FocusPreviousPane => act(ui, |b| b.focus_pane(false)),
+        Action::SwapPanes => act(ui, Browser::swap_panes),
+        Action::RotateSplitLayout => act(ui, |b| b.model.active.into_iter().for_each(|k| b.rotate_split(k))),
+        Action::RemoveFromSplitView => act(ui, |b| b.model.active.into_iter().for_each(|k| b.leave_split(k))),
     }
 }
 
@@ -1126,6 +1374,11 @@ fn escape(ui: Ui) {
         ui.editing.set(false);
         ui.suggest.set(Vec::new());
         ui.address_ref.blur();
+    } else if ui.panel.get_untracked() == Panel::Settings && ui.shortcut_edit.get_untracked().is_some() {
+        ui.shortcut_edit.set(None);
+        act(ui, |_| {});
+    } else if let Some(id) = ui.snap.with_untracked(|s| s.prompt.as_ref().map(|p| p.id)) {
+        answer_prompt(ui, id, false);
     } else if ui.finding.get_untracked() {
         close_find(ui);
     } else if ui.panel.get_untracked() != Panel::None {
@@ -1150,6 +1403,9 @@ fn bind_fixed(ui: Ui) {
     on_key("f5", move |_| reload(ui));
     on_key(crate::shortcuts::ZOOM_IN_SHIFTED, move |_| run_action(ui, Action::ZoomIn));
     on_key_with("escape", KeyOptions { when: nsh_core::keymap::When::Always, pass_through: true, ..KeyOptions::default() }, move |_| escape(ui));
+    for (keys, backwards) in [(crate::shortcuts::FIND_NEXT, false), (crate::shortcuts::FIND_PREVIOUS, true)] {
+        on_key(keys, move |_| find_again(ui, backwards));
+    }
     for n in 1..=9usize {
         on_key(&format!("mod+{n}"), move |_| act(ui, |b| b.slot(n)));
     }
@@ -1286,6 +1542,16 @@ fn new_ui(row: SavedWindow) -> Ui {
         toast_timer: signal(0),
         reloaded: signal(0),
         settings_pane: signal(tarn_nsh_shared::panes::Pane::Profile),
+        picked: signal(0),
+        history: signal(Default::default()),
+        tab_menu: signal(None),
+        confirm: signal(None),
+        rename: signal(String::new()),
+        rename_for: signal(String::new()),
+        area: signal((0., 0.)),
+        dragging: signal(None),
+        split_drop: signal(None),
+        resizing: signal(None),
         root: Owner::current(),
     };
     let shown_space = std::cell::Cell::new(None);
@@ -1318,7 +1584,7 @@ fn browser_window(ui: Ui) -> AnyElement {
     here.on_close_press(move |_| close_window(ui, &closing));
     act(ui, |_| {});
     drop(set_interval(SCHEDULE_TICK, move || {
-        act(ui, |b| {
+        act_quietly(ui, |b| {
             b.schedule_tick();
             b.idle_tick();
         })
@@ -1327,7 +1593,7 @@ fn browser_window(ui: Ui) -> AnyElement {
         if ui.speaking.get_untracked() && !crate::speech::speaking() {
             ui.speaking.set(false);
         }
-        act(ui, |b| b.sample_processes());
+        act_quietly(ui, |b| b.sample_processes());
     }));
     act(ui, |b| b.schedule_tick());
     effect(move || {
@@ -1358,6 +1624,12 @@ fn browser_window(ui: Ui) -> AnyElement {
                 .child(themed(move || tools::toast_bar(ui))),
         )
         .child(bound_keys(ui))
+        .on_mouse_up(move |_: &MouseEvent| split::release(ui))
+        .on_mouse_move(move |e: &MouseEvent| {
+            if e.pressed_button.is_none() {
+                split::release(ui);
+            }
+        })
         .into_element()
 }
 

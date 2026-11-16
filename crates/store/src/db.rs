@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 #[cfg(unix)]
 use std::fs::{self, Permissions};
 use std::fs::{DirBuilder, OpenOptions};
@@ -577,6 +578,13 @@ impl Store {
 
     pub fn tab(&self, id: Id) -> Result<Tab> {
         Ok(self.conn.prepare_cached(&format!("SELECT {TAB_COLUMNS} FROM tabs WHERE id = ?1"))?.query_row([id], tab_row)?)
+    }
+
+    /// Ids of every stored tab, for checking many tabs at once.
+    pub fn tab_ids(&self) -> Result<HashSet<Id>> {
+        let mut stmt = self.conn.prepare_cached("SELECT id FROM tabs")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn tabs(&self, space_id: Id) -> Result<Vec<Tab>> {
@@ -1845,6 +1853,17 @@ mod tests {
         store.delete_extension(p.id, "i1").unwrap();
         assert!(store.extensions(p.id).unwrap().is_empty());
         assert!(store.extension_hosts(p.id, "i1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn tab_ids_lists_stored_tabs_only() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "uuid", false).unwrap();
+        let space = store.create_space(p.id, "S", "").unwrap();
+        let kept = store.create_tab(space.id, TabKind::Ephemeral, None, "https://a.test/", "A").unwrap();
+        let gone = store.create_tab(space.id, TabKind::Pinned, None, "https://b.test/", "B").unwrap();
+        store.delete_tab(gone.id).unwrap();
+        assert_eq!(store.tab_ids().unwrap(), HashSet::from([kept.id]));
     }
 
     #[test]

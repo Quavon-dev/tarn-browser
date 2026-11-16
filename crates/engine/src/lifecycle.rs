@@ -28,6 +28,13 @@ impl<T: Copy + Eq + Hash> Lifecycle<T> {
         self.live.split_off(self.max_live.min(self.live.len())).into_iter().map(|(t, _)| t).collect()
     }
 
+    /// Activates the panes `others` shown beside `tab`, then `tab`: the live ones first, so waking
+    /// a sleeping pane cannot evict one that is still live and renumber its view.
+    pub fn activate_with(&mut self, others: &[T], tab: T) -> Vec<T> {
+        let (live, asleep): (Vec<T>, Vec<T>) = others.iter().copied().chain([tab]).partition(|t| self.born(*t).is_some());
+        live.into_iter().chain(asleep).chain([tab]).flat_map(|t| self.activate(t)).collect()
+    }
+
     /// Puts back, as the least recently used, a tab whose hibernation was put off; the next
     /// activation evicts it again.
     pub fn keep(&mut self, tab: T) {
@@ -98,6 +105,22 @@ pub fn over_budget<T>(awake: impl IntoIterator<Item = (T, u64, bool, Duration)>,
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn waking_a_pane_keeps_the_live_panes_numbers() {
+        let mut life = Lifecycle::new(3);
+        for tab in [1, 2] {
+            life.activate(tab);
+        }
+        life.activate(5);
+        life.activate(6);
+        let born = life.born(5);
+        assert!(life.born(1).is_none() && born.is_some(), "1 sleeps, 5 is the oldest live tab");
+        life.activate_with(&[1], 5);
+        assert_eq!(life.born(5), born, "waking 1 does not evict 5");
+        assert!(life.born(1).is_some());
+        assert_eq!(life.live().next(), Some(5), "the focused pane comes first");
+    }
+
     use super::*;
 
     #[test]

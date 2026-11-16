@@ -7,6 +7,7 @@ use store::{Bookmark, Id, TabKind};
 use crate::browser::Browser;
 use crate::library::Page;
 use crate::settings::SettingsPane;
+use crate::tabs::state_label;
 
 /// Dynamic lists stay short, like other browsers' menus.
 const MAX_ITEMS: usize = 12;
@@ -44,7 +45,7 @@ pub struct SwitchToSpace {
     pub ix: usize,
 }
 
-const SPACES: [&dyn Action; 9] =
+pub(crate) const SPACES: [&dyn Action; 9] =
     [&crate::Space1, &crate::Space2, &crate::Space3, &crate::Space4, &crate::Space5, &crate::Space6, &crate::Space7, &crate::Space8, &crate::Space9];
 
 #[derive(Default)]
@@ -81,6 +82,7 @@ pub struct Dynamic {
     pub history: Vec<MenuItem>,
     pub tabs: Vec<MenuItem>,
     pub window: Vec<MenuItem>,
+    pub view: Vec<MenuItem>,
     pub marks: Vec<(&'static str, Vec<Mark>)>,
 }
 
@@ -161,7 +163,8 @@ impl Browser {
         self.model.active.map(|k| self.tab_muted(k)).hash(&mut hash);
         self.model.active_tab().map(|t| t.custom_title.is_empty()).hash(&mut hash);
         self.model.active.and_then(|k| self.pinned_drift(k)).map(|u| u.host_str().map(str::to_owned)).hash(&mut hash);
-        (self.split.is_some(), self.site().is_some()).hash(&mut hash);
+        (self.model.active.is_some_and(|a| self.splits.contains(a)), self.site().is_some()).hash(&mut hash);
+        (self.sidebar_open, self.pref(crate::prefs::Pref::CompactToolbar), self.pref(crate::prefs::Pref::AutoHideSidebar)).hash(&mut hash);
         let signature = hash.finish();
         if self.menu.signature != signature {
             self.menu.signature = signature;
@@ -188,7 +191,7 @@ impl Browser {
         let mut recent: Vec<&Bookmark> = self.bookmarks.iter().filter(|b| b.url.is_some()).collect();
         recent.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let mut bookmark_items = vec![
-            bookmarks.action("Bookmark This Page", crate::BookmarkTab),
+            bookmarks.action("Bookmark Tab…", crate::BookmarkTab),
             bookmarks.action("Bookmark All Tabs", crate::BookmarkAllTabs),
             bookmarks.action("Manage Bookmarks", ManageBookmarks),
         ];
@@ -227,10 +230,11 @@ impl Browser {
             );
             history_items.push(MenuItem::separator());
         }
-        history_items.push(history.action("Show History…", ShowHistory));
+        history_items.push(history.action("Show History", ShowHistory));
 
         let pinned = self.model.active_tab().is_some_and(|t| t.kind != TabKind::Ephemeral);
         let muted = self.model.active.is_some_and(|k| self.tab_muted(k));
+        let split = self.model.active.is_some_and(|a| self.splits.contains(a));
         let mut tab_items = vec![
             tabs.action("Back", crate::Back),
             tabs.action("Forward", crate::Forward),
@@ -239,8 +243,8 @@ impl Browser {
             tabs.action("Previous Tab", crate::PreviousTab),
             MenuItem::separator(),
             tabs.action("Search Tabs…", crate::ToggleLibrary),
-            tabs.action(if pinned { "Unpin Tab" } else { "Pin Tab" }, crate::TogglePin),
-            tabs.action("Rename Tab…", crate::tabs::RenameTab),
+            tabs.action(state_label(&crate::TogglePin, pinned).unwrap_or_default(), crate::TogglePin),
+            tabs.action("Rename Tab", crate::tabs::RenameTab),
         ];
         if self.model.active_tab().is_some_and(|t| !t.custom_title.is_empty()) {
             tab_items.push(tabs.action("Reset Title", crate::tabs::ResetTabTitle));
@@ -259,8 +263,17 @@ impl Browser {
             tabs.action("Share…", crate::qr::ShareLink),
             tabs.action("Show QR Code", crate::qr::ShowQrCode),
             MenuItem::separator(),
-            tabs.action(if self.split.is_some() { "Close Split View" } else { "Open in Split View" }, crate::split::ToggleSplitView),
+            tabs.action(state_label(&crate::split::ToggleSplitView, split).unwrap_or_default(), crate::split::ToggleSplitView),
         ]);
+        if split {
+            tab_items.extend([
+                tabs.action("Focus Next Pane", crate::split::FocusNextPane),
+                tabs.action("Focus Previous Pane", crate::split::FocusPreviousPane),
+                tabs.action("Swap Panes", crate::split::SwapPanes),
+                tabs.action("Rotate Split Layout", crate::split::RotateSplitLayout),
+                tabs.action("Remove Tab from Split View", crate::split::RemoveFromSplitView),
+            ]);
+        }
         if let Some(key) = self.model.active {
             let others: Vec<(usize, &str)> =
                 self.model.move_targets(&self.core, key).into_iter().take(MAX_ITEMS).map(|ix| (ix, self.model.spaces[ix].space.name.as_str())).collect();
@@ -270,12 +283,7 @@ impl Browser {
                 }));
             }
         }
-        tab_items.extend([
-            MenuItem::separator(),
-            tabs.action("Add to Bookmarks…", crate::BookmarkTab),
-            MenuItem::separator(),
-            tabs.action(if muted { "Unmute Site" } else { "Mute Site" }, ToggleMute),
-        ]);
+        tab_items.extend([MenuItem::separator(), tabs.action(state_label(&ToggleMute, muted).unwrap_or_default(), ToggleMute)]);
         if self.site().is_some() {
             tab_items.push(tabs.action("Site Settings…", crate::site_settings::SiteSettings));
         }
@@ -319,12 +327,38 @@ impl Browser {
         }));
         window_items.extend([MenuItem::separator(), window.action("Downloads", crate::ToggleDownloads)]);
 
+        let mut view = Marks::default();
+        let compact = self.pref(crate::prefs::Pref::CompactToolbar);
+        let auto_hide = self.pref(crate::prefs::Pref::AutoHideSidebar);
+        let mut view_items = vec![
+            view.action(if self.sidebar_open { "Hide Sidebar" } else { "Show Sidebar" }, crate::ToggleSidebar),
+            view.item("Compact Toolbar", Box::new(crate::ToggleCompactToolbar), None, compact),
+            view.item("Auto-Hide Sidebar", Box::new(crate::ToggleAutoHideSidebar), None, auto_hide),
+            MenuItem::separator(),
+            view.action("Reload", crate::Reload),
+            MenuItem::separator(),
+            view.action("Zoom In", crate::ZoomIn),
+            view.action("Zoom Out", crate::ZoomOut),
+            view.action("Actual Size", crate::ZoomReset),
+        ];
+        // AppKit adds Enter Full Screen to a menu named View on its own.
+        if !cfg!(target_os = "macos") {
+            view_items.push(view.action("Full Screen", crate::ToggleFullScreen));
+        }
+        view_items.extend([
+            MenuItem::separator(),
+            view.action("Reader", crate::reader::ToggleReader),
+            view.action("Picture in Picture", crate::capture::PictureInPicture),
+            view.action("Keyboard Shortcuts", crate::shortcuts::ToggleShortcuts),
+        ]);
+
         Dynamic {
             bookmarks: bookmark_items,
             history: history_items,
             tabs: tab_items,
             window: window_items,
-            marks: vec![("Bookmarks", bookmarks.0), ("History", history.0), ("Tabs", tabs.0), ("Window", window.0)],
+            view: view_items,
+            marks: vec![("View", view.0), ("Bookmarks", bookmarks.0), ("History", history.0), ("Tabs", tabs.0), ("Window", window.0)],
         }
     }
 

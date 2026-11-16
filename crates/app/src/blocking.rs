@@ -9,8 +9,8 @@ use gpui::{App, Context, FontWeight, IntoElement, ParentElement, StatefulInterac
 use shield::{Category, youtube};
 use store::Id;
 use ui::controls::{secure_button, secure_surface};
-use ui::icon::{Icon, icon};
-use ui::theme::{Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
+use ui::icon::{ICON_LARGE, Icon, icon};
+use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 use url::Url;
 
 use crate::browser::{Browser, TabKey};
@@ -388,13 +388,13 @@ pub fn render_blocked(page: &BlockedPage, cx: &mut Context<Browser>) -> gpui::An
         .flex_col()
         .gap_3()
         .text_size(px(TEXT))
-        .shadow(Theme::elevation(18., 48.))
+        .shadow(Elevation::Modal.shadow())
         .child(
             div()
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(icon(Icon::Shield, 22., color))
+                .child(icon(Icon::Shield, ICON_LARGE, color))
                 .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).child(heading(page.category))),
         )
         .child(div().font_weight(FontWeight::SEMIBOLD).overflow_hidden().whitespace_nowrap().text_ellipsis().child(host))

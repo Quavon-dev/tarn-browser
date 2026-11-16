@@ -112,7 +112,7 @@ impl WebView {
         both!(self, v => v.url())
     }
 
-    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(bool) + 'static) {
+    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize) + 'static) {
         both!(self, v => v.find(text, backwards, found))
     }
 

@@ -22,6 +22,7 @@ pub fn while_active(period: Duration, running: impl Fn() -> bool + 'static, tick
     });
 }
 
+pub const FADE: Duration = Duration::from_millis(130);
 pub const SPIN_TURN: Duration = Duration::from_millis(900);
 pub const RELOAD_SPIN: Duration = Duration::from_millis(600);
 const SPIN_FRAME: Duration = Duration::from_millis(33);
@@ -47,6 +48,12 @@ mod tests {
         assert!(!animates(true, Lifecycle::Active));
         assert!(!animates(false, Lifecycle::Inactive));
         assert!(!animates(false, Lifecycle::Background));
+    }
+
+    #[test]
+    fn the_fade_matches_the_gpui_motion() {
+        let line = format!("pub const FADE: Duration = Duration::from_millis({});", FADE.as_millis());
+        assert!(include_str!("../../crates/ui/src/motion.rs").contains(&line), "{line}");
     }
 
     #[test]

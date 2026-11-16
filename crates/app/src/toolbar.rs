@@ -6,7 +6,7 @@ use shield::ShieldLevel;
 use std::time::Duration;
 use store::WebEngine;
 use ui::controls::{field, icon_button, icon_frame, spinner, tooltip};
-use ui::icon::{Icon, icon};
+use ui::icon::{ICON_SMALL, Icon, icon};
 use ui::text::bounded_title;
 use ui::theme::{SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
 use url::Url;
@@ -53,7 +53,7 @@ fn reload_button(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> St
     if !spinning {
         let enabled = b.model.active.is_some();
         return icon_button("reload", Icon::Reload, enabled)
-            .tooltip(tooltip("Reload", Some(crate::shortcuts::shown(&crate::Reload, cx).into())))
+            .tooltip(crate::shortcuts::tip("Reload", &crate::Reload))
             .on_click(cx.listener(|b, _, _, cx| b.reload(cx)));
     }
     // Past a finished cached reload the arrow still turns for `SPIN`; a click then reloads again.
@@ -102,17 +102,13 @@ fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
         .gap(px(2.))
         .child(
             icon_button("toggle-sidebar", Icon::Sidebar, true)
-                .tooltip(tooltip(sidebar, Some(crate::shortcuts::shown(&crate::ToggleSidebar, cx).into())))
+                .tooltip(crate::shortcuts::tip(sidebar, &crate::ToggleSidebar))
                 .on_click(cx.listener(|b, _, _, cx| b.toggle_sidebar(cx))),
         )
-        .child(
-            icon_button("back", Icon::Back, page.can_back)
-                .tooltip(tooltip("Back", Some(crate::shortcuts::shown(&crate::Back, cx).into())))
-                .on_click(cx.listener(|b, _, _, _| b.back())),
-        )
+        .child(icon_button("back", Icon::Back, page.can_back).tooltip(crate::shortcuts::tip("Back", &crate::Back)).on_click(cx.listener(|b, _, _, _| b.back())))
         .child(
             icon_button("forward", Icon::Forward, page.can_forward)
-                .tooltip(tooltip("Forward", Some(crate::shortcuts::shown(&crate::Forward, cx).into())))
+                .tooltip(crate::shortcuts::tip("Forward", &crate::Forward))
                 .on_click(cx.listener(|b, _, _, _| b.forward())),
         )
         .child(reload)
@@ -122,16 +118,17 @@ fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
 fn settings(cx: &mut Context<Browser>) -> Stateful<Div> {
     icon_button("settings", Icon::Gear, true)
         .occlude()
-        .tooltip(tooltip("Settings", Some(crate::shortcuts::shown(&crate::Settings, cx).into())))
+        .tooltip(crate::shortcuts::tip("Settings", &crate::Settings))
         .on_click(cx.listener(|b, _, w, cx| b.open_settings(w, cx)))
 }
 
 /// Windows has no menu bar; this button opens the same menus.
-fn app_menu_button(cx: &mut Context<Browser>) -> Option<Stateful<Div>> {
+fn app_menu_button(b: &Browser, cx: &mut Context<Browser>) -> Option<Stateful<Div>> {
     cfg!(windows).then(|| {
         icon_button("app-menu", Icon::Ellipsis, true)
+            .child(measure(b.app_menu_anchor.clone()))
             .occlude()
-            .tooltip(tooltip("Menu", Some(crate::shortcuts::shown(&crate::OpenAppMenu, cx).into())))
+            .tooltip(crate::shortcuts::tip("Menu", &crate::OpenAppMenu))
             .on_click(cx.listener(|b, _, w, cx| b.open_app_menu(w, cx)))
     })
 }
@@ -157,7 +154,7 @@ fn render_classic(b: &Browser, inset: f32, cx: &mut Context<Browser>) -> Div {
                 .when(b.devtools_on(), |d| d.child(devtools(b, cx)))
                 .child(crate::extensions::buttons(b, cx))
                 .child(settings(cx))
-                .children(app_menu_button(cx)),
+                .children(app_menu_button(b, cx)),
         )
 }
 
@@ -245,15 +242,13 @@ fn bookmark_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl 
 }
 
 fn reader_button(b: &Browser, cx: &mut Context<Browser>) -> Option<impl IntoElement> {
-    b.model.active.filter(|k| b.page(*k).article)?;
-    Some(
-        chip_button("reader", Icon::BookOpen, true)
-            .tooltip(tooltip("Reader", Some(crate::shortcuts::shown(&crate::reader::ToggleReader, cx).into())))
-            .on_click(cx.listener(|b, _, window, cx| {
-                cx.stop_propagation();
-                b.toggle_reader(window, cx);
-            })),
-    )
+    b.model.active.filter(|k| b.pages.get(k).is_some_and(|p| p.article))?;
+    Some(chip_button("reader", Icon::BookOpen, true).tooltip(crate::shortcuts::tip("Reader", &crate::reader::ToggleReader)).on_click(cx.listener(
+        |b, _, window, cx| {
+            cx.stop_propagation();
+            b.toggle_reader(window, cx);
+        },
+    )))
 }
 
 fn mute_button(b: &Browser, cx: &mut Context<Browser>) -> Option<impl IntoElement> {
@@ -293,13 +288,16 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .hover(|s| s.bg(Secure::hover()))
         .active(|s| s.bg(Secure::pressed()))
         .on_click(cx.listener(|b, _, window, cx| b.open_command(CommandMode::Current, window, cx)))
+        .on_mouse_down(MouseButton::Right, cx.listener(|b, _, w, cx| b.address_menu(w, cx)))
         .on_scroll_wheel(cx.listener(|b, e, w, cx| b.toolbar_swipe(e, true, w, cx)))
         .relative()
         .child(measure(b.address.field.clone()))
-        .child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, 13., Secure::faint())))
-        .child(tail_first(div().flex_1(), text, color))
+        // Both sides share the spare room equally, so the host stays centred in the chip.
+        .child(div().flex_1().flex().child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, ICON_SMALL, Secure::faint()))))
+        .child(tail_first(div(), text, color))
         .child(
             div()
+                .flex_1()
                 .min_w(px(28.))
                 .flex()
                 .items_center()
@@ -340,6 +338,7 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
                     .hover(|s| s.bg(Theme::hover()))
                     .active(|s| s.bg(Theme::pressed()))
                     .on_click(cx.listener(|b, _, window, cx| b.open_command(CommandMode::Current, window, cx)))
+                    .on_mouse_down(MouseButton::Right, cx.listener(|b, _, w, cx| b.address_menu(w, cx)))
                     .on_scroll_wheel(cx.listener(|b, e, w, cx| b.toolbar_swipe(e, true, w, cx)))
                     .relative()
                     .child(measure(b.address.field.clone()))
@@ -360,7 +359,7 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
         .when(b.devtools_on(), |d| d.child(devtools(b, cx)))
         .child(crate::extensions::buttons(b, cx))
         .child(settings(cx))
-        .children(app_menu_button(cx))
+        .children(app_menu_button(b, cx))
 }
 
 /// The address field opened in place, or folding back: it grows from its resting place and width
@@ -393,20 +392,15 @@ fn open_field(b: &Browser, t: f32, editing: bool, centered: bool, cx: &mut Conte
                 .flex()
                 .items_center()
                 .gap_2()
-                .on_key_down(cx.listener(|b, e: &KeyDownEvent, _, cx| {
-                    if e.keystroke.key == "tab" {
-                        cx.stop_propagation();
-                        b.select_suggestion(!e.keystroke.modifiers.shift, cx);
-                    }
-                }))
-                .child(icon(Icon::Search, 13., Theme::faint()))
+                .on_key_down(cx.listener(|b, e: &KeyDownEvent, _, cx| b.suggestion_key(e, cx)))
+                .child(icon(Icon::Search, ICON_SMALL, Theme::faint()))
                 .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(content))
                 .child(measure(b.address.field.clone())),
         )
 }
 
 /// Clips the host from the left, so a host wider than its box still shows its registrable domain.
-fn tail_first(clip: Div, text: impl IntoElement, color: gpui::Rgba) -> Div {
+pub(crate) fn tail_first(clip: Div, text: impl IntoElement, color: gpui::Rgba) -> Div {
     clip.min_w_0()
         .overflow_hidden()
         .whitespace_nowrap()

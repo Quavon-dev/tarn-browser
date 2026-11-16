@@ -644,3 +644,137 @@ fn views_carry_the_themes_website_sheets_but_never_in_private() {
     assert!(shell.model.private());
     assert!(shell.views()[0].theme_styles.is_empty(), "never in a private space");
 }
+
+#[test]
+fn split_panes_stay_live_and_a_closed_pane_focuses_its_neighbour() {
+    let (_dir, mut shell) = open();
+    shell.set_wide(true);
+    let a = active(&shell);
+    let b = shell.new_tab(Some("https://b.example/")).unwrap();
+    let c = shell.new_tab(Some("https://c.example/")).unwrap();
+    shell.activate(a);
+    shell.split_with(c);
+    assert_eq!(shell.model.active, Some(c));
+    assert_eq!(shell.shown_split().map(|s| s.panes().to_vec()), Some(vec![a, c]));
+    assert_eq!(shell.pane_share(a), Some((0., 0., 0.5, 1.)));
+    assert_eq!(shell.pane_share(b), None);
+    for _ in 0..tarn_mobile::shell::LIVE_TABS {
+        shell.new_tab(Some("https://more.example/"));
+    }
+    shell.activate(c);
+    let live: Vec<_> = shell.views().iter().map(|v| v.key).collect();
+    assert!(live.contains(&a) && live.contains(&c), "both panes of the split on screen are live");
+    shell.close_tab(c);
+    assert_eq!(shell.model.active, Some(a), "the pane beside it takes the focus, not the tab before it");
+    assert!(!shell.splits.contains(a), "a split left with one pane ends");
+    shell.split_with(b);
+    shell.leave_split(b);
+    assert_eq!((shell.model.active, shell.shown_split()), (Some(b), None));
+}
+
+#[test]
+fn a_lone_tab_splits_with_a_copy_of_its_page() {
+    let (_dir, mut shell) = open();
+    let blank = active(&shell);
+    assert_eq!(shell.model.tabs.len(), 1);
+    shell.split_with(blank);
+    assert!(shell.shown_split().is_none() && shell.model.tabs.len() == 1, "a blank tab has no page to copy");
+    let a = shell.new_tab(Some("https://a.example/")).unwrap();
+    shell.close_tab(blank);
+    shell.activate(a);
+    assert_eq!(shell.model.tabs.len(), 1);
+    shell.split_with(a);
+    let panes = shell.shown_split().map(|s| s.panes().to_vec()).unwrap_or_default();
+    assert_eq!((panes.len(), panes[0]), (2, a));
+    assert_eq!(shell.model.tab(panes[1]).map(|t| t.url.clone()), shell.model.tab(a).map(|t| t.url.clone()));
+}
+
+#[test]
+fn closing_the_private_space_ends_its_splits_even_when_their_panes_sleep() {
+    let (_dir, mut shell) = open();
+    shell.set_wide(true);
+    shell.enter_private();
+    let a = shell.new_tab(Some("https://a.example/")).unwrap();
+    let b = shell.new_tab(Some("https://b.example/")).unwrap();
+    shell.activate(a);
+    shell.split_with(b);
+    assert!(shell.splits.contains(a) && a.private);
+    let c = shell.new_tab(Some("https://c.example/")).unwrap();
+    shell.activate(c);
+    for _ in 0..tarn_mobile::shell::LIVE_TABS {
+        shell.new_tab(Some("https://more.example/"));
+    }
+    shell.close_private();
+    assert!(!shell.splits.contains(a) && !shell.splits.contains(b), "no private pane outlives its session");
+}
+
+#[test]
+fn a_press_on_a_page_focuses_its_pane_only_in_the_split_on_screen() {
+    let (_dir, mut shell) = open();
+    let a = active(&shell);
+    let b = shell.new_tab(Some("https://b.example/")).unwrap();
+    let c = shell.new_tab(Some("https://c.example/")).unwrap();
+    shell.activate(a);
+    shell.split_with(b);
+    shell.event(a, "pressed", &Value::Null, 1);
+    assert_eq!(shell.model.active, Some(b), "a phone shows one pane, so a press focuses nothing");
+    shell.set_wide(true);
+    shell.event(a, "pressed", &Value::Null, 1);
+    assert_eq!(shell.model.active, Some(a));
+    shell.event(c, "pressed", &Value::Null, 1);
+    assert_eq!(shell.model.active, Some(a), "a tab outside the split is not focused by its page");
+}
+
+#[test]
+fn same_document_history_moves_back_and_forward() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://a.example/");
+    let key = active(&shell);
+    let page = json!({ "url": "https://a.example/", "title": "A", "canGoBack": false, "canGoForward": false });
+    shell.event(key, "committed", &page, 1);
+    shell.event(key, "history", &json!({ "canGoBack": true, "canGoForward": false }), 2);
+    assert!(shell.active_page().is_some_and(|p| p.back && !p.forward));
+    shell.event(key, "history", &json!({ "canGoBack": false, "canGoForward": true }), 3);
+    assert!(shell.active_page().is_some_and(|p| !p.back && p.forward));
+}
+
+#[test]
+fn commands_with_nothing_to_act_on_are_not_offered() {
+    let (_dir, mut shell) = open();
+    assert!(shell.duplicate_tabs().is_empty() && !shell.zappable());
+    finish(&mut shell, "https://a.example/", "A");
+    assert!(shell.zappable());
+    shell.new_tab(Some("https://a.example/"));
+    assert_eq!(shell.duplicate_tabs().len(), 1, "one of the two tabs on the same page");
+    shell.enter_private();
+    finish(&mut shell, "https://a.example/", "A");
+    assert!(!shell.zappable(), "a private space keeps no hidden elements");
+}
+
+#[test]
+fn views_share_the_profile_props_read_once() {
+    let (_dir, mut shell) = open();
+    shell.new_tab(Some("https://b.example/"));
+    let props = shell.profile_props();
+    assert_eq!(shell.views_from(props.as_ref()), shell.views());
+    assert!(shell.views_from(None).is_empty());
+}
+
+#[test]
+fn waking_a_sleeping_pane_keeps_the_live_panes_views() {
+    let (_dir, mut shell) = open();
+    shell.set_wide(true);
+    let a = active(&shell);
+    let b = shell.new_tab(Some("https://b.example/")).unwrap();
+    shell.activate(a);
+    shell.split_with(b);
+    shell.activate(a);
+    for _ in 1..tarn_mobile::shell::LIVE_TABS {
+        shell.new_tab(Some("https://more.example/"));
+    }
+    let before = shell.model.lifecycle.born(a);
+    assert!(before.is_some() && shell.model.lifecycle.born(b).is_none(), "a is still live, b sleeps");
+    shell.activate(a);
+    assert_eq!(shell.model.lifecycle.born(a), before, "waking b does not renumber a's view");
+    assert!(shell.model.lifecycle.born(b).is_some());
+}

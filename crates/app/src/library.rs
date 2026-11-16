@@ -15,9 +15,9 @@ use gpui::{
 };
 use store::{Bookmark, Download, HistoryEntry, Id, Snapshot, Tab};
 use ui::command::fuzzy_score;
-use ui::controls::{button, icon_button, key_hint, surface};
-use ui::icon::{Icon, icon};
-use ui::motion::{FADE, POP, animate};
+use ui::controls::{button, caption, empty, icon_button, key_hint, surface};
+use ui::icon::{ICON_SMALL, Icon, icon};
+use ui::motion::{EXIT, POP, animate};
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
@@ -134,6 +134,7 @@ fn subtree(bookmarks: &[Bookmark], id: Id) -> HashSet<Id> {
 
 impl Browser {
     pub(crate) fn reload_bookmarks(&mut self, cx: &mut Context<Self>) {
+        self.bookmarks_of = self.model.profile();
         if let Some(space) = self.model.current_space() {
             self.set_bookmarks(self.store(space.private).bookmarks(space.space.profile_id).unwrap_or_default());
         }
@@ -329,7 +330,7 @@ impl Browser {
                 cx.notify();
             }
             // The click that took focus from the library already closed it; it must not reopen it.
-            None if self.library_closed.is_some_and(|t| t.elapsed() < Duration::from_millis(300)) => {}
+            None if self.library_closed.is_some_and(|t| t.elapsed() < ui::motion::REOPEN_GUARD) => {}
             None => self.show_library(None, window, cx),
         }
     }
@@ -656,7 +657,8 @@ impl LibraryWindow {
         let mut subscriptions = vec![
             cx.subscribe_in(&query, window, Self::on_query),
             cx.observe_window_activation(window, |this, window, cx| {
-                if !window.is_window_active() && !this.holding {
+                let menu = this.query.read(cx).menu_open() || this.renaming.as_ref().is_some_and(|(_, input, _)| input.read(cx).menu_open());
+                if !window.is_window_active() && !this.holding && !menu {
                     this.close(false, window, cx);
                 }
             }),
@@ -775,6 +777,12 @@ impl LibraryWindow {
                 }
             }
             TextInputEvent::Cancel => self.back(window, cx),
+            TextInputEvent::MenuClosed => {
+                if !window.is_window_active() && !self.holding {
+                    self.close(false, window, cx);
+                }
+                return;
+            }
         }
         if !matches!(event, TextInputEvent::Changed) {
             self.reveal();
@@ -898,6 +906,7 @@ impl LibraryWindow {
         let events = cx.subscribe_in(&input, window, |this, _, event, window, cx| match event {
             TextInputEvent::Submit => this.end_rename(true, window, cx),
             TextInputEvent::Cancel => this.end_rename(false, window, cx),
+            TextInputEvent::MenuClosed if !window.is_window_active() && !this.holding => this.close(false, window, cx),
             _ => {}
         });
         let focus = input.focus_handle(cx);
@@ -1148,14 +1157,16 @@ impl LibraryWindow {
                 MenuItem::action("Restore in This Space", Cmd::Restore(saved.clone(), false)),
                 MenuItem::Separator,
                 MenuItem::action("Rename", Cmd::Rename(Named::Snapshot(saved.id))),
-                MenuItem::action("Delete", Cmd::Delete(Named::Snapshot(saved.id))),
+                MenuItem::action("Delete…", Cmd::Delete(Named::Snapshot(saved.id))),
             ],
             _ => vec![MenuItem::action("Open", Cmd::Open(item))],
         };
         let bookmarked = url.as_deref().is_some_and(|url| b.is_bookmarked(url));
-        items.extend(url.map(|url| MenuItem::action("Open in New Tab", Cmd::OpenInNewTab(url))));
+        if let Some(url) = url {
+            items.extend([MenuItem::action("Open in New Tab", Cmd::OpenInNewTab(url.clone())), MenuItem::action("Copy Link", Cmd::CopyLink(url))]);
+        }
         if let Item::Tab(key) = item_key {
-            items.push(MenuItem::action(if bookmarked { "Remove Bookmark" } else { "Bookmark" }, Cmd::ToggleBookmark(key)));
+            items.push(MenuItem::action(if bookmarked { "Remove Bookmark" } else { "Bookmark Tab" }, Cmd::ToggleBookmark(key)));
         }
         if let Some(Named::Bookmark(id)) = named {
             let parent = b.bookmarks.iter().find(|bm| bm.id == id).and_then(|bm| bm.parent_id);
@@ -1179,7 +1190,7 @@ impl LibraryWindow {
         self.holding = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, items, move |cmd| {
+            menu::show(&host, items, None, move |cmd| {
                 tx.send(cmd).ok();
             });
             let cmd = rx.await.ok();
@@ -1297,7 +1308,7 @@ impl LibraryWindow {
                     },
                 )))
             })
-            .when(drills, |d| d.child(icon(Icon::ChevronRight, 11., Theme::muted())))
+            .when(drills, |d| d.child(icon(Icon::ChevronRight, ICON_SMALL, Theme::muted())))
             .when(!matches!(r.item, Item::Page(_) | Item::ClearDownloads | Item::SleepInactive | Item::Source(_)), |d| {
                 d.on_mouse_down(MouseButton::Right, cx.listener(move |this, _, window, cx| this.row_menu(menu_item.clone(), named, window, cx)))
             })
@@ -1357,7 +1368,7 @@ impl Render for LibraryWindow {
             div().id("library-list").track_scroll(&self.scroll).flex_1().min_h_0().overflow_y_scroll().px_1p5().pb(px(LIST_PAD)).flex().flex_col().gap(px(1.));
         for (entry, leading) in entries {
             list = list.child(match entry {
-                Entry::Header(text, n) => div()
+                Entry::Header(text, n) => caption(text)
                     .h(px(HEADER_ROW))
                     .flex_none()
                     .flex()
@@ -1365,10 +1376,6 @@ impl Render for LibraryWindow {
                     .justify_between()
                     .px_2()
                     .pb_1()
-                    .text_size(px(TEXT_SMALL))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(Theme::muted())
-                    .child(text)
                     .children(n.and_then(tally).map(|n| div().font_weight(FontWeight::NORMAL).text_color(Theme::faint()).child(n)))
                     .into_any_element(),
                 Entry::Back(title) => div()
@@ -1398,19 +1405,7 @@ impl Render for LibraryWindow {
                     .on_click(cx.listener(|this, _, window, cx| this.back(window, cx)))
                     .into_any_element(),
                 Entry::Divider => div().mx_2().my_1p5().h(px(1.)).flex_none().bg(Theme::hairline()).into_any_element(),
-                Entry::Empty(text) => div()
-                    .h(px(EMPTY_ROW))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .px_2()
-                    .text_color(Theme::muted())
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(text)
-                    .into_any_element(),
+                Entry::Empty(text) => empty(text).h(px(EMPTY_ROW)).px_2().overflow_hidden().whitespace_nowrap().text_ellipsis().into_any_element(),
                 Entry::Row(r) => {
                     ix += 1;
                     self.render_row(ix - 1, r, leading.unwrap_or_else(|| div().into_any_element()), cx)
@@ -1445,7 +1440,7 @@ impl Render for LibraryWindow {
             surface(Theme::radius_panel()).absolute().left_0().right_0().bottom_0().h(px(height)).text_size(px(TEXT)).text_color(Theme::text()).child(body);
         let reveal = move |el: gpui::Div, t: f32| el.opacity(t).h(px(height * (0.9 + 0.1 * t)));
         let card = if self.closing {
-            animate(card, "library-out", FADE, reduce, move |el, t| reveal(el, 1. - t))
+            animate(card, "library-out", EXIT, reduce, move |el, t| reveal(el, 1. - t))
         } else {
             animate(card, "library-in", POP, reduce, reveal)
         };

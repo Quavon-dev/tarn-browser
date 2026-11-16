@@ -95,7 +95,7 @@ actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab
 pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
     ("Settings", "preferences options", &Settings),
     ("New Tab Group", "group", &NewGroup),
-    ("Bookmark This Tab", "favorite save", &BookmarkTab),
+    ("Bookmark Tab…", "favorite save", &BookmarkTab),
     ("Bookmark All Tabs", "favorite save", &BookmarkAllTabs),
     ("New Space", "workspace profile", &NewSpace),
     ("Edit Space", "workspace rename color icon", &spaces::EditSpace),
@@ -130,6 +130,12 @@ pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
     ("Site Settings", "shield permissions zoom mute clear data", &site_settings::SiteSettings),
     ("Zap Element", "hide remove element block", &zaps::ZapElement),
     ("Open or Close Split View", "side by side tabs grid four", &split::ToggleSplitView),
+    ("Focus Next Pane", "split view switch", &split::FocusNextPane),
+    ("Focus Previous Pane", "split view switch", &split::FocusPreviousPane),
+    ("Swap Split Panes", "split view exchange move", &split::SwapPanes),
+    ("Rotate Split Layout", "split view stacked side by side rows columns", &split::RotateSplitLayout),
+    ("Remove Tab from Split View", "split pane leave", &split::RemoveFromSplitView),
+    ("Close Split View", "split panes end separate", &split::CloseSplitView),
     ("Reader", "article reading view text", &reader::ToggleReader),
     ("Save for Later", "reading list read later bookmark", &reader::SaveForLater),
     ("Picture in Picture", "video pip float", &capture::PictureInPicture),
@@ -151,7 +157,7 @@ impl Render for Browser {
         if window.is_window_active() {
             self.refresh_menus(cx);
         }
-        self.keep_spinning(cx);
+        self.keep_spinning(window, cx);
         // A field that is dropped or no longer drawn keeps no focus path, and with it no action reaches the browser.
         let stranded = window.focused(cx).is_none();
         if self.hidden_field_focused(window, cx) || (std::mem::take(&mut self.refocus) || stranded) && !self.overlay_open() && self.active_prompt().is_none() {
@@ -177,8 +183,13 @@ impl Render for Browser {
             .on_action(cx.listener(|b, _: &CloseOverlay, w, cx| {
                 if b.overlay_open() {
                     b.dismiss_overlay(w, cx);
+                } else if b.active_prompt().is_some() {
+                    b.dismiss_prompt(w, cx);
+                } else if b.find_open {
+                    b.close_find(w, cx);
                 }
             }))
+            .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, w, cx| b.prompt_key(e, w, cx)))
             .on_action(cx.listener(|b, _: &NewTab, w, cx| b.new_tab_page(w, cx)))
             .on_action(cx.listener(|b, _: &NewChromiumWindow, w, cx| b.new_chromium_window(w, cx)))
             .on_action(cx.listener(|b, _: &profiles::NewProfile, w, cx| b.open_profile_editor(None, w, cx)))
@@ -370,19 +381,22 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
         },
         Menu {
             name: "File".into(),
-            items: [MenuItem::action("New Window", NewWindow), MenuItem::action("New Tab", NewTab)]
+            items: [MenuItem::action("New Tab", NewTab), MenuItem::action("New Window", NewWindow)]
                 .into_iter()
                 .chain(cfg!(feature = "chromium").then(|| MenuItem::action("New Chromium Window", NewChromiumWindow)))
                 .chain([
-                    MenuItem::action("Reopen Closed Tab", ReopenClosedTab),
+                    MenuItem::action("New Burner Tab", BurnerTab),
+                    MenuItem::action("Private Space", PrivateSpace),
+                    MenuItem::separator(),
                     MenuItem::action("Open Location…", OpenLocation),
+                    MenuItem::action("Reopen Closed Tab", ReopenClosedTab),
+                    MenuItem::separator(),
                     MenuItem::action("New Tab Group", NewGroup),
                     MenuItem::action("New Space…", NewSpace),
                     MenuItem::action("Edit Space…", spaces::EditSpace),
-                    MenuItem::action("Private Space", PrivateSpace),
-                    MenuItem::action("New Burner Tab", BurnerTab),
                     MenuItem::action("New Profile…", profiles::NewProfile),
                     MenuItem::action("Edit Profile…", profiles::EditProfile),
+                    MenuItem::separator(),
                     MenuItem::action("Print…", Print),
                     MenuItem::action("Save Page as PDF", capture::SavePdf),
                     MenuItem::action("Take Screenshot", capture::TakeScreenshot),
@@ -409,23 +423,7 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
                 MenuItem::action("Find in Tabs…", find_tabs::FindInTabs),
             ],
         },
-        Menu {
-            name: "View".into(),
-            items: vec![
-                MenuItem::action("Toggle Sidebar", ToggleSidebar),
-                MenuItem::action("Compact Toolbar", ToggleCompactToolbar),
-                MenuItem::action("Auto-Hide Sidebar", ToggleAutoHideSidebar),
-                MenuItem::action("Reload", Reload),
-                MenuItem::separator(),
-                MenuItem::action("Zoom In", ZoomIn),
-                MenuItem::action("Zoom Out", ZoomOut),
-                MenuItem::action("Actual Size", ZoomReset),
-                MenuItem::separator(),
-                MenuItem::action("Reader", reader::ToggleReader),
-                MenuItem::action("Picture in Picture", capture::PictureInPicture),
-                MenuItem::action("Keyboard Shortcuts", shortcuts::ToggleShortcuts),
-            ],
-        },
+        Menu { name: "View".into(), items: dynamic.view },
         Menu { name: "Tabs".into(), items: dynamic.tabs },
         Menu { name: "Bookmarks".into(), items: dynamic.bookmarks },
         Menu { name: "History".into(), items: dynamic.history },
