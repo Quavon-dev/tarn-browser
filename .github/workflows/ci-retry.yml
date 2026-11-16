@@ -1,0 +1,43 @@
+name: Retry CI after a runner shortage
+
+# GitHub cancels a job it finds no hosted runner for ("The job was not acquired by Runner of type
+# hosted even after multiple attempts"), which happens to macOS jobs when Apple-silicon runners
+# are short. Such a run is retried twice; a run that failed for any other reason is left alone.
+# Runs only gh on the run's ID; it checks out nothing.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  retry:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt < 3
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      checks: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          shortage=false other=false
+          while read -r id conclusion; do
+            if [[ "$conclusion" == cancelled ]] && gh api "repos/$GH_REPO/check-runs/$id/annotations" --jq '.[].message' |
+              grep -qF 'was not acquired by Runner of type hosted'; then
+              shortage=true
+            else
+              other=true
+            fi
+          done < <(gh api "repos/$GH_REPO/actions/runs/$RUN/jobs" --paginate \
+            --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | "\(.id) \(.conclusion)"')
+          if $shortage && ! $other; then
+            gh run rerun "$RUN" --failed
+            echo "re-ran the jobs of run $RUN that found no runner"
+          else
+            echo "run $RUN failed for another reason (or nothing to retry); not retrying"
+          fi
