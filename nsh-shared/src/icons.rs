@@ -200,6 +200,11 @@ pub fn named(name: &str) -> Option<&'static str> {
     NAMED.iter().find(|(n, _)| *n == name).map(|(_, i)| *i)
 }
 
+/// The glyph a shared crate names, else the command glyph.
+pub fn glyph(name: &str) -> &'static str {
+    named(name).unwrap_or(COMMAND)
+}
+
 pub const SPACE_ICONS: &[(&str, &str)] = &[
     ("house", HOUSE),
     ("briefcase", BRIEFCASE),
@@ -253,5 +258,11 @@ mod tests {
         assert!(!tinted(BACK).contains("#000"));
         assert_eq!(space_icon("nope"), HOUSE);
         assert_eq!(space_icon("code"), CODE);
+        let missing: Vec<&str> = browser_core::command::GLYPHS.iter().map(|(_, g)| *g).filter(|g| named(g).is_none()).collect();
+        assert!(missing.is_empty(), "{missing:?}");
+        for kind in ["camera", "microphone", "location", "notifications", "credentials", "external", "alert"] {
+            assert!(named(browser_core::glyphs::glyph(kind)).is_some(), "{kind}");
+        }
+        assert_eq!(glyph("nope"), COMMAND);
     }
 }

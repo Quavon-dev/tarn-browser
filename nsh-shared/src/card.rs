@@ -1,6 +1,7 @@
 use nsh_core::prelude::*;
 
-use crate::theme::Theme;
+use crate::controls::CAPS;
+use crate::theme::{TEXT_SMALL, Theme};
 
 pub struct Words<'a> {
     pub x: u32,
@@ -55,6 +56,50 @@ pub fn week_bars(days: &[i64]) -> View {
     view().flex_row().items_end().gap_1().h(px(WEEK_HEIGHT)).accessibility_elements_hidden(true).children(bars)
 }
 
+/// The height of the profile page's tallest day bar.
+pub const CHART_HEIGHT: f32 = 96.;
+
+pub fn day_height(n: i64, most: i64) -> f32 {
+    if n <= 0 { 0. } else { (CHART_HEIGHT * n as f32 / most.max(1) as f32).max(3.) }
+}
+
+/// The profile page's one bar chart: a bar per day, the busiest in the space colour, its count
+/// above and the day's initial below.
+pub fn day_chart(days: &[(&str, i64)]) -> View {
+    let most = days.iter().map(|(_, n)| *n).max().unwrap_or(0);
+    let columns: Vec<AnyElement> = days
+        .iter()
+        .map(|(day, n)| {
+            let fill = if *n > 0 && *n == most { Theme::space_label() } else { Theme::accent() };
+            view()
+                .flex_col()
+                .flex_1()
+                .items_center()
+                .justify_end()
+                .gap_1()
+                .child(text(browser_core::shield_card::thousands((*n).max(0) as u64)).text_size(px(CAPS)).text_color(Theme::faint()))
+                .child(view().w(px(22.)).h(px(day_height(*n, most))).rounded(px(4.)).bg(fill))
+                .child(text((*day).to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::muted()))
+                .into_element()
+        })
+        .collect();
+    view().flex_row().items_end().gap_2().h(px(CHART_HEIGHT + 40.)).accessibility_elements_hidden(true).children(columns)
+}
+
+/// A bar for `n` of `most` on the separator track: the most protected sites.
+pub fn meter(n: i64, most: i64) -> View {
+    let (n, rest) = (n.max(0) as f32, (most - n).max(0) as f32);
+    view()
+        .flex_row()
+        .flex_1()
+        .h(px(4.))
+        .rounded_full()
+        .overflow_hidden()
+        .bg(Theme::separator())
+        .child(view().h_full().flex_grow(n).bg(Theme::accent()))
+        .child(view().h_full().flex_grow(rest))
+}
+
 pub fn picture(markup: &str, width: f32, height: f32, words: &[Words], scale: f32) -> View {
     let labels: Vec<AnyElement> = words
         .iter()
@@ -96,5 +141,6 @@ mod tests {
         assert_eq!(colour("#FF0000", 0.5), Rgba { a: 0.5, ..rgb(0xff0000) });
         assert_eq!(colour("white", 1.), rgb(0xffffff));
         assert_eq!((bar_height(0, 5), bar_height(5, 5), bar_height(1, 1000)), (0., WEEK_HEIGHT, 3.));
+        assert_eq!((day_height(0, 9), day_height(9, 9), day_height(1, 1000)), (0., CHART_HEIGHT, 3.));
     }
 }
