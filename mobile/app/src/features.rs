@@ -401,8 +401,8 @@ impl<D: Platform> Shell<D> {
 
     /// What Shield stopped on the page's site, for the address bar's Shield chip.
     pub fn site_shield_total(&self) -> i64 {
-        match (self.model.profile(), self.active_host()) {
-            (Some((private, id)), Some(host)) => self.core.store(private).shield_site_total(id, &host).unwrap_or(0).max(0),
+        match (self.model.profile(), Url::parse(&self.active_url())) {
+            (Some((private, id)), Ok(url)) => self.core.site_stopped(private, id, &url),
             _ => 0,
         }
     }

@@ -264,8 +264,7 @@ impl Browser {
 
     /// What Shield stopped on the site `url` belongs to, in the tab's profile.
     pub(crate) fn site_stopped(&self, key: TabKey, url: &Url) -> i64 {
-        let (Some(profile_id), Some(host)) = (self.profile_of(key), browser_core::command::page_host(url)) else { return 0 };
-        self.store(key.private).shield_site_total(profile_id, &host).unwrap_or(0)
+        self.profile_of(key).map_or(0, |profile_id| self.core.site_stopped(key.private, profile_id, url))
     }
 
     /// Opens the popover under the shield button, or under the toolbar's centre when it is hidden;

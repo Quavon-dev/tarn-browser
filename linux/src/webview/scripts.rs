@@ -61,13 +61,7 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             run(state, body, move |s, url, text| s.emit("iconLinks", json!({ "seq": seq, "url": url, "text": text })));
         }
         "fetchIcon" => {
-            let urls: Vec<Url> = args["urls"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|u| Url::parse(u.as_str()?).ok().filter(|u| u.scheme() == "https"))
-                .take(favicon::MAX_CANDIDATES)
-                .collect();
+            let urls = favicon::fetch_urls(args["urls"].as_array().into_iter().flatten().filter_map(|u| u.as_str()));
             let body = page.as_ref().filter(|_| !urls.is_empty()).and_then(|p| page_scripts::fetch_icon_script(p, &urls, favicon::MAX_BYTES));
             run(state, body, move |s, url, text| s.emit("iconData", json!({ "seq": seq, "url": url, "text": text })));
         }

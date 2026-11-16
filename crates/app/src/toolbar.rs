@@ -198,11 +198,9 @@ fn address_text(site: &Site) -> (String, gpui::Rgba) {
     }
 }
 
-/// What Shield stopped on the site on screen, for the current profile.
+/// What Shield stopped on the site on screen, in the active tab's profile.
 fn site_count(b: &Browser, site: &Site) -> Option<i64> {
-    let host = site.url.as_ref().and_then(browser_core::command::page_host)?;
-    let space = b.model.current_space()?;
-    b.store(space.private).shield_site_total(space.space.profile_id, &host).ok().filter(|n| *n > 0)
+    Some(b.site_stopped(b.model.active?, site.url.as_ref()?)).filter(|n| *n > 0)
 }
 
 /// The Shield chip at the start of the address: the level's glyph and what Shield stopped on

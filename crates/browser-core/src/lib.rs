@@ -190,6 +190,12 @@ impl<D: WebsiteData> Core<D> {
         !(private && self.burners.borrow().contains(&profile_id))
     }
 
+    /// What Shield stopped on the site of `url` in the profile, for the Shield chip and the site
+    /// popover; 0 for a page without a host or a site Shield never acted on.
+    pub fn site_stopped(&self, private: bool, profile_id: Id, url: &Url) -> i64 {
+        command::page_host(url).and_then(|host| self.store(private).shield_site_total(profile_id, &host).ok()).unwrap_or(0).max(0)
+    }
+
     /// The Shield level for `url` under an opened profile.
     pub fn level(&self, private: bool, profile_id: Id, url: Option<&Url>) -> Option<ShieldLevel> {
         self.profiles.borrow().get(&(private, profile_id)).map(|rt| effective_level(&rt.profile, &rt.overrides, url))
@@ -304,6 +310,20 @@ mod tests {
         drop(core);
         assert_eq!(TestCore::open(dir.path(), false).disk.profiles().unwrap().len(), 1, "a reopened database is not seeded again");
         assert!(TestCore::open(dir.path(), false).store(true).profiles().unwrap().is_empty(), "the private store starts empty");
+    }
+
+    #[test]
+    fn site_stopped_counts_the_page_hosts_total_in_its_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = TestCore::open(dir.path(), false);
+        let id = core.disk.profiles().unwrap()[0].id;
+        core.disk.count(id, store::Counter::TrackingParams, 7, Some("news.test")).unwrap();
+        let url = |u: &str| Url::parse(u).unwrap();
+        assert_eq!(core.site_stopped(false, id, &url("https://NEWS.test/a")), 7);
+        assert_eq!(core.site_stopped(false, id, &url("blob:https://news.test/x")), 7);
+        assert_eq!(core.site_stopped(false, id, &url("https://other.test/")), 0);
+        assert_eq!(core.site_stopped(false, id, &url("about:blank")), 0);
+        assert_eq!(core.site_stopped(false, id + 1, &url("https://news.test/")), 0);
     }
 
     #[test]

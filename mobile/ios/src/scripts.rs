@@ -73,8 +73,7 @@ impl Inner {
                 self.run(body, move |text| context.emit("iconLinks", json!({ "seq": seq, "url": shown, "text": text })));
             }
             "fetchIcon" => {
-                let urls: Vec<url::Url> =
-                    args.get("urls").and_then(Value::as_array).into_iter().flatten().filter_map(|u| url::Url::parse(u.as_str()?).ok()).collect();
+                let urls = engine::favicon::fetch_urls(args.get("urls").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str));
                 let body = url.as_ref().and_then(|u| page_scripts::fetch_icon_script(u, &urls, engine::favicon::MAX_BYTES));
                 self.run(body, move |text| context.emit("iconData", json!({ "seq": seq, "url": shown, "text": text })));
             }

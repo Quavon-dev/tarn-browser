@@ -76,6 +76,12 @@ pub fn candidates(page: &Url, links: &str) -> Vec<Url> {
     out
 }
 
+/// The icon URLs a web view component accepts from the shell for `fetchIcon`: https only, at
+/// most `MAX_CANDIDATES`.
+pub fn fetch_urls<'a>(urls: impl IntoIterator<Item = &'a str>) -> Vec<Url> {
+    urls.into_iter().filter_map(|u| Url::parse(u).ok().filter(|u| u.scheme() == "https")).take(MAX_CANDIDATES).collect()
+}
+
 /// Hosts whose stored icon may stand for `host`, nearest first: the host, each parent up to its
 /// registrable domain, then that domain's `www.` host. Never climbs above the registrable domain,
 /// so one tenant of a shared host never shows another's icon.
@@ -275,6 +281,23 @@ mod tests {
         assert_eq!(host("http://a.test/", false), None);
         assert_eq!(host("https://a.test:8443/", false), None);
         assert_eq!(host("about:blank", false), None);
+    }
+
+    #[test]
+    fn components_fetch_only_a_few_https_urls() {
+        let urls = fetch_urls([
+            "http://a.test/i.png",
+            "nonsense",
+            "https://a.test/1.png",
+            "https://a.test/2.png",
+            "https://a.test/3.png",
+            "https://a.test/4.png",
+            "https://a.test/5.png",
+        ]);
+        assert_eq!(
+            urls.iter().map(Url::as_str).collect::<Vec<_>>(),
+            ["https://a.test/1.png", "https://a.test/2.png", "https://a.test/3.png", "https://a.test/4.png"]
+        );
     }
 
     #[test]
