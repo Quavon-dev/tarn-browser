@@ -12,7 +12,12 @@ use super::{
     Screen, Ui, accent_pill, caption, detail_row, framed, icon_button, icons, label, pill, section, segmented, small, surface, switch_row, text_field,
 };
 use crate::scripts::{FindRow, Transfer, TransferState};
-use crate::theme::{TEXT_HEADING, TEXT_TITLE, TOUCH_TARGET, Theme};
+use tarn_nsh_shared::controls::glyph_tile;
+use tarn_nsh_shared::icons as glyphs;
+
+use crate::theme::{Secure, TEXT_HEADING, TEXT_TITLE, TOUCH_TARGET, Theme};
+
+const FILE_TILE: f32 = 28.;
 
 const QR_SIZE: f32 = 240.;
 pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
@@ -487,18 +492,51 @@ pub fn transfers(ui: Ui) -> impl IntoElement {
                     .into_element(),
                 TransferState::Saving => icon_button(icons::CLOSE, "Cancel Download", command("downloadCancel", false)).into_element(),
             };
+            let flagged = matches!(t.state, TransferState::Flagged(_));
+            let share = t.total.filter(|total| *total > 0 && !flagged).map(|total| (t.done as f32 / total as f32).clamp(0., 1.));
             view()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .min_h(px(TOUCH_TARGET))
-                .pl_3()
                 .border_b_1()
                 .border_color(Theme::separator)
-                .child(view().flex_1().child(label(t.name.clone()).number_of_lines(1)).child(caption(progress).number_of_lines(2)))
-                .child(buttons)
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .min_h(px(TOUCH_TARGET))
+                        .pl_3()
+                        .py_1()
+                        .child(file_tile(&t.name, flagged))
+                        .child(
+                            view()
+                                .flex_1()
+                                .child(label(t.name.clone()).number_of_lines(1))
+                                .child(caption(progress).number_of_lines(2).style_when(move || flagged, |s| s.text_color(Secure::warning()))),
+                        )
+                        .child(buttons),
+                )
+                .child(share.map(|share| {
+                    view()
+                        .h(px(3.))
+                        .mx_3()
+                        .mb_2()
+                        .rounded_full()
+                        .bg(Theme::separator)
+                        .overflow_hidden()
+                        .child(view().h_full().w(relative(share)).bg(Theme::accent))
+                }))
         },
     )))
+}
+
+/// A downloaded file's type as a glyph tile; a file Shield holds back shows the warning instead.
+pub fn file_tile(name: &str, flagged: bool) -> View {
+    let source = if flagged { glyphs::TRIANGLE_ALERT } else { glyphs::named(browser_core::glyphs::file_glyph(name)).unwrap_or(glyphs::FILE_PLAIN) };
+    glyph_tile(
+        source,
+        FILE_TILE,
+        move || if flagged { Secure::control() } else { Theme::control() },
+        move || if flagged { Secure::warning() } else { Theme::muted() },
+    )
 }
 
 fn shield_words(labels: &[Label]) -> Vec<Words<'_>> {

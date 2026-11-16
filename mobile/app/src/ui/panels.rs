@@ -658,6 +658,24 @@ fn downloads(ui: Ui) -> impl IntoElement {
         .child(caption("Downloads are saved in the Files app under Tarn › Downloads and are never opened automatically.").px_1())
         .child(sheets::transfers(ui))
         .child(dynamic(move || rows().is_empty().then(|| empty_state("No downloads yet"))))
+        .child(dynamic(move || {
+            (!rows().is_empty()).then(|| {
+                view().flex_row().items_center().px_1().child(section("Finished").flex_1()).child(
+                    button()
+                        .accessibility_label("Clear Downloads List")
+                        .min_h(px(TOUCH_TARGET))
+                        .px_2()
+                        .justify_center()
+                        .on_press(move || {
+                            ui.act(|s| {
+                                s.clear_downloads();
+                                Vec::new()
+                            })
+                        })
+                        .child(text("Clear").text_size(px(TEXT_TITLE)).text_color(Theme::accent)),
+                )
+            })
+        }))
         .child(framed(group().child(each(
             rows,
             |d: &store::Download| d.id,
@@ -670,10 +688,15 @@ fn downloads(ui: Ui) -> impl IntoElement {
                     .gap_3()
                     .min_h(px(TOUCH_TARGET))
                     .px_3()
+                    .py_1()
                     .border_b_1()
                     .border_color(Theme::separator)
-                    .child(icon(icons::DOWNLOADS, move || if finished { Theme::success() } else { Theme::danger() }))
-                    .child(view().flex_1().child(label(d.url.clone()).number_of_lines(1)).child(caption(if finished { "Saved" } else { "Failed" })))
+                    .child(sheets::file_tile(&d.url, false))
+                    .child(
+                        view().flex_1().child(label(d.url.clone()).number_of_lines(1)).child(
+                            caption(if finished { "Saved" } else { "Failed" }).text_color(move || if finished { Theme::muted() } else { Theme::danger() }),
+                        ),
+                    )
             },
         ))))
 }

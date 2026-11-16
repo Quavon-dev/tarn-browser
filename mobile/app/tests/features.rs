@@ -348,6 +348,19 @@ fn downloads_outlive_their_tab_and_reach_history() {
 }
 
 #[test]
+fn clearing_the_downloads_list_keeps_running_downloads() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://a.test/", "A");
+    let key = active(&shell);
+    shell.event(key, "download", &json!({ "id": "1", "state": "finished", "name": "a.zip", "path": "/a.zip" }), 3);
+    shell.event(key, "download", &json!({ "id": "2", "state": "started", "name": "b.pdf", "pausable": true }), 3);
+    assert_eq!(shell.downloads().len(), 1);
+    shell.clear_downloads();
+    assert!(shell.downloads().is_empty());
+    assert_eq!(shell.transfers.len(), 1, "a download still saving stays");
+}
+
+#[test]
 fn tabs_move_between_spaces_of_one_profile() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");
