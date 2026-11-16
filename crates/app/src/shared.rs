@@ -141,9 +141,8 @@ pub(crate) fn start(cx: &mut App) -> bool {
     filters.updates = core.disk.setting(crate::filters::SETTING).ok().flatten().as_deref() != Some("off");
     let prefs = Cell::new(Prefs::load(&core.disk));
     let (reports, mut update_reports) = mpsc::unbounded();
-    let updater = platform::updater::Updater::start(prefs.get().get(crate::prefs::Pref::UpdateChecks), &data_dir().join("updates"), move |report| {
-        drop(reports.unbounded_send(report))
-    });
+    let (checks, nightly) = (prefs.get().get(crate::prefs::Pref::UpdateChecks), prefs.get().get(crate::prefs::Pref::NightlyUpdates));
+    let updater = platform::updater::Updater::start(checks, nightly, &data_dir().join("updates"), move |report| drop(reports.unbounded_send(report)));
     let (downloads, mut download_events) = mpsc::unbounded();
     let core = Rc::new(AppCore {
         core,

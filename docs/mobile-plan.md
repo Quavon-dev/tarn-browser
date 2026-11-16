@@ -587,6 +587,13 @@ the simulator's keychain; evidence in
 `mobile/evidence/themes-github/`. Android carries theme sheets in the page world, as it does
 site CSS (S28/S29).
 
+### Nightly builds
+
+Not on iOS or Android, a platform gap: the stores decide which build a phone installs, so Settings ›
+General › Nightly builds (macOS and Windows, `docs/release.md` "Update channels") has no counterpart.
+The nightly pre-release carries the unsigned iOS and Android builds for testers; nightlies for phones
+would go through TestFlight and the Play internal testing track, uploaded by hand.
+
 ## 5. Design
 
 The mobile app looks like the macOS app: dark appearance (`nsh.json` `"appearance": "dark"`), the navy

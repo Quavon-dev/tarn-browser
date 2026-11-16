@@ -7,7 +7,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 src="${1:?usage: installer-windows.sh PACKAGE_DIR OUT_DIR}"
 out="${2:?usage: installer-windows.sh PACKAGE_DIR OUT_DIR}"
 [[ -f "$src/tarn.exe" ]] || { echo "$src holds no tarn.exe" >&2; exit 1; }
-version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -n1)"
+version="${TARN_BUILD_VERSION:-$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -n1)}"
 [[ "$version" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]] || { echo "Cargo.toml has no usable version: '$version'" >&2; exit 1; }
 iscc="${ISCC:-}"
 for candidate in "$iscc" "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "${LOCALAPPDATA:-}/Programs/Inno Setup 6/ISCC.exe"; do

@@ -184,16 +184,17 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   the installer start Tarn again). Every release must carry `windows-update.json` and its `.sig`,
   also engine-only releases (`docs/release.md`), or Windows checks fail: new installs open no
   page, and existing ones close Chromium seven days after their last verified check. v0.1.0,
-  published without the feed, showed that: a new install opens no page. `scripts/windows-feed.sh`
-  signs a feed for the unsigned installer when there is no signed one. Updating through a feed is
+  published without the feed, showed that: a new install opens no page. `release.yml`'s
+  `sign` job signs a feed for the unsigned installer (`scripts/windows-feed.sh`). Updating through a feed is
   not yet tried against a real release.
 - **Release:** CI builds and tests Windows on every push (`ci.yml` `windows` job). A `v*` tag adds
   the unsigned zip and an unsigned per-user Inno Setup installer (`packaging/windows/tarn.iss`,
-  `scripts/installer-windows.sh`) to the draft release. The maintainer signs both with Authenticode
-  on their own machine (`scripts/sign-windows.ps1`: certificate by thumbprint or Azure Trusted
-  Signing, SHA-256 with RFC 3161 timestamp, `signtool verify /pa`), then signs the installer and
-  the update feed `windows-update.json` with the Sparkle Ed25519 key (`docs/release.md` "Windows
-  release"). The installer, Start menu entry and uninstaller use `packaging/windows/tarn.ico`
+  `scripts/installer-windows.sh`) to the release; the `sign` job signs the installer and the update
+  feed `windows-update.json` with the Sparkle Ed25519 key in CI (`docs/release.md` "Signing in
+  CI"). No Authenticode certificate is set up; `scripts/sign-windows.ps1` (certificate by
+  thumbprint or Azure Trusted Signing, SHA-256 with RFC 3161 timestamp, `signtool verify /pa`) signs
+  by hand once one is. Settings › General › Nightly builds switches to the `nightly` release's feed
+  (`docs/release.md` "Update channels"). The installer, Start menu entry and uninstaller use `packaging/windows/tarn.ico`
   (from `packaging/Tarn.icns`); `tarn.exe`, CEF's launcher, still carries CEF's icon and version
   resources: replacing them needs a resource editor step the packaging does not have yet.
 - **Checked by hand:** pages load and render (example.com, DuckDuckGo, Wikipedia), typing in
@@ -307,7 +308,7 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
 ## 6. Signing and release
 
 - Authenticode with an EV or OV certificate on a hardware token, or Azure Trusted Signing.
-  Signing happens on the maintainer's machine, like Sparkle keys (S4): no signing secrets in CI.
+  None is set up yet; the Sparkle key signs the update feed in CI (S4).
 - Package: a per-user Inno Setup installer, signed; update payloads additionally carry the
   EdDSA signature checked by the updater (built, §0 "Release").
 - SBOM attached to Windows releases as on macOS (today's SBOM is generated on macOS and misses

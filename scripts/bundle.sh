@@ -2,7 +2,8 @@
 # TARN_PROFILE=debug bundles a debug build (tests: it reads TARN_TEST_FILTER_KEY).
 # The bundle embeds the CEF framework and helpers and runs without the App Sandbox.
 # TARN_EXTRA_FEATURES adds cargo features, e.g. app/translation (needs the macOS 26 SDK).
-# TARN_SIGN_IDENTITY=none leaves every binary unsigned, for the signing Mac (docs/release.md).
+# TARN_SIGN_IDENTITY=none leaves every binary unsigned, for release.yml's signing job
+# (scripts/codesign-app.sh). TARN_BUILD_VERSION gives a nightly its version (1.2.3.4).
 # TARN_LOCAL_CHROMIUM=1 lets a bundle without a reachable update feed open Chromium until 28 days
 # after its CEF release (browser_core::staleness::LOCAL_BUILD); never for a release build.
 set -euo pipefail
@@ -12,6 +13,7 @@ cd "$root"
 
 version="$(cargo pkgid -p app)"
 version="${version##*[#@]}"
+version="${TARN_BUILD_VERSION:-$version}"
 profile="${TARN_PROFILE:-release}"
 [[ "$profile" == release || "$profile" == debug ]] || { echo "TARN_PROFILE must be release or debug" >&2; exit 1; }
 build=(--locked)
@@ -51,20 +53,14 @@ if [[ "$profile" == release && -n "$feed$key" ]]; then
 fi
 plutil -lint "$app/Contents/Info.plist" >/dev/null
 
-sign() { [[ "$identity" == none ]] || codesign --force --options runtime --timestamp -s "$identity" "$@"; }
-
 frameworks="$app/Contents/Frameworks"
 mkdir -p "$frameworks"
 ditto "$sparkle/Sparkle.framework" "$frameworks/Sparkle.framework"
 updater="$frameworks/Sparkle.framework/Versions/B"
 # The unsandboxed app downloads updates itself, so Sparkle's downloader service goes.
 rm -rf "$updater/XPCServices/Downloader.xpc"
-sign "$updater/XPCServices/Installer.xpc" "$updater/Autoupdate" "$updater/Updater.app"
-sign "$frameworks/Sparkle.framework"
 
 cp -R "$CEF_PATH/Chromium Embedded Framework.framework" "$frameworks/"
-sign "$frameworks/Chromium Embedded Framework.framework/Libraries/"*.dylib
-sign "$frameworks/Chromium Embedded Framework.framework"
 for flavor in "" " (GPU)" " (Renderer)" " (Plugin)" " (Alerts)"; do
   name="tarn Helper$flavor"
   helper="$frameworks/$name.app"
@@ -85,17 +81,7 @@ for flavor in "" " (GPU)" " (Renderer)" " (Plugin)" " (Alerts)"; do
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 P
-  if [[ "$flavor" == " (GPU)" || "$flavor" == " (Renderer)" ]]; then
-    sign --entitlements packaging/Helper-JIT.entitlements "$helper"
-  elif [[ -z "$flavor" ]]; then
-    # Chromium captures audio and video in utility processes of the plain helper.
-    sign --entitlements packaging/Tarn.entitlements "$helper"
-  else
-    sign "$helper"
-  fi
 done
-# Sites the user allows may use the camera and microphone (WebKit captures in the app's process).
-sign --entitlements packaging/Tarn.entitlements "$app"
-[[ "$identity" == none ]] || codesign --verify --deep --strict "$app"
+[[ "$identity" == none ]] || scripts/codesign-app.sh "$app"
 
 echo "$root/$app"

@@ -210,7 +210,7 @@ function Write-Feed([string]$InstallerPath, [string]$Signature, [bool]$IsCritica
     [void](New-Item -ItemType Directory -Force $Dir)
     $feedPath = Join-Path $Dir 'windows-update.json'
     [System.IO.File]::WriteAllBytes($feedPath, [System.Text.Encoding]::UTF8.GetBytes($json))
-    Write-Host "Wrote $feedPath. Sign it on the Mac that holds the update key, then run -Check:"
+    Write-Host "Wrote $feedPath. Sign it with the update key (sign_update from Sparkle), then run -Check:"
     Write-Host "  printf '%s' `"`$(sign_update --account dev.tarn.browser windows-update.json | sed -n 's/.*edSignature=`"\([^`"]*\)`".*/\1/p')`" > windows-update.json.sig"
 }
 

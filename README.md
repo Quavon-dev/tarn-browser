@@ -367,7 +367,7 @@ scripts/third-party-licenses.sh # regenerates the macOS and Windows licence list
 ```
 
 `scripts/bundle.sh` builds for the Mac it runs on; there is no universal binary.
-`TARN_SIGN_IDENTITY=none` leaves the bundle unsigned for the signing Mac; an ad-hoc signature
+`TARN_SIGN_IDENTITY=none` leaves the bundle unsigned for CI's signing job; an ad-hoc signature
 cannot load the CEF framework. The app runs without the App Sandbox (Chromium's helpers and
 WebKit's content processes keep theirs): its data lives in `~/Library/Application Support/Tarn`
 and `~/Library/WebKit/dev.tarn.browser`, and the first start after a sandboxed version moves it
