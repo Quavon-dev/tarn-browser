@@ -287,6 +287,7 @@ fn notice(ui: Ui) -> impl IntoElement {
             let local = ui.read(|s| s.can_open_anyway());
             let base = if local { tarn_nsh_shared::controls::secure_surface(Theme::radius_panel()) } else { surface(Theme::radius_panel()) };
             base.flex_row()
+                .bind_motion(&tarn_nsh_shared::motion::pop_in())
                 .items_center()
                 .gap_2()
                 .mx_3()

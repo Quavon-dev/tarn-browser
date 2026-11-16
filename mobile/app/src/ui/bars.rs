@@ -249,7 +249,11 @@ fn page_actions(ui: Ui) -> impl IntoElement {
         }))
         .child(themed(move || {
             dynamic(move || {
-                (!ui.editing.get() && !ui.read(|s| s.active_url().is_empty())).then(|| icon_button(icons::SHARE, "Share", move || ui.show(Screen::Share)))
+                (!ui.editing.get() && !ui.read(|s| s.active_url().is_empty())).then(|| {
+                    tarn_nsh_shared::controls::icon_button(view().text_color(Theme::text).child(glyphs::icon(glyphs::SHARE, ICON)), "Share", move || {
+                        ui.show(Screen::Share)
+                    })
+                })
             })
         }))
 }
@@ -343,7 +347,7 @@ fn shield_chip(ui: Ui) -> impl IntoElement {
         .items_center()
         .justify_center()
         .rounded(px(Theme::radius_row()))
-        .bg(Secure::shield_raised)
+        .bg(Secure::control)
         .active(|s| s.bg(Secure::pressed()))
         .on_press(move || ui.show(Screen::Shield))
         .child(dynamic(move || {
