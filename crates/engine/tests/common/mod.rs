@@ -77,6 +77,7 @@ pub fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {
                 }
                 let route = path.split('?').next().unwrap_or_default();
                 if route == "/nocontent" {
+                    std::thread::sleep(Duration::from_millis(1000));
                     write!(stream, "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n").ok();
                     return;
                 }
