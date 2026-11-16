@@ -46,8 +46,8 @@ contract v2 (`docs/mobile-plan.md` §2), which also lists what stays different. 
 Same store schema and setting keys as macOS (`block_annoyances`, `history_text`, `sort_downloads`,
 `keymap.tarn::<Action>`):
 - tabs: close duplicate tabs, toasts with Undo, copy link and clean link (tracking parameters counted),
-  QR code (`engine::qr`, drawn by `tarn_nsh_shared::qr`; the share sheet is macOS-only, Linux copies
-  the link), burner tab (its own ephemeral `NetworkSession` per `burner:<32 hex>` id, released when
+  QR code (`engine::qr`, drawn by `tarn_nsh_shared::qr`), all three in the toolbar's share menu (Linux
+  has no system share path, so the menu has no More…), burner tab (its own ephemeral `NetworkSession` per `burner:<32 hex>` id, released when
   burned), Reading List (the `Reading List` bookmark folder);
 - spaces: schedules by weekday and hour with the one-hour manual hold, snapshots (save, restore in a
   new or this space, delete), "Always open in" rules, switch to and move tabs between spaces from

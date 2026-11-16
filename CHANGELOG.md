@@ -11,6 +11,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The Shield card follows the theme: dawn with the sun behind the peak in light themes, night
   with stars, a crescent and an aurora in dark ones; New Design still reshapes the ridges (macOS,
   Windows, Linux, iOS, Android).
+- The Linux window follows the revamped layout: a space switcher and profile avatar in the
+  sidebar, a Shield chip with the site's count in the address field, a centred command palette
+  with key caps, a share menu, the new site, download, prompt and find surfaces, Settings as a
+  grouped sheet with the profile's week chart, Share card as a PNG, and short pop-in and layout
+  motion that Reduce Motion turns off (Linux).
 
 ## [0.1.1] - 2026-11-16
 

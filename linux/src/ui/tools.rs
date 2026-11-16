@@ -196,9 +196,25 @@ pub fn toast_bar(ui: Ui) -> AnyElement {
     })
 }
 
+/// The shortcut that runs `command`, if it has one.
+fn action(command: Command) -> Option<Action> {
+    match command {
+        Command::Key(action) => Some(action),
+        Command::CopyLink => Some(Action::CopyLink),
+        Command::CopyCleanLink => Some(Action::CopyCleanLink),
+        Command::Reader => Some(Action::ToggleReader),
+        Command::BurnerTab => Some(Action::BurnerTab),
+        Command::FindInTabs => Some(Action::FindInTabs),
+        Command::NewWindow => Some(Action::NewWindow),
+        Command::CloseSplit => Some(Action::ToggleSplitView),
+        _ => None,
+    }
+}
+
 pub fn command_rows(ui: Ui, query: Signal<String>) -> AnyElement {
     dynamic(move || {
         let rows = commands(ui, &query.get());
+        let shown = !rows.is_empty();
         let items: Vec<AnyElement> = rows
             .into_iter()
             .enumerate()
@@ -209,17 +225,20 @@ pub fn command_rows(ui: Ui, query: Signal<String>) -> AnyElement {
                         at.reveal(RevealOptions::default().vertical(ScrollAlignment::Nearest));
                     }
                 });
+                let keys = action(command).and_then(|a| super::shortcut_of(ui, a));
                 super::suggestion_row(name.clone(), move || pick(ui, command))
                     .element_ref(&at)
                     .bg(move || super::picked_fill(ui, ix + 1))
-                    .text_color(Theme::muted())
-                    .child(view().w(px(18.)).items_center().child(icons::icon(icons::GEAR, 14.)))
+                    .child(super::row_glyph(ui, icons::glyph(browser_core::command::glyph(&name)), move || ix + 1))
                     .child(label(name).flex_1().truncate())
-                    .child(super::detail("Command"))
+                    .children(keys.map(|k| tarn_nsh_shared::controls::key_caps(&k)))
                     .into_element()
             })
             .collect();
-        scroll().max_h(px(LISTED * (ROW_HEIGHT + 2.))).child(view().flex_col().gap(px(2.)).children(items))
+        view()
+            .flex_col()
+            .children(shown.then(|| super::row_section("Commands")))
+            .child(scroll().max_h(px(LISTED * (ROW_HEIGHT + 8.))).child(view().flex_col().gap(px(2.)).children(items)))
     })
 }
 
@@ -238,7 +257,7 @@ pub fn find_rows(ui: Ui) -> View {
                 ui.finding.set(true);
                 act(ui, |b| b.find_typed(&query));
             })
-            .child(view().w(px(18.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::SEARCH, 14.)))
+            .child(tarn_nsh_shared::controls::glyph_tile(icons::SEARCH, 28., Theme::control, Theme::muted))
             .child(label(row.label.clone()).flex_1().truncate())
             .child(super::detail(row.detail.clone()))
         },
@@ -273,6 +292,42 @@ pub fn qr_panel(ui: Ui) -> AnyElement {
             QR_SIZE,
         )))
         .child(small(host).truncate())
+        .into_element()
+}
+
+/// The share menu: the page, then what Linux can do with its link.
+pub fn share_panel(ui: Ui) -> AnyElement {
+    let (title, url, host) = ui.snap.with(|s| (s.title.clone(), s.url.clone(), s.host.clone()));
+    if host.is_empty() {
+        return super::panels::popover().child(super::panels::heading(ui, note("This page has no link to share."))).into_element();
+    }
+    let header = view()
+        .flex_row()
+        .items_center()
+        .gap(px(10.))
+        .pb_2()
+        .border_b_1()
+        .border_color(Theme::hairline())
+        .child(super::site_tile(&host, 28.))
+        .child(
+            view()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .child(label(if title.is_empty() { host.clone() } else { title }).font_weight(FontWeight::SEMIBOLD).truncate())
+                .child(small(url.trim_start_matches("https://").to_owned()).text_color(Theme::faint()).truncate()),
+        )
+        .child(icon_button(icons::CLOSE, "Close", move || show(ui, Panel::None)));
+    let item = |name: &'static str, command: Command, action: Option<Action>| {
+        super::panels::menu_row(name, action.and_then(|a| super::shortcut_of(ui, a)), move || run(ui, command))
+    };
+    super::panels::popover()
+        .gap_1()
+        .p_2()
+        .child(header.px_2().pt_1())
+        .child(item("Copy Link", Command::CopyLink, Some(Action::CopyLink)))
+        .child(item("Copy Clean Link", Command::CopyCleanLink, Some(Action::CopyCleanLink)))
+        .child(item("Show QR Code", Command::ShowQrCode, None))
         .into_element()
 }
 

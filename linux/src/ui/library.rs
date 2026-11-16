@@ -169,7 +169,16 @@ pub fn reading_list_panel(ui: Ui) -> AnyElement {
     let count = items.len();
     let empty = items.is_empty().then(|| note("Nothing saved yet. Save for Later files the page here."));
     popover()
-        .child(super::panels::heading(ui, super::panels::counted("Reading List", count)))
+        .child(super::panels::heading(
+            ui,
+            view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .flex_1()
+                .child(super::panels::counted("Reading List", count))
+                .child(pill("History", move || super::show(ui, Panel::History))),
+        ))
         .children(empty)
         .child(view().flex_col().gap(px(2.)).children(items))
         .into_element()

@@ -5,13 +5,23 @@ use shield::ShieldLevel;
 use super::tools::{Command, line, note};
 use super::{Panel, Ui, act, confirmed, read, show, site_tile};
 use crate::browser::{Browser, ZOOM_STEPS};
-use crate::controls::{body, card, group, icon_button, label, pill, segmented, small, switch, title};
+use crate::controls::{body, card, group, icon_button, label, pill, segmented, small, title};
 use crate::icons;
 use crate::shortcuts::{self, Action};
 use crate::theme::Theme;
+use crate::theme::{SYSTEM_FONT, Secure};
+use browser_core::shield_card::{motto, thousands};
 use store::TabKind;
+use tarn_nsh_shared::controls::{caps_label, glyph_row, glyph_switch};
 
 const PANEL_WIDTH: f32 = 720.;
+const SITE_WIDTH: f32 = 340.;
+
+enum Side {
+    Start,
+    Centre,
+    End,
+}
 
 pub(super) fn levels() -> Vec<(ShieldLevel, String)> {
     ShieldLevel::ALL.iter().map(|l| (*l, capitalised(l.as_str()))).collect()
@@ -55,59 +65,107 @@ pub(super) fn heading(ui: Ui, content: impl IntoElement) -> View {
 }
 
 fn shield_panel(ui: Ui) -> AnyElement {
-    let (host, level, overridden, secure, zoom) = ui.snap.with(|s| (s.host.clone(), s.level.clone(), s.overridden, s.secure, s.zoom));
+    let (host, level, overridden, secure, zoom, total) = ui.snap.with(|s| (s.host.clone(), s.level.clone(), s.overridden, s.secure, s.zoom, s.site_total));
     let default = read(ui, |b| b.default_level()).unwrap_or_default();
     let set = move |level: Option<ShieldLevel>| act(ui, |b| b.set_site_level(level));
-    let (glyph, color, connection) = if secure {
-        (icons::SHIELD_CHECK, Theme::success(), "Connection is secure")
-    } else {
-        (icons::SHIELD, Theme::warning(), "Not Secure — this page is not encrypted")
-    };
+    let (glyph, color, connection) =
+        if secure { (icons::LOCK, Secure::success(), "Connection is secure") } else { (icons::TRIANGLE_ALERT, Secure::warning(), "Not secure") };
     let header = view()
+        .flex_row()
+        .items_center()
+        .gap(px(10.))
+        .child(site_tile(&host, 28.))
+        .child(
+            view()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .child(label(if host.is_empty() { "This page".to_owned() } else { host.clone() }).font_weight(FontWeight::BOLD).truncate())
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .text_color(color)
+                        .child(icons::icon(glyph, 11.))
+                        .child(small(connection).text_color(color).font_family(SYSTEM_FONT)),
+                ),
+        )
+        .child(icon_button(icons::CLOSE, "Close", move || show(ui, Panel::None)));
+    let body = popover().gap_3().child(header);
+    if host.is_empty() {
+        return body.into_element();
+    }
+    let summary = view()
         .flex_col()
-        .gap(px(2.))
-        .pb_3()
-        .border_b_1()
-        .border_color(Theme::hairline())
-        .child(heading(ui, label(if host.is_empty() { "This page".to_owned() } else { host.clone() }).font_weight(FontWeight::SEMIBOLD).truncate()))
-        .child(view().flex_row().items_center().gap(px(6.)).text_color(color).child(icons::icon(glyph, 12.)).child(small(connection).text_color(color)));
-    let mut body = popover().child(header);
-    if !host.is_empty() {
-        let mut choices = vec![(None, "Default".to_owned())];
-        choices.extend(levels().into_iter().map(|(l, name)| (Some(l), name)));
-        let chosen = overridden.then(|| ShieldLevel::parse(&level).unwrap_or_default());
-        let zoom_button = |icon: &'static str, name: &str, step: i32, limit: f64| {
-            icon_button(icon, name, move || act(ui, move |b| b.zoom(step)))
-                .disabled((zoom - limit).abs() < 0.001)
-                .disabled_style(|s| s.text_color(Theme::faint()))
-        };
-        body = body
-            .child(
-                view()
-                    .flex_col()
-                    .gap(px(6.))
-                    .child(small(format!("Shield for this site · profile default {}", capitalised(default.as_str()))))
-                    .child(view().flex_row().child(segmented(choices, chosen, set))),
-            )
-            .child(
+        .px_3()
+        .py_2()
+        .rounded(px(Theme::radius_group()))
+        .bg(Theme::panel_row())
+        .border_1()
+        .border_color(Theme::surface_edge())
+        .child(text(thousands(total.max(0) as u64)).text_size(px(22.)).font_weight(FontWeight::BOLD).text_color(Theme::text()))
+        .child(small("stopped on this site in this profile"));
+    let mut choices = vec![(None, "Default".to_owned())];
+    choices.extend(levels().into_iter().map(|(l, name)| (Some(l), name)));
+    let effective = ShieldLevel::parse(&level).unwrap_or_default();
+    let meaning = if overridden {
+        motto(effective).1.to_owned()
+    } else {
+        let (name, words) = motto(default);
+        format!("Follows the profile: {name} — {}", words.to_lowercase())
+    };
+    let chosen = overridden.then_some(effective);
+    let zoom_button = |icon: &'static str, name: &str, step: i32, limit: f64| {
+        icon_button(icon, name, move || act(ui, move |b| b.zoom(step))).disabled((zoom - limit).abs() < 0.001).disabled_style(|s| s.text_color(Theme::faint()))
+    };
+    let dark = read(ui, Browser::site_dark).unwrap_or_default();
+    let list = group()
+        .child(
+            glyph_switch(icons::MOON, "Dark mode for this site", move || dark, move || act(ui, Browser::toggle_site_dark))
+                .border_b_1()
+                .border_color(Theme::separator()),
+        )
+        .child(
+            glyph_row(icons::ZOOM_IN, "Zoom").child(
                 view()
                     .flex_row()
                     .items_center()
-                    .gap_2()
-                    .child(label("Zoom").flex_1())
+                    .gap_1()
                     .child(zoom_button(icons::CHEVRON_LEFT, "Zoom Out", -1, ZOOM_STEPS[0]))
-                    .child(small(format!("{:.0}%", zoom * 100.0)).w(px(44.)).text_center())
+                    .child(small(format!("{:.0} %", zoom * 100.0)).w(px(48.)).text_center())
                     .child(zoom_button(icons::CHEVRON_RIGHT, "Zoom In", 1, ZOOM_STEPS[ZOOM_STEPS.len() - 1]))
                     .child(pill("Reset", move || act(ui, |b| b.zoom(0)))),
-            )
-            .child(site_extras(ui, &host));
-    }
-    body.into_element()
+            ),
+        );
+    let more = ui.site_more.get_untracked();
+    let toggle = crate::controls::row(if more { "Fewer site settings" } else { "More site settings" }, move || {
+        ui.site_more.update(|m| *m = !*m);
+        act(ui, |_| {});
+    })
+    .px_1()
+    .gap_1()
+    .text_color(Theme::accent())
+    .child(small(if more { "Fewer site settings" } else { "More site settings" }).text_color(Theme::accent()))
+    .child(icons::icon(if more { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.));
+    body.child(summary)
+        .child(
+            view()
+                .flex_col()
+                .gap(px(6.))
+                .child(caps_label("Shield for this site"))
+                .child(view().flex_row().child(segmented(choices, chosen, set)))
+                .child(small(meaning).px_1()),
+        )
+        .child(list)
+        .child(view().flex_row().child(toggle))
+        .children(more.then(|| site_extras(ui, &host)))
+        .into_element()
 }
 
 fn site_extras(ui: Ui, host: &str) -> View {
-    let Some((dark, css, (spaces, routed), zaps, zappable, private)) =
-        read(ui, |b| (b.site_dark(), b.site_css(), b.route_choices(host), b.zapped(Some(host)), b.zappable(), b.model.private()))
+    let Some((css, (spaces, routed), zaps, zappable, private)) =
+        read(ui, |b| (b.site_css(), b.route_choices(host), b.zapped(Some(host)), b.zappable(), b.model.private()))
     else {
         return view();
     };
@@ -136,7 +194,6 @@ fn site_extras(ui: Ui, host: &str) -> View {
     let mut out = view()
         .flex_col()
         .gap_2()
-        .child(switch(dark, "Dark mode for this site", move || act(ui, Browser::toggle_site_dark)).px_0())
         .child(small(ui.css_error.get_untracked().unwrap_or_else(|| "Site CSS".to_owned())).text_color(if ui.css_error.with_untracked(Option::is_some) {
             Theme::warning()
         } else {
@@ -188,23 +245,48 @@ fn history_panel(ui: Ui) -> AnyElement {
     let empty = (count == 0).then(|| note("No history yet"));
     popover()
         .flex_1()
-        .child(heading(ui, view().flex_row().items_center().flex_1().child(counted("History", count)).children(clear)))
+        .child(heading(
+            ui,
+            view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .flex_1()
+                .child(counted("History", count))
+                .child(pill("Reading List", move || show(ui, Panel::ReadingList)))
+                .children(clear),
+        ))
         .children(empty)
         .child(scroll().flex_1().child(view().flex_col().gap(px(1.)).children(rows)))
         .into_element()
 }
 
-fn download_row(name: String, note: String, icon: &'static str, tint: Rgba) -> View {
+fn download_row(name: String, note: String, warning: bool) -> View {
+    let glyph = if warning { icons::TRIANGLE_ALERT } else { icons::glyph(browser_core::glyphs::file_glyph(&name)) };
+    let tint = move || if warning { Secure::warning() } else { Theme::muted() };
+    view().flex_row().items_center().gap(px(10.)).min_h(px(44.)).px_2().child(tarn_nsh_shared::controls::glyph_tile(glyph, 28., Theme::control, tint)).child(
+        view()
+            .flex_col()
+            .flex_1()
+            .min_w(px(0.))
+            .child(label(name).truncate())
+            .child(small(note).text_color(if warning { Secure::warning() } else { Theme::muted() }).truncate()),
+    )
+}
+
+fn progress(done: u64, total: u64) -> View {
+    let rest = total.saturating_sub(done) as f32;
     view()
         .flex_row()
-        .items_center()
-        .gap(px(10.))
-        .h(px(44.))
-        .px_2()
-        .rounded(px(Theme::radius_row()))
-        .text_color(Theme::muted())
-        .child(icons::icon(icon, 20.).text_color(tint))
-        .child(view().flex_col().flex_1().child(label(name).truncate()).child(small(note).truncate()))
+        .h(px(3.))
+        .ml(px(46.))
+        .mr_2()
+        .mb_1()
+        .rounded_full()
+        .overflow_hidden()
+        .bg(Theme::separator())
+        .child(view().h_full().flex_grow(done as f32).bg(Theme::accent()))
+        .child(view().h_full().flex_grow(rest))
 }
 
 fn downloads_panel(ui: Ui) -> AnyElement {
@@ -222,32 +304,34 @@ fn downloads_panel(ui: Ui) -> AnyElement {
             let state = match (running, d.total) {
                 (true, Some(total)) => format!("{} of {}", crate::memory::size(d.done), crate::memory::size(total)),
                 (true, None) => crate::memory::size(d.done),
-                _ => d.state.clone(),
+                _ => capitalised(&d.state),
             };
-            let note = if d.message.is_empty() { state } else { format!("{state} — {}", d.message) };
+            let note = if d.message.is_empty() { state } else { format!("{state} · {}", d.message) };
             let id = d.id.clone();
-            download_row(d.name.clone(), note, icons::ARROW_DOWN, Theme::accent())
-                .children(running.then(|| icon_button(icons::CLOSE, "Cancel Download", move || act(ui, |b| b.cancel_download(&id)))))
-                .into_element()
+            let row = download_row(d.name.clone(), note, !running)
+                .children(running.then(|| icon_button(icons::CLOSE, "Cancel Download", move || act(ui, |b| b.cancel_download(&id)))));
+            let bar = d.total.filter(|t| running && *t > 0).map(|total| progress(d.done, total));
+            view().flex_col().child(row).children(bar).into_element()
         })
         .collect();
     let empty = rows.is_empty() && saved.is_empty();
-    let count = rows.len() + saved.len();
     rows.extend(saved.into_iter().map(|d| {
         let path = d.path.clone();
         let file = std::path::Path::new(&d.path);
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let kind = file.extension().map_or_else(|| "File".to_owned(), |e| e.to_string_lossy().to_lowercase());
-        download_row(name, kind, icons::FILE_PLAIN, Theme::muted())
-            .child(icon_button(icons::SEARCH, "Show in folder", move || {
+        let size = std::fs::metadata(file).map(|m| crate::memory::size(m.len())).ok();
+        let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_owned));
+        let note = [size, host].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+        download_row(name, note, false)
+            .child(icon_button(icons::FOLDER_OPEN, "Show in Folder", move || {
                 drop(reveal_path(std::path::PathBuf::from(&path)));
             }))
             .into_element()
     }));
     let clear = (!empty).then(|| confirmed(ui, "downloads".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads())));
-    let header = heading(ui, view().flex_row().items_center().flex_1().child(counted("Downloads", count)).children(clear));
+    let header = heading(ui, view().flex_row().items_center().flex_1().child(title("Downloads")).child(view().flex_1()).children(clear));
     let none = empty.then(|| view().h(px(44.)).px_2().justify_center().child(body("No downloads yet").text_color(Theme::faint())));
-    popover().child(header).child(view().flex_col().children(rows).children(none)).into_element()
+    popover().gap_2().child(header).child(view().flex_col().gap(px(2.)).children(rows).children(none)).into_element()
 }
 
 /// A name field and its button, for the space or folder `target` named `current`.
@@ -285,8 +369,14 @@ fn folder_panel(ui: Ui, id: store::Id) -> AnyElement {
         .into_element()
 }
 
-fn menu_row(name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
-    crate::controls::row(name.to_owned(), press).px_3().child(label(name.to_owned()).flex_1()).children(keys.map(small))
+/// A menu row: the label's glyph, the label and its shortcut as key caps.
+pub(super) fn menu_row(name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
+    crate::controls::row(name.to_owned(), press)
+        .px_2()
+        .gap(px(10.))
+        .child(view().w(px(16.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::glyph(browser_core::command::glyph(name)), 15.)))
+        .child(label(name.to_owned()).flex_1())
+        .children(keys.map(|k| tarn_nsh_shared::controls::key_caps(&k)))
 }
 
 fn pills(name: &str, buttons: Vec<AnyElement>) -> Option<View> {
@@ -397,19 +487,30 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Memory => super::library::memory_panel(ui),
             Panel::ReadingList => super::library::reading_list_panel(ui),
             Panel::Qr => super::tools::qr_panel(ui),
+            Panel::Share => super::tools::share_panel(ui),
             Panel::History => history_panel(ui),
             Panel::Downloads => downloads_panel(ui),
             Panel::Tab => tab_panel(ui),
             Panel::Folder(id) => folder_panel(ui, id),
         };
-        let wide = ui.panel.get_untracked() == Panel::Settings;
-        Some(view().flex_col().flex_1().items_center().p_4().child(
-            view().flex_col().flex_1().w(px(if wide { PANEL_WIDTH + 200. } else { PANEL_WIDTH })).child(if wide {
-                view().flex_col().flex_1().child(body).into_element()
-            } else {
-                scroll().flex_1().child(body).into_element()
-            }),
-        ))
+        let panel = ui.panel.get_untracked();
+        let (width, side) = match panel {
+            Panel::Share => (320., Side::End),
+            Panel::Shield => (SITE_WIDTH, Side::Centre),
+            Panel::Downloads => (380., Side::Start),
+            Panel::Settings => (PANEL_WIDTH + 200., Side::Centre),
+            _ => (PANEL_WIDTH, Side::Centre),
+        };
+        let content =
+            if panel == Panel::Settings { view().flex_col().flex_1().child(body).into_element() } else { scroll().flex_1().child(body).into_element() };
+        let column = view().flex_col().flex_1().w(px(width)).child(content);
+        let area = view().flex_col().flex_1().p_4();
+        let area = match side {
+            Side::Start => area.items_start(),
+            Side::Centre => area.items_center(),
+            Side::End => area.items_end(),
+        };
+        Some(area.child(tarn_nsh_shared::motion::popping(column)))
     })
     .into_element()
 }

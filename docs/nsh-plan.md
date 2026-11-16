@@ -182,10 +182,17 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
 - The web view is drawn above NSH, so suggestions, prompts, banners and the find bar take layout
   space above the page instead of floating over it, and settings, history and downloads
   replace the page instead of opening their own window or popover.
-- The address field keeps its text left-aligned at rest (NSH inputs do not centre text).
+- The address field shows the host centred at rest as a label; editing happens in the command palette, a card centred
+  in the page area. The web view is drawn above NSH, so while the palette is open the page is hidden (its views count as
+  hidden, as under a panel, so WebKitGTK repaints them afterwards) and the palette sits over a 35 % black dim of the
+  backdrop instead of the page.
+- The find pill shows the number of matches, not "3 of 17": WebKitGTK's find controller reports a count only.
 - The address field's inline completion (`suggest::edit`) runs only when one character was typed at the end of what was typed before (the first key replaces the address selected on focus), since NSH inputs report the new text but not the caret or the kind of edit, so a paste never completes; Enter on the completed text opens the visited page it completes to.
 - Settings have no Suggestions switch yet, so history rows and the inline completion are always on (macOS gates both on Settings › Suggestions); both are computed locally from history, as on macOS.
-- No motion yet (space slide, pop-in, sidebar slide); the start-page fog, the tab close button and the reload and tab-row spinners (`tarn_nsh_shared::motion`, turned on the UI thread) move. The fog and spinners stand still while the window is not the active one (`lifecycle()`), as on macOS.
+- Motion uses `tarn_nsh_shared::motion` (POP, FADE, EXIT, SLIDE as on macOS): pop-ups, the palette, prompts, the find pill
+  and state glyphs pop in; tab rows grow and shrink, the sidebar and space switches move as layout animations; switch
+  knobs slide. All of it lands at once under the desktop's reduced motion. Pop-ups do not animate out (NSH removes a
+  view at once) and a space switch does not slide its list sideways; the start-page fog, the tab close button and the reload and tab-row spinners (`tarn_nsh_shared::motion`, turned on the UI thread) move. The fog and spinners stand still while the window is not the active one (`lifecycle()`), as on macOS.
 - Pop-ups (panels, suggestions, popovers, tooltips) are views and NSH overlays inside the main window, and menus are
   GTK popovers of it, so none floats over another app's window when Tarn is behind it (checked with a second GTK
   window over an open panel: `linux/evidence/backlog-popup-*.png`). There is no window level to manage.
@@ -233,8 +240,9 @@ nothing under Lockdown, answers checked in Rust); details and deviations in `lin
 scripts, styles and zaps; nothing under Lockdown; no private or burner data on disk) and screenshots
 `linux/evidence/feature-*.png`. Deviations: no download pause/resume or malware flag, Read Aloud only
 with `spd-say` (no pause), the Shield card (the Mac's glacier lake from `browser_core::shield_card`, words drawn as native
-text over its SVG landscape since NSH's SVG renderer draws no text) flips and takes a New Design but does not tilt; Settings has the Mac's left
-navigation (Profile, General, Search, Privacy, Profiles, Shortcuts) over scrolling panes, without the Mac's cross-fade,
+text over its SVG landscape since NSH's SVG renderer draws no text) flips and takes a New Design but does not tilt, and Share card saves its front as a PNG through the save dialog (the
+desktop's image loaders draw the SVG); Settings is a sheet with grouped navigation (You: Profile, Profiles; Browser:
+General, Appearance, Search, Privacy, Permissions, Shortcuts) over scrolling panes, without the Mac's cross-fade,
 and the History, Downloads and Reading List panels replace the page, so they neither grow in nor slide; memory per tab only where the web
 process can be told apart; skipped: translation, startup trace, favicons, live peek.
 

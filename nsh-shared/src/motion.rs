@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use nsh_core::platform::Lifecycle;
 use nsh_core::prelude::*;
+use nsh_core::{LayoutAnimation, LayoutCurve, LayoutTransition};
 
 pub fn animates(reduced: bool, lifecycle: Lifecycle) -> bool {
     !reduced && lifecycle == Lifecycle::Active
@@ -34,6 +35,33 @@ pub const SPIN_TURN: Duration = Duration::from_millis(900);
 pub const RELOAD_SPIN: Duration = Duration::from_millis(600);
 const SPIN_FRAME: Duration = Duration::from_millis(33);
 
+/// `element` fading in when it appears, as a scrim does.
+pub fn fading<E: Element>(element: E) -> E {
+    element.bind_motion(&fade_in())
+}
+
+/// `element` popping in when it appears; it lands in place at once under Reduce Motion.
+pub fn popping<E: Element>(element: E) -> E {
+    element.bind_motion(&pop_in())
+}
+
+/// A layout change of the next commit (rows growing, a slot sliding) over `duration`.
+pub fn layout(duration: Duration) -> LayoutTransition {
+    LayoutTransition::new(LayoutCurve::EaseOut, ms(duration))
+}
+
+/// Animates the next commit unless Reduce Motion is on: views that appear grow in over `POP`,
+/// those that leave shrink away over `EXIT`, the rest move over `moving`.
+pub fn animate_next(moving: Duration) {
+    if !reduce_motion() {
+        animate_layout(LayoutAnimation { create: Some(layout(POP)), update: Some(layout(moving)), delete: Some(layout(EXIT)) });
+    }
+}
+
+pub fn ms(duration: Duration) -> f32 {
+    duration.as_secs_f32() * 1000.
+}
+
 pub fn spin_angle(elapsed: Duration) -> f32 {
     (elapsed.as_secs_f32() / SPIN_TURN.as_secs_f32()).fract() * std::f32::consts::TAU
 }
@@ -43,10 +71,6 @@ pub fn spinner(size: f32, glyph: impl IntoElement) -> View {
     let angle = signal(0f32);
     while_active(SPIN_FRAME, || true, move || angle.set(spin_angle(start.elapsed())));
     view().w(px(size)).h(px(size)).items_center().justify_center().rotate(move || Radians(angle.get())).child(glyph)
-}
-
-fn ms(duration: Duration) -> f32 {
-    duration.as_secs_f32() * 1000.
 }
 
 fn eased(duration: Duration) -> MotionSpec {
@@ -102,10 +126,11 @@ mod tests {
 
     #[test]
     fn the_durations_match_the_gpui_motion() {
-        for (name, value) in [("POP", POP), ("FADE", FADE), ("EXIT", EXIT), ("SLIDE", SLIDE)] {
-            let line = format!("pub const {name}: Duration = Duration::from_millis({});", value.as_millis());
+        for (name, duration) in [("POP", POP), ("FADE", FADE), ("EXIT", EXIT), ("SLIDE", SLIDE)] {
+            let line = format!("pub const {name}: Duration = Duration::from_millis({});", duration.as_millis());
             assert!(include_str!("../../crates/ui/src/motion.rs").contains(&line), "{line}");
         }
+        assert_eq!((ms(POP), layout(SLIDE).duration_ms), (160., 280.));
     }
 
     #[test]

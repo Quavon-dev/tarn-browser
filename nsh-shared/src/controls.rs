@@ -5,6 +5,7 @@ use nsh_base::{ButtonElement, button};
 use nsh_core::element::IntoProp;
 use nsh_core::prelude::*;
 
+use crate::icons;
 use crate::motion::{POP, transition_ms};
 use crate::theme::{Paint, RADIUS_GROUP, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
@@ -127,6 +128,23 @@ pub fn secure_button(name: impl Into<String>, press: impl Fn() + 'static, primar
     .child(if primary { text.font_weight(FontWeight::MEDIUM) } else { text })
 }
 
+/// A borderless secure button: the quiet answer of a prompt (Deny).
+pub fn secure_ghost(name: impl Into<String>, press: impl Fn() + 'static) -> ButtonElement {
+    let name: String = name.into();
+    let m = metrics();
+    button()
+        .accessibility_label(name.clone())
+        .on_press(press)
+        .items_center()
+        .justify_center()
+        .h(px(m.pill_height))
+        .px_3()
+        .rounded(px(m.pill_height / 2.))
+        .hover(|s| s.bg(Secure::hover()))
+        .active(|s| s.bg(Secure::pressed()))
+        .child(text(name).text_size(px(m.text)).font_family(SYSTEM_FONT).font_weight(FontWeight::MEDIUM).text_color(Secure::text()))
+}
+
 pub fn secure_surface(radius: f32) -> View {
     view()
         .rounded(px(radius))
@@ -182,7 +200,15 @@ pub fn segmented(options: Vec<Segment>) -> View {
 }
 
 pub fn switch_row(name: impl Into<String>, on: impl Fn() -> bool + Copy + 'static, toggle: impl Fn() + 'static) -> ButtonElement {
-    let name: String = name.into();
+    switch_with(None, name.into(), on, toggle)
+}
+
+/// A switch row of a grouped list, with the row's glyph before its name.
+pub fn glyph_switch(glyph: &'static str, name: impl Into<String>, on: impl Fn() -> bool + Copy + 'static, toggle: impl Fn() + 'static) -> ButtonElement {
+    switch_with(Some(glyph), name.into(), on, toggle)
+}
+
+fn switch_with(glyph: Option<&'static str>, name: String, on: impl Fn() -> bool + Copy + 'static, toggle: impl Fn() + 'static) -> ButtonElement {
     let m = metrics();
     let (width, height) = m.track;
     let spoken = name.clone();
@@ -196,7 +222,12 @@ pub fn switch_row(name: impl Into<String>, on: impl Fn() -> bool + Copy + 'stati
         .selected(on)
         .hover(|s| s.bg(Theme::hover()))
         .active(|s| s.bg(Theme::pressed()))
-        .on_press(toggle)
+        .on_press(move || {
+            crate::motion::animate_next(crate::motion::POP);
+            toggle();
+        })
+        .gap(px(10.))
+        .children(glyph.map(|g| view().text_color(Theme::muted).child(icons::icon(g, GLYPH))))
         .child(label(name).flex_1())
         .child(
             view()
@@ -226,6 +257,77 @@ pub fn switch_row(name: impl Into<String>, on: impl Fn() -> bool + Copy + 'stati
         )
 }
 
+/// A grouped list's leading glyph size.
+pub const GLYPH: f32 = 15.;
+/// The size of a section label in capitals.
+pub const CAPS: f32 = 10.5;
+
+/// A grouped list's row: its glyph and name; the caller adds what follows (a value, a control).
+pub fn glyph_row(glyph: &'static str, name: impl Into<String>) -> View {
+    view()
+        .flex_row()
+        .items_center()
+        .gap(px(10.))
+        .px_3()
+        .min_h(px(metrics().switch_row))
+        .child(view().text_color(Theme::muted).child(icons::icon(glyph, GLYPH)))
+        .child(label(name.into()).flex_1())
+}
+
+/// A label in faint bold capitals over a group or a list section.
+pub fn caps_label(name: &str) -> Text {
+    text(name.to_uppercase()).text_size(px(CAPS)).font_weight(FontWeight::BOLD).text_color(Theme::faint).px_1()
+}
+
+/// The keys of a shortcut as the desktop clients write it (`Ctrl+Shift+Y`, `Ctrl++`).
+pub fn keys_of(shortcut: &str) -> Vec<String> {
+    let (body, plus) = match shortcut.strip_suffix("++") {
+        Some(rest) => (rest, true),
+        None => (shortcut, false),
+    };
+    body.split('+').filter(|k| !k.is_empty()).map(str::to_owned).chain(plus.then(|| "+".to_owned())).collect()
+}
+
+/// A shortcut drawn as key caps.
+pub fn key_caps(shortcut: &str) -> View {
+    let caps: Vec<AnyElement> = keys_of(shortcut)
+        .into_iter()
+        .map(|key| {
+            view()
+                .min_w(px(18.))
+                .h(px(18.))
+                .px(px(4.))
+                .items_center()
+                .justify_center()
+                .rounded(px(4.))
+                .bg(Theme::control)
+                .border_1()
+                .border_color(Theme::hairline)
+                .child(text(key).text_size(px(CAPS)).font_weight(FontWeight::MEDIUM).text_color(Theme::muted))
+                .into_element()
+        })
+        .collect();
+    view().flex_row().items_center().gap(px(3.)).accessibility_elements_hidden(true).children(caps)
+}
+
+/// A key cap and what the key does, for a footer of hints (`↵ Run`).
+pub fn key_hint(key: &str, does: &str) -> View {
+    view().flex_row().items_center().gap(px(5.)).child(key_caps(key)).child(text(does.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::faint))
+}
+
+/// A round avatar: the profile's initial in its colour.
+pub fn avatar(initial: String, fill: Rgba, size: f32) -> View {
+    view()
+        .w(px(size))
+        .h(px(size))
+        .flex_none()
+        .rounded_full()
+        .items_center()
+        .justify_center()
+        .bg(fill)
+        .child(text(initial).text_size(px((size * 0.5).round())).font_weight(FontWeight::BOLD).text_color(Theme::on_fill(fill)))
+}
+
 pub fn section(name: impl IntoReactive<SharedString>) -> Text {
     let header = label(name).font_weight(FontWeight::SEMIBOLD).px_1();
     match density() {
@@ -243,11 +345,12 @@ pub fn group() -> View {
     view().flex_col().rounded(px(Theme::radius_group())).bg(Theme::panel_row).border_1().border_color(Theme::surface_edge)
 }
 
-/// A rounded square holding a glyph, as prompts, downloads and grouped rows lead with.
+/// A rounded square holding a glyph: command rows, prompts, downloads, share and site headers.
 pub fn glyph_tile(source: &str, size: f32, fill: impl Fn() -> Rgba + 'static, color: impl Fn() -> Rgba + 'static) -> View {
     view()
         .w(px(size))
         .h(px(size))
+        .flex_none()
         .items_center()
         .justify_center()
         .rounded(px((size * 0.27).round()))
@@ -275,5 +378,13 @@ mod tests {
         set_density(Density::Desktop);
         assert_eq!((metrics().target, metrics().pill_height, metrics().segment_height, metrics().text), (28., 26., 22., TEXT));
         set_density(Density::Touch);
+    }
+
+    #[test]
+    fn shortcuts_split_into_key_caps() {
+        assert_eq!(keys_of("Ctrl+Shift+Y"), ["Ctrl", "Shift", "Y"]);
+        assert_eq!(keys_of("Ctrl++"), ["Ctrl", "+"]);
+        assert_eq!(keys_of("F5"), ["F5"]);
+        assert!(keys_of("").is_empty());
     }
 }

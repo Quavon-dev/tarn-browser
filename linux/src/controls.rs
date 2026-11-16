@@ -56,7 +56,3 @@ pub fn switch(on: bool, name: &str, toggle: impl Fn() + 'static) -> nsh_base::Bu
 pub fn group_row() -> View {
     view().flex_row().items_center().gap_3().px_3().min_h(px(40.)).border_b_1().border_color(Theme::separator())
 }
-
-pub fn panel() -> View {
-    view().flex_col().gap_3().p_4().rounded(px(Theme::radius_panel())).bg(Theme::panel()).border_1().border_color(Theme::surface_edge())
-}
