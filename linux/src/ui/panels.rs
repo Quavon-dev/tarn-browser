@@ -245,23 +245,55 @@ fn history_panel(ui: Ui) -> AnyElement {
     let empty = (count == 0).then(|| note("No history yet"));
     popover()
         .flex_1()
-        .child(heading(ui, view().flex_row().items_center().flex_1().child(counted("History", count)).children(clear)))
+        .child(heading(
+            ui,
+            view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .flex_1()
+                .child(counted("History", count))
+                .child(pill("Reading List", move || show(ui, Panel::ReadingList)))
+                .children(clear),
+        ))
         .children(empty)
         .child(scroll().flex_1().child(view().flex_col().gap(px(1.)).children(rows)))
         .into_element()
 }
 
-fn download_row(name: String, note: String, icon: &'static str, tint: Rgba) -> View {
+fn download_row(name: String, note: String, warning: bool) -> View {
+    let glyph = if warning { icons::TRIANGLE_ALERT } else { icons::glyph(browser_core::glyphs::file_glyph(&name)) };
+    let tint = move || if warning { Secure::warning() } else { Theme::muted() };
     view()
         .flex_row()
         .items_center()
         .gap(px(10.))
-        .h(px(44.))
+        .min_h(px(44.))
         .px_2()
-        .rounded(px(Theme::radius_row()))
-        .text_color(Theme::muted())
-        .child(icons::icon(icon, 20.).text_color(tint))
-        .child(view().flex_col().flex_1().child(label(name).truncate()).child(small(note).truncate()))
+        .child(tarn_nsh_shared::controls::glyph_tile(glyph, 28., Theme::control).text_color(tint))
+        .child(
+            view()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .child(label(name).truncate())
+                .child(small(note).text_color(if warning { Secure::warning() } else { Theme::muted() }).truncate()),
+        )
+}
+
+fn progress(done: u64, total: u64) -> View {
+    let rest = total.saturating_sub(done) as f32;
+    view()
+        .flex_row()
+        .h(px(3.))
+        .ml(px(46.))
+        .mr_2()
+        .mb_1()
+        .rounded_full()
+        .overflow_hidden()
+        .bg(Theme::separator())
+        .child(view().h_full().flex_grow(done as f32).bg(Theme::accent()))
+        .child(view().h_full().flex_grow(rest))
 }
 
 fn downloads_panel(ui: Ui) -> AnyElement {
@@ -279,32 +311,34 @@ fn downloads_panel(ui: Ui) -> AnyElement {
             let state = match (running, d.total) {
                 (true, Some(total)) => format!("{} of {}", crate::memory::size(d.done), crate::memory::size(total)),
                 (true, None) => crate::memory::size(d.done),
-                _ => d.state.clone(),
+                _ => capitalised(&d.state),
             };
-            let note = if d.message.is_empty() { state } else { format!("{state} — {}", d.message) };
+            let note = if d.message.is_empty() { state } else { format!("{state} · {}", d.message) };
             let id = d.id.clone();
-            download_row(d.name.clone(), note, icons::ARROW_DOWN, Theme::accent())
-                .children(running.then(|| icon_button(icons::CLOSE, "Cancel Download", move || act(ui, |b| b.cancel_download(&id)))))
-                .into_element()
+            let row = download_row(d.name.clone(), note, !running)
+                .children(running.then(|| icon_button(icons::CLOSE, "Cancel Download", move || act(ui, |b| b.cancel_download(&id)))));
+            let bar = d.total.filter(|t| running && *t > 0).map(|total| progress(d.done, total));
+            view().flex_col().child(row).children(bar).into_element()
         })
         .collect();
     let empty = rows.is_empty() && saved.is_empty();
-    let count = rows.len() + saved.len();
     rows.extend(saved.into_iter().map(|d| {
         let path = d.path.clone();
         let file = std::path::Path::new(&d.path);
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let kind = file.extension().map_or_else(|| "File".to_owned(), |e| e.to_string_lossy().to_lowercase());
-        download_row(name, kind, icons::FILE_PLAIN, Theme::muted())
-            .child(icon_button(icons::SEARCH, "Show in folder", move || {
+        let size = std::fs::metadata(file).map(|m| crate::memory::size(m.len())).ok();
+        let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_owned));
+        let note = [size, host].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+        download_row(name, note, false)
+            .child(icon_button(icons::FOLDER_OPEN, "Show in Folder", move || {
                 drop(reveal_path(std::path::PathBuf::from(&path)));
             }))
             .into_element()
     }));
     let clear = (!empty).then(|| confirmed(ui, "downloads".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads())));
-    let header = heading(ui, view().flex_row().items_center().flex_1().child(counted("Downloads", count)).children(clear));
+    let header = heading(ui, view().flex_row().items_center().flex_1().child(title("Downloads")).child(view().flex_1()).children(clear));
     let none = empty.then(|| view().h(px(44.)).px_2().justify_center().child(body("No downloads yet").text_color(Theme::faint())));
-    popover().child(header).child(view().flex_col().children(rows).children(none)).into_element()
+    popover().gap_2().child(header).child(view().flex_col().gap(px(2.)).children(rows).children(none)).into_element()
 }
 
 /// A name field and its button, for the space or folder `target` named `current`.

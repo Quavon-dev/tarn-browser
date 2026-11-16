@@ -53,6 +53,9 @@ const SAMPLE_TICK: std::time::Duration = std::time::Duration::from_secs(5);
 const SUGGESTIONS: usize = 6;
 const PALETTE_WIDTH: f32 = 640.;
 const PALETTE_ROW: f32 = 40.;
+const PROMPT_RADIUS: f32 = 12.;
+const FIND_RADIUS: f32 = 12.;
+const FIND_WIDTH: f32 = 380.;
 /// Black at 35 % over the page area while the palette is open.
 const PALETTE_DIM: u32 = 0x0000_0059;
 const WINDOW_SIZE: (f32, f32) = (1280., 800.);
@@ -156,7 +159,7 @@ fn act_quietly(ui: Ui, f: impl FnOnce(&mut Browser)) {
 }
 
 fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
-    let shown = ui.panel.get_untracked() == Panel::None;
+    let shown = ui.panel.get_untracked() == Panel::None && !ui.editing.get_untracked();
     let done = BROWSERS.with_borrow_mut(|windows| {
         let elsewhere = live_elsewhere(windows, ui.window);
         let b = windows.get_mut(&ui.window)?;
@@ -1385,16 +1388,16 @@ fn prompt_bar(ui: Ui) -> AnyElement {
         let prompt = shown.get()?;
         let id = prompt.id;
         let reply = move |accept: bool| answer_prompt(ui, id, accept);
-        let title = match prompt.kind.as_str() {
-            "alert" | "confirm" | "text" => format!("{} says", prompt.origin),
-            "credentials" => format!(
-                "{} asks you to sign in{}",
-                prompt.origin,
-                prompt.realm.as_deref().filter(|r| !r.is_empty()).map(|r| format!(" ({r})")).unwrap_or_default()
-            ),
-            kind => format!("{} wants to use your {kind}", prompt.origin),
+        let ask = match prompt.kind.as_str() {
+            "alert" | "confirm" | "text" => "says".to_owned(),
+            "credentials" => format!("asks you to sign in{}", prompt.realm.as_deref().filter(|r| !r.is_empty()).map(|r| format!(" ({r})")).unwrap_or_default()),
+            kind => format!("wants to use your {kind}"),
         };
-        let message = prompt.message.clone().filter(|m| !m.is_empty());
+        let glyph = match prompt.kind.as_str() {
+            "alert" | "confirm" => icons::TRIANGLE_ALERT,
+            kind => icons::glyph(browser_core::glyphs::glyph(kind)),
+        };
+        let message = prompt.message.clone().filter(|m| !m.is_empty()).or_else(|| browser_core::prompts::meaning(&prompt.kind).map(str::to_owned));
         if prompt.kind == "text" && ui.answer_text.get_untracked().is_empty() {
             ui.answer_text.set(prompt.default.clone().unwrap_or_default());
         }
@@ -1415,24 +1418,50 @@ fn prompt_bar(ui: Ui) -> AnyElement {
             .flex_row()
             .items_center()
             .gap_2()
-            .child(secure_button(accept, move || reply(true), true))
-            .children(decline.map(|name| secure_button(name, move || reply(false), false)));
+            .children(decline.map(|name| tarn_nsh_shared::controls::secure_ghost(name, move || reply(false))))
+            .child(secure_button(accept, move || reply(true), true));
         let insecure = prompt.insecure.then(|| body("This connection is not secure: the password would be sent unencrypted.").text_color(Secure::warning()));
-        Some(
-            secure_surface(Theme::radius_panel())
-                .flex_col()
-                .gap_2()
-                .px_4()
-                .py_3()
+        let tile = view()
+            .w(px(30.))
+            .h(px(30.))
+            .flex_none()
+            .rounded(px(8.))
+            .items_center()
+            .justify_center()
+            .bg(Secure::control())
+            .text_color(if glyph == icons::TRIANGLE_ALERT { Secure::warning() } else { Secure::accent() })
+            .child(icons::icon(glyph, 16.));
+        let words = view()
+            .flex_col()
+            .flex_1()
+            .min_w(px(0.))
+            .gap(px(2.))
+            .child(
+                view()
+                    .flex_row()
+                    .flex_wrap()
+                    .items_baseline()
+                    .gap_1()
+                    .child(body(prompt.origin.clone()).font_weight(FontWeight::BOLD).text_color(Secure::text()))
+                    .child(body(ask).text_color(Secure::text())),
+            )
+            .children(insecure)
+            .children(message.map(|m| small(m).text_color(Secure::muted())))
+            .children(fields);
+        Some(tarn_nsh_shared::motion::popping(
+            secure_surface(PROMPT_RADIUS)
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .px_3()
+                .py(px(10.))
                 .mb_2()
-                .shadow(Theme::elevation(4., 12.))
+                .shadow(Theme::elevation(6., 18.))
                 .role(AccessibilityRole::Alert)
-                .child(body(title).font_weight(FontWeight::SEMIBOLD).text_color(Secure::text()))
-                .children(insecure)
-                .children(message.map(|m| body(m).text_color(Secure::muted())))
-                .children(fields)
+                .child(tile)
+                .child(words)
                 .child(buttons),
-        )
+        ))
     });
     view().child(enter).child(card).into_element()
 }
@@ -1460,24 +1489,42 @@ fn find_bar(ui: Ui) -> AnyElement {
     when(
         move || ui.finding.get(),
         move || {
-            let field = text_field(ui.find, "Find in page", 260.)
+            let field = input()
+                .value(move || ui.find.get())
                 .on_change(move |v: &str| {
                     ui.find.set(v.to_owned());
                     let text = v.to_owned();
                     act(ui, |b| b.find_typed(&text));
                 })
                 .on_submit(move |_: &str| find_again(ui, false))
+                .placeholder("Find in page")
+                .label("Find in page")
                 .auto_focus(true)
-                .element_ref(&ui.find_ref);
-            bar()
+                .element_ref(&ui.find_ref)
+                .flex_1()
+                .text_color(Theme::text());
+            let previous = format!("Previous match ({})", crate::shortcuts::display(crate::shortcuts::FIND_PREVIOUS));
+            let next = format!("Next match ({})", crate::shortcuts::display(crate::shortcuts::FIND_NEXT));
+            let pill = view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .w(px(FIND_WIDTH))
+                .h(px(36.))
                 .pl_3()
+                .pr_1()
+                .rounded(px(FIND_RADIUS))
+                .surface()
+                .shadow(Theme::elevation(6., 18.))
                 .text_color(Theme::muted())
                 .child(icons::icon(icons::SEARCH, 14.))
                 .child(field)
-                .child(small(matches).text_color(move || if ui.snap.with(|s| s.found == Some(0)) { Theme::danger() } else { Theme::muted() }).flex_1())
-                .child(icon_button(icons::CHEVRON_UP, "Previous match", move || find_again(ui, true)))
-                .child(icon_button(icons::CHEVRON_DOWN, "Next match", move || find_again(ui, false)))
-                .child(icon_button(icons::CLOSE, "Close find bar", move || close_find(ui)))
+                .child(small(matches).text_color(move || if ui.snap.with(|s| s.found == Some(0)) { Theme::danger() } else { Theme::faint() }))
+                .child(view().w(px(1.)).h(px(18.)).bg(Theme::hairline()))
+                .child(controls::icon_button_at(icons::CHEVRON_UP, &previous, Placement::Left, move || find_again(ui, true)))
+                .child(controls::icon_button_at(icons::CHEVRON_DOWN, &next, Placement::Left, move || find_again(ui, false)))
+                .child(controls::icon_button_at(icons::CLOSE, "Close find bar (Esc)", Placement::Left, move || close_find(ui)));
+            view().flex_row().justify_end().mb_2().child(tarn_nsh_shared::motion::popping(pill))
         },
     )
     .into_element()
@@ -1751,6 +1798,13 @@ fn new_ui(row: SavedWindow) -> Ui {
         resizing: signal(None),
         root: Owner::current(),
     };
+    let editing = std::cell::Cell::new(false);
+    effect(move || {
+        let now = ui.editing.get();
+        if editing.replace(now) != now {
+            untracked(|| act(ui, |_| {}));
+        }
+    });
     let shown_space = std::cell::Cell::new(None);
     effect(move || {
         let space = ui.snap.with(|s| s.space);
