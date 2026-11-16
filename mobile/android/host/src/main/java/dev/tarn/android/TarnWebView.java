@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Message;
 import android.os.SystemClock;
+import android.util.Base64;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,6 +37,7 @@ import com.longbridge.nsh.NshComponent;
 import com.longbridge.nsh.NshComponentContext;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -494,7 +496,7 @@ final class TarnWebView implements NshComponent {
         CookieManager cookies = Stores.cookies(name);
         if (cookies != null) cookies.setAcceptThirdPartyCookies(view, false);
         view.setWebViewClient(new Client());
-        view.setWebChromeClient(new Chrome());
+        view.setWebChromeClient(javaScriptOn ? new IconChrome() : new Chrome());
         view.setDownloadListener(this::download);
         view.setOnTouchListener((touched, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) emit("pressed");
@@ -530,6 +532,7 @@ final class TarnWebView implements NshComponent {
     private void setJavaScript(int action) {
         javaScriptOn = action == Native.CONTINUE_JS;
         web.getSettings().setJavaScriptEnabled(javaScriptOn);
+        web.setWebChromeClient(javaScriptOn ? new IconChrome() : new Chrome());
     }
 
     private boolean admitPopup(long now) {
@@ -1031,7 +1034,7 @@ final class TarnWebView implements NshComponent {
         }
     }
 
-    private final class Chrome extends WebChromeClient {
+    private class Chrome extends WebChromeClient {
         @Override
         public void onReceivedTitle(WebView view, String title) {
             emit("title", "title", title == null ? "" : title);
@@ -1161,6 +1164,16 @@ final class TarnWebView implements NshComponent {
             resultMsg.sendToTarget();
             container.postDelayed(() -> popup.caught(null), POPUP_WAIT_MS);
             return true;
+        }
+    }
+
+    private final class IconChrome extends Chrome {
+        @Override
+        public void onReceivedIcon(WebView view, Bitmap icon) {
+            Page current = top;
+            ByteArrayOutputStream png = new ByteArrayOutputStream();
+            if (current == null || pending != null || !javaScriptOn || !icon.compress(Bitmap.CompressFormat.PNG, 100, png)) return;
+            emit("pageIcon", "url", current.url(), "text", Base64.encodeToString(png.toByteArray(), Base64.NO_WRAP));
         }
     }
 

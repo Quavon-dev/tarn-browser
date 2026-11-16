@@ -72,7 +72,7 @@ live tab's page, once per page while a search goes on) and the element picker; t
 platforms send after each load is never sent on Android. The one exception is full-text history, off by
 default: while it is switched on, every finished http(s) page of a normal space runs the page-text script,
 so a page can notice a Tarn user who turned it on (a script ran in its world). A page that watches its own
-world can also see the reader, Find in Tabs and picker runs when the user starts them. The shell never sends the icon scripts (`readIconLinks`, `fetchIcon`) on Android, since running them after loads would let every page notice a Tarn user; Android shows letter tiles only (`docs/mobile-plan.md`). Site CSS and zaps are added per host with `addDocumentStartJavaScript`
+world can also see the reader, Find in Tabs and picker runs when the user starts them. The shell never sends the icon scripts (`readIconLinks`, `fetchIcon`) on Android, since running them after loads would let every page notice a Tarn user; Android instead takes the icon WebView itself reports (`onReceivedIcon`, emitted as `pageIcon` only while JavaScript is on, so never under Lockdown), which needs no script in the page, and keeps it only through `favicon::icon_host`, `favicon::Tracker` and `favicon::normalize` like the other clients (`docs/mobile-plan.md`). Site CSS and zaps are added per host with `addDocumentStartJavaScript`
 limited to that host's default-port origins.
 
 **Themes (S29) on Linux, iOS and Android.** The clients read the same `browser_core::theme` tokens through

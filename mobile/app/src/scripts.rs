@@ -184,10 +184,24 @@ impl<D: Platform> Shell<D> {
 
     fn icon_data(&mut self, key: TabKey, data: &Value) {
         let Some((_, profile, host)) = self.icon_answer(key, data, Script::Icon) else { return };
-        let png = favicon::normalize(&text(data, "text"));
-        let kept = self.icons.accept(&profile, &host, png.as_deref().map(favicon::data_uri));
+        self.keep_icon(profile, &host, &text(data, "text"));
+    }
+
+    fn page_icon(&mut self, key: TabKey, data: &Value) {
+        let Some((profile, host)) = self.current_page(key, data).filter(|_| D::page_world_scripts()).and_then(|url| self.icon_key(key, &url)) else {
+            return;
+        };
+        self.load_icons(profile);
+        if self.icons.request(&profile, &host) {
+            self.keep_icon(profile, &host, &text(data, "text"));
+        }
+    }
+
+    fn keep_icon(&mut self, profile: (bool, Id), host: &str, encoded: &str) {
+        let png = favicon::normalize(encoded);
+        let kept = self.icons.accept(&profile, host, png.as_deref().map(favicon::data_uri));
         if let Some(png) = png.filter(|_| kept && self.core.keeps_records(profile.0, profile.1)) {
-            self.core.store(profile.0).set_favicon(profile.1, &host, &png).ok();
+            self.core.store(profile.0).set_favicon(profile.1, host, &png).ok();
         }
     }
 
@@ -236,6 +250,7 @@ impl<D: Platform> Shell<D> {
             }
             "iconLinks" => return self.icon_links(key, data),
             "iconData" => self.icon_data(key, data),
+            "pageIcon" => self.page_icon(key, data),
             "textFound" => self.text_found(key, data),
             "picked" => self.picked(key, data),
             "shielded" => self.shielded_event(key, data),

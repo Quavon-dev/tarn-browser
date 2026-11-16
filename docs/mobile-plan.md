@@ -151,6 +151,7 @@ its own text and a selector hiding part of itself.
 | event | `iconLinks` | `{seq, url, text}` | `href<TAB>sizes` lines, an empty line, then the hosts the page loaded from. The shell keeps only `engine::favicon::candidates(url, text)`, while the tab still shows `url`'s origin, and sends them in `fetchIcon`; none withdraws the request |
 | command | `fetchIcon` | `{seq, urls}` | Runs `engine::page_scripts::fetch_icon_script(origin, urls, favicon::MAX_BYTES)` on at most `favicon::MAX_CANDIDATES` https `urls` |
 | event | `iconData` | `{seq, url, text}` | The icon as base64, or empty. The shell keeps only `engine::favicon::normalize(text)` (a 64×64 PNG), stores it with `Store::set_favicon` when `Core::keeps_records` (never for burner profiles; a private profile's only in its in-memory store) and replaces a stale one (older than `favicon::MAX_AGE`) only on success; anything else counts as a failure. Clearing history or closing a private space forgets them |
+| event | `pageIcon` | `{url, text}` | Android only: the icon WebView reports for the page (`WebChromeClient.onReceivedIcon`) as base64 PNG, sent only while JavaScript is on, so never under Lockdown, and while no navigation is pending. The shell takes it for the page the tab shows through `icon_host` and `favicon::Tracker::request`, then the same `normalize`, `accept` and `Store::set_favicon` path as `iconData` |
 | command | `findText` | `{seq, query}` | Find in Tabs: runs `engine::page_scripts::find_text_script(query)` (the query is a JS string literal, at most 200 characters) and cuts the answer with `page_scripts::find_snippets`. Android never sends the query to a page world: it reads the page's text with `page_text_script` and matches it in Rust (see the v3 differences) |
 | event | `textFound` | `{seq, url, snippets, matched?}` | At most `page_scripts::FIND_MATCHES` snippets, each at most 320 characters; `matched` (the page's total) only on Android. The shell lists title and address matches of every tab with `browser_core::find::named` at once and puts text rows above them as they arrive with `browser_core::find::insert_text_rows`; snippets are never stored |
 | event | `shielded` | `{kind, url}` | For the per-profile Shield counters (`Store::count`, shown by `Store::shield_week`): `https_upgrade` (`Counter::HttpsUpgrades`), `local_network` (`LocalBlocked`), `listed` (`ListedStopped`: a page stopped because a domain set names its site) and `popup` (`PopupsBlocked`: a pop-up refused for lacking a gesture; the shell skips it when `shield::rules::local_target(url)`, as macOS does). The shell counts each kind at most once per committed page |
@@ -278,11 +279,10 @@ v3, with host tests in `app/tests/features.rs` and `site_ui.rs`:
   per counter in faint tracks and the sites protected most (no tilt, NSH has no 3D transform); Cookie banners filter switch (`block_annoyances`), "Search the text of visited
   pages" (`history_text`, History gets a search field), "Sort downloads into folders" (`sort_downloads`);
 - Downloads sheet: running transfers with progress, Pause/Resume/Cancel, Keep/Delete for flagged ones.
-Not on mobile: shortcut rebinding, memory panel, live peek, translation, startup trace. Site icons are
-iOS only: Android WebView has no isolated world, and the icon scripts would run in every page's own world after
-loads the user did not ask about, so a page could notice a Tarn user (`docs/threat-model.md`, page scripts on
-Android); Android implements `readIconLinks` and `fetchIcon` but the shell never sends them, so it shows
-letter tiles. The background tab memory budget is a gap: neither iOS nor
+Not on mobile: shortcut rebinding, memory panel, live peek, translation, startup trace. Android runs no
+icon script (it has no isolated world, so a page could notice a Tarn user, `docs/threat-model.md`, page
+scripts on Android): it implements `readIconLinks` and `fetchIcon` but the shell never sends them, and
+takes the icon WebView itself reports instead (`pageIcon`). The background tab memory budget is a gap: neither iOS nor
 Android lets an app read the memory of the web content or renderer process, and both reclaim it
 themselves under pressure.
 
