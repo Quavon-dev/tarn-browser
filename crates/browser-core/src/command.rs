@@ -110,6 +110,7 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Edit Space", "pencil"),
     ("Private Space", "hand"),
     ("Burner Tab", "flame"),
+    ("New Burner Tab", "flame"),
     ("New Profile", "user-plus"),
     ("Edit Profile", "person"),
     ("Bookmark", "bookmark"),
@@ -132,6 +133,14 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Copy Clean Link", "link"),
     ("Copy Title", "copy"),
     ("Pin or Unpin Tab", "pin"),
+    ("Pin", "pin"),
+    ("Unpin", "pin"),
+    ("Add to Tiles", "layout-grid"),
+    ("Remove from Tiles", "layout-grid"),
+    ("Close Tab", "close"),
+    ("New Subfolder", "folder-plus"),
+    ("Rotate Layout", "reload"),
+    ("Remove from Split View", "arrow-up-right"),
     ("Mute or Unmute Site", "volume-x"),
     ("Show History", "history"),
     ("Rename Tab", "pencil"),
@@ -399,6 +408,8 @@ mod tests {
         assert_eq!(glyph("Copy Clean Link"), "link");
         assert_eq!(glyph("Reload in Chromium"), "reload");
         assert_eq!(glyph("Bookmark All Tabs"), "bookmark");
+        assert_eq!((glyph("Unpin"), glyph("Remove from Tiles"), glyph("New Burner Tab")), ("pin", "layout-grid", "flame"));
+        assert_eq!((glyph("Close Tabs Below"), glyph("Close All Tabs")), ("close", "close"));
         assert_eq!(glyph("Something New"), "command");
     }
 }
