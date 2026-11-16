@@ -38,6 +38,15 @@ pub fn pop_in() -> MotionSpec {
     MotionSpec::new(KeyframeTiming::new(ms(POP)).easing(Easing::EaseOut)).values(MotionChannel::Opacity, [0., 1.]).values(MotionChannel::TranslateY, [RISE, 0.])
 }
 
+/// A scrim's entrance: it fades in over `FADE`.
+pub fn fade_in() -> MotionSpec {
+    MotionSpec::new(KeyframeTiming::new(ms(FADE)).easing(Easing::EaseOut)).values(MotionChannel::Opacity, [0., 1.])
+}
+
+pub fn fading<E: Element>(element: E) -> E {
+    element.bind_motion(&motion().entering(fade_in()))
+}
+
 /// `element` popping in when it appears; it lands in place at once under Reduce Motion.
 pub fn popping<E: Element>(element: E) -> E {
     element.bind_motion(&motion().entering(pop_in()))

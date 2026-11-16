@@ -5,13 +5,23 @@ use shield::ShieldLevel;
 use super::tools::{Command, line, note};
 use super::{Panel, Ui, act, confirmed, read, show, site_tile};
 use crate::browser::{Browser, ZOOM_STEPS};
-use crate::controls::{body, card, group, icon_button, label, pill, segmented, small, switch, title};
+use crate::controls::{body, card, group, icon_button, label, pill, segmented, small, title};
 use crate::icons;
 use crate::shortcuts::{self, Action};
 use crate::theme::Theme;
+use crate::theme::{SYSTEM_FONT, Secure};
+use browser_core::shield_card::{motto, thousands};
 use store::TabKind;
+use tarn_nsh_shared::controls::{caps_label, glyph_row, glyph_switch};
 
 const PANEL_WIDTH: f32 = 720.;
+const SITE_WIDTH: f32 = 340.;
+
+enum Side {
+    Start,
+    Centre,
+    End,
+}
 
 pub(super) fn levels() -> Vec<(ShieldLevel, String)> {
     ShieldLevel::ALL.iter().map(|l| (*l, capitalised(l.as_str()))).collect()
@@ -55,59 +65,107 @@ pub(super) fn heading(ui: Ui, content: impl IntoElement) -> View {
 }
 
 fn shield_panel(ui: Ui) -> AnyElement {
-    let (host, level, overridden, secure, zoom) = ui.snap.with(|s| (s.host.clone(), s.level.clone(), s.overridden, s.secure, s.zoom));
+    let (host, level, overridden, secure, zoom, total) = ui.snap.with(|s| (s.host.clone(), s.level.clone(), s.overridden, s.secure, s.zoom, s.site_total));
     let default = read(ui, |b| b.default_level()).unwrap_or_default();
     let set = move |level: Option<ShieldLevel>| act(ui, |b| b.set_site_level(level));
-    let (glyph, color, connection) = if secure {
-        (icons::SHIELD_CHECK, Theme::success(), "Connection is secure")
-    } else {
-        (icons::SHIELD, Theme::warning(), "Not Secure — this page is not encrypted")
-    };
+    let (glyph, color, connection) =
+        if secure { (icons::LOCK, Secure::success(), "Connection is secure") } else { (icons::TRIANGLE_ALERT, Secure::warning(), "Not secure") };
     let header = view()
+        .flex_row()
+        .items_center()
+        .gap(px(10.))
+        .child(site_tile(&host, 28.))
+        .child(
+            view()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .child(label(if host.is_empty() { "This page".to_owned() } else { host.clone() }).font_weight(FontWeight::BOLD).truncate())
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .text_color(color)
+                        .child(icons::icon(glyph, 11.))
+                        .child(small(connection).text_color(color).font_family(SYSTEM_FONT)),
+                ),
+        )
+        .child(icon_button(icons::CLOSE, "Close", move || show(ui, Panel::None)));
+    let body = popover().gap_3().child(header);
+    if host.is_empty() {
+        return body.into_element();
+    }
+    let summary = view()
         .flex_col()
-        .gap(px(2.))
-        .pb_3()
-        .border_b_1()
-        .border_color(Theme::hairline())
-        .child(heading(ui, label(if host.is_empty() { "This page".to_owned() } else { host.clone() }).font_weight(FontWeight::SEMIBOLD).truncate()))
-        .child(view().flex_row().items_center().gap(px(6.)).text_color(color).child(icons::icon(glyph, 12.)).child(small(connection).text_color(color)));
-    let mut body = popover().child(header);
-    if !host.is_empty() {
-        let mut choices = vec![(None, "Default".to_owned())];
-        choices.extend(levels().into_iter().map(|(l, name)| (Some(l), name)));
-        let chosen = overridden.then(|| ShieldLevel::parse(&level).unwrap_or_default());
-        let zoom_button = |icon: &'static str, name: &str, step: i32, limit: f64| {
-            icon_button(icon, name, move || act(ui, move |b| b.zoom(step)))
-                .disabled((zoom - limit).abs() < 0.001)
-                .disabled_style(|s| s.text_color(Theme::faint()))
-        };
-        body = body
-            .child(
-                view()
-                    .flex_col()
-                    .gap(px(6.))
-                    .child(small(format!("Shield for this site · profile default {}", capitalised(default.as_str()))))
-                    .child(view().flex_row().child(segmented(choices, chosen, set))),
-            )
-            .child(
+        .px_3()
+        .py_2()
+        .rounded(px(Theme::radius_group()))
+        .bg(Theme::panel_row())
+        .border_1()
+        .border_color(Theme::surface_edge())
+        .child(text(thousands(total.max(0) as u64)).text_size(px(22.)).font_weight(FontWeight::BOLD).text_color(Theme::text()))
+        .child(small("stopped on this site in this profile"));
+    let mut choices = vec![(None, "Default".to_owned())];
+    choices.extend(levels().into_iter().map(|(l, name)| (Some(l), name)));
+    let effective = ShieldLevel::parse(&level).unwrap_or_default();
+    let meaning = if overridden {
+        motto(effective).1.to_owned()
+    } else {
+        let (name, words) = motto(default);
+        format!("Follows the profile: {name} — {}", words.to_lowercase())
+    };
+    let chosen = overridden.then_some(effective);
+    let zoom_button = |icon: &'static str, name: &str, step: i32, limit: f64| {
+        icon_button(icon, name, move || act(ui, move |b| b.zoom(step))).disabled((zoom - limit).abs() < 0.001).disabled_style(|s| s.text_color(Theme::faint()))
+    };
+    let dark = read(ui, Browser::site_dark).unwrap_or_default();
+    let list = group()
+        .child(
+            glyph_switch(icons::MOON, "Dark mode for this site", move || dark, move || act(ui, Browser::toggle_site_dark))
+                .border_b_1()
+                .border_color(Theme::separator()),
+        )
+        .child(
+            glyph_row(icons::ZOOM_IN, "Zoom").child(
                 view()
                     .flex_row()
                     .items_center()
-                    .gap_2()
-                    .child(label("Zoom").flex_1())
+                    .gap_1()
                     .child(zoom_button(icons::CHEVRON_LEFT, "Zoom Out", -1, ZOOM_STEPS[0]))
-                    .child(small(format!("{:.0}%", zoom * 100.0)).w(px(44.)).text_center())
+                    .child(small(format!("{:.0} %", zoom * 100.0)).w(px(48.)).text_center())
                     .child(zoom_button(icons::CHEVRON_RIGHT, "Zoom In", 1, ZOOM_STEPS[ZOOM_STEPS.len() - 1]))
                     .child(pill("Reset", move || act(ui, |b| b.zoom(0)))),
-            )
-            .child(site_extras(ui, &host));
-    }
-    body.into_element()
+            ),
+        );
+    let more = ui.site_more.get_untracked();
+    let toggle = crate::controls::row(if more { "Fewer site settings" } else { "More site settings" }, move || {
+        ui.site_more.update(|m| *m = !*m);
+        act(ui, |_| {});
+    })
+    .px_1()
+    .gap_1()
+    .text_color(Theme::accent())
+    .child(small(if more { "Fewer site settings" } else { "More site settings" }).text_color(Theme::accent()))
+    .child(icons::icon(if more { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.));
+    body.child(summary)
+        .child(
+            view()
+                .flex_col()
+                .gap(px(6.))
+                .child(caps_label("Shield for this site"))
+                .child(view().flex_row().child(segmented(choices, chosen, set)))
+                .child(small(meaning).px_1()),
+        )
+        .child(list)
+        .child(view().flex_row().child(toggle))
+        .children(more.then(|| site_extras(ui, &host)))
+        .into_element()
 }
 
 fn site_extras(ui: Ui, host: &str) -> View {
-    let Some((dark, css, (spaces, routed), zaps, zappable, private)) =
-        read(ui, |b| (b.site_dark(), b.site_css(), b.route_choices(host), b.zapped(Some(host)), b.zappable(), b.model.private()))
+    let Some((css, (spaces, routed), zaps, zappable, private)) =
+        read(ui, |b| (b.site_css(), b.route_choices(host), b.zapped(Some(host)), b.zappable(), b.model.private()))
     else {
         return view();
     };
@@ -136,7 +194,6 @@ fn site_extras(ui: Ui, host: &str) -> View {
     let mut out = view()
         .flex_col()
         .gap_2()
-        .child(switch(dark, "Dark mode for this site", move || act(ui, Browser::toggle_site_dark)).px_0())
         .child(small(ui.css_error.get_untracked().unwrap_or_else(|| "Site CSS".to_owned())).text_color(if ui.css_error.with_untracked(Option::is_some) {
             Theme::warning()
         } else {
@@ -285,8 +342,14 @@ fn folder_panel(ui: Ui, id: store::Id) -> AnyElement {
         .into_element()
 }
 
-fn menu_row(name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
-    crate::controls::row(name.to_owned(), press).px_3().child(label(name.to_owned()).flex_1()).children(keys.map(small))
+/// A menu row: the label's glyph, the label and its shortcut as key caps.
+pub(super) fn menu_row(name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
+    crate::controls::row(name.to_owned(), press)
+        .px_2()
+        .gap(px(10.))
+        .child(view().w(px(16.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::glyph(browser_core::command::glyph(name)), 15.)))
+        .child(label(name.to_owned()).flex_1())
+        .children(keys.map(|k| tarn_nsh_shared::controls::key_caps(&k)))
 }
 
 fn pills(name: &str, buttons: Vec<AnyElement>) -> Option<View> {
@@ -397,19 +460,30 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Memory => super::library::memory_panel(ui),
             Panel::ReadingList => super::library::reading_list_panel(ui),
             Panel::Qr => super::tools::qr_panel(ui),
+            Panel::Share => super::tools::share_panel(ui),
             Panel::History => history_panel(ui),
             Panel::Downloads => downloads_panel(ui),
             Panel::Tab => tab_panel(ui),
             Panel::Folder(id) => folder_panel(ui, id),
         };
-        let wide = ui.panel.get_untracked() == Panel::Settings;
-        Some(view().flex_col().flex_1().items_center().p_4().child(
-            view().flex_col().flex_1().w(px(if wide { PANEL_WIDTH + 200. } else { PANEL_WIDTH })).child(if wide {
-                view().flex_col().flex_1().child(body).into_element()
-            } else {
-                scroll().flex_1().child(body).into_element()
-            }),
-        ))
+        let panel = ui.panel.get_untracked();
+        let (width, side) = match panel {
+            Panel::Share => (320., Side::End),
+            Panel::Shield => (SITE_WIDTH, Side::Centre),
+            Panel::Downloads => (380., Side::Start),
+            Panel::Settings => (PANEL_WIDTH + 200., Side::Centre),
+            _ => (PANEL_WIDTH, Side::Centre),
+        };
+        let content =
+            if panel == Panel::Settings { view().flex_col().flex_1().child(body).into_element() } else { scroll().flex_1().child(body).into_element() };
+        let column = view().flex_col().flex_1().w(px(width)).child(content);
+        let area = view().flex_col().flex_1().p_4();
+        let area = match side {
+            Side::Start => area.items_start(),
+            Side::Centre => area.items_center(),
+            Side::End => area.items_end(),
+        };
+        Some(area.child(tarn_nsh_shared::motion::popping(column)))
     })
     .into_element()
 }
