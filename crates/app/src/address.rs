@@ -201,7 +201,11 @@ impl Browser {
                         }),
                     }
                 })
-                .ok();
+                .is_err()
+                .then(|| {
+                    palette.map(|p| p.update(cx, |_, window, _| window.remove_window()));
+                    dim.map(|d| d.update(cx, |_, window, _| window.remove_window()));
+                });
         });
     }
 }

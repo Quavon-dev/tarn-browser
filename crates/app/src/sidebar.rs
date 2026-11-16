@@ -487,7 +487,11 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         (true, _) => (if b.model.burner_shown() { Icon::Flame } else { ui::icon::space_icon(&s.space.icon) }, Theme::warning()),
         (false, tint) => (ui::icon::space_icon(&s.space.icon), tint.unwrap_or(Theme::space_label())),
     });
-    let menu = |b: &mut Browser, w: &mut Window, cx: &mut Context<Browser>| b.space_menu(b.model.space_ix, w, cx);
+    let menu = move |b: &mut Browser, w: &mut Window, cx: &mut Context<Browser>| {
+        if b.rename_input(RenameTarget::Space(space_id)).is_none() {
+            b.space_menu(b.model.space_ix, w, cx);
+        }
+    };
     div()
         .id("space-switcher")
         .min_w_0()
@@ -719,7 +723,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
                 }),
             ))
         })
-        .children(state_glyph(t, asleep, active || drifted || renaming || closable && b.motion.grown(key) > 0.).map(|glyph| {
+        .children(state_glyph(t, asleep, active && closable || drifted || renaming || closable && b.motion.grown(key) > 0.).map(|glyph| {
             let shown = div().flex_none().w(px(CLOSE_WIDTH)).flex().justify_center().child(glyph);
             let shown = if closable { shown.group_hover("tab", |s| s.opacity(0.)) } else { shown };
             animate(shown, ("state", t.id as u64), SLIDE, b.pref(Pref::ReduceMotion), |el, p| el.opacity(p))

@@ -2637,6 +2637,9 @@ impl Browser {
     }
 
     pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.in_main(window, cx, |b, window, cx| b.open_settings(window, cx)) {
+            return;
+        }
         if let Some(handle) = self.settings_window
             && handle.update(cx, |_, settings_window, _| settings_window.activate_window()).is_ok()
         {
@@ -2652,6 +2655,9 @@ impl Browser {
     }
 
     pub fn open_settings_pane(&mut self, pane: crate::settings::SettingsPane, window: &mut Window, cx: &mut Context<Self>) {
+        if self.in_main(window, cx, move |b, window, cx| b.open_settings_pane(pane, window, cx)) {
+            return;
+        }
         self.open_settings(window, cx);
         let browser = cx.entity().downgrade();
         cx.defer(move |cx| {
