@@ -41,7 +41,8 @@ feeds ("Signing in CI") and publishes a GitHub release with:
 - `SHA256SUMS` for every file.
 
 Nothing is published until a maintainer approves the run's `release-signing` deployment. Every build
-job first runs `scripts/check-version.sh <tag>` (the macOS build skips it for engine updates), so a
+job first runs `scripts/check-version.sh <tag>` (the macOS build skips it for engine updates, every
+job for nightly builds), so a
 release tag needs the same version in the root, `linux/` and `mobile/` manifests,
 `mobile/app/nsh.json`, the Android Gradle file, the RPM spec and the PKGBUILD. Engine updates from
 `chromium-update.yml` build the macOS bundle alone, so a failing Windows, Linux or mobile build
