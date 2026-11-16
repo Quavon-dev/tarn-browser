@@ -162,9 +162,14 @@ Security and privacy
    errors, skip private-session cleanup, widen an allowlist or permission, raise a size or rate
    limit, or loosen or remove validation, a signature check or a hash check. Do not add a path
    that skips one, and do not otherwise make a mitigation in `docs/threat-model.md` weaker.
+   Exception, decided by the maintainers: releases and nightly builds are signed in CI (Developer
+   ID, notarisation, the update key), in the `release-signing` and `nightly-signing` environments
+   as `docs/threat-model.md` S4 describes, in place of keeping signing keys off CI.
 5. **No new or changed connections.** Do not add a request the shell makes, or change the
    receiver, content or frequency of one listed in `PRIVACY.md` ("Connections the browser itself
-   makes"). No telemetry, analytics, accounts or crash upload.
+   makes"). No telemetry, analytics, accounts or crash upload. Exception, decided by the
+   maintainers: a user who picks the Nightly update channel checks the feeds of this repository's
+   `nightly` release in place of the latest release's.
 6. **No unsafe shortcuts.** Do not add `unsafe` to a crate that forbids it or remove
    `#![forbid(unsafe_code)]`; every new `unsafe` block states its invariant (threat model S21). Do
    not write your own cryptography; use what `crates/sync` and the platform already use.
