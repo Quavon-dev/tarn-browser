@@ -25,6 +25,23 @@ on:
       critical:
         type: boolean
         default: false
+    # Environment secrets reach a called workflow only when its caller passes them by name; the sign
+    # job then gets the release-signing or nightly-signing value.
+    secrets:
+      MACOS_CERTIFICATE_P12:
+        required: false
+      MACOS_CERTIFICATE_PASSWORD:
+        required: false
+      NOTARY_API_KEY:
+        required: false
+      NOTARY_API_KEY_ID:
+        required: false
+      NOTARY_API_ISSUER:
+        required: false
+      SPARKLE_ED_PRIVATE_KEY:
+        required: false
+      CHROMIUM_UPDATE_APP_KEY:
+        required: false
 
 permissions: {}
 

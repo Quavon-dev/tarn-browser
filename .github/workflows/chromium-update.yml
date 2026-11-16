@@ -220,6 +220,13 @@ jobs:
     with:
       commit: ${{ needs.merge.outputs.commit }}
       tag: ${{ needs.propose.outputs.tag }}
+    secrets:
+      MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+      NOTARY_API_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+      NOTARY_API_ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
 
   report:
     needs: [watch, propose, test, merge, build]
