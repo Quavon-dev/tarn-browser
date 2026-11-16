@@ -241,16 +241,12 @@ jobs:
           persist-credentials: false
       - run: linux/packaging/flatpak/check-cargo-sources.sh
       - run: linux/packaging/flatpak/local-manifest.sh
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
-        with:
-          manifest-path: linux/packaging/flatpak/de.quavon.tarn.local.yml
-          build-bundle: false
-          upload-artifact: false
-          repo-dir: repo
-          mirror-screenshots-url: https://dl.flathub.org/media
-          cache-key: flatpak-builder-${{ hashFiles('linux/Cargo.lock', 'linux/packaging/flatpak/*') }}
-          save-cache: ${{ github.ref == 'refs/heads/main' }}
-      - run: flatpak install -y --noninteractive flathub org.flatpak.Builder
+      - run: test -s /etc/machine-id || dbus-uuidgen --ensure=/etc/machine-id
+      - run: flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - run: >-
+          flatpak-builder --user --install-deps-from=flathub --disable-rofiles-fuse --force-clean
+          --repo=repo build linux/packaging/flatpak/de.quavon.tarn.local.yml
+      - run: flatpak install --user -y --noninteractive flathub org.flatpak.Builder
       - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest "$PWD/linux/packaging/flatpak/de.quavon.tarn.yml"
       - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder appstream "$PWD/linux/packaging/flatpak/de.quavon.tarn.metainfo.xml"
 
@@ -313,6 +309,7 @@ jobs:
           cargo llvm-cov --locked --no-report -p store -p shield -p devkit -p filter-bundle -p cli-bridge
           -p platform -p chromium-helper -p browser-core
       - run: |
+          mkdir -p coverage
           cargo llvm-cov report --lcov --output-path coverage/lcov.info
           cargo llvm-cov report --html --output-dir coverage
           cargo llvm-cov report --json --summary-only --output-path coverage/summary.json
