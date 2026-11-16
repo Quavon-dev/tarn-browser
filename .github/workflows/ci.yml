@@ -93,6 +93,8 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # scripts/fetch-cef.sh checks the cached archive's SHA-256 against packaging/cef.lock.
+          cache-directories: target/cef/downloads
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy $CRATES --all-targets --locked -- -D warnings
       - run: cargo test $CRATES --locked
@@ -124,6 +126,8 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # scripts/fetch-cef.sh checks the cached archive's SHA-256 against packaging/cef.lock.
+          cache-directories: target/cef/downloads
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: echo "CEF_PATH=$(cygpath -w "$(scripts/fetch-cef.sh windows64)")" >> "$GITHUB_ENV"
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
