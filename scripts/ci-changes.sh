@@ -35,7 +35,7 @@ classify() {
     case "$path" in
       # Other workflows and GitHub settings run none of the builds; the check job lints them.
       .github/workflows/ci.yml) shared=true ;;
-      .github/*) ;;
+      .github/* | docs/vex.json) ;;
       linux/*) linux=true ;;
       mobile/*) mobile=true ;;
       nsh-shared/*) nsh=true ;;

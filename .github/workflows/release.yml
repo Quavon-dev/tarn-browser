@@ -232,7 +232,6 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: "1.99.1"
@@ -443,33 +442,30 @@ jobs:
         with:
           toolchain: "1.99.1"
       - run: cargo install cargo-cyclonedx --version "=$CYCLONEDX_VERSION" --locked
-      - run: |
-          set -euo pipefail
-          sbom() { cargo cyclonedx --format json --spec-version 1.5 --override-filename "$@"; }
-          sbom tarn.cdx --all-features
-          mkdir "$RUNNER_TEMP/sbom"
-          sparkle="$(sed -n 's/^sparkle_version=//p' packaging/sparkle.lock)"
-          hash="$(sed -n 's/^sha256=//p' packaging/sparkle.lock)"
-          [[ -n "$sparkle" && -n "$hash" ]] || { echo "sparkle_version or sha256 not found in packaging/sparkle.lock" >&2; exit 1; }
-          cef="$(sed -n 's/^cef_version=//p' packaging/cef.lock)"
-          [[ -n "$cef" ]] || { echo "cef_version not found in packaging/cef.lock" >&2; exit 1; }
-          jq --arg v "$sparkle" --arg h "$hash" --arg cef "$cef" '.components += [{type: "framework", name: "Sparkle", version: $v,
-            purl: "pkg:github/sparkle-project/Sparkle@\($v)", hashes: [{alg: "SHA-256", content: $h}]},
-            {type: "framework", name: "Chromium Embedded Framework", version: $cef, purl: "pkg:github/chromiumembedded/cef@\($cef | gsub("\\+"; "%2B"))"}]' \
-            crates/app/tarn.cdx.json > "$RUNNER_TEMP/sbom/Tarn-${TAG}.cdx.json"
-      - if: github.event_name == 'push' || inputs.nightly || inputs.full
+      - env:
+          CLIENTS: ${{ github.event_name == 'push' || inputs.nightly || inputs.full }}
         run: |
           set -euo pipefail
           sbom() { cargo cyclonedx --format json --spec-version 1.5 --override-filename "$@"; }
+          sparkle="$(sed -n 's/^sparkle_version=//p' packaging/sparkle.lock)"
+          hash="$(sed -n 's/^sha256=//p' packaging/sparkle.lock)"
+          cef="$(sed -n 's/^cef_version=//p' packaging/cef.lock)"
+          [[ -n "$sparkle" && -n "$hash" && -n "$cef" ]] || { echo "packaging/sparkle.lock or cef.lock is missing a version or hash" >&2; exit 1; }
+          with_cef() {
+            jq --arg cef "$cef" '.components += [{type: "framework", name: "Chromium Embedded Framework", version: $cef,
+              purl: "pkg:github/chromiumembedded/cef@\($cef | gsub("\\+"; "%2B"))"}]'
+          }
+          mkdir "$RUNNER_TEMP/sbom"
+          sbom tarn.cdx --all-features
+          jq --arg v "$sparkle" --arg h "$hash" '.components += [{type: "framework", name: "Sparkle", version: $v,
+            purl: "pkg:github/sparkle-project/Sparkle@\($v)", hashes: [{alg: "SHA-256", content: $h}]}]' \
+            crates/app/tarn.cdx.json | with_cef > "$RUNNER_TEMP/sbom/Tarn-${TAG}.cdx.json"
+          [[ "$CLIENTS" == true ]] || exit 0
           sbom tarn-windows.cdx --target x86_64-pc-windows-msvc
           (cd linux && sbom tarn-linux.cdx --target x86_64-unknown-linux-gnu)
           (cd mobile && sbom tarn-ios.cdx --target aarch64-apple-ios && sbom tarn-android.cdx --target aarch64-linux-android)
           mkdir "$RUNNER_TEMP/sbom-clients"
-          cef="$(sed -n 's/^cef_version=//p' packaging/cef.lock)"
-          [[ -n "$cef" ]] || { echo "cef_version not found in packaging/cef.lock" >&2; exit 1; }
-          jq --arg cef "$cef" '.components += [{type: "framework", name: "Chromium Embedded Framework",
-            version: $cef, purl: "pkg:github/chromiumembedded/cef@\($cef | gsub("\\+"; "%2B"))"}]' \
-            crates/app-dll/tarn-windows.cdx.json > "$RUNNER_TEMP/sbom-clients/Tarn-${TAG}-windows-x64.cdx.json"
+          with_cef < crates/app-dll/tarn-windows.cdx.json > "$RUNNER_TEMP/sbom-clients/Tarn-${TAG}-windows-x64.cdx.json"
           cp linux/tarn-linux.cdx.json "$RUNNER_TEMP/sbom-clients/Tarn-${TAG}-linux.cdx.json"
           cp mobile/app/tarn-ios.cdx.json "$RUNNER_TEMP/sbom-clients/Tarn-${TAG}-ios.cdx.json"
           cp mobile/app/tarn-android.cdx.json "$RUNNER_TEMP/sbom-clients/Tarn-${TAG}-android.cdx.json"
@@ -488,8 +484,9 @@ jobs:
           if-no-files-found: error
 
   # Runs no build code: it takes each build job's files by their fixed names, so no job can replace
-  # another platform's file, then writes SHA256SUMS and attests the binaries. Engine updates
-  # (chromium-update.yml) and manual runs ship the macOS bundle alone, without waiting for the rest.
+  # another platform's file, then writes SHA256SUMS and attests it with the binaries and SBOMs.
+  # Engine updates (chromium-update.yml) and manual runs ship the macOS bundle alone, without
+  # waiting for the rest.
   assets:
     needs: [build, sign, sbom, windows, linux, mobile]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.sign.result == 'success' && needs.sbom.result == 'success' && (github.event_name != 'push' && !inputs.nightly && !inputs.full || (needs.windows.result == 'success' && needs.linux.result == 'success' && needs.mobile.result == 'success')) }}
