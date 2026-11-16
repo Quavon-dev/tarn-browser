@@ -156,9 +156,9 @@ impl WebView {
         both!(self, v => v.media_playing(done))
     }
 
-    /// The page's own process, `None` in Chromium, which does not tell its renderers' ids.
+    /// The page's own process; in Chromium the renderer of the top document, once it said which.
     pub fn process_id(&self) -> Option<i32> {
-        webkit_only!(self, v => v.process_id(), None)
+        both!(self, v => v.process_id())
     }
 
     pub fn set_muted(&self, muted: bool) {

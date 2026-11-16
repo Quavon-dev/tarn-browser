@@ -390,8 +390,8 @@ pub fn subprocess() -> Option<i32> {
     (code >= 0).then_some(code)
 }
 
-/// The message a renderer sends with its process id when it starts a main-frame document.
-#[cfg(windows)]
+/// The message a renderer sends with its process id when it starts a main-frame document; the
+/// macOS helper (crates/chromium-helper) sends the same.
 pub(super) const RENDERER_PID: &str = "tarn.renderer-pid";
 
 #[cfg(windows)]
@@ -454,6 +454,27 @@ pub(super) fn tarn_process(pid: u32) -> bool {
     // SAFETY: closes the handle opened above.
     unsafe { CloseHandle(process) };
     read && std::fs::canonicalize(String::from_utf16_lossy(&path[..len as usize])).is_ok_and(|p| &p == own)
+}
+
+/// Whether `pid` is another running process of this bundle (a Chromium helper).
+#[cfg(target_os = "macos")]
+pub(super) fn tarn_process(pid: u32) -> bool {
+    unsafe extern "C" {
+        fn proc_pidpath(pid: std::ffi::c_int, buffer: *mut c_void, size: u32) -> std::ffi::c_int;
+    }
+    static OWN: OnceLock<Option<PathBuf>> = OnceLock::new();
+    if pid == std::process::id() {
+        return false;
+    }
+    let (Some(own), Ok(pid)) = (OWN.get_or_init(|| contents().and_then(|c| c.join("Frameworks").canonicalize().ok())), i32::try_from(pid)) else {
+        return false;
+    };
+    // PROC_PIDPATHINFO_MAXSIZE.
+    let mut path = [0u8; 4096];
+    // SAFETY: `path` is writable for the `size` bytes passed; the call writes at most that many.
+    let len = unsafe { proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    let path = usize::try_from(len).ok().filter(|n| *n > 0).and_then(|n| std::str::from_utf8(&path[..n]).ok());
+    path.and_then(|p| Path::new(p).canonicalize().ok()).is_some_and(|p| p.starts_with(own))
 }
 
 /// Prepares the browser process before GPUI starts: GPUI must draw without DirectComposition,
@@ -781,6 +802,17 @@ mod tests {
         assert!(!super::tarn_process(std::process::id()), "not this process");
         assert!(!super::tarn_process(0));
         let mut other = std::process::Command::new("cmd").args(["/c", "ping -n 5 127.0.0.1 >nul"]).spawn().unwrap();
+        assert!(!super::tarn_process(other.id()), "another program");
+        other.kill().ok();
+        other.wait().ok();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_reported_renderer_must_be_a_helper_of_this_bundle() {
+        assert!(!super::tarn_process(std::process::id()), "not this process");
+        assert!(!super::tarn_process(1), "not a process outside the bundle");
+        let mut other = std::process::Command::new("sleep").arg("5").spawn().unwrap();
         assert!(!super::tarn_process(other.id()), "another program");
         other.kill().ok();
         other.wait().ok();
