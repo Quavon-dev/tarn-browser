@@ -51,6 +51,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: scripts/ci-changes.sh >> "$GITHUB_OUTPUT"
 
+  # Every commit of a pull request certifies the DCO (CONTRIBUTING.md, "Contribution terms").
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        # The base branch's script, so a pull request cannot change the check that gates it; a base
+        # branch without the script (one older than this check) runs the pull request's copy.
+        run: |
+          if git cat-file -e "$BASE:scripts/check-dco.sh" 2>/dev/null; then
+            git show "$BASE:scripts/check-dco.sh" | bash -s "$BASE" "$HEAD"
+          else
+            scripts/check-dco.sh "$BASE" "$HEAD"
+          fi
+
   check:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
@@ -70,7 +91,7 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: for d in . nsh-shared mobile linux; do (cd "$d" && cargo fmt --all --check); done
-      - run: scripts/check-workflows.sh && scripts/check-workflows.test.sh && scripts/ci-changes.test.sh
+      - run: scripts/check-workflows.sh && scripts/check-workflows.test.sh && scripts/ci-changes.test.sh && scripts/check-dco.test.sh
       - run: scripts/third-party-licenses.sh --check
       - run: cargo clippy $CRATES --all-targets --locked -- -D warnings
       - run: cargo test $CRATES --locked

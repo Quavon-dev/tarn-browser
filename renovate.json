@@ -13,6 +13,7 @@
       "datasourceTemplate": "docker"
     }
   ],
+  "commitBody": "Signed-off-by: {{{gitAuthor}}}",
   "schedule": ["before 6am on monday"],
   "lockFileMaintenance": { "enabled": true, "schedule": ["before 6am on monday"] },
   "packageRules": [
