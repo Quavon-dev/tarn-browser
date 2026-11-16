@@ -287,11 +287,13 @@ Applied by hand in the repository and organisation settings; no workflow changes
 - [ ] Ruleset on `main`: require a pull request (one approval, review from Code Owners,
       approval of the most recent reviewable push, dismiss stale approvals when new commits are
       pushed), require the status checks
-      `check`, `macos` and `deny` from GitHub Actions with the branch up to date, require code
-      scanning results from CodeQL (security alerts high or higher, alerts errors), block force
+      `check`, `macos`, `deny` and `dco` from GitHub Actions with the branch up to date, require
+      code scanning results from CodeQL (security alerts high or higher, alerts errors), block force
       pushes, restrict deletions. No bypass, for people or apps: the update app's pull requests
       run CI and wait for review like any other. Never add GitHub Actions itself: every workflow
       token on every branch acts as GitHub Actions.
+- [ ] General: "Require contributors to sign off on web-based commits" on, so commits made in the
+      web editor pass the `dco` check.
 - [ ] `.github/CODEOWNERS`: its team `@Quavon-dev/maintainers` must exist and have write
       access; it covers itself,
       `.github/workflows/`, `scripts/`, `packaging/`, `deny.toml`, `.cargo/`, `Cargo.toml`,
