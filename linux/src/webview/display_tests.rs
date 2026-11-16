@@ -157,3 +157,26 @@ fn a_download_outlives_its_view_and_burned_store_and_cancels_by_id() {
     assert_eq!(std::fs::metadata(done["path"].as_str().unwrap()).unwrap().len(), 20 * 1024);
     assert!(session::DOWNLOADS.with_borrow(HashMap::is_empty), "finished and cancelled downloads leave the map");
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn the_page_joins_the_window_only_once_its_area_has_a_size() {
+    gtk::init().expect("a display");
+    let state = Rc::new(State { container: Some(gtk::Box::new(gtk::Orientation::Vertical, 0)), ..State::default() });
+    let area = gtk::Fixed::new();
+    area.put(state.container(), 0., 0.);
+    let window = gtk::Window::builder().default_width(400).default_height(300).child(&area).build();
+    window.present();
+    assert!(spin_until(|| state.container().is_mapped(), 10), "the empty area is on screen");
+    let wanted = Build { key: StoreKey::parse("private:display-size").unwrap(), level: ShieldLevel::Standard, lists: Vec::new() };
+    *state.built.borrow_mut() = Some(wanted.clone());
+    build(&state, &wanted, &[]);
+    let web = state.web().unwrap();
+    spin_until(|| false, 1);
+    assert!(web.parent().is_none(), "a page mapped at no size never paints");
+    state.container().set_size_request(300, 200);
+    assert!(spin_until(|| web.parent().as_ref() == Some(state.container().upcast_ref()), 10), "the page joins once the area is laid out");
+    state.drop_view();
+    assert!(state.container().first_child().is_none());
+    window.destroy();
+}
