@@ -327,6 +327,17 @@ mod tests {
     }
 
     #[test]
+    fn an_extension_grant_is_the_hosts_whatever_the_scheme() {
+        let rules = shield::dnr::compile(&[br#"[{"id":1,"action":{"type":"block"},"condition":{"urlFilter":"ads.js"}}]"#]).unwrap();
+        let json = rules.content_rules(&shield::dnr::Scope::Hosts(vec!["shop.test".into()])).unwrap();
+        let lists = [RuleList::parse(&json).unwrap()];
+        for top in ["https://shop.test/", "http://shop.test/"] {
+            assert_eq!(verdict(&lists, "https://cdn.test/ads.js", Some(top), ResourceKind::Script), Verdict::Block, "{top}");
+        }
+        assert_eq!(verdict(&lists, "https://cdn.test/ads.js", Some("http://other.test/"), ResourceKind::Script), Verdict::Allow);
+    }
+
+    #[test]
     fn a_top_level_document_is_judged_as_its_own_page() {
         let json = r#"[{"trigger":{"url-filter":"x","if-top-url":["^https?://shop\\.test[:/]"]},"action":{"type":"block"}}]"#;
         let lists = [RuleList::parse(json).unwrap()];
