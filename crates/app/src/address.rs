@@ -5,38 +5,67 @@ use std::time::Instant;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AppContext, Bounds, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Render, StatefulInteractiveElement, Styled, Subscription,
-    WeakEntity, Window, WindowHandle, canvas, div, point, px, size,
+    AnyElement, App, AppContext, Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Render, Rgba,
+    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, WindowHandle, canvas, div, point, prelude::FluentBuilder, px, size,
 };
-use ui::controls::surface;
-use ui::motion::{EXIT, FADE, fade_in, progress};
-use ui::theme::{TEXT, Theme};
+use ui::controls::{key_cap, surface};
+use ui::icon::{ICON_MEDIUM, Icon, icon};
+use ui::motion::{EXIT, FADE, POP, animate};
+use ui::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 use crate::browser::Browser;
-use crate::content::{SHOWN_SUGGESTIONS, SUGGESTION_ROW, suggestion_row};
-use crate::peek::popup_options;
+use crate::content::{SECTION_HEADER, SHOWN_SUGGESTIONS, SUGGESTION_ROW, suggestion_rows};
+use crate::peek::{popup_options, remove_after_exit};
 use crate::prefs::Pref;
 
+const WIDTH: f32 = 640.;
+const INPUT_ROW: f32 = 52.;
+const FOOTER: f32 = 36.;
 const PAD: f32 = 6.;
-const GAP: f32 = 6.;
+/// The palette's room from the content area's sides and bottom.
+const MARGIN: f32 = 16.;
+const DIM: f32 = 0.35;
 
-/// The address field opened in the toolbar, with its suggestions in a popup window below it,
-/// since GPUI cannot draw over the page.
+/// The command palette over the page while the address field is open: a pop-up window holding
+/// the field's text and the suggestions, over another that dims the page, since GPUI cannot draw
+/// over the web view. The field itself stays in the toolbar with the keyboard focus.
 #[derive(Default)]
 pub struct Address {
     opened: Option<Instant>,
-    closing: Option<Instant>,
-    /// The field's resting left and right edges, which it grows from and folds back to, from the
-    /// bar's centre (classic) or right end (compact), so a sidebar toggle while open moves them too.
-    from: (f32, f32),
-    /// The toolbar, the field and the slot it grows into, as last painted.
+    /// The toolbar, the resting address field, its slot and the content area, as last painted.
     pub(crate) bar: Rc<Cell<Bounds<Pixels>>>,
     pub(crate) field: Rc<Cell<Bounds<Pixels>>>,
     pub(crate) slot: Rc<Cell<Bounds<Pixels>>>,
-    pub(crate) popup: Option<(WindowHandle<Suggestions>, engine::Host)>,
+    pub(crate) content: Rc<Cell<Bounds<Pixels>>>,
+    popup: Option<Popups>,
     opening: bool,
-    placed: Option<(Bounds<Pixels>, usize)>,
+    placed: Option<(Bounds<Pixels>, Bounds<Pixels>)>,
     clicks: Option<engine::menu::EventMonitor>,
+}
+
+struct Popups {
+    palette: (WindowHandle<Palette>, engine::Host),
+    dim: (WindowHandle<Dim>, engine::Host),
+}
+
+impl Address {
+    /// Closes the palette and the dim, fading them out unless motion is reduced.
+    fn close(&mut self, reduce: bool, cx: &mut App) {
+        self.placed = None;
+        let Some(popup) = self.popup.take() else { return };
+        let (palette, dim) = (popup.palette.0, popup.dim.0);
+        cx.defer(move |cx| {
+            palette.update(cx, |p, window, cx| p.leave(reduce, window, cx)).ok();
+            dim.update(cx, |d, window, cx| d.leave(reduce, window, cx)).ok();
+        });
+    }
+
+    pub(crate) fn remove_windows(&mut self, cx: &mut App) {
+        if let Some(popup) = self.popup.take() {
+            popup.palette.0.update(cx, |_, window, _| window.remove_window()).ok();
+            popup.dim.0.update(cx, |_, window, _| window.remove_window()).ok();
+        }
+    }
 }
 
 /// Records where an element was painted.
@@ -44,63 +73,27 @@ pub fn measure(cell: Rc<Cell<Bounds<Pixels>>>) -> impl IntoElement {
     canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| {}).absolute().inset_0()
 }
 
+/// The palette's frame in the window for a content area and a list `list` points high: centred,
+/// a seventh of the way down, narrower and shorter where the area is small.
+fn palette_frame(content: Bounds<Pixels>, list: f32) -> Bounds<Pixels> {
+    let (x, y, w, h) = (f32::from(content.origin.x), f32::from(content.origin.y), f32::from(content.size.width), f32::from(content.size.height));
+    let width = WIDTH.min(w - 2. * MARGIN).max(0.);
+    let top = y + h / 7.;
+    let height = (INPUT_ROW + list + FOOTER).min(y + h - MARGIN - top).max(INPUT_ROW + FOOTER);
+    Bounds::new(point(px(x + (w - width) / 2.), px(top)), size(px(width), px(height)))
+}
+
 impl Browser {
     pub fn inline_editing(&self) -> bool {
         self.command_mode.is_some() && self.address.opened.is_some() && self.model.active.is_some()
     }
 
-    /// How far the field has grown, 0 at rest and 1 at the slot's width; `None` when it is at rest.
-    pub fn address_open(&self) -> Option<(f32, bool)> {
-        if self.inline_editing() {
-            let t = self.address.opened.filter(|_| !self.pref(Pref::ReduceMotion)).map_or(1., |at| progress(at, FADE));
-            return Some((t, true));
-        }
-        let at = self.address.closing.filter(|at| at.elapsed() < EXIT)?;
-        Some((1. - progress(at, EXIT), false))
-    }
-
-    fn address_anchor(&self) -> f32 {
-        let bar = self.address.bar.get();
-        f32::from(if self.pref(Pref::CompactToolbar) { bar.right() } else { bar.center().x })
-    }
-
-    /// The resting field's left and right edges in the window. The compact field rests where the slot starts.
-    fn address_rest(&self) -> (f32, f32) {
-        let (anchor, (left, right)) = (self.address_anchor(), self.address.from);
-        let left = if self.pref(Pref::CompactToolbar) { f32::from(self.address.slot.get().origin.x) } else { anchor + left };
-        (left, anchor + right)
-    }
-
-    pub fn address_width(&self, t: f32) -> f32 {
-        let (origin, slot) = (f32::from(self.address.slot.get().origin.x), f32::from(self.address.slot.get().size.width));
-        if slot <= 0. {
-            return self.address.from.1 - self.address.from.0;
-        }
-        let (left, right) = self.address_rest();
-        let from = (right - left).min(slot - (left - origin).max(0.)).max(0.);
-        from + (slot - from) * t
-    }
-
-    /// How far the field's left edge sits inside the slot; `None` until the slot is measured.
-    pub fn address_offset(&self, t: f32) -> Option<f32> {
-        let slot = self.address.slot.get();
-        (slot.size.width > px(0.)).then(|| ((self.address_rest().0 - f32::from(slot.origin.x)) * (1. - t)).max(0.))
-    }
-
-    pub(crate) fn address_moving(&self) -> bool {
-        self.address.opened.is_some_and(|at| at.elapsed() < FADE) || self.address.closing.is_some_and(|at| at.elapsed() < EXIT)
-    }
-
-    /// Opens the field in place; the page stays visible. A click anywhere else in the window closes it.
+    /// Opens the palette over the page. A click anywhere else in the window closes it.
     pub(crate) fn open_inline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.address.opened.is_some() {
             return;
         }
-        let (field, anchor) = (self.address.field.get(), self.address_anchor());
-        self.address.from = (f32::from(field.left()) - anchor, f32::from(field.right()) - anchor);
         self.address.opened = Some(Instant::now());
-        self.address.closing = None;
-        self.address.slot.set(Bounds::default());
         self.address.placed = None;
         let (tx, mut rx) = mpsc::unbounded();
         self.address.clicks = self.host.as_ref().and_then(|h| h.on_mouse_down(move |x, y| drop(tx.unbounded_send((x, y)))));
@@ -123,67 +116,89 @@ impl Browser {
     }
 
     pub(crate) fn close_inline(&mut self, cx: &mut Context<Self>) {
-        if self.address.opened.take().is_some() && !self.pref(Pref::ReduceMotion) {
-            self.address.closing = Some(Instant::now());
-        }
+        self.address.opened = None;
         self.address.clicks = None;
-        self.close_suggestions(cx);
+        let reduce = self.pref(Pref::ReduceMotion);
+        self.address.close(reduce, cx);
     }
 
-    fn close_suggestions(&mut self, cx: &mut Context<Self>) {
-        self.address.placed = None;
-        if let Some((popup, _)) = self.address.popup.take() {
-            cx.defer(move |cx| {
-                popup.update(cx, |_, window, _| window.remove_window()).ok();
-            });
-        }
+    /// Height of the palette's list: its rows and section headers, up to `SHOWN_SUGGESTIONS` rows.
+    fn palette_list(&self) -> f32 {
+        let shown = &self.suggestions[..self.suggestions.len().min(SHOWN_SUGGESTIONS)];
+        let headers: f32 = crate::content::sections(shown).iter().flatten().map(|_| SECTION_HEADER).sum();
+        if shown.is_empty() { 0. } else { PAD * 2. + SUGGESTION_ROW * shown.len() as f32 + headers }
     }
 
-    /// Keeps the suggestions popup under the open field, sized to its rows.
-    pub(crate) fn sync_suggestions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let slot = self.address.slot.get();
-        if !self.inline_editing() || self.suggestions.is_empty() {
-            return self.close_suggestions(cx);
+    /// Keeps the palette over the content area, sized to its rows, and the dim over the page.
+    pub(crate) fn sync_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let content = self.address.content.get();
+        if !self.inline_editing() {
+            let reduce = self.pref(Pref::ReduceMotion);
+            return self.address.close(reduce, cx);
         }
-        if slot.size.width <= px(0.) || self.address.opening || self.address.placed == Some((slot, self.suggestions.len())) {
+        let frame = palette_frame(content, self.palette_list());
+        if content.size.width <= px(0.) || self.address.opening || self.address.placed == Some((frame, content)) {
             return;
         }
-        let height = PAD * 2. + SUGGESTION_ROW * self.suggestions.len().min(SHOWN_SUGGESTIONS) as f32;
-        let (x, y, width) = (f32::from(slot.origin.x), f32::from(slot.bottom()) + GAP, f32::from(slot.size.width));
-        if let (Some(host), Some(popup)) = (self.host.clone(), self.address.popup.as_ref().map(|p| p.1.clone())) {
-            self.address.placed = Some((slot, self.suggestions.len()));
-            // GPUI handles the resize this causes only outside an update, so the frame is set from a task.
-            cx.spawn(async move |_, _| host.place(&popup, x.into(), y.into(), width.into(), height.into())).detach();
+        if let (Some(host), Some(popup)) = (self.host.clone(), self.address.popup.as_ref()) {
+            self.address.placed = Some((frame, content));
+            let (palette, dim) = (popup.palette.1.clone(), popup.dim.1.clone());
+            let rect = |b: Bounds<Pixels>| {
+                (f32::from(b.origin.x).into(), f32::from(b.origin.y).into(), f32::from(b.size.width).into(), f32::from(b.size.height).into())
+            };
+            let (p, d) = (rect(frame), rect(content));
+            // GPUI handles the resize this causes only outside an update, so the frames are set from a task.
+            cx.spawn(async move |_, _| {
+                host.place(&dim, d.0, d.1, d.2, d.3);
+                host.place(&palette, p.0, p.1, p.2, p.3);
+            })
+            .detach();
             return;
         }
         let Some(main) = window.window_handle().downcast::<Browser>() else { return };
         let origin = window.bounds().origin;
-        let bounds = Bounds::new(point(origin.x + px(x), origin.y + px(y)), size(px(width), px(height)));
+        let on_screen = |b: Bounds<Pixels>| Bounds::new(point(origin.x + b.origin.x, origin.y + b.origin.y), b.size);
+        let (frame, content) = (on_screen(frame), on_screen(content));
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
+        let reduce = self.pref(Pref::ReduceMotion);
         self.address.opening = true;
         cx.defer(move |cx| {
-            let mut popup_host = None;
-            let handle = cx.open_window(popup_options(bounds, display, false), |window, cx| {
-                popup_host = engine::Host::from_window(window);
-                if let Some(host) = &popup_host {
-                    host.round_corners(0., 0., 0., 0., f64::from(ui::theme::Theme::radius_panel()));
-                }
-                cx.new(|cx| Suggestions::new(browser.clone(), main, cx))
-            });
+            let (dim, dim_host) = {
+                let mut host = None;
+                let handle = cx.open_window(popup_options(content, display, false), |window, cx| {
+                    host = engine::Host::from_window(window);
+                    if let Some(host) = &host {
+                        host.round_corners(0., 0., 0., 0., f64::from(Theme::radius_page()));
+                    }
+                    cx.new(|_| Dim { main, reduce, leaving: false })
+                });
+                (handle.ok(), host)
+            };
+            let (palette, palette_host) = {
+                let mut host = None;
+                let handle = cx.open_window(popup_options(frame, display, false), |window, cx| {
+                    host = engine::Host::from_window(window);
+                    if let Some(host) = &host {
+                        host.round_corners(0., 0., 0., 0., f64::from(Theme::radius_card()));
+                    }
+                    cx.new(|cx| Palette::new(browser.clone(), main, cx))
+                });
+                (handle.ok(), host)
+            };
             browser
                 .update(cx, |b, cx| {
                     b.address.opening = false;
-                    match (handle, popup_host) {
-                        (Ok(handle), Some(popup)) if b.inline_editing() => {
-                            b.address.popup = Some((handle, popup));
+                    match (palette, palette_host, dim, dim_host) {
+                        (Some(palette), Some(ph), Some(dim), Some(dh)) if b.inline_editing() => {
+                            b.address.popup = Some(Popups { palette: (palette, ph), dim: (dim, dh) });
                             b.address.placed = None;
                             cx.notify();
                         }
-                        (Ok(handle), _) => cx.defer(move |cx| {
-                            handle.update(cx, |_, window, _| window.remove_window()).ok();
+                        (palette, _, dim, _) => cx.defer(move |cx| {
+                            palette.map(|p| p.update(cx, |_, window, _| window.remove_window()));
+                            dim.map(|d| d.update(cx, |_, window, _| window.remove_window()));
                         }),
-                        _ => {}
                     }
                 })
                 .ok();
@@ -191,33 +206,180 @@ impl Browser {
     }
 }
 
-/// The suggestion list below the open address field. It never takes keyboard focus; the field
-/// keeps it, and a click picks a row on mouse-down.
-pub struct Suggestions {
-    browser: WeakEntity<Browser>,
+/// The dim over the page while the palette is open; a click on it closes the palette.
+pub struct Dim {
     main: WindowHandle<Browser>,
-    _observe: Option<Subscription>,
+    reduce: bool,
+    leaving: bool,
 }
 
-impl Suggestions {
-    fn new(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, cx: &mut Context<Self>) -> Self {
-        let observe = browser.upgrade().map(|b| cx.observe(&b, |_, _, cx| cx.notify()));
-        Suggestions { browser, main, _observe: observe }
+impl Dim {
+    fn leave(&mut self, reduce: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.leaving = true;
+        cx.notify();
+        remove_after_exit(reduce, window, cx);
     }
 }
 
-impl Render for Suggestions {
+impl Render for Dim {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let main = self.main;
+        let shade = |a: f32| Rgba { r: 0., g: 0., b: 0., a };
+        let dim = div().id("dim").size_full().rounded(px(Theme::radius_page())).bg(shade(DIM)).on_mouse_down(MouseButton::Left, move |_, _, cx| {
+            main.update(cx, |b, window, cx| b.close_command(window, cx)).ok();
+        });
+        if self.leaving {
+            animate(dim, "dim-out", EXIT, self.reduce, move |el, t| el.bg(shade(DIM * (1. - t))))
+        } else {
+            animate(dim, "dim-in", FADE, self.reduce, move |el, t| el.bg(shade(DIM * t)))
+        }
+    }
+}
+
+/// The palette: the field's text at the top, the suggestions by section, and key hints. It never
+/// takes keyboard focus; the field in the main window keeps it, and a click picks a row on
+/// mouse-down.
+pub struct Palette {
+    browser: WeakEntity<Browser>,
+    main: WindowHandle<Browser>,
+    leaving: bool,
+    _observe: Option<[Subscription; 2]>,
+}
+
+impl Palette {
+    fn new(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, cx: &mut Context<Self>) -> Self {
+        let observe = browser.upgrade().map(|b| {
+            let field = b.read(cx).command.clone();
+            [cx.observe(&b, |_, _, cx| cx.notify()), cx.observe(&field, |_, _, cx| cx.notify())]
+        });
+        Palette { browser, main, leaving: false, _observe: observe }
+    }
+
+    fn leave(&mut self, reduce: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.leaving = true;
+        self._observe = None;
+        cx.notify();
+        remove_after_exit(reduce, window, cx);
+    }
+}
+
+fn hint(keys: &[&'static str], label: &'static str) -> impl IntoElement {
+    div().flex().items_center().gap_1().children(keys.iter().map(|k| key_cap(*k))).child(div().pl_0p5().child(label))
+}
+
+impl Render for Palette {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(browser) = self.browser.upgrade() else { return div().into_any_element() };
         let b = browser.read(cx);
         let main = self.main;
-        let rows = b.suggestions.iter().enumerate().map(|(ix, s)| {
-            suggestion_row(b, ix, s).on_mouse_down(MouseButton::Left, move |_, _, cx| {
+        let commands = b.command.read(cx).text().starts_with('>');
+        let input = div()
+            .h(px(INPUT_ROW))
+            .flex_none()
+            .px_4()
+            .flex()
+            .items_center()
+            .gap_3()
+            .border_b_1()
+            .border_color(Theme::hairline())
+            .text_size(px(TEXT_TITLE))
+            .child(icon(Icon::Search, ICON_MEDIUM, Theme::muted()))
+            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(ui::text_input::mirror(b.command.clone())))
+            .when(commands, |d| {
+                d.child(
+                    div()
+                        .h(px(22.))
+                        .px_2()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap_1()
+                        .rounded(px(Theme::radius_small()))
+                        .border_1()
+                        .border_color(Theme::hairline())
+                        .bg(Theme::accent_soft())
+                        .text_size(px(TEXT_SMALL))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(Theme::accent())
+                        .child(icon(Icon::Command, 12., Theme::accent()))
+                        .child("Commands"),
+                )
+            });
+        let rows = suggestion_rows(b).into_iter().enumerate().map(|(ix, row)| {
+            row.on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 main.update(cx, |b, window, cx| b.submit_command(ix, window, cx)).ok();
             })
         });
-        let list = div().id("suggestion-rows").track_scroll(&b.suggestions_scroll).size_full().overflow_y_scroll().children(rows);
-        let card = surface(Theme::radius_panel()).size_full().py(px(PAD)).text_size(px(TEXT)).text_color(Theme::text()).child(list);
-        fade_in(card, "suggestions", b.pref(Pref::ReduceMotion))
+        let list = div().id("suggestion-rows").track_scroll(&b.suggestions_scroll).flex_1().min_h_0().overflow_y_scroll().py(px(PAD)).children(rows);
+        let footer = div()
+            .h(px(FOOTER))
+            .flex_none()
+            .px_3()
+            .flex()
+            .items_center()
+            .gap_4()
+            .border_t_1()
+            .border_color(Theme::hairline())
+            .text_size(px(TEXT_SMALL))
+            .text_color(Theme::faint())
+            .child(hint(&["↵"], "Run"))
+            .child(hint(&["↑", "↓"], "Move"))
+            .child(div().flex_1())
+            .child(hint(&["esc"], "Close"));
+        let card = surface(Theme::radius_card())
+            .size_full()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .text_size(px(TEXT))
+            .text_color(Theme::text())
+            .child(input)
+            .when(!b.suggestions.is_empty(), |d| d.child(list))
+            .when(b.suggestions.is_empty(), |d| d.child(div().flex_1()))
+            .child(footer);
+        let reduce = b.pref(Pref::ReduceMotion);
+        if self.leaving {
+            return animate(card, "palette-out", EXIT, reduce, ui::motion::pop_out);
+        }
+        animate(card, "palette-in", POP, reduce, |el, t| el.opacity(t).relative().top(px((1. - t) * 5.)))
+    }
+}
+
+/// The section header above a palette row, in faint bold capitals.
+pub(crate) fn section_header(title: &'static str) -> AnyElement {
+    div()
+        .h(px(SECTION_HEADER))
+        .px_4()
+        .pt_1p5()
+        .flex()
+        .items_center()
+        .text_size(px(10.5))
+        .font_weight(FontWeight::BOLD)
+        .text_color(Theme::faint())
+        .child(title)
+        .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FOOTER, INPUT_ROW, MARGIN, WIDTH, palette_frame};
+    use gpui::{Bounds, point, px, size};
+
+    #[test]
+    fn the_palette_sits_centred_a_seventh_down_the_content() {
+        let content = Bounds::new(point(px(300.), px(50.)), size(px(1100.), px(700.)));
+        let frame = palette_frame(content, 200.);
+        assert_eq!(f32::from(frame.size.width), WIDTH);
+        assert_eq!(f32::from(frame.center().x), 850.);
+        assert_eq!(f32::from(frame.origin.y), 150.);
+        assert_eq!(f32::from(frame.size.height), INPUT_ROW + 200. + FOOTER);
+    }
+
+    #[test]
+    fn a_small_content_area_narrows_and_shortens_the_palette() {
+        let content = Bounds::new(point(px(0.), px(0.)), size(px(400.), px(350.)));
+        let frame = palette_frame(content, 2000.);
+        assert_eq!(f32::from(frame.size.width), 400. - 2. * MARGIN);
+        assert_eq!(f32::from(frame.bottom()), 350. - MARGIN);
     }
 }

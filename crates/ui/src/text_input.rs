@@ -647,6 +647,13 @@ impl EntityInputHandler for TextInput {
 
 struct TextElement {
     input: Entity<TextInput>,
+    mirror: bool,
+}
+
+/// What `input` shows, caret included, drawn in another window than the one whose focus it
+/// has, such as a pop-up over the page; typing still goes to the focused field.
+pub fn mirror(input: Entity<TextInput>) -> impl IntoElement {
+    div().w_full().line_height(px(22.)).text_color(Theme::text()).child(TextElement { input, mirror: true })
 }
 
 struct PrepaintState {
@@ -766,7 +773,9 @@ impl Element for TextElement {
         cx: &mut App,
     ) {
         let focus_handle = self.input.read(cx).focus_handle.clone();
-        window.handle_input(&focus_handle, ElementInputHandler::new(bounds, self.input.clone()), cx);
+        if !self.mirror {
+            window.handle_input(&focus_handle, ElementInputHandler::new(bounds, self.input.clone()), cx);
+        }
         if let Some(selection) = prepaint.selection.take() {
             window.paint_quad(selection)
         }
@@ -775,12 +784,14 @@ impl Element for TextElement {
         };
         line.paint(bounds.origin, window.line_height(), window, cx).ok();
 
-        if focus_handle.is_focused(window)
+        if (self.mirror || focus_handle.is_focused(window))
             && let Some(cursor) = prepaint.cursor.take()
         {
             window.paint_quad(cursor);
         }
-
+        if self.mirror {
+            return;
+        }
         self.input.update(cx, |input, _cx| {
             input.last_layout = Some(line);
             input.last_bounds = Some(bounds);
@@ -830,7 +841,7 @@ impl Render for TextInput {
             .w_full()
             .line_height(px(22.))
             .text_color(Theme::text())
-            .child(TextElement { input: cx.entity() })
+            .child(TextElement { input: cx.entity(), mirror: false })
     }
 }
 

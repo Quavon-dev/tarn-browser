@@ -522,9 +522,7 @@ impl Browser {
         let release = cx.on_release(|b, cx| {
             b.save_all();
             b.model.burn(&b.core);
-            if let Some((popup, _)) = b.address.popup.take() {
-                popup.update(cx, |_, window, _| window.remove_window()).ok();
-            }
+            b.address.remove_windows(cx);
         });
         browser._subscriptions.extend([blur, appearance, deactivate, release]);
         browser.watch_navigation_buttons(window, cx);

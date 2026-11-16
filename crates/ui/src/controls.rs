@@ -51,6 +51,41 @@ pub fn key_hint(text: impl Into<SharedString>) -> Div {
     div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(keys(&text.into()))
 }
 
+/// A shortcut's keys one by one as the platform writes them, for key caps: `⇧⌘S` is `⇧`, `⌘`,
+/// `S`; on Windows `Ctrl+Shift+S` is `Ctrl`, `Shift`, `S`.
+pub fn key_caps(glyphs: &str) -> Vec<String> {
+    keys(glyphs)
+        .split(' ')
+        .flat_map(|chord| {
+            if cfg!(windows) {
+                return chord.split('+').filter(|k| !k.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+            }
+            let mods = chord.chars().take_while(|c| "⌃⌥⇧⌘".contains(*c));
+            let rest: String = chord.chars().skip_while(|c| "⌃⌥⇧⌘".contains(*c)).collect();
+            mods.map(String::from).chain((!rest.is_empty()).then_some(rest)).collect()
+        })
+        .collect()
+}
+
+/// One key of a shortcut on a small cap.
+pub fn key_cap(key: impl Into<SharedString>) -> Div {
+    div()
+        .h(px(18.))
+        .min_w(px(18.))
+        .px_1()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(Theme::radius_small()))
+        .border_1()
+        .border_color(Theme::hairline())
+        .bg(Theme::control())
+        .text_size(px(TEXT_SMALL - 1.))
+        .text_color(Theme::muted())
+        .child(key.into())
+}
+
 /// A shortcut written with macOS glyphs (`⇧⌘J`) as the platform shows it. Windows writes
 /// `Ctrl+Shift+J`; Ctrl with Cmd and Ctrl with a digit use Alt there (`app::bind_keys`).
 pub fn keys(glyphs: &str) -> String {
@@ -540,6 +575,17 @@ pub fn note(text: impl Into<SharedString>) -> Div {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shortcuts_split_into_one_cap_per_key() {
+        if cfg!(windows) {
+            assert_eq!(super::key_caps("⇧⌘S"), ["Ctrl", "Shift", "S"]);
+        } else {
+            assert_eq!(super::key_caps("⇧⌘S"), ["⇧", "⌘", "S"]);
+            assert_eq!(super::key_caps("⌘F5"), ["⌘", "F5"]);
+        }
+        assert!(super::key_caps("").is_empty());
+    }
+
     #[test]
     fn the_spinner_steps_through_its_turn() {
         use std::time::Duration;

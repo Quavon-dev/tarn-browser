@@ -171,6 +171,32 @@ pub fn glyph(label: &str) -> &'static str {
     GLYPHS.iter().filter(|(start, _)| label.starts_with(start)).max_by_key(|(start, _)| start.len()).map_or("command", |(_, g)| g)
 }
 
+/// The kinds of command-bar rows, each under its own header.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Section {
+    Commands,
+    Tabs,
+    Suggestions,
+    History,
+}
+
+impl Section {
+    pub fn title(self) -> &'static str {
+        match self {
+            Section::Commands => "COMMANDS",
+            Section::Tabs => "TABS",
+            Section::Suggestions => "SUGGESTIONS",
+            Section::History => "HISTORY",
+        }
+    }
+}
+
+/// The header above each row, in the rows' own order: a row whose kind differs from the row
+/// before it starts a section.
+pub fn section_headers(rows: &[Section]) -> Vec<Option<Section>> {
+    rows.iter().enumerate().map(|(ix, s)| (ix == 0 || rows[ix - 1] != *s).then_some(*s)).collect()
+}
+
 /// The longest host the address shows in full.
 pub const MAX_HOST: usize = 40;
 
@@ -283,6 +309,17 @@ pub fn rank_commands<'a>(query: &str, commands: impl IntoIterator<Item = (&'a st
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_header_starts_each_run_of_one_kind() {
+        use super::{Section::*, section_headers};
+        assert_eq!(
+            section_headers(&[Suggestions, Commands, Commands, Tabs, History, History]),
+            [Some(Suggestions), Some(Commands), None, Some(Tabs), Some(History), None]
+        );
+        assert_eq!(section_headers(&[Tabs, History, Tabs]), [Some(Tabs), Some(History), Some(Tabs)]);
+        assert!(section_headers(&[]).is_empty());
+    }
+
     use super::*;
 
     fn kind(s: &str) -> Option<Input> {

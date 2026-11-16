@@ -11,6 +11,8 @@ use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 use engine::PromptKind;
 
+use browser_core::command::Section;
+
 use crate::browser::{Browser, CommandMode, Suggestion, Target};
 use crate::prefs::Pref;
 use crate::profiles::profile_dot;
@@ -77,7 +79,7 @@ impl Browser {
     }
 
     fn settle_motion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.sync_suggestions(window, cx);
+        self.sync_palette(window, cx);
         self.sync_toast(window, cx);
         let fade_done = self.page_fade.as_ref().is_some_and(|(_, at)| at.elapsed() >= FADE);
         if fade_done || self.overlay_open() || self.model.active.is_none() || self.active_json().is_some() {
@@ -88,13 +90,7 @@ impl Browser {
         }
         let running = |at: Option<Instant>, d| at.is_some_and(|at: Instant| at.elapsed() < d);
         let sidebar = running(self.sidebar_toggled, FADE) && !self.pref(Pref::ReduceMotion);
-        if self.settle_slide()
-            || sidebar
-            || self.page_fade.is_some()
-            || running(self.overlay_exit, EXIT)
-            || !self.floating.leaving.is_empty()
-            || self.address_moving()
-        {
+        if self.settle_slide() || sidebar || self.page_fade.is_some() || running(self.overlay_exit, EXIT) || !self.floating.leaving.is_empty() {
             window.request_animation_frame();
         }
     }
@@ -285,7 +281,9 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         let ghost = banner(text.clone()).text_color(*color).min_h(px(0.)).h(px(BANNER_HEIGHT * (1. - t))).mb(px(8. * (1. - t))).opacity(1. - t);
         cards.insert((*ix).min(cards.len()), ghost.into_any_element());
     }
-    let panel = div().flex_1().min_h_0().flex().flex_col().p(px(8.)).pt_0().pl(px(8. - 2. * b.sidebar_shown())).text_color(Theme::text()).children(cards);
+    let left = 8. - 2. * b.sidebar_shown();
+    let area = div().absolute().top_0().bottom(px(8.)).left(px(left)).right(px(8.)).child(crate::address::measure(b.address.content.clone()));
+    let panel = div().flex_1().min_h_0().relative().flex().flex_col().p(px(8.)).pt_0().pl(px(left)).text_color(Theme::text()).child(area).children(cards);
 
     let exit = b.overlay_exit.map(|at| progress(at, EXIT));
     let leaving = |body: AnyElement| match exit {
@@ -426,30 +424,57 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
     Some((title, card))
 }
 
-fn suggestion_icon(b: &Browser, target: &Target) -> AnyElement {
-    let url = match target {
+/// The row's glyph on a tile: the site's icon for pages and tabs, the command's glyph for
+/// commands, and a search or app glyph for what the field would do.
+fn suggestion_tile(b: &Browser, s: &Suggestion, selected: bool) -> gpui::Div {
+    use ui::command::Input;
+    let url = match &s.target {
         Target::Tab(key) | Target::Find(key, _) => b.model.tab(*key).map(|t| t.url.clone()),
-        Target::Url(u) | Target::Input(ui::command::Input::Navigate(u)) => Some(u.to_string()),
+        Target::Url(u) | Target::Input(Input::Navigate(u)) => Some(u.to_string()),
         Target::Input(_) | Target::Action(_) => None,
     };
-    let glyph = if matches!(target, Target::Input(ui::command::Input::Command(_)) | Target::Action(_)) { Icon::Command } else { Icon::Search };
+    let glyph = match &s.target {
+        Target::Input(Input::Command(_)) | Target::Action(_) => Icon::named(browser_core::command::glyph(&s.label)).unwrap_or(Icon::Command),
+        Target::Input(Input::External(_)) => Icon::AppWindow,
+        _ => Icon::Search,
+    };
+    let fill = if selected { Theme::accent() } else { Theme::control() };
+    let tile = div().size(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(Theme::radius_small() + 2.)).bg(fill);
     match url {
-        Some(url) => site_icon(b, &url, 18.),
-        None => div().w(px(18.)).flex().justify_center().child(icon(glyph, 15., Theme::muted())).into_any_element(),
+        Some(url) => tile.child(site_icon(b, &url, 16.)),
+        None => tile.child(icon(glyph, 15., if selected { Theme::on_fill(fill) } else { Theme::muted() })),
     }
 }
 
-pub const SUGGESTION_ROW: f32 = ui::theme::ROW_HEIGHT;
+pub const SUGGESTION_ROW: f32 = 40.;
+pub const SECTION_HEADER: f32 = 26.;
 /// Rows a suggestion list shows before it scrolls.
 pub const SHOWN_SUGGESTIONS: usize = 10;
 
-pub fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div> {
+fn section(target: &Target) -> Section {
+    match target {
+        Target::Input(ui::command::Input::Command(_)) | Target::Action(_) => Section::Commands,
+        Target::Tab(_) | Target::Find(..) => Section::Tabs,
+        Target::Url(_) => Section::History,
+        Target::Input(_) => Section::Suggestions,
+    }
+}
+
+/// The header above each row, where a new kind of row starts.
+pub fn sections(rows: &[Suggestion]) -> Vec<Option<Section>> {
+    browser_core::command::section_headers(&rows.iter().map(|s| section(&s.target)).collect::<Vec<_>>())
+}
+
+fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div> {
     let selected = ix == b.selected;
     let rejected = matches!(s.target, Target::Input(ui::command::Input::Rejected));
+    let command = section(&s.target) == Section::Commands;
     list_row(("suggestion", ix), selected)
+        .h(px(SUGGESTION_ROW))
         .mx_1p5()
+        .px_1p5()
         .gap_3()
-        .child(suggestion_icon(b, &s.target))
+        .child(suggestion_tile(b, s, selected))
         .child(
             div()
                 .flex_1()
@@ -459,16 +484,37 @@ pub fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::
                 .text_color(if rejected { Theme::danger() } else { Theme::text() })
                 .child(s.label.clone()),
         )
-        .child(
+        .map(|d| match command {
+            true => d.child(div().flex().flex_none().gap_1().children(ui::controls::key_caps(&s.detail).into_iter().map(ui::controls::key_cap))),
+            false => d.child(
+                div()
+                    .max_w(px(260.))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(TEXT_SMALL))
+                    .text_color(Theme::muted())
+                    .child(s.detail.clone()),
+            ),
+        })
+}
+
+/// Every suggestion as a row, with its section's header above the first row of each section;
+/// one element per suggestion, so scrolling to a suggestion's index finds it.
+pub fn suggestion_rows(b: &Browser) -> Vec<Stateful<gpui::Div>> {
+    let headers = sections(&b.suggestions);
+    b.suggestions
+        .iter()
+        .enumerate()
+        .map(|(ix, s)| {
             div()
-                .max_w(px(260.))
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .text_size(px(TEXT_SMALL))
-                .text_color(Theme::muted())
-                .child(s.detail.clone()),
-        )
+                .id(("suggestion-item", ix))
+                .flex()
+                .flex_col()
+                .children(headers[ix].map(|h| crate::address::section_header(h.title())))
+                .child(suggestion_row(b, ix, s))
+        })
+        .collect()
 }
 
 fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
@@ -499,10 +545,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .border_t_1()
         .border_color(Theme::hairline())
         .children(
-            b.suggestions
-                .iter()
-                .enumerate()
-                .map(|(ix, s)| suggestion_row(b, ix, s).on_click(cx.listener(move |b, _, window, cx| b.submit_command(ix, window, cx)))),
+            suggestion_rows(b).into_iter().enumerate().map(|(ix, row)| row.on_click(cx.listener(move |b, _, window, cx| b.submit_command(ix, window, cx)))),
         );
     let card = surface(Theme::radius_card())
         .id("start-card")
