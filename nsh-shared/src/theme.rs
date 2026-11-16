@@ -199,7 +199,8 @@ impl Theme {
     /// Text and glyphs on `fill`, such as the accent a theme sets: white unless that drops under 3:1 there.
     pub fn on_fill(fill: Rgba) -> Rgba {
         let b = |v: f32| (v * 255.).round() as u32;
-        rgba(browser_core::theme::on_fill(b(fill.r) << 24 | b(fill.g) << 16 | b(fill.b) << 8 | 0xff))
+        let packed = |c: Rgba| b(c.r) << 24 | b(c.g) << 16 | b(c.b) << 8 | b(c.a);
+        rgba(browser_core::theme::on_fill(packed(fill), packed(Self::surface())))
     }
     pub fn set_accent(color: u32) {
         if update(|t| t.accent = color << 8 | 0xff) {

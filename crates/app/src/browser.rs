@@ -2092,7 +2092,8 @@ impl Browser {
     fn rebuild_view_loading(&mut self, key: TabKey, url: &Url, storage: Option<engine::handover::Storage>, link: Option<Option<Url>>, cx: &mut Context<Self>) {
         if self.model.tab(key).is_some() && self.views.remove(&key).is_some() {
             self.drop_prompts(key, cx);
-            let visible = self.model.active == Some(key) && !self.overlay_open();
+            let active = self.model.active == Some(key);
+            let visible = (active || self.in_split(key)) && !self.overlay_open();
             if let Some(view) = self.create_view(key, url.as_str(), cx) {
                 if let Some(storage) = storage {
                     view.hand_over(storage);
@@ -2102,7 +2103,7 @@ impl Browser {
                     None => view.load(url),
                 }
                 view.set_visible(visible);
-                if visible {
+                if visible && active {
                     view.focus();
                 }
             }

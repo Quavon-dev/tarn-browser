@@ -174,10 +174,11 @@ impl Theme {
         rgb(0xf4f9fd)
     }
     /// Text and glyphs on `fill`, a user or theme colour such as the accent: white unless
-    /// that drops under 3:1 there.
+    /// that drops under 3:1 there, a translucent fill taken over the surface.
     pub fn on_fill(fill: Rgba) -> Rgba {
         let b = |v: f32| (v * 255.).round() as u32;
-        rgba(browser_core::theme::on_fill(b(fill.r) << 24 | b(fill.g) << 16 | b(fill.b) << 8 | 0xff))
+        let packed = |c: Rgba| b(c.r) << 24 | b(c.g) << 16 | b(c.b) << 8 | b(c.a);
+        rgba(browser_core::theme::on_fill(packed(fill), packed(Self::surface())))
     }
     /// Replaces the theme's accent with `color` (`0xRRGGBB`), the user's pick in Settings.
     pub fn set_accent(color: u32) {
