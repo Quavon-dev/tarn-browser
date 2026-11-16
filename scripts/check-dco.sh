@@ -13,7 +13,9 @@ while IFS= read -r commit; do
   fi
   email="$(git show -s --format=%ae "$commit")"
   if ! git show -s --format='%(trailers:key=Signed-off-by,valueonly)' "$commit" | grep -qiF "<$email>"; then
-    echo "::error::$(git show -s --format='%h %s' "$commit"): no 'Signed-off-by: … <$email>'; sign it off with git commit -s (git rebase --signoff $base for a whole branch)"
+    fix="git commit --amend -s for the last commit, git rebase --signoff $base for a branch without merges"
+    [[ "$(git rev-list --no-walk --count --merges "$commit")" == 0 ]] || fix="git commit --amend -s on the merge, or redo it with git merge --signoff"
+    echo "::error::$(git show -s --format='%h %s' "$commit"): no 'Signed-off-by: … <$email>'; sign it off ($fix)"
     status=1
   fi
 done < <(git rev-list "$base..$head")

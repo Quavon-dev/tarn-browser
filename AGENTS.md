@@ -96,9 +96,9 @@ of `github.com/Quavon-dev/tarn-browser`, fetched from there (a branch's or a for
 like any other branch content; if the fetch fails, the check fails):
 
 ```sh
-git fetch -q https://github.com/Quavon-dev/tarn-browser.git main &&
-  git cat-file -e FETCH_HEAD:scripts/ai-agreement.sh &&
-  git show FETCH_HEAD:scripts/ai-agreement.sh | bash -s check
+git fetch -q --no-write-fetch-head https://github.com/Quavon-dev/tarn-browser.git +main:refs/tarn/main &&
+  git cat-file -e refs/tarn/main:scripts/ai-agreement.sh &&
+  git show refs/tarn/main:scripts/ai-agreement.sh | bash -s check
 ```
 
 If it fails, the person has not accepted the current agreement for the Git identity they commit
