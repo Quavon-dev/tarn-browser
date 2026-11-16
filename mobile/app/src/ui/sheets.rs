@@ -1,18 +1,25 @@
 use std::time::Duration;
 
-use browser_core::shield_card::{Card, H, Label, W, back, face, front, thousands, week_rows};
+use browser_core::shield_card::{Card, H, Label, SHORT, W, back, day_totals, face, front, front_svg, thousands};
 use browser_core::tabs::TabKey;
 use engine::reader::Block;
 use nsh_base::button;
 use nsh_core::prelude::*;
 use store::Schedule;
-use tarn_nsh_shared::card::{Words, picture, week_bars};
+use tarn_nsh_shared::card::{Words, day_chart, picture, share_bar};
+use tarn_nsh_shared::controls::group;
 
 use super::{
     Screen, Ui, accent_pill, caption, detail_row, framed, icon_button, icons, label, pill, section, segmented, small, surface, switch_row, text_field,
 };
 use crate::scripts::{FindRow, Transfer, TransferState};
-use crate::theme::{TEXT_HEADING, TEXT_TITLE, TOUCH_TARGET, Theme};
+use tarn_nsh_shared::controls::glyph_tile;
+use tarn_nsh_shared::icons as glyphs;
+
+use crate::theme::{Secure, TEXT_HEADING, TEXT_TITLE, TOUCH_TARGET, Theme, themed};
+
+const FILE_TILE: f32 = 28.;
+const CARD_FILE: &str = "Tarn Shield card.svg";
 
 const QR_SIZE: f32 = 240.;
 pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
@@ -487,50 +494,127 @@ pub fn transfers(ui: Ui) -> impl IntoElement {
                     .into_element(),
                 TransferState::Saving => icon_button(icons::CLOSE, "Cancel Download", command("downloadCancel", false)).into_element(),
             };
+            let flagged = matches!(t.state, TransferState::Flagged(_));
+            let share = t.total.filter(|total| *total > 0 && !flagged).map(|total| (t.done as f32 / total as f32).clamp(0., 1.));
             view()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .min_h(px(TOUCH_TARGET))
-                .pl_3()
                 .border_b_1()
                 .border_color(Theme::separator)
-                .child(view().flex_1().child(label(t.name.clone()).number_of_lines(1)).child(caption(progress).number_of_lines(2)))
-                .child(buttons)
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .min_h(px(TOUCH_TARGET))
+                        .pl_3()
+                        .py_1()
+                        .child(file_tile(&t.name, flagged))
+                        .child(
+                            view()
+                                .flex_1()
+                                .child(label(t.name.clone()).number_of_lines(1))
+                                .child(caption(progress).number_of_lines(2).style_when(move || flagged, |s| s.text_color(Secure::warning()))),
+                        )
+                        .child(buttons),
+                )
+                .child(share.map(|share| {
+                    view()
+                        .h(px(3.))
+                        .mx_3()
+                        .mb_2()
+                        .rounded_full()
+                        .bg(Theme::separator)
+                        .overflow_hidden()
+                        .child(view().h_full().w(relative(share)).bg(Theme::accent))
+                }))
         },
     )))
+}
+
+/// A downloaded file's type as a glyph tile; a file Shield holds back shows the warning instead.
+pub fn file_tile(name: &str, flagged: bool) -> View {
+    let source = if flagged { glyphs::TRIANGLE_ALERT } else { glyphs::named(browser_core::glyphs::file_glyph(name)).unwrap_or(glyphs::FILE_PLAIN) };
+    glyph_tile(
+        source,
+        FILE_TILE,
+        move || if flagged { Secure::control() } else { Theme::control() },
+        move || if flagged { Secure::warning() } else { Theme::muted() },
+    )
 }
 
 fn shield_words(labels: &[Label]) -> Vec<Words<'_>> {
     labels.iter().map(|l| Words { x: l.x, y: l.y, anchor: l.anchor, size: l.size, weight: l.weight, fill: l.fill, opacity: l.opacity, text: &l.text }).collect()
 }
 
-fn week(card: &Card) -> View {
-    let rows: Vec<AnyElement> = week_rows(&card.week)
-        .into_iter()
-        .map(|(name, days)| {
+fn numbers(card: &Card) -> View {
+    let cells: Vec<AnyElement> = card
+        .counters
+        .iter()
+        .zip(SHORT)
+        .map(|((_, n), (first, second))| {
             view()
-                .flex_row()
-                .items_end()
-                .gap_3()
-                .child(small(name).flex_1().number_of_lines(2))
-                .child(week_bars(&days))
-                .child(label(thousands(days.iter().sum::<i64>() as u64)).w(px(44.)).text_right().font_weight(FontWeight::SEMIBOLD))
+                .flex_1()
+                .items_center()
+                .child(text(thousands((*n).max(0) as u64)).text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).text_color(Theme::text))
+                .child(small(format!("{first} {second}")).text_center().number_of_lines(2))
                 .into_element()
         })
         .collect();
-    let sites: Vec<AnyElement> = card
+    group().flex_row().py_3().px_1().children(cells)
+}
+
+fn last_week(card: &Card) -> View {
+    let days = day_totals(&card.week);
+    let total: i64 = days.iter().map(|(_, n)| n).sum();
+    group()
+        .p_3()
+        .gap_2()
+        .accessible(true)
+        .label(format!("Last 7 days: {} protected", thousands(total as u64)))
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .child(label("Last 7 days").font_weight(FontWeight::SEMIBOLD).flex_1())
+                .child(caption(format!("{} protected", thousands(total as u64)))),
+        )
+        .child(day_chart(&days))
+}
+
+fn top_sites(card: &Card) -> Option<View> {
+    let most = card.sites.iter().map(|(_, n)| *n).max()?;
+    let rows: Vec<AnyElement> = card
         .sites
         .iter()
         .map(|(host, n)| {
             view()
                 .flex_row()
+                .items_center()
+                .gap_3()
+                .min_h(px(32.))
                 .child(label(browser_core::command::host_tail(&engine::view_policy::title(host), 40)).flex_1().number_of_lines(1))
-                .child(label(thousands((*n).max(0) as u64)))
+                .child(view().w(relative(0.3)).child(share_bar(*n, most)))
+                .child(label(thousands((*n).max(0) as u64)).w(px(48.)).text_right())
                 .into_element()
         })
         .collect();
-    view().gap_2().child(section("Last 7 days")).children(rows).children((!sites.is_empty()).then(|| section("Sites protected most"))).children(sites)
+    Some(group().p_3().gap_1().child(label("Most protected sites").font_weight(FontWeight::SEMIBOLD)).children(rows))
+}
+
+/// Shares the card's front through the system share sheet, or saves it with the downloads
+/// where the platform cannot share a file.
+fn share_card(ui: Ui, card: &Card, dark: bool) {
+    let drawing = front_svg(card, true, dark);
+    spawn(async move {
+        let shared = std::env::temp_dir().join(CARD_FILE);
+        if std::fs::write(&shared, &drawing).is_ok() && crate::platform::share_file(shared).await {
+            return;
+        }
+        let saved = super::downloads_dir().map(|dir| dir.join(CARD_FILE)).filter(|path| std::fs::write(path, &drawing).is_ok());
+        ui.act(|s| {
+            s.notice = Some(if saved.is_some() { format!("Saved {CARD_FILE} to Downloads.") } else { "Tarn could not save the card.".to_owned() });
+            Vec::new()
+        });
+    });
 }
 
 pub fn shield_card(ui: Ui) -> impl IntoElement {
@@ -543,47 +627,66 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
             browser_core::shield_card::read(store, id, private, name, browser_core::now()).map(|c| (c, private))
         })
     });
-    dynamic(move || {
-        let (card, private) = card.get()?;
-        let turned = flipped.get();
-        let scale = ((window().width.0.min(crate::theme::SHEET_WIDTH) - 56.) / W as f32).min(1.);
-        let (sky, shapes, labels) = if turned { back(&card, !Theme::is_light()) } else { front(&card, true, !Theme::is_light()) };
-        let counts = card.counters.iter().map(|(name, n)| format!("{name}: {}", thousands((*n).max(0) as u64))).collect::<Vec<_>>().join(", ");
-        let name = if turned {
-            format!("Shield card, stamps side: {}. Tap to turn.", card.stamps.join(", "))
-        } else {
-            format!("Shield card of {}: {counts}. Tap to turn.", card.name)
-        };
-        let kept =
-            if private { "Counts stay in memory and are gone once the private space closes." } else { "Counted on this device only and never sent anywhere." };
-        let flip = move || flipped.update(|b| *b = !*b);
-        Some(
-            view()
-                .gap_3()
-                .child(
-                    view().items_center().child(
-                        button()
-                            .accessibility_label(SharedString::from(name))
-                            .on_press(flip)
-                            .rounded(px(Theme::radius_card() * scale))
-                            .overflow_hidden()
-                            .shadow(Theme::elevation(6., 18.))
-                            .active(|s| s.opacity(0.85))
-                            .child(picture(&face(sky, &shapes), W as f32, H as f32, &shield_words(&labels), scale)),
-                    ),
-                )
-                .child(view().flex_row().justify_center().gap_2().child(pill("Flip", flip)).child(pill("New Design", move || {
-                    ui.act(|s| {
-                        if let Some((private, id)) = s.model.profile() {
-                            s.core.store(private).new_shield_design(id).ok();
-                        }
-                        Vec::new()
-                    })
-                })))
-                .child(caption(kept).number_of_lines(0).px_1())
-                .child(week(&card))
-                .into_element(),
-        )
+    themed(move || {
+        dynamic(move || {
+            let (card, private) = card.get()?;
+            let turned = flipped.get();
+            let dark = !Theme::is_light();
+            let scale = ((window().width.0.min(crate::theme::SHEET_WIDTH) - 56.) / W as f32).min(1.);
+            let (sky, shapes, labels) = if turned { back(&card, dark) } else { front(&card, true, dark) };
+            let counts = card.counters.iter().map(|(name, n)| format!("{name}: {}", thousands((*n).max(0) as u64))).collect::<Vec<_>>().join(", ");
+            let name = if turned {
+                format!("Shield card, stamps side: {}. Tap to turn.", card.stamps.join(", "))
+            } else {
+                format!("Shield card of {}: {counts}. Tap to turn.", card.name)
+            };
+            let kept = if private {
+                "Counts stay in memory and are gone once the private space closes."
+            } else {
+                "Counted on this device only and never sent anywhere."
+            };
+            let flip = move || flipped.update(|b| *b = !*b);
+            let shared = card.clone();
+            Some(
+                view()
+                    .gap_3()
+                    .child(
+                        view().items_center().child(
+                            button()
+                                .accessibility_label(SharedString::from(name))
+                                .on_press(flip)
+                                .rounded(px(Theme::radius_card() * scale))
+                                .overflow_hidden()
+                                .shadow(Theme::elevation(6., 18.))
+                                .active(|s| s.opacity(0.85))
+                                .bind_motion(&tarn_nsh_shared::motion::fade_in())
+                                .child(picture(&face(sky, &shapes), W as f32, H as f32, &shield_words(&labels), scale)),
+                        ),
+                    )
+                    .child(numbers(&card))
+                    .child(
+                        view()
+                            .flex_row()
+                            .flex_wrap()
+                            .justify_center()
+                            .gap_2()
+                            .child(pill("Flip", flip))
+                            .child(pill("Change design", move || {
+                                ui.act(|s| {
+                                    if let Some((private, id)) = s.model.profile() {
+                                        s.core.store(private).new_shield_design(id).ok();
+                                    }
+                                    Vec::new()
+                                })
+                            }))
+                            .child(pill("Share card", move || share_card(ui, &shared, dark))),
+                    )
+                    .child(caption(kept).number_of_lines(0).px_1())
+                    .child(last_week(&card))
+                    .child(top_sites(&card))
+                    .into_element(),
+            )
+        })
     })
 }
 

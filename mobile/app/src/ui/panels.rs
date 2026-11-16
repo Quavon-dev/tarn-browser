@@ -15,11 +15,15 @@ use super::{
 use crate::shell::{FILTER_SWITCHES, SpaceItem};
 use crate::theme::{GAP, SHEET_WIDTH, Secure, TAB_MIN_WIDTH, TAB_PREVIEW_HEIGHT, TEXT_TITLE, TOUCH_TARGET, Theme};
 use tarn_nsh_shared::controls::empty_state;
+use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::panes::{self, Pane};
+
+const FIND_RADIUS: f32 = 12.;
+const FIND_WIDTH: f32 = 420.;
 
 fn title(screen: Screen) -> &'static str {
     match screen {
-        Screen::Browse | Screen::Find => "",
+        Screen::Browse | Screen::Find | Screen::Share => "",
         Screen::Tabs => "Tabs",
         Screen::Menu => "Menu",
         Screen::Shield => "Shield",
@@ -35,7 +39,7 @@ pub fn panel(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         let screen = ui.screen.get();
         let body = match screen {
-            Screen::Browse => return None,
+            Screen::Browse | Screen::Share => return None,
             Screen::Find => return Some(find(ui).into_element()),
             Screen::Tabs => tabs(ui).into_element(),
             Screen::Menu => menu(ui).into_element(),
@@ -88,6 +92,8 @@ fn sheet(ui: Ui, screen: Screen, body: AnyElement) -> impl IntoElement {
         .mt_1()
         .mb_2()
         .overflow_hidden()
+        .bind_motion(&tarn_nsh_shared::motion::pop_in())
+        .child(dynamic(move || (!ui.wide()).then(|| view().items_center().pt_2().child(view().w(px(36.)).h(px(5.)).rounded_full().bg(Theme::faint)))))
         .child(
             header.child(view().flex_1().child(heading(name))).child(
                 button()
@@ -366,7 +372,7 @@ fn menu(ui: Ui) -> impl IntoElement {
                 .child(dynamic(move || {
                     shareable.get().then(|| {
                         view()
-                            .child(row(icons::SHARE, "Share…", move || share(ui)))
+                            .child(row(icons::SHARE, "Share…", move || ui.show(Screen::Share)))
                             .child(row(icons::SMARTPHONE, "Show QR Code", move || ui.show(Screen::Qr)))
                             .child(row(icons::CHECK, "Copy Clean Link", move || {
                                 let mut copied = None;
@@ -468,6 +474,19 @@ fn settings(ui: Ui) -> impl IntoElement {
         .gap_2()
         .child(pane_heading(Pane::Profile))
         .child(sheets::shield_card(ui))
+        .child(section("Shield level"))
+        .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
+            ui.act(|s| {
+                if let Some(level) = level {
+                    s.set_default_level(level);
+                }
+                Vec::new()
+            })
+        }, false))
+        .child(dynamic(move || {
+            let level = ui.read_data(|s| s.default_level());
+            Some(caption(browser_core::shield_card::motto(level).1).px_1())
+        }))
         .child(pane_heading(Pane::General))
         .child(section("Downloads"))
         .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
@@ -507,15 +526,6 @@ fn settings(ui: Ui) -> impl IntoElement {
         }))))
         .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1())
         .child(pane_heading(Pane::Privacy))
-        .child(section("Shield"))
-        .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
-            ui.act(|s| {
-                if let Some(level) = level {
-                    s.set_default_level(level);
-                }
-                Vec::new()
-            })
-        }, false))
         .child(section("Filter lists"))
         .child(framed(group().child(FILTER_SWITCHES.iter().map(|(key, name, _)| {
             switch_row(*name, move || ui.read_data(|s| s.filter_switch(key)), move || {
@@ -658,6 +668,24 @@ fn downloads(ui: Ui) -> impl IntoElement {
         .child(caption("Downloads are saved in the Files app under Tarn › Downloads and are never opened automatically.").px_1())
         .child(sheets::transfers(ui))
         .child(dynamic(move || rows().is_empty().then(|| empty_state("No downloads yet"))))
+        .child(dynamic(move || {
+            (!rows().is_empty()).then(|| {
+                view().flex_row().items_center().px_1().child(section("Finished").flex_1()).child(
+                    button()
+                        .accessibility_label("Clear Downloads List")
+                        .min_h(px(TOUCH_TARGET))
+                        .px_2()
+                        .justify_center()
+                        .on_press(move || {
+                            ui.act(|s| {
+                                s.clear_downloads();
+                                Vec::new()
+                            })
+                        })
+                        .child(text("Clear").text_size(px(TEXT_TITLE)).text_color(Theme::accent)),
+                )
+            })
+        }))
         .child(framed(group().child(each(
             rows,
             |d: &store::Download| d.id,
@@ -670,10 +698,15 @@ fn downloads(ui: Ui) -> impl IntoElement {
                     .gap_3()
                     .min_h(px(TOUCH_TARGET))
                     .px_3()
+                    .py_1()
                     .border_b_1()
                     .border_color(Theme::separator)
-                    .child(icon(icons::DOWNLOADS, move || if finished { Theme::success() } else { Theme::danger() }))
-                    .child(view().flex_1().child(label(d.url.clone()).number_of_lines(1)).child(caption(if finished { "Saved" } else { "Failed" })))
+                    .child(sheets::file_tile(&d.url, false))
+                    .child(
+                        view().flex_1().child(label(d.url.clone()).number_of_lines(1)).child(
+                            caption(if finished { "Saved" } else { "Failed" }).text_color(move || if finished { Theme::muted() } else { Theme::danger() }),
+                        ),
+                    )
             },
         ))))
 }
@@ -758,13 +791,19 @@ fn find(ui: Ui) -> impl IntoElement {
     on_key_with("escape", always, move |_| ui.show(Screen::Browse));
     on_key_with("mod+g", always, move |_| search(false));
     on_key_with("shift+mod+g", always, move |_| search(true));
-    surface(Theme::radius_panel())
+    let shown = tarn_nsh_shared::motion::pop_in();
+    let close = move || tarn_nsh_shared::motion::pop_out(shown, move || ui.show(Screen::Browse));
+    surface(FIND_RADIUS)
+        .absolute()
+        .top(px(8.))
+        .right(px(8.))
+        .style_with(move |s| if ui.wide() { s.w(px(FIND_WIDTH)) } else { s.left(px(8.)) })
+        .z_index(2)
         .flex_row()
         .items_center()
-        .gap_1()
-        .mx_2()
-        .mb_1()
         .pl_3()
+        .shadow(Theme::elevation(4., 14.))
+        .bind_motion(&shown)
         .child(icon(icons::SEARCH, Theme::muted))
         .child(
             input()
@@ -803,7 +842,12 @@ fn find(ui: Ui) -> impl IntoElement {
             })
             .text_color(move || if count() == Some(0) { Theme::danger() } else { Theme::faint() }),
         )
-        .child(icon_button(icons::BACK, "Previous", move || search(true)))
-        .child(icon_button(icons::FORWARD, "Next", move || search(false)))
-        .child(icon_button(icons::CLOSE, "Done", move || ui.show(Screen::Browse)))
+        .child(view().w(px(1.)).h(px(20.)).mx_1().bg(Theme::separator))
+        .child(tarn_nsh_shared::controls::icon_button(find_glyph(glyphs::CHEVRON_UP), "Previous", move || search(true)))
+        .child(tarn_nsh_shared::controls::icon_button(find_glyph(glyphs::CHEVRON_DOWN), "Next", move || search(false)))
+        .child(icon_button(icons::CLOSE, "Done", close))
+}
+
+fn find_glyph(source: &'static str) -> View {
+    view().text_color(Theme::text).child(glyphs::icon(source, crate::theme::ICON))
 }

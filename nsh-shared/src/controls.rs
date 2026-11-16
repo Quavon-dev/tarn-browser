@@ -5,6 +5,7 @@ use nsh_base::{ButtonElement, button};
 use nsh_core::element::IntoProp;
 use nsh_core::prelude::*;
 
+use crate::motion::{POP, transition_ms};
 use crate::theme::{Paint, RADIUS_GROUP, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -209,14 +210,18 @@ pub fn switch_row(name: impl Into<String>, on: impl Fn() -> bool + Copy + 'stati
                     (false, true) => Theme::faint(),
                     (false, false) => Theme::control(),
                 })
-                .style_when(on, |s| s.justify_end())
+                .transition_colors()
+                .duration(move || transition_ms(POP))
                 .child(
                     view()
                         .w(px(m.thumb))
                         .h(px(m.thumb))
                         .rounded_full()
                         .bg(move || if on() { Theme::on_fill(Theme::accent()) } else { Theme::on_accent() })
-                        .shadow(Theme::elevation(1., 2.)),
+                        .shadow(Theme::elevation(1., 2.))
+                        .translate_x(move || px(if on() { width - height } else { 0. }))
+                        .transition()
+                        .duration(move || transition_ms(POP)),
                 ),
         )
 }
@@ -236,6 +241,19 @@ pub fn empty_state(content: impl IntoReactive<SharedString>) -> Text {
 
 pub fn group() -> View {
     view().flex_col().rounded(px(Theme::radius_group())).bg(Theme::panel_row).border_1().border_color(Theme::surface_edge)
+}
+
+/// A rounded square holding a glyph, as prompts, downloads and grouped rows lead with.
+pub fn glyph_tile(source: &str, size: f32, fill: impl Fn() -> Rgba + 'static, color: impl Fn() -> Rgba + 'static) -> View {
+    view()
+        .w(px(size))
+        .h(px(size))
+        .items_center()
+        .justify_center()
+        .rounded(px((size * 0.27).round()))
+        .bg(fill)
+        .text_color(color)
+        .child(crate::icons::icon(source, (size * 0.55).round()))
 }
 
 pub fn surface(radius: f32) -> View {

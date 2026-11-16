@@ -22,7 +22,14 @@ pub fn while_active(period: Duration, running: impl Fn() -> bool + 'static, tick
     });
 }
 
+pub const POP: Duration = Duration::from_millis(160);
 pub const FADE: Duration = Duration::from_millis(130);
+pub const EXIT: Duration = Duration::from_millis(110);
+pub const SLIDE: Duration = Duration::from_millis(280);
+/// How far a popping view rises in and sinks out, in points.
+pub const RISE: f32 = 5.;
+/// The dim behind a sheet that slides up.
+pub const SCRIM: f32 = 0.45;
 pub const SPIN_TURN: Duration = Duration::from_millis(900);
 pub const RELOAD_SPIN: Duration = Duration::from_millis(600);
 const SPIN_FRAME: Duration = Duration::from_millis(33);
@@ -38,6 +45,49 @@ pub fn spinner(size: f32, glyph: impl IntoElement) -> View {
     view().w(px(size)).h(px(size)).items_center().justify_center().rotate(move || Radians(angle.get())).child(glyph)
 }
 
+fn ms(duration: Duration) -> f32 {
+    duration.as_secs_f32() * 1000.
+}
+
+fn eased(duration: Duration) -> MotionSpec {
+    MotionSpec::new(KeyframeTiming::new(ms(duration)).easing(Easing::EaseOut))
+}
+
+/// Fades in while rising a few points; lands at once under Reduce Motion. Bind it with `bind_motion`.
+pub fn pop_in() -> Motion {
+    motion().entering(eased(POP).values(MotionChannel::Opacity, [0., 1.]).values(MotionChannel::TranslateY, [RISE, 0.]))
+}
+
+/// Fades `shown` out while it sinks a few points, then runs `then`, which removes it.
+pub fn pop_out(shown: Motion, then: impl FnOnce() + 'static) {
+    if reduce_motion() {
+        then();
+        return;
+    }
+    drop(shown.play(eased(EXIT).values(MotionChannel::Opacity, [1., 0.]).values(MotionChannel::TranslateY, [0., RISE])));
+    drop(set_timeout(EXIT, then));
+}
+
+/// Fades in, as a glyph does that replaces another.
+pub fn fade_in() -> Motion {
+    motion().entering(eased(FADE).values(MotionChannel::Opacity, [0., 1.]))
+}
+
+/// Slides up from `distance` points below.
+pub fn slide_up(distance: f32) -> Motion {
+    motion().entering(eased(SLIDE).values(MotionChannel::TranslateY, [distance, 0.]))
+}
+
+/// Fades in to `opacity` while a sheet slides.
+pub fn fade_to(opacity: f32) -> Motion {
+    motion().entering(eased(SLIDE).values(MotionChannel::Opacity, [0., opacity]))
+}
+
+/// How long a style change animates: `duration`, or nothing under Reduce Motion.
+pub fn transition_ms(duration: Duration) -> f32 {
+    if reduce_motion() { 0. } else { ms(duration) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -51,9 +101,11 @@ mod tests {
     }
 
     #[test]
-    fn the_fade_matches_the_gpui_motion() {
-        let line = format!("pub const FADE: Duration = Duration::from_millis({});", FADE.as_millis());
-        assert!(include_str!("../../crates/ui/src/motion.rs").contains(&line), "{line}");
+    fn the_durations_match_the_gpui_motion() {
+        for (name, value) in [("POP", POP), ("FADE", FADE), ("EXIT", EXIT), ("SLIDE", SLIDE)] {
+            let line = format!("pub const {name}: Duration = Duration::from_millis({});", value.as_millis());
+            assert!(include_str!("../../crates/ui/src/motion.rs").contains(&line), "{line}");
+        }
     }
 
     #[test]

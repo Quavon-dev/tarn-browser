@@ -3,6 +3,7 @@ mod bars;
 mod controls;
 mod panels;
 mod prompt;
+mod share;
 mod sheets;
 mod split;
 
@@ -44,6 +45,7 @@ pub enum Screen {
     Reader,
     FindTabs,
     Qr,
+    Share,
     ReadingList,
     Move(TabKey),
     SpaceEdit(usize),
@@ -157,14 +159,26 @@ impl Ui {
     }
 
     fn browsing(self) -> bool {
-        matches!(self.screen.get(), Screen::Browse | Screen::Find) && !self.editing.get() && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
+        matches!(self.screen.get(), Screen::Browse | Screen::Find | Screen::Share)
+            && !self.editing.get()
+            && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
     }
+}
+
+fn shell_dir() -> std::path::PathBuf {
+    Data::data_dir().or_else(|| browser_core::data_dir(data_dir().as_deref())).unwrap_or_else(|| std::env::temp_dir().join("tarn"))
+}
+
+/// Where the shell saves a file the user keeps, beside the downloads.
+fn downloads_dir() -> Option<std::path::PathBuf> {
+    let dir = shell_dir().join("Downloads");
+    std::fs::create_dir_all(&dir).ok().map(|()| dir)
 }
 
 fn open_shell() {
     SHELL.with(|s| {
         if s.borrow().is_none() {
-            let dir = Data::data_dir().or_else(|| browser_core::data_dir(data_dir().as_deref())).unwrap_or_else(|| std::env::temp_dir().join("tarn"));
+            let dir = shell_dir();
             std::fs::create_dir_all(&dir).ok();
             *s.borrow_mut() = Some(AppShell::open(&dir));
         }
@@ -273,6 +287,7 @@ fn notice(ui: Ui) -> impl IntoElement {
             let local = ui.read(|s| s.can_open_anyway());
             let base = if local { tarn_nsh_shared::controls::secure_surface(Theme::radius_panel()) } else { surface(Theme::radius_panel()) };
             base.flex_row()
+                .bind_motion(&tarn_nsh_shared::motion::pop_in())
                 .items_center()
                 .gap_2()
                 .mx_3()
@@ -465,5 +480,6 @@ pub fn App() -> impl IntoElement {
                 .child(prompt::prompt_panel(ui))
                 .child(panels::panel(ui)),
         )
-        .child(themed(move || bars::bottom_bar(ui)))
+        .child(bars::bottom_bar(ui))
+        .child(share::share_sheet(ui))
 }

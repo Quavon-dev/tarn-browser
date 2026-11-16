@@ -691,6 +691,12 @@ impl<D: Platform> Shell<D> {
         self.profile_id().and_then(|id| self.store().downloads(id).ok()).unwrap_or_default()
     }
 
+    pub fn clear_downloads(&mut self) {
+        if let Some(id) = self.profile_id() {
+            self.store().clear_downloads(id).ok();
+        }
+    }
+
     /// For an address field edited from `typed` to `value` (`suggest::edit`): the history rows
     /// `value` names, and the completion to prefill from the open tabs and the history.
     pub fn suggestions(&self, typed: &str, value: &str) -> (Vec<HistoryEntry>, Option<suggest::Completion>) {

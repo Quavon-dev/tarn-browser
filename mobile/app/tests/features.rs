@@ -269,6 +269,19 @@ fn shield_events_count_once_per_page_and_skip_local_popups() {
 }
 
 #[test]
+fn the_shield_chip_counts_what_shield_stopped_on_the_open_site() {
+    let (_dir, mut shell) = open();
+    assert_eq!(shell.site_shield_total(), 0, "no page, no count");
+    visit(&mut shell, "https://a.test/", "A");
+    let key = active(&shell);
+    shell.event(key, "shielded", &json!({ "kind": "https_upgrade", "url": "https://a.test/" }), 3);
+    shell.event(key, "shielded", &json!({ "kind": "local_network", "url": "https://a.test/" }), 3);
+    assert_eq!(shell.site_shield_total(), 2);
+    visit(&mut shell, "https://b.test/", "B");
+    assert_eq!(shell.site_shield_total(), 0, "another site has its own count");
+}
+
+#[test]
 fn a_burner_tab_has_its_own_store_keeps_no_records_and_is_released_when_burned() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");
@@ -332,6 +345,19 @@ fn downloads_outlive_their_tab_and_reach_history() {
     let unknown = TabKey { private: false, id: 9_999 };
     shell.event(unknown, "download", &json!({ "id": "2", "state": "failed", "name": "b.zip", "message": "gone" }), 6);
     assert_eq!(shell.downloads().len(), 2, "an event from a view the shell no longer knows is still kept");
+}
+
+#[test]
+fn clearing_the_downloads_list_keeps_running_downloads() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://a.test/", "A");
+    let key = active(&shell);
+    shell.event(key, "download", &json!({ "id": "1", "state": "finished", "name": "a.zip", "path": "/a.zip" }), 3);
+    shell.event(key, "download", &json!({ "id": "2", "state": "started", "name": "b.pdf", "pausable": true }), 3);
+    assert_eq!(shell.downloads().len(), 1);
+    shell.clear_downloads();
+    assert!(shell.downloads().is_empty());
+    assert_eq!(shell.transfers.len(), 1, "a download still saving stays");
 }
 
 #[test]
