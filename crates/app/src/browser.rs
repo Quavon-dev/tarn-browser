@@ -1002,8 +1002,7 @@ impl Browser {
         }
         let left = Instant::now();
         self.seen.extend(self.model.active.into_iter().chain([key]).map(|k| (k, left)));
-        let mut evicted: Vec<TabKey> = partners.iter().flat_map(|p| self.model.lifecycle.activate(*p)).collect();
-        evicted.extend(self.model.lifecycle.activate(key));
+        let evicted = self.model.lifecycle.activate_with(&partners, key);
         for evicted in evicted {
             if evicted == key || partners.contains(&evicted) {
                 // The split's panes stay awake above the live-tab limit while it lasts.

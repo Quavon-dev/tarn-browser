@@ -285,7 +285,8 @@ impl SettingsWindow {
                         crate::shared::each(cx, |_, _, cx| cx.notify());
                     }
                 });
-                let focus = cx.focus_handle();
+                // The pane list is a tab stop, so Tab and Shift+Tab come back to its Up and Down.
+                let focus = cx.focus_handle().tab_stop(true);
                 window.focus(&focus);
                 let repo_input = cx.new(|cx| ui::text_input::TextInput::new("owner/repository or a github.com address", cx));
                 SettingsWindow {

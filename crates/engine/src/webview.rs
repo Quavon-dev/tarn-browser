@@ -325,6 +325,8 @@ impl WebView {
         let found = Rc::new(found);
         let view = self.view.clone();
         let count = find_count_script(text);
+        // No script of Tarn's runs on a Lockdown page, so the native result stands as one match.
+        let lockdown = self._delegate.level() == ShieldLevel::Lockdown;
         // SAFETY: main-thread calls on a fresh configuration and a live web view; the block is
         // copied by WebKit and receives a valid result.
         unsafe {
@@ -334,6 +336,9 @@ impl WebView {
             let done = RcBlock::new(move |result: std::ptr::NonNull<WKFindResult>| {
                 if !result.as_ref().matchFound() {
                     return found(0);
+                }
+                if lockdown {
+                    return found(1);
                 }
                 let found = found.clone();
                 run_isolated(&view, &count, move |answer| found(find_count(true, &answer)));

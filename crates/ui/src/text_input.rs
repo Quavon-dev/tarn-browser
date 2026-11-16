@@ -175,6 +175,8 @@ impl TextInput {
     /// Replaces the content with the clipboard's text and submits it, as pasting and pressing
     /// Enter would.
     pub fn paste_and_go(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // An IME composition would otherwise be the range the paste replaces.
+        self.marked_range = None;
         self.selected_range = 0..self.content.len();
         self.paste(&Paste, window, cx);
         cx.emit(TextInputEvent::Submit);
