@@ -598,10 +598,9 @@ impl<D: Platform> Shell<D> {
         }
         // Private tab ids start again in the next session, so no private pane may outlive this one.
         self.splits.retain(|k| !k.private);
-        let memory = self.core.store(true);
         for (_, profile_id) in &private {
-            memory.delete_profile(*profile_id).ok();
-            self.icons.forget(&(true, *profile_id));
+            self.core.store(true).delete_profile(*profile_id).ok();
+            self.forget_icons((true, *profile_id));
             self.core.profiles.borrow_mut().remove(&(true, *profile_id));
             self.model.closed_tabs.clear_profile(true, *profile_id);
         }
@@ -684,7 +683,7 @@ impl<D: Platform> Shell<D> {
         store.clear_history(id).ok();
         store.clear_downloads(id).ok();
         self.model.closed_tabs.clear_profile(private, id);
-        self.icons.forget(&(private, id));
+        self.forget_icons((private, id));
         let before = self.store_id(private, id);
         if let Some(rt) = self.core.profiles.borrow_mut().remove(&(private, id)) {
             D::wipe_persistent(&rt.own_store);

@@ -220,6 +220,15 @@ impl<D: Platform> Shell<D> {
         }
     }
 
+    /// Forgets a profile's icons and the requests its tabs still owe, so a later close cannot
+    /// release a new request for the same site.
+    pub(crate) fn forget_icons(&mut self, profile: (bool, Id)) {
+        self.icons.forget(&profile);
+        for asks in self.icon_asks.values_mut() {
+            asks.retain(|(p, _)| *p != profile);
+        }
+    }
+
     fn icon_done(&mut self, key: TabKey, profile: &(bool, Id), host: &str) {
         if let Some(asks) = self.icon_asks.get_mut(&key) {
             asks.remove(&(*profile, host.to_owned()));

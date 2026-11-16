@@ -527,6 +527,22 @@ fn site_icons_are_fetched_kept_per_profile_and_retried_after_failures() {
 }
 
 #[test]
+fn a_tab_closed_after_a_clear_does_not_release_a_newer_icon_request() {
+    let (_dir, mut shell) = open();
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some());
+    let first = active(&shell);
+    shell.clear_data();
+    shell.new_tab(None);
+    let effects = visit(&mut shell, "https://a.test/", "A");
+    assert!(command(&effects, "readIconLinks").is_some(), "a clear starts over");
+    let second = active(&shell);
+    shell.close_tab(first);
+    shell.activate(second);
+    fetch_icon(&mut shell, "https://a.test/", &effects, PNG);
+    assert!(shell.site_icon("https://a.test/").is_some(), "the newer request still keeps its icon");
+}
+
+#[test]
 fn a_closed_tab_does_not_hold_its_sites_icon_request() {
     let (_dir, mut shell) = open();
     assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some());
