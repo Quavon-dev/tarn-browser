@@ -220,6 +220,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/nsh.tar.gz" -C "$RUNNER_TEMP"
           tar -xzf "$RUNNER_TEMP/nsh-android.tar.gz" -C "$RUNNER_TEMP"
           PATH="$RUNNER_TEMP/nsh/bin:$PATH" android/build.sh
+          android/gradle.sh --quiet testDebugUnitTest
       - name: iOS device build
         # Links the app as release.yml does, which clippy for the simulator does not.
         working-directory: mobile/app
