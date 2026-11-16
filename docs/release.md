@@ -62,11 +62,13 @@ notarised zip, disk image and appcast, waits for the Windows files, refuses to p
 macOS, Windows and Linux files, checks the macOS files on the draft as described below, labels every
 file for the release page (file names stay, since the updaters and package repositories rely on them),
 then publishes. Windows signing stays on the Windows machine; `--no-windows` publishes without the
-signed Windows installer and update feed, so a new Windows install from that release never verifies
-an update check and opens no page (Chromium is its only engine), and existing installs get no updates
-and close Chromium seven days after their last verified check.
+signed Windows installer and instead runs `scripts/windows-feed.sh`, which signs an update feed for
+the unsigned installer CI built (see "Windows release"). Without a feed, a new Windows install never
+verifies an update check and opens no page (Chromium is its only engine), and existing installs get
+no updates and close Chromium seven days after their last verified check.
 
-Requires a "Developer ID Application" certificate in the login keychain and Xcode 16 or later.
+Requires a "Developer ID Application" certificate in the login keychain and Xcode 16 or later;
+`--no-windows` also needs `TARN_ALLOWED_SIGNERS` (see `scripts/windows-feed.sh`) and an SSH-signed tag.
 
 ```sh
 git checkout v1.2.3
@@ -268,8 +270,26 @@ For each release, after CI drafted it:
    `scripts\sign-windows.ps1 -Check windows-update.json -Installer Tarn-v1.2.3-windows-x64-setup.exe`.
    It verifies both Ed25519 signatures, the installer's length and SHA-256, and the feed's exact
    format (`{"version":…,"critical":…,"installer":{"url":…,"sha256":…,"length":…,"signature":…}}`,
-   URL `https://github.com/Quavon-dev/tarn-browser/releases/download/v<version>/Tarn-v<version>-windows-x64-setup.exe`).
+   URL `https://github.com/Quavon-dev/tarn-browser/releases/download/v<version>/Tarn-v<version>-windows-x64-setup.exe`,
+   or `…-setup-unsigned.exe` for a feed of the unsigned installer).
 5. Upload: `gh release upload v1.2.3 Tarn-v1.2.3-windows-x64-setup.exe windows-update.json windows-update.json.sig`.
+
+Without a code-signing certificate, `scripts/windows-feed.sh v1.2.3` on the Mac that holds the update
+key gives the unsigned installer CI built (`Tarn-v1.2.3-windows-x64-setup-unsigned.exe`) a feed: it
+requires a tag on `main` signed by a maintainer SSH key in `TARN_ALLOWED_SIGNERS` (default
+`/usr/local/libexec/tarn-sign/allowed_signers`, the signing Mac's file; on another Mac point it at
+a copy), refuses a release
+that has the signed installer, downloads the unsigned one, checks it against the release's digest
+and against an attestation whose certificate names `release.yml` at that tag and commit, run from
+the tag on a GitHub-hosted runner (`scripts/windows-feed.test.sh` covers each refusal), signs it and
+the feed with the update key, and asks before uploading `windows-update.json` and its `.sig`.
+`publish-release.sh --no-windows` runs it while the draft has no feed and, before publishing, checks
+that the feed is for this version, names the unsigned installer on the draft and verifies with the
+update key; run it by hand for
+a release that is already published without a feed (delete a local tag that differs from origin's
+first). The
+client checks the Ed25519 signatures, length and SHA-256, not Authenticode, so it verifies and
+installs updates from such a feed.
 
 Windows builds read the feed from the latest published release
 (`https://github.com/Quavon-dev/tarn-browser/releases/latest/download/windows-update.json`), so
