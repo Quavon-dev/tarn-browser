@@ -1058,7 +1058,9 @@ impl Browser {
         self.create_view(key, &tab.url, cx).inspect(|view| {
             let restorable = self.level_for(&tab.url).policy().save_interaction_state;
             let saved = self.store(key.private).interaction_state(key.id).ok().flatten();
-            match saved.as_deref().filter(|_| restorable && !view.is_chromium()) {
+            // Windows saves Tarn's own format; anything else loads the tab's page instead.
+            let ours = |state: &&[u8]| !cfg!(windows) || engine::view_policy::SavedHistory::from_bytes(state).is_some();
+            match saved.as_deref().filter(|state| restorable && !view.is_chromium() && ours(state)) {
                 Some(state) => view.restore_interaction_state(state),
                 None => {
                     if let Ok(url) = Url::parse(&tab.url)

@@ -70,8 +70,9 @@ function Test-RedistributorSubject([string]$Subject) {
 }
 $MaxInstaller = 512MB
 
-function Get-FeedJson([string]$Version, [bool]$Critical, [string]$Sha256, [long]$Length, [string]$Signature) {
-    $url = "https://github.com/$Repo/releases/download/v$Version/Tarn-v$Version-windows-x64-setup.exe"
+function Get-FeedJson([string]$Version, [bool]$Critical, [string]$Sha256, [long]$Length, [string]$Signature, [switch]$Unsigned) {
+    $suffix = if ($Unsigned) { '-unsigned' } else { '' }
+    $url = "https://github.com/$Repo/releases/download/v$Version/Tarn-v$Version-windows-x64-setup$suffix.exe"
     $flag = if ($Critical) { 'true' } else { 'false' }
     '{"version":"' + $Version + '","critical":' + $flag + ',"installer":{"url":"' + $url + '","sha256":"' + $Sha256 + '","length":' + $Length + ',"signature":"' + $Signature + '"}}'
 }
@@ -174,7 +175,7 @@ function Get-Sha256([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm
 function Test-Installer([string]$Path, $Feed) {
     $key = Get-PublicKey
     $file = Get-Item -LiteralPath $Path
-    if ($file.Name -ne "Tarn-v$($Feed.version)-windows-x64-setup.exe") { throw "$Path is not the installer of version $($Feed.version)" }
+    if ($file.Name -cne ($Feed.installer.url -split '/')[-1]) { throw "$Path is not the installer the feed names" }
     if ($file.Length -ne $Feed.installer.length) { throw "$Path is $($file.Length) bytes, the feed says $($Feed.installer.length)" }
     if ((Get-Sha256 $Path) -ne $Feed.installer.sha256) { throw "$Path does not have the feed's SHA-256" }
     if (-not (Test-FileSignature $key $Path (ConvertFrom-Signature $Feed.installer.signature))) { throw "The installer signature does not verify with the key in $UpdatesConf" }
@@ -193,7 +194,8 @@ function Invoke-Check([string]$FeedPath, [string]$InstallerPath) {
     if ($feed.installer.sha256 -isnot [string] -or $feed.installer.sha256 -notmatch '^[0-9a-f]{64}$') { throw 'Feed sha256 is not 64 lowercase hex digits' }
     if ($feed.installer.length -le 0 -or $feed.installer.length -gt $MaxInstaller) { throw 'Feed length is not between 1 byte and 512 MiB' }
     [void](ConvertFrom-Signature $feed.installer.signature)
-    $canonical = Get-FeedJson $feed.version ($feed.critical -eq $true) $feed.installer.sha256 $feed.installer.length $feed.installer.signature
+    $unsigned = $feed.installer.url -is [string] -and $feed.installer.url.EndsWith('-setup-unsigned.exe')
+    $canonical = Get-FeedJson $feed.version ($feed.critical -eq $true) $feed.installer.sha256 $feed.installer.length $feed.installer.signature -Unsigned:$unsigned
     if ($text -cne $canonical) { throw "$FeedPath is not in the exact feed format:`n  $text`nexpected`n  $canonical" }
     if ($InstallerPath) { Test-Installer $InstallerPath $feed }
     $what = if ($InstallerPath) { ', the installer matches it' } else { '' }
@@ -202,7 +204,7 @@ function Invoke-Check([string]$FeedPath, [string]$InstallerPath) {
 
 function Write-Feed([string]$InstallerPath, [string]$Signature, [bool]$IsCritical, [string]$Dir) {
     $name = Split-Path -Leaf $InstallerPath
-    if ($name -notmatch '^Tarn-v(\d+(\.\d+)*)-windows-x64-setup\.exe$') { throw "$name is not named Tarn-v<version>-windows-x64-setup.exe" }
+    if ($name -cnotmatch '^Tarn-v(\d+(\.\d+)*)-windows-x64-setup\.exe$') { throw "$name is not named Tarn-v<version>-windows-x64-setup.exe" }
     $json = Get-FeedJson $Matches[1] $IsCritical (Get-Sha256 $InstallerPath) (Get-Item -LiteralPath $InstallerPath).Length $Signature
     Test-Installer $InstallerPath ($json | ConvertFrom-Json)
     [void](New-Item -ItemType Directory -Force $Dir)

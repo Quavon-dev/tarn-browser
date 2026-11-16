@@ -62,9 +62,13 @@ notarised zip, disk image and appcast, waits for the Windows files, refuses to p
 macOS, Windows and Linux files, checks the macOS files on the draft as described below, labels every
 file for the release page (file names stay, since the updaters and package repositories rely on them),
 then publishes. Windows signing stays on the Windows machine; `--no-windows` publishes without the
-signed Windows installer and update feed, so Windows installs from that release get no updates.
+signed Windows installer and instead runs `scripts/windows-feed.sh`, which signs an update feed for
+the unsigned installer CI built (see "Windows release"). Without a feed, a new Windows install never
+verifies an update check and opens no page (Chromium is its only engine), and existing installs get
+no updates and close Chromium seven days after their last verified check.
 
-Requires a "Developer ID Application" certificate in the login keychain and Xcode 16 or later.
+Requires a "Developer ID Application" certificate in the login keychain and Xcode 16 or later;
+`--no-windows` also needs `TARN_ALLOWED_SIGNERS` (see `scripts/windows-feed.sh`) and an SSH-signed tag.
 
 ```sh
 git checkout v1.2.3
@@ -161,13 +165,14 @@ kept in the setting
 `update_feed_verified`, so it survives a relaunch without network; a stored time after the
 launch time is dropped) and when a check found a critical update (setting
 `update_critical_found`, cleared by running another version), which then waits for a relaunch. Both feed the Chromium staleness gate
-(`browser_core::staleness`): no verified check for seven days, or a critical update
+(`browser_core::staleness`): no verified check yet on a new install, none for seven days, or a critical update
 found and not installed after two days, closes Chromium tabs. A feed that is not signed with
 `sign_update appcast.xml` therefore never counts as verified. The signature carries no date: a
 replayed appcast from before the running version no longer counts, but one that lists the running
 version still does and can hold back a newer (critical) release until the 28-day limit, so the
 feed URL must stay https. The appcast must list each release when it ships: a build the feed does
-not list yet gets no verified check and loses Chromium after seven days.
+not list yet gets no verified check: a new install of it never opens Chromium, and an update to it
+loses Chromium seven days after the last verified check.
 A feed Sparkle cannot fetch (the repository is private) never verifies, so such a build never
 opens Chromium. `TARN_LOCAL_CHROMIUM=1` at build time (`browser_core::staleness::LOCAL_BUILD`)
 treats a bundle like a debug build: each launch counts as a verified check, so only the 28-day
@@ -197,7 +202,8 @@ team CFV35FGSHF, another bundle ID and a version other than the tag's, runs
 feed signature, since Info.plist requires a signed feed), checks the feed with
 `sign_update --verify` and writes `appcast.xml` next to the archive. Publish the release only
 with both files: users' feed is the latest published release's `appcast.xml`, and a build no
-published feed lists loses Chromium after seven days. Any later edit of the feed needs signing
+published feed lists never opens Chromium on a new install and loses it seven days after the last
+verified check on an updated one. Any later edit of the feed needs signing
 again.
 
 What the pinned Sparkle does with the feed signature (headers of 2.10.1,
@@ -264,15 +270,34 @@ For each release, after CI drafted it:
    `scripts\sign-windows.ps1 -Check windows-update.json -Installer Tarn-v1.2.3-windows-x64-setup.exe`.
    It verifies both Ed25519 signatures, the installer's length and SHA-256, and the feed's exact
    format (`{"version":…,"critical":…,"installer":{"url":…,"sha256":…,"length":…,"signature":…}}`,
-   URL `https://github.com/Quavon-dev/tarn-browser/releases/download/v<version>/Tarn-v<version>-windows-x64-setup.exe`).
+   URL `https://github.com/Quavon-dev/tarn-browser/releases/download/v<version>/Tarn-v<version>-windows-x64-setup.exe`,
+   or `…-setup-unsigned.exe` for a feed of the unsigned installer).
 5. Upload: `gh release upload v1.2.3 Tarn-v1.2.3-windows-x64-setup.exe windows-update.json windows-update.json.sig`.
+
+Without a code-signing certificate, `scripts/windows-feed.sh v1.2.3` on the Mac that holds the update
+key gives the unsigned installer CI built (`Tarn-v1.2.3-windows-x64-setup-unsigned.exe`) a feed: it
+requires a tag on `main` signed by a maintainer SSH key in `TARN_ALLOWED_SIGNERS` (default
+`/usr/local/libexec/tarn-sign/allowed_signers`, the signing Mac's file; on another Mac point it at
+a copy), refuses a release
+that has the signed installer, downloads the unsigned one, checks it against the release's digest
+and against an attestation whose certificate names `release.yml` at that tag and commit, run from
+the tag on a GitHub-hosted runner (`scripts/windows-feed.test.sh` covers each refusal), signs it and
+the feed with the update key, and asks before uploading `windows-update.json` and its `.sig`.
+`publish-release.sh --no-windows` runs it while the draft has no feed. Before publishing, with or
+without `--no-windows`, `publish-release.sh` checks that the draft's feed is for this version, names
+the URL and SHA-256 of the installer on the draft and verifies with the update key; run it by hand for
+a release that is already published without a feed (delete a local tag that differs from origin's
+first). The
+client checks the Ed25519 signatures, length and SHA-256, not Authenticode, so it verifies and
+installs updates from such a feed.
 
 Windows builds read the feed from the latest published release
 (`https://github.com/Quavon-dev/tarn-browser/releases/latest/download/windows-update.json`), so
 publish the release only with all three files. An engine update (`chromium-update.yml`) or a
 macOS-only run builds no Windows files; its `publish` job carries the latest release's
 `windows-update.json` and `.sig` over unchanged (they are not in that release's `SHA256SUMS`, which the `assets` job wrote before; their Ed25519 signature covers them), which stay valid, so Windows keeps a verified feed; without them Windows checks
-fail and Chromium closes after seven days. Publish a normal release before any
+fail: new installs open no page, and existing ones close Chromium seven days after their last
+verified check. Publish a normal release before any
 engine update or macOS-only run that follows it, or the later release carries the older feed. Windows still needs its own release within 28 days of
 each Chromium update, since the staleness gate also closes Chromium by its age.
 `scripts/sign-windows.ps1 -Check` is a maintainer self-check; the authority is the client's own verification (`crates/platform/src/updater/windows.rs`). `scripts/sign-windows.test.ps1` (run by the

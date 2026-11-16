@@ -173,7 +173,7 @@ impl<D: WebsiteData> Core<D> {
             #[cfg(any(target_os = "macos", windows))]
             updates: Cell::new(updates),
             #[cfg(any(target_os = "macos", windows))]
-            chromium_staleness: Cell::new(staleness::Staleness::Unavailable(staleness::Reason::FeedUnverified)),
+            chromium_staleness: Cell::new(staleness::Staleness::Unavailable(staleness::Reason::FeedNeverVerified)),
             #[cfg(any(target_os = "macos", windows))]
             judged: Cell::new(None),
             burners: RefCell::default(),

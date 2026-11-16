@@ -30,6 +30,18 @@ Expect 'signature with a newline' $true ($(try { [void](ConvertFrom-Signature "$
 
 $json = Get-FeedJson '0.4.0' $false ('ab' * 32) 123 'SIG'
 Expect 'feed format' $true ($json -ceq '{"version":"0.4.0","critical":false,"installer":{"url":"https://github.com/Quavon-dev/tarn-browser/releases/download/v0.4.0/Tarn-v0.4.0-windows-x64-setup.exe","sha256":"abababababababababababababababababababababababababababababababab","length":123,"signature":"SIG"}}')
+Expect 'unsigned installer feed' $true ((Get-FeedJson '0.4.0' $false 'x' 1 'y' -Unsigned) -clike '*"url":"https://github.com/Quavon-dev/tarn-browser/releases/download/v0.4.0/Tarn-v0.4.0-windows-x64-setup-unsigned.exe",*')
+function Throws([scriptblock]$Block, [string]$Like) { try { & $Block; $false } catch { $_.Exception.Message -like $Like } }
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+[void](New-Item -ItemType Directory $tmp)
+foreach ($name in 'Tarn-v0.4.0-windows-x64-setup-unsigned.exe', 'Tarn-v0.4.0-windows-x64-setup-UNSIGNED.exe', 'Tarn-v0.4.0-windows-x64-setup-foo.exe') {
+    [System.IO.File]::WriteAllBytes((Join-Path $tmp $name), [byte[]](1, 2, 3))
+    Expect "feed refuses $name" $true (Throws { Write-Feed (Join-Path $tmp $name) 'SIG' $false $tmp } '*is not named*')
+}
+$unsignedFeed = (Get-FeedJson '0.4.0' $false ('ab' * 32) 3 'SIG' -Unsigned) | ConvertFrom-Json
+[System.IO.File]::WriteAllBytes((Join-Path $tmp 'Tarn-v0.4.0-windows-x64-setup.exe'), [byte[]](1, 2, 3))
+Expect 'installer named other than the feed' $true (Throws { Test-Installer (Join-Path $tmp 'Tarn-v0.4.0-windows-x64-setup.exe') $unsignedFeed } '*not the installer the feed names*')
+Remove-Item -LiteralPath $tmp -Recurse -Force
 Expect 'critical feed' $true ((Get-FeedJson '1.0' $true 'x' 1 'y') -clike '*"critical":true,*')
 
 Expect 'microsoft subject' $true (Test-RedistributorSubject 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US')

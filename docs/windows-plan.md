@@ -76,10 +76,11 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   never routed to another space, which would cost it the opener. A Lockdown view's pop-ups are
   offered instead: their page must not load before its service workers are bypassed. It is
   judged by the page that opened it (S10, downloads), takes the opener's Lockdown and filtering,
-  and gets the page scripts from its next page on. A page that sets no background of its own
-  shows on Chrome's dark window colour instead of white, in pop-ups and after a page's own
-  navigation; typed loads are white (CEF's background settings and DevTools' override do not
-  reach it).
+  and gets the page scripts from its next page on.
+- **Page background:** Chromium's back-forward cache is off. With it, a navigation moves the page
+  into a new view that Chrome paints in its theme's new-tab colour, so in dark mode every page
+  without a background of its own showed on dark grey after a link or pop-up; pages still see the
+  system's colour scheme. A page left is not kept in memory, so Back loads it again.
 - **Page full screen:** a page's element full screen (a video) makes the window full screen with
   the page alone in it (`Event::FullScreen`) while Chrome's own bubble names the origin and Esc;
   leaving, Esc, another tab, a crash, or anything the shell must show (a prompt, the address
@@ -181,8 +182,11 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   file again through a handle that bars writes and starts it with
   `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART` (plus `/TARNUPDATE` after Restart to Update, which makes
   the installer start Tarn again). Every release must carry `windows-update.json` and its `.sig`,
-  also engine-only releases (`docs/release.md`), or Windows checks fail and Chromium closes after
-  seven days. Not yet tried against a real release.
+  also engine-only releases (`docs/release.md`), or Windows checks fail: new installs open no
+  page, and existing ones close Chromium seven days after their last verified check. v0.1.0,
+  published without the feed, showed that: a new install opens no page. `scripts/windows-feed.sh`
+  signs a feed for the unsigned installer when there is no signed one. Updating through a feed is
+  not yet tried against a real release.
 - **Release:** CI builds and tests Windows on every push (`ci.yml` `windows` job). A `v*` tag adds
   the unsigned zip and an unsigned per-user Inno Setup installer (`packaging/windows/tarn.iss`,
   `scripts/installer-windows.sh`) to the draft release. The maintainer signs both with Authenticode
@@ -331,8 +335,11 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
   during the session. The private profile's "never touches disk" rule cannot be met strictly; mitigation is a dedicated folder deleted on
   close and at next launch. Needs a maintainer decision to accept this deviation.
 - **No `interactionState`:** CEF and the DevTools protocol can read a tab's back list but not set
-  one, so a tab that sleeps, is reopened or is restored at launch keeps only its page on Windows,
-  not its back and forward history.
+  one. Tarn saves the list's URLs instead (`view_policy::SavedHistory`, at most 50 on each side,
+  web pages only) and, after a tab sleeps, is reopened or is restored at launch, steps through them
+  itself: Back and Forward past Chromium's own list load the saved page in place of the current
+  entry, as the user's own load. Scroll positions and form contents are not kept, and a page left
+  that way while Chromium has forward entries of its own comes after them.
 - **AppContainer:** may not be feasible with WebView2 and GPUI's DirectX device; then S12 is
   weaker on Windows than on macOS.
 - **Request filtering cost:** `WebResourceRequested` for every request is slower than compiled

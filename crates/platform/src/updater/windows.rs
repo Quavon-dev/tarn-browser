@@ -420,6 +420,14 @@ mod tests {
     }
 
     #[test]
+    fn a_signed_feed_for_the_unsigned_installer_is_offered() {
+        let unsigned = url("9.0.0").replace("-setup.exe", "-setup-unsigned.exe");
+        let offer = check(&feed_json("9.0.0", false, &unsigned, &sha256_hex(INSTALLER)), "0.4.0").unwrap().offer.unwrap();
+        assert_eq!(offer.url, unsigned);
+        assert_eq!(verify_installer(INSTALLER, &offer, &key().verifying_key()), Ok(()));
+    }
+
+    #[test]
     fn the_running_version_is_verified_but_not_offered_and_an_older_one_neither() {
         let same = check(&feed_json("0.4.0", false, &url("0.4.0"), &sha256_hex(INSTALLER)), "0.4.0").unwrap();
         assert_eq!(same, Checked { current: true, offer: None });
