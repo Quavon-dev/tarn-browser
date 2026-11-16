@@ -8,6 +8,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Nightly builds: Settings › General › Nightly builds updates Tarn every day to a signed build of
+  the latest changes (macOS, Windows). The `nightly` pre-release holds them and unsigned builds for
+  Linux, iOS and Android.
+- Releases are signed, notarised and published by CI; the Mac disk image, the Sparkle feed and the
+  Windows update feed come with every release.
 - The find bar counts the matches on the page ("3 matches") on macOS and Windows.
 - Right click on the address shows Copy Link, Copy Clean Link, Paste and Go and Site Settings;
   every text field offers Cut, Copy, Paste and Select All, the address field also Paste and Go
@@ -96,6 +101,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Background tabs whose web pages together use more than 1 GB of memory sleep, the heaviest
   first, after a minute unused, pinned tabs after 30 minutes (macOS; off when Sleep background
   tabs after is Never).
+
+### Changed
+
+- The app identifier is `de.quavon.tarn` (was `dev.tarn.browser`) on macOS, iOS and Android. On
+  macOS the first start moves the website data over; Tarn has to be made the default browser again,
+  camera and microphone permissions are asked again, and a saved Anthropic API token has to be
+  entered again.
 
 ### Fixed
 

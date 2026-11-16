@@ -25,6 +25,7 @@ pub enum Pref {
     BlockPopups,
     YouTubeAds,
     UpdateChecks,
+    NightlyUpdates,
     ExtensionsEverySite,
     HistoryText,
     SortDownloads,
@@ -32,7 +33,7 @@ pub enum Pref {
 }
 
 impl Pref {
-    pub const ALL: [Pref; 19] = [
+    pub const ALL: [Pref; 20] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
@@ -48,6 +49,7 @@ impl Pref {
         Pref::BlockPopups,
         Pref::YouTubeAds,
         Pref::UpdateChecks,
+        Pref::NightlyUpdates,
         Pref::ExtensionsEverySite,
         Pref::HistoryText,
         Pref::SortDownloads,
@@ -71,6 +73,7 @@ impl Pref {
             Pref::BlockPopups => "block_popups",
             Pref::YouTubeAds => "block_youtube_ads",
             Pref::UpdateChecks => "update_checks",
+            Pref::NightlyUpdates => "nightly_updates",
             Pref::ExtensionsEverySite => "extensions_every_site",
             Pref::HistoryText => "history_text",
             Pref::SortDownloads => "sort_downloads",
@@ -270,6 +273,9 @@ impl Browser {
                     self.core.disk.set_setting(browser_core::site::DEFAULT_WEB_ENGINE, store::WebEngine::WebKit.as_str()).ok();
                     self.core.default_web_engine.set(store::WebEngine::WebKit);
                 }
+            }
+            if let (Pref::NightlyUpdates, Some(updater)) = (pref, &self.core.updater) {
+                updater.set_nightly(on);
             }
             if pref == Pref::AutoHideSidebar {
                 self.set_sidebar_open(!on, cx);

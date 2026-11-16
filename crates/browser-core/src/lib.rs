@@ -153,7 +153,7 @@ impl<D: WebsiteData> Core<D> {
         let updates = staleness::Updates::at_launch(
             now(),
             disk.setting(staleness::FEED_VERIFIED).ok().flatten().and_then(|v| v.parse().ok()),
-            disk.setting(staleness::CRITICAL_FOUND).ok().flatten().and_then(|v| staleness::stored_critical(&v, env!("CARGO_PKG_VERSION"))),
+            disk.setting(staleness::CRITICAL_FOUND).ok().flatten().and_then(|v| staleness::stored_critical(&v, staleness::VERSION)),
         );
         let default_web_engine =
             disk.setting(site::DEFAULT_WEB_ENGINE).ok().flatten().and_then(|v| WebEngine::parse(&v)).filter(|_| chromium).unwrap_or(WebEngine::WebKit);

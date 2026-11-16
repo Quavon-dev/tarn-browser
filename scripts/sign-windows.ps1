@@ -210,7 +210,7 @@ function Write-Feed([string]$InstallerPath, [string]$Signature, [bool]$IsCritica
     [void](New-Item -ItemType Directory -Force $Dir)
     $feedPath = Join-Path $Dir 'windows-update.json'
     [System.IO.File]::WriteAllBytes($feedPath, [System.Text.Encoding]::UTF8.GetBytes($json))
-    Write-Host "Wrote $feedPath. Sign it on the Mac that holds the update key, then run -Check:"
+    Write-Host "Wrote $feedPath. Sign it with the update key (sign_update from Sparkle), then run -Check:"
     Write-Host "  printf '%s' `"`$(sign_update --account dev.tarn.browser windows-update.json | sed -n 's/.*edSignature=`"\([^`"]*\)`".*/\1/p')`" > windows-update.json.sig"
 }
 
@@ -233,6 +233,8 @@ function Invoke-Sign {
     if (Test-Path -LiteralPath $Package -PathType Container) {
         Copy-Item -LiteralPath $Package -Destination $work -Recurse
     } else {
+        & gh attestation verify $Package --repo $Repo --signer-workflow "$Repo/.github/workflows/release.yml" --source-ref "refs/tags/v$Version" --predicate-type https://github.com/Quavon-dev/tarn-browser/attestations/release/v1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "$Package is not attested as release.yml's build of v$Version" }
         $unpacked = Join-Path $out 'unpacked'
         if (Test-Path -LiteralPath $unpacked) { Remove-Item -LiteralPath $unpacked -Recurse -Force }
         Expand-Archive -LiteralPath $Package -DestinationPath $unpacked

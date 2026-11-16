@@ -30,7 +30,7 @@ trademark law.
 
 A fork needs a name of its own and its own logo and icon instead of the files above. These further
 steps are not licence conditions, but they keep users and update systems from mistaking a fork for
-Tarn: change the bundle and application identifiers (`dev.tarn.*`), the update feed and its key in
+Tarn: change the bundle and application identifiers (`de.quavon.tarn*`, `dev.tarn.*`), the update feed and its key in
 `packaging/updates.conf`, and the repository links in `Cargo.toml`, `linux/packaging/` and
 `scripts/appcast.sh`.
 

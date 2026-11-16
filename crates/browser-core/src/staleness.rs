@@ -52,6 +52,12 @@ impl Updates {
     }
 }
 
+/// This build's version: a nightly's `TARN_BUILD_VERSION`, else the crate's.
+pub const VERSION: &str = match option_env!("TARN_BUILD_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 pub fn critical_value(at: i64, version: &str) -> String {
     format!("{at} {version}")
 }
@@ -181,7 +187,7 @@ impl<D: WebsiteData> Core<D> {
         let updates = self.updates.get();
         if updates.critical_waiting_since.is_none() {
             self.updates.set(Updates { critical_waiting_since: Some(at), ..updates });
-            self.disk.set_setting(CRITICAL_FOUND, &critical_value(at, env!("CARGO_PKG_VERSION"))).ok();
+            self.disk.set_setting(CRITICAL_FOUND, &critical_value(at, VERSION)).ok();
         }
     }
 }
@@ -311,7 +317,7 @@ mod tests {
         core.critical_found(5);
         core.critical_found(9);
         assert_eq!(core.updates.get().critical_waiting_since, Some(5));
-        assert_eq!(core.disk.setting(CRITICAL_FOUND).unwrap(), Some(critical_value(5, env!("CARGO_PKG_VERSION"))));
+        assert_eq!(core.disk.setting(CRITICAL_FOUND).unwrap(), Some(critical_value(5, VERSION)));
         drop(core);
         let reopened = TestCore::open(dir.path(), true).updates.get();
         let release = !LOCAL_BUILD;

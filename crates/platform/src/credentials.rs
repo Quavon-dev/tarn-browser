@@ -62,7 +62,7 @@ mod tests {
     #[test]
     #[ignore = "touches the user's Credential Manager"]
     fn round_trip() {
-        let target = "dev.tarn.browser/test";
+        let target = "de.quavon.tarn/test";
         super::write(target, b"secret").unwrap();
         assert_eq!(super::read(target).unwrap().as_deref(), Some(&b"secret"[..]));
         super::delete(target).unwrap();

@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -24,7 +25,7 @@ const INSTALLER_NAME: &str = "Tarn-setup.exe";
 /// `/TARNUPDATE` makes the installer start Tarn again; a plain quit installs without it, as
 /// Sparkle installs a waiting update on quit.
 const INSTALLER_ARGS: [&str; 4] = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TARNUPDATE"];
-const RUNNING: &str = env!("CARGO_PKG_VERSION");
+const RUNNING: &str = super::VERSION;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Refused {
@@ -34,11 +35,16 @@ enum Refused {
     WrongHost,
     BadSha256,
     BadLength,
+    /// A Nightly channel feed read on the Release channel.
+    WrongChannel,
 }
 
 #[derive(Deserialize)]
 struct Feed {
     version: String,
+    /// `nightly` for the Nightly channel's feed, inside the signed bytes.
+    #[serde(default)]
+    channel: Option<String>,
     #[serde(default)]
     critical: bool,
     installer: Installer,
@@ -72,6 +78,7 @@ struct Checked {
 
 struct Config {
     feed: Url,
+    nightly_feed: Option<Url>,
     key: VerifyingKey,
     /// Installers may come only from under this URL: the feed's own repository's release downloads.
     downloads: Url,
@@ -83,10 +90,11 @@ fn config(conf: &str) -> Option<Config> {
     if !super::configured(feed, key) {
         return None;
     }
+    let nightly_feed = super::nightly_feed(feed?).and_then(|f| Url::parse(&f).ok()?.join(FEED_NAME).ok());
     let feed = Url::parse(feed?).ok()?.join(FEED_NAME).ok()?;
     let key = VerifyingKey::from_bytes(&BASE64.decode(key?).ok()?.try_into().ok()?).ok()?;
     let downloads = feed.join("../../download/").ok()?;
-    Some(Config { feed, key, downloads })
+    Some(Config { feed, nightly_feed, key, downloads })
 }
 
 fn signature(text: &[u8]) -> Result<Signature, Refused> {
@@ -95,12 +103,18 @@ fn signature(text: &[u8]) -> Result<Signature, Refused> {
 }
 
 /// Checks the feed's signature over its exact bytes before reading anything in it.
-fn read_feed(feed: &[u8], sig: &[u8], config: &Config, running: &str) -> Result<Checked, Refused> {
+fn read_feed(feed: &[u8], sig: &[u8], config: &Config, running: &str, nightly: bool) -> Result<Checked, Refused> {
     if feed.len() > MAX_FEED {
         return Err(Refused::Oversized);
     }
     config.key.verify_strict(feed, &signature(sig)?).map_err(|_| Refused::BadSignature)?;
     let feed: Feed = serde_json::from_slice(feed).map_err(|_| Refused::Malformed)?;
+    match feed.channel.as_deref() {
+        None => {}
+        Some(super::NIGHTLY) if nightly => {}
+        Some(super::NIGHTLY) => return Err(Refused::WrongChannel),
+        Some(_) => return Err(Refused::Malformed),
+    }
     if feed.version.is_empty() || feed.version.len() > 32 || !feed.version.bytes().all(|b| b.is_ascii_digit() || b == b'.') || feed.version.starts_with('.') {
         return Err(Refused::Malformed);
     }
@@ -179,6 +193,7 @@ struct Ready {
 
 enum Message {
     Automatic(bool),
+    Nightly,
     CheckNow,
 }
 
@@ -186,6 +201,7 @@ struct Checker {
     config: Config,
     dir: PathBuf,
     ready: Arc<Mutex<Option<Ready>>>,
+    nightly: Arc<AtomicBool>,
     report: Box<dyn Fn(Report) + Send>,
 }
 
@@ -203,6 +219,8 @@ impl Checker {
                     automatic = on;
                     continue;
                 }
+                Ok(Message::Nightly) if automatic => false,
+                Ok(Message::Nightly) => continue,
                 Ok(Message::CheckNow) => true,
                 Err(RecvTimeoutError::Timeout) if SystemTime::now() >= next => false,
                 Err(RecvTimeoutError::Timeout) => continue,
@@ -215,10 +233,12 @@ impl Checker {
     /// Whether the feed was reached and verified.
     fn check(&self, manual: bool) -> bool {
         let agent = agent(Duration::from_secs(120));
-        let feed_url = self.config.feed.as_str();
+        let nightly_feed = self.config.nightly_feed.as_ref().filter(|_| self.nightly.load(Ordering::Relaxed));
+        let feed_url = nightly_feed.unwrap_or(&self.config.feed).as_str();
+        let running = super::channel_version(RUNNING, nightly_feed.is_some());
         let checked = get(&agent, feed_url, MAX_FEED as u64 + 1)
             .and_then(|feed| Ok((feed, get(&agent, &format!("{feed_url}.sig"), MAX_SIGNATURE)?)))
-            .and_then(|(feed, sig)| read_feed(&feed, &sig, &self.config, RUNNING).map_err(|e| format!("feed refused: {e:?}")));
+            .and_then(|(feed, sig)| read_feed(&feed, &sig, &self.config, running, nightly_feed.is_some()).map_err(|e| format!("feed refused: {e:?}")));
         let checked = match checked {
             Ok(checked) => checked,
             Err(e) => {
@@ -251,10 +271,17 @@ impl Checker {
         match self.download(&offer) {
             Ok(path) => {
                 let ready = Ready { path, version: offer.version.clone(), sha256: offer.sha256, length: offer.length };
-                if let Ok(mut slot) = self.ready.lock() {
-                    *slot = Some(ready);
+                // Under the lock `set_nightly` takes: an installer of a channel left meanwhile is dropped.
+                let kept = self.ready.lock().is_ok_and(|mut slot| {
+                    let same = self.nightly.load(Ordering::Relaxed) == nightly_feed.is_some();
+                    if same {
+                        *slot = Some(ready);
+                    }
+                    same
+                });
+                if kept {
+                    (self.report)(Report::UpdateReady(offer.version));
                 }
-                (self.report)(Report::UpdateReady(offer.version));
             }
             Err(e) => {
                 eprintln!("tarn: update download failed: {e}");
@@ -291,6 +318,7 @@ impl Checker {
 /// automatic checks are on, downloads a verified later installer and runs it after Tarn quits.
 pub struct Updater {
     messages: mpsc::Sender<Message>,
+    nightly: Arc<AtomicBool>,
     ready: Arc<Mutex<Option<Ready>>>,
     install: std::cell::Cell<bool>,
     automatic: std::cell::Cell<bool>,
@@ -300,7 +328,7 @@ impl Updater {
     /// `None` in debug builds and when `packaging/updates.conf` names no valid feed and key.
     /// Downloads go into `dir`; folders of versions not newer than this one go first. `report`
     /// hears from a background thread.
-    pub fn start(automatic: bool, dir: &Path, report: impl Fn(Report) + Send + 'static) -> Option<Self> {
+    pub fn start(automatic: bool, nightly: bool, dir: &Path, report: impl Fn(Report) + Send + 'static) -> Option<Self> {
         if cfg!(debug_assertions) || !dir.is_absolute() {
             return None;
         }
@@ -313,14 +341,34 @@ impl Updater {
         }
         let (messages, receiver) = mpsc::channel();
         let ready = Arc::new(Mutex::new(None));
-        let checker = Checker { config, dir: dir.to_owned(), ready: ready.clone(), report: Box::new(report) };
+        let nightly = Arc::new(AtomicBool::new(nightly));
+        let checker = Checker { config, dir: dir.to_owned(), ready: ready.clone(), nightly: nightly.clone(), report: Box::new(report) };
         std::thread::Builder::new().name("tarn-updater".into()).spawn(move || checker.run(automatic, receiver)).ok()?;
-        Some(Updater { messages, ready, install: std::cell::Cell::new(false), automatic: std::cell::Cell::new(automatic) })
+        Some(Updater { messages, nightly, ready, install: std::cell::Cell::new(false), automatic: std::cell::Cell::new(automatic) })
     }
 
     pub fn set_automatic(&self, on: bool) {
         self.automatic.set(on);
         self.messages.send(Message::Automatic(on)).ok();
+    }
+
+    /// Switches between the Release and Nightly feeds and, while automatic checks are on, checks
+    /// the chosen one now. An installer downloaded from the other channel no longer installs.
+    pub fn set_nightly(&self, on: bool) {
+        let changed = match self.ready.lock() {
+            Ok(mut ready) => {
+                let changed = self.nightly.swap(on, Ordering::Relaxed) != on;
+                if changed {
+                    ready.take();
+                }
+                changed
+            }
+            Err(_) => self.nightly.swap(on, Ordering::Relaxed) != on,
+        };
+        if changed {
+            self.install.set(false);
+        }
+        self.messages.send(Message::Nightly).ok();
     }
 
     pub fn check_now(&self) {
@@ -398,13 +446,17 @@ mod tests {
 
     fn check(feed: &str, running: &str) -> Result<Checked, Refused> {
         let (feed, sig) = signed(feed);
-        read_feed(&feed, &sig, &test_config(), running)
+        read_feed(&feed, &sig, &test_config(), running, false)
     }
 
     #[test]
     fn the_embedded_configuration_names_the_windows_feed() {
         let embedded = config(CONF).unwrap();
         assert_eq!(embedded.feed.as_str(), "https://github.com/Quavon-dev/tarn-browser/releases/latest/download/windows-update.json");
+        assert_eq!(
+            embedded.nightly_feed.as_ref().map(Url::as_str),
+            Some("https://github.com/Quavon-dev/tarn-browser/releases/download/nightly/windows-update.json")
+        );
         assert_eq!(embedded.downloads.as_str(), "https://github.com/Quavon-dev/tarn-browser/releases/download/");
         assert!(config("feed_url=http://github.com/a.xml\npublic_ed_key=x").is_none());
         assert!(config("").is_none());
@@ -428,6 +480,20 @@ mod tests {
     }
 
     #[test]
+    fn a_nightly_feed_is_read_only_on_the_nightly_channel() {
+        let nightly = "https://github.com/Quavon-dev/tarn-browser/releases/download/nightly/Tarn-nightly-windows-x64-setup-unsigned.exe";
+        let feed = feed_json("0.4.0.7", false, nightly, &sha256_hex(INSTALLER)).replacen("{", "{\"channel\":\"nightly\",", 1);
+        let (bytes, sig) = signed(&feed);
+        let offer = read_feed(&bytes, &sig, &test_config(), "0.4.0.6", true).unwrap().offer.unwrap();
+        assert_eq!((offer.version.as_str(), offer.url.as_str()), ("0.4.0.7", nightly));
+        assert_eq!(read_feed(&bytes, &sig, &test_config(), "0.4.0", false), Err(Refused::WrongChannel));
+        let (other, other_sig) = signed(&feed.replace("\"nightly\",", "\"beta\","));
+        assert_eq!(read_feed(&other, &other_sig, &test_config(), "0.4.0.6", true), Err(Refused::Malformed));
+        let release = check(&feed_json("0.4.0", false, &url("0.4.0"), &sha256_hex(INSTALLER)), super::super::channel_version("0.4.0.7", false)).unwrap();
+        assert!(release.current && release.offer.is_none());
+    }
+
+    #[test]
     fn the_running_version_is_verified_but_not_offered_and_an_older_one_neither() {
         let same = check(&feed_json("0.4.0", false, &url("0.4.0"), &sha256_hex(INSTALLER)), "0.4.0").unwrap();
         assert_eq!(same, Checked { current: true, offer: None });
@@ -440,16 +506,16 @@ mod tests {
         let feed = feed_json("9.0.0", false, &url("9.0.0"), &sha256_hex(INSTALLER));
         let config = test_config();
         let other = BASE64.encode(SigningKey::from_bytes(&[8; 32]).sign(feed.as_bytes()).to_bytes());
-        assert_eq!(read_feed(feed.as_bytes(), other.as_bytes(), &config, "0.4.0"), Err(Refused::BadSignature));
-        assert_eq!(read_feed(feed.as_bytes(), b"not base64!", &config, "0.4.0"), Err(Refused::BadSignature));
-        assert_eq!(read_feed(feed.as_bytes(), BASE64.encode([0; 63]).as_bytes(), &config, "0.4.0"), Err(Refused::BadSignature));
+        assert_eq!(read_feed(feed.as_bytes(), other.as_bytes(), &config, "0.4.0", false), Err(Refused::BadSignature));
+        assert_eq!(read_feed(feed.as_bytes(), b"not base64!", &config, "0.4.0", false), Err(Refused::BadSignature));
+        assert_eq!(read_feed(feed.as_bytes(), BASE64.encode([0; 63]).as_bytes(), &config, "0.4.0", false), Err(Refused::BadSignature));
     }
 
     #[test]
     fn a_tampered_feed_is_refused() {
         let (feed, sig) = signed(&feed_json("0.4.1", false, &url("0.4.1"), &sha256_hex(INSTALLER)));
         let tampered = String::from_utf8(feed).unwrap().replace("0.4.1", "9.9.9");
-        assert_eq!(read_feed(tampered.as_bytes(), &sig, &test_config(), "0.4.0"), Err(Refused::BadSignature));
+        assert_eq!(read_feed(tampered.as_bytes(), &sig, &test_config(), "0.4.0", false), Err(Refused::BadSignature));
     }
 
     #[test]

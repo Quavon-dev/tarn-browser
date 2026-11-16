@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 
 use store::Store;
 
-pub const BUNDLE_ID: &str = "dev.tarn.browser";
+pub const BUNDLE_ID: &str = "de.quavon.tarn";
+/// The bundle ID of the sandboxed builds, whose container this moves out of.
+pub const SANDBOXED_ID: &str = "dev.tarn.browser";
 const MARKER: &str = "tarn-moved-out";
 const APP_SUPPORT: &str = "Library/Application Support/Tarn";
 
@@ -25,7 +27,7 @@ pub enum Outcome {
 /// Moves the container's data below `home` item by item, or nothing at all. An error means the
 /// container is as it was, unless the error says moving back failed too.
 pub fn move_out(home: &Path) -> io::Result<Outcome> {
-    let relative = format!("Library/Containers/{BUNDLE_ID}/Data");
+    let relative = format!("Library/Containers/{SANDBOXED_ID}/Data");
     let container = home.join(&relative);
     if !real_dir(home, &relative) || fs::symlink_metadata(container.join(MARKER)).is_ok() {
         return Ok(Outcome::Nothing);
@@ -73,6 +75,18 @@ pub fn move_out(home: &Path) -> io::Result<Outcome> {
 }
 
 /// Whether `rel` below `root` is a directory reached without following a symbolic link.
+/// Renames the WebKit data that builds with the bundle ID `dev.tarn.browser` kept outside a
+/// container to the current bundle ID's folder, unless that exists already.
+pub fn move_renamed(home: &Path) -> io::Result<bool> {
+    let from = format!("Library/WebKit/{SANDBOXED_ID}");
+    let to = home.join(format!("Library/WebKit/{BUNDLE_ID}"));
+    if !real_dir(home, &from) || fs::symlink_metadata(&to).is_ok() {
+        return Ok(false);
+    }
+    fs::rename(home.join(from), to)?;
+    Ok(true)
+}
+
 fn real_dir(root: &Path, rel: &str) -> bool {
     let mut path = root.to_path_buf();
     Path::new(rel).components().all(|c| {
@@ -154,7 +168,7 @@ mod tests {
         let container = seed(home);
         assert_eq!(move_out(home).unwrap(), Outcome::Moved(Vec::new()));
         assert_eq!(fs::read_to_string(home.join(APP_SUPPORT).join("filters/bundle")).unwrap(), "lists");
-        assert!(home.join("Library/WebKit/dev.tarn.browser/WebsiteDataStore/uuid/cookies").is_file());
+        assert!(home.join("Library/WebKit/de.quavon.tarn/WebsiteDataStore/uuid/cookies").is_file());
         assert!(!container.join(APP_SUPPORT).exists() && !container.join("Library/WebKit").exists());
         assert!(fs::symlink_metadata(container.join("Downloads")).unwrap().is_symlink(), "user folder links stay");
         assert_eq!(
@@ -180,7 +194,7 @@ mod tests {
         assert_eq!(move_out(home).unwrap(), Outcome::Moved(vec![container.join("Library/WebKit")]));
         assert!(fs::symlink_metadata(container.join("Library/WebKit")).unwrap().is_symlink());
         assert!(elsewhere.join("WebsiteDataStore/uuid/cookies").is_file());
-        assert!(!home.join("Library/WebKit/dev.tarn.browser").exists());
+        assert!(!home.join("Library/WebKit/de.quavon.tarn").exists());
         assert!(home.join("Downloads").is_dir() && fs::read_dir(home.join("Downloads")).unwrap().next().is_none());
     }
 
@@ -204,7 +218,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let home = home.path();
         let container = seed(home);
-        let target = home.join("Library/WebKit/dev.tarn.browser");
+        let target = home.join("Library/WebKit/de.quavon.tarn");
         fs::create_dir_all(&target).unwrap();
         assert_eq!(move_out(home).unwrap(), Outcome::TargetExists(target));
         assert!(container.join(APP_SUPPORT).join("tarn.db").is_file());
@@ -223,6 +237,21 @@ mod tests {
         assert!(!home.join(APP_SUPPORT).exists());
         assert!(container.join("Library/WebKit/WebsiteDataStore/uuid/cookies").is_file());
         assert!(!container.join(MARKER).exists(), "a failed move runs again next time");
+    }
+
+    #[test]
+    fn webkit_data_of_the_old_bundle_id_moves_once_and_never_over_newer_data() {
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
+        let old = home.join("Library/WebKit/dev.tarn.browser/WebsiteDataStore");
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("cookies"), "c").unwrap();
+        assert!(move_renamed(home).unwrap());
+        assert!(home.join("Library/WebKit/de.quavon.tarn/WebsiteDataStore/cookies").is_file());
+        assert!(!move_renamed(home).unwrap());
+        fs::create_dir_all(&old).unwrap();
+        assert!(!move_renamed(home).unwrap(), "the current folder wins");
+        assert!(old.is_dir());
     }
 
     #[test]
