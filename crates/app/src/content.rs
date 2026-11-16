@@ -235,41 +235,45 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 "find-bar",
                 String::new(),
                 Theme::text(),
-                surface(Theme::radius_panel())
-                    .mb_2()
-                    .flex_none()
-                    .shadow(Elevation::Floating.shadow())
-                    .text_size(px(TEXT))
-                    .h(px(44.))
-                    .pl_3()
-                    .pr_2()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(icon(Icon::Search, 14., Theme::muted()))
-                    .child(field(focused).w(px(260.)).py_0p5().child(b.find_input.clone()))
-                    .child(
-                        div()
-                            .text_size(px(TEXT_SMALL))
-                            .text_color(if b.find_count == Some(0) { Theme::danger() } else { Theme::muted() })
-                            .child(browser_core::find::count_label(b.find_count)),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        icon_button("find-prev", Icon::ChevronUp, true)
-                            .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
-                            .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
-                    )
-                    .child(
-                        icon_button("find-next", Icon::ChevronDown, true)
-                            .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
-                            .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
-                    )
-                    .child(
-                        icon_button("find-close", Icon::Close, true)
-                            .tooltip(tooltip("Done", Some("Esc".into())))
-                            .on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
-                    ),
+                div().mb_2().flex_none().flex().justify_end().child(
+                    surface(12.)
+                        .w(px(400.))
+                        .flex_none()
+                        .shadow(Elevation::Floating.shadow())
+                        .when(focused, |d| d.border_color(Theme::accent()))
+                        .text_size(px(TEXT))
+                        .h(px(40.))
+                        .pl_3()
+                        .pr_1()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(icon(Icon::Search, 14., Theme::muted()))
+                        .child(div().flex_1().min_w_0().overflow_hidden().child(b.find_input.clone()))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(px(TEXT_SMALL))
+                                .text_color(if b.find_count == Some(0) { Theme::danger() } else { Theme::faint() })
+                                .child(browser_core::find::count_label(b.find_count)),
+                        )
+                        .child(div().w(px(1.)).h(px(18.)).flex_none().bg(Theme::separator()))
+                        .child(
+                            icon_button("find-prev", Icon::ChevronUp, true)
+                                .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
+                                .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
+                        )
+                        .child(
+                            icon_button("find-next", Icon::ChevronDown, true)
+                                .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
+                                .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
+                        )
+                        .child(
+                            icon_button("find-close", Icon::Close, true)
+                                .tooltip(tooltip("Done", Some("Esc".into())))
+                                .on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
+                        ),
+                ),
             );
         }
     }
