@@ -165,10 +165,20 @@ impl Ui {
     }
 }
 
+fn shell_dir() -> std::path::PathBuf {
+    Data::data_dir().or_else(|| browser_core::data_dir(data_dir().as_deref())).unwrap_or_else(|| std::env::temp_dir().join("tarn"))
+}
+
+/// Where the shell saves a file the user keeps, beside the downloads.
+fn downloads_dir() -> Option<std::path::PathBuf> {
+    let dir = shell_dir().join("Downloads");
+    std::fs::create_dir_all(&dir).ok().map(|()| dir)
+}
+
 fn open_shell() {
     SHELL.with(|s| {
         if s.borrow().is_none() {
-            let dir = Data::data_dir().or_else(|| browser_core::data_dir(data_dir().as_deref())).unwrap_or_else(|| std::env::temp_dir().join("tarn"));
+            let dir = shell_dir();
             std::fs::create_dir_all(&dir).ok();
             *s.borrow_mut() = Some(AppShell::open(&dir));
         }

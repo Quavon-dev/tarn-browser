@@ -92,6 +92,8 @@ fn sheet(ui: Ui, screen: Screen, body: AnyElement) -> impl IntoElement {
         .mt_1()
         .mb_2()
         .overflow_hidden()
+        .bind_motion(&tarn_nsh_shared::motion::pop_in())
+        .child(dynamic(move || (!ui.wide()).then(|| view().items_center().pt_2().child(view().w(px(36.)).h(px(5.)).rounded_full().bg(Theme::faint)))))
         .child(
             header.child(view().flex_1().child(heading(name))).child(
                 button()
@@ -472,6 +474,19 @@ fn settings(ui: Ui) -> impl IntoElement {
         .gap_2()
         .child(pane_heading(Pane::Profile))
         .child(sheets::shield_card(ui))
+        .child(section("Shield level"))
+        .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
+            ui.act(|s| {
+                if let Some(level) = level {
+                    s.set_default_level(level);
+                }
+                Vec::new()
+            })
+        }, false))
+        .child(dynamic(move || {
+            let level = ui.read_data(|s| s.default_level());
+            Some(caption(browser_core::shield_card::motto(level).1).px_1())
+        }))
         .child(pane_heading(Pane::General))
         .child(section("Downloads"))
         .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
@@ -511,15 +526,6 @@ fn settings(ui: Ui) -> impl IntoElement {
         }))))
         .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1())
         .child(pane_heading(Pane::Privacy))
-        .child(section("Shield"))
-        .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
-            ui.act(|s| {
-                if let Some(level) = level {
-                    s.set_default_level(level);
-                }
-                Vec::new()
-            })
-        }, false))
         .child(section("Filter lists"))
         .child(framed(group().child(FILTER_SWITCHES.iter().map(|(key, name, _)| {
             switch_row(*name, move || ui.read_data(|s| s.filter_switch(key)), move || {
