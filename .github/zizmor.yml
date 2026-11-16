@@ -7,7 +7,7 @@ rules:
       # Cancels CI runs of a closed pull request: no checkout, only gh with the head SHA passed
       # through env, and actions: write as its single permission.
       - ci-cancel.yml
-      # Re-runs a CI run GitHub cancelled for lack of a runner: no checkout, only gh with the run ID
+      # Re-runs a CI, release or nightly run GitHub cancelled for lack of a runner: no checkout, only gh with the run ID
       # passed through env, and actions: write plus checks: read.
       - ci-retry.yml
   self-repository:
