@@ -227,6 +227,32 @@ jobs:
       - name: WebKitGTK display tests (Xvfb)
         run: linux/scripts/display-tests.sh
 
+  flatpak:
+    needs: changes
+    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.linux != 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51@sha256:78d969b18225ae107ca29497bf09c4a3f791e5f1838a9a912a529d0024fb6210
+      options: --privileged
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: linux/packaging/flatpak/local-manifest.sh
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
+        with:
+          manifest-path: linux/packaging/flatpak/dev.tarn.Tarn.local.yml
+          build-bundle: false
+          upload-artifact: false
+          repo-dir: repo
+          mirror-screenshots-url: https://dl.flathub.org/media
+          cache-key: flatpak-builder-${{ hashFiles('linux/Cargo.lock', 'linux/packaging/flatpak/*') }}
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+      - run: flatpak install -y --noninteractive flathub org.flatpak.Builder
+      - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest "$PWD/linux/packaging/flatpak/dev.tarn.Tarn.yml"
+      - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo "$PWD/repo"
+
   deny:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
