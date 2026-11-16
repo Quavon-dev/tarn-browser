@@ -9,6 +9,7 @@ import java.security.KeyStore;
 import java.security.PublicKey;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.List;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
@@ -48,13 +49,12 @@ final class StrongKeys {
         return new int[] {OTHER, 0};
     }
 
-    private static void check(List<X509Certificate> verified) throws CertificateException {
-        for (X509Certificate certificate : verified) {
-            int[] key = describe(certificate.getPublicKey());
-            if (!Native.strongKey(key[0], key[1])) {
-                throw new CertificateException("a certificate of the chain has a key below the minimum");
-            }
-        }
+    interface VerifiedPath {
+        List<PublicKey> keys(X509Certificate[] chain, String authType, String host) throws CertificateException;
+    }
+
+    interface KeyPolicy {
+        boolean strong(int kind, int bits);
     }
 
     private static synchronized SSLSocketFactory factory() throws GeneralSecurityException {
@@ -67,24 +67,37 @@ final class StrongKeys {
             }
             if (platform == null) throw new GeneralSecurityException("no platform trust manager");
             SSLContext context = SSLContext.getInstance("TLS");
-            context.init(null, new TrustManager[] {new Checked(platform)}, null);
+            X509TrustManagerExtensions extensions = new X509TrustManagerExtensions(platform);
+            VerifiedPath path = (chain, authType, host) -> {
+                List<PublicKey> keys = new ArrayList<>();
+                for (X509Certificate certificate : extensions.checkServerTrusted(chain, authType, host)) keys.add(certificate.getPublicKey());
+                return keys;
+            };
+            context.init(null, new TrustManager[] {new Checked(platform, path, Native::strongKey)}, null);
             factory = context.getSocketFactory();
         }
         return factory;
     }
 
-    private static final class Checked extends X509ExtendedTrustManager {
+    static final class Checked extends X509ExtendedTrustManager {
         private final X509ExtendedTrustManager platform;
-        private final X509TrustManagerExtensions extensions;
+        private final VerifiedPath path;
+        private final KeyPolicy policy;
 
-        Checked(X509ExtendedTrustManager platform) {
+        Checked(X509ExtendedTrustManager platform, VerifiedPath path, KeyPolicy policy) {
             this.platform = platform;
-            this.extensions = new X509TrustManagerExtensions(platform);
+            this.path = path;
+            this.policy = policy;
         }
 
         private void verify(X509Certificate[] chain, String authType, String host) throws CertificateException {
             if (host == null) throw new CertificateException("no host name for the server's certificate");
-            check(extensions.checkServerTrusted(chain, authType, host));
+            for (PublicKey key : path.keys(chain, authType, host)) {
+                int[] described = describe(key);
+                if (!policy.strong(described[0], described[1])) {
+                    throw new CertificateException("a certificate of the verified path has a key below the minimum");
+                }
+            }
         }
 
         @Override

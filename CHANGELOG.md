@@ -8,8 +8,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Security
 
-- On Android, Tarn's own requests and file downloads refuse a server whose certificate chain holds
-  an RSA key under 2048 bits or an elliptic-curve key under 224 bits.
+- On Android, Tarn's own requests and file downloads refuse a server whose verified certificate
+  path, root included, holds an RSA key under 2048 bits or an elliptic-curve key under 224 bits.
 
 ## [0.1.1] - 2026-11-16
 
