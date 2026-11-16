@@ -15,7 +15,11 @@ use super::{
 use crate::shell::{FILTER_SWITCHES, SpaceItem};
 use crate::theme::{GAP, SHEET_WIDTH, Secure, TAB_MIN_WIDTH, TAB_PREVIEW_HEIGHT, TEXT_TITLE, TOUCH_TARGET, Theme};
 use tarn_nsh_shared::controls::empty_state;
+use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::panes::{self, Pane};
+
+const FIND_RADIUS: f32 = 12.;
+const FIND_WIDTH: f32 = 420.;
 
 fn title(screen: Screen) -> &'static str {
     match screen {
@@ -781,13 +785,19 @@ fn find(ui: Ui) -> impl IntoElement {
     on_key_with("escape", always, move |_| ui.show(Screen::Browse));
     on_key_with("mod+g", always, move |_| search(false));
     on_key_with("shift+mod+g", always, move |_| search(true));
-    surface(Theme::radius_panel())
+    let shown = tarn_nsh_shared::motion::pop_in();
+    let close = move || tarn_nsh_shared::motion::pop_out(shown, move || ui.show(Screen::Browse));
+    surface(FIND_RADIUS)
+        .absolute()
+        .top(px(8.))
+        .right(px(8.))
+        .style_with(move |s| if ui.wide() { s.w(px(FIND_WIDTH)) } else { s.left(px(8.)) })
+        .z_index(2)
         .flex_row()
         .items_center()
-        .gap_1()
-        .mx_2()
-        .mb_1()
         .pl_3()
+        .shadow(Theme::elevation(4., 14.))
+        .bind_motion(&shown)
         .child(icon(icons::SEARCH, Theme::muted))
         .child(
             input()
@@ -826,7 +836,12 @@ fn find(ui: Ui) -> impl IntoElement {
             })
             .text_color(move || if count() == Some(0) { Theme::danger() } else { Theme::faint() }),
         )
-        .child(icon_button(icons::BACK, "Previous", move || search(true)))
-        .child(icon_button(icons::FORWARD, "Next", move || search(false)))
-        .child(icon_button(icons::CLOSE, "Done", move || ui.show(Screen::Browse)))
+        .child(view().w(px(1.)).h(px(20.)).mx_1().bg(Theme::separator))
+        .child(tarn_nsh_shared::controls::icon_button(find_glyph(glyphs::CHEVRON_UP), "Previous", move || search(true)))
+        .child(tarn_nsh_shared::controls::icon_button(find_glyph(glyphs::CHEVRON_DOWN), "Next", move || search(false)))
+        .child(icon_button(icons::CLOSE, "Done", close))
+}
+
+fn find_glyph(source: &'static str) -> View {
+    view().text_color(Theme::text).child(glyphs::icon(source, crate::theme::ICON))
 }
