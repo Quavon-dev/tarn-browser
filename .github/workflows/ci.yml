@@ -27,6 +27,10 @@ jobs:
   changes:
     # Jobs a change does not touch are skipped; a skipped required job counts as passed.
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       code: ${{ steps.diff.outputs.code }}
       shared: ${{ steps.diff.outputs.shared }}
@@ -42,6 +46,9 @@ jobs:
       - id: diff
         env:
           EVENT: ${{ inputs.commit && 'workflow_call' || github.event_name }}
+          SHA: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: scripts/ci-changes.sh >> "$GITHUB_OUTPUT"
 
   check:
