@@ -56,6 +56,12 @@ install's container.
 
 ## Signed build (maintainer)
 
+`scripts/publish-release.sh` walks a release through this section, "Notarisation", "Updates
+(Sparkle)" and "Windows release" on the maintainer's Mac: it tags, waits for the draft, builds the
+notarised zip, disk image and appcast, waits for the Windows files, refuses to publish without the
+macOS, Windows and Linux files, checks the macOS files on the draft as described below, then
+publishes. Windows signing stays on the Windows machine.
+
 Requires a "Developer ID Application" certificate in the login keychain and Xcode 16 or later.
 
 ```sh
