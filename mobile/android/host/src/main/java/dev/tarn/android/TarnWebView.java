@@ -1175,6 +1175,7 @@ final class TarnWebView implements NshComponent {
                         Math.max(levelFor(url), viewLevel))) {
                     refusedUrl = url;
                     emit("blocked", "url", url, "reason", "shield", "popup", true);
+                    emit("shielded", "kind", "local_network", "url", url);
                     return;
                 }
                 emit("popup", "url", url, "link", link);

@@ -314,7 +314,7 @@ impl Browser {
         let Some((private, profile)) = self.profile_of_space() else { return };
         let engine = &ENGINES[input::engine_index(self.core.store(private), private, profile)];
         let input = match classify_input(text, engine) {
-            Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_user_url(Some((private, profile)), url))),
+            Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(Some((private, profile)), url))),
             input => input,
         };
         let credit = matches!(input, Some(Input::Navigate(_)));
@@ -426,6 +426,17 @@ impl Browser {
         let Some((kind, index)) = self.model.pin_toggle(key) else { return };
         self.core.store(key.private).move_tab(key.id, kind, None, index).ok();
         self.model.reload_space(&self.core);
+    }
+
+    /// The current profile's remembered permissions, for Settings › Permissions.
+    pub fn permissions(&self) -> Vec<browser_core::permissions::SitePermission> {
+        self.profile_of_space().map(|(private, profile)| browser_core::permissions::list(self.core.store(private), profile)).unwrap_or_default()
+    }
+
+    pub fn set_permission(&mut self, origin: &str, kind: &str, allow: Option<bool>) {
+        if let Some((private, profile)) = self.profile_of_space() {
+            self.core.set_permission(private, profile, origin, kind, allow).ok();
+        }
     }
 
     pub fn tile_toggle(&mut self, key: TabKey) {

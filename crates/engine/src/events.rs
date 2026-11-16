@@ -54,6 +54,8 @@ pub enum Event {
     },
     /// A pop-up the site's rule or a domain set refused; `None` when WebKit gave no URL.
     PopupBlocked(Option<Url>),
+    /// A pop-up a click asked for that a Chromium tab does not open itself; the notice offers it.
+    PopupOffered(Url),
     /// A user-gesture popup or `target=_blank` link, already checked by `nav_policy`; adopt it
     /// with `WebView::adopt` or drop it to discard.
     #[cfg(any(target_os = "macos", windows))]

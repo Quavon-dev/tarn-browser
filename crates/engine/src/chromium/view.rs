@@ -437,7 +437,7 @@ wrap_client! {
         }
 
         fn permission_handler(&self) -> Option<PermissionHandler> {
-            Some(TarnPermission::new())
+            Some(TarnPermission::new(self.id))
         }
 
         fn download_handler(&self) -> Option<DownloadHandler> {
@@ -716,11 +716,11 @@ wrap_request_handler! {
             Some(super::filter::TarnFilter::new(hold, self.profile.clone(), self.lockdown_view))
         }
 
-        fn on_open_urlfrom_tab(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, target_url: Option<&CefString>, target_disposition: WindowOpenDisposition, user_gesture: i32) -> i32 {
+        fn on_open_urlfrom_tab(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, target_url: Option<&CefString>, target_disposition: WindowOpenDisposition, user_gesture: i32) -> i32 {
             if target_disposition == WindowOpenDisposition::CURRENT_TAB {
                 return 0;
             }
-            offer_popup(self.id, target_url, user_gesture);
+            offer_popup(self.id, frame, target_url, user_gesture);
             1
         }
 
@@ -748,8 +748,8 @@ wrap_life_span_handler! {
         #[allow(clippy::too_many_arguments)]
         // Chromium never opens the window itself. An allowed popup is reported as blocked, whose
         // notice offers to open it: a tab opened by that click is the user's load, not the page's.
-        fn on_before_popup(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _popup_id: i32, target_url: Option<&CefString>, _target_frame_name: Option<&CefString>, _target_disposition: WindowOpenDisposition, user_gesture: i32, _popup_features: Option<&PopupFeatures>, _window_info: Option<&mut WindowInfo>, _client: Option<&mut Option<Client>>, _settings: Option<&mut BrowserSettings>, _extra_info: Option<&mut Option<DictionaryValue>>, _no_javascript_access: Option<&mut i32>) -> i32 {
-            offer_popup(self.id, target_url, user_gesture);
+        fn on_before_popup(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, _popup_id: i32, target_url: Option<&CefString>, _target_frame_name: Option<&CefString>, _target_disposition: WindowOpenDisposition, user_gesture: i32, _popup_features: Option<&PopupFeatures>, _window_info: Option<&mut WindowInfo>, _client: Option<&mut Option<Client>>, _settings: Option<&mut BrowserSettings>, _extra_info: Option<&mut Option<DictionaryValue>>, _no_javascript_access: Option<&mut i32>) -> i32 {
+            offer_popup(self.id, frame, target_url, user_gesture);
             1
         }
 
@@ -778,15 +778,45 @@ wrap_life_span_handler! {
     }
 }
 
-// DISMISS, unlike DENY, writes no content setting; Chromium only counts dismissals per origin.
+/// Camera and microphone requests become Tarn's own prompt, as in WebKit tabs, and Chromium keeps
+/// no grant of its own; screen capture and every other permission Chrome would ask for is
+/// dismissed. DISMISS, unlike DENY, writes no content setting; Chromium only counts dismissals per
+/// origin.
+fn media_kind(camera: bool, microphone: bool) -> Option<crate::PromptKind> {
+    match (camera, microphone) {
+        (true, true) => Some(crate::PromptKind::CameraAndMicrophone),
+        (true, false) => Some(crate::PromptKind::Camera),
+        (false, true) => Some(crate::PromptKind::Microphone),
+        (false, false) => None,
+    }
+}
+
+/// Asks the shell about a media request of the tab `id`; `answer` gets whether it was allowed.
+fn ask_media(id: u64, browser: Option<&mut Browser>, origin: Option<&CefString>, kind: crate::PromptKind, answer: impl FnOnce(bool) + 'static) {
+    let origin = Url::parse(&string(origin)).ok().as_ref().and_then(crate::page::serialized_origin);
+    let allowed = tab(id).filter(|t| !t.silenced.get() && crate::page::within_burst(&t.recent_prompts, crate::page::PROMPT_BURST));
+    let (Some(tab), Some(origin), Some(page)) = (allowed, origin, page_origin(browser)) else { return answer(false) };
+    let top_origin = (page != origin).then_some(page);
+    let reply: crate::prompts::Answer = Box::new(move |a| answer(a.is_some()));
+    emit(&tab, Event::Prompt(crate::Prompt::answered(origin, top_origin, false, String::new(), kind, reply, tab.silenced.clone())));
+}
+
 wrap_permission_handler! {
-    struct TarnPermission;
+    struct TarnPermission {
+        id: u64,
+    }
 
     impl PermissionHandler {
-        fn on_request_media_access_permission(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _requesting_origin: Option<&CefString>, _requested_permissions: u32, callback: Option<&mut MediaAccessCallback>) -> i32 {
-            if let Some(callback) = callback {
+        fn on_request_media_access_permission(&self, browser: Option<&mut Browser>, _frame: Option<&mut Frame>, requesting_origin: Option<&CefString>, requested_permissions: u32, callback: Option<&mut MediaAccessCallback>) -> i32 {
+            let Some(callback) = callback else { return 1 };
+            let (audio, video) = (sys::cef_media_access_permission_types_t::CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE as u32, sys::cef_media_access_permission_types_t::CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE as u32);
+            let kind = (requested_permissions & !(audio | video) == 0).then(|| media_kind(requested_permissions & video != 0, requested_permissions & audio != 0)).flatten();
+            let Some(kind) = kind else {
                 callback.cancel();
-            }
+                return 1;
+            };
+            let callback = callback.clone();
+            ask_media(self.id, browser, requesting_origin, kind, move |allowed| if allowed { callback.cont(requested_permissions) } else { callback.cancel() });
             1
         }
 
@@ -873,15 +903,28 @@ wrap_download_handler! {
 const PAGE_COMMANDS: [i32; 8] =
     [sys::IDC_BACK, sys::IDC_FORWARD, sys::IDC_RELOAD, sys::IDC_RELOAD_BYPASSING_CACHE, sys::IDC_STOP, sys::IDC_CUT, sys::IDC_COPY, sys::IDC_PASTE];
 
-fn offer_popup(id: u64, target_url: Option<&CefString>, user_gesture: i32) {
+/// A clicked pop-up the site's rule and the block lists allow is offered; one they refuse is
+/// reported as blocked, as in WebKit tabs. Without a click nothing opens, in both engines.
+fn offer_popup(id: u64, frame: Option<&mut Frame>, target_url: Option<&CefString>, user_gesture: i32) {
     let Some(tab) = tab(id) else { return };
     let Ok(url) = Url::parse(&string(target_url)) else { return };
-    if user_gesture == 1
-        && nav_policy::decide_chromium(&url, Source::Popup) == Decision::Allow
-        && crate::page::within_burst(&tab.recent_popups, crate::page::POPUP_BURST)
+    if user_gesture != 1
+        || nav_policy::decide_chromium(&url, Source::Popup) != Decision::Allow
+        || !crate::page::within_burst(&tab.recent_popups, crate::page::POPUP_BURST)
     {
-        emit(&tab, Event::PopupBlocked(Some(url)));
+        return;
     }
+    let main_frame = frame.is_some_and(|f| f.is_main() == 1);
+    let page = tab.browser.borrow().as_ref().and_then(|b| b.main_frame()).and_then(|f| Url::parse(&CefString::from(&f.url()).to_string()).ok());
+    let allowed = super::filter::shield_for(&tab.profile).is_some_and(|shield| {
+        let mut opener = page.as_ref().map_or(nav_policy::Site::new(shield::ShieldLevel::Standard), |p| (shield.site_for)(p));
+        // A site's "Allow" covers its own pages, not the ad frames it embeds.
+        if !main_frame && opener.popups == nav_policy::PopupRule::Allow {
+            opener.popups = nav_policy::PopupRule::Default;
+        }
+        nav_policy::popup_allowed(opener, Some((shield.site_for)(&url)))
+    });
+    emit(&tab, if allowed { Event::PopupOffered(url) } else { Event::PopupBlocked(Some(url)) });
 }
 
 wrap_navigation_entry_visitor! {

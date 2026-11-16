@@ -325,6 +325,9 @@ impl Browser {
 }
 
 pub fn render(b: &mut Browser, cx: &mut Context<Browser>) -> AnyElement {
+    if !cx.has_active_drag() {
+        b.split_drop = None;
+    }
     let bg = background(b);
     content(b, NOTCH_WIDTH + 10., cx)
         .relative()
@@ -611,7 +614,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .when(!active, |d| d.hover(|s| s.bg(Theme::hover())))
         .cursor_pointer()
         .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(match (loading, b.still()) {
-            (true, false) => spinner(("tab-spin", t.id as u64), 14., Theme::space_label()).into_any_element(),
+            (true, false) => spinner(14., Theme::space_label()).into_any_element(),
             (true, true) => div().opacity(0.5).child(tab_icon(b, &t.url, 16., asleep)).into_any_element(),
             _ => tab_icon(b, &t.url, 16., asleep),
         }))
@@ -691,8 +694,29 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .on_mouse_down(MouseButton::Left, cx.listener(|b, _, _, cx| b.hide_hover_card(cx)))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
         .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
-        .drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft()))
-        .on_drop(cx.listener(tab_drop(t.kind, t.folder_id, t.group_id, Some(b.model.zone_index(t)))));
+        .when(b.split_drop != Some(key), |d| d.drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft())))
+        .when(b.split_drop == Some(key), |d| d.border_1().border_color(Theme::accent()).bg(Theme::accent_soft()))
+        .on_drag_move(cx.listener(move |b, e: &DragMoveEvent<DraggedTab>, _, cx| {
+            let inside = e.bounds.contains(&e.event.position);
+            let share = (e.event.position.y - e.bounds.origin.y) / e.bounds.size.height;
+            let joins = inside && b.drop_splits(e.drag(cx).key, key) && browser_core::split::drops_into(share);
+            let target = if joins { Some(key) } else { b.split_drop.filter(|k| *k != key) };
+            if b.split_drop != target {
+                b.split_drop = target;
+                cx.notify();
+            }
+        }))
+        .on_drop(cx.listener({
+            let reorder = tab_drop(t.kind, t.folder_id, t.group_id, Some(b.model.zone_index(t)));
+            move |b, dragged: &DraggedTab, window, cx| {
+                if b.split_drop.take() == Some(key) {
+                    b.activate(key, window, cx);
+                    b.split_with(dragged.key, window, cx);
+                } else {
+                    reorder(b, dragged, window, cx);
+                }
+            }
+        }));
     animate(row, ("tab-in", t.id as u64), FADE, b.pref(Pref::ReduceMotion), move |el, p| {
         let el = el.opacity(p);
         if entering { el.h(px(TAB_ROW * p)) } else { el }
@@ -853,6 +877,27 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .child("New Tab")
                 .on_click(cx.listener(|b, _, window, cx| b.new_tab_page(window, cx))),
         )
+        .when(b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id.is_none()).count() >= 2 && !b.model.burner_shown(), |d| {
+            d.child(
+                div()
+                    .id("clean-up")
+                    .h(px(TAB_ROW))
+                    .pl(px(10.))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap_2p5()
+                    .rounded(px(Theme::radius_row()))
+                    .text_color(Theme::muted())
+                    .cursor_pointer()
+                    .hover(|s| s.bg(Theme::hover()).text_color(Theme::text()))
+                    .active(|s| s.bg(Theme::pressed()))
+                    .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(icon(Icon::Sparkles, 13., Theme::space_label())))
+                    .child("Clean Up")
+                    .tooltip(tooltip("Sorts tabs into groups and archives tabs unused for longer than Settings › Tabs allows. Runs on this device.", None))
+                    .on_click(cx.listener(|b, _, _, cx| b.clean_up_tabs(cx))),
+            )
+        })
         .children(b.model.groups.iter().enumerate().map(|(ix, g)| group_card(b, ix, g, cx)).collect::<Vec<_>>())
         .children(rows(b, None, |_| true, cx))
 }

@@ -69,13 +69,14 @@ fn duplicates_close_as_one_entry_that_undo_brings_back() {
 #[test]
 fn clean_links_drop_tracking_parameters_and_count_them() {
     let (_dir, mut shell) = open();
+    let id = shell.profile_id().unwrap();
+    let counted = |shell: &TestShell| shell.store().shield_week(id).unwrap().iter().map(|d| d.tracking_params).sum::<i64>();
     visit(&mut shell, "https://a.test/p?id=3&utm_source=x&fbclid=y", "A");
+    assert_eq!(counted(&shell), 2, "the typed address loses its two");
     let copied = shell.copy_clean_link().unwrap();
     assert_eq!(copied, "https://a.test/p?id=3");
     assert_eq!(shell.notice.as_deref(), Some("Link copied, 2 tracking parameters removed"));
-    let id = shell.profile_id().unwrap();
-    let week = shell.store().shield_week(id).unwrap();
-    assert_eq!(week.iter().map(|d| d.tracking_params).sum::<i64>(), 2);
+    assert_eq!(counted(&shell), 4, "the copied link of the committed page loses its two");
 }
 
 #[test]

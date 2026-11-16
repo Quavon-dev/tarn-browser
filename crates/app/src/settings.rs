@@ -36,19 +36,21 @@ pub enum SettingsPane {
     Tabs,
     Search,
     Privacy,
+    Permissions,
     Profiles,
     Developer,
     Extensions,
     Shortcuts,
 }
 
-const PANES: [(SettingsPane, Icon, &str); 10] = [
+const PANES: [(SettingsPane, Icon, &str); 11] = [
     (SettingsPane::Profile, Icon::Shield, "Profile"),
     (SettingsPane::General, Icon::Gear, "General"),
     (SettingsPane::Appearance, Icon::Palette, "Appearance"),
     (SettingsPane::Tabs, Icon::AppWindow, "Tabs"),
     (SettingsPane::Search, Icon::Search, "Search"),
     (SettingsPane::Privacy, Icon::Hand, "Privacy"),
+    (SettingsPane::Permissions, Icon::Camera, "Permissions"),
     (SettingsPane::Profiles, Icon::Person, "Profiles"),
     (SettingsPane::Developer, Icon::Code, "Developer"),
     (SettingsPane::Extensions, Icon::Braces, "Extensions"),
@@ -210,6 +212,7 @@ struct Snapshot {
     overrides: Vec<(String, ShieldLevel)>,
     zooms: Vec<(String, f64)>,
     muted: Vec<String>,
+    permissions: Vec<browser_core::permissions::SitePermission>,
     zapped: Vec<(String, String)>,
     paused: Vec<String>,
     profiles: Vec<Profile>,
@@ -359,6 +362,7 @@ impl SettingsWindow {
             overrides: if matches!(self.pane, SettingsPane::Privacy | SettingsPane::Profile) { b.site_overrides() } else { Vec::new() },
             zooms: if self.pane == SettingsPane::Privacy { b.site_zooms() } else { Vec::new() },
             muted: if self.pane == SettingsPane::Privacy { b.muted_sites() } else { Vec::new() },
+            permissions: if self.pane == SettingsPane::Permissions { b.profile_permissions() } else { Vec::new() },
             zapped: if self.pane == SettingsPane::Privacy { b.zapped(None) } else { Vec::new() },
             paused: if self.pane == SettingsPane::Privacy { b.paused_sites() } else { Vec::new() },
             profiles: stored.profiles,
@@ -693,6 +697,7 @@ impl Render for SettingsWindow {
             (SettingsPane::Tabs, Some(s)) => self.tabs(&s, cx),
             (SettingsPane::Search, Some(s)) => self.search(&s, cx),
             (SettingsPane::Privacy, Some(s)) => self.privacy(s, cx),
+            (SettingsPane::Permissions, Some(s)) => self.permissions(s, cx),
             (SettingsPane::Profiles, Some(s)) => self.profiles(&s, cx),
             (SettingsPane::Developer, Some(s)) => self.developer(s, cx),
             (SettingsPane::Extensions, Some(s)) => self.extensions(s, window, cx),
@@ -1262,6 +1267,37 @@ impl SettingsWindow {
 }
 
 impl SettingsWindow {
+    fn permissions(&self, s: Snapshot, cx: &mut Context<Self>) -> AnyElement {
+        let body = if s.permissions.is_empty() {
+            note("No site has asked yet. When a site asks for the camera, microphone, location or pop-ups and you choose Remember, the answer shows here.")
+        } else {
+            let mut list = group();
+            for (ix, p) in s.permissions.into_iter().enumerate() {
+                let set = |allow: Option<bool>, origin: String, kind: String| {
+                    cx.listener(move |this: &mut Self, _, _, cx| {
+                        let (origin, kind) = (origin.clone(), kind.clone());
+                        this.with_browser(cx, move |b, _, cx| b.set_profile_permission(&origin, &kind, allow, cx));
+                    })
+                };
+                list = list.child(
+                    row(ix == 0)
+                        .child(text_block(bounded_title(&p.site), p.label.clone()))
+                        .child(button(("allow", ix), "Allow", p.allowed).on_click(set(Some(true), p.origin.clone(), p.kind.clone())))
+                        .child(button(("block", ix), "Block", !p.allowed).on_click(set(Some(false), p.origin.clone(), p.kind.clone())))
+                        .child(button(("forget", ix), "Forget", false).on_click(set(None, p.origin, p.kind))),
+                );
+            }
+            list
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(note("This profile's answers to sites. A site you forget asks again next time; Lockdown sites never ask."))
+            .child(body)
+            .into_any_element()
+    }
+
     fn privacy(&self, s: Snapshot, cx: &mut Context<Self>) -> AnyElement {
         let level = s.profile.as_ref().map(|p| p.shield_level).unwrap_or_default();
         let target = s.profile.as_ref().map(|p| (s.private, p.id));

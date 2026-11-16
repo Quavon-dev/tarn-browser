@@ -20,6 +20,33 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
+### Split view with up to four tabs, drag to split (2026-11-16)
+
+What it does: a split shows two to four tabs of a space (two side by side, three with the right
+column stacked, four in a grid); dropping a tab on the middle of another tab's row splits them or
+adds it to that split; the tab menu offers Add to, Remove from and Close Split View.
+Shared API: `browser_core::split::{layout, with_pane, ratio_at, drops_into, MAX_PANES}`.
+macOS reference: `crates/app/src/split.rs`, `crates/app/src/sidebar.rs` (`tab_row`, `split_drop`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — no split view yet: several `linux/src/webview` views placed by `layout` in `linux/src/ui.rs`, and drop targets on sidebar rows
+- [ ] iOS — no split view yet; a tablet-width layout in `mobile/app` could place two web views by `layout`
+- [ ] Android — same as iOS
+
+### Clean Up (2026-11-16)
+
+What it does: Clean Up under New Tab sorts the space's loose tabs into tab groups by what each page
+is (on this device, from known sites and title words) and archives tabs unused for longer than
+Settings › Tabs allows.
+Shared API: `browser_core::cleanup::{plan, apply, category}`; archiving through
+`Model::archive_unused`.
+macOS reference: `crates/app/src/browser/context.rs` (`clean_up_tabs`), `crates/app/src/sidebar.rs` (`ephemeral`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `linux/` has no tab groups or archiving yet; both first, then the row in `linux/src/ui.rs`
+- [ ] iOS — `mobile/app` has no tab groups or archiving yet
+- [ ] Android — same as iOS
+
 ### Tile grid (2026-11-16)
 
 What it does: the tiles above the pinned tabs arrange themselves: one row while they fit, then as

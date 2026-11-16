@@ -250,6 +250,8 @@ pub struct Browser {
     pub space_switched_at: Option<i64>,
     /// When Reload was last asked for, so its arrow spins at least `SPIN` even for a cached page.
     pub(crate) reload_spin: Option<(TabKey, Instant)>,
+    /// A timer redraws the window while spinners turn.
+    spinning: bool,
     /// The space the burner tab was opened from, shown again when it burns.
     pub(crate) burner_return: Option<(bool, Id)>,
     view_generation: HashMap<TabKey, u64>,
@@ -298,6 +300,8 @@ pub struct Browser {
     pub(crate) site_popover: crate::site_settings::SitePopover,
     pub(crate) link_peek: crate::link_peek::LinkPeek,
     pub(crate) split: Option<crate::split::Split>,
+    /// The tab a dragged tab would join in a split if dropped now.
+    pub(crate) split_drop: Option<TabKey>,
     pub shortcuts_open: bool,
     pub reader: Option<crate::reader::Reader>,
     pub reader_layout: crate::reader::Layout,
@@ -416,6 +420,7 @@ impl Browser {
             refocus: false,
             space_switched_at: None,
             reload_spin: None,
+            spinning: false,
             burner_return: None,
             view_generation: HashMap::new(),
             next_generation: 0,
@@ -462,6 +467,7 @@ impl Browser {
             site_popover: Default::default(),
             link_peek: Default::default(),
             split: None,
+            split_drop: None,
             shortcuts_open: false,
             reader: None,
             reader_layout: Default::default(),
@@ -678,6 +684,35 @@ impl Browser {
 
     pub fn loading(&self, key: TabKey) -> bool {
         self.pages.get(&key).is_some_and(|p| p.loading)
+    }
+
+    /// Redraws the window `SPIN_FPS` times a second while a spinner of this space turns.
+    pub(crate) fn keep_spinning(&mut self, cx: &mut Context<Self>) {
+        let wanted = |b: &Browser| {
+            let reloading = b.reload_spin.is_some_and(|(_, at)| at.elapsed() < crate::toolbar::SPIN);
+            !b.still() && (reloading || b.model.tabs.iter().any(|t| b.loading(b.model.key(t))))
+        };
+        if self.spinning || !wanted(self) {
+            return;
+        }
+        self.spinning = true;
+        let step = std::time::Duration::from_millis(1000 / u64::from(ui::controls::SPIN_FPS));
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(step).await;
+                let again = this.update(cx, |b, cx| {
+                    b.spinning = wanted(b);
+                    if b.spinning {
+                        cx.notify();
+                    }
+                    b.spinning
+                });
+                if !again.unwrap_or(false) {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     /// Whether spinners stand still: motion is reduced or Tarn is in the background.
@@ -918,8 +953,8 @@ impl Browser {
         {
             outgoing.set_visible(false);
         }
-        let partner = self.split.as_ref().and_then(|s| s.partner(key)).filter(|p| self.views.contains_key(p));
-        if let Some(prev) = self.model.active.filter(|p| *p != key && Some(*p) != partner).and_then(|p| self.views.get(&p)).cloned() {
+        let partners: Vec<TabKey> = self.split.as_ref().map(|s| s.others(key)).unwrap_or_default().into_iter().filter(|p| self.views.contains_key(p)).collect();
+        if let Some(prev) = self.model.active.filter(|p| *p != key && !partners.contains(p)).and_then(|p| self.views.get(&p)).cloned() {
             fading = !self.pref(crate::prefs::Pref::ReduceMotion) && !self.overlay_open() && self.active_json().is_none();
             if fading {
                 self.page_fade = Some((prev, Instant::now()));
@@ -930,10 +965,15 @@ impl Browser {
         let left = Instant::now();
         self.seen.extend(self.model.active.into_iter().chain([key]).map(|k| (k, left)));
         let as_link = self.link_loads.remove(&key);
-        let mut evicted = partner.map(|p| self.model.lifecycle.activate(p)).unwrap_or_default();
+        let mut evicted: Vec<TabKey> = partners.iter().flat_map(|p| self.model.lifecycle.activate(*p)).collect();
         evicted.extend(self.model.lifecycle.activate(key));
         for evicted in evicted {
-            self.sleep_unless_playing(evicted, cx);
+            if evicted == key || partners.contains(&evicted) {
+                // The split's panes stay awake above the live-tab limit while it lasts.
+                self.model.lifecycle.keep(evicted);
+            } else {
+                self.sleep_unless_playing(evicted, cx);
+            }
         }
         let view = match self.views.get(&key).cloned() {
             Some(view) => Some(view),
@@ -1233,8 +1273,10 @@ impl Browser {
         self.shortcuts_open = false;
         self.reader = self.reader.take().filter(|r| crate::reader::keeps_reader(covered, r.speaking()));
         window.focus(&self.focus);
-        if let Some(view) = self.model.active.and_then(|a| self.split.as_ref()?.partner(a)).and_then(|p| self.views.get(&p)) {
-            view.set_visible(true);
+        for key in self.model.active.and_then(|a| Some(self.split.as_ref()?.others(a))).unwrap_or_default() {
+            if let Some(view) = self.views.get(&key) {
+                view.set_visible(true);
+            }
         }
         if let Some(view) = self.active_view().filter(|_| !self.overlay_open()) {
             view.set_visible(true);
@@ -1646,6 +1688,11 @@ impl Browser {
             Event::PopupBlocked(url) => {
                 let message = nav_policy::popup_blocked_notice(url.as_ref());
                 let offer = url.filter(|u| nav_policy::decide(u, Source::Typed) == Decision::Allow).map(Offer::NewTab);
+                self.notify_offer(key, message, offer);
+            }
+            Event::PopupOffered(url) => {
+                let message = nav_policy::popup_blocked_notice(Some(&url));
+                let offer = (nav_policy::decide(&url, Source::Typed) == Decision::Allow).then_some(Offer::NewTab(url));
                 self.notify_offer(key, message, offer);
             }
             Event::WebEngineOutdated => {
@@ -2517,7 +2564,7 @@ impl Browser {
     /// active tab and split again.
     fn remake_views(&mut self, keys: Vec<TabKey>, window: &mut Window, cx: &mut Context<Self>, between: impl FnOnce(&mut Self)) {
         let active = self.model.active;
-        let split = self.split.as_ref().map(|s| (s.panes, s.ratio)).filter(|(panes, _)| panes.iter().any(|p| keys.contains(p)));
+        let split = self.split.as_ref().map(|s| (s.panes.clone(), s.ratio)).filter(|(panes, _)| panes.iter().any(|p| keys.contains(p)));
         for key in keys {
             self.hibernate(key, cx);
         }
@@ -2525,12 +2572,11 @@ impl Browser {
         if let Some(key) = active.filter(|_| self.model.active.is_none()) {
             self.activate(key, window, cx);
         }
-        if let Some(([first, second], ratio)) = split {
-            self.activate(first, window, cx);
-            self.open_split(Some(second), window, cx);
-            if let Some(split) = self.split.as_mut() {
-                split.ratio = ratio;
+        if let Some((panes, ratio)) = split {
+            for key in &panes {
+                self.activate(*key, window, cx);
             }
+            self.show_split(panes, ratio, window, cx);
             if let Some(key) = active {
                 self.activate(key, window, cx);
             }

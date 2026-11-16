@@ -97,7 +97,8 @@ impl Browser {
             } else {
                 String::new()
             }),
-            Item::action(if self.in_split(key) { "Close Split View" } else { "Open in Split View" }, Cmd::Split(key)).key(if active {
+            // The shortcut opens or closes the whole split, so only those entries name it.
+            Item::action(self.split_label(key), Cmd::Split(key)).key(if active && matches!(self.split_label(key), "Open in Split View" | "Close Split View") {
                 crate::shortcuts::keys(&crate::split::ToggleSplitView, cx)
             } else {
                 String::new()
@@ -372,8 +373,8 @@ impl Browser {
             Cmd::SetPinnedUrl(key) => self.set_pinned_url(key, cx),
             Cmd::Sleep(keys) => self.sleep_tabs(keys, cx),
             Cmd::SiteSettings => self.toggle_site_settings(window, cx),
-            Cmd::Split(key) if self.in_split(key) => self.close_split(cx),
-            Cmd::Split(key) => self.open_split(Some(key), window, cx),
+            Cmd::Split(key) if self.in_split(key) => self.leave_split(key, window, cx),
+            Cmd::Split(key) => self.split_with(key, window, cx),
             Cmd::SwitchWebEngine(key, engine) => self.switch_web_engine(key, engine, window, cx),
         }
     }
@@ -490,12 +491,15 @@ impl Browser {
         self.show_toast(text, Some(crate::toast::Action::Undo(serial)), cx);
     }
 
-    pub(crate) fn archive_unused_tabs(&mut self, cx: &mut Context<Self>) {
-        let Some(max_age) = crate::prefs::archive_after(&self.core.disk) else { return };
+    /// Archives the tabs unused for longer than Settings › Tabs allows; the number archived.
+    pub(crate) fn archive_unused_tabs(&mut self, cx: &mut Context<Self>) -> usize {
+        let Some(max_age) = crate::prefs::archive_after(&self.core.disk) else { return 0 };
         let (core, now) = (self.core.clone(), now());
         let archives = self.model.archive_unused(&core, max_age, now);
         let changed = !archives.is_empty();
+        let mut archived = 0;
         for archive in archives {
+            archived += archive.stale().len();
             let private = archive.private();
             let urls = archive.stale().iter().map(|t| self.tab_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone())).collect();
             let emptied = archive.run(&core, now, urls, |key| {
@@ -508,6 +512,33 @@ impl Browser {
             self.reload_bookmarks(cx);
             Self::sync_other_windows(cx);
         }
+        archived
+    }
+
+    /// Sorts the space's loose tabs into groups by what each page is and archives tabs unused for
+    /// longer than Settings › Tabs allows, all on this device.
+    pub fn clean_up_tabs(&mut self, cx: &mut Context<Self>) {
+        if self.model.burner_shown() {
+            return;
+        }
+        let archived = self.archive_unused_tabs(cx);
+        let Some((private, space_id)) = self.model.current_space().map(|s| (s.private, s.space.id)) else { return };
+        let plan =
+            browser_core::cleanup::plan(&self.model.tabs, &self.model.groups, |t| self.tab_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone()));
+        let sorted = browser_core::cleanup::apply(self.store(private), space_id, plan);
+        if sorted > 0 {
+            self.reload_space();
+            Self::sync_other_windows(cx);
+        }
+        let text = match (sorted, archived) {
+            (0, 0) if crate::prefs::archive_after(&self.core.disk).is_none() => "Nothing to sort. Settings › Tabs can archive unused tabs too.".to_owned(),
+            (0, 0) => "Already tidy".to_owned(),
+            (s, 0) => format!("Sorted {s} {} into groups", if s == 1 { "tab" } else { "tabs" }),
+            (0, a) => format!("Archived {a} unused {}", if a == 1 { "tab" } else { "tabs" }),
+            (s, a) => format!("Sorted {s} {} into groups, archived {a} unused", if s == 1 { "tab" } else { "tabs" }),
+        };
+        self.show_toast(text, None, cx);
+        cx.notify();
     }
 
     pub fn close_all_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -42,6 +42,10 @@
 	<true/>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A website you allow can use the camera, for example for a video call.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>A website you allow can use the microphone, for example for a call.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>
