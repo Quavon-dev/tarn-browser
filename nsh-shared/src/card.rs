@@ -1,6 +1,6 @@
 use nsh_core::prelude::*;
 
-use crate::theme::Theme;
+use crate::theme::{TEXT_SMALL, Theme};
 
 pub struct Words<'a> {
     pub x: u32,
@@ -55,6 +55,52 @@ pub fn week_bars(days: &[i64]) -> View {
     view().flex_row().items_end().gap_1().h(px(WEEK_HEIGHT)).accessibility_elements_hidden(true).children(bars)
 }
 
+pub const CHART_HEIGHT: f32 = 96.;
+
+/// A bar's height in a chart `height` points tall whose busiest bar is `busiest`; a bar with
+/// something in it stays visible.
+pub fn scaled_height(n: i64, busiest: i64, height: f32) -> f32 {
+    if n <= 0 { 0. } else { (height * n as f32 / busiest.max(1) as f32).max(3.) }
+}
+
+/// The profile's one bar chart: a bar per day with its value above and its initial below; the
+/// busiest day in the space colour, the others in the accent.
+pub fn day_chart(days: &[(&str, i64)]) -> View {
+    let busiest = days.iter().map(|(_, n)| *n).max().unwrap_or(0);
+    let bars: Vec<AnyElement> = days
+        .iter()
+        .map(|(day, n)| {
+            let top = *n > 0 && *n == busiest;
+            view()
+                .flex_1()
+                .items_center()
+                .justify_end()
+                .gap_1()
+                .child(text(thousands_short(*n)).text_size(px(TEXT_SMALL)).text_color(Theme::faint))
+                .child(
+                    view()
+                        .w(px(22.))
+                        .h(px(scaled_height(*n, busiest, CHART_HEIGHT)))
+                        .rounded(px(4.))
+                        .bg(move || if top { Theme::space_label() } else { Theme::accent() }),
+                )
+                .child(text((*day).to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::muted))
+                .into_element()
+        })
+        .collect();
+    view().flex_row().items_end().gap_1().h(px(CHART_HEIGHT + 40.)).accessibility_elements_hidden(true).children(bars)
+}
+
+/// `n` of `most` as an accent bar on a separator track.
+pub fn share_bar(n: i64, most: i64) -> View {
+    let share = if most <= 0 { 0. } else { (n.max(0) as f32 / most as f32).clamp(0., 1.) };
+    view().h(px(4.)).rounded_full().bg(Theme::separator).overflow_hidden().child(view().h_full().w(relative(share)).rounded_full().bg(Theme::accent))
+}
+
+fn thousands_short(n: i64) -> String {
+    if n <= 0 { String::new() } else { browser_core::shield_card::thousands(n as u64) }
+}
+
 pub fn picture(markup: &str, width: f32, height: f32, words: &[Words], scale: f32) -> View {
     let labels: Vec<AnyElement> = words
         .iter()
@@ -96,5 +142,6 @@ mod tests {
         assert_eq!(colour("#FF0000", 0.5), Rgba { a: 0.5, ..rgb(0xff0000) });
         assert_eq!(colour("white", 1.), rgb(0xffffff));
         assert_eq!((bar_height(0, 5), bar_height(5, 5), bar_height(1, 1000)), (0., WEEK_HEIGHT, 3.));
+        assert_eq!((scaled_height(0, 9, 90.), scaled_height(9, 9, 90.), scaled_height(3, 9, 90.), scaled_height(1, 1000, 90.)), (0., 90., 30., 3.));
     }
 }
