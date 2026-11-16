@@ -3,7 +3,7 @@
 # notarised macOS zip, disk image and appcast, the Windows files signed on Windows, checks, publish.
 # Needs the Developer ID identity, the tarn-notary profile and the update key on this Mac.
 # Every step that publishes something asks first; re-running skips what is already done.
-# Usage: scripts/publish-release.sh [--skip-ci]
+# Usage: scripts/publish-release.sh [--skip-ci] [--no-windows]
 set -euo pipefail
 
 R=Quavon-dev/tarn-browser
@@ -53,7 +53,14 @@ cleanup() {
 trap cleanup EXIT
 
 say "Release $TAG"
-SKIP_CI=false; [ "${1:-}" = --skip-ci ] && SKIP_CI=true
+SKIP_CI=false; NO_WINDOWS=false
+for arg in "$@"; do
+  case "$arg" in
+    --skip-ci) SKIP_CI=true ;;
+    --no-windows) NO_WINDOWS=true ;;
+    *) echo "unknown option $arg"; exit 1 ;;
+  esac
+done
 run=$(gh run list -R "$R" --workflow CI --branch main --event push -L 1 --json databaseId,headSha --jq '.[0] | "\(.databaseId) \(.headSha)"')
 read -r run_id run_sha <<<"$run"
 [ "$run_sha" = "$(git -C "$NEW" rev-parse origin/main)" ] || { echo "The latest CI run is not for origin/main yet; wait a moment."; exit 1; }
@@ -107,6 +114,11 @@ else
 fi
 
 say "3/5 Windows installer and update feed"
+if $NO_WINDOWS; then
+  echo "Skipped (--no-windows): this release ships only the unsigned Windows installer and no Windows"
+  echo "update feed. Windows warns about an unknown publisher, and installs from it get no updates and"
+  echo "close Chromium tabs after 7 days. Ship the signed installer and feed in the next release."
+else
 until assets | grep -qx "$WIN_SETUP" && assets | grep -qx windows-update.json && assets | grep -qx windows-update.json.sig; do
   cat <<EOF
 Missing on the draft: $WIN_SETUP, windows-update.json, windows-update.json.sig.
@@ -122,10 +134,13 @@ EOF
   read -r -p "Press Enter once the three files are uploaded (Ctrl-C to stop and resume later)... "
 done
 echo "Windows files are on the draft."
+fi
 
 say "4/5 Check the draft"
 gh release view "$TAG" -R "$R" --json assets --jq '.assets[] | "  \(.name)  \(.size) bytes"'
-for f in "$MAC_ZIP" "$MAC_DMG" appcast.xml "$WIN_SETUP" windows-update.json windows-update.json.sig SHA256SUMS; do
+required=("$MAC_ZIP" "$MAC_DMG" appcast.xml SHA256SUMS)
+$NO_WINDOWS || required+=("$WIN_SETUP" windows-update.json windows-update.json.sig)
+for f in "${required[@]}"; do
   assets | grep -qx "$f" || { echo "Missing $f; not publishing."; exit 1; }
 done
 for p in "tarn_${VERSION}_debian.*_amd64\.deb" "tarn_${VERSION}_ubuntu.*_amd64\.deb" "tarn-${VERSION}-.*\.x86_64\.rpm" "tarn-${VERSION}-.*-x86_64\.pkg\.tar\.zst"; do
@@ -172,6 +187,7 @@ done <<<"$snap"
 say "5/5 Publish"
 echo "Publishing makes $TAG the latest release: Macs and Windows PCs update to it within a day,"
 echo "and the apt/dnf repositories update automatically."
+$NO_WINDOWS && echo "Windows: unsigned installer only, no update feed (--no-windows)."
 ask "Publish $TAG now?" || exit 0
 [ "$(snapshot)" = "$snap" ] || { echo "A file on the draft was added, removed or replaced after the checks. Not publishing; run this again."; exit 1; }
 gh release edit "$TAG" -R "$R" --draft=false --latest
@@ -182,4 +198,4 @@ if [ "$(snapshot)" != "$snap" ]; then
 fi
 echo "Published: https://github.com/$R/releases/tag/$TAG"
 curl -fsSIL "https://github.com/$R/releases/latest/download/appcast.xml" >/dev/null && echo "appcast.xml reachable at the feed URL."
-curl -fsSIL "https://github.com/$R/releases/latest/download/windows-update.json" >/dev/null && echo "windows-update.json reachable at the feed URL."
+$NO_WINDOWS || { curl -fsSIL "https://github.com/$R/releases/latest/download/windows-update.json" >/dev/null && echo "windows-update.json reachable at the feed URL."; }

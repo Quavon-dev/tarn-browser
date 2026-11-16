@@ -61,7 +61,8 @@ install's container.
 notarised zip, disk image and appcast, waits for the Windows files, refuses to publish without the
 macOS, Windows and Linux files, checks the macOS files on the draft as described below, labels every
 file for the release page (file names stay, since the updaters and package repositories rely on them),
-then publishes. Windows signing stays on the Windows machine.
+then publishes. Windows signing stays on the Windows machine; `--no-windows` publishes without the
+signed Windows installer and update feed, so Windows installs from that release get no updates.
 
 Requires a "Developer ID Application" certificate in the login keychain and Xcode 16 or later.
 
