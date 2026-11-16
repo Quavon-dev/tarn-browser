@@ -6,7 +6,7 @@ credentials or update keys (threat model S4).
 ## What CI produces
 
 Every push and pull request runs `.github/workflows/ci.yml`, which builds and tests every client
-(macOS, Windows, Linux, iOS, Android) but publishes nothing. Only pushing a tag `v*` runs
+(macOS, Windows, Linux, iOS, Android) but publishes nothing. Pushing a tag `v*` runs
 `.github/workflows/release.yml`, which creates a **draft** GitHub release with:
 
 - `Tarn-<tag>-unsigned.zip`: the macOS app built by `scripts/bundle.sh` with CEF and its helpers,
@@ -27,13 +27,17 @@ Every push and pull request runs `.github/workflows/ci.yml`, which builds and te
 - `Tarn-<tag>.cdx.json`: CycloneDX SBOM of the `app` crate and its dependencies.
 - `SHA256SUMS` for every file.
 
-Nothing is published until the maintainer publishes the draft. Every job except the macOS one
-first runs `scripts/check-version.sh <tag>`, so a release tag needs the same version in the root,
-`linux/` and `mobile/` manifests, `mobile/app/nsh.json`, the Android Gradle file, the RPM spec and
-the PKGBUILD. Engine updates from `chromium-update.yml` build the macOS bundle alone, so a failing
-Windows, Linux or mobile build never holds back a Chromium security fix. The SBOM covers the root
-workspace as built on macOS; Windows-only dependencies and the `linux/` and `mobile/` workspaces
-have none yet.
+Nothing is published until the maintainer publishes the draft. Every build job first runs
+`scripts/check-version.sh <tag>` (the macOS build skips it for engine updates), so a release tag
+needs the same version in the root, `linux/` and `mobile/` manifests, `mobile/app/nsh.json`, the
+Android Gradle file, the RPM spec and the PKGBUILD. Engine updates from `chromium-update.yml` build
+the macOS bundle alone, so a failing Windows, Linux or mobile build never holds back a Chromium
+security fix. A manual run, `gh workflow run release.yml --ref v1.2.3`, does the same for a
+macOS-only release. It fails unless started on a `v*` tag whose `release.yml` has the
+`workflow_dispatch` trigger (older tags cannot use it), and it drafts nothing while a release or
+draft for that tag exists: delete the tag push's draft first, or let the push run fail. The SBOM
+covers the root workspace as built on macOS; Windows-only dependencies and the `linux/` and
+`mobile/` workspaces have none yet.
 
 The build jobs hold no `id-token` permission. The macOS `build` job installs nothing unpinned
 (Ninja for the Chromium build comes from `scripts/fetch-ninja.sh`, a release download checked
@@ -46,8 +50,9 @@ file; it writes `SHA256SUMS` and attests every binary, the macOS archive include
 
 The unsigned archive is attested (`actions/attest`, predicate type
 `https://github.com/Quavon-dev/tarn-browser/attestations/release/v1`, predicate `{commit, tag}`).
-A tag push and a call from `chromium-update.yml` build the same unsandboxed bundle with
-`TARN_RELEASE_BUILD=1`, which turns on the one-time move out of a sandboxed install's container.
+A tag push, a manual macOS-only run and a call from `chromium-update.yml` build the same
+unsandboxed bundle with `TARN_RELEASE_BUILD=1`, which turns on the one-time move out of a sandboxed
+install's container.
 
 ## Signed build (maintainer)
 
@@ -77,6 +82,8 @@ xcrun notarytool store-credentials tarn-notary --apple-id "<apple-id>" --team-id
 ```sh
 TARN_NOTARY_PROFILE=tarn-notary scripts/notarize.sh      # default: target/release/Tarn.app
 ditto -c -k --keepParent target/release/Tarn.app "Tarn-v1.2.3.zip"
+TARN_SIGN_IDENTITY="Developer ID Application: Quavon UG (haftungsbeschrankt) (CFV35FGSHF)" \
+  TARN_NOTARY_PROFILE=tarn-notary scripts/dmg.sh target/release/Tarn.app Tarn-v1.2.3.dmg
 ```
 
 The `tarn-notary` profile (team CFV35FGSHF) is stored on the maintainer's Mac since 2026-11-14.
@@ -88,7 +95,26 @@ fails unless the status is `Accepted` (printing the `notarytool log` command oth
 the ticket, runs `stapler validate`, and fails unless `spctl -a -vv -t execute` reports
 `source=Notarized Developer ID`.
 
-Upload `Tarn-v1.2.3.zip` to the draft release, then publish it.
+`scripts/dmg.sh` is the download for people installing Tarn: it refuses an app `spctl` does not
+report as notarised, packs it beside an `Applications` link into an HFS+ disk image named Tarn
+(opening it shows the window to drag Tarn into Applications), signs, notarises and staples the
+image, fails unless `spctl -t open` reports it notarised, and mounts it to check it holds exactly
+those two items with the app's signature intact. Sparkle updates keep using the zip.
+
+Upload `Tarn-v1.2.3.zip` and `Tarn-v1.2.3.dmg` to the draft release. Anyone with write access can
+replace a draft's files, so before publishing download both from the draft, mount the image with
+`hdiutil attach -readonly` and unpack the zip, then check the image and both apps:
+
+```sh
+req='=anchor apple generic and certificate leaf[subject.OU] = "CFV35FGSHF"'
+codesign --verify --deep --strict -R "$req" Tarn-v1.2.3.dmg <mounted>/Tarn.app <unpacked>/Tarn.app
+# both must report source=Notarized Developer ID
+spctl -a -vv -t open --context context:primary-signature Tarn-v1.2.3.dmg
+spctl -a -vv -t execute <mounted>/Tarn.app
+```
+
+and that each app's `CFBundleShortVersionString` is the tag's version, so an older genuine file
+cannot stand in. Then publish it.
 
 ## Updates (Sparkle)
 
@@ -235,10 +261,11 @@ For each release, after CI drafted it:
 
 Windows builds read the feed from the latest published release
 (`https://github.com/Quavon-dev/tarn-browser/releases/latest/download/windows-update.json`), so
-publish the release only with all three files. An engine update (`chromium-update.yml`) builds
-no Windows files; its `publish` job carries the latest release's `windows-update.json` and `.sig`
-over unchanged (they are not in that release's `SHA256SUMS`, which the `assets` job wrote before; their Ed25519 signature covers them), which stay valid, so Windows keeps a verified feed; without them Windows checks
-fail and Chromium closes after seven days. Publish a normal release before any engine update that follows it, or the engine update carries the older feed. Windows still needs its own release within 28 days of
+publish the release only with all three files. An engine update (`chromium-update.yml`) or a
+macOS-only run builds no Windows files; its `publish` job carries the latest release's
+`windows-update.json` and `.sig` over unchanged (they are not in that release's `SHA256SUMS`, which the `assets` job wrote before; their Ed25519 signature covers them), which stay valid, so Windows keeps a verified feed; without them Windows checks
+fail and Chromium closes after seven days. Publish a normal release before any
+engine update or macOS-only run that follows it, or the later release carries the older feed. Windows still needs its own release within 28 days of
 each Chromium update, since the staleness gate also closes Chromium by its age.
 `scripts/sign-windows.ps1 -Check` is a maintainer self-check; the authority is the client's own verification (`crates/platform/src/updater/windows.rs`). `scripts/sign-windows.test.ps1` (run by the
 `windows` CI job) checks the Ed25519 verification against RFC 8032's test vectors and the feed
