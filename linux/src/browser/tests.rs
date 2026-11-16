@@ -93,7 +93,7 @@ fn pins_and_folders_rearrange_tabs() {
     let key = active(&b);
     b.pin_toggle(key);
     assert_eq!(b.model.tab(key).unwrap().kind, TabKind::Pinned);
-    b.new_folder();
+    b.new_folder(None);
     let folder = b.model.folders[0].id;
     b.move_to_folder(key, folder);
     assert_eq!(b.model.tab(key).unwrap().folder_id, Some(folder));

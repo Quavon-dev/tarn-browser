@@ -189,9 +189,12 @@ define_class!(
 
     impl Handler {
         #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
-        fn observe(&self, _path: Option<&NSString>, object: Option<&AnyObject>, _change: Option<&NSDictionary>, _context: *mut c_void) {
-            if let Some(web) = object.and_then(|o| o.downcast_ref::<WebView>()) {
+        fn observe(&self, path: Option<&NSString>, object: Option<&AnyObject>, _change: Option<&NSDictionary>, _context: *mut c_void) {
+            let Some(web) = object.and_then(|o| o.downcast_ref::<WebView>()) else { return };
+            if path.is_some_and(|p| p.to_string() == "title") {
                 self.emit("title", json!({ "title": web.title().map(|t| t.to_string()).unwrap_or_default() }));
+            } else {
+                self.emit("history", json!({ "canGoBack": web.can_go_back(), "canGoForward": web.can_go_forward() }));
             }
         }
     }

@@ -33,11 +33,17 @@ pub enum Action {
     PrivateSpace,
     Settings,
     NewWindow,
+    ToggleSplitView,
+    FocusNextPane,
+    FocusPreviousPane,
+    SwapPanes,
+    RotateSplitLayout,
+    RemoveFromSplitView,
 }
 
 pub type Binding = (&'static str, Action, &'static str);
 
-pub const SECTIONS: [(&str, &[Binding]); 4] = [
+pub const SECTIONS: [(&str, &[Binding]); 5] = [
     (
         "Tabs",
         &[
@@ -49,6 +55,17 @@ pub const SECTIONS: [(&str, &[Binding]); 4] = [
             ("Previous tab", Action::PreviousTab, "ctrl+shift+tab"),
             ("Pin or unpin tab", Action::TogglePin, "ctrl+d"),
             ("Burner tab", Action::BurnerTab, "ctrl+alt+shift+n"),
+        ],
+    ),
+    (
+        "Split View",
+        &[
+            ("Open or close split view", Action::ToggleSplitView, "ctrl+alt+n"),
+            ("Focus next split pane", Action::FocusNextPane, "ctrl+alt+]"),
+            ("Focus previous split pane", Action::FocusPreviousPane, "ctrl+alt+["),
+            ("Swap split panes", Action::SwapPanes, "ctrl+alt+s"),
+            ("Rotate split layout", Action::RotateSplitLayout, "ctrl+alt+r"),
+            ("Remove tab from split view", Action::RemoveFromSplitView, "ctrl+alt+w"),
         ],
     ),
     (
@@ -81,8 +98,10 @@ pub const SECTIONS: [(&str, &[Binding]); 4] = [
 ];
 
 pub const ZOOM_IN_SHIFTED: &str = "ctrl+shift+=";
+pub const FIND_NEXT: &str = "ctrl+g";
+pub const FIND_PREVIOUS: &str = "ctrl+shift+g";
 
-const RESERVED: [&str; 17] = [
+const RESERVED: [&str; 19] = [
     "ctrl+1",
     "ctrl+2",
     "ctrl+3",
@@ -100,6 +119,8 @@ const RESERVED: [&str; 17] = [
     "ctrl+a",
     "escape",
     ZOOM_IN_SHIFTED,
+    FIND_NEXT,
+    FIND_PREVIOUS,
 ];
 
 impl Action {
@@ -223,6 +244,9 @@ mod tests {
         keys.sort();
         keys.dedup();
         assert_eq!(keys.len(), defaults.len());
+        for (_, _, keys) in SECTIONS.iter().find(|(name, _)| *name == "Split View").unwrap().1 {
+            assert_eq!(parse_keys(keys).as_deref(), Ok(default(keys).as_str()), "{keys} can be typed back in");
+        }
         assert_eq!(Action::NewTab.setting_key(), "keymap.tarn::NewTab");
         let stored = HashMap::from([
             (Action::NewTab.setting_key(), "ctrl+shift+y".to_owned()),
@@ -236,6 +260,7 @@ mod tests {
         assert_eq!(of(Action::Find), "ctrl+f", "a fixed key");
         assert_eq!(conflict("ctrl+w", Action::Reload, &map), Some("Close tab"));
         assert_eq!(conflict(&parse_keys(ZOOM_IN_SHIFTED).unwrap(), Action::NewTab, &map), Some("a fixed shortcut"));
+        assert_eq!(conflict(FIND_PREVIOUS, Action::NewTab, &map), Some("a fixed shortcut"));
         assert_eq!(display("ctrl+shift+t"), "Ctrl+Shift+T");
         assert_eq!(display("alt+left"), "Alt+Left");
     }

@@ -6,6 +6,9 @@ pub const POP: Duration = Duration::from_millis(160);
 pub const FADE: Duration = Duration::from_millis(130);
 pub const EXIT: Duration = Duration::from_millis(110);
 pub const SLIDE: Duration = Duration::from_millis(280);
+/// How soon after a pop-up closed a click on its button does not reopen it: the click that took
+/// the focus from the pop-up has already closed it.
+pub const REOPEN_GUARD: Duration = Duration::from_millis(300);
 
 /// A critically damped spring, rescaled so it ends exactly at 1.
 pub fn spring(t: f32) -> f32 {
@@ -40,6 +43,16 @@ pub fn progress(since: Instant, duration: Duration) -> f32 {
 /// The reverse of `pop_in` at progress `t`: fades out while sinking a few points.
 pub fn pop_out<E: Styled>(element: E, t: f32) -> E {
     element.opacity(1. - t).relative().top(px(t * 5.))
+}
+
+/// A pop-up card's motion: in, it fades in while dropping a few points from its button; while
+/// `closing`, it fades out over `EXIT`, as long as its window waits before it goes.
+pub fn popover_motion<E: Styled + IntoElement + 'static>(element: E, id: &'static str, closing: bool, reduce: bool) -> AnyElement {
+    if closing {
+        animate(element, (id, 1u64), EXIT, reduce, |e, t| e.opacity(1. - t))
+    } else {
+        animate(element, (id, 0u64), FADE, reduce, |e, t| e.opacity(t).top(px(-6. * (1. - t))))
+    }
 }
 
 pub fn fade_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<ElementId>, reduce: bool) -> AnyElement {

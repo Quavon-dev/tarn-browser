@@ -230,7 +230,11 @@ be changed in Settings › Shortcuts; tab and space numbers, Esc, Undo/Redo and 
 | ⌃⇥ / ⌃⇧⇥ | Next / previous tab (wraps around) |
 | ⇧⌘C | Copy link of the current tab |
 | ⌥⇧⌘C | Copy link as Markdown, `[title](url)` (Copy Title is in the Tabs menu) |
-| ⌃⌘N | Open or close Split View: the current tab beside the space's last used tab |
+| ⌃⌘N | Open or close Split View: the current tab beside the space's last used tab outside a split, or a copy of it |
+| ⌃⌘] / ⌃⌘[ | Focus the next / previous split pane |
+| ⌃⌘S | Swap the focused split pane with the next one |
+| ⌃⌘R | Rotate the split layout: side by side or stacked |
+| ⌃⌘W | Remove the current tab from Split View |
 | ⌥⌘S | Screenshot of the visible page to Downloads and the clipboard (Save Page as PDF is in the File menu) |
 | ⌃⌘P | Picture in Picture for the page's largest playing video |
 | ⌘/ | Keyboard shortcut cheat sheet |
