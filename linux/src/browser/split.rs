@@ -68,7 +68,7 @@ impl Browser {
     /// A tab dropped on a pane, or on the middle of its row: two panes of one split swap, any
     /// other tab joins.
     pub fn drop_on_pane(&mut self, target: TabKey, dragged: TabKey) {
-        if !self.splits.swap(dragged, target) {
+        if !self.elsewhere.contains(&dragged) && !self.splits.swap(dragged, target) {
             self.join_split(target, dragged);
         }
     }

@@ -283,7 +283,11 @@ fn web_views(ui: Ui) -> View {
                     .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
                     .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s }))))
                     .prop("active", move || JsonValue::from(item.with(|v| v.active)))
-                    .on_native_event(move |event: &NativeEvent| act_quietly(ui, |b| b.on_event(key, &event.name, &event.data)))
+                    .on_native_event(move |event: &NativeEvent| {
+                        if &*event.name != "pressed" || read(ui, |b| b.in_split(key) && b.model.active != Some(key)) == Some(true) {
+                            act_quietly(ui, |b| b.on_event(key, &event.name, &event.data));
+                        }
+                    })
                     .element_ref(&web)
                     .absolute()
                     .left(move || px(rect().0))
@@ -643,7 +647,7 @@ fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: S
 
 fn step_pick(ui: Ui, query: Signal<String>, down: bool) {
     let rows = 1 + tools::commands(ui, &query.get_untracked()).len() + ui.suggest.with_untracked(Vec::len);
-    ui.picked.update(|p| *p = (*p + if down { 1 } else { rows - 1 }) % rows);
+    ui.picked.update(|p| *p = browser_core::suggest::step_selection(*p, rows, down));
 }
 
 /// Enter in the address field or the start card: the picked row of `query`, or what was typed.

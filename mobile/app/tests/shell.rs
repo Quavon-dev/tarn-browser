@@ -688,3 +688,22 @@ fn a_lone_tab_splits_with_a_copy_of_its_page() {
     assert_eq!((panes.len(), panes[0]), (2, a));
     assert_eq!(shell.model.tab(panes[1]).map(|t| t.url.clone()), shell.model.tab(a).map(|t| t.url.clone()));
 }
+
+#[test]
+fn closing_the_private_space_ends_its_splits_even_when_their_panes_sleep() {
+    let (_dir, mut shell) = open();
+    shell.set_wide(true);
+    shell.enter_private();
+    let a = shell.new_tab(Some("https://a.example/")).unwrap();
+    let b = shell.new_tab(Some("https://b.example/")).unwrap();
+    shell.activate(a);
+    shell.split_with(b);
+    assert!(shell.splits.contains(a) && a.private);
+    let c = shell.new_tab(Some("https://c.example/")).unwrap();
+    shell.activate(c);
+    for _ in 0..tarn_mobile::shell::LIVE_TABS {
+        shell.new_tab(Some("https://more.example/"));
+    }
+    shell.close_private();
+    assert!(!shell.splits.contains(a) && !shell.splits.contains(b), "no private pane outlives its session");
+}

@@ -72,7 +72,11 @@ pub(super) fn release(ui: Ui) {
 /// Names what dropping the dragged tab on `key` does while the pointer is over it; `middle` says
 /// whether a row's drop point is in its middle, where it splits instead of moving the tab.
 pub(super) fn drop_over(ui: Ui, key: TabKey, middle: bool) {
-    let does = ui.dragging.get_untracked().and_then(|dragged| read(ui, |b| b.splits.drop_label(key, dragged)).flatten()).filter(|_| middle);
+    let does = ui
+        .dragging
+        .get_untracked()
+        .and_then(|dragged| read(ui, |b| b.splits.drop_label(key, dragged).filter(|_| !b.elsewhere.contains(&dragged))).flatten())
+        .filter(|_| middle);
     let target = does.map(|does| (key, does));
     if ui.split_drop.get_untracked() != target {
         ui.split_drop.set(target);

@@ -556,6 +556,8 @@ impl<D: Platform> Shell<D> {
         for key in keys {
             self.forget(key);
         }
+        // Private tab ids start again in the next session, so no private pane may outlive this one.
+        self.splits.retain(|k| !k.private);
         let memory = self.core.store(true);
         for (_, profile_id) in &private {
             memory.delete_profile(*profile_id).ok();

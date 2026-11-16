@@ -97,7 +97,8 @@ impl Browser {
     /// copy of the active tab, and focuses the new pane.
     pub fn open_split(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(active) = self.model.active.filter(|a| !self.splits.contains(*a)) else { return };
-        let recent = self.splits.partner(active, self.model.tabs.iter().map(|t| (self.model.key(t), t.last_active)));
+        let tabs = self.model.tabs.iter().map(|t| (self.model.key(t), t.last_active));
+        let recent = self.splits.partner(active, tabs.filter(|(k, _)| self.views.contains_key(k) || !crate::shared::live_elsewhere(*k, cx)));
         let partner = match recent {
             Some(partner) => partner,
             // The burner has one tab, and a copy would load in it instead of beside it.
@@ -235,13 +236,14 @@ pub fn render(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Option
     let split = b.shown_split()?;
     b.split_shown.rects.borrow_mut().resize(split.panes().len(), (0., 0., 0., 0.));
     let width = f32::from(window.viewport_size().width) - b.sidebar_width * b.sidebar_shown();
+    let splits = Rc::new(b.splits.clone());
     let cells: Vec<Div> = split
         .panes()
         .iter()
         .zip(split.layout())
         .enumerate()
         .map(|(ix, (key, (x, y, w, h)))| {
-            let card = pane(b, ix, *key, w * width >= HOST_ROOM, cx);
+            let card = pane(b, &splits, ix, *key, w * width >= HOST_ROOM, cx);
             div().absolute().left(relative(x)).top(relative(y)).w(relative(w)).h(relative(h)).p(px(GAP / 2.)).child(card)
         })
         .collect();
@@ -299,7 +301,7 @@ fn grip(divider: Divider, (x, y, w, h): split::Share, cx: &mut Context<Browser>)
 
 /// One pane's card: its header, then the page. A web view is a native view above GPUI, so the
 /// header has a height of its own and the page starts below it.
-fn pane(b: &Browser, ix: usize, key: TabKey, roomy: bool, cx: &mut Context<Browser>) -> Div {
+fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey, roomy: bool, cx: &mut Context<Browser>) -> Div {
     let focused = b.model.active == Some(key);
     let tab = b.model.tab(key);
     let title: SharedString = tab.map(crate::tabs::display_title).unwrap_or_default().into();
@@ -348,7 +350,7 @@ fn pane(b: &Browser, ix: usize, key: TabKey, roomy: bool, cx: &mut Context<Brows
     let json = b.json_pages.get(&key);
     let covered = blocked.is_some() || json.is_some();
     let rects = b.split_shown.rects.clone();
-    let splits = b.splits.clone();
+    let splits = splits.clone();
     let page = canvas(
         move |bounds, _, _| {
             let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
