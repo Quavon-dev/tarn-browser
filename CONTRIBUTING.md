@@ -145,8 +145,8 @@ issue. Run the **Issues** workflow by hand to count right away.
 ## Pull requests
 
 Every pull request to `main` needs the approval of a maintainer who did not author it; no person
-can merge past that rule. The only exception is the update app, whose Chromium update pull
-requests merge once CI on them has passed (`docs/release.md`, "Automatic engine updates").
+can merge past that rule, and neither can automation: the update app's Chromium update pull
+requests also wait for a maintainer's review (`docs/release.md`, "Automatic engine updates").
 
 A change to `Cargo.lock` needs `scripts/third-party-licenses.sh` run and its output committed; CI
 checks it.

@@ -113,8 +113,13 @@ and:
 5. deletes the keychain and the key files.
 
 The `assets` job takes the signed files with the rest, writes `SHA256SUMS` and attests them, and
-`publish` publishes the release as the latest one and starts `linux-repo.yml`. A tag whose message
-has the line `critical` marks both feeds critical.
+`publish` publishes the release, marks the highest published version as the latest release (an older
+one finishing late never takes over the feeds), gives that release the newest signed Windows feed of
+the recent releases (a macOS-only release carries the feed that was latest when it started), and
+starts `linux-repo.yml`. It does so holding the branch `release-latest-lock`, which it deletes
+afterwards; delete it by hand only if a cancelled run left it behind, then re-run that run's
+`publish`, which finishes a release it had already created. A tag whose message has the line
+`critical` marks both feeds critical.
 
 To release from GitHub, raise the version in every client in a pull request and rename `##
 [Unreleased]` in `CHANGELOG.md` to `## [<version>] - <date>` (`scripts/check-version.sh` checks
@@ -284,9 +289,9 @@ Applied by hand in the repository and organisation settings; no workflow changes
       pushed), require the status checks
       `check`, `macos`, `deny` and `dco` from GitHub Actions with the branch up to date, require
       code scanning results from CodeQL (security alerts high or higher, alerts errors), block force
-      pushes, restrict deletions. Bypass: only the update app below, for pull requests only (its
-      tests run as a reusable workflow, which posts no checks on the pull request). Never
-      GitHub Actions itself: every workflow token on every branch acts as GitHub Actions.
+      pushes, restrict deletions. No bypass, for people or apps: the update app's pull requests
+      run CI and wait for review like any other. Never add GitHub Actions itself: every workflow
+      token on every branch acts as GitHub Actions.
 - [ ] General: "Require contributors to sign off on web-based commits" on, so commits made in the
       web editor pass the `dco` check.
 - [ ] `.github/CODEOWNERS`: its team `@Quavon-dev/maintainers` must exist and have write
@@ -299,6 +304,8 @@ Applied by hand in the repository and organisation settings; no workflow changes
       enforces a mitigation (`crates/ai`, `crates/import`, `crates/sync`, `crates/cli-bridge`, the engine's policy files); the file
       itself is the full list. Until then GitHub ignores
       its lines and no Code Owners review is required.
+- [ ] Ruleset "main merges" on `main`: restrict updates; bypass only `@Quavon-dev/maintainers`,
+      so write-access teams such as `@Quavon-dev/tarn-maintainer` can review but not merge.
 - [ ] Ruleset on tags `v*`: restrict creation, update and deletion; bypass for organisation
       admins and the update app (it creates the tag of its merge). An admin can therefore tag any
       commit and, since `release-signing` allows self-review, approve its signing: the release
@@ -319,7 +326,7 @@ Applied by hand in the repository and organisation settings; no workflow changes
       with contents and pull requests read and write and nothing else. Environment
       `chromium-update` with deployment branches limited to `main`, holding the variable
       `CHROMIUM_UPDATE_APP_CLIENT_ID` and the secret `CHROMIUM_UPDATE_APP_KEY` (the app's private
-      key); only the `merge` job of `chromium-update.yml` uses it. Repository variable
+      key); only the `open` and `tag` jobs of `chromium-update.yml` use it. Repository variable
       `CHROMIUM_UPDATE_APP_SLUG` (the app's slug), so a tag the app pushes does not start the
       tag-push build of `release.yml` as well.
 - [ ] Actions › General: "Allow GitHub Actions to create and approve pull requests" stays off;
@@ -347,7 +354,7 @@ Applied by hand in the repository and organisation settings; no workflow changes
   Store signing keys (iOS, Android) never enter CI.
 - **Accessed** only by the one job that needs each one: `sign` for the Apple and notary credentials
   and the update key (`SPARKLE_ED_PRIVATE_KEY`, which signs both the Sparkle feed and the Windows
-  feed); the `merge` job of `chromium-update.yml` and `sign` for the update app key; the signing job
+  feed); the `open` and `tag` jobs of `chromium-update.yml` and `sign` for the update app key; the signing job
   of `filter-lists.yml` for `FILTER_SIGNING_KEY`; the `build` job of `linux-repo.yml` for
   `LINUX_REPO_GPG_KEY` and `LINUX_REPO_GPG_PASSPHRASE`, its `aur` job for `AUR_SSH_PRIVATE_KEY`.
   `release-signing` needs a maintainer's approval for every run; a maintainer may approve their own
@@ -365,34 +372,37 @@ Applied by hand in the repository and organisation settings; no workflow changes
 
 ## Automatic engine updates
 
-`.github/workflows/chromium-update.yml` runs every three hours from `main`:
+`.github/workflows/chromium-update.yml` checks for a new CEF build every three hours from `main`, and
+runs again when a merge to `main` changes `packaging/cef.lock`:
 
 1. `watch` reads `https://cef-builds.spotifycdn.com/index.json` and takes the newest stable CEF
    build present for both architectures that `cef-dll-sys` builds against: the crate's own CEF
    version or an older build of its major.minor. Its Chromium version must be newer than the
    pinned one and on Google's Mac stable or extended stable list (CEF follows either); the
    release date is Google's first serving date. It computes each archive's SHA-256.
-2. `propose` writes `packaging/cef.lock`, bumps the patch version in `Cargo.toml` and
-   `Cargo.lock` and pushes `chromium-update/<CEF version>`.
-3. `test` runs `ci.yml` on that commit; `merge`, with the update app's token, opens the pull
-   request and merges it naming the tested commit (a later push to the branch makes the merge fail) and tags
-   the merge commit `v<version>`. It merges only while `main` is still the commit the branch was
-   cut from, so the merge carries the tested tree; if `main` moved, it closes the pull request and
-   deletes the branch, and the next scheduled run proposes the update again on the new `main`.
-4. `build` calls `release.yml` with the merge commit: the macOS bundle, signed and published as a
-   macOS-only release once a maintainer approves its `release-signing` deployment.
+2. `propose` writes `packaging/cef.lock`, bumps the patch version in `Cargo.toml`, refreshes every
+   workspace's `Cargo.lock` and pushes `chromium-update/<CEF version>`.
+3. `open`, with the update app's token, opens its pull request. CI runs on it like on any other,
+   and like any other it needs a maintainer's approval and an up-to-date branch to merge, so the
+   merged tree is the tested one. A maintainer reviews the `packaging/cef.lock` change (version,
+   host, hashes) and merges it.
+4. The merge's push to `main` changes `packaging/cef.lock` and starts the workflow again: `tag`
+   checks that the commit is the merge of the app's own `chromium-update/` pull request, tags it
+   `v<version>` with the app, and `build` calls `release.yml` with it. Against `main` before the
+   merge it refuses a change to anything but `packaging/cef.lock`, `Cargo.toml` and the lockfiles,
+   any changed line in those other than a `version = "…"` line, a `cef.lock` that names another
+   CEF build than its branch or a mismatched Chromium version, and a version that is already
+   tagged (two update pull requests cut from the same `main`): those are released by hand after
+   raising the version. Otherwise `build` makes the macOS bundle, which is signed and
+   published as a macOS-only release once a maintainer approves its `release-signing` deployment.
+   Any other change to `packaging/cef.lock` is released by hand.
 
-Any failure, and a Chrome stable release left without a usable CEF build for seven days, opens an
-issue labelled `security`. To retry a failed `merge` or `build`, re-run the failed jobs of that
-run: `merge` picks up an already merged pull request and an existing tag. To retry a failed
-`propose` or `test`, delete the branch `chromium-update/<CEF version>`. To reject an update,
-cancel the run before `merge` and keep the branch: `watch` then proposes nothing for that CEF
-build. `merge` opens the pull request itself; a re-run refuses a commit whose pull request was
-closed without merging. If `merge` fails because
-`main` moved in the moment between its check and the merge (GitHub's merge call cannot name the
-expected base), the update is on `main` untested and untagged and a re-run fails the same way: let
-CI run on `main`, then release it with a maintainer-signed tag. A `main` that keeps moving while
-the tests run only delays the update; the seven-day issue above still fires.
+Any failure, and a Chrome stable release whose Chromium is not on `main` seven days later (no usable
+CEF build yet, or its update pull request still unmerged), opens an issue labelled `security`. To retry a failed `tag` or `build`, re-run the failed jobs of that
+run: `tag` accepts an existing tag on the same commit. To retry a failed `open`, re-run it. To retry
+a failed `propose`, delete the branch `chromium-update/<CEF version>`. To reject an update, close its pull request and keep the
+branch: `watch` then proposes nothing for that CEF build. If `main` moved after the branch was cut,
+update the branch from the pull request page; CI runs again before it can merge.
 
 The pipeline never moves the `cef` crate. A newer CEF build than the crate's own (a patch build
 included, since `cef-dll-sys` refuses those) and a new Chromium milestone come through Renovate,
@@ -415,8 +425,8 @@ CI job runs it with `--check`, so a dependency change must regenerate it.
   `scripts/third-party-licenses.sh` is run on its branch and the regenerated
   `packaging/third-party-licenses.txt` and `packaging/third-party-licenses-windows.txt` are pushed.
 - `.github/workflows/audit.yml` runs `cargo deny check advisories` nightly, and the `deny` job of
-  `ci.yml` checks advisories with bans, licences and sources on every pull request; not when
-  `chromium-update.yml` calls it, so an advisory in an unrelated crate does not stop an engine
-  update from merging; `release.yml`'s `deny` job still holds back its release until the advisory
-  is fixed or suppressed with a VEX statement (`SECURITY.md`).
+  `ci.yml` checks advisories with bans, licences and sources on every pull request, engine updates
+  included, and `release.yml`'s `deny` job again before signing: a new advisory holds back an
+  engine update until it is fixed or suppressed with a VEX statement (`SECURITY.md`), so fix it on
+  `main` first and update the engine branch.
 - Target for a high-severity issue in Tarn's own code: fix release within 7 days (`SECURITY.md`).
