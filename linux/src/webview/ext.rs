@@ -65,6 +65,9 @@ pub(super) struct Ext {
     signals: RefCell<Vec<(World, glib::SignalHandlerId)>>,
     main_worlds: RefCell<Vec<World>>,
     tokens: RefCell<HashMap<World, String>>,
+    responded: Cell<bool>,
+    item: RefCell<Option<webkit6::BackForwardListItem>>,
+    kept: RefCell<Vec<(webkit6::BackForwardListItem, HashMap<World, String>)>>,
     pub(super) allowed: RefCell<BTreeMap<(World, usize), Vec<String>>>,
     pub(super) added: RefCell<Vec<Added>>,
     held: RefCell<HashMap<u64, (PolicyDecision, Url, bool)>>,
@@ -235,6 +238,7 @@ fn record(state: &State, url: &Url, main: bool, runs: &[(World, Vec<usize>)]) ->
 }
 
 pub(super) fn started(state: &State) {
+    state.ext.responded.set(false);
     for (_, (decision, _, _)) in state.ext.held.borrow_mut().drain() {
         decision.ignore();
     }
@@ -246,8 +250,23 @@ pub(super) fn started(state: &State) {
     }
 }
 
-pub(super) fn committed(state: &State) {
-    state.ext.tokens.borrow_mut().clear();
+pub(super) fn committed(state: &State, web: &WebView) {
+    let list = web.back_forward_list();
+    let item = list.as_ref().and_then(|l| l.current_item());
+    let outgoing = state.ext.tokens.take();
+    let mut kept = state.ext.kept.borrow_mut();
+    if let Some(left) = state.ext.item.replace(item.clone())
+        && !outgoing.is_empty()
+    {
+        kept.retain(|(i, _)| *i != left);
+        kept.push((left, outgoing));
+    }
+    let listed: Vec<webkit6::BackForwardListItem> = list.map(|l| l.back_list().into_iter().chain(l.forward_list()).collect()).unwrap_or_default();
+    let restored = item.filter(|_| !state.ext.responded.replace(false));
+    if let Some(ix) = restored.and_then(|item| kept.iter().position(|(i, _)| *i == item)) {
+        *state.ext.tokens.borrow_mut() = kept.remove(ix).1;
+    }
+    kept.retain(|(i, _)| listed.contains(i));
 }
 
 /// Holds a frame's document, which the view would show, until the shell's gate has said which
@@ -256,6 +275,9 @@ pub(super) fn committed(state: &State) {
 /// address. A subframe is gated against the page committed in the main frame, which is still the
 /// one it belongs to while a main-frame load is pending.
 pub(super) fn hold(state: &State, response: &ResponsePolicyDecision) -> bool {
+    if response.is_main_frame_main_resource() {
+        state.ext.responded.set(true);
+    }
     let Some(store) = state.ext.store.borrow().clone() else { return false };
     let worlds: Vec<World> = state.ext.worlds.borrow().keys().cloned().collect();
     let url = response.response().and_then(|r| r.uri()).and_then(|u| Url::parse(&u).ok());

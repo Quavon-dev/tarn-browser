@@ -668,3 +668,30 @@ fn a_frame_of_the_page_still_shown_is_gated_against_that_page_in_a_view() {
         crate::extensions::on_event(ext::Event::Frame(frame));
     }
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_page_restored_from_the_back_forward_cache_is_still_heard() {
+    settled(a_page_restored_from_the_back_forward_cache_is_still_heard_in_a_view);
+}
+
+fn a_page_restored_from_the_back_forward_cache_is_still_heard_in_a_view() {
+    let f = fixture("file");
+    bridge();
+    grant(&f, "127.0.0.1", true, true);
+    let state = persistent_view(&f);
+    let s = server();
+    let web = open(&state, &s.url);
+    let reply = || {
+        forward(&state, &f);
+        data(&web, "tarnReply")
+    };
+    assert!(spin_until(|| reply() == "content via tab", 40), "the first page is heard: {}", reply());
+    eval(&web, "window.kept = 'kept'; return 'ok';", None);
+    open(&state, &format!("{}next", s.url));
+    state.events.borrow_mut().clear();
+    web.go_back();
+    assert!(spin_until(|| state.events.borrow().iter().any(|(n, _)| n == "finished"), 30), "the first page came back");
+    assert_eq!(eval(&web, "return String(window.kept);", None), "kept", "it came back from the back/forward cache");
+    assert_eq!(send_late(&state, &f, &web), "late via tab", "the restored page is still heard");
+}

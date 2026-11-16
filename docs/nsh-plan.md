@@ -134,7 +134,9 @@ Gaps, with their reason:
   handler itself is registered for the whole view, so the main frame's transport makes a random
   token per document, posts it first and prefixes every message with it; the shell takes the
   first token after each main-frame commit and drops any message without it, so a subframe's
-  world posting through `window.webkit.messageHandlers` is not heard. Messaging from subframes
+  world posting through `window.webkit.messageHandlers` is not heard. A page the back/forward
+  cache restores (a commit with no response of its own) keeps the tokens its document drew,
+  remembered per history item while the item is in the list. Messaging from subframes
   needs a web-process extension.
 - **`document_idle`** runs at document end: WebKitGTK user scripts have only start and end.
 
