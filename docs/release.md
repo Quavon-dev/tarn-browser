@@ -102,10 +102,19 @@ The `assets` job takes the signed files with the rest, writes `SHA256SUMS` and a
 `publish` publishes the release as the latest one and starts `linux-repo.yml`. A tag whose message
 has the line `critical` marks both feeds critical.
 
-To release, run `scripts/publish-release.sh` on any machine with `git` and `gh`: it checks that CI
-passed on `main` and that every version file carries `main`'s version, pushes a signed tag
-`v<version>` (`--critical` for a security release) and points to the run. Approve the run's
-`release-signing` deployment once its builds have finished; it publishes a few minutes later.
+To release from GitHub, raise the version in every client in a pull request (`scripts/check-version.sh`
+lists the files), merge it, wait for its CI on `main`, then run Actions › Start release (tick
+"Security release" for a critical one). `start-release.yml` checks that CI passed on `main`'s
+latest commit, that every version file carries the same version and that `v<version>` does not
+exist, then calls `release.yml` for every client. Approve the run's `release-signing` deployment
+once its builds have finished: the `sign` job creates the tag `v<version>` with the update app
+(the tag ruleset lets the app create `v*` tags, not GitHub Actions), signs, and the release is
+published a few minutes later. If a later job fails after the tag exists, re-run the failed jobs;
+to start over, a maintainer deletes the tag first.
+
+The same release can start from a maintainer's machine: `scripts/publish-release.sh` (with `git`
+and `gh`) runs the same checks, pushes a signed tag `v<version>` (`--critical` for a security
+release) and points to the run, whose `release-signing` deployment is approved the same way.
 
 `scripts/notarize.sh` refuses an ad-hoc signature, a signature that is not "Developer ID
 Application", one without a secure timestamp or without the hardened runtime, and anything
@@ -274,6 +283,9 @@ Applied by hand in the repository and organisation settings; no workflow changes
       its lines and no Code Owners review is required.
 - [ ] Ruleset on tags `v*`: restrict creation, update and deletion; bypass for the maintainers and
       the update app (it creates the tag of its merge).
+- [ ] Environment `release-signing` also holds the variable `CHROMIUM_UPDATE_APP_CLIENT_ID` and the
+      secret `CHROMIUM_UPDATE_APP_KEY` (a private key of the update app of its own), so the `sign`
+      job of a release started with `start-release.yml` can create the `v*` tag.
 - [ ] Environment `release-signing`: deployment branches and tags limited to `main` and `v*`,
       required reviewers the maintainers (prevent self-review off, so a maintainer can approve their
       own release). Environment `nightly-signing`: deployments from `main` only, no reviewers. Both
