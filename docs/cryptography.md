@@ -26,11 +26,20 @@ The test's vectors are public keys (RSAPublicKey DER) and SHA-256 PKCS#1 signatu
 message, made with `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:N` and `openssl dgst
 -sha256 -sign`; the private keys were discarded.
 
-Web pages, and the shell's requests on Linux, iOS and Android, use the TLS stack of the operating
-system or of the browser engine, which Tarn does not produce. The table under "TLS" names each
-one, its defaults and the setting that turns smaller keys off where the platform has one. Two
-paths have no such setting: Chromium with a locally added root (below) and the shell's requests on
-Android, whose key floor is Android's and is not verified.
+On Android, the shell's requests and downloads (`Fetch.java`, `Downloads.java`) keep Android's
+certificate checking and add Tarn's own floor (`StrongKeys.java`, which asks `browser_core::tls`
+through JNI): Android verifies the chain, with
+the app's network security config, and returns the path it built, trust anchor included; every key
+on that path must be RSA of at least 2048 bits, an elliptic curve of at least 224 bits or Ed25519.
+`browser_core::tls`'s tests check the floor and `StrongKeysTest` the key reading on every pull
+request.
+
+Web pages, and the shell's requests on Linux and iOS, use the TLS stack of the operating system or
+of the browser engine, which Tarn does not produce. The table under "TLS" names each one, its
+defaults and the setting that turns smaller keys off where the platform has one. The one path
+without such a setting is Chromium's TLS for web pages with a root the user added locally (below):
+it belongs to the engine, not to a mechanism Tarn produces, and publicly trusted certificates meet
+the thresholds.
 
 ## Tarn's own mechanisms
 
@@ -60,7 +69,7 @@ lets a certificate error through (threat model S7).
 | Windows | Chromium (CEF) | `ureq` with rustls and `ring` (as above); the certificate chain is checked by Windows | rustls as above for the server's key. Windows refuses RSA keys under 1024 bits in the chain by default. Chromium: see below. | Server key: already off. Chain: `certutil -setreg chain\minRSAPubKeyBitLength 2048` (Windows' weak-key setting). Chromium: see below. |
 | Linux | WebKitGTK over glib-networking (GnuTLS in the Flatpak's GNOME runtime) | libsoup, same TLS stack | The GnuTLS priority of the distribution (Fedora's system crypto policy, for example) or of the Flatpak runtime; Ubuntu's default ends in `%PROFILE_MEDIUM` ([Ubuntu](https://ubuntu.com/server/docs/explanation/crypto/gnutls/)) | `%PROFILE_MEDIUM` requires 112-bit security: RSA/DH 2048, ECC 224 ([GnuTLS](https://www.gnutls.org/manual/html_node/Selecting-cryptographic-key-sizes.html)). glib-networking reads its priority from `G_TLS_GNUTLS_PRIORITY`: start Tarn with `G_TLS_GNUTLS_PRIORITY=NORMAL:%PROFILE_MEDIUM`, or for the Flatpak run `flatpak override --user --env=G_TLS_GNUTLS_PRIORITY=NORMAL:%PROFILE_MEDIUM de.quavon.tarn`. Package installs also follow `min-verification-profile = medium` in the host's GnuTLS system configuration; the Flatpak does not read the host's. |
 | iOS | WKWebView (Apple) | `URLSession` | Apple, as on macOS | Already off |
-| Android | Android System WebView (Chromium) | `HttpURLConnection` (Conscrypt, BoringSSL) with Android's certificate checking | Pages: Chromium, see below. Shell requests: Android sets the floor; Tarn adds none, and it is not verified | Pages: see below. Shell requests: no setting exists. Filter lists stay Ed25519-verified whatever the TLS key |
+| Android | Android System WebView (Chromium) | `HttpURLConnection` (Conscrypt, BoringSSL) with Android's certificate checking plus Tarn's chain key floor | Pages: Chromium, see below. Shell requests and downloads: RSA ≥ 2048, EC ≥ 224 bits or Ed25519 on every certificate of the chain (`StrongKeys.java`) | Pages: see below. Shell requests and downloads: already off |
 
 **Chromium (CEF, Android System WebView).** Chromium rejects RSA certificate keys under 1024 bits
 and offers no finite-field Diffie-Hellman (DHE was removed in Chrome 53,

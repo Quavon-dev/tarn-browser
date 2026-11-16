@@ -20,6 +20,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and
   your rights, and states per client what it describes.
 
+### Security
+
+- On Android, Tarn's own requests and file downloads refuse a server whose verified certificate
+  path, root included, holds an RSA key under 2048 bits or an elliptic-curve key under 224 bits.
+
 ## [0.1.1] - 2026-11-16
 
 ### Added

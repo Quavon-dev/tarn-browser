@@ -23,7 +23,13 @@ git checkout -q -b side "$base"
 commit side -s
 git checkout -q -
 git merge -q --no-ff --no-edit side
-expect 0 "unsigned merge commit"
+expect 0 "unsigned merge commit that only combines its parents"
+git reset -q --hard HEAD^
+git merge -q --no-ff --no-commit side
+echo evil > evil; git add evil
+git commit -q --no-edit
+expect 1 "unsigned merge commit that adds its own change"
+git reset -q --hard HEAD^
 commit two -m "Signed-off-by: Someone Else <else@example.com>"
 expect 1 "sign-off by another email"
 git reset -q --hard HEAD^

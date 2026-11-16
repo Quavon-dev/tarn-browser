@@ -39,7 +39,7 @@ case "${1:-}" in
   check)
     [[ -n "$email" && -f "$file" ]] && grep -qxF "accepted: v$VERSION $email" "$file" ;;
   accept)
-    git config user.name >/dev/null && git config user.email >/dev/null || { echo "set git config user.name and user.email first" >&2; exit 1; }
+    [[ -n "$name" && "$email" == *@* ]] || { echo "set your Git name and email first" >&2; exit 1; }
     { text; echo; echo "accepted: v$VERSION $email"; echo "date: $(date -u +%FT%TZ)"; } >> "$file"
     echo "Recorded in $file (inside the Git directory, never committed)." ;;
   *)
