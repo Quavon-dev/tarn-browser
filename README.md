@@ -376,7 +376,7 @@ repository. Setup and rotation: [`docs/filter-lists.md`](docs/filter-lists.md).
 ```sh
 TARN_SIGN_IDENTITY=<team identity> scripts/bundle.sh   # target/release/Tarn.app with CEF, helpers and pinned Sparkle
 scripts/check-entitlements.sh   # fails if the signed entitlements differ from the expected set
-scripts/third-party-licenses.sh # regenerates the macOS and Windows licence lists in packaging/ after a dependency change
+scripts/third-party-licenses.sh # regenerates the licence lists of all five clients in packaging/ after a dependency change
 ```
 
 `scripts/bundle.sh` builds for the Mac it runs on; there is no universal binary.

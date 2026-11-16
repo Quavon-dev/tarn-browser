@@ -6,6 +6,20 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
+  Linux, iOS, Android).
+- Linux, iOS and Android builds come with their third-party licence notices; Linux packages
+  install them under `/usr/share/licenses/tarn` (the rpm now also ships `LICENSE` there), and on
+  iOS and Android Settings › Open-source licences shows the list built into the app, searchable
+  and offline.
+
+### Changed
+
+- The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and
+  your rights, and states per client what it describes.
+
 ### Security
 
 - On Android, Tarn's own requests and file downloads refuse a server whose verified certificate

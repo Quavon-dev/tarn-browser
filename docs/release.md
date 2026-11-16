@@ -423,7 +423,7 @@ CI job runs it with `--check`, so a dependency change must regenerate it.
 - Renovate (`renovate.json`) opens grouped pull requests for Cargo and GitHub Actions updates
   weekly; actions stay pinned by commit SHA. A Cargo update fails the `check` job until
   `scripts/third-party-licenses.sh` is run on its branch and the regenerated
-  `packaging/third-party-licenses.txt` and `packaging/third-party-licenses-windows.txt` are pushed.
+  `packaging/third-party-licenses*.txt` files (macOS, Windows, Linux, iOS, Android) are pushed.
 - `.github/workflows/audit.yml` runs `cargo deny check advisories` nightly, and the `deny` job of
   `ci.yml` checks advisories with bans, licences and sources on every pull request, engine updates
   included, and `release.yml`'s `deny` job again before signing: a new advisory holds back an
