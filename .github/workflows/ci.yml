@@ -169,7 +169,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           components: clippy
-          targets: aarch64-apple-ios-sim, aarch64-linux-android, armv7-linux-androideabi
+          targets: aarch64-apple-ios-sim, aarch64-apple-ios, aarch64-linux-android, armv7-linux-androideabi
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: mobile
@@ -193,6 +193,12 @@ jobs:
           tar -xzf "$RUNNER_TEMP/nsh.tar.gz" -C "$RUNNER_TEMP"
           tar -xzf "$RUNNER_TEMP/nsh-android.tar.gz" -C "$RUNNER_TEMP"
           PATH="$RUNNER_TEMP/nsh/bin:$PATH" android/build.sh
+      - name: iOS device build
+        # Links the app as release.yml does, which clippy for the simulator does not.
+        working-directory: mobile/app
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        run: PATH="$RUNNER_TEMP/nsh/bin:$PATH" nsh package --target ios -o "$RUNNER_TEMP/ios"
 
   linux:
     needs: changes
