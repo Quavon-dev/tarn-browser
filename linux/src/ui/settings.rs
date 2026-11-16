@@ -262,11 +262,16 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             .child(group().child(switch(sort, "Sort downloads into folders", toggle_off(SORT_DOWNLOADS))))
             .child(note("New files go into Images, Videos, Audio, Documents, Archives or Installers inside Downloads; other types stay at the top."))
             .child(section("About"))
-            .child(view().flex_row().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(
-                ui,
-                "Source code",
-                browser_core::SOURCE_URL,
-            ))),
+            .child(
+                view()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL))
+                    .child(link_pill(ui, "Source code", browser_core::SOURCE_URL))
+                    .child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL))
+                    .child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)),
+            ),
         Pane::Appearance => body.child(view().pt_3().child(super::appearance::pane(ui))),
         Pane::Search => {
             let engines: Vec<(usize, String)> = ENGINES.iter().enumerate().map(|(ix, e)| (ix, e.name.to_owned())).collect();

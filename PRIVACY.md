@@ -1,6 +1,11 @@
 # Privacy notice
 
-Tarn has no accounts, no telemetry and no servers of its own. Browsing data stays on your Mac.
+Tarn has no accounts, no telemetry and no servers of its own. Browsing data stays on your device.
+
+Tarn is published by Quavon UG (haftungsbeschränkt), Langbehnstraße 39, 83022 Rosenheim, Germany,
+contact@tarnbrowser.com ([imprint](https://tarnbrowser.com/imprint)), the controller under the GDPR for
+this notice. Tarn runs on macOS, Windows, Linux, iOS and Android; paths and menus below are macOS's
+unless a passage names another client. A summary, with the privacy notice of Tarn's website, is at https://tarnbrowser.com/privacy.
 
 ## What stays on your device
 
@@ -59,7 +64,7 @@ Settings › Privacy › Connections Tarn makes.
 |---|---|---|---|
 | Update check | GitHub (Releases of this repository) | Your IP address and Tarn version (on Windows only your IP address: Tarn fetches the signed `windows-update.json` and, when it names a later version, downloads that installer); from the `nightly` release in place of the latest one while Settings › General › Nightly builds is on | Once a day while Settings › General › Check for updates automatically is on (the default), and when you choose Tarn › Check for Updates…, on macOS and Windows |
 | Filter-list update | GitHub (Releases of this repository) | Your IP address. Every list is downloaded whatever you switched on, so the download does not reveal your blocking choices | Once a day; switch off in Settings › Privacy |
-| Fraudulent-website check | Apple, which relays Google Safe Browsing; done by WebKit itself | Shortened hashes of the addresses you visit, not the addresses | While "Block dangerous sites" is on (the default); off with that switch |
+| Fraudulent-website check | Apple, which relays Google Safe Browsing; done by WebKit itself. On Android, Google directly, done by the system WebView's Safe Browsing | Shortened hashes of the addresses you visit, not the addresses | While "Block dangerous sites" is on (the default); off with that switch. On Android the system WebView's default, which Tarn leaves on |
 | Extension catalog and downloads | GitHub (the repository you name, or the official catalog in `Quavon-dev/tarn-extensions`) | Your IP address and which repository or extension you install or check | Only when you click Install, Check for Updates or Show Official Extensions in Settings › Extensions; switch off in Settings › Privacy (installing from a file keeps working) |
 | Theme catalog and downloads | GitHub (the repository you name, or the official catalog in `Quavon-dev/tarn-themes`) | Your IP address and which repository or theme you install or check | Only when you click Install, Check for Updates or Show Official Themes in Settings › Appearance, on every client; on macOS and Windows switch off with the same Settings › Privacy switch as extensions; Linux, iOS and Android have no such switch yet (themes from a file or the clipboard keep working) |
 | Site icon | The site you are on, or a server it already loaded from (such as its CDN, without cookies), through the tab's web engine with your Shield rules | Same as visiting the site | After a page loads over https; never under Lockdown; cleared with history |
@@ -112,8 +117,32 @@ Crash reports are kept locally. Nothing is sent unless you send it yourself. Whe
 internal error, it writes the error and where it happened to `last-panic.txt` in its data folder,
 replacing the previous one; it can contain the address of a page that was open.
 
+## Legal basis, recipients and your rights
+
+Quavon receives none of the data above: what Tarn stores stays on your device, and Tarn sends
+nothing to Quavon. Keeping it on your device is needed for the browser to do what you ask (section
+25(2) no. 2 TDDDG); it is kept until you delete it or uninstall Tarn.
+
+The connections in the table go to the receivers named there, who process your IP address under
+their own privacy terms. Update and filter-list checks keep Tarn secure and its block lists current,
+a legitimate interest (Art. 6(1)(f) GDPR); you can switch them off as described. Catalog and
+download requests happen because you ask for them (Art. 6(1)(b) GDPR). GitHub, Apple and Google
+may process this data in the United States, which the EU–US Data Privacy Framework covers for
+companies certified under it. Apple's App Store and Google Play process your store account and
+download under their own terms; Quavon receives only aggregated statistics from them.
+
+If you write to contact@tarnbrowser.com, Quavon uses your message only to answer it (Art. 6(1)(b) or (f)
+GDPR) and deletes it when the matter is settled, unless the law requires keeping it. Issues and
+pull requests on GitHub are public: do not put personal data or privacy requests there.
+
+You have the right of access, rectification, erasure, restriction, data portability and to object
+to processing based on legitimate interest (Art. 15 to 21 GDPR); write to contact@tarnbrowser.com. You may
+complain to a data protection authority; the one responsible for Quavon is the Bayerisches
+Landesamt für Datenschutzaufsicht (BayLDA), Promenade 18, 91522 Ansbach, Germany. Tarn makes no
+automated decisions about you and needs no data from you to work.
+
 ## Contact
 
-Questions about this notice: open an issue in this repository.
+Questions about this notice: contact@tarnbrowser.com.
 
 This notice is not legal advice; it describes how the software behaves.

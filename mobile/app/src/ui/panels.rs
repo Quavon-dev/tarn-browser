@@ -493,7 +493,7 @@ fn settings(ui: Ui) -> impl IntoElement {
             })
         }))))
         .child(section("About"))
-        .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)))
+        .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)).child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL)).child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)))
         .child(pane_heading(Pane::Appearance))
         .child(super::appearance::pane(ui))
         .child(pane_heading(Pane::Search))
