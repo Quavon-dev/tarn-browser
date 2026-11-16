@@ -1,3 +1,4 @@
+use nsh_core::geometry::{Points, Size};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
 
@@ -70,4 +71,24 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.wait_for("label:Ads: Off").unwrap();
     app.press("label:Done").unwrap();
     app.wait_for("label:Shield: Strict").unwrap();
+
+    app.press("label:Menu").unwrap();
+    app.press("New Tab >> nth=0").unwrap();
+    app.wait_for("label:Tabs 2").unwrap();
+    app.press("label:Tabs 2").unwrap();
+    assert!(!app.screen().shows("Open in Split View"), "a phone shows one page at a time");
+    app.press("Done").unwrap();
+    app.set_viewport(Size::new(Points(1024.), Points(768.))).unwrap();
+    app.press("label:Tabs 2").unwrap();
+    app.press("label:Open in Split View >> nth=0").unwrap();
+    app.wait_for("label:Remove from Split View").unwrap();
+    app.press("label:Tabs 2").unwrap();
+    app.press("Rotate Layout").unwrap();
+    app.press("Close Split View").unwrap();
+    assert!(!app.screen().shows("Close Split View"), "a closed split leaves its tabs open");
+    app.press("label:Open in Split View >> nth=0").unwrap();
+    app.wait_for("label:Remove from Split View").unwrap();
+    app.press("label:Close Tab >> nth=1").unwrap();
+    app.wait_for("label:Tabs 1").unwrap();
+    assert!(!app.screen().shows("Remove from Split View"), "a split left with one pane ends");
 }

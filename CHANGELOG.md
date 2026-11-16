@@ -16,7 +16,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   or close it, or drag it onto another pane to swap the two; both dividers drag, a double click
   evens them out, Rotate Split Layout stacks the panes, and the tab menu has a Split View submenu.
   New shortcuts focus the next or previous pane (⌃⌘] / ⌃⌘[ on macOS, Ctrl+Alt+] / [ on Linux),
-  swap panes, rotate and remove a tab.
+  swap panes, rotate and remove a tab. On iOS and Android tablets a split shows its panes side by
+  side with a header each, and the Tabs sheet opens, rotates and closes it.
 - macOS and Windows: `>` in the address field lists every command in a scrolling list, leaves out
   commands with nothing to act on and names Pin, Mute and Split by state; suggestions wrap at the
   ends and Page Up / Page Down jump to the first and last row; Esc declines a page's dialog or

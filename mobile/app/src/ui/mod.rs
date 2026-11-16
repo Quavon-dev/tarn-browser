@@ -26,6 +26,8 @@ pub type AppShell = Shell<Data>;
 
 const SEARCH_ROW: f32 = 48.;
 const SEARCH_WIDTH: f32 = 520.;
+const PANE_HEADER: f32 = 40.;
+const PANE_GAP: f32 = 2.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
@@ -114,6 +116,11 @@ impl Ui {
         window().width.0 >= WIDE_LAYOUT
     }
 
+    /// Where `key` sits in the split on screen; a phone shows one pane at a time.
+    fn pane(self, key: TabKey) -> Option<browser_core::split::Share> {
+        if self.wide() { self.read(|s| s.pane_share(key)) } else { None }
+    }
+
     fn browsing(self) -> bool {
         matches!(self.screen.get(), Screen::Browse | Screen::Find) && !self.editing.get() && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
     }
@@ -133,7 +140,7 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
     let key = item.get_untracked().key;
     let handle = element_ref();
     VIEWS.with(|v| v.borrow_mut().insert(key, handle));
-    native("tarn.webview")
+    let page = native("tarn.webview")
         .element_ref(&handle)
         .prop("tab", move || json!(item.get().tab))
         .prop("profile", move || json!(item.get().profile))
@@ -145,10 +152,66 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
         .prop("zaps", move || json!(item.get().zaps))
         .prop("sortDownloads", move || json!(item.get().sort_downloads))
         .prop("load", move || item.get().load.map_or(Value::Null, |l| json!({ "url": l.url, "seq": l.seq, "opener": l.opener })))
-        .prop("active", move || json!(ui.read(|s| s.model.active == Some(key) && s.active_prompt().is_none() && s.external.is_none())))
+        .prop("active", move || {
+            let shown = ui.pane(key).is_some();
+            json!(ui.read(|s| (shown || s.model.active == Some(key)) && s.active_prompt().is_none() && s.external.is_none()))
+        })
         .on_native_event(move |e: &NativeEvent| ui.act(|s| s.event(key, &e.name, &e.data, browser_core::now())))
-        .flex_1()
-        .style_when(move || !(ui.browsing() && ui.read(|s| s.model.active == Some(key) && !s.active_url().is_empty())), |s| s.hidden())
+        .flex_1();
+    let focused = move || ui.read(|s| s.model.active == Some(key));
+    view()
+        .style_with(move |s| match ui.pane(key) {
+            Some((x, y, w, h)) => {
+                s.absolute().left(relative(x)).top(relative(y)).w(relative(w)).h(relative(h)).p(px(PANE_GAP)).border_1().border_color(if focused() {
+                    Theme::accent()
+                } else {
+                    Theme::surface_edge()
+                })
+            }
+            None => s.flex_1(),
+        })
+        .style_when(
+            move || !(ui.browsing() && (ui.pane(key).is_some() || ui.read(|s| s.model.active == Some(key) && !s.active_url().is_empty()))),
+            |s| s.hidden(),
+        )
+        .child(dynamic(move || ui.pane(key).is_some().then(|| pane_header(ui, key))))
+        .child(page)
+}
+
+fn pane_header(ui: Ui, key: TabKey) -> impl IntoElement {
+    let title = move || ui.read(|s| Some(s.tab_title(key)).filter(|t| !t.is_empty()).unwrap_or_else(|| "New Tab".to_owned()));
+    view()
+        .flex_row()
+        .items_center()
+        .h(px(PANE_HEADER))
+        .bg(move || if ui.read(|s| s.model.active == Some(key)) { Theme::panel_row() } else { Theme::surface() })
+        .child(
+            nsh_base::button()
+                .accessibility_label(title())
+                .flex_1()
+                .h_full()
+                .justify_center()
+                .pl_3()
+                .on_press(move || {
+                    ui.act(|s| {
+                        s.activate(key);
+                        Vec::new()
+                    })
+                })
+                .child(label(title).number_of_lines(1)),
+        )
+        .child(icon_button(icons::SHARE, "Remove from Split View", move || {
+            ui.act(|s| {
+                s.leave_split(key);
+                Vec::new()
+            })
+        }))
+        .child(icon_button(icons::CLOSE, "Close Tab", move || {
+            ui.act(|s| {
+                s.close_tab(key);
+                Vec::new()
+            })
+        }))
 }
 
 fn notice(ui: Ui) -> impl IntoElement {
@@ -218,7 +281,7 @@ fn notice(ui: Ui) -> impl IntoElement {
 
 fn start(ui: Ui) -> impl IntoElement {
     when(
-        move || ui.read(|s| s.active_url().is_empty()) && ui.browsing(),
+        move || ui.read(|s| s.active_url().is_empty()) && ui.read(|s| s.model.active).and_then(|a| ui.pane(a)).is_none() && ui.browsing(),
         move || {
             use browser_core::fog::{FRAME, frame, step};
             let fog = tarn_nsh_shared::fog::fog(
@@ -299,6 +362,15 @@ pub fn App() -> impl IntoElement {
         untracked(|| {
             ui.act(|s| {
                 s.follow_appearance(light);
+                Vec::new()
+            })
+        });
+    });
+    effect(move || {
+        let wide = ui.wide();
+        untracked(|| {
+            ui.act(|s| {
+                s.set_wide(wide);
                 Vec::new()
             })
         });

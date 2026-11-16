@@ -644,3 +644,47 @@ fn views_carry_the_themes_website_sheets_but_never_in_private() {
     assert!(shell.model.private());
     assert!(shell.views()[0].theme_styles.is_empty(), "never in a private space");
 }
+
+#[test]
+fn split_panes_stay_live_and_a_closed_pane_focuses_its_neighbour() {
+    let (_dir, mut shell) = open();
+    shell.set_wide(true);
+    let a = active(&shell);
+    let b = shell.new_tab(Some("https://b.example/")).unwrap();
+    let c = shell.new_tab(Some("https://c.example/")).unwrap();
+    shell.activate(a);
+    shell.split_with(c);
+    assert_eq!(shell.model.active, Some(c));
+    assert_eq!(shell.shown_split().map(|s| s.panes().to_vec()), Some(vec![a, c]));
+    assert_eq!(shell.pane_share(a), Some((0., 0., 0.5, 1.)));
+    assert_eq!(shell.pane_share(b), None);
+    for _ in 0..tarn_mobile::shell::LIVE_TABS {
+        shell.new_tab(Some("https://more.example/"));
+    }
+    shell.activate(c);
+    let live: Vec<_> = shell.views().iter().map(|v| v.key).collect();
+    assert!(live.contains(&a) && live.contains(&c), "both panes of the split on screen are live");
+    shell.close_tab(c);
+    assert_eq!(shell.model.active, Some(a), "the pane beside it takes the focus, not the tab before it");
+    assert!(!shell.splits.contains(a), "a split left with one pane ends");
+    shell.split_with(b);
+    shell.leave_split(b);
+    assert_eq!((shell.model.active, shell.shown_split()), (Some(b), None));
+}
+
+#[test]
+fn a_lone_tab_splits_with_a_copy_of_its_page() {
+    let (_dir, mut shell) = open();
+    let blank = active(&shell);
+    assert_eq!(shell.model.tabs.len(), 1);
+    shell.split_with(blank);
+    assert!(shell.shown_split().is_none() && shell.model.tabs.len() == 1, "a blank tab has no page to copy");
+    let a = shell.new_tab(Some("https://a.example/")).unwrap();
+    shell.close_tab(blank);
+    shell.activate(a);
+    assert_eq!(shell.model.tabs.len(), 1);
+    shell.split_with(a);
+    let panes = shell.shown_split().map(|s| s.panes().to_vec()).unwrap_or_default();
+    assert_eq!((panes.len(), panes[0]), (2, a));
+    assert_eq!(shell.model.tab(panes[1]).map(|t| t.url.clone()), shell.model.tab(a).map(|t| t.url.clone()));
+}

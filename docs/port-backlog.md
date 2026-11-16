@@ -84,7 +84,7 @@ macOS reference: `crates/app/src/split.rs`, `crates/app/src/sidebar.rs` (`tab_ro
 
 - [x] Windows — same code in `crates/app`
 - [x] Linux — `linux/src/browser/split.rs`, `linux/src/ui/split.rs`
-- [ ] iOS — no split view yet; a tablet-width layout in `mobile/app` could place two web views by `layout`
+- [ ] iOS — wide layouts have panes, headers and the Tabs sheet actions (`mobile/app/src/ui/mod.rs` `web_view`, `pane_header`; `panels.rs`), and a phone shows the active pane only; still missing: a draggable divider with double-tap to even out, dragging a header onto a pane to swap, and focusing a pane by tapping its page (Linux reports that through the web view's `pressed` event)
 - [ ] Android — same as iOS
 
 ### Clean Up (2026-11-16)

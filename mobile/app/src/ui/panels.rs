@@ -127,6 +127,16 @@ fn tabs(ui: Ui) -> impl IntoElement {
         })
     };
     let movable = computed(move || ui.read(|s| !s.in_burner() && s.model.active.is_some_and(|k| !s.move_targets(k).is_empty())));
+    let split = move |f: fn(&mut super::AppShell, TabKey) -> bool| {
+        move || {
+            ui.act(|s| {
+                if let Some(active) = s.model.active {
+                    f(s, active);
+                }
+                Vec::new()
+            })
+        }
+    };
     view()
         .gap_3()
         .child(caption(move || ui.read(|s| s.model.current_space().map(|c| c.space.name.clone()).unwrap_or_default())).text_color(Theme::space_label).px_1())
@@ -152,6 +162,28 @@ fn tabs(ui: Ui) -> impl IntoElement {
                             .child(label(title.clone()).font_weight(FontWeight::SEMIBOLD).number_of_lines(1).flex_1())
                             .child(dynamic(move || {
                                 (ui.wide() && movable.get()).then(|| icon_button(icons::CHEVRON_RIGHT, "Move to Space", move || ui.show(Screen::Move(key))))
+                            }))
+                            .child(dynamic(move || {
+                                let menu = ui.read(|s| s.splits.menu(s.model.active, key));
+                                (ui.wide() && menu.enabled).then(|| {
+                                    icon_button(icons::APP_WINDOW, menu.entry.label(), move || {
+                                        ui.act(|s| {
+                                            s.split_with(key);
+                                            Vec::new()
+                                        });
+                                        ui.show(Screen::Browse);
+                                    })
+                                })
+                            }))
+                            .child(dynamic(move || {
+                                (ui.wide() && ui.read(|s| s.splits.contains(key))).then(|| {
+                                    icon_button(icons::SHARE, "Remove from Split View", move || {
+                                        ui.act(|s| {
+                                            s.leave_split(key);
+                                            Vec::new()
+                                        })
+                                    })
+                                })
                             }))
                             .child(icon_button(icons::CLOSE, "Close Tab", move || {
                                 ui.act(|s| {
@@ -214,6 +246,15 @@ fn tabs(ui: Ui) -> impl IntoElement {
                                 ui.show(Screen::Move(key));
                             }
                         })
+                    })
+                }))
+                .child(dynamic(move || {
+                    (ui.wide() && ui.read(|s| s.shown_split().is_some())).then(|| {
+                        view()
+                            .flex_row()
+                            .gap_2()
+                            .child(pill("Rotate Layout", split(|s, k| s.splits.rotate(k))))
+                            .child(pill("Close Split View", split(|s, k| s.splits.close(k))))
                     })
                 }))
                 .child(pill("Find in Tabs", move || ui.show(Screen::FindTabs)))

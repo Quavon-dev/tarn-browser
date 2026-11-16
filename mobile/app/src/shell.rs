@@ -5,6 +5,7 @@ use std::rc::Rc;
 use browser_core::closed::{Closed, ClosedTab};
 use browser_core::command::{ENGINES, Input, classify_input};
 use browser_core::prompts::Prompt;
+use browser_core::split::Splits;
 use browser_core::suggest;
 use browser_core::tabs::{Model, TabKey};
 use browser_core::{Core, site::site_host};
@@ -95,6 +96,9 @@ pub struct SpaceItem {
 pub struct Shell<D: Platform> {
     pub core: Core<D>,
     pub model: Model,
+    pub splits: Splits<TabKey>,
+    /// Whether the layout is wide enough to show a split's panes; a phone shows one tab.
+    pub wide: bool,
     pub pages: HashMap<TabKey, Page>,
     pub prompts: Vec<PromptRequest>,
     pub external: Option<(TabKey, String)>,
@@ -136,6 +140,8 @@ impl<D: Platform> Shell<D> {
         let mut shell = Shell {
             core,
             model,
+            splits: Splits::default(),
+            wide: false,
             pages: HashMap::new(),
             prompts: Vec::new(),
             external: None,
@@ -255,19 +261,45 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn activate(&mut self, key: TabKey) {
-        let Some(tab) = self.model.tab(key).cloned() else { return };
+        if self.model.tab(key).is_none() {
+            return;
+        }
         self.model.active = Some(key);
         if self.external.as_ref().is_some_and(|(k, _)| *k != key) {
             self.external = None;
         }
-        for gone in self.model.lifecycle.activate(key) {
-            self.unmount(gone);
+        let partners = self.splits.of(key).filter(|_| self.wide).map(|s| s.others(key)).unwrap_or_default();
+        let mut gone: Vec<TabKey> = partners.iter().flat_map(|p| self.model.lifecycle.activate(*p)).collect();
+        gone.extend(self.model.lifecycle.activate(key));
+        for gone in gone {
+            if gone == key || partners.contains(&gone) {
+                self.model.lifecycle.keep(gone);
+            } else {
+                self.unmount(gone);
+            }
         }
         self.model.touch(&self.core, key, browser_core::now());
+        for pane in partners.into_iter().chain([key]) {
+            self.wake(pane);
+        }
+    }
+
+    /// Follows the layout's width: a wide one wakes the active tab's split, a phone lets it sleep.
+    pub fn set_wide(&mut self, wide: bool) {
+        if self.wide != wide {
+            self.wide = wide;
+            if let Some(active) = self.model.active {
+                self.activate(active);
+            }
+        }
+    }
+
+    fn wake(&mut self, key: TabKey) {
+        let Some(tab) = self.model.tab(key).cloned() else { return };
         if !self.loads.contains_key(&key) && !tab.url.is_empty() {
             self.load_in(key, &tab.url, None);
         }
-        self.pages.entry(key).or_insert_with(|| Page { url: tab.url.clone(), title: tab.title.clone(), zoom: 1.0, ..Page::default() });
+        self.pages.entry(key).or_insert_with(|| Page { url: tab.url, title: tab.title, zoom: 1.0, ..Page::default() });
     }
 
     pub(crate) fn load_in(&mut self, key: TabKey, url: &str, opener: Option<String>) {
@@ -357,6 +389,9 @@ impl<D: Platform> Shell<D> {
         let space_id = tabs.first()?.1.space_id;
         let active = self.model.active.filter(|a| keys.contains(a));
         let neighbour = active.and_then(|a| {
+            if let Some(heir) = self.splits.heir(a, keys) {
+                return Some(heir);
+            }
             let order = self.model.visible_tab_order();
             let at = order.iter().position(|k| *k == a)?;
             order[at + 1..].iter().chain(order[..at].iter().rev()).find(|k| !keys.contains(k)).copied()
@@ -401,6 +436,7 @@ impl<D: Platform> Shell<D> {
     }
 
     pub(crate) fn forget(&mut self, key: TabKey) {
+        self.splits.leave(key);
         self.unmount(key);
         self.shielded.remove(&key);
         if self.reader.as_ref().is_some_and(|r| r.key == key) {

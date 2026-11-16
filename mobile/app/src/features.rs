@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use browser_core::snapshot::{self, SpaceSnapshot};
+use browser_core::split::{Share, Split};
 use browser_core::tabs::{TabKey, duplicates};
 use store::{Bookmark, Counter, Id, Schedule, Snapshot};
 use url::Url;
@@ -37,6 +38,44 @@ impl<D: Platform> Shell<D> {
     pub(crate) fn tab_url(&self, key: TabKey) -> String {
         let page = self.pages.get(&key).and_then(|p| p.committed.clone().or_else(|| Some(p.url.clone()))).filter(|u| !u.is_empty());
         page.or_else(|| self.model.tab(key).map(|t| t.url.clone())).unwrap_or_default()
+    }
+
+    pub fn shown_split(&self) -> Option<&Split<TabKey>> {
+        self.model.active.and_then(|a| self.splits.of(a))
+    }
+
+    /// Where `key` sits in the split on screen, as shares of the page area.
+    pub fn pane_share(&self, key: TabKey) -> Option<Share> {
+        let split = self.shown_split()?;
+        split.layout().get(split.panes().iter().position(|k| *k == key)?).copied()
+    }
+
+    /// Adds `key` to the active tab's split or starts one with the two; the active tab itself gets
+    /// the space's most recently used tab outside a split, else a copy of itself.
+    pub fn split_with(&mut self, key: TabKey) {
+        let Some(active) = self.model.active else { return };
+        let partner = if active != key { Some(key) } else { self.splits.partner(active, self.model.tabs.iter().map(|t| (self.model.key(t), t.last_active))) };
+        let url = self.tab_url(active);
+        // The burner has one tab, and a copy would load in it instead of beside it.
+        let partner = match partner {
+            None if self.in_burner() => return self.notice = Some("Split View needs a second tab.".into()),
+            None if url::Url::parse(&url).is_err() => return,
+            None => match self.new_tab(Some(&url)) {
+                Some(copy) => copy,
+                None => return,
+            },
+            Some(partner) => partner,
+        };
+        if self.splits.join(active, partner) {
+            self.activate(partner);
+        }
+    }
+
+    /// Takes `key` out of its split; a split left with one pane ends.
+    pub fn leave_split(&mut self, key: TabKey) {
+        if let Some(heir) = self.splits.leave(key).filter(|_| self.model.active == Some(key)) {
+            self.activate(heir);
+        }
     }
 
     pub fn close_duplicates(&mut self) {
