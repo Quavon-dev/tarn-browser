@@ -58,7 +58,9 @@ engines get their fixes from their vendors (see "Scope").
 ## Verifying a release
 
 Every release on GitHub lists `SHA256SUMS`, and every binary carries a GitHub attestation signed
-by the release workflow of this repository, naming the commit and tag it was built from.
+by the release workflow of this repository, naming the commit and tag it was built from. A
+macOS-only release carries the previous release's `windows-update.json` and `.sig` over unchanged;
+they are outside its `SHA256SUMS`, and their Ed25519 signature covers them.
 
 ```sh
 shasum -a 256 -c SHA256SUMS --ignore-missing
@@ -88,7 +90,8 @@ scanning alerts. `main` takes no change while a required check fails: `check` an
 (formatting, Clippy and tests of the shared crates and the desktop app), `deny` (`cargo deny` on
 every workspace) and CodeQL. The other clients' jobs also run on every pull request and are fixed
 before merging, but GitHub does not enforce them. Pull requests of the update app, which only move
-the pinned Chromium, skip the advisory part of `deny`. The release workflow runs `cargo deny` again
+the pinned Chromium, skip `deny`'s advisory check on the root workspace and its checks on the
+other workspaces. The release workflow runs `cargo deny` again
 on every workspace of the exact commit it releases, Chromium updates included, and signs nothing
 while it fails.
 
@@ -105,8 +108,8 @@ while it fails.
 - **Static analysis:** a CodeQL alert of high or critical security severity, or of error severity,
   blocks merging. Medium alerts are fixed within 30 days, low ones with the next change to that
   code; zizmor alerts follow the same thresholds. An alert is dismissed only as a false positive
-  or not exploitable, with the reason in the dismissal. Clippy warnings block merging; a
-  suppression needs a reason next to it.
+  or not exploitable, with the reason in the dismissal. Clippy warnings block merging; review
+  accepts a suppression only with a reason next to it.
 
 ## Scope
 

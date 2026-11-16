@@ -59,7 +59,8 @@ job runs `cargo deny check` (advisories, bans, licences, sources) on every works
 commit, engine updates included, and `sign` waits for it (`SECURITY.md`, "Dependency and code
 scanning"). The `assets` job, which runs no build code, downloads each artifact by the ID its build
 job reported and accepts only that job's own file names, so no job can replace another platform's
-file; it writes `SHA256SUMS` and attests every binary, the macOS archives included.
+file; it writes `SHA256SUMS` and attests every binary (the macOS archives included), the SBOMs and
+`SHA256SUMS` itself.
 
 The archives are attested (`actions/attest`, predicate type
 `https://github.com/Quavon-dev/tarn-browser/attestations/release/v1`, predicate `{commit, tag}`).
@@ -296,8 +297,11 @@ Applied by hand in the repository and organisation settings; no workflow changes
       enforces a mitigation (`crates/ai`, `crates/import`, `crates/sync`, `crates/cli-bridge`, the engine's policy files); the file
       itself is the full list. Until then GitHub ignores
       its lines and no Code Owners review is required.
-- [ ] Ruleset on tags `v*`: restrict creation, update and deletion; bypass for the maintainers and
-      the update app (it creates the tag of its merge).
+- [ ] Ruleset on tags `v*`: restrict creation, update and deletion; bypass for organisation
+      admins and the update app (it creates the tag of its merge). An admin can therefore tag any
+      commit and, since `release-signing` allows self-review, approve its signing: the release
+      gates still run, but no second person reviews that commit. Turning on prevent-self-review
+      closes this at the cost of needing a second maintainer for every release.
 - [ ] Environment `release-signing` also holds the variable `CHROMIUM_UPDATE_APP_CLIENT_ID` and the
       secret `CHROMIUM_UPDATE_APP_KEY` (a private key of the update app of its own), so the `sign`
       job of a release started with `start-release.yml` can create the `v*` tag.

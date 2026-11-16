@@ -44,7 +44,7 @@ tmp=$(mktemp -d)
 git -C "$NEW" worktree add -q --detach "$tmp/main" origin/main
 if "$tmp/main/scripts/check-version.sh" "$TAG"; then ok=true; else ok=false; fi
 git -C "$NEW" worktree remove --force "$tmp/main"; rm -rf "$tmp"
-$ok || { echo "Version files disagree with $TAG; fix them first."; exit 1; }
+$ok || { echo "Version files or CHANGELOG.md disagree with $TAG; fix them first."; exit 1; }
 
 message=(-m "$TAG")
 $CRITICAL && message+=(-m critical)
