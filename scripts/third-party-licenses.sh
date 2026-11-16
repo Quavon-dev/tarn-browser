@@ -19,7 +19,7 @@ generate() {
       | ([$roots, {}] | until(.[0] | length == 0;
           .[0][0] as $id | if .[1][$id] then [.[0][1:], .[1]] else [.[0][1:] + $graph[$id], .[1] + {($id): true}] end)
         | .[1]) as $used
-      | .packages[] | select($used[.id] and (.id as $id | $members | index($id) | not))
+      | .packages[] | select($used[.id] and .source != null and (.id as $id | $members | index($id) | not))
       | [.name, .version, (.license // "see licence files"), (.repository // "https://crates.io/crates/\(.name)/\(.version)"), ((.authors | join(", ")) | if . == "" then "-" else . end), (.manifest_path | sub("/Cargo.toml$"; ""))] | @tsv' \
     | LC_ALL=C sort -t$'\t' -k1,1 -k2,2V \
     | while IFS=$'\t' read -r name version license repository authors dir; do
@@ -66,6 +66,13 @@ The Microsoft Visual C++ runtime (vcruntime140.dll), redistributed under the Vis
 write third-party-licenses-linux.txt 'WebKitGTK, GTK and the other system libraries come from your distribution under their own licences.' \
   x86_64-unknown-linux-gnu "" tarn-linux linux/Cargo.toml
 write third-party-licenses-ios.txt 'WebKit and the system frameworks are part of iOS.' \
-  aarch64-apple-ios "" tarn-mobile-ios mobile/Cargo.toml
-write third-party-licenses-android.txt 'Android System WebView and the system libraries are part of Android.' \
-  aarch64-linux-android "" tarn-mobile-android mobile/Cargo.toml
+  aarch64-apple-ios "" tarn-mobile mobile/Cargo.toml
+write third-party-licenses-android.txt $'Android System WebView and the system libraries are part of Android.
+Java libraries (releaseRuntimeClasspath of mobile/android/host), each under the Apache License 2.0, its text at the end:
+androidx.webkit:webkit 1.18.0, androidx.annotation:annotation 1.8.1, androidx.annotation:annotation-jvm 1.8.1,
+androidx.annotation:annotation-experimental 1.3.0, androidx.arch.core:core-common 2.0.0, androidx.collection:collection 1.0.0,
+androidx.core:core 1.1.0, androidx.lifecycle:lifecycle-common 2.0.0, androidx.lifecycle:lifecycle-runtime 2.0.0,
+androidx.versionedparcelable:versionedparcelable 1.1.0 (Copyright The Android Open Source Project);
+org.jetbrains.kotlin:kotlin-stdlib 1.7.10, org.jetbrains.kotlin:kotlin-stdlib-common 1.7.10, org.jetbrains:annotations 13.0
+(Copyright JetBrains s.r.o. and Kotlin Programming Language contributors); org.jspecify:jspecify 1.0.0 (Copyright The JSpecify Authors).' \
+  aarch64-linux-android "" tarn-mobile mobile/Cargo.toml

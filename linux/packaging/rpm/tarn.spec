@@ -29,8 +29,8 @@ cargo build --release --locked
 TARN_BIN=${CARGO_TARGET_DIR:-linux/target}/release/tarn sh linux/packaging/install.sh %{buildroot}
 
 %files
-%license LICENSE packaging/third-party-licenses-linux.txt
+%license %{_datadir}/licenses/tarn/LICENSE
+%license %{_datadir}/licenses/tarn/third-party-licenses-linux.txt
 %{_bindir}/tarn
 %{_datadir}/applications/de.quavon.tarn.desktop
 %{_datadir}/icons/hicolor/scalable/apps/de.quavon.tarn.svg
-%exclude %{_datadir}/licenses/tarn
