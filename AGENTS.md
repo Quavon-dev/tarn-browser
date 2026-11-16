@@ -164,7 +164,10 @@ Security and privacy
    that skips one, and do not otherwise make a mitigation in `docs/threat-model.md` weaker.
    Exception, decided by the maintainers: releases and nightly builds are signed in CI (Developer
    ID, notarisation, the update key), in the `release-signing` and `nightly-signing` environments
-   as `docs/threat-model.md` S4 describes, in place of keeping signing keys off CI.
+   as `docs/threat-model.md` S4 describes, in place of keeping signing keys off CI. A release may
+   also start on GitHub (`start-release.yml`): its `sign` job creates the `v*` tag with the update
+   app once a maintainer has approved the `release-signing` deployment, in place of a maintainer's
+   signed tag.
 5. **No new or changed connections.** Do not add a request the shell makes, or change the
    receiver, content or frequency of one listed in `PRIVACY.md` ("Connections the browser itself
    makes"). No telemetry, analytics, accounts or crash upload. Exception, decided by the
