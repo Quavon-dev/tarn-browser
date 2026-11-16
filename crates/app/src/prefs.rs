@@ -372,7 +372,9 @@ impl Browser {
                 }
                 self.sleep_idle_tabs(cx);
             }
-            Choice::ArchiveAfter => self.archive_unused_tabs(cx),
+            Choice::ArchiveAfter => {
+                self.archive_unused_tabs(cx);
+            }
         }
         cx.refresh_windows();
     }

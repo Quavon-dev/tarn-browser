@@ -156,7 +156,7 @@ impl<D: Platform> Shell<D> {
             return false;
         }
         let active = self.model.active == Some(key);
-        let next = active.then(|| self.model.close_neighbour(key, false)).flatten();
+        let next = active.then(|| self.model.close_neighbour(key, &[], false)).flatten();
         self.forget(key);
         self.model.reload_space(&self.core);
         if active {

@@ -129,7 +129,7 @@ pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
     ("Close Duplicate Tabs", "same page dedupe clean up", &tabs::CloseDuplicateTabs),
     ("Site Settings", "shield permissions zoom mute clear data", &site_settings::SiteSettings),
     ("Zap Element", "hide remove element block", &zaps::ZapElement),
-    ("Open or Close Split View", "side by side two tabs", &split::ToggleSplitView),
+    ("Open or Close Split View", "side by side tabs grid four", &split::ToggleSplitView),
     ("Reader", "article reading view text", &reader::ToggleReader),
     ("Save for Later", "reading list read later bookmark", &reader::SaveForLater),
     ("Picture in Picture", "video pip float", &capture::PictureInPicture),
@@ -151,6 +151,7 @@ impl Render for Browser {
         if window.is_window_active() {
             self.refresh_menus(cx);
         }
+        self.keep_spinning(cx);
         // A field that is dropped or no longer drawn keeps no focus path, and with it no action reaches the browser.
         let stranded = window.focused(cx).is_none();
         if self.hidden_field_focused(window, cx) || (std::mem::take(&mut self.refocus) || stranded) && !self.overlay_open() && self.active_prompt().is_none() {
@@ -263,6 +264,10 @@ impl Render for Browser {
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Back), cx.listener(|b, _, _, _| b.swipe_history(true)))
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Forward), cx.listener(|b, _, _, _| b.swipe_history(false)));
         let shown = self.sidebar_shown();
+        // A list taken away under the pointer sends no hover-out.
+        if shown < 1. {
+            self.motion.pointer = None;
+        }
         let sidebar = (shown > 0.).then(|| {
             div()
                 .flex_none()

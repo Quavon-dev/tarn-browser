@@ -151,6 +151,10 @@ thread_local! {
 #[cfg(target_os = "macos")]
 static NSAPP_SEND_EVENT: OnceLock<Imp> = OnceLock::new();
 const HEARTBEAT_HZ: u64 = 30;
+const IDLE_HEARTBEAT_HZ: u64 = 2;
+/// How often a shown Chromium page's cookies are passed to WebKit between loads and tab switches,
+/// which pass them at once.
+const COOKIE_SYNC_SECS: u64 = 10;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -625,6 +629,12 @@ pub fn shutdown() {
     }
 }
 
+/// Whether AppKit is dispatching an event right now, so `NSApp.currentEvent` is the one being handled.
+#[cfg(target_os = "macos")]
+pub(super) fn in_send_event() -> bool {
+    HANDLING_SEND_EVENT.get()
+}
+
 #[cfg(target_os = "macos")]
 extern "C-unwind" fn is_handling_send_event(_: &AnyObject, _: Sel) -> Bool {
     Bool::new(HANDLING_SEND_EVENT.get())
@@ -717,12 +727,14 @@ extern "C" fn heartbeat(context: *mut c_void) {
         return;
     }
     pump(context);
+    // With no page on screen CEF's own pump requests carry the work; the beat only backs them up.
+    let visible = super::view::any_visible();
     let beat = BEATS.get().wrapping_add(1);
     BEATS.set(beat);
-    if beat.is_multiple_of(2 * HEARTBEAT_HZ) && super::view::any_visible() {
+    if visible && beat.is_multiple_of(COOKIE_SYNC_SECS * HEARTBEAT_HZ) {
         super::cookies::changed_in_chromium();
     }
-    schedule(1_000_000_000 / HEARTBEAT_HZ as i64, heartbeat);
+    schedule(1_000_000_000 / if visible { HEARTBEAT_HZ } else { IDLE_HEARTBEAT_HZ } as i64, heartbeat);
 }
 
 /// CEF asks for this from any of its threads.

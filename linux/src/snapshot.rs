@@ -77,6 +77,8 @@ pub struct Snapshot {
     pub secure: bool,
     pub private: bool,
     pub rows: Vec<Row>,
+    /// The tile grid above the pinned tabs.
+    pub tiles: Vec<Row>,
     pub views: Vec<ViewItem>,
     pub url: String,
     pub title: String,
@@ -92,6 +94,8 @@ pub struct Snapshot {
     pub prompt: Option<Prompt>,
     pub notice: Option<Notice>,
     pub pinned: bool,
+    /// The active tab is one of the tiles.
+    pub tile: bool,
     pub folders: Vec<(Id, String)>,
     pub move_targets: Vec<(usize, String)>,
     pub toast: Option<crate::browser::Toast>,
@@ -168,14 +172,28 @@ fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: 
     }
 }
 
+#[cfg(test)]
 pub fn rows(b: &Browser) -> Vec<Row> {
+    rows_with(b, &b.heavy_tabs())
+}
+
+fn rows_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
     let mut rows = Vec::new();
-    let heavy = b.heavy_tabs();
-    tab_rows(b, &heavy, None, Some(TabKind::Pinned), 0, &mut rows);
-    folder_rows(b, &heavy, None, 0, &mut rows);
-    tab_rows(b, &heavy, None, Some(TabKind::Ephemeral), 0, &mut rows);
-    tab_rows(b, &heavy, None, Some(TabKind::Tile), 0, &mut rows);
+    tab_rows(b, heavy, None, Some(TabKind::Pinned), 0, &mut rows);
+    folder_rows(b, heavy, None, 0, &mut rows);
+    tab_rows(b, heavy, None, Some(TabKind::Ephemeral), 0, &mut rows);
     rows
+}
+
+#[cfg(test)]
+pub fn tiles(b: &Browser) -> Vec<Row> {
+    tiles_with(b, &b.heavy_tabs())
+}
+
+fn tiles_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
+    let mut tiles = Vec::new();
+    tab_rows(b, heavy, None, Some(TabKind::Tile), 0, &mut tiles);
+    tiles
 }
 
 pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
@@ -209,6 +227,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
 
 pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
     let key = b.model.active;
+    let heavy = b.heavy_tabs();
     let page = b.active_page().cloned().unwrap_or_default();
     let host = b.site_host().unwrap_or_default();
     let profile_id = b.model.profile().map(|p| p.1);
@@ -243,7 +262,8 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         blank,
         secure: !page.url.starts_with("http:"),
         private,
-        rows: rows(b),
+        rows: rows_with(b, &heavy),
+        tiles: tiles_with(b, &heavy),
         views: views(b, web_shown && !blank),
         url: page.url.clone(),
         title: page.title.clone(),
@@ -259,6 +279,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         prompt: page.prompts.front().cloned(),
         notice: b.notice.clone(),
         pinned: key.and_then(|k| b.model.tab(k)).is_some_and(|t| t.kind != TabKind::Ephemeral),
+        tile: key.and_then(|k| b.model.tab(k)).is_some_and(|t| t.kind == TabKind::Tile),
         folders: b.model.folders.iter().map(|f| (f.id, f.name.clone())).collect(),
         move_targets: key.map(|k| b.model.move_targets(&b.core, k)).unwrap_or_default().into_iter().map(|ix| (ix, space_label(b, ix))).collect(),
         toast: b.toast.clone(),

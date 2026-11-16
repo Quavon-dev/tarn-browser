@@ -40,6 +40,10 @@ const ADDRESS_WIDTH: f32 = 560.;
 const CLOSE_WIDTH: f32 = 28.;
 const CLOSE_GAP: f32 = 10.;
 const CLOSE_MS: f32 = 130.;
+const TILE_GAP: f32 = 6.;
+const TILE_HEIGHT: f32 = 40.;
+/// The sidebar list's width inside its border and padding.
+const LIST_WIDTH: f32 = SIDEBAR_WIDTH - 2. - 16.;
 use crate::webview;
 
 const PLACEMENT: &str = "linux.window_placement";
@@ -247,6 +251,41 @@ fn host_of(url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default()
 }
 
+/// Tile width for `count` tiles, rounded down so a full row never wraps.
+fn tile_width(count: usize) -> f32 {
+    let columns = browser_core::tabs::tile_columns(count, LIST_WIDTH, TILE_GAP) as f32;
+    ((LIST_WIDTH - (columns - 1.) * TILE_GAP) / columns).floor()
+}
+
+fn tiles(ui: Ui) -> View {
+    let count = move || ui.snap.with(|s| s.tiles.len());
+    view().flex_row().flex_wrap().gap(px(TILE_GAP)).mb_1().child(each(
+        move || ui.snap.with(|s| s.tiles.clone()),
+        |r| r.id(),
+        move |item, _| {
+            let RowKind::Tab(key) = item.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
+            let active = move || item.with(|r| r.active);
+            let tile = row(move || Some(SharedString::from(item.with(|r| r.label.clone()))), move || act(ui, |b| b.activate(key)))
+                .h(px(TILE_HEIGHT))
+                .px_0()
+                .justify_center()
+                .rounded(px(Theme::radius_tile()))
+                .bg(move || if active() { Theme::selected() } else { Theme::raised() })
+                .child(dynamic(move || {
+                    let host = item.with(|r| r.host.clone());
+                    site_tile(&host, 20.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element()
+                }));
+            view()
+                .w(move || px(tile_width(count())))
+                .rounded(px(Theme::radius_tile()))
+                .border_1()
+                .border_color(move || if active() { Theme::sidebar_edge() } else { Theme::hairline() })
+                .child(tile)
+                .into_element()
+        },
+    ))
+}
+
 fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
     each(
         move || {
@@ -432,6 +471,7 @@ fn sidebar(ui: Ui) -> View {
         .gap(px(2.))
         .px_1()
         .pb_2()
+        .child(when(move || ui.snap.with(|s| !s.tiles.is_empty()), move || tiles(ui)))
         .child(sidebar_rows(ui, true))
         .child(view().h(px(1.)).mx_2().my_2().bg(Theme::hairline()))
         .child(new)

@@ -272,12 +272,13 @@ unpack() (
 
 sign_tag() {
   local config="$1" tag="$2" skip_soak="$3" single_source="$4"
-  local repo mirror state signers jit identity notary feed key route
+  local repo mirror state signers jit media identity notary feed key route
   repo="$(field "$config" repo)"
   mirror="$(field "$config" mirror)"
   state="$(field "$config" state)"
   signers="$(field "$config" allowed_signers)"
   jit="$(field "$config" jit_entitlements)"
+  media="$(field "$config" media_entitlements)"
   identity="$(field "$config" identity)"
   notary="$(field "$config" notary_profile)"
   unpack_user="$(field "$config" unpack_user)"
@@ -364,9 +365,11 @@ sign_tag() {
   local flavor helper
   for flavor in "${HELPERS[@]}"; do
     helper="$app/Contents/Frameworks/tarn Helper$flavor.app"
-    if [[ "$flavor" == " (GPU)" || "$flavor" == " (Renderer)" ]]; then sign --entitlements "$jit" "$helper"; else sign "$helper"; fi
+    if [[ "$flavor" == " (GPU)" || "$flavor" == " (Renderer)" ]]; then sign --entitlements "$jit" "$helper"
+    elif [[ -z "$flavor" ]]; then sign --entitlements "$media" "$helper"
+    else sign "$helper"; fi
   done
-  sign "$app"
+  sign --entitlements "$media" "$app"
   codesign --verify --deep --strict "$app"
   ditto -c -k --keepParent "$app" "$work/notarize.zip"
   xcrun notarytool submit "$work/notarize.zip" --keychain-profile "$notary" --wait --output-format json > "$work/notary.json"

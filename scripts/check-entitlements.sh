@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Checks every signed binary of the bundle against its own entitlement list: no App Sandbox, no
-# entitlements but allow-jit in the GPU and renderer helpers. Entries are "<key> <value>", one line
-# per array element.
+# Checks every signed binary of the bundle against its own entitlement list: no App Sandbox,
+# allow-jit only in the GPU and renderer helpers, camera and microphone only in the app and the
+# plain helper. Entries are "<key> <value>", one line per array element.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -9,6 +9,8 @@ app="${1:-$root/target/release/Tarn.app}"
 frameworks="$app/Contents/Frameworks"
 
 jit="com.apple.security.cs.allow-jit true"
+media="com.apple.security.device.audio-input true
+com.apple.security.device.camera true"
 
 plist="$(mktemp)"
 trap 'rm -f "$plist"' EXIT
@@ -49,13 +51,15 @@ fi
 
 framework="$frameworks/Chromium Embedded Framework.framework"
 [[ -d "$framework" ]] || { echo "the bundle has no CEF framework" >&2; exit 1; }
-check "$app" ""
+check "$app" "$media"
 check "$framework" ""
 for lib in "$framework/Libraries/"*.dylib; do check "$lib" ""; done
 for flavor in "" " (GPU)" " (Renderer)" " (Plugin)" " (Alerts)"; do
   helper="$frameworks/tarn Helper$flavor.app"
   [[ -d "$helper" ]] || { echo "missing ${helper#"$app/"}" >&2; status=1; continue; }
-  if [[ "$flavor" == " (GPU)" || "$flavor" == " (Renderer)" ]]; then check "$helper" "$jit"; else check "$helper" ""; fi
+  if [[ "$flavor" == " (GPU)" || "$flavor" == " (Renderer)" ]]; then check "$helper" "$jit"
+  elif [[ -z "$flavor" ]]; then check "$helper" "$media"
+  else check "$helper" ""; fi
 done
 expected_entries="Chromium Embedded Framework.framework
 Sparkle.framework

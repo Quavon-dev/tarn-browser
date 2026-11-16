@@ -8,6 +8,14 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Settings › Permissions lists the camera, microphone, location and pop-up answers a profile
+  remembered, with Allow, Block and Forget (macOS, Windows, Linux, iOS, Android).
+- Split view holds up to four tabs; drop a tab on another tab in the sidebar to split them
+  (macOS, Windows).
+- Clean Up under New Tab sorts tabs into groups on this device and archives unused tabs (macOS,
+  Windows).
+- Tiles arrange themselves: one row while they fit, then as few rows as fit, filled evenly; Add to
+  Tiles and Remove from Tiles in a tab's menu (macOS, Windows, Linux).
 - Linux, iOS and Android apps on Native Shell over the same core crates.
 - Cookie-banner blocking.
 - Signed filter-list updates from this repository's releases, once a day.
@@ -41,6 +49,20 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Sites can use the camera and microphone again on macOS: the app declares both and asks macOS;
+  Chromium tabs ask through Tarn's prompt instead of refusing.
+- Chromium tabs apply a site's pop-up rule and count only refused pop-ups; tracking parameters
+  removed from typed addresses count on Linux, iOS and Android; more refused local-network
+  pop-ups count on iOS and Android.
+- Less work while pages load: spinners step 12 times a second instead of redrawing every display
+  frame; new site icons no longer rebuild the menu bar; Chromium's background timer slows down
+  with no Chromium page on screen.
+- macOS Chromium tabs: ⌘ and ⌃ shortcuts reach Tarn again; editing keys stay with the page.
+- Chromium tabs: the page menu keeps Chrome's copy, media, look-up and history items, and Inspect
+  where Web Inspector is on (Settings › Developer or a developer profile).
+- Closing several tabs at once reloads the sidebar once and picks the nearest tab that stays open; a
+  closed Chromium page no longer lingers on screen; rows close up at once under the pointer, so
+  repeated clicks close the next tab.
 - File upload fields open the system file picker on macOS (WebKit and Chromium) and Android.
 - Picking a tab in the sidebar, or with ⌘1–9 or Ctrl-Tab, closes an open new-tab launcher.
 - ⌘T works again after closing the new-tab launcher by picking a tab in the floating sidebar.

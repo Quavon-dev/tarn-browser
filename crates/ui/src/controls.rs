@@ -3,9 +3,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationElement, AnimationExt, AnyView, AnyWindowHandle, App, AppContext, Bounds, BoxShadow, Context, DisplayId, Div, ElementId, FontWeight,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Svg,
-    Transformation, Window, WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, percentage, point, prelude::FluentBuilder, px,
+    AnyView, AnyWindowHandle, App, AppContext, Bounds, BoxShadow, Context, DisplayId, Div, ElementId, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Svg, Transformation, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, percentage, point, prelude::FluentBuilder, px,
 };
 
 use crate::icon::{Icon, icon};
@@ -221,13 +221,25 @@ pub fn icon_button(id: impl Into<ElementId>, glyph: Icon, enabled: bool) -> Stat
     icon_frame(id, enabled).child(icon(glyph, 16., if enabled { Theme::muted() } else { Theme::faint() }))
 }
 
-/// The reload arrow turning once per `TURN`, for a page that is loading.
-pub fn spinner(id: impl Into<ElementId>, size: f32, color: Rgba) -> AnimationElement<Svg> {
-    icon(Icon::Reload, size, color)
-        .with_animation(id, Animation::new(TURN).repeat(), |arrow, t| arrow.with_transformation(Transformation::rotate(percentage(t))))
-}
+/// How often a loading page's spinner steps. The window redraws at this rate while a page loads,
+/// instead of at the display's refresh rate.
+pub const SPIN_FPS: u32 = 12;
 
 const TURN: Duration = Duration::from_millis(900);
+
+static SPIN_EPOCH: std::sync::LazyLock<std::time::Instant> = std::sync::LazyLock::new(std::time::Instant::now);
+
+/// How far through its turn the spinner is now, in whole steps of `1 / SPIN_FPS` seconds.
+fn spin_turn(elapsed: Duration) -> f32 {
+    let steps = (TURN.as_secs_f32() * SPIN_FPS as f32).round().max(1.);
+    ((elapsed.as_secs_f32() / TURN.as_secs_f32()).fract() * steps).floor() / steps
+}
+
+/// The reload arrow where its turn is now, for a page that is loading; the caller redraws it
+/// `SPIN_FPS` times a second.
+pub fn spinner(size: f32, color: Rgba) -> Svg {
+    icon(Icon::Reload, size, color).with_transformation(Transformation::rotate(percentage(spin_turn(SPIN_EPOCH.elapsed()))))
+}
 
 /// An icon button's frame, for a glyph the caller draws itself, such as a spinning one.
 pub fn icon_frame(id: impl Into<ElementId>, enabled: bool) -> Stateful<Div> {
@@ -416,6 +428,16 @@ pub fn note(text: impl Into<SharedString>) -> Div {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_spinner_steps_through_its_turn() {
+        use std::time::Duration;
+        assert_eq!(super::spin_turn(Duration::ZERO), 0.);
+        assert_eq!(super::spin_turn(Duration::from_millis(80)), 0., "within the first step");
+        let half = super::spin_turn(Duration::from_millis(450));
+        assert!((0.4..=0.5).contains(&half));
+        assert_eq!(super::spin_turn(Duration::from_millis(900)), 0., "a full turn starts over");
+    }
+
     #[test]
     fn shortcuts_read_as_the_platform_writes_them() {
         let cases = [

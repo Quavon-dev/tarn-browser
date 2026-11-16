@@ -274,7 +274,8 @@ impl Inner {
         }
         let block_private_network = self.props.borrow().site(url).policy().block_private_network;
         if opener.as_ref().is_some_and(|from| nav_policy::into_private_network(url, Some(from), false, block_private_network)) {
-            return self.emit("blocked", json!({ "url": url.as_str(), "reason": "local_network" }));
+            self.emit("blocked", json!({ "url": url.as_str(), "reason": "local_network" }));
+            return self.emit("shielded", json!({ "kind": "local_network", "url": url.as_str() }));
         }
         let Some(ns_url) = NSURL::URLWithString(&NSString::from_str(url.as_str())) else { return };
         *self.shell_load.borrow_mut() = Some(url.clone());
@@ -362,7 +363,8 @@ impl Inner {
         }
         let policy = self.props.borrow().site(&url).policy();
         if nav_policy::into_private_network(&url, web.current_url().as_ref(), false, policy.block_private_network) {
-            return self.emit("blocked", json!({ "url": url.as_str(), "reason": "shield", "popup": true }));
+            self.emit("blocked", json!({ "url": url.as_str(), "reason": "shield", "popup": true }));
+            return self.emit("shielded", json!({ "kind": "local_network", "url": url.as_str() }));
         }
         self.emit("popup", json!({ "url": url.as_str(), "link": link }));
     }

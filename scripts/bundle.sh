@@ -87,11 +87,15 @@ for flavor in "" " (GPU)" " (Renderer)" " (Plugin)" " (Alerts)"; do
 P
   if [[ "$flavor" == " (GPU)" || "$flavor" == " (Renderer)" ]]; then
     sign --entitlements packaging/Helper-JIT.entitlements "$helper"
+  elif [[ -z "$flavor" ]]; then
+    # Chromium captures audio and video in utility processes of the plain helper.
+    sign --entitlements packaging/Tarn.entitlements "$helper"
   else
     sign "$helper"
   fi
 done
-sign "$app"
+# Sites the user allows may use the camera and microphone (WebKit captures in the app's process).
+sign --entitlements packaging/Tarn.entitlements "$app"
 [[ "$identity" == none ]] || codesign --verify --deep --strict "$app"
 
 echo "$root/$app"

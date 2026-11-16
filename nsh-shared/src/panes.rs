@@ -5,16 +5,18 @@ pub enum Pane {
     Appearance,
     Search,
     Privacy,
+    Permissions,
     Profiles,
     Shortcuts,
 }
 
-pub const PANES: [(Pane, &str); 7] = [
+pub const PANES: [(Pane, &str); 8] = [
     (Pane::Profile, "Profile"),
     (Pane::General, "General"),
     (Pane::Appearance, "Appearance"),
     (Pane::Search, "Search"),
     (Pane::Privacy, "Privacy"),
+    (Pane::Permissions, "Permissions"),
     (Pane::Profiles, "Profiles"),
     (Pane::Shortcuts, "Shortcuts"),
 ];
@@ -30,6 +32,7 @@ pub fn icon(pane: Pane) -> &'static str {
         Pane::Appearance => crate::icons::PALETTE,
         Pane::Search => crate::icons::SEARCH,
         Pane::Privacy => crate::icons::HAND,
+        Pane::Permissions => crate::icons::CAMERA,
         Pane::Profiles => crate::icons::PERSON,
         Pane::Shortcuts => crate::icons::KEYBOARD,
     }

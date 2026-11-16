@@ -106,6 +106,7 @@ pub struct Browser {
     pub cancelled_downloads: Vec<String>,
     pub text_found: suggest::TextMatches,
     pub elsewhere: HashSet<TabKey>,
+    /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
     pub themes: themes::Themes,
     text_rows: usize,
@@ -314,7 +315,7 @@ impl Browser {
         let Some((private, profile)) = self.profile_of_space() else { return };
         let engine = &ENGINES[input::engine_index(self.core.store(private), private, profile)];
         let input = match classify_input(text, engine) {
-            Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_user_url(Some((private, profile)), url))),
+            Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(Some((private, profile)), url))),
             input => input,
         };
         let credit = matches!(input, Some(Input::Navigate(_)));
@@ -351,7 +352,7 @@ impl Browser {
         for key in &keys {
             let Some(tab) = self.model.tab(*key).cloned() else { continue };
             if next == Some(*key) {
-                next = self.model.close_neighbour(*key, false).filter(|k| !keys.contains(k));
+                next = self.model.close_neighbour(*key, &keys, false);
             }
             let url = self.pages.get(key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url.clone());
             let title = self.pages.get(key).map(|p| p.title.clone()).unwrap_or(tab.title.clone());
@@ -426,6 +427,25 @@ impl Browser {
         let Some((kind, index)) = self.model.pin_toggle(key) else { return };
         self.core.store(key.private).move_tab(key.id, kind, None, index).ok();
         self.model.reload_space(&self.core);
+        self.forgotten.push(key);
+    }
+
+    /// The current profile's remembered permissions, for Settings › Permissions.
+    pub fn permissions(&self) -> Vec<browser_core::permissions::SitePermission> {
+        self.profile_of_space().map(|(private, profile)| browser_core::permissions::list(self.core.store(private), profile)).unwrap_or_default()
+    }
+
+    pub fn set_permission(&mut self, origin: &str, kind: &str, allow: Option<bool>) {
+        if let Some((private, profile)) = self.profile_of_space() {
+            self.core.set_permission(private, profile, origin, kind, allow).ok();
+        }
+    }
+
+    pub fn tile_toggle(&mut self, key: TabKey) {
+        let Some((kind, index)) = self.model.tile_toggle(key) else { return };
+        self.core.store(key.private).move_tab(key.id, kind, None, index).ok();
+        self.model.reload_space(&self.core);
+        self.forgotten.push(key);
     }
 
     pub fn new_folder(&mut self) {

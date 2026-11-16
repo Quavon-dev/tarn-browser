@@ -299,7 +299,7 @@ impl<D: Platform> Shell<D> {
     pub fn navigate(&mut self, text: &str) -> Vec<Effect> {
         let engine = &ENGINES[self.search_engine()];
         let input = match classify_input(text, engine) {
-            Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_user_url(self.model.profile(), url))),
+            Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(self.model.profile(), url))),
             input => input,
         };
         let credit = matches!(input, Some(Input::Navigate(_)));

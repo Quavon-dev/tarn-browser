@@ -19,6 +19,7 @@ pub enum Cmd {
     Duplicate(TabKey),
     CopyLink(TabKey, bool),
     TogglePin(TabKey),
+    ToggleTile(TabKey),
     MoveToSpace(TabKey, usize),
     Close(TabKey),
     CloseOthers(TabKey),
@@ -96,7 +97,8 @@ impl Browser {
             } else {
                 String::new()
             }),
-            Item::action(if self.in_split(key) { "Close Split View" } else { "Open in Split View" }, Cmd::Split(key)).key(if active {
+            // The shortcut opens or closes the whole split, so only those entries name it.
+            Item::action(self.split_label(key), Cmd::Split(key)).key(if active && matches!(self.split_label(key), "Open in Split View" | "Close Split View") {
                 crate::shortcuts::keys(&crate::split::ToggleSplitView, cx)
             } else {
                 String::new()
@@ -104,6 +106,8 @@ impl Browser {
             Item::Separator,
             Item::action(if ephemeral { "Pin Tab" } else { "Unpin Tab" }, Cmd::TogglePin(key))
                 .key(if active { crate::shortcuts::keys(&crate::TogglePin, cx) } else { String::new() })
+                .enabled(!self.model.burner_shown()),
+            Item::action(if tab.kind == TabKind::Tile { "Remove from Tiles" } else { "Add to Tiles" }, Cmd::ToggleTile(key))
                 .enabled(!self.model.burner_shown()),
         ]);
         items.push(Item::action("Rename…", Cmd::Rename(RenameTarget::Tab(key.id))).enabled(tab.kind != TabKind::Tile));
@@ -317,6 +321,11 @@ impl Browser {
             Cmd::Duplicate(key) => self.duplicate_tab(key, window, cx),
             Cmd::CopyLink(key, clean) => self.copy_link(key, clean, cx),
             Cmd::TogglePin(key) => self.toggle_pin_tab(key, cx),
+            Cmd::ToggleTile(key) => {
+                if let Some((kind, end)) = self.model.tile_toggle(key) {
+                    self.move_tab(key, kind, None, end, cx);
+                }
+            }
             Cmd::MoveToSpace(key, ix) => self.move_to_space(key, ix, window, cx),
             Cmd::Close(key) => self.close_tab(key, window, cx),
             Cmd::CloseOthers(key) => {
@@ -364,8 +373,8 @@ impl Browser {
             Cmd::SetPinnedUrl(key) => self.set_pinned_url(key, cx),
             Cmd::Sleep(keys) => self.sleep_tabs(keys, cx),
             Cmd::SiteSettings => self.toggle_site_settings(window, cx),
-            Cmd::Split(key) if self.in_split(key) => self.close_split(cx),
-            Cmd::Split(key) => self.open_split(Some(key), window, cx),
+            Cmd::Split(key) if self.in_split(key) => self.leave_split(key, window, cx),
+            Cmd::Split(key) => self.split_with(key, window, cx),
             Cmd::SwitchWebEngine(key, engine) => self.switch_web_engine(key, engine, window, cx),
         }
     }
@@ -445,19 +454,31 @@ impl Browser {
         self.close_batch(keys, None, window, cx);
     }
 
-    /// Closes the tabs as one entry of the reopen stack and offers to undo it.
-    /// The active tab closes last, so no tab about to close is loaded as its successor.
+    /// Closes the tabs as one entry of the reopen stack and offers to undo it. The space reloads
+    /// once, and the next active tab is the nearest one that stays open.
     pub(crate) fn close_batch(&mut self, keys: Vec<TabKey>, group: Option<(String, String)>, window: &mut Window, cx: &mut Context<Self>) {
         let Some((private, profile_id, space_id)) = self.model.current_space().map(|s| (s.private, s.space.profile_id, s.space.id)) else { return };
         // Closing the burner's tab leaves the burner, so whether it was shown is read first.
         let burner = self.model.burner_shown();
-        let (active, rest): (Vec<_>, Vec<_>) = keys.into_iter().partition(|k| self.model.active == Some(*k));
-        let mut tabs: Vec<ClosedTab> = rest.into_iter().chain(active).filter_map(|key| self.close_one(key, window, cx)).collect();
+        let active = self.model.active.filter(|a| keys.contains(a));
+        let next = active.and_then(|a| self.model.close_neighbour(a, &keys, self.pref(crate::prefs::Pref::ClosePrevious)));
+        self.hide_hover_card(cx);
+        let mut tabs: Vec<ClosedTab> = keys.into_iter().filter_map(|key| self.close_one(key, cx)).collect();
+        self.reload_space();
+        if burner && !tabs.is_empty() {
+            self.leave_burner(window, cx);
+        } else if active.is_some() && self.model.active.is_none() {
+            match next.filter(|k| self.model.tab(*k).is_some()) {
+                Some(next) if !crate::shared::live_elsewhere(next, cx) => self.activate(next, window, cx),
+                _ => self.pick_active(window, cx),
+            }
+        }
         // SQLite reuses a deleted tab's id, so no other window may keep a view under it.
         Self::sync_other_windows(cx);
+        cx.notify();
         tabs.sort_by_key(|t| t.position);
         // A burner tab never goes on the reopen stack, nor does a group closed in the burner.
-        if tabs.is_empty() && (group.is_none() || burner) {
+        if burner || (tabs.is_empty() && group.is_none()) {
             return;
         }
         let text = match (&group, tabs.len()) {
@@ -470,12 +491,15 @@ impl Browser {
         self.show_toast(text, Some(crate::toast::Action::Undo(serial)), cx);
     }
 
-    pub(crate) fn archive_unused_tabs(&mut self, cx: &mut Context<Self>) {
-        let Some(max_age) = crate::prefs::archive_after(&self.core.disk) else { return };
+    /// Archives the tabs unused for longer than Settings › Tabs allows; the number archived.
+    pub(crate) fn archive_unused_tabs(&mut self, cx: &mut Context<Self>) -> usize {
+        let Some(max_age) = crate::prefs::archive_after(&self.core.disk) else { return 0 };
         let (core, now) = (self.core.clone(), now());
         let archives = self.model.archive_unused(&core, max_age, now);
         let changed = !archives.is_empty();
+        let mut archived = 0;
         for archive in archives {
+            archived += archive.stale().len();
             let private = archive.private();
             let urls = archive.stale().iter().map(|t| self.tab_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone())).collect();
             let emptied = archive.run(&core, now, urls, |key| {
@@ -488,6 +512,33 @@ impl Browser {
             self.reload_bookmarks(cx);
             Self::sync_other_windows(cx);
         }
+        archived
+    }
+
+    /// Sorts the space's loose tabs into groups by what each page is and archives tabs unused for
+    /// longer than Settings › Tabs allows, all on this device.
+    pub fn clean_up_tabs(&mut self, cx: &mut Context<Self>) {
+        if self.model.burner_shown() {
+            return;
+        }
+        let archived = self.archive_unused_tabs(cx);
+        let Some((private, space_id)) = self.model.current_space().map(|s| (s.private, s.space.id)) else { return };
+        let plan =
+            browser_core::cleanup::plan(&self.model.tabs, &self.model.groups, |t| self.tab_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone()));
+        let sorted = browser_core::cleanup::apply(self.store(private), space_id, plan);
+        if sorted > 0 {
+            self.reload_space();
+            Self::sync_other_windows(cx);
+        }
+        let text = match (sorted, archived) {
+            (0, 0) if crate::prefs::archive_after(&self.core.disk).is_none() => "Nothing to sort. Settings › Tabs can archive unused tabs too.".to_owned(),
+            (0, 0) => "Already tidy".to_owned(),
+            (s, 0) => format!("Sorted {s} {} into groups", if s == 1 { "tab" } else { "tabs" }),
+            (0, a) => format!("Archived {a} unused {}", if a == 1 { "tab" } else { "tabs" }),
+            (s, a) => format!("Sorted {s} {} into groups, archived {a} unused", if s == 1 { "tab" } else { "tabs" }),
+        };
+        self.show_toast(text, None, cx);
+        cx.notify();
     }
 
     pub fn close_all_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {

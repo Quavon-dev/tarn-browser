@@ -66,14 +66,6 @@ pub struct PermissionRow {
     pub decision: String,
 }
 
-fn kind_label(kind: &str) -> String {
-    match kind {
-        "camera+microphone" => "Camera and Microphone".into(),
-        "geolocation" => "Location".into(),
-        other => crate::groups::capitalized(other),
-    }
-}
-
 /// The rows stored for `page` itself, then those of frames embedded in it, named by their host.
 pub fn permission_rows(stored: Vec<(String, String, String)>, page: &str) -> Vec<PermissionRow> {
     let embedded = format!(" in {page}");
@@ -86,8 +78,8 @@ pub fn permission_rows(stored: Vec<(String, String, String)>, page: &str) -> Vec
                 None => return None,
             };
             let label = match &frame {
-                Some(frame) => format!("{} — {}", kind_label(&kind), Url::parse(frame).ok()?.host_str()?),
-                None => kind_label(&kind),
+                Some(frame) => format!("{} — {}", browser_core::permissions::kind_label(&kind), Url::parse(frame).ok()?.host_str()?),
+                None => browser_core::permissions::kind_label(&kind),
             };
             Some((frame.is_some(), PermissionRow { origin, kind, label: bounded_title(&label), decision }))
         })
@@ -116,6 +108,21 @@ impl Browser {
         let Some(profile_id) = self.profile_of(key) else { return Vec::new() };
         let stored = self.store(key.private).permissions(profile_id).unwrap_or_default();
         permission_rows(stored.into_iter().filter(|(_, kind, _)| kind != crate::blocking::POPUPS).collect(), &url.origin().ascii_serialization())
+    }
+
+    /// The current profile's remembered permissions, for Settings › Permissions.
+    pub fn profile_permissions(&self) -> Vec<browser_core::permissions::SitePermission> {
+        let Some((private, profile_id)) = self.model.profile() else { return Vec::new() };
+        browser_core::permissions::list(self.store(private), profile_id)
+    }
+
+    /// Allows, blocks or (with `None`) forgets a permission of the current profile.
+    pub fn set_profile_permission(&mut self, origin: &str, kind: &str, allow: Option<bool>, cx: &mut Context<Self>) {
+        let Some((private, profile_id)) = self.model.profile() else { return };
+        if self.core.set_permission(private, profile_id, origin, kind, allow).is_ok() && kind == crate::blocking::POPUPS {
+            self.core.sync_shield();
+        }
+        cx.notify();
     }
 
     pub fn set_site_permission(&mut self, key: TabKey, origin: &str, kind: &str, decision: Option<&str>, cx: &mut Context<Self>) {
