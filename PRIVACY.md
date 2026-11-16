@@ -11,7 +11,7 @@ pages on block lists stopped, pop-ups blocked and requests blocked by the Chromi
 engine's filter; in total, per day for the last seven days and per site for the sites protected
 most) with its design value are stored only
 on your Mac, separately for each profile, in `~/Library/Application Support/Tarn` and in WebKit's
-per-profile website data stores in `~/Library/WebKit/dev.tarn.browser`; Chromium's data for the one
+per-profile website data stores in `~/Library/WebKit/de.quavon.tarn`; Chromium's data for the one
 profile that uses it lives in `~/Library/Application Support/Tarn/Chromium`. Tarn runs without the
 App Sandbox, so these folders are protected by your user account's file permissions and FileVault;
 Chromium's helper processes and WebKit's content processes keep their own sandboxes. The database file is readable only by your user account. The
@@ -57,7 +57,7 @@ Settings › Privacy › Connections Tarn makes.
 
 | Connection | Receiver | What they see | Status |
 |---|---|---|---|
-| Update check | GitHub (Releases of this repository) | Your IP address and Tarn version (on Windows only your IP address: Tarn fetches the signed `windows-update.json` and, when it names a later version, downloads that installer) | Once a day while Settings › General › Check for updates automatically is on (the default), and when you choose Tarn › Check for Updates…, on macOS and Windows |
+| Update check | GitHub (Releases of this repository) | Your IP address and Tarn version (on Windows only your IP address: Tarn fetches the signed `windows-update.json` and, when it names a later version, downloads that installer); from the `nightly` release in place of the latest one while Settings › General › Nightly builds is on | Once a day while Settings › General › Check for updates automatically is on (the default), and when you choose Tarn › Check for Updates…, on macOS and Windows |
 | Filter-list update | GitHub (Releases of this repository) | Your IP address. Every list is downloaded whatever you switched on, so the download does not reveal your blocking choices | Once a day; switch off in Settings › Privacy |
 | Fraudulent-website check | Apple, which relays Google Safe Browsing; done by WebKit itself | Shortened hashes of the addresses you visit, not the addresses | While "Block dangerous sites" is on (the default); off with that switch |
 | Extension catalog and downloads | GitHub (the repository you name, or the official catalog in `Quavon-dev/tarn-extensions`) | Your IP address and which repository or extension you install or check | Only when you click Install, Check for Updates or Show Official Extensions in Settings › Extensions; switch off in Settings › Privacy (installing from a file keeps working) |

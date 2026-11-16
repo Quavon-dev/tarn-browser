@@ -1052,23 +1052,31 @@ impl SettingsWindow {
                 )
             })))
             .child(section("Updates"))
-            .child(group().child(if s.updater {
-                self.pref_row(
-                    true,
-                    Pref::UpdateChecks,
-                    "Check for updates automatically",
-                    if cfg!(windows) {
-                        "Once a day from GitHub. Updates are signed; Tarn offers to restart once one is downloaded."
-                    } else {
-                        "Once a day from GitHub. Updates are signed and install when you quit Tarn."
-                    },
-                    s.prefs.get(Pref::UpdateChecks),
-                    cx,
-                )
-                .into_any_element()
+            .child(if s.updater {
+                group()
+                    .child(self.pref_row(
+                        true,
+                        Pref::UpdateChecks,
+                        "Check for updates automatically",
+                        if cfg!(windows) {
+                            "Once a day from GitHub. Updates are signed; Tarn offers to restart once one is downloaded."
+                        } else {
+                            "Once a day from GitHub. Updates are signed and install when you quit Tarn."
+                        },
+                        s.prefs.get(Pref::UpdateChecks),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::NightlyUpdates,
+                        "Nightly builds",
+                        "Signed builds of the latest changes, every day, before they are tested in a release. Switching back keeps this build until a newer release.",
+                        s.prefs.get(Pref::NightlyUpdates),
+                        cx,
+                    ))
             } else {
-                row(true).child(label("Check for updates automatically")).child(value("Not set up in this build")).into_any_element()
-            }))
+                group().child(row(true).child(label("Check for updates automatically")).child(value("Not set up in this build")))
+            })
             .when(cfg!(feature = "chromium"), |d| d.child(section("Web engine")).child(group().child(self.web_engine_row(s, cx))))
             .child(section("Downloads"))
             .child(group().child(self.pref_row(
@@ -1100,7 +1108,7 @@ impl SettingsWindow {
             .child(section("About"))
             .child(
                 group()
-                    .child(row(true).child(label("Tarn version")).child(value(env!("CARGO_PKG_VERSION"))))
+                    .child(row(true).child(label("Tarn version")).child(value(platform::updater::VERSION)))
                     .child(self.link_row("about-licence", browser_core::LICENCE, "Free software you may share and change.", browser_core::LICENCE_URL, cx))
                     .child(self.link_row("about-source", "Source code", "Tarn's full source is public on GitHub.", browser_core::SOURCE_URL, cx))
                     .when_some(licenses(), |d, path| {
