@@ -190,7 +190,7 @@ jobs:
           cache-directories: |
             mobile/app/target
             ~/.gradle/caches
-            ~/.gradle/wrapper
+            mobile/android/build/gradle-*
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked

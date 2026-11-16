@@ -6,7 +6,8 @@ The Android host of the Tarn mobile app (`docs/mobile-plan.md` M3).
 |---|---|
 | `host/` | Gradle app `de.quavon.tarn`: `MainActivity` and `PrivateActivity` run the NSH Rust app with `NshView.runRustApp`, `TarnWebView` is the `tarn.webview` component (contract v2), `SweepService` deletes a closed private session |
 | `rust/` | Crate `tarn-mobile-android`: the JNI calls the component makes (`nav_policy`, Shield verdicts, download names), the bridge back to Java, and `Data`, the `browser_core::WebsiteData` for Android |
-| `build.sh` | NSH embed runtime (SHA-256 checked), `nsh package --target android` of the shared app `../app`, `libnsh.so` into the host, `gradlew clean assembleDebug` |
+| `build.sh` | NSH embed runtime (SHA-256 checked), `nsh package --target android` of the shared app `../app`, `libnsh.so` into the host, `gradle.sh clean assembleDebug` |
+| `gradle.sh` | Runs Gradle 8.14.3 in `host/`, downloaded once into `build/` and checked against its pinned SHA-256; there is no wrapper jar, so point Android Studio's Gradle setting at `build/gradle-8.14.3` |
 | `server.py` | Logging test server and proxy for the exit checks |
 | `evidence/` | Results of the M3 exit checks on the emulator |
 

@@ -275,7 +275,7 @@ jobs:
           if-no-files-found: error
       - name: Android Java SBOM
         run: |
-          (cd mobile/android/host && ./gradlew --quiet -Psbom cyclonedxDirectBom)
+          mobile/android/gradle.sh --quiet -Psbom cyclonedxDirectBom
           embed="$(sed -n 's/^EMBED_URL=.*\/download\/v\([^/]*\)\/.*/\1/p' mobile/android/build.sh)"
           hash="$(sed -n 's/^EMBED_SHA256=//p' mobile/android/build.sh)"
           [[ -n "$embed" && -n "$hash" ]] || { echo "EMBED_URL or EMBED_SHA256 not found in mobile/android/build.sh" >&2; exit 1; }

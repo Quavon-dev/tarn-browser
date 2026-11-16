@@ -20,6 +20,7 @@
 /linux/packaging/ @Quavon-dev/maintainers
 /mobile/Cargo.lock @Quavon-dev/maintainers
 /mobile/android/build.sh @Quavon-dev/maintainers
+/mobile/android/gradle.sh @Quavon-dev/maintainers
 /mobile/android/host/ @Quavon-dev/maintainers
 /nsh-shared/Cargo.lock @Quavon-dev/maintainers
 /linux/Cargo.toml @Quavon-dev/maintainers
