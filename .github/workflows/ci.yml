@@ -251,3 +251,48 @@ jobs:
         with:
           manifest-path: nsh-shared/Cargo.toml
           command: check advisories bans licenses sources
+
+  coverage:
+    needs: changes
+    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-24.04
+    env:
+      LLVM_COV_VERSION: 0.9.1
+      LLVM_COV_SHA256: b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: "1.99.1"
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: coverage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: |
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$RUNNER_TEMP/cargo-llvm-cov.tar.gz" \
+            "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v$LLVM_COV_VERSION/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz"
+          echo "$LLVM_COV_SHA256  $RUNNER_TEMP/cargo-llvm-cov.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/cargo-llvm-cov.tar.gz" -C "$HOME/.cargo/bin" cargo-llvm-cov
+      - run: >-
+          cargo llvm-cov --locked --no-report -p store -p shield -p devkit -p filter-bundle -p cli-bridge
+          -p platform -p chromium-helper -p browser-core
+      - run: |
+          cargo llvm-cov report --lcov --output-path coverage/lcov.info
+          cargo llvm-cov report --html --output-dir coverage
+          cargo llvm-cov report --json --summary-only --output-path coverage/summary.json
+          jq -r --arg root "$GITHUB_WORKSPACE/" '
+            def crate: ltrimstr($root) | split("/")[:2] | join("/");
+            "| Crate | Lines | Covered | % |", "|---|---:|---:|---:|",
+            (.data[0].files | group_by(.filename | crate)[]
+              | {name: (.[0].filename | crate), count: (map(.summary.lines.count) | add), covered: (map(.summary.lines.covered) | add)}
+              | "| \(.name) | \(.count) | \(.covered) | \(if .count > 0 then (.covered * 1000 / .count | round / 10) else 0 end) |"),
+            (.data[0].totals.lines | "| **total** | \(.count) | \(.covered) | \(.percent * 10 | round / 10) |")
+          ' coverage/summary.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: error
