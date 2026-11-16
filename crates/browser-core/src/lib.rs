@@ -24,6 +24,7 @@ pub mod find;
 pub mod fog;
 pub mod github;
 pub mod import;
+pub mod licences;
 pub mod permissions;
 pub mod prompts;
 pub mod routing;
@@ -54,9 +55,6 @@ pub const LICENCE_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/
 pub const PRIVACY_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/PRIVACY.md");
 pub const IMPRINT_URL: &str = "https://tarnbrowser.com/imprint";
 pub const LINUX_LICENCES_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/raw/v", env!("CARGO_PKG_VERSION"), "/packaging/third-party-licenses-linux.txt");
-pub const IOS_LICENCES_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/raw/v", env!("CARGO_PKG_VERSION"), "/packaging/third-party-licenses-ios.txt");
-pub const ANDROID_LICENCES_URL: &str =
-    concat!(env!("CARGO_PKG_REPOSITORY"), "/raw/v", env!("CARGO_PKG_VERSION"), "/packaging/third-party-licenses-android.txt");
 
 pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)

@@ -11,7 +11,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages
-  install them under `/usr/share/licenses/tarn` (the rpm now also ships `LICENSE` there).
+  install them under `/usr/share/licenses/tarn` (the rpm now also ships `LICENSE` there), and on
+  iOS and Android Settings › Open-source licences shows the list built into the app, searchable
+  and offline.
 
 ### Changed
 

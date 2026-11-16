@@ -50,6 +50,8 @@ pub fn panel(ui: Ui) -> impl IntoElement {
             Screen::ReadingList => sheets::reading_list(ui).into_element(),
             Screen::Move(key) => sheets::move_tab(ui, key).into_element(),
             Screen::SpaceEdit(ix) => sheets::space_edit(ui, ix).into_element(),
+            Screen::Licences => sheets::licences(ui).into_element(),
+            Screen::Licence(ix) => sheets::licence(ix).into_element(),
         };
         Some(sheet(ui, screen, body).into_element())
     })
@@ -59,6 +61,8 @@ pub(super) fn parent(screen: Screen) -> Option<Screen> {
     match screen {
         Screen::Move(_) => Some(Screen::Tabs),
         Screen::SpaceEdit(_) => Some(Screen::Spaces),
+        Screen::Licences => Some(Screen::Settings),
+        Screen::Licence(_) => Some(Screen::Licences),
         Screen::History | Screen::Downloads | Screen::Spaces | Screen::Settings | Screen::Qr | Screen::ReadingList | Screen::FindTabs => Some(Screen::Menu),
         _ => None,
     }
@@ -479,11 +483,6 @@ fn pane_heading(pane: Pane) -> impl IntoElement {
     label(panes::name(pane)).text_size(px(TEXT_TITLE)).font_weight(FontWeight::BOLD).px_1().pt_4()
 }
 
-#[cfg(target_os = "android")]
-const LICENCES_URL: &str = browser_core::ANDROID_LICENCES_URL;
-#[cfg(not(target_os = "android"))]
-const LICENCES_URL: &str = browser_core::IOS_LICENCES_URL;
-
 fn settings(ui: Ui) -> impl IntoElement {
     view()
         .gap_2()
@@ -498,7 +497,7 @@ fn settings(ui: Ui) -> impl IntoElement {
             })
         }))))
         .child(section("About"))
-        .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)).child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL)).child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)).child(link_pill(ui, "Open-source licences", LICENCES_URL)))
+        .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)).child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL)).child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)).child(pill("Open-source licences", move || ui.show(Screen::Licences))))
         .child(pane_heading(Pane::Appearance))
         .child(super::appearance::pane(ui))
         .child(pane_heading(Pane::Search))
