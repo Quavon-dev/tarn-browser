@@ -1,9 +1,9 @@
 #!/bin/sh
-# Writes dev.tarn.Tarn.local.yml: the Flathub manifest with this checkout as the source instead of the
+# Writes de.quavon.tarn.local.yml: the Flathub manifest with this checkout as the source instead of the
 # release tag, for CI and local builds.
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
-python3 -I - "$here/dev.tarn.Tarn.yml" "$here/dev.tarn.Tarn.local.yml" <<'EOF'
+python3 -I - "$here/de.quavon.tarn.yml" "$here/de.quavon.tarn.local.yml" <<'EOF'
 import sys, yaml
 manifest = yaml.safe_load(open(sys.argv[1]))
 sources = manifest["modules"][-1]["sources"]

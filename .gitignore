@@ -1,4 +1,4 @@
 /target
 .DS_Store
 /.claude/worktrees/
-/linux/packaging/flatpak/dev.tarn.Tarn.local.yml
+/linux/packaging/flatpak/de.quavon.tarn.local.yml

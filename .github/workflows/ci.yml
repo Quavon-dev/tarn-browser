@@ -242,7 +242,7 @@ jobs:
       - run: linux/packaging/flatpak/local-manifest.sh
       - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
         with:
-          manifest-path: linux/packaging/flatpak/dev.tarn.Tarn.local.yml
+          manifest-path: linux/packaging/flatpak/de.quavon.tarn.local.yml
           build-bundle: false
           upload-artifact: false
           repo-dir: repo
@@ -250,7 +250,7 @@ jobs:
           cache-key: flatpak-builder-${{ hashFiles('linux/Cargo.lock', 'linux/packaging/flatpak/*') }}
           save-cache: ${{ github.ref == 'refs/heads/main' }}
       - run: flatpak install -y --noninteractive flathub org.flatpak.Builder
-      - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest "$PWD/linux/packaging/flatpak/dev.tarn.Tarn.yml"
+      - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest "$PWD/linux/packaging/flatpak/de.quavon.tarn.yml"
       - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo "$PWD/repo"
 
   deny:

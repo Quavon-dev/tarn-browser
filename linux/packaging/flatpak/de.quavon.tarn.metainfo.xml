@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>dev.tarn.Tarn</id>
+  <id>de.quavon.tarn</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>Tarn</name>
   <summary>A fast, private browser with a native interface</summary>
-  <developer id="dev.tarn">
+  <developer id="de.quavon">
     <name>Quavon UG (haftungsbeschränkt)</name>
   </developer>
   <description>
@@ -18,11 +18,11 @@
       <li>Reader view, per-site zoom, dark mode and CSS, and full-text history search.</li>
     </ul>
   </description>
-  <launchable type="desktop-id">dev.tarn.Tarn.desktop</launchable>
+  <launchable type="desktop-id">de.quavon.tarn.desktop</launchable>
   <provides>
     <binary>tarn</binary>
   </provides>
-  <url type="homepage">https://github.com/Quavon-dev/tarn-browser</url>
+  <url type="homepage">https://tarnbrowser.com</url>
   <url type="bugtracker">https://github.com/Quavon-dev/tarn-browser/issues</url>
   <url type="vcs-browser">https://github.com/Quavon-dev/tarn-browser</url>
   <url type="contribute">https://github.com/Quavon-dev/tarn-browser/blob/main/CONTRIBUTING.md</url>

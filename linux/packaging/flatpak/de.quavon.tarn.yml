@@ -1,4 +1,4 @@
-app-id: dev.tarn.Tarn
+app-id: de.quavon.tarn
 runtime: org.gnome.Platform
 runtime-version: '51'
 sdk: org.gnome.Sdk
@@ -25,10 +25,10 @@ modules:
     build-commands:
       - cargo --offline build --release --locked --manifest-path linux/Cargo.toml
       - install -Dm755 linux/target/release/tarn /app/bin/tarn
-      - install -Dm644 linux/packaging/dev.tarn.Tarn.desktop /app/share/applications/dev.tarn.Tarn.desktop
-      - install -Dm644 crates/ui/brand/mark.svg /app/share/icons/hicolor/scalable/apps/dev.tarn.Tarn.svg
-      - install -Dm644 dev.tarn.Tarn.metainfo.xml /app/share/metainfo/dev.tarn.Tarn.metainfo.xml
-      - install -Dm644 LICENSE /app/share/licenses/dev.tarn.Tarn/LICENSE
+      - install -Dm644 linux/packaging/de.quavon.tarn.desktop /app/share/applications/de.quavon.tarn.desktop
+      - install -Dm644 crates/ui/brand/mark.svg /app/share/icons/hicolor/scalable/apps/de.quavon.tarn.svg
+      - install -Dm644 de.quavon.tarn.metainfo.xml /app/share/metainfo/de.quavon.tarn.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/de.quavon.tarn/LICENSE
     sources:
       - type: git
         url: https://github.com/Quavon-dev/tarn-browser.git
@@ -39,4 +39,4 @@ modules:
           tag-pattern: ^v([\d.]+)$
       - cargo-sources.json
       - type: file
-        path: dev.tarn.Tarn.metainfo.xml
+        path: de.quavon.tarn.metainfo.xml
