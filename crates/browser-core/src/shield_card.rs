@@ -110,6 +110,8 @@ pub fn days_text(days: i64) -> String {
 }
 
 pub const SHORT: [(&str, &str); 3] = [("Parameters", "removed"), ("HTTPS", "upgrades"), ("Local visits", "blocked")];
+/// The captions under the card's three numbers where they show beside it.
+pub const NUMBERS: [&str; 3] = ["parameters removed", "HTTPS upgrades", "local visits blocked"];
 
 pub fn motto(level: ShieldLevel) -> (&'static str, &'static str) {
     match level {
