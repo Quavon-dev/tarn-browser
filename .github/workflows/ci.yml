@@ -239,6 +239,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - run: linux/packaging/flatpak/check-cargo-sources.sh
       - run: linux/packaging/flatpak/local-manifest.sh
       - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
         with:
@@ -277,11 +278,17 @@ jobs:
         with:
           manifest-path: nsh-shared/Cargo.toml
           command: check advisories bans licenses sources
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        if: ${{ !inputs.commit }}
+        with:
+          manifest-path: fuzz/Cargo.toml
+          command: check advisories bans licenses sources
 
   coverage:
     needs: changes
     if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       LLVM_COV_VERSION: 0.9.1
       LLVM_COV_SHA256: b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a

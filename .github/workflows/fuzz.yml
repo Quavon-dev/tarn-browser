@@ -81,6 +81,7 @@ jobs:
 
   prune:
     needs: batch
+    if: ${{ !cancelled() && needs.batch.result != 'skipped' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -99,6 +100,7 @@ jobs:
 
   coverage:
     needs: prune
+    if: ${{ !cancelled() && needs.prune.result != 'skipped' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
