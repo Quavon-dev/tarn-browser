@@ -222,8 +222,8 @@ be changed in Settings › Shortcuts; tab and space numbers, Esc, Undo/Redo and 
 | Keys | Action |
 |---|---|
 | ⌘N | New window |
-| ⌘T | New tab: the address field opens in the toolbar over a shown page, otherwise the command card, with the cursor in it |
-| ⌘L | Edit the current tab's address in the toolbar |
+| ⌘T | New tab: the command palette opens over a shown page, otherwise the command card, with the cursor in it |
+| ⌘L | Edit the current tab's address in the command palette |
 | ⌘W | Close tab (pinned tabs and tiles are unloaded, not removed) |
 | ⇧⌘T | Reopen closed tab |
 | ⇧⌘K | Close all tabs |
