@@ -35,6 +35,17 @@ for their contribution and its licence terms.
   (`docs/release.md`);
 - rotates secrets as `docs/release.md` describes and reviews this list once a year.
 
+**Tarn maintainer** (write access through `@Quavon-dev/tarn-maintainer`; no members yet):
+- pushes branches and opens pull requests;
+- reviews pull requests, and their approval counts as the non-author approval `main` requires
+  (not as Code Owner review);
+- labels, assigns, closes and reopens issues and pull requests, and votes on issues (the Issues
+  workflow counts every account with write access, `CONTRIBUTING.md`, "Voting");
+- cannot merge into `main` (only `@Quavon-dev/maintainers` may update it, ruleset "main
+  merges"), create `v*` tags, approve a `release-signing` deployment, read secrets or change
+  settings. GitHub's write role on this plan also lets them start workflows and edit GitHub
+  releases; signing and publishing still need a maintainer's approval.
+
 **Organisation owner**: a maintainer who also manages the organisation, its members, two-factor
 requirement, rulesets, environments and secrets, and changes them only as `docs/release.md`,
 "Repository settings", describes.
