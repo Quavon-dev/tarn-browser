@@ -29,14 +29,15 @@ feeds ("Signing in CI") and publishes a GitHub release with:
   never enter CI; the maintainer signs and submits them, which only Quavon UG
   (haftungsbeschränkt) may do for the app stores (`LICENSE-APP-STORE.md`).
 - CycloneDX SBOMs, one per client, each listing the crates built into it for that client's target
-  (`cargo cyclonedx`): `Tarn-<tag>.cdx.json` (macOS app, plus the embedded Sparkle framework),
-  `Tarn-<tag>-windows-x64.cdx.json` (`crates/app-dll`), `Tarn-<tag>-linux.cdx.json` (the `linux/`
-  workspace; WebKitGTK and the other system libraries come from the distribution or runtime),
-  `Tarn-<tag>-ios.cdx.json` and `Tarn-<tag>-android.cdx.json` (`mobile/app`), and
+  (`cargo cyclonedx`): `Tarn-<tag>.cdx.json` (macOS app, plus the embedded Sparkle framework and
+  CEF), `Tarn-<tag>-windows-x64.cdx.json` (`crates/app-dll`, plus CEF), `Tarn-<tag>-linux.cdx.json`
+  (the `linux/` workspace; WebKitGTK and the other system libraries come from the distribution or
+  runtime), `Tarn-<tag>-ios.cdx.json` and `Tarn-<tag>-android.cdx.json` (`mobile/app`; NSH's own
+  platform crates, which `nsh package` adds in its generated workspace, are not listed), and
   `Tarn-<tag>-android-java.cdx.json`, the APK's Java dependencies from Gradle's
   `releaseRuntimeClasspath` plus the pinned `nsh-embed-android` classes, written by the CycloneDX
-  Gradle plugin (`-Psbom`) only after the APK is uploaded, so the plugin never runs in its build. A
-  macOS-only release carries the macOS SBOM alone.
+  Gradle plugin (`-Psbom`) only after the APK is uploaded; the plugin is resolved but not applied in
+  the APK build. A macOS-only release carries the macOS SBOM alone.
 - `SHA256SUMS` for every file.
 
 Nothing is published until a maintainer approves the run's `release-signing` deployment. Every build
@@ -114,15 +115,16 @@ The `assets` job takes the signed files with the rest, writes `SHA256SUMS` and a
 `publish` publishes the release as the latest one and starts `linux-repo.yml`. A tag whose message
 has the line `critical` marks both feeds critical.
 
-To release from GitHub, raise the version in every client in a pull request (`scripts/check-version.sh`
-lists the files), merge it, wait for its CI on `main`, then run Actions › Start release (tick
-"Security release" for a critical one). `start-release.yml` checks that CI passed on `main`'s
-latest commit, that every version file carries the same version and that `v<version>` does not
-exist, then calls `release.yml` for every client. Approve the run's `release-signing` deployment
-once its builds have finished: the `sign` job creates the tag `v<version>` with the update app
-(the tag ruleset lets the app create `v*` tags, not GitHub Actions), signs, and the release is
-published a few minutes later. If a later job fails after the tag exists, re-run the failed jobs;
-to start over, a maintainer deletes the tag first.
+To release from GitHub, raise the version in every client in a pull request and rename `##
+[Unreleased]` in `CHANGELOG.md` to `## [<version>] - <date>` (`scripts/check-version.sh` checks
+both; that section becomes the release notes), merge it, wait for its CI on `main`, then run Actions
+› Start release (tick "Security release" for a critical one). `start-release.yml` checks that CI
+passed on `main`'s latest commit, that every version file carries the same version and that
+`v<version>` does not exist, then calls `release.yml` for every client. Approve the run's
+`release-signing` deployment once its builds have finished: the `sign` job creates the tag
+`v<version>` with the update app (the tag ruleset lets the app create `v*` tags, not GitHub
+Actions), signs, and the release is published a few minutes later. If a later job fails after the
+tag exists, re-run the failed jobs; to start over, a maintainer deletes the tag first.
 
 The same release can start from a maintainer's machine: `scripts/publish-release.sh` (with `git`
 and `gh`) runs the same checks, pushes a signed tag `v<version>` (`--critical` for a security
