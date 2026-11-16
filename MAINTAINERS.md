@@ -12,7 +12,6 @@ themselves are described in [`docs/release.md`](docs/release.md), "Secrets and c
 | [@rgxdev](https://github.com/rgxdev) | Maintainer, organisation owner | Admin on the repository; member of `@Quavon-dev/maintainers`, so a Code Owner and an approver of `release-signing` |
 | [@MadebyLeopold](https://github.com/MadebyLeopold) | Maintainer, organisation owner | Same as above |
 | [@quavondev](https://github.com/quavondev) | Maintainer, organisation owner | Same as above |
-| [@eliasnau](https://github.com/eliasnau) | Maintainer | Write on the repository; member of `@Quavon-dev/maintainers`, so a Code Owner and an approver of `release-signing` |
 
 Organisation owners can change repository and organisation settings, rulesets, environments and
 their secrets. GitHub never shows a secret's value, but an owner who changes an environment's rules
