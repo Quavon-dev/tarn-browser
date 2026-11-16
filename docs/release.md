@@ -114,7 +114,9 @@ and:
 
 The `assets` job takes the signed files with the rest, writes `SHA256SUMS` and attests them, and
 `publish` publishes the release, marks the highest published version as the latest release (an
-older one finishing late never takes over the feeds) and starts `linux-repo.yml`. A tag whose message
+older one finishing late never takes over the feeds; the lookup and the change hold the branch
+`release-latest-lock`, which is deleted afterwards, so delete it by hand only if a cancelled run
+left it behind) and starts `linux-repo.yml`. A tag whose message
 has the line `critical` marks both feeds critical.
 
 To release from GitHub, raise the version in every client in a pull request and rename `##

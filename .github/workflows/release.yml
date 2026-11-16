@@ -713,8 +713,20 @@ jobs:
           else
             echo "$TAG is published already; marking the latest release and starting linux-repo.yml"
           fi
-          # Both update feeds read the latest release, so it is always the highest published version,
-          # set after creating: whichever of two overlapping releases finishes last corrects it.
+          # Both update feeds read the latest release, so it is always the highest published version.
+          # The lookup and the edit hold a lock (a branch, which only one run can create), so a run
+          # with an older lookup cannot mark its release latest after a newer one.
+          locked=false
+          for _ in $(seq 60); do
+            if gh api "repos/$GH_REPO/git/refs" -f ref=refs/heads/release-latest-lock -f sha="$GITHUB_SHA" >/dev/null 2>&1; then
+              locked=true
+              trap 'gh api -X DELETE "repos/$GH_REPO/git/refs/heads/release-latest-lock" >/dev/null' EXIT
+              break
+            fi
+            sleep 10
+          done
+          [[ "$locked" == true ]] \
+            || { echo "release-latest-lock was held for 10 minutes; delete that branch if no release is publishing, then re-run" >&2; exit 1; }
           highest="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" | jq -r '[.[][] | select(.draft == false and .prerelease == false)
             | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last')"
           [[ "$highest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "no published release found after creating $TAG" >&2; exit 1; }
