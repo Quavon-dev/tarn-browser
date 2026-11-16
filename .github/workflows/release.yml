@@ -164,6 +164,10 @@ jobs:
           tar -xzf "$RUNNER_TEMP/nsh-android.tar.gz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/nsh/bin" >> "$GITHUB_PATH"
       - name: iOS (unsigned)
+        env:
+          # mobile/app/nsh.json's MinimumOSVersion; without it Rust links for iOS 10, which lacks
+          # ___chkstk_darwin that the C dependencies (built for the SDK's iOS) call.
+          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         run: |
           (cd mobile/app && nsh package --target ios -o "$RUNNER_TEMP/ios")
           mkdir "$RUNNER_TEMP/out-ios"
