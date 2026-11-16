@@ -458,12 +458,14 @@ impl Inner {
         let context = self.context.clone();
         let target = web.retain();
         let script = NSString::from_str(&find::count_script(&text));
+        // No script of Tarn's runs on a Lockdown page, so the native result stands as one match.
+        let lockdown = self.built.borrow().as_ref().is_none_or(|b| b.level == ShieldLevel::Lockdown);
         let mtm = self.mtm;
         let done = RcBlock::new(move |result: NonNull<WKFindResult>| {
             // SAFETY: WebKit passes a valid result for the duration of the call, on the main thread.
             let found = unsafe { result.as_ref().matchFound() };
-            if !found {
-                return context.emit("found", json!({ "matched": 0 }));
+            if !found || lockdown {
+                return context.emit("found", json!({ "matched": u64::from(found) }));
             }
             let context = context.clone();
             let counted = RcBlock::new(move |value: *mut AnyObject, _error: *mut NSError| {
@@ -476,7 +478,7 @@ impl Inner {
             target.evaluate(&script, None, &world, Some(&counted));
         });
         let query = NSString::from_str(&text);
-        if *self.find_text.borrow() == text {
+        if *self.find_text.borrow() == text || lockdown {
             return web.find(&query, Some(&configuration), &done);
         }
         // WebKit finds from the selection, the previous match: a new text starts again at the top.
