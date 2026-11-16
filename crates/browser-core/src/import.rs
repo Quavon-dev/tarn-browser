@@ -130,19 +130,20 @@ fn add(s: &Store, profile_id: Id, existing: &mut Vec<store::Bookmark>, parent: I
 
 impl<D: WebsiteData> Core<D> {
     /// Whether `profile_id` may receive imported data: a normal profile, not private, not
-    /// Lockdown, and not sharing its website data with a Lockdown profile, which empties that
-    /// store when it opens.
+    /// Lockdown, and not using the store of a Lockdown profile, which empties it whenever it opens.
     pub fn import_target(&self, private: bool, profile_id: Id) -> Result<(), Refused> {
         let mut profile = self.store(private).profile(profile_id).map_err(|_| Refused::NotOpen)?;
-        if private || profile.is_private {
+        if private || profile.is_private || profile.shield_level == ShieldLevel::Lockdown {
             return Err(Refused::NotPersistent);
         }
         crate::share_store(&self.disk, &mut profile);
-        let lockdown_shares = self.disk.profiles().unwrap_or_default().into_iter().any(|mut p| {
-            crate::share_store(&self.disk, &mut p);
-            p.data_store_uuid == profile.data_store_uuid && p.shield_level == ShieldLevel::Lockdown
-        });
-        if lockdown_shares {
+        let lockdown_owns = self
+            .disk
+            .profiles()
+            .unwrap_or_default()
+            .into_iter()
+            .any(|p| p.data_store_uuid == profile.data_store_uuid && p.shield_level == ShieldLevel::Lockdown);
+        if lockdown_owns {
             return Err(Refused::NotPersistent);
         }
         Ok(())
@@ -250,6 +251,12 @@ mod tests {
         let sharing = core.disk.create_profile("S", "uuid-s", false).unwrap().id;
         core.disk.set_setting(&crate::shared_key(sharing), "uuid-l").unwrap();
         assert_eq!(core.import_target(false, sharing), Err(Refused::NotPersistent), "its store is the Lockdown profile's");
+        let owner = core.disk.create_profile("O", "uuid-o", false).unwrap().id;
+        let locked_sharer = core.disk.create_profile("B", "uuid-b", false).unwrap().id;
+        core.disk.set_setting(&crate::shared_key(locked_sharer), "uuid-o").unwrap();
+        core.disk.set_profile_shield_level(locked_sharer, ShieldLevel::Lockdown).unwrap();
+        assert_eq!(core.import_target(false, owner), Ok(()), "a Lockdown profile sharing this store leaves it alone");
+        assert_eq!(core.import_target(false, locked_sharer), Err(Refused::NotPersistent));
         let private = core.store(true).create_profile("P", "uuid-p", true).unwrap().id;
         assert_eq!(core.import_target(true, private), Err(Refused::NotPersistent));
         let read = Read { history: Some(Ok(Parsed::default())), ..Read::default() };

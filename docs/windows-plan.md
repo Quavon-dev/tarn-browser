@@ -311,8 +311,8 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
   None is set up yet; the Sparkle key signs the update feed in CI (S4).
 - Package: a per-user Inno Setup installer, signed; update payloads additionally carry the
   EdDSA signature checked by the updater (built, §0 "Release").
-- SBOM attached to Windows releases as on macOS (today's SBOM is generated on macOS and misses
-  the Windows-only dependencies).
+- SBOM attached to Windows releases: `Tarn-<tag>-windows-x64.cdx.json`, the crates of
+  `crates/app-dll` for `x86_64-pc-windows-msvc` (built, `docs/release.md`).
 
 ## 7. Test plan
 

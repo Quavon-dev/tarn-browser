@@ -526,6 +526,7 @@ define_class!(
             if navigation_id(self.ivars().user_load.borrow().as_deref()) != id {
                 self.ivars().user_load.take();
             }
+            self.emit(Event::Loading(true));
         }
 
         #[unsafe(method(webView:didCommitNavigation:))]

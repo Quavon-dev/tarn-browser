@@ -145,7 +145,7 @@ pub(crate) fn level_description(level: ShieldLevel) -> &'static str {
         }
         ShieldLevel::Strict => "Standard, plus HTTPS-only browsing and no referrer sent to other sites unless a page asks for one.",
         ShieldLevel::Lockdown => {
-            "Strict, plus JavaScript off, no saved page state, no site permission requests and no website data kept after Tarn quits. Choosing it deletes the cookies and site data this profile has stored."
+            "Strict, plus JavaScript off, no saved page state, no site permission requests and no website data kept after Tarn quits. Choosing it deletes the cookies and site data this profile has stored, except data it shares with another profile."
         }
     }
 }

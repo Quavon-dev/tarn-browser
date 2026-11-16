@@ -314,6 +314,11 @@ impl Store {
         Self::init(Connection::open_in_memory()?)
     }
 
+    /// False for the in-memory stand-in `Core::open` uses when the database cannot be opened.
+    pub fn on_disk(&self) -> bool {
+        self.conn.path().is_some_and(|p| !p.is_empty())
+    }
+
     fn init(conn: Connection) -> Result<Self> {
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
@@ -1650,6 +1655,13 @@ mod tests {
         let long = format!("{}é", "a".repeat(MAX_HISTORY_TEXT - 1));
         assert_eq!(clip_history_text(&long), "a".repeat(MAX_HISTORY_TEXT - 1));
         assert_eq!(clip_history_text(&"b".repeat(MAX_HISTORY_TEXT + 5)).len(), MAX_HISTORY_TEXT);
+    }
+
+    #[test]
+    fn only_a_file_store_is_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(Store::open(dir.path()).unwrap().on_disk());
+        assert!(!Store::open_in_memory().unwrap().on_disk());
     }
 
     #[test]

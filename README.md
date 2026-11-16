@@ -187,6 +187,12 @@ cd mobile/app && nsh package --target ios-simulator            # iOS simulator a
 mobile/android/build.sh                                        # debug APK (ANDROID_HOME, NDK, JDK 17+)
 ```
 
+The Linux app and its packages build with free and open-source tools only: the Fedora, Debian,
+Ubuntu and Arch containers (`linux/docker/`, `linux/packaging/`) bring GCC, Clang, GTK, WebKitGTK
+and Rust from their distributions and rustup, every crate has an open-source licence (`cargo
+deny`), and Docker runs them. The macOS and iOS clients need Apple's SDK and the Windows
+client Microsoft's MSVC toolchain.
+
 Packages: `.deb` for Debian 13 and Ubuntu 26.04, `.rpm` for Fedora 43 and an AUR `PKGBUILD`, each
 depending on the distribution's WebKitGTK 6.0; no Flatpak or AppImage. The iOS and Android apps have
 no signed or store builds yet. Plans: [`docs/nsh-plan.md`](docs/nsh-plan.md) and
@@ -299,7 +305,8 @@ Library › Memory (or Show Memory Use in the command bar) lists the space's tab
 CPU of their web content process, with Sleep per tab and Sleep All Inactive Tabs; the sidebar's
 heavy-tab dot ranks by the same figures. Once awake background tabs hold more than 1 GB together,
 the heaviest of those unused for a minute sleep, pinned tabs only after 30 minutes unused (tabs
-playing media stay awake; off when sleeping is Never). Chromium tabs are not measured. Resting the
+playing media stay awake; off when sleeping is Never). Chromium tabs count by their renderer
+process. Resting the
 pointer on a tab row shows its full title, address and state. Right-click a space (its name or
 icon) and choose Edit Space… to change its name, colour and icon.
 
@@ -320,7 +327,8 @@ Checks per workspace (each runs in its own directory; CI runs all of them):
 `cargo deny check` runs where a workspace has a `deny.toml`. `unsafe` code is allowed only in
 `crates/engine` (and later `crates/platform`); every other crate is `#![forbid(unsafe_code)]`.
 How to contribute: [`CONTRIBUTING.md`](CONTRIBUTING.md); AI-assisted contributions follow
-[`AGENTS.md`](AGENTS.md).
+[`AGENTS.md`](AGENTS.md). All of Tarn's code, packaging and release automation live in this
+repository; no other repository is part of the codebase.
 
 <details>
 <summary><b>On-device translation</b></summary>

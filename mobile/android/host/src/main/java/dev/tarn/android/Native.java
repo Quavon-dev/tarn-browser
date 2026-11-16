@@ -54,6 +54,8 @@ final class Native {
 
     static native int warm();
 
+    static native boolean strongKey(int kind, int bits);
+
     static native int decide(String url, int source);
 
     static native int levelAction(String url, int site, int view, boolean fromShell);

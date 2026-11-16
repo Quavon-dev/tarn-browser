@@ -22,6 +22,8 @@ pub struct SpaceItem {
 pub enum RowKind {
     Tab(TabKey),
     Folder(Id),
+    /// A split's panes side by side, at the place of the first of them in the list.
+    Split(TabKey),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -40,6 +42,8 @@ pub struct Row {
     pub playing: bool,
     /// In a split: `Some(true)` for the split on screen.
     pub split: Option<bool>,
+    /// A split row's panes, in layout order.
+    pub panes: Vec<Row>,
 }
 
 impl Row {
@@ -47,6 +51,7 @@ impl Row {
         match &self.kind {
             RowKind::Tab(k) => format!("t{}-{}", k.private, k.id),
             RowKind::Folder(id) => format!("f{id}"),
+            RowKind::Split(k) => format!("s{}-{}", k.private, k.id),
         }
     }
 }
@@ -146,6 +151,24 @@ fn space_label(b: &Browser, ix: usize) -> String {
 }
 
 fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Option<TabKind>, depth: usize, rows: &mut Vec<Row>) {
+    let mut list = Vec::new();
+    tab_list(b, heavy, folder, kind, depth, &mut list);
+    let keys: Vec<TabKey> = list.iter().filter_map(|r| if let RowKind::Tab(k) = r.kind { Some(k) } else { None }).collect();
+    let pane = |key| list.iter().find(|r| r.kind == RowKind::Tab(key)).cloned();
+    for (row, &key) in list.iter().zip(&keys) {
+        match b.splits.entry(key, &keys).as_deref() {
+            None => {}
+            Some([_]) => rows.push(row.clone()),
+            Some(panes) => {
+                let panes: Vec<Row> = panes.iter().filter_map(|k| pane(*k)).collect();
+                let (active, loading) = (panes.iter().any(|p| p.active), panes.iter().any(|p| p.loading));
+                rows.push(Row { kind: RowKind::Split(key), active, loading, panes, ..row.clone() });
+            }
+        }
+    }
+}
+
+fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Option<TabKind>, depth: usize, rows: &mut Vec<Row>) {
     let mut tabs: Vec<&Tab> = b.model.tabs.iter().filter(|t| t.folder_id == folder && kind.is_none_or(|k| t.kind == k)).collect();
     tabs.sort_by_key(|t| t.position);
     for tab in tabs {
@@ -166,6 +189,7 @@ fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Opti
             active: b.model.active == Some(key),
             pinned: tab.kind == TabKind::Pinned,
             open: false,
+            panes: Vec::new(),
         });
     }
 }
@@ -189,6 +213,7 @@ fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: 
             loading: false,
             playing: false,
             split: None,
+            panes: Vec::new(),
         });
         if open {
             folder_rows(b, heavy, Some(folder.id), depth + 1, rows);
@@ -217,7 +242,7 @@ pub fn tiles(b: &Browser) -> Vec<Row> {
 
 fn tiles_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
     let mut tiles = Vec::new();
-    tab_rows(b, heavy, None, Some(TabKind::Tile), 0, &mut tiles);
+    tab_list(b, heavy, None, Some(TabKind::Tile), 0, &mut tiles);
     tiles
 }
 

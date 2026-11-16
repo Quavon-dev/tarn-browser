@@ -5,11 +5,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      commit:
-        type: string
-        required: true
 
 permissions:
   contents: read
@@ -40,16 +35,36 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.commit }}
           persist-credentials: false
           fetch-depth: 2
       - id: diff
         env:
-          EVENT: ${{ inputs.commit && 'workflow_call' || github.event_name }}
+          EVENT: ${{ github.event_name }}
           SHA: ${{ github.sha }}
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/ci-changes.sh >> "$GITHUB_OUTPUT"
+
+  # Every commit of a pull request certifies the DCO (CONTRIBUTING.md, "Contribution terms").
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        # The base branch's script, so a pull request cannot change the check that gates it; a base
+        # branch without the script (one older than this check) runs the pull request's copy.
+        run: |
+          if git cat-file -e "$BASE:scripts/check-dco.sh" 2>/dev/null; then
+            git show "$BASE:scripts/check-dco.sh" | bash -s "$BASE" "$HEAD"
+          else
+            scripts/check-dco.sh "$BASE" "$HEAD"
+          fi
 
   check:
     needs: changes
@@ -62,7 +77,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.commit }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -70,7 +84,7 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: for d in . nsh-shared mobile linux; do (cd "$d" && cargo fmt --all --check); done
-      - run: scripts/check-workflows.sh && scripts/check-workflows.test.sh && scripts/ci-changes.test.sh
+      - run: scripts/check-workflows.sh && scripts/check-workflows.test.sh && scripts/ci-changes.test.sh && scripts/check-dco.test.sh
       - run: scripts/third-party-licenses.sh --check
       - run: cargo clippy $CRATES --all-targets --locked -- -D warnings
       - run: cargo test $CRATES --locked
@@ -85,7 +99,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.commit }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -109,7 +122,7 @@ jobs:
 
   windows:
     needs: changes
-    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.shared != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.shared != 'false' }}
     runs-on: windows-2025
     timeout-minutes: 60
     defaults:
@@ -118,7 +131,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.commit }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -138,7 +150,7 @@ jobs:
 
   nsh-shared:
     needs: changes
-    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.nsh != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.nsh != 'false' }}
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -146,7 +158,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.commit }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -161,7 +172,7 @@ jobs:
 
   mobile:
     needs: changes
-    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.mobile != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.mobile != 'false' }}
     runs-on: macos-15
     timeout-minutes: 60
     defaults:
@@ -174,7 +185,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.commit }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -189,7 +199,7 @@ jobs:
           cache-directories: |
             mobile/app/target
             ~/.gradle/caches
-            ~/.gradle/wrapper
+            mobile/android/build/gradle-*
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
@@ -210,6 +220,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/nsh.tar.gz" -C "$RUNNER_TEMP"
           tar -xzf "$RUNNER_TEMP/nsh-android.tar.gz" -C "$RUNNER_TEMP"
           PATH="$RUNNER_TEMP/nsh/bin:$PATH" android/build.sh
+          android/gradle.sh --quiet testDebugUnitTest
       - name: iOS device build
         # Links the app as release.yml does, which clippy for the simulator does not.
         working-directory: mobile/app
@@ -219,7 +230,7 @@ jobs:
 
   linux:
     needs: changes
-    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.linux != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.linux != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     container: fedora:43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5
@@ -229,7 +240,6 @@ jobs:
           gstreamer1-devel gstreamer1-plugins-base-devel xorg-x11-server-Xvfb mesa-dri-drivers dbus-daemon python3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.commit }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -248,7 +258,7 @@ jobs:
 
   flatpak:
     needs: changes
-    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.linux != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.linux != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     container:
@@ -276,32 +286,31 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.commit }}
           persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
-          # A new advisory in any crate must not hold back chromium-update.yml's engine update;
-          # audit.yml checks advisories nightly.
-          command: check ${{ inputs.commit && 'bans licenses sources' || 'advisories bans licenses sources' }}
+          command: check advisories bans licenses sources
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
-        if: ${{ !inputs.commit }}
         with:
           manifest-path: mobile/Cargo.toml
           command: check advisories bans licenses sources
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
-        if: ${{ !inputs.commit }}
         with:
           manifest-path: nsh-shared/Cargo.toml
           command: check advisories bans licenses sources
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
-        if: ${{ !inputs.commit }}
         with:
           manifest-path: fuzz/Cargo.toml
           command: check advisories bans licenses sources
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: linux/Cargo.toml
+          command: check advisories bans licenses sources
+      - run: scripts/check-vex.sh
 
   coverage:
     needs: changes
-    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:

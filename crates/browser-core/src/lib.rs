@@ -41,6 +41,7 @@ pub mod text;
 pub mod theme;
 pub mod theme_fetch;
 pub mod theme_library;
+pub mod tls;
 pub mod toast;
 pub mod windows;
 
@@ -262,12 +263,13 @@ impl<D: WebsiteData> Core<D> {
         }
         let overrides = store.site_overrides(profile_id).unwrap_or_default().into_iter().collect();
         let rules = SiteRules::load(store, profile_id);
-        // Lockdown keeps website data in memory only and empties the profile's persistent store,
-        // so nothing a Lockdown session stored survives a quit.
+        // Lockdown keeps website data in memory only and empties the profile's own persistent
+        // store, so nothing a Lockdown session stored survives a quit. A store shared from
+        // another profile stays with that profile.
         let data = if private {
             D::ephemeral(downloads())?
         } else if profile.shield_level == ShieldLevel::Lockdown {
-            D::wipe_persistent(&profile.data_store_uuid);
+            D::wipe_persistent(&own_store);
             D::ephemeral(downloads())?
         } else {
             D::persistent(&profile.data_store_uuid, &own_store, downloads())?
@@ -411,6 +413,21 @@ mod tests {
         let rt = &profiles[&(false, b.id)];
         assert_eq!(rt.data.persistent.as_deref(), Some(a.data_store_uuid.as_str()));
         assert_eq!(rt.own_store, "uuid-b");
+    }
+
+    #[test]
+    fn a_lockdown_profile_sharing_a_store_empties_only_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = TestCore::open(dir.path(), false);
+        let a = core.disk.profiles().unwrap().remove(0);
+        let b = core.disk.create_profile("B", "uuid-shares", false).unwrap();
+        core.disk.set_setting(&shared_key(b.id), &a.data_store_uuid).unwrap();
+        core.disk.set_profile_shield_level(b.id, ShieldLevel::Lockdown).unwrap();
+        core.open_profile(false, b.id, downloads).unwrap();
+        assert!(core.profiles.borrow()[&(false, b.id)].data.persistent.is_none());
+        let wiped = data::fake::WIPED.with(|w| w.borrow().clone());
+        assert!(wiped.contains(&"uuid-shares".to_owned()), "its own store is emptied");
+        assert!(!wiped.contains(&a.data_store_uuid), "the store it shares stays with its owner");
     }
 
     #[test]

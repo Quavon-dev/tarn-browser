@@ -697,6 +697,7 @@ impl Browser {
         let text = |k: &str| data[k].as_str().unwrap_or_default().to_owned();
         match name {
             "committed" | "finished" => self.on_page(key, name == "finished", data),
+            "started" | "stopped" => self.pages.entry(key).or_default().loading = name == "started",
             "title" => {
                 if let Some(page) = self.pages.get_mut(&key) {
                     page.title = text("title");

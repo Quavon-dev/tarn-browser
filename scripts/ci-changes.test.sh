@@ -11,6 +11,7 @@ expect() {
 expect "" README.md docs/release.md mobile/evidence/a.png .github/ISSUE_TEMPLATE/bug.yml
 expect "" ""
 expect "code shared nsh mobile linux" docs/themes.md
+expect "code" docs/vex.json
 expect "code shared nsh mobile linux" crates/app/src/lib.rs README.md
 expect "code shared nsh mobile linux" .github/workflows/ci.yml
 expect "code" .github/workflows/ci-retry.yml .github/zizmor.yml
@@ -23,7 +24,7 @@ expect "code mobile" mobile/app/src/lib.rs
 expect "code mobile" mobile/app/assets/brand/icon.png
 expect "code nsh mobile linux" nsh-shared/src/theme.rs
 [[ "$(EVENT=workflow_dispatch "$script" | grep -c '=true')" == 5 ]] || { echo "ci-changes: manual runs must run every job" >&2; status=1; }
-for event in push workflow_dispatch workflow_call; do
+for event in push workflow_dispatch; do
   [[ "$(EVENT=$event "$script" | grep -c '=true')" == 5 ]] || { echo "ci-changes: $event must run every job" >&2; status=1; }
 done
 repo="$(mktemp -d)"

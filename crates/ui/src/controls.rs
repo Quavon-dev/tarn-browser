@@ -346,10 +346,10 @@ const TURN: Duration = Duration::from_millis(900);
 
 static SPIN_EPOCH: std::sync::LazyLock<std::time::Instant> = std::sync::LazyLock::new(std::time::Instant::now);
 
-/// How far through its turn the spinner is now, in whole steps of `1 / SPIN_FPS` seconds.
+/// How far through its turn the spinner is now. Not rounded to whole frames: a redraw that comes
+/// late would then skip a step.
 fn spin_turn(elapsed: Duration) -> f32 {
-    let steps = (TURN.as_secs_f32() * SPIN_FPS as f32).round().max(1.);
-    ((elapsed.as_secs_f32() / TURN.as_secs_f32()).fract() * steps).floor() / steps
+    (elapsed.as_secs_f32() / TURN.as_secs_f32()).fract()
 }
 
 /// The reload arrow where its turn is now, for a page that is loading; the caller redraws it
@@ -635,13 +635,12 @@ mod tests {
     }
 
     #[test]
-    fn the_spinner_steps_through_its_turn() {
+    fn the_spinner_turns_evenly_with_time() {
         use std::time::Duration;
         assert_eq!(super::spin_turn(Duration::ZERO), 0.);
-        assert_eq!(super::spin_turn(Duration::from_millis(80)), 0., "within the first step");
-        let half = super::spin_turn(Duration::from_millis(450));
-        assert!((0.4..=0.5).contains(&half));
-        assert_eq!(super::spin_turn(Duration::from_millis(900)), 0., "a full turn starts over");
+        let turn = |ms| super::spin_turn(Duration::from_millis(ms));
+        assert!((turn(225) - 0.25).abs() < 1e-4 && (turn(450) - 0.5).abs() < 1e-4, "a late redraw lands where the turn is, not a step behind");
+        assert!(turn(900) < 1e-4, "a full turn starts over");
     }
 
     #[test]

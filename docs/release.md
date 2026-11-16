@@ -28,29 +28,39 @@ feeds ("Signing in CI") and publishes a GitHub release with:
   `Tarn-<tag>-android-unsigned.apk` (`assembleRelease`): unsigned, because store signing keys
   never enter CI; the maintainer signs and submits them, which only Quavon UG
   (haftungsbeschränkt) may do for the app stores (`LICENSE-APP-STORE.md`).
-- `Tarn-<tag>.cdx.json`: CycloneDX SBOM of the `app` crate and its dependencies.
+- CycloneDX SBOMs, one per client, each listing the crates built into it for that client's target
+  (`cargo cyclonedx`): `Tarn-<tag>.cdx.json` (macOS app, plus the embedded Sparkle framework and
+  CEF), `Tarn-<tag>-windows-x64.cdx.json` (`crates/app-dll`, plus CEF), `Tarn-<tag>-linux.cdx.json`
+  (the `linux/` workspace; WebKitGTK and the other system libraries come from the distribution or
+  runtime), `Tarn-<tag>-ios.cdx.json` and `Tarn-<tag>-android.cdx.json` (`mobile/app`; NSH's own
+  platform crates, which `nsh package` adds in its generated workspace, are not listed), and
+  `Tarn-<tag>-android-java.cdx.json`, the APK's Java dependencies from Gradle's
+  `releaseRuntimeClasspath` plus the pinned `nsh-embed-android` classes, written by the CycloneDX
+  Gradle plugin (`-Psbom`) only after the APK is uploaded; the plugin is resolved but not applied in
+  the APK build. A macOS-only release carries the macOS SBOM alone.
 - `SHA256SUMS` for every file.
 
-Nothing is published until a maintainer approves the run's `release-signing` deployment. Every build job first runs
-`scripts/check-version.sh <tag>` (the macOS build skips it for engine updates), so a release tag
-needs the same version in the root, `linux/` and `mobile/` manifests, `mobile/app/nsh.json`, the
-Android Gradle file, the RPM spec and the PKGBUILD. Engine updates from `chromium-update.yml` build
-the macOS bundle alone, so a failing Windows, Linux or mobile build never holds back a Chromium
-security fix. A manual run, `gh workflow run release.yml --ref v1.2.3`, does the same for a
-macOS-only release. It fails unless started on a `v*` tag whose `release.yml` has the
-`workflow_dispatch` trigger (older tags cannot use it), and it publishes nothing while a release
-for that tag exists. The SBOM
-covers the root workspace as built on macOS; Windows-only dependencies and the `linux/` and
-`mobile/` workspaces have none yet.
+Nothing is published until a maintainer approves the run's `release-signing` deployment. Every build
+job first runs `scripts/check-version.sh <tag>` (the macOS build skips it for engine updates, every
+job for nightly builds), so a release tag needs the same version in the root, `linux/` and `mobile/`
+manifests, `mobile/app/nsh.json`, the Android Gradle file, the RPM spec and the PKGBUILD. Engine
+updates from `chromium-update.yml` build the macOS bundle alone, so a failing Windows, Linux or
+mobile build never holds back a Chromium security fix; the `fuzz` and `deny` gates still apply to
+them. A manual run, `gh workflow run release.yml --ref v1.2.3`, does the same for a macOS-only
+release. It fails unless started on a `v*` tag whose `release.yml` has the `workflow_dispatch`
+trigger (older tags cannot use it), and it publishes nothing while a release for that tag exists.
 
-The build jobs hold no `id-token` permission. The macOS `build` job installs nothing unpinned
-(Ninja for the Chromium build comes from `scripts/fetch-ninja.sh`, a release download checked
-against the SHA-256 pinned there, as in CI); the Windows, Linux and mobile builds still install
-distribution packages, Gradle dependencies and, on Arch, Rust from the distribution without a pin
-(the containers are pinned by digest and rustup-init by SHA-256). The `sbom` job only writes the
-SBOM. The `assets` job, which runs no build code, downloads each artifact by the ID its build job
-reported and accepts only that job's own file names, so no job can replace another platform's
-file; it writes `SHA256SUMS` and attests every binary, the macOS archives included.
+The build jobs hold no `id-token` permission. The macOS `build` job installs nothing unpinned (Ninja
+for the Chromium build comes from `scripts/fetch-ninja.sh`, a release download checked against the
+SHA-256 pinned there, as in CI); the Windows, Linux and mobile builds still install distribution
+packages, Gradle dependencies and, on Arch, Rust from the distribution without a pin (the containers
+are pinned by digest and rustup-init by SHA-256). The `sbom` job only writes the SBOMs. The `deny`
+job runs `cargo deny check` (advisories, bans, licences, sources) on every workspace of the released
+commit, engine updates included, and `sign` waits for it (`SECURITY.md`, "Dependency and code
+scanning"). The `assets` job, which runs no build code, downloads each artifact by the ID its build
+job reported and accepts only that job's own file names, so no job can replace another platform's
+file; it writes `SHA256SUMS` and attests every binary (the macOS archives included), the SBOMs and
+`SHA256SUMS` itself.
 
 The archives are attested (`actions/attest`, predicate type
 `https://github.com/Quavon-dev/tarn-browser/attestations/release/v1`, predicate `{commit, tag}`).
@@ -83,8 +93,12 @@ replaces it, the pre-release is missing for the minutes its upload takes.
 ## Signing in CI
 
 `release.yml`'s `build` job builds the macOS bundle unsigned (`TARN_SIGN_IDENTITY=none`). The
-`sign` job, which runs no build code, enters the `release-signing` environment (`nightly-signing`
-for nightly builds) and:
+`fuzz` job builds the fuzz targets of the exact commit being released with the ClusterFuzzLite
+image and runs each one for 60 seconds under AddressSanitizer from its seeds; a crashing input is
+uploaded as the `fuzz-crashes` artifact. Every release path (tag, Start release, engine update,
+nightly) goes through it, and `sign` does not start unless it passed. The `sign` job, which runs
+no build code, enters the `release-signing` environment (`nightly-signing` for nightly builds)
+and:
 
 1. imports the Developer ID certificate into a temporary keychain with a random password, stores the
    notary API key as the notarytool profile `tarn-notary` in it and writes the update key to a file
@@ -99,18 +113,24 @@ for nightly builds) and:
 5. deletes the keychain and the key files.
 
 The `assets` job takes the signed files with the rest, writes `SHA256SUMS` and attests them, and
-`publish` publishes the release as the latest one and starts `linux-repo.yml`. A tag whose message
-has the line `critical` marks both feeds critical.
+`publish` publishes the release, marks the highest published version as the latest release (an older
+one finishing late never takes over the feeds), gives that release the newest signed Windows feed of
+the recent releases (a macOS-only release carries the feed that was latest when it started), and
+starts `linux-repo.yml`. It does so holding the branch `release-latest-lock`, which it deletes
+afterwards; delete it by hand only if a cancelled run left it behind, then re-run that run's
+`publish`, which finishes a release it had already created. A tag whose message has the line
+`critical` marks both feeds critical.
 
-To release from GitHub, raise the version in every client in a pull request (`scripts/check-version.sh`
-lists the files), merge it, wait for its CI on `main`, then run Actions › Start release (tick
-"Security release" for a critical one). `start-release.yml` checks that CI passed on `main`'s
-latest commit, that every version file carries the same version and that `v<version>` does not
-exist, then calls `release.yml` for every client. Approve the run's `release-signing` deployment
-once its builds have finished: the `sign` job creates the tag `v<version>` with the update app
-(the tag ruleset lets the app create `v*` tags, not GitHub Actions), signs, and the release is
-published a few minutes later. If a later job fails after the tag exists, re-run the failed jobs;
-to start over, a maintainer deletes the tag first.
+To release from GitHub, raise the version in every client in a pull request and rename `##
+[Unreleased]` in `CHANGELOG.md` to `## [<version>] - <date>` (`scripts/check-version.sh` checks
+both; that section becomes the release notes), merge it, wait for its CI on `main`, then run Actions
+› Start release (tick "Security release" for a critical one). `start-release.yml` checks that CI
+passed on `main`'s latest commit, that every version file carries the same version and that
+`v<version>` does not exist, then calls `release.yml` for every client. Approve the run's
+`release-signing` deployment once its builds have finished: the `sign` job creates the tag
+`v<version>` with the update app (the tag ruleset lets the app create `v*` tags, not GitHub
+Actions), signs, and the release is published a few minutes later. If a later job fails after the
+tag exists, re-run the failed jobs; to start over, a maintainer deletes the tag first.
 
 The same release can start from a maintainer's machine: `scripts/publish-release.sh` (with `git`
 and `gh`) runs the same checks, pushes a signed tag `v<version>` (`--critical` for a security
@@ -267,10 +287,13 @@ Applied by hand in the repository and organisation settings; no workflow changes
 - [ ] Ruleset on `main`: require a pull request (one approval, review from Code Owners,
       approval of the most recent reviewable push, dismiss stale approvals when new commits are
       pushed), require the status checks
-      `check`, `macos` and `deny` from GitHub Actions with the branch up to date, block force
-      pushes, restrict deletions. Bypass: only the update app below, for pull requests only (its
-      tests run as a reusable workflow, which posts no checks on the pull request). Never
-      GitHub Actions itself: every workflow token on every branch acts as GitHub Actions.
+      `check`, `macos`, `deny` and `dco` from GitHub Actions with the branch up to date, require
+      code scanning results from CodeQL (security alerts high or higher, alerts errors), block force
+      pushes, restrict deletions. No bypass, for people or apps: the update app's pull requests
+      run CI and wait for review like any other. Never add GitHub Actions itself: every workflow
+      token on every branch acts as GitHub Actions.
+- [ ] General: "Require contributors to sign off on web-based commits" on, so commits made in the
+      web editor pass the `dco` check.
 - [ ] `.github/CODEOWNERS`: its team `@Quavon-dev/maintainers` must exist and have write
       access; it covers itself,
       `.github/workflows/`, `scripts/`, `packaging/`, `deny.toml`, `.cargo/`, `Cargo.toml`,
@@ -281,8 +304,13 @@ Applied by hand in the repository and organisation settings; no workflow changes
       enforces a mitigation (`crates/ai`, `crates/import`, `crates/sync`, `crates/cli-bridge`, the engine's policy files); the file
       itself is the full list. Until then GitHub ignores
       its lines and no Code Owners review is required.
-- [ ] Ruleset on tags `v*`: restrict creation, update and deletion; bypass for the maintainers and
-      the update app (it creates the tag of its merge).
+- [ ] Ruleset "main merges" on `main`: restrict updates; bypass only `@Quavon-dev/maintainers`,
+      so write-access teams such as `@Quavon-dev/tarn-maintainer` can review but not merge.
+- [ ] Ruleset on tags `v*`: restrict creation, update and deletion; bypass for organisation
+      admins and the update app (it creates the tag of its merge). An admin can therefore tag any
+      commit and, since `release-signing` allows self-review, approve its signing: the release
+      gates still run, but no second person reviews that commit. Turning on prevent-self-review
+      closes this at the cost of needing a second maintainer for every release.
 - [ ] Environment `release-signing` also holds the variable `CHROMIUM_UPDATE_APP_CLIENT_ID` and the
       secret `CHROMIUM_UPDATE_APP_KEY` (a private key of the update app of its own), so the `sign`
       job of a release started with `start-release.yml` can create the `v*` tag.
@@ -298,7 +326,7 @@ Applied by hand in the repository and organisation settings; no workflow changes
       with contents and pull requests read and write and nothing else. Environment
       `chromium-update` with deployment branches limited to `main`, holding the variable
       `CHROMIUM_UPDATE_APP_CLIENT_ID` and the secret `CHROMIUM_UPDATE_APP_KEY` (the app's private
-      key); only the `merge` job of `chromium-update.yml` uses it. Repository variable
+      key); only the `open` and `tag` jobs of `chromium-update.yml` use it. Repository variable
       `CHROMIUM_UPDATE_APP_SLUG` (the app's slug), so a tag the app pushes does not start the
       tag-push build of `release.yml` as well.
 - [ ] Actions › General: "Allow GitHub Actions to create and approve pull requests" stays off;
@@ -318,36 +346,63 @@ Applied by hand in the repository and organisation settings; no workflow changes
       that outside accounts can start (pull requests, issues, comments) runs on anything but
       `ubuntu-24.04`, `macos-15` or `windows-2025`, so a self-hosted label such as `ubuntu-fast` is refused too.
 
+## Secrets and credentials
+
+- **Stored** only as secrets of the GitHub environments named above (`release-signing`,
+  `nightly-signing`, `chromium-update`, `filter-signing`) and of `linux-repo` and `aur`
+  (`linux-repo.yml`), never as repository secrets, in the repository, in workflow files or in logs.
+  Store signing keys (iOS, Android) never enter CI.
+- **Accessed** only by the one job that needs each one: `sign` for the Apple and notary credentials
+  and the update key (`SPARKLE_ED_PRIVATE_KEY`, which signs both the Sparkle feed and the Windows
+  feed); the `open` and `tag` jobs of `chromium-update.yml` and `sign` for the update app key; the signing job
+  of `filter-lists.yml` for `FILTER_SIGNING_KEY`; the `build` job of `linux-repo.yml` for
+  `LINUX_REPO_GPG_KEY` and `LINUX_REPO_GPG_PASSPHRASE`, its `aur` job for `AUR_SSH_PRIVATE_KEY`.
+  `release-signing` needs a maintainer's approval for every run; a maintainer may approve their own
+  release. `nightly-signing` holds the same Apple credentials and update key without approval, but
+  only `main` may deploy to it. Maintainers with admin rights can set secrets but cannot read them
+  back.
+- **Rotated** at once when a secret may have leaked, when a maintainer with access to it leaves, or
+  when a workflow that reads it was compromised; otherwise the Developer ID certificate when it
+  expires, and the notary API key, the update app's private key and the AUR SSH key every year.
+  Replacing the update key (both updaters) or the filter signing key also needs an app release
+  carrying the new public key before the old key is retired, so installed apps keep verifying
+  updates; a new apt/dnf repository key is published in the repository and announced in the release
+  notes before the old one stops signing, since installed systems trust the old one. A rotation
+  after a suspected leak is tracked in a private security advisory.
+
 ## Automatic engine updates
 
-`.github/workflows/chromium-update.yml` runs every three hours from `main`:
+`.github/workflows/chromium-update.yml` checks for a new CEF build every three hours from `main`, and
+runs again when a merge to `main` changes `packaging/cef.lock`:
 
 1. `watch` reads `https://cef-builds.spotifycdn.com/index.json` and takes the newest stable CEF
    build present for both architectures that `cef-dll-sys` builds against: the crate's own CEF
    version or an older build of its major.minor. Its Chromium version must be newer than the
    pinned one and on Google's Mac stable or extended stable list (CEF follows either); the
    release date is Google's first serving date. It computes each archive's SHA-256.
-2. `propose` writes `packaging/cef.lock`, bumps the patch version in `Cargo.toml` and
-   `Cargo.lock` and pushes `chromium-update/<CEF version>`.
-3. `test` runs `ci.yml` on that commit; `merge`, with the update app's token, opens the pull
-   request and merges it naming the tested commit (a later push to the branch makes the merge fail) and tags
-   the merge commit `v<version>`. It merges only while `main` is still the commit the branch was
-   cut from, so the merge carries the tested tree; if `main` moved, it closes the pull request and
-   deletes the branch, and the next scheduled run proposes the update again on the new `main`.
-4. `build` calls `release.yml` with the merge commit: the macOS bundle, signed and published as a
-   macOS-only release once a maintainer approves its `release-signing` deployment.
+2. `propose` writes `packaging/cef.lock`, bumps the patch version in `Cargo.toml`, refreshes every
+   workspace's `Cargo.lock` and pushes `chromium-update/<CEF version>`.
+3. `open`, with the update app's token, opens its pull request. CI runs on it like on any other,
+   and like any other it needs a maintainer's approval and an up-to-date branch to merge, so the
+   merged tree is the tested one. A maintainer reviews the `packaging/cef.lock` change (version,
+   host, hashes) and merges it.
+4. The merge's push to `main` changes `packaging/cef.lock` and starts the workflow again: `tag`
+   checks that the commit is the merge of the app's own `chromium-update/` pull request, tags it
+   `v<version>` with the app, and `build` calls `release.yml` with it. Against `main` before the
+   merge it refuses a change to anything but `packaging/cef.lock`, `Cargo.toml` and the lockfiles,
+   any changed line in those other than a `version = "…"` line, a `cef.lock` that names another
+   CEF build than its branch or a mismatched Chromium version, and a version that is already
+   tagged (two update pull requests cut from the same `main`): those are released by hand after
+   raising the version. Otherwise `build` makes the macOS bundle, which is signed and
+   published as a macOS-only release once a maintainer approves its `release-signing` deployment.
+   Any other change to `packaging/cef.lock` is released by hand.
 
-Any failure, and a Chrome stable release left without a usable CEF build for seven days, opens an
-issue labelled `security`. To retry a failed `merge` or `build`, re-run the failed jobs of that
-run: `merge` picks up an already merged pull request and an existing tag. To retry a failed
-`propose` or `test`, delete the branch `chromium-update/<CEF version>`. To reject an update,
-cancel the run before `merge` and keep the branch: `watch` then proposes nothing for that CEF
-build. `merge` opens the pull request itself; a re-run refuses a commit whose pull request was
-closed without merging. If `merge` fails because
-`main` moved in the moment between its check and the merge (GitHub's merge call cannot name the
-expected base), the update is on `main` untested and untagged and a re-run fails the same way: let
-CI run on `main`, then release it with a maintainer-signed tag. A `main` that keeps moving while
-the tests run only delays the update; the seven-day issue above still fires.
+Any failure, and a Chrome stable release whose Chromium is not on `main` seven days later (no usable
+CEF build yet, or its update pull request still unmerged), opens an issue labelled `security`. To retry a failed `tag` or `build`, re-run the failed jobs of that
+run: `tag` accepts an existing tag on the same commit. To retry a failed `open`, re-run it. To retry
+a failed `propose`, delete the branch `chromium-update/<CEF version>`. To reject an update, close its pull request and keep the
+branch: `watch` then proposes nothing for that CEF build. If `main` moved after the branch was cut,
+update the branch from the pull request page; CI runs again before it can merge.
 
 The pipeline never moves the `cef` crate. A newer CEF build than the crate's own (a patch build
 included, since `cef-dll-sys` refuses those) and a new Chromium milestone come through Renovate,
@@ -370,7 +425,8 @@ CI job runs it with `--check`, so a dependency change must regenerate it.
   `scripts/third-party-licenses.sh` is run on its branch and the regenerated
   `packaging/third-party-licenses.txt` and `packaging/third-party-licenses-windows.txt` are pushed.
 - `.github/workflows/audit.yml` runs `cargo deny check advisories` nightly, and the `deny` job of
-  `ci.yml` checks advisories with bans, licences and sources on every pull request; not when
-  `chromium-update.yml` calls it, so an advisory in an unrelated crate does not hold back an engine
-  update.
+  `ci.yml` checks advisories with bans, licences and sources on every pull request, engine updates
+  included, and `release.yml`'s `deny` job again before signing: a new advisory holds back an
+  engine update until it is fixed or suppressed with a VEX statement (`SECURITY.md`), so fix it on
+  `main` first and update the engine branch.
 - Target for a high-severity issue in Tarn's own code: fix release within 7 days (`SECURITY.md`).

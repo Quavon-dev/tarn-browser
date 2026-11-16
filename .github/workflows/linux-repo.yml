@@ -35,8 +35,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          tags="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
-            --jq '.[] | select(.draft == false and .prerelease == false) | select(any(.assets[]; .name | test("\\.(deb|rpm)$"))) | .tag_name')"
+          tags="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" | jq -r '[.[][]
+            | select(.draft == false and .prerelease == false and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")))
+            | select(any(.assets[]; .name | test("\\.(deb|rpm)$"))) | .tag_name]
+            | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | reverse | .[]')"
           tags="$(head -n "$RELEASES" <<<"$tags")"
           [[ -n "$tags" ]] || { echo "no published release has Linux packages" >&2; exit 1; }
           mkdir packages
@@ -44,9 +46,11 @@ jobs:
             [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unexpected tag $tag" >&2; exit 1; }
             gh release download "$tag" --pattern '*.deb' --pattern '*.rpm' --dir "downloads/$tag"
             for file in "downloads/$tag"/*; do
-              gh attestation verify "$file" --repo "$GH_REPO" \
-                --signer-workflow "$GH_REPO/.github/workflows/release.yml" --source-ref "refs/tags/$tag" \
-                --predicate-type https://github.com/Quavon-dev/tarn-browser/attestations/release/v1 >/dev/null
+              attested="$(gh attestation verify "$file" --repo "$GH_REPO" --deny-self-hosted-runners \
+                --cert-identity-regex "^https://github\\.com/$GH_REPO/\\.github/workflows/release\\.yml@refs/(tags/${tag//./\\.}|heads/main)\$" \
+                --predicate-type https://github.com/Quavon-dev/tarn-browser/attestations/release/v1 \
+                --format json --jq '.[].verificationResult.statement.predicate.tag' | sort -u)"
+              [[ "$attested" == "$tag" ]] || { echo "$file is attested for '${attested:-nothing}', not $tag" >&2; exit 1; }
               mv "$file" packages/
             done
           done

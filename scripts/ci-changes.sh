@@ -2,8 +2,8 @@
 # Prints which CI jobs a change needs, as GitHub step outputs (code, shared, nsh, mobile, linux).
 # With --classify it reads changed paths from stdin; otherwise it diffs a pull request's merge commit
 # against its base. A push skips every job only when its tree is exactly the head of a merged pull
-# request whose latest CI run passed (that code was already checked); other pushes, manual runs,
-# calls and any API error run every job.
+# request whose latest CI run passed (that code was already checked); other pushes, manual runs and
+# any API error run every job.
 set -euo pipefail
 
 all() { printf '%s=true\n' code shared nsh mobile linux; }
@@ -28,14 +28,14 @@ classify() {
     [[ -n "$path" ]] || continue
     case "$path" in
       # browser-core's tests read docs/themes.md.
-      docs/themes.md) ;;
+      docs/themes.md | docs/vex.json) ;;
       *.md | docs/* | */evidence/* | LICENSE* | .github/ISSUE_TEMPLATE/* | .github/CODEOWNERS | .editorconfig) continue ;;
     esac
     code=true
     case "$path" in
       # Other workflows and GitHub settings run none of the builds; the check job lints them.
       .github/workflows/ci.yml) shared=true ;;
-      .github/*) ;;
+      .github/* | docs/vex.json) ;;
       linux/*) linux=true ;;
       mobile/*) mobile=true ;;
       nsh-shared/*) nsh=true ;;

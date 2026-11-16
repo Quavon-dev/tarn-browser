@@ -629,6 +629,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
             LoadEvent::Started => {
                 s.failed.set(false);
                 s.note_processes();
+                s.emit("started", json!({}));
             }
             LoadEvent::Committed => {
                 let page = web.uri().and_then(|u| Url::parse(&u).ok());
@@ -685,6 +686,8 @@ fn connect(state: &Rc<State>, web: &WebView) {
             s.failed.set(true);
             if !err.matches(NetworkError::Cancelled) && !err.matches(PolicyError::FrameLoadInterruptedByPolicyChange) {
                 s.emit("failed", json!({ "url": uri, "message": err.message() }));
+            } else {
+                s.emit("stopped", json!({}));
             }
         }
         true

@@ -25,6 +25,9 @@ Every shell's web view offers the same operations and reports the same events. T
 
 **Events:**
 - `Committed`, `Finished`, `TitleChanged`, `UrlChanged`, `Failed`;
+- `Loading(bool)` on macOS and Windows, `started` and `stopped` on Linux, iOS and Android: a
+  main-frame load began before it commits, or ended without `Finished` or `Failed` (a stop, a
+  cancel, a load that turned into a download);
 - `Blocked`, `PopupBlocked`, `Popup`, `ShieldLevelChanged`;
 - `Prompt`, `PeekLink`, `ExternalScheme`, `ContentProcessTerminated`;
 - `OpenTab`: Chromium views only, for a link the user opens in a new tab (Ctrl- or middle-click,

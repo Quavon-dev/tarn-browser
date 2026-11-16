@@ -143,6 +143,10 @@ pub(crate) fn data_dir() -> PathBuf {
 /// Purges Chromium's data when its owner is gone or a purge is pending; before CEF starts or once it is gone.
 #[cfg(feature = "chromium")]
 pub(crate) fn prepare_chromium(core: &Core) {
+    // An in-memory stand-in knows none of the real profiles, which would make Chromium's owner an orphan.
+    if !core.disk.on_disk() {
+        return;
+    }
     if let Ok(profiles) = core.disk.profiles() {
         let live: Vec<String> = profiles.into_iter().filter(|p| p.shield_level != ShieldLevel::Lockdown).map(|p| p.data_store_uuid).collect();
         engine::chromium_owner::prepare(&data_dir().join("Chromium"), &live);
@@ -712,7 +716,7 @@ impl Browser {
             return;
         }
         self.spinning = true;
-        let step = std::time::Duration::from_millis(1000 / u64::from(ui::controls::SPIN_FPS));
+        let step = std::time::Duration::from_secs(1) / ui::controls::SPIN_FPS;
         // Redraws only the windows that draw spinners, not every observer of the browser.
         cx.spawn_in(window, async move |this, cx| {
             loop {
@@ -1728,6 +1732,7 @@ impl Browser {
             _ => {}
         }
         match event {
+            Event::Loading(on) => self.pages.entry(key).or_default().loading = on,
             Event::Committed { url, title, can_go_back, can_go_forward } => {
                 engine::startup::mark("first page commit");
                 // A link stays the page's until it shows a page: a view slept or never made loads it as a link again.
@@ -2077,6 +2082,8 @@ impl Browser {
     /// With `link`, the URL loads as a link from that page (or from none), not as typed.
     fn rebuild_view_loading(&mut self, key: TabKey, url: &Url, storage: Option<engine::handover::Storage>, link: Option<Option<Url>>, cx: &mut Context<Self>) {
         if self.model.tab(key).is_some() && self.views.remove(&key).is_some() {
+            // The old view's last events are dropped; the new one says when its load starts.
+            self.pages.entry(key).or_default().loading = false;
             self.drop_prompts(key, cx);
             let active = self.model.active == Some(key);
             let visible = (active || self.in_split(key)) && !self.overlay_open();

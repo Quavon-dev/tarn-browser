@@ -847,7 +847,28 @@ fn rows(b: &Browser, group: Option<Id>, show: impl Fn(&Tab) -> bool, cx: &mut Co
         )
         .collect();
     tabs.sort_by_key(|(t, _)| t.position);
-    tabs.into_iter().map(|(t, leaving)| if leaving { leaving_row(b, t) } else { tab_row(b, t, 0., cx) }).collect()
+    tab_rows(b, &tabs, 0., cx)
+}
+
+/// One row per tab, a split's panes side by side in one row at the place of the first of them.
+fn tab_rows(b: &Browser, tabs: &[(&Tab, bool)], indent: f32, cx: &mut Context<Browser>) -> Vec<AnyElement> {
+    let keys: Vec<TabKey> = tabs.iter().filter(|(_, leaving)| !leaving).map(|(t, _)| b.model.key(t)).collect();
+    tabs.iter()
+        .filter_map(|&(t, leaving)| {
+            if leaving {
+                return Some(leaving_row(b, t));
+            }
+            Some(match b.splits.entry(b.model.key(t), &keys)?.as_slice() {
+                [_] => tab_row(b, t, indent, cx),
+                panes => div()
+                    .flex()
+                    .gap(px(ROW_GAP))
+                    .pl(px(indent))
+                    .children(panes.iter().filter_map(|k| b.model.tab(*k)).map(|t| div().flex_1().min_w_0().flex().flex_col().child(tab_row(b, t, 0., cx))))
+                    .into_any_element(),
+            })
+        })
+        .collect()
 }
 
 fn pinned(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
@@ -877,9 +898,8 @@ fn pinned(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                     .child("Drag tabs here to pin them"),
             )
         });
-    for t in b.model.tabs.iter().filter(|t| t.kind == TabKind::Pinned && t.folder_id.is_none()) {
-        col = col.child(tab_row(b, t, 0., cx));
-    }
+    let loose: Vec<(&Tab, bool)> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Pinned && t.folder_id.is_none()).map(|t| (t, false)).collect();
+    col = col.children(tab_rows(b, &loose, 0., cx));
     let folders: Vec<AnyElement> = b.model.folders.iter().filter(|f| f.parent_id.is_none()).map(|f| folder(b, f, 0, cx)).collect();
     col.drag_over::<DraggedFolder>(|s, _, _, _| s.bg(Theme::accent_soft()))
         .on_drop(cx.listener(|b, dragged: &DraggedFolder, _, cx| b.move_folder(dragged.id, None, cx)))
@@ -927,8 +947,8 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
         let active = b.model.tabs.iter().filter(|t| t.folder_id.is_some_and(|f| tree.contains(&f)) && b.model.active == Some(b.model.key(t)));
         return col.children(active.map(|t| tab_row(b, t, indent + 16., cx)).collect::<Vec<_>>()).into_any_element();
     }
-    let tabs: Vec<AnyElement> =
-        b.model.tabs.iter().filter(|t| t.kind == TabKind::Pinned && t.folder_id == Some(id)).map(|t| tab_row(b, t, indent + 16., cx)).collect();
+    let tabs: Vec<(&Tab, bool)> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Pinned && t.folder_id == Some(id)).map(|t| (t, false)).collect();
+    let tabs = tab_rows(b, &tabs, indent + 16., cx);
     let subfolders: Vec<AnyElement> = b.model.folders.iter().filter(|c| c.parent_id == Some(id)).map(|c| folder(b, c, depth + 1, cx)).collect();
     let col = col.children(tabs).children(subfolders);
     if depth == 0 { col.my_1().p(px(INNER_PAD)).rounded(px(Theme::radius_tile())).bg(Theme::group()) } else { col }.into_any_element()
@@ -1055,7 +1075,9 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         )));
     let toggling = b.motion.toggled_group.is_some_and(|(gid, at)| gid == id && at.elapsed() < FADE);
     let is_active = |t: &Tab| b.model.active == Some(b.model.key(t));
-    let all = b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(id)).count();
+    let keys: Vec<TabKey> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(id)).map(|t| b.model.key(t)).collect();
+    // A split shows as one row.
+    let all = keys.iter().filter(|k| b.splits.entry(**k, &keys).is_some()).count();
     let active = b.model.tabs.iter().filter(|t| t.group_id == Some(id) && is_active(t)).count();
     let tabs = rows(b, Some(id), |t| !g.collapsed || toggling || is_active(t), cx);
     let (from, to) = if g.collapsed { (inner_height(all), inner_height(active)) } else { (inner_height(active), inner_height(all)) };

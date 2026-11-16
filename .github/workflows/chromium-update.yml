@@ -1,11 +1,15 @@
 name: Chromium update
 
-# Proposes, tests, merges and builds a newer CEF build of the cef crate's branch; release.yml signs
-# and publishes it once a maintainer approves its release-signing deployment.
+# Proposes a newer CEF build of the cef crate's branch as a pull request; once a maintainer has
+# reviewed and merged it, tags the merge and calls release.yml, which signs and publishes it after a
+# maintainer approves its release-signing deployment.
 on:
   schedule:
     - cron: "41 */3 * * *"
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [packaging/cef.lock]
 
 permissions: {}
 
@@ -13,13 +17,14 @@ defaults:
   run:
     shell: bash
 
+# A push run (one per merged update) never waits behind, or is replaced by, the scheduled checks.
 concurrency:
-  group: chromium-update
+  group: chromium-update-${{ github.event_name == 'push' && github.sha || 'watch' }}
   cancel-in-progress: false
 
 jobs:
   watch:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -90,9 +95,7 @@ jobs:
       contents: write
     outputs:
       commit: ${{ steps.commit.outputs.commit }}
-      base: ${{ steps.commit.outputs.base }}
       branch: ${{ steps.commit.outputs.branch }}
-      tag: ${{ steps.commit.outputs.tag }}
     env:
       CEF_VERSION: ${{ needs.watch.outputs.cef_version }}
       CHROMIUM_VERSION: ${{ needs.watch.outputs.chromium_version }}
@@ -118,44 +121,59 @@ jobs:
           new="${old%.*}.$(( ${old##*.} + 1 ))"
           sed -i "/^\[workspace.package\]/,/^\[/s/^version = \"$old\"$/version = \"$new\"/" Cargo.toml
           cargo update --workspace
+          for dir in linux mobile nsh-shared fuzz; do (cd "$dir" && cargo update --workspace); done
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git commit -m "build: Chromium $CHROMIUM_VERSION (CEF $CEF_VERSION)" -- packaging/cef.lock Cargo.toml Cargo.lock
+          git commit -s -m "build: Chromium $CHROMIUM_VERSION (CEF $CEF_VERSION)" -- packaging/cef.lock Cargo.toml Cargo.lock linux/Cargo.lock mobile/Cargo.lock nsh-shared/Cargo.lock fuzz/Cargo.lock
           {
             echo "commit=$(git rev-parse HEAD)"
-            echo "base=$(git rev-parse HEAD^)"
             echo "branch=$branch"
-            echo "tag=v$new"
           } >> "$GITHUB_OUTPUT"
       - env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.commit.outputs.branch }}
         run: git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BRANCH"
 
-  test:
-    needs: propose
+  open:
+    needs: [watch, propose]
     if: needs.propose.outputs.commit != ''
-    permissions:
-      contents: read
-    uses: ./.github/workflows/ci.yml
-    with:
-      commit: ${{ needs.propose.outputs.commit }}
-
-  merge:
-    needs: [propose, test]
     runs-on: ubuntu-24.04
-    # The app that may bypass main's ruleset; its key is a secret of an environment only main can use,
-    # so a workflow on another branch cannot merge with it.
+    # The app opens the pull request, so CI runs on it as on any other (a pull request opened with
+    # the workflow token starts no workflows); its key is a secret of an environment only main can use.
+    environment: chromium-update
+    permissions: {}
+    env:
+      BRANCH: ${{ needs.propose.outputs.branch }}
+      CHROMIUM_VERSION: ${{ needs.watch.outputs.chromium_version }}
+    steps:
+      - id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.CHROMIUM_UPDATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CHROMIUM_UPDATE_APP_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+      - env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          api="repos/$GITHUB_REPOSITORY"
+          open="$(gh api "$api/pulls?head=${GITHUB_REPOSITORY_OWNER}:${BRANCH//+/%2B}&state=open" --jq length)"
+          [[ "$open" != 0 ]] || gh api "$api/pulls" -f base=main -f head="$BRANCH" -f title="build: Chromium $CHROMIUM_VERSION (${BRANCH#chromium-update/})" \
+            -f body="Automatic engine update. Review the change to packaging/cef.lock and merge once CI passes; chromium-update.yml then tags the merge and starts its macOS release (docs/release.md, Automatic engine updates)." >/dev/null
+
+  tag:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    # The update app may create v* tags (tag ruleset); only main can use this environment.
     environment: chromium-update
     permissions: {}
     outputs:
-      commit: ${{ steps.merge.outputs.commit }}
+      commit: ${{ steps.tag.outputs.commit }}
+      tag: ${{ steps.tag.outputs.tag }}
     env:
-      COMMIT: ${{ needs.propose.outputs.commit }}
-      BASE: ${{ needs.propose.outputs.base }}
-      BRANCH: ${{ needs.propose.outputs.branch }}
-      TAG: ${{ needs.propose.outputs.tag }}
+      COMMIT: ${{ github.sha }}
+      APP: ${{ vars.CHROMIUM_UPDATE_APP_SLUG }}
     steps:
       - id: token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -163,54 +181,52 @@ jobs:
           client-id: ${{ vars.CHROMIUM_UPDATE_APP_CLIENT_ID }}
           private-key: ${{ secrets.CHROMIUM_UPDATE_APP_KEY }}
           permission-contents: write
-          permission-pull-requests: write
-      - id: merge
+          permission-pull-requests: read
+      - id: tag
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
-        # The app opens the pull request: a workflow token that can open one can also approve one.
-        # The merge names the tested commit, so anything pushed to the branch since is refused. It
-        # merges only onto the main commit the tests ran on, so the merge has the tested tree; if
-        # main moved, the branch goes and the next run proposes again on the new main.
+        # Only a merged pull request of the app's own chromium-update branch is released here; other
+        # changes to packaging/cef.lock are released with a maintainer-started release.
         run: |
+          set -euo pipefail
           api="repos/$GITHUB_REPOSITORY"
-          pulls="$(gh api "$api/pulls?head=${GITHUB_REPOSITORY_OWNER}:${BRANCH//+/%2B}&state=all" --jq '[.[] | select(.base.ref == "main")]')"
-          if jq -e --arg commit "$COMMIT" 'any(.state == "closed" and .merged_at == null and .head.sha == $commit)' <<<"$pulls" >/dev/null; then
-            echo "a maintainer closed the pull request of $COMMIT without merging it"
-            exit 1
-          fi
-          pr="$(jq -r '[.[] | select(.state == "open" or .merged_at != null)][0].number // empty' <<<"$pulls")"
-          if [[ -z "$pr" ]]; then
-            pr="$(gh api "$api/pulls" -f base=main -f head="$BRANCH" -f title="build: ${BRANCH#chromium-update/}" \
-              -f body="Automatic engine update, tested in run $GITHUB_RUN_ID." --jq .number)"
-          fi
-          IFS=$'\t' read -r head merged sha < <(gh api "$api/pulls/$pr" --jq '[.head.sha, .merged, .merge_commit_sha] | @tsv')
-          [[ "$head" == "$COMMIT" ]] || { echo "the branch moved after its tests ran"; exit 1; }
-          if [[ "$merged" != true ]]; then
-            main="$(gh api "$api/git/ref/heads/main" --jq .object.sha)"
-            if [[ "$main" != "$BASE" ]]; then
-              gh api -X DELETE "$api/git/refs/heads/${BRANCH//+/%2B}"
-              echo "main moved from $BASE to $main while the tests ran; deleted the branch, closing pull request $pr, for the next run"
-              exit 0
-            fi
-            sha="$(gh api -X PUT "$api/pulls/$pr/merge" -f sha="$COMMIT" -f merge_method=merge --jq .sha)"
-          fi
-          parents="$(gh api "$api/commits/$sha" --jq '[.parents[].sha] | join(" ")')"
-          # The merge API takes no expected base: main moving between the check and the merge lands
-          # an untested merge, which is then never tagged (docs/release.md).
-          [[ "$parents" == "$BASE $COMMIT" ]] \
-            || { echo "main moved during the merge: $sha (parents $parents) is untested and stays untagged"; exit 1; }
-          tagged="$(gh api "$api/git/ref/tags/$TAG" --jq .object.sha 2>/dev/null || true)"
+          read -r pr branch < <(gh api "$api/commits/$COMMIT/pulls" | jq -r --arg app "${APP}[bot]" \
+            '[.[] | select(.merged_at != null and (.head.ref | startswith("chromium-update/")) and .user.login == $app)][0] // {} | "\(.number // "") \(.head.ref // "")"')
+          [[ -n "$pr" ]] || { echo "$COMMIT is not the merge of an engine update pull request"; exit 0; }
+          # A push to the update branch could change the pinned build; fetch-cef.sh already refuses
+          # another host or a wrong hash, so the lock must name exactly the build the branch is for.
+          lock="$(gh api "$api/contents/packaging/cef.lock?ref=$COMMIT" --jq .content | base64 -d)"
+          cef="$(sed -n 's/^cef_version=//p' <<<"$lock")"
+          chromium="$(sed -n 's/^chromium_version=//p' <<<"$lock")"
+          [[ "$cef" == "${branch#chromium-update/}" && "$chromium" == "${cef##*+chromium-}" ]] \
+            || { echo "packaging/cef.lock names CEF '$cef' (Chromium '$chromium'), not the build of $branch" >&2; exit 1; }
+          # Against main before the merge, only the pinned build and the version may change: in
+          # Cargo.toml and the lockfiles, any changed line other than a `version = "…"` line (a
+          # dependency, source, checksum or patch) means the branch was edited.
+          parent="$(gh api "$api/commits/$COMMIT" --jq '.parents[0].sha')"
+          gh api "$api/compare/$parent...$COMMIT" > compare.json
+          extra="$(jq -r '.files[].filename' compare.json \
+            | grep -vxE 'packaging/cef\.lock|Cargo\.toml|Cargo\.lock|(linux|mobile|nsh-shared|fuzz)/Cargo\.lock' || true)"
+          [[ -z "$extra" ]] || { echo "the merge also changes $extra; release it by hand" >&2; exit 1; }
+          other="$(jq -r '.files[] | select(.filename != "packaging/cef.lock") | if .patch == null then "no patch for \(.filename)" else .patch end' compare.json \
+            | grep -E '^([+-]|no patch)' | grep -vE '^[+-]version = "[0-9]+\.[0-9]+\.[0-9]+"$' || true)"
+          [[ -z "$other" ]] || { echo "the merge changes more than versions: $other" >&2; exit 1; }
+          version="$(gh api "$api/contents/Cargo.toml?ref=$COMMIT" --jq .content | base64 -d \
+            | sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p')"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Cargo.toml has no release version at $COMMIT" >&2; exit 1; }
+          tagged="$(gh api "$api/git/ref/tags/v$version" --jq .object.sha 2>/dev/null || true)"
           if [[ -z "$tagged" ]]; then
-            gh api "$api/git/refs" -f ref="refs/tags/$TAG" -f sha="$sha" >/dev/null
-          elif [[ "$tagged" != "$sha" ]]; then
-            echo "$TAG already names $tagged"
+            gh api "$api/git/refs" -f ref="refs/tags/v$version" -f sha="$COMMIT" >/dev/null
+          elif [[ "$tagged" != "$COMMIT" ]]; then
+            echo "v$version already names $tagged: raise the version on main and release by hand" >&2
             exit 1
           fi
-          echo "commit=$sha" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: [propose, merge]
-    if: needs.merge.outputs.commit != ''
+    needs: tag
+    if: needs.tag.outputs.commit != ''
     permissions:
       contents: write
       id-token: write
@@ -218,11 +234,18 @@ jobs:
       actions: write
     uses: ./.github/workflows/release.yml
     with:
-      commit: ${{ needs.merge.outputs.commit }}
-      tag: ${{ needs.propose.outputs.tag }}
+      commit: ${{ needs.tag.outputs.commit }}
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets:
+      MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+      NOTARY_API_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+      NOTARY_API_ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
 
   report:
-    needs: [watch, propose, test, merge, build]
+    needs: [watch, propose, open, tag, build]
     if: always() && (contains(needs.*.result, 'failure') || needs.watch.outputs.stale == 'true')
     runs-on: ubuntu-24.04
     permissions:
@@ -231,13 +254,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       FAILED: ${{ contains(needs.*.result, 'failure') }}
-      CEF_VERSION: ${{ needs.watch.outputs.cef_version }}
+      CEF_VERSION: ${{ needs.watch.outputs.cef_version || needs.tag.outputs.tag || github.sha }}
     steps:
       - run: |
           if [[ "$FAILED" == true ]]; then
             title="Chromium update ${CEF_VERSION:-check} failed"
           else
-            title="No usable CEF build seven days after a Chrome stable release"
+            title="Chromium not updated seven days after a Chrome stable release"
           fi
           run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           open="$(gh issue list --label security --state open --search "\"$title\" in:title" --json number --jq length)"

@@ -119,20 +119,28 @@ fn card_width(ui: Ui) -> Points {
     px(((sheet - GAP * 4.0 - (columns - 1.0) * GAP) / columns).max(TAB_MIN_WIDTH))
 }
 
+/// A card of `panes` tabs side by side, as wide as that many cards and their gaps, within the sheet.
+fn card_span(ui: Ui, panes: usize) -> Points {
+    let card = card_width(ui).0;
+    let n = panes as f32;
+    px((card * n + GAP * (n - 1.0)).min(window().width.0.min(SHEET_WIDTH) - GAP * 4.0).max(card))
+}
+
 fn tabs(ui: Ui) -> impl IntoElement {
     let cards = move || {
         ui.read(|s| {
-            s.model
-                .tabs
-                .iter()
-                .map(|t| {
-                    let key = s.model.key(t);
-                    let page = s.pages.get(&key);
-                    let url = page.map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(t.url.clone());
-                    let title = page.map(|p| p.title.clone()).filter(|t| !t.is_empty()).unwrap_or(t.title.clone());
-                    (key, if title.is_empty() { "New Tab".to_owned() } else { title }, url)
-                })
-                .collect::<Vec<(TabKey, String, String)>>()
+            let keys: Vec<TabKey> = s.model.tabs.iter().map(|t| s.model.key(t)).collect();
+            let card = |key: TabKey| {
+                let t = s.model.tab(key)?;
+                let page = s.pages.get(&key);
+                let url = page.map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(t.url.clone());
+                let title = page.map(|p| p.title.clone()).filter(|t| !t.is_empty()).unwrap_or(t.title.clone());
+                Some((key, if title.is_empty() { "New Tab".to_owned() } else { title }, url))
+            };
+            keys.iter()
+                .filter_map(|k| s.splits.entry(*k, &keys))
+                .map(|panes| panes.into_iter().filter_map(card).collect())
+                .collect::<Vec<Vec<(TabKey, String, String)>>>()
         })
     };
     let split = move |f: fn(&mut super::AppShell, TabKey) -> bool| {
@@ -150,82 +158,20 @@ fn tabs(ui: Ui) -> impl IntoElement {
         .child(caption(move || ui.read(|s| s.model.current_space().map(|c| c.space.name.clone()).unwrap_or_default())).text_color(Theme::space_label).px_1())
         .child(view().flex_row().flex_wrap().gap_3().child(each(
             cards,
-            |c: &(TabKey, String, String)| c.0,
+            |c: &Vec<(TabKey, String, String)>| c.iter().map(|p| p.0).collect::<Vec<_>>(),
             move |card, _| {
-                let (key, title, url) = card.get_untracked();
-                let current = move || ui.read(|s| s.model.active == Some(key));
-                let movable = move || ui.read(|s| !s.in_burner() && !s.move_targets(key).is_empty());
+                let panes = card.get_untracked();
+                let keys: Vec<TabKey> = panes.iter().map(|p| p.0).collect();
+                let count = panes.len();
+                let current = move || ui.read(|s| s.model.active.is_some_and(|a| keys.contains(&a)));
                 view()
-                    .w(move || card_width(ui))
+                    .w(move || card_span(ui, count))
                     .rounded(px(Theme::radius_tile()))
                     .bg(Theme::surface)
                     .border_2()
                     .border_color(move || if current() { Theme::accent() } else { Theme::surface_edge() })
                     .shadow(Theme::elevation(2., 6.))
-                    .child(
-                        view()
-                            .flex_row()
-                            .items_center()
-                            .pl_3()
-                            .child(dynamic(move || ui.read(|s| s.in_burner()).then(|| icon(icons::FLAME, Secure::warning))))
-                            .child(dynamic({
-                                let url = url.clone();
-                                move || {
-                                    let host = url::Url::parse(&url).ok().and_then(|u| browser_core::command::page_host(&u)).unwrap_or_default();
-                                    tarn_nsh_shared::controls::site_tile(ui.read(|s| s.site_icon(&url)), &host, TAB_ICON).mr_2()
-                                }
-                            }))
-                            .child(label(title.clone()).font_weight(FontWeight::SEMIBOLD).number_of_lines(1).flex_1())
-                            .child(dynamic(move || movable().then(|| icon_button(icons::CHEVRON_RIGHT, "Move to Space", move || ui.show(Screen::Move(key))))))
-                            .child(dynamic(move || {
-                                let menu = ui.read(|s| s.splits.menu(s.model.active, key));
-                                (ui.wide() && menu.enabled).then(|| {
-                                    icon_button(icons::APP_WINDOW, menu.entry.label(), move || {
-                                        ui.act(|s| {
-                                            s.split_with(key);
-                                            Vec::new()
-                                        });
-                                        ui.show(Screen::Browse);
-                                    })
-                                })
-                            }))
-                            .child(dynamic(move || {
-                                (ui.wide() && ui.read(|s| s.splits.contains(key))).then(|| {
-                                    icon_button(icons::SHARE, "Remove from Split View", move || {
-                                        ui.act(|s| {
-                                            s.leave_split(key);
-                                            Vec::new()
-                                        })
-                                    })
-                                })
-                            }))
-                            .child(icon_button(icons::CLOSE, "Close Tab", move || {
-                                ui.act(|s| {
-                                    s.close_tab(key);
-                                    Vec::new()
-                                })
-                            })),
-                    )
-                    .child(
-                        button()
-                            .accessibility_label(title.clone())
-                            .h(px(TAB_PREVIEW_HEIGHT))
-                            .mx_2()
-                            .mb_2()
-                            .p_2()
-                            .rounded(px(Theme::radius_row()))
-                            .bg(Theme::page)
-                            .active(|s| s.bg(Theme::panel_row))
-                            .selected(current)
-                            .on_press(move || {
-                                ui.act(|s| {
-                                    s.activate(key);
-                                    Vec::new()
-                                });
-                                ui.show(Screen::Browse);
-                            })
-                            .child(caption(browser_core::command::display_host(&url)).number_of_lines(1)),
-                    )
+                    .child(view().flex_row().children(panes.into_iter().map(|(key, title, url)| tab_card(ui, key, title, url).flex_1().min_w_0())))
             },
         )))
         .child(
@@ -268,6 +214,76 @@ fn tabs(ui: Ui) -> impl IntoElement {
                 }))
                 .child(pill("Find in Tabs", move || ui.show(Screen::FindTabs)))
                 .child(pill("Spaces", move || ui.show(Screen::Spaces))),
+        )
+}
+
+fn tab_card(ui: Ui, key: TabKey, title: String, url: String) -> View {
+    let current = move || ui.read(|s| s.model.active == Some(key));
+    let movable = move || ui.read(|s| !s.in_burner() && !s.move_targets(key).is_empty());
+    view()
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .pl_3()
+                .child(dynamic(move || ui.read(|s| s.in_burner()).then(|| icon(icons::FLAME, Secure::warning))))
+                .child(dynamic({
+                    let url = url.clone();
+                    move || {
+                        let host = url::Url::parse(&url).ok().and_then(|u| browser_core::command::page_host(&u)).unwrap_or_default();
+                        tarn_nsh_shared::controls::site_tile(ui.read(|s| s.site_icon(&url)), &host, TAB_ICON).mr_2()
+                    }
+                }))
+                .child(label(title.clone()).font_weight(FontWeight::SEMIBOLD).number_of_lines(1).flex_1())
+                .child(dynamic(move || movable().then(|| icon_button(icons::CHEVRON_RIGHT, "Move to Space", move || ui.show(Screen::Move(key))))))
+                .child(dynamic(move || {
+                    let menu = ui.read(|s| s.splits.menu(s.model.active, key));
+                    (ui.wide() && menu.enabled).then(|| {
+                        icon_button(icons::APP_WINDOW, menu.entry.label(), move || {
+                            ui.act(|s| {
+                                s.split_with(key);
+                                Vec::new()
+                            });
+                            ui.show(Screen::Browse);
+                        })
+                    })
+                }))
+                .child(dynamic(move || {
+                    (ui.wide() && ui.read(|s| s.splits.contains(key))).then(|| {
+                        icon_button(icons::SHARE, "Remove from Split View", move || {
+                            ui.act(|s| {
+                                s.leave_split(key);
+                                Vec::new()
+                            })
+                        })
+                    })
+                }))
+                .child(icon_button(icons::CLOSE, "Close Tab", move || {
+                    ui.act(|s| {
+                        s.close_tab(key);
+                        Vec::new()
+                    })
+                })),
+        )
+        .child(
+            button()
+                .accessibility_label(title.clone())
+                .h(px(TAB_PREVIEW_HEIGHT))
+                .mx_2()
+                .mb_2()
+                .p_2()
+                .rounded(px(Theme::radius_row()))
+                .bg(Theme::page)
+                .active(|s| s.bg(Theme::panel_row))
+                .selected(current)
+                .on_press(move || {
+                    ui.act(|s| {
+                        s.activate(key);
+                        Vec::new()
+                    });
+                    ui.show(Screen::Browse);
+                })
+                .child(caption(browser_core::command::display_host(&url)).number_of_lines(1)),
         )
 }
 
