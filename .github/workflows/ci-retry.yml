@@ -1,12 +1,14 @@
-name: Retry CI after a runner shortage
+name: Retry runs after a runner shortage
 
 # GitHub cancels a job it finds no hosted runner for ("The job was not acquired by Runner of type
 # hosted even after multiple attempts"), which happens to macOS jobs when Apple-silicon runners
 # are short. Such a run is retried twice; a run that failed for any other reason is left alone.
+# Release and nightly runs are retried too: a re-run repeats only their failed jobs, and their sign
+# job still waits for the release-signing approval (nightly-signing has none, as before).
 # Runs only gh on the run's ID; it checks out nothing.
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, Start release, Nightly]
     types: [completed]
 
 permissions: {}
