@@ -348,7 +348,7 @@ mod tests {
         let mut b = Browser::open(dir.path());
         let pinned = b.model.active.unwrap();
         b.pin_toggle(pinned);
-        b.new_folder();
+        b.new_folder(None);
         let folder = b.model.folders[0].id;
         let inside = b.new_tab("https://in.test/").unwrap();
         b.move_to_folder(inside, folder);

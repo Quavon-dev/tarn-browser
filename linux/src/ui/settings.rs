@@ -244,7 +244,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
     let on = |group: &str| lists.iter().any(|l| l == group);
     let toggle = move |setting: &'static str| move || act(ui, move |b| b.toggle_setting(setting));
     let toggle_off = move |setting: &'static str| move || act(ui, move |b| b.toggle_off_setting(setting));
-    let body = panel().gap_0().child(title(panes::name(pane)));
+    let body = panel().gap_0().child(super::panels::heading(ui, title(panes::name(pane))));
     Some(match pane {
         Pane::Profile => match card {
             Some((card, private)) => {
@@ -307,7 +307,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                         .flex_wrap()
                         .gap_2()
                         .child(super::confirmed(ui, "history".to_owned(), "Clear History", move || super::clear_history(ui)))
-                        .child(pill("Clear Download List", move || act(ui, |b| b.clear_downloads())))
+                        .child(super::confirmed(ui, "download list".to_owned(), "Clear Download List", move || act(ui, |b| b.clear_downloads())))
                         .child(super::confirmed(ui, "data".to_owned(), "Clear Website Data", clear_data)),
                 )
         }

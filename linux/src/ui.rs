@@ -42,6 +42,8 @@ const CLOSE_WIDTH: f32 = 28.;
 const CLOSE_GAP: f32 = 10.;
 const TILE_GAP: f32 = 6.;
 const TILE_HEIGHT: f32 = 40.;
+/// A space button as big as the footer's icon buttons; more spaces than fit wrap to another row.
+const SPACE_BUTTON: f32 = 28.;
 /// The sidebar list's width inside its border and padding.
 const LIST_WIDTH: f32 = SIDEBAR_WIDTH - 2. - 16.;
 use crate::webview;
@@ -74,6 +76,7 @@ pub enum Panel {
     Memory,
     ReadingList,
     Qr,
+    Folder(store::Id),
 }
 
 #[derive(Clone, Copy)]
@@ -122,6 +125,8 @@ pub struct Ui {
     /// The tab the Tab panel is about; `None` is the active one.
     tab_menu: Signal<Option<TabKey>>,
     confirm: Signal<Option<String>>,
+    /// The name field of the space or folder panel; empty until it shows the current name.
+    rename: Signal<String>,
     open: Signal<bool>,
     /// The page area's size, which places the panes of a split.
     area: Signal<(f32, f32)>,
@@ -212,6 +217,7 @@ pub fn show(ui: Ui, panel: Panel) {
     ui.css_error.set(None);
     ui.shortcut_edit.set(None);
     ui.confirm.set(None);
+    ui.rename.set(String::new());
     ui.panel.set(next);
     act(ui, |_| {});
 }
@@ -450,8 +456,17 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
                         }))
                         .child(dynamic(move || dropping().map(|does| small(does).text_color(Theme::accent()))))
                         .children(close);
+                    // Where the dragged tab lands when dropped here: after this row when it comes from above in the same zone.
+                    let landing = move || {
+                        let dragged = ui.dragging.get().filter(|d| *d != key && hovered.get() && dropping().is_none())?;
+                        read(ui, |b| match (b.model.tab(dragged), b.model.tab(key)) {
+                            (Some(d), Some(t)) => d.kind == t.kind && d.folder_id == t.folder_id && d.position < t.position,
+                            _ => false,
+                        })
+                    };
                     view()
-                        .on_mouse_up(move |_: &MouseEvent| split::drop_on(ui, key))
+                        .relative()
+                        .on_mouse_up(move |_: &MouseEvent| split::drop_on_row(ui, key))
                         .on_mouse_enter(move |_: &MouseEvent| hover(true))
                         .on_mouse_leave(move |_: &MouseEvent| {
                             hover(false);
@@ -460,18 +475,26 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
                         .on_mouse_move(move |e: &MouseEvent| split::drop_over(ui, key, browser_core::split::drops_into(e.position.y.0 / TAB_ROW)))
                         .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
                         .child(tab)
+                        .child(dynamic(move || {
+                            let line = view().absolute().left(px(6.)).right(px(6.)).h(px(2.)).rounded_full().bg(Theme::accent());
+                            landing().map(|after| if after { line.bottom(px(-2.)) } else { line.top(px(-2.)) })
+                        }))
                         .into_element()
                 }
-                RowKind::Folder(id) => row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
-                    .h(px(TAB_ROW))
-                    .pl(px(8. + depth * 16.))
+                RowKind::Folder(id) => view()
+                    .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
                     .child(
-                        view()
-                            .text_color(Theme::muted())
-                            .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
+                        row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
+                            .h(px(TAB_ROW))
+                            .pl(px(8. + depth * 16.))
+                            .child(
+                                view()
+                                    .text_color(Theme::muted())
+                                    .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
+                            )
+                            .child(view().text_color(Theme::space_label()).child(icons::icon(icons::FOLDER, 15.)))
+                            .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
                     )
-                    .child(view().text_color(Theme::space_label()).child(icons::icon(icons::FOLDER, 15.)))
-                    .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate())
                     .into_element(),
             }
         },
@@ -486,8 +509,9 @@ fn space_bar(ui: Ui) -> View {
             let (ix, icon, name, private, color) = space.with_untracked(|s| (s.ix, s.icon.clone(), s.label.clone(), s.private, s.color.clone()));
             let source = if private { icons::PERSON } else { icons::space_icon(&icon) };
             controls::row(name, move || act(ui, |b| b.switch_space_by_user(ix)))
-                .w(px(20.))
-                .h(px(20.))
+                .w(px(SPACE_BUTTON))
+                .h(px(SPACE_BUTTON))
+                .flex_none()
                 .px_0()
                 .justify_center()
                 .rounded_full()
@@ -502,10 +526,11 @@ fn space_bar(ui: Ui) -> View {
     view()
         .flex_row()
         .items_center()
-        .h(px(40.))
+        .min_h(px(40.))
+        .py(px(6.))
         .px_1()
         .child(icon_button(icons::HISTORY, "History", move || show(ui, Panel::History)))
-        .child(view().flex_row().flex_1().items_center().justify_center().gap(px(2.)).child(spaces))
+        .child(view().flex_row().flex_wrap().flex_1().items_center().justify_center().gap(px(2.)).child(spaces))
         .child(icon_button(ELLIPSIS, "This space", move || show(ui, Panel::Space)))
         .child(icon_button(icons::PLUS, "New space", move || act(ui, |b| b.new_space())))
 }
@@ -549,7 +574,7 @@ fn sidebar(ui: Ui) -> View {
                 .flex_1()
                 .truncate(),
         )
-        .child(icon_button(icons::FOLDER_PLUS, "New folder", move || act(ui, |b| b.new_folder())))
+        .child(icon_button(icons::FOLDER_PLUS, "New folder", move || act(ui, |b| b.new_folder(None))))
         .child(icon_button(icons::BOOKMARK, "Reading List", move || show(ui, Panel::ReadingList)))
         .child(downloads_button(ui));
     let new = controls::pressable("New Tab", move || new_tab(ui))
@@ -628,7 +653,7 @@ fn history(ui: Ui) -> Rc<Vec<store::HistoryEntry>> {
 fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: Signal<String>) {
     let found = read(ui, |b| b.cached_text_matches(query)).flatten();
     let shown = crate::input::with_text(rows.clone(), found.as_deref().unwrap_or_default(), SUGGESTIONS);
-    ui.picked.set(0);
+    ui.picked.set(usize::from(tools::listing(query)));
     ui.suggest.set(shown.clone());
     if found.is_some() {
         return;
@@ -645,9 +670,20 @@ fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: S
     });
 }
 
-fn step_pick(ui: Ui, query: Signal<String>, down: bool) {
-    let rows = 1 + tools::commands(ui, &query.get_untracked()).len() + ui.suggest.with_untracked(Vec::len);
-    ui.picked.update(|p| *p = browser_core::suggest::step_selection(*p, rows, down));
+/// Moves the picked row for `key`: up and down wrap at the ends, page up and page down jump to them.
+/// A `>` list has only the command rows, from row 1.
+fn step_pick(ui: Ui, query: Signal<String>, key: &str) {
+    let query = query.get_untracked();
+    let commands = tools::commands(ui, &query).len();
+    let (first, rows) = if tools::listing(&query) { (1, commands) } else { (0, 1 + commands + ui.suggest.with_untracked(Vec::len)) };
+    ui.picked.update(|p| {
+        *p = first
+            + match key {
+                "pageup" => 0,
+                "pagedown" => rows.saturating_sub(1),
+                _ => browser_core::suggest::step_selection(p.saturating_sub(first), rows, key == "down"),
+            }
+    });
 }
 
 /// Enter in the address field or the start card: the picked row of `query`, or what was typed.
@@ -673,7 +709,7 @@ fn go(ui: Ui, text: String) {
             tools::close_find_tabs(ui);
             ui.find.set(query.clone());
             ui.finding.set(true);
-            act(ui, |b| b.find(&query, false));
+            act(ui, |b| b.find_typed(&query));
         }
         return;
     }
@@ -888,6 +924,9 @@ pub(super) fn detail(content: impl IntoReactive<SharedString>) -> Text {
 fn input_row(ui: Ui, query: Signal<String>) -> AnyElement {
     dynamic(move || {
         let text = query.get();
+        if tools::listing(&text) {
+            return None;
+        }
         let engine = read(ui, |b| b.search_engine()).unwrap_or_default();
         let (name, note, rejected) = match classify_input(&text, &ENGINES[engine]) {
             Some(Input::Navigate(u)) => (u.to_string(), "Open".to_owned(), false),
@@ -895,12 +934,14 @@ fn input_row(ui: Ui, query: Signal<String>) -> AnyElement {
             Some(Input::Rejected) => (text.clone(), "This kind of address cannot be opened".to_owned(), true),
             _ => (text.clone(), format!("Search {}", ENGINES[engine].name), false),
         };
-        suggestion_row(name.clone(), move || go(ui, query.get_untracked()))
-            .bg(move || picked_fill(ui, 0))
-            .text_color(Theme::muted())
-            .child(view().w(px(18.)).items_center().child(icons::icon(icons::SEARCH, 15.)))
-            .child(body(name).text_color(if rejected { Theme::danger() } else { Theme::text() }).flex_1().truncate())
-            .child(detail(note))
+        Some(
+            suggestion_row(name.clone(), move || go(ui, query.get_untracked()))
+                .bg(move || picked_fill(ui, 0))
+                .text_color(Theme::muted())
+                .child(view().w(px(18.)).items_center().child(icons::icon(icons::SEARCH, 15.)))
+                .child(body(name).text_color(if rejected { Theme::danger() } else { Theme::text() }).flex_1().truncate())
+                .child(detail(note)),
+        )
     })
 }
 
@@ -910,17 +951,17 @@ pub(super) fn picked_fill(ui: Ui, row: usize) -> Rgba {
 
 fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
     let first = computed(move || 1 + tools::commands(ui, &query.get()).len());
-    for (keys, down) in [("up", false), ("down", true)] {
+    for key in ["up", "down", "pageup", "pagedown"] {
         let options = KeyOptions { when: nsh_core::keymap::When::Always, repeat: true, ..KeyOptions::default() };
         // The start card's rows and the address field's can both be on screen; only the edited field's move.
-        on_key_with(keys, options, move |_| {
+        on_key_with(key, options, move |_| {
             if ui.editing.get_untracked() == address {
-                step_pick(ui, query, down);
+                step_pick(ui, query, key);
             }
         });
     }
     view().flex_col().gap(px(2.)).py(px(6.)).child(input_row(ui, query)).child(tools::command_rows(ui, query)).child(each(
-        move || ui.suggest.get(),
+        move || if query.with(|q| tools::listing(q)) { Vec::new() } else { ui.suggest.get() },
         |(_, url)| url.clone(),
         move |item, ix| {
             let (title, url) = item.get_untracked();
@@ -1108,17 +1149,35 @@ fn notice_bar(ui: Ui) -> AnyElement {
     })
 }
 
-fn prompt_bar(ui: Ui) -> AnyElement {
+/// Answers the page's prompt in front without remembering the answer.
+fn answer_prompt(ui: Ui, id: u64, accept: bool) {
+    let (t, u, p) = (ui.answer_text.get_untracked(), ui.answer_user.get_untracked(), ui.answer_password.get_untracked());
+    ui.answer_text.set(String::new());
+    ui.answer_user.set(String::new());
+    ui.answer_password.set(String::new());
+    act(ui, |b| b.answer(id, accept, false, &t, &u, &p));
+}
+
+/// Enter, not held, accepts an alert or a confirm only while neither a field nor the page has the
+/// keyboard, so typing cannot answer it; a permission prompt stays pointer-only.
+fn prompt_enter(ui: Ui, prompt: Memo<Option<browser_core::prompts::Prompt>>) -> AnyElement {
     dynamic(move || {
-        let prompt = ui.snap.with(|s| s.prompt.clone())?;
+        let id = prompt.with(|p| p.as_ref().filter(|p| matches!(p.kind.as_str(), "alert" | "confirm")).map(|p| p.id))?;
+        if !ui.editing.get() && !ui.finding.get() && ui.panel.get() == Panel::None {
+            on_key_with("enter", KeyOptions { when: nsh_core::keymap::When::NotEditing, ..KeyOptions::default() }, move |_| answer_prompt(ui, id, true));
+        }
+        None::<View>
+    })
+    .into_element()
+}
+
+fn prompt_bar(ui: Ui) -> AnyElement {
+    let shown = computed(move || ui.snap.with(|s| s.prompt.clone()));
+    let enter = prompt_enter(ui, shown);
+    let card = dynamic(move || {
+        let prompt = shown.get()?;
         let id = prompt.id;
-        let reply = move |accept: bool, remember: bool| {
-            let (t, u, p) = (ui.answer_text.get_untracked(), ui.answer_user.get_untracked(), ui.answer_password.get_untracked());
-            ui.answer_text.set(String::new());
-            ui.answer_user.set(String::new());
-            ui.answer_password.set(String::new());
-            act(ui, |b| b.answer(id, accept, remember, &t, &u, &p));
-        };
+        let reply = move |accept: bool| answer_prompt(ui, id, accept);
         let title = match prompt.kind.as_str() {
             "alert" | "confirm" | "text" => format!("{} says", prompt.origin),
             "credentials" => format!(
@@ -1149,8 +1208,8 @@ fn prompt_bar(ui: Ui) -> AnyElement {
             .flex_row()
             .items_center()
             .gap_2()
-            .child(secure_button(accept, move || reply(true, false), true))
-            .children(decline.map(|name| secure_button(name, move || reply(false, false), false)));
+            .child(secure_button(accept, move || reply(true), true))
+            .children(decline.map(|name| secure_button(name, move || reply(false), false)));
         let insecure = prompt.insecure.then(|| body("This connection is not secure: the password would be sent unencrypted.").text_color(Secure::warning()));
         Some(
             secure_surface(Theme::radius_panel())
@@ -1167,13 +1226,14 @@ fn prompt_bar(ui: Ui) -> AnyElement {
                 .children(fields)
                 .child(buttons),
         )
-    })
+    });
+    view().child(enter).child(card).into_element()
 }
 
 fn close_find(ui: Ui) {
     ui.finding.set(false);
     ui.find.set(String::new());
-    act(ui, |b| b.find("", false));
+    act(ui, |b| b.find_typed(""));
 }
 
 fn find_again(ui: Ui, backwards: bool) {
@@ -1184,7 +1244,7 @@ fn find_again(ui: Ui, backwards: bool) {
 }
 
 fn find_bar(ui: Ui) -> AnyElement {
-    let matches = move || match ui.snap.with(|s| s.found) {
+    let matches = move || match ui.snap.with(|s| s.found).filter(|_| !ui.find.with(String::is_empty)) {
         None => String::new(),
         Some(0) => "No matches".to_owned(),
         Some(1) => "1 match".to_owned(),
@@ -1197,7 +1257,7 @@ fn find_bar(ui: Ui) -> AnyElement {
                 .on_change(move |v: &str| {
                     ui.find.set(v.to_owned());
                     let text = v.to_owned();
-                    act(ui, |b| b.find(&text, false));
+                    act(ui, |b| b.find_typed(&text));
                 })
                 .on_submit(move |_: &str| find_again(ui, false))
                 .auto_focus(true)
@@ -1307,6 +1367,8 @@ fn escape(ui: Ui) {
     } else if ui.panel.get_untracked() == Panel::Settings && ui.shortcut_edit.get_untracked().is_some() {
         ui.shortcut_edit.set(None);
         act(ui, |_| {});
+    } else if let Some(id) = ui.snap.with_untracked(|s| s.prompt.as_ref().map(|p| p.id)) {
+        answer_prompt(ui, id, false);
     } else if ui.finding.get_untracked() {
         close_find(ui);
     } else if ui.panel.get_untracked() != Panel::None {
@@ -1474,6 +1536,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         history: signal(Default::default()),
         tab_menu: signal(None),
         confirm: signal(None),
+        rename: signal(String::new()),
         area: signal((0., 0.)),
         dragging: signal(None),
         split_drop: signal(None),

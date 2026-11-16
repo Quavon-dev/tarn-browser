@@ -45,6 +45,15 @@ pub(super) fn popover() -> View {
     card().gap_3().p_4()
 }
 
+/// A panel's first row: `content`, and the button that closes the panel.
+pub(super) fn heading(ui: Ui, content: impl IntoElement) -> View {
+    view().flex_row().items_center().gap_2().child(view().flex_row().items_center().flex_1().min_w(px(0.)).child(content)).child(icon_button(
+        icons::CLOSE,
+        "Close",
+        move || show(ui, Panel::None),
+    ))
+}
+
 fn shield_panel(ui: Ui) -> AnyElement {
     let (host, level, overridden, secure, zoom) = ui.snap.with(|s| (s.host.clone(), s.level.clone(), s.overridden, s.secure, s.zoom));
     let default = read(ui, |b| b.default_level()).unwrap_or_default();
@@ -60,7 +69,7 @@ fn shield_panel(ui: Ui) -> AnyElement {
         .pb_3()
         .border_b_1()
         .border_color(Theme::hairline())
-        .child(label(if host.is_empty() { "This page".to_owned() } else { host.clone() }).font_weight(FontWeight::SEMIBOLD).truncate())
+        .child(heading(ui, label(if host.is_empty() { "This page".to_owned() } else { host.clone() }).font_weight(FontWeight::SEMIBOLD).truncate()))
         .child(view().flex_row().items_center().gap(px(6.)).text_color(color).child(icons::icon(glyph, 12.)).child(small(connection).text_color(color)));
     let mut body = popover().child(header);
     if !host.is_empty() {
@@ -163,6 +172,7 @@ fn history_panel(ui: Ui) -> AnyElement {
             let url = h.url.clone();
             let host = url::Url::parse(&h.url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
             let name = if h.title.is_empty() { h.url.clone() } else { h.title.clone() };
+            let link = url.clone();
             library_row(h.url.clone(), &host, name, move || {
                 ui.panel.set(Panel::None);
                 let url = url.clone();
@@ -170,6 +180,7 @@ fn history_panel(ui: Ui) -> AnyElement {
                     b.new_tab(&url);
                 });
             })
+            .child(copy_link(ui, link))
             .into_element()
         })
         .collect();
@@ -177,7 +188,7 @@ fn history_panel(ui: Ui) -> AnyElement {
     let empty = (count == 0).then(|| note("No history yet"));
     popover()
         .flex_1()
-        .child(view().flex_row().items_center().child(counted("History", count)).children(clear))
+        .child(heading(ui, view().flex_row().items_center().flex_1().child(counted("History", count)).children(clear)))
         .children(empty)
         .child(scroll().flex_1().child(view().flex_col().gap(px(1.)).children(rows)))
         .into_element()
@@ -233,10 +244,42 @@ fn downloads_panel(ui: Ui) -> AnyElement {
             }))
             .into_element()
     }));
-    let clear = (!empty).then(|| pill("Clear", move || act(ui, |b| b.clear_downloads())));
-    let header = view().flex_row().items_center().justify_between().child(counted("Downloads", count)).children(clear);
+    let clear = (!empty).then(|| confirmed(ui, "downloads".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads())));
+    let header = heading(ui, view().flex_row().items_center().flex_1().child(counted("Downloads", count)).children(clear));
     let none = empty.then(|| view().h(px(44.)).px_2().justify_center().child(body("No downloads yet").text_color(Theme::faint())));
     popover().child(header).child(view().flex_col().children(rows).children(none)).into_element()
+}
+
+/// A name field and its button, for the space or folder named `current`.
+pub(super) fn rename_row(ui: Ui, current: &str, save: impl Fn(String) + Copy + 'static) -> View {
+    if ui.rename.with_untracked(String::is_empty) {
+        ui.rename.set(current.to_owned());
+    }
+    let save = move || save(ui.rename.get_untracked());
+    view().flex_row().items_center().gap_2().child(super::text_field(ui.rename, "Name", 260.).on_submit(move |_: &str| save())).child(pill("Rename", save))
+}
+
+/// Copies `url` from a library row.
+pub(super) fn copy_link(ui: Ui, url: String) -> nsh_base::ButtonElement {
+    pill("Copy Link", move || {
+        set_clipboard(url.clone());
+        act(ui, |b| b.show_toast("Link copied", None));
+    })
+}
+
+fn folder_panel(ui: Ui, id: store::Id) -> AnyElement {
+    let Some(name) = read(ui, |b| b.model.folders.iter().find(|f| f.id == id).map(|f| f.name.clone())).flatten() else {
+        return view().into_element();
+    };
+    let new = menu_row("New Subfolder", None, move || {
+        ui.panel.set(Panel::None);
+        act(ui, |b| b.new_folder(Some(id)));
+    });
+    popover()
+        .child(heading(ui, title(format!("Folder “{name}”")).truncate()))
+        .child(rename_row(ui, &name, move |name| act(ui, |b| b.rename_folder(id, &name))))
+        .child(group().child(new))
+        .into_element()
 }
 
 fn menu_row(name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
@@ -329,14 +372,14 @@ fn tab_panel(ui: Ui) -> AnyElement {
         act(ui, |b| b.close_tab(key));
     });
     popover()
-        .child(title(name).truncate())
+        .child(heading(ui, title(name).truncate()))
         .children(burner.then(|| note("Burner tab: nothing is kept after it closes")))
-        .children(tab_rows)
         .children(page_rows)
         .children(split_rows)
-        .child(group().child(close))
+        .children(tab_rows)
         .children(pills("Move into a folder", folder_buttons))
         .children(pills("Move to another space of this profile", space_buttons))
+        .child(group().child(close))
         .into_element()
 }
 
@@ -354,11 +397,11 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::History => history_panel(ui),
             Panel::Downloads => downloads_panel(ui),
             Panel::Tab => tab_panel(ui),
+            Panel::Folder(id) => folder_panel(ui, id),
         };
         let wide = ui.panel.get_untracked() == Panel::Settings;
-        let close = view().flex_row().justify_end().child(icon_button(icons::CLOSE, "Close", move || show(ui, Panel::None)));
         Some(view().flex_col().flex_1().items_center().p_4().child(
-            view().flex_col().flex_1().w(px(if wide { PANEL_WIDTH + 200. } else { PANEL_WIDTH })).gap_2().child(close).child(if wide {
+            view().flex_col().flex_1().w(px(if wide { PANEL_WIDTH + 200. } else { PANEL_WIDTH })).child(if wide {
                 view().flex_col().flex_1().child(body).into_element()
             } else {
                 scroll().flex_1().child(body).into_element()

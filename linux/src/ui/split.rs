@@ -48,6 +48,18 @@ pub(super) fn drop_on(ui: Ui, key: TabKey) {
     }
 }
 
+/// Drops the dragged tab on `key`'s sidebar row: in the row's middle it splits as named, near its
+/// edges it moves the tab to the row's place.
+pub(super) fn drop_on_row(ui: Ui, key: TabKey) {
+    match ui.dragging.get_untracked().filter(|d| *d != key && ui.split_drop.with_untracked(|s| s.is_none_or(|(k, _)| k != key))) {
+        Some(dragged) => {
+            release(ui);
+            act(ui, |b| b.move_tab_to(dragged, key));
+        }
+        None => drop_on(ui, key),
+    }
+}
+
 /// The button came up over the page area: a dragged tab drops on the pane named.
 pub(super) fn released(ui: Ui) {
     if let Some((key, _)) = ui.split_drop.get_untracked() {

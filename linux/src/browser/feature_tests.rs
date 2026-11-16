@@ -374,3 +374,50 @@ fn a_lone_tab_splits_with_a_copy_but_the_burner_says_it_needs_another() {
     assert!(b.shown_split().is_none());
     assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some("Split View needs a second tab"));
 }
+
+#[test]
+fn a_dragged_tab_takes_the_place_of_the_row_it_lands_on() {
+    let (_dir, mut b) = browser();
+    let a = b.model.active.unwrap();
+    let c = b.new_tab("https://c.test/").unwrap();
+    let d = b.new_tab("https://d.test/").unwrap();
+    let order = |b: &Browser| b.model.ephemeral_keys();
+    assert_eq!(order(&b), [a, c, d]);
+    b.move_tab_to(d, a);
+    assert_eq!(order(&b), [d, a, c], "from below it goes before the row");
+    b.move_tab_to(d, c);
+    assert_eq!(order(&b), [a, c, d], "from above it goes after the row");
+    b.pin_toggle(a);
+    b.move_tab_to(c, a);
+    assert_eq!(b.model.tab(c).unwrap().kind, TabKind::Pinned, "a row of another zone takes the tab into it");
+    b.move_tab_to(d, d);
+    assert_eq!(order(&b), [d]);
+}
+
+#[test]
+fn spaces_and_folders_are_renamed_and_folders_nest() {
+    let (_dir, mut b) = browser();
+    b.rename_space("  Work  ");
+    assert_eq!(b.model.current_space().unwrap().space.name, "Work");
+    b.rename_space(" ");
+    assert_eq!(b.model.current_space().unwrap().space.name, "Work", "a blank name is ignored");
+    b.new_folder(None);
+    let parent = b.model.folders[0].id;
+    b.new_folder(Some(parent));
+    let child = b.model.folders.iter().find(|f| f.id != parent).unwrap();
+    assert_eq!(child.parent_id, Some(parent));
+    assert!(b.model.expanded.contains(&parent));
+    b.rename_folder(parent, "Reading");
+    assert_eq!(b.model.folders.iter().find(|f| f.id == parent).unwrap().name, "Reading");
+}
+
+#[test]
+fn a_typed_search_forgets_the_last_count_and_a_step_keeps_it() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    b.on_event(key, "found", &json!({ "matched": 0 }));
+    b.find("x", false);
+    assert_eq!(b.pages[&key].found, Some(0));
+    b.find_typed("xy");
+    assert_eq!(b.pages[&key].found, None);
+}

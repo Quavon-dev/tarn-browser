@@ -460,9 +460,34 @@ impl Browser {
         self.forgotten.push(key);
     }
 
-    pub fn new_folder(&mut self) {
-        self.model.new_folder(&self.core, None);
+    pub fn new_folder(&mut self, parent: Option<Id>) {
+        self.model.new_folder(&self.core, parent);
         self.model.reload_space(&self.core);
+    }
+
+    pub fn rename_folder(&mut self, id: Id, name: &str) {
+        if !name.trim().is_empty() && self.core.store(self.model.private()).rename_folder(id, name.trim()).is_ok() {
+            self.model.reload_space(&self.core);
+        }
+    }
+
+    pub fn rename_space(&mut self, name: &str) {
+        let Some((private, id)) = self.model.current_space().map(|s| (s.private, s.space.id)) else { return };
+        if !name.trim().is_empty() && self.core.store(private).rename_space(id, name.trim()).is_ok() {
+            self.model.reload_spaces(&self.core);
+        }
+    }
+
+    /// Moves `key` to `target`'s place in its zone: before it from below, after it from above.
+    pub fn move_tab_to(&mut self, key: TabKey, target: TabKey) {
+        let Some(tab) = self.model.tab(target).filter(|_| key != target && key.private == target.private) else { return };
+        let (kind, folder, index) = (tab.kind, tab.folder_id, self.model.zone_index(tab));
+        if self.model.burner_shown() && kind != TabKind::Ephemeral {
+            return;
+        }
+        if self.core.store(key.private).move_tab(key.id, kind, folder, index).is_ok() {
+            self.model.reload_space(&self.core);
+        }
     }
 
     pub fn toggle_folder(&mut self, id: Id) {
@@ -520,13 +545,17 @@ impl Browser {
         }
     }
 
+    /// Steps to the next or previous match of `text`, already searched.
     pub fn find(&mut self, text: &str, backwards: bool) {
-        if text.is_empty()
-            && let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k))
-        {
+        self.command("find", json!({ "text": text, "backwards": backwards }));
+    }
+
+    /// Searches a new text; the count of the one before no longer holds.
+    pub fn find_typed(&mut self, text: &str) {
+        if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)) {
             page.found = None;
         }
-        self.command("find", json!({ "text": text, "backwards": backwards }));
+        self.find(text, false);
     }
 
     pub fn zoom(&mut self, step: i32) {

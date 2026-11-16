@@ -66,7 +66,10 @@ pub fn space_panel(ui: Ui) -> AnyElement {
     let Some((name, schedule, snapshots)) = read(ui, |b| (ui.snap.with(|s| s.space_name.clone()), b.space_schedule(), b.snapshots())) else {
         return view().into_element();
     };
-    let mut body = popover().child(title(format!("Space “{name}”")));
+    let mut body =
+        popover()
+            .child(super::panels::heading(ui, title(format!("Space “{name}”")).truncate()))
+            .child(super::panels::rename_row(ui, &name, move |name| act(ui, |b| b.rename_space(&name))));
     body = match schedule {
         Some(schedule) => body.child(section("Schedule")).child(schedule_rows(ui, schedule)),
         None => body.child(note("A private space has no schedule or snapshots.")),
@@ -134,7 +137,7 @@ pub fn memory_panel(ui: Ui) -> AnyElement {
         })
         .collect();
     popover()
-        .child(title("Memory"))
+        .child(super::panels::heading(ui, title("Memory")))
         .child(note("Memory and CPU of each tab's web content process over the last minute, read from /proc. Tabs WebKitGTK runs in one process each show its total; a tab whose process could not be told apart is not measured."))
         .child(view().flex_col().children(items))
         .into_element()
@@ -156,11 +159,16 @@ pub fn reading_list_panel(ui: Ui) -> AnyElement {
                     br.new_tab(&url);
                 });
             })
+            .child(super::panels::copy_link(ui, url))
             .child(crate::controls::icon_button(icons::TRASH, "Remove", move || act(ui, |br| br.remove_from_reading_list(b.id))))
             .into_element()
         })
         .collect();
     let count = items.len();
     let empty = items.is_empty().then(|| note("Nothing saved yet. Save for Later files the page here."));
-    popover().child(super::panels::counted("Reading List", count)).children(empty).child(view().flex_col().gap(px(2.)).children(items)).into_element()
+    popover()
+        .child(super::panels::heading(ui, super::panels::counted("Reading List", count)))
+        .children(empty)
+        .child(view().flex_col().gap(px(2.)).children(items))
+        .into_element()
 }

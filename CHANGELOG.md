@@ -34,6 +34,14 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Linux: Up and Down pick address suggestions, right click opens the menu of any tab, the find bar
   counts matches and Ctrl+G / Ctrl+Shift+G step through them, icon buttons have tooltips, and Clear
   History, Clear Website Data and snapshot Delete ask for a confirmation.
+- Linux: `>` lists every command in a scrolling list, leaves out commands with nothing to act on
+  and names Pin and Split by state; suggestions wrap and Page Up / Page Down jump to the ends; Esc
+  declines a page's dialog or permission prompt and Enter accepts an alert or confirm; the find
+  bar's count clears while typing; a toast with a button stays 10 seconds; the space and folder
+  panels rename (New Subfolder in a folder's), History and Reading List rows offer Copy Link, each
+  panel closes from its header, both Clear buttons for downloads ask for a confirmation, the
+  sidebar's space buttons are 28 points and wrap to a second row, and dragging a tab row onto
+  another row's edge moves it there.
 - Android: the system back gesture closes a prompt, a sheet or the address field before it goes
   back in the page; iOS and Android sheets have a Back button to the sheet they came from.
 - Clean Up under New Tab sorts tabs into groups on this device and archives unused tabs (macOS,
