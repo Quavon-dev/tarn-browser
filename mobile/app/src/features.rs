@@ -398,6 +398,14 @@ impl<D: Platform> Shell<D> {
         Url::parse(&url).ok().filter(|u| matches!(u.scheme(), "http" | "https")).map(|_| url)
     }
 
+    /// What Shield stopped on the page's site, for the address bar's Shield chip.
+    pub fn site_shield_total(&self) -> i64 {
+        match (self.model.profile(), self.active_host()) {
+            (Some((private, id)), Some(host)) => self.core.store(private).shield_site_total(id, &host).unwrap_or(0).max(0),
+            _ => 0,
+        }
+    }
+
     pub fn qr_code(&self) -> Option<(Vec<Vec<bool>>, String)> {
         let url = self.share_url()?;
         let code = engine::qr::encode(&url)?;

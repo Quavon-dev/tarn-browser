@@ -269,6 +269,19 @@ fn shield_events_count_once_per_page_and_skip_local_popups() {
 }
 
 #[test]
+fn the_shield_chip_counts_what_shield_stopped_on_the_open_site() {
+    let (_dir, mut shell) = open();
+    assert_eq!(shell.site_shield_total(), 0, "no page, no count");
+    visit(&mut shell, "https://a.test/", "A");
+    let key = active(&shell);
+    shell.event(key, "shielded", &json!({ "kind": "https_upgrade", "url": "https://a.test/" }), 3);
+    shell.event(key, "shielded", &json!({ "kind": "local_network", "url": "https://a.test/" }), 3);
+    assert_eq!(shell.site_shield_total(), 2);
+    visit(&mut shell, "https://b.test/", "B");
+    assert_eq!(shell.site_shield_total(), 0, "another site has its own count");
+}
+
+#[test]
 fn a_burner_tab_has_its_own_store_keeps_no_records_and_is_released_when_burned() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");

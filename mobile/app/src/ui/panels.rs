@@ -19,7 +19,7 @@ use tarn_nsh_shared::panes::{self, Pane};
 
 fn title(screen: Screen) -> &'static str {
     match screen {
-        Screen::Browse | Screen::Find => "",
+        Screen::Browse | Screen::Find | Screen::Share => "",
         Screen::Tabs => "Tabs",
         Screen::Menu => "Menu",
         Screen::Shield => "Shield",
@@ -35,7 +35,7 @@ pub fn panel(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         let screen = ui.screen.get();
         let body = match screen {
-            Screen::Browse => return None,
+            Screen::Browse | Screen::Share => return None,
             Screen::Find => return Some(find(ui).into_element()),
             Screen::Tabs => tabs(ui).into_element(),
             Screen::Menu => menu(ui).into_element(),
@@ -366,7 +366,7 @@ fn menu(ui: Ui) -> impl IntoElement {
                 .child(dynamic(move || {
                     shareable.get().then(|| {
                         view()
-                            .child(row(icons::SHARE, "Share…", move || share(ui)))
+                            .child(row(icons::SHARE, "Share…", move || ui.show(Screen::Share)))
                             .child(row(icons::SMARTPHONE, "Show QR Code", move || ui.show(Screen::Qr)))
                             .child(row(icons::CHECK, "Copy Clean Link", move || {
                                 let mut copied = None;

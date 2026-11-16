@@ -3,6 +3,7 @@ mod bars;
 mod controls;
 mod panels;
 mod prompt;
+mod share;
 mod sheets;
 mod split;
 
@@ -44,6 +45,7 @@ pub enum Screen {
     Reader,
     FindTabs,
     Qr,
+    Share,
     ReadingList,
     Move(TabKey),
     SpaceEdit(usize),
@@ -157,7 +159,9 @@ impl Ui {
     }
 
     fn browsing(self) -> bool {
-        matches!(self.screen.get(), Screen::Browse | Screen::Find) && !self.editing.get() && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
+        matches!(self.screen.get(), Screen::Browse | Screen::Find | Screen::Share)
+            && !self.editing.get()
+            && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
     }
 }
 
@@ -465,5 +469,6 @@ pub fn App() -> impl IntoElement {
                 .child(prompt::prompt_panel(ui))
                 .child(panels::panel(ui)),
         )
-        .child(themed(move || bars::bottom_bar(ui)))
+        .child(bars::bottom_bar(ui))
+        .child(share::share_sheet(ui))
 }
