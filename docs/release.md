@@ -113,11 +113,13 @@ and:
 5. deletes the keychain and the key files.
 
 The `assets` job takes the signed files with the rest, writes `SHA256SUMS` and attests them, and
-`publish` publishes the release, marks the highest published version as the latest release (an
-older one finishing late never takes over the feeds; the lookup and the change hold the branch
-`release-latest-lock`, which is deleted afterwards, so delete it by hand only if a cancelled run
-left it behind) and starts `linux-repo.yml`. A tag whose message
-has the line `critical` marks both feeds critical.
+`publish` publishes the release, marks the highest published version as the latest release (an older
+one finishing late never takes over the feeds), gives that release the newest signed Windows feed of
+the recent releases (a macOS-only release carries the feed that was latest when it started), and
+starts `linux-repo.yml`. It does so holding the branch `release-latest-lock`, which it deletes
+afterwards; delete it by hand only if a cancelled run left it behind, then re-run that run's
+`publish`, which finishes a release it had already created. A tag whose message has the line
+`critical` marks both feeds critical.
 
 To release from GitHub, raise the version in every client in a pull request and rename `##
 [Unreleased]` in `CHANGELOG.md` to `## [<version>] - <date>` (`scripts/check-version.sh` checks

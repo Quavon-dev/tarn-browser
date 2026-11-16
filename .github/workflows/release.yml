@@ -691,6 +691,20 @@ jobs:
           ENGINE_UPDATE: ${{ inputs.commit != '' && !inputs.full }}
         run: |
           set -euo pipefail
+          # Creating the release, choosing the latest one (the highest published version, which both
+          # update feeds read) and fixing its Windows feed hold a lock: a branch only one run can
+          # create. A run cancelled inside it leaves its release unpromoted; a re-run promotes it.
+          locked=false
+          for _ in $(seq 60); do
+            if gh api "repos/$GH_REPO/git/refs" -f ref=refs/heads/release-latest-lock -f sha="$GITHUB_SHA" >/dev/null 2>&1; then
+              locked=true
+              trap 'gh api -X DELETE "repos/$GH_REPO/git/refs/heads/release-latest-lock" >/dev/null' EXIT
+              break
+            fi
+            sleep 10
+          done
+          [[ "$locked" == true ]] \
+            || { echo "release-latest-lock was held for 10 minutes; delete that branch if no release is publishing, then re-run" >&2; exit 1; }
           # A re-run after a failure past the create step finishes the release instead of stopping.
           existing="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" \
             | jq -r --arg tag "$TAG" '[.[][] | select(.tag_name == $tag) | .draft] | if length == 0 then "none" else .[0] end')"
@@ -713,23 +727,27 @@ jobs:
           else
             echo "$TAG is published already; marking the latest release and starting linux-repo.yml"
           fi
-          # Both update feeds read the latest release, so it is always the highest published version.
-          # The lookup and the edit hold a lock (a branch, which only one run can create), so a run
-          # with an older lookup cannot mark its release latest after a newer one.
-          locked=false
-          for _ in $(seq 60); do
-            if gh api "repos/$GH_REPO/git/refs" -f ref=refs/heads/release-latest-lock -f sha="$GITHUB_SHA" >/dev/null 2>&1; then
-              locked=true
-              trap 'gh api -X DELETE "repos/$GH_REPO/git/refs/heads/release-latest-lock" >/dev/null' EXIT
-              break
-            fi
-            sleep 10
-          done
-          [[ "$locked" == true ]] \
-            || { echo "release-latest-lock was held for 10 minutes; delete that branch if no release is publishing, then re-run" >&2; exit 1; }
           highest="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" | jq -r '[.[][] | select(.draft == false and .prerelease == false)
             | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last')"
           [[ "$highest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "no published release found after creating $TAG" >&2; exit 1; }
           gh release edit "$highest" --latest
           [[ "$highest" == "$TAG" ]] || echo "::warning::$highest is newer than $TAG and stays the latest release"
+          # A macOS-only release carried the feed of the release that was latest when it started; the
+          # latest release must hold the newest signed Windows feed of the recent releases.
+          feed() { gh release download "$1" --pattern windows-update.json --output - 2>/dev/null | jq -r .version; }
+          best="" best_version=""
+          while read -r release; do
+            version="$(feed "$release" || true)"
+            if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && ( -z "$best_version" || "$(printf '%s\n%s\n' "$best_version" "$version" | sort -V | tail -n1)" != "$best_version" ) ]]; then
+              best="$release" best_version="$version"
+            fi
+          done < <(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" | jq -r '[.[][] | select(.draft == false and .prerelease == false)
+            | select(any(.assets[]; .name == "windows-update.json") and any(.assets[]; .name == "windows-update.json.sig"))
+            | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | reverse | .[:10][]')
+          if [[ -n "$best" && "$(feed "$highest" || true)" != "$best_version" ]]; then
+            mkdir -p feed
+            gh release download "$best" --pattern windows-update.json --pattern windows-update.json.sig --dir feed --clobber
+            gh release upload "$highest" feed/windows-update.json feed/windows-update.json.sig --clobber
+            echo "::notice::$highest now carries the Windows feed of $best (Windows $best_version)"
+          fi
           gh workflow run linux-repo.yml --ref main
