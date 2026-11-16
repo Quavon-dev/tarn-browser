@@ -117,7 +117,7 @@ final class ExtensionPage implements NshComponent {
         boolean supported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
                 && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT);
         if (own == null || name == null || bootstrap == null || world == null || !world.startsWith(WORLD_PREFIX)
-                || level == Native.LOCKDOWN || !supported) {
+                || level == Native.LOCKDOWN || !Stores.persistent(store) || !supported) {
             Hooks.log("extension page not opened");
             return;
         }

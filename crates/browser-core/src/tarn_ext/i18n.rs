@@ -87,17 +87,18 @@ pub fn load(dir: &Path, default_locale: Option<&str>, ui: &[String]) -> Result<(
     let Some(default) = default_locale else {
         return if has_locales { refuse("_locales needs \"default_locale\"") } else { Ok(("en".to_owned(), Messages::new())) };
     };
-    if candidates(&[default.to_owned()]).first().map(String::as_str) != Some(&default.replace('-', "_")) {
+    let default = default.replace('-', "_");
+    if candidates(std::slice::from_ref(&default)).first() != Some(&default) {
         return refuse("\"default_locale\" is invalid");
     }
-    let Some(mut messages) = read(dir, default)? else { return refuse(format!("_locales/{default}/messages.json is missing")) };
+    let Some(mut messages) = read(dir, &default)? else { return refuse(format!("_locales/{default}/messages.json is missing")) };
     for locale in candidates(ui) {
         if let Some(chosen) = read(dir, &locale)? {
             messages.extend(chosen);
             return Ok((locale, messages));
         }
     }
-    Ok((default.to_owned(), messages))
+    Ok((default, messages))
 }
 
 pub fn localize(text: &str, messages: &Messages) -> String {
@@ -137,6 +138,9 @@ mod tests {
         assert_eq!(load(dir.path(), Some("en"), &["fr".to_owned()]).unwrap().0, "en");
         assert!(load(dir.path(), None, &[]).is_err());
         assert!(load(dir.path(), Some("fr"), &[]).is_err());
+        std::fs::create_dir_all(dir.path().join("_locales/en_US")).unwrap();
+        std::fs::write(dir.path().join("_locales/en_US/messages.json"), r#"{"a":{"message":"US"}}"#).unwrap();
+        assert_eq!(load(dir.path(), Some("en-US"), &[]).unwrap(), ("en_US".to_owned(), Messages::from([("a".to_owned(), "US".to_owned())])));
         assert_eq!(localize("__MSG_A__", &m), "Ä");
         assert_eq!(localize("Name", &m), "Name");
     }

@@ -184,7 +184,7 @@ fn the_toolbar_shows_the_action_and_notes_open_tabs() {
     assert_eq!(asking(f.profile, INSTALL).unwrap().badge, "Official");
     with(|rt| rt.sent.clear());
     carry_out(vec![Effect::OpenTab { profile: f.profile, url: Url::parse("https://a.test/").unwrap(), active: true }]);
-    assert_eq!(with(|rt| rt.sent.clone()), [Note::OpenTab { url: Url::parse("https://a.test/").unwrap(), active: true }]);
+    assert_eq!(with(|rt| rt.sent.clone()), [Note::OpenTab { profile: f.profile, url: Url::parse("https://a.test/").unwrap(), active: true }]);
     let _ = &f.dir;
 }
 

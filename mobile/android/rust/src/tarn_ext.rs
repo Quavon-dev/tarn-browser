@@ -133,7 +133,7 @@ pub fn loader() -> String {
 fn setup(take: &str, bootstrap: &str) -> String {
     format!(
         "(() => {{ const port = {take}; if (!port) return; \
-        globalThis.{POST} = s => port.postMessage(String(s)); \
+        globalThis.{POST} = s => {{ const m = String(s); if (m[0] !== '{{') throw new Error('not a message'); port.postMessage(m); }}; \
         port.onmessage = e => {{ const r = globalThis.{RECEIVE}; if (typeof r === 'function' && typeof e.data === 'string') r(e.data); }}; }})();\n{bootstrap}"
     )
 }
@@ -345,6 +345,7 @@ mod tests {
         assert!(!loader.contains("eval(") && !loader.contains("new Function"));
         let page = page_script("abc", "BOOT();");
         assert!(page.contains(POST) && page.contains(RECEIVE) && page.contains("BOOT();\n})();"));
+        assert!(page.contains("if (m[0] !== '{') throw"), "control messages stay the loader's");
         assert!(page.starts_with("(() => { if (window !== window.top || location.protocol !== 'tarn-extension:' || location.host !== \"abc\") return;"));
         assert!(!style("</style><script>").contains("</style>"), "CSS stays a string");
     }

@@ -9,7 +9,7 @@ use store::{InstalledExtension, Store};
 use url::Url;
 
 use super::grants::{Answer, Install};
-use super::router::{Env, From, MAX_QUEUED, MAX_RATE, Out, QUOTA_BYTES, Router, Sender, TabInfo, Target};
+use super::router::{Env, From, MAX_DELIVERIES, MAX_QUEUED, MAX_RATE, Out, QUOTA_BYTES, REPLY_TIMEOUT, Router, Sender, TabInfo, Target};
 use super::*;
 
 const ID: &str = "0a1b2c";
@@ -45,7 +45,7 @@ fn package(extra: Value) -> (tempfile::TempDir, Package) {
         std::fs::write(path, text).unwrap();
     }
     std::fs::write(dir.path().join("manifest.json"), manifest.to_string()).unwrap();
-    let loaded = load(dir.path(), "", ID, "SEED", &["de".to_owned()]).unwrap();
+    let loaded = load(dir.path(), None, ID, "SEED", &["de".to_owned()]).unwrap();
     (dir, loaded)
 }
 
@@ -59,8 +59,9 @@ const NORMAL: Context = Context { private: false, burner: false, profile_level: 
 fn loads_only_the_tree_it_recorded() {
     let (dir, p) = package(json!({}));
     let tree = crate::ext_package::tree_sha256(dir.path()).unwrap();
-    assert!(load(dir.path(), &tree, ID, "SEED", &[]).is_ok());
-    assert_eq!(load(dir.path(), "0".repeat(64).as_str(), ID, "SEED", &[]).err(), Some(LoadError::Changed));
+    assert!(load(dir.path(), Some(&tree), ID, "SEED", &[]).is_ok());
+    assert_eq!(load(dir.path(), Some("0".repeat(64).as_str()), ID, "SEED", &[]).err(), Some(LoadError::Changed));
+    assert_eq!(load(dir.path(), Some(""), ID, "SEED", &[]).err(), Some(LoadError::Changed));
     assert_eq!(p.name, "Shop Helper");
     assert_eq!(p.world.name(), "tarn-ext-0a1b2c");
     assert_eq!(p.scripts.scripts[0].js, ["window.c = 1;"]);
@@ -75,10 +76,10 @@ fn loads_only_the_tree_it_recorded() {
 fn a_missing_file_or_bad_rule_refuses_the_package() {
     let (dir, _) = package(json!({}));
     std::fs::write(dir.path().join("rules.json"), r#"[{"id":7,"action":{"type":"redirect"}}]"#).unwrap();
-    let Err(LoadError::Refused(why)) = load(dir.path(), "", ID, "SEED", &[]) else { panic!("loaded") };
+    let Err(LoadError::Refused(why)) = load(dir.path(), None, ID, "SEED", &[]) else { panic!("loaded") };
     assert!(why.contains("rule 7") && why.contains("redirect"), "{why}");
     std::fs::remove_file(dir.path().join("rules.json")).unwrap();
-    assert!(matches!(load(dir.path(), "", ID, "SEED", &[]), Err(LoadError::Refused(_))));
+    assert!(matches!(load(dir.path(), None, ID, "SEED", &[]), Err(LoadError::Refused(_))));
 }
 
 fn row(source: &str, all_sites: bool) -> InstalledExtension {
@@ -105,7 +106,7 @@ fn scripts_run_only_where_granted_and_never_private_burner_or_lockdown() {
         Context { view_level: ShieldLevel::Lockdown, ..NORMAL },
     ] {
         assert!(frame_decision(&p, &context, &frame(&page, &page, true), granted).run.is_empty(), "{context:?}");
-        assert_eq!(rule_list(&p, &context, &Scope::Every), None);
+        assert_eq!(rule_list(&p, &context, &Scope::Every { except: Vec::new() }), None);
     }
     let asked = frame_decision(&p, &NORMAL, &frame(&page, &page, true), |_| Access::Ask);
     assert_eq!(asked, FrameDecision { run: Vec::new(), ask: Some("www.shop.test".into()) });
@@ -138,13 +139,17 @@ fn grants_follow_source_switches_answers_and_lockdown() {
     assert_eq!(session.access(&install, "www.shop.test", now + Duration::from_secs(3601)), Access::Denied, "Once lasts an hour");
     session.tab_closed(4);
     assert_eq!(session.access(&install, "www.shop.test", now), Access::Denied, "Once ends with its tab");
-    let kept = session.answer(&Answer { remember: true, ..answer }, now);
+    let kept = session.answer(&Answer { remember: true, ..answer.clone() }, now);
     assert_eq!(kept, Some(("www.shop.test".into(), true)));
     let official = row("official:x", false);
     let trusted = Install { row: &official, manifest: &p.manifest, every_site_pref: true, stored: &[], lockdown_hosts: &lockdown };
     assert_eq!(session.access(&trusted, "a.news.test", now), Access::Granted);
     assert_eq!(session.access(&trusted, "locked.shop.test", now), Access::Denied, "Lockdown hosts stay denied");
-    assert_eq!(session.scope(&trusted, now), Scope::Every);
+    assert_eq!(session.scope(&trusted, now), Scope::Every { except: vec!["locked.shop.test".into()] });
+    session.answer(&Answer { host: "no.news.test".into(), allow: false, remember: false, tab: None, ..answer.clone() }, now);
+    let denied = Install { stored: &stored, ..trusted };
+    let except = vec!["deny.shop.test".to_owned(), "locked.shop.test".into(), "no.news.test".into()];
+    assert_eq!(session.scope(&denied, now), Scope::Every { except }, "denied hosts stay out of every-site rules");
     let switched_off = Install { every_site_pref: false, ..trusted };
     assert_eq!(session.access(&switched_off, "a.news.test", now), Access::Ask);
 }
@@ -162,7 +167,20 @@ fn network_rules_act_only_on_granted_top_sites() {
     assert_eq!(verdict(&granted, "https://www.news.test/"), Verdict::Allow, "a grant names one host");
     assert_eq!(verdict(&granted, "https://other.test/"), Verdict::Allow);
     assert!(lists(&Scope::Hosts(Vec::new())).is_empty());
-    assert_eq!(verdict(&lists(&Scope::Every), "https://other.test/"), Verdict::Block);
+    assert_eq!(verdict(&lists(&Scope::Every { except: Vec::new() }), "https://other.test/"), Verdict::Block);
+    assert_eq!(verdict(&lists(&Scope::Every { except: vec!["other.test".into()] }), "https://other.test/"), Verdict::Allow);
+}
+
+#[test]
+fn a_dropped_prompt_asks_again() {
+    let (_dir, p) = package(json!({}));
+    let mut session = Session::default();
+    let unverified = row("file", false);
+    let install = Install { row: &unverified, manifest: &p.manifest, every_site_pref: false, stored: &[], lockdown_hosts: &[] };
+    assert!(session.ask(1, ID, "www.shop.test"));
+    assert_eq!(session.access(&install, "www.shop.test", Instant::now()), Access::Denied);
+    session.unask(1, ID, "WWW.shop.test.");
+    assert_eq!(session.access(&install, "www.shop.test", Instant::now()), Access::Ask);
 }
 
 struct World {
@@ -420,4 +438,86 @@ fn badges_are_short_and_per_tab_over_global() {
     assert_eq!((global.badge_text.as_str(), global.badge_color, global.title.as_str()), ("12", Some([255, 0, 0, 255]), "Helper"));
     w.router.tab_closed(1);
     assert_eq!(w.router.action(ID, Some(1)).badge_text, "12");
+}
+
+#[test]
+fn unanswered_calls_expire_and_are_capped() {
+    let mut w = world(json!({}));
+    let now = Instant::now();
+    w.send(CONTENT, json!({"id": 1, "call": "runtime.sendMessage", "args": [1]}), now);
+    w.router.page_opened(ID, PageKind::Background, now);
+    w.send(BACKGROUND, json!({"id": null, "call": "ready", "args": []}), now);
+    assert!(w.router.tick(now + Duration::from_secs(29)).is_empty());
+    let out = w.router.tick(now + REPLY_TIMEOUT);
+    assert_eq!(
+        posts(&out),
+        [(Target::Frame { tab: 1, frame: FrameId::MAIN }, json!({"id": 1, "error": "The message port closed before a response was received."}))]
+    );
+    let later = now + REPLY_TIMEOUT + Duration::from_secs(1);
+    for n in 0..MAX_DELIVERIES as u64 {
+        w.send(BACKGROUND, json!({"id": n, "call": "tabs.sendMessage", "args": [1, n]}), later + Duration::from_secs(n / MAX_RATE as u64));
+    }
+    let over = posts(&w.send(BACKGROUND, json!({"id": 999, "call": "tabs.sendMessage", "args": [1, "x"]}), later + Duration::from_secs(5)));
+    assert_eq!(over[0].1["error"], "Too many messages are waiting for an answer.");
+}
+
+#[test]
+fn the_background_stays_up_only_for_events_to_it() {
+    let mut w = world(json!({}));
+    let now = Instant::now();
+    w.send(CONTENT, json!({"id": null, "call": "runtime.sendMessage", "args": [1]}), now);
+    w.router.page_opened(ID, PageKind::Background, now);
+    w.send(BACKGROUND, json!({"id": null, "call": "ready", "args": []}), now);
+    for s in 1..40 {
+        w.send(BACKGROUND, json!({"id": s, "call": "storage.get", "args": [null]}), now + Duration::from_secs(s));
+    }
+    assert_eq!(w.router.tick(now + Duration::from_secs(40)), [Out::StopBackground(ID.into())]);
+}
+
+#[test]
+fn a_tab_answer_without_a_value_waits_for_the_other_frames() {
+    let mut w = world(json!({}));
+    let now = Instant::now();
+    let sent = posts(&w.send(BACKGROUND, json!({"id": 4, "call": "tabs.sendMessage", "args": [1, "hi"]}), now));
+    assert_eq!(sent[0].0, Target::Tab(1));
+    let delivery = sent[0].1["delivery"].clone();
+    assert!(w.send(CONTENT, json!({"id": null, "call": "reply", "args": [delivery, null]}), now).is_empty());
+    let frame = Sender { install_id: ID.into(), from: From::Tab { tab: 1, frame: FrameId(5) }, origin: Some(url("https://cdn.shop.test")) };
+    let env = Env { tabs: &w.tabs, access: &granted, store: None, now };
+    let answer = posts(&w.router.handle(&frame, &json!({"id": null, "call": "reply", "args": [delivery, "real"]}).to_string(), &env));
+    assert_eq!(answer, [(Target::Page(PageKind::Background), json!({"id": 4, "result": "real"}))]);
+    let sent = posts(&w.send(BACKGROUND, json!({"id": 5, "call": "tabs.sendMessage", "args": [1, "hi"]}), now));
+    w.send(CONTENT, json!({"id": null, "call": "reply", "args": [sent[0].1["delivery"], null]}), now);
+    let settled = posts(&w.router.tick(now + Duration::from_secs(1)));
+    assert_eq!(settled, [(Target::Page(PageKind::Background), json!({"id": 5, "result": null}))]);
+}
+
+#[test]
+fn badges_need_an_open_tab_and_main_frames_their_tab_origin() {
+    let mut w = world(json!({"action": {"default_title": "Helper"}}));
+    let now = Instant::now();
+    let gone = posts(&w.send(BACKGROUND, json!({"id": 1, "call": "action.setBadgeText", "args": [{"text": "1", "tabId": 99}]}), now));
+    assert!(gone[0].1["error"].is_string());
+    assert_eq!(w.router.action(ID, Some(99)).badge_text, "");
+    let get = json!({"id": 1, "call": "storage.get", "args": [null]}).to_string();
+    let env = Env { tabs: &w.tabs, access: &granted, store: None, now };
+    let main = |origin: &str| Sender { install_id: ID.into(), from: CONTENT, origin: Some(url(origin)) };
+    assert!(w.router.handle(&main("https://evil.test"), &get, &env).is_empty(), "the engine's origin is not the tab's");
+    assert_eq!(posts(&w.router.handle(&main("https://www.shop.test"), &get, &env)).len(), 1);
+}
+
+#[test]
+fn an_https_only_extension_does_not_reach_the_http_page_of_a_granted_host() {
+    let mut w = world(json!({
+        "host_permissions": ["https://*.shop.test/*"],
+        "content_scripts": [{"matches": ["https://*.shop.test/*"], "js": ["c.js"]}],
+    }));
+    w.tabs[0].url = Some(url("http://www.shop.test/cart"));
+    let now = Instant::now();
+    assert!(w.send(CONTENT, json!({"id": 1, "call": "storage.get", "args": [null]}), now).is_empty());
+    let sent = posts(&w.send(BACKGROUND, json!({"id": 2, "call": "tabs.sendMessage", "args": [1, "hi"]}), now));
+    assert!(sent[0].1["error"].as_str().unwrap().contains("Receiving end"));
+    let mut w = world(json!({}));
+    w.tabs[0].url = Some(url("http://www.shop.test/cart"));
+    assert_eq!(posts(&w.send(CONTENT, json!({"id": 1, "call": "storage.get", "args": [null]}), now)).len(), 1, "a *:// pattern names http");
 }

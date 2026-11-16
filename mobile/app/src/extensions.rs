@@ -314,8 +314,17 @@ impl<D: Platform> Shell<D> {
             }
         }
         let live: Vec<TabKey> = self.model.lifecycle.live().collect();
-        self.ext.asks.retain(|a| live.contains(&a.tab));
+        self.drop_asks(|a| live.contains(&a.tab));
         effects
+    }
+
+    /// Keeps the asks `keep` holds; the others were never answered, so their sites may ask again.
+    fn drop_asks(&mut self, keep: impl Fn(&Ask) -> bool) {
+        let (kept, dropped): (Vec<Ask>, Vec<Ask>) = std::mem::take(&mut self.ext.asks).into_iter().partition(keep);
+        self.ext.asks = kept;
+        for a in dropped {
+            self.ext.rt.prompt_dropped(a.profile, &a.install_id, &a.host);
+        }
     }
 
     /// A tab's view went away (closed or put to sleep): its pending replies end.
@@ -323,10 +332,12 @@ impl<D: Platform> Shell<D> {
         if key.private {
             return;
         }
-        self.ext.asks.retain(|a| a.tab != key);
+        self.drop_asks(|a| a.tab != key);
         let outs = self.ext.rt.tab_gone(key.id as u64, closed);
-        if closed && let Some(profile) = self.extension_profile() {
-            self.push_rules(profile, Instant::now());
+        if closed {
+            for profile in self.ext.rt.profiles() {
+                self.push_rules(profile, Instant::now());
+            }
         }
         let effects = self.carry(outs, Instant::now());
         self.ext.queued.extend(effects);

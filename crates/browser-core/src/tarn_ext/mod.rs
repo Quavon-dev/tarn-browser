@@ -56,10 +56,11 @@ pub struct Package {
 }
 
 /// Loads the install at `dir` for the profile whose data-store seed is `seed`. `expected` is the
-/// tree hash recorded at install (empty before the first check); nothing runs if it differs.
-pub fn load(dir: &Path, expected: &str, install_id: &str, seed: &str, ui_locales: &[String]) -> Result<Package, LoadError> {
+/// tree hash recorded at install, `None` only for the read before consent; nothing runs if it
+/// differs.
+pub fn load(dir: &Path, expected: Option<&str>, install_id: &str, seed: &str, ui_locales: &[String]) -> Result<Package, LoadError> {
     let tree = crate::ext_package::tree_sha256(dir).map_err(|e| LoadError::Refused(e.to_string()))?;
-    if !expected.is_empty() && tree != expected {
+    if expected.is_some_and(|e| e != tree) {
         return Err(LoadError::Changed);
     }
     parse(dir, install_id, seed, ui_locales).map_err(LoadError::Refused)

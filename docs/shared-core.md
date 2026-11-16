@@ -79,7 +79,7 @@ adds:
 
 Engines that can only register scripts ahead of a document (WebKit's user scripts, Chromium's
 new-document scripts) carry the gate's answers in the scripts themselves: `tarn_ext::Decisions`
-records the answer per frame key (`frame_key`: main or sub frame, URL without fragment) when the
+records the answer per frame key (`frame_key`: main frame and URL without fragment, or sub frame with the top page's origin and its URL without fragment) when the
 gate is asked, and `tarn_ext::injections` builds the world's scripts from it, a gate script first
 and then each content script file guarded by it, so a document whose answer is missing runs
 nothing. A view of the profile without a gate shares those scripts, so it records an empty answer
@@ -96,7 +96,7 @@ own origin and accepts messages only from its top document there.
 
 Shells share the runtime around the router: `tarn_ext::runtime::Runtime` keeps each profile's
 checked installs (`replace`, `insert`, `retain`), the session's grants (`gate`, `answer`,
-`tab_gone`, `tick`), the rule lists (`rule_lists`, `update_rules`), the router (`handle`,
+`tab_gone`, `tick`, `prompt_dropped` for a prompt the shell drops unshown), the rule lists (`rule_lists`, `update_rules`), the router (`handle`,
 `clicked`) and the shell's page views, and returns `runtime::Effect`s for the shell to carry out.
 Every shell reads the "every site" switch with `extensions::every_site_setting`, and installs go
 through `extensions::install` (`slot`, `vet`, `carry_over`, the signed catalog).

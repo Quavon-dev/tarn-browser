@@ -48,7 +48,7 @@ fn extension_verdict(profile: &str, url: &Url, kind: &str, top: Option<&Url>) ->
         "media" => ResourceKind::Media,
         "xhr" => ResourceKind::Fetch,
         "websocket" => ResourceKind::WebSocket,
-        "ping" => ResourceKind::Ping,
+        "ping" | "csp_report" => ResourceKind::Ping,
         _ => ResourceKind::Other,
     };
     content_rules::evaluate(lists.iter(), &content_rules::Request::new(url, top, kind))

@@ -83,6 +83,11 @@ impl Session {
         self.asked.insert((profile, install_id.to_owned(), plain(host)))
     }
 
+    /// The prompt marked by `ask` was never shown, so the next visit asks again.
+    pub fn unask(&mut self, profile: Id, install_id: &str, host: &str) {
+        self.asked.remove(&(profile, install_id.to_owned(), plain(host)));
+    }
+
     /// An answer to the site prompt. A remembered one is returned for the shell to store with
     /// `Store::set_extension_host`; a Once allow lasts `ONCE` or until its tab closes.
     pub fn answer(&mut self, a: &Answer, now: Instant) -> Option<(String, bool)> {
@@ -112,14 +117,18 @@ impl Session {
         self.asked.retain(|k| !ours(k));
     }
 
-    /// Where the install's network rules may act: every site with the trusted switch, else the
-    /// hosts granted now. A Lockdown-level view never gets extension rules, so a Lockdown host is
-    /// covered by `Every` only for requests of other pages.
+    /// Where the install's network rules may act: every site but the hosts `access` refuses with
+    /// the trusted switch, else the hosts granted now.
     pub fn scope(&self, install: &Install, now: Instant) -> Scope {
-        if every_site(install.row.all_sites, install.every_site_pref, &install.row.source) {
-            return Scope::Every;
-        }
         let profile = install.row.profile_id;
+        if every_site(install.row.all_sites, install.every_site_pref, &install.row.source) {
+            let denied = self.denied.iter().filter(|(p, i, _)| *p == profile && *i == install.row.install_id).map(|(_, _, h)| h.clone());
+            let stored = install.stored.iter().filter(|(_, allow)| !allow).map(|(h, _)| plain(h));
+            let mut except: Vec<String> = install.lockdown_hosts.iter().map(|h| plain(h)).chain(stored).chain(denied).collect();
+            except.sort();
+            except.dedup();
+            return Scope::Every { except };
+        }
         let mut hosts: Vec<String> = install.stored.iter().filter(|(_, allow)| *allow).map(|(h, _)| plain(h)).collect();
         hosts.extend(
             self.once.iter().filter(|((p, i, _), (until, _))| *p == profile && *i == install.row.install_id && *until > now).map(|((_, _, h), _)| h.clone()),

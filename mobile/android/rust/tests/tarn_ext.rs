@@ -14,7 +14,7 @@ const BLOCK: i32 = 1;
 
 fn fixture() -> tarn_ext::Package {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tarn-ext");
-    tarn_ext::load(&dir, "", "fx1", STORE, &[]).expect("the fixture loads")
+    tarn_ext::load(&dir, None, "fx1", STORE, &[]).expect("the fixture loads")
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn the_fixtures_rules_block_only_on_granted_sites() {
     let package = fixture();
     let list = tarn_ext::rule_list(&package, &NORMAL, &Scope::Hosts(vec!["page.test".into()])).expect("a rule list");
     let lockdown = Context { view_level: ShieldLevel::Lockdown, ..NORMAL };
-    assert!(tarn_ext::rule_list(&package, &lockdown, &Scope::Every).is_none());
+    assert!(tarn_ext::rule_list(&package, &lockdown, &Scope::Every { except: Vec::new() }).is_none());
     android::set_rule_lists("rules-store", vec![(package.install_id.clone(), list)]);
     assert_eq!(android::verdict("rules-store", "https://ads.test/x.js", SCRIPT, &[(Some("https://page.test/"), 0)]), BLOCK);
     assert_eq!(android::verdict("rules-store", "https://ads.test/x.js", SCRIPT, &[(Some("https://elsewhere.test/"), 0)]), ALLOW);

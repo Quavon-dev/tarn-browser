@@ -18,7 +18,7 @@ pub const SETUP: &str = "const h = globalThis.webkit && webkit.messageHandlers &
 pub fn page_script(origin_id: &str, bootstrap: &str) -> String {
     format!(
         "(() => {{ if (window.top !== window || location.protocol !== 'tarn-extension:' || location.host !== {}) return; \
-        const h = webkit.messageHandlers.{HANDLER}; globalThis.__tarnExtPost = s => h.postMessage(String(s)); }})();\n{bootstrap}",
+        const h = webkit.messageHandlers.{HANDLER}; globalThis.__tarnExtPost = s => h.postMessage(String(s));\n{bootstrap}\n}})();",
         js_string(origin_id)
     )
 }
@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn pages_get_the_transport_only_on_their_own_origin() {
         let script = page_script("abc", "BOOT();");
-        assert!(script.contains("location.host !== \"abc\"") && script.contains("window.top !== window") && script.ends_with("BOOT();"));
+        assert!(script.contains("location.host !== \"abc\"") && script.contains("window.top !== window") && script.ends_with("BOOT();\n})();"));
         assert_eq!(
             receive("{\"a\":\"</script>\"}"),
             format!("if (typeof globalThis.__tarnExtReceive === 'function') globalThis.__tarnExtReceive({});", js_string("{\"a\":\"</script>\"}"))

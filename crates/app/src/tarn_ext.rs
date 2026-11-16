@@ -127,7 +127,8 @@ pub(crate) fn load(profile: Id, row: InstalledExtension, cx: &mut App) {
     let core = crate::shared::core(cx);
     let Some(seed) = seed(&core, profile) else { return };
     let (dir, expected, install) = (row.path.clone(), row.sha256.clone(), row.install_id.clone());
-    let work = cx.background_executor().spawn(async move { core_ext::load(Path::new(&dir), &expected, &install, &seed, &ui_locales()).map(Box::new) });
+    let work =
+        cx.background_executor().spawn(async move { core_ext::load(Path::new(&dir), Some(expected.as_str()), &install, &seed, &ui_locales()).map(Box::new) });
     cx.spawn(async move |cx: &mut AsyncApp| {
         let result = work.await;
         cx.update(|cx| {
@@ -298,7 +299,7 @@ fn tab_infos(core: &AppCore, profile: Id, cx: &mut App) -> Vec<TabInfo> {
         if let Some(key) = b.model.active.filter(|k| !k.private && b.profile_of(*k) == Some(profile)) {
             active.insert(key.id);
         }
-        if window.is_window_active() {
+        if window.is_window_active() && b.model.current_space().is_some_and(|s| !s.private && s.space.profile_id == profile) {
             current.extend(b.model.tabs.iter().map(|t| t.id));
         }
     });
@@ -346,12 +347,17 @@ pub(crate) fn on_msg(msg: Msg, cx: &mut App) {
         Msg::Answered(answer) => answered(&core, answer, cx),
         Msg::Clicked { profile, install, tab, host, x, y } => clicked(&core, profile, &install, tab, (&host, x, y), cx),
         Msg::TabClosed(tab) => {
-            let effects = {
+            let (effects, profiles) = {
                 let mut tarn = core.tarn.borrow_mut();
-                tarn.asks.remove(&tab);
-                tarn.rt.tab_gone(tab, true)
+                for (profile, install, host) in tarn.asks.remove(&tab).unwrap_or_default() {
+                    tarn.rt.prompt_dropped(profile, &install, &host);
+                }
+                (tarn.rt.tab_gone(tab, true), tarn.rt.profiles())
             };
             run(&core, effects, cx);
+            for profile in profiles {
+                apply_rules(&core, profile);
+            }
         }
         Msg::Navigated { profile, tab } => core.tarn.borrow_mut().rt.navigated(profile, tab),
     }
@@ -512,14 +518,19 @@ impl Browser {
             return;
         }
         let Some(profile) = self.profile_of(key) else { return };
+        let host = url.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase());
         let (asks, sender) = {
             let mut tarn = self.core.tarn.borrow_mut();
             tarn.send(Msg::Navigated { profile, tab: key.id as u64 });
-            (tarn.asks.remove(&(key.id as u64)).unwrap_or_default(), tarn.sender.clone())
+            let (asks, dropped): (Vec<_>, Vec<_>) =
+                tarn.asks.remove(&(key.id as u64)).unwrap_or_default().into_iter().partition(|(_, _, h)| Some(h) == host.as_ref());
+            for (profile, install, asked) in dropped {
+                tarn.rt.prompt_dropped(profile, &install, &asked);
+            }
+            (asks, tarn.sender.clone())
         };
         let Some(sender) = sender else { return };
-        let host = url.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase());
-        for (profile, install, asked) in asks.into_iter().filter(|(_, _, h)| Some(h) == host.as_ref()) {
+        for (profile, install, asked) in asks {
             let Some((name, _)) = self.core.tarn.borrow().loaded(profile, &install) else { continue };
             let (sender, id, h, tab) = (sender.clone(), install.clone(), asked.clone(), key.id as u64);
             let prompt = Prompt::extension_access(name, install, asked, move |allow, remember| {

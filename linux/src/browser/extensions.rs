@@ -32,9 +32,19 @@ impl Browser {
         }
     }
 
-    pub(super) fn ext_tab_closed(&self, key: TabKey) {
+    pub(super) fn ext_tab_closed(&mut self, key: TabKey) {
         if !key.private {
+            let ids: Vec<u64> = self.pages.get(&key).map(|p| p.prompts.iter().map(|p| p.id).collect()).unwrap_or_default();
+            self.ext_prompts_dropped(ids);
             extensions::tab_closed(key.id as u64);
+        }
+    }
+
+    pub(super) fn ext_prompts_dropped(&mut self, ids: Vec<u64>) {
+        for id in ids {
+            if let Some(asked) = self.ext_prompts.remove(&id) {
+                extensions::prompt_dropped(asked.profile, &asked.install, &asked.host);
+            }
         }
     }
 
@@ -77,7 +87,10 @@ impl Browser {
                 self.pages.entry(key).or_default().prompts.push_back(prompt);
                 true
             }
-            Note::OpenTab { url, active } => {
+            Note::OpenTab { profile, url, active } => {
+                if !self.model.current_space().is_some_and(|s| !s.private && s.space.profile_id == *profile) {
+                    return false;
+                }
                 if *active {
                     self.new_tab(url.as_str());
                 } else if self.model.new_tab(&self.core, url.as_str(), None).is_some() {

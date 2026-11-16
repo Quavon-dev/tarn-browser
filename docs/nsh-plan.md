@@ -131,10 +131,11 @@ Gaps, with their reason:
   the gate grants that frame's own host, but their `chrome.runtime` and `chrome.storage` calls
   reject with "The message could not be sent." and `tabs.sendMessage` reaches only the main
   frame (`linux/src/webview/ext_display_tests.rs`, cross-site frame test). The world's message
-  handler itself is registered for the whole view, so anything a subframe's world still posts
-  through `window.webkit.messageHandlers` counts as the tab's main frame and is heard only when
-  the install holds a grant for the main frame's host. Closing this needs a web-process
-  extension.
+  handler itself is registered for the whole view, so the main frame's transport makes a random
+  token per document, posts it first and prefixes every message with it; the shell takes the
+  first token after each main-frame commit and drops any message without it, so a subframe's
+  world posting through `window.webkit.messageHandlers` is not heard. Messaging from subframes
+  needs a web-process extension.
 - **`document_idle`** runs at document end: WebKitGTK user scripts have only start and end.
 
 ## 5. Platform pieces outside the web view

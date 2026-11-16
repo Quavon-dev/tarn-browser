@@ -66,7 +66,9 @@ fn entry_path(name: &str, wrapped: Option<&mut Option<String>>) -> Result<Option
             || *part == "."
             || *part == ".."
             || part.len() > MAX_COMPONENT
-            || part.chars().any(|c| c.is_control() || c == '\\' || c == '\0' || c == ':');
+            || part.chars().any(|c| c.is_control() || c == '\\' || c == '\0' || c == ':')
+            || part.ends_with(['.', ' '])
+            || windows_reserved(part);
         if bad {
             return refuse("the archive holds an unsafe file name");
         }
@@ -76,6 +78,15 @@ fn entry_path(name: &str, wrapped: Option<&mut Option<String>>) -> Result<Option
         return refuse("the archive holds an unsafe file name");
     }
     Ok(Some(path))
+}
+
+fn windows_reserved(part: &str) -> bool {
+    let stem = part.split('.').next().unwrap_or_default().trim_end_matches(' ').to_ascii_uppercase();
+    match stem.as_bytes() {
+        b"CON" | b"PRN" | b"AUX" | b"NUL" => true,
+        [b'C', b'O', b'M', n] | [b'L', b'P', b'T', n] => (b'1'..=b'9').contains(n),
+        _ => false,
+    }
 }
 
 /// How the file system may see a name: case and Unicode form do not tell entries apart on APFS.
@@ -333,6 +344,11 @@ mod tests {
         refused(&[MANIFEST, ("a\u{1}b.js", b"")]);
         refused(&[MANIFEST, (&"x".repeat(256), b"")]);
         refused(&[MANIFEST, ("d/".repeat(17).trim_end_matches('/'), b"")]);
+        for name in ["CON", "nul.js", "a/Com1.txt", "lpt9", "aux.tar.gz", "a./b.js", "b.js.", "c.js "] {
+            refused(&[MANIFEST, (name, b"")]);
+        }
+        let (_, ok) = try_unpack(&archive(&[MANIFEST, ("console.js", b""), ("com10.js", b""), ("lpt0.js", b"")]), false);
+        ok.unwrap();
     }
 
     #[test]

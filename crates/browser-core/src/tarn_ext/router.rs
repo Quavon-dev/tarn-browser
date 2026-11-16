@@ -21,10 +21,15 @@ pub const MAX_OPENED: usize = 3;
 pub const OPENED_WINDOW: Duration = Duration::from_secs(10);
 pub const MAX_BADGE_CHARS: usize = 4;
 pub const MAX_QUEUED: usize = 64;
+pub const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+pub const MAX_DELIVERIES: usize = 256;
+const SETTLE: Duration = Duration::from_secs(1);
 const MAX_TITLE_CHARS: usize = 256;
 const NO_RECEIVER: &str = "Could not establish connection. Receiving end does not exist.";
+const NO_ANSWER: &str = "The message port closed before a response was received.";
 const NOT_STARTED: &str = "The extension's background page did not start.";
 const QUEUE_FULL: &str = "Too many messages are waiting for the extension's page.";
+const TOO_MANY: &str = "Too many messages are waiting for an answer.";
 
 pub type TabId = u64;
 
@@ -102,6 +107,7 @@ struct Installed {
     active_tab: bool,
     background: bool,
     popup: bool,
+    sites: Vec<Pattern>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -122,11 +128,15 @@ impl Waiter {
     }
 }
 
+/// A message waiting for its answer until `deadline`; `answered` once a receiver replied without
+/// a value.
 struct Delivery {
     install_id: String,
     reply_to: From,
     request: u64,
     waiting: Vec<Waiter>,
+    deadline: Instant,
+    answered: bool,
 }
 
 struct PageState {
@@ -184,6 +194,7 @@ impl Router {
                 active_tab: m.active_tab,
                 background: m.background.is_some(),
                 popup: m.action.as_ref().is_some_and(|a| a.popup.is_some()),
+                sites: m.wanted().into_iter().cloned().collect(),
             },
         );
     }
@@ -252,7 +263,8 @@ impl Router {
     }
 
     /// Stops background pages idle for `IDLE`, and those that did not get ready within it: the
-    /// calls waiting for such a page get an error.
+    /// calls waiting for such a page get an error. Only events and messages to a page count as
+    /// activity, not its own calls. Calls unanswered after `REPLY_TIMEOUT` end.
     pub fn tick(&mut self, now: Instant) -> Vec<Out> {
         let waited: Vec<String> =
             self.deliveries.values().filter(|d| d.waiting.contains(&Waiter::Page(PageKind::Background))).map(|d| d.install_id.clone()).collect();
@@ -274,6 +286,13 @@ impl Router {
                 out.extend(self.unanswered(|w| w == Waiter::Page(PageKind::Background), Some(&install_id), Err(NOT_STARTED.to_owned())));
             }
         }
+        let expired: Vec<u64> = self.deliveries.iter().filter(|(_, d)| d.deadline <= now).map(|(id, _)| *id).collect();
+        for id in expired {
+            let Some(d) = self.deliveries.remove(&id) else { continue };
+            let result = if d.answered { Ok(Value::Null) } else { Err(NO_ANSWER.to_owned()) };
+            let to = Sender { install_id: d.install_id, from: d.reply_to, origin: None };
+            out.push(self.reply(&to, d.request, result));
+        }
         out
     }
 
@@ -282,15 +301,13 @@ impl Router {
         let storage_allowed = installed.storage;
         if let From::Tab { tab, frame } = sender.from {
             let Some(info) = env.tabs.iter().find(|t| t.id == tab) else { return Vec::new() };
-            let document = if frame == FrameId::MAIN { info.url.as_ref() } else { sender.origin.as_ref() };
-            if !document.and_then(web_host).is_some_and(|h| (env.access)(&sender.install_id, h) == Access::Granted) {
+            let document = match frame {
+                FrameId::MAIN => info.url.as_ref().filter(|u| sender.origin.as_ref().is_none_or(|o| o.origin() == u.origin())),
+                _ => sender.origin.as_ref(),
+            };
+            if !document.is_some_and(|d| self.granted(&sender.install_id, d, env)) {
                 return Vec::new();
             }
-        }
-        if let From::Page(kind) = sender.from
-            && let Some(page) = self.pages.get_mut(&(sender.install_id.clone(), kind))
-        {
-            page.last = env.now;
         }
         let tab_key = match sender.from {
             From::Tab { tab, .. } => Some(tab),
@@ -315,7 +332,7 @@ impl Router {
         let arg = |n: usize| args.get(n).cloned().unwrap_or(Value::Null);
         let result: Result<Value, String> = match call {
             "ready" if page => return self.ready(sender),
-            "reply" => return self.answered(sender, arg(0).as_u64(), arg(1)),
+            "reply" => return self.answered(sender, arg(0).as_u64(), arg(1), env.now),
             "runtime.sendMessage" => return self.send_to_pages(sender, id, arg(0), env),
             "tabs.sendMessage" if page => return self.send_to_tab(sender, id, &arg(0), arg(1), &arg(2), env),
             "tabs.query" if page => self.query(&sender.install_id, &arg(0), env),
@@ -327,7 +344,7 @@ impl Router {
                 out.extend(id.map(|id| self.reply(sender, id, result)));
                 return out;
             }
-            "action.setBadgeText" | "action.setBadgeBackgroundColor" | "action.setTitle" if page => self.set_action(&sender.install_id, call, &arg(0)),
+            "action.setBadgeText" | "action.setBadgeBackgroundColor" | "action.setTitle" if page => self.set_action(&sender.install_id, call, &arg(0), env),
             c if c.starts_with("storage.") && storage_allowed => return self.storage_call(sender, id, c, &arg(0), env),
             _ => Err(format!("{call} is not available here.")),
         };
@@ -396,14 +413,27 @@ impl Router {
         }
     }
 
-    fn start_delivery(&mut self, sender: &Sender, id: Option<u64>, waiting: Vec<Waiter>, message: Value, env: &Env) -> (u64, String) {
+    fn start_delivery(&mut self, sender: &Sender, id: Option<u64>, waiting: Vec<Waiter>, message: Value, env: &Env) -> String {
         self.next_delivery += 1;
         let delivery = self.next_delivery;
         let body = json!({"event": "runtime.onMessage", "delivery": delivery, "message": message, "sender": self.sender_json(sender, env)}).to_string();
         if let Some(request) = id {
-            self.deliveries.insert(delivery, Delivery { install_id: sender.install_id.clone(), reply_to: sender.from, request, waiting });
+            let (install_id, reply_to, deadline) = (sender.install_id.clone(), sender.from, env.now + REPLY_TIMEOUT);
+            self.deliveries.insert(delivery, Delivery { install_id, reply_to, request, waiting, deadline, answered: false });
         }
-        (delivery, body)
+        body
+    }
+
+    fn deliveries_full(&self, install_id: &str) -> bool {
+        self.deliveries.values().filter(|d| d.install_id == install_id).count() >= MAX_DELIVERIES
+    }
+
+    /// Whether the install holds a grant for `url`'s host; a plain `http` document also needs a
+    /// site pattern of the install that names `http`, so a grant made on `https` does not reach it.
+    fn granted(&self, install_id: &str, url: &Url, env: &Env) -> bool {
+        let Some(host) = web_host(url) else { return false };
+        let scheme_wanted = url.scheme() == "https" || self.installs.get(install_id).is_some_and(|i| i.sites.iter().any(|p| p.covers(url)));
+        scheme_wanted && (env.access)(install_id, host) == Access::Granted
     }
 
     fn send_to_pages(&mut self, sender: &Sender, id: Option<u64>, message: Value, env: &Env) -> Vec<Out> {
@@ -422,35 +452,47 @@ impl Router {
         if kinds.is_empty() {
             return id.map(|id| vec![self.reply(sender, id, Err(QUEUE_FULL.to_owned()))]).unwrap_or_default();
         }
-        let (_, body) = self.start_delivery(sender, id, kinds.iter().map(|k| Waiter::Page(*k)).collect(), message, env);
+        if id.is_some() && self.deliveries_full(&sender.install_id) {
+            return id.map(|id| vec![self.reply(sender, id, Err(TOO_MANY.to_owned()))]).unwrap_or_default();
+        }
+        let body = self.start_delivery(sender, id, kinds.iter().map(|k| Waiter::Page(*k)).collect(), message, env);
         kinds.into_iter().flat_map(|kind| self.deliver_to_page(&sender.install_id, kind, body.clone(), env.now)).collect()
     }
 
     fn send_to_tab(&mut self, sender: &Sender, id: Option<u64>, tab: &Value, message: Value, options: &Value, env: &Env) -> Vec<Out> {
-        let reachable = tab
-            .as_u64()
-            .and_then(|t| env.tabs.iter().find(|i| i.id == t))
-            .filter(|t| t.url.as_ref().and_then(web_host).is_some_and(|h| (env.access)(&sender.install_id, h) == Access::Granted));
+        let reachable =
+            tab.as_u64().and_then(|t| env.tabs.iter().find(|i| i.id == t)).filter(|t| t.url.as_ref().is_some_and(|u| self.granted(&sender.install_id, u, env)));
         let Some(tab) = reachable else {
             return id.map(|id| vec![self.reply(sender, id, Err(NO_RECEIVER.to_owned()))]).unwrap_or_default();
         };
+        if let Some(id) = id.filter(|_| self.deliveries_full(&sender.install_id)) {
+            return vec![self.reply(sender, id, Err(TOO_MANY.to_owned()))];
+        }
         let (waiter, to) = match options.get("frameId").and_then(Value::as_u64) {
             Some(frame) => (Waiter::Frame(tab.id, FrameId(frame)), Target::Frame { tab: tab.id, frame: FrameId(frame) }),
             None => (Waiter::Tab(tab.id), Target::Tab(tab.id)),
         };
-        let (_, body) = self.start_delivery(sender, id, vec![waiter], message, env);
+        let body = self.start_delivery(sender, id, vec![waiter], message, env);
         vec![Out::Post { install_id: sender.install_id.clone(), target: to, json: body }]
     }
 
     /// A receiver's answer; only one the delivery went to counts. The first answer with a value
-    /// wins, else the last one, as with several pages listening.
-    fn answered(&mut self, sender: &Sender, delivery: Option<u64>, response: Value) -> Vec<Out> {
+    /// wins, else the last one, as with several pages listening. A whole tab has an unknown number
+    /// of frames, so an answer without a value from one of them settles only `SETTLE` later.
+    fn answered(&mut self, sender: &Sender, delivery: Option<u64>, response: Value, now: Instant) -> Vec<Out> {
         let Some(delivery) = delivery else { return Vec::new() };
         let Some(d) = self.deliveries.get_mut(&delivery).filter(|d| d.install_id == sender.install_id) else { return Vec::new() };
         let Some(at) = d.waiting.iter().position(|w| w.answers(sender.from)) else { return Vec::new() };
-        d.waiting.remove(at);
-        if response.is_null() && !d.waiting.is_empty() {
-            return Vec::new();
+        if response.is_null() {
+            d.answered = true;
+            if matches!(d.waiting[at], Waiter::Tab(_)) {
+                d.deadline = d.deadline.min(now + SETTLE);
+                return Vec::new();
+            }
+            d.waiting.remove(at);
+            if !d.waiting.is_empty() {
+                return Vec::new();
+            }
         }
         let Some(d) = self.deliveries.remove(&delivery) else { return Vec::new() };
         let to = Sender { install_id: d.install_id, from: d.reply_to, origin: None };
@@ -476,7 +518,7 @@ impl Router {
     /// `url` and `title` only for tabs whose site the install holds a grant for, or the tab its
     /// toolbar button was clicked in (`activeTab`).
     fn visible(&self, install_id: &str, tab: &TabInfo, env: &Env) -> bool {
-        self.active_tab.get(install_id) == Some(&tab.id) || tab.url.as_ref().and_then(web_host).is_some_and(|h| (env.access)(install_id, h) == Access::Granted)
+        self.active_tab.get(install_id) == Some(&tab.id) || tab.url.as_ref().is_some_and(|u| self.granted(install_id, u, env))
     }
 
     fn tab_json(&self, install_id: &str, tab: &TabInfo, env: &Env) -> Value {
@@ -526,8 +568,11 @@ impl Router {
         Ok((url, active))
     }
 
-    fn set_action(&mut self, install_id: &str, call: &str, details: &Value) -> Result<Value, String> {
-        let tab = details.get("tabId").and_then(Value::as_u64);
+    fn set_action(&mut self, install_id: &str, call: &str, details: &Value, env: &Env) -> Result<Value, String> {
+        let tab = match details.get("tabId") {
+            None | Some(Value::Null) => None,
+            Some(t) => Some(t.as_u64().filter(|t| env.tabs.iter().any(|i| i.id == *t)).ok_or("action: no tab with this \"tabId\".")?),
+        };
         let base = self.action(install_id, tab);
         let state = self.actions.entry((install_id.to_owned(), tab)).or_insert(ActionState { title: String::new(), ..base });
         match call {

@@ -425,6 +425,13 @@ pub(crate) fn clear_store_storage(store: &str) {
     }
 }
 
+/// The method of an event, read without parsing the message: DevTools writes it first. `None`
+/// for a reply or another layout, which is parsed.
+fn event_method(message: &[u8]) -> Option<&str> {
+    let rest = message.strip_prefix(b"{\"method\":\"")?;
+    std::str::from_utf8(&rest[..rest.iter().position(|b| *b == b'"')?]).ok()
+}
+
 wrap_dev_tools_message_observer! {
     struct TarnDevTools {
         id: u64,
@@ -433,9 +440,11 @@ wrap_dev_tools_message_observer! {
     impl DevToolsMessageObserver {
         fn on_dev_tools_message(&self, _browser: Option<&mut Browser>, message: Option<&[u8]>) -> ::std::os::raw::c_int {
             let Some(tab) = tab(self.id) else { return 0 };
-            let Some(parsed) = message
-                .filter(|m| m.windows(11).any(|w| w == b"\"sessionId\""))
-                .and_then(|m| parse_json_buffer(Some(m), JsonParserOptions::default()))
+            let Some(message) = message.filter(|m| m.windows(11).any(|w| w == b"\"sessionId\"")) else { return 0 };
+            if event_method(message).is_some_and(|m| !tarn::EVENTS.contains(&m)) {
+                return 1;
+            }
+            let Some(parsed) = parse_json_buffer(Some(message), JsonParserOptions::default())
                 .filter(|p| string_at(Some(p.clone()), &["sessionId"]).is_some())
             else {
                 return 0;
@@ -462,8 +471,9 @@ wrap_dev_tools_message_observer! {
         }
 
         fn on_dev_tools_event(&self, _browser: Option<&mut Browser>, method: Option<&CefString>, params: Option<&[u8]>) {
-            if let Some(tab) = tab(self.id) {
-                tarn::devtools_event(&tab, &string(method), params.and_then(|p| parse_json_buffer(Some(p), JsonParserOptions::default())));
+            let method = string(method);
+            if let Some(tab) = tab(self.id).filter(|_| tarn::EVENTS.contains(&method.as_str())) {
+                tarn::devtools_event(&tab, &method, params.and_then(|p| parse_json_buffer(Some(p), JsonParserOptions::default())));
             }
         }
     }

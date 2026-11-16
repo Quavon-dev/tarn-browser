@@ -24,8 +24,10 @@ impl Pattern {
         };
         let slash = rest.find('/').ok_or_else(bad)?;
         let (host, path) = rest.split_at(slash);
-        let plain = |h: &str| !h.is_empty() && h.bytes().all(|b| b.is_ascii_alphanumeric() || b".-[]:".contains(&b)) && !h.starts_with('.');
-        if !(host == "*" || host.strip_prefix("*.").is_some_and(plain) || plain(host)) {
+        let plain = |h: &str| !h.is_empty() && h.bytes().all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b)) && !h.starts_with('.');
+        let v6 = |a: &str| a.contains(':') && a.bytes().all(|b| b.is_ascii_hexdigit() || b == b':');
+        let ipv6 = |h: &str| h.strip_prefix('[').and_then(|h| h.strip_suffix(']')).is_some_and(v6);
+        if !(host == "*" || host.strip_prefix("*.").is_some_and(plain) || plain(host) || ipv6(host)) {
             return Err(bad());
         }
         if path.len() > 2048 || path.bytes().any(|b| b.is_ascii_control() || b == b' ') {
@@ -48,6 +50,11 @@ impl Pattern {
             None => url.path().to_owned(),
         };
         scheme_ok && url.host_str().is_some_and(|h| self.covers_host(h)) && glob(&self.path, &path)
+    }
+
+    /// Whether the pattern reaches `url`'s scheme and host, whatever its path.
+    pub fn covers(&self, url: &Url) -> bool {
+        self.scheme.is_none_or(|s| s == url.scheme()) && url.host_str().is_some_and(|h| self.covers_host(h))
     }
 
     pub fn covers_host(&self, host: &str) -> bool {
@@ -101,8 +108,24 @@ mod tests {
 
     #[test]
     fn other_schemes_and_odd_hosts_are_refused() {
-        for bad in ["file:///*", "chrome://*/*", "*://a.test", "*://*a.test/*", "*://a b/*", "tarn-extension://x/*", "*://a.*/*", "https:///x"] {
+        for bad in [
+            "file:///*",
+            "chrome://*/*",
+            "*://a.test",
+            "*://*a.test/*",
+            "*://a b/*",
+            "tarn-extension://x/*",
+            "*://a.*/*",
+            "https:///x",
+            "https://a.test:8080/*",
+            "*://*.a.test:443/*",
+            "http://[::1]:8080/*",
+            "http://[a.test]/*",
+            "http://a[1]/*",
+        ] {
             assert!(Pattern::parse(bad).is_err(), "{bad}");
         }
+        let v6 = Pattern::parse("http://[::1]/*").unwrap();
+        assert!(v6.matches(&url("http://[::1]/x")) && v6.matches(&url("http://[::1]:8080/x")));
     }
 }

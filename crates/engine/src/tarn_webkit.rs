@@ -132,7 +132,7 @@ impl Worlds {
     /// The documents of a view without a gate read the same scripts as the profile's tabs, so no
     /// tab may record an answer for them while that view lives.
     fn hold(&self, view: usize, frame: &FrameNav) {
-        let Some(key) = frame_key(frame.url, frame.main_frame) else { return };
+        let Some(key) = frame_key(frame) else { return };
         let mut held = self.held.borrow_mut();
         let keys = held.entry(view).or_default();
         if keys.contains(&key) {
@@ -149,7 +149,7 @@ impl Worlds {
     }
 
     fn decide(&self, gate: &Gate, frame: &FrameNav) {
-        let held = frame_key(frame.url, frame.main_frame).is_some_and(|k| self.held.borrow().values().any(|keys| keys.contains(&k)));
+        let held = frame_key(frame).is_some_and(|k| self.held.borrow().values().any(|keys| keys.contains(&k)));
         let mut changed = false;
         for (world, w) in self.worlds.borrow_mut().iter_mut() {
             let run: Vec<usize> = if held { Vec::new() } else { gate(world, frame).into_iter().filter(|ix| *ix < w.scripts.scripts.len()).collect() };
@@ -204,7 +204,54 @@ impl Drop for Worlds {
 struct ViewState {
     delegate: ObjcWeak<Delegate>,
     gate: RefCell<Option<Gate>>,
-    frames: RefCell<HashMap<(World, FrameId), Retained<WKFrameInfo>>>,
+    frames: RefCell<Frames<Retained<WKFrameInfo>>>,
+}
+
+const MAX_FRAMES: usize = 256;
+
+/// The subframe documents that reported in, each numbered on its own so that a reply never
+/// reaches the frame's next document; the oldest go first past `MAX_FRAMES`.
+struct Frames<T> {
+    serial: u64,
+    docs: BTreeMap<u64, (World, FrameId, T)>,
+}
+
+impl<T> Default for Frames<T> {
+    fn default() -> Self {
+        Frames { serial: 0, docs: BTreeMap::new() }
+    }
+}
+
+impl<T: Clone> Frames<T> {
+    /// The id of the document that sent a message from `frame` (WebKit's own number) in `world`;
+    /// the setup's hello starts a new document.
+    fn document(&mut self, world: &World, frame: FrameId, info: T, hello: bool) -> FrameId {
+        let current = self.docs.iter().find(|(_, (w, f, _))| w == world && *f == frame).map(|(serial, _)| *serial);
+        if let Some(serial) = current {
+            if !hello {
+                return FrameId(serial | 1 << 63);
+            }
+            self.docs.remove(&serial);
+        }
+        if self.docs.len() >= MAX_FRAMES {
+            self.docs.pop_first();
+        }
+        self.serial += 1;
+        self.docs.insert(self.serial, (world.clone(), frame, info));
+        FrameId(self.serial | 1 << 63)
+    }
+
+    fn navigates(&mut self, frame: FrameId) {
+        self.docs.retain(|_, (_, f, _)| *f != frame);
+    }
+
+    fn get(&self, world: &World, id: FrameId) -> Option<T> {
+        self.docs.get(&(id.0 & !(1 << 63))).filter(|(w, _, _)| w == world).map(|(_, _, info)| info.clone())
+    }
+
+    fn of(&self, world: &World) -> Vec<T> {
+        self.docs.values().filter(|(w, _, _)| w == world).map(|(_, _, info)| info.clone()).collect()
+    }
 }
 
 fn state(view: &WKWebView) -> Option<Rc<ViewState>> {
@@ -230,6 +277,20 @@ pub(crate) fn set_gate(view: &WKWebView, delegate: &Delegate, gate: Gate) {
     }
 }
 
+/// The main frame committed a new document: its subframes' documents are gone.
+pub(crate) fn committed(view: &WKWebView) {
+    if let Some(state) = state(view) {
+        *state.frames.borrow_mut() = Frames::default();
+    }
+}
+
+/// A subframe is about to load a new document: its current one no longer gets replies.
+pub(crate) fn frame_navigates(view: &WKWebView, frame: &WKFrameInfo) {
+    if let (Some(state), Some(id)) = (state(view), frame_id(frame)) {
+        state.frames.borrow_mut().navigates(id);
+    }
+}
+
 pub(crate) fn forget_view(view: &WKWebView) {
     VIEWS.with_borrow_mut(|v| v.remove(&address(view)));
     if let Some(worlds) = worlds_of(view) {
@@ -252,18 +313,25 @@ pub(crate) fn remove_scripts(view: &WKWebView, world: &World) {
 /// A frame of `view` is about to load `url`: the gate decides there and then, before WebKit is
 /// answered, so the decision is in the world's scripts when the document starts. A view of the
 /// profile without a gate shares its worlds' scripts, so its documents get an empty decision that
-/// holds until the view gets a gate or goes away.
+/// holds until the view gets a gate or goes away. An http URL is decided for its https form too,
+/// which Shield's `make-https` rule or HSTS may load without another navigation action.
 pub(crate) fn gate_frame(view: &WKWebView, url: &Url, main_frame: bool) {
     let Some(worlds) = worlds_of(view) else { return };
     let gate = state(view).and_then(|s| s.gate.borrow().clone());
+    let held = gate.is_none();
+    let gate = gate.unwrap_or_else(|| Rc::new(|_: &World, _: &FrameNav| Vec::new()));
     // SAFETY: main-thread read of the live web view.
-    let top = if main_frame { Some(url.clone()) } else { to_url(unsafe { view.URL() }) };
-    let Some(top) = top else { return };
-    let frame = FrameNav { url, top: &top, main_frame };
-    if gate.is_none() {
-        worlds.hold(address(view), &frame);
+    let page = if main_frame { None } else { to_url(unsafe { view.URL() }) };
+    let mut https = url.clone();
+    let upgraded = (url.scheme() == "http" && https.set_scheme("https").is_ok()).then_some(&https);
+    for url in std::iter::once(url).chain(upgraded) {
+        let Some(top) = (if main_frame { Some(url) } else { page.as_ref() }) else { return };
+        let frame = FrameNav { url, top, main_frame };
+        if held {
+            worlds.hold(address(view), &frame);
+        }
+        worlds.decide(&gate, &frame);
     }
-    worlds.decide(&gate.unwrap_or_else(|| Rc::new(|_: &World, _: &FrameNav| Vec::new())), &frame);
 }
 
 pub(crate) fn post(view: &WKWebView, world: &World, frame: Option<FrameId>, json: &str) {
@@ -272,14 +340,8 @@ pub(crate) fn post(view: &WKWebView, world: &World, frame: Option<FrameId>, json
     let content = content_world(mtm, world);
     let targets: Vec<Option<Retained<WKFrameInfo>>> = match frame {
         Some(FrameId::MAIN) => vec![None],
-        Some(id) => state(view).and_then(|s| s.frames.borrow().get(&(world.clone(), id)).cloned()).map(Some).into_iter().collect(),
-        None => std::iter::once(None)
-            .chain(
-                state(view)
-                    .into_iter()
-                    .flat_map(|s| s.frames.borrow().iter().filter(|((w, _), _)| w == world).map(|(_, f)| Some(f.clone())).collect::<Vec<_>>()),
-            )
-            .collect(),
+        Some(id) => state(view).and_then(|s| s.frames.borrow().get(world, id)).map(Some).into_iter().collect(),
+        None => std::iter::once(None).chain(state(view).into_iter().flat_map(|s| s.frames.borrow().of(world)).map(Some)).collect(),
     };
     for target in targets {
         // SAFETY: main-thread call on a live web view; the script only calls the shim's receiver in the install's world.
@@ -318,17 +380,10 @@ fn received(message: &WKScriptMessage) {
     // SAFETY: main-thread read of the world's name; the handler is only added to Tarn's worlds.
     let Some(world) = unsafe { content.name() }.and_then(|n| World::parse(&n.to_string())) else { return };
     let (Some(state), Some(id)) = (state(&view), frame_id(&frame)) else { return };
-    let origin = if id == FrameId::MAIN { None } else { crate::delegates::origin_of(&frame).and_then(|o| Url::parse(&o).ok()) };
-    {
-        let mut frames = state.frames.borrow_mut();
-        if id == FrameId::MAIN && text.starts_with(HELLO) {
-            frames.retain(|(w, _), _| *w != world);
-        }
-        if id != FrameId::MAIN {
-            frames.insert((world.clone(), id), frame);
-        }
-    }
-    if text.starts_with(HELLO) {
+    let origin = crate::delegates::origin_of(&frame).and_then(|o| Url::parse(&o).ok());
+    let hello = text.starts_with(HELLO);
+    let id = if id == FrameId::MAIN { id } else { state.frames.borrow_mut().document(&world, id, frame, hello) };
+    if hello {
         return;
     }
     if let Some(delegate) = state.delegate.load() {
@@ -636,5 +691,28 @@ impl Drop for ExtensionPage {
             self.view.configuration().userContentController().removeAllScriptMessageHandlers();
         }
         self.view.removeFromSuperview();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_document_of_a_frame_gets_its_own_id_and_the_table_stays_bounded() {
+        let (world, other) = (World::for_install("ab12").unwrap(), World::for_install("cd34").unwrap());
+        let mut frames = Frames::default();
+        let first = frames.document(&world, FrameId(7), 1, true);
+        assert_eq!(frames.document(&world, FrameId(7), 1, false), first);
+        assert_eq!(frames.get(&world, first), Some(1));
+        assert_eq!(frames.get(&other, first), None, "an id answers only in its world");
+        let next = frames.document(&world, FrameId(7), 2, true);
+        assert!(next != first && next != FrameId::MAIN && frames.get(&world, first).is_none(), "a reply never reaches the next document");
+        frames.navigates(FrameId(7));
+        assert!(frames.of(&world).is_empty());
+        for n in 0..2 * MAX_FRAMES as u64 {
+            frames.document(&world, FrameId(n), 0, true);
+        }
+        assert_eq!(frames.docs.len(), MAX_FRAMES);
     }
 }

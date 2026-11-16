@@ -756,7 +756,7 @@ impl Browser {
             let seed = self.core.disk.profile(slot.profile_id).map(|p| p.data_store_uuid).unwrap_or_default();
             let (id, locales) = (slot.install_id.clone(), crate::tarn_ext::ui_locales());
             let work = cx.background_executor().spawn(async move {
-                browser_core::tarn_ext::load(&dir, "", &id, &seed, &locales).map(Box::new).map_err(|e| match e {
+                browser_core::tarn_ext::load(&dir, None, &id, &seed, &locales).map(Box::new).map_err(|e| match e {
                     browser_core::tarn_ext::LoadError::Refused(why) => why,
                     browser_core::tarn_ext::LoadError::Changed => "The extension changed while it was read.".to_owned(),
                 })
@@ -1111,7 +1111,7 @@ mod tests {
         });
         std::fs::write(dir.path().join("manifest.json"), manifest.to_string()).unwrap();
         assert!(browser_core::tarn_ext::is_tarn_dir(dir.path()));
-        let candidate = Candidate::Tarn(Box::new(browser_core::tarn_ext::load(dir.path(), "", "aa", "SEED", &[]).unwrap()));
+        let candidate = Candidate::Tarn(Box::new(browser_core::tarn_ext::load(dir.path(), None, "aa", "SEED", &[]).unwrap()));
         assert_eq!((candidate.name(), candidate.version(), candidate.has_active_tab()), ("Helper".to_owned(), "1.2".to_owned(), true));
         assert_eq!(candidate.api_permissions(), (vec!["storage".to_owned(), "activeTab".to_owned()], Vec::new()));
         assert_eq!(permission_lines(candidate.api_permissions(), candidate.host_patterns()), "storage\nactiveTab\n*://*.example.com/*");

@@ -124,7 +124,7 @@ pub fn fetch(net: &dyn Fetch, what: Install, slot: &Slot, revoked: &BTreeSet<(St
         slot.discard();
         return Err(NOT_TARN.to_owned());
     }
-    let package = match tarn_ext::load(&unpacked.dir, &unpacked.tree, &slot.install_id, seed, locales) {
+    let package = match tarn_ext::load(&unpacked.dir, Some(&unpacked.tree), &slot.install_id, seed, locales) {
         Ok(p) => p,
         Err(LoadError::Changed) => return refuse("The extension changed while it was unpacked.".to_owned()),
         Err(LoadError::Refused(why)) => return refuse(why),

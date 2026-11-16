@@ -147,11 +147,20 @@ pub fn bootstrap(config: &Value) -> String {
     format!("{SHIM}({config});\n")
 }
 
-/// What a document of `url` looks up in the world's decisions, as its script computes it.
-pub fn frame_key(url: &Url, main_frame: bool) -> Option<String> {
-    let mut url = url.clone();
+/// What a document of `frame` looks up in the world's decisions, as its script computes it: a
+/// subframe's key holds its top page's origin, because the gate's answer depends on it.
+pub fn frame_key(frame: &FrameNav) -> Option<String> {
+    let mut url = frame.url.clone();
     url.set_fragment(None);
-    let key = format!("{} {}", if main_frame { 'm' } else { 's' }, url.as_str());
+    let key = if frame.main_frame {
+        format!("m {}", url.as_str())
+    } else {
+        let top = frame.top.origin();
+        if !top.is_tuple() {
+            return None;
+        }
+        format!("s {} {}", top.ascii_serialization(), url.as_str())
+    };
     (key.len() <= MAX_KEY_BYTES).then_some(key)
 }
 
@@ -164,7 +173,7 @@ pub struct Decisions(VecDeque<(String, Vec<usize>)>);
 impl Decisions {
     /// Records the gate's answer for `frame`; true when the world's scripts must be replaced.
     pub fn record(&mut self, frame: &FrameNav, run: Vec<usize>) -> bool {
-        let Some(key) = frame_key(frame.url, frame.main_frame) else { return false };
+        let Some(key) = frame_key(frame) else { return false };
         match (self.0.iter().position(|(k, _)| *k == key), run.is_empty()) {
             (Some(at), _) if self.0[at].1 == run => false,
             (Some(at), true) => {
@@ -215,7 +224,8 @@ pub fn gate_injection(scripts: &WorldScripts, decisions: &Decisions, setup: &str
     let css: Vec<&[String]> = scripts.scripts.iter().map(|s| s.css.as_slice()).collect();
     let gate = format!(
         "(() => {{\n\
-         const run = new Map({runs}).get((window === window.top ? 'm ' : 's ') + location.href.split('#')[0]);\n\
+         const prefix = window === window.top ? 'm ' : 's ' + Array.prototype.at.call(location.ancestorOrigins || [], -1) + ' ';\n\
+         const run = new Map({runs}).get(prefix + location.href.split('#')[0]);\n\
          if (!run) return;\n\
          {setup}\n\
          Object.defineProperty(globalThis, '{RUN}', {{ value: Object.freeze(run) }});\n\
@@ -318,8 +328,12 @@ mod tests {
         assert!(!d.record(&main, vec![]));
         assert!(d.record(&main, vec![0]));
         assert!(!d.record(&main, vec![0]));
-        assert_eq!(frame_key(&url, true).as_deref(), Some("m https://a.test/p?q"));
+        assert_eq!(frame_key(&main).as_deref(), Some("m https://a.test/p?q"));
         assert!(d.record(&FrameNav { main_frame: false, ..main }, vec![1]));
+        let other = Url::parse("https://b.test:8443/x").unwrap();
+        assert_eq!(frame_key(&FrameNav { url: &url, top: &other, main_frame: false }).as_deref(), Some("s https://b.test:8443 https://a.test/p?q"));
+        let opaque = Url::parse("data:text/html,x").unwrap();
+        assert!(!d.record(&FrameNav { url: &url, top: &opaque, main_frame: false }, vec![0]), "no key under an opaque top");
         assert!(d.record(&main, vec![]));
         assert_eq!(d.0.len(), 1);
         for n in 0..100 {

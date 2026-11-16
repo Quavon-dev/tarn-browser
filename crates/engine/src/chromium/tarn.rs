@@ -33,6 +33,7 @@ pub(super) struct TarnTab {
     main_frame: Option<String>,
     sessions: Sessions,
     contexts_seen: u64,
+    worlds_made: u64,
 }
 
 /// Where a DevTools message goes or came from: an attached frame's session, or the page itself.
@@ -78,8 +79,22 @@ struct WorldState {
     scripts: Rc<WorldScripts>,
     decisions: Decisions,
     registered: Vec<(Target, String)>,
+    /// Per target, the replies its last registration still owes and whether newer decisions wait
+    /// for them.
+    waiting: BTreeMap<Target, (usize, bool)>,
     generation: u64,
     contexts: HashMap<(Target, i32), Context>,
+}
+
+impl WorldState {
+    /// One reply to `target`'s registration arrived; `Some(true)` when the target must be
+    /// registered again, `None` when it is not waiting (it went away).
+    fn added(&mut self, target: &Target, identifier: Option<String>) -> Option<bool> {
+        let (owed, stale) = self.waiting.get_mut(target)?;
+        *owed = owed.saturating_sub(1);
+        self.registered.extend(identifier.map(|i| (target.clone(), i)));
+        Some(*owed == 0 && std::mem::take(stale))
+    }
 }
 
 /// A context of the world as DevTools reported it, never as its scripts say; `serial` numbers it
@@ -137,7 +152,16 @@ pub(super) fn add(tab: &Rc<Tab>, scripts: Rc<WorldScripts>) {
                 state.decisions = Decisions::default();
             }
             None => {
-                let state = WorldState { scripts, decisions: Decisions::default(), registered: Vec::new(), generation: 0, contexts: HashMap::new() };
+                tarn.worlds_made += 1;
+                let generation = tarn.worlds_made;
+                let state = WorldState {
+                    scripts,
+                    decisions: Decisions::default(),
+                    registered: Vec::new(),
+                    waiting: BTreeMap::new(),
+                    generation,
+                    contexts: HashMap::new(),
+                };
                 tarn.worlds.insert(world.clone(), state);
             }
         }
@@ -154,8 +178,13 @@ pub(super) fn remove(tab: &Rc<Tab>, world: &World) {
     for (target, identifier) in state.registered {
         remove_script(tab, &host, target.as_deref(), &identifier);
     }
+    let last = tab.tarn.borrow().worlds.is_empty() && tab.tarn.borrow().page.is_none();
     for target in targets(tab) {
         call_in(tab, &host, target.as_deref(), "Runtime.removeBinding", &format!("{{\"name\":{}}}", js_string(&binding(world))), |_| {});
+        if last {
+            call_in(tab, &host, target.as_deref(), "Target.setAutoAttach", r#"{"autoAttach":false,"waitForDebuggerOnStart":false}"#, |_| {});
+            call_in(tab, &host, target.as_deref(), "Runtime.disable", "{}", |_| {});
+        }
     }
 }
 
@@ -219,46 +248,49 @@ fn enable_in(tab: &Tab, host: &BrowserHost, target: Option<&str>) {
 }
 
 /// Replaces the world's new-document scripts in every target with ones carrying its current
-/// decisions; replies to an earlier generation remove what they registered.
+/// decisions.
 fn register(tab: &Rc<Tab>, host: &BrowserHost, world: &World) {
-    let old = {
-        let mut tarn = tab.tarn.borrow_mut();
-        let Some(state) = tarn.worlds.get_mut(world) else { return };
-        state.generation += 1;
-        std::mem::take(&mut state.registered)
-    };
-    for (target, identifier) in old {
-        remove_script(tab, host, target.as_deref(), &identifier);
-    }
     for target in targets(tab) {
         register_in(tab, host, target, world);
     }
 }
 
-/// Adds the world's current new-document scripts to one target.
+/// Replaces the world's new-document scripts in one target. Chromium runs them in the order they
+/// were added, the gate first, so every decision brings all of them again; the old ones are removed
+/// first, by the identifiers their replies gave, and while any reply is owed the swap waits for it,
+/// so no document ever gets two generations (scripts twice, an older gate deciding).
 fn register_in(tab: &Rc<Tab>, host: &BrowserHost, target: Target, world: &World) {
-    let (generation, list) = {
-        let tarn = tab.tarn.borrow();
-        let Some(state) = tarn.worlds.get(world) else { return };
+    let (generation, old, list) = {
+        let mut tarn = tab.tarn.borrow_mut();
+        let Some(state) = tarn.worlds.get_mut(world) else { return };
+        if let Some((owed, stale)) = state.waiting.get_mut(&target)
+            && *owed > 0
+        {
+            *stale = true;
+            return;
+        }
         let list: Vec<Injection> =
             injections(&state.scripts, &state.decisions, &setup(world)).into_iter().filter(|i| i.run_at == RunAt::DocumentStart).collect();
-        (state.generation, list)
+        let (old, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut state.registered).into_iter().partition(|(t, _)| *t == target);
+        state.registered = kept;
+        state.waiting.insert(target.clone(), (list.len(), false));
+        (state.generation, old, list)
     };
+    for (_, identifier) in old {
+        remove_script(tab, host, target.as_deref(), &identifier);
+    }
     for injection in list {
         let params = format!("{{\"source\":{},\"worldName\":{}}}", js_string(&injection.source), js_string(world.name()));
         let (weak, world, target) = (Rc::downgrade(tab), world.clone(), target.clone());
         call_in(tab, host, target.clone().as_deref(), ADD_SCRIPT, &params, move |result| {
-            let (Some(tab), Some(identifier)) = (weak.upgrade(), string_at(result, &["identifier"])) else { return };
-            let current = tab
-                .tarn
-                .borrow_mut()
-                .worlds
-                .get_mut(&world)
-                .filter(|s| s.generation == generation)
-                .map(|s| s.registered.push((target.clone(), identifier.clone())))
-                .is_some();
-            if !current && let Some(host) = host_of(&tab) {
-                remove_script(&tab, &host, target.as_deref(), &identifier);
+            let Some(tab) = weak.upgrade() else { return };
+            let identifier = string_at(result, &["identifier"]);
+            let done = tab.tarn.borrow_mut().worlds.get_mut(&world).filter(|s| s.generation == generation).and_then(|s| s.added(&target, identifier.clone()));
+            let Some(host) = host_of(&tab) else { return };
+            match (done, identifier) {
+                (Some(true), _) => register_in(&tab, &host, target, &world),
+                (None, Some(identifier)) => remove_script(&tab, &host, target.as_deref(), &identifier),
+                _ => {}
             }
         });
     }
@@ -291,6 +323,7 @@ fn detach(tab: &Tab, params: Option<Value>) {
     let gone = tarn.sessions.end(session);
     for state in tarn.worlds.values_mut() {
         state.registered.retain(|(t, _)| !gone.contains(t));
+        state.waiting.retain(|t, _| !gone.contains(t));
         state.contexts.retain(|(t, _), _| !gone.contains(t));
     }
 }
@@ -332,6 +365,17 @@ fn frame_of(main: bool, serial: u64) -> FrameId {
 fn int_at(params: Option<Value>, path: &[&str]) -> Option<i32> {
     value_at(params, path).filter(|v| v.get_type() == ValueType::INT).map(|v| v.int())
 }
+
+/// The only DevTools events read; others are dropped before their parameters are parsed.
+pub(super) const EVENTS: [&str; 7] = [
+    "Page.frameNavigated",
+    "Runtime.bindingCalled",
+    "Runtime.executionContextCreated",
+    "Runtime.executionContextDestroyed",
+    "Runtime.executionContextsCleared",
+    "Target.attachedToTarget",
+    "Target.detachedFromTarget",
+];
 
 /// The DevTools events of the page that say where each context is, and the bindings' calls.
 pub(super) fn devtools_event(tab: &Rc<Tab>, method: &str, params: Option<Value>) {
@@ -382,6 +426,7 @@ fn context_created(tab: &Tab, target: Target, params: Option<Value>) {
         return;
     };
     let default = value_at(params.clone(), &["context", "auxData", "isDefault"]).filter(|v| v.get_type() == ValueType::BOOL).is_some_and(|v| v.bool() == 1);
+    let isolated = string_at(params.clone(), &["context", "auxData", "type"]).as_deref() == Some("isolated");
     let origin = string_at(params, &["context", "origin"]).and_then(|o| Url::parse(&o).ok()).filter(|u| matches!(u.scheme(), "http" | "https"));
     let mut tarn = tab.tarn.borrow_mut();
     tarn.contexts_seen += 1;
@@ -390,7 +435,10 @@ fn context_created(tab: &Tab, target: Target, params: Option<Value>) {
         if target.is_none() {
             tarn.page_contexts.insert(id, frame);
         }
-    } else if let Some(state) = tarn.worlds.iter_mut().find(|(w, _)| w.name() == name).map(|(_, s)| s) {
+    } else if !default
+        && isolated
+        && let Some(state) = tarn.worlds.iter_mut().find(|(w, _)| w.name() == name).map(|(_, s)| s)
+    {
         state.contexts.insert((target, id), Context { frame, origin, ended: false, serial });
     }
 }
@@ -439,7 +487,7 @@ fn binding_called(tab: &Rc<Tab>, target: Target, params: Option<Value>) {
                 None
             }
             Some(_) => None,
-            None => payload.starts_with('{').then(|| (frame_of(main, known.serial), if main { None } else { known.origin.clone() })),
+            None => payload.starts_with('{').then(|| (frame_of(main, known.serial), known.origin.clone())),
         }
     };
     if let Some((frame, origin)) = message {
@@ -575,6 +623,20 @@ wrap_resource_handler! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_registration_waits_for_every_reply_before_the_next() {
+        let scripts = Rc::new(WorldScripts { world: World::for_install("ab12").unwrap(), bootstrap: String::new(), scripts: Vec::new() });
+        let mut state =
+            WorldState { scripts, decisions: Decisions::default(), registered: Vec::new(), waiting: BTreeMap::new(), generation: 1, contexts: HashMap::new() };
+        let page: Target = None;
+        assert_eq!(state.added(&page, Some("1".into())), None, "a target that is not waiting keeps nothing");
+        state.waiting.insert(page.clone(), (2, true));
+        assert_eq!(state.added(&page, Some("1".into())), Some(false));
+        assert_eq!(state.added(&page, None), Some(true), "the last reply, even a failed one, lets newer decisions go out");
+        assert_eq!(state.registered, [(None, "1".to_owned())]);
+        assert_eq!(state.waiting[&page], (0, false));
+    }
 
     #[test]
     fn a_session_that_ends_before_its_setup_is_never_kept() {

@@ -25,7 +25,7 @@ use crate::webview::ext::{self as view, Event, PageSpec};
 #[derive(Clone, Debug, PartialEq)]
 pub enum Note {
     Ask { profile: Id, tab: u64, install: String, host: String },
-    OpenTab { url: Url, active: bool },
+    OpenTab { profile: Id, url: Url, active: bool },
     Changed,
     PageClosed(u64),
 }
@@ -220,7 +220,7 @@ fn carry_out(effects: Effects) {
                 drop(page);
                 with(|rt| note(rt, Note::PageClosed(id)));
             }
-            Effect::OpenTab { url, active, .. } => with(|rt| note(rt, Note::OpenTab { url, active })),
+            Effect::OpenTab { profile, url, active } => with(|rt| note(rt, Note::OpenTab { profile, url, active })),
             Effect::ActionChanged(_) => with(|rt| note(rt, Note::Changed)),
         }
     }
@@ -370,6 +370,10 @@ pub fn tab_closed(tab: u64) {
         rt.push_all_rules();
         effects
     }));
+}
+
+pub fn prompt_dropped(profile: Id, install_id: &str, host: &str) {
+    with(|rt| rt.rt.prompt_dropped(profile, install_id, host));
 }
 
 pub fn navigated(profile: Id, tab: u64) {

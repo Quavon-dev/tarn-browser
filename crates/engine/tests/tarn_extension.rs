@@ -107,7 +107,11 @@ mod window {
         assert!(title.contains("|main:undefinedundefinedundefinedundefinedundefined"), "the page's main world sees no bridge: {title}");
         assert!(title.contains("|reply:2"), "a reply reaches the content script: {title}");
         let got = messages.borrow().clone();
-        assert!(got.iter().all(|(w, f, o, _)| *w == world && *f == FrameId::MAIN && o.is_none()), "messages name the world and frame they came from: {got:?}");
+        let page_origin = Some(format!("http://127.0.0.1:{port}"));
+        assert!(
+            got.iter().all(|(w, f, o, _)| *w == world && *f == FrameId::MAIN && o.as_ref().map(|u| u.origin().ascii_serialization()) == page_origin),
+            "messages name the world, frame and origin they came from: {got:?}"
+        );
         assert!(got.iter().any(|(_, _, _, m)| m["call"] == "runtime.sendMessage" && m["args"][0]["ping"] == 1), "{got:?}");
         assert!(got.iter().any(|(_, _, _, m)| m["call"] == "storage.set" && m["args"][0]["seen"] == true), "{got:?}");
         let requested = |entry: &str| seen.lock().unwrap().iter().filter(|s| *s == entry).count();
@@ -167,7 +171,7 @@ mod window {
                     .collect()
             };
             let (main, same, cross) = (from(&here("127.0.0.1", "/frames")), from(&sub("127.0.0.1", "ok")), from(&sub("localhost", "ok")));
-            assert_eq!(main, vec![(FrameId::MAIN, None)], "{label}: the top document is the main frame: {got:?}");
+            assert_eq!(main, vec![(FrameId::MAIN, Some(here("127.0.0.1", "")))], "{label}: the top document is the main frame, with its origin: {got:?}");
             assert!(same.len() == 1 && same[0].0 != FrameId::MAIN, "{label}: a same-site frame is heard as a subframe whatever it claims: {got:?}");
             assert_eq!(same[0].1.as_deref(), Some(here("127.0.0.1", "").as_str()), "{label}: with its own origin: {got:?}");
             assert!(

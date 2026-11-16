@@ -48,6 +48,7 @@ pub(crate) struct Held {
     handler: RcBlock<dyn Fn(WKNavigationActionPolicy, NonNull<WKWebpagePreferences>)>,
     preferences: Retained<WKWebpagePreferences>,
     url: Url,
+    top: Url,
     main: bool,
 }
 
@@ -249,7 +250,7 @@ impl Inner {
         let request = NEXT_FRAME_REQUEST.with(|n| n.replace(n.get() + 1));
         let worlds: Vec<&str> = built.ext.worlds.iter().map(|w| w.world.name()).collect();
         let data = json!({ "request": request, "tab": tab, "store": profile, "worlds": worlds, "url": url.as_str(), "top": top.as_str(), "main": main });
-        built.ext.pending.insert(request, Held { handler: handler.copy(), preferences: preferences.retain(), url, main });
+        built.ext.pending.insert(request, Held { handler: handler.copy(), preferences: preferences.retain(), url, top, main });
         drop(guard);
         self.emit(crate::ext_scripts::FRAME, data);
         true
@@ -269,7 +270,7 @@ impl Inner {
                 if held.main {
                     *decisions = Decisions::default();
                 }
-                decisions.record(&FrameNav { url: &held.url, top: &held.url, main_frame: held.main }, run.clone());
+                decisions.record(&FrameNav { url: &held.url, top: &held.top, main_frame: held.main }, run.clone());
                 changed |= *decisions != before;
             }
             if changed {

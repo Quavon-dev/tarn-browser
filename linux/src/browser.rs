@@ -785,6 +785,7 @@ impl Browser {
         }
         let title = data["title"].as_str().unwrap_or_default().to_owned();
         let profile = self.model.profile_of(&self.core, key);
+        let mut dropped = Vec::new();
         let page = self.pages.entry(key).or_default();
         let new_url = page.url != url;
         page.url = url.clone();
@@ -803,9 +804,16 @@ impl Browser {
         } else {
             page.error = None;
             let host = Url::parse(&url).ok().and_then(|u| u.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase()));
-            page.prompts.retain(|p| p.kind == extensions::PROMPT_KIND && host.as_deref() == Some(p.origin.as_str()));
+            page.prompts.retain(|p| {
+                let keep = p.kind == extensions::PROMPT_KIND && host.as_deref() == Some(p.origin.as_str());
+                if !keep && p.kind == extensions::PROMPT_KIND {
+                    dropped.push(p.id);
+                }
+                keep
+            });
         }
         let page_title = page.title.clone();
+        self.ext_prompts_dropped(dropped);
         if !finished {
             self.ext_navigated(key);
         }

@@ -1,7 +1,8 @@
 //! Static `declarative_net_request` rules of Tarn extensions, compiled into one content rule list
 //! per extension. Block and upgrade rules take effect only on top-level sites the extension holds
 //! a grant for (`Scope`); allow rules only lift the same extension's rules, since every list is
-//! evaluated on its own and a block in any list wins.
+//! evaluated on its own and a block in any list wins. `allowAllRequests` is refused: its
+//! `if-top-url` cannot share a list with the `if-domain` the grants need.
 
 use adblock::content_blocking::CbType;
 use adblock::lists::{FilterSet, ParseOptions, RuleTypes};
@@ -13,6 +14,7 @@ use crate::lists::MAX_RULES_PER_LIST;
 pub const MAX_RULES: usize = 30_000;
 pub const MAX_FILES: usize = 5;
 pub const MAX_FILE_BYTES: usize = 4 << 20;
+pub const MAX_REGEX_RULES: usize = 1000;
 const MAX_FILTER: usize = 2048;
 const REGEX_SIZE_LIMIT: usize = 1 << 20;
 const RULE_KEYS: &[&str] = &["id", "priority", "action", "condition"];
@@ -46,10 +48,11 @@ const RESOURCE_TYPES: &[&str] = &[
     "other",
 ];
 
-/// The top-level sites an extension's block and upgrade rules may act on.
+/// The top-level sites an extension's block and upgrade rules may act on: every site but the
+/// hosts in `except`, or only the hosts listed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Scope {
-    Every,
+    Every { except: Vec<String> },
     Hosts(Vec<String>),
 }
 
@@ -75,7 +78,6 @@ enum Kind {
     Block,
     Allow,
     Upgrade,
-    AllowAll,
 }
 
 fn refuse<T>(id: i64, why: impl std::fmt::Display) -> Result<T, String> {
@@ -89,6 +91,7 @@ pub fn compile(files: &[&[u8]]) -> Result<Rules, String> {
         return Err(format!("declarative_net_request: at most {MAX_FILES} rule files"));
     }
     let mut out = Rules::default();
+    let mut regexes = 0;
     for file in files {
         if file.len() > MAX_FILE_BYTES {
             return Err("declarative_net_request: a rule file is larger than 4 MiB".to_owned());
@@ -99,6 +102,10 @@ pub fn compile(files: &[&[u8]]) -> Result<Rules, String> {
         out.count += rules.len();
         if out.count > MAX_RULES {
             return Err(format!("declarative_net_request: more than {MAX_RULES} rules"));
+        }
+        regexes += rules.iter().filter(|r| r.pointer("/condition/regexFilter").is_some()).count();
+        if regexes > MAX_REGEX_RULES {
+            return Err(format!("declarative_net_request: more than {MAX_REGEX_RULES} rules with a regexFilter"));
         }
         for rule in &rules {
             add_rule(&mut out, rule)?;
@@ -116,15 +123,14 @@ fn add_rule(out: &mut Rules, rule: &Value) -> Result<(), String> {
     if let Some(key) = object.keys().find(|k| !RULE_KEYS.contains(&k.as_str())) {
         return refuse(id, format!("\"{key}\" is not supported"));
     }
-    if object.get("priority").is_some_and(|p| p.as_i64().is_none_or(|p| p < 1)) {
-        return refuse(id, "\"priority\" must be a positive integer");
+    if object.get("priority").is_some_and(|p| p.as_i64() != Some(1)) {
+        return refuse(id, "\"priority\" other than 1 is not supported");
     }
     let action = object.get("action").and_then(Value::as_object).ok_or_else(|| format!("declarative_net_request rule {id}: no \"action\""))?;
     let kind = match action.get("type").and_then(Value::as_str) {
         Some("block") => Kind::Block,
         Some("allow") => Kind::Allow,
         Some("upgradeScheme") => Kind::Upgrade,
-        Some("allowAllRequests") => Kind::AllowAll,
         Some(other) => return refuse(id, format!("action type \"{other}\" is not supported")),
         None => return refuse(id, "no action \"type\""),
     };
@@ -141,12 +147,7 @@ fn add_rule(out: &mut Rules, rule: &Value) -> Result<(), String> {
         return refuse(id, format!("condition \"{key}\" is not supported"));
     }
     let c = Condition::read(id, condition)?;
-    let groups = c.types(id, kind)?;
-    if kind == Kind::AllowAll {
-        let Some(filter) = c.url_filters(id)?.into_iter().next() else { return refuse(id, "allowAllRequests needs a urlFilter or regexFilter") };
-        out.exceptions.push(json!({"trigger": {"url-filter": ".*", "if-top-url": [filter.0]}, "action": {"type": "ignore-previous-rules"}}));
-        return Ok(());
-    }
+    let groups = c.types(id)?;
     for (url_filter, case_sensitive) in c.url_filters(id)? {
         for (types, context) in &groups {
             let mut trigger = Map::new();
@@ -264,15 +265,12 @@ impl Condition {
     /// The rule's resource types in the triggers they need: WebKit names main and sub frames alike
     /// `document`, so a rule for only one of them gets a document trigger of its own with that
     /// `load-context`. Without `resourceTypes` a rule leaves out top-level documents, as in Chrome.
-    fn types(&self, id: i64, kind: Kind) -> Result<Vec<TypeGroup>, String> {
+    fn types(&self, id: i64) -> Result<Vec<TypeGroup>, String> {
         let chosen: Vec<&str> = match (&self.types, &self.excluded_types) {
             (Some(t), _) => t.iter().map(String::as_str).collect(),
             (None, Some(x)) => RESOURCE_TYPES.iter().copied().filter(|t| !x.iter().any(|e| e == t)).collect(),
             (None, None) => RESOURCE_TYPES.iter().copied().filter(|t| *t != "main_frame").collect(),
         };
-        if kind == Kind::AllowAll && (chosen.is_empty() || chosen.iter().any(|t| !matches!(*t, "main_frame" | "sub_frame"))) {
-            return refuse(id, "allowAllRequests applies to main_frame and sub_frame only");
-        }
         let (main, sub) = (chosen.contains(&"main_frame"), chosen.contains(&"sub_frame"));
         let mut out: Vec<&'static str> = chosen
             .into_iter()
@@ -358,6 +356,10 @@ fn valid_domain(domain: &str) -> bool {
         && domain.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
 }
 
+fn plain(host: &str) -> String {
+    host.trim_end_matches('.').to_ascii_lowercase()
+}
+
 fn covers(domain: &str, host: &str) -> bool {
     host == domain || host.strip_suffix(domain).is_some_and(|rest| rest.ends_with('.'))
 }
@@ -378,11 +380,24 @@ impl Rules {
             let mut rule = g.rule.clone();
             let Some(trigger) = rule.get_mut("trigger").and_then(Value::as_object_mut) else { continue };
             match scope {
-                Scope::Every => domains_into(trigger, &g.include, &g.exclude),
+                Scope::Every { except } if g.include.is_empty() => {
+                    let excluded = g.exclude.iter().map(|d| format!("*{d}"));
+                    let unless: Vec<Value> = excluded.chain(except.iter().map(|h| plain(h))).map(Value::from).collect();
+                    if !unless.is_empty() {
+                        trigger.insert("unless-domain".into(), Value::Array(unless));
+                    }
+                }
+                Scope::Every { except } => {
+                    let kept: Vec<String> = g.include.iter().filter(|d| !except.iter().any(|h| covers(d, &plain(h)))).cloned().collect();
+                    if kept.is_empty() {
+                        continue;
+                    }
+                    domains_into(trigger, &kept, &[]);
+                }
                 Scope::Hosts(hosts) => {
                     let kept: Vec<Value> = hosts
                         .iter()
-                        .map(|h| h.trim_end_matches('.').to_ascii_lowercase())
+                        .map(|h| plain(h))
                         .filter(|h| (g.include.is_empty() || g.include.iter().any(|d| covers(d, h))) && !g.exclude.iter().any(|d| covers(d, h)))
                         .map(Value::from)
                         .collect();
@@ -426,12 +441,14 @@ mod tests {
             (r#"[{"id":7,"action":{"type":"block"},"condition":{"urlFilter":"a$script"}}]"#, "\"urlFilter\""),
             (r#"[{"id":8,"action":{"type":"block"},"condition":{"domains":["Bad.Test"]}}]"#, "\"domains\""),
             (r#"[{"id":9,"action":{"type":"block"},"condition":{"resourceTypes":["beacon"]}}]"#, "\"resourceTypes\""),
-            (r#"[{"id":10,"action":{"type":"allowAllRequests"},"condition":{"urlFilter":"a","resourceTypes":["script"]}}]"#, "allowAllRequests"),
+            (r#"[{"id":10,"action":{"type":"allowAllRequests"},"condition":{"urlFilter":"a","resourceTypes":["main_frame"]}}]"#, "allowAllRequests"),
             (r#"[{"id":11,"action":{"type":"block"},"condition":{"excludedRequestDomains":["a.test"]}}]"#, "\"excludedRequestDomains\""),
             (
                 r#"[{"id":12,"action":{"type":"block"},"condition":{"initiatorDomains":["shop.test"],"excludedInitiatorDomains":["cart.shop.test"]}}]"#,
                 "\"excludedInitiatorDomains\"",
             ),
+            (r#"[{"id":13,"priority":2,"action":{"type":"block"}}]"#, "\"priority\""),
+            (r#"[{"id":14,"priority":0,"action":{"type":"block"}}]"#, "\"priority\""),
         ];
         for (json, named) in cases {
             let why = rules(json).unwrap_err();
@@ -447,6 +464,10 @@ mod tests {
         assert!(compile(&[vec![b' '; MAX_FILE_BYTES + 1].as_slice()]).is_err());
         let many: Vec<Value> = (1..=MAX_RULES + 1).map(|i| json!({"id": i, "action": {"type": "allow"}})).collect();
         assert!(rules(&Value::Array(many).to_string()).unwrap_err().contains("30000"));
+        let regex = |n: usize| (1..=n).map(|i| json!({"id": i, "action": {"type": "block"}, "condition": {"regexFilter": "^https://a"}})).collect::<Vec<_>>();
+        assert!(rules(&Value::Array(regex(MAX_REGEX_RULES)).to_string()).is_ok());
+        assert!(rules(&Value::Array(regex(MAX_REGEX_RULES + 1)).to_string()).unwrap_err().contains("regexFilter"));
+        assert!(rules(r#"[{"id":1,"priority":1,"action":{"type":"block"}}]"#).is_ok());
     }
 
     #[test]
@@ -457,8 +478,10 @@ mod tests {
         assert_eq!(granted[0]["trigger"]["if-domain"], json!(["news.test"]));
         assert_eq!(granted[0]["trigger"]["resource-type"], json!(["script"]));
         assert_eq!(granted[0]["action"]["type"], "block");
-        let every = list(&r, &Scope::Every);
-        assert!(every[0]["trigger"].get("if-domain").is_none());
+        let every = list(&r, &Scope::Every { except: Vec::new() });
+        assert!(every[0]["trigger"].get("if-domain").is_none() && every[0]["trigger"].get("unless-domain").is_none());
+        let except = list(&r, &Scope::Every { except: vec!["Bank.test.".into()] });
+        assert_eq!(except[0]["trigger"]["unless-domain"], json!(["bank.test"]));
     }
 
     #[test]
@@ -474,25 +497,28 @@ mod tests {
         assert_eq!(out[0]["action"]["type"], "make-https");
         let block = |l: &[Value]| l.iter().find(|r| r["action"]["type"] == "block").unwrap().clone();
         assert_eq!(block(&out)["trigger"]["if-domain"], json!(["shop.test", "www.shop.test", "other.test"]));
-        let every = list(&r, &Scope::Every);
+        let every = list(&r, &Scope::Every { except: Vec::new() });
         assert_eq!(every[0]["trigger"]["if-domain"], json!(["*shop.test"]));
         assert_eq!(block(&every)["trigger"]["unless-domain"], json!(["*cart.shop.test"]));
         assert!(every.iter().all(|r| r["action"]["type"] != "ignore-previous-rules"));
+        let except = list(&r, &Scope::Every { except: vec!["www.shop.test".into(), "bank.test".into()] });
+        assert!(except.len() == 2 && except.iter().all(|r| r["action"]["type"] == "block"), "an include list with an excepted host is dropped");
+        assert_eq!(block(&except)["trigger"]["unless-domain"], json!(["*cart.shop.test", "www.shop.test", "bank.test"]));
     }
 
     #[test]
     fn allow_rules_come_last_and_are_not_gated() {
         let r = rules(
             r#"[{"id":2,"action":{"type":"allow"},"condition":{"urlFilter":"||ads.test/ok"}},
-               {"id":1,"action":{"type":"block"},"condition":{"requestDomains":["ads.test","t.test"]}},
-               {"id":3,"action":{"type":"allowAllRequests"},"condition":{"urlFilter":"||safe.test^","resourceTypes":["main_frame"]}}]"#,
+               {"id":1,"action":{"type":"block"},"condition":{"requestDomains":["ads.test","t.test"]}}]"#,
         )
         .unwrap();
         let out = list(&r, &Scope::Hosts(vec!["a.test".into()]));
         let actions: Vec<&str> = out.iter().map(|r| r["action"]["type"].as_str().unwrap()).collect();
-        assert_eq!(actions, ["block", "block", "block", "block", "ignore-previous-rules", "ignore-previous-rules", "ignore-previous-rules"]);
-        assert!(out[6]["trigger"]["if-top-url"].is_array());
-        assert_eq!(r.len(), 3);
+        assert_eq!(actions, ["block", "block", "block", "block", "ignore-previous-rules", "ignore-previous-rules"]);
+        assert!(out.iter().all(|r| r["trigger"].get("if-top-url").is_none()));
+        assert!(out[4]["trigger"].get("if-domain").is_none() && out[5]["trigger"].get("if-domain").is_none());
+        assert_eq!(r.len(), 2);
     }
 
     #[test]
@@ -503,7 +529,7 @@ mod tests {
                {"id":3,"action":{"type":"block"},"condition":{"urlFilter":"||all.test^","resourceTypes":["main_frame","sub_frame"]}}]"#,
         )
         .unwrap();
-        let out = list(&r, &Scope::Every);
+        let out = list(&r, &Scope::Every { except: Vec::new() });
         assert_eq!(out[0]["trigger"]["resource-type"], json!(["script"]));
         assert_eq!((&out[1]["trigger"]["resource-type"], &out[1]["trigger"]["load-context"]), (&json!(["document"]), &json!(["child-frame"])));
         assert_eq!((&out[2]["trigger"]["resource-type"], &out[2]["trigger"]["load-context"]), (&json!(["document"]), &json!(["top-frame"])));
@@ -514,7 +540,7 @@ mod tests {
     #[test]
     fn regexes_are_checked_and_default_types_leave_out_top_level_documents() {
         let r = rules(r#"[{"id":1,"action":{"type":"block"},"condition":{"regexFilter":"^https://x\\.test/a+$","isUrlFilterCaseSensitive":true}}]"#).unwrap();
-        let out = list(&r, &Scope::Every);
+        let out = list(&r, &Scope::Every { except: Vec::new() });
         assert_eq!(out[0]["trigger"]["url-filter"], "^https://x\\.test/a+$");
         assert_eq!(out[0]["trigger"]["url-filter-is-case-sensitive"], true);
         let types = out[0]["trigger"]["resource-type"].as_array().unwrap();

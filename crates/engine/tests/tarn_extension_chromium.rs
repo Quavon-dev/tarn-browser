@@ -138,8 +138,10 @@ mod window {
         {
             let got = messages.borrow();
             assert!(
-                got.iter().all(|(w, f, o, _)| *w == world && *f == FrameId::MAIN && o.is_none()),
-                "messages name the world and frame they came from: {got:?}"
+                got.iter().all(|(w, f, o, _)| *w == world
+                    && *f == FrameId::MAIN
+                    && o.as_ref().map(|u| u.origin().ascii_serialization()) == Some(here("127.0.0.1", ""))),
+                "messages name the world, frame and origin they came from: {got:?}"
             );
             assert!(got.iter().any(|(_, _, _, m)| m["call"] == "runtime.sendMessage" && m["args"][0]["ping"] == 1), "{got:?}");
             assert!(got.iter().any(|(_, _, _, m)| m["call"] == "storage.set" && m["args"][0]["seen"] == true), "{got:?}");
@@ -183,7 +185,7 @@ mod window {
             let main = from(&here("127.0.0.1", "/frames"));
             let same = from(&sub("127.0.0.1", "ok"));
             let cross = from(&sub("localhost", "ok"));
-            assert_eq!(main, vec![(FrameId::MAIN, None)], "{label}: the top document is the main frame: {got:?}");
+            assert_eq!(main, vec![(FrameId::MAIN, Some(here("127.0.0.1", "")))], "{label}: the top document is the main frame, with its origin: {got:?}");
             assert!(same.len() == 1 && same[0].0 != FrameId::MAIN, "{label}: a same-site frame is heard as a subframe whatever it claims: {got:?}");
             assert_eq!(same[0].1.as_deref(), Some(here("127.0.0.1", "").as_str()), "{label}: with its own origin: {got:?}");
             assert!(

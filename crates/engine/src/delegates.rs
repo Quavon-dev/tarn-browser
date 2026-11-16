@@ -333,6 +333,10 @@ define_class!(
                 let allow = url.as_ref().is_some_and(|u| u.scheme() != "tarn");
                 let policy = if allow && !wants_download {
                     if let Some(u) = &url {
+                        // SAFETY: main-thread read of the live action; the frame comes back retained or nil.
+                        if let Some(target) = unsafe { action.targetFrame() } {
+                            crate::tarn_webkit::frame_navigates(web_view, &target);
+                        }
                         crate::tarn_webkit::gate_frame(web_view, u, false);
                     }
                     WKNavigationActionPolicy::Allow
@@ -540,6 +544,7 @@ define_class!(
             self.ivars().user_navigation.set(false);
             self.ivars().history_step.take();
             self.run_after_commit();
+            crate::tarn_webkit::committed(web_view);
             // SAFETY: main-thread read of a live web view.
             let committed = to_url(unsafe { web_view.URL() });
             let origin = committed.as_ref().and_then(serialized_origin);

@@ -62,6 +62,9 @@ pub(super) struct Ext {
     pub(super) store: RefCell<Option<String>>,
     pub(super) worlds: RefCell<BTreeMap<World, Rc<WorldScripts>>>,
     pub(super) handlers: RefCell<Vec<World>>,
+    signals: RefCell<Vec<(World, glib::SignalHandlerId)>>,
+    main_worlds: RefCell<Vec<World>>,
+    tokens: RefCell<HashMap<World, String>>,
     pub(super) allowed: RefCell<BTreeMap<(World, usize), Vec<String>>>,
     pub(super) added: RefCell<Vec<Added>>,
     held: RefCell<HashMap<u64, (PolicyDecision, Url, bool)>>,
@@ -134,12 +137,29 @@ fn allow(allowed: &mut BTreeMap<(World, usize), Vec<String>>, key: (World, usize
     want != has
 }
 
+const TOKEN: usize = 32;
+
+/// WebKitGTK names no frame for a script message, so the main frame's document draws a token,
+/// says it first, and starts every message with it; a subframe never learns it.
 fn transport(world: &World) -> String {
     let name = serde_json::to_string(world.name()).unwrap_or_default();
     format!(
         "(function () {{ const h = window.top === window && window.webkit && window.webkit.messageHandlers ? window.webkit.messageHandlers[{name}] : null; \
-         globalThis.__tarnExtPost = s => {{ if (!h) throw new Error('unavailable'); h.postMessage(String(s)); }}; }})();\n"
+         let token = ''; if (h) {{ const b = new Uint8Array({half}); crypto.getRandomValues(b); token = Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); h.postMessage(token); }} \
+         globalThis.__tarnExtPost = s => {{ if (!h) throw new Error('unavailable'); h.postMessage(token + String(s)); }}; }})();\n",
+        half = TOKEN / 2
     )
+}
+
+fn untoken(state: &State, world: &World, message: String) -> Option<String> {
+    let mut tokens = state.ext.tokens.borrow_mut();
+    if let Some(token) = tokens.get(world) {
+        return message.strip_prefix(token.as_str()).map(str::to_owned);
+    }
+    if message.len() == TOKEN && message.bytes().all(|b| b.is_ascii_hexdigit()) && state.ext.main_worlds.borrow().contains(world) {
+        tokens.insert(world.clone(), message);
+    }
+    None
 }
 
 fn time(run_at: RunAt) -> UserScriptInjectionTime {
@@ -202,6 +222,9 @@ fn record(state: &State, url: &Url, main: bool, runs: &[(World, Vec<usize>)]) ->
     let worlds = state.ext.worlds.borrow();
     let mut allowed = state.ext.allowed.borrow_mut();
     let mut changed = false;
+    if main {
+        *state.ext.main_worlds.borrow_mut() = runs.iter().filter(|(_, r)| !r.is_empty()).map(|(w, _)| w.clone()).collect();
+    }
     for (world, scripts) in worlds.iter() {
         let run = runs.iter().find(|(w, _)| w == world).map(|(_, r)| r.as_slice()).unwrap_or_default();
         for (ix, _) in scripts.scripts.iter().enumerate().filter(|(_, s)| main || s.all_frames) {
@@ -215,11 +238,16 @@ pub(super) fn started(state: &State) {
     for (_, (decision, _, _)) in state.ext.held.borrow_mut().drain() {
         decision.ignore();
     }
+    state.ext.main_worlds.borrow_mut().clear();
     let had = !state.ext.allowed.borrow().is_empty();
     state.ext.allowed.borrow_mut().clear();
     if had {
         sync(state);
     }
+}
+
+pub(super) fn committed(state: &State) {
+    state.ext.tokens.borrow_mut().clear();
 }
 
 /// Holds a frame's document, which the view would show, until the shell's gate has said which
@@ -266,13 +294,13 @@ fn register(state: &Rc<State>, content: &UserContentManager, world: &World) {
     }
     content.register_script_message_handler(world.name(), Some(world.name()));
     let weak = Rc::downgrade(state);
-    let name = world.name().to_owned();
-    content.connect_script_message_received(Some(world.name()), move |_, value| {
+    let (name, from) = (world.name().to_owned(), world.clone());
+    let signal = content.connect_script_message_received(Some(world.name()), move |_, value| {
         let Some(state) = weak.upgrade() else { return };
         if !value.is_string() {
             return;
         }
-        let mut json = value.to_str().to_string();
+        let Some(mut json) = untoken(&state, &from, value.to_str().to_string()) else { return };
         if json.len() > MAX_MESSAGE_BYTES {
             let cut = (MAX_MESSAGE_BYTES + 1..=json.len()).find(|i| json.is_char_boundary(*i)).unwrap_or(json.len());
             json.truncate(cut);
@@ -280,6 +308,7 @@ fn register(state: &Rc<State>, content: &UserContentManager, world: &World) {
         state.emit("extensionMessage", json!({ "world": name, "frame": FrameId::MAIN.0, "json": json }));
     });
     state.ext.handlers.borrow_mut().push(world.clone());
+    state.ext.signals.borrow_mut().push((world.clone(), signal));
 }
 
 fn remove_world(state: &State, content: &UserContentManager, world: &World) {
@@ -289,6 +318,10 @@ fn remove_world(state: &State, content: &UserContentManager, world: &World) {
         content.unregister_script_message_handler(world.name(), Some(world.name()));
     }
     state.ext.handlers.borrow_mut().retain(|w| w != world);
+    let (gone, kept): (Vec<_>, Vec<_>) = state.ext.signals.take().into_iter().partition(|(w, _)| w == world);
+    *state.ext.signals.borrow_mut() = kept;
+    gone.into_iter().for_each(|(_, id)| content.disconnect(id));
+    state.ext.tokens.borrow_mut().remove(world);
 }
 
 pub(super) fn attach(state: &Rc<State>) {
@@ -335,6 +368,9 @@ pub(super) fn detach(state: &State) {
         decision.ignore();
     }
     state.ext.handlers.borrow_mut().clear();
+    state.ext.signals.borrow_mut().clear();
+    state.ext.tokens.borrow_mut().clear();
+    state.ext.main_worlds.borrow_mut().clear();
     state.ext.added.borrow_mut().clear();
     state.ext.filters.borrow_mut().clear();
     state.ext.allowed.borrow_mut().clear();
@@ -539,6 +575,13 @@ fn make_page(id: u64, spec: PageSpec) {
                     true
                 }
                 _ => false,
+            }
+        });
+        let base = origin.clone();
+        web.connect_load_changed(move |web, event| {
+            if event == webkit6::LoadEvent::Committed && !web.uri().is_some_and(|u| loads(&u, &base, true)) {
+                web.stop_loading();
+                on_gtk(move || failed(id));
             }
         });
         let viewer = web.downgrade();

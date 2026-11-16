@@ -622,6 +622,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
                 s.emit("started", json!({}));
             }
             LoadEvent::Committed => {
+                ext::committed(&s);
                 let page = web.uri().and_then(|u| Url::parse(&u).ok());
                 s.user_step.set(false);
                 s.decline_all();

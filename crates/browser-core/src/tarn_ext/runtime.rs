@@ -133,7 +133,7 @@ pub fn load_rows(
         .filter_map(|row| {
             let dir = dir(&row);
             super::is_tarn_dir(&dir).then(|| {
-                let loaded = super::load(&dir, &row.sha256, &row.install_id, seed, locales);
+                let loaded = super::load(&dir, Some(&row.sha256), &row.install_id, seed, locales);
                 (row, loaded)
             })
         })
@@ -302,6 +302,11 @@ impl<P, I: Clone> Runtime<P, I> {
         let mut decision = super::frame_decision(&l.package, &policy.context(view_level), nav, |host| session.access(&l.install(policy), host, now));
         decision.ask = decision.ask.filter(|host| self.session.ask(profile, install_id, host));
         decision
+    }
+
+    /// The shell dropped a site prompt from `gate` without showing it: the next visit asks again.
+    pub fn prompt_dropped(&mut self, profile: Id, install_id: &str, host: &str) {
+        self.session.unask(profile, install_id, host);
     }
 
     /// The installs' network rule lists, by install, for views at `view_level`.
@@ -522,7 +527,7 @@ mod tests {
         std::fs::write(dir.join("manifest.json"), manifest.to_string()).unwrap();
         std::fs::write(dir.join("c.js"), "window.c = 1;").unwrap();
         std::fs::write(dir.join("bg.js"), "").unwrap();
-        super::super::load(dir, "", install, "SEED", &[]).unwrap()
+        super::super::load(dir, None, install, "SEED", &[]).unwrap()
     }
 
     fn row(install: &str, dir: &Path) -> InstalledExtension {

@@ -208,6 +208,24 @@ fn a_site_prompt_answer_leaves_the_page_s_own_prompts_alone() {
 }
 
 #[test]
+fn an_extension_opens_tabs_only_in_its_own_profiles_persistent_space() {
+    let (_dir, mut b) = browser();
+    let first = b.model.profile().unwrap().1;
+    b.new_profile();
+    let second = b.model.profile().unwrap().1;
+    let open = |profile| crate::extensions::Note::OpenTab { profile, url: Url::parse("https://a.test/").unwrap(), active: true };
+    let tabs = b.model.tabs.len();
+    assert!(!b.on_extension_note(&open(first)), "not in another profile's space");
+    assert_eq!(b.model.tabs.len(), tabs);
+    assert!(b.on_extension_note(&open(second)));
+    assert_eq!(b.model.tabs.len(), tabs + 1);
+    b.private_space();
+    let tabs = b.model.tabs.len();
+    assert!(!b.on_extension_note(&open(second)), "never in the private space");
+    assert_eq!(b.model.tabs.len(), tabs);
+}
+
+#[test]
 fn a_permission_the_component_cannot_place_in_a_frame_is_never_remembered() {
     let (_dir, mut b) = browser();
     let key = active(&b);
