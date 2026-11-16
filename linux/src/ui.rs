@@ -41,7 +41,6 @@ const ADDRESS_WIDTH: f32 = 560.;
 const CLOSE_WIDTH: f32 = 28.;
 const CLOSE_GAP: f32 = 10.;
 const TILE_GAP: f32 = 6.;
-const TILE_HEIGHT: f32 = 40.;
 /// A space button as big as the footer's icon buttons; more spaces than fit wrap to another row.
 const SPACE_BUTTON: f32 = 28.;
 /// The address field's height, the even gap around the chips inside its border, their height
@@ -351,14 +350,8 @@ fn host_of(url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default()
 }
 
-/// Tile width for `count` tiles, rounded down so a full row never wraps.
-fn tile_width(count: usize) -> f32 {
-    let columns = browser_core::tabs::tile_columns(count, LIST_WIDTH, TILE_GAP) as f32;
-    ((LIST_WIDTH - (columns - 1.) * TILE_GAP) / columns).floor()
-}
-
 fn tiles(ui: Ui) -> View {
-    let count = move || ui.snap.with(|s| s.tiles.len());
+    let side = browser_core::tabs::tile_grid(LIST_WIDTH, TILE_GAP).1;
     view().flex_row().flex_wrap().gap(px(TILE_GAP)).mb_1().child(each(
         move || ui.snap.with(|s| s.tiles.clone()),
         |r| r.id(),
@@ -366,7 +359,7 @@ fn tiles(ui: Ui) -> View {
             let RowKind::Tab(key) = item.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
             let active = move || item.with(|r| r.active);
             let tile = row(move || Some(SharedString::from(item.with(|r| r.label.clone()))), move || act(ui, |b| b.activate(key)))
-                .h(px(TILE_HEIGHT))
+                .h(px(side - 2.))
                 .px_0()
                 .justify_center()
                 .rounded(px(Theme::radius_tile()))
@@ -376,7 +369,7 @@ fn tiles(ui: Ui) -> View {
                     site_tile(&host, 20.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element()
                 }));
             view()
-                .w(move || px(tile_width(count())))
+                .w(px(side))
                 .rounded(px(Theme::radius_tile()))
                 .border_1()
                 .border_color(move || if active() { Theme::sidebar_edge() } else { Theme::hairline() })

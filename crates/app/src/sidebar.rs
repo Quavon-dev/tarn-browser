@@ -176,9 +176,9 @@ fn tab_icon(b: &Browser, url: &str, size: f32, asleep: bool) -> AnyElement {
 }
 
 /// Columns of the tile grid for `count` tiles in a sidebar `sidebar` points wide.
-fn tile_columns(sidebar: f32, count: usize) -> u16 {
-    let inner = sidebar - 2. - 2. * TILE_GAP;
-    u16::try_from(browser_core::tabs::tile_columns(count, inner, TILE_GAP)).unwrap_or(u16::MAX)
+fn tile_grid(sidebar: f32) -> (u16, f32) {
+    let (columns, side) = browser_core::tabs::tile_grid(sidebar - 2. - 2. * TILE_GAP, TILE_GAP);
+    (u16::try_from(columns).unwrap_or(u16::MAX), side)
 }
 
 fn space_tint(s: &SpaceRef) -> Option<Rgba> {
@@ -496,11 +496,10 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .id("space-switcher")
         .min_w_0()
         .h(px(28.))
-        .pl_0p5()
         .pr_1()
         .flex()
         .items_center()
-        .gap_1p5()
+        .gap_1()
         .rounded(px(Theme::radius_row()))
         .cursor_pointer()
         .hover(|s| s.bg(Theme::hover()))
@@ -518,7 +517,9 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .bg(Theme::selected())
                 .child(icon(glyph, 16., color))
         }))
-        .child(div().min_w_0().text_size(px(14.)).font_weight(FontWeight::BOLD).child(name(b, RenameTarget::Space(space_id), &space_name, cx)))
+        .text_size(px(14.))
+        .font_weight(FontWeight::BOLD)
+        .child(name(b, RenameTarget::Space(space_id), &space_name, cx))
         .child(icon(Icon::ChevronDown, 14., Theme::muted()))
 }
 
@@ -579,7 +580,7 @@ fn name(b: &Browser, target: RenameTarget, name: &str, cx: &mut Context<Browser>
             .on_mouse_down_out(cx.listener(|b, _, window, cx| b.end_rename(true, window, cx)))
             .child(input)
             .into_any_element(),
-        None => div().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(bounded_title(name))).into_any_element(),
+        None => div().min_w_0().line_clamp(1).text_ellipsis().child(SharedString::from(bounded_title(name))).into_any_element(),
     }
 }
 
@@ -595,10 +596,11 @@ fn chevron(b: &Browser, id: Id, open: bool) -> AnyElement {
 fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let tiles: Vec<&Tab> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Tile).collect();
     let reduce = b.pref(Pref::ReduceMotion);
+    let (columns, side) = tile_grid(b.sidebar_width);
     div()
         .id("tiles")
         .grid()
-        .grid_cols(tile_columns(b.sidebar_width, tiles.len()))
+        .grid_cols(columns)
         .gap(px(TILE_GAP))
         .when(!tiles.is_empty(), |d| d.pb_1())
         .min_h(px(if tiles.is_empty() && cx.has_active_drag() { 46. } else { 6. }))
@@ -611,7 +613,7 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
             let title: SharedString = label(t).into();
             let tile = div()
                 .id(("tile", t.id as u64))
-                .h(px(46.))
+                .size(px(side))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -1159,7 +1161,7 @@ fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
 
 #[cfg(test)]
 mod tests {
-    use super::{Motion, SIDEBAR_WIDTH, TAB_ROW, inner_height, mix, tile_columns};
+    use super::{Motion, SIDEBAR_WIDTH, TAB_ROW, inner_height, mix, tile_grid};
     use crate::browser::TabKey;
     use gpui::{Rgba, point, px};
     use std::time::{Duration, Instant};
@@ -1189,9 +1191,9 @@ mod tests {
     }
 
     #[test]
-    fn tiles_keep_one_row_at_the_default_width_until_a_sixth_arrives() {
-        assert_eq!([1, 3, 5, 6, 8].map(|n| tile_columns(SIDEBAR_WIDTH, n)), [1, 3, 5, 3, 4]);
-        assert_eq!(tile_columns(420., 6), 6, "a wider sidebar fits more in a row");
+    fn tiles_are_four_squares_a_row_at_the_default_width() {
+        assert_eq!(tile_grid(SIDEBAR_WIDTH), (4, 53.));
+        assert_eq!(tile_grid(420.).0, 7, "a wider sidebar fits more in a row");
     }
 
     #[test]
