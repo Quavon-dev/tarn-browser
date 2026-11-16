@@ -22,10 +22,15 @@ fixes what Tarn controls: the server's own key, which signs the handshake, must 
 its own key-size rules: Apple's 2048-bit RSA minimum on macOS, and Windows' configurable minimum
 (see "TLS").
 
+The test's vectors are public keys (RSAPublicKey DER) and SHA-256 PKCS#1 signatures of its
+message, made with `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:N` and `openssl dgst
+-sha256 -sign`; the private keys were discarded.
+
 Web pages, and the shell's requests on Linux, iOS and Android, use the TLS stack of the operating
 system or of the browser engine, which Tarn does not produce. The table under "TLS" names each
-one, its defaults and the setting that turns smaller keys off where the platform has one; the
-Chromium limitation below is the one case where no such setting exists.
+one, its defaults and the setting that turns smaller keys off where the platform has one. Two
+paths have no such setting: Chromium with a locally added root (below) and the shell's requests on
+Android, whose key floor is Android's and is not verified.
 
 ## Tarn's own mechanisms
 
