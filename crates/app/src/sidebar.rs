@@ -211,7 +211,7 @@ pub fn group_rgb(g: &Group) -> u32 {
 impl Browser {
     /// Called with the previous tab list after a reload; tabs added to the same space slide in.
     pub(crate) fn note_new_tabs(&mut self, old: &[Tab]) {
-        self.motion.entering.retain(|(_, at)| at.elapsed() < FADE);
+        self.motion.entering.retain(|(_, at)| at.elapsed() < POP);
         let row = |tabs: &[Tab], id: Id| tabs.iter().position(|t| t.id == id);
         if self.motion.hovered.is_some_and(|(k, ..)| row(old, k.id) != row(&self.model.tabs, k.id)) {
             self.motion.forget_pointer();
@@ -323,7 +323,7 @@ impl Browser {
         let at = Instant::now();
         self.motion.leaving.push((self.model.private(), at, tab.clone()));
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(FADE).await;
+            cx.background_executor().timer(EXIT).await;
             this.update(cx, |b, cx| {
                 b.motion.leaving.retain(|(_, left, _)| *left != at);
                 cx.notify();
@@ -793,7 +793,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
                 }
             }
         }));
-    animate(row, ("tab-in", t.id as u64), FADE, b.pref(Pref::ReduceMotion), move |el, p| {
+    animate(row, ("tab-in", t.id as u64), POP, b.pref(Pref::ReduceMotion), move |el, p| {
         let el = el.opacity(p);
         if entering { el.h(px(TAB_ROW * p)) } else { el }
     })
@@ -824,7 +824,7 @@ fn leaving_row(b: &Browser, t: &Tab) -> AnyElement {
         .text_color(Theme::muted())
         .child(site_icon(b, &t.url, 16.))
         .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(label(t))));
-    animate(row, ("tab-out", t.id as u64), FADE, false, |el, p| el.h(px(TAB_ROW * (1. - p))).opacity(1. - p))
+    animate(row, ("tab-out", t.id as u64), EXIT, false, |el, p| el.h(px(TAB_ROW * (1. - p))).opacity(1. - p))
 }
 
 /// The unpinned tabs of a group (or of none), with closing tabs kept in their old place.

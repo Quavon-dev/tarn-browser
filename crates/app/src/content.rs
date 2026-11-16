@@ -6,7 +6,7 @@ use gpui::{
 };
 use ui::controls::{button, field, icon_button, list_row, secure_button, secure_surface, surface, tooltip};
 use ui::icon::{ICON_MEDIUM, ICON_SMALL, Icon, MARK, icon};
-use ui::motion::{EXIT, FADE, pop_in, pop_out, progress};
+use ui::motion::{EXIT, FADE, SLIDE, pop_in, pop_out, progress};
 use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 use engine::PromptKind;
@@ -45,7 +45,7 @@ impl Floating {
 
 impl Browser {
     pub fn sidebar_shown(&self) -> f32 {
-        let t = self.sidebar_toggled.filter(|_| !self.pref(Pref::ReduceMotion)).map_or(1., |at| progress(at, FADE));
+        let t = self.sidebar_toggled.filter(|_| !self.pref(Pref::ReduceMotion)).map_or(1., |at| progress(at, SLIDE));
         if self.sidebar_open { t } else { 1. - t }
     }
 
@@ -89,7 +89,7 @@ impl Browser {
             }
         }
         let running = |at: Option<Instant>, d| at.is_some_and(|at: Instant| at.elapsed() < d);
-        let sidebar = running(self.sidebar_toggled, FADE) && !self.pref(Pref::ReduceMotion);
+        let sidebar = running(self.sidebar_toggled, SLIDE) && !self.pref(Pref::ReduceMotion);
         if self.settle_slide() || sidebar || self.page_fade.is_some() || running(self.overlay_exit, EXIT) || !self.floating.leaving.is_empty() {
             window.request_animation_frame();
         }
