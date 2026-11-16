@@ -26,6 +26,7 @@ mod profiles;
 mod qr;
 mod reader;
 mod settings;
+mod share;
 mod shared;
 mod shield_card;
 mod shortcuts;

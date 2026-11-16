@@ -307,6 +307,7 @@ pub struct Browser {
     pub(crate) address: crate::address::Address,
     pub(crate) hover_card: crate::hover_card::HoverCard,
     pub(crate) site_popover: crate::site_settings::SitePopover,
+    pub(crate) share_menu: crate::share::ShareMenu,
     /// The Windows menu button, as last painted, so its menu drops from it.
     pub(crate) app_menu_anchor: Rc<Cell<Bounds<Pixels>>>,
     pub(crate) link_peek: crate::link_peek::LinkPeek,
@@ -484,6 +485,7 @@ impl Browser {
             address: Default::default(),
             hover_card: Default::default(),
             site_popover: Default::default(),
+            share_menu: Default::default(),
             app_menu_anchor: Default::default(),
             link_peek: Default::default(),
             splits: Default::default(),
