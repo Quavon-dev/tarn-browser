@@ -89,12 +89,14 @@ final class StrongKeys {
 
         @Override
         public void checkServerTrusted(X509Certificate[] chain, String authType, Socket socket) throws CertificateException {
+            platform.checkServerTrusted(chain, authType, socket);
             SSLSession session = socket instanceof SSLSocket ? ((SSLSocket) socket).getHandshakeSession() : null;
             verify(chain, authType, session == null ? null : session.getPeerHost());
         }
 
         @Override
         public void checkServerTrusted(X509Certificate[] chain, String authType, SSLEngine engine) throws CertificateException {
+            platform.checkServerTrusted(chain, authType, engine);
             verify(chain, authType, engine == null ? null : engine.getPeerHost());
         }
 
