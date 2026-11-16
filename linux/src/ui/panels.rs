@@ -250,9 +250,12 @@ fn downloads_panel(ui: Ui) -> AnyElement {
     popover().child(header).child(view().flex_col().children(rows).children(none)).into_element()
 }
 
-/// A name field and its button, for the space or folder named `current`.
-pub(super) fn rename_row(ui: Ui, current: &str, save: impl Fn(String) + Copy + 'static) -> View {
-    if ui.rename.with_untracked(String::is_empty) {
+/// A name field and its button, for the space or folder `target` named `current`.
+pub(super) fn rename_row(ui: Ui, target: String, current: &str, save: impl Fn(String) + Copy + 'static) -> View {
+    if ui.rename_for.get_untracked() != target {
+        ui.rename_for.set(target);
+        ui.rename.set(current.to_owned());
+    } else if ui.rename.with_untracked(String::is_empty) {
         ui.rename.set(current.to_owned());
     }
     let save = move || save(ui.rename.get_untracked());
@@ -277,7 +280,7 @@ fn folder_panel(ui: Ui, id: store::Id) -> AnyElement {
     });
     popover()
         .child(heading(ui, title(format!("Folder “{name}”")).truncate()))
-        .child(rename_row(ui, &name, move |name| act(ui, |b| b.rename_folder(id, &name))))
+        .child(rename_row(ui, format!("folder {id}"), &name, move |name| act(ui, |b| b.rename_folder(id, &name))))
         .child(group().child(new))
         .into_element()
 }

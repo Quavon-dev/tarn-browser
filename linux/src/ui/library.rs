@@ -66,10 +66,12 @@ pub fn space_panel(ui: Ui) -> AnyElement {
     let Some((name, schedule, snapshots)) = read(ui, |b| (ui.snap.with(|s| s.space_name.clone()), b.space_schedule(), b.snapshots())) else {
         return view().into_element();
     };
-    let mut body =
-        popover()
-            .child(super::panels::heading(ui, title(format!("Space “{name}”")).truncate()))
-            .child(super::panels::rename_row(ui, &name, move |name| act(ui, |b| b.rename_space(&name))));
+    let mut body = popover().child(super::panels::heading(ui, title(format!("Space “{name}”")).truncate())).child(super::panels::rename_row(
+        ui,
+        format!("space {:?}", ui.snap.with_untracked(|s| s.space)),
+        &name,
+        move |name| act(ui, |b| b.rename_space(&name)),
+    ));
     body = match schedule {
         Some(schedule) => body.child(section("Schedule")).child(schedule_rows(ui, schedule)),
         None => body.child(note("A private space has no schedule or snapshots.")),

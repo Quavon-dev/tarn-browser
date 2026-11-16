@@ -127,6 +127,8 @@ pub struct Ui {
     confirm: Signal<Option<String>>,
     /// The name field of the space or folder panel; empty until it shows the current name.
     rename: Signal<String>,
+    /// What `rename` names, so a panel that changes target starts from the new name.
+    rename_for: Signal<String>,
     open: Signal<bool>,
     /// The page area's size, which places the panes of a split.
     area: Signal<(f32, f32)>,
@@ -218,6 +220,7 @@ pub fn show(ui: Ui, panel: Panel) {
     ui.shortcut_edit.set(None);
     ui.confirm.set(None);
     ui.rename.set(String::new());
+    ui.rename_for.set(String::new());
     ui.panel.set(next);
     act(ui, |_| {});
 }
@@ -689,6 +692,13 @@ fn step_pick(ui: Ui, query: Signal<String>, key: &str) {
 /// Enter in the address field or the start card: the picked row of `query`, or what was typed.
 fn submit(ui: Ui, query: Signal<String>, text: String) {
     let picked = ui.picked.get_untracked();
+    // The command list shows commands only: Enter runs the picked one, or nothing.
+    if tools::listing(&query.get_untracked()) {
+        if let Some((_, command)) = tools::commands(ui, &query.get_untracked()).get(picked.saturating_sub(1)) {
+            tools::pick(ui, *command);
+        }
+        return;
+    }
     if picked == 0 || ui.find_tabs.get_untracked() {
         return go(ui, text);
     }
@@ -1537,6 +1547,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         tab_menu: signal(None),
         confirm: signal(None),
         rename: signal(String::new()),
+        rename_for: signal(String::new()),
         area: signal((0., 0.)),
         dragging: signal(None),
         split_drop: signal(None),
