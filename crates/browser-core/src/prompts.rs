@@ -5,7 +5,6 @@ use serde_json::{Value, json};
 /// Permission kinds a profile can remember per origin.
 pub const PERMISSIONS: [&str; 3] = ["camera", "microphone", "location"];
 
-/// One line under the title saying what allowing does, for the kinds where that is not obvious.
 pub fn meaning(kind: &str) -> Option<&'static str> {
     Some(match kind {
         "camera" => "The site sees your camera while this tab uses it.",

@@ -51,7 +51,6 @@ fn field(value: Signal<String>, label: &'static str, masked: bool) -> Input {
         .test_id(label)
 }
 
-/// What the site asks, after its origin in bold.
 fn ask(prompt: &PromptRequest) -> String {
     match prompt.kind.as_str() {
         "alert" | "confirm" | "text" => "says".to_owned(),
@@ -74,7 +73,6 @@ fn ghost(name: &str, press: impl Fn() + 'static) -> ButtonElement {
         .child(text(name).text_size(px(TEXT_TITLE)).font_family(SYSTEM_FONT).text_color(Secure::text))
 }
 
-/// The prompt's glyph tile; alerts and warnings take the warning colour.
 fn tile(kind: &str) -> View {
     let name = browser_core::glyphs::glyph(kind);
     let source = tarn_nsh_shared::icons::named(name).unwrap_or(tarn_nsh_shared::icons::INFO);
@@ -82,7 +80,6 @@ fn tile(kind: &str) -> View {
     glyph_tile(source, TILE, Secure::control, move || if warn { Secure::warning() } else { Secure::accent() })
 }
 
-/// The bar's head: the glyph, the origin in bold with what it asks, and what an answer means.
 fn head(origin: &str, asked: String, kind: &str, meaning: Option<String>) -> View {
     view().flex_row().gap_3().child(tile(kind)).child(
         view()

@@ -43,8 +43,6 @@ pub enum SettingsPane {
     Shortcuts,
 }
 
-/// The panes in the order the navigation lists them: the first `YOU` are about the user, the
-/// rest about the browser.
 const PANES: [(SettingsPane, Icon, &str); 11] = [
     (SettingsPane::Profile, Icon::Shield, "Profile"),
     (SettingsPane::Profiles, Icon::Person, "Profiles"),
@@ -163,7 +161,6 @@ fn label(text: impl Into<SharedString>) -> gpui::Div {
     div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(text.into())
 }
 
-/// The small accent caption over a group of settings, such as THEME.
 fn group_label(text: &'static str) -> Div {
     div().pt_5().pb_1p5().px_1().text_size(px(TEXT_TINY)).font_weight(FontWeight::BOLD).text_color(Theme::accent()).child(text)
 }
@@ -851,8 +848,6 @@ const SIDEBAR_WIDTH: f32 = 196.;
 const HEADER_HEIGHT: f32 = 52.;
 const CONTENT_WIDTH: f32 = 760.;
 
-/// Everything Shield did on each of the last seven days as one bar per day, the busiest in the
-/// space colour, with its count above and the day's initial below.
 fn week_chart(card: &Card) -> Div {
     const BARS: f32 = 92.;
     let days = browser_core::shield_card::day_totals(&card.week);
@@ -887,7 +882,6 @@ fn week_chart(card: &Card) -> Div {
         .child(div().h(px(BARS + 34.)).flex().items_end().gap_1().children(bars))
 }
 
-/// The sites Shield did most on, each with a bar against the busiest and its count.
 fn protected_sites(card: &Card) -> Div {
     let most = card.sites.iter().map(|(_, n)| *n).max().unwrap_or(0).max(1);
     let rows = card.sites.iter().map(|(host, n)| {
@@ -1089,8 +1083,6 @@ impl SettingsWindow {
             .into_any_element()
     }
 
-    /// The card and beside it the profile's name, how long it has been protected, its three
-    /// numbers, its Shield level and the card's actions.
     fn hero(&self, card: &Card, face: impl IntoElement, target: Option<(bool, Id)>, cx: &mut Context<Self>) -> Div {
         let numbers = card.counters.iter().zip(browser_core::shield_card::NUMBERS).map(|((_, n), caption)| {
             div()
@@ -1170,8 +1162,6 @@ impl SettingsWindow {
         )
     }
 
-    /// Hands the card's image to the system share picker, from a file in the temporary folder;
-    /// nothing is sent unless the user picks where it goes.
     fn share_card(&mut self, card: Card, window: &mut Window, cx: &mut Context<Self>) {
         let Some(host) = engine::Host::from_window(window) else { return };
         let at = self.motion.bounds.get();
@@ -1181,7 +1171,7 @@ impl SettingsWindow {
             let written = cx
                 .background_spawn(async move {
                     let png = shield_card::card_png(&card, dark)?;
-                    let path = std::env::temp_dir().join(name);
+                    let path = browser_core::shield_card::export_path(&name).ok()?;
                     std::fs::write(&path, png).ok()?;
                     url::Url::from_file_path(path).ok()
                 })

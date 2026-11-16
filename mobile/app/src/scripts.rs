@@ -1,6 +1,7 @@
 use browser_core::find::{insert_text_rows, named};
 use browser_core::tabs::TabKey;
 use engine::favicon;
+use engine::favicon::Ticket;
 use engine::page_scripts::find_snippets;
 use engine::reader::{Article, Block};
 use serde_json::{Value, json};
@@ -97,11 +98,9 @@ impl<D: Platform> Shell<D> {
         vec![Effect::Command(key, name, args)]
     }
 
-    /// A view that goes away never answers, so its questions are dropped and its icon request must
-    /// not hold the host for the rest of the session.
     pub(crate) fn drop_scripts(&mut self, key: TabKey) {
-        for (profile, host) in self.icon_asks.remove(&key).unwrap_or_default() {
-            self.icons.withdraw(&profile, &host);
+        for ((profile, host), ticket) in self.icon_asks.remove(&key).unwrap_or_default() {
+            self.icons.withdraw(&profile, &host, ticket);
         }
         self.scripts.retain(|_, (k, _)| *k != key);
     }
@@ -133,7 +132,6 @@ impl<D: Platform> Shell<D> {
         effects
     }
 
-    /// The profile and host a page in `key` may fetch and store an icon for; none under Lockdown.
     fn icon_key(&self, key: TabKey, url: &str) -> Option<((bool, Id), String)> {
         let url = Url::parse(url).ok()?;
         let profile = self.model.profile_of(&self.core, key)?;
@@ -149,7 +147,6 @@ impl<D: Platform> Shell<D> {
         });
     }
 
-    /// The site icon a tab row shows for `url` in the current profile.
     pub fn site_icon(&self, url: &str) -> Option<String> {
         let host = Url::parse(url).ok()?.host_str()?.to_owned();
         self.icons.find(&self.model.profile()?, &host).cloned()
@@ -162,40 +159,37 @@ impl<D: Platform> Shell<D> {
         let Some(url) = self.pages.get(&key).and_then(|p| p.committed.clone()) else { return Vec::new() };
         let Some((profile, host)) = self.icon_key(key, &url) else { return Vec::new() };
         self.load_icons(profile);
-        if !self.icons.request(&profile, &host) {
-            return Vec::new();
-        }
-        self.icon_asks.entry(key).or_default().insert((profile, host));
+        let Some(ticket) = self.icons.request(&profile, &host) else { return Vec::new() };
+        self.icon_asks.entry(key).or_default().insert((profile, host), ticket);
         self.ask(key, Script::IconLinks, "readIconLinks", json!({}))
     }
 
-    fn icon_answer(&mut self, key: TabKey, data: &Value, script: Script) -> Option<(String, (bool, Id), String)> {
+    fn icon_answer(&mut self, key: TabKey, data: &Value, script: Script) -> Option<(String, (bool, Id), String, Ticket)> {
         let asked = text(data, "url");
         let (profile, host) = self.icon_key(key, &asked)?;
+        let ticket = *self.icon_asks.get(&key)?.get(&(profile, host.clone()))?;
         match self.answer_for(key, data, script) {
-            Some(url) if self.icons.is_requested(&profile, &host) => Some((url, profile, host)),
+            Some(url) if self.icons.is_requested(&profile, &host, ticket) => Some((url, profile, host, ticket)),
             _ => {
                 self.icon_done(key, &profile, &host);
-                self.icons.withdraw(&profile, &host);
+                self.icons.withdraw(&profile, &host, ticket);
                 None
             }
         }
     }
 
     fn icon_links(&mut self, key: TabKey, data: &Value) -> Vec<Effect> {
-        let Some((url, profile, host)) = self.icon_answer(key, data, Script::IconLinks) else { return Vec::new() };
+        let Some((url, profile, host, ticket)) = self.icon_answer(key, data, Script::IconLinks) else { return Vec::new() };
         let urls: Vec<String> =
             Url::parse(&url).map(|page| favicon::candidates(&page, &text(data, "text"))).unwrap_or_default().into_iter().map(String::from).collect();
         if urls.is_empty() {
             self.icon_done(key, &profile, &host);
-            self.icons.withdraw(&profile, &host);
+            self.icons.withdraw(&profile, &host, ticket);
             return Vec::new();
         }
-        self.ask(key, Script::Icon, "fetchIcon", json!({ "urls": urls }))
+        self.ask(key, Script::Icon, "fetchIcon", json!({ "page": url, "urls": urls }))
     }
 
-    /// An `iconData` or `pageIcon` event with the icon `favicon::normalize` made of its text; the
-    /// UI makes it off the main thread.
     pub fn icon_event(&mut self, key: TabKey, name: &str, data: &Value, png: Option<Vec<u8>>) {
         match name {
             "iconData" => self.icon_data(key, data, png),
@@ -205,9 +199,9 @@ impl<D: Platform> Shell<D> {
     }
 
     fn icon_data(&mut self, key: TabKey, data: &Value, png: Option<Vec<u8>>) {
-        let Some((_, profile, host)) = self.icon_answer(key, data, Script::Icon) else { return };
+        let Some((_, profile, host, ticket)) = self.icon_answer(key, data, Script::Icon) else { return };
         self.icon_done(key, &profile, &host);
-        self.keep_icon(profile, &host, png);
+        self.keep_icon(profile, &host, ticket, png);
     }
 
     fn page_icon(&mut self, key: TabKey, data: &Value, png: Option<Vec<u8>>) {
@@ -215,17 +209,15 @@ impl<D: Platform> Shell<D> {
             return;
         };
         self.load_icons(profile);
-        if self.icons.request(&profile, &host) {
-            self.keep_icon(profile, &host, png);
+        if let Some(ticket) = self.icons.request(&profile, &host) {
+            self.keep_icon(profile, &host, ticket, png);
         }
     }
 
-    /// Forgets a profile's icons and the requests its tabs still owe, so a later close cannot
-    /// release a new request for the same site.
     pub(crate) fn forget_icons(&mut self, profile: (bool, Id)) {
         self.icons.forget(&profile);
         for asks in self.icon_asks.values_mut() {
-            asks.retain(|(p, _)| *p != profile);
+            asks.retain(|(p, _), _| *p != profile);
         }
     }
 
@@ -235,8 +227,8 @@ impl<D: Platform> Shell<D> {
         }
     }
 
-    fn keep_icon(&mut self, profile: (bool, Id), host: &str, png: Option<Vec<u8>>) {
-        let kept = self.icons.accept(&profile, host, png.as_deref().map(favicon::data_uri));
+    fn keep_icon(&mut self, profile: (bool, Id), host: &str, ticket: Ticket, png: Option<Vec<u8>>) {
+        let kept = self.icons.accept(&profile, host, ticket, png.as_deref().map(favicon::data_uri));
         if let Some(png) = png.filter(|_| kept && self.core.keeps_records(profile.0, profile.1)) {
             self.core.store(profile.0).set_favicon(profile.1, host, &png).ok();
         }

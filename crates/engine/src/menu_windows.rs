@@ -177,8 +177,6 @@ fn icon_into(bitmap: HBITMAP, png: &[u8], size: i32) -> bool {
     }
 }
 
-/// An image beside a menu entry: a site's icon, a glyph, or a colour dot; system symbols are
-/// macOS only, and a glyph shows in its own colours.
 pub enum Image {
     Png(Vec<u8>),
     Template(Vec<u8>),

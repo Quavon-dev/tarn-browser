@@ -105,7 +105,6 @@ pub struct SpaceItem {
     pub burner: bool,
 }
 
-/// A profile and the host whose icon it asked for.
 pub(crate) type IconAsk = ((bool, Id), String);
 
 pub struct Shell<D: Platform> {
@@ -130,8 +129,7 @@ pub struct Shell<D: Platform> {
     pub picking: Option<(TabKey, u64)>,
     pub switched_at: Option<i64>,
     pub(crate) scripts: HashMap<u64, (TabKey, crate::scripts::Script)>,
-    /// The icon requests each tab still owes an answer for, by profile and host.
-    pub(crate) icon_asks: HashMap<TabKey, HashSet<IconAsk>>,
+    pub(crate) icon_asks: HashMap<TabKey, HashMap<IconAsk, engine::favicon::Ticket>>,
     pub(crate) shielded: HashMap<TabKey, HashSet<String>>,
     pub(crate) burner_from: Option<(bool, Id)>,
     loads: HashMap<TabKey, Load>,

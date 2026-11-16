@@ -272,8 +272,6 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
     *state.view.borrow_mut() = Some(web);
 }
 
-/// WebKitGTK never paints a view that was mapped at no size, so the page joins its container only
-/// once the page area has been laid out.
 fn attach_when_sized(state: &Rc<State>, web: &WebView) {
     let weak = Rc::downgrade(state);
     let web = web.clone();

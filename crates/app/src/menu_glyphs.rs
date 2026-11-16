@@ -5,10 +5,7 @@ use engine::menu::{Image, Item};
 use gpui::AssetSource;
 use resvg::tiny_skia::{Pixmap, Transform};
 
-/// Pixels per side: a 16-point glyph on a Retina display.
 const SIDE: u32 = 32;
-/// macOS recolours the template to the menu's text; Windows shows it as drawn, so it is a grey
-/// that reads on light and dark menus.
 const INK: &str = if cfg!(windows) { "#6b7280" } else { "#000000" };
 
 thread_local! {
@@ -26,7 +23,6 @@ fn png(name: &'static str) -> Option<Vec<u8>> {
     pixmap.encode_png().ok()
 }
 
-/// The glyph `browser_core::command::glyph` names for a menu entry, drawn once per run.
 fn glyph(label: &str) -> Option<Image> {
     let name = browser_core::command::glyph(label);
     if name == "command" {
@@ -35,8 +31,6 @@ fn glyph(label: &str) -> Option<Image> {
     DRAWN.with(|drawn| drawn.borrow_mut().entry(name).or_insert_with(|| png(name)).clone()).map(Image::Template)
 }
 
-/// Gives each entry of a menu Tarn builds the glyph of its label, unless it has an image of its
-/// own; submenus list names (spaces, groups, folders) and keep theirs.
 pub fn with_glyphs<T>(items: Vec<Item<T>>) -> Vec<Item<T>> {
     items
         .into_iter()

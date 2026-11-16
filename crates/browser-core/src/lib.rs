@@ -191,8 +191,6 @@ impl<D: WebsiteData> Core<D> {
         !(private && self.burners.borrow().contains(&profile_id))
     }
 
-    /// What Shield stopped on the site of `url` in the profile, for the Shield chip and the site
-    /// popover; 0 for a page without a host or a site Shield never acted on.
     pub fn site_stopped(&self, private: bool, profile_id: Id, url: &Url) -> i64 {
         command::page_host(url).and_then(|host| self.store(private).shield_site_total(profile_id, &host).ok()).unwrap_or(0).max(0)
     }

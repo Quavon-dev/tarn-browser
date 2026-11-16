@@ -74,8 +74,10 @@ fn contract_v3_scripts_run_in_the_tarn_world_and_styles_and_zaps_apply() {
     assert!(!text["text"].as_str().unwrap().is_empty() && text["text"].as_str().unwrap().encode_utf16().count() <= 30, "{text}");
     let links = ask(&state, "readIconLinks", json!({ "seq": 8 }), "iconLinks");
     assert!(links["text"].as_str().unwrap().starts_with("http://page.test/i.png\t32x32\n"), "{links}");
-    let icon = ask(&state, "fetchIcon", json!({ "seq": 9, "urls": ["http://page.test/i.png"] }), "iconData");
+    let icon = ask(&state, "fetchIcon", json!({ "seq": 9, "page": "http://page.test/", "urls": ["http://page.test/i.png"] }), "iconData");
     assert_eq!((icon["seq"].clone(), icon["text"].clone()), (json!(9), json!("")), "only https icons are fetched");
+    let elsewhere = ask(&state, "fetchIcon", json!({ "seq": 10, "page": "https://elsewhere.test/", "urls": ["https://elsewhere.test/i.png"] }), "iconData");
+    assert_eq!(elsewhere["text"], "", "no fetch once the tab shows another origin");
     let probe = ask(&state, "readArticle", json!({ "seq": 6, "probe": true }), "article");
     assert_eq!(probe["text"], "", "a short page has no article");
     state.events.borrow_mut().clear();

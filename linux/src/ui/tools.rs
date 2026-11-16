@@ -199,7 +199,6 @@ pub fn toast_bar(ui: Ui) -> AnyElement {
     })
 }
 
-/// The shortcut that runs `command`, if it has one.
 fn action(command: Command) -> Option<Action> {
     match command {
         Command::Key(action) => Some(action),
@@ -298,7 +297,6 @@ pub fn qr_panel(ui: Ui) -> AnyElement {
         .into_element()
 }
 
-/// The share menu: the page, then what Linux can do with its link.
 pub fn share_panel(ui: Ui) -> AnyElement {
     let (title, url, host) = ui.snap.with(|s| (s.title.clone(), s.url.clone(), s.host.clone()));
     if host.is_empty() {

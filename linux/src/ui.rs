@@ -43,8 +43,6 @@ const CLOSE_GAP: f32 = 10.;
 const TILE_GAP: f32 = 6.;
 /// A space button as big as the footer's icon buttons; more spaces than fit wrap to another row.
 const SPACE_BUTTON: f32 = 28.;
-/// The address field's height, the even gap around the chips inside its border, their height
-/// and glyph size.
 const FIELD: f32 = 30.;
 const CHIP_INSET: f32 = 3.;
 const CHIP: f32 = FIELD - 2. - 2. * CHIP_INSET;
@@ -62,7 +60,6 @@ const PALETTE_ROW: f32 = 40.;
 const PROMPT_RADIUS: f32 = 12.;
 const FIND_RADIUS: f32 = 12.;
 const FIND_WIDTH: f32 = 380.;
-/// Black at 35 % over the page area while the palette is open.
 const PALETTE_DIM: u32 = 0x0000_0059;
 const WINDOW_SIZE: (f32, f32) = (1280., 800.);
 
@@ -115,7 +112,6 @@ pub struct Ui {
     answer_password: Signal<String>,
     find_tabs: Signal<bool>,
     css: Signal<Option<String>>,
-    /// Whether the site popover shows its further settings.
     site_more: Signal<bool>,
     /// The host `css` was read for; the field follows the page to another host.
     css_host: Signal<String>,
@@ -268,7 +264,6 @@ pub(super) fn confirmed(ui: Ui, id: String, name: &'static str, run: impl Fn() +
     })
 }
 
-/// `act` with the rows' layout animated: tabs opening or closing grow and shrink.
 fn act_moving(ui: Ui, f: impl FnOnce(&mut Browser)) {
     animate_next(POP);
     act(ui, f);
@@ -425,7 +420,6 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
                         hovered.set(on);
                     };
                     let dropping = move || ui.split_drop.with(|d| d.filter(|(k, _)| *k == key).map(|(_, does)| does));
-                    // The tabs of a split carry an edge: in the accent for the split on screen.
                     let edge = move || match item.with(|r| r.split) {
                         Some(true) => Some(Theme::accent()),
                         Some(false) => Some(Theme::faint()),
@@ -609,7 +603,6 @@ fn downloads_button(ui: Ui) -> AnyElement {
     })
 }
 
-/// Opens Settings at `pane`, or shows that pane when Settings is open.
 fn open_settings(ui: Ui, pane: tarn_nsh_shared::panes::Pane) {
     ui.settings_pane.set(pane);
     if ui.panel.get_untracked() == Panel::Settings {
@@ -647,7 +640,6 @@ fn space_switcher(ui: Ui) -> nsh_base::ButtonElement {
         .child(view().flex_none().text_color(Theme::muted()).child(icons::icon(icons::CHEVRON_DOWN, 14.)))
 }
 
-/// The profile's avatar: Settings › Profile; the private space shows its hand instead.
 fn profile_button(ui: Ui) -> AnyElement {
     dynamic(move || {
         let (private, name, color) = ui.snap.with(|s| (s.private, s.profile_name.clone(), s.profile_color.clone()));
@@ -844,7 +836,6 @@ fn go(ui: Ui, text: String) {
     act(ui, |b| b.navigate(&text));
 }
 
-/// The Shield chip at the start of the address field: the site's level and what Shield stopped there.
 fn shield_chip(ui: Ui) -> nsh_base::ButtonElement {
     let standard = move || ui.snap.with(|s| s.level == "standard");
     let color = move || if standard() { Secure::muted() } else { Secure::shield_raised() };
@@ -868,7 +859,6 @@ fn shield_chip(ui: Ui) -> nsh_base::ButtonElement {
         .child(when(move || ui.snap.with(|s| s.site_total > 0), move || small(count).text_color(color).font_family(SYSTEM_FONT)))
 }
 
-/// Opens the command palette on the current address.
 fn open_palette(ui: Ui) {
     if ui.editing.get_untracked() {
         return ui.address_ref.focus();
@@ -938,7 +928,6 @@ fn address(ui: Ui) -> View {
     view().flex_row().flex_1().justify_center().child(capsule)
 }
 
-/// The display text of `action`'s shortcut, as Settings writes it.
 pub(super) fn shortcut_of(ui: Ui, action: Action) -> Option<String> {
     let stored = read(ui, |b| crate::shortcuts::stored(&b.core.disk))?;
     crate::shortcuts::keymap(&stored).into_iter().find(|(_, a)| *a == action).map(|(k, _)| crate::shortcuts::display(&k))
@@ -1038,7 +1027,6 @@ pub(super) fn suggestion_row(name: String, press: impl Fn() + 'static) -> nsh_ba
     controls::pressable(name, press).flex_row().items_center().gap_3().mx(px(6.)).h(px(PALETTE_ROW)).px(px(6.)).rounded(px(Theme::radius_row()))
 }
 
-/// A row's glyph in its tile: the accent fill on the picked row.
 pub(super) fn row_glyph(ui: Ui, glyph: &str, row: impl Fn() -> usize + Copy + 'static) -> View {
     let picked = move || ui.picked.get() == row();
     tarn_nsh_shared::controls::glyph_tile(
@@ -1051,7 +1039,6 @@ pub(super) fn row_glyph(ui: Ui, glyph: &str, row: impl Fn() -> usize + Copy + 's
     )
 }
 
-/// A palette section's name over its rows.
 pub(super) fn row_section(name: &str) -> View {
     view().px(px(12.)).pt_2().pb_1().child(tarn_nsh_shared::controls::caps_label(name))
 }
@@ -1123,7 +1110,6 @@ fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
         ))
 }
 
-/// The command palette: a card centred over the dimmed page area while the address is edited.
 fn palette(ui: Ui) -> AnyElement {
     when(
         move || ui.editing.get(),

@@ -328,7 +328,8 @@ final class TarnWebView implements NshComponent {
             case "fetchIcon" -> {
                 List<String> urls = new ArrayList<>();
                 if (args.get("urls") instanceof List<?> list) for (Object item : list) if (item instanceof String icon) urls.add(icon);
-                String body = page == null ? null : Native.fetchIconScript(url, urls.toArray(new String[0]));
+                String asked = args.get("page") instanceof String requested ? requested : null;
+                String body = page == null || asked == null ? null : Native.fetchIconScript(asked, urls.toArray(new String[0]));
                 runAsync(body, SCRIPT_WAIT_MS, text -> emit("iconData", "seq", seq, "url", url, "text", text));
             }
             case "findText" -> {

@@ -357,7 +357,6 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
 
 const MAX_PROMPT_MESSAGE: usize = 600;
 
-/// The prompt's kind as `browser_core::glyphs` and `browser_core::prompts` name it.
 fn kind_name(kind: &PromptKind) -> &'static str {
     match kind {
         PromptKind::Alert | PromptKind::Confirm | PromptKind::Text { .. } => "confirm",
@@ -470,8 +469,6 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
     Some((title, card))
 }
 
-/// The row's glyph on a tile: the site's icon for pages and tabs, the command's glyph for
-/// commands, and a search or app glyph for what the field would do.
 fn suggestion_tile(b: &Browser, s: &Suggestion, selected: bool) -> gpui::Div {
     use ui::command::Input;
     let url = match &s.target {
@@ -506,7 +503,6 @@ fn section(target: &Target) -> Section {
     }
 }
 
-/// The header above each row, where a new kind of row starts.
 pub fn sections(rows: &[Suggestion]) -> Vec<Option<Section>> {
     browser_core::command::section_headers(&rows.iter().map(|s| section(&s.target)).collect::<Vec<_>>())
 }
@@ -545,8 +541,6 @@ fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div>
         })
 }
 
-/// Every suggestion as a row, with its section's header above the first row of each section;
-/// one element per suggestion, so scrolling to a suggestion's index finds it.
 pub fn suggestion_rows(b: &Browser) -> Vec<Stateful<gpui::Div>> {
     let headers = sections(&b.suggestions);
     b.suggestions

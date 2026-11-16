@@ -59,7 +59,6 @@ pub async fn share(url: String) -> bool {
     run_on_main_thread(move || system::share(&url)).await.unwrap_or(false)
 }
 
-/// Hands a file to the system share sheet; `false` where the platform shares links only.
 pub async fn share_file(path: std::path::PathBuf) -> bool {
     if !cfg!(target_os = "ios") {
         return false;

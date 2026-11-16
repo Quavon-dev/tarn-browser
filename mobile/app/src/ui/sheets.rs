@@ -530,7 +530,6 @@ pub fn transfers(ui: Ui) -> impl IntoElement {
     )))
 }
 
-/// A downloaded file's type as a glyph tile; a file Shield holds back shows the warning instead.
 pub fn file_tile(name: &str, flagged: bool) -> View {
     let source = if flagged { glyphs::TRIANGLE_ALERT } else { glyphs::named(browser_core::glyphs::file_glyph(name)).unwrap_or(glyphs::FILE_PLAIN) };
     glyph_tile(
@@ -600,13 +599,13 @@ fn top_sites(card: &Card) -> Option<View> {
     Some(group().p_3().gap_1().child(label("Most protected sites").font_weight(FontWeight::SEMIBOLD)).children(rows))
 }
 
-/// Shares the card's front through the system share sheet, or saves it with the downloads
-/// where the platform cannot share a file.
 fn share_card(ui: Ui, card: &Card, dark: bool) {
     let drawing = front_svg(card, true, dark);
     spawn(async move {
-        let shared = std::env::temp_dir().join(CARD_FILE);
-        if std::fs::write(&shared, &drawing).is_ok() && crate::platform::share_file(shared).await {
+        let shared = browser_core::shield_card::export_path(CARD_FILE);
+        if let Some(shared) = shared.ok().filter(|path| std::fs::write(path, &drawing).is_ok())
+            && crate::platform::share_file(shared).await
+        {
             return;
         }
         let saved = super::downloads_dir().map(|dir| dir.join(CARD_FILE)).filter(|path| std::fs::write(path, &drawing).is_ok());

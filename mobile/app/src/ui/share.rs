@@ -55,8 +55,6 @@ fn action_row(name: &'static str, source: &'static str, press: impl Fn() + 'stat
         .child(view().text_color(Theme::muted).child(glyphs::icon(source, ICON)))
 }
 
-/// The touch share sheet: it slides up over a dimmed page with the page's header, the round
-/// targets (Copy, QR Code, the system's share) and the page's actions.
 pub fn share_sheet(ui: Ui) -> impl IntoElement {
     when(move || ui.screen.get() == Screen::Share, move || sheet(ui))
 }

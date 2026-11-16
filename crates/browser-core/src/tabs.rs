@@ -372,7 +372,6 @@ impl Model {
         self.spaces.iter().find(|s| s.private == key.private && s.space.id == space_id).map(|s| s.space.profile_id)
     }
 
-    /// The profile of the active tab, which a split pane can take from another space.
     pub fn active_profile<D: WebsiteData>(&self, core: &Core<D>) -> Option<(bool, Id)> {
         let key = self.active?;
         Some((key.private, self.profile_of(core, key)?))
@@ -472,9 +471,6 @@ pub fn duplicates(tabs: &[Tab], active: Option<Id>, url: impl Fn(&Tab) -> String
 /// The narrowest a tile gets before the tile grid starts another row.
 pub const TILE_MIN_WIDTH: f32 = 46.;
 
-/// The tile grid for `width` points with `gap` between tiles: as many columns as fit at
-/// `TILE_MIN_WIDTH`, and the side of each square tile, whole points, so every tile is the same
-/// square however many there are and a full row never wraps.
 pub fn tile_grid(width: f32, gap: f32) -> (usize, f32) {
     let columns = (((width + gap) / (TILE_MIN_WIDTH + gap)).floor() as usize).max(1);
     (columns, ((width - (columns - 1) as f32 * gap) / columns as f32).floor().max(0.))

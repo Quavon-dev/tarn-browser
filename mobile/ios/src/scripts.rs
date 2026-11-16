@@ -74,7 +74,8 @@ impl Inner {
             }
             "fetchIcon" => {
                 let urls = engine::favicon::fetch_urls(args.get("urls").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str));
-                let body = url.as_ref().and_then(|u| page_scripts::fetch_icon_script(u, &urls, engine::favicon::MAX_BYTES));
+                let asked = args.get("page").and_then(Value::as_str).and_then(|p| url::Url::parse(p).ok());
+                let body = asked.and_then(|p| page_scripts::fetch_icon_script(&p, &urls, engine::favicon::MAX_BYTES));
                 self.run(body, move |text| context.emit("iconData", json!({ "seq": seq, "url": shown, "text": text })));
             }
             "findText" => {

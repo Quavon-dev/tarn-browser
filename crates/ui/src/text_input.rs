@@ -128,7 +128,6 @@ pub struct TextInput {
     marked_range: Option<Range<usize>>,
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
-    /// The line and frame of a mirror of the field in another window, which a click there maps to.
     mirror_layout: Option<ShapedLine>,
     mirror_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
@@ -454,14 +453,12 @@ impl TextInput {
         self.index_in(self.last_bounds.as_ref(), self.last_layout.as_ref(), position)
     }
 
-    /// A press on a mirror of the field: places the caret, or extends the selection with Shift.
     pub fn mirror_press(&mut self, position: Point<Pixels>, shift: bool, cx: &mut Context<Self>) {
         self.is_selecting = true;
         let at = self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position);
         if shift { self.select_to(at, cx) } else { self.move_to(at, cx) }
     }
 
-    /// A drag over a mirror of the field after a press there.
     pub fn mirror_drag(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         if self.is_selecting {
             self.select_to(self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position), cx);
@@ -483,6 +480,9 @@ impl TextInput {
         let (Some(bounds), Some(line)) = (bounds, line) else {
             return 0;
         };
+        if line.text != self.content {
+            return self.content.len();
+        }
         if position.y < bounds.top() {
             return 0;
         }
@@ -677,10 +677,8 @@ struct TextElement {
     mirror: bool,
 }
 
-/// What `input` shows, caret included, drawn in another window than the one whose focus it
-/// has, such as a pop-up over the page; typing still goes to the focused field.
 pub fn mirror(input: Entity<TextInput>) -> impl IntoElement {
-    let (press, drag, release) = (input.clone(), input.clone(), input.clone());
+    let (press, drag, release, outside) = (input.clone(), input.clone(), input.clone(), input.clone());
     div()
         .w_full()
         .line_height(px(22.))
@@ -689,6 +687,7 @@ pub fn mirror(input: Entity<TextInput>) -> impl IntoElement {
         .on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, _, cx| press.update(cx, |i, cx| i.mirror_press(e.position, e.modifiers.shift, cx)))
         .on_mouse_move(move |e: &MouseMoveEvent, _, cx| drag.update(cx, |i, cx| i.mirror_drag(e.position, cx)))
         .on_mouse_up(MouseButton::Left, move |_: &MouseUpEvent, _, cx| release.update(cx, |i, _| i.mirror_release()))
+        .on_mouse_up_out(MouseButton::Left, move |_: &MouseUpEvent, _, cx| outside.update(cx, |i, _| i.mirror_release()))
         .child(TextElement { input, mirror: true })
 }
 

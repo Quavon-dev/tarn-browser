@@ -37,7 +37,6 @@ pub struct Row {
     pub heavy: bool,
     pub asleep: bool,
     pub loading: bool,
-    /// Playing audio or using the camera or microphone.
     pub playing: bool,
     /// In a split: `Some(true)` for the split on screen.
     pub split: Option<bool>,
@@ -92,7 +91,6 @@ pub struct Snapshot {
     pub spaces: Vec<SpaceItem>,
     pub profile: String,
     pub profile_color: String,
-    /// The current space's profile name; empty in a private space.
     pub profile_name: String,
     pub space_name: String,
     pub space_icon: String,
@@ -114,7 +112,6 @@ pub struct Snapshot {
     pub level: String,
     pub overridden: bool,
     pub host: String,
-    /// What Shield stopped on this site in this profile.
     pub site_total: i64,
     pub zoom: f64,
     pub found: Option<u64>,

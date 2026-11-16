@@ -116,8 +116,6 @@ fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
         .children(private_mark(b))
 }
 
-/// Split view and Share, for the page on screen. Share dispatches one action, so the share
-/// menu can take its place.
 fn page_actions(b: &Browser) -> Div {
     let page = b.model.active.is_some();
     let split = if b.model.active.is_some_and(|a| b.splits.contains(a)) { "Close Split View" } else { "Open Split View" };
@@ -134,6 +132,7 @@ fn page_actions(b: &Browser) -> Div {
         )
         .child(
             icon_button("share", Icon::Share, page)
+                .child(measure(b.share_menu.anchor.clone()))
                 .tooltip(crate::shortcuts::tip("Share", &crate::qr::ShareLink))
                 .on_click(|_, w, cx| w.dispatch_action(Box::new(crate::qr::ShareLink), cx)),
         )
@@ -198,13 +197,10 @@ fn address_text(site: &Site) -> (String, gpui::Rgba) {
     }
 }
 
-/// What Shield stopped on the site on screen, in the active tab's profile.
 fn site_count(b: &Browser, site: &Site) -> Option<i64> {
     Some(b.site_stopped(b.model.active?, site.url.as_ref()?)).filter(|n| *n > 0)
 }
 
-/// The Shield chip at the start of the address: the level's glyph and what Shield stopped on
-/// the site; a click opens Site Settings.
 fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl IntoElement {
     let level = site.url.as_ref().map(|u| b.level_for(u.as_str())).unwrap_or_default();
     let overridden = site.host.as_deref().is_some_and(|h| b.has_override(h));
@@ -296,7 +292,6 @@ fn engine_badge(b: &Browser) -> Option<Div> {
         .then(|| div().px_1p5().text_size(px(TEXT_SMALL)).text_color(Secure::muted()).child(crate::tabs::web_engine_name(engine)))
 }
 
-/// The resting address field's height, and the even gap around the chips inside its border.
 const FIELD: f32 = 30.;
 const CHIP_INSET: f32 = 3.;
 const CHIP: f32 = FIELD - 2. - 2. * CHIP_INSET;
@@ -398,15 +393,12 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
         .children(app_menu_button(b, cx))
 }
 
-/// A click on the resting address opens the palette; while it is open, the click keeps it.
 fn open_address(b: &mut Browser, window: &mut gpui::Window, cx: &mut Context<Browser>) {
     if !b.inline_editing() {
         b.open_command(CommandMode::Current, window, cx);
     }
 }
 
-/// The address field the palette shows: under the palette, behind the page, where it keeps the
-/// keyboard focus and the text input of the main window.
 fn hidden_field(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let bar = b.address.bar.get().origin;
     let at = b.palette_field().map(|f| (f.origin.x - bar.x, f.origin.y - bar.y, f.size.width));

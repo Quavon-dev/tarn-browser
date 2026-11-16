@@ -27,31 +27,24 @@ pub const POP: Duration = Duration::from_millis(160);
 pub const FADE: Duration = Duration::from_millis(130);
 pub const EXIT: Duration = Duration::from_millis(110);
 pub const SLIDE: Duration = Duration::from_millis(280);
-/// How far a popping view rises in and sinks out, in points.
 pub const RISE: f32 = 5.;
-/// The dim behind a sheet that slides up.
 pub const SCRIM: f32 = 0.45;
 pub const SPIN_TURN: Duration = Duration::from_millis(900);
 pub const RELOAD_SPIN: Duration = Duration::from_millis(600);
 const SPIN_FRAME: Duration = Duration::from_millis(33);
 
-/// `element` fading in when it appears, as a scrim does.
 pub fn fading<E: Element>(element: E) -> E {
     element.bind_motion(&fade_in())
 }
 
-/// `element` popping in when it appears; it lands in place at once under Reduce Motion.
 pub fn popping<E: Element>(element: E) -> E {
     element.bind_motion(&pop_in())
 }
 
-/// A layout change of the next commit (rows growing, a slot sliding) over `duration`.
 pub fn layout(duration: Duration) -> LayoutTransition {
     LayoutTransition::new(LayoutCurve::EaseOut, ms(duration))
 }
 
-/// Animates the next commit unless Reduce Motion is on: views that appear grow in over `POP`,
-/// those that leave shrink away over `EXIT`, the rest move over `moving`.
 pub fn animate_next(moving: Duration) {
     if !reduce_motion() {
         animate_layout(LayoutAnimation { create: Some(layout(POP)), update: Some(layout(moving)), delete: Some(layout(EXIT)) });
@@ -77,12 +70,10 @@ fn eased(duration: Duration) -> MotionSpec {
     MotionSpec::new(KeyframeTiming::new(ms(duration)).easing(Easing::EaseOut))
 }
 
-/// Fades in while rising a few points; lands at once under Reduce Motion. Bind it with `bind_motion`.
 pub fn pop_in() -> Motion {
     motion().entering(eased(POP).values(MotionChannel::Opacity, [0., 1.]).values(MotionChannel::TranslateY, [RISE, 0.]))
 }
 
-/// Fades `shown` out while it sinks a few points, then runs `then`, which removes it.
 pub fn pop_out(shown: Motion, then: impl FnOnce() + 'static) {
     if reduce_motion() {
         then();
@@ -92,22 +83,18 @@ pub fn pop_out(shown: Motion, then: impl FnOnce() + 'static) {
     drop(set_timeout(EXIT, then));
 }
 
-/// Fades in, as a glyph does that replaces another.
 pub fn fade_in() -> Motion {
     motion().entering(eased(FADE).values(MotionChannel::Opacity, [0., 1.]))
 }
 
-/// Slides up from `distance` points below.
 pub fn slide_up(distance: f32) -> Motion {
     motion().entering(eased(SLIDE).values(MotionChannel::TranslateY, [distance, 0.]))
 }
 
-/// Fades in to `opacity` while a sheet slides.
 pub fn fade_to(opacity: f32) -> Motion {
     motion().entering(eased(SLIDE).values(MotionChannel::Opacity, [0., opacity]))
 }
 
-/// How long a style change animates: `duration`, or nothing under Reduce Motion.
 pub fn transition_ms(duration: Duration) -> f32 {
     if reduce_motion() { 0. } else { ms(duration) }
 }

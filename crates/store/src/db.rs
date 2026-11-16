@@ -429,7 +429,6 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// What Shield stopped on `host` for the profile, 0 for a site it never acted on.
     pub fn shield_site_total(&self, profile_id: Id, host: &str) -> Result<i64> {
         let n = self.conn.query_row("SELECT n FROM shield_sites WHERE profile_id = ?1 AND host = ?2", params![profile_id, host], |r| r.get(0)).optional()?;
         Ok(n.unwrap_or(0))

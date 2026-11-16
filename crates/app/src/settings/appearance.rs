@@ -496,7 +496,6 @@ impl SettingsWindow {
         ))
     }
 
-    /// The theme group's first rows: Match system, then one select per appearance it covers.
     pub(super) fn theme_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let core = crate::shared::core(cx);
         let selection = Selection::load(&core.disk);
@@ -532,8 +531,11 @@ impl SettingsWindow {
             let choices: Vec<(ThemeRef, String)> =
                 cards.iter().filter(|c| scheme.is_none_or(|s| c.scheme == s)).map(|c| (c.id.clone(), bounded_title(&c.name))).collect();
             let shown = choices.iter().find(|(c, _)| *c == current).map_or_else(|| "Custom".to_owned(), |(_, name)| name.clone());
-            let menu: Vec<(ThemeRef, String, Scheme)> =
-                cards.iter().filter(|c| scheme.is_none_or(|s| c.scheme == s)).map(|c| (c.id.clone(), bounded_title(&c.name), c.scheme)).collect();
+            let menu: Vec<(ThemeRef, String, Scheme)> = cards
+                .iter()
+                .filter(|c| !c.withdrawn && scheme.is_none_or(|s| c.scheme == s))
+                .map(|c| (c.id.clone(), bounded_title(&c.name), c.scheme))
+                .collect();
             rows.push(
                 row(false)
                     .child(text_block(title, detail))

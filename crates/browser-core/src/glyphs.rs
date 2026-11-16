@@ -1,8 +1,3 @@
-//! Glyphs (icon file names in `crates/ui/icons`) for things every client draws the same way:
-//! page prompts, by the kind names the Native Shell clients use (`"camera"`, `"location"`, …;
-//! the Mac maps its `PromptKind`), and downloaded files.
-
-/// The prompt's glyph.
 pub fn glyph(kind: &str) -> &'static str {
     match kind {
         "camera" | "camera and microphone" | "camera+microphone" => "camera",
@@ -17,7 +12,6 @@ pub fn glyph(kind: &str) -> &'static str {
     }
 }
 
-/// The glyph for a downloaded file, by its name's extension.
 pub fn file_glyph(name: &str) -> &'static str {
     let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
     match ext.as_str() {

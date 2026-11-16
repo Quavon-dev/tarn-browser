@@ -1,4 +1,6 @@
 use std::fmt::Write;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use shield::ShieldLevel;
 
@@ -20,6 +22,13 @@ pub struct Card {
 }
 
 const DAY_MS: i64 = 86_400_000;
+
+pub fn export_path(file: &str) -> std::io::Result<PathBuf> {
+    static EXPORTS: AtomicU64 = AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!("tarn-card-{}-{}", std::process::id(), EXPORTS.fetch_add(1, Ordering::Relaxed)));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join(file))
+}
 
 pub fn date(ms: i64) -> String {
     let days = ms.div_euclid(DAY_MS) + 719_468;
@@ -69,8 +78,6 @@ pub fn week_rows(week: &[store::ShieldDay]) -> Vec<(&'static str, Vec<i64>)> {
         .collect()
 }
 
-/// Everything Shield did on each of the week's days, labelled with the day's initial, for the
-/// profile page's one bar chart.
 pub fn day_totals(week: &[store::ShieldDay]) -> Vec<(&'static str, i64)> {
     const DAYS: [&str; 7] = ["M", "T", "W", "T", "F", "S", "S"];
     week.iter()
@@ -84,7 +91,6 @@ pub fn day_totals(week: &[store::ShieldDay]) -> Vec<(&'static str, i64)> {
         .collect()
 }
 
-/// Monday 0 to Sunday 6 for an ISO date.
 fn weekday(iso: &str) -> Option<usize> {
     let mut parts = iso.splitn(3, '-').map(|p| p.parse::<i64>().ok());
     let (y, m, d) = (parts.next()??, parts.next()??, parts.next()??);
@@ -110,7 +116,6 @@ pub fn days_text(days: i64) -> String {
 }
 
 pub const SHORT: [(&str, &str); 3] = [("Parameters", "removed"), ("HTTPS", "upgrades"), ("Local visits", "blocked")];
-/// The captions under the card's three numbers where they show beside it.
 pub const NUMBERS: [&str; 3] = ["parameters removed", "HTTPS upgrades", "local visits blocked"];
 
 pub fn motto(level: ShieldLevel) -> (&'static str, &'static str) {
@@ -121,8 +126,6 @@ pub fn motto(level: ShieldLevel) -> (&'static str, &'static str) {
     }
 }
 
-/// The line under a site's Shield control: what its own level does, or for a site that follows
-/// its profile, which level that is and what it does.
 pub fn site_level_line(site: Option<ShieldLevel>, profile: ShieldLevel) -> String {
     match site {
         Some(level) => format!("{}.", motto(level).1),
@@ -166,23 +169,19 @@ impl Draw {
 
 pub struct Scene {
     pub sky: &'static str,
-    /// The sky's colour at the horizon; the sky fades into it.
     pub glow: &'static str,
     pub far: &'static str,
-    /// The far ridges' colour at their foot.
     pub far_low: &'static str,
     pub snow: &'static str,
     pub band: &'static str,
     pub near: &'static str,
     pub lake: &'static str,
-    /// The lake's colour at the card's bottom edge.
     pub deep: &'static str,
     pub shallow: &'static str,
     pub ink: &'static str,
     pub dark: bool,
 }
 
-/// Dawn for light themes, night for dark ones; the seed shapes the ridges of either.
 const DAWN: Scene = Scene {
     sky: "#F7E9DD",
     glow: "#D9CCE0",
@@ -220,7 +219,6 @@ pub fn scene(dark: bool) -> &'static Scene {
 const LAKE: u32 = 112;
 pub const RIDGES: (u32, u32) = (88, 48);
 
-/// Gradients, then the sky with the sun at dawn, or stars, a crescent and an aurora at night.
 fn sky(s: &Scene, draw: &mut Draw, (px, py): (u32, u32), (lx, ly): (u32, u32)) -> String {
     let mut out = format!(
         r##"<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="far" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="lake" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="aurora" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#62E6C4" stop-opacity="0"/><stop offset="1" stop-color="#62E6C4" stop-opacity="0.28"/></linearGradient><linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="black" stop-opacity="0"/><stop offset="1" stop-color="black" stop-opacity="0.28"/></linearGradient></defs><rect width="{W}" height="{H}" fill="url(#sky)"/>"##,
@@ -246,14 +244,11 @@ fn sky(s: &Scene, draw: &mut Draw, (px, py): (u32, u32), (lx, ly): (u32, u32)) -
     out
 }
 
-/// The scene behind the card: `.1` sky, far ridges and lake, `.2` the near ridges, which the
-/// Mac's tilting card lifts off the front.
 pub fn landscape(seed: i64, dark: bool) -> (&'static Scene, String, String) {
     let (s, sky, far, near) = parts(seed, dark);
     (s, sky + &far, near)
 }
 
-/// The scene in layers: the sky, the far ridges and lake, the near ridges.
 fn parts(seed: i64, dark: bool) -> (&'static Scene, String, String, String) {
     let mut draw = Draw(seed as u64);
     let s = scene(dark);
@@ -407,7 +402,6 @@ pub fn back_svg(card: &Card, dark: bool) -> String {
     face(sky, &(shapes + &labels_svg(&labels)))
 }
 
-/// The Shield glyph's outline on the 24-unit icon grid, and the marks inside it per level.
 const SHIELD: &str = "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z";
 
 fn level_marks(level: ShieldLevel) -> &'static str {
@@ -418,7 +412,6 @@ fn level_marks(level: ShieldLevel) -> &'static str {
     }
 }
 
-/// The front, drawn as dawn (`dark` false) or night to match the theme around it.
 pub fn front(card: &Card, near: bool, dark: bool) -> (&'static str, String, Vec<Label>) {
     let (s, mut out, ridges) = landscape(card.seed, dark);
     let mut labels = Vec::new();

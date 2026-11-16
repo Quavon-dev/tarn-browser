@@ -38,7 +38,6 @@ pub struct Downloads {
     pub(crate) transfers: BTreeMap<(bool, Id, u64), Transfer>,
     pub(crate) changed: u64,
     closed: Option<Instant>,
-    /// The header button as last painted, which the popover's caret points at.
     pub(crate) button: std::rc::Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
 }
 
@@ -57,9 +56,6 @@ pub(crate) struct Transfer {
     pub paused: bool,
 }
 
-/// Under the file name: its size, or its type when the file is gone, and the site it came from;
-/// a failed download or one the system could not mark as downloaded says so instead, with `true`
-/// for the warning colour.
 fn subtitle(d: &Download, size: Option<u64>) -> (String, bool) {
     match d.state.as_str() {
         "failed" => ("Failed".into(), true),
@@ -72,7 +68,6 @@ fn subtitle(d: &Download, size: Option<u64>) -> (String, bool) {
     }
 }
 
-/// A file-type tile, by the file's extension.
 fn tile(name: &str, color: gpui::Rgba) -> gpui::Div {
     let glyph = Icon::named(browser_core::glyphs::file_glyph(name)).unwrap_or(Icon::File);
     div().size(px(28.)).flex_none().flex().items_center().justify_center().rounded(px(Theme::radius_row())).bg(Theme::control()).child(icon(glyph, 15., color))
@@ -246,7 +241,6 @@ pub struct DownloadsWindow {
     browser: WeakEntity<Browser>,
     main: WindowHandle<Browser>,
     focus: FocusHandle,
-    /// The finished downloads shown, with the size of each file still on disk.
     rows: Vec<(Download, Option<u64>)>,
     seen: Option<u64>,
     closing: bool,
@@ -370,19 +364,27 @@ impl Render for DownloadsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(browser) = self.browser.upgrade() else { return div().into_any_element() };
         let fit = rows_fit(f32::from(window.bounds().size.height));
-        let b = browser.read(cx);
-        if self.seen != Some(b.downloads_popover.changed) {
-            self.seen = Some(b.downloads_popover.changed);
-            self.rows = b
-                .downloads()
-                .into_iter()
-                .take(MAX_ROWS)
-                .map(|d| {
-                    let size = std::fs::metadata(&d.path).ok().filter(|m| m.is_file()).map(|m| m.len());
-                    (d, size)
+        let changed = browser.read(cx).downloads_popover.changed;
+        if self.seen != Some(changed) {
+            self.seen = Some(changed);
+            self.rows = browser.read(cx).downloads().into_iter().take(MAX_ROWS).map(|d| (d, None)).collect();
+            let paths: Vec<_> = self.rows.iter().map(|(d, _)| d.path.clone()).collect();
+            cx.spawn(async move |this, cx| {
+                let sizes: Vec<Option<u64>> = cx
+                    .background_executor()
+                    .spawn(async move { paths.iter().map(|p| std::fs::metadata(p).ok().filter(|m| m.is_file()).map(|m| m.len())).collect() })
+                    .await;
+                this.update(cx, |w, cx| {
+                    if w.seen == Some(changed) {
+                        w.rows.iter_mut().zip(sizes).for_each(|(row, size)| row.1 = size);
+                        cx.notify();
+                    }
                 })
-                .collect();
+                .ok();
+            })
+            .detach();
         }
+        let b = browser.read(cx);
         let (transfers, reduce) = (b.transfers(), b.pref(Pref::ReduceMotion));
         let header = div()
             .h(px(HEADER))

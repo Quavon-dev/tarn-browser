@@ -18,8 +18,8 @@ pub enum Request {
     Text(TabKey, Id),
     Find(TabKey, String),
     Pick(TabKey),
-    IconLinks(TabKey, super::icons::Profile, String),
-    IconData(TabKey, super::icons::Profile, String),
+    IconLinks(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
+    IconData(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -14,7 +14,6 @@ use crate::theme::{BADGE_SIZE, ICON, SYSTEM_FONT, Secure, TEXT_SMALL, TEXT_TITLE
 
 const PILL_HEIGHT: f32 = 46.;
 const PILL_RADIUS: f32 = 15.;
-/// The even gap around the Shield chip inside the pill's border.
 const CHIP_INSET: f32 = 6.;
 const CHIP_HEIGHT: f32 = PILL_HEIGHT - 2. - 2. * CHIP_INSET;
 const CHIP_GLYPH: f32 = 15.;
@@ -260,7 +259,6 @@ fn page_actions(ui: Ui) -> impl IntoElement {
         }))
 }
 
-/// Tablets: the address field between the page's history buttons and the tab buttons.
 pub fn top_bar(ui: Ui) -> impl IntoElement {
     when(
         move || ui.wide(),
@@ -321,8 +319,6 @@ pub fn page_error(ui: Ui) -> impl IntoElement {
     })
 }
 
-/// The Shield chip at the start of a phone's address pill: the level's glyph and what Shield
-/// stopped on the site, in the colours no theme reaches.
 fn shield_chip(ui: Ui) -> impl IntoElement {
     let level = computed(move || ui.read(|s| s.site_level()));
     let count = move || ui.read(|s| s.site_shield_total());
@@ -366,7 +362,6 @@ fn shield_chip(ui: Ui) -> impl IntoElement {
         }))
 }
 
-/// A phone's address pill: the Shield chip, the host in the middle, and the page's actions.
 fn address_pill(ui: Ui) -> impl IntoElement {
     view()
         .flex_row()
@@ -384,8 +379,6 @@ fn address_pill(ui: Ui) -> impl IntoElement {
         .child(page_actions(ui))
 }
 
-/// Phones: the address pill above the five actions; while it is edited the bar rides above the
-/// keyboard.
 pub fn bottom_bar(ui: Ui) -> impl IntoElement {
     when(
         move || !ui.wide(),

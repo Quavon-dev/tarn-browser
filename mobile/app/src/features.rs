@@ -413,7 +413,6 @@ impl<D: Platform> Shell<D> {
         Url::parse(&url).ok().filter(|u| matches!(u.scheme(), "http" | "https")).map(|_| url)
     }
 
-    /// What Shield stopped on the page's site, for the address bar's Shield chip.
     pub fn site_shield_total(&self) -> i64 {
         match (self.model.active_profile(&self.core), Url::parse(&self.active_url())) {
             (Some((private, id)), Ok(url)) => self.core.site_stopped(private, id, &url),

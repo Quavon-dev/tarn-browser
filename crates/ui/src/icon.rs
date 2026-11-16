@@ -19,7 +19,6 @@ macro_rules! icons {
         impl Icon {
             pub const ALL: &[Icon] = &[$(Icon::$variant),*];
 
-            /// The icon a file name stands for, as the shared crates name glyphs.
             pub fn named(name: &str) -> Option<Icon> {
                 match name {
                     $($file => Some(Icon::$variant),)*

@@ -445,6 +445,7 @@ fn site_icons_load_at_start_fetch_inside_the_tab_and_go_with_history() {
         b.on_event(key, "iconLinks", &json!({ "seq": seq, "url": "https://a.test/x", "text": "https://a.test/i.png\t32x32\nhttps://evil.test/p.png\t64x64" }));
         let fetch = asked(&b, "fetchIcon");
         assert_eq!(fetch[0]["urls"], json!(["https://a.test/i.png", "https://a.test/favicon.ico"]));
+        assert_eq!(fetch[0]["page"], "https://a.test/x");
         b.on_icon_event(
             key,
             &json!({ "seq": fetch[0]["seq"], "url": "https://a.test/x", "text": "bm90IGFuIGltYWdl" }),

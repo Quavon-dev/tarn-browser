@@ -13,7 +13,6 @@ use super::{Browser, Request};
 
 pub type Profile = (bool, Id);
 
-/// One profile's site icons as `data:` URIs by host, for the UI; `stamp` changes with them.
 #[derive(Clone, Debug, Default)]
 pub struct SiteIcons {
     stamp: Option<(Profile, u64)>,
@@ -41,7 +40,6 @@ impl Browser {
         });
     }
 
-    /// The current profile's icons, or `None` while `shown` still has them.
     pub fn site_icons(&mut self, shown: &SiteIcons) -> Option<SiteIcons> {
         let profile = self.model.profile();
         if let Some(profile) = profile {
@@ -61,40 +59,40 @@ impl Browser {
         self.load_favicons(profile);
         let live: Vec<TabKey> = self.model.lifecycle.live().collect();
         self.withdraw_icons(|k| !live.contains(&k));
-        if self.favicons.request(&profile, &host) {
-            self.ask(key, Request::IconLinks(key, profile, host), "readIconLinks", json!({}));
+        if let Some(ticket) = self.favicons.request(&profile, &host) {
+            self.ask(key, Request::IconLinks(key, profile, host, ticket), "readIconLinks", json!({}));
         }
     }
 
-    /// A tab whose view went away never answers, so its requests must not hold their host.
     pub(super) fn withdraw_icons(&mut self, gone: impl Fn(TabKey) -> bool) {
         let seqs: Vec<u64> =
             self.requests.iter().filter(|(_, r)| matches!(r, Request::IconLinks(k, ..) | Request::IconData(k, ..) if gone(*k))).map(|(s, _)| *s).collect();
         for seq in seqs {
-            if let Some(Request::IconLinks(_, profile, host) | Request::IconData(_, profile, host)) = self.requests.remove(&seq) {
-                self.favicons.withdraw(&profile, &host);
+            if let Some(Request::IconLinks(_, profile, host, ticket) | Request::IconData(_, profile, host, ticket)) = self.requests.remove(&seq) {
+                self.favicons.withdraw(&profile, &host, ticket);
             }
         }
     }
 
-    /// An `iconLinks` answer, or an `iconData` answer with the icon `favicon::normalize` made of it.
     pub fn on_icon_event(&mut self, key: TabKey, data: &Value, png: Option<Vec<u8>>) {
         let icon = |r: &Request| matches!(r, Request::IconLinks(..) | Request::IconData(..));
         let Some(request) = data["seq"].as_u64().filter(|s| self.requests.get(s).is_some_and(icon)).and_then(|s| self.requests.remove(&s)) else { return };
         let text = data["text"].as_str().unwrap_or_default();
         match request {
-            Request::IconLinks(_, profile, host) => {
+            Request::IconLinks(_, profile, host, ticket) => {
                 let page = Url::parse(data["url"].as_str().unwrap_or_default()).ok();
-                let shown = page.as_ref().filter(|p| self.page_url(key).is_some_and(|u| u.origin() == p.origin()));
-                let urls: Vec<String> = shown.map(|p| favicon::candidates(p, text)).unwrap_or_default().into_iter().map(String::from).collect();
-                if urls.is_empty() || !self.favicons.is_requested(&profile, &host) {
-                    return self.favicons.withdraw(&profile, &host);
-                }
-                self.ask(key, Request::IconData(key, profile, host), "fetchIcon", json!({ "urls": urls }));
+                let shown = page
+                    .filter(|p| favicon::icon_host(p, false).as_deref() == Some(host.as_str()))
+                    .filter(|p| self.page_url(key).is_some_and(|u| u.origin() == p.origin()));
+                let urls: Vec<String> = shown.as_ref().map(|p| favicon::candidates(p, text)).unwrap_or_default().into_iter().map(String::from).collect();
+                let Some(page) = shown.filter(|_| !urls.is_empty() && self.favicons.is_requested(&profile, &host, ticket)) else {
+                    return self.favicons.withdraw(&profile, &host, ticket);
+                };
+                self.ask(key, Request::IconData(key, profile, host, ticket), "fetchIcon", json!({ "page": page.as_str(), "urls": urls }));
             }
-            Request::IconData(_, profile, host) => {
+            Request::IconData(_, profile, host, ticket) => {
                 let uri = png.as_deref().map(|p| Arc::from(favicon::data_uri(p)));
-                if self.favicons.accept(&profile, &host, uri)
+                if self.favicons.accept(&profile, &host, ticket, uri)
                     && let Some(png) = png.filter(|_| self.core.keeps_records(profile.0, profile.1))
                 {
                     self.core.store(profile.0).set_favicon(profile.1, &host, &png).ok();

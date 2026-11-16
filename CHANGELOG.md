@@ -21,9 +21,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   with stars, a crescent and an aurora in dark ones; New Design still reshapes the ridges (macOS,
   Windows, Linux, iOS, Android).
 - The sidebar opens with a space switcher, downloads and the profile's avatar; the selected tab is
-  an outlined row with its close button, pinned and sleeping tabs show a glyph, Clean Up is a
-  button beside New Tab Group and New Folder, and Library, the spaces, New Space and Settings sit
-  at the bottom (macOS, Windows, Linux).
+  an outlined row with its close button, pinned and sleeping tabs show a glyph, and Library, the
+  spaces, New Space and Settings sit at the bottom (macOS, Windows, Linux); Clean Up is a button
+  beside New Tab Group and New Folder (macOS, Windows).
 - The address field starts with a Shield chip that shows how much Shield stopped on the site and
   opens Site Settings; Split View and Share sit beside it, and Settings moved to the sidebar
   (macOS, Windows, Linux). On phones the address and the Shield chip sit in the bottom bar above

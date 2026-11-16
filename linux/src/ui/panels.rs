@@ -370,7 +370,6 @@ fn folder_panel(ui: Ui, id: store::Id) -> AnyElement {
         .into_element()
 }
 
-/// A menu row: the label's glyph, the label and its shortcut as key caps.
 pub(super) fn menu_row(name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
     crate::controls::row(name.to_owned(), press)
         .px_2()

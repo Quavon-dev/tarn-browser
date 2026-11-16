@@ -97,9 +97,6 @@ fn host_like(input: &str) -> Option<Url> {
     (has_tld || punycode_tld).then(|| Url::parse(&format!("https://{input}")).ok())?
 }
 
-/// The glyph (an icon file name in `crates/ui/icons`) for a command-bar or menu entry, by the
-/// label every client shows; labels match on their start, so "Reload in Chromium" takes
-/// "Reload". Entries without a glyph of their own show `command`.
 pub const GLYPHS: &[(&str, &str)] = &[
     ("Settings", "gear"),
     ("Site Settings", "shield"),
@@ -203,12 +200,10 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Classic Toolbar", "app-window"),
 ];
 
-/// The glyph for `label`: the longest entry of `GLYPHS` it starts with, else `command`.
 pub fn glyph(label: &str) -> &'static str {
     GLYPHS.iter().filter(|(start, _)| label.starts_with(start)).max_by_key(|(start, _)| start.len()).map_or("command", |(_, g)| g)
 }
 
-/// The kinds of command-bar rows, each under its own header.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
     Commands,
@@ -228,8 +223,6 @@ impl Section {
     }
 }
 
-/// The header above each row, in the rows' own order: a row whose kind differs from the row
-/// before it starts a section.
 pub fn section_headers(rows: &[Section]) -> Vec<Option<Section>> {
     rows.iter().enumerate().map(|(ix, s)| (ix == 0 || rows[ix - 1] != *s).then_some(*s)).collect()
 }

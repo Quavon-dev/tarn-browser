@@ -97,7 +97,6 @@ pub const PAUSE: &str = include_str!("../../crates/ui/icons/pause.svg");
 pub const STAR_FILL: &str = include_str!("../../crates/ui/icons/star-fill.svg");
 pub const MARK: &str = include_str!("../../crates/ui/brand/mark.svg");
 
-/// Every glyph by its file name, as the shared crates name them (`browser_core::command::glyph`).
 pub const NAMED: &[(&str, &str)] = &[
     ("app-window", APP_WINDOW),
     ("arrow-up-right", ARROW_UP_RIGHT),
@@ -195,12 +194,10 @@ pub const NAMED: &[(&str, &str)] = &[
     ("star-fill", STAR_FILL),
 ];
 
-/// The glyph a shared crate names, if this client has it.
 pub fn named(name: &str) -> Option<&'static str> {
     NAMED.iter().find(|(n, _)| *n == name).map(|(_, i)| *i)
 }
 
-/// The glyph a shared crate names, else the command glyph.
 pub fn glyph(name: &str) -> &'static str {
     named(name).unwrap_or(COMMAND)
 }

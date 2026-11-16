@@ -20,7 +20,6 @@ const HEADER: f32 = 52.;
 const ROW: f32 = 30.;
 const PAD: f32 = 6.;
 const GAP: f32 = 4.;
-/// How long Copy Link shows its check before the menu closes.
 const COPIED: Duration = Duration::from_millis(1200);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,7 +32,6 @@ enum Entry {
     Print,
 }
 
-/// The menu's groups, in order; a separator runs between groups.
 const GROUPS: [&[(Entry, &str)]; 3] = [
     &[(Entry::CopyLink, "Copy Link"), (Entry::CopyCleanLink, "Copy Clean Link"), (Entry::QrCode, "Show QR Code")],
     &[(Entry::More, "More…")],
@@ -49,11 +47,9 @@ fn height() -> f32 {
     HEADER + ROW * rows + PAD * 2. * GROUPS.len() as f32 + (GROUPS.len() - 1) as f32
 }
 
-/// The share menu's window and the toolbar button it drops from.
 #[derive(Default)]
 pub struct ShareMenu {
     window: Option<WindowHandle<ShareMenuWindow>>,
-    /// The toolbar's Share button, as last painted.
     pub(crate) anchor: Rc<Cell<Bounds<Pixels>>>,
     closed: Option<Instant>,
 }
@@ -67,8 +63,6 @@ impl Browser {
         }
     }
 
-    /// Opens the menu under the Share button, or under the end of the address field when the
-    /// button is hidden.
     fn show_share_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(key) = self.model.active else { return };
         let Some(url) = self.tab_url(key).filter(|u| !u.is_empty()) else { return };
@@ -96,10 +90,8 @@ impl Browser {
         });
     }
 
-    /// The system share picker for the active page, below the Share button or the address field.
-    pub(crate) fn system_share(&mut self, cx: &mut Context<Self>) {
-        let Some(url) = self.model.active.and_then(|key| self.tab_url(key)).filter(|u| !u.is_empty()) else { return };
-        let Some(host) = self.host.clone() else { return };
+    pub(crate) fn system_share(&mut self, url: String, cx: &mut Context<Self>) {
+        let Some(host) = self.host.clone().filter(|_| !url.is_empty()) else { return };
         let (button, field) = (self.share_menu.anchor.get(), self.address.field.get());
         let at = if button.size.width > px(0.) { button } else { field };
         let (x, y, w, h) = if at.size.width > px(0.) {
@@ -118,9 +110,7 @@ pub struct ShareMenuWindow {
     title: SharedString,
     url: SharedString,
     focus: FocusHandle,
-    /// The row the arrow keys moved to.
     selected: Option<usize>,
-    /// When Copy Link or Copy Clean Link copied, which then shows a check until the menu closes.
     copied: Option<Entry>,
     closing: bool,
     _activation: Subscription,
@@ -166,7 +156,6 @@ impl ShareMenuWindow {
         cx.notify();
     }
 
-    /// Closes the menu and runs `f` in the main window once it is active again.
     fn run(&mut self, window: &mut Window, cx: &mut Context<Self>, f: impl FnOnce(&mut Browser, &mut Window, &mut Context<Browser>) + 'static) {
         self.close(true, window, cx);
         if let Some(main) = self.main {
@@ -197,7 +186,10 @@ impl ShareMenuWindow {
                 .detach();
             }
             Entry::QrCode => self.run(window, cx, |b, w, cx| b.show_qr_code(w, cx)),
-            Entry::More => self.run(window, cx, |b, _, cx| b.system_share(cx)),
+            Entry::More => {
+                let url = self.url.to_string();
+                self.run(window, cx, move |b, _, cx| b.system_share(url, cx));
+            }
             Entry::SavePdf => self.run(window, cx, |b, _, cx| b.capture(false, cx)),
             Entry::Print => self.run(window, cx, |b, _, _| b.print()),
         }
@@ -257,7 +249,6 @@ impl ShareMenuWindow {
     }
 }
 
-/// The URL as the header shows it: without the scheme and a bare trailing slash.
 fn display_url(url: &str) -> String {
     let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
     rest.strip_suffix('/').unwrap_or(rest).to_owned()

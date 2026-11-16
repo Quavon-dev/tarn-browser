@@ -21,7 +21,6 @@ pub const PANES: [(Pane, &str); 8] = [
     (Pane::Shortcuts, "Shortcuts"),
 ];
 
-/// Settings' navigation in its groups: the person first, then the browser.
 pub const GROUPS: [(&str, &[Pane]); 2] = [
     ("You", &[Pane::Profile, Pane::Profiles]),
     ("Browser", &[Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Shortcuts]),

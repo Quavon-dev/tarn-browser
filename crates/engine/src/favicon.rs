@@ -1,4 +1,3 @@
-//! Site icons for every client (threat model S14). WebKit fetches them inside the tab, so content rules, proxy
 //! and user agent apply; the shell only picks same-site URLs, or another site's the page already
 //! loaded from, and decodes the bytes with limits.
 
@@ -21,9 +20,6 @@ pub const MAX_TRIES: u8 = 3;
 /// A stored icon older than this (in milliseconds) is fetched again, and kept if that fails.
 pub const MAX_AGE: i64 = 30 * 24 * 3_600_000;
 
-/// The host a page at `url` may fetch and store an icon for: https on the default port, since
-/// icons are keyed by host and a service on another port must not set the site's icon, and never
-/// under Lockdown.
 pub fn icon_host(url: &Url, lockdown: bool) -> Option<String> {
     url.host_str().filter(|_| url.scheme() == "https" && url.port().is_none() && !lockdown).map(|h| h.trim_end_matches('.').to_ascii_lowercase())
 }
@@ -76,8 +72,6 @@ pub fn candidates(page: &Url, links: &str) -> Vec<Url> {
     out
 }
 
-/// The icon URLs a web view component accepts from the shell for `fetchIcon`: https only, at
-/// most `MAX_CANDIDATES`.
 pub fn fetch_urls<'a>(urls: impl IntoIterator<Item = &'a str>) -> Vec<Url> {
     urls.into_iter().filter_map(|u| Url::parse(u).ok().filter(|u| u.scheme() == "https")).take(MAX_CANDIDATES).collect()
 }
@@ -132,18 +126,18 @@ pub fn normalize(encoded: &str) -> Option<Vec<u8>> {
     Some(png)
 }
 
-/// `png` as a `data:` URI, for shells that draw images from one.
 pub fn data_uri(png: &[u8]) -> String {
     format!("data:image/png;base64,{}", STANDARD.encode(png))
 }
 
-/// A shell's site icons in memory for profiles `P`, and the bookkeeping of fetches: one at a time a
-/// host, at most `MAX_TRIES` failures a session, stale icons fetched again and kept until a new one
-/// arrives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Ticket(u64);
+
 pub struct Tracker<P, I> {
     icons: HashMap<(P, String), I>,
     loaded: HashSet<P>,
-    requested: HashSet<(P, String)>,
+    requested: HashMap<(P, String), Ticket>,
+    tickets: u64,
     failures: HashMap<(P, String), u8>,
     stale: HashSet<(P, String)>,
     version: u64,
@@ -151,12 +145,19 @@ pub struct Tracker<P, I> {
 
 impl<P, I> Default for Tracker<P, I> {
     fn default() -> Self {
-        Self { icons: HashMap::new(), loaded: HashSet::new(), requested: HashSet::new(), failures: HashMap::new(), stale: HashSet::new(), version: 0 }
+        Self {
+            icons: HashMap::new(),
+            loaded: HashSet::new(),
+            requested: HashMap::new(),
+            tickets: 0,
+            failures: HashMap::new(),
+            stale: HashSet::new(),
+            version: 0,
+        }
     }
 }
 
 impl<P: Clone + Eq + Hash, I> Tracker<P, I> {
-    /// Reads a profile's stored icons and stale hosts with `read` the first time only.
     pub fn load(&mut self, profile: &P, read: impl FnOnce() -> (Vec<(String, I)>, Vec<String>)) {
         if !self.loaded.insert(profile.clone()) {
             return;
@@ -167,29 +168,35 @@ impl<P: Clone + Eq + Hash, I> Tracker<P, I> {
         self.version += 1;
     }
 
-    /// Whether to fetch `host`'s icon now; the request stays open until `accept` or `withdraw`.
-    pub fn request(&mut self, profile: &P, host: &str) -> bool {
+    pub fn request(&mut self, profile: &P, host: &str) -> Option<Ticket> {
         let key = (profile.clone(), host.to_owned());
         let fresh = self.icons.contains_key(&key) && !self.stale.contains(&key);
-        !fresh && self.failures.get(&key).copied().unwrap_or(0) < MAX_TRIES && self.requested.insert(key)
+        if fresh || self.failures.get(&key).copied().unwrap_or(0) >= MAX_TRIES || self.requested.contains_key(&key) {
+            return None;
+        }
+        self.tickets += 1;
+        let ticket = Ticket(self.tickets);
+        self.requested.insert(key, ticket);
+        Some(ticket)
     }
 
-    pub fn is_requested(&self, profile: &P, host: &str) -> bool {
-        self.requested.contains(&(profile.clone(), host.to_owned()))
+    pub fn is_requested(&self, profile: &P, host: &str, ticket: Ticket) -> bool {
+        self.requested.get(&(profile.clone(), host.to_owned())) == Some(&ticket)
     }
 
-    /// Ends a request that found nothing to fetch, without counting a failure.
-    pub fn withdraw(&mut self, profile: &P, host: &str) {
-        self.requested.remove(&(profile.clone(), host.to_owned()));
-    }
-
-    /// Ends a request with its icon, or a failure for `None`; false when nothing was kept, also
-    /// when the request was withdrawn or forgotten meanwhile.
-    pub fn accept(&mut self, profile: &P, host: &str, icon: Option<I>) -> bool {
+    pub fn withdraw(&mut self, profile: &P, host: &str, ticket: Ticket) {
         let key = (profile.clone(), host.to_owned());
-        if !self.requested.remove(&key) {
+        if self.requested.get(&key) == Some(&ticket) {
+            self.requested.remove(&key);
+        }
+    }
+
+    pub fn accept(&mut self, profile: &P, host: &str, ticket: Ticket, icon: Option<I>) -> bool {
+        let key = (profile.clone(), host.to_owned());
+        if self.requested.get(&key) != Some(&ticket) {
             return false;
         }
+        self.requested.remove(&key);
         let Some(icon) = icon else {
             *self.failures.entry(key).or_default() += 1;
             return false;
@@ -200,7 +207,6 @@ impl<P: Clone + Eq + Hash, I> Tracker<P, I> {
         true
     }
 
-    /// The host's icon, else the nearest one `lookup_hosts` allows.
     pub fn find(&self, profile: &P, host: &str) -> Option<&I> {
         let host = host.trim_end_matches('.').to_ascii_lowercase();
         if let Some(icon) = self.icons.get(&(profile.clone(), host.clone())) {
@@ -209,22 +215,19 @@ impl<P: Clone + Eq + Hash, I> Tracker<P, I> {
         lookup_hosts(&host).into_iter().skip(1).find_map(|host| self.icons.get(&(profile.clone(), host)))
     }
 
-    /// The profile's icons by host.
     pub fn icons<'a>(&'a self, profile: &'a P) -> impl Iterator<Item = (&'a str, &'a I)> {
         self.icons.iter().filter(move |((p, _), _)| p == profile).map(|((_, host), icon)| (host.as_str(), icon))
     }
 
-    /// Forgets a profile after its history is cleared or its data deleted; the next `load` reads it again.
     pub fn forget(&mut self, profile: &P) {
         self.icons.retain(|(p, _), _| p != profile);
-        self.requested.retain(|(p, _)| p != profile);
+        self.requested.retain(|(p, _), _| p != profile);
         self.failures.retain(|(p, _), _| p != profile);
         self.stale.retain(|(p, _)| p != profile);
         self.loaded.remove(profile);
         self.version += 1;
     }
 
-    /// Changes whenever the icons do.
     pub fn version(&self) -> u64 {
         self.version
     }
@@ -358,29 +361,44 @@ mod tests {
         let mut t: Tracker<u8, &str> = Tracker::default();
         t.load(&1, || (vec![("old.test".to_owned(), "old"), ("a.test".to_owned(), "a")], vec!["old.test".to_owned()]));
         t.load(&1, || panic!("read once"));
-        assert!(!t.request(&1, "a.test"), "fresh icons are not fetched");
-        assert!(t.request(&1, "old.test") && !t.request(&1, "old.test"), "one fetch at a time");
-        assert!(!t.accept(&1, "old.test", None));
+        assert!(t.request(&1, "a.test").is_none(), "fresh icons are not fetched");
+        let old = t.request(&1, "old.test").unwrap();
+        assert!(t.request(&1, "old.test").is_none(), "one fetch at a time");
+        assert!(!t.accept(&1, "old.test", old, None));
         assert_eq!(t.find(&1, "old.test"), Some(&"old"), "a stale icon stays until a new one arrives");
-        assert!(t.request(&1, "old.test") && t.accept(&1, "old.test", Some("new")));
-        assert!(!t.request(&1, "old.test"));
+        let old = t.request(&1, "old.test").unwrap();
+        assert!(t.accept(&1, "old.test", old, Some("new")));
+        assert!(t.request(&1, "old.test").is_none());
         for _ in 0..MAX_TRIES {
-            assert!(t.request(&1, "b.test"));
-            t.accept(&1, "b.test", None);
+            let b = t.request(&1, "b.test").unwrap();
+            t.accept(&1, "b.test", b, None);
         }
-        assert!(!t.request(&1, "b.test"), "gives up after MAX_TRIES failures");
-        assert!(t.request(&1, "c.test"));
-        t.withdraw(&1, "c.test");
-        assert!(t.request(&1, "c.test"), "a withdrawn request counts no failure");
+        assert!(t.request(&1, "b.test").is_none(), "gives up after MAX_TRIES failures");
+        let c = t.request(&1, "c.test").unwrap();
+        t.withdraw(&1, "c.test", c);
+        assert!(t.request(&1, "c.test").is_some(), "a withdrawn request counts no failure");
         assert_eq!(t.find(&1, "news.a.test"), Some(&"a"));
         assert_eq!(t.find(&2, "a.test"), None, "per profile");
         let version = t.version();
+        let late = t.is_requested(&1, "c.test", c);
         t.forget(&1);
-        assert!(t.version() > version && t.find(&1, "a.test").is_none() && t.icons(&1).next().is_none());
-        assert!(!t.accept(&1, "c.test", Some("late")), "a forgotten request keeps nothing");
-        assert!(t.request(&1, "b.test"), "forgetting resets failures");
+        assert!(!late && t.version() > version && t.find(&1, "a.test").is_none() && t.icons(&1).next().is_none());
+        assert!(t.request(&1, "b.test").is_some(), "forgetting resets failures");
         t.load(&1, || (vec![("a.test".to_owned(), "a")], Vec::new()));
         assert_eq!(t.icons(&1).collect::<Vec<_>>(), [("a.test", &"a")]);
         assert!(data_uri(&[1, 2]).starts_with("data:image/png;base64,AQI"));
+    }
+
+    #[test]
+    fn an_answer_ends_only_the_request_it_belongs_to() {
+        let mut t: Tracker<u8, &str> = Tracker::default();
+        let before = t.request(&1, "a.test").unwrap();
+        t.forget(&1);
+        let after = t.request(&1, "a.test").unwrap();
+        t.withdraw(&1, "a.test", before);
+        assert!(!t.accept(&1, "a.test", before, Some("old")), "a request from before a clear keeps nothing");
+        assert!(t.is_requested(&1, "a.test", after));
+        assert!(t.accept(&1, "a.test", after, Some("new")));
+        assert_eq!(t.find(&1, "a.test"), Some(&"new"));
     }
 }

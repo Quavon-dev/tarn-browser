@@ -480,7 +480,6 @@ fn list(b: &Browser, cx: &mut Context<Browser>) -> Stateful<Div> {
         .child(ephemeral(b, cx))
 }
 
-/// The space switcher: the space's glyph on a tile, its name and a chevron; a click opens the space menu.
 fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let (space_id, space_name) = b.model.current_space().map_or((0, String::new()), |s| (s.space.id, s.space.name.clone()));
     let glyph = b.model.current_space().map(|s| match (s.private, space_tint(s)) {
@@ -523,7 +522,6 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .child(icon(Icon::ChevronDown, 14., Theme::muted()))
 }
 
-/// The current profile's colour and initial; in the private space its hand (or the burner's flame).
 fn profile_avatar(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let private = b.model.current_space().is_some_and(|s| s.private);
     let loaded = b.current_loaded();
@@ -805,8 +803,6 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
     })
 }
 
-/// What a row shows at its end while the pointer is elsewhere: a sleeping tab's moon, else a
-/// pinned tab's pin. `busy` rows show a button there instead.
 fn state_glyph(t: &Tab, asleep: bool, busy: bool) -> Option<impl IntoElement> {
     let glyph = match (asleep, t.kind) {
         _ if busy => return None,

@@ -73,8 +73,6 @@ pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>
     }
 }
 
-/// An image beside a menu entry: a PNG such as a site icon, a PNG glyph drawn in the menu's text
-/// colour, an SF Symbol, or a dot in an RGB colour.
 pub enum Image {
     Png(Vec<u8>),
     Template(Vec<u8>),

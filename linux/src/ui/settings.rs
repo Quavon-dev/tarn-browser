@@ -46,7 +46,6 @@ fn flip(ui: Ui) {
     act(ui, |_| {});
 }
 
-/// The card's face; it is drawn again when the theme changes between light and dark.
 fn shield_card(ui: Ui, card: Card) -> AnyElement {
     super::themed(move || {
         let flipped = ui.card_back.get_untracked();
@@ -64,7 +63,6 @@ fn shield_card(ui: Ui, card: Card) -> AnyElement {
     })
 }
 
-/// Saves the card's front as a PNG where the person chooses.
 fn save_card(ui: Ui, card: Card) {
     let svg = front_svg(&card, true, !Theme::is_light());
     let Some(png) = card_png(&svg) else {
@@ -83,7 +81,6 @@ fn save_card(ui: Ui, card: Card) {
     });
 }
 
-/// `svg` drawn at three times its size by the desktop's image loaders.
 fn card_png(svg: &str) -> Option<Vec<u8>> {
     use webkit6::prelude::*;
     use webkit6::{gdk, glib};
@@ -320,7 +317,6 @@ fn nav(ui: Ui, current: Pane) -> View {
     out
 }
 
-/// Settings: a sheet centred over the page with the grouped navigation and the pane.
 pub fn settings_panel(ui: Ui) -> AnyElement {
     let pane = ui.settings_pane.get_untracked();
     let body = pane_body(ui, pane).unwrap_or_else(|| view().flex_col());

@@ -25,7 +25,6 @@ pub fn secure_button(id: impl Into<ElementId>, text: impl Into<SharedString>, pr
         .when(!primary, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
 }
 
-/// A borderless button on a security surface, for the quietest answer, such as Deny.
 pub fn secure_ghost_button(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
     pill(id, text, false, (Secure::surface(), Secure::surface()), Secure::text())
         .font_family(SYSTEM_FONT)
@@ -59,14 +58,12 @@ pub fn key_hint(text: impl Into<SharedString>) -> Div {
     div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(keys(&text.into()))
 }
 
-/// A shortcut's keys one by one as the platform writes them, for key caps: `⇧⌘S` is `⇧`, `⌘`,
-/// `S`; on Windows `Ctrl+Shift+S` is `Ctrl`, `Shift`, `S`.
 pub fn key_caps(glyphs: &str) -> Vec<String> {
     keys(glyphs)
         .split(' ')
         .flat_map(|chord| {
             if cfg!(windows) {
-                return chord.split('+').filter(|k| !k.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+                return windows_caps(chord);
             }
             let mods = chord.chars().take_while(|c| "⌃⌥⇧⌘".contains(*c));
             let rest: String = chord.chars().skip_while(|c| "⌃⌥⇧⌘".contains(*c)).collect();
@@ -75,7 +72,14 @@ pub fn key_caps(glyphs: &str) -> Vec<String> {
         .collect()
 }
 
-/// One key of a shortcut on a small cap.
+fn windows_caps(chord: &str) -> Vec<String> {
+    let mut caps: Vec<String> = chord.split('+').filter(|k| !k.is_empty()).map(str::to_owned).collect();
+    if chord.ends_with('+') {
+        caps.push("+".to_owned());
+    }
+    caps
+}
+
 pub fn key_cap(key: impl Into<SharedString>) -> Div {
     div()
         .h(px(18.))
@@ -219,12 +223,9 @@ pub fn switch(on: bool) -> Div {
 }
 
 thread_local! {
-    /// Each sliding switch's last state and how often it changed, so a switch slides when it
-    /// flips and not when it first appears.
     static SWITCHES: RefCell<std::collections::HashMap<ElementId, (bool, u64)>> = RefCell::default();
 }
 
-/// `switch` whose knob slides to its new side (`POP`) when `on` changes, unless motion is reduced.
 pub fn sliding_switch(id: impl Into<ElementId>, on: bool) -> gpui::AnyElement {
     let id = id.into();
     let flips = SWITCHES.with(|s| {
@@ -615,6 +616,13 @@ pub fn note(text: impl Into<SharedString>) -> Div {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_chords_keep_a_plus_key() {
+        assert_eq!(super::windows_caps("Ctrl++"), ["Ctrl", "+"]);
+        assert_eq!(super::windows_caps("Ctrl+Shift+S"), ["Ctrl", "Shift", "S"]);
+        assert_eq!(super::windows_caps("+"), ["+"]);
+    }
+
     #[test]
     fn shortcuts_split_into_one_cap_per_key() {
         if cfg!(windows) {

@@ -58,7 +58,6 @@ pub struct SitePopover {
     /// The shield button, as last painted.
     pub(crate) anchor: Rc<Cell<Bounds<Pixels>>>,
     closed: Option<Instant>,
-    /// "More site settings" is open.
     more: bool,
 }
 
@@ -93,17 +92,12 @@ pub fn permission_rows(stored: Vec<(String, String, String)>, page: &str) -> Vec
     rows.into_iter().map(|(_, row)| row).collect()
 }
 
-/// The list holds pop-ups, mute, dark mode, zoom and each remembered permission; `more` is the
-/// open "More site settings" part: whether the site can be routed to a space and how many hidden
-/// elements it lists under the CSS row.
 fn card_height(permissions: usize, more: Option<(bool, usize)>) -> f32 {
     let list = ROW * (4 + permissions) as f32 + 2.;
     let more = more.map_or(0., |(routable, zaps)| GAP + ROW * (1 + usize::from(routable) + zaps) as f32);
     HEADER + SUMMARY + SHIELD + list + more + FOOTER + PAD
 }
 
-/// A switch's id for the setting it shows (`scope` names the profile, site or tab it belongs to),
-/// so it slides only when that setting flips.
 fn setting_id(name: &'static str, scope: String) -> gpui::ElementId {
     gpui::ElementId::NamedChild(Box::new(name.into()), SharedString::from(scope))
 }
@@ -264,13 +258,10 @@ impl Browser {
         }
     }
 
-    /// What Shield stopped on the site `url` belongs to, in the tab's profile.
     pub(crate) fn site_stopped(&self, key: TabKey, url: &Url) -> i64 {
         self.profile_of(key).map_or(0, |profile_id| self.core.site_stopped(key.private, profile_id, url))
     }
 
-    /// Opens the popover under the shield button, or under the toolbar's centre when it is hidden;
-    /// `again` opens it in place of one that just closed, without its entrance.
     fn show_site_settings(&mut self, again: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(main) = window.window_handle().downcast::<Browser>() else { return };
         let Some((key, url)) = self.site() else { return };
@@ -319,9 +310,7 @@ pub struct SiteSettingsWindow {
     css_error: Option<String>,
     /// A native menu is open; it takes activation from the card without closing it.
     holding: bool,
-    /// Opened in place of the card it replaces, so it shows at once.
     again: bool,
-    /// The "Always open in" and pop-ups buttons, as last painted, so their menus drop from them.
     route_anchor: Rc<Cell<Bounds<Pixels>>>,
     popups_anchor: Rc<Cell<Bounds<Pixels>>>,
     _subscriptions: Vec<Subscription>,
@@ -434,7 +423,6 @@ impl SiteSettingsWindow {
         cx.defer(move |cx| drop(main.update(cx, f)));
     }
 
-    /// Opens or closes "More site settings": the card reopens at its new height in place.
     fn toggle_more(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.closing = true;
         window.remove_window();
@@ -533,7 +521,6 @@ impl SiteSettingsWindow {
             .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(browser_core::shield_card::site_level_line(site, default)))
     }
 
-    /// A row of the grouped list: its glyph, its label, then its control.
     fn item(first: bool, glyph: Icon, label: impl Into<SharedString>) -> gpui::Div {
         row(first)
             .h(px(ROW))
@@ -589,7 +576,6 @@ impl SiteSettingsWindow {
             .child(tab_stop(button("zoom-reset", "Reset", false)).on_click(cx.listener(|this, _, _, cx| this.on_main(cx, |b, _, cx| b.zoom(None, cx)))))
     }
 
-    /// A select: a button showing the current choice that opens a native menu of `choices` below it.
     fn select<T: Copy + PartialEq + 'static>(
         &self,
         id: &'static str,
@@ -682,8 +668,6 @@ impl SiteSettingsWindow {
         )
     }
 
-    /// "More site settings ›" on the left, "Clear site data…" in the danger colour on the right; a
-    /// first click on the latter arms it.
     fn footer(&self, more: bool, armed: bool, key: TabKey, host: String, cx: &mut Context<Self>) -> gpui::Div {
         let link = |id: &'static str, text: &'static str, color| {
             tab_stop(div().id(id).flex().items_center().gap_1().px_1().rounded(px(Theme::radius_small())).cursor_pointer().text_color(color))

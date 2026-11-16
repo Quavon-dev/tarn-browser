@@ -187,7 +187,7 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
 }
 
 /// (private, profile id, host): site icons belong to a profile like the rest of its data.
-type IconKey = (bool, Id, String);
+type IconKey = ((bool, Id), String, favicon::Ticket);
 
 pub struct Browser {
     pub(crate) core: Rc<crate::shared::AppCore>,
@@ -3009,10 +3009,9 @@ impl Browser {
         let (Some(profile_id), Some(host)) = (self.profile_of(key), favicon::icon_host(url, lockdown)) else { return };
         self.load_favicons(key.private, profile_id);
         let Some(view) = self.views.get(&key) else { return };
-        if !self.favicons.request(&(key.private, profile_id), &host) {
-            return;
-        }
-        let icon = (key.private, profile_id, host);
+        let profile = (key.private, profile_id);
+        let Some(ticket) = self.favicons.request(&profile, &host) else { return };
+        let icon = (profile, host, ticket);
         let (events, page) = (self.events.clone(), url.clone());
         view.icon_links(url, move |links| {
             events.unbounded_send(Msg::IconLinks(key, icon.clone(), page.clone(), links)).ok();
@@ -3022,9 +3021,9 @@ impl Browser {
     fn fetch_favicon(&mut self, key: TabKey, icon: IconKey, page: &Url, links: &str) {
         let urls = favicon::candidates(page, links);
         let still_there = |v: &&Rc<WebView>| v.url().is_some_and(|u| u.origin() == page.origin());
-        let view = self.views.get(&key).filter(still_there).filter(|_| !urls.is_empty() && self.favicons.is_requested(&(icon.0, icon.1), &icon.2));
+        let view = self.views.get(&key).filter(still_there).filter(|_| !urls.is_empty() && self.favicons.is_requested(&icon.0, &icon.1, icon.2));
         let Some(view) = view else {
-            self.favicons.withdraw(&(icon.0, icon.1), &icon.2);
+            self.favicons.withdraw(&icon.0, &icon.1, icon.2);
             return;
         };
         let events = self.events.clone();
@@ -3037,13 +3036,13 @@ impl Browser {
         cx.spawn(async move |this, cx| {
             let png = cx.background_spawn(async move { favicon::normalize(&data) }).await;
             this.update(cx, |b, cx| {
-                let (profile, host) = ((icon.0, icon.1), icon.2);
+                let (profile, host, ticket) = icon;
                 // A history clear while the icon was loading withdraws the request.
-                let wanted = b.favicons.is_requested(&profile, &host);
+                let wanted = b.favicons.is_requested(&profile, &host, ticket);
                 if let Some(png) = png.as_ref().filter(|_| wanted && b.core.keeps_records(profile.0, profile.1)) {
                     b.store(profile.0).set_favicon(profile.1, &host, png).ok();
                 }
-                if b.favicons.accept(&profile, &host, png.map(|png| Arc::new(Image::from_bytes(ImageFormat::Png, png)))) {
+                if b.favicons.accept(&profile, &host, ticket, png.map(|png| Arc::new(Image::from_bytes(ImageFormat::Png, png)))) {
                     b.favicon_memo.take();
                     cx.notify();
                 }

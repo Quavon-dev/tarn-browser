@@ -22,17 +22,12 @@ const WIDTH: f32 = 640.;
 const INPUT_ROW: f32 = 52.;
 const FOOTER: f32 = 36.;
 const PAD: f32 = 6.;
-/// The palette's room from the content area's sides and bottom.
 const MARGIN: f32 = 16.;
 const DIM: f32 = 0.35;
 
-/// The command palette over the page while the address field is open: a pop-up window holding
-/// the field's text and the suggestions, over another that dims the page, since GPUI cannot draw
-/// over the web view. The field itself stays in the toolbar with the keyboard focus.
 #[derive(Default)]
 pub struct Address {
     opened: Option<Instant>,
-    /// The toolbar, the resting address field, its slot and the content area, as last painted.
     pub(crate) bar: Rc<Cell<Bounds<Pixels>>>,
     pub(crate) field: Rc<Cell<Bounds<Pixels>>>,
     pub(crate) slot: Rc<Cell<Bounds<Pixels>>>,
@@ -49,7 +44,6 @@ struct Popups {
 }
 
 impl Address {
-    /// Closes the palette and the dim, fading them out unless motion is reduced.
     fn close(&mut self, reduce: bool, cx: &mut App) {
         self.placed = None;
         let Some(popup) = self.popup.take() else { return };
@@ -73,8 +67,6 @@ pub fn measure(cell: Rc<Cell<Bounds<Pixels>>>) -> impl IntoElement {
     canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| {}).absolute().inset_0()
 }
 
-/// The palette's frame in the window for a content area and a list `list` points high: centred,
-/// a seventh of the way down, narrower and shorter where the area is small.
 fn palette_frame(content: Bounds<Pixels>, list: f32) -> Bounds<Pixels> {
     let (x, y, w, h) = (f32::from(content.origin.x), f32::from(content.origin.y), f32::from(content.size.width), f32::from(content.size.height));
     let width = WIDTH.min(w - 2. * MARGIN).max(0.);
@@ -88,7 +80,6 @@ impl Browser {
         self.command_mode.is_some() && self.address.opened.is_some() && self.model.active.is_some()
     }
 
-    /// Opens the palette over the page. A click anywhere else in the window closes it.
     pub(crate) fn open_inline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.address.opened.is_some() {
             return;
@@ -122,8 +113,6 @@ impl Browser {
         self.address.close(reduce, cx);
     }
 
-    /// Where the palette shows the field's text, in this window: the hidden field sits there, so
-    /// the input method's candidate window opens next to the text the person sees.
     pub(crate) fn palette_field(&self) -> Option<Bounds<Pixels>> {
         let content = self.address.content.get();
         (self.inline_editing() && content.size.width > px(0.)).then(|| {
@@ -134,14 +123,12 @@ impl Browser {
         })
     }
 
-    /// Height of the palette's list: its rows and section headers, up to `SHOWN_SUGGESTIONS` rows.
     fn palette_list(&self) -> f32 {
         let shown = &self.suggestions[..self.suggestions.len().min(SHOWN_SUGGESTIONS)];
         let headers: f32 = crate::content::sections(shown).iter().flatten().map(|_| SECTION_HEADER).sum();
         if shown.is_empty() { 0. } else { PAD * 2. + SUGGESTION_ROW * shown.len() as f32 + headers }
     }
 
-    /// Keeps the palette over the content area, sized to its rows, and the dim over the page.
     pub(crate) fn sync_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let content = self.address.content.get();
         if !self.inline_editing() {
@@ -159,7 +146,6 @@ impl Browser {
                 (f32::from(b.origin.x).into(), f32::from(b.origin.y).into(), f32::from(b.size.width).into(), f32::from(b.size.height).into())
             };
             let (p, d) = (rect(frame), rect(content));
-            // GPUI handles the resize this causes only outside an update, so the frames are set from a task.
             cx.spawn(async move |_, _| {
                 host.place(&dim, d.0, d.1, d.2, d.3);
                 host.place(&palette, p.0, p.1, p.2, p.3);
@@ -222,7 +208,6 @@ impl Browser {
     }
 }
 
-/// The dim over the page while the palette is open; a click on it closes the palette.
 pub struct Dim {
     main: WindowHandle<Browser>,
     reduce: bool,
@@ -252,9 +237,6 @@ impl Render for Dim {
     }
 }
 
-/// The palette: the field's text at the top, the suggestions by section, and key hints. It never
-/// takes keyboard focus; the field in the main window keeps it, and a click picks a row on
-/// mouse-down.
 pub struct Palette {
     browser: WeakEntity<Browser>,
     main: WindowHandle<Browser>,
@@ -361,7 +343,6 @@ impl Render for Palette {
     }
 }
 
-/// The section header above a palette row, in faint bold capitals.
 pub(crate) fn section_header(title: &'static str) -> AnyElement {
     div()
         .h(px(SECTION_HEADER))

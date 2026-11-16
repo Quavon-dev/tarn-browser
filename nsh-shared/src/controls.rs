@@ -129,7 +129,6 @@ pub fn secure_button(name: impl Into<String>, press: impl Fn() + 'static, primar
     .child(if primary { text.font_weight(FontWeight::MEDIUM) } else { text })
 }
 
-/// A borderless secure button: the quiet answer of a prompt (Deny).
 pub fn secure_ghost(name: impl Into<String>, press: impl Fn() + 'static) -> ButtonElement {
     let name: String = name.into();
     let m = metrics();
@@ -204,7 +203,6 @@ pub fn switch_row(name: impl Into<String>, on: impl Fn() -> bool + Copy + 'stati
     switch_with(None, name.into(), on, toggle)
 }
 
-/// A switch row of a grouped list, with the row's glyph before its name.
 pub fn glyph_switch(glyph: &'static str, name: impl Into<String>, on: impl Fn() -> bool + Copy + 'static, toggle: impl Fn() + 'static) -> ButtonElement {
     switch_with(Some(glyph), name.into(), on, toggle)
 }
@@ -258,12 +256,9 @@ fn switch_with(glyph: Option<&'static str>, name: String, on: impl Fn() -> bool 
         )
 }
 
-/// A grouped list's leading glyph size.
 pub const GLYPH: f32 = 15.;
-/// The size of a section label in capitals.
 pub const CAPS: f32 = 10.5;
 
-/// A grouped list's row: its glyph and name; the caller adds what follows (a value, a control).
 pub fn glyph_row(glyph: &'static str, name: impl Into<String>) -> View {
     view()
         .flex_row()
@@ -275,12 +270,10 @@ pub fn glyph_row(glyph: &'static str, name: impl Into<String>) -> View {
         .child(label(name.into()).flex_1())
 }
 
-/// A label in faint bold capitals over a group or a list section.
 pub fn caps_label(name: &str) -> Text {
     text(name.to_uppercase()).text_size(px(CAPS)).font_weight(FontWeight::BOLD).text_color(Theme::faint).px_1()
 }
 
-/// The keys of a shortcut as the desktop clients write it (`Ctrl+Shift+Y`, `Ctrl++`).
 pub fn keys_of(shortcut: &str) -> Vec<String> {
     let (body, plus) = match shortcut.strip_suffix("++") {
         Some(rest) => (rest, true),
@@ -289,7 +282,6 @@ pub fn keys_of(shortcut: &str) -> Vec<String> {
     body.split('+').filter(|k| !k.is_empty()).map(str::to_owned).chain(plus.then(|| "+".to_owned())).collect()
 }
 
-/// A shortcut drawn as key caps.
 pub fn key_caps(shortcut: &str) -> View {
     let caps: Vec<AnyElement> = keys_of(shortcut)
         .into_iter()
@@ -311,12 +303,10 @@ pub fn key_caps(shortcut: &str) -> View {
     view().flex_row().items_center().gap(px(3.)).accessibility_elements_hidden(true).children(caps)
 }
 
-/// A key cap and what the key does, for a footer of hints (`↵ Run`).
 pub fn key_hint(key: &str, does: &str) -> View {
     view().flex_row().items_center().gap(px(5.)).child(key_caps(key)).child(text(does.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::faint))
 }
 
-/// A round avatar: the profile's initial in its colour.
 pub fn avatar(initial: String, fill: Rgba, size: f32) -> View {
     view()
         .w(px(size))
@@ -329,7 +319,6 @@ pub fn avatar(initial: String, fill: Rgba, size: f32) -> View {
         .child(text(initial).text_size(px((size * 0.5).round())).font_weight(FontWeight::BOLD).text_color(Theme::on_fill(fill)))
 }
 
-/// A site's icon (a `data:` or file URI), else its initial on the site's colour.
 pub fn site_tile(icon: Option<String>, host: &str, size: f32) -> View {
     let tile = view().w(px(size)).h(px(size)).flex_none().rounded(px(size * 0.28)).overflow_hidden().items_center().justify_center();
     if let Some(icon) = icon {
@@ -359,7 +348,6 @@ pub fn group() -> View {
     view().flex_col().rounded(px(Theme::radius_group())).bg(Theme::panel_row).border_1().border_color(Theme::surface_edge)
 }
 
-/// A rounded square holding a glyph: command rows, prompts, downloads, share and site headers.
 pub fn glyph_tile(source: &str, size: f32, fill: impl Fn() -> Rgba + 'static, color: impl Fn() -> Rgba + 'static) -> View {
     view()
         .w(px(size))

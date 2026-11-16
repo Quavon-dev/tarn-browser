@@ -13,7 +13,6 @@ pub const REOPEN_GUARD: Duration = Duration::from_millis(300);
 
 static REDUCE: AtomicBool = AtomicBool::new(false);
 
-/// Records the Reduce Motion setting for controls drawn without the browser at hand.
 pub fn set_reduced(reduce: bool) {
     REDUCE.store(reduce, Ordering::Relaxed);
 }
@@ -57,8 +56,6 @@ pub fn pop_out<E: Styled>(element: E, t: f32) -> E {
     element.opacity(1. - t).relative().top(px(t * 5.))
 }
 
-/// A pop-up card's motion: in, it fades in while rising a few points (`POP`); while `closing`,
-/// it fades out while sinking as far over `EXIT`, as long as its window waits before it goes.
 pub fn popover_motion<E: Styled + IntoElement + 'static>(element: E, id: &'static str, closing: bool, reduce: bool) -> AnyElement {
     if closing {
         animate(element, (id, 1u64), EXIT, reduce, |e, t| e.opacity(1. - t).top(px(5. * t)))

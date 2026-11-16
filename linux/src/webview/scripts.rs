@@ -62,7 +62,8 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
         }
         "fetchIcon" => {
             let urls = favicon::fetch_urls(args["urls"].as_array().into_iter().flatten().filter_map(|u| u.as_str()));
-            let body = page.as_ref().filter(|_| !urls.is_empty()).and_then(|p| page_scripts::fetch_icon_script(p, &urls, favicon::MAX_BYTES));
+            let asked = args["page"].as_str().and_then(|p| Url::parse(p).ok());
+            let body = asked.filter(|_| !urls.is_empty()).and_then(|p| page_scripts::fetch_icon_script(&p, &urls, favicon::MAX_BYTES));
             run(state, body, move |s, url, text| s.emit("iconData", json!({ "seq": seq, "url": url, "text": text })));
         }
         "pick" => run(state, Some(PICKER.to_owned()), move |s, url, selector| s.emit("picked", json!({ "seq": seq, "url": url, "selector": selector }))),
