@@ -83,8 +83,12 @@ replaces it, the pre-release is missing for the minutes its upload takes.
 ## Signing in CI
 
 `release.yml`'s `build` job builds the macOS bundle unsigned (`TARN_SIGN_IDENTITY=none`). The
-`sign` job, which runs no build code, enters the `release-signing` environment (`nightly-signing`
-for nightly builds) and:
+`fuzz` job builds the fuzz targets of the exact commit being released with the ClusterFuzzLite
+image and runs each one for 60 seconds under AddressSanitizer from its seeds; a crashing input is
+uploaded as the `fuzz-crashes` artifact. Every release path (tag, Start release, engine update,
+nightly) goes through it, and `sign` does not start unless it passed. The `sign` job, which runs
+no build code, enters the `release-signing` environment (`nightly-signing` for nightly builds)
+and:
 
 1. imports the Developer ID certificate into a temporary keychain with a random password, stores the
    notary API key as the notarytool profile `tarn-notary` in it and writes the update key to a file
