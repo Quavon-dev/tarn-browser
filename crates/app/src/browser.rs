@@ -143,6 +143,10 @@ pub(crate) fn data_dir() -> PathBuf {
 /// Purges Chromium's data when its owner is gone or a purge is pending; before CEF starts or once it is gone.
 #[cfg(feature = "chromium")]
 pub(crate) fn prepare_chromium(core: &Core) {
+    // An in-memory stand-in knows none of the real profiles, which would make Chromium's owner an orphan.
+    if !core.disk.on_disk() {
+        return;
+    }
     if let Ok(profiles) = core.disk.profiles() {
         let live: Vec<String> = profiles.into_iter().filter(|p| p.shield_level != ShieldLevel::Lockdown).map(|p| p.data_store_uuid).collect();
         engine::chromium_owner::prepare(&data_dir().join("Chromium"), &live);
