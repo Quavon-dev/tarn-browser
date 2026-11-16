@@ -221,7 +221,10 @@ fn switch_with(glyph: Option<&'static str>, name: String, on: impl Fn() -> bool 
         .selected(on)
         .hover(|s| s.bg(Theme::hover()))
         .active(|s| s.bg(Theme::pressed()))
-        .on_press(toggle)
+        .on_press(move || {
+            crate::motion::animate_next(crate::motion::POP);
+            toggle();
+        })
         .gap(px(10.))
         .children(glyph.map(|g| view().text_color(Theme::muted).child(icons::icon(g, GLYPH))))
         .child(label(name).flex_1())

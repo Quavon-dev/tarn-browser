@@ -16,9 +16,10 @@ use nsh_core::JsonValue;
 use nsh_core::desktop::{WindowAttributes, WindowPlacement};
 use nsh_core::element::desktop::{WindowRef, current_window, main_window, open_window, quit, window};
 use nsh_core::prelude::*;
-use nsh_core::{LayoutAnimation, LayoutCurve, LayoutTransition};
+use nsh_core::{LayoutCurve, LayoutTransition};
 use nsh_core::{Points, Size};
 use serde_json::json;
+use tarn_nsh_shared::motion::{POP, SLIDE, animate_next};
 
 use crate::browser::{Browser, Notice, START_URL};
 use crate::controls::{self, body, icon_button, label, pill, row, small};
@@ -257,7 +258,14 @@ pub(super) fn confirmed(ui: Ui, id: String, name: &'static str, run: impl Fn() +
     })
 }
 
+/// `act` with the rows' layout animated: tabs opening or closing grow and shrink.
+fn act_moving(ui: Ui, f: impl FnOnce(&mut Browser)) {
+    animate_next(POP);
+    act(ui, f);
+}
+
 fn new_tab(ui: Ui) {
+    animate_next(POP);
     ui.panel.set(Panel::None);
     act(ui, |b| {
         b.new_tab(START_URL);
@@ -398,7 +406,10 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
                             .ml(move || px(-CLOSE_GAP * (1. - shown())))
                             .opacity(shown)
                             .transition_opacity()
-                            .child(icon_button(icons::CLOSE, "Close tab", move || act(ui, |b| b.close_tab(key))))
+                            .child(icon_button(icons::CLOSE, "Close tab", move || {
+                                animate_next(POP);
+                                act(ui, |b| b.close_tab(key));
+                            }))
                     });
                     let hover = move |on: bool| {
                         if !pinned && !reduce_motion() {
@@ -543,20 +554,23 @@ fn space_bar(ui: Ui) -> View {
             let (ix, icon, name, private, color) = space.with_untracked(|s| (s.ix, s.icon.clone(), s.label.clone(), s.private, s.color.clone()));
             let source = if private { icons::PERSON } else { icons::space_icon(&icon) };
             let current = move || space.with(|s| s.current);
-            controls::row(name, move || act(ui, |b| b.switch_space_by_user(ix)))
-                .w(px(SPACE_BUTTON))
-                .h(px(SPACE_BUTTON))
-                .flex_none()
-                .px_0()
-                .justify_center()
-                .rounded(px(Theme::radius_row()))
-                .bg(move || if current() { Theme::selected() } else { Theme::clear() })
-                .text_color(move || match (current(), private) {
-                    (true, true) => Theme::warning(),
-                    (true, false) => space_tint(&color, 1.).unwrap_or(Theme::text()),
-                    (false, _) => space_tint(&color, 0.45).unwrap_or(Theme::faint()),
-                })
-                .child(icons::icon(source, 13.))
+            controls::row(name, move || {
+                animate_next(SLIDE);
+                act(ui, |b| b.switch_space_by_user(ix));
+            })
+            .w(px(SPACE_BUTTON))
+            .h(px(SPACE_BUTTON))
+            .flex_none()
+            .px_0()
+            .justify_center()
+            .rounded(px(Theme::radius_row()))
+            .bg(move || if current() { Theme::selected() } else { Theme::clear() })
+            .text_color(move || match (current(), private) {
+                (true, true) => Theme::warning(),
+                (true, false) => space_tint(&color, 1.).unwrap_or(Theme::text()),
+                (false, _) => space_tint(&color, 0.45).unwrap_or(Theme::faint()),
+            })
+            .child(icons::icon(source, 13.))
         },
     );
     view()
@@ -696,6 +710,7 @@ fn sidebar(ui: Ui) -> View {
             if let WheelDelta::Points(p) = e.delta {
                 let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swipe.feed(p.x.0, p.y.0, std::time::Instant::now()));
                 if let Some(step) = step {
+                    animate_next(SLIDE);
                     act(ui, |b| b.swipe_to(step));
                 }
             }
@@ -938,9 +953,7 @@ fn toolbar(ui: Ui) -> View {
 }
 
 fn toggle_sidebar(ui: Ui) {
-    if !reduce_motion() {
-        animate_layout(LayoutAnimation::all(tarn_nsh_shared::motion::layout(tarn_nsh_shared::motion::SLIDE)));
-    }
+    animate_next(SLIDE);
     ui.sidebar.update(|o| *o = !*o);
 }
 
@@ -1564,8 +1577,11 @@ fn run_action(ui: Ui, action: Action) {
     match action {
         Action::NewTab => new_tab(ui),
         Action::OpenLocation => open_palette(ui),
-        Action::CloseTab => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_tab(k))),
-        Action::ReopenClosedTab => act(ui, |b| b.reopen()),
+        Action::CloseTab => act_moving(ui, |b| b.model.active.into_iter().for_each(|k| b.close_tab(k))),
+        Action::ReopenClosedTab => {
+            animate_next(POP);
+            act(ui, |b| b.reopen());
+        }
         Action::NextTab => act(ui, |b| b.cycle(true)),
         Action::PreviousTab => act(ui, |b| b.cycle(false)),
         Action::TogglePin => act(ui, |b| b.model.active.into_iter().for_each(|k| b.pin_toggle(k))),

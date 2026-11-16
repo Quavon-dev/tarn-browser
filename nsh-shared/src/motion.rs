@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use nsh_core::platform::Lifecycle;
 use nsh_core::prelude::*;
-use nsh_core::{LayoutCurve, LayoutTransition};
+use nsh_core::{LayoutAnimation, LayoutCurve, LayoutTransition};
 
 pub fn animates(reduced: bool, lifecycle: Lifecycle) -> bool {
     !reduced && lifecycle == Lifecycle::Active
@@ -55,6 +55,14 @@ pub fn popping<E: Element>(element: E) -> E {
 /// A layout change of the next commit (rows growing, a slot sliding) over `duration`.
 pub fn layout(duration: Duration) -> LayoutTransition {
     LayoutTransition::new(LayoutCurve::EaseOut, ms(duration))
+}
+
+/// Animates the next commit unless Reduce Motion is on: views that appear grow in over `POP`,
+/// those that leave shrink away over `EXIT`, the rest move over `moving`.
+pub fn animate_next(moving: Duration) {
+    if !reduce_motion() {
+        animate_layout(LayoutAnimation { create: Some(layout(POP)), update: Some(layout(moving)), delete: Some(layout(EXIT)) });
+    }
 }
 
 pub fn ms(duration: Duration) -> f32 {
