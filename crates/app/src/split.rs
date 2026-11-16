@@ -211,7 +211,7 @@ impl Browser {
             // A closed pane leaves the others in the split.
             if let Some(split) = self.split.as_mut() {
                 split.panes.retain(|k| !gone.contains(k));
-                split.rects.borrow_mut().truncate(split.panes.len());
+                split.rects.borrow_mut().clear();
             }
             cx.notify();
         }
