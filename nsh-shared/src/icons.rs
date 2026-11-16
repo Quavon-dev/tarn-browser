@@ -53,7 +53,152 @@ pub const PLAY: &str = include_str!("../../crates/ui/icons/play.svg");
 pub const SMARTPHONE: &str = include_str!("../../crates/ui/icons/smartphone.svg");
 pub const TRASH: &str = include_str!("../../crates/ui/icons/trash.svg");
 pub const VOLUME_X: &str = include_str!("../../crates/ui/icons/volume-x.svg");
+pub const LIBRARY: &str = include_str!("../../crates/ui/icons/library.svg");
+pub const PIN: &str = include_str!("../../crates/ui/icons/pin.svg");
+pub const VOLUME_2: &str = include_str!("../../crates/ui/icons/volume-2.svg");
+pub const MOON: &str = include_str!("../../crates/ui/icons/moon.svg");
+pub const SHARE: &str = include_str!("../../crates/ui/icons/share.svg");
+pub const QR_CODE: &str = include_str!("../../crates/ui/icons/qr-code.svg");
+pub const LINK: &str = include_str!("../../crates/ui/icons/link.svg");
+pub const FILE_DOWN: &str = include_str!("../../crates/ui/icons/file-down.svg");
+pub const PRINTER: &str = include_str!("../../crates/ui/icons/printer.svg");
+pub const MAP_PIN: &str = include_str!("../../crates/ui/icons/map-pin.svg");
+pub const MIC: &str = include_str!("../../crates/ui/icons/mic.svg");
+pub const BELL: &str = include_str!("../../crates/ui/icons/bell.svg");
+pub const TRIANGLE_ALERT: &str = include_str!("../../crates/ui/icons/triangle-alert.svg");
+pub const KEY_ROUND: &str = include_str!("../../crates/ui/icons/key-round.svg");
+pub const EXTERNAL_LINK: &str = include_str!("../../crates/ui/icons/external-link.svg");
+pub const ZOOM_IN: &str = include_str!("../../crates/ui/icons/zoom-in.svg");
+pub const FOLDER_OPEN: &str = include_str!("../../crates/ui/icons/folder-open.svg");
+pub const FILE_TEXT: &str = include_str!("../../crates/ui/icons/file-text.svg");
+pub const FILE_ARCHIVE: &str = include_str!("../../crates/ui/icons/file-archive.svg");
+pub const FILE_IMAGE: &str = include_str!("../../crates/ui/icons/file-image.svg");
+pub const FILE_VIDEO: &str = include_str!("../../crates/ui/icons/file-video.svg");
+pub const LAYOUT_GRID: &str = include_str!("../../crates/ui/icons/layout-grid.svg");
+pub const USER_PLUS: &str = include_str!("../../crates/ui/icons/user-plus.svg");
+pub const ARCHIVE: &str = include_str!("../../crates/ui/icons/archive.svg");
+pub const COPY: &str = include_str!("../../crates/ui/icons/copy.svg");
+pub const ZAP: &str = include_str!("../../crates/ui/icons/zap.svg");
+pub const COLUMNS_2: &str = include_str!("../../crates/ui/icons/columns-2.svg");
+pub const ARROW_LEFT_RIGHT: &str = include_str!("../../crates/ui/icons/arrow-left-right.svg");
+pub const PICTURE_IN_PICTURE_2: &str = include_str!("../../crates/ui/icons/picture-in-picture-2.svg");
+pub const LOCK: &str = include_str!("../../crates/ui/icons/lock.svg");
+pub const CHEVRONS_UP_DOWN: &str = include_str!("../../crates/ui/icons/chevrons-up-down.svg");
+pub const INFO: &str = include_str!("../../crates/ui/icons/info.svg");
+pub const CIRCLE_CHECK: &str = include_str!("../../crates/ui/icons/circle-check.svg");
+pub const BROOM_SPARKLES: &str = include_str!("../../crates/ui/icons/broom-sparkles.svg");
+pub const SPLIT_ADD: &str = include_str!("../../crates/ui/icons/split-add.svg");
+pub const COMMAND: &str = include_str!("../../crates/ui/icons/command.svg");
+pub const ELLIPSIS: &str = include_str!("../../crates/ui/icons/ellipsis.svg");
+pub const GROUP: &str = include_str!("../../crates/ui/icons/group.svg");
+pub const PENCIL: &str = include_str!("../../crates/ui/icons/pencil.svg");
+pub const UNDO_2: &str = include_str!("../../crates/ui/icons/undo-2.svg");
+pub const PAUSE: &str = include_str!("../../crates/ui/icons/pause.svg");
+pub const STAR_FILL: &str = include_str!("../../crates/ui/icons/star-fill.svg");
 pub const MARK: &str = include_str!("../../crates/ui/brand/mark.svg");
+
+/// Every glyph by its file name, as the shared crates name them (`browser_core::command::glyph`).
+pub const NAMED: &[(&str, &str)] = &[
+    ("app-window", APP_WINDOW),
+    ("arrow-up-right", ARROW_UP_RIGHT),
+    ("arrow-down", ARROW_DOWN),
+    ("back", BACK),
+    ("book-open", BOOK_OPEN),
+    ("briefcase", BRIEFCASE),
+    ("camera", CAMERA),
+    ("chevron-down", CHEVRON_DOWN),
+    ("file", FILE_PLAIN),
+    ("chevron-up", CHEVRON_UP),
+    ("chevron-left", CHEVRON_LEFT),
+    ("chevron-right", CHEVRON_RIGHT),
+    ("circle-arrow-down", CIRCLE_ARROW_DOWN),
+    ("close", CLOSE),
+    ("code", CODE),
+    ("coffee", COFFEE),
+    ("dumbbell", DUMBBELL),
+    ("flask-conical", FLASK_CONICAL),
+    ("folder", FOLDER),
+    ("folder-plus", FOLDER_PLUS),
+    ("forward", FORWARD),
+    ("gamepad-2", GAMEPAD_2),
+    ("gear", GEAR),
+    ("globe", GLOBE),
+    ("graduation-cap", GRADUATION_CAP),
+    ("heart", HEART),
+    ("history", HISTORY),
+    ("house", HOUSE),
+    ("music", MUSIC),
+    ("palette", PALETTE),
+    ("person", PERSON),
+    ("plane", PLANE),
+    ("plus", PLUS),
+    ("reload", RELOAD),
+    ("search", SEARCH),
+    ("shield", SHIELD),
+    ("shield-check", SHIELD_CHECK),
+    ("shopping-cart", SHOPPING_CART),
+    ("sidebar", SIDEBAR),
+    ("sparkles", SPARKLES),
+    ("star", STAR),
+    ("wallet", WALLET),
+    ("bookmark", BOOKMARK),
+    ("check", CHECK),
+    ("flame", FLAME),
+    ("gauge", GAUGE),
+    ("hand", HAND),
+    ("keyboard", KEYBOARD),
+    ("play", PLAY),
+    ("smartphone", SMARTPHONE),
+    ("trash", TRASH),
+    ("volume-x", VOLUME_X),
+    ("library", LIBRARY),
+    ("pin", PIN),
+    ("volume-2", VOLUME_2),
+    ("moon", MOON),
+    ("share", SHARE),
+    ("qr-code", QR_CODE),
+    ("link", LINK),
+    ("file-down", FILE_DOWN),
+    ("printer", PRINTER),
+    ("map-pin", MAP_PIN),
+    ("mic", MIC),
+    ("bell", BELL),
+    ("triangle-alert", TRIANGLE_ALERT),
+    ("key-round", KEY_ROUND),
+    ("external-link", EXTERNAL_LINK),
+    ("zoom-in", ZOOM_IN),
+    ("folder-open", FOLDER_OPEN),
+    ("file-text", FILE_TEXT),
+    ("file-archive", FILE_ARCHIVE),
+    ("file-image", FILE_IMAGE),
+    ("file-video", FILE_VIDEO),
+    ("layout-grid", LAYOUT_GRID),
+    ("user-plus", USER_PLUS),
+    ("archive", ARCHIVE),
+    ("copy", COPY),
+    ("zap", ZAP),
+    ("columns-2", COLUMNS_2),
+    ("arrow-left-right", ARROW_LEFT_RIGHT),
+    ("picture-in-picture-2", PICTURE_IN_PICTURE_2),
+    ("lock", LOCK),
+    ("chevrons-up-down", CHEVRONS_UP_DOWN),
+    ("info", INFO),
+    ("circle-check", CIRCLE_CHECK),
+    ("broom-sparkles", BROOM_SPARKLES),
+    ("split-add", SPLIT_ADD),
+    ("command", COMMAND),
+    ("ellipsis", ELLIPSIS),
+    ("group", GROUP),
+    ("pencil", PENCIL),
+    ("undo-2", UNDO_2),
+    ("pause", PAUSE),
+    ("star-fill", STAR_FILL),
+];
+
+/// The glyph a shared crate names, if this client has it.
+pub fn named(name: &str) -> Option<&'static str> {
+    NAMED.iter().find(|(n, _)| *n == name).map(|(_, i)| *i)
+}
 
 pub const SPACE_ICONS: &[(&str, &str)] = &[
     ("house", HOUSE),

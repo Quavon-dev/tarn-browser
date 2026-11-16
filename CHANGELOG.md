@@ -6,6 +6,12 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- The Shield card follows the theme: dawn with the sun behind the peak in light themes, night
+  with stars, a crescent and an aurora in dark ones; New Design still reshapes the ridges (macOS,
+  Windows, Linux, iOS, Android).
+
 ## [0.1.1] - 2026-11-16
 
 ### Added

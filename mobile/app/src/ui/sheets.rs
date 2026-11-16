@@ -547,7 +547,7 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
         let (card, private) = card.get()?;
         let turned = flipped.get();
         let scale = ((window().width.0.min(crate::theme::SHEET_WIDTH) - 56.) / W as f32).min(1.);
-        let (sky, shapes, labels) = if turned { back(&card) } else { front(&card, true) };
+        let (sky, shapes, labels) = if turned { back(&card, !Theme::is_light()) } else { front(&card, true, !Theme::is_light()) };
         let counts = card.counters.iter().map(|(name, n)| format!("{name}: {}", thousands((*n).max(0) as u64))).collect::<Vec<_>>().join(", ");
         let name = if turned {
             format!("Shield card, stamps side: {}. Tap to turn.", card.stamps.join(", "))

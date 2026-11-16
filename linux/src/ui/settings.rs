@@ -40,7 +40,7 @@ fn words(labels: &[browser_core::shield_card::Label]) -> Vec<tarn_nsh_shared::ca
 
 fn shield_card(ui: Ui, card: &Card) -> View {
     let flipped = ui.card_back.get_untracked();
-    let (sky, shapes, labels) = if flipped { back(card) } else { front(card, true) };
+    let (sky, shapes, labels) = if flipped { back(card, !Theme::is_light()) } else { front(card, true, !Theme::is_light()) };
     let counts = card.counters.iter().map(|(name, n)| format!("{name}: {}", thousands((*n).max(0) as u64))).collect::<Vec<_>>().join(", ");
     let name = if flipped { format!("Shield card, stamps side: {}", card.stamps.join(", ")) } else { format!("Shield card of {}: {counts}", card.name) };
     let face = crate::controls::pressable(name, move || {

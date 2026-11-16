@@ -429,6 +429,12 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// What Shield stopped on `host` for the profile, 0 for a site it never acted on.
+    pub fn shield_site_total(&self, profile_id: Id, host: &str) -> Result<i64> {
+        let n = self.conn.query_row("SELECT n FROM shield_sites WHERE profile_id = ?1 AND host = ?2", params![profile_id, host], |r| r.get(0)).optional()?;
+        Ok(n.unwrap_or(0))
+    }
+
     /// The last seven days (local time), oldest first, each with its counts; days without any are zero.
     pub fn shield_week(&self, profile_id: Id) -> Result<Vec<ShieldDay>> {
         let mut stmt = self.conn.prepare(
@@ -1898,6 +1904,8 @@ mod tests {
         store.count(p, Counter::TrackingParams, 1, Some("")).unwrap();
         assert_eq!(store.shield_sites(p, 5).unwrap(), [("b.test".to_owned(), 4), ("a.test".to_owned(), 1)]);
         assert_eq!(store.shield_sites(p, 1).unwrap().len(), 1);
+        assert_eq!((store.shield_site_total(p, "b.test").unwrap(), store.shield_site_total(p, "c.test").unwrap()), (4, 0));
+        assert_eq!(store.shield_site_total(p + 1, "b.test").unwrap(), 0, "another profile's sites stay apart");
         for i in 0..MAX_SHIELD_SITES + 5 {
             store.count(p, Counter::HttpsUpgrades, 1, Some(&format!("h{i}.test"))).unwrap();
         }

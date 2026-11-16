@@ -19,6 +19,14 @@ macro_rules! icons {
         impl Icon {
             pub const ALL: &[Icon] = &[$(Icon::$variant),*];
 
+            /// The icon a file name stands for, as the shared crates name glyphs.
+            pub fn named(name: &str) -> Option<Icon> {
+                match name {
+                    $($file => Some(Icon::$variant),)*
+                    _ => None,
+                }
+            }
+
             pub fn path(self) -> &'static str {
                 match self {
                     $(Icon::$variant => concat!("icons/", $file, ".svg")),*
@@ -94,6 +102,41 @@ icons! {
     VolumeX => "volume-x",
     Undo => "undo-2",
     Gauge => "gauge",
+    Library => "library",
+    Pin => "pin",
+    Volume => "volume-2",
+    Moon => "moon",
+    Share => "share",
+    QrCode => "qr-code",
+    Link => "link",
+    FileDown => "file-down",
+    Printer => "printer",
+    MapPin => "map-pin",
+    Mic => "mic",
+    Bell => "bell",
+    TriangleAlert => "triangle-alert",
+    KeyRound => "key-round",
+    ExternalLink => "external-link",
+    ZoomIn => "zoom-in",
+    FolderOpen => "folder-open",
+    FileText => "file-text",
+    FileArchive => "file-archive",
+    FileImage => "file-image",
+    FileVideo => "file-video",
+    LayoutGrid => "layout-grid",
+    UserPlus => "user-plus",
+    Archive => "archive",
+    Copy => "copy",
+    Zap => "zap",
+    Columns => "columns-2",
+    ArrowLeftRight => "arrow-left-right",
+    PictureInPicture => "picture-in-picture-2",
+    Lock => "lock",
+    ChevronsUpDown => "chevrons-up-down",
+    Info => "info",
+    CircleCheck => "circle-check",
+    BroomSparkles => "broom-sparkles",
+    SplitAdd => "split-add",
     Pause => "pause",
     Play => "play",
     Ellipsis => "ellipsis",
@@ -159,6 +202,14 @@ mod tests {
         }
         assert!(Assets.load(MARK).unwrap().is_some());
         assert!(Assets.load("icons/none.svg").unwrap().is_none());
+        for (label, glyph) in browser_core::command::GLYPHS.iter().copied().chain([("fallback", "command")]) {
+            assert!(Icon::named(glyph).is_some(), "{label} names {glyph}, which has no icon");
+        }
+        let kinds = ["camera", "microphone", "camera+microphone", "location", "notifications", "credentials", "extension", "download", "external", "alert"];
+        let files = ["a.zip", "a.pdf", "a.png", "a.mp4", "a"];
+        for glyph in kinds.map(browser_core::glyphs::glyph).into_iter().chain(files.map(browser_core::glyphs::file_glyph)) {
+            assert!(Icon::named(glyph).is_some(), "{glyph} has no icon");
+        }
     }
 
     #[test]

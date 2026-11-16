@@ -5,6 +5,22 @@ use serde_json::{Value, json};
 /// Permission kinds a profile can remember per origin.
 pub const PERMISSIONS: [&str; 3] = ["camera", "microphone", "location"];
 
+/// One line under the title saying what allowing does, for the kinds where that is not obvious.
+pub fn meaning(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "camera" => "The site sees your camera while this tab uses it.",
+        "microphone" => "The site hears your microphone while this tab uses it.",
+        "camera and microphone" | "camera+microphone" => "The site sees and hears you while this tab uses them.",
+        "location" | "geolocation" => "The site sees where you are while this tab is open.",
+        "notifications" => "The site can show notifications while Tarn runs.",
+        "credentials" => "Your name and password go to this site only.",
+        "extension" => "The extension can read and change pages on this site.",
+        "download" | "malicious download" => "The file comes from a site on the malware list.",
+        "external" => "Tarn hands the link to the app that opens it.",
+        _ => return None,
+    })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Prompt {
     pub id: u64,
@@ -82,5 +98,12 @@ mod tests {
         let p = prompt(json!({ "id": 7, "kind": "credentials", "origin": "https://a.test" }));
         assert_eq!(p.answer(true, None, Some("u".into()), Some("p".into())), json!({ "id": 7, "accept": true, "user": "u", "password": "p" }));
         assert_eq!(p.answer(false, None, None, None), json!({ "id": 7, "accept": false }));
+    }
+
+    #[test]
+    fn permissions_say_what_allowing_means() {
+        assert!(meaning("location").is_some_and(|m| m.contains("where you are")));
+        assert!(PERMISSIONS.iter().all(|kind| meaning(kind).is_some()));
+        assert_eq!(meaning("alert"), None);
     }
 }

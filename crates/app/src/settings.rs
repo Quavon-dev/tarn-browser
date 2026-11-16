@@ -588,7 +588,8 @@ impl SettingsWindow {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let name = engine::downloads::sanitize_filename(&format!("Tarn Shield {}.png", card.name));
-            let png = cx.background_spawn(async move { shield_card::card_png(&card) }).await;
+            let dark = !Theme::is_light();
+            let png = cx.background_spawn(async move { shield_card::card_png(&card, dark) }).await;
             let notice = match png.map(|png| crate::capture::write_download(&name, &png)) {
                 Some(Ok(path)) => format!("Saved to {}.", path.display()),
                 Some(Err(e)) => format!("Could not save the image: {e}."),
@@ -772,9 +773,9 @@ type CardKey = (u64, i64, Option<Profile>, Option<(bool, Id)>);
 /// The Shield card as it tilts under the pointer and flips on a click.
 #[derive(Default)]
 struct CardMotion {
-    faces: Option<(Card, Arc<shield_card::Faces>)>,
+    faces: Option<((Card, bool), Arc<shield_card::Faces>)>,
     /// The card whose faces are being drawn, or could not be.
-    drawing: Option<Card>,
+    drawing: Option<(Card, bool)>,
     bounds: Rc<Cell<Bounds<Pixels>>>,
     /// Where the pointer is over the card, each axis from -1 to 1.
     aim: (f32, f32),
@@ -857,13 +858,14 @@ impl SettingsWindow {
     fn card_frame(&mut self, card: &Card, reduce: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<Arc<RenderImage>> {
         const RATES: [f32; 5] = [12., 12., 8., 6.5, 25.];
         let m = &mut self.motion;
-        if m.faces.as_ref().is_none_or(|(c, _)| c != card) && m.drawing.as_ref() != Some(card) {
-            m.drawing = Some(card.clone());
-            let card = card.clone();
+        let key = (card.clone(), !Theme::is_light());
+        if m.faces.as_ref().is_none_or(|(k, _)| *k != key) && m.drawing.as_ref() != Some(&key) {
+            m.drawing = Some(key.clone());
+            let card = key;
             cx.spawn(async move |this, cx| {
                 let made = cx.background_spawn({
-                    let card = card.clone();
-                    async move { shield_card::faces(&card) }
+                    let (card, dark) = card.clone();
+                    async move { shield_card::faces(&card, dark) }
                 });
                 let Some(faces) = made.await else { return };
                 this.update(cx, |this, cx| {

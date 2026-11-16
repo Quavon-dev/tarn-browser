@@ -47,8 +47,8 @@ fn rasterize(svg: &str, width: u32, text: bool) -> Option<Pixmap> {
     Some(pixmap)
 }
 /// The card's front as a PNG at four times its size, for "Save as image".
-pub fn card_png(card: &Card) -> Option<Vec<u8>> {
-    rasterize(&front_svg(card, true), W * 4, true)?.encode_png().ok()
+pub fn card_png(card: &Card, dark: bool) -> Option<Vec<u8>> {
+    rasterize(&front_svg(card, true, dark), W * 4, true)?.encode_png().ok()
 }
 
 /// What the tilting card is drawn from: both faces, and the near ridges that float above the front.
@@ -58,14 +58,16 @@ pub struct Faces {
     back: Pixmap,
 }
 
-pub fn faces(card: &Card) -> Option<Faces> {
+pub fn faces(card: &Card, dark: bool) -> Option<Faces> {
     let (top, height) = RIDGES;
-    let ridges =
-        format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{height}" viewBox="0 {top} {W} {height}">{}</svg>"#, landscape(card.seed).2);
+    let ridges = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{height}" viewBox="0 {top} {W} {height}">{}</svg>"#,
+        landscape(card.seed, dark).2
+    );
     Some(Faces {
-        front: rasterize(&front_svg(card, false), W * 2, true)?,
+        front: rasterize(&front_svg(card, false, dark), W * 2, true)?,
         ridges: rasterize(&ridges, W * 2, false)?,
-        back: rasterize(&back_svg(card), W * 2, true)?,
+        back: rasterize(&back_svg(card, dark), W * 2, true)?,
     })
 }
 
@@ -101,13 +103,12 @@ mod tests {
 
     #[test]
     fn designs_follow_the_seed() {
-        assert_eq!(landscape(7).1, landscape(7).1);
-        assert_ne!(landscape(7).1, landscape(8).1);
-        assert_ne!(front_svg(&card("Personal"), true), front_svg(&Card { level: ShieldLevel::Lockdown, ..card("Personal") }, true));
-        let skies: std::collections::HashSet<_> = (0..40).map(|seed| landscape(seed).0.sky).collect();
-        assert_eq!(skies.len(), 4, "every time of day comes up");
-        for seed in [0, 1, 2, 3, 99, i64::MAX] {
-            let faces = faces(&Card { seed, ..card("Personal") }).unwrap();
+        assert_eq!(landscape(7, false).1, landscape(7, false).1);
+        assert_ne!(landscape(7, false).1, landscape(8, false).1);
+        assert_ne!(front_svg(&card("Personal"), true, false), front_svg(&Card { level: ShieldLevel::Lockdown, ..card("Personal") }, true, false));
+        assert_ne!(landscape(7, false).0.sky, landscape(7, true).0.sky, "light themes show dawn, dark ones night");
+        for (seed, dark) in [(0, false), (1, true), (2, false), (3, true), (99, false), (i64::MAX, true)] {
+            let faces = faces(&Card { seed, ..card("Personal") }, dark).unwrap();
             assert_eq!((faces.ridges.width(), faces.ridges.height()), (W * 2, RIDGES.1 * 2));
             assert!(faces.ridges.pixels().iter().any(|p| p.alpha() > 0));
         }
@@ -115,10 +116,10 @@ mod tests {
 
     #[test]
     fn the_card_escapes_its_text_and_renders() {
-        let svg = front_svg(&card("<script>&\"x\u{7}"), true);
+        let svg = front_svg(&card("<script>&\"x\u{7}"), true, true);
         assert!(svg.contains("&lt;script&gt;&amp;&quot;x<") && !svg.contains('\u{7}'));
         assert!(resvg::usvg::Tree::from_str(&svg, &resvg::usvg::Options::default()).is_ok());
-        let png = card_png(&card("Personal")).unwrap();
+        let png = card_png(&card("Personal"), false).unwrap();
         let image = image::load_from_memory(&png).unwrap();
         assert_eq!((image.width(), image.height()), (W * 4, H * 4));
     }
@@ -126,18 +127,18 @@ mod tests {
     #[test]
     fn the_card_fits_a_private_profile_and_many_stamps() {
         let private = Card { since: None, days: None, stamps: Vec::new(), ..card("Private") };
-        assert!(!front_svg(&private, true).contains("Protected for") && back_svg(&private).contains("No stamps yet"));
+        assert!(!front_svg(&private, true, false).contains("Protected for") && back_svg(&private, true).contains("No stamps yet"));
         let old = Card { stamps: stamps(Some(2012), 2026, 20_000), counters: [("", 1_234_567), ("", 0), ("", 0)], ..card("A name far too long for the card") };
-        let (front, back) = (front_svg(&old, true), back_svg(&old));
+        let (front, back) = (front_svg(&old, true, true), back_svg(&old, false));
         assert!(front.contains(r#"font-size="16""#) && front.contains("A name far too long fo…"));
         assert_eq!(back.matches("<g transform=\"rotate").count(), 10);
         assert!(back.contains("10K ✓") && !back.contains(">2012<") && back.contains("Every milestone reached"));
-        assert!(faces(&old).is_some());
+        assert!(faces(&old, true).is_some() && faces(&old, false).is_some());
     }
 
     #[test]
     fn the_frame_shows_the_front_at_rest_and_the_back_once_flipped() {
-        let faces = faces(&card("Personal")).unwrap();
+        let faces = faces(&card("Personal"), true).unwrap();
         let (ow, oh) = ((W + 2 * MARGIN) * 2, (H + 2 * MARGIN) * 2);
         let pose = |tilt, glow, flip| ui::tilt::Pose { tilt, glow, flip, press: 0. };
         let rest = frame(&faces, &pose((0., 0.), 0., 0.));

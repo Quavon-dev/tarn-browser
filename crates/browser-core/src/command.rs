@@ -97,6 +97,80 @@ fn host_like(input: &str) -> Option<Url> {
     (has_tld || punycode_tld).then(|| Url::parse(&format!("https://{input}")).ok())?
 }
 
+/// The glyph (an icon file name in `crates/ui/icons`) for a command-bar or menu entry, by the
+/// label every client shows; labels match on their start, so "Reload in Chromium" takes
+/// "Reload". Entries without a glyph of their own show `command`.
+pub const GLYPHS: &[(&str, &str)] = &[
+    ("Settings", "gear"),
+    ("Site Settings", "shield"),
+    ("New Tab Group", "group"),
+    ("New Tab", "plus"),
+    ("New Window", "app-window"),
+    ("New Space", "layout-grid"),
+    ("Edit Space", "pencil"),
+    ("Private Space", "hand"),
+    ("Burner Tab", "flame"),
+    ("New Profile", "user-plus"),
+    ("Edit Profile", "person"),
+    ("Bookmark", "bookmark"),
+    ("Save for Later", "bookmark"),
+    ("Reading List", "bookmark"),
+    ("Reopen Closed Tab", "undo-2"),
+    ("Toggle Sidebar", "sidebar"),
+    ("Auto-Hide Sidebar", "sidebar"),
+    ("Compact Toolbar", "app-window"),
+    ("Close All Tabs", "close"),
+    ("Close Duplicate Tabs", "copy"),
+    ("Close Split View", "close"),
+    ("Show Library", "library"),
+    ("Save Space as Snapshot", "archive"),
+    ("Restore Snapshot", "history"),
+    ("Show Downloads", "circle-arrow-down"),
+    ("Duplicate Tab", "copy"),
+    ("Reload", "reload"),
+    ("Copy Link", "link"),
+    ("Copy Clean Link", "link"),
+    ("Copy Title", "copy"),
+    ("Pin or Unpin Tab", "pin"),
+    ("Mute or Unmute Site", "volume-x"),
+    ("Show History", "history"),
+    ("Rename Tab", "pencil"),
+    ("Reset Tab Title", "undo-2"),
+    ("Return to Pinned URL", "undo-2"),
+    ("Set Pinned URL", "pin"),
+    ("Sleep Other Tabs", "moon"),
+    ("Show Memory Use", "gauge"),
+    ("Memory", "gauge"),
+    ("Zap Element", "zap"),
+    ("Open or Close Split View", "columns-2"),
+    ("Focus Next Pane", "chevron-right"),
+    ("Focus Previous Pane", "chevron-left"),
+    ("Swap Split Panes", "arrow-left-right"),
+    ("Rotate Split Layout", "reload"),
+    ("Remove Tab from Split View", "arrow-up-right"),
+    ("Reader", "book-open"),
+    ("Picture in Picture", "picture-in-picture-2"),
+    ("Take Screenshot", "camera"),
+    ("Save Page as PDF", "file-down"),
+    ("Print", "printer"),
+    ("Share", "share"),
+    ("Show QR Code", "qr-code"),
+    ("Find in Tabs", "search"),
+    ("Find", "search"),
+    ("Keyboard Shortcuts", "keyboard"),
+    ("Clean Up", "broom-sparkles"),
+    ("Clear Site Data", "trash"),
+    ("Open Link in New Tab", "app-window"),
+    ("Open in Split View", "split-add"),
+    ("Open in Private", "hand"),
+    ("Inspect", "code"),
+];
+
+/// The glyph for `label`: the longest entry of `GLYPHS` it starts with, else `command`.
+pub fn glyph(label: &str) -> &'static str {
+    GLYPHS.iter().filter(|(start, _)| label.starts_with(start)).max_by_key(|(start, _)| start.len()).map_or("command", |(_, g)| g)
+}
+
 /// The longest host the address shows in full.
 pub const MAX_HOST: usize = 40;
 
@@ -316,5 +390,15 @@ mod tests {
         assert_eq!(rank("> new space"), [2]);
         assert_eq!(rank(">"), [0, 1, 2, 3]);
         assert_eq!(rank(">hist"), [3]);
+    }
+
+    #[test]
+    fn commands_take_the_glyph_of_their_longest_matching_label() {
+        assert_eq!(glyph("New Tab Group"), "group");
+        assert_eq!(glyph("New Tab"), "plus");
+        assert_eq!(glyph("Copy Clean Link"), "link");
+        assert_eq!(glyph("Reload in Chromium"), "reload");
+        assert_eq!(glyph("Bookmark All Tabs"), "bookmark");
+        assert_eq!(glyph("Something New"), "command");
     }
 }
