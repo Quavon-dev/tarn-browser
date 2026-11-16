@@ -116,8 +116,10 @@ fi
 say "3/5 Windows installer and update feed"
 if $NO_WINDOWS; then
   echo "Skipped (--no-windows): this release ships only the unsigned Windows installer and no Windows"
-  echo "update feed. Windows warns about an unknown publisher, and installs from it get no updates and"
-  echo "close Chromium tabs after 7 days. Ship the signed installer and feed in the next release."
+  echo "update feed. Windows warns about an unknown publisher. A new Windows install never verifies an"
+  echo "update check, so it opens no page at all (Chromium is its only engine); existing installs get no"
+  echo "updates and close Chromium 7 days after their last verified check. Ship the signed installer"
+  echo "and feed in the next release."
 else
 until assets | grep -qx "$WIN_SETUP" && assets | grep -qx windows-update.json && assets | grep -qx windows-update.json.sig; do
   cat <<EOF

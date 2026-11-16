@@ -181,8 +181,9 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   file again through a handle that bars writes and starts it with
   `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART` (plus `/TARNUPDATE` after Restart to Update, which makes
   the installer start Tarn again). Every release must carry `windows-update.json` and its `.sig`,
-  also engine-only releases (`docs/release.md`), or Windows checks fail and Chromium closes after
-  seven days. Not yet tried against a real release.
+  also engine-only releases (`docs/release.md`), or Windows checks fail: new installs open no
+  page, and existing ones close Chromium seven days after their last verified check. Tried with
+  v0.1.0, published without the feed: a new install opens no page.
 - **Release:** CI builds and tests Windows on every push (`ci.yml` `windows` job). A `v*` tag adds
   the unsigned zip and an unsigned per-user Inno Setup installer (`packaging/windows/tarn.iss`,
   `scripts/installer-windows.sh`) to the draft release. The maintainer signs both with Authenticode

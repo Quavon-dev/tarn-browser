@@ -69,6 +69,7 @@ pub enum Reason {
     CriticalUpdateWaiting,
     ChecksOff,
     FeedUnverified,
+    FeedNeverVerified,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,6 +89,7 @@ impl Staleness {
             Staleness::Unavailable(Reason::CriticalUpdateWaiting) => "Chromium tabs are closed until Tarn relaunches to install a security update.",
             Staleness::Unavailable(Reason::ChecksOff) => "Chromium tabs are closed because automatic update checks are off.",
             Staleness::Unavailable(Reason::FeedUnverified) => "Chromium tabs are closed: Tarn could not verify an update check for seven days.",
+            Staleness::Unavailable(Reason::FeedNeverVerified) => "Chromium tabs are closed until Tarn verifies an update check.",
         }
     }
 }
@@ -120,6 +122,8 @@ pub fn assess(now: i64, released_at: i64, updates: Updates) -> Staleness {
         Reason::CriticalUpdateWaiting
     } else if now - released_at >= 28 * DAY {
         Reason::Outdated
+    } else if updates.feed_verified_at.is_none() {
+        Reason::FeedNeverVerified
     } else {
         Reason::FeedUnverified
     })
@@ -248,7 +252,7 @@ mod tests {
         assert_eq!(assess(day(7) - 1, RELEASED, CHECKED), Staleness::Current);
         assert_eq!(assess(day(7), RELEASED, CHECKED), Staleness::Unavailable(Reason::FeedUnverified));
         let never = Updates { feed_verified_at: None, ..CHECKED };
-        assert_eq!(assess(day(0), RELEASED, never), Staleness::Unavailable(Reason::FeedUnverified));
+        assert_eq!(assess(day(0), RELEASED, never), Staleness::Unavailable(Reason::FeedNeverVerified));
     }
 
     #[test]

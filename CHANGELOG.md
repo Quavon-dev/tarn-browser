@@ -58,6 +58,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Chromium tabs closed because no update check has verified yet, as on a new install, say so
+  instead of claiming that none verified for seven days (macOS, Windows).
 - Sites can use the camera and microphone again on macOS: the app declares both and asks macOS;
   Chromium tabs ask through Tarn's prompt instead of refusing.
 - Chromium tabs apply a site's pop-up rule and count only refused pop-ups; tracking parameters
