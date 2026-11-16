@@ -39,7 +39,9 @@ who bring in the other maintainers as needed.
    report if we have not fixed it by then. A vulnerability we learn of while it is already being
    exploited or public is fixed and published as fast as possible.
 
-Published advisories: <https://github.com/Quavon-dev/tarn-browser/security/advisories>. A
+Published advisories: <https://github.com/Quavon-dev/tarn-browser/security/advisories>. Every
+vulnerability confirmed in Tarn is published there once fixed; while that list is empty, no
+vulnerability in Tarn has been confirmed. A
 vulnerability in an upstream engine is reported to its vendor (see "Scope"); when it affects the
 Chromium that Tarn bundles, the update release notes name the Chromium version that fixes it.
 
@@ -89,11 +91,10 @@ Clippy with warnings as errors on every client, and zizmor reports workflow find
 scanning alerts. `main` takes no change while a required check fails: `check` and `macos`
 (formatting, Clippy and tests of the shared crates and the desktop app), `deny` (`cargo deny` on
 every workspace) and CodeQL. The other clients' jobs also run on every pull request and are fixed
-before merging, but GitHub does not enforce them. Pull requests of the update app, which only move
-the pinned Chromium, skip `deny`'s advisory check on the root workspace and its checks on the
-other workspaces. The release workflow runs `cargo deny` again
-on every workspace of the exact commit it releases, Chromium updates included, and signs nothing
-while it fails.
+before merging, but GitHub does not enforce them. Automatic Chromium update pull requests go
+through the same checks and the same human review. The release workflow runs `cargo deny` again on
+every workspace of the exact commit it releases, Chromium updates included, and signs nothing while
+it fails.
 
 - **Vulnerable dependencies:** any advisory against a dependency, whatever its severity, blocks
   merging and releasing. It is fixed by updating or removing the dependency, normally within 7

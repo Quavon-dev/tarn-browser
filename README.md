@@ -187,6 +187,12 @@ cd mobile/app && nsh package --target ios-simulator            # iOS simulator a
 mobile/android/build.sh                                        # debug APK (ANDROID_HOME, NDK, JDK 17+)
 ```
 
+The Linux app and its packages build with free and open-source tools only: the Fedora, Debian,
+Ubuntu and Arch containers (`linux/docker/`, `linux/packaging/`) bring GCC, Clang, GTK, WebKitGTK
+and Rust from their distributions and rustup, every crate has an open-source licence (`cargo
+deny`), and Docker runs them. The macOS and iOS clients need Apple's SDK and the Windows
+client Microsoft's MSVC toolchain.
+
 Packages: `.deb` for Debian 13 and Ubuntu 26.04, `.rpm` for Fedora 43 and an AUR `PKGBUILD`, each
 depending on the distribution's WebKitGTK 6.0; no Flatpak or AppImage. The iOS and Android apps have
 no signed or store builds yet. Plans: [`docs/nsh-plan.md`](docs/nsh-plan.md) and
