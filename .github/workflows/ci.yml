@@ -252,7 +252,7 @@ jobs:
           save-cache: ${{ github.ref == 'refs/heads/main' }}
       - run: flatpak install -y --noninteractive flathub org.flatpak.Builder
       - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest "$PWD/linux/packaging/flatpak/de.quavon.tarn.yml"
-      - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo "$PWD/repo"
+      - run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder appstream "$PWD/linux/packaging/flatpak/de.quavon.tarn.metainfo.xml"
 
   deny:
     needs: changes
