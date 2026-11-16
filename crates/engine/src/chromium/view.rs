@@ -510,6 +510,8 @@ wrap_load_handler! {
             #[cfg(windows)]
             let can_go_back = i32::from(can_go_back == 1 && browser.as_deref().is_some_and(native_back));
             let history = (can_go_back == 1, can_go_forward == 1);
+            // Chromium tells no load error for a stop or a cancel, so the shell learns the end here.
+            emit(&tab, Event::Loading(is_loading == 1));
             // A navigation that ends without a page (a download, a 204, a cancel) leaves no origin that may ask.
             if is_loading == 0 {
                 tab.navigating.take();

@@ -779,6 +779,7 @@ final class TarnWebView implements NshComponent {
     private void block(String url, String reason) {
         refusedUrl = url;
         emit("blocked", "url", url, "reason", reason);
+        emit("stopped");
     }
 
     private void emit(String event, Object... pairs) {
@@ -914,6 +915,7 @@ final class TarnWebView implements NshComponent {
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             Hooks.log("started " + url);
+            if (url == null || !url.equals(refusedUrl)) emit("started");
         }
 
         @Override

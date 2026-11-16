@@ -69,9 +69,9 @@ fn reload_button(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> St
     });
     let tip = if page.loading { "Stop Loading" } else { "Reload" };
     if b.still() {
-        return icon_button("stop", Icon::Close, true).tooltip(tooltip(tip, None)).on_click(stop);
+        return icon_button("reload", Icon::Close, true).tooltip(tooltip(tip, None)).on_click(stop);
     }
-    icon_frame("stop", true).child(spinner(16., Theme::text())).tooltip(tooltip(tip, None)).on_click(stop)
+    icon_frame("reload", true).child(spinner(16., Theme::text())).tooltip(tooltip(tip, None)).on_click(stop)
 }
 
 /// With the sidebar hidden nothing else says the window is private, so a quiet amber mark does.
