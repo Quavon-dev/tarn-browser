@@ -54,6 +54,31 @@ A tag push, a manual macOS-only run and a call from `chromium-update.yml` build 
 unsandboxed bundle with `TARN_RELEASE_BUILD=1`, which turns on the one-time move out of a sandboxed
 install's container.
 
+## Nightly builds
+
+`.github/workflows/nightly.yml` builds the head of `main` every night at 02:23 UTC with
+`release.yml` (`nightly: true`), for every client. It skips the night when the `nightly` tag
+already names that commit, and builds nothing unless the CI run of that push to `main`
+succeeded. `gh workflow run nightly.yml` builds at once, also a commit the nightly already holds, and
+fails while CI on that commit has not succeeded.
+
+Each build replaces the pre-release `nightly` and its tag with the files a tag push drafts, named
+`Tarn-nightly-…` (the Linux packages keep the manifests' version), with `SHA256SUMS` and the same
+attestation, whose predicate names the tag `nightly`. The version check is skipped, so the apps
+report the manifests' version. Nothing is signed or notarised: Gatekeeper and SmartScreen warn, and
+the builds are for testing only. No updater reads a pre-release: the appcast and the Windows feed
+come from `releases/latest`, which never names a pre-release, and `linux-repo.yml` takes only
+published releases that are not pre-releases. A release the workflow token creates starts no other
+workflow, so `release-published.yml` does not run. The `nightly` tag is outside the `v*` ruleset,
+since the workflow token moves it; anyone with write access can move it too, so the attestation, not
+the tag, names the commit a file was built from. Each build deletes the tag first, so a plain
+`git fetch --tags` refuses the moved tag; `scripts/publish-release.sh` fetches only `v*` tags. While a
+build replaces it, the pre-release is missing for the minutes its upload takes.
+
+A nightly is the same app as a release, with the same bundle ID, installer and package name and the
+manifests' version: installing it replaces the installed release, which comes back only with the next
+higher version. Test it on a machine or account that does not use a release.
+
 ## Signed build (maintainer)
 
 `scripts/publish-release.sh` walks a release through this section, "Notarisation", "Updates
@@ -241,7 +266,7 @@ For each release, after CI drafted it:
 1. Download the unsigned zip from the draft and check that the release workflow built it, since
    anyone with write access can replace a draft's files:
    `gh release download v1.2.3 -p "Tarn-v1.2.3-windows-x64-unsigned.zip"`, then
-   `gh attestation verify Tarn-v1.2.3-windows-x64-unsigned.zip --repo Quavon-dev/tarn-browser --signer-workflow Quavon-dev/tarn-browser/.github/workflows/release.yml`.
+   `gh attestation verify Tarn-v1.2.3-windows-x64-unsigned.zip --repo Quavon-dev/tarn-browser --signer-workflow Quavon-dev/tarn-browser/.github/workflows/release.yml --source-ref refs/tags/v1.2.3 --predicate-type https://github.com/Quavon-dev/tarn-browser/attestations/release/v1`.
    Sign nothing that fails it. Build the installer with Inno Setup 6.7.3, the version CI pins.
 2. Sign the binaries, build the installer from them and sign it (PowerShell, in a checkout of the
    tag):
@@ -252,7 +277,8 @@ For each release, after CI drafted it:
    scripts\sign-windows.ps1 -Package Tarn-v1.2.3-windows-x64-unsigned.zip -Version 1.2.3 -Dlib <path>\Azure.CodeSigning.Dlib.dll -Metadata <path>\metadata.json
    ```
 
-   It signs every `.exe` and `.dll` without a valid signature (`tarn.exe`, and CEF's files only
+   Given a zip, it first runs the same `gh attestation verify` for `v<Version>` and stops if it
+   fails. It signs every `.exe` and `.dll` without a valid signature (`tarn.exe`, and CEF's files only
    if they are unsigned) with SHA-256 and an RFC 3161 timestamp (`-TimestampUrl`, default DigiCert
    for a certificate, Microsoft's for Trusted Signing), compiles the installer with `ISCC`, which
    signs the installer and its uninstaller with the same command, and checks every binary with

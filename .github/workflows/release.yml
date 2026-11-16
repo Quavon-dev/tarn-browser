@@ -12,6 +12,9 @@ on:
       tag:
         type: string
         required: true
+      nightly:
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -64,7 +67,7 @@ jobs:
 
   windows:
     # Engine updates (chromium-update.yml) and manual runs ship the macOS bundle alone, without waiting for the rest.
-    if: github.event_name == 'push' && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
+    if: (github.event_name == 'push' || inputs.nightly) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     runs-on: windows-2025
@@ -84,7 +87,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: "1.99.1"
-      - run: scripts/check-version.sh "$TAG"
+      - if: ${{ !inputs.nightly }}
+        run: scripts/check-version.sh "$TAG"
       - run: echo "CEF_PATH=$(cygpath -w "$(scripts/fetch-cef.sh windows64)")" >> "$GITHUB_ENV"
       - run: cargo build --release --locked -p app-dll
         env:
@@ -97,8 +101,8 @@ jobs:
       - run: |
           rm -rf dist
           scripts/package-windows.sh dist/Tarn
-          scripts/installer-windows.sh dist/Tarn dist
-          mv "dist/Tarn-${TAG}-windows-x64-setup.exe" "dist/Tarn-${TAG}-windows-x64-setup-unsigned.exe"
+          setup="$(scripts/installer-windows.sh dist/Tarn dist | tail -n1)"
+          mv "$setup" "dist/Tarn-${TAG}-windows-x64-setup-unsigned.exe"
           cd dist && 7z a -tzip "Tarn-${TAG}-windows-x64-unsigned.zip" Tarn >/dev/null && rm -rf Tarn
       - id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -109,7 +113,7 @@ jobs:
 
   linux:
     # Engine updates (chromium-update.yml) and manual runs ship the macOS bundle alone, without waiting for the rest.
-    if: github.event_name == 'push' && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
+    if: (github.event_name == 'push' || inputs.nightly) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -120,7 +124,8 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-      - run: scripts/check-version.sh "$TAG"
+      - if: ${{ !inputs.nightly }}
+        run: scripts/check-version.sh "$TAG"
       - run: for package in deb-debian deb-ubuntu rpm arch; do TARN_PKG_PLATFORM=linux/amd64 linux/packaging/build-all.sh "$package"; done
       - run: |
           mkdir dist
@@ -134,7 +139,7 @@ jobs:
 
   mobile:
     # Engine updates (chromium-update.yml) and manual runs ship the macOS bundle alone, without waiting for the rest.
-    if: github.event_name == 'push' && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
+    if: (github.event_name == 'push' || inputs.nightly) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
     outputs:
       ios: ${{ steps.ios.outputs.artifact-id }}
       android: ${{ steps.android.outputs.artifact-id }}
@@ -154,7 +159,8 @@ jobs:
         with:
           toolchain: "1.99.1"
           targets: aarch64-apple-ios, aarch64-linux-android, armv7-linux-androideabi
-      - run: scripts/check-version.sh "$TAG"
+      - if: ${{ !inputs.nightly }}
+        run: scripts/check-version.sh "$TAG"
       - run: |
           curl -fsSL -o "$RUNNER_TEMP/nsh.tar.gz" "$NSH_RELEASE/nsh-macos-arm64.tar.gz"
           curl -fsSL -o "$RUNNER_TEMP/nsh-android.tar.gz" "$NSH_RELEASE/nsh-android.tar.gz"
@@ -224,7 +230,7 @@ jobs:
   # (chromium-update.yml) and manual runs ship the macOS bundle alone, without waiting for the rest.
   assets:
     needs: [build, sbom, windows, linux, mobile]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.sbom.result == 'success' && (github.event_name != 'push' || (needs.windows.result == 'success' && needs.linux.result == 'success' && needs.mobile.result == 'success')) }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.sbom.result == 'success' && (github.event_name != 'push' && !inputs.nightly || (needs.windows.result == 'success' && needs.linux.result == 'success' && needs.mobile.result == 'success')) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -242,36 +248,38 @@ jobs:
           path: artifacts/sbom
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || inputs.nightly
         with:
           artifact-ids: ${{ needs.windows.outputs.artifact }}
           path: artifacts/windows
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || inputs.nightly
         with:
           artifact-ids: ${{ needs.linux.outputs.artifact }}
           path: artifacts/linux
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || inputs.nightly
         with:
           artifact-ids: ${{ needs.mobile.outputs.ios }}
           path: artifacts/ios
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || inputs.nightly
         with:
           artifact-ids: ${{ needs.mobile.outputs.android }}
           path: artifacts/android
           merge-multiple: true
       - name: Collect assets
         env:
-          MACOS_ONLY: ${{ github.event_name != 'push' }}
+          MACOS_ONLY: ${{ github.event_name != 'push' && !inputs.nightly }}
+          NIGHTLY: ${{ inputs.nightly }}
         run: |
           set -euo pipefail
           mkdir dist
           version="${TAG#v}"
+          [[ "$NIGHTLY" != true ]] || version='*'
           # Each artifact must hold exactly the files named here, one per pattern.
           take() {
             local dir="artifacts/$1" pattern file count=0
@@ -331,7 +339,7 @@ jobs:
           path: dist
       # Windows checks windows-update.json in the latest release; a macOS-only release carries the last
       # signed one over unchanged, so its signature still holds and Windows keeps a verified feed.
-      - if: github.event_name != 'push'
+      - if: github.event_name != 'push' && !inputs.nightly
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -346,7 +354,26 @@ jobs:
           else
             echo "::warning::the latest release has no Windows update feed to carry over"
           fi
-      - env:
+      - if: inputs.nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          for id in $(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | .id"); do
+            gh api -X DELETE "repos/$GH_REPO/releases/$id"
+          done
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG"
+          fi
+          gh release create "$TAG" dist/* --prerelease --latest=false --target "$COMMIT" \
+            --title "Nightly $(date -u +%F) (${COMMIT:0:7})" \
+            --notes "Unsigned builds of $COMMIT for testing. Not signed or notarised; no updater offers them."
+          [[ "$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha)" == "$COMMIT" ]] \
+            || { echo "$TAG does not name $COMMIT" >&2; gh release delete "$TAG" --yes; exit 1; }
+      - if: ${{ !inputs.nightly }}
+        env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |

@@ -233,6 +233,8 @@ function Invoke-Sign {
     if (Test-Path -LiteralPath $Package -PathType Container) {
         Copy-Item -LiteralPath $Package -Destination $work -Recurse
     } else {
+        & gh attestation verify $Package --repo $Repo --signer-workflow "$Repo/.github/workflows/release.yml" --source-ref "refs/tags/v$Version" --predicate-type https://github.com/Quavon-dev/tarn-browser/attestations/release/v1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "$Package is not attested as release.yml's build of v$Version" }
         $unpacked = Join-Path $out 'unpacked'
         if (Test-Path -LiteralPath $unpacked) { Remove-Item -LiteralPath $unpacked -Recurse -Force }
         Expand-Archive -LiteralPath $Package -DestinationPath $unpacked

@@ -1,0 +1,58 @@
+name: Nightly
+
+# Builds main with release.yml into the rolling `nightly` pre-release: unsigned builds for testing,
+# which no updater offers (docs/release.md, "Nightly builds").
+on:
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: nightly
+
+jobs:
+  find:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      commit: ${{ steps.find.outputs.commit }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/$GH_REPO/commits/main" --jq .sha)"
+          built="$(gh api "repos/$GH_REPO/git/ref/tags/nightly" --jq .object.sha 2>/dev/null)" || built=none
+          if [[ "$sha" == "$built" && "$MANUAL" != true ]]; then
+            echo "the nightly already holds $sha"
+            exit 0
+          fi
+          ci="$(gh run list --workflow ci.yml --branch main --event push --commit "$sha" -L 1 \
+            --json status,conclusion --jq '.[] | "\(.status) \(.conclusion)"')"
+          if [[ "$ci" != "completed success" ]]; then
+            echo "::warning::CI on $sha is '${ci:-missing}'; no nightly"
+            [[ "$MANUAL" != true ]] || exit 1
+            exit 0
+          fi
+          echo "commit=$sha" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: find
+    if: needs.find.outputs.commit != ''
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release.yml
+    with:
+      commit: ${{ needs.find.outputs.commit }}
+      tag: nightly
+      nightly: true

@@ -8,6 +8,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Nightly builds: every night, the `nightly` pre-release holds unsigned builds of `main` for every
+  client, for testing.
 - Settings › Permissions lists the camera, microphone, location and pop-up answers a profile
   remembered, with Allow, Block and Forget (macOS, Windows, Linux, iOS, Android).
 - Split view holds up to four tabs; drop a tab on another tab in the sidebar to split them

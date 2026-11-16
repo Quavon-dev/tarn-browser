@@ -41,7 +41,7 @@ say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 ask() { local a; read -r -p "$1 [y/N] " a; [[ $a == [yY]* ]]; }
 assets() { gh release view "$TAG" -R "$R" --json assets --jq '.assets[].name' 2>/dev/null || true; }
 
-git -C "$NEW" fetch -q origin main --tags
+git -C "$NEW" fetch -q origin main 'refs/tags/v*:refs/tags/v*'
 VERSION=$(git -C "$NEW" show origin/main:Cargo.toml | sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' | head -n1)
 TAG=v$VERSION
 WIN_SETUP=Tarn-$TAG-windows-x64-setup.exe
@@ -129,7 +129,7 @@ until assets | grep -qx "$WIN_SETUP" && assets | grep -qx windows-update.json &&
 Missing on the draft: $WIN_SETUP, windows-update.json, windows-update.json.sig.
 On the Windows machine (PowerShell, in a checkout of $TAG):
   gh release download $TAG -R $R -p "Tarn-$TAG-windows-x64-unsigned.zip"
-  gh attestation verify Tarn-$TAG-windows-x64-unsigned.zip --repo $R --signer-workflow $R/.github/workflows/release.yml
+  gh attestation verify Tarn-$TAG-windows-x64-unsigned.zip --repo $R --signer-workflow $R/.github/workflows/release.yml --source-ref refs/tags/$TAG --predicate-type https://github.com/Quavon-dev/tarn-browser/attestations/release/v1
   scripts\\sign-windows.ps1 -Package Tarn-$TAG-windows-x64-unsigned.zip -Version $VERSION -Thumbprint <SHA-1>
 Copy dist\\$WIN_SETUP to this Mac and run the three sign_update commands it printed here.
 Bring windows-update.json and windows-update.json.sig back to Windows, then:
