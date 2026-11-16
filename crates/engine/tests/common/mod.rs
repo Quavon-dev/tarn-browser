@@ -40,6 +40,11 @@ const FRAMES: &str = "<title>FRAMES</title><p>frames</p><script>\
     for (const src of ['/sub?ok', '/sub?no', 'http://localhost:' + location.port + '/sub?ok']) { const f = document.createElement('iframe'); f.src = src; document.body.append(f); }\
     </script>";
 
+/// A page with a same-site and a cross-site frame, each of which an extension moves to a new document.
+const TWICE: &str = "<title>TWICE</title><p>twice</p><script>\
+    for (const src of ['/sub?stale', 'http://localhost:' + location.port + '/sub?stale']) { const f = document.createElement('iframe'); f.src = src; document.body.append(f); }\
+    </script>";
+
 const SUB: &str = "<title>SUB</title><p>sub</p>";
 
 /// A page with one cross-site frame that navigates itself, in its own process, after a while.
@@ -92,6 +97,7 @@ pub fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {
                     _ if route.ends_with(".js") => ("text/javascript", "window.blockedRan = 1;"),
                     "/probe" => ("text/html", PROBE),
                     "/frames" => ("text/html", FRAMES),
+                    "/twice" => ("text/html", TWICE),
                     "/sub" if path.ends_with("?late") => ("text/html", SUB_LATE),
                     "/sub" if path.ends_with("?held") => ("text/html", SUB_HELD),
                     "/held" => ("text/html", HELD),

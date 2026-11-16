@@ -228,6 +228,42 @@ mod window {
         }
         assert!(requested(&format!("127.0.0.1:{port} /nocontent")) >= 1, "the frames tried to leave");
 
+        let moving = World::for_install("0a1b3a").unwrap();
+        let source = "const say = m => chrome.runtime.sendMessage(Object.assign({ at: location.pathname + location.search }, m));\n\
+                     chrome.runtime.onMessage.addListener(m => { say({ got: m }); });\n\
+                     if (location.search === '?stale') say({ step: 'old' }).then(() => { location.search = '?fresh'; }); else say({ step: 'new' });";
+        let twice = open(&format!("http://127.0.0.1:{port}/twice"));
+        twice.add_extension_scripts(Rc::new(WorldScripts {
+            world: moving.clone(),
+            bootstrap: bootstrap(&config(false)),
+            scripts: vec![idle.clone(), idle.clone(), Script { run_at: RunAt::DocumentEnd, all_frames: true, js: vec![source.into()], css: vec![] }],
+        }));
+        messages.borrow_mut().clear();
+        twice.reload_from_origin();
+        let hosts = ["127.0.0.1", "localhost"];
+        let from = |host: &str, at: &str, key: &str| -> Vec<(FrameId, Value)> {
+            messages
+                .borrow()
+                .iter()
+                .filter(|(w, _, o, m)| *w == moving && m["args"][0]["at"] == at && o.as_ref().and_then(Url::host_str) == Some(host))
+                .filter_map(|(_, f, _, m)| m["args"][0].get(key).map(|v| (*f, v.clone())))
+                .collect()
+        };
+        spin(15.0, &|| hosts.iter().all(|h| !from(h, "/sub?fresh", "step").is_empty() && !from(h, "/sub?stale", "step").is_empty()));
+        let event = |message: &str| json!({"event": "runtime.onMessage", "delivery": 1, "message": message, "sender": {}}).to_string();
+        for host in hosts {
+            let (old, new) = (from(host, "/sub?stale", "step"), from(host, "/sub?fresh", "step"));
+            assert!(old.len() == 1 && new.len() == 1 && old[0].0 != new[0].0, "{host}: the frame moved to a new document: {:?}", messages.borrow());
+            twice.post_extension_message(&moving, Some(old[0].0), &event("stale"));
+            twice.post_extension_message(&moving, Some(new[0].0), &event("fresh"));
+        }
+        spin(5.0, &|| hosts.iter().all(|h| !from(h, "/sub?fresh", "got").is_empty()));
+        spin(1.0, &|| false);
+        for host in hosts {
+            let got: Vec<Value> = from(host, "/sub?fresh", "got").into_iter().map(|(_, v)| v).collect();
+            assert_eq!(got, [json!("fresh")], "{host}: the new document gets only what is sent to it, nothing sent to the old one");
+        }
+
         let fixture_dir = dir.path().to_owned();
         let resources = Arc::new(move |url: &Url| {
             let name = url.path().trim_start_matches('/');
@@ -278,7 +314,7 @@ mod window {
 
         drop(page);
         drop(views.borrow_mut().drain(..));
-        drop((granted, other, ungated, tab, probe, locked, frames));
+        drop((granted, other, ungated, tab, probe, locked, frames, twice));
         DataStore::wipe_persistent(uuid);
         FilterLists::remove("tarn-ext.test");
         window.close();
