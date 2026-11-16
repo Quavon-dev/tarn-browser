@@ -20,6 +20,20 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
+### Linux page tools from the UI review (2026-11-16)
+
+What it does: Clear History, Clear Website Data and deleting a snapshot ask for a confirmation in
+place before they act; the find bar counts matches ("3 matches", "No matches") and Ctrl+G /
+Ctrl+Shift+G step to the next and previous match; right click on any sidebar tab opens that tab's
+menu, not only the active one's.
+Shared API: none; shell behaviour over the existing store and web view calls.
+Linux reference: `linux/src/ui/panels.rs` (`confirmed`), `linux/src/ui/tools.rs`, `linux/src/ui.rs`.
+
+- [ ] macOS — check each against `crates/app` (`library.rs`, `settings.rs`, the find bar in `content.rs`, `browser/context.rs`) and add what is missing
+- [ ] Windows — same code as macOS
+- [ ] iOS — confirmations in `mobile/app/src/ui/panels.rs`; find count exists, next/previous with a hardware keyboard
+- [ ] Android — same as iOS
+
 ### Keyboard, labels and contrast from the desktop UI review (2026-11-16)
 
 What it does: Up and Down wrap at the ends of a suggestion list and Page Up/Page Down jump to its
@@ -69,7 +83,7 @@ macOS reference: `crates/app/src/split.rs`, `crates/app/src/sidebar.rs` (`tab_ro
 (`activate`, `wake`).
 
 - [x] Windows — same code in `crates/app`
-- [ ] Linux — no split view yet: several `linux/src/webview` views placed by `layout` in `linux/src/ui.rs`, and drop targets on sidebar rows
+- [x] Linux — `linux/src/browser/split.rs`, `linux/src/ui/split.rs`
 - [ ] iOS — no split view yet; a tablet-width layout in `mobile/app` could place two web views by `layout`
 - [ ] Android — same as iOS
 

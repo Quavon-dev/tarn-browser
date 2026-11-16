@@ -30,7 +30,11 @@ Every shell's web view offers the same operations and reports the same events. T
   the page menu); WebKit views report it as a `Popup`;
 - `FullScreen`: Chromium views on Windows only, whose element full screen fills the browser's
   view; WebKit and the other engines open their own full-screen window;
-- `DownloadFinished`, `DownloadFailed`, `DownloadsActive`.
+- `DownloadFinished`, `DownloadFailed`, `DownloadsActive`;
+- `pressed`: Linux only, a pointer press on the page, which still reaches the page, so a split
+  pane takes the focus. macOS and Windows see the same press through the shell's mouse monitor
+  (`engine::menu::EventMonitor::on_mouse_down`); iOS and Android do not report it yet
+  (`docs/port-backlog.md`, split view).
 
 **Rules for every implementation:**
 - **Decisions inside the web view:** policy decisions are made inside the web view, synchronously,

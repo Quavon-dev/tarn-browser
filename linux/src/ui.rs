@@ -2,6 +2,7 @@ mod appearance;
 mod library;
 mod panels;
 mod settings;
+mod split;
 mod tools;
 
 use std::cell::{Cell, RefCell};
@@ -122,6 +123,12 @@ pub struct Ui {
     tab_menu: Signal<Option<TabKey>>,
     confirm: Signal<Option<String>>,
     open: Signal<bool>,
+    /// The page area's size, which places the panes of a split.
+    area: Signal<(f32, f32)>,
+    /// The tab whose row or pane header is being dragged, and what dropping it now does where.
+    dragging: Signal<Option<TabKey>>,
+    split_drop: Signal<Option<(TabKey, &'static str)>>,
+    resizing: Signal<Option<browser_core::split::Divider>>,
     root: Owner,
 }
 
@@ -243,38 +250,48 @@ fn new_tab(ui: Ui) {
 }
 
 fn web_views(ui: Ui) -> View {
-    view().flex_col().child(each(
-        move || ui.snap.with(|s| s.views.clone()),
-        |v| (v.key, v.born),
-        move |item, _| {
-            let (key, born) = item.with_untracked(|v| (v.key, v.born));
-            let web = element_ref();
-            REFS.with_borrow_mut(|refs| refs.insert((ui.window, key), (born, web)));
-            cleanup(move || {
-                REFS.with_borrow_mut(|refs| {
-                    if refs.get(&(ui.window, key)).is_some_and(|(b, _)| *b == born) {
-                        refs.remove(&(ui.window, key));
-                    }
+    view()
+        .relative()
+        .on_layout(move |b: &Bounds<Points>| ui.area.set((b.size.width.0, b.size.height.0)))
+        .on_mouse_move(move |e: &MouseEvent| split::pointer_moved(ui, e))
+        .on_mouse_up(move |_: &MouseEvent| split::released(ui))
+        .child(split::layer(ui))
+        .child(each(
+            move || ui.snap.with(|s| s.views.clone()),
+            |v| (v.key, v.born),
+            move |item, _| {
+                let (key, born) = item.with_untracked(|v| (v.key, v.born));
+                let web = element_ref();
+                REFS.with_borrow_mut(|refs| refs.insert((ui.window, key), (born, web)));
+                cleanup(move || {
+                    REFS.with_borrow_mut(|refs| {
+                        if refs.get(&(ui.window, key)).is_some_and(|(b, _)| *b == born) {
+                            refs.remove(&(ui.window, key));
+                        }
+                    });
                 });
-            });
-            native(webview::NAME)
-                .prop("tab", JsonValue::from(format!("{}-{}", key.private, key.id)))
-                .prop("profile", move || JsonValue::from(item.with(|v| v.profile.clone())))
-                .prop("level", move || JsonValue::from(item.with(|v| v.level.clone())))
-                .prop("levels", move || item.with(|v| v.levels.clone()))
-                .prop("lists", move || JsonValue::from(item.with(|v| v.lists.clone())))
-                .prop("styles", move || item.with(|v| v.styles.clone()))
-                .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
-                .prop("zaps", move || item.with(|v| v.zaps.clone()))
-                .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
-                .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s }))))
-                .prop("active", move || JsonValue::from(item.with(|v| v.active)))
-                .on_native_event(move |event: &NativeEvent| act_quietly(ui, |b| b.on_event(key, &event.name, &event.data)))
-                .element_ref(&web)
-                .flex_grow(move || if item.with(|v| v.active) { 1.0_f32 } else { 0.0 })
-                .h(px(0.0))
-        },
-    ))
+                let rect = move || item.with(|v| split::view_rect(ui, v.active, v.pane));
+                native(webview::NAME)
+                    .prop("tab", JsonValue::from(format!("{}-{}", key.private, key.id)))
+                    .prop("profile", move || JsonValue::from(item.with(|v| v.profile.clone())))
+                    .prop("level", move || JsonValue::from(item.with(|v| v.level.clone())))
+                    .prop("levels", move || item.with(|v| v.levels.clone()))
+                    .prop("lists", move || JsonValue::from(item.with(|v| v.lists.clone())))
+                    .prop("styles", move || item.with(|v| v.styles.clone()))
+                    .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
+                    .prop("zaps", move || item.with(|v| v.zaps.clone()))
+                    .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
+                    .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s }))))
+                    .prop("active", move || JsonValue::from(item.with(|v| v.active)))
+                    .on_native_event(move |event: &NativeEvent| act_quietly(ui, |b| b.on_event(key, &event.name, &event.data)))
+                    .element_ref(&web)
+                    .absolute()
+                    .left(move || px(rect().0))
+                    .top(move || px(rect().1))
+                    .w(move || px(rect().2))
+                    .h(move || px(rect().3))
+            },
+        ))
 }
 
 pub fn site_tile(host: &str, size: f32) -> View {
@@ -368,14 +385,32 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
                         }
                         hovered.set(on);
                     };
+                    let dropping = move || ui.split_drop.with(|d| d.filter(|(k, _)| *k == key).map(|(_, does)| does));
+                    // The other tabs of a split carry the edge too: in the accent for the split on screen.
+                    let edge = move || match (active(), item.with(|r| r.split)) {
+                        (true, _) | (false, Some(true)) => Some(Theme::accent()),
+                        (false, Some(false)) => Some(Theme::faint()),
+                        (false, None) => None,
+                    };
                     let tab = row(move || Some(SharedString::from(name())), move || act(ui, |b| b.activate(key)))
+                        .on_press_down(move || ui.dragging.set(Some(key)))
                         .h(px(TAB_ROW))
                         .relative()
                         .pl(px(10. + depth * 16.))
                         .pr_1()
                         .gap(px(CLOSE_GAP))
-                        .bg(move || if active() { Theme::selected() } else { rgba(0) })
-                        .child(when(active, || view().absolute().left(px(0.)).top(px(7.)).bottom(px(7.)).w(px(3.)).rounded_full().bg(Theme::accent())))
+                        .bg(move || match (dropping().is_some(), active()) {
+                            (true, _) => Theme::accent_soft(),
+                            (false, true) => Theme::selected(),
+                            (false, false) => rgba(0),
+                        })
+                        .child(dynamic(move || {
+                            edge().map(|color| view().absolute().left(px(0.)).top(px(7.)).bottom(px(7.)).w(px(3.)).rounded_full().bg(color))
+                        }))
+                        .child(when(
+                            move || dropping().is_some(),
+                            || view().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent()),
+                        ))
                         .child({
                             let mark = computed(move || item.with(|r| (r.loading && !reduce_motion(), r.host.clone())));
                             dynamic(move || match mark.get() {
@@ -409,10 +444,16 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
                                 view().text_color(tint).accessible(true).label(name).tooltip(controls::tip(name, Placement::Top)).child(icons::icon(icon, 13.))
                             })
                         }))
+                        .child(dynamic(move || dropping().map(|does| small(does).text_color(Theme::accent()))))
                         .children(close);
                     view()
+                        .on_mouse_up(move |_: &MouseEvent| split::drop_on(ui, key))
                         .on_mouse_enter(move |_: &MouseEvent| hover(true))
-                        .on_mouse_leave(move |_: &MouseEvent| hover(false))
+                        .on_mouse_leave(move |_: &MouseEvent| {
+                            hover(false);
+                            split::drop_leave(ui, key);
+                        })
+                        .on_mouse_move(move |e: &MouseEvent| split::drop_over(ui, key, browser_core::split::drops_into(e.position.y.0 / TAB_ROW)))
                         .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
                         .child(tab)
                         .into_element()
@@ -1184,7 +1225,8 @@ fn error_bar(ui: Ui) -> AnyElement {
 }
 
 fn content(ui: Ui) -> View {
-    let bare = move || ui.snap.with(|s| s.blank || s.reader.is_some()) || ui.panel.get() != Panel::None;
+    let covered = move || ui.snap.with(|s| s.blank || s.reader.is_some()) || ui.panel.get() != Panel::None;
+    let bare = move || covered() || ui.snap.with(|s| s.split.is_some());
     view()
         .flex_col()
         .flex_1()
@@ -1196,7 +1238,7 @@ fn content(ui: Ui) -> View {
         .child(panels::panel_view(ui))
         .child(themed(move || tools::reader_view(ui)))
         .child(themed(move || start_card(ui)))
-        .child(web_views(ui).flex_grow(move || if bare() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
+        .child(web_views(ui).flex_grow(move || if covered() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
 }
 
 fn run_action(ui: Ui, action: Action) {
@@ -1230,6 +1272,12 @@ fn run_action(ui: Ui, action: Action) {
         Action::PrivateSpace => act(ui, |b| b.private_space()),
         Action::Settings => show(ui, Panel::Settings),
         Action::NewWindow => new_window(ui),
+        Action::ToggleSplitView => act(ui, Browser::toggle_split),
+        Action::FocusNextPane => act(ui, |b| b.focus_pane(true)),
+        Action::FocusPreviousPane => act(ui, |b| b.focus_pane(false)),
+        Action::SwapPanes => act(ui, Browser::swap_panes),
+        Action::RotateSplitLayout => act(ui, |b| b.model.active.into_iter().for_each(|k| b.rotate_split(k))),
+        Action::RemoveFromSplitView => act(ui, |b| b.model.active.into_iter().for_each(|k| b.leave_split(k))),
     }
 }
 
@@ -1422,6 +1470,10 @@ fn new_ui(row: SavedWindow) -> Ui {
         history: signal(Default::default()),
         tab_menu: signal(None),
         confirm: signal(None),
+        area: signal((0., 0.)),
+        dragging: signal(None),
+        split_drop: signal(None),
+        resizing: signal(None),
         root: Owner::current(),
     };
     let shown_space = std::cell::Cell::new(None);
@@ -1494,6 +1546,12 @@ fn browser_window(ui: Ui) -> AnyElement {
                 .child(themed(move || tools::toast_bar(ui))),
         )
         .child(bound_keys(ui))
+        .on_mouse_up(move |_: &MouseEvent| split::release(ui))
+        .on_mouse_move(move |e: &MouseEvent| {
+            if e.pressed_button.is_none() {
+                split::release(ui);
+            }
+        })
         .into_element()
 }
 

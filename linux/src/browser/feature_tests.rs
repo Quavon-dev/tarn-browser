@@ -310,3 +310,67 @@ fn clean_links_drop_tracking_parameters_and_pages_go_to_the_reading_list() {
     b.remove_from_reading_list(id);
     assert!(b.reading_list().is_empty());
 }
+
+#[test]
+fn a_split_shows_its_panes_and_a_closed_pane_hands_the_focus_on() {
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    visit(&mut b, first, "https://a.test/");
+    let second = b.new_tab("https://b.test/").unwrap();
+    let third = b.new_tab("https://c.test/").unwrap();
+    b.activate(first);
+    b.open_split();
+    assert_eq!(b.shown_split().map(|s| s.panes().to_vec()), Some(vec![first, third]), "the most recently used tab joins");
+    assert_eq!(b.model.active, Some(third));
+    b.split_with(second);
+    let snap = crate::snapshot::snapshot(&b, true);
+    let shown: Vec<_> = snap.views.iter().filter(|v| v.active).map(|v| (v.key, v.pane)).collect();
+    assert_eq!(shown.len(), 3);
+    assert!(shown.contains(&(first, Some(0))) && shown.contains(&(second, Some(2))));
+    assert_eq!(snap.split.as_ref().map(|s| (s.panes.len(), s.dividers.len())), Some((3, 2)));
+    assert!(crate::snapshot::rows(&b).iter().all(|r| r.split == Some(true)));
+    assert!(crate::snapshot::snapshot(&b, false).split.is_none(), "a panel covers the split");
+
+    b.close_tab(second);
+    assert_eq!(b.model.active, Some(third), "the neighbouring pane takes the focus");
+    b.on_event(first, "pressed", &Value::Null);
+    assert_eq!(b.model.active, Some(first));
+    b.swap_panes();
+    assert_eq!(b.shown_split().unwrap().panes(), [third, first]);
+    b.leave_split(first);
+    assert!(b.shown_split().is_none() && b.model.active == Some(first), "a split left with one pane ends");
+}
+
+#[test]
+fn a_split_out_of_sight_waits_and_its_edge_fades() {
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    let second = b.new_tab("https://b.test/").unwrap();
+    b.open_split();
+    let other = b.new_tab("https://c.test/").unwrap();
+    assert!(b.shown_split().is_none());
+    let rows = crate::snapshot::rows(&b);
+    let edge = |key| rows.iter().find(|r| r.kind == crate::snapshot::RowKind::Tab(key)).map(|r| r.split);
+    assert_eq!((edge(first), edge(second), edge(other)), (Some(Some(false)), Some(Some(false)), Some(None)));
+    b.on_event(first, "pressed", &Value::Null);
+    assert_eq!(b.model.active, Some(other), "a hidden pane takes no clicks");
+    b.activate(first);
+    assert_eq!(b.shown_split().map(|s| s.panes().to_vec()), Some(vec![second, first]));
+    b.toggle_split();
+    assert!(b.shown_split().is_none() && b.splits.of(second).is_none());
+}
+
+#[test]
+fn a_lone_tab_splits_with_a_copy_but_the_burner_says_it_needs_another() {
+    let (_dir, mut b) = browser();
+    let only = b.model.active.unwrap();
+    visit(&mut b, only, "https://a.test/");
+    b.open_split();
+    let copy = b.model.active.unwrap();
+    assert_ne!(copy, only);
+    assert_eq!(b.model.tab(copy).map(|t| t.url.as_str()), Some("https://a.test/"));
+    b.open_burner();
+    b.open_split();
+    assert!(b.shown_split().is_none());
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some("Split View needs a second tab"));
+}

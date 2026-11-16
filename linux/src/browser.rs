@@ -1,6 +1,7 @@
 pub mod pages;
 mod site;
 pub mod spaces;
+mod split;
 pub mod swipe;
 pub mod themes;
 pub mod tools;
@@ -109,6 +110,8 @@ pub struct Browser {
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
     pub themes: themes::Themes,
+    /// Every split of this window, for the session only.
+    pub splits: browser_core::split::Splits<TabKey>,
     text_rows: usize,
     burner_return: Option<(bool, Id)>,
     window: SavedWindow,
@@ -168,6 +171,7 @@ impl Browser {
             elsewhere,
             forgotten: Vec::new(),
             themes,
+            splits: Default::default(),
             text_rows: 0,
             burner_return: None,
             window,
@@ -269,17 +273,23 @@ impl Browser {
         self.model.active = Some(key);
         self.model.touch(&self.core, key, now());
         self.forget_silent_views();
-        for evicted in self.model.lifecycle.activate(key) {
-            if self.playing.contains(&evicted) {
+        let partners = self.split_partners(key);
+        let mut evicted: Vec<TabKey> = partners.iter().flat_map(|p| self.model.lifecycle.activate(*p)).collect();
+        evicted.extend(self.model.lifecycle.activate(key));
+        for evicted in evicted {
+            // The split's panes stay awake above the live-tab limit while it lasts.
+            if evicted == key || partners.contains(&evicted) || self.playing.contains(&evicted) {
                 self.model.lifecycle.keep(evicted);
             } else {
                 self.unload(evicted);
             }
         }
-        let needs_load = self.pages.get(&key).is_none_or(|p| p.load.is_none());
-        if needs_load {
-            let url = self.pages.get(&key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url);
-            self.load(key, &url);
+        for shown in partners.into_iter().chain([key]) {
+            if self.pages.get(&shown).is_none_or(|p| p.load.is_none()) {
+                let stored = self.model.tab(shown).map(|t| t.url.clone()).unwrap_or_else(|| tab.url.clone());
+                let url = self.pages.get(&shown).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(stored);
+                self.load(shown, &url);
+            }
         }
         self.save_window();
     }
@@ -352,7 +362,8 @@ impl Browser {
         for key in &keys {
             let Some(tab) = self.model.tab(*key).cloned() else { continue };
             if next == Some(*key) {
-                next = self.model.close_neighbour(*key, &keys, false);
+                // A split that keeps two panes keeps the focus too.
+                next = self.splits.heir(*key, &keys).or_else(|| self.model.close_neighbour(*key, &keys, false));
             }
             let url = self.pages.get(key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url.clone());
             let title = self.pages.get(key).map(|p| p.title.clone()).unwrap_or(tab.title.clone());
@@ -383,6 +394,7 @@ impl Browser {
 
     fn forget_tab(&mut self, key: TabKey) {
         self.forgotten.push(key);
+        self.splits.leave(key);
         self.model.lifecycle.remove(key);
         self.pages.remove(&key);
         self.articles.remove(&key);
@@ -699,6 +711,7 @@ impl Browser {
                 }
             }
             "crashed" => self.on_crash(key),
+            "pressed" if self.in_split(key) && self.model.active != Some(key) => self.activate(key),
             "playing" => {
                 if data["playing"].as_bool() == Some(true) {
                     self.playing.insert(key);
@@ -849,6 +862,7 @@ impl Browser {
     }
 
     pub fn give_up(&mut self, key: TabKey) {
+        self.splits.leave(key);
         self.model.lifecycle.remove(key);
         self.pages.remove(&key);
         if self.model.active == Some(key) {

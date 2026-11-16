@@ -69,6 +69,10 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   `Ctrl+Shift+G` step through the find bar's matches (fixed keys); icon buttons have tooltips, placed
   beside the toolbar's buttons because one below them would be hidden behind the web view; Clear
   History, Clear Website Data and a snapshot's Delete ask once more before they run;
+- split view (`browser_core::split`, session only): two to four panes with headers, dividers that
+  drag and even out on a double click, drops on a sidebar row's middle, a pane header or a page;
+  a click in a pane's page focuses it through `pressed` (a Linux addition the component emits from
+  a click it does not claim), as WebKitGTK keeps the page's pointer events from the shell;
 - memory panel and heavy-tab marks: WebKitGTK gives no process id, so the component reports
   `process {pid}` (a Linux addition) when exactly one new `WebKitWebProcess` below the app appears
   between a load's start and its commit; tabs it cannot tell apart are "Not measured".

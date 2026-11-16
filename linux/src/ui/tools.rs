@@ -8,6 +8,7 @@ use crate::browser::Browser;
 use crate::browser::spaces::SpaceCommand;
 use crate::controls::{accent_pill, body, icon_button, label, pill, small};
 use crate::icons;
+use crate::shortcuts::Action;
 use crate::speech::{self, SPEEDS};
 use crate::theme::{ROW_HEIGHT, Theme};
 
@@ -32,10 +33,12 @@ pub enum Command {
     Memory,
     ReadingList,
     NewWindow,
+    Key(Action),
+    CloseSplit,
     Space(SpaceCommand),
 }
 
-const COMMANDS: [(&str, &str, Command); 14] = [
+const COMMANDS: [(&str, &str, Command); 21] = [
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
     ("Zap Element", "hide remove element block", Command::ZapElement),
     ("Reader", "article reading view text", Command::Reader),
@@ -50,6 +53,13 @@ const COMMANDS: [(&str, &str, Command); 14] = [
     ("Memory", "process cpu ram usage sleep", Command::Memory),
     ("Reading List", "read later saved pages", Command::ReadingList),
     ("New Window", "open another browser window", Command::NewWindow),
+    ("Open or Close Split View", "side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
+    ("Focus Next Pane", "split view switch", Command::Key(Action::FocusNextPane)),
+    ("Focus Previous Pane", "split view switch", Command::Key(Action::FocusPreviousPane)),
+    ("Swap Split Panes", "split view exchange move", Command::Key(Action::SwapPanes)),
+    ("Rotate Split Layout", "split view stacked side by side rows columns", Command::Key(Action::RotateSplitLayout)),
+    ("Remove Tab from Split View", "split pane leave", Command::Key(Action::RemoveFromSplitView)),
+    ("Close Split View", "split panes end separate", Command::CloseSplit),
 ];
 
 pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
@@ -80,6 +90,8 @@ pub fn run(ui: Ui, command: Command) {
         Command::Memory => show(ui, Panel::Memory),
         Command::ReadingList => show(ui, Panel::ReadingList),
         Command::NewWindow => super::new_window(ui),
+        Command::Key(action) => super::run_action(ui, action),
+        Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),
         Command::Space(c) => act(ui, |b| b.run_space_command(c)),
     }
 }

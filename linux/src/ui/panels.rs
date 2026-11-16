@@ -249,7 +249,7 @@ fn pills(name: &str, buttons: Vec<AnyElement>) -> Option<View> {
 
 fn tab_panel(ui: Ui) -> AnyElement {
     let menu = ui.tab_menu.get_untracked();
-    let Some((key, active, name, kind, targets, duplicates, keymap)) = read(ui, |b| {
+    let Some((key, active, name, kind, targets, duplicates, keymap, split)) = read(ui, |b| {
         let key = menu.filter(|k| b.model.tab(*k).is_some()).or(b.model.active)?;
         let tab = b.model.tab(key)?;
         let keymap = shortcuts::keymap(&shortcuts::stored(&b.core.disk));
@@ -261,6 +261,7 @@ fn tab_panel(ui: Ui) -> AnyElement {
             b.model.move_targets(&b.core, key),
             !b.duplicate_tabs().is_empty(),
             keymap,
+            b.splits.menu(b.model.active, key),
         ))
     })
     .flatten() else {
@@ -307,6 +308,22 @@ fn tab_panel(ui: Ui) -> AnyElement {
         rows.push(tool("New Burner Tab", Command::BurnerTab, Some(Action::BurnerTab)));
         group().children(rows)
     });
+    let in_split = move |run: fn(&mut Browser, browser_core::tabs::TabKey)| {
+        move || {
+            ui.panel.set(Panel::None);
+            act(ui, |b| run(b, key));
+        }
+    };
+    let mut split_rows = Vec::new();
+    if split.enabled {
+        split_rows.push(menu_row(split.entry.label(), keys(Action::ToggleSplitView), in_split(Browser::split_with)));
+    }
+    if split.member {
+        split_rows.push(menu_row("Remove from Split View", keys(Action::RemoveFromSplitView), in_split(Browser::leave_split)));
+        split_rows.push(menu_row("Rotate Layout", keys(Action::RotateSplitLayout), in_split(Browser::rotate_split)));
+        split_rows.push(menu_row("Close Split View", keys(Action::ToggleSplitView), in_split(Browser::close_split)));
+    }
+    let split_rows = (!split_rows.is_empty()).then(|| view().flex_col().child(section("Split View".to_owned())).child(group().children(split_rows)));
     let close = menu_row("Close Tab", keys(Action::CloseTab), move || {
         ui.panel.set(Panel::None);
         act(ui, |b| b.close_tab(key));
@@ -316,6 +333,7 @@ fn tab_panel(ui: Ui) -> AnyElement {
         .children(burner.then(|| note("Burner tab: nothing is kept after it closes")))
         .children(tab_rows)
         .children(page_rows)
+        .children(split_rows)
         .child(group().child(close))
         .children(pills("Move into a folder", folder_buttons))
         .children(pills("Move to another space of this profile", space_buttons))
