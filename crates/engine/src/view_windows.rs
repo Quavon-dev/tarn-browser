@@ -202,10 +202,14 @@ impl WebView {
         self.view.hand_over(storage);
     }
 
-    /// Chromium cannot restore a back list; a hibernated tab keeps only its URL.
+    /// Chromium cannot take a back list back, so Tarn saves the URLs of its own and steps through
+    /// them itself after a restore (`chromium::WebView::restore_history`).
     pub fn interaction_state(&self) -> Option<Vec<u8>> {
-        None
+        self.view.saved_history()
     }
 
-    pub fn restore_interaction_state(&self, _bytes: &[u8]) {}
+    /// Windows only ever saved Tarn's own format; anything else is ignored.
+    pub fn restore_interaction_state(&self, bytes: &[u8]) {
+        self.view.restore_history(bytes);
+    }
 }

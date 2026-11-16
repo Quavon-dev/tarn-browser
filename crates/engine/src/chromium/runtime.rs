@@ -188,6 +188,16 @@ wrap_app! {
             // `~/Library/Caches`, outside the folder a wipe deletes. With it, each profile's
             // cache is `<root>/<profile folder name>`, which on Windows is the profile folder.
             line.append_switch_with_value(Some(&CefString::from("disk-cache-dir")), Some(&CefString::from(self.root.as_str())));
+            // With the back-forward cache a navigation moves the page into a new view, which Chrome
+            // paints in its theme's new-tab colour: dark grey behind every page without a background
+            // of its own. Without it a navigation keeps its view, and a page left is not kept in memory.
+            #[cfg(windows)]
+            {
+                let name = CefString::from("disable-features");
+                let old = CefString::from(&line.switch_value(Some(&name))).to_string();
+                let value = if old.is_empty() { "BackForwardCache".to_owned() } else { format!("{old},BackForwardCache") };
+                line.append_switch_with_value(Some(&name), Some(&CefString::from(value.as_str())));
+            }
         }
 
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {

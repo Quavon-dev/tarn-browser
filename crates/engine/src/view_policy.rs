@@ -180,9 +180,122 @@ pub fn title(raw: &str) -> String {
     }
 }
 
+/// Entries kept on each side of a saved back list.
+pub const MAX_SAVED_HISTORY: usize = 50;
+
+/// A tab's back and forward lists, saved for an engine that cannot restore its own (Chromium):
+/// `back` oldest first, `forward` nearest first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedHistory {
+    pub back: Vec<Url>,
+    pub current: Url,
+    pub forward: Vec<Url>,
+}
+
+impl SavedHistory {
+    /// Only web pages are kept, the nearest `MAX_SAVED_HISTORY` on each side.
+    pub fn new(back: Vec<Url>, current: Url, forward: Vec<Url>) -> Option<Self> {
+        let web = |u: &Url| nav_policy::decide(u, Source::Sync) == Decision::Allow && u.as_str() != "about:blank";
+        if !web(&current) {
+            return None;
+        }
+        let mut back: Vec<Url> = back.into_iter().filter(web).collect();
+        back.drain(..back.len().saturating_sub(MAX_SAVED_HISTORY));
+        let forward = forward.into_iter().filter(web).take(MAX_SAVED_HISTORY).collect();
+        Some(SavedHistory { back, current, forward })
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let list = |urls: &[Url]| urls.iter().map(|u| u.to_string()).collect::<Vec<_>>();
+        serde_json::json!({ "tarn-history": 1, "back": list(&self.back), "current": self.current.as_str(), "forward": list(&self.forward) })
+            .to_string()
+            .into_bytes()
+    }
+
+    /// Reads what `to_bytes` wrote; anything else, or a list that is not web pages, is refused.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+        if value.get("tarn-history")?.as_u64()? != 1 {
+            return None;
+        }
+        let list = |key: &str| -> Option<Vec<Url>> { value.get(key)?.as_array()?.iter().map(|u| Url::parse(u.as_str()?).ok()).collect() };
+        SavedHistory::new(list("back")?, Url::parse(value.get("current")?.as_str()?).ok()?, list("forward")?)
+    }
+}
+
+/// The back and forward lists of a restored tab past the engine's own, which cannot take them:
+/// `back` oldest first, `forward` nearest first. A step loads its page in place of the current one.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RestoredHistory {
+    pub back: Vec<Url>,
+    pub forward: Vec<Url>,
+}
+
+impl RestoredHistory {
+    /// The page a step back (`true`) or forward would load.
+    pub fn next(&self, back: bool) -> Option<&Url> {
+        if back { self.back.last() } else { self.forward.first() }
+    }
+
+    /// A step to `next(back)` committed, leaving `left`, which joins the other side.
+    pub fn stepped(&mut self, back: bool, left: Url) {
+        if back {
+            self.back.pop();
+            self.forward.insert(0, left);
+        } else if !self.forward.is_empty() {
+            self.forward.remove(0);
+            self.back.push(left);
+        }
+    }
+
+    /// A new page ends the forward list, as it ends the engine's own.
+    pub fn new_page(&mut self) {
+        self.forward.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_restored_history_steps_both_ways_and_a_new_page_ends_its_forward_list() {
+        let u = |s: &str| Url::parse(&format!("https://{s}.test/")).unwrap();
+        let mut h = RestoredHistory { back: vec![u("a")], forward: vec![u("c")] };
+        assert_eq!(h.next(true), Some(&u("a")));
+        h.stepped(true, u("b"));
+        assert_eq!(h, RestoredHistory { back: vec![], forward: vec![u("b"), u("c")] });
+        assert_eq!((h.next(true), h.next(false)), (None, Some(&u("b"))));
+        h.stepped(false, u("a"));
+        assert_eq!(h, RestoredHistory { back: vec![u("a")], forward: vec![u("c")] });
+        h.new_page();
+        assert_eq!(h, RestoredHistory { back: vec![u("a")], forward: vec![] });
+        h.stepped(false, u("x"));
+        assert_eq!(h.back, [u("a")], "no forward entry, nothing moves");
+    }
+
+    #[test]
+    fn a_saved_history_keeps_web_pages_and_reads_back_what_it_wrote() {
+        let u = |s: &str| Url::parse(s).unwrap();
+        let saved = SavedHistory::new(
+            vec![u("https://a.test/"), u("file:///c:/x"), u("about:blank")],
+            u("https://b.test/"),
+            vec![u("https://c.test/"), u("javascript:alert(1)")],
+        )
+        .unwrap();
+        assert_eq!(saved.back, [u("https://a.test/")]);
+        assert_eq!(saved.forward, [u("https://c.test/")]);
+        assert_eq!(SavedHistory::from_bytes(&saved.to_bytes()), Some(saved));
+        assert_eq!(SavedHistory::new(Vec::new(), u("about:blank"), Vec::new()), None);
+        assert_eq!(SavedHistory::from_bytes(b"bplist00"), None, "WebKit's own state is not ours");
+        assert_eq!(
+            SavedHistory::from_bytes(br#"{"tarn-history":1,"back":["file:///etc/passwd"],"current":"https://a.test/","forward":[]}"#).map(|s| s.back.len()),
+            Some(0)
+        );
+        let long: Vec<Url> = (0..80).map(|i| u(&format!("https://a.test/{i}"))).collect();
+        let kept = SavedHistory::new(long.clone(), u("https://b.test/"), long).unwrap();
+        assert_eq!((kept.back.len(), kept.back[0].path(), kept.forward.len(), kept.forward[0].path()), (MAX_SAVED_HISTORY, "/30", MAX_SAVED_HISTORY, "/0"));
+    }
 
     fn u(s: &str) -> Url {
         Url::parse(s).unwrap()
