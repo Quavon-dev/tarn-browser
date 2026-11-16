@@ -172,6 +172,7 @@ fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: 
     }
 }
 
+#[cfg(test)]
 pub fn rows(b: &Browser) -> Vec<Row> {
     rows_with(b, &b.heavy_tabs())
 }
@@ -184,6 +185,7 @@ fn rows_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
     rows
 }
 
+#[cfg(test)]
 pub fn tiles(b: &Browser) -> Vec<Row> {
     tiles_with(b, &b.heavy_tabs())
 }
