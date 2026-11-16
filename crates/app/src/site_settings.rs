@@ -12,7 +12,9 @@ use gpui::{
 use shield::ShieldLevel;
 use store::Id;
 use ui::controls::field;
-use ui::controls::{POPOVER_INSET, button, caption, group, icon_button, open_popup, popover, row, segment, segmented, switch, switch_row, tab_stop, tooltip};
+use ui::controls::{
+    POPOVER_INSET, button, caption, group, icon_button, open_popup, popover, row, segment, segmented, sliding_switch, switch_row, tab_stop, tooltip,
+};
 use ui::icon::{Icon, icon};
 use ui::motion::{REOPEN_GUARD, popover_motion};
 use ui::text::bounded_title;
@@ -442,7 +444,7 @@ impl SiteSettingsWindow {
         } else {
             (Icon::TriangleAlert, Secure::warning(), "Not secure — this page is not encrypted")
         };
-        let block = tab_stop(div().id("block-site").flex_none().rounded_full().cursor_pointer().child(switch(!paused)))
+        let block = tab_stop(div().id("block-site").flex_none().rounded_full().cursor_pointer().child(sliding_switch("block-site-switch", !paused)))
             .tooltip(tooltip("Block ads, trackers and cookie banners", None))
             .on_click(cx.listener(move |this, _, _, cx| {
                 let host = pause_host.clone();

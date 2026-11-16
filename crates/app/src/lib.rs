@@ -155,6 +155,7 @@ impl Render for Browser {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         engine::startup::mark("first window render");
         self.follow_theme();
+        ui::motion::set_reduced(self.pref(prefs::Pref::ReduceMotion));
         // The menu bar is the app's; only the window in front decides what it lists.
         if window.is_window_active() {
             self.refresh_menus(cx);
