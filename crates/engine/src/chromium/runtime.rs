@@ -221,7 +221,7 @@ fn register_tarn_extension(registrar: Option<&mut SchemeRegistrar>) {
             | SchemeOptions::SECURE.get_raw()
             | SchemeOptions::CORS_ENABLED.get_raw()
             | SchemeOptions::DISPLAY_ISOLATED.get_raw();
-        registrar.add_custom_scheme(Some(&CefString::from(crate::tarn_ext::SCHEME)), options as i32);
+        registrar.add_custom_scheme(Some(&CefString::from(crate::tarn_ext::SCHEME)), options);
     }
 }
 
