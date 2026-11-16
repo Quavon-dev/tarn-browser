@@ -1,0 +1,67 @@
+name: Start release
+
+# Releases main's latest commit as v<version> from the version files (docs/release.md, "Releases").
+# Builds every client without keys; the sign job then waits for a maintainer to approve its
+# release-signing deployment, creates the tag with the update app, signs and publishes.
+on:
+  workflow_dispatch:
+    inputs:
+      critical:
+        description: Security release (updates install sooner)
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: start-release
+
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      commit: ${{ steps.check.outputs.commit }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
+          tag="v$version"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version '$version' is not 1.2.3" >&2; exit 1; }
+          scripts/check-version.sh "$tag"
+          if gh api "repos/$GH_REPO/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::$tag exists already; raise the version in every client (scripts/check-version.sh) first"
+            exit 1
+          fi
+          ci="$(gh run list --workflow ci.yml --branch main --event push --commit "$COMMIT" -L 1 \
+            --json status,conclusion --jq '.[] | "\(.status) \(.conclusion)"')"
+          [[ "$ci" == "completed success" ]] || { echo "::error::CI on $COMMIT is '${ci:-missing}'; wait for it to pass"; exit 1; }
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Releasing $COMMIT as $tag. Approve the release-signing deployment of this run once its builds finish." >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: check
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      actions: write
+    uses: ./.github/workflows/release.yml
+    with:
+      commit: ${{ needs.check.outputs.commit }}
+      tag: ${{ needs.check.outputs.tag }}
+      full: true
+      critical: ${{ inputs.critical }}

@@ -18,6 +18,13 @@ on:
       version:
         type: string
         default: ""
+      # start-release.yml: every client, and the sign job creates the tag once a maintainer approves.
+      full:
+        type: boolean
+        default: false
+      critical:
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -52,7 +59,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: "1.99.1"
-      - if: inputs.commit == ''
+      - if: inputs.commit == '' || inputs.full
         run: scripts/check-version.sh "$TAG"
       - if: inputs.nightly
         env:
@@ -76,7 +83,7 @@ jobs:
 
   windows:
     # Engine updates (chromium-update.yml) and manual runs ship the macOS bundle alone, without waiting for the rest.
-    if: (github.event_name == 'push' || inputs.nightly) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
+    if: (github.event_name == 'push' || inputs.nightly || inputs.full) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     runs-on: windows-2025
@@ -128,7 +135,7 @@ jobs:
 
   linux:
     # Engine updates (chromium-update.yml) and manual runs ship the macOS bundle alone, without waiting for the rest.
-    if: (github.event_name == 'push' || inputs.nightly) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
+    if: (github.event_name == 'push' || inputs.nightly || inputs.full) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -154,7 +161,7 @@ jobs:
 
   mobile:
     # Engine updates (chromium-update.yml) and manual runs ship the macOS bundle alone, without waiting for the rest.
-    if: (github.event_name == 'push' || inputs.nightly) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
+    if: (github.event_name == 'push' || inputs.nightly || inputs.full) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
     outputs:
       ios: ${{ steps.ios.outputs.artifact-id }}
       android: ${{ steps.android.outputs.artifact-id }}
@@ -248,8 +255,36 @@ jobs:
           artifact-ids: ${{ needs.windows.outputs.artifact }}
           path: windows
           merge-multiple: true
-      # A signed tag whose message has the line "critical" (publish-release.sh --critical). The
-      # checkout holds the tag's commit only, so the tag object is fetched first.
+      # A release started on GitHub (start-release.yml) gets its tag here, after a maintainer approved
+      # this job: the update app may create v* tags, GitHub Actions itself may not (tag ruleset). The
+      # tag's message carries the line "critical" when asked for, as publish-release.sh's does.
+      - if: inputs.full
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.CHROMIUM_UPDATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CHROMIUM_UPDATE_APP_KEY }}
+          permission-contents: write
+      - if: inputs.full
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ inputs.commit }}
+          ACTOR: ${{ github.triggering_actor }}
+          CRITICAL_INPUT: ${{ inputs.critical }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "bad tag $TAG or commit $COMMIT" >&2; exit 1; }
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG exists already" >&2
+            exit 1
+          fi
+          message="$TAG, started on GitHub by $ACTOR"
+          [[ "$CRITICAL_INPUT" != true ]] || message="$message"$'\n\n'critical
+          object=$(gh api "repos/$GH_REPO/git/tags" -f tag="$TAG" -f message="$message" -f object="$COMMIT" -f type=commit --jq .sha)
+          gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$object" >/dev/null
+      # A tag whose message has the line "critical" (publish-release.sh --critical, or the critical
+      # input above). The checkout holds the tag's commit only, so the tag object is fetched first.
       - if: ${{ !inputs.nightly }}
         run: |
           git fetch -q --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG"
@@ -351,7 +386,7 @@ jobs:
   # (chromium-update.yml) and manual runs ship the macOS bundle alone, without waiting for the rest.
   assets:
     needs: [build, sign, sbom, windows, linux, mobile]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.sign.result == 'success' && needs.sbom.result == 'success' && (github.event_name != 'push' && !inputs.nightly || (needs.windows.result == 'success' && needs.linux.result == 'success' && needs.mobile.result == 'success')) }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.sign.result == 'success' && needs.sbom.result == 'success' && (github.event_name != 'push' && !inputs.nightly && !inputs.full || (needs.windows.result == 'success' && needs.linux.result == 'success' && needs.mobile.result == 'success')) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -374,32 +409,32 @@ jobs:
           path: artifacts/signed
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: github.event_name == 'push' || inputs.nightly
+        if: github.event_name == 'push' || inputs.nightly || inputs.full
         with:
           artifact-ids: ${{ needs.windows.outputs.artifact }}
           path: artifacts/windows
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: github.event_name == 'push' || inputs.nightly
+        if: github.event_name == 'push' || inputs.nightly || inputs.full
         with:
           artifact-ids: ${{ needs.linux.outputs.artifact }}
           path: artifacts/linux
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: github.event_name == 'push' || inputs.nightly
+        if: github.event_name == 'push' || inputs.nightly || inputs.full
         with:
           artifact-ids: ${{ needs.mobile.outputs.ios }}
           path: artifacts/ios
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: github.event_name == 'push' || inputs.nightly
+        if: github.event_name == 'push' || inputs.nightly || inputs.full
         with:
           artifact-ids: ${{ needs.mobile.outputs.android }}
           path: artifacts/android
           merge-multiple: true
       - name: Collect assets
         env:
-          MACOS_ONLY: ${{ github.event_name != 'push' && !inputs.nightly }}
+          MACOS_ONLY: ${{ github.event_name != 'push' && !inputs.nightly && !inputs.full }}
           NIGHTLY: ${{ inputs.nightly }}
         run: |
           set -euo pipefail
@@ -470,7 +505,7 @@ jobs:
           path: dist
       # Windows checks windows-update.json in the latest release; a macOS-only release carries the last
       # signed one over unchanged, so its signature still holds and Windows keeps a verified feed.
-      - if: github.event_name != 'push' && !inputs.nightly
+      - if: github.event_name != 'push' && !inputs.nightly && !inputs.full
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
