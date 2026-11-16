@@ -25,6 +25,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   full screen fills the screen; Inspect opens DevTools in a window kept away from the web; the
   menu shows colour dots and site icons; pages fade on a tab switch; two-finger swipes over the
   sidebar and toolbar switch spaces and tabs; Arc's history and bookmarks can be imported.
+- Windows: a tab that sleeps, is reopened or is restored at launch keeps its back and forward
+  history.
 - Linux, iOS and Android apps on Native Shell over the same core crates.
 - Cookie-banner blocking.
 - Signed filter-list updates from this repository's releases, once a day.
@@ -58,6 +60,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Windows: pages without a background of their own no longer turn dark grey after a link or a
+  pop-up in dark mode.
 - Chromium tabs closed because no update check has verified yet, as on a new install, say so
   instead of claiming that none verified for seven days (macOS, Windows).
 - Windows: a release without the signed installer carries a signed update feed for its unsigned

@@ -204,8 +204,8 @@ function Invoke-Check([string]$FeedPath, [string]$InstallerPath) {
 
 function Write-Feed([string]$InstallerPath, [string]$Signature, [bool]$IsCritical, [string]$Dir) {
     $name = Split-Path -Leaf $InstallerPath
-    if ($name -cnotmatch '^Tarn-v(\d+(\.\d+)*)-windows-x64-setup(-unsigned)?\.exe$') { throw "$name is not named Tarn-v<version>-windows-x64-setup[-unsigned].exe" }
-    $json = Get-FeedJson $Matches[1] $IsCritical (Get-Sha256 $InstallerPath) (Get-Item -LiteralPath $InstallerPath).Length $Signature -Unsigned:([bool]$Matches[3])
+    if ($name -cnotmatch '^Tarn-v(\d+(\.\d+)*)-windows-x64-setup\.exe$') { throw "$name is not named Tarn-v<version>-windows-x64-setup.exe" }
+    $json = Get-FeedJson $Matches[1] $IsCritical (Get-Sha256 $InstallerPath) (Get-Item -LiteralPath $InstallerPath).Length $Signature
     Test-Installer $InstallerPath ($json | ConvertFrom-Json)
     [void](New-Item -ItemType Directory -Force $Dir)
     $feedPath = Join-Path $Dir 'windows-update.json'

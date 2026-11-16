@@ -179,19 +179,22 @@ verify_mac() {
 if verify_mac; then ok=true; else ok=false; fi
 $ok || { echo "The macOS files on the draft failed the team, notarisation or version check. Not publishing."; exit 1; }
 echo "zip and dmg: team CFV35FGSHF, notarised, version $VERSION."
-if $NO_WINDOWS; then
-  gh release download "$TAG" -R "$R" -p windows-update.json -p windows-update.json.sig -D "$chk"
-  for f in windows-update.json windows-update.json.sig; do
-    [ "sha256:$(shasum -a 256 "$chk/$f" | cut -d' ' -f1)" = "$(awk -v n="$f" '$3==n {print $2}' <<<"$snap")" ] \
-      || { echo "$f changed while it was downloaded. Not publishing."; exit 1; }
-  done
-  "$("$NEW/scripts/fetch-sparkle.sh")/bin/sign_update" --account dev.tarn.browser --verify "$chk/windows-update.json" "$(cat "$chk/windows-update.json.sig")" \
-    || { echo "windows-update.json.sig does not verify with the update key. Not publishing."; exit 1; }
-  [ "sha256:$(jq -r .installer.sha256 "$chk/windows-update.json")" = "$(awk -v n="Tarn-$TAG-windows-x64-setup-unsigned.exe" '$3==n {print $2}' <<<"$snap")" ] \
-    && [ "$(jq -r .version "$chk/windows-update.json")" = "$VERSION" ] \
-    || { echo "windows-update.json is not the feed of $TAG's unsigned Windows installer on the draft. Not publishing."; exit 1; }
-  echo "windows-update.json names the unsigned installer on the draft."
-fi
+feed_for="$WIN_SETUP"
+$NO_WINDOWS && feed_for="Tarn-$TAG-windows-x64-setup-unsigned.exe"
+gh release download "$TAG" -R "$R" -p windows-update.json -p windows-update.json.sig -D "$chk"
+for f in windows-update.json windows-update.json.sig; do
+  [ "sha256:$(shasum -a 256 "$chk/$f" | cut -d' ' -f1)" = "$(awk -v n="$f" '$3==n {print $2}' <<<"$snap")" ] \
+    || { echo "$f changed while it was downloaded. Not publishing."; exit 1; }
+done
+feedsig=$(cat "$chk/windows-update.json.sig")
+[[ "$feedsig" =~ ^[A-Za-z0-9+/]{86}==$ ]] || { echo "windows-update.json.sig is not an Ed25519 signature. Not publishing."; exit 1; }
+"$("$NEW/scripts/fetch-sparkle.sh")/bin/sign_update" --account dev.tarn.browser --verify "$chk/windows-update.json" "$feedsig" \
+  || { echo "windows-update.json.sig does not verify with the update key. Not publishing."; exit 1; }
+[ "sha256:$(jq -r .installer.sha256 "$chk/windows-update.json")" = "$(awk -v n="$feed_for" '$3==n {print $2}' <<<"$snap")" ] \
+  && [ "$(jq -r .installer.url "$chk/windows-update.json")" = "https://github.com/$R/releases/download/$TAG/$feed_for" ] \
+  && [ "$(jq -r .version "$chk/windows-update.json")" = "$VERSION" ] \
+  || { echo "windows-update.json is not the feed of $feed_for on the draft. Not publishing."; exit 1; }
+echo "windows-update.json names $feed_for on the draft."
 
 say "Label the files"
 while read -r id _ name; do

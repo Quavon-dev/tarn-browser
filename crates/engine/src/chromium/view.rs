@@ -97,6 +97,22 @@ struct Tab {
     /// The renderer process of the main frame, as it reported itself (`RENDERER_PID`).
     #[cfg(windows)]
     renderer: Cell<Option<u32>>,
+    /// The back and forward lists of a restored tab beyond Chromium's own, which cannot be given
+    /// back to it, and the saved state they came from, kept until the tab shows a page.
+    #[cfg(windows)]
+    restored: RefCell<crate::view_policy::RestoredHistory>,
+    #[cfg(windows)]
+    restored_bytes: RefCell<Option<Vec<u8>>>,
+    /// A step into `restored` under way: back or forward, the page it loads and the page it leaves,
+    /// and whether its navigation started. The lists change once that navigation commits, wherever
+    /// it redirected to.
+    #[cfg(windows)]
+    restored_step: RefCell<Option<(bool, Url, Url)>>,
+    #[cfg(windows)]
+    restored_started: Cell<bool>,
+    /// The restore's own load, which keeps the restored forward list.
+    #[cfg(windows)]
+    restoring: Cell<bool>,
 }
 
 thread_local! {
@@ -491,17 +507,23 @@ wrap_load_handler! {
     impl LoadHandler {
         fn on_loading_state_change(&self, browser: Option<&mut Browser>, is_loading: i32, can_go_back: i32, can_go_forward: i32) {
             let Some(tab) = tab(self.id) else { return };
+            #[cfg(windows)]
+            let can_go_back = i32::from(can_go_back == 1 && browser.as_deref().is_some_and(native_back));
             let history = (can_go_back == 1, can_go_forward == 1);
             // A navigation that ends without a page (a download, a 204, a cancel) leaves no origin that may ask.
             if is_loading == 0 {
                 tab.navigating.take();
+                // A step that never navigated (a cancelled unload) leaves nothing behind.
+                #[cfg(windows)]
+                abandon_step(&tab);
             }
             // Chromium settles the back list after the load ends, so the shell hears it here.
             if tab.history.replace(history) != history
                 && is_loading == 0
                 && let Some(url) = browser.and_then(|b| b.main_frame()).and_then(|f| Url::parse(&CefString::from(&f.url()).to_string()).ok())
             {
-                emit(&tab, Event::UrlChanged { url, can_go_back: history.0, can_go_forward: history.1 });
+                let (can_go_back, can_go_forward) = history_flags(&tab);
+                emit(&tab, Event::UrlChanged { url, can_go_back, can_go_forward });
             }
         }
 
@@ -522,6 +544,12 @@ wrap_load_handler! {
             tab.loading.set(true);
             tab.silenced.set(false);
             tab.navigating.take();
+            #[cfg(windows)]
+            if tab.restored_started.take()
+                && let Some((back, _, left)) = tab.restored_step.take()
+            {
+                tab.restored.borrow_mut().stepped(back, left);
+            }
             // Windows views take the profile's current style sheets with each page, so a change
             // reaches the next page of every tab.
             #[cfg(windows)]
@@ -539,7 +567,7 @@ wrap_load_handler! {
                 #[cfg(windows)]
                 tab.opener.take();
             }
-            let (can_go_back, can_go_forward) = tab.history.get();
+            let (can_go_back, can_go_forward) = history_flags(&tab);
             let title = tab.title.borrow().clone();
             emit(&tab, Event::Committed { url, title, can_go_back, can_go_forward });
         }
@@ -554,7 +582,7 @@ wrap_load_handler! {
             tab.auth_attempts.set(0);
             super::cookies::changed_in_chromium();
             let Ok(url) = Url::parse(&CefString::from(&frame.url()).to_string()) else { return };
-            let (can_go_back, can_go_forward) = tab.history.get();
+            let (can_go_back, can_go_forward) = history_flags(&tab);
             let title = tab.title.borrow().clone();
             emit(&tab, Event::Finished { url, title, can_go_back, can_go_forward });
         }
@@ -598,7 +626,7 @@ wrap_display_handler! {
             if frame.is_main() == 1 && !tab.loading.get() {
                 tab.history_step.take();
                 if let Ok(url) = Url::parse(&string(url)) {
-                    let (can_go_back, can_go_forward) = tab.history.get();
+                    let (can_go_back, can_go_forward) = history_flags(&tab);
                     emit(&tab, Event::UrlChanged { url, can_go_back, can_go_forward });
                 }
             }
@@ -733,6 +761,16 @@ wrap_request_handler! {
             // hop or history step is the same page.
             if is_redirect == 0 && !history && nav_policy::upgrades_to_https(&url, site.level.policy().https_only || left.policy().https_only) {
                 emit(&tab, Event::Protected(Protection::HttpsUpgrade, url.host_str().map(str::to_owned)));
+            }
+            // Only a navigation let through counts: a step into the restored list starts, or a new
+            // page ends its forward list, as it ends Chromium's own.
+            #[cfg(windows)]
+            if is_redirect == 0 && !history {
+                let step = tab.restored_step.borrow().as_ref().is_some_and(|(_, target, _)| *target == url);
+                tab.restored_started.set(step);
+                if !step && !tab.restoring.take() {
+                    tab.restored.borrow_mut().new_page();
+                }
             }
             *tab.navigating.borrow_mut() = crate::page::serialized_origin(&url);
             0
@@ -1140,6 +1178,34 @@ fn ask_credentials(id: u64, origin_url: &str, realm: &str, callback: &AuthCallba
     let insecure = !origin.starts_with("https:");
     let kind = crate::PromptKind::Credentials { realm: crate::page::bounded(realm) };
     emit(&tab, Event::Prompt(crate::Prompt::answered(origin, None, insecure, String::new(), kind, reply, tab.silenced.clone())));
+}
+
+/// Drops a step into the restored list that did not navigate, and the marks it set for its load.
+#[cfg(windows)]
+fn abandon_step(tab: &Tab) {
+    if tab.restored_started.get() {
+        return;
+    }
+    if let Some((_, target, _)) = tab.restored_step.take() {
+        tab.shell_load.borrow_mut().take_if(|u| *u == target);
+    }
+}
+
+/// Whether Chromium's own list holds a page to step back to; the blank page a view starts on is none.
+#[cfg(windows)]
+fn native_back(browser: &Browser) -> bool {
+    browser.can_go_back() == 1 && history_urls(browser, |i, current| i < current).iter().any(|u| u.as_str() != "about:blank")
+}
+
+/// Whether the tab can step back and forward: in Chromium's own list or, on Windows, a restored one.
+fn history_flags(tab: &Tab) -> (bool, bool) {
+    let (back, forward) = tab.history.get();
+    #[cfg(windows)]
+    let (back, forward) = {
+        let restored = tab.restored.borrow();
+        (back || !restored.back.is_empty(), forward || !restored.forward.is_empty())
+    };
+    (back, forward)
 }
 
 fn page_url(browser: Option<&Browser>) -> Option<Url> {
@@ -1735,6 +1801,16 @@ impl WebView {
             created_hook: RefCell::new(None),
             #[cfg(windows)]
             renderer: Cell::new(None),
+            #[cfg(windows)]
+            restored: RefCell::default(),
+            #[cfg(windows)]
+            restored_bytes: RefCell::new(None),
+            #[cfg(windows)]
+            restored_step: RefCell::new(None),
+            #[cfg(windows)]
+            restored_started: Cell::new(false),
+            #[cfg(windows)]
+            restoring: Cell::new(false),
         });
         Rc::new(Inner {
             created: RefCell::new(None),
@@ -2332,6 +2408,10 @@ impl WebView {
 
     pub fn back(&self) {
         if let Some(b) = self.browser() {
+            #[cfg(windows)]
+            if !native_back(&b) {
+                return self.restored_step(true);
+            }
             *self.0.tab.history_step.borrow_mut() = if b.can_go_back() == 1 { history_urls(&b, |i, current| i < current) } else { Vec::new() };
             b.go_back();
         }
@@ -2339,9 +2419,62 @@ impl WebView {
 
     pub fn forward(&self) {
         if let Some(b) = self.browser() {
+            #[cfg(windows)]
+            if b.can_go_forward() != 1 {
+                return self.restored_step(false);
+            }
             *self.0.tab.history_step.borrow_mut() = if b.can_go_forward() == 1 { history_urls(&b, |i, current| i > current) } else { Vec::new() };
             b.go_forward();
         }
+    }
+
+    /// Steps back (`true`) or forward into the restored list past Chromium's own: the page there
+    /// replaces the current entry, as the user's own load, and the current page joins the other side.
+    #[cfg(windows)]
+    fn restored_step(&self, back: bool) {
+        let tab = &self.0.tab;
+        let (Some(left), Some(target)) = (self.url(), tab.restored.borrow().next(back).cloned()) else { return };
+        // Not while a page loads, whose end would cancel the step, nor from the blank page a view starts on.
+        if tab.restored_step.borrow().is_some() || tab.loading.get() || left.as_str() == "about:blank" || self.browser_host().is_none() {
+            return;
+        }
+        *tab.restored_step.borrow_mut() = Some((back, target.clone(), left));
+        *tab.shell_load.borrow_mut() = Some(target.clone());
+        let weak = Rc::downgrade(tab);
+        // The step is the user's, as Back is, so it tells the next site nothing of the page left.
+        let script = format!(
+            "const m = document.createElement('meta'); m.name = 'referrer'; m.content = 'no-referrer'; (document.head || document.documentElement).append(m); location.replace({}); return 'ok';",
+            js_string(target.as_str())
+        );
+        self.run_isolated(&script, move |done| {
+            if let Some(tab) = weak.upgrade().filter(|_| done != "ok") {
+                abandon_step(&tab);
+            }
+        });
+    }
+
+    /// The back list to save while the tab sleeps, is closed or Tarn quits: Chromium's own and the
+    /// restored one around it.
+    #[cfg(windows)]
+    pub(crate) fn saved_history(&self) -> Option<Vec<u8>> {
+        let shown = self.browser().zip(self.url().filter(|u| u.as_str() != "about:blank"));
+        // Before the restored page commits there is nothing newer to save than what was restored.
+        let Some((browser, current)) = shown else { return self.0.tab.restored_bytes.borrow().clone() };
+        let restored = self.0.tab.restored.borrow();
+        let back = restored.back.iter().cloned().chain(history_urls(&browser, |i, c| i < c)).collect();
+        let forward = history_urls(&browser, |i, c| i > c).into_iter().chain(restored.forward.iter().cloned()).collect();
+        Some(crate::view_policy::SavedHistory::new(back, current, forward)?.to_bytes())
+    }
+
+    /// Loads the saved page and keeps its back and forward lists for `back` and `forward`.
+    #[cfg(windows)]
+    pub(crate) fn restore_history(&self, bytes: &[u8]) {
+        let Some(saved) = crate::view_policy::SavedHistory::from_bytes(bytes) else { return };
+        let tab = &self.0.tab;
+        *tab.restored.borrow_mut() = crate::view_policy::RestoredHistory { back: saved.back, forward: saved.forward };
+        *tab.restored_bytes.borrow_mut() = Some(bytes.to_vec());
+        tab.restoring.set(true);
+        self.load(&saved.current);
     }
 
     pub fn reload(&self) {
