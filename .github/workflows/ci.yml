@@ -180,7 +180,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           components: clippy
-          targets: aarch64-apple-ios-sim, aarch64-linux-android, armv7-linux-androideabi
+          targets: aarch64-apple-ios-sim, aarch64-apple-ios, aarch64-linux-android, armv7-linux-androideabi
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: mobile -> target
@@ -210,37 +210,8 @@ jobs:
           tar -xzf "$RUNNER_TEMP/nsh.tar.gz" -C "$RUNNER_TEMP"
           tar -xzf "$RUNNER_TEMP/nsh-android.tar.gz" -C "$RUNNER_TEMP"
           PATH="$RUNNER_TEMP/nsh/bin:$PATH" android/build.sh
-
-  # The device app, linked as release.yml does (clippy for the simulator does not link), next to
-  # the mobile job instead of after it.
-  ios:
-    needs: changes
-    if: ${{ !cancelled() && !inputs.commit && needs.changes.outputs.mobile != 'false' }}
-    runs-on: macos-15
-    timeout-minutes: 45
-    env:
-      NSH_RELEASE: https://github.com/longbridge/nsh/releases/download/v0.5.0
-      NSH_SHA256: e6722427b391b00cf7ec13137db9366e78d1e7a045f2933cf00b340365309d9d
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.commit }}
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          toolchain: "1.99.1"
-          targets: aarch64-apple-ios
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: mobile -> target
-          # As in the mobile job: kept whole, since it holds nsh's generated workspace.
-          cache-directories: mobile/app/target
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: |
-          curl -fsSL -o "$RUNNER_TEMP/nsh.tar.gz" "$NSH_RELEASE/nsh-macos-arm64.tar.gz"
-          echo "$NSH_SHA256  $RUNNER_TEMP/nsh.tar.gz" | shasum -a 256 -c -
-          tar -xzf "$RUNNER_TEMP/nsh.tar.gz" -C "$RUNNER_TEMP"
       - name: iOS device build
+        # Links the app as release.yml does, which clippy for the simulator does not.
         working-directory: mobile/app
         env:
           IPHONEOS_DEPLOYMENT_TARGET: "17.0"
