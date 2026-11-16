@@ -451,7 +451,7 @@ fn details(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut Contex
                     .cursor_pointer()
                     .child(text_block(
                         "Share data with another profile",
-                        "Both profiles use the same logins, cookies and site data, so sites can link them. Deleting data or choosing Lockdown in one clears it for both.",
+                        "Both profiles use the same logins, cookies and site data, so sites can link them. Deleting data in either, or choosing Lockdown in the one whose data is shared, clears it for both.",
                     ))
                     .child(switch(share.is_some()))
                     .on_click(cx.listener(move |b, _, _, cx| b.update_editor(cx, |e| e.share = if share.is_some() { None } else { first }))),

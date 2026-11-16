@@ -20,6 +20,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   Android).
 - When Tarn could not open its database, it no longer deletes Chromium's cookies and site data at
   start and quit as if their profile were gone.
+- Sign-ins made in WebKit reach Chromium tabs again on macOS. WebKit reports cookies without
+  `SameSite` as `SameSite=None`, so the bridge skipped them, or would have given Chromium a less
+  restricted copy; it now reads them as `Lax`, as Chromium does.
+- A Lockdown profile that shares another profile's website data no longer clears that data when it
+  opens; it clears only its own (macOS, Windows).
 
 ## [0.1.1] - 2026-11-16
 
