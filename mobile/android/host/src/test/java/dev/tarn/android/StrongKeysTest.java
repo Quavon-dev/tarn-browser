@@ -1,8 +1,6 @@
 package dev.tarn.android;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertArrayEquals;
 
 import java.math.BigInteger;
 import java.security.KeyFactory;
@@ -20,27 +18,22 @@ public class StrongKeysTest {
     }
 
     @Test
-    public void rsaBelow2048BitsIsRefused() throws Exception {
-        assertFalse(StrongKeys.strong(rsa(1024)));
-        assertTrue(StrongKeys.strong(rsa(2048)));
+    public void rsaKeysReportTheirModulusLength() throws Exception {
+        assertArrayEquals(new int[] {StrongKeys.RSA, 1024}, StrongKeys.describe(rsa(1024)));
+        assertArrayEquals(new int[] {StrongKeys.RSA, 2048}, StrongKeys.describe(rsa(2048)));
     }
 
     @Test
-    public void p256IsAccepted() throws Exception {
+    public void ecKeysReportTheirFieldSize() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
         generator.initialize(new ECGenParameterSpec("secp256r1"));
-        assertTrue(StrongKeys.strong(generator.generateKeyPair().getPublic()));
+        assertArrayEquals(new int[] {StrongKeys.EC, 256}, StrongKeys.describe(generator.generateKeyPair().getPublic()));
     }
 
     @Test
-    public void aWeakKeyAnywhereInTheChainIsRefused() throws Exception {
-        StrongKeys.checkKeys(rsa(2048), rsa(4096), rsa(2048));
-        assertThrows(java.security.cert.CertificateException.class, () -> StrongKeys.checkKeys(rsa(2048), rsa(1024), rsa(2048)));
-    }
-
-    @Test
-    public void otherAlgorithmsAreRefused() throws Exception {
+    public void otherKeyTypesReportOther() throws Exception {
         BigInteger big = BigInteger.ONE.shiftLeft(2047).setBit(0);
-        assertFalse(StrongKeys.strong(KeyFactory.getInstance("DSA").generatePublic(new DSAPublicKeySpec(big, big, BigInteger.valueOf(65537), BigInteger.TWO))));
+        PublicKey dsa = KeyFactory.getInstance("DSA").generatePublic(new DSAPublicKeySpec(big, big, BigInteger.valueOf(65537), BigInteger.TWO));
+        assertArrayEquals(new int[] {StrongKeys.OTHER, 0}, StrongKeys.describe(dsa));
     }
 }

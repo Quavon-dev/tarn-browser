@@ -23,8 +23,10 @@ import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509ExtendedTrustManager;
 
 final class StrongKeys {
-    static final int MIN_RSA_BITS = 2048;
-    static final int MIN_EC_BITS = 224;
+    static final int RSA = 1;
+    static final int EC = 2;
+    static final int ED25519 = 3;
+    static final int OTHER = 0;
 
     private static SSLSocketFactory factory;
 
@@ -39,22 +41,20 @@ final class StrongKeys {
         }
     }
 
-    static boolean strong(PublicKey key) {
-        if (key instanceof RSAPublicKey) return ((RSAPublicKey) key).getModulus().bitLength() >= MIN_RSA_BITS;
-        if (key instanceof ECPublicKey) return ((ECPublicKey) key).getParams().getCurve().getField().getFieldSize() >= MIN_EC_BITS;
-        return "Ed25519".equals(key.getAlgorithm()) || "EdDSA".equals(key.getAlgorithm());
-    }
-
-    static void checkKeys(PublicKey... keys) throws CertificateException {
-        for (PublicKey key : keys) {
-            if (!strong(key)) throw new CertificateException("a certificate of the chain has a key below the minimum");
-        }
+    static int[] describe(PublicKey key) {
+        if (key instanceof RSAPublicKey) return new int[] {RSA, ((RSAPublicKey) key).getModulus().bitLength()};
+        if (key instanceof ECPublicKey) return new int[] {EC, ((ECPublicKey) key).getParams().getCurve().getField().getFieldSize()};
+        if ("Ed25519".equals(key.getAlgorithm()) || "EdDSA".equals(key.getAlgorithm())) return new int[] {ED25519, 255};
+        return new int[] {OTHER, 0};
     }
 
     private static void check(List<X509Certificate> verified) throws CertificateException {
-        PublicKey[] keys = new PublicKey[verified.size()];
-        for (int i = 0; i < keys.length; i++) keys[i] = verified.get(i).getPublicKey();
-        checkKeys(keys);
+        for (X509Certificate certificate : verified) {
+            int[] key = describe(certificate.getPublicKey());
+            if (!Native.strongKey(key[0], key[1])) {
+                throw new CertificateException("a certificate of the chain has a key below the minimum");
+            }
+        }
     }
 
     private static synchronized SSLSocketFactory factory() throws GeneralSecurityException {

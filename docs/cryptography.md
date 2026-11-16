@@ -27,10 +27,12 @@ message, made with `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:N` a
 -sha256 -sign`; the private keys were discarded.
 
 On Android, the shell's requests and downloads (`Fetch.java`, `Downloads.java`) keep Android's
-certificate checking and add Tarn's own floor (`StrongKeys.java`): Android verifies the chain, with
+certificate checking and add Tarn's own floor (`StrongKeys.java`, which asks `browser_core::tls`
+through JNI): Android verifies the chain, with
 the app's network security config, and returns the path it built, trust anchor included; every key
 on that path must be RSA of at least 2048 bits, an elliptic curve of at least 224 bits or Ed25519.
-`StrongKeysTest` checks it on every pull request.
+`browser_core::tls`'s tests check the floor and `StrongKeysTest` the key reading on every pull
+request.
 
 Web pages, and the shell's requests on Linux and iOS, use the TLS stack of the operating system or
 of the browser engine, which Tarn does not produce. The table under "TLS" names each one, its
