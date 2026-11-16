@@ -6,35 +6,12 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
-### Added
-
-- Every release carries a CycloneDX SBOM for each client (macOS, Windows, Linux, iOS, Android),
-  and `SECURITY.md` explains how to verify a download's checksum, attestation and signature.
-
-### Changed
-
-- A split's tabs show side by side in one row of the sidebar, and in one card of the tab grid on
-  iPad and Android tablets (macOS, Windows, Linux, iOS, Android).
-
-### Fixed
-
-- Chromium tabs on macOS count toward the memory budget and the heavy-tab dot, so heavy
-  background Chromium tabs sleep like WebKit tabs instead of holding their memory.
-- The loading spinner starts when a page starts loading instead of when it first draws, stops
-  when a Chromium page is stopped or cancelled, and turns evenly (macOS, Windows, Linux, iOS,
-  Android).
-- When Tarn could not open its database, it no longer deletes Chromium's cookies and site data at
-  start and quit as if their profile were gone.
-- Sign-ins made in WebKit reach Chromium tabs again on macOS. WebKit reports cookies without
-  `SameSite` as `SameSite=None`, so the bridge skipped them, or would have given Chromium a less
-  restricted copy; it now reads them as `Lax`, as Chromium does.
-- A Lockdown profile that shares another profile's website data no longer clears that data when it
-  opens; it clears only its own (macOS, Windows).
-
 ## [0.1.1] - 2026-11-16
 
 ### Added
 
+- Every release carries a CycloneDX SBOM for each client (macOS, Windows, Linux, iOS, Android),
+  and `SECURITY.md` explains how to verify a download's checksum, attestation and signature.
 - Nightly builds: Settings › General › Nightly builds updates Tarn every day to a signed build of
   the latest changes (macOS, Windows). The `nightly` pre-release holds them and unsigned builds for
   Linux, iOS and Android.
@@ -131,6 +108,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- A split's tabs show side by side in one row of the sidebar, and in one card of the tab grid on
+  iPad and Android tablets (macOS, Windows, Linux, iOS, Android).
 - The app identifier is `de.quavon.tarn` (was `dev.tarn.browser`) on macOS, iOS and Android. On
   macOS the first start moves the website data over; Tarn has to be made the default browser again,
   camera and microphone permissions are asked again, and a saved Anthropic API token has to be
@@ -138,6 +117,15 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Chromium tabs on macOS count toward the memory budget and the heavy-tab dot, so heavy
+  background Chromium tabs sleep like WebKit tabs instead of holding their memory.
+- The loading spinner starts when a page starts loading instead of when it first draws, stops
+  when a Chromium page is stopped or cancelled, and turns evenly (macOS, Windows, Linux, iOS,
+  Android).
+- When Tarn could not open its database, it no longer deletes Chromium's cookies and site data at
+  start and quit as if their profile were gone.
+- A Lockdown profile that shares another profile's website data no longer clears that data when it
+  opens; it clears only its own (macOS, Windows).
 - iOS and Android: Back and Forward are dimmed when there is nowhere to go, also after a page
   changes its address in place (`pushState`, a fragment); on iOS, typing in the find bar starts
   again at the first match instead of stepping forward with every key; a primary button's label
@@ -231,6 +219,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Tarn is now licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`).
   Only Quavon UG (haftungsbeschränkt) may distribute it through app stores
   (`LICENSE-APP-STORE.md`), and the Tarn name, logo and app icon are trademarks (`TRADEMARKS.md`).
+
+### Security
+
+- The cookie bridge between WebKit and Chromium no longer gives Chromium a less restricted copy of
+  a cookie set without `SameSite` (macOS): WebKit reports such cookies as `SameSite=None`, and the
+  bridge now reads them as `Lax`, as Chromium does. Sign-ins made in WebKit reach Chromium tabs
+  again.
 
 ## [0.1.0] - 2026-11-14
 
