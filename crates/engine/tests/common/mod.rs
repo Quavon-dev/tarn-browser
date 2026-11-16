@@ -76,6 +76,10 @@ pub fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {
                     std::thread::sleep(Duration::from_millis(1500));
                 }
                 let route = path.split('?').next().unwrap_or_default();
+                if route == "/nocontent" {
+                    write!(stream, "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n").ok();
+                    return;
+                }
                 let (kind, body) = match route {
                     _ if route.ends_with(".js") => ("text/javascript", "window.blockedRan = 1;"),
                     "/probe" => ("text/html", PROBE),

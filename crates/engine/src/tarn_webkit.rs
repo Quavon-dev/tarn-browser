@@ -208,17 +208,19 @@ struct ViewState {
 }
 
 const MAX_FRAMES: usize = 256;
+const MAX_HELD: usize = 64;
 
 /// The subframe documents that reported in, each numbered on its own so that a reply never
 /// reaches the frame's next document; the oldest go first past `MAX_FRAMES`.
 struct Frames<T> {
     serial: u64,
     docs: BTreeMap<u64, (World, FrameId, T)>,
+    leaving: BTreeMap<u64, Vec<(u64, String)>>,
 }
 
 impl<T> Default for Frames<T> {
     fn default() -> Self {
-        Frames { serial: 0, docs: BTreeMap::new() }
+        Frames { serial: 0, docs: BTreeMap::new(), leaving: BTreeMap::new() }
     }
 }
 
@@ -226,12 +228,10 @@ impl<T: Clone> Frames<T> {
     /// The id of the document that sent a message from `frame` (WebKit's own number) in `world`;
     /// the setup's hello starts a new document.
     fn document(&mut self, world: &World, frame: FrameId, info: T, hello: bool) -> FrameId {
-        let current = self.docs.iter().find(|(_, (w, f, _))| w == world && *f == frame).map(|(serial, _)| *serial);
-        if let Some(serial) = current {
-            if !hello {
-                return FrameId(serial | 1 << 63);
-            }
-            self.docs.remove(&serial);
+        if hello {
+            self.replaced(frame);
+        } else if let Some(serial) = self.docs.iter().find(|(_, (w, f, _))| w == world && *f == frame).map(|(serial, _)| *serial) {
+            return FrameId(serial | 1 << 63);
         }
         if self.docs.len() >= MAX_FRAMES {
             self.docs.pop_first();
@@ -241,16 +241,39 @@ impl<T: Clone> Frames<T> {
         FrameId(self.serial | 1 << 63)
     }
 
-    fn navigates(&mut self, frame: FrameId) {
+    fn leaves(&mut self, frame: FrameId) {
+        if self.docs.values().any(|(_, f, _)| *f == frame) {
+            self.leaving.entry(frame.0).or_default();
+        }
+    }
+
+    fn replaced(&mut self, frame: FrameId) {
+        self.leaving.remove(&frame.0);
         self.docs.retain(|_, (_, f, _)| *f != frame);
     }
 
-    fn get(&self, world: &World, id: FrameId) -> Option<T> {
-        self.docs.get(&(id.0 & !(1 << 63))).filter(|(w, _, _)| w == world).map(|(_, _, info)| info.clone())
+    fn stays(&mut self, frame: FrameId) -> Vec<(World, FrameId, String)> {
+        let held = self.leaving.remove(&frame.0).unwrap_or_default();
+        held.into_iter().filter_map(|(serial, json)| self.docs.get(&serial).map(|(w, _, _)| (w.clone(), FrameId(serial | 1 << 63), json))).collect()
     }
 
-    fn of(&self, world: &World) -> Vec<T> {
-        self.docs.values().filter(|(w, _, _)| w == world).map(|(_, _, info)| info.clone()).collect()
+    fn reach(&mut self, world: &World, id: Option<FrameId>, json: &str) -> Vec<T> {
+        let mut now = Vec::new();
+        for (serial, (w, frame, info)) in &self.docs {
+            if w != world || id.is_some_and(|id| id.0 & !(1 << 63) != *serial) {
+                continue;
+            }
+            match self.leaving.get_mut(&frame.0) {
+                Some(held) => {
+                    if held.len() >= MAX_HELD {
+                        held.remove(0);
+                    }
+                    held.push((*serial, json.to_owned()));
+                }
+                None => now.push(info.clone()),
+            }
+        }
+        now
     }
 }
 
@@ -284,10 +307,34 @@ pub(crate) fn committed(view: &WKWebView) {
     }
 }
 
-/// A subframe is about to load a new document: its current one no longer gets replies.
-pub(crate) fn frame_navigates(view: &WKWebView, frame: &WKFrameInfo) {
+pub(crate) fn frame_leaves(view: &WKWebView, frame: &WKFrameInfo, action: &WKNavigationAction, url: &Url) {
+    // SAFETY: main-thread reads of the live action and frame.
+    let (kind, method, current) = unsafe { (action.navigationType(), action.request().HTTPMethod(), to_url(frame.request().URL())) };
+    let bare = |u: &Url| {
+        let mut u = u.clone();
+        u.set_fragment(None);
+        u
+    };
+    let same_document = url.fragment().is_some()
+        && current.is_some_and(|c| bare(&c) == bare(url))
+        && method.is_none_or(|m| m.to_string() == "GET")
+        && !matches!(kind, WKNavigationType::Reload | WKNavigationType::FormSubmitted | WKNavigationType::FormResubmitted);
+    if let (false, Some(state), Some(id)) = (same_document, state(view), frame_id(frame)) {
+        state.frames.borrow_mut().leaves(id);
+    }
+}
+
+pub(crate) fn frame_committed(view: &WKWebView, frame: &WKFrameInfo) {
     if let (Some(state), Some(id)) = (state(view), frame_id(frame)) {
-        state.frames.borrow_mut().navigates(id);
+        state.frames.borrow_mut().replaced(id);
+    }
+}
+
+pub(crate) fn frame_stayed(view: &WKWebView, frame: &WKFrameInfo) {
+    let (Some(state), Some(id)) = (state(view), frame_id(frame)) else { return };
+    let held = state.frames.borrow_mut().stays(id);
+    for (world, id, json) in held {
+        post(view, &world, Some(id), &json);
     }
 }
 
@@ -340,8 +387,8 @@ pub(crate) fn post(view: &WKWebView, world: &World, frame: Option<FrameId>, json
     let content = content_world(mtm, world);
     let targets: Vec<Option<Retained<WKFrameInfo>>> = match frame {
         Some(FrameId::MAIN) => vec![None],
-        Some(id) => state(view).and_then(|s| s.frames.borrow().get(world, id)).map(Some).into_iter().collect(),
-        None => std::iter::once(None).chain(state(view).into_iter().flat_map(|s| s.frames.borrow().of(world)).map(Some)).collect(),
+        Some(id) => state(view).into_iter().flat_map(|s| s.frames.borrow_mut().reach(world, Some(id), json)).map(Some).collect(),
+        None => std::iter::once(None).chain(state(view).into_iter().flat_map(|s| s.frames.borrow_mut().reach(world, None, json)).map(Some)).collect(),
     };
     for target in targets {
         // SAFETY: main-thread call on a live web view; the script only calls the shim's receiver in the install's world.
@@ -704,15 +751,39 @@ mod tests {
         let mut frames = Frames::default();
         let first = frames.document(&world, FrameId(7), 1, true);
         assert_eq!(frames.document(&world, FrameId(7), 1, false), first);
-        assert_eq!(frames.get(&world, first), Some(1));
-        assert_eq!(frames.get(&other, first), None, "an id answers only in its world");
+        assert_eq!(frames.reach(&world, Some(first), "{}"), [1]);
+        assert!(frames.reach(&other, Some(first), "{}").is_empty(), "an id answers only in its world");
         let next = frames.document(&world, FrameId(7), 2, true);
-        assert!(next != first && next != FrameId::MAIN && frames.get(&world, first).is_none(), "a reply never reaches the next document");
-        frames.navigates(FrameId(7));
-        assert!(frames.of(&world).is_empty());
+        assert!(next != first && next != FrameId::MAIN && frames.reach(&world, Some(first), "{}").is_empty(), "a reply never reaches the next document");
+        frames.replaced(FrameId(7));
+        assert!(frames.reach(&world, None, "{}").is_empty());
         for n in 0..2 * MAX_FRAMES as u64 {
             frames.document(&world, FrameId(n), 0, true);
         }
         assert_eq!(frames.docs.len(), MAX_FRAMES);
+    }
+
+    #[test]
+    fn replies_wait_while_a_frame_navigates_and_follow_where_it_ends() {
+        let world = World::for_install("ab12").unwrap();
+        let mut frames = Frames::default();
+        let id = frames.document(&world, FrameId(7), 1, true);
+        frames.leaves(FrameId(7));
+        assert!(frames.reach(&world, Some(id), "a").is_empty() && frames.reach(&world, None, "b").is_empty(), "nothing goes out mid-navigation");
+        assert_eq!(frames.document(&world, FrameId(7), 1, false), id, "the document is the same until a new one says hello");
+        assert_eq!(frames.stays(FrameId(7)), [(world.clone(), id, "a".to_owned()), (world.clone(), id, "b".to_owned())], "a document that stays gets them");
+        assert_eq!(frames.reach(&world, Some(id), "c"), [1]);
+        frames.leaves(FrameId(7));
+        frames.reach(&world, Some(id), "d");
+        frames.replaced(FrameId(7));
+        assert!(frames.stays(FrameId(7)).is_empty(), "a new document gets none of them");
+        frames.document(&world, FrameId(8), 2, true);
+        frames.leaves(FrameId(8));
+        for n in 0..=MAX_HELD {
+            frames.reach(&world, None, &n.to_string());
+        }
+        assert_eq!(frames.leaving[&8].len(), MAX_HELD);
+        let fresh = frames.document(&world, FrameId(8), 3, true);
+        assert!(frames.leaving.is_empty() && frames.reach(&world, Some(fresh), "e") == [3], "a hello ends the wait");
     }
 }

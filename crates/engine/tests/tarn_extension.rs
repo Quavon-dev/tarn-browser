@@ -196,6 +196,34 @@ mod window {
         frames.reload_from_origin();
         frames_seen("reload");
 
+        let stays = World::for_install("0a1b2e").unwrap();
+        let idle = Script { run_at: RunAt::DocumentEnd, all_frames: false, js: vec![], css: vec![] };
+        let source = "const say = step => chrome.runtime.sendMessage({ step, at: location.pathname + location.search });\n\
+                     say(1).then(() => { location.hash = 'moved'; setTimeout(() => say(2).then(() => { location.href = '/nocontent'; setTimeout(() => say(3).then(() => say(4)), 1500); }), 300); });";
+        let probe_scripts = Rc::new(WorldScripts {
+            world: stays.clone(),
+            bootstrap: bootstrap(&config(false)),
+            scripts: vec![idle.clone(), idle, Script { run_at: RunAt::DocumentEnd, all_frames: true, js: vec![source.into()], css: vec![] }],
+        });
+        messages.borrow_mut().clear();
+        frames.add_extension_scripts(probe_scripts);
+        frames.reload_from_origin();
+        let steps = || {
+            messages
+                .borrow()
+                .iter()
+                .filter(|(w, _, o, m)| *w == stays && m["args"][0]["at"] == "/sub?ok" && o.as_ref().and_then(Url::host_str) == Some("127.0.0.1"))
+                .map(|(_, f, _, m)| (m["args"][0]["step"].as_u64(), *f))
+                .collect::<Vec<_>>()
+        };
+        spin(15.0, &|| steps().len() == 4);
+        let got = steps();
+        assert!(
+            got.len() == 4 && got[0].1 != FrameId::MAIN && got.iter().all(|(_, f)| *f == got[0].1),
+            "a frame keeps its id and gets its replies after a fragment navigation and a navigation that loads no new document: {:?}",
+            messages.borrow()
+        );
+
         let fixture_dir = dir.path().to_owned();
         let resources = Arc::new(move |url: &Url| {
             let name = url.path().trim_start_matches('/');

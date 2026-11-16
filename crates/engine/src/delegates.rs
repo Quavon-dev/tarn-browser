@@ -14,7 +14,7 @@ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_clas
 use objc2_app_kit::{NSEventModifierFlags, NSModalResponse, NSModalResponseOK, NSOpenPanel};
 use objc2_foundation::{
     NSArray, NSData, NSDictionary, NSError, NSHTTPURLResponse, NSObject, NSProgressReporting, NSRect, NSString, NSTimer, NSURL, NSURLAuthenticationChallenge,
-    NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLCredential, NSURLProtectionSpace, NSURLQuarantinePropertiesKey,
+    NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLCredential, NSURLProtectionSpace, NSURLQuarantinePropertiesKey, NSURLRequest,
     NSURLResponse, NSURLSessionAuthChallengeDisposition,
 };
 use objc2_web_kit::{
@@ -240,6 +240,16 @@ define_class!(
     unsafe impl NSObjectProtocol for Delegate {}
 
     impl Delegate {
+        #[unsafe(method(_webView:didCommitLoadWithRequest:inFrame:))]
+        fn did_commit_frame(&self, web_view: &WKWebView, _request: &NSURLRequest, frame: &WKFrameInfo) {
+            crate::tarn_webkit::frame_committed(web_view, frame);
+        }
+
+        #[unsafe(method(_webView:didFailProvisionalLoadWithRequest:inFrame:withError:))]
+        fn did_fail_frame(&self, web_view: &WKWebView, _request: &NSURLRequest, frame: &WKFrameInfo, _error: &NSError) {
+            crate::tarn_webkit::frame_stayed(web_view, frame);
+        }
+
         #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
         fn observe_value(
             &self,
@@ -335,7 +345,7 @@ define_class!(
                     if let Some(u) = &url {
                         // SAFETY: main-thread read of the live action; the frame comes back retained or nil.
                         if let Some(target) = unsafe { action.targetFrame() } {
-                            crate::tarn_webkit::frame_navigates(web_view, &target);
+                            crate::tarn_webkit::frame_leaves(web_view, &target, action, u);
                         }
                         crate::tarn_webkit::gate_frame(web_view, u, false);
                     }
