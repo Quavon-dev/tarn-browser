@@ -128,6 +128,9 @@ pub struct TextInput {
     marked_range: Option<Range<usize>>,
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
+    /// The line and frame of a mirror of the field in another window, which a click there maps to.
+    mirror_layout: Option<ShapedLine>,
+    mirror_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
     masked: bool,
     inserted: bool,
@@ -158,6 +161,8 @@ impl TextInput {
             marked_range: None,
             last_layout: None,
             last_bounds: None,
+            mirror_layout: None,
+            mirror_bounds: None,
             is_selecting: false,
             masked: false,
             inserted: false,
@@ -446,6 +451,28 @@ impl TextInput {
     }
 
     fn index_for_mouse_position(&self, position: Point<Pixels>) -> usize {
+        self.index_in(self.last_bounds.as_ref(), self.last_layout.as_ref(), position)
+    }
+
+    /// A press on a mirror of the field: places the caret, or extends the selection with Shift.
+    pub fn mirror_press(&mut self, position: Point<Pixels>, shift: bool, cx: &mut Context<Self>) {
+        self.is_selecting = true;
+        let at = self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position);
+        if shift { self.select_to(at, cx) } else { self.move_to(at, cx) }
+    }
+
+    /// A drag over a mirror of the field after a press there.
+    pub fn mirror_drag(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if self.is_selecting {
+            self.select_to(self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position), cx);
+        }
+    }
+
+    pub fn mirror_release(&mut self) {
+        self.is_selecting = false;
+    }
+
+    fn index_in(&self, bounds: Option<&Bounds<Pixels>>, line: Option<&ShapedLine>, position: Point<Pixels>) -> usize {
         if self.content.is_empty() {
             return 0;
         }
@@ -453,7 +480,7 @@ impl TextInput {
             return self.content.len();
         }
 
-        let (Some(bounds), Some(line)) = (self.last_bounds.as_ref(), self.last_layout.as_ref()) else {
+        let (Some(bounds), Some(line)) = (bounds, line) else {
             return 0;
         };
         if position.y < bounds.top() {
@@ -653,7 +680,16 @@ struct TextElement {
 /// What `input` shows, caret included, drawn in another window than the one whose focus it
 /// has, such as a pop-up over the page; typing still goes to the focused field.
 pub fn mirror(input: Entity<TextInput>) -> impl IntoElement {
-    div().w_full().line_height(px(22.)).text_color(Theme::text()).child(TextElement { input, mirror: true })
+    let (press, drag, release) = (input.clone(), input.clone(), input.clone());
+    div()
+        .w_full()
+        .line_height(px(22.))
+        .text_color(Theme::text())
+        .cursor(CursorStyle::IBeam)
+        .on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, _, cx| press.update(cx, |i, cx| i.mirror_press(e.position, e.modifiers.shift, cx)))
+        .on_mouse_move(move |e: &MouseMoveEvent, _, cx| drag.update(cx, |i, cx| i.mirror_drag(e.position, cx)))
+        .on_mouse_up(MouseButton::Left, move |_: &MouseUpEvent, _, cx| release.update(cx, |i, _| i.mirror_release()))
+        .child(TextElement { input, mirror: true })
 }
 
 struct PrepaintState {
@@ -790,6 +826,10 @@ impl Element for TextElement {
             window.paint_quad(cursor);
         }
         if self.mirror {
+            self.input.update(cx, |input, _cx| {
+                input.mirror_layout = Some(line);
+                input.mirror_bounds = Some(bounds);
+            });
             return;
         }
         self.input.update(cx, |input, _cx| {

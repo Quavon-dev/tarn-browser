@@ -402,14 +402,17 @@ fn open_address(b: &mut Browser, window: &mut gpui::Window, cx: &mut Context<Bro
     }
 }
 
-/// The address field the palette shows: out of sight in the toolbar, where it keeps the
+/// The address field the palette shows: under the palette, behind the page, where it keeps the
 /// keyboard focus and the text input of the main window.
 fn hidden_field(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
+    let bar = b.address.bar.get().origin;
+    let at = b.palette_field().map(|f| (f.origin.x - bar.x, f.origin.y - bar.y, f.size.width));
     div()
         .absolute()
-        .top_0()
-        .left_0()
-        .size_0()
+        .map(|d| match at {
+            Some((x, y, w)) => d.left(x).top(y).w(w).h(px(22.)).line_height(px(22.)),
+            None => d.top_0().left_0().size_0(),
+        })
         .overflow_hidden()
         .on_key_down(cx.listener(|b, e: &KeyDownEvent, _, cx| b.suggestion_key(e, cx)))
         .child(b.command.clone())

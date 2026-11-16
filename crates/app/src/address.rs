@@ -122,6 +122,18 @@ impl Browser {
         self.address.close(reduce, cx);
     }
 
+    /// Where the palette shows the field's text, in this window: the hidden field sits there, so
+    /// the input method's candidate window opens next to the text the person sees.
+    pub(crate) fn palette_field(&self) -> Option<Bounds<Pixels>> {
+        let content = self.address.content.get();
+        (self.inline_editing() && content.size.width > px(0.)).then(|| {
+            let frame = palette_frame(content, self.palette_list());
+            let inset = 16. + ui::icon::ICON_MEDIUM + 12.;
+            let width = (f32::from(frame.size.width) - inset - 16.).max(0.);
+            Bounds::new(point(frame.origin.x + px(inset), frame.origin.y + px((INPUT_ROW - 22.) / 2.)), size(px(width), px(22.)))
+        })
+    }
+
     /// Height of the palette's list: its rows and section headers, up to `SHOWN_SUGGESTIONS` rows.
     fn palette_list(&self) -> f32 {
         let shown = &self.suggestions[..self.suggestions.len().min(SHOWN_SUGGESTIONS)];
