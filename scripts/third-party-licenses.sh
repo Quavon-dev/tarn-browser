@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Writes packaging/third-party-licenses.txt (macOS: app and Chromium helper, normal dependencies on
-# aarch64-apple-darwin) and packaging/third-party-licenses-windows.txt (app on x86_64-pc-windows-msvc):
+# aarch64-apple-darwin), packaging/third-party-licenses-windows.txt (app on x86_64-pc-windows-msvc),
+# -linux.txt (linux/ on x86_64-unknown-linux-gnu), -ios.txt and -android.txt (mobile/ on aarch64):
 # every crate compiled into the release with its licence and the licence files it ships; for an MIT or Apache-2.0 crate without licence files those texts follow at the end. --check fails when the committed file is out of date.
 set -euo pipefail
 
@@ -9,7 +10,7 @@ out=""
 trap '[[ -z "$out" ]] || rm -f "$out.tmp"' EXIT
 
 generate() {
-  cargo metadata --manifest-path "$root/Cargo.toml" --format-version 1 --locked \
+  cargo metadata --manifest-path "$root/${4:-Cargo.toml}" --format-version 1 --locked \
     --filter-platform "$1" ${2:+--features "$2"} \
     | jq -r --arg roots "$3" '
       (.resolve.nodes | map({key: .id, value: [.deps[] | select(any(.dep_kinds[]; .kind == null)) | .pkg]}) | from_entries) as $graph
@@ -42,7 +43,7 @@ write() {
   out="$root/packaging/$1"
   {
   printf 'Third-party software in Tarn\n\n%s Rust crates:\n\n' "$2"
-  generate "$3" "${4:-}" "$5"
+  generate "$3" "${4:-}" "$5" "${6:-}"
   printf '=====\nMIT licence text, for the crates above that ship none (copyright: the authors named there or at their Source)\n\n'
   sed '1,/^Copyright/d' "$root/packaging/licenses/MIT.txt" | sed '1{/^$/d;}'
   printf '\n=====\nApache License 2.0 text, for the crates above that ship none\n\n'
@@ -62,3 +63,9 @@ write third-party-licenses.txt $'Chromium and the Chromium Embedded Framework: C
 write third-party-licenses-windows.txt $'Chromium and the Chromium Embedded Framework: Chromium-CREDITS.html and CEF-LICENSE.txt.
 The Microsoft Visual C++ runtime (vcruntime140.dll), redistributed under the Visual Studio license terms.' \
   x86_64-pc-windows-msvc "" app
+write third-party-licenses-linux.txt 'WebKitGTK, GTK and the other system libraries come from your distribution under their own licences.' \
+  x86_64-unknown-linux-gnu "" tarn-linux linux/Cargo.toml
+write third-party-licenses-ios.txt 'WebKit and the system frameworks are part of iOS.' \
+  aarch64-apple-ios "" tarn-mobile-ios mobile/Cargo.toml
+write third-party-licenses-android.txt 'Android System WebView and the system libraries are part of Android.' \
+  aarch64-linux-android "" tarn-mobile-android mobile/Cargo.toml

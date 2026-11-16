@@ -270,7 +270,8 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                     .child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL))
                     .child(link_pill(ui, "Source code", browser_core::SOURCE_URL))
                     .child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL))
-                    .child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)),
+                    .child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL))
+                    .child(link_pill(ui, "Open-source licences", browser_core::LINUX_LICENCES_URL)),
             ),
         Pane::Appearance => body.child(view().pt_3().child(super::appearance::pane(ui))),
         Pane::Search => {
