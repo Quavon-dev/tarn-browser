@@ -81,8 +81,10 @@ pub const SECTIONS: [(&str, &[Binding]); 4] = [
 ];
 
 pub const ZOOM_IN_SHIFTED: &str = "ctrl+shift+=";
+pub const FIND_NEXT: &str = "ctrl+g";
+pub const FIND_PREVIOUS: &str = "ctrl+shift+g";
 
-const RESERVED: [&str; 17] = [
+const RESERVED: [&str; 19] = [
     "ctrl+1",
     "ctrl+2",
     "ctrl+3",
@@ -100,6 +102,8 @@ const RESERVED: [&str; 17] = [
     "ctrl+a",
     "escape",
     ZOOM_IN_SHIFTED,
+    FIND_NEXT,
+    FIND_PREVIOUS,
 ];
 
 impl Action {
@@ -236,6 +240,7 @@ mod tests {
         assert_eq!(of(Action::Find), "ctrl+f", "a fixed key");
         assert_eq!(conflict("ctrl+w", Action::Reload, &map), Some("Close tab"));
         assert_eq!(conflict(&parse_keys(ZOOM_IN_SHIFTED).unwrap(), Action::NewTab, &map), Some("a fixed shortcut"));
+        assert_eq!(conflict(FIND_PREVIOUS, Action::NewTab, &map), Some("a fixed shortcut"));
         assert_eq!(display("ctrl+shift+t"), "Ctrl+Shift+T");
         assert_eq!(display("alt+left"), "Alt+Left");
     }

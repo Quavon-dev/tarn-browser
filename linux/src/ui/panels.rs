@@ -2,12 +2,14 @@ use nsh_core::element::IntoProp;
 use nsh_core::prelude::*;
 use shield::ShieldLevel;
 
-use super::tools::{line, note};
-use super::{Panel, Ui, act, read, show, site_tile};
-use crate::browser::Browser;
-use crate::controls::{body, card, icon_button, label, pill, segmented, small, switch, title};
+use super::tools::{Command, line, note};
+use super::{Panel, Ui, act, confirmed, read, show, site_tile};
+use crate::browser::{Browser, ZOOM_STEPS};
+use crate::controls::{body, card, group, icon_button, label, pill, segmented, small, switch, title};
 use crate::icons;
+use crate::shortcuts::{self, Action};
 use crate::theme::Theme;
+use store::TabKind;
 
 const PANEL_WIDTH: f32 = 720.;
 
@@ -20,9 +22,7 @@ pub(super) fn capitalised(s: &str) -> String {
     chars.next().map(|c| c.to_uppercase().collect::<String>() + chars.as_str()).unwrap_or_default()
 }
 
-pub(super) fn section(name: &str) -> Text {
-    label(name.to_owned()).font_weight(FontWeight::SEMIBOLD).pt_5().pb_2().px_1()
-}
+pub(super) use tarn_nsh_shared::controls::section;
 
 pub(super) fn counted(name: &str, count: usize) -> View {
     view().flex_row().items_baseline().gap_2().flex_1().child(title(name.to_owned())).child(small(count.to_string()).text_color(Theme::faint()))
@@ -42,7 +42,7 @@ pub(super) fn library_row<M>(
 }
 
 pub(super) fn popover() -> View {
-    card().gap_3().p_4().shadow(Theme::elevation(2., 5.))
+    card().gap_3().p_4()
 }
 
 fn shield_panel(ui: Ui) -> AnyElement {
@@ -67,7 +67,11 @@ fn shield_panel(ui: Ui) -> AnyElement {
         let mut choices = vec![(None, "Default".to_owned())];
         choices.extend(levels().into_iter().map(|(l, name)| (Some(l), name)));
         let chosen = overridden.then(|| ShieldLevel::parse(&level).unwrap_or_default());
-        let zoom_button = |icon: &'static str, name: &str, step: i32| icon_button(icon, name, move || act(ui, move |b| b.zoom(step)));
+        let zoom_button = |icon: &'static str, name: &str, step: i32, limit: f64| {
+            icon_button(icon, name, move || act(ui, move |b| b.zoom(step)))
+                .disabled((zoom - limit).abs() < 0.001)
+                .disabled_style(|s| s.text_color(Theme::faint()))
+        };
         body = body
             .child(
                 view()
@@ -82,9 +86,9 @@ fn shield_panel(ui: Ui) -> AnyElement {
                     .items_center()
                     .gap_2()
                     .child(label("Zoom").flex_1())
-                    .child(zoom_button(icons::CHEVRON_LEFT, "Zoom Out", -1))
+                    .child(zoom_button(icons::CHEVRON_LEFT, "Zoom Out", -1, ZOOM_STEPS[0]))
                     .child(small(format!("{:.0}%", zoom * 100.0)).w(px(44.)).text_center())
-                    .child(zoom_button(icons::CHEVRON_RIGHT, "Zoom In", 1))
+                    .child(zoom_button(icons::CHEVRON_RIGHT, "Zoom In", 1, ZOOM_STEPS[ZOOM_STEPS.len() - 1]))
                     .child(pill("Reset", move || act(ui, |b| b.zoom(0)))),
             )
             .child(site_extras(ui, &host));
@@ -169,7 +173,7 @@ fn history_panel(ui: Ui) -> AnyElement {
             .into_element()
         })
         .collect();
-    let clear = (count > 0).then(|| pill("Clear History", move || act(ui, |b| b.clear_history())));
+    let clear = (count > 0).then(|| confirmed(ui, "history".to_owned(), "Clear History", move || super::clear_history(ui)));
     let empty = (count == 0).then(|| note("No history yet"));
     popover()
         .flex_1()
@@ -235,59 +239,86 @@ fn downloads_panel(ui: Ui) -> AnyElement {
     popover().child(header).child(view().flex_col().children(rows).children(none)).into_element()
 }
 
+fn menu_row(name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
+    crate::controls::row(name.to_owned(), press).px_3().child(label(name.to_owned()).flex_1()).children(keys.map(small))
+}
+
+fn pills(name: &str, buttons: Vec<AnyElement>) -> Option<View> {
+    (!buttons.is_empty()).then(|| view().flex_col().child(section(name.to_owned())).child(view().flex_row().flex_wrap().gap_2().children(buttons)))
+}
+
 fn tab_panel(ui: Ui) -> AnyElement {
-    let Some(key) = read(ui, |b| b.model.active).flatten() else { return view().into_element() };
-    let (pinned, tile, folders, targets) = ui.snap.with(|s| (s.pinned, s.tile, s.folders.clone(), s.move_targets.clone()));
+    let menu = ui.tab_menu.get_untracked();
+    let Some((key, active, name, kind, targets, duplicates, keymap)) = read(ui, |b| {
+        let key = menu.filter(|k| b.model.tab(*k).is_some()).or(b.model.active)?;
+        let tab = b.model.tab(key)?;
+        let keymap = shortcuts::keymap(&shortcuts::stored(&b.core.disk));
+        Some((
+            key,
+            b.model.active == Some(key),
+            crate::snapshot::tab_label(tab, b, key),
+            tab.kind,
+            b.model.move_targets(&b.core, key),
+            !b.duplicate_tabs().is_empty(),
+            keymap,
+        ))
+    })
+    .flatten() else {
+        return view().into_element();
+    };
+    let (folders, spaces, burner, article) = ui.snap.with(|s| (s.folders.clone(), s.spaces.clone(), s.burner, s.article));
+    let keys = |action: Action| active.then(|| keymap.iter().find(|(_, a)| *a == action).map(|(k, _)| shortcuts::display(k))).flatten();
     let folder_buttons: Vec<AnyElement> =
         folders.into_iter().map(|(id, name)| pill(name, move || act(ui, |b| b.move_to_folder(key, id))).into_element()).collect();
-    let space_buttons: Vec<AnyElement> = targets
+    let space_buttons: Vec<AnyElement> = spaces
         .into_iter()
-        .map(|(ix, name)| {
-            pill(name, move || {
+        .filter(|s| targets.contains(&s.ix))
+        .map(|s| {
+            pill(s.label, move || {
                 ui.panel.set(Panel::None);
-                act(ui, |b| b.move_to_space(key, ix));
+                act(ui, |b| b.move_to_space(key, s.ix));
             })
             .into_element()
         })
         .collect();
-    let (duplicates, burner, article) =
-        (read(ui, |b| !b.duplicate_tabs().is_empty()).unwrap_or(false), ui.snap.with(|s| s.burner), ui.snap.with(|s| s.article));
-    let tool = |name: &'static str, command: super::tools::Command| pill(name, move || super::tools::run(ui, command)).into_element();
-    let mut tools: Vec<AnyElement> = vec![
-        tool("Copy Link", super::tools::Command::CopyLink),
-        tool("Copy Clean Link", super::tools::Command::CopyCleanLink),
-        tool("Show QR Code", super::tools::Command::ShowQrCode),
-        tool("Save for Later", super::tools::Command::SaveForLater),
-    ];
-    if article {
-        tools.push(tool("Reader", super::tools::Command::Reader));
-    }
-    tools.push(tool("Zap Element", super::tools::Command::ZapElement));
-    if duplicates {
-        tools.push(tool("Close Duplicate Tabs", super::tools::Command::CloseDuplicates));
-    }
-    let pin = (!burner).then(|| pill(if pinned { "Unpin" } else { "Pin" }, move || act(ui, |b| b.pin_toggle(key))));
-    let tiles = (!burner).then(|| pill(if tile { "Remove from Tiles" } else { "Add to Tiles" }, move || act(ui, |b| b.tile_toggle(key))));
+    let tool = |name: &'static str, command: Command, action: Option<Action>| {
+        menu_row(name, action.and_then(keys), move || super::tools::run(ui, command)).into_element()
+    };
+    let tab_rows = (!burner).then(|| {
+        let (pinned, tile) = (kind != TabKind::Ephemeral, kind == TabKind::Tile);
+        let pin = menu_row(if pinned { "Unpin" } else { "Pin" }, keys(Action::TogglePin), move || act(ui, |b| b.pin_toggle(key)));
+        let tiles = menu_row(if tile { "Remove from Tiles" } else { "Add to Tiles" }, None, move || act(ui, |b| b.tile_toggle(key)));
+        group().child(pin).child(tiles)
+    });
+    let page_rows = active.then(|| {
+        let mut rows = vec![
+            tool("Copy Link", Command::CopyLink, Some(Action::CopyLink)),
+            tool("Copy Clean Link", Command::CopyCleanLink, Some(Action::CopyCleanLink)),
+            tool("Show QR Code", Command::ShowQrCode, None),
+            tool("Save for Later", Command::SaveForLater, None),
+        ];
+        if article {
+            rows.push(tool("Reader", Command::Reader, Some(Action::ToggleReader)));
+        }
+        rows.push(tool("Zap Element", Command::ZapElement, None));
+        if duplicates {
+            rows.push(tool("Close Duplicate Tabs", Command::CloseDuplicates, None));
+        }
+        rows.push(tool("New Burner Tab", Command::BurnerTab, Some(Action::BurnerTab)));
+        group().children(rows)
+    });
+    let close = menu_row("Close Tab", keys(Action::CloseTab), move || {
+        ui.panel.set(Panel::None);
+        act(ui, |b| b.close_tab(key));
+    });
     popover()
-        .child(title("This Tab"))
-        .child(
-            view()
-                .flex_row()
-                .gap_2()
-                .children(pin)
-                .children(tiles)
-                .child(pill("Close Tab", move || {
-                    ui.panel.set(Panel::None);
-                    act(ui, |b| b.close_tab(key));
-                }))
-                .child(pill("New Burner Tab", move || super::tools::run(ui, super::tools::Command::BurnerTab))),
-        )
+        .child(title(name).truncate())
         .children(burner.then(|| note("Burner tab: nothing is kept after it closes")))
-        .child(view().flex_row().flex_wrap().gap_2().children(tools))
-        .child(section("Move into a folder"))
-        .child(view().flex_row().flex_wrap().gap_2().children(folder_buttons))
-        .child(section("Move to another space of this profile"))
-        .child(view().flex_row().flex_wrap().gap_2().children(space_buttons))
+        .children(tab_rows)
+        .children(page_rows)
+        .child(group().child(close))
+        .children(pills("Move into a folder", folder_buttons))
+        .children(pills("Move to another space of this profile", space_buttons))
         .into_element()
 }
 

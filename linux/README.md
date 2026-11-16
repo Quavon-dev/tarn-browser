@@ -64,6 +64,11 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   sorting into Downloads subfolders; no pause or resume (WebKitGTK cannot) and no malware flag (no
   malware domain set on Linux yet);
 - keyboard shortcuts rebound in Settings (typed as `Ctrl+Shift+Y`; Linux has its own action list);
+- desktop input: Up and Down pick a suggestion row of the address field or the start card and Enter
+  runs it; a right click (or Shift+F10) on a tab or tile opens the Tab panel for that tab; `Ctrl+G` and
+  `Ctrl+Shift+G` step through the find bar's matches (fixed keys); icon buttons have tooltips, placed
+  beside the toolbar's buttons because one below them would be hidden behind the web view; Clear
+  History, Clear Website Data and a snapshot's Delete ask once more before they run;
 - memory panel and heavy-tab marks: WebKitGTK gives no process id, so the component reports
   `process {pid}` (a Linux addition) when exactly one new `WebKitWebProcess` below the app appears
   between a load's start and its commit; tabs it cannot tell apart are "Not measured".

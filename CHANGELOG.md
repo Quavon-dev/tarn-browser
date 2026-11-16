@@ -17,6 +17,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   Rotate Split Layout stacks the panes, and the tab menu has a Split View submenu. New shortcuts
   focus the next or previous pane (⌃⌘] / ⌃⌘[), swap panes (⌃⌘S), rotate (⌃⌘R) and remove a tab
   (⌃⌘W).
+- Linux: Up and Down pick address suggestions, right click opens the menu of any tab, the find bar
+  counts matches and Ctrl+G / Ctrl+Shift+G step through them, icon buttons have tooltips, and Clear
+  History, Clear Website Data and snapshot Delete ask for a confirmation.
+- Android: the system back gesture closes a prompt, a sheet or the address field before it goes
+  back in the page; iOS and Android sheets have a Back button to the sheet they came from.
 - Clean Up under New Tab sorts tabs into groups on this device and archives unused tabs (macOS,
   Windows).
 - Tiles arrange themselves: one row while they fit, then as few rows as fit, filled evenly; Add to

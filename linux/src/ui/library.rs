@@ -79,7 +79,7 @@ pub fn space_panel(ui: Ui) -> AnyElement {
                 .child(small(crate::browser::spaces::date(saved.created_at)))
                 .child(pill("Restore in New Space", move || act(ui, |br| br.restore_snapshot(&a, true))))
                 .child(pill("Restore in This Space", move || act(ui, |br| br.restore_snapshot(&b, false))))
-                .child(pill("Delete", move || act(ui, |br| br.delete_snapshot(&c))))
+                .child(super::confirmed(ui, format!("snapshot{}", saved.id), "Delete", move || act(ui, |br| br.delete_snapshot(&c))))
                 .into_element()
         })
         .collect();

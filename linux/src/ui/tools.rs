@@ -9,7 +9,7 @@ use crate::browser::spaces::SpaceCommand;
 use crate::controls::{accent_pill, body, icon_button, label, pill, small};
 use crate::icons;
 use crate::speech::{self, SPEEDS};
-use crate::theme::{Paint, ROW_HEIGHT, Theme};
+use crate::theme::{ROW_HEIGHT, Theme};
 
 const TOAST_TIME: Duration = Duration::from_secs(5);
 const READER_SIZES: [f32; 6] = [14., 16., 18., 20., 23., 26.];
@@ -84,6 +84,14 @@ pub fn run(ui: Ui, command: Command) {
     }
 }
 
+/// Runs a command row of the address field or the start card.
+pub fn pick(ui: Ui, command: Command) {
+    ui.editing.set(false);
+    ui.address_ref.blur();
+    ui.command.set(String::new());
+    run(ui, command);
+}
+
 pub fn copy_link(ui: Ui, clean: bool) {
     let mut link = None;
     act(ui, |b| link = b.copy_link(clean));
@@ -124,9 +132,10 @@ pub fn toast_bar(ui: Ui) -> AnyElement {
         let toast = ui.snap.with(|s| s.toast.clone())?;
         let action = toast.action.map(|_| accent_pill("Undo", move || act(ui, Browser::take_toast_action)));
         Some(view().flex_row().justify_center().child(
-            bar().mb_0().mt_2().min_w(px(300.)).child(label(toast.text).flex_1().truncate()).children(action).child(icon_button(
+            bar().mb_0().mt_2().min_w(px(300.)).child(label(toast.text).flex_1().truncate()).children(action).child(crate::controls::icon_button_at(
                 icons::CLOSE,
                 "Dismiss",
+                Placement::Left,
                 move || act(ui, |b| b.expire_toast(toast.serial)),
             )),
         ))
@@ -138,18 +147,15 @@ pub fn command_rows(ui: Ui, query: Signal<String>) -> AnyElement {
         let rows = commands(ui, &query.get());
         let items: Vec<AnyElement> = rows
             .into_iter()
-            .map(|(name, command)| {
-                super::suggestion_row(name.clone(), move || {
-                    ui.editing.set(false);
-                    ui.address_ref.blur();
-                    ui.command.set(String::new());
-                    run(ui, command);
-                })
-                .text_color(Theme::muted())
-                .child(view().w(px(18.)).items_center().child(icons::icon(icons::GEAR, 14.)))
-                .child(label(name).flex_1().truncate())
-                .child(super::detail("Command"))
-                .into_element()
+            .enumerate()
+            .map(|(ix, (name, command))| {
+                super::suggestion_row(name.clone(), move || pick(ui, command))
+                    .bg(move || super::picked_fill(ui, ix + 1))
+                    .text_color(Theme::muted())
+                    .child(view().w(px(18.)).items_center().child(icons::icon(icons::GEAR, 14.)))
+                    .child(label(name).flex_1().truncate())
+                    .child(super::detail("Command"))
+                    .into_element()
             })
             .collect();
         view().flex_col().gap(px(2.)).children(items)
@@ -195,16 +201,10 @@ pub fn close_find_tabs(ui: Ui) {
 
 pub fn qr_panel(ui: Ui) -> AnyElement {
     let Some((code, host)) = ui.qr.get_untracked() else { return view().into_element() };
-    view()
-        .flex_col()
+    super::panels::popover()
         .items_center()
-        .gap_3()
-        .p_4()
         .w(px(260.))
         .self_center()
-        .rounded(px(Theme::radius_card()))
-        .surface()
-        .shadow(Theme::elevation(4., 14.))
         .child(view().p_2().rounded(px(Theme::radius_row())).bg(rgb(0xffffff)).child(tarn_nsh_shared::qr::qr_code(
             &code,
             crate::browser::tools::QUIET,
