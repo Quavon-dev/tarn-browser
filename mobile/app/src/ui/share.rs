@@ -75,7 +75,8 @@ fn sheet(ui: Ui) -> impl IntoElement {
     let page = ui.read(|s| (s.share_url(), s.active_page().map(|p| p.title.clone()).unwrap_or_default()));
     let (url, title) = page;
     let host = url.as_deref().map(browser_core::command::display_host).unwrap_or_default();
-    let initial = host.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().to_string()).unwrap_or_default();
+    let site = url.as_deref().and_then(|u| url::Url::parse(u).ok()).and_then(|u| browser_core::command::page_host(&u)).unwrap_or_else(|| host.clone());
+    let initial = site.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().to_string()).unwrap_or_default();
     let shown_title = if title.trim().is_empty() { host.clone() } else { title };
     let link = url.clone();
     let copy = move || {
