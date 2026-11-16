@@ -651,8 +651,7 @@ jobs:
           if grep -qx windows-update.json <<<"$assets" && grep -qx windows-update.json.sig <<<"$assets"; then
             gh release download --pattern windows-update.json --pattern windows-update.json.sig --dir dist
           elif grep -qx 'windows-update.json\(\.sig\)\?' <<<"$assets"; then
-            echo "the latest release holds only half of the Windows update feed" >&2
-            exit 1
+            echo "::warning::the latest release holds only half of the Windows update feed; publish repairs it"
           else
             echo "::warning::the latest release has no Windows update feed to carry over"
           fi
@@ -683,6 +682,7 @@ jobs:
           sparse-checkout: |
             CHANGELOG.md
             packaging/cef.lock
+            packaging/updates.conf
           sparse-checkout-cone-mode: false
       - if: ${{ !inputs.nightly }}
         env:
@@ -737,28 +737,38 @@ jobs:
           with_feed="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" | jq -r '[.[][] | select(.draft == false and .prerelease == false)
             | select(any(.assets[]; .name == "windows-update.json") and any(.assets[]; .name == "windows-update.json.sig"))
             | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | reverse | .[:10][]')"
-          version_of() { gh release download "$1" --pattern windows-update.json --output - | jq -r .version; }
+          # A feed pair counts only if its signature verifies with the update key the apps carry.
+          pub="$(sed -n 's/^public_ed_key=//p' source/packaging/updates.conf)"
+          { printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'; base64 -d <<<"$pub"; } > update-key.der
+          pair() {
+            rm -rf "pair/$1" && mkdir -p "pair/$1"
+            gh release download "$1" --pattern windows-update.json --pattern windows-update.json.sig --dir "pair/$1" || return 2
+            base64 -d < "pair/$1/windows-update.json.sig" > "pair/$1/sig.bin" 2>/dev/null || return 1
+            openssl pkeyutl -verify -pubin -keyform DER -inkey update-key.der -rawin \
+              -in "pair/$1/windows-update.json" -sigfile "pair/$1/sig.bin" >/dev/null 2>&1 || return 1
+            jq -r .version "pair/$1/windows-update.json" | grep -xE '[0-9]+\.[0-9]+\.[0-9]+'
+          }
           best="" best_version=""
           for release in $with_feed; do
             [[ "$release" != "$highest" ]] || continue
-            version="$(version_of "$release")"
-            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "$release has a Windows feed without a release version" >&2; exit 1; }
+            rc=0
+            version="$(pair "$release")" || rc=$?
+            [[ "$rc" != 2 ]] || { echo "could not download the Windows feed of $release" >&2; exit 1; }
+            [[ "$rc" == 0 ]] || { echo "::warning::the Windows feed of $release does not verify; it is not used"; continue; }
             if [[ -z "$best_version" || "$(printf '%s\n%s\n' "$best_version" "$version" | sort -V | tail -n1)" != "$best_version" ]]; then
               best="$release" best_version="$version"
             fi
           done
           own=""
-          if grep -qxF "$highest" <<<"$with_feed"; then own="$(version_of "$highest")"; fi
-          if [[ -n "$best" && ( -z "$own" || "$(printf '%s\n%s\n' "$own" "$best_version" | sort -V | tail -n1)" == "$best_version" ) ]]; then
-            # Both files are compared, so a run stopped between the two uploads is repaired on re-run.
-            mkdir -p feed current
-            gh release download "$best" --pattern windows-update.json --pattern windows-update.json.sig --dir feed --clobber
-            if [[ -n "$own" ]]; then
-              gh release download "$highest" --pattern windows-update.json --pattern windows-update.json.sig --dir current --clobber
-            fi
-            if ! cmp -s feed/windows-update.json current/windows-update.json || ! cmp -s feed/windows-update.json.sig current/windows-update.json.sig; then
-              gh release upload "$highest" feed/windows-update.json feed/windows-update.json.sig --clobber
-              echo "::notice::$highest now carries the Windows feed of $best (Windows $best_version)"
-            fi
+          if grep -qxF "$highest" <<<"$with_feed"; then
+            rc=0
+            own="$(pair "$highest")" || rc=$?
+            [[ "$rc" != 2 ]] || { echo "could not download the Windows feed of $highest" >&2; exit 1; }
+          fi
+          if [[ -n "$best" && ( -z "$own" || "$(printf '%s\n%s\n' "$own" "$best_version" | sort -V | tail -n1)" == "$best_version" ) ]] \
+            && ! { cmp -s "pair/$best/windows-update.json" "pair/$highest/windows-update.json" \
+              && cmp -s "pair/$best/windows-update.json.sig" "pair/$highest/windows-update.json.sig"; }; then
+            gh release upload "$highest" "pair/$best/windows-update.json" "pair/$best/windows-update.json.sig" --clobber
+            echo "::notice::$highest now carries the Windows feed of $best (Windows $best_version)"
           fi
           gh workflow run linux-repo.yml --ref main
