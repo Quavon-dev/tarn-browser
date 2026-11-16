@@ -372,6 +372,7 @@ pub(crate) fn section_header(title: &'static str) -> AnyElement {
         .text_size(px(10.5))
         .font_weight(FontWeight::BOLD)
         .text_color(Theme::faint())
+        .block_mouse_except_scroll()
         .child(title)
         .into_any_element()
 }

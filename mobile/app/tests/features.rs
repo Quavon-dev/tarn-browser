@@ -527,6 +527,16 @@ fn site_icons_are_fetched_kept_per_profile_and_retried_after_failures() {
 }
 
 #[test]
+fn a_closed_tab_does_not_hold_its_sites_icon_request() {
+    let (_dir, mut shell) = open();
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some());
+    let closed = active(&shell);
+    shell.new_tab(None);
+    shell.close_tab(closed);
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some(), "the next tab on the site asks again");
+}
+
+#[test]
 fn page_world_platforms_keep_the_icon_their_engine_reports_without_a_script() {
     let dir = tempfile::tempdir().unwrap();
     let mut shell = Shell::<PageWorld>::open(dir.path());

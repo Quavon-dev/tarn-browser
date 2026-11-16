@@ -182,12 +182,9 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Unpin Tab", "pin"),
     ("Mute Site", "volume-x"),
     ("Unmute Site", "volume-2"),
-    ("Add to Tiles", "layout-grid"),
-    ("Remove from Tiles", "layout-grid"),
     ("Rename", "pencil"),
     ("Reset Title", "undo-2"),
     ("Return to ", "undo-2"),
-    ("Close Tab", "close"),
     ("Close Other Tabs", "close"),
     ("Close Tabs Below", "close"),
     ("Close Group", "close"),
@@ -197,11 +194,9 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Ungroup", "group"),
     ("Remove from Group", "group"),
     ("New Folder", "folder-plus"),
-    ("New Subfolder", "folder-plus"),
     ("Delete", "trash"),
     ("Remove from List", "close"),
     ("Restore in", "history"),
-    ("Rotate Layout", "reload"),
     ("Customize in Settings", "gear"),
     ("Show Tabs in Sidebar", "sidebar"),
     ("Auto-Hide Tabs", "sidebar"),
@@ -479,6 +474,8 @@ mod tests {
         assert_eq!(glyph("Reload in Chromium"), "reload");
         assert_eq!(glyph("Bookmark All Tabs"), "bookmark");
         assert_eq!((glyph("Unpin"), glyph("Remove from Tiles"), glyph("New Burner Tab")), ("pin", "layout-grid", "flame"));
+        let labels: std::collections::HashSet<&str> = GLYPHS.iter().map(|(label, _)| *label).collect();
+        assert_eq!(labels.len(), GLYPHS.len(), "each label has one glyph");
         assert_eq!((glyph("Close Tabs Below"), glyph("Close All Tabs")), ("close", "close"));
         assert_eq!(glyph("Something New"), "command");
     }

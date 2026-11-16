@@ -456,6 +456,7 @@ impl<D: Platform> Shell<D> {
     }
 
     fn unmount(&mut self, key: TabKey) {
+        self.drop_scripts(key);
         self.model.lifecycle.remove(key);
         self.pages.remove(&key);
         self.loads.remove(&key);

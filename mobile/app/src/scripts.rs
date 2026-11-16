@@ -97,6 +97,17 @@ impl<D: Platform> Shell<D> {
         vec![Effect::Command(key, name, args)]
     }
 
+    /// A view that goes away never answers, so its questions are dropped and its icon request must
+    /// not hold the host for the rest of the session.
+    pub(crate) fn drop_scripts(&mut self, key: TabKey) {
+        let asked_icon = self.scripts.values().any(|(k, s)| *k == key && matches!(s, Script::IconLinks | Script::Icon));
+        let page = self.pages.get(&key).and_then(|p| p.committed.clone()).filter(|_| asked_icon);
+        if let Some((profile, host)) = page.and_then(|url| self.icon_key(key, &url)) {
+            self.icons.withdraw(&profile, &host);
+        }
+        self.scripts.retain(|_, (k, _)| *k != key);
+    }
+
     fn answer_for(&mut self, key: TabKey, data: &Value, script: Script) -> Option<String> {
         let seq = data.get("seq").and_then(Value::as_u64)?;
         if self.scripts.get(&seq) != Some(&(key, script)) {
@@ -182,23 +193,32 @@ impl<D: Platform> Shell<D> {
         self.ask(key, Script::Icon, "fetchIcon", json!({ "urls": urls }))
     }
 
-    fn icon_data(&mut self, key: TabKey, data: &Value) {
-        let Some((_, profile, host)) = self.icon_answer(key, data, Script::Icon) else { return };
-        self.keep_icon(profile, &host, &text(data, "text"));
+    /// An `iconData` or `pageIcon` event with the icon `favicon::normalize` made of its text; the
+    /// UI makes it off the main thread.
+    pub fn icon_event(&mut self, key: TabKey, name: &str, data: &Value, png: Option<Vec<u8>>) {
+        match name {
+            "iconData" => self.icon_data(key, data, png),
+            "pageIcon" => self.page_icon(key, data, png),
+            _ => {}
+        }
     }
 
-    fn page_icon(&mut self, key: TabKey, data: &Value) {
+    fn icon_data(&mut self, key: TabKey, data: &Value, png: Option<Vec<u8>>) {
+        let Some((_, profile, host)) = self.icon_answer(key, data, Script::Icon) else { return };
+        self.keep_icon(profile, &host, png);
+    }
+
+    fn page_icon(&mut self, key: TabKey, data: &Value, png: Option<Vec<u8>>) {
         let Some((profile, host)) = self.current_page(key, data).filter(|_| D::page_world_scripts()).and_then(|url| self.icon_key(key, &url)) else {
             return;
         };
         self.load_icons(profile);
         if self.icons.request(&profile, &host) {
-            self.keep_icon(profile, &host, &text(data, "text"));
+            self.keep_icon(profile, &host, png);
         }
     }
 
-    fn keep_icon(&mut self, profile: (bool, Id), host: &str, encoded: &str) {
-        let png = favicon::normalize(encoded);
+    fn keep_icon(&mut self, profile: (bool, Id), host: &str, png: Option<Vec<u8>>) {
         let kept = self.icons.accept(&profile, host, png.as_deref().map(favicon::data_uri));
         if let Some(png) = png.filter(|_| kept && self.core.keeps_records(profile.0, profile.1)) {
             self.core.store(profile.0).set_favicon(profile.1, host, &png).ok();
@@ -249,8 +269,7 @@ impl<D: Platform> Shell<D> {
                 }
             }
             "iconLinks" => return self.icon_links(key, data),
-            "iconData" => self.icon_data(key, data),
-            "pageIcon" => self.page_icon(key, data),
+            "iconData" | "pageIcon" => self.icon_event(key, name, data, favicon::normalize(&text(data, "text"))),
             "textFound" => self.text_found(key, data),
             "picked" => self.picked(key, data),
             "shielded" => self.shielded_event(key, data),

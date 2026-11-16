@@ -229,8 +229,8 @@ fn sky(s: &Scene, draw: &mut Draw, (px, py): (u32, u32), (lx, ly): (u32, u32)) -
     if s.dark {
         for _ in 0..30 {
             let (x, y) = (8 + draw.below(344), 6 + draw.below(70));
-            let (r, o) = ([6, 8, 11][draw.below(3) as usize], 35 + draw.below(55));
-            let _ = write!(out, r#"<circle cx="{x}" cy="{y}" r="0.{r}" fill="white" fill-opacity="0.{o}"/>"#);
+            let (r, o) = (["0.6", "0.8", "1.1"][draw.below(3) as usize], 35 + draw.below(55));
+            let _ = write!(out, r#"<circle cx="{x}" cy="{y}" r="{r}" fill="white" fill-opacity="0.{o}"/>"#);
         }
         let _ =
             write!(out, r#"<path d="M0 {} Q80 {} 170 {} Q250 {} 360 {} V{} H0 Z" fill="url(#aurora)"/>"#, ly + 4, ly - 36, ly - 14, ly + 6, py - 14, ly + 26);
