@@ -25,6 +25,7 @@ pub mod fog;
 pub mod github;
 pub mod glyphs;
 pub mod import;
+pub mod licences;
 pub mod permissions;
 pub mod prompts;
 pub mod routing;
@@ -54,6 +55,9 @@ pub use site::{Overrides, Sets, SiteRules, effective_level};
 pub const LICENCE: &str = "GNU GPL v3 or later";
 pub const SOURCE_URL: &str = env!("CARGO_PKG_REPOSITORY");
 pub const LICENCE_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/LICENSE");
+pub const PRIVACY_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/PRIVACY.md");
+pub const IMPRINT_URL: &str = "https://tarnbrowser.com/imprint";
+pub const LINUX_LICENCES_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/raw/v", env!("CARGO_PKG_VERSION"), "/packaging/third-party-licenses-linux.txt");
 
 pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)

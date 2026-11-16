@@ -1263,6 +1263,8 @@ impl SettingsWindow {
                     .child(row(true).child(label("Tarn version")).child(value(platform::updater::VERSION)))
                     .child(self.link_row("about-licence", browser_core::LICENCE, "Free software you may share and change.", browser_core::LICENCE_URL, cx))
                     .child(self.link_row("about-source", "Source code", "Tarn's full source is public on GitHub.", browser_core::SOURCE_URL, cx))
+                    .child(self.link_row("about-privacy", "Privacy notice", "What Tarn stores and which connections it makes.", browser_core::PRIVACY_URL, cx))
+                    .child(self.link_row("about-imprint", "Imprint", "Quavon UG (haftungsbeschränkt), Tarn's publisher.", browser_core::IMPRINT_URL, cx))
                     .when_some(licenses(), |d, path| {
                         d.child(
                             row(false)

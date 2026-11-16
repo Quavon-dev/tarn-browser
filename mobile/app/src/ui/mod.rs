@@ -49,6 +49,8 @@ pub enum Screen {
     ReadingList,
     Move(TabKey),
     SpaceEdit(usize),
+    Licences,
+    Licence(usize),
 }
 
 thread_local! {
