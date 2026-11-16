@@ -57,9 +57,11 @@ nothing is sent.
 On macOS and Windows, Settings › Privacy › Your data exports a profile's stored data as a JSON file
 in your Downloads folder and deletes everything in a profile: spaces, tabs, snapshots, history, site
 icons, site settings, Shield counters and WebKit's cookies, cache and storage; deleted rows are
-overwritten in the database file. On Linux, iOS and Android, Clear Browsing Data removes history,
-the downloads list, closed tabs and website data. Clearing history also removes kept page text and
-the Shield card's list of protected sites. Files you downloaded are not deleted.
+overwritten in the database file. On Linux, Settings › Privacy offers Clear History, Clear Download
+List and Clear Website Data; none of them clears the list of recently closed tabs. On iOS and
+Android, Clear Browsing Data removes history, the downloads list, closed tabs and website data; in
+the private space, website data goes when the space closes. Clearing history also removes kept page
+text and the Shield card's list of protected sites. Files you downloaded are not deleted.
 
 ## Connections the browser itself makes
 
@@ -131,7 +133,10 @@ page address are left out.
 
 Quavon receives none of the data above: what Tarn stores stays on your device, and Tarn sends
 nothing to Quavon. Keeping it on your device is needed for the browser to do what you ask (section
-25(2) no. 2 TDDDG); it is kept until you delete it or uninstall Tarn.
+25(2) no. 2 TDDDG); it is kept until you delete it. Uninstalling Tarn on macOS or Linux leaves its
+data folders in place, and on Windows the uninstaller deletes `%LOCALAPPDATA%\Tarn` only if you
+answer Yes (a silent uninstall always keeps it); on iOS and Android the system deletes the data with
+the app.
 
 The connections in the table go to the receivers named there, who process your IP address under
 their own privacy terms. Update and filter-list checks keep Tarn secure and its block lists current,
