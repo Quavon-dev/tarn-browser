@@ -304,9 +304,10 @@ pub struct Browser {
     pub(crate) hover_card: crate::hover_card::HoverCard,
     pub(crate) site_popover: crate::site_settings::SitePopover,
     pub(crate) link_peek: crate::link_peek::LinkPeek,
-    pub(crate) split: Option<crate::split::Split>,
-    /// The tab a dragged tab would join in a split if dropped now.
-    pub(crate) split_drop: Option<TabKey>,
+    pub(crate) splits: browser_core::split::Splits<TabKey>,
+    pub(crate) split_shown: crate::split::Shown,
+    /// The tab a dragged tab would split with if dropped now, and what the drop does.
+    pub(crate) split_drop: Option<(TabKey, &'static str)>,
     pub shortcuts_open: bool,
     pub reader: Option<crate::reader::Reader>,
     pub reader_layout: crate::reader::Layout,
@@ -474,7 +475,8 @@ impl Browser {
             hover_card: Default::default(),
             site_popover: Default::default(),
             link_peek: Default::default(),
-            split: None,
+            splits: Default::default(),
+            split_shown: Default::default(),
             split_drop: None,
             shortcuts_open: false,
             reader: None,
@@ -515,6 +517,7 @@ impl Browser {
         });
         browser._subscriptions.extend([blur, appearance, deactivate, release]);
         browser.watch_navigation_buttons(window, cx);
+        browser.watch_split_clicks(window, cx);
         browser.watch_peek_pointer(window, cx);
         browser.developer = browser.core.disk.setting(DEVELOPER_SETTING).ok().flatten().as_deref() == Some("on");
         if browser.developer {
@@ -616,6 +619,7 @@ impl Browser {
             self.discard_tab(key, cx);
         }
         self.pages.retain(|k, _| self.core.store(k.private).tab(k.id).is_ok());
+        self.splits.retain(|k| self.core.store(k.private).tab(k.id).is_ok());
         lost_active
     }
 
@@ -655,6 +659,7 @@ impl Browser {
     /// view it is hibernated instead, and the other window restores it from the saved state.
     pub(crate) fn give_up_view(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) -> Option<(WebView, PageState)> {
         let view = self.take_view(key)?;
+        self.splits.leave(key);
         if self.model.active == Some(key) {
             self.model.active = None;
             // Picked once the adopting window's update is over, so this tab counts as live there.
@@ -951,7 +956,9 @@ impl Browser {
     }
 
     pub fn activate(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tab) = self.model.tab(key).cloned() else { return };
+        if self.model.tab(key).is_none() {
+            return;
+        }
         let switched = self.model.active != Some(key);
         if switched {
             self.leave_page_fullscreen(window);
@@ -963,9 +970,9 @@ impl Browser {
         {
             outgoing.set_visible(false);
         }
-        let partners: Vec<TabKey> = self.split.as_ref().map(|s| s.others(key)).unwrap_or_default().into_iter().filter(|p| self.views.contains_key(p)).collect();
+        let partners = self.split_partners(key, cx);
         if let Some(prev) = self.model.active.filter(|p| *p != key && !partners.contains(p)).and_then(|p| self.views.get(&p)).cloned() {
-            fading = !self.pref(crate::prefs::Pref::ReduceMotion) && !self.overlay_open() && self.active_json().is_none();
+            fading = partners.is_empty() && !self.pref(crate::prefs::Pref::ReduceMotion) && !self.overlay_open() && self.active_json().is_none();
             if fading {
                 self.page_fade = Some((prev, Instant::now()));
             } else {
@@ -974,7 +981,6 @@ impl Browser {
         }
         let left = Instant::now();
         self.seen.extend(self.model.active.into_iter().chain([key]).map(|k| (k, left)));
-        let as_link = self.link_loads.get(&key).cloned();
         let mut evicted: Vec<TabKey> = partners.iter().flat_map(|p| self.model.lifecycle.activate(*p)).collect();
         evicted.extend(self.model.lifecycle.activate(key));
         for evicted in evicted {
@@ -985,27 +991,7 @@ impl Browser {
                 self.sleep_unless_playing(evicted, cx);
             }
         }
-        let view = match self.views.get(&key).cloned() {
-            Some(view) => Some(view),
-            None if let Some(view) = self.adopt_view(key, cx) => Some(view),
-            None => self.create_view(key, &tab.url, cx).inspect(|view| {
-                let restorable = self.level_for(&tab.url).policy().save_interaction_state;
-                let saved = self.store(key.private).interaction_state(key.id).ok().flatten();
-                match saved.as_deref().filter(|_| restorable && !view.is_chromium()) {
-                    Some(state) => view.restore_interaction_state(state),
-                    None => {
-                        if let Ok(url) = Url::parse(&tab.url)
-                            && nav_policy::decide(&url, Source::Sync) == Decision::Allow
-                        {
-                            match &as_link {
-                                Some(from) => view.load_link(&url, from.as_ref()),
-                                None => view.load(&url),
-                            }
-                        }
-                    }
-                }
-            }),
-        };
+        let view = self.wake(key, cx);
         self.model.active = Some(key);
         if let Some(view) = view {
             if fading {
@@ -1019,6 +1005,18 @@ impl Browser {
                 view.focus();
             }
         }
+        if !partners.is_empty() {
+            // A page still fading out would show between the panes.
+            if let Some((outgoing, _)) = self.page_fade.take() {
+                outgoing.set_visible(false);
+            }
+            for pane in &partners {
+                if let Some(view) = self.wake(*pane, cx) {
+                    view.set_alpha(1.);
+                    view.set_visible(!self.overlay_open());
+                }
+            }
+        }
         self.model.touch(&self.core, key, now());
         if !self.overlay_open() {
             window.focus(&self.focus);
@@ -1030,6 +1028,33 @@ impl Browser {
             }
         }
         cx.notify();
+    }
+
+    /// The tab's view: this window's, else one taken over from another window, else a new one
+    /// that restores the tab's saved state or loads its page.
+    fn wake(&mut self, key: TabKey, cx: &mut Context<Self>) -> Option<Rc<WebView>> {
+        if let Some(view) = self.views.get(&key).cloned().or_else(|| self.adopt_view(key, cx)) {
+            return Some(view);
+        }
+        let tab = self.model.tab(key).cloned()?;
+        let as_link = self.link_loads.get(&key).cloned();
+        self.create_view(key, &tab.url, cx).inspect(|view| {
+            let restorable = self.level_for(&tab.url).policy().save_interaction_state;
+            let saved = self.store(key.private).interaction_state(key.id).ok().flatten();
+            match saved.as_deref().filter(|_| restorable && !view.is_chromium()) {
+                Some(state) => view.restore_interaction_state(state),
+                None => {
+                    if let Ok(url) = Url::parse(&tab.url)
+                        && nav_policy::decide(&url, Source::Sync) == Decision::Allow
+                    {
+                        match &as_link {
+                            Some(from) => view.load_link(&url, from.as_ref()),
+                            None => view.load(&url),
+                        }
+                    }
+                }
+            }
+        })
     }
 
     fn save_state(&self, key: TabKey) {
@@ -1110,6 +1135,7 @@ impl Browser {
     /// caller reloads the space and picks the next active tab.
     fn close_one(&mut self, key: TabKey, cx: &mut Context<Self>) -> Option<ClosedTab> {
         let tab = self.model.tab(key).cloned()?;
+        self.splits.leave(key);
         if tab.kind != TabKind::Ephemeral {
             self.hibernate(key, cx);
             return None;
@@ -1287,7 +1313,7 @@ impl Browser {
         self.shortcuts_open = false;
         self.reader = self.reader.take().filter(|r| crate::reader::keeps_reader(covered, r.speaking()));
         window.focus(&self.focus);
-        for key in self.model.active.and_then(|a| Some(self.split.as_ref()?.others(a))).unwrap_or_default() {
+        for key in self.model.active.and_then(|a| Some(self.splits.of(a)?.others(a))).unwrap_or_default() {
             if let Some(view) = self.views.get(&key) {
                 view.set_visible(true);
             }
@@ -2663,22 +2689,13 @@ impl Browser {
     /// active tab and split again.
     fn remake_views(&mut self, keys: Vec<TabKey>, window: &mut Window, cx: &mut Context<Self>, between: impl FnOnce(&mut Self)) {
         let active = self.model.active;
-        let split = self.split.as_ref().map(|s| (s.panes.clone(), s.ratio)).filter(|(panes, _)| panes.iter().any(|p| keys.contains(p)));
+        let split = self.shown_split().is_some_and(|s| s.panes().iter().any(|p| keys.contains(p)));
         for key in keys {
             self.hibernate(key, cx);
         }
         between(self);
-        if let Some(key) = active.filter(|_| self.model.active.is_none()) {
+        if let Some(key) = active.filter(|_| split || self.model.active.is_none()) {
             self.activate(key, window, cx);
-        }
-        if let Some((panes, ratio)) = split {
-            for key in &panes {
-                self.activate(*key, window, cx);
-            }
-            self.show_split(panes, ratio, window, cx);
-            if let Some(key) = active {
-                self.activate(key, window, cx);
-            }
         }
         cx.notify();
     }

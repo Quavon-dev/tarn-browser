@@ -75,6 +75,11 @@ pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
             ("Pin or unpin tab", Bound("cmd-d", &crate::TogglePin)),
             ("New tab group", Bound("cmd-alt-g", &crate::NewGroup)),
             ("Open or close split view", Bound("cmd-ctrl-n", &crate::split::ToggleSplitView)),
+            ("Focus next split pane", Bound("cmd-ctrl-]", &crate::split::FocusNextPane)),
+            ("Focus previous split pane", Bound("cmd-ctrl-[", &crate::split::FocusPreviousPane)),
+            ("Swap split panes", Bound("cmd-ctrl-s", &crate::split::SwapPanes)),
+            ("Rotate split layout", Bound("cmd-ctrl-r", &crate::split::RotateSplitLayout)),
+            ("Remove tab from split view", Bound("cmd-ctrl-w", &crate::split::RemoveFromSplitView)),
         ],
     ),
     (

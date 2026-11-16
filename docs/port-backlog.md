@@ -23,10 +23,29 @@ macOS reference: <crates/app/... files>.
 ### Split view with up to four tabs, drag to split (2026-11-16)
 
 What it does: a split shows two to four tabs of a space (two side by side, three with the right
-column stacked, four in a grid); dropping a tab on the middle of another tab's row splits them or
-adds it to that split; the tab menu offers Add to, Remove from and Close Split View.
-Shared API: `browser_core::split::{layout, with_pane, ratio_at, drops_into, MAX_PANES}`.
-macOS reference: `crates/app/src/split.rs`, `crates/app/src/sidebar.rs` (`tab_row`, `split_drop`).
+column stacked, four in a grid; Rotate Split Layout stacks them instead: two one above the other,
+three with one on top). A window keeps any number of splits for the session and a tab is in one at
+most: selecting a tab outside hides the split and lets its tabs sleep like any other, selecting
+one of its tabs shows it again with that pane focused. A closed tab leaves its split, the focus
+goes to the neighbouring pane, and a split left with one pane ends. Each pane has a header above
+its page (site icon, title, host, Remove from Split View, Close Tab): a click focuses the pane, a
+right click opens the tab's menu, dragging it onto another pane swaps the two. The column and the
+row divider drag; a double click evens the panes out. Dropping a tab on the middle of another
+tab's row, or on a pane, splits them, adds it to that split or swaps two panes of one split, and
+the row names which; a full split takes no fifth tab and is never replaced. The tabs of a split
+carry an edge in the sidebar, in the accent for the split on screen. The tab menu has a Split
+View submenu (Open in or Add to Split View, Remove from Split View, Rotate Layout, Close Split
+View). Commands: Focus Next Pane ⌃⌘], Focus Previous Pane ⌃⌘[, Swap Panes ⌃⌘S, Rotate Split
+Layout ⌃⌘R, Remove Tab from Split View ⌃⌘W, Close Split View (no key; ⌃⌘N opens or closes).
+A blocked page or a JSON page fills its own pane only. In a burner, which has one tab, opening a
+split says that it needs a second tab.
+Shared API: `browser_core::split`: `Splits` (`of`, `contains`, `can_join`, `join`, `leave`, `heir`,
+`close`, `retain`, `swap`, `rotate`, `resize`, `equalise`, `menu`, `drop_label`), `Split` (`panes`,
+`others`, `next`, `layout`, `dividers`), `Divider`, `Entry`, `Menu`, and the functions `layout`,
+`dividers`, `ratio_at`, `pane_at`, `with_pane`, `drops_into`; `MAX_PANES`, `MIN_RATIO`.
+macOS reference: `crates/app/src/split.rs`, `crates/app/src/sidebar.rs` (`tab_row`, `split_drop`),
+`crates/app/src/browser/context.rs` (`split_menu`, `close_batch`), `crates/app/src/browser.rs`
+(`activate`, `wake`).
 
 - [x] Windows — same code in `crates/app`
 - [ ] Linux — no split view yet: several `linux/src/webview` views placed by `layout` in `linux/src/ui.rs`, and drop targets on sidebar rows

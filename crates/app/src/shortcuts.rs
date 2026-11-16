@@ -323,6 +323,7 @@ mod tests {
             ("cmd-shift-t", "ctrl-shift-t"),
             ("ctrl-3", "alt-3"),
             ("ctrl-cmd-n", "alt-shift-n"),
+            ("ctrl-cmd-]", "alt-shift-]"),
             ("ctrl-cmd-f", "f11"),
             ("alt-cmd-g", "ctrl-alt-g"),
             ("ctrl-tab", "ctrl-tab"),

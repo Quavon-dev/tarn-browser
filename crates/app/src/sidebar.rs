@@ -568,7 +568,12 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .rounded(px(Theme::radius_tile()))
                 .bg(if active { Theme::selected() } else { Theme::raised() })
                 .border_1()
-                .border_color(if active { Theme::sidebar_edge() } else { Theme::hairline() })
+                .border_color(match (active, b.in_split(key), b.splits.contains(key)) {
+                    (true, _, _) => Theme::sidebar_edge(),
+                    (false, true, _) => Theme::accent(),
+                    (false, false, true) => Theme::faint(),
+                    (false, false, false) => Theme::hairline(),
+                })
                 .when(!active, |d| d.hover(|s| s.bg(Theme::hover())))
                 .cursor_pointer()
                 .child(site_icon(b, &t.url, 22.))
@@ -593,6 +598,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
     let entering = b.motion.entering.iter().any(|(id, _)| *id == t.id);
     let engine = b.tab_web_engine(key);
     let burner = b.model.burner_shown();
+    let edge = |color| div().absolute().left_0().top(px(9.)).bottom(px(9.)).w(px(3.)).rounded_full().bg(color);
     let row = div()
         .id(("tab", t.id as u64))
         .group("tab")
@@ -607,10 +613,11 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .gap_2p5()
         .rounded(px(Theme::radius_row()))
         .when(active, |d| {
-            let edge = div().absolute().left_0().top(px(9.)).bottom(px(9.)).w(px(3.)).rounded_full().bg(Theme::accent());
-            let highlight = div().absolute().inset_0().rounded(px(Theme::radius_row())).bg(Theme::selected()).child(edge);
+            let highlight = div().absolute().inset_0().rounded(px(Theme::radius_row())).bg(Theme::selected()).child(edge(Theme::accent()));
             d.child(fade_in(highlight, ("tab-active", t.id as u64), b.pref(Pref::ReduceMotion)))
         })
+        // The other tabs of a split carry the edge too: in the accent for the split on screen.
+        .when(!active && b.splits.contains(key), |d| d.child(edge(if b.in_split(key) { Theme::accent() } else { Theme::faint() })))
         .when(!active, |d| d.hover(|s| s.bg(Theme::hover())))
         .cursor_pointer()
         .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(match (loading, b.still()) {
@@ -694,13 +701,19 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .on_mouse_down(MouseButton::Left, cx.listener(|b, _, _, cx| b.hide_hover_card(cx)))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
         .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
-        .when(b.split_drop != Some(key), |d| d.drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft())))
-        .when(b.split_drop == Some(key), |d| d.border_1().border_color(Theme::accent()).bg(Theme::accent_soft()))
+        .map(|d| match b.split_drop.filter(|(k, _)| *k == key) {
+            None => d.drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft())),
+            // Outlined and named, so a drop that splits reads apart from one that moves the tab.
+            Some((_, does)) => d
+                .bg(Theme::accent_soft())
+                .child(div().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent()))
+                .child(div().flex_none().pr_1p5().text_size(px(TEXT_SMALL)).text_color(Theme::accent()).child(does)),
+        })
         .on_drag_move(cx.listener(move |b, e: &DragMoveEvent<DraggedTab>, _, cx| {
             let inside = e.bounds.contains(&e.event.position);
             let share = (e.event.position.y - e.bounds.origin.y) / e.bounds.size.height;
-            let joins = inside && b.drop_splits(e.drag(cx).key, key) && browser_core::split::drops_into(share);
-            let target = if joins { Some(key) } else { b.split_drop.filter(|k| *k != key) };
+            let does = b.splits.drop_label(key, e.drag(cx).key).filter(|_| inside && browser_core::split::drops_into(share));
+            let target = does.map(|does| (key, does)).or(b.split_drop.filter(|(k, _)| *k != key));
             if b.split_drop != target {
                 b.split_drop = target;
                 cx.notify();
@@ -709,9 +722,8 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .on_drop(cx.listener({
             let reorder = tab_drop(t.kind, t.folder_id, t.group_id, Some(b.model.zone_index(t)));
             move |b, dragged: &DraggedTab, window, cx| {
-                if b.split_drop.take() == Some(key) {
-                    b.activate(key, window, cx);
-                    b.split_with(dragged.key, window, cx);
+                if b.split_drop.take().is_some_and(|(k, _)| k == key) {
+                    b.drop_on_pane(key, dragged.key, window, cx);
                 } else {
                     reorder(b, dragged, window, cx);
                 }

@@ -406,7 +406,7 @@ fn open_field(b: &Browser, t: f32, editing: bool, centered: bool, cx: &mut Conte
 }
 
 /// Clips the host from the left, so a host wider than its box still shows its registrable domain.
-fn tail_first(clip: Div, text: impl IntoElement, color: gpui::Rgba) -> Div {
+pub(crate) fn tail_first(clip: Div, text: impl IntoElement, color: gpui::Rgba) -> Div {
     clip.min_w_0()
         .overflow_hidden()
         .whitespace_nowrap()

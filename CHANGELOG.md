@@ -11,7 +11,12 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Settings › Permissions lists the camera, microphone, location and pop-up answers a profile
   remembered, with Allow, Block and Forget (macOS, Windows, Linux, iOS, Android).
 - Split view holds up to four tabs; drop a tab on another tab in the sidebar to split them
-  (macOS, Windows).
+  (macOS, Windows). A window keeps several splits for the session, and selecting one of their tabs
+  shows that split again. Each pane has a header to focus it, open its tab menu, remove or close it,
+  or drag it onto another pane to swap the two; both dividers drag, a double click evens them out,
+  Rotate Split Layout stacks the panes, and the tab menu has a Split View submenu. New shortcuts
+  focus the next or previous pane (⌃⌘] / ⌃⌘[), swap panes (⌃⌘S), rotate (⌃⌘R) and remove a tab
+  (⌃⌘W).
 - Clean Up under New Tab sorts tabs into groups on this device and archives unused tabs (macOS,
   Windows).
 - Tiles arrange themselves: one row while they fit, then as few rows as fit, filled evenly; Add to

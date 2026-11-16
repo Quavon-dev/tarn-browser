@@ -161,7 +161,7 @@ impl Browser {
         self.model.active.map(|k| self.tab_muted(k)).hash(&mut hash);
         self.model.active_tab().map(|t| t.custom_title.is_empty()).hash(&mut hash);
         self.model.active.and_then(|k| self.pinned_drift(k)).map(|u| u.host_str().map(str::to_owned)).hash(&mut hash);
-        (self.split.is_some(), self.site().is_some()).hash(&mut hash);
+        (self.model.active.is_some_and(|a| self.splits.contains(a)), self.site().is_some()).hash(&mut hash);
         let signature = hash.finish();
         if self.menu.signature != signature {
             self.menu.signature = signature;
@@ -231,6 +231,7 @@ impl Browser {
 
         let pinned = self.model.active_tab().is_some_and(|t| t.kind != TabKind::Ephemeral);
         let muted = self.model.active.is_some_and(|k| self.tab_muted(k));
+        let split = self.model.active.is_some_and(|a| self.splits.contains(a));
         let mut tab_items = vec![
             tabs.action("Back", crate::Back),
             tabs.action("Forward", crate::Forward),
@@ -259,8 +260,17 @@ impl Browser {
             tabs.action("Share…", crate::qr::ShareLink),
             tabs.action("Show QR Code", crate::qr::ShowQrCode),
             MenuItem::separator(),
-            tabs.action(if self.split.is_some() { "Close Split View" } else { "Open in Split View" }, crate::split::ToggleSplitView),
+            tabs.action(if split { "Close Split View" } else { "Open in Split View" }, crate::split::ToggleSplitView),
         ]);
+        if split {
+            tab_items.extend([
+                tabs.action("Focus Next Pane", crate::split::FocusNextPane),
+                tabs.action("Focus Previous Pane", crate::split::FocusPreviousPane),
+                tabs.action("Swap Panes", crate::split::SwapPanes),
+                tabs.action("Rotate Split Layout", crate::split::RotateSplitLayout),
+                tabs.action("Remove Tab from Split View", crate::split::RemoveFromSplitView),
+            ]);
+        }
         if let Some(key) = self.model.active {
             let others: Vec<(usize, &str)> =
                 self.model.move_targets(&self.core, key).into_iter().take(MAX_ITEMS).map(|ix| (ix, self.model.spaces[ix].space.name.as_str())).collect();

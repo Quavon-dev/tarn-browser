@@ -55,6 +55,9 @@ pub enum Cmd {
     Sleep(Vec<TabKey>),
     SiteSettings,
     Split(TabKey),
+    LeaveSplit(TabKey),
+    RotateSplit(TabKey),
+    CloseSplit(TabKey),
     SwitchWebEngine(TabKey, WebEngine),
 }
 
@@ -97,12 +100,7 @@ impl Browser {
             } else {
                 String::new()
             }),
-            // The shortcut opens or closes the whole split, so only those entries name it.
-            Item::action(self.split_label(key), Cmd::Split(key)).key(if active && matches!(self.split_label(key), "Open in Split View" | "Close Split View") {
-                crate::shortcuts::keys(&crate::split::ToggleSplitView, cx)
-            } else {
-                String::new()
-            }),
+            self.split_menu(key, cx),
             Item::Separator,
             Item::action(if ephemeral { "Pin Tab" } else { "Unpin Tab" }, Cmd::TogglePin(key))
                 .key(if active { crate::shortcuts::keys(&crate::TogglePin, cx) } else { String::new() })
@@ -373,10 +371,28 @@ impl Browser {
             Cmd::SetPinnedUrl(key) => self.set_pinned_url(key, cx),
             Cmd::Sleep(keys) => self.sleep_tabs(keys, cx),
             Cmd::SiteSettings => self.toggle_site_settings(window, cx),
-            Cmd::Split(key) if self.in_split(key) => self.leave_split(key, window, cx),
             Cmd::Split(key) => self.split_with(key, window, cx),
+            Cmd::LeaveSplit(key) => self.leave_split(key, window, cx),
+            Cmd::RotateSplit(key) => self.rotate_split(key, cx),
+            Cmd::CloseSplit(key) => self.close_split(key, cx),
             Cmd::SwitchWebEngine(key, engine) => self.switch_web_engine(key, engine, window, cx),
         }
+    }
+
+    /// The tab menu's Split View entries. The shortcuts act on the active tab, so only its menu
+    /// names them.
+    fn split_menu(&self, key: TabKey, cx: &gpui::App) -> Item<Cmd> {
+        let menu = self.splits.menu(self.model.active, key);
+        let keys = |action: &dyn gpui::Action, on: bool| if on && self.model.active == Some(key) { crate::shortcuts::keys(action, cx) } else { String::new() };
+        Item::Submenu(
+            "Split View".into(),
+            vec![
+                Item::action(menu.entry.label(), Cmd::Split(key)).enabled(menu.enabled).key(keys(&crate::split::ToggleSplitView, menu.enabled)),
+                Item::action("Remove from Split View", Cmd::LeaveSplit(key)).enabled(menu.member).key(keys(&crate::split::RemoveFromSplitView, menu.member)),
+                Item::action("Rotate Layout", Cmd::RotateSplit(key)).enabled(menu.member).key(keys(&crate::split::RotateSplitLayout, menu.member)),
+                Item::action("Close Split View", Cmd::CloseSplit(key)).enabled(menu.member).key(keys(&crate::split::ToggleSplitView, menu.member)),
+            ],
+        )
     }
 
     pub(crate) fn tab_url(&self, key: TabKey) -> Option<String> {
@@ -461,7 +477,9 @@ impl Browser {
         // Closing the burner's tab leaves the burner, so whether it was shown is read first.
         let burner = self.model.burner_shown();
         let active = self.model.active.filter(|a| keys.contains(a));
-        let next = active.and_then(|a| self.model.close_neighbour(a, &keys, self.pref(crate::prefs::Pref::ClosePrevious)));
+        // A split that keeps two panes keeps the focus too.
+        let next =
+            active.and_then(|a| self.splits.heir(a, &keys).or_else(|| self.model.close_neighbour(a, &keys, self.pref(crate::prefs::Pref::ClosePrevious))));
         self.hide_hover_card(cx);
         let mut tabs: Vec<ClosedTab> = keys.into_iter().filter_map(|key| self.close_one(key, cx)).collect();
         self.reload_space();
@@ -549,6 +567,7 @@ impl Browser {
     /// Drops a tab's live state and its row without remembering it as closed.
     pub(crate) fn discard_tab(&mut self, key: TabKey, cx: &mut Context<Self>) -> bool {
         let was_active = self.model.active == Some(key);
+        self.splits.leave(key);
         self.hibernate(key, cx);
         self.pages.remove(&key);
         was_active

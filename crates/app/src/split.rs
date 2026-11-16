@@ -1,50 +1,40 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use browser_core::split;
+use browser_core::split::{self, Divider};
 use futures::StreamExt;
 use futures::channel::mpsc;
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, Div, DragMoveEvent, Empty, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled,
-    Task, Window, actions, canvas, div, px, relative,
+    AnyElement, AppContext, ClickEvent, Context, Div, DragMoveEvent, Empty, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
+    SharedString, StatefulInteractiveElement, Styled, Task, Window, actions, canvas, div, px, relative,
 };
-use ui::theme::Theme;
+use ui::controls::{icon_button, tooltip};
+use ui::icon::Icon;
+use ui::theme::{TEXT_SMALL, Theme};
+use url::Url;
 
 use crate::browser::{Browser, TabKey};
+use crate::sidebar::DraggedTab;
 
-actions!(tarn, [ToggleSplitView]);
+actions!(tarn, [ToggleSplitView, FocusNextPane, FocusPreviousPane, SwapPanes, RotateSplitLayout, RemoveFromSplitView, CloseSplitView]);
 
 pub const GAP: f32 = 8.;
+const HEADER: f32 = 30.;
+/// The narrowest pane whose header names the host beside the title.
+const HOST_ROOM: f32 = 380.;
 
-/// x, y, width, height in window points.
-type Rect = (f32, f32, f32, f32);
-
-/// Two to four tabs of a space shown at once for this session; the active tab is the focused pane.
-pub struct Split {
-    pub panes: Vec<TabKey>,
-    pub(crate) ratio: f32,
-    rects: Rc<RefCell<Vec<Rect>>>,
-    _clicks: Option<engine::menu::EventMonitor>,
-    _task: Task<()>,
-}
-
-impl Split {
-    /// The other panes of the split that holds `key`.
-    pub fn others(&self, key: TabKey) -> Vec<TabKey> {
-        others(&self.panes, key)
-    }
-}
-
-fn others(panes: &[TabKey], key: TabKey) -> Vec<TabKey> {
-    if panes.contains(&key) { panes.iter().copied().filter(|k| *k != key).collect() } else { Vec::new() }
-}
-
-pub fn pane_at(rects: &[Rect], x: f32, y: f32) -> Option<usize> {
-    rects.iter().position(|(rx, ry, w, h)| x >= *rx && x < rx + w && y >= *ry && y < ry + h)
+/// What the shell keeps of the split on screen: its panes, their page rects in window points and
+/// the watcher of clicks into them.
+#[derive(Default)]
+pub struct Shown {
+    panes: Vec<TabKey>,
+    rects: Rc<RefCell<Vec<split::Rect>>>,
+    _clicks: Option<(engine::menu::EventMonitor, Task<()>)>,
 }
 
 #[derive(Clone)]
-struct DividerDrag;
+struct DividerDrag(Divider);
 
 impl Render for DividerDrag {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
@@ -53,47 +43,67 @@ impl Render for DividerDrag {
 }
 
 pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
-    root.on_action(cx.listener(|b, _: &ToggleSplitView, w, cx| match b.split.is_some() {
-        true => b.close_split(cx),
-        false => b.open_split(None, w, cx),
+    root.on_action(cx.listener(|b, _: &ToggleSplitView, w, cx| match b.model.active.filter(|a| b.splits.contains(*a)) {
+        Some(active) => b.close_split(active, cx),
+        None => b.open_split(w, cx),
+    }))
+    .on_action(cx.listener(|b, _: &FocusNextPane, w, cx| b.focus_pane(true, w, cx)))
+    .on_action(cx.listener(|b, _: &FocusPreviousPane, w, cx| b.focus_pane(false, w, cx)))
+    .on_action(cx.listener(|b, _: &SwapPanes, _, cx| {
+        if let Some((active, next)) = b.model.active.and_then(|a| Some((a, b.splits.of(a)?.next(a, true)?))) {
+            b.swap_panes(active, next, cx);
+        }
+    }))
+    .on_action(cx.listener(|b, _: &RotateSplitLayout, _, cx| {
+        if let Some(active) = b.model.active {
+            b.rotate_split(active, cx);
+        }
+    }))
+    .on_action(cx.listener(|b, _: &RemoveFromSplitView, w, cx| {
+        if let Some(active) = b.model.active {
+            b.leave_split(active, w, cx);
+        }
+    }))
+    .on_action(cx.listener(|b, _: &CloseSplitView, _, cx| {
+        if let Some(active) = b.model.active {
+            b.close_split(active, cx);
+        }
     }))
 }
 
 impl Browser {
+    /// The split on screen: the active tab's, or the one the start page covers for a moment.
+    pub(crate) fn shown_split(&self) -> Option<&split::Split<TabKey>> {
+        self.model.active.or(self.launcher_from).and_then(|k| self.splits.of(k))
+    }
+
+    /// Whether `key` is a pane of the split on screen; a split out of sight sleeps like any tab.
     pub fn in_split(&self, key: TabKey) -> bool {
-        self.split.as_ref().is_some_and(|s| s.panes.contains(&key))
+        self.shown_split().is_some_and(|s| s.panes().contains(&key))
     }
 
-    /// Whether a tab dropped on `target`'s row may split with it: not inside one split, and not
-    /// into a full one.
-    pub(crate) fn drop_splits(&self, dragged: TabKey, target: TabKey) -> bool {
-        dragged != target && self.split.as_ref().is_none_or(|s| !s.panes.contains(&target) || split::with_pane(&s.panes, dragged).is_some())
-    }
-
-    /// Whether `key` can join the split the active tab is in.
-    pub(crate) fn can_join_split(&self, key: TabKey) -> bool {
-        self.split.as_ref().is_some_and(|s| self.model.active.is_some_and(|a| s.panes.contains(&a)) && split::with_pane(&s.panes, key).is_some())
-    }
-
-    /// The tab menu's split entry for `key`.
-    pub(crate) fn split_label(&self, key: TabKey) -> &'static str {
-        match self.split.as_ref() {
-            Some(s) if s.panes.contains(&key) && s.panes.len() > 2 => "Remove from Split View",
-            Some(s) if s.panes.contains(&key) => "Close Split View",
-            _ if self.can_join_split(key) => "Add to Split View",
-            _ => "Open in Split View",
+    /// The other panes of `key`'s split, once those whose tab is gone or shown in another window
+    /// have left it.
+    pub(crate) fn split_partners(&mut self, key: TabKey, cx: &mut Context<Self>) -> Vec<TabKey> {
+        for pane in self.splits.of(key).map(|s| s.others(key)).unwrap_or_default() {
+            if self.model.tab(pane).is_none() || (!self.views.contains_key(&pane) && crate::shared::live_elsewhere(pane, cx)) {
+                self.splits.leave(pane);
+            }
         }
+        self.splits.of(key).map(|s| s.others(key)).unwrap_or_default()
     }
 
-    /// Splits the active tab with `with`, else with the space's most recently used other tab,
-    /// else with a copy of the active tab, and focuses the new pane.
-    pub fn open_split(&mut self, with: Option<TabKey>, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(active) = self.model.active else { return };
-        let recent = self.model.tabs.iter().filter(|t| t.id != active.id).max_by_key(|t| t.last_active).map(|t| self.model.key(t));
-        let partner = match with.filter(|k| *k != active).or(recent) {
+    /// Splits the active tab with the space's most recently used tab outside a split, else with a
+    /// copy of the active tab, and focuses the new pane.
+    pub fn open_split(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(active) = self.model.active.filter(|a| !self.splits.contains(*a)) else { return };
+        let recent =
+            self.model.tabs.iter().filter(|t| self.splits.can_join(active, self.model.key(t))).max_by_key(|t| t.last_active).map(|t| self.model.key(t));
+        let partner = match recent {
             Some(partner) => partner,
+            // The burner has one tab, and a copy would load in it instead of beside it.
+            None if self.model.burner_shown() => return self.show_toast("Split View needs a second tab", None, cx),
             None => {
-                self.close_split(cx);
                 self.duplicate_tab(active, window, cx);
                 match self.model.active.filter(|k| *k != active) {
                     Some(copy) => copy,
@@ -101,71 +111,92 @@ impl Browser {
                 }
             }
         };
-        self.show_split(vec![active, partner], 0.5, window, cx);
-        self.activate(partner, window, cx);
+        self.join_split(active, partner, window, cx);
     }
 
-    /// Adds `key` to the active tab's split, or opens a split of the active tab and `key`.
+    /// Adds `key` to the active tab's split or starts one with the two; the active tab itself gets
+    /// a partner.
     pub fn split_with(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
-        if self.model.active == Some(key) {
-            return self.open_split(None, window, cx);
-        }
-        if self.in_split(key) && self.model.active.is_some_and(|a| self.in_split(a)) {
-            return self.activate(key, window, cx);
-        }
-        match self.split.as_ref().filter(|_| self.can_join_split(key)).and_then(|s| split::with_pane(&s.panes, key).map(|p| (p, s.ratio))) {
-            Some((panes, ratio)) => {
-                self.show_split(panes, ratio, window, cx);
-                self.activate(key, window, cx);
-            }
-            None => self.open_split(Some(key), window, cx),
+        match self.model.active.filter(|a| *a != key) {
+            Some(active) => self.join_split(active, key, window, cx),
+            None => self.open_split(window, cx),
         }
     }
 
-    /// Takes `key` out of its split; a split left with one pane ends.
+    /// Puts `key` into `anchor`'s split, or starts one with the two, and focuses `key`.
+    fn join_split(&mut self, anchor: TabKey, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
+        if self.splits.join(anchor, key) {
+            self.activate(key, window, cx);
+        }
+    }
+
+    /// A tab dropped on a pane, or on the middle of its row: two panes of one split swap, any
+    /// other tab joins.
+    pub(crate) fn drop_on_pane(&mut self, target: TabKey, dragged: TabKey, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.swap_panes(dragged, target, cx) {
+            self.join_split(target, dragged, window, cx);
+        }
+    }
+
+    /// Takes `key` out of its split; the tab stays open and a split left with one pane ends.
     pub fn leave_split(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((panes, ratio)) = self.split.as_ref().map(|s| (others(&s.panes, key), s.ratio)) else { return };
-        if panes.len() < 2 {
-            return self.close_split(cx);
+        let heir = self.splits.leave(key).filter(|_| self.model.active == Some(key));
+        if let Some(heir) = heir {
+            self.activate(heir, window, cx);
         }
-        if let Some(view) = self.views.get(&key).filter(|_| self.model.active != Some(key)) {
-            view.set_visible(false);
-        }
-        let focus = if self.model.active == Some(key) { panes.first().copied() } else { None };
-        self.show_split(panes, ratio, window, cx);
-        if let Some(focus) = focus {
-            self.activate(focus, window, cx);
+        self.split_moved(cx);
+    }
+
+    pub fn close_split(&mut self, key: TabKey, cx: &mut Context<Self>) {
+        if self.splits.close(key) {
+            self.split_moved(cx);
         }
     }
 
-    /// Shows `panes` as the split, replacing any split before.
-    pub(crate) fn show_split(&mut self, panes: Vec<TabKey>, ratio: f32, window: &mut Window, cx: &mut Context<Self>) {
-        let kept: Vec<TabKey> = panes.clone();
-        if let Some(old) = self.split.take() {
-            for key in old.panes.into_iter().filter(|k| !kept.contains(k) && Some(*k) != self.model.active) {
-                if let Some(view) = self.views.get(&key) {
-                    view.set_visible(false);
-                }
-            }
+    pub fn rotate_split(&mut self, key: TabKey, cx: &mut Context<Self>) {
+        if self.splits.rotate(key) {
+            self.split_moved(cx);
         }
-        let rects: Rc<RefCell<Vec<Rect>>> = Rc::default();
+    }
+
+    fn swap_panes(&mut self, a: TabKey, b: TabKey, cx: &mut Context<Self>) -> bool {
+        let swapped = self.splits.swap(a, b);
+        if swapped {
+            self.split_moved(cx);
+        }
+        swapped
+    }
+
+    fn focus_pane(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(next) = self.model.active.and_then(|a| self.splits.of(a)?.next(a, forward)) {
+            self.switch_to(next, window, cx);
+        }
+    }
+
+    /// Redraws after panes moved; a blocking page's guarded button waits for the layout to rest.
+    fn split_moved(&mut self, cx: &mut Context<Self>) {
+        self.layout_changed();
+        cx.notify();
+    }
+
+    /// Focuses the pane whose page is clicked: a web view takes the click itself, so GPUI never
+    /// sees it.
+    pub(crate) fn watch_split_clicks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (tx, mut rx) = mpsc::unbounded();
-        let hit = rects.clone();
-        let clicks = self.host.as_ref().and_then(|h| {
+        let rects = self.split_shown.rects.clone();
+        let Some(clicks) = self.host.as_ref().and_then(|h| {
             h.on_mouse_down(move |x, y| {
-                if let Some(ix) = pane_at(&hit.borrow(), x as f32, y as f32) {
+                if let Some(ix) = split::pane_at(&rects.borrow(), x as f32, y as f32) {
                     tx.unbounded_send(ix).ok();
                 }
             })
-        });
+        }) else {
+            return;
+        };
         let task = cx.spawn_in(window, async move |this, cx| {
             while let Some(ix) = rx.next().await {
                 let focused = this.update_in(cx, |b, window, cx| {
-                    let key = b
-                        .split
-                        .as_ref()
-                        .and_then(|s| s.panes.get(ix).copied())
-                        .filter(|k| b.model.active != Some(*k) && !b.overlay_open() && b.active_json().is_none());
+                    let key = b.shown_split().and_then(|s| s.panes().get(ix).copied()).filter(|k| b.model.active != Some(*k) && !b.overlay_open());
                     if let Some(key) = key {
                         b.activate(key, window, cx);
                     }
@@ -175,114 +206,47 @@ impl Browser {
                 }
             }
         });
-        // A page still fading out goes now, unless it is one of the panes.
-        if let Some((outgoing, _)) = self.page_fade.take().filter(|(v, _)| !panes.iter().any(|k| self.views.get(k).is_some_and(|w| Rc::ptr_eq(w, v)))) {
-            outgoing.set_visible(false);
-        }
-        self.split = Some(Split { panes, ratio, rects, _clicks: clicks, _task: task });
-        let shown = !self.overlay_open();
-        for key in kept {
-            if let Some(view) = self.views.get(&key) {
-                view.set_visible(shown);
-            }
-        }
-        cx.notify();
+        self.split_shown._clicks = Some((clicks, task));
     }
 
-    pub fn close_split(&mut self, cx: &mut Context<Self>) {
-        let Some(split) = self.split.take() else { return };
+    /// Hides the panes that left the screen, and moves the rest out of sight while something
+    /// covers the page.
+    pub(crate) fn settle_split(&mut self) {
+        let shown: Vec<TabKey> = self.shown_split().map(|s| s.panes().to_vec()).unwrap_or_default();
+        let focus = self.model.active.or(self.launcher_from);
         let fading = self.page_fade.as_ref().map(|(view, _)| view);
-        for key in split.panes.into_iter().filter(|k| Some(*k) != self.model.active) {
-            if let Some(view) = self.views.get(&key).filter(|v| !fading.is_some_and(|f| Rc::ptr_eq(f, v))) {
+        for key in self.split_shown.panes.iter().filter(|k| !shown.contains(k) && Some(**k) != focus) {
+            if let Some(view) = self.views.get(key).filter(|v| !fading.is_some_and(|f| Rc::ptr_eq(f, v))) {
                 view.set_visible(false);
             }
         }
-        cx.notify();
-    }
-
-    /// Ends the split once the focus leaves it or a pane's page is gone; moves the other panes out
-    /// of sight while the page is covered.
-    pub(crate) fn settle_split(&mut self, cx: &mut Context<Self>) {
-        let Some(split) = &self.split else { return };
-        // The start page hides its tab for a moment; Esc brings it back with its partners.
-        let focus = self.model.active.or(self.launcher_from).filter(|a| split.panes.contains(a));
-        let gone: Vec<TabKey> = split.panes.iter().copied().filter(|k| !self.views.contains_key(k)).collect();
-        if focus.is_none() || split.panes.len() - gone.len() < 2 {
-            return self.close_split(cx);
-        }
-        if !gone.is_empty() {
-            // A closed pane leaves the others in the split.
-            if let Some(split) = self.split.as_mut() {
-                split.panes.retain(|k| !gone.contains(k));
-                split.rects.borrow_mut().clear();
-            }
-            cx.notify();
-        }
-        let Some(split) = &self.split else { return };
-        let blocked = self.model.active.is_some_and(|k| self.pages.get(&k).is_some_and(|p| p.blocked.is_some()));
-        if self.overlay_open() || self.active_json().is_some() || blocked {
-            for key in split.others(focus.unwrap_or(split.panes[0])) {
-                if let Some(view) = self.views.get(&key) {
+        if shown.is_empty() || self.overlay_open() {
+            self.split_shown.rects.borrow_mut().clear();
+            for key in shown.iter().filter(|k| Some(**k) != focus) {
+                if let Some(view) = self.views.get(key) {
                     view.set_frame(0., 0., 0., 0.);
                 }
             }
         }
+        self.split_shown.panes = shown;
     }
 }
 
-pub fn render(b: &Browser, cx: &mut Context<Browser>) -> Option<AnyElement> {
-    let split = b.split.as_ref()?;
-    let count = split.panes.len();
-    split.rects.borrow_mut().resize(count, (0., 0., 0., 0.));
-    let pane = |ix: usize, key: TabKey| {
-        let view = b.views.get(&key).cloned();
-        // A pane whose page was stopped by the gate stays out of sight; focusing it shows the warning.
-        let blocked = b.pages.get(&key).is_some_and(|p| p.blocked.is_some());
-        let rects = split.rects.clone();
-        let page = canvas(
-            move |bounds, _, _| {
-                let Some(view) = &view else { return };
-                let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
-                let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-                view.set_alpha(1.);
-                if blocked {
-                    view.set_frame(0., 0., 0., 0.);
-                } else {
-                    view.set_frame(x.into(), y.into(), w.into(), h.into());
-                }
-                if let Some(rect) = rects.borrow_mut().get_mut(ix) {
-                    *rect = (x, y, w, h);
-                }
-            },
-            |_, _, _, _| {},
-        )
-        .size_full();
-        div()
-            .size_full()
-            .rounded(px(Theme::radius_page()))
-            .bg(Theme::page())
-            .border_1()
-            .border_color(if b.model.active == Some(key) { Theme::accent() } else { Theme::hairline() })
-            .shadow(Theme::elevation(6., 24.))
-            .child(page)
-    };
-    let cells = split.panes.iter().zip(split::layout(count, split.ratio)).enumerate().map(|(ix, (key, (x, y, w, h)))| {
-        div().absolute().left(relative(x)).top(relative(y)).w(relative(w)).h(relative(h)).p(px(GAP / 2.)).child(pane(ix, *key))
-    });
-    let divider = div()
-        .id("split-divider")
-        .absolute()
-        .top_0()
-        .bottom_0()
-        .left(relative(split::layout(count, split.ratio)[0].2))
-        .ml(px(-GAP / 2.))
-        .w(px(GAP))
-        .flex()
-        .items_center()
-        .justify_center()
-        .cursor_col_resize()
-        .child(div().w(px(3.)).h(px(32.)).rounded_full().bg(Theme::faint()))
-        .on_drag(DividerDrag, |d, _, _, cx| cx.new(|_| d.clone()));
+pub fn render(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Option<AnyElement> {
+    let split = b.shown_split()?;
+    b.split_shown.rects.borrow_mut().resize(split.panes().len(), (0., 0., 0., 0.));
+    let width = f32::from(window.viewport_size().width) - b.sidebar_width * b.sidebar_shown();
+    let cells: Vec<Div> = split
+        .panes()
+        .iter()
+        .zip(split.layout())
+        .enumerate()
+        .map(|(ix, (key, (x, y, w, h)))| {
+            let card = pane(b, ix, *key, w * width >= HOST_ROOM, cx);
+            div().absolute().left(relative(x)).top(relative(y)).w(relative(w)).h(relative(h)).p(px(GAP / 2.)).child(card)
+        })
+        .collect();
+    let grips: Vec<AnyElement> = split.dividers().into_iter().map(|(divider, line)| grip(divider, line, cx)).collect();
     let area = div()
         .id("split")
         .flex_1()
@@ -291,37 +255,149 @@ pub fn render(b: &Browser, cx: &mut Context<Browser>) -> Option<AnyElement> {
         .mx(px(-GAP / 2.))
         .my(px(-GAP / 2.))
         .on_drag_move(cx.listener(|b, e: &DragMoveEvent<DividerDrag>, _, cx| {
-            let ratio = split::ratio_at(f32::from(e.event.position.x - e.bounds.origin.x), f32::from(e.bounds.size.width));
-            if let Some(split) = b.split.as_mut() {
-                split.ratio = ratio;
-                cx.notify();
+            let (at, size) = (e.event.position - e.bounds.origin, e.bounds.size);
+            let divider = e.drag(cx).0;
+            let share = match divider {
+                Divider::Column => split::ratio_at(f32::from(at.x), f32::from(size.width)),
+                Divider::Row => split::ratio_at(f32::from(at.y), f32::from(size.height)),
+            };
+            if b.model.active.is_some_and(|a| b.splits.resize(a, divider, share)) {
+                b.split_moved(cx);
             }
         }))
         .children(cells)
-        .child(divider);
+        .children(grips);
     Some(area.into_any_element())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// The handle on a divider: dragging resizes, a double click evens the panes out again.
+fn grip(divider: Divider, (x, y, w, h): split::Share, cx: &mut Context<Browser>) -> AnyElement {
+    let column = divider == Divider::Column;
+    let name = if column { "split-column" } else { "split-row" };
+    let pill =
+        div().rounded_full().bg(Theme::faint()).group_hover(name, |s| s.bg(Theme::accent())).group_drag_over::<DividerDrag>(name, |s| s.bg(Theme::accent()));
+    div()
+        .id(name)
+        .group(name)
+        .absolute()
+        .left(relative(x))
+        .top(relative(y))
+        .flex()
+        .items_center()
+        .justify_center()
+        .map(|d| match column {
+            true => d.w(px(GAP)).h(relative(h)).ml(px(-GAP / 2.)).cursor_col_resize().child(pill.w(px(3.)).h(px(32.))),
+            false => d.w(relative(w)).h(px(GAP)).mt(px(-GAP / 2.)).cursor_row_resize().child(pill.w(px(32.)).h(px(3.))),
+        })
+        .on_drag(DividerDrag(divider), |d, _, _, cx| cx.new(|_| d.clone()))
+        .on_click(cx.listener(|b, e: &ClickEvent, _, cx| {
+            if e.click_count() == 2 && b.model.active.is_some_and(|a| b.splits.equalise(a)) {
+                b.split_moved(cx);
+            }
+        }))
+        .into_any_element()
+}
 
-    #[test]
-    fn clicks_pick_the_pane_under_the_pointer() {
-        let rects = [(10., 50., 400., 600.), (418., 50., 400., 600.)];
-        assert_eq!(pane_at(&rects, 10., 50.), Some(0));
-        assert_eq!(pane_at(&rects, 409.9, 649.), Some(0));
-        assert_eq!(pane_at(&rects, 414., 300.), None, "the gap belongs to neither pane");
-        assert_eq!(pane_at(&rects, 418., 300.), Some(1));
-        assert_eq!(pane_at(&rects, 500., 20.), None, "the toolbar is outside both panes");
-    }
+/// One pane's card: its header, then the page. A web view is a native view above GPUI, so the
+/// header has a height of its own and the page starts below it.
+fn pane(b: &Browser, ix: usize, key: TabKey, roomy: bool, cx: &mut Context<Browser>) -> Div {
+    let focused = b.model.active == Some(key);
+    let tab = b.model.tab(key);
+    let title: SharedString = tab.map(crate::tabs::display_title).unwrap_or_default().into();
+    let host = b.tab_url(key).and_then(|u| Url::parse(&u).ok()).map(|u| browser_core::command::address(&u).0).filter(|_| roomy);
+    let keys = |action: &dyn gpui::Action| focused.then(|| SharedString::from(crate::shortcuts::keys(action, cx)));
+    let leave = icon_button(("pane-leave", ix), Icon::ArrowUpRight, true).tooltip(tooltip("Remove from Split View", keys(&RemoveFromSplitView)));
+    let close = icon_button(("pane-close", ix), Icon::Close, true).tooltip(tooltip("Close Tab", keys(&crate::CloseTab)));
+    let header = div()
+        .id(("pane-header", ix))
+        .h(px(HEADER))
+        .flex_none()
+        .pl_2p5()
+        .pr_0p5()
+        .flex()
+        .items_center()
+        .gap_2()
+        .rounded_t(px(Theme::radius_page() - 1.))
+        .border_b_1()
+        .border_color(Theme::hairline())
+        .text_color(if focused { Theme::text() } else { Theme::muted() })
+        .when(focused, |d| d.bg(Theme::accent_soft()).font_weight(FontWeight::MEDIUM))
+        .cursor_pointer()
+        .children(tab.map(|t| crate::sidebar::site_icon(b, &t.url, 14.)))
+        .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(title.clone()))
+        .children(host.map(|host| crate::toolbar::tail_first(div().flex_none().max_w(relative(0.4)).text_size(px(TEXT_SMALL)), host, Theme::faint())))
+        .child(
+            div()
+                .flex()
+                .flex_none()
+                .when(!focused, |d| d.opacity(0.).group_hover("pane", |s| s.opacity(1.)))
+                .child(leave.on_click(cx.listener(move |b, _, window, cx| {
+                    cx.stop_propagation();
+                    b.leave_split(key, window, cx);
+                })))
+                .child(close.on_click(cx.listener(move |b, _, window, cx| {
+                    cx.stop_propagation();
+                    b.close_tab(key, window, cx);
+                }))),
+        )
+        .on_click(cx.listener(move |b, _, window, cx| b.switch_to(key, window, cx)))
+        .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, window, cx| b.tab_menu(key, window, cx)))
+        .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()));
 
-    #[test]
-    fn others_are_the_rest_of_the_split() {
-        let (a, b, c, d) =
-            (TabKey { private: false, id: 1 }, TabKey { private: false, id: 2 }, TabKey { private: true, id: 1 }, TabKey { private: false, id: 3 });
-        assert_eq!(others(&[a, b, d], a), [b, d]);
-        assert_eq!(others(&[a, b], b), [a]);
-        assert!(others(&[a, b], c).is_empty(), "a private tab with the same id is another tab");
-    }
+    let view = b.views.get(&key).cloned();
+    let blocked = b.pages.get(&key).and_then(|p| p.blocked.as_ref());
+    let json = b.json_pages.get(&key);
+    let covered = blocked.is_some() || json.is_some();
+    let rects = b.split_shown.rects.clone();
+    let splits = b.splits.clone();
+    let page = canvas(
+        move |bounds, _, _| {
+            let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
+            let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+            if let Some(rect) = rects.borrow_mut().get_mut(ix) {
+                *rect = (x, y, w, h);
+            }
+            let Some(view) = &view else { return };
+            view.set_alpha(1.);
+            // The pane draws a page the gate stopped, and JSON, itself; the web view stays out of sight.
+            if covered {
+                view.set_frame(0., 0., 0., 0.);
+            } else {
+                view.set_frame(x.into(), y.into(), w.into(), h.into());
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .size_full();
+    let body = div()
+        .relative()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .child(page)
+        .children(match (blocked, json) {
+            (Some(blocked), _) => Some(crate::blocking::render_blocked(blocked, cx)),
+            (None, Some(json)) => Some(crate::devtools::render_json(key, json, cx)),
+            (None, None) => None,
+        })
+        // A warning's buttons act on the focused pane, so a click on another pane's warning only focuses it.
+        .when(blocked.is_some() && !focused, |d| {
+            d.child(div().id(("pane-cover", ix)).absolute().inset_0().occlude().on_click(cx.listener(move |b, _, window, cx| b.switch_to(key, window, cx))))
+        });
+    div()
+        .group("pane")
+        .size_full()
+        .flex()
+        .flex_col()
+        .rounded(px(Theme::radius_page()))
+        .bg(Theme::page())
+        .border_1()
+        .border_color(if focused { Theme::accent() } else { Theme::hairline() })
+        .shadow(Theme::elevation(6., 24.))
+        .drag_over::<DraggedTab>(move |s, dragged, _, _| if splits.drop_label(key, dragged.key).is_some() { s.border_color(Theme::accent()) } else { s })
+        .on_drop(cx.listener(move |b, dragged: &DraggedTab, window, cx| b.drop_on_pane(key, dragged.key, window, cx)))
+        .child(header)
+        .child(body)
 }

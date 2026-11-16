@@ -114,7 +114,7 @@ fn banner(text: impl Into<SharedString>) -> gpui::Div {
 
 pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -> AnyElement {
     b.settle_motion(window, cx);
-    b.settle_split(cx);
+    b.settle_split();
     let reduce = b.pref(Pref::ReduceMotion);
     let page = b.model.active.map(|k| b.page(k)).unwrap_or_default();
     let error = page.error;
@@ -280,6 +280,8 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         leaving(reader)
     } else if (b.command_mode.is_some() && !b.inline_editing()) || b.model.active.is_none() {
         leaving(start(b, reduce, cx))
+    } else if let Some(split) = crate::split::render(b, window, cx) {
+        split
     } else if let Some(blocked) = &page.blocked {
         if let Some(view) = b.active_view() {
             view.set_frame(0., 0., 0., 0.);
@@ -290,8 +292,6 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
             view.set_frame(0., 0., 0., 0.);
         }
         crate::devtools::render_json(key, json, cx)
-    } else if let Some(split) = crate::split::render(b, cx) {
-        split
     } else {
         let view = b.active_view();
         let preset = b.responsive_preset();
