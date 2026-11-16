@@ -35,8 +35,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          tags="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
-            --jq '.[] | select(.draft == false and .prerelease == false) | select(any(.assets[]; .name | test("\\.(deb|rpm)$"))) | .tag_name')"
+          tags="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" | jq -r '[.[][]
+            | select(.draft == false and .prerelease == false and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")))
+            | select(any(.assets[]; .name | test("\\.(deb|rpm)$"))) | .tag_name]
+            | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | reverse | .[]')"
           tags="$(head -n "$RELEASES" <<<"$tags")"
           [[ -n "$tags" ]] || { echo "no published release has Linux packages" >&2; exit 1; }
           mkdir packages

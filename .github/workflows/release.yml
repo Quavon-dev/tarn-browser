@@ -691,25 +691,28 @@ jobs:
           ENGINE_UPDATE: ${{ inputs.commit != '' && !inputs.full }}
         run: |
           set -euo pipefail
-          tags="$(gh api "repos/$GH_REPO/releases" --paginate --jq '.[].tag_name')"
-          if grep -qxF "$TAG" <<<"$tags"; then
-            echo "a release or draft for $TAG exists already" >&2
-            exit 1
-          fi
-          awk -v head="## [${TAG#v}]" 'index($0, head) == 1 { found = 1; next } /^## \[/ { found = 0 } found && !/^\[[^]]+\]: /' source/CHANGELOG.md > notes.md
-          if ! grep -q '[^[:space:]]' notes.md; then
-            [[ "$ENGINE_UPDATE" == true ]] || { echo "CHANGELOG.md has no section for ${TAG#v}" >&2; exit 1; }
-            chromium="$(sed -n 's/^chromium_version=//p' source/packaging/cef.lock)"
-            cef="$(sed -n 's/^cef_version=//p' source/packaging/cef.lock)"
-            [[ -n "$chromium" && -n "$cef" ]] || { echo "packaging/cef.lock names no Chromium version" >&2; exit 1; }
-            printf '### Security\n\n- Chromium %s (CEF %s) with its security fixes, on macOS.\n' "$chromium" "$cef" > notes.md
-            awk 'index($0, "## [Unreleased]") == 1 { found = 1; next } /^## \[/ { found = 0 } found && !/^\[[^]]+\]: /' source/CHANGELOG.md > unreleased.md
-            if grep -q '[^[:space:]]' unreleased.md; then
-              printf '\nAlso in this build, from main since the last release:\n' >> notes.md
-              cat unreleased.md >> notes.md
+          # A re-run after a failure past the create step finishes the release instead of stopping.
+          existing="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" \
+            | jq -r --arg tag "$TAG" '[.[][] | select(.tag_name == $tag) | .draft] | if length == 0 then "none" else .[0] end')"
+          [[ "$existing" != true ]] || { echo "a draft for $TAG exists already" >&2; exit 1; }
+          if [[ "$existing" == none ]]; then
+            awk -v head="## [${TAG#v}]" 'index($0, head) == 1 { found = 1; next } /^## \[/ { found = 0 } found && !/^\[[^]]+\]: /' source/CHANGELOG.md > notes.md
+            if ! grep -q '[^[:space:]]' notes.md; then
+              [[ "$ENGINE_UPDATE" == true ]] || { echo "CHANGELOG.md has no section for ${TAG#v}" >&2; exit 1; }
+              chromium="$(sed -n 's/^chromium_version=//p' source/packaging/cef.lock)"
+              cef="$(sed -n 's/^cef_version=//p' source/packaging/cef.lock)"
+              [[ -n "$chromium" && -n "$cef" ]] || { echo "packaging/cef.lock names no Chromium version" >&2; exit 1; }
+              printf '### Security\n\n- Chromium %s (CEF %s) with its security fixes, on macOS.\n' "$chromium" "$cef" > notes.md
+              awk 'index($0, "## [Unreleased]") == 1 { found = 1; next } /^## \[/ { found = 0 } found && !/^\[[^]]+\]: /' source/CHANGELOG.md > unreleased.md
+              if grep -q '[^[:space:]]' unreleased.md; then
+                printf '\nAlso in this build, from main since the last release:\n' >> notes.md
+                cat unreleased.md >> notes.md
+              fi
             fi
+            gh release create "$TAG" dist/* --verify-tag --latest=false --title "$TAG" --notes-file notes.md
+          else
+            echo "$TAG is published already; marking the latest release and starting linux-repo.yml"
           fi
-          gh release create "$TAG" dist/* --verify-tag --latest=false --title "$TAG" --notes-file notes.md
           # Both update feeds read the latest release, so it is always the highest published version,
           # set after creating: whichever of two overlapping releases finishes last corrects it.
           highest="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" | jq -r '[.[][] | select(.draft == false and .prerelease == false)
