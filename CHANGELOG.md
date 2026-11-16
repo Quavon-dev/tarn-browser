@@ -11,6 +11,19 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The Shield card follows the theme: dawn with the sun behind the peak in light themes, night
   with stars, a crescent and an aurora in dark ones; New Design still reshapes the ridges (macOS,
   Windows, Linux, iOS, Android).
+- Site Settings shows what Shield stopped on the site, the site's Shield switch in its header,
+  what the chosen level does, and pop-ups, mute, dark mode, zoom and permissions in one list;
+  Site CSS and Always open in sit behind More site settings (macOS, Windows).
+- Share opens a menu: Copy Link, Copy Clean Link, Show QR Code, More… (the system share sheet),
+  Save Page as PDF and Print… (macOS, Windows).
+- Permission prompts answer Deny, Allow Once or Always Allow and say what allowing means; the find
+  bar is a pill at the page's top right; downloads show a file-type tile, size and site, and a
+  progress bar while saving (macOS, Windows).
+- Settings groups its panes under You and Browser; the Profile pane shows the card beside its
+  numbers and Shield level with Share Card (macOS) and one chart of the week; Appearance groups
+  Theme, Motion and Layout (macOS, Windows).
+- Menus Tarn builds show a glyph beside each entry; popovers pop in and out and switches slide,
+  except under Reduce Motion (macOS, Windows).
 
 ## [0.1.1] - 2026-11-16
 
