@@ -1,7 +1,7 @@
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use url::Url;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, CreateRoundRectRgn, SetWindowRgn};
+use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, CreateRoundRectRgn, ScreenToClient, SetWindowRgn};
 use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegGetValueW, RegSetKeyValueW};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
@@ -20,17 +20,20 @@ pub(crate) fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
-/// Chromium never hands a new window to the shell on Windows; pop-ups are offered as notices,
-/// so no `Popup` is ever made.
+/// A pop-up Chromium made for an allowed click, with the events it sent before the shell adopted
+/// it (`WebView::adopt`); dropping it closes the pop-up.
 pub struct Popup {
     pub url: Option<Url>,
+    /// Always false on Windows: Chromium reports a link's new window and a script's `window.open`
+    /// alike, and routing a pop-up elsewhere would cost it `window.opener`.
     pub link: bool,
-    pub(crate) never: std::convert::Infallible,
+    pub(crate) view: crate::chromium::WebView,
+    pub(crate) pending: std::rc::Rc<std::cell::RefCell<Vec<crate::Event>>>,
 }
 
 impl std::fmt::Debug for Popup {
-    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.never {}
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Popup").field("url", &self.url).field("link", &self.link).finish_non_exhaustive()
     }
 }
 
@@ -82,6 +85,16 @@ impl Host {
     pub fn follow(&self, popup: &Host) {
         // SAFETY: windows of this thread; GWLP_HWNDPARENT sets a top-level window's owner.
         unsafe { SetWindowLongPtrW(popup.hwnd, GWLP_HWNDPARENT, self.hwnd as isize) };
+    }
+
+    /// A screen point in this window's client area, in points from its top-left corner.
+    pub(crate) fn points_of(&self, mut at: POINT) -> Option<(f64, f64)> {
+        // SAFETY: a valid out-pointer; a destroyed window makes the call fail.
+        if unsafe { ScreenToClient(self.hwnd, &mut at) } == 0 {
+            return None;
+        }
+        let scale = self.scale();
+        Some((f64::from(at.x) / scale, f64::from(at.y) / scale))
     }
 
     /// Device pixels per GPUI point.

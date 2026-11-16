@@ -65,7 +65,9 @@ impl Browser {
             Browser::Chrome => Some("AppData/Local/Google/Chrome/User Data"),
             Browser::Edge => Some("AppData/Local/Microsoft/Edge/User Data"),
             Browser::Brave => Some("AppData/Local/BraveSoftware/Brave-Browser/User Data"),
-            Browser::Arc | Browser::Dia => None,
+            // Arc for Windows is a packaged app: Windows keeps its data in the package's folder.
+            Browser::Arc => Some("AppData/Local/Packages/TheBrowserCompany.Arc_*/LocalCache/Local/Arc/User Data"),
+            Browser::Dia => None,
             Browser::Firefox => Some("AppData/Roaming/Mozilla/Firefox/Profiles"),
         }
     }

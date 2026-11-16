@@ -216,7 +216,7 @@ pub struct Browser {
     pub sidebar_width: f32,
     pub(crate) toast: crate::toast::Toasts,
     /// New tabs whose first load is a page's link, so S10 judges every redirect hop.
-    link_loads: HashSet<TabKey>,
+    link_loads: HashMap<TabKey, Option<Url>>,
     pub suggestions: Vec<Suggestion>,
     pub selected: usize,
     history_cache: Vec<HistoryEntry>,
@@ -258,6 +258,8 @@ pub struct Browser {
     next_generation: u64,
     pub privacy_notice: Option<((bool, Id), String)>,
     pub developer: bool,
+    /// A page shows an element full screen, and whether that put the window into full screen.
+    pub(crate) page_fullscreen: Option<bool>,
     pub responsive: Option<usize>,
     zoom_before_responsive: HashMap<TabKey, f64>,
     clear_site_armed: Option<(TabKey, String)>,
@@ -269,6 +271,9 @@ pub struct Browser {
     _subscriptions: Vec<Subscription>,
     pub swipe: crate::gestures::Swipe,
     pub(crate) pan: crate::gestures::Pan,
+    /// The region of a Windows touchpad gesture under way and the timer that ends it (`gestures`).
+    #[cfg(windows)]
+    pub(crate) wheel: Option<(Option<bool>, gpui::Task<()>)>,
     pub(crate) slide: Option<crate::sidebar::Slide>,
     nav_buttons: Option<engine::menu::EventMonitor>,
     page_clicks: Option<engine::menu::EventMonitor>,
@@ -396,7 +401,7 @@ impl Browser {
             sidebar_open,
             sidebar_width,
             toast: Default::default(),
-            link_loads: HashSet::new(),
+            link_loads: HashMap::new(),
             suggestions: Vec::new(),
             selected: 0,
             history_cache: Vec::new(),
@@ -426,6 +431,7 @@ impl Browser {
             next_generation: 0,
             privacy_notice: None,
             developer: false,
+            page_fullscreen: None,
             responsive: None,
             zoom_before_responsive: HashMap::new(),
             clear_site_armed: None,
@@ -437,6 +443,8 @@ impl Browser {
             _subscriptions: [subscription, find_sub].into_iter().chain(prompt_subs).collect(),
             swipe: crate::gestures::Swipe::new(engine::menu::natural_scrolling()),
             pan: Default::default(),
+            #[cfg(windows)]
+            wheel: None,
             slide: None,
             nav_buttons: None,
             page_clicks: None,
@@ -549,7 +557,7 @@ impl Browser {
             if !from_app || nav_policy::app_link_typed(&url, self.pref(crate::prefs::Pref::LocalhostFromApps)) {
                 self.new_tab(&url, window, cx);
             } else if let Some(key) = self.model.new_tab(&self.core, url.as_str(), self.saved.web_engine) {
-                self.link_loads.insert(key);
+                self.link_loads.insert(key, None);
                 self.reload_space();
                 self.activate(key, window, cx);
             }
@@ -945,6 +953,9 @@ impl Browser {
     pub fn activate(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tab) = self.model.tab(key).cloned() else { return };
         let switched = self.model.active != Some(key);
+        if switched {
+            self.leave_page_fullscreen(window);
+        }
         let mut fading = false;
         if switched
             && let Some((outgoing, _)) = self.page_fade.take()
@@ -963,7 +974,7 @@ impl Browser {
         }
         let left = Instant::now();
         self.seen.extend(self.model.active.into_iter().chain([key]).map(|k| (k, left)));
-        let as_link = self.link_loads.remove(&key);
+        let as_link = self.link_loads.get(&key).cloned();
         let mut evicted: Vec<TabKey> = partners.iter().flat_map(|p| self.model.lifecycle.activate(*p)).collect();
         evicted.extend(self.model.lifecycle.activate(key));
         for evicted in evicted {
@@ -986,7 +997,10 @@ impl Browser {
                         if let Ok(url) = Url::parse(&tab.url)
                             && nav_policy::decide(&url, Source::Sync) == Decision::Allow
                         {
-                            if as_link { view.load_link(&url, None) } else { view.load(&url) }
+                            match &as_link {
+                                Some(from) => view.load_link(&url, from.as_ref()),
+                                None => view.load(&url),
+                            }
                         }
                     }
                 }
@@ -1103,6 +1117,7 @@ impl Browser {
         let closed = self.closed_tab(&tab, key);
         self.tab_leaving(&tab, cx);
         self.take_view(key);
+        self.link_loads.remove(&key);
         self.json_pages.remove(&key);
         self.drop_reader(key);
         self.view_generation.remove(&key);
@@ -1630,6 +1645,10 @@ impl Browser {
         match event {
             Event::Committed { url, title, can_go_back, can_go_forward } => {
                 engine::startup::mark("first page commit");
+                // A link stays the page's until it shows a page: a view slept or never made loads it as a link again.
+                if url.as_str() != "about:blank" {
+                    self.link_loads.remove(&key);
+                }
                 self.drop_prompts(key, cx);
                 self.json_pages.remove(&key);
                 let previous = self.store(key.private).tab(key.id).ok().and_then(|t| tab_host(&t.url));
@@ -1786,13 +1805,39 @@ impl Browser {
                     }
                 }
             }
-            Event::Prompt(prompt) => self.queue_prompt(key, prompt, window, cx),
+            Event::Prompt(prompt) => {
+                // A prompt shows with the shell's origin chip, never over a full-screen page.
+                if self.model.active == Some(key) {
+                    self.leave_page_fullscreen(window);
+                }
+                self.queue_prompt(key, prompt, window, cx);
+            }
             Event::Popup(popup) => self.adopt_popup(key, popup, window, cx),
             Event::ShieldLevelChanged(url) => self.rebuild_view(key, &url, cx),
             Event::RebuildForLink(url) => self.rebuild_view_for_link(key, &url, cx),
             Event::PeekLink(url, from) => {
                 if self.model.active == Some(key) {
                     self.open_link_peek(key, url, from, window, cx);
+                }
+            }
+            // As a pop-up's tab: never in the burner, and its first load is the page's link, so S10 judges every hop.
+            Event::OpenTab { url, from, background } => {
+                let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown()) else { return cx.notify() };
+                let engine = opener.web_engine.or(self.saved.web_engine);
+                let routed = self.routed_space(&url);
+                if let Some(ix) = routed {
+                    self.switch_space(ix, window, cx);
+                }
+                if let Some(tab) = self.model.new_tab(&self.core, url.as_str(), engine) {
+                    self.reload_space();
+                    self.link_loads.insert(tab, from.clone());
+                    if !background || routed.is_some() {
+                        self.activate(tab, window, cx);
+                    } else if let Some(view) = self.create_view(tab, url.as_str(), cx) {
+                        // Loaded now, as a pop-up is: a tab restored later would load its URL as the user's own.
+                        view.set_visible(false);
+                        view.load_link(&url, from.as_ref());
+                    }
                 }
             }
             Event::ExternalScheme { url, origin } => {
@@ -1826,7 +1871,11 @@ impl Browser {
                     self.count_shield(key.private, profile_id, counter, 1, host.as_deref(), cx);
                 }
             }
+            Event::FullScreen(on) => self.set_page_fullscreen(key, on, window),
             Event::ContentProcessTerminated => {
+                if self.model.active == Some(key) {
+                    self.leave_page_fullscreen(window);
+                }
                 self.drop_prompts(key, cx);
                 let page = self.pages.entry(key).or_default();
                 if page.crashed {
@@ -1838,6 +1887,55 @@ impl Browser {
             }
         }
         cx.notify();
+    }
+
+    /// The active tab's page alone fills the window, in full screen, while it shows an element
+    /// full screen; leaving restores the window as it was.
+    fn set_page_fullscreen(&mut self, key: TabKey, on: bool, window: &mut Window) {
+        if self.model.active != Some(key) {
+            return;
+        }
+        if !on {
+            return self.leave_page_fullscreen(window);
+        }
+        // Nothing the shell must show may be hidden: a pending prompt keeps the toolbar and its origin.
+        if self.active_prompt().is_some() {
+            return;
+        }
+        let Some(view) = self.views.get(&key).filter(|_| self.page_fullscreen.is_none()).cloned() else { return };
+        let entered = !window.is_fullscreen();
+        if entered {
+            window.toggle_fullscreen();
+        }
+        self.page_fullscreen = Some(entered);
+        view.set_corner_radius(0.);
+        view.raise();
+        self.layout_changed();
+    }
+
+    /// Whether the window may show the full-screen page alone: no prompt, overlay, address field,
+    /// find bar or notice of the shell waits to be seen, and the page is still the active one.
+    pub(crate) fn page_fullscreen_holds(&self) -> bool {
+        self.active_view().is_some()
+            && self.active_prompt().is_none()
+            && !self.overlay_open()
+            && self.command_mode.is_none()
+            && !self.find_open
+            && self.model.active.and_then(|k| self.pages.get(&k)).is_none_or(|p| p.notice.is_none() && p.blocked.is_none())
+    }
+
+    /// Gives the window back its sidebar, toolbar and size: when the page leaves full screen, and
+    /// when a prompt, another tab or a crash needs the shell. The page itself may stay full screen
+    /// inside the tab until it is put away.
+    pub(crate) fn leave_page_fullscreen(&mut self, window: &mut Window) {
+        let Some(entered) = self.page_fullscreen.take() else { return };
+        if entered && window.is_fullscreen() {
+            window.toggle_fullscreen();
+        }
+        if let Some(view) = self.active_view() {
+            view.set_corner_radius(page_corner());
+        }
+        self.layout_changed();
     }
 
     fn record_visit(&mut self, key: TabKey, url: &Url, title: &str, typed: bool) {
@@ -2152,8 +2250,10 @@ impl Browser {
             return;
         };
         let key = TabKey { private, id: tab.id };
-        // Only WebKit views adopt pop-ups, so an opener with an engine of its own ran in WebKit.
-        self.store(private).set_tab_web_engine(tab.id, self.model.tab(opener).and_then(|t| t.web_engine).map(|_| WebEngine::WebKit)).ok();
+        // On macOS only WebKit views adopt pop-ups, so an opener with an engine of its own ran in WebKit.
+        if cfg!(target_os = "macos") {
+            self.store(private).set_tab_web_engine(tab.id, self.model.tab(opener).and_then(|t| t.web_engine).map(|_| WebEngine::WebKit)).ok();
+        }
         let inspectable = self.developer || self.is_dev_tab(opener);
         let Some(view) = WebView::adopt(popup, &host, inspectable, self.sink(key)) else {
             self.store(private).delete_tab(tab.id).ok();

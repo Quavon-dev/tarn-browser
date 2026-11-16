@@ -80,6 +80,14 @@ pub enum Event {
     /// A ⇧-click on a link, already checked by `nav_policy`, and the origin it was judged from; the
     /// page stays where it is.
     PeekLink(Url, Option<Url>),
+    /// A Chromium link the user opened in a new tab (Ctrl- or middle-click, the page's menu),
+    /// already checked by `nav_policy` as a pop-up, and the page it was opened from; `background`
+    /// keeps the opener in front.
+    OpenTab {
+        url: Url,
+        from: Option<Url>,
+        background: bool,
+    },
     /// A link to another app's scheme; the shell must ask before handing it off. `origin` is the
     /// frame that started it, `None` for the shell's own loads and opaque origins.
     ExternalScheme {
@@ -87,6 +95,9 @@ pub enum Event {
         origin: Option<String>,
     },
     ContentProcessTerminated,
+    /// A Chromium page on Windows entered (`true`) or left full screen for an element (a video); the
+    /// shell shows the page alone, filling the screen. WebKit opens its own full-screen window.
+    FullScreen(bool),
     /// With the upgraded page's host for an HTTPS upgrade; the shell names a refusal by the tab's page.
     Protected(Protection, Option<String>),
     /// Saved and never opened automatically. `quarantined` is false if the quarantine

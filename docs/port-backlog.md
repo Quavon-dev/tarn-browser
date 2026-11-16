@@ -70,7 +70,7 @@ Shared API: `engine::lifecycle::over_budget`, `engine::lifecycle::BACKGROUND_BUD
 `engine::lifecycle::budget_idle`.
 macOS reference: `crates/app/src/tabs.rs` (`sleep_idle_tabs`).
 
-- [x] Windows — same code in `crates/app`; it sleeps nothing there while CEF names no renderer per tab (`docs/windows-plan.md`)
+- [x] Windows — same code in `crates/app`, with each tab's main-frame renderer as it reports itself (`docs/windows-plan.md`)
 - [ ] Linux — call it from the sample tick in `linux/src/ui.rs` with the costs of `linux/src/memory.rs`; needs a playing-media signal (`is-playing-audio`) in `linux/src/webview` first, and Linux has no tab sleeping timer yet
 - [x] iOS — gap: an app cannot read the WebContent process's memory (`docs/mobile-plan.md`)
 - [x] Android — gap: an app cannot read the renderer process's memory (`docs/mobile-plan.md`)

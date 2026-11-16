@@ -4,6 +4,11 @@ use crate::browser::Browser;
 use crate::prefs::Pref;
 
 const THRESHOLD: f32 = 60.;
+/// A pause in wheel events that ends a Windows touchpad gesture, and a wheel line in pixels.
+#[cfg(windows)]
+const WHEEL_PAUSE: std::time::Duration = std::time::Duration::from_millis(180);
+#[cfg(windows)]
+const WHEEL_LINE: f32 = 40.;
 
 /// Fingers moving right step to the previous item, like swiping back a page.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -57,6 +62,12 @@ impl Swipe {
             TouchPhase::Moved => None,
         }
     }
+}
+
+/// A touchpad scrolls by fractions of a wheel line; a mouse's wheel, tilted too, by whole lines.
+#[cfg(windows)]
+fn touchpad(lines: gpui::Point<f32>) -> bool {
+    lines.x.fract() != 0. || lines.y.fract() != 0.
 }
 
 /// Past this share of the sidebar's width, or flung, a released drag switches space.
@@ -138,6 +149,15 @@ impl Browser {
 
     /// Anywhere over the sidebar: the list follows the fingers to the previous or next space.
     pub fn sidebar_swipe(&mut self, event: &ScrollWheelEvent, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(windows)]
+        for event in self.wheel_gesture(event, None, window, cx) {
+            self.sidebar_gesture(&event, window, cx);
+        }
+        #[cfg(not(windows))]
+        self.sidebar_gesture(event, window, cx);
+    }
+
+    fn sidebar_gesture(&mut self, event: &ScrollWheelEvent, window: &mut Window, cx: &mut Context<Self>) {
         if !self.pref(Pref::Gestures) {
             return;
         }
@@ -168,6 +188,59 @@ impl Browser {
         if address {
             cx.stop_propagation();
         }
+        #[cfg(windows)]
+        for event in self.wheel_gesture(event, Some(address), window, cx) {
+            self.toolbar_gesture(&event, address, window, cx);
+        }
+        #[cfg(not(windows))]
+        self.toolbar_gesture(event, address, window, cx);
+    }
+
+    /// Windows reports a touchpad's two-finger scrolling as wheel lines without touch phases: a
+    /// burst of them is one gesture, which starts after a pause and ends once the scrolling stops.
+    /// `toolbar` names the toolbar's handler (and whether over the address), `None` the sidebar's.
+    #[cfg(windows)]
+    fn wheel_gesture(&mut self, event: &ScrollWheelEvent, toolbar: Option<bool>, window: &mut Window, cx: &mut Context<Self>) -> Vec<ScrollWheelEvent> {
+        let ScrollDelta::Lines(lines) = event.delta else { return vec![event.clone()] };
+        if !self.pref(Pref::Gestures) || !touchpad(lines) {
+            return Vec::new();
+        }
+        let still = ScrollWheelEvent { delta: ScrollDelta::Pixels(gpui::Point::default()), touch_phase: TouchPhase::Ended, ..event.clone() };
+        let moved =
+            ScrollWheelEvent { delta: ScrollDelta::Pixels(gpui::point(gpui::px(lines.x * WHEEL_LINE), gpui::px(lines.y * WHEEL_LINE))), ..event.clone() };
+        // A gesture that moves to the other region ends where it was first.
+        let fresh = match self.wheel.take() {
+            Some((target, _)) if target == toolbar => false,
+            Some((target, _)) => {
+                self.end_gesture(target, &still, window, cx);
+                true
+            }
+            None => true,
+        };
+        let ended = still.clone();
+        // Each event replaces the pending end, which dropping cancels.
+        let end = cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(WHEEL_PAUSE).await;
+            this.update_in(cx, |b, window, cx| {
+                b.wheel = None;
+                b.end_gesture(toolbar, &ended, window, cx);
+            })
+            .ok();
+        });
+        self.wheel = Some((toolbar, end));
+        let started = ScrollWheelEvent { touch_phase: TouchPhase::Started, ..still };
+        if fresh { vec![started, moved] } else { vec![moved] }
+    }
+
+    #[cfg(windows)]
+    fn end_gesture(&mut self, toolbar: Option<bool>, ended: &ScrollWheelEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match toolbar {
+            Some(address) => self.toolbar_gesture(ended, address, window, cx),
+            None => self.sidebar_gesture(ended, window, cx),
+        }
+    }
+
+    fn toolbar_gesture(&mut self, event: &ScrollWheelEvent, address: bool, window: &mut Window, cx: &mut Context<Self>) {
         match (self.swipe_step(event), address) {
             (Some(step), true) => self.step_tab(step, window, cx),
             (Some(Step::Next), false) if self.sidebar_open => self.toggle_sidebar(cx),
@@ -199,6 +272,15 @@ impl Browser {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn only_a_touchpads_fractional_lines_make_a_gesture() {
+        assert!(super::touchpad(gpui::point(-0.25, 0.)));
+        assert!(super::touchpad(gpui::point(0., 0.4)));
+        assert!(!super::touchpad(gpui::point(3., 0.)), "a tilted wheel's notch");
+        assert!(!super::touchpad(gpui::point(0., -3.)), "a wheel's notch");
+    }
+
     use super::*;
     use gpui::{point, px};
 
