@@ -1,0 +1,28 @@
+name: Cancel CI of closed pull requests
+
+# A merged or closed pull request's CI runs no longer matter; cancelling them frees the macOS
+# runners. Runs only gh on the event's own data; it never checks out the pull request's code.
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  cancel:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          for status in queued in_progress waiting pending requested; do
+            gh run list --workflow ci.yml --event pull_request --commit "$HEAD_SHA" --status "$status" \
+              --json databaseId --jq '.[].databaseId'
+          done | sort -u | while read -r id; do
+            if gh run cancel "$id"; then echo "cancelled run $id"; else echo "run $id had already finished"; fi
+          done
