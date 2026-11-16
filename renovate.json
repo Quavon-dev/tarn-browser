@@ -1,7 +1,18 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
-  "enabledManagers": ["cargo", "github-actions"],
+  "enabledManagers": ["cargo", "github-actions", "gradle", "dockerfile", "custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Container images pinned by digest in workflow run steps and *_IMAGE variables",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "(?:\\n\\s+|_IMAGE: )(?<depName>[a-z0-9][a-z0-9._/-]*):(?<currentValue>[A-Za-z0-9._-]+)@(?<currentDigest>sha256:[0-9a-f]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
   "schedule": ["before 6am on monday"],
   "lockFileMaintenance": { "enabled": true, "schedule": ["before 6am on monday"] },
   "packageRules": [

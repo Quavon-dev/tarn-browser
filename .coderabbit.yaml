@@ -1,0 +1,32 @@
+language: en-US
+tone_instructions: "Terse and factual. Flag security, privacy and correctness problems first; skip style nits that rustfmt or clippy already catch."
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Repo rules (AGENTS.md): no code comments except `// SAFETY:` on unsafe blocks; no new dependencies or git dependencies; no new or changed connections the browser makes on its own (PRIVACY.md), no telemetry; never lower a Shield level, weaken Lockdown, add a page-to-shell bridge, bypass TLS errors, skip private-session cleanup, widen an allowlist or loosen validation, signature or hash checks (docs/threat-model.md). Logic belongs in the shared crates, not in a shell; a feature must land on macOS, Windows, Linux, iOS and Android.
+    - path: "**/*.rs"
+      instructions: "Every `unsafe` block or impl must carry a `// SAFETY:` comment stating the invariant that makes it sound (threat model S21). Flag any `unsafe` in a crate with `#![forbid(unsafe_code)]` and any removal of that attribute."
+    - path: "crates/shield/**"
+      instructions: "Content blocking, rule lists and the signed filter bundle. Check signature, version (no rollback), size caps and hash checks stay intact, lists stay data only, and no Shield or Lockdown guarantee weakens."
+    - path: "crates/engine/src/{nav_policy,view_policy}.rs"
+      instructions: "Navigation and view policy. Check private-network targets, pop-up limits, scheme handling and Lockdown behaviour are not loosened and untrusted page input cannot select a privileged path."
+    - path: "crates/engine/src/{cookies,cookies_webkit,page_scripts}.rs"
+      instructions: "Cookies and scripts injected into pages. Check profile and private-store isolation, Lockdown and per-site clearing, and that page scripts open no channel from the page to the shell."
+    - path: "crates/engine/src/chromium/{cookies,cookies_windows,runtime}.rs"
+      instructions: "Chromium cookies and runtime. Same isolation and cleanup rules as the WebKit engine; check Chromium's sandbox and helper flags are not weakened."
+    - path: "crates/platform/src/{updater,updater/**,xpc}.rs"
+      instructions: "Updater and XPC. Check signature and version checks, HTTPS-only feeds and that no new update host or request is added."
+    - path: "crates/{import,sync,ai,cli-bridge}/**"
+      instructions: "Trust boundaries (imports, sync, AI, CLI bridge). Validate untrusted input where it enters, keep size limits, no custom cryptography, no new connections."
+    - path: ".github/workflows/**"
+      instructions: "Every action pinned by full commit SHA with a version comment; minimal `permissions`; `persist-credentials: false`; no `${{ }}` of untrusted input inside `run:`; jobs on pull_request or other untrusted events run only on ubuntu-24.04, macos-15 or windows-2025 and enter no environment (scripts/check-workflows.sh); containers pinned by digest; downloads verified by checksum."
+    - path: "linux/packaging/**"
+      instructions: "Packaging and repository signing. Container images pinned by digest, downloads checksummed, no change to signing keys or repository trust."

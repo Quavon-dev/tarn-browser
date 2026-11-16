@@ -1,0 +1,8 @@
+||ads.example^
+@@||ok.example^
+##.banner
+example.com##.promo
+~a.example##div[id="x"]
+||tracker.example^$third-party,script
+/ad-[0-9]+\.js/
+example.com#@#.banner
