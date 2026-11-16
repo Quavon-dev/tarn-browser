@@ -1,6 +1,6 @@
 use std::cell::Cell;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use engine::menu::{self, Item};
 use engine::nav_policy::PopupRule;
@@ -12,16 +12,17 @@ use gpui::{
 use shield::ShieldLevel;
 use store::Id;
 use ui::controls::field;
-use ui::controls::{button, icon_button, segment, segmented, surface, switch, tooltip};
+use ui::controls::{POPOVER_INSET, button, caption, icon_button, open_popup, popover, segment, segmented, switch_row, tab_stop, tooltip};
 use ui::icon::{Icon, icon};
-use ui::motion::{FADE, animate};
+use ui::motion::{REOPEN_GUARD, popover_motion};
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{TEXT, TEXT_SMALL, Theme};
 use url::Url;
 
+use crate::address::measure;
 use crate::browser::{Browser, TabKey};
-use crate::peek::{popup_options, remove_after_exit};
+use crate::peek::remove_after_exit;
 use crate::prefs::Pref;
 use crate::toolbar::{host_tail, shield_badge};
 use crate::{ZoomIn, ZoomOut, ZoomReset};
@@ -35,8 +36,6 @@ const SECTION: f32 = 28.;
 const SHIELD: f32 = 64.;
 const PAD: f32 = 8.;
 const GAP: f32 = 4.;
-/// Room around the card for its own shadow; the window has none.
-const SHADOW: f32 = 16.;
 const DECISIONS: [(&str, &str); 3] = [("allow", "Allow"), ("ask", "Ask"), ("deny", "Deny")];
 /// Hands the profile's style sheets to its data store, which never applies them under Lockdown:
 /// the theme's first, then each host's forced dark mode and the user's own CSS, which may adjust
@@ -244,7 +243,7 @@ impl Browser {
                 cx.notify();
             }
             // The click that took focus from the popover already closed it; it must not reopen it.
-            None if self.site_popover.closed.is_some_and(|t| t.elapsed() < Duration::from_millis(300)) => {}
+            None if self.site_popover.closed.is_some_and(|t| t.elapsed() < REOPEN_GUARD) => {}
             None => self.show_site_settings(window, cx),
         }
     }
@@ -259,26 +258,24 @@ impl Browser {
         let anchor = self.site_popover.anchor.get();
         let origin = window.bounds();
         let center = if anchor.size.width > px(0.) { anchor.center().x } else { origin.size.width / 2. };
-        let x = (center - px(WIDTH / 2. + SHADOW)).clamp(px(0.), (origin.size.width - px(WIDTH + 2. * SHADOW)).max(px(0.)));
+        let x = (center - px(WIDTH / 2. + POPOVER_INSET)).clamp(px(0.), (origin.size.width - px(WIDTH + 2. * POPOVER_INSET)).max(px(0.)));
         let top = if anchor.size.height > px(0.) { anchor.bottom() + px(GAP) } else { px(ui::theme::TOOLBAR_HEIGHT) };
+        // Many hidden elements or permissions scroll inside the card rather than run off the window.
+        let room = (origin.size.height - top - px(GAP)).max(px(200.));
         let bounds = Bounds::new(
             point(origin.origin.x + x, origin.origin.y + top),
-            size(px(WIDTH + 2. * SHADOW), px(card_height(rows, !self.model.private(), zaps) + SHADOW)),
+            size(px(WIDTH + 2. * POPOVER_INSET), px(card_height(rows, !self.model.private(), zaps) + POPOVER_INSET).min(room)),
         );
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
         // The new window renders from the browser at once, so it must open after this update ends.
         cx.defer(move |cx| {
-            let handle = cx.open_window(popup_options(bounds, display, true), |window, cx| {
-                if let Some(host) = engine::Host::from_window(window) {
-                    host.strip_frame();
-                    host.round_corners(0., f64::from(SHADOW), f64::from(SHADOW), f64::from(SHADOW), f64::from(ui::theme::Theme::radius_panel()));
-                }
-                cx.new(|cx| SiteSettingsWindow::new(browser.clone(), main, window, cx))
-            });
+            let inset = [0., POPOVER_INSET, POPOVER_INSET, POPOVER_INSET];
+            let (handle, _) =
+                open_popup(cx, bounds, display, true, inset, Theme::radius_panel(), |window, cx| SiteSettingsWindow::new(browser.clone(), main, window, cx));
             browser
                 .update(cx, |b, cx| {
-                    b.site_popover.window = handle.ok();
+                    b.site_popover.window = handle;
                     cx.notify();
                 })
                 .ok();
@@ -299,6 +296,8 @@ pub struct SiteSettingsWindow {
     css_error: Option<String>,
     /// A native menu is open; it takes activation from the card without closing it.
     holding: bool,
+    /// The "Always open in" button, as last painted, so its menu drops from it.
+    route_anchor: Rc<Cell<Bounds<Pixels>>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -307,7 +306,7 @@ impl SiteSettingsWindow {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let mut subscriptions = vec![cx.observe_window_activation(window, |this, window, cx| {
-            if !window.is_window_active() && !this.holding {
+            if !window.is_window_active() && !this.holding && !this.css.read(cx).menu_open() {
                 this.close(false, window, cx);
             }
         })];
@@ -328,6 +327,7 @@ impl SiteSettingsWindow {
             TextInputEvent::Submit => this.save_css(cx),
             TextInputEvent::Cancel => this.close(true, window, cx),
             TextInputEvent::Changed => this.css_error = None,
+            TextInputEvent::MenuClosed if !window.is_window_active() && !this.holding => this.close(false, window, cx),
             _ => {}
         }));
         SiteSettingsWindow {
@@ -340,6 +340,7 @@ impl SiteSettingsWindow {
             css_host: host,
             css_error: None,
             holding: false,
+            route_anchor: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -377,7 +378,7 @@ impl SiteSettingsWindow {
         Self::row(label)
             .text_color(if self.css_error.is_some() { Theme::warning() } else { Theme::text() })
             .child(field(focused).w(px(150.)).py_0p5().overflow_hidden().child(self.css.clone()))
-            .child(button("save-css", "Save", false).on_click(cx.listener(|this, _, _, cx| this.save_css(cx))))
+            .child(tab_stop(button("save-css", "Save", false)).on_click(cx.listener(|this, _, _, cx| this.save_css(cx))))
     }
 
     fn close(&mut self, refocus: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -435,7 +436,7 @@ impl SiteSettingsWindow {
         ];
         let segments = choices.into_iter().enumerate().map(|(ix, (level, text))| {
             let host = host.to_owned();
-            segment(("shield-level", ix), text, site == level).px_2().on_click(cx.listener(move |this, _, _, cx| {
+            tab_stop(segment(("shield-level", ix), text, site == level)).on_click(cx.listener(move |this, _, _, cx| {
                 let host = host.clone();
                 this.on_main(cx, move |b, w, cx| b.set_site_shield(&host, level, w, cx));
             }))
@@ -457,6 +458,10 @@ impl SiteSettingsWindow {
             .child(segmented().children(segments))
     }
 
+    fn switch_row(id: &'static str, label: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
+        switch_row(id, true, div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label), on).h(px(ROW)).py_0().rounded_none()
+    }
+
     fn row(label: impl Into<SharedString>) -> gpui::Div {
         div()
             .h(px(ROW))
@@ -470,7 +475,7 @@ impl SiteSettingsWindow {
 
     fn zoom(&self, percent: f64, cx: &mut Context<Self>) -> gpui::Div {
         let zoom = |id: &'static str, glyph: Icon, tip: &'static str, action: &dyn gpui::Action, factor: Option<f64>| {
-            icon_button(id, glyph, true)
+            tab_stop(icon_button(id, glyph, true))
                 .tooltip(tooltip(tip, Some(crate::shortcuts::shown(action, cx).into())))
                 .on_click(cx.listener(move |this, _, _, cx| this.on_main(cx, move |b, _, cx| b.zoom(factor, cx))))
         };
@@ -478,14 +483,14 @@ impl SiteSettingsWindow {
             .child(zoom("zoom-out", Icon::ChevronLeft, "Zoom Out", &crate::ZoomOut, Some(1. / 1.1)))
             .child(div().w(px(44.)).flex().justify_center().text_color(Theme::muted()).child(SharedString::from(format!("{percent}%"))))
             .child(zoom("zoom-in", Icon::ChevronRight, "Zoom In", &crate::ZoomIn, Some(1.1)))
-            .child(button("zoom-reset", "Reset", false).on_click(cx.listener(|this, _, _, cx| this.on_main(cx, |b, _, cx| b.zoom(None, cx)))))
+            .child(tab_stop(button("zoom-reset", "Reset", false)).on_click(cx.listener(|this, _, _, cx| this.on_main(cx, |b, _, cx| b.zoom(None, cx)))))
     }
 
     fn popups(&self, origin: &str, rule: PopupRule, cx: &mut Context<Self>) -> gpui::Div {
         let choices = [(PopupRule::Default, "Default"), (PopupRule::Allow, "Allow"), (PopupRule::Block, "Block")];
         let segments = choices.into_iter().enumerate().map(|(ix, (choice, text))| {
             let origin = origin.to_owned();
-            segment(("popups", ix), text, rule == choice).px_2().on_click(cx.listener(move |this, _, _, cx| {
+            tab_stop(segment(("popups", ix), text, rule == choice)).on_click(cx.listener(move |this, _, _, cx| {
                 this.browser.update(cx, |b, cx| b.set_site_popups(&origin, choice, cx)).ok();
             }))
         });
@@ -495,45 +500,52 @@ impl SiteSettingsWindow {
     fn route(&self, host: &str, spaces: Vec<(Id, String)>, current: Option<Id>, cx: &mut Context<Self>) -> gpui::Div {
         let shown = current.and_then(|id| spaces.iter().find(|(s, _)| *s == id)).map_or("Any Space".to_owned(), |(_, name)| name.clone());
         let host = host.to_owned();
-        Self::row("Always open in").child(button("route-site", shown, false).on_click(cx.listener(move |this, _, window, cx| {
-            let Some(menu_host) = engine::Host::from_window(window) else { return };
-            let mut items = vec![Item::action("Any Space", None).checked(current.is_none())];
-            items.extend(spaces.iter().map(|(id, name)| Item::action(name.clone(), Some(*id)).checked(current == Some(*id))));
-            let host = host.clone();
-            this.holding = true;
-            cx.spawn_in(window, async move |this, cx| {
-                let (tx, rx) = oneshot::channel();
-                menu::show(&menu_host, items, move |space| {
-                    tx.send(space).ok();
-                });
-                let chosen = rx.await.ok();
-                this.update_in(cx, |this, window, cx| {
-                    this.holding = false;
-                    if let Some(space) = chosen {
-                        this.browser.update(cx, |b, cx| b.route_site(&host, space, cx)).ok();
-                    }
-                    if !window.is_window_active() {
-                        this.close(false, window, cx);
-                    }
+        let anchor = self.route_anchor.clone();
+        Self::row("Always open in").child(tab_stop(button("route-site", shown, false)).child(measure(anchor.clone())).on_click(cx.listener(
+            move |this, _, window, cx| {
+                let Some(menu_host) = engine::Host::from_window(window) else { return };
+                let at = anchor.get();
+                let at = (at.size.width > px(0.)).then(|| (f32::from(at.origin.x).into(), f32::from(at.bottom()).into()));
+                let mut items = vec![Item::action("Any Space", None).checked(current.is_none())];
+                items.extend(spaces.iter().map(|(id, name)| Item::action(name.clone(), Some(*id)).checked(current == Some(*id))));
+                let host = host.clone();
+                this.holding = true;
+                cx.spawn_in(window, async move |this, cx| {
+                    let (tx, rx) = oneshot::channel();
+                    menu::show(&menu_host, items, at, move |space| {
+                        tx.send(space).ok();
+                    });
+                    let chosen = rx.await.ok();
+                    this.update_in(cx, |this, window, cx| {
+                        this.holding = false;
+                        if let Some(space) = chosen {
+                            this.browser.update(cx, |b, cx| b.route_site(&host, space, cx)).ok();
+                        }
+                        if !window.is_window_active() {
+                            this.close(false, window, cx);
+                        }
+                    })
+                    .ok();
                 })
-                .ok();
-            })
-            .detach();
-        })))
+                .detach();
+            },
+        )))
     }
 
     fn permission(&self, key: TabKey, ix: usize, row: &PermissionRow, cx: &mut Context<Self>) -> gpui::Div {
         let segments = DECISIONS.into_iter().enumerate().map(|(n, (decision, text))| {
             let (origin, kind) = (row.origin.clone(), row.kind.clone());
-            segment(("permission", ix * DECISIONS.len() + n), text, row.decision == decision).px_2().on_click(cx.listener(move |this, _, _, cx| {
+            tab_stop(segment(("permission", ix * DECISIONS.len() + n), text, row.decision == decision)).on_click(cx.listener(move |this, _, _, cx| {
                 this.browser.update(cx, |b, cx| b.set_site_permission(key, &origin, &kind, Some(decision), cx)).ok();
             }))
         });
         let (origin, kind) = (row.origin.clone(), row.kind.clone());
         Self::row(row.label.clone()).child(segmented().children(segments)).child(
-            icon_button(("permission-remove", ix), Icon::Close, true).tooltip(tooltip("Remove", None)).on_click(cx.listener(move |this, _, _, cx| {
-                this.browser.update(cx, |b, cx| b.set_site_permission(key, &origin, &kind, None, cx)).ok();
-            })),
+            tab_stop(icon_button(("permission-remove", ix), Icon::Close, true)).tooltip(tooltip("Remove", None)).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.browser.update(cx, |b, cx| b.set_site_permission(key, &origin, &kind, None, cx)).ok();
+                },
+            )),
         )
     }
 }
@@ -567,63 +579,55 @@ impl Render for SiteSettingsWindow {
             .into_iter()
             .enumerate()
             .map(|(ix, (host, selector))| {
-                Self::row(format!("Hidden: {selector}")).child(button(("unzap", ix), "Undo", false).on_click(cx.listener(move |this, _, _, cx| {
+                Self::row(format!("Hidden: {selector}")).child(tab_stop(button(("unzap", ix), "Undo", false)).on_click(cx.listener(move |this, _, _, cx| {
                     this.browser.update(cx, |b, cx| b.unzap(&host, Some(&selector), cx)).ok();
                 })))
             })
             .collect();
         let dark_host = host.clone();
         let typing = self.css.focus_handle(cx).is_focused(window);
-        let card = surface(Theme::radius_panel())
-            .absolute()
-            .top_0()
-            .left(px(SHADOW))
-            .right(px(SHADOW))
+        let rows = div()
+            .id("site-rows")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
             .flex()
             .flex_col()
             .pb(px(PAD))
-            .shadow(Theme::elevation(2., 5.))
-            .child(Self::header(&url, &shown))
             .child(self.shield(&host, site_level, default, cx))
             .child(self.zoom(percent, cx))
-            .child(Self::row("Mute this site").child(switch(muted).id("mute-site").cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
+            .child(Self::switch_row("mute-site", "Mute this site", muted).on_click(cx.listener(move |this, _, _, cx| {
                 this.browser.update(cx, |b, cx| b.toggle_site_muted(key, cx)).ok();
-            }))))
-            .child(Self::row("Block ads, trackers and cookie banners").child(switch(!paused).id("block-site").cursor_pointer().on_click(cx.listener(
-                move |this, _, _, cx| {
-                    let host = pause_host.clone();
-                    this.on_main(cx, move |b, w, cx| b.set_site_paused(&host, !paused, w, cx));
-                },
-            ))))
+            })))
+            .child(Self::switch_row("block-site", "Block ads, trackers and cookie banners", !paused).on_click(cx.listener(move |this, _, _, cx| {
+                let host = pause_host.clone();
+                this.on_main(cx, move |b, w, cx| b.set_site_paused(&host, !paused, w, cx));
+            })))
             .child(self.popups(&origin, popups, cx))
-            .child(Self::row("Dark mode for this site").child(switch(dark).id("dark-site").cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
+            .child(Self::switch_row("dark-site", "Dark mode for this site", dark).on_click(cx.listener(move |this, _, _, cx| {
                 let host = dark_host.clone();
                 this.on_main(cx, move |b, w, cx| b.set_site_dark(&host, !dark, w, cx));
-            }))))
+            })))
             .child(css_row)
             .children(zap_rows)
             .when_some(route, |d, (spaces, current)| d.child(self.route(host.trim_end_matches('.'), spaces, current, cx)))
-            .when(!permissions.is_empty(), |d| {
-                d.child(div().h(px(SECTION)).flex_none().px_3().pt_2().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child("Permissions"))
-                    .children(permission_rows)
-            })
+            .when(!permissions.is_empty(), |d| d.child(caption("Permissions").h(px(SECTION)).flex_none().px_3().pt_2()).children(permission_rows))
             .child(
                 Self::row(if armed { "Removes cookies, storage and caches" } else { "Stored data" })
                     .text_color(if armed { Theme::warning() } else { Theme::text() })
-                    .child(button("clear-site", if armed { "Clear Now" } else { "Clear Site Data…" }, armed).on_click(cx.listener(move |this, _, _, cx| {
-                        if crate::settings::confirm_twice(&mut this.armed, clear_host.clone()) {
-                            let host = clear_host.clone();
-                            this.browser.update(cx, |b, cx| b.clear_site(key, host, cx)).ok();
-                        }
-                        cx.notify();
-                    }))),
+                    .child(tab_stop(button("clear-site", if armed { "Clear Now" } else { "Clear Site Data…" }, armed)).on_click(cx.listener(
+                        move |this, _, _, cx| {
+                            if crate::settings::confirm_twice(&mut this.armed, clear_host.clone()) {
+                                let host = clear_host.clone();
+                                this.browser.update(cx, |b, cx| b.clear_site(key, host, cx)).ok();
+                            }
+                            cx.notify();
+                        },
+                    ))),
             );
+        let card = popover(Theme::radius_panel(), 0.).flex().flex_col().child(Self::header(&url, &shown)).child(rows);
         let content = div().relative().size_full().text_size(px(TEXT)).text_color(Theme::text()).child(card);
-        let content = if self.closing {
-            animate(content, "site-out", FADE, reduce, |el, t| el.opacity(1. - t))
-        } else {
-            animate(content, "site-in", FADE, reduce, |el, t| el.opacity(t).top(px(-6. * (1. - t))))
-        };
+        let content = popover_motion(content, "site", self.closing, reduce);
         div()
             .track_focus(&self.focus)
             .key_context("SiteSettings")
@@ -633,6 +637,8 @@ impl Render for SiteSettingsWindow {
             .on_action(cx.listener(|this, _: &ZoomReset, _, cx| this.on_main(cx, |b, _, cx| b.zoom(None, cx))))
             .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| match e.keystroke.key.as_str() {
                 "escape" => this.close(true, window, cx),
+                "tab" if e.keystroke.modifiers.shift => window.focus_prev(),
+                "tab" => window.focus_next(),
                 "m" if !typing && !e.keystroke.modifiers.modified() => {
                     this.browser.update(cx, |b, cx| b.toggle_site_muted(key, cx)).ok();
                 }

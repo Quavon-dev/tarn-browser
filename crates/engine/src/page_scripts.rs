@@ -62,8 +62,8 @@ return await new Promise(resolve => {
 /// longest query passed on, and how much of the page's text is searched.
 pub const FIND_MATCHES: usize = 3;
 const FIND_CONTEXT: usize = 60;
-const FIND_QUERY_MAX: usize = 200;
-const FIND_TEXT_MAX: usize = 1_000_000;
+pub const FIND_QUERY_MAX: usize = 200;
+pub const FIND_TEXT_MAX: usize = 1_000_000;
 const FIND_NODES_MAX: usize = 20_000;
 
 /// The query goes in as a JS string literal, so no text the user types can break out of it, and is
@@ -104,6 +104,34 @@ pub fn find_text_script(query: &str) -> String {
 pub fn find_snippets(found: &str) -> Vec<String> {
     let max = 2 * FIND_CONTEXT + FIND_QUERY_MAX;
     found.lines().filter(|l| !l.trim().is_empty()).take(FIND_MATCHES).map(|l| l.chars().take(max).collect()).collect()
+}
+
+/// Most matches the find bar counts.
+pub const FIND_COUNT_MAX: usize = 1000;
+
+/// Counts how often `query` occurs in the page's visible text, without case, up to
+/// `FIND_COUNT_MAX`; the engine's own find decides whether there is a match at all. A query past
+/// `FIND_QUERY_MAX` counts none, since a shortened one could count too many.
+pub fn find_count_script(query: &str) -> String {
+    let query = if query.chars().count() > FIND_QUERY_MAX { String::new() } else { query.to_lowercase() };
+    let query = handover::js_string(&query);
+    format!(
+        r"const q = {query};
+        if (!q || !document.body) return '0';
+        const text = document.body.innerText.slice(0, {FIND_TEXT_MAX}).toLowerCase();
+        let count = 0;
+        for (let at = text.indexOf(q); at !== -1 && count < {FIND_COUNT_MAX}; at = text.indexOf(q, at + q.length)) count++;
+        return String(count);"
+    )
+}
+
+/// The number of matches to show: none when the engine found none, at least one when it found
+/// some (the page's count misses text in frames), at most `FIND_COUNT_MAX`.
+pub fn find_count(found: bool, answer: &str) -> usize {
+    if !found {
+        return 0;
+    }
+    answer.trim().parse::<usize>().unwrap_or(0).clamp(1, FIND_COUNT_MAX)
 }
 
 /// Reads the declared icons of the page at `origin` as `href<TAB>sizes` lines, then an empty
@@ -447,6 +475,16 @@ mod tests {
     }
 
     #[test]
+    fn the_engine_decides_whether_anything_matched_and_the_page_how_often() {
+        assert_eq!(find_count(false, "3"), 0);
+        assert_eq!(find_count(true, "3"), 3);
+        assert_eq!(find_count(true, "0"), 1);
+        assert_eq!(find_count(true, "junk"), 1);
+        assert_eq!(find_count(true, "99999"), FIND_COUNT_MAX);
+        assert!(find_count_script("A\"b").contains(r#"const q = "a\"b";"#));
+    }
+
+    #[test]
     fn dark_comes_first_and_hosts_stay_apart() {
         let styles = site_styles(vec![("a.test".into(), "p{}".into()), ("c.test".into(), "q{}".into())], vec!["a.test".into(), "b.test".into()]);
         let hosts: Vec<&str> = styles.iter().map(|(h, _)| h.as_str()).collect();
@@ -517,6 +555,22 @@ mod javascript_core_tests {
         assert_eq!(find_in(&format!("{dotted}needle{}", "x".repeat(70)), "needle"), [format!("{}needle{}", "\u{130}".repeat(60), "x".repeat(60))]);
         assert_eq!(find_in("a.b axb", "a.b"), ["a.b axb"], "the query is literal text");
         assert_eq!(find_in_nodes(&[("B", "Ne"), ("B", "edle")], "needle"), ["Needle"], "inline tags do not split a word");
+    }
+
+    #[test]
+    fn find_count_counts_without_case_and_stops_at_the_cap() {
+        let count = |text: &str, query: &str| {
+            let script =
+                format!("const document = {{ body: {{ innerText: {} }} }}; (function () {{ {} }})()", handover::js_string(text), find_count_script(query));
+            let out = std::process::Command::new("osascript").args(["-l", "JavaScript", "-e", &script]).output().unwrap();
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        };
+        assert_eq!(count("Needle needle NEEDLE", "needle"), "3");
+        assert_eq!(count("aaaa", "aa"), "2", "matches do not overlap");
+        assert_eq!(count("a.b axb", "a.b"), "1", "the query is literal text");
+        assert_eq!(count(&"x".repeat(FIND_COUNT_MAX + 50), "x"), FIND_COUNT_MAX.to_string());
+        assert_eq!(count(&"y".repeat(500), &"y".repeat(FIND_QUERY_MAX + 1)), "0", "a query past the limit counts none");
     }
 
     #[test]

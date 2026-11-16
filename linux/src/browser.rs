@@ -1,6 +1,7 @@
 pub mod pages;
 mod site;
 pub mod spaces;
+mod split;
 pub mod swipe;
 pub mod themes;
 pub mod tools;
@@ -109,6 +110,8 @@ pub struct Browser {
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
     pub themes: themes::Themes,
+    /// Every split of this window, for the session only.
+    pub splits: browser_core::split::Splits<TabKey>,
     text_rows: usize,
     burner_return: Option<(bool, Id)>,
     window: SavedWindow,
@@ -168,6 +171,7 @@ impl Browser {
             elsewhere,
             forgotten: Vec::new(),
             themes,
+            splits: Default::default(),
             text_rows: 0,
             burner_return: None,
             window,
@@ -269,17 +273,22 @@ impl Browser {
         self.model.active = Some(key);
         self.model.touch(&self.core, key, now());
         self.forget_silent_views();
-        for evicted in self.model.lifecycle.activate(key) {
-            if self.playing.contains(&evicted) {
+        let partners = self.split_partners(key);
+        let evicted = self.model.lifecycle.activate_with(&partners, key);
+        for evicted in evicted {
+            // The split's panes stay awake above the live-tab limit while it lasts.
+            if evicted == key || partners.contains(&evicted) || self.playing.contains(&evicted) {
                 self.model.lifecycle.keep(evicted);
             } else {
                 self.unload(evicted);
             }
         }
-        let needs_load = self.pages.get(&key).is_none_or(|p| p.load.is_none());
-        if needs_load {
-            let url = self.pages.get(&key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url);
-            self.load(key, &url);
+        for shown in partners.into_iter().chain([key]) {
+            if self.pages.get(&shown).is_none_or(|p| p.load.is_none()) {
+                let stored = self.model.tab(shown).map(|t| t.url.clone()).unwrap_or_else(|| tab.url.clone());
+                let url = self.pages.get(&shown).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(stored);
+                self.load(shown, &url);
+            }
         }
         self.save_window();
     }
@@ -352,7 +361,8 @@ impl Browser {
         for key in &keys {
             let Some(tab) = self.model.tab(*key).cloned() else { continue };
             if next == Some(*key) {
-                next = self.model.close_neighbour(*key, &keys, false);
+                // A split that keeps two panes keeps the focus too.
+                next = self.splits.heir(*key, &keys).or_else(|| self.model.close_neighbour(*key, &keys, false));
             }
             let url = self.pages.get(key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url.clone());
             let title = self.pages.get(key).map(|p| p.title.clone()).unwrap_or(tab.title.clone());
@@ -383,6 +393,7 @@ impl Browser {
 
     fn forget_tab(&mut self, key: TabKey) {
         self.forgotten.push(key);
+        self.splits.leave(key);
         self.model.lifecycle.remove(key);
         self.pages.remove(&key);
         self.articles.remove(&key);
@@ -448,9 +459,34 @@ impl Browser {
         self.forgotten.push(key);
     }
 
-    pub fn new_folder(&mut self) {
-        self.model.new_folder(&self.core, None);
+    pub fn new_folder(&mut self, parent: Option<Id>) {
+        self.model.new_folder(&self.core, parent);
         self.model.reload_space(&self.core);
+    }
+
+    pub fn rename_folder(&mut self, id: Id, name: &str) {
+        if !name.trim().is_empty() && self.core.store(self.model.private()).rename_folder(id, name.trim()).is_ok() {
+            self.model.reload_space(&self.core);
+        }
+    }
+
+    pub fn rename_space(&mut self, name: &str) {
+        let Some((private, id)) = self.model.current_space().map(|s| (s.private, s.space.id)) else { return };
+        if !name.trim().is_empty() && self.core.store(private).rename_space(id, name.trim()).is_ok() {
+            self.model.reload_spaces(&self.core);
+        }
+    }
+
+    /// Moves `key` to `target`'s place in its zone: before it from below, after it from above.
+    pub fn move_tab_to(&mut self, key: TabKey, target: TabKey) {
+        let Some(tab) = self.model.tab(target).filter(|_| key != target && key.private == target.private) else { return };
+        let (kind, folder, index) = (tab.kind, tab.folder_id, self.model.zone_index(tab));
+        if self.model.burner_shown() && kind != TabKind::Ephemeral {
+            return;
+        }
+        if self.core.store(key.private).move_tab(key.id, kind, folder, index).is_ok() {
+            self.model.reload_space(&self.core);
+        }
     }
 
     pub fn toggle_folder(&mut self, id: Id) {
@@ -508,13 +544,17 @@ impl Browser {
         }
     }
 
+    /// Steps to the next or previous match of `text`, already searched.
     pub fn find(&mut self, text: &str, backwards: bool) {
-        if text.is_empty()
-            && let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k))
-        {
+        self.command("find", json!({ "text": text, "backwards": backwards }));
+    }
+
+    /// Searches a new text; the count of the one before no longer holds.
+    pub fn find_typed(&mut self, text: &str) {
+        if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)) {
             page.found = None;
         }
-        self.command("find", json!({ "text": text, "backwards": backwards }));
+        self.find(text, false);
     }
 
     pub fn zoom(&mut self, step: i32) {
@@ -699,6 +739,7 @@ impl Browser {
                 }
             }
             "crashed" => self.on_crash(key),
+            "pressed" if self.in_split(key) && self.model.active != Some(key) => self.activate(key),
             "playing" => {
                 if data["playing"].as_bool() == Some(true) {
                     self.playing.insert(key);
@@ -849,6 +890,7 @@ impl Browser {
     }
 
     pub fn give_up(&mut self, key: TabKey) {
+        self.splits.leave(key);
         self.model.lifecycle.remove(key);
         self.pages.remove(&key);
         if self.model.active == Some(key) {

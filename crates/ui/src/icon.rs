@@ -2,6 +2,13 @@ use std::borrow::Cow;
 
 use gpui::{AssetSource, Rgba, SharedString, Styled, Svg, px, svg};
 
+/// The icon sizes: a glyph beside small text, the common one, a glyph beside a title or in a
+/// tile, and one that stands for a whole row or page.
+pub const ICON_SMALL: f32 = 12.;
+pub const ICON: f32 = 14.;
+pub const ICON_MEDIUM: f32 = 16.;
+pub const ICON_LARGE: f32 = 20.;
+
 macro_rules! icons {
     ($($variant:ident => $file:literal),* $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -11,12 +11,14 @@ use gpui::{
     div, prelude::FluentBuilder, px, rgba,
 };
 use store::Id;
-use ui::controls::{button, field, group, note, row, section, secure_button, segment, segmented, swatch, switch};
+use ui::controls::{button, field, group, note, row, section, secure_button, segment, segmented, swatch, switch_row};
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{Secure, TEXT_SMALL, Theme};
 
-use super::{SettingsWindow, label, text_block};
+use ui::controls::text_block;
+
+use super::{SettingsWindow, label};
 
 /// The colour editor's theme, one field per colour, and their subscriptions.
 type ColorEditor = (Id, Vec<(&'static str, Entity<TextInput>)>, Vec<Subscription>);
@@ -564,11 +566,7 @@ impl SettingsWindow {
                 bounded_title(&format!("Sites: {}", card.hosts.join(", ")))
             );
             details = details.child(
-                row(false)
-                    .id("theme-page-css")
-                    .cursor_pointer()
-                    .child(text_block("Styles for websites", detail))
-                    .child(switch(on))
+                switch_row("theme-page-css", false, text_block("Styles for websites", detail), on)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_page_css(id, !on, cx))),
             );
         }
@@ -658,26 +656,27 @@ impl SettingsWindow {
             .child(section("Theme"))
             .child(
                 group().child(
-                    row(true)
-                        .id("theme-match-system")
-                        .cursor_pointer()
-                        .child(text_block(
+                    switch_row(
+                        "theme-match-system",
+                        true,
+                        text_block(
                             "Match system appearance",
                             if cfg!(windows) {
                                 "Use one theme while Windows is light and another while it is dark."
                             } else {
                                 "Use one theme while macOS is light and another while it is dark."
                             },
-                        ))
-                        .child(switch(match_system))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let core = crate::shared::core(cx);
-                            let mut selection = Selection::load(&core.disk);
-                            selection.match_system = !match_system;
-                            let saved = selection.save(&core.disk).map_err(|e| e.to_string());
-                            this.report(saved, "", cx);
-                            this.appearance.message = None;
-                        })),
+                        ),
+                        match_system,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let core = crate::shared::core(cx);
+                        let mut selection = Selection::load(&core.disk);
+                        selection.match_system = !match_system;
+                        let saved = selection.save(&core.disk).map_err(|e| e.to_string());
+                        this.report(saved, "", cx);
+                        this.appearance.message = None;
+                    })),
                 ),
             )
             .child(div().pt_3().child(gallery))
@@ -694,15 +693,16 @@ impl SettingsWindow {
             page = page.child(
                 div().pt_3().child(
                     group().child(
-                        row(true)
-                            .id("theme-pages-profile")
-                            .cursor_pointer()
-                            .child(text_block(
+                        switch_row(
+                            "theme-pages-profile",
+                            true,
+                            text_block(
                                 "Theme styles on websites",
                                 format!("In the {} profile, for themes that bring them. Never in private spaces, burner tabs or Lockdown; pages pick up changes as they load.", bounded_title(&profile.name)),
-                            ))
-                            .child(switch(on))
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                            ),
+                            on,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
                                 let core = crate::shared::core(cx);
                                 let saved = core.disk.set_setting(&browser_core::theme::pages_setting(id), if on { "off" } else { "on" }).map_err(|e| e.to_string());
                                 this.report(saved, "", cx);

@@ -9,7 +9,7 @@ use objc2_app_kit::{
     NSApplication, NSColor, NSControlStateValueOn, NSEvent, NSEventMask, NSEventModifierFlags, NSFloatingWindowLevel, NSImage, NSImageSymbolConfiguration,
     NSMenu, NSMenuItem,
 };
-use objc2_foundation::{NSArray, NSData, NSObject, NSSize, NSString, NSUserDefaults};
+use objc2_foundation::{NSArray, NSData, NSObject, NSPoint, NSSize, NSString, NSUserDefaults};
 
 use crate::Host;
 pub use crate::menu_item::Item;
@@ -35,10 +35,11 @@ define_class!(
     }
 );
 
-/// Pops up `items` as a native menu at the mouse location in `host` and calls `chosen` with the
-/// value of the entry the user picks. AppKit runs a modal tracking loop inside this call, so the
-/// caller must not hold UI state borrowed across it.
-pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, chosen: impl FnOnce(T) + 'static) {
+/// Pops up `items` as a native menu in `host` at `at` (points from the top left, such as a
+/// button's lower left corner) or else at the mouse location, and calls `chosen` with the value
+/// of the entry the user picks. AppKit runs a modal tracking loop inside this call, so the caller
+/// must not hold UI state borrowed across it.
+pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>, chosen: impl FnOnce(T) + 'static) {
     let Some(mtm) = MainThreadMarker::new() else { return };
     let mut values = Vec::new();
     let target = Target::alloc(mtm).set_ivars(RefCell::new(None));
@@ -62,7 +63,10 @@ pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, chosen: impl FnOnce(T)
             (w, level)
         })
         .collect();
-    let location = host.view.convertPoint_fromView(window.mouseLocationOutsideOfEventStream(), None);
+    let location = match at {
+        Some((x, y)) => NSPoint::new(x, if host.view.isFlipped() { y } else { host.view.bounds().size.height - y }),
+        None => host.view.convertPoint_fromView(window.mouseLocationOutsideOfEventStream(), None),
+    };
     menu.popUpMenuPositioningItem_atLocation_inView(None, location, Some(&host.view));
     for (w, level) in lowered {
         w.setLevel(level);
@@ -110,17 +114,21 @@ fn mark_items(menu: &NSMenu, marks: &mut std::iter::Peekable<std::slice::Iter<Ma
             if mark.checked {
                 item.setState(NSControlStateValueOn);
             }
-            item.setImage(mark.image.as_ref().and_then(image).as_deref());
-            if item.respondsToSelector(sel!(setPreferredImageVisibility:)) {
-                // SAFETY: macOS 27's `preferredImageVisibility` takes an NSInteger; 1 is
-                // `NSMenuItemImageVisibilityVisible`, without which AppKit hides most item images.
-                unsafe {
-                    let _: () = msg_send![&*item, setPreferredImageVisibility: 1isize];
-                }
-            }
+            set_image(&item, mark.image.as_ref());
         }
         if let Some(submenu) = item.submenu() {
             mark_items(&submenu, marks);
+        }
+    }
+}
+
+fn set_image(item: &NSMenuItem, image: Option<&Image>) {
+    item.setImage(image.and_then(self::image).as_deref());
+    if item.respondsToSelector(sel!(setPreferredImageVisibility:)) {
+        // SAFETY: macOS 27's `preferredImageVisibility` takes an NSInteger; 1 is
+        // `NSMenuItemImageVisibilityVisible`, without which AppKit hides most item images.
+        unsafe {
+            let _: () = msg_send![item, setPreferredImageVisibility: 1isize];
         }
     }
 }
@@ -168,7 +176,7 @@ fn build<T>(mtm: MainThreadMarker, target: &Retained<Target>, items: Vec<Item<T>
                 entry.setSubmenu(Some(&build(mtm, target, children, values)));
                 entry
             }
-            Item::Action { title, key, checked, enabled, value, .. } => {
+            Item::Action { title, key, checked, enabled, value, image } => {
                 let (equivalent, modifiers) = key_equivalent(&key);
                 // SAFETY: `choose:` is implemented by `Target` with the `(id)sender` signature
                 // AppKit sends. Menu items hold their target weakly; the represented object
@@ -189,6 +197,9 @@ fn build<T>(mtm: MainThreadMarker, target: &Retained<Target>, items: Vec<Item<T>
                 entry.setEnabled(enabled);
                 if checked {
                     entry.setState(NSControlStateValueOn);
+                }
+                if image.is_some() {
+                    set_image(&entry, image.as_ref());
                 }
                 values.push(value);
                 entry

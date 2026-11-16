@@ -744,6 +744,16 @@ impl TarnWebView {
         container.set_hexpand(true);
         container.set_vexpand(true);
         let state = Rc::new(State { context: Some(context), container: Some(container), ..State::default() });
+        // A split's pane takes the focus when its page is clicked; the page gets the click too.
+        let pressed = gtk::GestureClick::new();
+        pressed.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let weak = Rc::downgrade(&state);
+        pressed.connect_pressed(move |_, _, _, _| {
+            if let Some(state) = weak.upgrade() {
+                state.emit("pressed", JsonValue::Null);
+            }
+        });
+        state.container().add_controller(pressed);
         VIEWS.with_borrow_mut(|views| {
             views.retain(|v| v.strong_count() > 0);
             views.push(Rc::downgrade(&state));

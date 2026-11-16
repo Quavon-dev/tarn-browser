@@ -196,6 +196,12 @@ impl Theme {
     pub fn on_accent() -> Rgba {
         rgb(0xf4f9fd)
     }
+    /// Text and glyphs on `fill`, such as the accent a theme sets: white unless that drops under 3:1 there.
+    pub fn on_fill(fill: Rgba) -> Rgba {
+        let b = |v: f32| (v * 255.).round() as u32;
+        let packed = |c: Rgba| b(c.r) << 24 | b(c.g) << 16 | b(c.b) << 8 | b(c.a);
+        rgba(browser_core::theme::on_fill(packed(fill), packed(Self::surface())))
+    }
     pub fn set_accent(color: u32) {
         if update(|t| t.accent = color << 8 | 0xff) {
             changed();
@@ -401,6 +407,8 @@ mod tests {
         assert_eq!([Secure::text(), Secure::chip(), Secure::warning(), Secure::danger(), Secure::shield_raised(), Secure::muted()], dark);
         assert_eq!(Theme::warning(), dark[2]);
         assert_eq!((hex(Theme::accent()), Theme::radius_card(), Theme::search_effect()), (0xd9ecfaff, 3., Effect::Flames));
+        assert_eq!(hex(Theme::on_fill(Theme::accent())), Tokens::LIGHT.text, "a pale accent takes a dark label");
+        assert_eq!(Theme::on_fill(Secure::accent()), Theme::on_accent(), "the secure accent keeps white");
         for bg in [Secure::chip(), Secure::surface()] {
             assert!(contrast(hex(Secure::text()), hex(bg)) >= 4.5);
             assert!(contrast(hex(Secure::warning()), hex(bg)) >= 4.5);

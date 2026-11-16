@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use browser_core::prompts::Prompt;
+use browser_core::split::{Divider, Share};
 use browser_core::tabs::TabKey;
 use serde_json::Value;
 use store::{Folder, Id, Tab, TabKind};
@@ -36,6 +37,8 @@ pub struct Row {
     pub heavy: bool,
     pub asleep: bool,
     pub loading: bool,
+    /// In a split: `Some(true)` for the split on screen.
+    pub split: Option<bool>,
 }
 
 impl Row {
@@ -62,6 +65,24 @@ pub struct ViewItem {
     pub sort_downloads: bool,
     pub load: Option<(String, u64)>,
     pub active: bool,
+    /// Its place in the split on screen.
+    pub pane: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pane {
+    pub key: TabKey,
+    pub title: String,
+    pub host: String,
+    pub focused: bool,
+}
+
+/// The split on screen, while the page area shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SplitView {
+    pub panes: Vec<Pane>,
+    pub layout: Vec<Share>,
+    pub dividers: Vec<(Divider, Share)>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -80,6 +101,7 @@ pub struct Snapshot {
     /// The tile grid above the pinned tabs.
     pub tiles: Vec<Row>,
     pub views: Vec<ViewItem>,
+    pub split: Option<SplitView>,
     pub url: String,
     pub title: String,
     pub can_back: bool,
@@ -93,11 +115,7 @@ pub struct Snapshot {
     pub error: Option<String>,
     pub prompt: Option<Prompt>,
     pub notice: Option<Notice>,
-    pub pinned: bool,
-    /// The active tab is one of the tiles.
-    pub tile: bool,
     pub folders: Vec<(Id, String)>,
-    pub move_targets: Vec<(usize, String)>,
     pub toast: Option<crate::browser::Toast>,
     pub reader: Option<crate::browser::ReaderView>,
     pub article: bool,
@@ -138,6 +156,7 @@ fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Opti
             heavy: heavy.contains(&key),
             asleep: b.model.active != Some(key) && !b.elsewhere.contains(&key) && !b.model.lifecycle.live().any(|k| k == key),
             loading: b.pages.get(&key).is_some_and(|p| p.loading),
+            split: b.splits.contains(key).then(|| b.in_split(key)),
             host,
             depth,
             active: b.model.active == Some(key),
@@ -164,6 +183,7 @@ fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: 
             heavy: false,
             asleep: false,
             loading: false,
+            split: None,
         });
         if open {
             folder_rows(b, heavy, Some(folder.id), depth + 1, rows);
@@ -197,6 +217,7 @@ fn tiles_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
 }
 
 pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
+    let panes = b.shown_split().map(|s| s.panes().to_vec()).unwrap_or_default();
     let lists = b.lists();
     let sort_downloads = !b.setting_off(crate::browser::pages::SORT_DOWNLOADS);
     let mut keys: Vec<TabKey> = b.model.lifecycle.live().filter(|k| b.model.tab(*k).is_some()).collect();
@@ -219,7 +240,8 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 zaps,
                 sort_downloads,
                 load: page.and_then(|p| p.load.clone()),
-                active: shown && b.model.active == Some(key),
+                active: shown && (b.model.active == Some(key) || panes.contains(&key)),
+                pane: panes.iter().position(|k| *k == key).filter(|_| shown),
             }
         })
         .collect()
@@ -233,7 +255,8 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
     let profile_id = b.model.profile().map(|p| p.1);
     let private = b.model.private();
     let overridden = profile_id.is_some_and(|p| b.core.has_override(private, p, &host));
-    let blank = key.is_some() && (page.url.is_empty() || page.url == crate::browser::START_URL) && page.error.is_none();
+    let split = b.shown_split();
+    let blank = key.is_some() && split.is_none() && (page.url.is_empty() || page.url == crate::browser::START_URL) && page.error.is_none();
     Snapshot {
         spaces: (0..b.model.spaces.len())
             .map(|ix| {
@@ -265,6 +288,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         rows: rows_with(b, &heavy),
         tiles: tiles_with(b, &heavy),
         views: views(b, web_shown && !blank),
+        split: split.filter(|_| web_shown).map(|s| split_view(b, s)),
         url: page.url.clone(),
         title: page.title.clone(),
         can_back: page.can_back,
@@ -278,10 +302,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         error: page.error.clone(),
         prompt: page.prompts.front().cloned(),
         notice: b.notice.clone(),
-        pinned: key.and_then(|k| b.model.tab(k)).is_some_and(|t| t.kind != TabKind::Ephemeral),
-        tile: key.and_then(|k| b.model.tab(k)).is_some_and(|t| t.kind == TabKind::Tile),
         folders: b.model.folders.iter().map(|f| (f.id, f.name.clone())).collect(),
-        move_targets: key.map(|k| b.model.move_targets(&b.core, k)).unwrap_or_default().into_iter().map(|ix| (ix, space_label(b, ix))).collect(),
         toast: b.toast.clone(),
         reader: b.reader.clone().filter(|r| Some(r.key) == key),
         article: key.is_some_and(|k| b.articles.contains(&k)),
@@ -289,6 +310,23 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         find_rows: b.find_rows.clone(),
         downloading: downloading(b),
     }
+}
+
+fn split_view(b: &Browser, split: &browser_core::split::Split<TabKey>) -> SplitView {
+    let panes = split
+        .panes()
+        .iter()
+        .map(|key| {
+            let url = b.pages.get(key).map(|p| p.url.as_str()).filter(|u| !u.is_empty()).or(b.model.tab(*key).map(|t| t.url.as_str())).unwrap_or_default();
+            Pane {
+                key: *key,
+                title: b.model.tab(*key).map(|t| tab_label(t, b, *key)).unwrap_or_default(),
+                host: url::Url::parse(url).ok().map(|u| browser_core::command::address(&u).0).unwrap_or_default(),
+                focused: b.model.active == Some(*key),
+            }
+        })
+        .collect();
+    SplitView { panes, layout: split.layout(), dividers: split.dividers() }
 }
 
 fn downloading(b: &Browser) -> Option<f32> {
@@ -310,7 +348,7 @@ mod tests {
         let mut b = Browser::open(dir.path());
         let pinned = b.model.active.unwrap();
         b.pin_toggle(pinned);
-        b.new_folder();
+        b.new_folder(None);
         let folder = b.model.folders[0].id;
         let inside = b.new_tab("https://in.test/").unwrap();
         b.move_to_folder(inside, folder);

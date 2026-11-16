@@ -5,6 +5,7 @@ use std::rc::Rc;
 use browser_core::closed::{Closed, ClosedTab};
 use browser_core::command::{ENGINES, Input, classify_input};
 use browser_core::prompts::Prompt;
+use browser_core::split::Splits;
 use browser_core::suggest;
 use browser_core::tabs::{Model, TabKey};
 use browser_core::{Core, site::site_host};
@@ -64,6 +65,18 @@ pub struct ViewProps {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct ProfileProps {
+    pub profile: String,
+    pub level: ShieldLevel,
+    pub levels: BTreeMap<String, String>,
+    pub lists: Vec<String>,
+    pub styles: BTreeMap<String, String>,
+    pub theme_styles: Vec<(String, String)>,
+    pub zaps: BTreeMap<String, Vec<String>>,
+    pub sort_downloads: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct PromptRequest {
     pub tab: TabKey,
     pub prompt: Prompt,
@@ -95,6 +108,9 @@ pub struct SpaceItem {
 pub struct Shell<D: Platform> {
     pub core: Core<D>,
     pub model: Model,
+    pub splits: Splits<TabKey>,
+    /// Whether the layout is wide enough to show a split's panes; a phone shows one tab.
+    pub wide: bool,
     pub pages: HashMap<TabKey, Page>,
     pub prompts: Vec<PromptRequest>,
     pub external: Option<(TabKey, String)>,
@@ -136,6 +152,8 @@ impl<D: Platform> Shell<D> {
         let mut shell = Shell {
             core,
             model,
+            splits: Splits::default(),
+            wide: false,
             pages: HashMap::new(),
             prompts: Vec::new(),
             external: None,
@@ -207,27 +225,44 @@ impl<D: Platform> Shell<D> {
         self.model.profile().is_some_and(|(private, id)| self.core.keeps_records(private, id))
     }
 
-    pub fn views(&self) -> Vec<ViewProps> {
-        let Some((private, profile_id)) = self.model.profile() else { return Vec::new() };
-        let Some(profile) = self.store_id(private, profile_id) else { return Vec::new() };
+    /// What every view of the current profile shares, read from its stores.
+    pub fn profile_props(&self) -> Option<ProfileProps> {
+        let (private, profile_id) = self.model.profile()?;
+        let profile = self.store_id(private, profile_id)?;
         let profiles = self.core.profiles.borrow();
-        let Some(rt) = profiles.get(&(private, profile_id)) else { return Vec::new() };
+        let rt = profiles.get(&(private, profile_id))?;
         let mut levels: BTreeMap<String, String> = rt.overrides.borrow().iter().map(|(h, l)| (h.clone(), l.as_str().to_owned())).collect();
         levels.insert(DEFAULT_LEVEL_KEY.to_owned(), rt.profile.shield_level.as_str().to_owned());
-        let lists = shield::groups::switched_on(|k| self.core.disk.setting(k).ok().flatten());
         let store = self.core.store(private);
-        let styles: BTreeMap<String, String> =
-            engine::page_scripts::site_styles(store.site_css(profile_id).unwrap_or_default(), store.dark_sites(profile_id).unwrap_or_default())
-                .into_iter()
-                .collect();
-        let theme_styles = self.theme_styles(private, profile_id);
+        let styles = engine::page_scripts::site_styles(store.site_css(profile_id).unwrap_or_default(), store.dark_sites(profile_id).unwrap_or_default())
+            .into_iter()
+            .collect();
         let mut zaps: BTreeMap<String, Vec<String>> = BTreeMap::new();
         if !private {
             for (host, selector) in store.zapped_elements(profile_id).unwrap_or_default() {
                 zaps.entry(host).or_default().push(selector);
             }
         }
-        let sort_downloads = self.setting_on(crate::scripts::SORT_DOWNLOADS);
+        Some(ProfileProps {
+            profile,
+            level: rt.profile.shield_level,
+            levels,
+            lists: shield::groups::switched_on(|k| self.core.disk.setting(k).ok().flatten()),
+            styles,
+            theme_styles: self.theme_styles(private, profile_id),
+            zaps,
+            sort_downloads: self.setting_on(crate::scripts::SORT_DOWNLOADS),
+        })
+    }
+
+    pub fn views(&self) -> Vec<ViewProps> {
+        self.views_from(self.profile_props().as_ref())
+    }
+
+    /// The live tabs' views over `props`, which `profile_props` read and the caller may keep until
+    /// the profile's data changes.
+    pub fn views_from(&self, props: Option<&ProfileProps>) -> Vec<ViewProps> {
+        let Some(props) = props else { return Vec::new() };
         let mut keys: Vec<TabKey> = self.model.lifecycle.live().filter(|k| self.model.tab(*k).is_some()).collect();
         keys.sort_by_key(|k| k.id);
         keys.into_iter()
@@ -235,14 +270,14 @@ impl<D: Platform> Shell<D> {
                 key,
                 born: self.model.lifecycle.born(key).unwrap_or_default(),
                 tab: format!("{}{}", if key.private { "p" } else { "n" }, key.id),
-                profile: profile.clone(),
-                level: rt.profile.shield_level,
-                levels: levels.clone(),
-                lists: lists.clone(),
-                styles: styles.clone(),
-                theme_styles: theme_styles.clone(),
-                zaps: zaps.clone(),
-                sort_downloads,
+                profile: props.profile.clone(),
+                level: props.level,
+                levels: props.levels.clone(),
+                lists: props.lists.clone(),
+                styles: props.styles.clone(),
+                theme_styles: props.theme_styles.clone(),
+                zaps: props.zaps.clone(),
+                sort_downloads: props.sort_downloads,
                 load: self.loads.get(&key).cloned(),
             })
             .collect()
@@ -255,19 +290,44 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn activate(&mut self, key: TabKey) {
-        let Some(tab) = self.model.tab(key).cloned() else { return };
+        if self.model.tab(key).is_none() {
+            return;
+        }
         self.model.active = Some(key);
         if self.external.as_ref().is_some_and(|(k, _)| *k != key) {
             self.external = None;
         }
-        for gone in self.model.lifecycle.activate(key) {
-            self.unmount(gone);
+        let partners = self.splits.of(key).filter(|_| self.wide).map(|s| s.others(key)).unwrap_or_default();
+        let gone = self.model.lifecycle.activate_with(&partners, key);
+        for gone in gone {
+            if gone == key || partners.contains(&gone) {
+                self.model.lifecycle.keep(gone);
+            } else {
+                self.unmount(gone);
+            }
         }
         self.model.touch(&self.core, key, browser_core::now());
+        for pane in partners.into_iter().chain([key]) {
+            self.wake(pane);
+        }
+    }
+
+    /// Follows the layout's width: a wide one wakes the active tab's split, a phone lets it sleep.
+    pub fn set_wide(&mut self, wide: bool) {
+        if self.wide != wide {
+            self.wide = wide;
+            if let Some(active) = self.model.active {
+                self.activate(active);
+            }
+        }
+    }
+
+    fn wake(&mut self, key: TabKey) {
+        let Some(tab) = self.model.tab(key).cloned() else { return };
         if !self.loads.contains_key(&key) && !tab.url.is_empty() {
             self.load_in(key, &tab.url, None);
         }
-        self.pages.entry(key).or_insert_with(|| Page { url: tab.url.clone(), title: tab.title.clone(), zoom: 1.0, ..Page::default() });
+        self.pages.entry(key).or_insert_with(|| Page { url: tab.url, title: tab.title, zoom: 1.0, ..Page::default() });
     }
 
     pub(crate) fn load_in(&mut self, key: TabKey, url: &str, opener: Option<String>) {
@@ -357,6 +417,9 @@ impl<D: Platform> Shell<D> {
         let space_id = tabs.first()?.1.space_id;
         let active = self.model.active.filter(|a| keys.contains(a));
         let neighbour = active.and_then(|a| {
+            if let Some(heir) = self.splits.heir(a, keys) {
+                return Some(heir);
+            }
             let order = self.model.visible_tab_order();
             let at = order.iter().position(|k| *k == a)?;
             order[at + 1..].iter().chain(order[..at].iter().rev()).find(|k| !keys.contains(k)).copied()
@@ -401,6 +464,7 @@ impl<D: Platform> Shell<D> {
     }
 
     pub(crate) fn forget(&mut self, key: TabKey) {
+        self.splits.leave(key);
         self.unmount(key);
         self.shielded.remove(&key);
         if self.reader.as_ref().is_some_and(|r| r.key == key) {
@@ -520,6 +584,8 @@ impl<D: Platform> Shell<D> {
         for key in keys {
             self.forget(key);
         }
+        // Private tab ids start again in the next session, so no private pane may outlive this one.
+        self.splits.retain(|k| !k.private);
         let memory = self.core.store(true);
         for (_, profile_id) in &private {
             memory.delete_profile(*profile_id).ok();
@@ -628,8 +694,15 @@ impl<D: Platform> Shell<D> {
     /// For an address field edited from `typed` to `value` (`suggest::edit`): the history rows
     /// `value` names, and the completion to prefill from the open tabs and the history.
     pub fn suggestions(&self, typed: &str, value: &str) -> (Vec<HistoryEntry>, Option<suggest::Completion>) {
-        let history = self.profile_id().and_then(|id| self.store().history(id, 500).ok()).unwrap_or_default();
-        let (rows, completion) = suggest::edit(typed, value, &self.model.tabs, &history, SUGGESTIONS, browser_core::now());
+        self.suggest_from(&self.suggestion_history(), typed, value)
+    }
+
+    pub fn suggestion_history(&self) -> Vec<HistoryEntry> {
+        self.profile_id().and_then(|id| self.store().history(id, 500).ok()).unwrap_or_default()
+    }
+
+    pub fn suggest_from(&self, history: &[HistoryEntry], typed: &str, value: &str) -> (Vec<HistoryEntry>, Option<suggest::Completion>) {
+        let (rows, completion) = suggest::edit(typed, value, &self.model.tabs, history, SUGGESTIONS, browser_core::now());
         (rows.into_iter().cloned().collect(), completion)
     }
 

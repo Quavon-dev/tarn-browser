@@ -20,7 +20,7 @@ use crate::handover::{self, Storage, js_string};
 use crate::nav_policy::{self, Decision, GateAction, Source};
 use crate::{Event, Host, Protection};
 
-type Found = Box<dyn Fn(bool)>;
+type Found = Box<dyn Fn(usize)>;
 type Reply = Box<dyn FnOnce(Option<Value>)>;
 #[cfg(windows)]
 type CreatedHook = Box<dyn FnOnce(Browser)>;
@@ -1459,7 +1459,7 @@ wrap_find_handler! {
         fn on_find_result(&self, browser: Option<&mut Browser>, _identifier: i32, count: i32, _selection_rect: Option<&Rect>, _active_match_ordinal: i32, final_update: i32) {
             let Some(tab) = tab(self.id) else { return };
             if final_update == 1 && let Some(found) = tab.found.borrow().as_ref() {
-                found(count > 0);
+                found(usize::try_from(count).unwrap_or(0).min(crate::page_scripts::FIND_COUNT_MAX));
             }
         }
     }
@@ -2365,8 +2365,8 @@ impl WebView {
         self.0.tab.title.borrow().clone()
     }
 
-    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(bool) + 'static) {
-        let Some(host) = self.browser_host() else { return found(false) };
+    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize) + 'static) {
+        let Some(host) = self.browser_host() else { return found(0) };
         *self.0.tab.found.borrow_mut() = Some(Box::new(found));
         let next = self.0.tab.last_find.replace(text.to_owned()) == text;
         host.find(Some(&CefString::from(text)), i32::from(!backwards), 0, i32::from(next));

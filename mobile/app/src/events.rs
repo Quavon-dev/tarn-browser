@@ -90,6 +90,13 @@ impl<D: Platform> Shell<D> {
             "prompt" => return self.prompt(key, data),
             "article" | "pageText" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
             "found" => self.found = data.get("matched").and_then(Value::as_u64),
+            "history" => {
+                if let Some(page) = self.pages.get_mut(&key) {
+                    page.back = data.get("canGoBack").and_then(Value::as_bool).unwrap_or(page.back);
+                    page.forward = data.get("canGoForward").and_then(Value::as_bool).unwrap_or(page.forward);
+                }
+            }
+            "pressed" if self.wide && self.model.active != Some(key) && self.shown_split().is_some_and(|s| s.panes().contains(&key)) => self.activate(key),
             "crashed" => return self.crashed(key),
             _ => {}
         }

@@ -5,7 +5,7 @@ use tarn_nsh_shared::controls::{Segment, icon_size, switch_row};
 pub use tarn_nsh_shared::controls::{accent_pill, card, group, label, pill};
 
 use crate::icons;
-use crate::theme::{ROW_HEIGHT, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
+use crate::theme::{Paint, ROW_HEIGHT, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 pub fn body(content: impl IntoReactive<SharedString>) -> Text {
     text(content).text_size(px(TEXT))
@@ -19,8 +19,19 @@ pub fn title(content: impl IntoReactive<SharedString>) -> Text {
     text(content).text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::text())
 }
 
+pub fn tip(name: &str, side: Placement) -> nsh_base::TooltipElement {
+    let bubble = view().px_2().py_1().rounded(px(Theme::radius_small())).surface();
+    nsh_base::tooltip().placement(side).child(bubble.child(small(name.to_owned()).text_color(Theme::text())))
+}
+
 pub fn icon_button(icon: &str, name: &str, on: impl Fn() + 'static) -> nsh_base::ButtonElement {
-    tarn_nsh_shared::controls::icon_button(icons::icon(icon, icon_size()), name.to_owned(), on)
+    icon_button_at(icon, name, Placement::Top, on)
+}
+
+/// An icon button whose tooltip goes on `side`: one that would land on the page is hidden behind the web view.
+pub fn icon_button_at(icon: &str, name: &str, side: Placement, on: impl Fn() + 'static) -> nsh_base::ButtonElement {
+    let glyph = view().size_full().items_center().justify_center().tooltip(tip(name, side)).child(icons::icon(icon, icon_size()));
+    tarn_nsh_shared::controls::icon_button(glyph, name.to_owned(), on)
 }
 
 pub fn row<M>(name: impl IntoProp<Option<SharedString>, M>, on: impl Fn() + 'static) -> nsh_base::ButtonElement {
