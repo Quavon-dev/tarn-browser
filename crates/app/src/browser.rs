@@ -192,6 +192,7 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
 
 /// (private, profile id, host): site icons belong to a profile like the rest of its data.
 type IconKey = ((bool, Id), String, favicon::Ticket);
+type SiteStoppedKey = (u64, bool, Id, String);
 
 pub struct Browser {
     pub(crate) core: Rc<crate::shared::AppCore>,
@@ -209,7 +210,7 @@ pub struct Browser {
     favicons: favicon::Tracker<(bool, Id), Arc<Image>>,
     /// `favicon` results by page URL for one profile, emptied whenever `favicons` changes.
     favicon_memo: RefCell<Option<((bool, Id), FaviconMemo)>>,
-    pub(crate) site_stopped_memo: RefCell<Option<((u64, bool, Id, String), i64)>>,
+    pub(crate) site_stopped_memo: RefCell<Option<(SiteStoppedKey, i64)>>,
     #[cfg(feature = "translation")]
     pub(crate) translation_offered: HashSet<(bool, Id, String)>,
     pub sidebar_open: bool,

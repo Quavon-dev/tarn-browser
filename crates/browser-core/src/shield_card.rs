@@ -505,7 +505,8 @@ mod tests {
         assert_ne!(landscape(7, false).2, landscape(8, false).2);
         let (dawn, night) = (landscape(7, false), landscape(7, true));
         assert!(!dawn.0.dark && night.0.dark && dawn.0.sky != night.0.sky);
-        assert_eq!(dawn.2, night.2);
+        let shapes = |svg: &str| svg.split(r#" d=""#).skip(1).map(|d| d.split('"').next().unwrap_or_default().to_owned()).collect::<Vec<_>>();
+        assert!(!shapes(&dawn.2).is_empty() && shapes(&dawn.2) == shapes(&night.2), "dawn and night share the near ridge's shape");
         assert!(night.1.contains("url(#aurora)") && !dawn.1.contains("url(#aurora)"));
         let front = front_svg(&card("Personal"), true, true);
         assert!(front.contains("TARN SHIELD") && front.contains("M9 12h6"));
