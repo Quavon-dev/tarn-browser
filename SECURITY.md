@@ -22,6 +22,27 @@ Include:
   confirmation.
 - Credit in the release notes, unless you ask not to be named.
 
+## Coordinated disclosure
+
+Private reports reach the repository's administrators listed in [`MAINTAINERS.md`](MAINTAINERS.md),
+who bring in the other maintainers as needed.
+
+1. We acknowledge the report within 3 working days and tell you whether we can reproduce it and
+   how severe we rate it (CVSS) within 10 working days.
+2. We fix it in a private fork of the advisory: high and critical issues within 7 days of
+   confirmation, others in the next release, at the latest within 90 days of the report. We keep
+   you informed and agree on a later date with you if a fix needs longer.
+3. We publish the fix in a release whose notes list it under "Security", and on the same day
+   publish the GitHub security advisory for this repository, with a CVE requested through GitHub,
+   the affected and fixed versions, and credit.
+4. Please keep the issue private until the advisory is published, or until 90 days after your
+   report if we have not fixed it by then. A vulnerability we learn of while it is already being
+   exploited or public is fixed and published as fast as possible.
+
+Published advisories: <https://github.com/Quavon-dev/tarn-browser/security/advisories>. A
+vulnerability in an upstream engine is reported to its vendor (see "Scope"); when it affects the
+Chromium that Tarn bundles, the update release notes name the Chromium version that fixes it.
+
 ## Supported versions
 
 Tarn is in pre-release. Only the latest release receives security fixes; please check that a
@@ -30,7 +51,7 @@ problem still occurs there or on `main`.
 Support covers every client in the release (macOS, Windows, Linux, iOS, Android) and lasts until
 the next release is published. From that moment the earlier release receives no more fixes,
 security fixes included. The macOS and Windows clients update themselves to it; Linux packages
-update through the apt and dnf repositories or Flathub. Nightly builds are never supported. The
+update through the apt and dnf repositories and the AUR. Nightly builds are never supported. The
 engine Tarn bundles (Chromium on macOS and Windows) is supported as part of the release; system
 engines get their fixes from their vendors (see "Scope").
 

@@ -10,7 +10,14 @@ Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md). Read
   installed on first use, with clippy and rustfmt.
 - [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) for the licence and advisory check.
 - For Linux, iOS and Android: Docker, [Native Shell](https://nsh.dev/) 0.5.0, the Android SDK, NDK
-  and JDK 17+, as described in the README.
+  and JDK 17+, as described in the README. The Linux app links the distribution's WebKitGTK 6.0
+  and GTK 4; the Fedora 43 container in `linux/docker/` has them. Gradle 8.14.3 is fetched by
+  `mobile/android/gradle.sh`.
+- For Windows: Windows 10 or 11 on x86_64, Git for Windows (Git Bash), the Visual Studio Build
+  Tools with the MSVC toolchain and the Windows SDK; Inno Setup 6.7.3 for the installer
+  ([`docs/windows-plan.md`](docs/windows-plan.md)).
+- For the Chromium engine (Windows, and macOS with the `chromium` feature): the CEF build from
+  `scripts/fetch-cef.sh` and Ninja from `scripts/fetch-ninja.sh`, both pinned by SHA-256.
 
 ## Build and test
 
@@ -36,6 +43,30 @@ Each must pass before a pull request is merged; CI (`.github/workflows/ci.yml`) 
 | Windows (Git Bash, MSVC) | `export CEF_PATH="$(cygpath -w "$(scripts/fetch-cef.sh windows64)")"; cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked` |
 | every workspace | `cargo fmt --all --check` |
 | every workspace (root, `linux/`, `mobile/`, `nsh-shared/`, `fuzz/`) | `cargo deny check` |
+
+## Dependencies
+
+- **Selected** only when the standard library, the platform or a crate already in the lockfile
+  cannot do the job. A new dependency must be maintained, have a licence on the allow list in
+  `deny.toml`, come from crates.io (Rust), Google's Maven or Maven Central (Android), and be added
+  by a maintainer or with a maintainer's approval in the pull request (`AGENTS.md`, "Do not" 12).
+- **Obtained** through each ecosystem's own tooling: Cargo with committed lockfiles and versions
+  pinned exactly, Gradle for the Android app, the distribution's package manager for system
+  libraries in the Linux containers. Tools and binaries without such tooling (CEF, Ninja, Gradle,
+  Sparkle, Inno Setup, NSH) are downloaded by a script or workflow over HTTPS and checked against
+  a SHA-256 pinned in the repository; GitHub Actions and container images are pinned by digest.
+- **Tracked** by Renovate, which opens grouped update pull requests every Monday, by `cargo deny`
+  on every pull request and nightly (`SECURITY.md`, "Dependency and code scanning"), by the
+  automatic Chromium update (`docs/release.md`), and in the SBOM attached to every release. A
+  change to a lockfile regenerates `packaging/third-party-licenses*.txt`.
+
+## Changelog
+
+Every pull request that changes what users see or how Tarn protects them adds an entry under
+`## [Unreleased]` in [`CHANGELOG.md`](CHANGELOG.md): `Added`, `Changed`, `Fixed`, `Removed`, and
+`Security` for every security fix, named by what it protects against. The release workflow
+publishes each version's section as its release notes; an automatic Chromium update, which has no
+section, gets a generated Security note followed by the entries under `[Unreleased]`.
 
 ## Commits
 
@@ -82,6 +113,8 @@ Open an issue from one of the forms. Labels are set by the forms and kept up to 
 Adding `type: feature` or `type: change` to any issue puts it to a vote too.
 
 ## Maintainers and access
+
+The people with access and their responsibilities are listed in [`MAINTAINERS.md`](MAINTAINERS.md).
 
 Write access, membership of `@Quavon-dev/maintainers`, admin rights, approval of the
 `release-signing` environment and access to any secret are granted only after the existing

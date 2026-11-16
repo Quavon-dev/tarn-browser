@@ -3,7 +3,8 @@
 Trust boundaries: web content → shell; other browsers' profiles → import; filter lists → rule compiler; page text → AI model; AI model → CLI helper; extensions → pages and shell; update source → app; other apps → URL handler; sync storage → app; disk.
 
 The "Status" column records what the code enforces today. Algorithms, key lengths and TLS
-settings per client are in `cryptography.md`.
+settings per client are in `cryptography.md`; the actors, components and external interfaces in
+`architecture.md`.
 
 | ID | Severity | Threat | Mitigation | Status |
 |---|---|---|---|---|
