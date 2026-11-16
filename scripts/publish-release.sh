@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Walks a release through docs/release.md on the maintainer's Mac: signed tag, CI draft, signed and
-# notarised macOS zip, disk image and appcast, the Windows files signed on Windows, checks, publish.
+# notarised macOS zip, disk image and appcast, the Windows files signed on Windows (or, with
+# --no-windows, a feed for the unsigned installer signed here), checks, publish.
 # Needs the Developer ID identity, the tarn-notary profile and the update key on this Mac.
 # Every step that publishes something asks first; re-running skips what is already done.
 # Usage: scripts/publish-release.sh [--skip-ci] [--no-windows]
@@ -115,9 +116,13 @@ fi
 
 say "3/5 Windows installer and update feed"
 if $NO_WINDOWS; then
-  echo "Skipped (--no-windows): this release ships only the unsigned Windows installer and no Windows"
-  echo "update feed. Windows warns about an unknown publisher, and installs from it get no updates and"
-  echo "close Chromium tabs after 7 days. Ship the signed installer and feed in the next release."
+  echo "--no-windows: this release ships the unsigned Windows installer, with an update feed signed"
+  echo "here for it. Windows warns about an unknown publisher when someone runs that installer."
+  if assets | grep -qx windows-update.json && assets | grep -qx windows-update.json.sig; then
+    echo "windows-update.json and its signature are on the draft; step 4 checks them."
+  else
+    "$NEW/scripts/windows-feed.sh" "$TAG"
+  fi
 else
 until assets | grep -qx "$WIN_SETUP" && assets | grep -qx windows-update.json && assets | grep -qx windows-update.json.sig; do
   cat <<EOF
@@ -138,8 +143,8 @@ fi
 
 say "4/5 Check the draft"
 gh release view "$TAG" -R "$R" --json assets --jq '.assets[] | "  \(.name)  \(.size) bytes"'
-required=("$MAC_ZIP" "$MAC_DMG" appcast.xml SHA256SUMS)
-$NO_WINDOWS || required+=("$WIN_SETUP" windows-update.json windows-update.json.sig)
+required=("$MAC_ZIP" "$MAC_DMG" appcast.xml SHA256SUMS windows-update.json windows-update.json.sig)
+if $NO_WINDOWS; then required+=("Tarn-$TAG-windows-x64-setup-unsigned.exe"); else required+=("$WIN_SETUP"); fi
 for f in "${required[@]}"; do
   assets | grep -qx "$f" || { echo "Missing $f; not publishing."; exit 1; }
 done
@@ -174,6 +179,19 @@ verify_mac() {
 if verify_mac; then ok=true; else ok=false; fi
 $ok || { echo "The macOS files on the draft failed the team, notarisation or version check. Not publishing."; exit 1; }
 echo "zip and dmg: team CFV35FGSHF, notarised, version $VERSION."
+if $NO_WINDOWS; then
+  gh release download "$TAG" -R "$R" -p windows-update.json -p windows-update.json.sig -D "$chk"
+  for f in windows-update.json windows-update.json.sig; do
+    [ "sha256:$(shasum -a 256 "$chk/$f" | cut -d' ' -f1)" = "$(awk -v n="$f" '$3==n {print $2}' <<<"$snap")" ] \
+      || { echo "$f changed while it was downloaded. Not publishing."; exit 1; }
+  done
+  "$("$NEW/scripts/fetch-sparkle.sh")/bin/sign_update" --account dev.tarn.browser --verify "$chk/windows-update.json" "$(cat "$chk/windows-update.json.sig")" \
+    || { echo "windows-update.json.sig does not verify with the update key. Not publishing."; exit 1; }
+  [ "sha256:$(jq -r .installer.sha256 "$chk/windows-update.json")" = "$(awk -v n="Tarn-$TAG-windows-x64-setup-unsigned.exe" '$3==n {print $2}' <<<"$snap")" ] \
+    && [ "$(jq -r .version "$chk/windows-update.json")" = "$VERSION" ] \
+    || { echo "windows-update.json is not the feed of $TAG's unsigned Windows installer on the draft. Not publishing."; exit 1; }
+  echo "windows-update.json names the unsigned installer on the draft."
+fi
 
 say "Label the files"
 while read -r id _ name; do
@@ -187,7 +205,7 @@ done <<<"$snap"
 say "5/5 Publish"
 echo "Publishing makes $TAG the latest release: Macs and Windows PCs update to it within a day,"
 echo "and the apt/dnf repositories update automatically."
-$NO_WINDOWS && echo "Windows: unsigned installer only, no update feed (--no-windows)."
+$NO_WINDOWS && echo "Windows: unsigned installer, with its update feed (--no-windows)."
 ask "Publish $TAG now?" || exit 0
 [ "$(snapshot)" = "$snap" ] || { echo "A file on the draft was added, removed or replaced after the checks. Not publishing; run this again."; exit 1; }
 gh release edit "$TAG" -R "$R" --draft=false --latest
@@ -198,4 +216,4 @@ if [ "$(snapshot)" != "$snap" ]; then
 fi
 echo "Published: https://github.com/$R/releases/tag/$TAG"
 curl -fsSIL "https://github.com/$R/releases/latest/download/appcast.xml" >/dev/null && echo "appcast.xml reachable at the feed URL."
-$NO_WINDOWS || { curl -fsSIL "https://github.com/$R/releases/latest/download/windows-update.json" >/dev/null && echo "windows-update.json reachable at the feed URL."; }
+curl -fsSIL "https://github.com/$R/releases/latest/download/windows-update.json" >/dev/null && echo "windows-update.json reachable at the feed URL."

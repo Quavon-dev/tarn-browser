@@ -71,8 +71,8 @@ Settings › Privacy › Connections Tarn makes.
 WebKit is the default engine. You can open a tab in Chromium instead, or make Chromium the default
 in Settings › General, while automatic updates are on: Chromium's security fixes reach you only
 through them, and Chromium tabs close when this build's Chromium is 28 days old or no signed update
-check has succeeded for seven days. Before the first Chromium tab, Tarn tells you that Chromium
-connects to Google. When a profile uses Chromium:
+check has succeeded for seven days, or none yet on a new install. Before the first Chromium tab,
+Tarn tells you that Chromium connects to Google. When a profile uses Chromium:
 
 - Chromium's data (cookies, cache, storage) lives in `~/Library/Application Support/Tarn/Chromium`,
   for one profile only; deleting that profile's website data or the profile deletes it, and private
