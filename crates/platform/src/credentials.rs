@@ -41,9 +41,9 @@ pub fn read(target: &str) -> io::Result<Option<Vec<u8>>> {
     if unsafe { CredReadW(name.as_ptr(), CRED_TYPE_GENERIC, 0, &mut found) } == 0 {
         return if missing() { Ok(None) } else { Err(last_error()) };
     }
-    // SAFETY: `found` is the live block CredReadW returned; its blob holds `CredentialBlobSize` bytes.
+    // SAFETY: `found` is null or the live block CredReadW returned; its blob holds `CredentialBlobSize` bytes.
     let secret = unsafe {
-        let c = &*found;
+        let Some(c) = found.as_ref() else { return Ok(None) };
         let bytes = if c.CredentialBlob.is_null() { Vec::new() } else { std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize).to_vec() };
         CredFree(found.cast());
         bytes
