@@ -667,6 +667,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
     let w = weak.clone();
     web.connect_uri_notify(move |web| {
         let Some(s) = w.upgrade().filter(|_| !web.is_loading() && web.uri().is_some_and(|u| !u.is_empty())) else { return };
+        ext::moved(&s, web);
         s.user_step.set(false);
         *s.page.borrow_mut() = web.uri().and_then(|u| Url::parse(&u).ok());
         s.emit("finished", s.page_state(web));

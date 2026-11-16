@@ -694,4 +694,13 @@ fn a_page_restored_from_the_back_forward_cache_is_still_heard_in_a_view() {
     assert!(spin_until(|| state.events.borrow().iter().any(|(n, _)| n == "finished"), 30), "the first page came back");
     assert_eq!(eval(&web, "return String(window.kept);", None), "kept", "it came back from the back/forward cache");
     assert_eq!(send_late(&state, &f, &web), "late via tab", "the restored page is still heard");
+
+    eval(&web, "history.pushState({}, '', '?pushed'); window.kept = 'pushed'; return 'ok';", None);
+    open(&state, &format!("{}next", s.url));
+    state.events.borrow_mut().clear();
+    web.go_back();
+    assert!(spin_until(|| state.events.borrow().iter().any(|(n, _)| n == "finished"), 30), "the page came back to its pushed entry");
+    assert!(web.uri().is_some_and(|u| u.ends_with("?pushed")), "at its pushed entry: {:?}", web.uri());
+    assert_eq!(eval(&web, "return String(window.kept);", None), "pushed", "it came back from the back/forward cache");
+    assert_eq!(send_late(&state, &f, &web), "late via tab", "a page restored at an entry it pushed is still heard");
 }

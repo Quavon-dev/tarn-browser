@@ -250,6 +250,10 @@ pub(super) fn started(state: &State) {
     }
 }
 
+pub(super) fn moved(state: &State, web: &WebView) {
+    *state.ext.item.borrow_mut() = web.back_forward_list().and_then(|l| l.current_item());
+}
+
 pub(super) fn committed(state: &State, web: &WebView) {
     let list = web.back_forward_list();
     let item = list.as_ref().and_then(|l| l.current_item());
