@@ -2282,7 +2282,7 @@ impl Browser {
 
     /// A permission prompt's Allow and Remember, and Keep Anyway on a malware warning, ignore clicks for a
     /// moment after they appear, so a page cannot time a click to land on them.
-    fn prompt_guarded(&self) -> bool {
+    pub(crate) fn prompt_guarded(&self) -> bool {
         self.active_prompt().is_some_and(|p| p.kind.is_permission() || matches!(p.kind, PromptKind::MaliciousDownload { .. })) && !self.layout_stable()
     }
 

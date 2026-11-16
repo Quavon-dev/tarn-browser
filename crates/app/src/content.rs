@@ -414,6 +414,9 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
     ));
     let answer = |remember: bool, accept: bool| {
         cx.listener(move |b: &mut Browser, _, w, cx| {
+            if accept && b.prompt_guarded() {
+                return;
+            }
             b.remember_permission = remember;
             b.answer_prompt(accept, false, w, cx);
         })
@@ -421,9 +424,10 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
     let buttons = div().flex().flex_none().gap_2().items_center();
     let buttons = match &prompt.kind {
         k if k.is_permission() => buttons
-            .child(
-                secure_ghost_button("prompt-silence", "Block requests from this page").on_click(cx.listener(|b, _, w, cx| b.answer_prompt(false, true, w, cx))),
-            )
+            .child(secure_ghost_button("prompt-silence", "Block requests from this page").on_click(cx.listener(|b, _, w, cx| {
+                b.remember_permission = false;
+                b.answer_prompt(false, true, w, cx);
+            })))
             .child(secure_ghost_button("prompt-decline", "Deny").on_click(answer(false, false)))
             .child(secure_button("prompt-accept", "Allow Once", !remember_allowed).on_click(answer(false, true)))
             .when(remember_allowed, |d| d.child(secure_button("prompt-remember", "Always Allow", true).on_click(answer(true, true)))),

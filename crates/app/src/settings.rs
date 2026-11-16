@@ -271,9 +271,17 @@ pub struct SettingsWindow {
 impl SettingsWindow {
     pub fn open(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, cx: &mut App) -> Option<WindowHandle<SettingsWindow>> {
         let sheet = size(px(1000.), px(700.));
-        let over = main.update(cx, |_, window, _| window.bounds()).ok();
-        let bounds =
-            over.map_or_else(|| Bounds::centered(None, sheet, cx), |over| Bounds::new(over.center() - point(sheet.width / 2., sheet.height / 2.), sheet));
+        let over = main.update(cx, |_, window, cx| (window.bounds(), window.display(cx).map(|d| d.bounds()))).ok();
+        let bounds = match over {
+            Some((over, Some(screen))) => {
+                let sheet = size(sheet.width.min(screen.size.width), sheet.height.min(screen.size.height));
+                let at = over.center() - point(sheet.width / 2., sheet.height / 2.);
+                let x = at.x.clamp(screen.origin.x, screen.right() - sheet.width);
+                let y = at.y.clamp(screen.origin.y, screen.bottom() - sheet.height);
+                Bounds::new(point(x, y), sheet)
+            }
+            _ => Bounds::centered(None, sheet, cx),
+        };
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(720.), px(480.))),
@@ -1091,9 +1099,11 @@ impl SettingsWindow {
                 .child(div().text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).child(thousands((*n).max(0) as u64)))
                 .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(caption))
         });
+        let private = target.is_some_and(|(private, _)| private);
         let since = match (card.days, &card.since) {
             (Some(days), Some(since)) => format!("Protected for {} · since {since}", browser_core::shield_card::days_text(days)),
-            _ => "Counts stay in memory until the private space closes.".to_owned(),
+            _ if private => "Counts stay in memory until the private space closes.".to_owned(),
+            _ => "Counting starts with the first thing Shield stops.".to_owned(),
         };
         let levels = ShieldLevel::ALL.into_iter().enumerate().map(|(ix, level)| {
             tab_stop(segment(("profile-level", ix), shield_badge(level), level == card.level)).on_click(cx.listener(move |this, _, _, cx| {
@@ -1102,7 +1112,8 @@ impl SettingsWindow {
         });
         let saved = card.clone();
         let shared = card.clone();
-        let share = if cfg!(target_os = "macos") { "Share Card" } else { "Save as Image" };
+        let system = cfg!(target_os = "macos") && !private;
+        let share = if system { "Share Card" } else { "Save as Image" };
         let actions = div()
             .flex()
             .flex_wrap()
@@ -1123,14 +1134,14 @@ impl SettingsWindow {
             )))
             .child(tab_stop(button("share-card", share, false)).child(icon(Icon::Share, 13., Theme::muted())).on_click(cx.listener(
                 move |this, _, window, cx| {
-                    if cfg!(target_os = "macos") {
+                    if system {
                         this.share_card(shared.clone(), window, cx);
                     } else {
                         this.save_card(shared.clone(), cx);
                     }
                 },
             )))
-            .when(cfg!(target_os = "macos"), |d| {
+            .when(system, |d| {
                 d.child(tab_stop(button("save-card", "Save as Image", false)).on_click(cx.listener(move |this, _, _, cx| this.save_card(saved.clone(), cx))))
             });
         div().pt_4().flex().items_start().gap_6().child(face).child(

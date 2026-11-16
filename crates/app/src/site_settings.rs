@@ -98,8 +98,14 @@ pub fn permission_rows(stored: Vec<(String, String, String)>, page: &str) -> Vec
 /// elements it lists under the CSS row.
 fn card_height(permissions: usize, more: Option<(bool, usize)>) -> f32 {
     let list = ROW * (4 + permissions) as f32 + 2.;
-    let more = more.map_or(0., |(routable, zaps)| ROW * (1 + usize::from(routable) + zaps) as f32);
+    let more = more.map_or(0., |(routable, zaps)| GAP + ROW * (1 + usize::from(routable) + zaps) as f32);
     HEADER + SUMMARY + SHIELD + list + more + FOOTER + PAD
+}
+
+/// A switch's id for the setting it shows (`scope` names the profile, site or tab it belongs to),
+/// so it slides only when that setting flips.
+fn setting_id(name: &'static str, scope: String) -> gpui::ElementId {
+    gpui::ElementId::NamedChild(Box::new(name.into()), SharedString::from(scope))
 }
 
 impl Browser {
@@ -438,18 +444,33 @@ impl SiteSettingsWindow {
         });
     }
 
-    fn header(&self, favicon: gpui::AnyElement, url: &Url, host: &str, paused: bool, pause_host: String, cx: &mut Context<Self>) -> gpui::Div {
+    fn header(
+        &self,
+        favicon: gpui::AnyElement,
+        url: &Url,
+        host: &str,
+        (paused, pause_host): (bool, String),
+        profile: String,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let (glyph, color, text) = if url.scheme() == "https" {
             (Icon::Lock, Secure::success(), "Connection is secure")
         } else {
             (Icon::TriangleAlert, Secure::warning(), "Not secure — this page is not encrypted")
         };
-        let block = tab_stop(div().id("block-site").flex_none().rounded_full().cursor_pointer().child(sliding_switch("block-site-switch", !paused)))
-            .tooltip(tooltip("Block ads, trackers and cookie banners", None))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                let host = pause_host.clone();
-                this.on_main(cx, move |b, w, cx| b.set_site_paused(&host, !paused, w, cx));
-            }));
+        let block = tab_stop(
+            div()
+                .id("block-site")
+                .flex_none()
+                .rounded_full()
+                .cursor_pointer()
+                .child(sliding_switch(setting_id("block-site-switch", format!("{profile}/{pause_host}")), !paused)),
+        )
+        .tooltip(tooltip("Block ads, trackers and cookie banners", None))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            let host = pause_host.clone();
+            this.on_main(cx, move |b, w, cx| b.set_site_paused(&host, !paused, w, cx));
+        }));
         div()
             .h(px(HEADER))
             .flex_none()
@@ -522,7 +543,7 @@ impl SiteSettingsWindow {
             .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label.into()))
     }
 
-    fn switch_item(id: &'static str, glyph: Icon, label: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
+    fn switch_item(id: gpui::ElementId, glyph: Icon, label: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
         let body = div()
             .flex_1()
             .min_w_0()
@@ -717,7 +738,8 @@ impl Render for SiteSettingsWindow {
         let zapped = if more { b.zapped(Some(&host)) } else { Vec::new() };
         let stopped = b.site_stopped(key, &url);
         let favicon = crate::sidebar::site_icon(b, url.as_str(), 28.);
-        let header = self.header(favicon, &url, &shown, paused, pause_host, cx);
+        let profile = format!("{}/{:?}", key.private, b.profile_of(key));
+        let header = self.header(favicon, &url, &shown, (paused, pause_host), profile.clone(), cx);
         let permission_rows: Vec<_> = permissions.iter().enumerate().map(|(ix, row)| self.permission(key, ix, row, cx)).collect();
         let armed = self.armed.as_deref() == Some(host.as_str());
         let zap_rows: Vec<_> = zapped
@@ -734,13 +756,17 @@ impl Render for SiteSettingsWindow {
         let list = group()
             .flex_none()
             .child(self.popups(&origin, popups, cx))
-            .child(Self::switch_item("mute-site", Icon::VolumeX, "Mute this site", muted).on_click(cx.listener(move |this, _, _, cx| {
-                this.browser.update(cx, |b, cx| b.toggle_site_muted(key, cx)).ok();
-            })))
-            .child(Self::switch_item("dark-site", Icon::Moon, "Dark mode for this site", dark).on_click(cx.listener(move |this, _, _, cx| {
-                let host = dark_host.clone();
-                this.on_main(cx, move |b, w, cx| b.set_site_dark(&host, !dark, w, cx));
-            })))
+            .child(Self::switch_item(setting_id("mute-site", format!("{profile}/{}", key.id)), Icon::VolumeX, "Mute this site", muted).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.browser.update(cx, |b, cx| b.toggle_site_muted(key, cx)).ok();
+                },
+            )))
+            .child(Self::switch_item(setting_id("dark-site", format!("{profile}/{host}")), Icon::Moon, "Dark mode for this site", dark).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    let host = dark_host.clone();
+                    this.on_main(cx, move |b, w, cx| b.set_site_dark(&host, !dark, w, cx));
+                },
+            )))
             .child(self.zoom(percent, cx))
             .children(permission_rows);
         let rows = div()
@@ -812,7 +838,7 @@ mod tests {
     #[test]
     fn the_card_grows_with_its_permissions_and_more_settings() {
         assert_eq!(card_height(3, None) - card_height(1, None), 2. * ROW);
-        assert_eq!(card_height(0, Some((false, 0))) - card_height(0, None), ROW);
+        assert_eq!(card_height(0, Some((false, 0))) - card_height(0, None), GAP + ROW);
         assert_eq!(card_height(0, Some((true, 0))) - card_height(0, Some((false, 0))), ROW);
         assert_eq!(card_height(0, Some((false, 2))) - card_height(0, Some((false, 0))), 2. * ROW);
     }
