@@ -202,17 +202,11 @@ pub struct Browser {
     pub command_mode: Option<CommandMode>,
     pub(crate) settings_window: Option<WindowHandle<SettingsWindow>>,
     pub(crate) qr: Option<WindowHandle<crate::qr::QrWindow>>,
-    pub(crate) favicons: HashMap<IconKey, Arc<Image>>,
+    favicons: favicon::Tracker<(bool, Id), Arc<Image>>,
     /// `favicon` results by page URL for one profile, emptied whenever `favicons` changes.
     favicon_memo: RefCell<Option<((bool, Id), FaviconMemo)>>,
-    /// Hosts already asked for this session, so a failed lookup is not repeated on every load.
-    favicon_requested: HashSet<IconKey>,
-    favicon_failures: HashMap<IconKey, u8>,
-    /// Stored icons older than `favicon::MAX_AGE`, fetched again on the site's next load.
-    favicon_stale: HashSet<IconKey>,
     #[cfg(feature = "translation")]
     pub(crate) translation_offered: HashSet<(bool, Id, String)>,
-    favicon_profiles: HashSet<(bool, Id)>,
     pub sidebar_open: bool,
     pub sidebar_width: f32,
     pub(crate) toast: crate::toast::Toasts,
@@ -400,14 +394,10 @@ impl Browser {
             command_mode: None,
             settings_window: None,
             qr: None,
-            favicons: HashMap::new(),
+            favicons: favicon::Tracker::default(),
             favicon_memo: RefCell::new(None),
-            favicon_requested: HashSet::new(),
             #[cfg(feature = "translation")]
             translation_offered: HashSet::new(),
-            favicon_failures: HashMap::new(),
-            favicon_stale: HashSet::new(),
-            favicon_profiles: HashSet::new(),
             sidebar_open,
             sidebar_width,
             toast: Default::default(),
@@ -784,16 +774,13 @@ impl Browser {
 
     /// Stored icons are small 64 px PNGs, so a profile's set is read once and kept in memory.
     fn load_favicons(&mut self, private: bool, profile_id: Id) {
-        if !self.favicon_profiles.insert((private, profile_id)) {
-            return;
-        }
-        for (host, png) in self.store(private).favicons(profile_id).unwrap_or_default() {
-            self.favicons.insert((private, profile_id, host), Arc::new(Image::from_bytes(ImageFormat::Png, png)));
-        }
+        let store = self.core.store(private);
+        self.favicons.load(&(private, profile_id), || {
+            let icons = store.favicons(profile_id).unwrap_or_default();
+            let icons = icons.into_iter().map(|(host, png)| (host, Arc::new(Image::from_bytes(ImageFormat::Png, png)))).collect();
+            (icons, store.stale_favicons(profile_id, now() - favicon::MAX_AGE).unwrap_or_default())
+        });
         self.favicon_memo.take();
-        for host in self.store(private).stale_favicons(profile_id, now() - favicon::MAX_AGE).unwrap_or_default() {
-            self.favicon_stale.insert((private, profile_id, host));
-        }
     }
 
     fn runtime(&mut self, private: bool, profile_id: Id) -> Option<Ref<'_, ProfileRuntime>> {
@@ -2986,12 +2973,8 @@ impl Browser {
     }
 
     pub(crate) fn forget_favicons(&mut self, profile: (bool, Id)) {
-        self.favicons.retain(|(p, id, _), _| (*p, *id) != profile);
+        self.favicons.forget(&profile);
         self.favicon_memo.take();
-        self.favicon_requested.retain(|(p, id, _)| (*p, *id) != profile);
-        self.favicon_failures.retain(|(p, id, _), _| (*p, *id) != profile);
-        self.favicon_stale.retain(|(p, id, _)| (*p, *id) != profile);
-        self.favicon_profiles.remove(&profile);
         #[cfg(feature = "translation")]
         self.translation_offered.retain(|(p, id, _)| (*p, *id) != profile);
     }
@@ -3016,22 +2999,8 @@ impl Browser {
         found
     }
 
-    fn find_favicon(&self, (private, profile_id): (bool, Id), url: &str) -> Option<Arc<Image>> {
-        let key = |host| (private, profile_id, host);
-        let host = tab_host(url)?.trim_end_matches('.').to_owned();
-        // Nearly every lookup hits the exact host, so the public-suffix walk runs only on a miss.
-        if let Some(icon) = self.favicons.get(&key(host.clone())) {
-            return Some(icon.clone());
-        }
-        favicon::lookup_hosts(&host).into_iter().skip(1).find_map(|host| self.favicons.get(&key(host)).cloned())
-    }
-
-    /// Withdraws a failed request, so the site's next page load tries again, up to
-    /// `favicon::MAX_TRIES` times a session.
-    fn favicon_failed(&mut self, icon: &IconKey) {
-        if self.favicon_requested.remove(icon) {
-            *self.favicon_failures.entry(icon.clone()).or_default() += 1;
-        }
+    fn find_favicon(&self, profile: (bool, Id), url: &str) -> Option<Arc<Image>> {
+        self.favicons.find(&profile, &tab_host(url)?).cloned()
     }
 
     /// Lockdown pages get no extra requests.
@@ -3039,15 +3008,11 @@ impl Browser {
         let lockdown = self.level_for_tab(key, url.as_str()) == ShieldLevel::Lockdown;
         let (Some(profile_id), Some(host)) = (self.profile_of(key), favicon::icon_host(url, lockdown)) else { return };
         self.load_favicons(key.private, profile_id);
-        let icon = (key.private, profile_id, host);
         let Some(view) = self.views.get(&key) else { return };
-        let tries = self.favicon_failures.get(&icon).copied().unwrap_or(0);
-        if (self.favicons.contains_key(&icon) && !self.favicon_stale.contains(&icon))
-            || tries >= favicon::MAX_TRIES
-            || !self.favicon_requested.insert(icon.clone())
-        {
+        if !self.favicons.request(&(key.private, profile_id), &host) {
             return;
         }
+        let icon = (key.private, profile_id, host);
         let (events, page) = (self.events.clone(), url.clone());
         view.icon_links(url, move |links| {
             events.unbounded_send(Msg::IconLinks(key, icon.clone(), page.clone(), links)).ok();
@@ -3057,9 +3022,9 @@ impl Browser {
     fn fetch_favicon(&mut self, key: TabKey, icon: IconKey, page: &Url, links: &str) {
         let urls = favicon::candidates(page, links);
         let still_there = |v: &&Rc<WebView>| v.url().is_some_and(|u| u.origin() == page.origin());
-        let view = self.views.get(&key).filter(still_there).filter(|_| !urls.is_empty() && self.favicon_requested.contains(&icon));
+        let view = self.views.get(&key).filter(still_there).filter(|_| !urls.is_empty() && self.favicons.is_requested(&(icon.0, icon.1), &icon.2));
         let Some(view) = view else {
-            self.favicon_requested.remove(&icon);
+            self.favicons.withdraw(&(icon.0, icon.1), &icon.2);
             return;
         };
         let events = self.events.clone();
@@ -3072,15 +3037,16 @@ impl Browser {
         cx.spawn(async move |this, cx| {
             let png = cx.background_spawn(async move { favicon::normalize(&data) }).await;
             this.update(cx, |b, cx| {
+                let (profile, host) = ((icon.0, icon.1), icon.2);
                 // A history clear while the icon was loading withdraws the request.
-                let Some(png) = png.filter(|_| b.favicon_requested.contains(&icon)) else { return b.favicon_failed(&icon) };
-                if b.core.keeps_records(icon.0, icon.1) {
-                    b.store(icon.0).set_favicon(icon.1, &icon.2, &png).ok();
+                let wanted = b.favicons.is_requested(&profile, &host);
+                if let Some(png) = png.as_ref().filter(|_| wanted && b.core.keeps_records(profile.0, profile.1)) {
+                    b.store(profile.0).set_favicon(profile.1, &host, png).ok();
                 }
-                b.favicon_stale.remove(&icon);
-                b.favicons.insert(icon, Arc::new(Image::from_bytes(ImageFormat::Png, png)));
-                b.favicon_memo.take();
-                cx.notify();
+                if b.favicons.accept(&profile, &host, png.map(|png| Arc::new(Image::from_bytes(ImageFormat::Png, png)))) {
+                    b.favicon_memo.take();
+                    cx.notify();
+                }
             })
             .ok();
         })
