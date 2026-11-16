@@ -63,6 +63,13 @@ All notable changes to Tarn are documented in this file. The format is based on
   first, after a minute unused, pinned tabs after 30 minutes (macOS; off when Sleep background
   tabs after is Never).
 
+### Changed
+
+- The app identifier is `de.quavon.tarn` (was `dev.tarn.browser`) on macOS, iOS and Android. On
+  macOS the first start moves the website data over; Tarn has to be made the default browser again,
+  camera and microphone permissions are asked again, and a saved Anthropic API token has to be
+  entered again.
+
 ### Fixed
 
 - Windows: pages without a background of their own no longer turn dark grey after a link or a

@@ -7,7 +7,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.tarn.browser"
+        applicationId = "de.quavon.tarn"
         minSdk = 28
         targetSdk = 36
         versionCode = 1

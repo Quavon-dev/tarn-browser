@@ -41,7 +41,7 @@ app="$work/unpacked/Tarn.app"
 [[ "$(spctl -a -t execute -vv "$app" 2>&1 || true)" == *": accepted"$'\n'"source=Notarized Developer ID"* ]] \
   || { echo "Tarn.app in $zip is not notarised (run scripts/notarize.sh first)" >&2; exit 1; }
 [[ "$(codesign -dv "$app" 2>&1 || true)" == *$'\nTeamIdentifier=CFV35FGSHF'* ]] || { echo "Tarn.app is not signed by team CFV35FGSHF" >&2; exit 1; }
-[[ "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" == dev.tarn.browser ]] || { echo "not dev.tarn.browser" >&2; exit 1; }
+[[ "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" == de.quavon.tarn ]] || { echo "not de.quavon.tarn" >&2; exit 1; }
 for field in CFBundleShortVersionString CFBundleVersion; do
   [[ "$(plutil -extract "$field" raw "$app/Contents/Info.plist")" == "$version" ]] || { echo "the app's $field is not $version" >&2; exit 1; }
 done

@@ -11,7 +11,7 @@ pages on block lists stopped, pop-ups blocked and requests blocked by the Chromi
 engine's filter; in total, per day for the last seven days and per site for the sites protected
 most) with its design value are stored only
 on your Mac, separately for each profile, in `~/Library/Application Support/Tarn` and in WebKit's
-per-profile website data stores in `~/Library/WebKit/dev.tarn.browser`; Chromium's data for the one
+per-profile website data stores in `~/Library/WebKit/de.quavon.tarn`; Chromium's data for the one
 profile that uses it lives in `~/Library/Application Support/Tarn/Chromium`. Tarn runs without the
 App Sandbox, so these folders are protected by your user account's file permissions and FileVault;
 Chromium's helper processes and WebKit's content processes keep their own sandboxes. The database file is readable only by your user account. The

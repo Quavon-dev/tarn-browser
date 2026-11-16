@@ -31,7 +31,7 @@
             android:name=".PrivateActivity"
             android:exported="false"
             android:process=":private"
-            android:taskAffinity="dev.tarn.browser.private"
+            android:taskAffinity="de.quavon.tarn.private"
             android:launchMode="singleTask"
             android:autoRemoveFromRecents="true"
             android:label="Tarn Private"

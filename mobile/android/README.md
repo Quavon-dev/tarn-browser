@@ -4,7 +4,7 @@ The Android host of the Tarn mobile app (`docs/mobile-plan.md` M3).
 
 | Path | What it is |
 |---|---|
-| `host/` | Gradle app `dev.tarn.browser`: `MainActivity` and `PrivateActivity` run the NSH Rust app with `NshView.runRustApp`, `TarnWebView` is the `tarn.webview` component (contract v2), `SweepService` deletes a closed private session |
+| `host/` | Gradle app `de.quavon.tarn`: `MainActivity` and `PrivateActivity` run the NSH Rust app with `NshView.runRustApp`, `TarnWebView` is the `tarn.webview` component (contract v2), `SweepService` deletes a closed private session |
 | `rust/` | Crate `tarn-mobile-android`: the JNI calls the component makes (`nav_policy`, Shield verdicts, download names), the bridge back to Java, and `Data`, the `browser_core::WebsiteData` for Android |
 | `build.sh` | NSH embed runtime (SHA-256 checked), `nsh package --target android` of the shared app `../app`, `libnsh.so` into the host, `gradlew clean assembleDebug` |
 | `server.py` | Logging test server and proxy for the exit checks |
@@ -57,7 +57,7 @@ private process the shell shows only the private space and "Close Private Space"
 cd mobile/android
 ./build.sh                                   # nsh 0.5.0 on PATH, ANDROID_HOME, rustup with the Android targets
 adb install -r host/build/outputs/apk/debug/tarn-android-debug.apk
-adb shell "run-as dev.tarn.browser sh -c 'echo localhost:8771 > /data/user/0/dev.tarn.browser/debug-proxy'"
+adb shell "run-as de.quavon.tarn sh -c 'echo localhost:8771 > /data/user/0/de.quavon.tarn/debug-proxy'"
 openssl req -x509 -newkey rsa:2048 -nodes -days 7 -subj /CN=public.test \
   -addext subjectAltName=DNS:public.test -keyout key.pem -out cert.pem   # outside the repository
 python3 server.py 8771 server.log cert.pem key.pem &

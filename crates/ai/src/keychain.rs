@@ -4,7 +4,7 @@ use security_framework::passwords::{delete_generic_password, get_generic_passwor
 use crate::claude_api::ApiToken;
 use crate::provider::AiError;
 
-const SERVICE: &str = "dev.tarn.browser";
+const SERVICE: &str = "de.quavon.tarn";
 const ACCOUNT: &str = "anthropic-api-token";
 #[cfg(target_os = "macos")]
 const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;

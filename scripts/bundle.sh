@@ -71,7 +71,7 @@ for flavor in "" " (GPU)" " (Renderer)" " (Plugin)" " (Alerts)"; do
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>dev.tarn.browser.helper${suffix:+.$suffix}</string>
+<key>CFBundleIdentifier</key><string>de.quavon.tarn.helper${suffix:+.$suffix}</string>
 <key>CFBundleExecutable</key><string>$name</string>
 <key>CFBundleName</key><string>$name</string>
 <key>CFBundlePackageType</key><string>APPL</string>
