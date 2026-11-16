@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use engine::favicon;
 use engine::page_scripts::{self, PICKER};
 use nsh_core::JsonValue;
 use serde_json::json;
@@ -54,6 +55,22 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             let query = args["query"].as_str().unwrap_or_default();
             let body = (!query.is_empty()).then(|| page_scripts::find_text_script(query));
             run(state, body, move |s, url, text| s.emit("textFound", json!({ "seq": seq, "url": url, "snippets": page_scripts::find_snippets(&text) })));
+        }
+        "iconLinks" => {
+            let body = page.as_ref().and_then(page_scripts::icon_links_script);
+            run(state, body, move |s, url, text| s.emit("iconLinks", json!({ "seq": seq, "url": url, "text": text })));
+        }
+        "fetchIcon" => {
+            let urls: Vec<Url> = args["urls"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|u| Url::parse(u.as_str()?).ok().filter(|u| u.scheme() == "https"))
+                .take(favicon::MAX_CANDIDATES)
+                .collect();
+            let max = args["maxBytes"].as_u64().unwrap_or(0).min(favicon::MAX_BYTES as u64) as usize;
+            let body = page.as_ref().filter(|_| max > 0 && !urls.is_empty()).and_then(|p| page_scripts::fetch_icon_script(p, &urls, max));
+            run(state, body, move |s, url, text| s.emit("iconData", json!({ "seq": seq, "url": url, "text": text })));
         }
         "pick" => run(state, Some(PICKER.to_owned()), move |s, url, selector| s.emit("picked", json!({ "seq": seq, "url": url, "selector": selector }))),
         "pickCancel" => run(state, Some(PICK_CANCEL.to_owned()), |_, _, _| {}),

@@ -308,7 +308,7 @@ pub fn share_panel(ui: Ui) -> AnyElement {
         .pb_2()
         .border_b_1()
         .border_color(Theme::hairline())
-        .child(super::site_tile(&host, 28.))
+        .child(super::site_tile(ui, &host, 28.))
         .child(
             view()
                 .flex_col()

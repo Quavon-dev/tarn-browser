@@ -60,10 +60,12 @@ fn a_burned_tab_keeps_its_download_running_and_records_nothing() {
     b.open_burner();
     let key = b.model.active.unwrap();
     let burner_profile = b.model.profile().unwrap().1;
+    b.favicons.load(&(true, burner_profile), || (vec![("a.test".to_owned(), std::sync::Arc::from("icon"))], Vec::new()));
     b.on_download(key, &json!({ "id": "9", "state": "started", "name": "a.zip", "path": "/d/a.zip" }), true);
     b.close_tab(key);
     assert!(!b.model.burner_shown());
     assert_eq!(b.released.len(), 1);
+    assert!(b.favicons.icons(&(true, burner_profile)).next().is_none(), "burning forgets the burner's icons");
     b.on_download(key, &json!({ "id": "9", "state": "finished", "name": "a.zip", "path": "/d/a.zip", "url": "https://d.test/a.zip" }), true);
     assert_eq!(b.downloads[0].state, "finished");
     assert!(b.core.store(true).downloads(burner_profile).unwrap().is_empty());
@@ -420,4 +422,48 @@ fn a_typed_search_forgets_the_last_count_and_a_step_keeps_it() {
     assert_eq!(b.pages[&key].found, Some(0));
     b.find_typed("xy");
     assert_eq!(b.pages[&key].found, None);
+}
+
+#[test]
+fn site_icons_load_at_start_fetch_inside_the_tab_and_go_with_history() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    let profile = b.model.profile().unwrap().1;
+    b.core.disk.set_favicon(profile, "b.test", b"png").unwrap();
+    let icons = b.site_icons(&Default::default()).unwrap();
+    assert_eq!(icons.find("www.b.test").as_deref(), Some(engine::favicon::data_uri(b"png").as_str()));
+    assert!(b.site_icons(&icons).is_none(), "unchanged");
+    visit(&mut b, key, "https://b.test/");
+    assert!(asked(&b, "iconLinks").is_empty(), "a fresh stored icon is not fetched again");
+    visit(&mut b, key, "http://a.test/");
+    assert!(asked(&b, "iconLinks").is_empty(), "only https");
+    for _ in 0..engine::favicon::MAX_TRIES {
+        b.outbox.clear();
+        visit(&mut b, key, "https://a.test/x");
+        let seq = asked(&b, "iconLinks")[0]["seq"].as_u64().unwrap();
+        b.on_event(key, "iconLinks", &json!({ "seq": seq, "url": "https://a.test/x", "text": "https://a.test/i.png\t32x32\nhttps://evil.test/p.png\t64x64" }));
+        let fetch = asked(&b, "fetchIcon");
+        assert_eq!(fetch[0]["urls"], json!(["https://a.test/i.png", "https://a.test/favicon.ico"]));
+        assert_eq!(fetch[0]["maxBytes"], engine::favicon::MAX_BYTES);
+        b.on_icon_event(
+            key,
+            &json!({ "seq": fetch[0]["seq"], "url": "https://a.test/x", "text": "bm90IGFuIGltYWdl" }),
+            engine::favicon::normalize("bm90IGFuIGltYWdl"),
+        );
+    }
+    b.outbox.clear();
+    visit(&mut b, key, "https://a.test/x");
+    assert!(asked(&b, "iconLinks").is_empty(), "gives up after MAX_TRIES failed fetches");
+    assert!(b.core.disk.favicons(profile).unwrap().iter().all(|(h, _)| h == "b.test"));
+    b.clear_history();
+    let cleared = b.site_icons(&icons).unwrap();
+    assert!(cleared.find("b.test").is_none());
+    b.outbox.clear();
+    visit(&mut b, key, "https://a.test/x");
+    assert_eq!(asked(&b, "iconLinks").len(), 1, "a history clear starts over");
+    b.close_tab(key);
+    let next = b.new_tab("https://a.test/x").unwrap();
+    b.outbox.clear();
+    visit(&mut b, next, "https://a.test/x");
+    assert_eq!(asked(&b, "iconLinks").len(), 1, "a closed tab's unanswered request does not hold the host");
 }

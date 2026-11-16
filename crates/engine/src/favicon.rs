@@ -2,6 +2,8 @@
 //! and user agent apply; the shell only picks same-site URLs, or another site's the page already
 //! loaded from, and decodes the bytes with limits.
 
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::io::Cursor;
 
 use base64::Engine as _;
@@ -12,7 +14,7 @@ use url::Url;
 pub const MAX_BYTES: usize = 256 * 1024;
 const MAX_DIMENSION: u32 = 1024;
 const MAX_URL_LEN: usize = 2048;
-const MAX_CANDIDATES: usize = 4;
+pub const MAX_CANDIDATES: usize = 4;
 const MAX_LOADED_HOSTS: usize = 64;
 pub const SIZE: u32 = 64;
 pub const MAX_TRIES: u8 = 3;
@@ -124,6 +126,100 @@ pub fn normalize(encoded: &str) -> Option<Vec<u8>> {
     Some(png)
 }
 
+/// `png` as a `data:` URI, for shells that draw images from one.
+pub fn data_uri(png: &[u8]) -> String {
+    format!("data:image/png;base64,{}", STANDARD.encode(png))
+}
+
+/// A shell's site icons in memory for profiles `P`, and the bookkeeping of fetches: one at a time a
+/// host, at most `MAX_TRIES` failures a session, stale icons fetched again and kept until a new one
+/// arrives.
+pub struct Tracker<P, I> {
+    icons: HashMap<(P, String), I>,
+    loaded: HashSet<P>,
+    requested: HashSet<(P, String)>,
+    failures: HashMap<(P, String), u8>,
+    stale: HashSet<(P, String)>,
+    version: u64,
+}
+
+impl<P, I> Default for Tracker<P, I> {
+    fn default() -> Self {
+        Self { icons: HashMap::new(), loaded: HashSet::new(), requested: HashSet::new(), failures: HashMap::new(), stale: HashSet::new(), version: 0 }
+    }
+}
+
+impl<P: Clone + Eq + Hash, I> Tracker<P, I> {
+    /// Reads a profile's stored icons and stale hosts with `read` the first time only.
+    pub fn load(&mut self, profile: &P, read: impl FnOnce() -> (Vec<(String, I)>, Vec<String>)) {
+        if !self.loaded.insert(profile.clone()) {
+            return;
+        }
+        let (icons, stale) = read();
+        self.icons.extend(icons.into_iter().map(|(host, icon)| ((profile.clone(), host), icon)));
+        self.stale.extend(stale.into_iter().map(|host| (profile.clone(), host)));
+        self.version += 1;
+    }
+
+    /// Whether to fetch `host`'s icon now; the request stays open until `accept` or `withdraw`.
+    pub fn request(&mut self, profile: &P, host: &str) -> bool {
+        let key = (profile.clone(), host.to_owned());
+        let fresh = self.icons.contains_key(&key) && !self.stale.contains(&key);
+        !fresh && self.failures.get(&key).copied().unwrap_or(0) < MAX_TRIES && self.requested.insert(key)
+    }
+
+    pub fn is_requested(&self, profile: &P, host: &str) -> bool {
+        self.requested.contains(&(profile.clone(), host.to_owned()))
+    }
+
+    /// Ends a request that found nothing to fetch, without counting a failure.
+    pub fn withdraw(&mut self, profile: &P, host: &str) {
+        self.requested.remove(&(profile.clone(), host.to_owned()));
+    }
+
+    /// Ends a request with its icon, or a failure for `None`; false when nothing was kept, also
+    /// when the request was withdrawn or forgotten meanwhile.
+    pub fn accept(&mut self, profile: &P, host: &str, icon: Option<I>) -> bool {
+        let key = (profile.clone(), host.to_owned());
+        if !self.requested.remove(&key) {
+            return false;
+        }
+        let Some(icon) = icon else {
+            *self.failures.entry(key).or_default() += 1;
+            return false;
+        };
+        self.stale.remove(&key);
+        self.icons.insert(key, icon);
+        self.version += 1;
+        true
+    }
+
+    /// The host's icon, else the nearest one `lookup_hosts` allows.
+    pub fn find(&self, profile: &P, host: &str) -> Option<&I> {
+        lookup_hosts(host).into_iter().find_map(|host| self.icons.get(&(profile.clone(), host)))
+    }
+
+    /// The profile's icons by host.
+    pub fn icons<'a>(&'a self, profile: &'a P) -> impl Iterator<Item = (&'a str, &'a I)> {
+        self.icons.iter().filter(move |((p, _), _)| p == profile).map(|((_, host), icon)| (host.as_str(), icon))
+    }
+
+    /// Forgets a profile after its history is cleared or its data deleted; the next `load` reads it again.
+    pub fn forget(&mut self, profile: &P) {
+        self.icons.retain(|(p, _), _| p != profile);
+        self.requested.retain(|(p, _)| p != profile);
+        self.failures.retain(|(p, _), _| p != profile);
+        self.stale.retain(|(p, _)| p != profile);
+        self.loaded.remove(profile);
+        self.version += 1;
+    }
+
+    /// Changes whenever the icons do.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+}
+
 /// A dark mark on a transparent background disappears on the dark sidebar, so it gets a light
 /// plate, as Safari does.
 fn is_dark_on_clear(icon: &RgbaImage) -> bool {
@@ -227,5 +323,36 @@ mod tests {
         mark.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).unwrap();
         let out = image::load_from_memory(&normalize(&STANDARD.encode(png)).unwrap()).unwrap().to_rgba8();
         assert_eq!(out.get_pixel(0, 0)[3], 255);
+    }
+
+    #[test]
+    fn the_tracker_fetches_once_retries_failures_and_refreshes_stale_icons() {
+        let mut t: Tracker<u8, &str> = Tracker::default();
+        t.load(&1, || (vec![("old.test".to_owned(), "old"), ("a.test".to_owned(), "a")], vec!["old.test".to_owned()]));
+        t.load(&1, || panic!("read once"));
+        assert!(!t.request(&1, "a.test"), "fresh icons are not fetched");
+        assert!(t.request(&1, "old.test") && !t.request(&1, "old.test"), "one fetch at a time");
+        assert!(!t.accept(&1, "old.test", None));
+        assert_eq!(t.find(&1, "old.test"), Some(&"old"), "a stale icon stays until a new one arrives");
+        assert!(t.request(&1, "old.test") && t.accept(&1, "old.test", Some("new")));
+        assert!(!t.request(&1, "old.test"));
+        for _ in 0..MAX_TRIES {
+            assert!(t.request(&1, "b.test"));
+            t.accept(&1, "b.test", None);
+        }
+        assert!(!t.request(&1, "b.test"), "gives up after MAX_TRIES failures");
+        assert!(t.request(&1, "c.test"));
+        t.withdraw(&1, "c.test");
+        assert!(t.request(&1, "c.test"), "a withdrawn request counts no failure");
+        assert_eq!(t.find(&1, "news.a.test"), Some(&"a"));
+        assert_eq!(t.find(&2, "a.test"), None, "per profile");
+        let version = t.version();
+        t.forget(&1);
+        assert!(t.version() > version && t.find(&1, "a.test").is_none() && t.icons(&1).next().is_none());
+        assert!(!t.accept(&1, "c.test", Some("late")), "a forgotten request keeps nothing");
+        assert!(t.request(&1, "b.test"), "forgetting resets failures");
+        t.load(&1, || (vec![("a.test".to_owned(), "a")], Vec::new()));
+        assert_eq!(t.icons(&1).collect::<Vec<_>>(), [("a.test", &"a")]);
+        assert!(data_uri(&[1, 2]).starts_with("data:image/png;base64,AQI"));
     }
 }

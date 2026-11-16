@@ -58,6 +58,9 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   `spd-say`, shown only when it is on `PATH` (Read Aloud / Stop, no pause: `spd-say` has none);
 - full-text history (`readText`, off by default) feeding address suggestions; Find in Tabs
   (`Ctrl+Shift+F`, `findText`);
+- site icons (`iconLinks`, `fetchIcon`): fetched inside the tab after each https load, kept per profile
+  by `engine::favicon::Tracker`, stored with `Store::set_favicon` and drawn wherever a site's letter
+  tile was (tiles, tab rows, split panes, history, bookmarks, suggestions, site and share popovers);
 - Shield: cookie-banner lists switch, the Shield card (front and stamps side, no 3D tilt in NSH)
   with the last seven days and the sites protected most; counters from `shielded` events;
 - downloads: `id`, progress (percentage next to the downloads button, sizes in the panel), cancel,
@@ -77,8 +80,8 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   `process {pid}` (a Linux addition) when exactly one new `WebKitWebProcess` below the app appears
   between a load's start and its commit; tabs it cannot tell apart are "Not measured".
 
-Not ported: on-device translation and the startup trace (macOS-only), favicons (the Linux shell
-draws letter tiles), the live page peek (optional, skipped).
+Not ported: on-device translation and the startup trace (macOS-only), the live page peek (optional,
+skipped).
 
 ## Build and test (Docker; no Linux desktop is needed)
 

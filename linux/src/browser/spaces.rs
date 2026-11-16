@@ -93,6 +93,9 @@ impl Browser {
         for key in keys {
             self.forget_tab(key);
         }
+        if let Some(p) = profile {
+            self.favicons.forget(&(true, p));
+        }
         self.model.burn(&self.core);
     }
 

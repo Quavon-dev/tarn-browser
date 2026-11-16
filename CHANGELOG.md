@@ -6,6 +6,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Site icons in tiles, tab rows, split panes, history, bookmarks, suggestions and the site and share
+  popovers, fetched inside the tab as on macOS and kept per profile (Linux).
+
 ### Changed
 
 - The Shield card follows the theme: dawn with the sun behind the peak in light themes, night
