@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prints which CI jobs a change needs, as GitHub step outputs (code, shared, nsh, mobile, linux).
-# With --classify it reads changed paths from stdin; otherwise it diffs the checked-out commit
-# against its pull request base or the pushed range. When the range is unknown, every job runs.
+# With --classify it reads changed paths from stdin; otherwise it diffs a pull request's merge commit
+# against its base. Pushes, manual runs and calls run every job, so main is always fully checked.
 set -euo pipefail
 
 all() { printf '%s=true\n' code shared nsh mobile linux; }
@@ -33,12 +33,8 @@ if [[ "${1:-}" == --classify ]]; then
   exit 0
 fi
 
-range=()
-case "${EVENT:-}" in
-  pull_request) range=(HEAD^1 HEAD) ;;
-  push) if [[ "${BEFORE:-}" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]]; then range=("$BEFORE" HEAD); fi ;;
-esac
-if [[ ${#range[@]} -gt 0 ]] && files="$(git diff --name-only "${range[@]}")"; then
+# --no-renames lists a moved file under its old path too, so moving code into docs/ still counts.
+if [[ "${EVENT:-}" == pull_request ]] && files="$(git diff --no-renames --name-only HEAD^1 HEAD)"; then
   classify <<<"$files"
 else
   all

@@ -36,12 +36,10 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-          fetch-depth: 0
-          filter: blob:none
+          fetch-depth: 2
       - id: diff
         env:
           EVENT: ${{ inputs.commit && 'workflow_call' || github.event_name }}
-          BEFORE: ${{ github.event.before }}
         run: scripts/ci-changes.sh >> "$GITHUB_OUTPUT"
 
   check:
