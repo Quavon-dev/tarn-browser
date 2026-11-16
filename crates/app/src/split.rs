@@ -110,7 +110,7 @@ impl Browser {
         if self.model.active == Some(key) {
             return self.open_split(None, window, cx);
         }
-        if self.in_split(key) {
+        if self.in_split(key) && self.model.active.is_some_and(|a| self.in_split(a)) {
             return self.activate(key, window, cx);
         }
         match self.split.as_ref().filter(|_| self.can_join_split(key)).and_then(|s| split::with_pane(&s.panes, key).map(|p| (p, s.ratio))) {
@@ -175,8 +175,11 @@ impl Browser {
                 }
             }
         });
+        // A page still fading out goes now, unless it is one of the panes.
+        if let Some((outgoing, _)) = self.page_fade.take().filter(|(v, _)| !panes.iter().any(|k| self.views.get(k).is_some_and(|w| Rc::ptr_eq(w, v)))) {
+            outgoing.set_visible(false);
+        }
         self.split = Some(Split { panes, ratio, rects, _clicks: clicks, _task: task });
-        self.page_fade = None;
         let shown = !self.overlay_open();
         for key in kept {
             if let Some(view) = self.views.get(&key) {

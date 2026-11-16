@@ -30,8 +30,14 @@ pub fn kind_label(kind: &str) -> String {
 }
 
 /// Stored origins are `https://a.test` or, for a frame, `https://frame.test in https://page.test`.
+/// A name keeps a port and a scheme other than https, so two origins never read the same.
 fn site_name(origin: &str) -> String {
-    let host = |o: &str| Url::parse(o).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_else(|| o.to_owned());
+    let host = |o: &str| {
+        let Some(url) = Url::parse(o).ok().filter(|u| u.host_str().is_some()) else { return o.to_owned() };
+        let scheme = if url.scheme() == "https" { String::new() } else { format!("{}://", url.scheme()) };
+        let port = url.port().map(|p| format!(":{p}")).unwrap_or_default();
+        format!("{scheme}{}{port}", url.host_str().unwrap_or_default())
+    };
     match origin.split_once(" in ") {
         Some((frame, page)) => format!("{} in {}", host(frame), host(page)),
         None => host(origin),
@@ -73,6 +79,8 @@ mod tests {
         let got: Vec<(&str, &str, bool)> = rows.iter().map(|r| (r.site.as_str(), r.label.as_str(), r.allowed)).collect();
         assert_eq!(got, [("b.test", "Pop-ups", false), ("map.test in a.test", "Location", true), ("meet.test", "Camera and Microphone", true)]);
         assert_eq!(kind_label("notifications"), "Notifications");
+        assert_eq!(site_name("https://localhost:3000"), "localhost:3000");
+        assert_eq!(site_name("http://localhost:8443 in https://a.test"), "http://localhost:8443 in a.test");
         set(&store, profile, "https://b.test", POPUPS, Some(true)).unwrap();
         set(&store, profile, "https://meet.test", "camera+microphone", None).unwrap();
         let rows = list(&store, profile);

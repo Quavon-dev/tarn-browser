@@ -702,9 +702,8 @@ impl Browser {
                 cx.background_executor().timer(step).await;
                 let again = this.update(cx, |b, cx| {
                     b.spinning = wanted(b);
-                    if b.spinning {
-                        cx.notify();
-                    }
+                    // The last tick redraws too, so a finished spinner leaves the screen.
+                    cx.notify();
                     b.spinning
                 });
                 if !again.unwrap_or(false) {

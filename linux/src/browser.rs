@@ -106,6 +106,7 @@ pub struct Browser {
     pub cancelled_downloads: Vec<String>,
     pub text_found: suggest::TextMatches,
     pub elsewhere: HashSet<TabKey>,
+    /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
     pub themes: themes::Themes,
     text_rows: usize,
@@ -426,6 +427,7 @@ impl Browser {
         let Some((kind, index)) = self.model.pin_toggle(key) else { return };
         self.core.store(key.private).move_tab(key.id, kind, None, index).ok();
         self.model.reload_space(&self.core);
+        self.forgotten.push(key);
     }
 
     /// The current profile's remembered permissions, for Settings › Permissions.
@@ -443,6 +445,7 @@ impl Browser {
         let Some((kind, index)) = self.model.tile_toggle(key) else { return };
         self.core.store(key.private).move_tab(key.id, kind, None, index).ok();
         self.model.reload_space(&self.core);
+        self.forgotten.push(key);
     }
 
     pub fn new_folder(&mut self) {
