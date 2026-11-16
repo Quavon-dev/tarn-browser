@@ -241,8 +241,21 @@ mod window {
             messages.borrow()
         );
 
+        messages.borrow_mut().clear();
+        let readded = open(&here("127.0.0.1", "/late?readded"), true);
+        spin(10.0, &|| !heard(&world, &here("localhost", "/sub?late")).is_empty());
+        assert!(!heard(&world, &here("localhost", "/sub?late")).is_empty(), "the cross-site frame is attached and runs the install");
+        readded.remove_extension_scripts(&world);
+        readded.add_extension_scripts(scripts.clone());
+        spin(15.0, &|| !heard(&world, &again).is_empty());
+        assert!(
+            !heard(&world, &again).is_empty(),
+            "an install removed and added again is heard from the next document of a cross-site frame that stayed attached: {:?}",
+            messages.borrow()
+        );
+
         drop(views.borrow_mut().drain(..));
-        drop((other, granted, ungated, probe, locked, frames, late));
+        drop((other, granted, ungated, probe, locked, frames, late, readded));
         spin(1.0, &|| false);
         engine::chromium::shutdown();
         DataStore::wipe_persistent(uuid);
