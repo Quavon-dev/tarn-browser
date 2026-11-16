@@ -32,8 +32,8 @@ use crate::{DataStore, Event};
 const HANDLER: &str = "tarnExt";
 const SETUP: &str = "const tarnPost = window.webkit && window.webkit.messageHandlers.tarnExt; if (!tarnPost) return; \
     const tarnDoc = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); \
-    globalThis.__tarnExtDoc = tarnDoc; globalThis.__tarnExtPost = s => tarnPost.postMessage(String(s)); tarnPost.postMessage('\\u0001' + tarnDoc);";
-const DOC: usize = 32;
+    globalThis.__tarnExtDoc = tarnDoc; globalThis.__tarnExtPost = s => tarnPost.postMessage(tarnDoc + String(s)); tarnPost.postMessage(tarnDoc + '\\u0001');";
+const PAGE_SETUP: &str = "const tarnPost = window.webkit && window.webkit.messageHandlers.tarnExt; if (!tarnPost) return; globalThis.__tarnExtPost = s => tarnPost.postMessage(String(s)); tarnPost.postMessage('\\u0001');";
 const POPUP_SIZE: (f64, f64) = (360.0, 480.0);
 const MAX_POPUP: (f64, f64) = (800.0, 600.0);
 
@@ -227,22 +227,24 @@ impl<T> Default for Frames<T> {
 }
 
 impl<T: Clone> Frames<T> {
-    /// The id of the document that sent a message from `frame` (WebKit's own number) in `world`;
-    /// the setup's hello, with its document's value, starts a new document of that world.
-    fn document(&mut self, world: &World, frame: FrameId, info: T, hello: Option<&str>) -> FrameId {
-        let current = self.docs.iter().find(|(_, (w, f, _, _))| w == world && *f == frame).map(|(serial, _)| *serial);
-        if let Some(serial) = current {
-            if hello.is_none() {
-                return FrameId(serial | 1 << 63);
+    /// The id of the document that drew `doc` and sent a message from `frame` (WebKit's own
+    /// number) in `world`; the setup's hello starts a new document of that world, and a message
+    /// from an older document of the frame is dropped.
+    fn document(&mut self, world: &World, frame: FrameId, info: T, doc: &str, hello: bool) -> Option<FrameId> {
+        let current = self.docs.iter().find(|(_, (w, f, _, _))| w == world && *f == frame).map(|(serial, (_, _, _, known))| (*serial, known == doc));
+        match current {
+            Some((serial, same)) if !hello => return same.then_some(FrameId(serial | 1 << 63)),
+            Some((serial, _)) => {
+                self.docs.remove(&serial);
             }
-            self.docs.remove(&serial);
+            None => {}
         }
         if self.docs.len() >= MAX_FRAMES {
             self.docs.pop_first();
         }
         self.serial += 1;
-        self.docs.insert(self.serial, (world.clone(), frame, info, hello.unwrap_or_default().to_owned()));
-        FrameId(self.serial | 1 << 63)
+        self.docs.insert(self.serial, (world.clone(), frame, info, doc.to_owned()));
+        Some(FrameId(self.serial | 1 << 63))
     }
 
     fn reach(&self, world: &World, id: Option<FrameId>) -> Vec<(T, String)> {
@@ -336,15 +338,10 @@ pub(crate) fn post(view: &WKWebView, world: &World, frame: Option<FrameId>, json
         id => state(view).map(|s| s.frames.borrow().reach(world, id)).unwrap_or_default(),
     };
     for (target, doc) in main.into_iter().chain(subframes.into_iter().map(|(info, doc)| (Some(info), Some(doc)))) {
-        let script = NSString::from_str(&reply_script(doc.as_deref(), json));
+        let script = NSString::from_str(&crate::tarn_ext::reply(doc.as_deref(), json));
         // SAFETY: main-thread call on a live web view; the script only calls the shim's receiver in the install's world.
         unsafe { view.evaluateJavaScript_inFrame_inContentWorld_completionHandler(&script, target.as_deref(), &content, None) };
     }
-}
-
-fn reply_script(doc: Option<&str>, json: &str) -> String {
-    let only = doc.map(|d| format!("globalThis.__tarnExtDoc === {} && ", js_string(d))).unwrap_or_default();
-    format!("{only}globalThis.{RECEIVE} && globalThis.{RECEIVE}({})", js_string(json))
 }
 
 /// The engine's own number for a frame, never `MAIN` for a subframe. WebKit has no public frame
@@ -379,16 +376,12 @@ fn received(message: &WKScriptMessage) {
     let Some(world) = unsafe { content.name() }.and_then(|n| World::parse(&n.to_string())) else { return };
     let (Some(state), Some(id)) = (state(&view), frame_id(&frame)) else { return };
     let origin = crate::delegates::origin_of(&frame).and_then(|o| Url::parse(&o).ok());
-    let hello = text.strip_prefix(HELLO);
-    if hello.is_some_and(|doc| doc.len() != DOC || !doc.bytes().all(|b| b.is_ascii_hexdigit())) {
-        return;
-    }
-    let id = if id == FrameId::MAIN { id } else { state.frames.borrow_mut().document(&world, id, frame, hello) };
-    if hello.is_some() {
-        return;
-    }
+    let Some((doc, payload)) = crate::tarn_ext::split_document(&text) else { return };
+    let hello = payload.strip_prefix(HELLO).is_some_and(str::is_empty);
+    let id = if id == FrameId::MAIN { Some(id) } else { state.frames.borrow_mut().document(&world, id, frame, doc, hello) };
+    let (Some(id), false) = (id, hello) else { return };
     if let Some(delegate) = state.delegate.load() {
-        delegate.emit(Event::ExtensionMessage { world, frame: id, origin, json: text });
+        delegate.emit(Event::ExtensionMessage { world, frame: id, origin, json: payload.to_owned() });
     }
 }
 
@@ -597,7 +590,7 @@ impl ExtensionPage {
             let controller = WKUserContentController::new(mtm);
             let page = WKContentWorld::pageWorld(mtm);
             controller.addScriptMessageHandler_contentWorld_name(ProtocolObject::from_ref(&*delegate), &page, &NSString::from_str(HANDLER));
-            let source = format!("(() => {{ {SETUP}\n{bootstrap}}})();");
+            let source = format!("(() => {{ {PAGE_SETUP}\n{bootstrap}}})();");
             let script = WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
                 WKUserScript::alloc(mtm),
                 &NSString::from_str(&source),
@@ -703,26 +696,31 @@ mod tests {
     fn each_document_of_a_frame_gets_its_own_id_and_the_table_stays_bounded() {
         let (world, other) = (World::for_install("ab12").unwrap(), World::for_install("cd34").unwrap());
         let mut frames = Frames::default();
-        let first = frames.document(&world, FrameId(7), 1, Some("a"));
-        assert_eq!(frames.document(&world, FrameId(7), 1, None), first);
+        let first = frames.document(&world, FrameId(7), 1, "a", true).unwrap();
+        assert_eq!(frames.document(&world, FrameId(7), 1, "a", false), Some(first));
         assert_eq!(frames.reach(&world, Some(first)), [(1, "a".to_owned())]);
         assert!(frames.reach(&other, Some(first)).is_empty(), "an id answers only in its world");
-        let theirs = frames.document(&other, FrameId(7), 1, Some("b"));
-        assert_eq!(frames.document(&world, FrameId(7), 1, None), first, "another install's hello in the same document keeps this one's id");
+        let theirs = frames.document(&other, FrameId(7), 1, "b", true).unwrap();
+        assert_eq!(frames.document(&world, FrameId(7), 1, "a", false), Some(first), "another install's hello in the same document keeps this one's id");
         assert_eq!(frames.reach(&other, Some(theirs)), [(1, "b".to_owned())]);
-        let next = frames.document(&world, FrameId(7), 2, Some("c"));
+        let next = frames.document(&world, FrameId(7), 2, "c", true).unwrap();
         assert!(next != first && next != FrameId::MAIN && frames.reach(&world, Some(first)).is_empty(), "a reply never reaches the next document");
         assert_eq!(frames.reach(&world, None), [(2, "c".to_owned())]);
+        assert_eq!(frames.document(&world, FrameId(7), 1, "a", false), None, "a late message of the older document is dropped");
+        assert_eq!(frames.reach(&world, None), [(2, "c".to_owned())]);
         for n in 0..2 * MAX_FRAMES as u64 {
-            frames.document(&world, FrameId(n), 0, Some("d"));
+            frames.document(&world, FrameId(n + 100), 0, "d", true);
         }
         assert_eq!(frames.docs.len(), MAX_FRAMES);
+        assert!(frames.reach(&world, Some(next)).is_empty(), "the frame's entry was evicted");
+        let again = frames.document(&world, FrameId(7), 2, "c", false).unwrap();
+        assert_eq!(frames.reach(&world, Some(again)), [(2, "c".to_owned())], "an evicted document comes back with the value it drew");
     }
 
     #[test]
-    fn a_reply_to_a_subframe_runs_only_in_the_document_that_drew_its_value() {
-        assert_eq!(reply_script(None, "{}"), format!("globalThis.{RECEIVE} && globalThis.{RECEIVE}(\"{{}}\")"));
-        assert_eq!(reply_script(Some("ab"), "{}"), format!("globalThis.__tarnExtDoc === \"ab\" && globalThis.{RECEIVE} && globalThis.{RECEIVE}(\"{{}}\")"));
-        assert!(SETUP.contains("globalThis.__tarnExtDoc = tarnDoc") && SETUP.contains("postMessage('\\u0001' + tarnDoc)"));
+    fn every_message_of_a_document_carries_the_value_its_replies_must_match() {
+        assert!(SETUP.contains("globalThis.__tarnExtDoc = tarnDoc") && SETUP.contains("tarnPost.postMessage(tarnDoc + String(s))"));
+        assert!(SETUP.contains("tarnPost.postMessage(tarnDoc + '\\u0001')"));
+        assert!(!PAGE_SETUP.contains("tarnDoc"), "an extension page's messages carry none");
     }
 }

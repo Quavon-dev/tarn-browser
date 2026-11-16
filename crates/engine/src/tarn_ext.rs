@@ -11,6 +11,8 @@ use std::sync::Arc;
 use serde_json::Value;
 use url::Url;
 
+use crate::handover::js_string;
+
 pub const SCHEME: &str = "tarn-extension";
 pub const WORLD_PREFIX: &str = "tarn-ext-";
 pub const POST: &str = "__tarnExtPost";
@@ -18,6 +20,8 @@ pub const RECEIVE: &str = "__tarnExtReceive";
 pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
 /// Starts the messages an engine's own setup code sends; the shim only sends JSON objects.
 pub const HELLO: char = '\u{1}';
+pub const DOCUMENT: &str = "__tarnExtDoc";
+pub const DOCUMENT_LEN: usize = 32;
 const SHIM: &str = include_str!("tarn_ext_shim.js");
 const RUN: &str = "__tarnExtRun";
 const MAX_KEY_BYTES: usize = 8 << 10;
@@ -288,6 +292,16 @@ fn skip_comments(source: &str) -> usize {
     }
 }
 
+pub fn split_document(text: &str) -> Option<(&str, &str)> {
+    let doc = text.get(..DOCUMENT_LEN).filter(|d| d.bytes().all(|b| b.is_ascii_hexdigit()))?;
+    Some((doc, &text[DOCUMENT_LEN..]))
+}
+
+pub fn reply(doc: Option<&str>, json: &str) -> String {
+    let only = doc.map(|d| format!("globalThis.{DOCUMENT} === {} && ", js_string(d))).unwrap_or_default();
+    format!("if ({only}typeof globalThis.{RECEIVE} === 'function') globalThis.{RECEIVE}({});", js_string(json))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,6 +357,24 @@ mod tests {
         assert_eq!(d.0.len(), MAX_DECISIONS);
         let long = Url::parse(&format!("https://a.test/{}", "x".repeat(MAX_KEY_BYTES))).unwrap();
         assert!(!d.record(&FrameNav { url: &long, top: &top, main_frame: true }, vec![0]));
+    }
+
+    #[test]
+    fn a_reply_names_the_document_it_is_for_and_a_message_its_sender() {
+        let doc = "0123456789abcdef0123456789ABCDEF";
+        assert_eq!(split_document(&format!("{doc}{{}}")), Some((doc, "{}")));
+        assert_eq!(split_document(doc), Some((doc, "")));
+        assert_eq!(split_document("0123456789abcdef0123456789abcdeg{}"), None, "not hex");
+        assert_eq!(split_document("0123"), None, "too short");
+        assert_eq!(split_document("0123456789abcdef0123456789abcd\u{e9}{}"), None, "not on a character boundary");
+        assert_eq!(reply(None, "{}"), format!("if (typeof globalThis.{RECEIVE} === 'function') globalThis.{RECEIVE}(\"{{}}\");"));
+        assert_eq!(
+            reply(Some("ab"), "{\"a\":\"</script>\"}"),
+            format!(
+                "if (globalThis.{DOCUMENT} === \"ab\" && typeof globalThis.{RECEIVE} === 'function') globalThis.{RECEIVE}({});",
+                js_string("{\"a\":\"</script>\"}")
+            )
+        );
     }
 
     #[test]
