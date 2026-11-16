@@ -4,10 +4,10 @@ use gpui::{
     AnyElement, Context, Focusable, FontWeight, HighlightStyle, InteractiveElement, IntoElement, ParentElement, Rgba, SharedString, Stateful,
     StatefulInteractiveElement, Styled, StyledText, Window, canvas, div, img, prelude::FluentBuilder, px, relative,
 };
-use ui::controls::{button, field, secure_button, secure_surface, surface};
-use ui::icon::{Icon, MARK, icon};
+use ui::controls::{button, field, icon_button, list_row, secure_button, secure_surface, surface, tooltip};
+use ui::icon::{ICON_MEDIUM, ICON_SMALL, Icon, MARK, icon};
 use ui::motion::{EXIT, FADE, pop_in, pop_out, progress};
-use ui::theme::{Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
+use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 use engine::PromptKind;
 
@@ -18,7 +18,7 @@ use crate::sidebar::site_icon;
 use crate::toolbar::shield_badge;
 
 fn floating() -> gpui::Div {
-    secure_surface(Theme::radius_panel()).mb_2().flex_none().shadow(Theme::elevation(4., 14.)).text_size(px(TEXT))
+    secure_surface(Theme::radius_panel()).mb_2().flex_none().shadow(Elevation::Floating.shadow()).text_size(px(TEXT))
 }
 
 const BANNER_HEIGHT: f32 = 42.;
@@ -238,7 +238,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 surface(Theme::radius_panel())
                     .mb_2()
                     .flex_none()
-                    .shadow(Theme::elevation(4., 14.))
+                    .shadow(Elevation::Floating.shadow())
                     .text_size(px(TEXT))
                     .h(px(44.))
                     .pl_3()
@@ -248,11 +248,28 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                     .gap_2()
                     .child(icon(Icon::Search, 14., Theme::muted()))
                     .child(field(focused).w(px(260.)).py_0p5().child(b.find_input.clone()))
-                    .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::danger()).child(if b.find_missing { "No matches" } else { "" }))
+                    .child(
+                        div()
+                            .text_size(px(TEXT_SMALL))
+                            .text_color(if b.find_count == Some(0) { Theme::danger() } else { Theme::muted() })
+                            .child(browser_core::find::count_label(b.find_count)),
+                    )
                     .child(div().flex_1())
-                    .child(button("find-prev", "Previous", false).on_click(cx.listener(|b, _, _, cx| b.find(true, cx))))
-                    .child(button("find-next", "Next", true).on_click(cx.listener(|b, _, _, cx| b.find(false, cx))))
-                    .child(button("find-close", "Done", false).on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx)))),
+                    .child(
+                        icon_button("find-prev", Icon::ChevronUp, true)
+                            .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
+                            .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
+                    )
+                    .child(
+                        icon_button("find-next", Icon::ChevronDown, true)
+                            .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
+                            .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
+                    )
+                    .child(
+                        icon_button("find-close", Icon::Close, true)
+                            .tooltip(tooltip("Done", Some("Esc".into())))
+                            .on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
+                    ),
             );
         }
     }
@@ -279,9 +296,9 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     let body: AnyElement = if let Some(editor) = crate::profiles::render_editor(b, window, cx) {
         leaving(editor)
     } else if b.shortcuts_open {
-        leaving(crate::shortcuts::render(cx))
+        leaving(pop_in(div().flex_1().flex().flex_col().child(crate::shortcuts::render(cx)), "shortcuts", reduce))
     } else if let Some(reader) = crate::reader::render(b, cx) {
-        leaving(reader)
+        leaving(pop_in(div().flex_1().min_h_0().flex().flex_col().child(reader), "reader", reduce))
     } else if (b.command_mode.is_some() && !b.inline_editing()) || b.model.active.is_none() {
         leaving(start(b, reduce, cx))
     } else if let Some(split) = crate::split::render(b, window, cx) {
@@ -329,7 +346,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
             .bg(Theme::page())
             .border_1()
             .border_color(Theme::hairline())
-            .shadow(Theme::elevation(6., 24.));
+            .shadow(Elevation::Page.shadow());
         frame.child(page).into_any_element()
     };
 
@@ -422,25 +439,16 @@ fn suggestion_icon(b: &Browser, target: &Target) -> AnyElement {
     }
 }
 
-pub const SUGGESTION_ROW: f32 = 34.;
+pub const SUGGESTION_ROW: f32 = ui::theme::ROW_HEIGHT;
 /// Rows a suggestion list shows before it scrolls.
 pub const SHOWN_SUGGESTIONS: usize = 10;
 
 pub fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div> {
     let selected = ix == b.selected;
     let rejected = matches!(s.target, Target::Input(ui::command::Input::Rejected));
-    div()
-        .id(("suggestion", ix))
+    list_row(("suggestion", ix), selected)
         .mx_1p5()
-        .h(px(SUGGESTION_ROW))
-        .px_2p5()
-        .flex()
         .gap_3()
-        .items_center()
-        .rounded(px(Theme::radius_row()))
-        .cursor_pointer()
-        .when(selected, |d| d.bg(Theme::selected()))
-        .when(!selected, |d| d.hover(|st| st.bg(Theme::hover())).active(|st| st.bg(Theme::pressed())))
         .child(suggestion_icon(b, &s.target))
         .child(
             div()
@@ -502,7 +510,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .w_full()
         .flex()
         .flex_col()
-        .shadow(Theme::elevation(18., 48.))
+        .shadow(Elevation::Modal.shadow())
         .text_size(px(TEXT))
         .when(!typing, |d| d.cursor_pointer().on_click(cx.listener(|b, _, w, cx| b.open_command(CommandMode::NewTab, w, cx))))
         .child(
@@ -514,7 +522,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
                 .gap_3()
                 .text_size(px(TEXT_TITLE))
                 .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, _, cx| b.suggestion_key(e, cx)))
-                .child(icon(Icon::Search, 17., Theme::accent()))
+                .child(icon(Icon::Search, ICON_MEDIUM, Theme::accent()))
                 .child(div().flex_1().overflow_hidden().child(input)),
         )
         .when(typing && !b.suggestions.is_empty(), |d| d.child(suggestions))
@@ -542,7 +550,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
             .gap_2()
             .text_size(px(TEXT_SMALL))
             .text_color(Theme::muted())
-            .child(icon(Icon::Code, 13., Theme::muted()))
+            .child(icon(Icon::Code, ICON_SMALL, Theme::muted()))
             .child(match &b.local_servers {
                 None => "Looking for local servers…",
                 Some(p) if p.is_empty() => "No local servers on common dev ports",
@@ -570,7 +578,8 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .child(img(MARK).w(px(64.)).h(px(64.)))
         .child(pop_in(div().relative().w(px(680.)).max_w_full().child(b.search_fx.clone()).child(card.occlude()), ("start-card", typing as usize), reduce))
         .children(servers);
-    b.fog.update(cx, |fog, _| fog.reduce = reduce);
+    let left = (b.sidebar_width + crate::sidebar::SIDEBAR_MARGIN) * b.sidebar_shown();
+    b.fog.update(cx, |fog, _| (fog.reduce, fog.left) = (reduce, left));
     b.search_fx.update(cx, |fx, _| fx.reduce = reduce);
     div()
         .flex_1()
@@ -593,11 +602,13 @@ type FogKey = (usize, usize, u32, u32);
 
 /// The ASCII cloud bank behind the start card, redrawn every `fog::FRAME`; its own view, so
 /// windows that observe the `Browser` are not notified. One still frame while motion is reduced
-/// or the theme asks for it; none when the theme turns it off. Paused while Tarn is in the
-/// background.
+/// or the theme asks for it; none when the theme turns it off. Paused unless its window is the
+/// active one of the active app, so a frame redraws one window only.
 #[derive(Default)]
 pub struct Fog {
     pub(crate) reduce: bool,
+    /// The window's width left of the content area, which the fog does not cover.
+    pub(crate) left: f32,
     started: Option<Instant>,
     ticking: bool,
     frame: Option<(FogKey, Vec<FogLine>)>,
@@ -607,10 +618,10 @@ impl gpui::Render for Fog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use browser_core::fog;
         let size = window.viewport_size();
-        let (cols, rows) = ((f32::from(size.width) / FOG_FONT.1) as usize, (f32::from(size.height) / FOG_LINE) as usize);
+        let (cols, rows) = (((f32::from(size.width) - self.left).max(0.) / FOG_FONT.1) as usize, (f32::from(size.height) / FOG_LINE) as usize);
         let mode = Theme::fog_mode();
         let still = self.reduce || mode != browser_core::theme::Fog::On;
-        let active = engine::app_active();
+        let active = engine::app_active() && window.is_window_active();
         let step = match (still, active) {
             (true, _) => 0,
             (false, true) => fog::step(self.started.get_or_insert_with(Instant::now).elapsed()),
@@ -679,8 +690,8 @@ fn start_shield(level: shield::ShieldLevel) -> gpui::Div {
 const SEARCH_ROW: f32 = 54.;
 
 /// The theme's search bar effect behind the start and command card (`browser_core::effects`),
-/// redrawn at `effects::FPS` while Tarn is the active app; its own view, like `Fog`. One
-/// still frame while motion is reduced or Tarn is in the background.
+/// redrawn at `effects::FPS` while its window is the active one of the active app; its own view,
+/// like `Fog`. One still frame while motion is reduced or the window is in the background.
 #[derive(Default)]
 pub struct SearchFx {
     pub(crate) reduce: bool,
@@ -689,10 +700,10 @@ pub struct SearchFx {
 }
 
 impl gpui::Render for SearchFx {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use browser_core::effects::{self, Effect};
         let effect = Theme::search_effect();
-        let animate = !self.reduce && effect.fps() > 0. && engine::app_active();
+        let animate = !self.reduce && effect.fps() > 0. && engine::app_active() && window.is_window_active();
         let t = if animate { effects::clock(self.started.get_or_insert_with(Instant::now).elapsed()) } else { 0.4 };
         if animate && !self.ticking {
             self.ticking = true;

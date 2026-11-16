@@ -8,10 +8,10 @@ use gpui::{
 };
 use store::{Folder, Group, Id, Tab, TabKind};
 use ui::controls::{favicon, icon_button, spinner, tooltip};
-use ui::icon::{Icon, icon};
+use ui::icon::{ICON, ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, FADE, POP, SLIDE, animate, fade_in, progress};
 use ui::text::bounded_title;
-use ui::theme::{PROFILE_COLORS, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
+use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_SMALL, TEXT_TINY, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
 
 use crate::browser::{Browser, SpaceRef, TabKey, folder_tree, tab_host};
 use crate::gestures::{Step, follow};
@@ -155,7 +155,7 @@ fn drag_chip(title: SharedString) -> Div {
         .overflow_hidden()
         .whitespace_nowrap()
         .text_ellipsis()
-        .shadow(Theme::elevation(2., 8.))
+        .shadow(Elevation::Popover.shadow())
         .child(title)
 }
 
@@ -349,7 +349,7 @@ pub fn render(b: &mut Browser, cx: &mut Context<Browser>) -> AnyElement {
         .border_1()
         .border_color(Theme::sidebar_edge())
         .bg(bg)
-        .shadow(Theme::elevation(10., 30.))
+        .shadow(Elevation::Page.shadow())
         .child(resize_handle(cx))
         .into_any_element()
 }
@@ -516,7 +516,7 @@ fn tab_drop(
     before: Option<TabKey>,
 ) -> impl Fn(&mut Browser, &DraggedTab, &mut Window, &mut Context<Browser>) {
     move |b, dragged, _, cx| {
-        let index = before.and_then(|k| b.model.tab(k)).map_or_else(|| b.model.zone_len(kind, folder), |t| b.model.zone_index(t));
+        let index = before.and_then(|k| b.model.tab(k)).map_or_else(|| b.model.zone_len(kind, folder), |t| b.model.drop_index(dragged.key, t));
         b.move_tab(dragged.key, kind, folder, index, cx);
         if kind == TabKind::Ephemeral {
             b.set_tab_group(dragged.key, group, cx);
@@ -544,7 +544,7 @@ fn name(b: &Browser, target: RenameTarget, name: &str, cx: &mut Context<Browser>
 /// A chevron that turns between closed and open each time `open` changes.
 fn chevron(b: &Browser, id: Id, open: bool) -> AnyElement {
     let turn = move |t: f32| percentage(if open { 0.25 * t } else { 0.25 * (1. - t) });
-    let glyph = icon(Icon::ChevronRight, 11., Theme::muted()).with_transformation(Transformation::rotate(turn(1.)));
+    let glyph = icon(Icon::ChevronRight, ICON_SMALL, Theme::muted()).with_transformation(Transformation::rotate(turn(1.)));
     animate(glyph, (if open { "open" } else { "shut" }, id as u64), FADE, b.pref(Pref::ReduceMotion), move |g, t| {
         g.with_transformation(Transformation::rotate(turn(t)))
     })
@@ -718,9 +718,11 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
         .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
         .map(|d| match b.split_drop.filter(|(k, _)| *k == key) {
-            None => d.drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft())),
+            None => d,
+            // A line where the tab will land, before this row.
+            Some((_, None)) => d.child(div().absolute().top_0().left(px(6.)).right(px(6.)).h(px(2.)).rounded_full().bg(Theme::accent())),
             // Outlined and named, so a drop that splits reads apart from one that moves the tab.
-            Some((_, does)) => d
+            Some((_, Some(does))) => d
                 .bg(Theme::accent_soft())
                 .child(div().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent()))
                 .child(div().flex_none().pr_1p5().text_size(px(TEXT_SMALL)).text_color(Theme::accent()).child(does)),
@@ -728,8 +730,9 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .on_drag_move(cx.listener(move |b, e: &DragMoveEvent<DraggedTab>, _, cx| {
             let inside = e.bounds.contains(&e.event.position);
             let share = (e.event.position.y - e.bounds.origin.y) / e.bounds.size.height;
-            let does = b.splits.drop_label(key, e.drag(cx).key).filter(|_| inside && browser_core::split::drops_into(share));
-            let target = does.map(|does| (key, does)).or(b.split_drop.filter(|(k, _)| *k != key));
+            let dragged = e.drag(cx).key;
+            let does = b.splits.drop_label(key, dragged).filter(|_| browser_core::split::drops_into(share));
+            let target = if inside && dragged != key { Some((key, does)) } else { b.split_drop.filter(|(k, _)| *k != key) };
             if b.split_drop != target {
                 b.split_drop = target;
                 cx.notify();
@@ -738,7 +741,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .on_drop(cx.listener({
             let reorder = tab_drop(t.kind, t.folder_id, t.group_id, Some(key));
             move |b, dragged: &DraggedTab, window, cx| {
-                if b.split_drop.take().is_some_and(|(k, _)| k == key) {
+                if b.split_drop.take().is_some_and(|(k, does)| k == key && does.is_some()) {
                     b.drop_on_pane(key, dragged.key, window, cx);
                 } else {
                     reorder(b, dragged, window, cx);
@@ -855,7 +858,7 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
             }
         }))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.folder_menu(id, w, cx)))
-        .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(icon(Icon::Folder, 15., Theme::space_label())))
+        .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(icon(Icon::Folder, ICON, Theme::space_label())))
         .child(name(b, RenameTarget::Folder(id), &f.name, cx))
         .child(chevron(b, id, open));
     let col = div().flex().flex_col().gap(px(ROW_GAP)).child(header);
@@ -933,7 +936,7 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                     .cursor_pointer()
                     .hover(|s| s.bg(Theme::hover()).text_color(Theme::text()))
                     .active(|s| s.bg(Theme::pressed()))
-                    .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(icon(Icon::Sparkles, 13., Theme::space_label())))
+                    .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(icon(Icon::Sparkles, ICON_SMALL, Theme::space_label())))
                     .child("Clean Up")
                     .tooltip(tooltip("Sorts tabs into groups and archives tabs unused for longer than Settings › Tabs allows. Runs on this device.", None))
                     .on_click(cx.listener(|b, _, _, cx| b.clean_up_tabs(cx))),
@@ -953,7 +956,7 @@ fn avatar(color: Rgba, name: &str) -> impl IntoElement {
         .justify_center()
         .rounded_full()
         .bg(color)
-        .text_size(px(10.))
+        .text_size(px(TEXT_TINY))
         .font_weight(FontWeight::BOLD)
         .text_color(Theme::on_fill(color))
         .child(initial)

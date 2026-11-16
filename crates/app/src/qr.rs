@@ -1,14 +1,14 @@
 use gpui::{
-    AppContext, Bounds, Context, Div, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, SharedString, Styled, Subscription,
-    Window, WindowHandle, actions, canvas, div, fill, point, px, size,
+    Bounds, Context, Div, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, SharedString, Styled, Subscription, Window,
+    WindowHandle, actions, canvas, div, fill, point, px, size,
 };
-use ui::controls::surface;
-use ui::motion::fade_in;
+use ui::controls::{POPOVER_INSET, open_popup, popover};
+use ui::motion::popover_motion;
 use ui::theme::{TEXT_SMALL, Theme};
 use url::Url;
 
 use crate::browser::Browser;
-use crate::peek::popup_options;
+use crate::peek::remove_after_exit;
 use crate::prefs::Pref;
 
 actions!(tarn, [ShareLink, ShowQrCode]);
@@ -60,22 +60,16 @@ impl Browser {
         let (frame, field) = (window.bounds(), self.address.field.get());
         let center = if field.size.width > px(0.) { field.center().x } else { frame.size.width / 2. };
         let top = if field.size.height > px(0.) { field.bottom() } else { px(ui::theme::TOOLBAR_HEIGHT) } + px(GAP);
-        let x = (center - px(WIDTH / 2.)).clamp(px(0.), (frame.size.width - px(WIDTH)).max(px(0.)));
-        let bounds = Bounds::new(point(frame.origin.x + x, frame.origin.y + top), size(px(WIDTH), px(HEIGHT)));
+        let x = (center - px(WIDTH / 2.)).clamp(px(0.), (frame.size.width - px(WIDTH)).max(px(0.))) - px(POPOVER_INSET);
+        let bounds = Bounds::new(point(frame.origin.x + x, frame.origin.y + top), size(px(WIDTH + 2. * POPOVER_INSET), px(HEIGHT + POPOVER_INSET)));
         let display = window.display(cx).map(|d| d.id());
         let reduce = self.pref(Pref::ReduceMotion);
         let main = window.window_handle().downcast::<Browser>().or(self.peek.main);
         let browser = cx.entity().downgrade();
         cx.defer(move |cx| {
-            let handle = cx
-                .open_window(popup_options(bounds, display, true), |window, cx| {
-                    if let Some(host) = engine::Host::from_window(window) {
-                        host.strip_frame();
-                        host.round_corners(0., 0., 0., 0., f64::from(ui::theme::Theme::radius_panel()));
-                    }
-                    cx.new(|cx| QrWindow::new(code, label.into(), reduce, main, window, cx))
-                })
-                .ok();
+            let inset = [0., POPOVER_INSET, POPOVER_INSET, POPOVER_INSET];
+            let (handle, _) =
+                open_popup(cx, bounds, display, true, inset, Theme::radius_panel(), |window, cx| QrWindow::new(code, label.into(), reduce, main, window, cx));
             browser.update(cx, |b, _| b.qr = handle).ok();
         });
     }
@@ -87,6 +81,7 @@ pub struct QrWindow {
     reduce: bool,
     main: Option<WindowHandle<Browser>>,
     focus: FocusHandle,
+    closing: bool,
     _activation: Subscription,
 }
 
@@ -94,20 +89,24 @@ impl QrWindow {
     fn new(code: Vec<Vec<bool>>, label: SharedString, reduce: bool, main: Option<WindowHandle<Browser>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
-        let activation = cx.observe_window_activation(window, |_, window, _| {
+        let activation = cx.observe_window_activation(window, |this, window, cx| {
             if !window.is_window_active() {
-                window.remove_window();
+                this.close(false, window, cx);
             }
         });
-        QrWindow { code, label, reduce, main, focus, _activation: activation }
+        QrWindow { code, label, reduce, main, focus, closing: false, _activation: activation }
     }
 
     /// Esc and the menu command hand the focus back to the page the card was opened from.
-    fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        window.remove_window();
-        if let Some(main) = self.main {
+    fn close(&mut self, refocus: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if std::mem::replace(&mut self.closing, true) {
+            return;
+        }
+        remove_after_exit(self.reduce, window, cx);
+        if let Some(main) = self.main.filter(|_| refocus) {
             main.update(cx, |_, window, _| window.activate_window()).ok();
         }
+        cx.notify();
     }
 }
 
@@ -128,15 +127,7 @@ impl Render for QrWindow {
             },
         )
         .size(px(side));
-        let card = surface(Theme::radius_panel())
-            .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &ShowQrCode, window, cx| this.close(window, cx)))
-            .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
-                if e.keystroke.key == "escape" {
-                    this.close(window, cx);
-                }
-            }))
-            .size_full()
+        let card = popover(Theme::radius_panel(), 0.)
             .flex()
             .flex_col()
             .items_center()
@@ -153,6 +144,15 @@ impl Render for QrWindow {
                     .text_color(Theme::muted())
                     .child(self.label.clone()),
             );
-        fade_in(card, "qr-code", self.reduce)
+        div()
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &ShowQrCode, window, cx| this.close(true, window, cx)))
+            .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
+                if e.keystroke.key == "escape" {
+                    this.close(true, window, cx);
+                }
+            }))
+            .size_full()
+            .child(popover_motion(div().relative().size_full().child(card), "qr-code", self.closing, self.reduce))
     }
 }

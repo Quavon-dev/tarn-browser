@@ -2,16 +2,16 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, AppContext, Context, Div, Entity, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, actions, div, prelude::FluentBuilder, px, relative, rgb, transparent_black,
+    StatefulInteractiveElement, Styled, Subscription, Window, actions, div, prelude::FluentBuilder, px, relative, rgb, transparent_black,
 };
 use shield::ShieldLevel;
 use store::{Id, Profile};
 use ui::command::ENGINES;
-use ui::controls::{button, field, key_hint, radio, segment, segmented, surface, swatch, switch};
+use ui::controls::{button, caption, field, key_hint, radio, segment, segmented, surface, swatch, switch, text_block};
 use ui::icon::{Icon, icon};
 use ui::motion::pop_in;
 use ui::text_input::{TextInput, TextInputEvent};
-use ui::theme::{PROFILE_COLORS, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
+use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_HEADING, Theme};
 
 use browser_core::{share_store, shared_key};
 
@@ -378,14 +378,6 @@ fn toggled(stored: &str, entry: &str, on: bool) -> String {
     entries.join("\n")
 }
 
-pub(crate) fn caption(text: &'static str) -> Div {
-    div().text_size(px(TEXT_SMALL)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::muted()).child(text)
-}
-
-fn text_block(title: impl Into<SharedString>, detail: &'static str) -> Div {
-    div().flex_1().min_w_0().flex().flex_col().gap_0p5().child(title.into()).child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail))
-}
-
 pub(crate) fn focus_ring(d: Div, on: bool) -> Div {
     d.p(px(2.)).rounded(px(Theme::radius_row() + 2.)).border_2().border_color(if on { Theme::accent_soft().into() } else { transparent_black() })
 }
@@ -559,14 +551,14 @@ pub fn render_editor(b: &Browser, window: &Window, cx: &mut Context<Browser>) ->
         .flex()
         .flex_col()
         .gap_4()
-        .shadow(Theme::elevation(18., 48.))
+        .shadow(Elevation::Modal.shadow())
         .text_size(px(TEXT))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(div().text_size(px(TEXT_TITLE + 3.)).font_weight(FontWeight::BOLD).child(title))
+                .child(div().text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).child(title))
                 .child(div().text_color(Theme::muted()).child(subtitle)),
         )
         .child(body)

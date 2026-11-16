@@ -7,6 +7,7 @@ use store::{Bookmark, Id, TabKind};
 use crate::browser::Browser;
 use crate::library::Page;
 use crate::settings::SettingsPane;
+use crate::tabs::state_label;
 
 /// Dynamic lists stay short, like other browsers' menus.
 const MAX_ITEMS: usize = 12;
@@ -190,7 +191,7 @@ impl Browser {
         let mut recent: Vec<&Bookmark> = self.bookmarks.iter().filter(|b| b.url.is_some()).collect();
         recent.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let mut bookmark_items = vec![
-            bookmarks.action("Bookmark This Tab…", crate::BookmarkTab),
+            bookmarks.action("Bookmark Tab…", crate::BookmarkTab),
             bookmarks.action("Bookmark All Tabs", crate::BookmarkAllTabs),
             bookmarks.action("Manage Bookmarks", ManageBookmarks),
         ];
@@ -242,7 +243,7 @@ impl Browser {
             tabs.action("Previous Tab", crate::PreviousTab),
             MenuItem::separator(),
             tabs.action("Search Tabs…", crate::ToggleLibrary),
-            tabs.action(if pinned { "Unpin Tab" } else { "Pin Tab" }, crate::TogglePin),
+            tabs.action(state_label(&crate::TogglePin, pinned).unwrap_or_default(), crate::TogglePin),
             tabs.action("Rename Tab", crate::tabs::RenameTab),
         ];
         if self.model.active_tab().is_some_and(|t| !t.custom_title.is_empty()) {
@@ -262,7 +263,7 @@ impl Browser {
             tabs.action("Share…", crate::qr::ShareLink),
             tabs.action("Show QR Code", crate::qr::ShowQrCode),
             MenuItem::separator(),
-            tabs.action(if split { "Close Split View" } else { "Open in Split View" }, crate::split::ToggleSplitView),
+            tabs.action(state_label(&crate::split::ToggleSplitView, split).unwrap_or_default(), crate::split::ToggleSplitView),
         ]);
         if split {
             tab_items.extend([
@@ -282,7 +283,7 @@ impl Browser {
                 }));
             }
         }
-        tab_items.extend([MenuItem::separator(), tabs.action(if muted { "Unmute Site" } else { "Mute Site" }, ToggleMute)]);
+        tab_items.extend([MenuItem::separator(), tabs.action(state_label(&ToggleMute, muted).unwrap_or_default(), ToggleMute)]);
         if self.site().is_some() {
             tab_items.push(tabs.action("Site Settings…", crate::site_settings::SiteSettings));
         }

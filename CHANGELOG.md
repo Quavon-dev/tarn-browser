@@ -8,6 +8,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- The find bar counts the matches on the page ("3 matches") on macOS and Windows.
+- Right click on the address shows Copy Link, Copy Clean Link, Paste and Go and Site Settings;
+  every text field offers Cut, Copy, Paste and Select All, the address field also Paste and Go
+  (macOS, Windows).
+- Tab and Shift+Tab move through the controls of Site Settings, Downloads and Settings with a
+  visible focus ring; Enter or Space acts on the focused one, and Up/Down walk the downloads list
+  (macOS, Windows).
 - Settings › Permissions lists the camera, microphone, location and pop-up answers a profile
   remembered, with Allow, Block and Forget (macOS, Windows, Linux, iOS, Android).
 - Split view holds up to four tabs; drop a tab on another tab in the sidebar to split them
@@ -155,6 +162,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Pop-ups share one look and motion on macOS and Windows: toasts, the QR code card, the tab hover
+  card and tooltips cast the same shadow as Site Settings and Downloads, the QR card fades out,
+  the shortcuts sheet and reader rise in, and shadows follow one elevation scale. Menus opened from
+  a button (the Windows menu button, "Always open in") drop from the button instead of the pointer.
+  The find bar uses icon buttons with their shortcuts in tooltips. Dragging a tab over another
+  shows a line where it will land. The start page's fog and search effect animate only in the
+  front window.
 - Tarn is now licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`).
   Only Quavon UG (haftungsbeschränkt) may distribute it through app stores
   (`LICENSE-APP-STORE.md`), and the Tarn name, logo and app icon are trademarks (`TRADEMARKS.md`).

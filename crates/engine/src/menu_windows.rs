@@ -1,6 +1,6 @@
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, HBITMAP, SelectObject,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, ClientToScreen, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, HBITMAP, SelectObject,
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -13,22 +13,32 @@ use crate::Host;
 use crate::host_windows::wide;
 pub use crate::menu_item::Item;
 
-/// Pops up `items` as a native menu at the mouse location and calls `chosen` with the value of
-/// the entry the user picks. Windows runs a modal loop inside this call, so the caller must not
-/// hold UI state borrowed across it.
-pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, chosen: impl FnOnce(T) + 'static) {
+/// Pops up `items` as a native menu at `at` (points from the top left of `host`'s client area,
+/// such as a button's lower left corner) or else at the mouse location, and calls `chosen` with
+/// the value of the entry the user picks. Windows runs a modal loop inside this call, so the
+/// caller must not hold UI state borrowed across it.
+pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>, chosen: impl FnOnce(T) + 'static) {
     let (mut values, mut bitmaps) = (Vec::new(), Vec::new());
     // SAFETY: a plain query of the host window.
     let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForWindow(host.hwnd)) };
     // SAFETY: the menu is built, tracked and destroyed on this thread; strings outlive each append,
-    // and the bitmaps outlive the menu, which does not delete them.
+    // and the bitmaps outlive the menu, which does not delete them. `ClientToScreen` and
+    // `GetCursorPos` write only to a local POINT, and `host.hwnd` is this thread's live window.
     unsafe {
         let menu = build(items, &mut values, &mut bitmaps, size);
         if menu.is_null() {
             return;
         }
-        let mut at = POINT { x: 0, y: 0 };
-        GetCursorPos(&mut at);
+        let anchored = at.and_then(|(x, y)| {
+            let (x, y, _, _) = host.pixels(x, y, 0., 0.);
+            let mut point = POINT { x, y };
+            (ClientToScreen(host.hwnd, &mut point) != 0).then_some(point)
+        });
+        let at = anchored.unwrap_or_else(|| {
+            let mut point = POINT { x: 0, y: 0 };
+            GetCursorPos(&mut point);
+            point
+        });
         let id = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, at.x, at.y, 0, host.hwnd, std::ptr::null());
         DestroyMenu(menu);
         for bitmap in bitmaps {

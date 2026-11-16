@@ -11,7 +11,7 @@ use gpui::{
 };
 use ui::controls::{icon_button, tooltip};
 use ui::icon::Icon;
-use ui::theme::{TEXT_SMALL, Theme};
+use ui::theme::{Elevation, TEXT_SMALL, Theme};
 use url::Url;
 
 use crate::browser::{Browser, TabKey};
@@ -85,12 +85,8 @@ impl Browser {
     /// The other panes of `key`'s split, once those whose tab is gone or shown in another window
     /// have left it.
     pub(crate) fn split_partners(&mut self, key: TabKey, cx: &mut Context<Self>) -> Vec<TabKey> {
-        for pane in self.splits.of(key).map(|s| s.others(key)).unwrap_or_default() {
-            if self.model.tab(pane).is_none() || (!self.views.contains_key(&pane) && crate::shared::live_elsewhere(pane, cx)) {
-                self.splits.leave(pane);
-            }
-        }
-        self.splits.of(key).map(|s| s.others(key)).unwrap_or_default()
+        let (model, views) = (&self.model, &self.views);
+        self.splits.partners(key, |pane| model.tab(pane).is_some() && (views.contains_key(&pane) || !crate::shared::live_elsewhere(pane, cx)))
     }
 
     /// Splits the active tab with the space's most recently used tab outside a split, else with a
@@ -396,7 +392,7 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
         .bg(Theme::page())
         .border_1()
         .border_color(if focused { Theme::accent() } else { Theme::hairline() })
-        .shadow(Theme::elevation(6., 24.))
+        .shadow(Elevation::Page.shadow())
         .drag_over::<DraggedTab>(move |s, dragged, _, _| if splits.drop_label(key, dragged.key).is_some() { s.border_color(Theme::accent()) } else { s })
         .on_drop(cx.listener(move |b, dragged: &DraggedTab, window, cx| b.drop_on_pane(key, dragged.key, window, cx)))
         .child(header)

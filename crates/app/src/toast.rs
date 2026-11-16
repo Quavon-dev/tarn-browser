@@ -2,15 +2,14 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::{
-    AppContext, Bounds, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window,
-    WindowHandle, div, point, prelude::FluentBuilder, px, size,
+    Bounds, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, WindowHandle,
+    div, point, prelude::FluentBuilder, px, size,
 };
-use ui::controls::{button, surface};
-use ui::motion::{FADE, animate, fade_in};
+use ui::controls::{POPOVER_INSET, button, open_popup, popover};
+use ui::motion::{EXIT, animate, fade_in};
 use ui::theme::{TEXT, Theme};
 
 use crate::browser::Browser;
-use crate::peek::popup_options;
 use crate::prefs::Pref;
 use crate::sidebar::SIDEBAR_MARGIN;
 
@@ -103,7 +102,7 @@ impl Browser {
             cx.background_executor().timer(wait).await;
             let fade = this.update(cx, |b, cx| {
                 cx.notify();
-                (b.toast.fade(serial) && !b.pref(Pref::ReduceMotion)).then_some(FADE)
+                (b.toast.fade(serial) && !b.pref(Pref::ReduceMotion)).then_some(EXIT)
             });
             if let Ok(Some(fade)) = fade {
                 cx.background_executor().timer(fade).await;
@@ -141,36 +140,28 @@ impl Browser {
         }
         let frame = window.bounds();
         let left = (self.sidebar_width + SIDEBAR_MARGIN) * self.sidebar_shown();
-        let x = (left + (f32::from(frame.size.width) - left - width) / 2.).clamp(0., (f32::from(frame.size.width) - width).max(0.));
-        let y = f32::from(frame.size.height) - HEIGHT - MARGIN;
+        let x = (left + (f32::from(frame.size.width) - left - width) / 2.).clamp(0., (f32::from(frame.size.width) - width).max(0.)) - POPOVER_INSET;
+        let y = f32::from(frame.size.height) - HEIGHT - MARGIN - POPOVER_INSET;
+        let (width, height) = (width + 2. * POPOVER_INSET, HEIGHT + 2. * POPOVER_INSET);
         if self.toast.window.is_some() {
             if let (Some(host), Some(popup)) = (self.host.clone(), self.toast.popup.clone())
                 && self.toast.placed != (x, y, width)
             {
                 self.toast.placed = (x, y, width);
                 // GPUI handles the resize this causes only outside an update, so the frame is set from a task.
-                cx.spawn(async move |_, _| host.place(&popup, x.into(), y.into(), width.into(), HEIGHT.into())).detach();
+                cx.spawn(async move |_, _| host.place(&popup, x.into(), y.into(), width.into(), height.into())).detach();
             }
             return;
         }
         let Some(main) = window.window_handle().downcast::<Browser>() else { return };
         self.toast.placed = (x, y, width);
-        let bounds = Bounds::new(point(frame.origin.x + px(x), frame.origin.y + px(y)), size(px(width), px(HEIGHT)));
+        let bounds = Bounds::new(point(frame.origin.x + px(x), frame.origin.y + px(y)), size(px(width), px(height)));
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
         self.toast.opening = true;
         cx.defer(move |cx| {
-            let mut popup = None;
-            let handle = cx
-                .open_window(popup_options(bounds, display, false), |window, cx| {
-                    popup = engine::Host::from_window(window);
-                    if let Some(host) = &popup {
-                        host.strip_frame();
-                        host.round_corners(0., 0., 0., 0., f64::from(ui::theme::Theme::radius_panel()));
-                    }
-                    cx.new(|cx| ToastWindow::new(browser.clone(), main, cx))
-                })
-                .ok();
+            let (handle, popup) =
+                open_popup(cx, bounds, display, false, [POPOVER_INSET; 4], Theme::radius_panel(), |_, cx| ToastWindow::new(browser.clone(), main, cx));
             let kept = browser.update(cx, |b, cx| {
                 b.toast.opening = false;
                 let live = b.toast.live(b.model.closed_tabs.newest()).is_some();
@@ -220,8 +211,7 @@ impl Render for ToastWindow {
         let Some(toast) = b.toast.live(b.model.closed_tabs.newest()) else { return div().into_any_element() };
         let main = self.main;
         let label = toast.action.as_ref().map(Action::label);
-        let card = surface(Theme::radius_panel())
-            .size_full()
+        let card = popover(Theme::radius_panel(), POPOVER_INSET)
             .pl_3()
             .pr(px(if label.is_some() { 4. } else { 12. }))
             .flex()
@@ -237,7 +227,7 @@ impl Render for ToastWindow {
             });
         let (reduce, id) = (b.pref(Pref::ReduceMotion), toast.serial as usize);
         if toast.closing {
-            animate(card, ("toast-out", id), FADE, reduce, |el, t| el.opacity(1. - t)).into_any_element()
+            animate(card, ("toast-out", id), EXIT, reduce, |el, t| el.opacity(1. - t)).into_any_element()
         } else {
             fade_in(card, ("toast-in", id), reduce).into_any_element()
         }

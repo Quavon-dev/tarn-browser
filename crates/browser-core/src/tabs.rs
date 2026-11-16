@@ -235,6 +235,13 @@ impl Model {
         self.tabs.iter().filter(|t| t.kind == tab.kind && t.folder_id == tab.folder_id && t.position < tab.position).count()
     }
 
+    /// The index `Store::move_tab` takes to put `dragged` just before `before`: one less when it
+    /// comes from above in the same zone, since the store takes it out of the list first.
+    pub fn drop_index(&self, dragged: TabKey, before: &Tab) -> usize {
+        let from_above = self.tab(dragged).is_some_and(|t| t.kind == before.kind && t.folder_id == before.folder_id && t.position < before.position);
+        self.zone_index(before) - usize::from(from_above)
+    }
+
     /// Where adding `key` to the tiles or taking it out moves it: to the end of the tiles, or back
     /// to the end of the unpinned tabs.
     pub fn tile_toggle(&self, key: TabKey) -> Option<(TabKind, usize)> {
@@ -689,6 +696,24 @@ mod tests {
         model.reload_space(&core);
         let order: Vec<_> = model.tabs.iter().map(|t| t.id).collect();
         assert_eq!(order, [a, c, d], "dropping a tab on its own row keeps it in place");
+    }
+
+    #[test]
+    fn a_tab_dropped_before_a_row_lands_just_above_it_from_either_side() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let tab = || core.disk.create_tab(s, TabKind::Ephemeral, None, "https://a.test/", "").unwrap().id;
+        let (a, b, c) = (tab(), tab(), tab());
+        model.reload_space(&core);
+        let drop = |model: &mut Model, dragged: Id, before: Id| {
+            let target = model.tabs.iter().find(|t| t.id == before).unwrap().clone();
+            let index = model.drop_index(TabKey { private: false, id: dragged }, &target);
+            core.disk.move_tab(dragged, TabKind::Ephemeral, None, index).unwrap();
+            model.reload_space(&core);
+            model.tabs.iter().map(|t| t.id).collect::<Vec<_>>()
+        };
+        assert_eq!(drop(&mut model, a, c), [b, a, c], "dragged down");
+        assert_eq!(drop(&mut model, c, b), [c, b, a], "dragged up");
     }
 
     #[test]

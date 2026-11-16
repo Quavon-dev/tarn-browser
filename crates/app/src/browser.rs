@@ -1,4 +1,4 @@
-use std::cell::{Ref, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -10,7 +10,7 @@ use engine::nav_policy::{self, Decision, Source};
 use engine::{DataStore, Event, Host, Popup, Prompt, PromptKind, WebView};
 use futures::StreamExt;
 use futures::channel::mpsc;
-use gpui::{App, AppContext, Context, Entity, FocusHandle, Focusable, Image, ImageFormat, Subscription, Task, Window, WindowHandle};
+use gpui::{App, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, Image, ImageFormat, Pixels, Subscription, Task, Window, WindowHandle};
 use shield::ShieldLevel;
 use store::{Bookmark, Counter, HistoryEntry, Id, Profile, SavedWindow, Store, Tab, TabKind, WebEngine};
 use ui::command::{self, Input};
@@ -91,7 +91,7 @@ pub struct PendingExternal {
 
 pub(crate) enum Msg {
     Tab(TabKey, u64, Event),
-    Found(bool),
+    Found(usize),
     IconLinks(TabKey, IconKey, Url, String),
     IconData(IconKey, String),
     PageText(Id, Id, String, String),
@@ -241,7 +241,7 @@ pub struct Browser {
     pub layout_stable_since: Instant,
     pub find_open: bool,
     pub find_input: Entity<TextInput>,
-    pub find_missing: bool,
+    pub find_count: Option<usize>,
     /// A tab woken by Find in Tabs, searched once its page has finished loading.
     pub(crate) find_after_load: Option<TabKey>,
     pub(crate) find_tabs: Option<Task<()>>,
@@ -307,11 +307,14 @@ pub struct Browser {
     pub(crate) address: crate::address::Address,
     pub(crate) hover_card: crate::hover_card::HoverCard,
     pub(crate) site_popover: crate::site_settings::SitePopover,
+    /// The Windows menu button, as last painted, so its menu drops from it.
+    pub(crate) app_menu_anchor: Rc<Cell<Bounds<Pixels>>>,
     pub(crate) link_peek: crate::link_peek::LinkPeek,
     pub(crate) splits: browser_core::split::Splits<TabKey>,
     pub(crate) split_shown: crate::split::Shown,
-    /// The tab a dragged tab would split with if dropped now, and what the drop does.
-    pub(crate) split_drop: Option<(TabKey, &'static str)>,
+    /// The row a dragged tab is over and, when the drop would split with it, what the drop does;
+    /// without one the tab lands before that row.
+    pub(crate) split_drop: Option<(TabKey, Option<&'static str>)>,
     pub shortcuts_open: bool,
     pub reader: Option<crate::reader::Reader>,
     pub reader_layout: crate::reader::Layout,
@@ -340,7 +343,7 @@ impl Browser {
         let core = crate::shared::core(cx);
         let disk = &core.disk;
 
-        let command = cx.new(|cx| TextInput::new("Search or enter address", cx));
+        let command = cx.new(|cx| TextInput::new("Search or enter address", cx).with_paste_and_go());
         let subscription = cx.subscribe_in(&command, window, Self::on_command_event);
         let prompt_input = cx.new(|cx| TextInput::new("", cx));
         let auth_user = cx.new(|cx| TextInput::new("User name", cx));
@@ -357,8 +360,8 @@ impl Browser {
                             b.on_event(key, event, window, cx);
                         }
                     }
-                    Msg::Found(found) => {
-                        b.find_missing = !found;
+                    Msg::Found(count) => {
+                        b.find_count = Some(count);
                         cx.notify();
                     }
                     Msg::IconLinks(key, icon, page, links) => b.fetch_favicon(key, icon, &page, &links),
@@ -426,7 +429,7 @@ impl Browser {
             layout_stable_since: Instant::now(),
             find_open: false,
             find_input,
-            find_missing: false,
+            find_count: None,
             find_after_load: None,
             find_tabs: None,
             refocus: false,
@@ -481,6 +484,7 @@ impl Browser {
             address: Default::default(),
             hover_card: Default::default(),
             site_popover: Default::default(),
+            app_menu_anchor: Default::default(),
             link_peek: Default::default(),
             splits: Default::default(),
             split_shown: Default::default(),
@@ -506,7 +510,7 @@ impl Browser {
                 b.layout_changed();
                 b.menu.reset();
                 b.sync_shared(window, cx);
-            } else if b.inline_editing() {
+            } else if b.inline_editing() && !b.command.read(cx).menu_open() {
                 b.close_command(window, cx);
             }
         });
@@ -1387,6 +1391,8 @@ impl Browser {
             TextInputEvent::Cancel => self.dismiss_overlay(window, cx),
             TextInputEvent::Up => self.select_suggestion(false, cx),
             TextInputEvent::Down => self.select_suggestion(true, cx),
+            TextInputEvent::MenuClosed if !window.is_window_active() && self.inline_editing() => self.close_command(window, cx),
+            TextInputEvent::MenuClosed => {}
         }
     }
 
@@ -1425,8 +1431,15 @@ impl Browser {
         }
         let mut out = Vec::new();
         let mut commands = command::rank_commands(&query, crate::COMMANDS.iter().map(|c| (c.0, c.1)));
-        commands.retain(|ix| self.site().is_some() || !crate::COMMANDS[*ix].2.partial_eq(&crate::site_settings::SiteSettings));
-        let to = self.model.active.and_then(|k| self.web_engine_switch(k));
+        let has_site = self.site().is_some();
+        commands.retain(|ix| has_site || !crate::COMMANDS[*ix].2.partial_eq(&crate::site_settings::SiteSettings));
+        // Which engine the tab can switch to reads the profile and a lock file, so only when a
+        // switch command is ranked at all.
+        let switching = commands.iter().any(|ix| {
+            let action = crate::COMMANDS[*ix].2;
+            action.partial_eq(&crate::tabs::ReloadInChromium) || action.partial_eq(&crate::tabs::ReloadInWebKit)
+        });
+        let to = self.model.active.filter(|_| switching).and_then(|k| self.web_engine_switch(k));
         let private = self.model.private();
         let zappable = self.site().is_some_and(|(k, u)| self.zappable(k, &u));
         let titled = self.model.active_tab().is_some_and(|t| !t.custom_title.is_empty());
@@ -1458,15 +1471,8 @@ impl Browser {
         let command = |ix: usize| {
             let (label, _, action) = crate::COMMANDS[ix];
             let is = |a: &dyn gpui::Action| action.partial_eq(a);
-            let label = if is(&crate::TogglePin) {
-                if pinned { "Unpin Tab" } else { "Pin Tab" }
-            } else if is(&crate::menubar::ToggleMute) {
-                if muted { "Unmute Site" } else { "Mute Site" }
-            } else if is(&crate::split::ToggleSplitView) {
-                if split { "Close Split View" } else { "Open in Split View" }
-            } else {
-                label
-            };
+            let on = is(&crate::TogglePin) && pinned || is(&crate::menubar::ToggleMute) && muted || is(&crate::split::ToggleSplitView) && split;
+            let label = crate::tabs::state_label(action, on).unwrap_or(label);
             Suggestion { label: label.to_owned(), detail: crate::shortcuts::shown(action, cx), target: Target::Input(Input::Command(ix)) }
         };
         let space_rows = self.space_commands(&query);
@@ -2303,7 +2309,7 @@ impl Browser {
             return;
         }
         self.find_open = true;
-        self.find_missing = false;
+        self.find_count = None;
         let text = self.find_input.read(cx).text().to_owned();
         self.find_input.update(cx, |i, cx| i.set_text(text, cx));
         if let Some(host) = &self.host {
@@ -2338,9 +2344,10 @@ impl Browser {
             TextInputEvent::Up => self.find(true, cx),
             TextInputEvent::Cancel => self.close_find(window, cx),
             TextInputEvent::Changed => {
-                self.find_missing = false;
+                self.find_count = None;
                 cx.notify();
             }
+            TextInputEvent::MenuClosed => {}
         }
     }
 

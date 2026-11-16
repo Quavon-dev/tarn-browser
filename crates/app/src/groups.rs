@@ -145,12 +145,14 @@ impl Browser {
         let events = cx.subscribe_in(&input, window, |b, _, event, window, cx| match event {
             TextInputEvent::Submit => b.end_rename(true, window, cx),
             TextInputEvent::Cancel => b.end_rename(false, window, cx),
+            TextInputEvent::MenuClosed if !window.is_window_active() => b.end_rename(true, window, cx),
             _ => {}
         });
         let focus = input.focus_handle(cx);
         let blur = cx.on_blur(&focus, window, |b, window, cx| b.end_rename(true, window, cx));
-        let deactivate = cx.observe_window_activation(window, |b, window, cx| {
-            if !window.is_window_active() {
+        let menu_input = input.clone();
+        let deactivate = cx.observe_window_activation(window, move |b, window, cx| {
+            if !window.is_window_active() && !menu_input.read(cx).menu_open() {
                 b.end_rename(true, window, cx);
             }
         });

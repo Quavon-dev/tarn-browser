@@ -12,6 +12,10 @@ pub const ROW_HEIGHT: f32 = 34.;
 pub const TEXT: f32 = 13.;
 pub const TEXT_SMALL: f32 = 11.5;
 pub const TEXT_TITLE: f32 = 15.;
+/// A modal card's heading.
+pub const TEXT_HEADING: f32 = 18.;
+/// A letter in a small badge.
+pub const TEXT_TINY: f32 = 10.;
 /// Clearance for the window's traffic lights, matching `traffic_light_position` in the app.
 /// Windows draws its window controls at the toolbar's right instead.
 pub const TRAFFIC_LIGHT_INSET: f32 = if cfg!(target_os = "macos") { 84. } else { 10. };
@@ -249,6 +253,37 @@ impl Theme {
     pub fn monogram(host: &str) -> Rgba {
         let hash = host.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
         rgb(MONOGRAM[hash as usize % MONOGRAM.len()])
+    }
+}
+
+/// The elevation scale: what each kind of card casts on what lies beneath it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Elevation {
+    /// A card in a pop-up window; its widest layer (`Theme::elevation` triples the blur) stays
+    /// inside the window's `controls::POPOVER_INSET` margin.
+    Popover,
+    /// A card floating in the window: banners, prompts, the find bar.
+    Floating,
+    /// The page and each split pane above the window's background.
+    Page,
+    /// A modal card over a dimmed window.
+    Modal,
+}
+
+impl Elevation {
+    /// The shadow offset and blur of the level's main layer.
+    pub fn offset_blur(self) -> (f32, f32) {
+        match self {
+            Elevation::Popover => (2., 5.),
+            Elevation::Floating => (4., 14.),
+            Elevation::Page => (6., 24.),
+            Elevation::Modal => (18., 48.),
+        }
+    }
+
+    pub fn shadow(self) -> Vec<BoxShadow> {
+        let (y, blur) = self.offset_blur();
+        Theme::elevation(y, blur)
     }
 }
 

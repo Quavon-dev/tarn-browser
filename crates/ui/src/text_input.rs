@@ -1,12 +1,16 @@
 // Adapted from GPUI's `examples/input.rs` (Zed Industries, Apache-2.0).
 
+use std::cell::Cell;
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
     GlobalElementId, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine, SharedString,
     Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, point, prelude::*, px, relative, size,
 };
+
+use engine::menu::Item;
 
 use crate::theme::Theme;
 use unicode_segmentation::*;
@@ -50,6 +54,8 @@ pub enum TextInputEvent {
     Cancel,
     Up,
     Down,
+    /// The context menu closed; a pop-up that closes on losing activation checks it again here.
+    MenuClosed,
 }
 
 pub fn bind_keys(cx: &mut App) {
@@ -125,6 +131,18 @@ pub struct TextInput {
     is_selecting: bool,
     masked: bool,
     inserted: bool,
+    paste_and_go: bool,
+    menu_open: bool,
+}
+
+/// An entry of a field's context menu.
+#[derive(Clone, Copy)]
+enum Edit {
+    Cut,
+    Copy,
+    Paste,
+    PasteAndGo,
+    SelectAll,
 }
 
 impl EventEmitter<TextInputEvent> for TextInput {}
@@ -143,7 +161,23 @@ impl TextInput {
             is_selecting: false,
             masked: false,
             inserted: false,
+            paste_and_go: false,
+            menu_open: false,
         }
+    }
+
+    /// Offers Paste and Go in the field's context menu, for the address field.
+    pub fn with_paste_and_go(mut self) -> Self {
+        self.paste_and_go = true;
+        self
+    }
+
+    /// Replaces the content with the clipboard's text and submits it, as pasting and pressing
+    /// Enter would.
+    pub fn paste_and_go(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.selected_range = 0..self.content.len();
+        self.paste(&Paste, window, cx);
+        cx.emit(TextInputEvent::Submit);
     }
 
     /// Shows bullets instead of the text, for passwords.
@@ -315,6 +349,55 @@ impl TextInput {
         } else {
             self.move_to(self.index_for_mouse_position(event.position), cx)
         }
+    }
+
+    /// Cut, Copy, Paste and Select All, by mouse. The menu runs the system's modal tracking
+    /// loop, so it opens from a task, outside this update.
+    fn on_right_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        window.focus(&self.focus_handle);
+        let at = self.index_for_mouse_position(event.position);
+        if !(self.selected_range.start..=self.selected_range.end).contains(&at) {
+            self.move_to(at, cx);
+        }
+        let Some(host) = engine::Host::from_window(window) else { return };
+        let selected = !self.selected_range.is_empty() && !self.masked;
+        let clipboard = cx.read_from_clipboard().and_then(|item| item.text()).is_some_and(|t| !t.trim().is_empty());
+        let mut items = vec![
+            Item::action("Cut", Edit::Cut).enabled(selected),
+            Item::action("Copy", Edit::Copy).enabled(selected),
+            Item::action("Paste", Edit::Paste).enabled(clipboard),
+        ];
+        if self.paste_and_go {
+            items.push(Item::action("Paste and Go", Edit::PasteAndGo).enabled(clipboard));
+        }
+        items.extend([Item::Separator, Item::action("Select All", Edit::SelectAll).enabled(!self.content.is_empty())]);
+        self.menu_open = true;
+        cx.spawn_in(window, async move |this, cx| {
+            let chosen = Rc::new(Cell::new(None));
+            let pick = chosen.clone();
+            engine::menu::show(&host, items, None, move |edit| pick.set(Some(edit)));
+            this.update_in(cx, |this, window, cx| {
+                this.menu_open = false;
+                cx.emit(TextInputEvent::MenuClosed);
+                match chosen.get() {
+                    Some(Edit::Cut) => this.cut(&Cut, window, cx),
+                    Some(Edit::Copy) => this.copy(&Copy, window, cx),
+                    Some(Edit::Paste) => this.paste(&Paste, window, cx),
+                    Some(Edit::PasteAndGo) => this.paste_and_go(window, cx),
+                    Some(Edit::SelectAll) => this.select_all(&SelectAll, window, cx),
+                    None => {}
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Whether the field's context menu is open: the native menu takes the window's activation,
+    /// so a pop-up that closes when it loses activation must stay open meanwhile.
+    pub fn menu_open(&self) -> bool {
+        self.menu_open
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _window: &mut Window, _: &mut Context<Self>) {
@@ -738,6 +821,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::up))
             .on_action(cx.listener(Self::down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))

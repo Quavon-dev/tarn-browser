@@ -95,7 +95,7 @@ actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab
 pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
     ("Settings", "preferences options", &Settings),
     ("New Tab Group", "group", &NewGroup),
-    ("Bookmark This Tab", "favorite save", &BookmarkTab),
+    ("Bookmark Tab…", "favorite save", &BookmarkTab),
     ("Bookmark All Tabs", "favorite save", &BookmarkAllTabs),
     ("New Space", "workspace profile", &NewSpace),
     ("Edit Space", "workspace rename color icon", &spaces::EditSpace),

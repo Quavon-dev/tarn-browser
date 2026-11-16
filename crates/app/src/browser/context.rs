@@ -1,7 +1,7 @@
 use engine::menu::{self, Item};
 use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
-use gpui::{ClipboardItem, Context, PromptLevel, Window};
+use gpui::{ClipboardItem, Context, PromptLevel, Window, px};
 use store::{Counter, Id, Tab, TabKind, WebEngine};
 use url::Url;
 
@@ -54,6 +54,7 @@ pub enum Cmd {
     SetPinnedUrl(TabKey),
     Sleep(Vec<TabKey>),
     SiteSettings,
+    PasteAndGo,
     Split(TabKey),
     LeaveSplit(TabKey),
     RotateSplit(TabKey),
@@ -105,7 +106,7 @@ impl Browser {
             Item::Separator,
             self.split_menu(key, cx),
             Item::Separator,
-            Item::action(if ephemeral { "Pin Tab" } else { "Unpin Tab" }, Cmd::TogglePin(key))
+            Item::action(crate::tabs::state_label(&crate::TogglePin, !ephemeral).unwrap_or_default(), Cmd::TogglePin(key))
                 .key(if active { crate::shortcuts::keys(&crate::TogglePin, cx) } else { String::new() })
                 .enabled(!self.model.burner_shown()),
             Item::action(if tab.kind == TabKind::Tile { "Remove from Tiles" } else { "Add to Tiles" }, Cmd::ToggleTile(key))
@@ -255,9 +256,25 @@ impl Browser {
         self.show_menu(items, window, cx);
     }
 
+    /// The address at rest: copy it, or go to the address or search on the clipboard.
+    pub fn address_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(key) = self.model.active else { return };
+        let clipboard = cx.read_from_clipboard().and_then(|item| item.text()).is_some_and(|t| !t.trim().is_empty());
+        let mut items = vec![
+            Item::action("Copy Link", Cmd::CopyLink(key, false)).key(crate::shortcuts::keys(&crate::CopyLink, cx)),
+            Item::action("Copy Clean Link", Cmd::CopyLink(key, true)).key(crate::shortcuts::keys(&crate::CopyCleanLink, cx)),
+            Item::action("Paste and Go", Cmd::PasteAndGo).enabled(clipboard),
+        ];
+        if self.site().is_some() {
+            items.extend([Item::Separator, Item::action("Site Settings…", Cmd::SiteSettings)]);
+        }
+        self.show_menu(items, window, cx);
+    }
+
     fn mute_item(&self, key: TabKey) -> Item<Cmd> {
         let host = self.tab_url(key).and_then(|u| super::tab_host(&u));
-        Item::action(if self.tab_muted(key) { "Unmute Site" } else { "Mute Site" }, Cmd::ToggleMute(key)).enabled(host.is_some())
+        Item::action(crate::tabs::state_label(&crate::menubar::ToggleMute, self.tab_muted(key)).unwrap_or_default(), Cmd::ToggleMute(key))
+            .enabled(host.is_some())
     }
 
     /// The menu runs AppKit's modal tracking loop, so it opens from a task, outside this update.
@@ -269,7 +286,7 @@ impl Browser {
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, items, move |cmd| {
+            menu::show(&host, items, None, move |cmd| {
                 tx.send(cmd).ok();
             });
             this.update(cx, |b, _| b.menu_open = false).ok();
@@ -319,10 +336,12 @@ impl Browser {
                 app_menu(m.owned(), &mut marked.into_iter().peekable(), &idle, cx)
             })
             .collect();
+        let button = self.app_menu_anchor.get();
+        let at = (button.size.width > px(0.)).then(|| (f32::from(button.origin.x).into(), f32::from(button.bottom()).into()));
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, items, move |action: Box<dyn gpui::Action>| {
+            menu::show(&host, items, at, move |action: Box<dyn gpui::Action>| {
                 tx.send(action).ok();
             });
             this.update(cx, |b, _| b.menu_open = false).ok();
@@ -395,6 +414,10 @@ impl Browser {
             Cmd::SetPinnedUrl(key) => self.set_pinned_url(key, cx),
             Cmd::Sleep(keys) => self.sleep_tabs(keys, cx),
             Cmd::SiteSettings => self.toggle_site_settings(window, cx),
+            Cmd::PasteAndGo => {
+                self.open_command(super::CommandMode::Current, window, cx);
+                self.command.update(cx, |input, cx| input.paste_and_go(window, cx));
+            }
             Cmd::Split(key) => self.split_with(key, window, cx),
             Cmd::LeaveSplit(key) => self.leave_split(key, window, cx),
             Cmd::RotateSplit(key) => self.rotate_split(key, cx),

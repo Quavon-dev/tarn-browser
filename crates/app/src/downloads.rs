@@ -1,21 +1,21 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use gpui::{
-    AppContext, Bounds, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PathBuilder, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, WindowHandle, canvas, div, point, prelude::FluentBuilder, px, size, svg,
+    Bounds, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PathBuilder, Render, StatefulInteractiveElement,
+    Styled, Subscription, WeakEntity, Window, WindowHandle, canvas, div, point, prelude::FluentBuilder, px, size, svg,
 };
 use store::{Download, Id};
-use ui::controls::{button, icon_button, surface, tooltip};
+use ui::controls::{POPOVER_INSET, button, empty, icon_button, list_row, open_popup, popover, tab_stop, text_lines, tooltip};
 use ui::icon::{Icon, icon};
-use ui::motion::{EXIT, FADE, animate};
+use ui::motion::{REOPEN_GUARD, popover_motion};
 use ui::text::bounded_title;
-use ui::theme::{TEXT, TEXT_SMALL, Theme};
+use ui::theme::{TEXT, Theme};
 
 use crate::ToggleDownloads;
 use crate::browser::Browser;
-use crate::peek::{popup_options, remove_after_exit};
+use crate::peek::remove_after_exit;
 use crate::prefs::Pref;
 use crate::sidebar::{HEADER_HEIGHT, SIDEBAR_MARGIN, TILE_GAP};
 
@@ -28,8 +28,6 @@ const ROW: f32 = 44.;
 const FOOTER: f32 = 37.;
 const PAD: f32 = 6.;
 const MAX_ROWS: usize = 5;
-/// Room around the card for its own shadow; the window has none.
-const SHADOW: f32 = 16.;
 
 /// The popover's window, the number of downloads saving per profile, the downloads saving or
 /// paused by (private, profile, id), and a counter that moves whenever the list may have changed.
@@ -111,7 +109,7 @@ fn card_height(rows: usize) -> f32 {
 
 /// How many rows the popover's window has room for.
 fn rows_fit(window_height: f32) -> usize {
-    ((window_height - CARET - SHADOW - card_height(0) + ROW) / ROW).round() as usize
+    ((window_height - CARET - POPOVER_INSET - card_height(0) + ROW) / ROW).round() as usize
 }
 
 impl Browser {
@@ -162,7 +160,7 @@ impl Browser {
                 cx.notify();
             }
             // The click that took focus from the popover already closed it; it must not reopen it.
-            None if self.downloads_popover.closed.is_some_and(|t| t.elapsed() < Duration::from_millis(300)) => {}
+            None if self.downloads_popover.closed.is_some_and(|t| t.elapsed() < REOPEN_GUARD) => {}
             None => self.show_downloads(window, cx),
         }
     }
@@ -184,23 +182,20 @@ impl Browser {
         let rows = (self.downloads().len() + saving).min(MAX_ROWS) + saving.min(MAX_ROWS);
         let button = SIDEBAR_MARGIN + self.sidebar_width - TILE_GAP - 14.;
         let bounds = Bounds::new(
-            point(anchor.origin.x + px(button - CARET_AT - SHADOW), anchor.origin.y + px(top)),
-            size(px(WIDTH + 2. * SHADOW), px(CARET + card_height(rows) + SHADOW)),
+            point(anchor.origin.x + px(button - CARET_AT - POPOVER_INSET), anchor.origin.y + px(top)),
+            size(px(WIDTH + 2. * POPOVER_INSET), px(CARET + card_height(rows) + POPOVER_INSET)),
         );
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
         // The new window renders from the browser at once, so it must open after this update ends.
         cx.defer(move |cx| {
-            let handle = cx.open_window(popup_options(bounds, display, true), |window, cx| {
-                if let Some(host) = engine::Host::from_window(window) {
-                    host.strip_frame();
-                    host.round_corners(f64::from(CARET), f64::from(SHADOW), f64::from(SHADOW), f64::from(SHADOW), f64::from(ui::theme::Theme::radius_panel()));
-                }
-                cx.new(|cx| DownloadsWindow::new(browser.clone(), main, caret, window, cx))
+            let inset = [CARET, POPOVER_INSET, POPOVER_INSET, POPOVER_INSET];
+            let (handle, _) = open_popup(cx, bounds, display, true, inset, Theme::radius_panel(), |window, cx| {
+                DownloadsWindow::new(browser.clone(), main, caret, window, cx)
             });
             browser
                 .update(cx, |b, cx| {
-                    b.downloads_popover.window = handle.ok();
+                    b.downloads_popover.window = handle;
                     cx.notify();
                 })
                 .ok();
@@ -283,36 +278,10 @@ impl DownloadsWindow {
         let reveal = move || engine::reveal_in_finder(Path::new(&path));
         let button_reveal = reveal.clone();
         let name = Path::new(&d.path).file_name().map(|n| bounded_title(&n.to_string_lossy())).unwrap_or_default();
-        div()
-            .id(("download", d.id as u64))
-            .h(px(ROW))
-            .flex_none()
-            .px_2()
-            .flex()
-            .items_center()
-            .gap_2p5()
-            .rounded(px(Theme::radius_row()))
-            .cursor_pointer()
-            .hover(|s| s.bg(Theme::hover()))
+        tab_stop(list_row(("download", d.id as u64), false).h(px(ROW)).px_2())
             .on_click(move |_, _, _| reveal())
             .child(icon(Icon::File, 20., Theme::muted()))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(name)))
-                    .child(
-                        div()
-                            .text_size(px(TEXT_SMALL))
-                            .text_color(Theme::muted())
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(SharedString::from(subtitle(d))),
-                    ),
-            )
+            .child(text_lines(name, subtitle(d)))
             .child(icon_button(("reveal", d.id as u64), Icon::Folder, true).tooltip(tooltip(ui::controls::REVEAL, None)).on_click(move |_, _, cx| {
                 cx.stop_propagation();
                 button_reveal();
@@ -331,24 +300,8 @@ impl DownloadsWindow {
             .items_center()
             .gap_2p5()
             .child(icon(Icon::ArrowDown, 20., if paused { Theme::muted() } else { Theme::accent() }))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(name)))
-                    .child(
-                        div()
-                            .text_size(px(TEXT_SMALL))
-                            .text_color(Theme::muted())
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(SharedString::from(transfer_subtitle(t))),
-                    ),
-            )
-            .child(icon_button(("transfer", id), glyph, true).tooltip(tooltip(label, None)).on_click(cx.listener(move |this, _, _, cx| {
+            .child(text_lines(name, transfer_subtitle(t)))
+            .child(tab_stop(icon_button(("transfer", id), glyph, true)).tooltip(tooltip(label, None)).on_click(cx.listener(move |this, _, _, cx| {
                 this.browser.update(cx, |b, _| b.pause_or_resume(id, paused)).ok();
             })))
     }
@@ -374,13 +327,11 @@ impl Render for DownloadsWindow {
             .justify_between()
             .child(div().font_weight(FontWeight::MEDIUM).child("Downloads"))
             .when(!self.rows.is_empty(), |d| {
-                d.child(button("downloads-clear", "Clear", false).on_click(cx.listener(|this, _, window, cx| this.clear(window, cx))))
+                d.child(tab_stop(button("downloads-clear", "Clear", false)).on_click(cx.listener(|this, _, window, cx| this.clear(window, cx))))
             });
         let saving: Vec<_> = transfers.iter().take(fit).map(|(id, t)| self.transfer_row(*id, t, cx).into_any_element()).collect();
-        let empty = (self.rows.is_empty() && transfers.is_empty())
-            .then(|| div().h(px(ROW)).flex_none().px_2().flex().items_center().text_color(Theme::muted()).child("No downloads yet"));
-        let footer = div()
-            .id("downloads-all")
+        let empty = (self.rows.is_empty() && transfers.is_empty()).then(|| empty("No downloads yet"));
+        let footer = tab_stop(div().id("downloads-all"))
             .mt(px(PAD))
             .h(px(FOOTER - 1.))
             .flex_none()
@@ -397,41 +348,27 @@ impl Render for DownloadsWindow {
             .on_click(cx.listener(|this, _, window, cx| this.view_all(window, cx)));
         let finished = fit.saturating_sub(saving.len());
         let list = div().px_1p5().flex().flex_col().children(saving).children(self.rows.iter().take(finished).map(|d| self.row(d))).children(empty);
-        let card = surface(Theme::radius_panel())
-            .absolute()
-            .top(px(CARET))
-            .left(px(SHADOW))
-            .right(px(SHADOW))
-            .bottom(px(SHADOW))
-            .flex()
-            .flex_col()
-            .shadow(Theme::elevation(2., 5.))
-            .child(header)
-            .child(list)
-            .child(div().flex_1())
-            .child(footer);
+        let card = popover(Theme::radius_panel(), CARET).flex().flex_col().child(header).child(list).child(div().flex_1()).child(footer);
         let caret = svg()
             .path(Icon::Caret.path())
             .absolute()
             .top_0()
-            .left(px(SHADOW + CARET_AT - CARET))
+            .left(px(POPOVER_INSET + CARET_AT - CARET))
             .w(px(2. * CARET))
             .h(px(CARET + 1.))
             .text_color(Theme::surface());
         let content = div().relative().size_full().text_size(px(TEXT)).text_color(Theme::text()).child(card).when(self.caret, |d| d.child(caret));
-        let content = if self.closing {
-            animate(content, "downloads-out", EXIT, reduce, |el, t| el.opacity(1. - t))
-        } else {
-            animate(content, "downloads-in", FADE, reduce, |el, t| el.opacity(t).top(px(-6. * (1. - t))))
-        };
+        let content = popover_motion(content, "downloads", self.closing, reduce);
         div()
             .track_focus(&self.focus)
             .key_context("Downloads")
             .on_action(cx.listener(|this, _: &ToggleDownloads, window, cx| this.close(true, window, cx)))
-            .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
-                if e.keystroke.key == "escape" {
-                    this.close(true, window, cx);
-                }
+            .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| match e.keystroke.key.as_str() {
+                "escape" => this.close(true, window, cx),
+                "tab" if e.keystroke.modifiers.shift => window.focus_prev(),
+                "tab" | "down" => window.focus_next(),
+                "up" => window.focus_prev(),
+                _ => {}
             }))
             .size_full()
             .child(content)
@@ -453,7 +390,7 @@ mod tests {
     #[test]
     fn the_window_fits_the_rows_it_was_sized_for() {
         for rows in 1..=2 * MAX_ROWS {
-            assert_eq!(rows_fit(CARET + card_height(rows) + SHADOW), rows);
+            assert_eq!(rows_fit(CARET + card_height(rows) + POPOVER_INSET), rows);
         }
     }
 

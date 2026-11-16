@@ -5,7 +5,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, actions, div, px,
 };
 use ui::controls::{key_hint, surface};
-use ui::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
+use ui::theme::{Elevation, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 use crate::browser::Browser;
 use crate::settings::SHORTCUTS;
@@ -305,7 +305,7 @@ pub fn render(cx: &mut Context<Browser>) -> AnyElement {
         .flex()
         .flex_col()
         .gap_4()
-        .shadow(Theme::elevation(18., 48.))
+        .shadow(Elevation::Modal.shadow())
         .text_size(px(TEXT))
         .child(
             div()

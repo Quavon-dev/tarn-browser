@@ -28,6 +28,21 @@ const HEAVY_TABS: usize = 3;
 const GOOGLE_NOTICE_SEEN: &str = "chromium_notice_seen";
 const GOOGLE_NOTICE: &str = "Chromium makes requests of its own to Google: security data (certificate revocation and the root store) and installing and updating Chrome extensions. Google sees your IP address for these requests.";
 
+/// The label of a tab command named by the tab's state, alike in the tab menu, the menu bar and
+/// the command bar: `on` is whether the tab is pinned, its site muted or the tab in a split.
+pub(crate) fn state_label(action: &dyn gpui::Action, on: bool) -> Option<&'static str> {
+    let is = |a: &dyn gpui::Action| action.partial_eq(a);
+    Some(if is(&crate::TogglePin) {
+        if on { "Unpin Tab" } else { "Pin Tab" }
+    } else if is(&crate::menubar::ToggleMute) {
+        if on { "Unmute Site" } else { "Mute Site" }
+    } else if is(&crate::split::ToggleSplitView) {
+        if on { "Close Split View" } else { "Open in Split View" }
+    } else {
+        return None;
+    })
+}
+
 pub fn web_engine_name(engine: WebEngine) -> &'static str {
     match engine {
         WebEngine::WebKit => "WebKit",
@@ -491,6 +506,15 @@ mod tests {
             custom_title: custom.into(),
             web_engine: None,
         }
+    }
+
+    #[test]
+    fn stateful_tab_commands_are_named_by_state() {
+        assert_eq!(state_label(&crate::TogglePin, true), Some("Unpin Tab"));
+        assert_eq!(state_label(&crate::TogglePin, false), Some("Pin Tab"));
+        assert_eq!(state_label(&crate::menubar::ToggleMute, true), Some("Unmute Site"));
+        assert_eq!(state_label(&crate::split::ToggleSplitView, false), Some("Open in Split View"));
+        assert_eq!(state_label(&crate::BookmarkTab, true), None);
     }
 
     #[test]

@@ -162,6 +162,17 @@ impl<K: PartialEq + Copy> Splits<K> {
         self.of(key).is_some()
     }
 
+    /// The other panes of `key`'s split, once those `keep` refuses, as a gone tab or one shown in
+    /// another window, have left it.
+    pub fn partners(&mut self, key: K, mut keep: impl FnMut(K) -> bool) -> Vec<K> {
+        for pane in self.of(key).map(|s| s.others(key)).unwrap_or_default() {
+            if !keep(pane) {
+                self.leave(pane);
+            }
+        }
+        self.of(key).map(|s| s.others(key)).unwrap_or_default()
+    }
+
     /// The tab `active` splits with: the most recently used of `tabs`, with their last use, that
     /// may join it.
     pub fn partner(&self, active: K, tabs: impl IntoIterator<Item = (K, i64)>) -> Option<K> {
@@ -355,6 +366,16 @@ mod tests {
         assert_eq!(split(&[a, b, d]).others(a), [b, d]);
         assert_eq!(split(&[a, b]).others(b), [a]);
         assert!(split(&[a, b]).others(c).is_empty(), "a private tab with the same id is another tab");
+    }
+
+    #[test]
+    fn partners_drop_the_panes_that_may_not_stay() {
+        let mut s = splits(&[&[1, 2, 3], &[4, 5]]);
+        assert_eq!(s.partners(1, |k| k != 3), [2]);
+        assert_eq!(panes(&s), [&[1, 2][..], &[4, 5]]);
+        assert!(s.partners(4, |k| k != 5).is_empty(), "a split left with one pane ends");
+        assert_eq!(panes(&s), [[1, 2]]);
+        assert!(s.partners(9, |_| true).is_empty());
     }
 
     #[test]

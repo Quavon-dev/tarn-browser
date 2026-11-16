@@ -9,7 +9,7 @@ use objc2_app_kit::{
     NSApplication, NSColor, NSControlStateValueOn, NSEvent, NSEventMask, NSEventModifierFlags, NSFloatingWindowLevel, NSImage, NSImageSymbolConfiguration,
     NSMenu, NSMenuItem,
 };
-use objc2_foundation::{NSArray, NSData, NSObject, NSSize, NSString, NSUserDefaults};
+use objc2_foundation::{NSArray, NSData, NSObject, NSPoint, NSSize, NSString, NSUserDefaults};
 
 use crate::Host;
 pub use crate::menu_item::Item;
@@ -35,10 +35,11 @@ define_class!(
     }
 );
 
-/// Pops up `items` as a native menu at the mouse location in `host` and calls `chosen` with the
-/// value of the entry the user picks. AppKit runs a modal tracking loop inside this call, so the
-/// caller must not hold UI state borrowed across it.
-pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, chosen: impl FnOnce(T) + 'static) {
+/// Pops up `items` as a native menu in `host` at `at` (points from the top left, such as a
+/// button's lower left corner) or else at the mouse location, and calls `chosen` with the value
+/// of the entry the user picks. AppKit runs a modal tracking loop inside this call, so the caller
+/// must not hold UI state borrowed across it.
+pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>, chosen: impl FnOnce(T) + 'static) {
     let Some(mtm) = MainThreadMarker::new() else { return };
     let mut values = Vec::new();
     let target = Target::alloc(mtm).set_ivars(RefCell::new(None));
@@ -62,7 +63,10 @@ pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, chosen: impl FnOnce(T)
             (w, level)
         })
         .collect();
-    let location = host.view.convertPoint_fromView(window.mouseLocationOutsideOfEventStream(), None);
+    let location = match at {
+        Some((x, y)) => NSPoint::new(x, if host.view.isFlipped() { y } else { host.view.bounds().size.height - y }),
+        None => host.view.convertPoint_fromView(window.mouseLocationOutsideOfEventStream(), None),
+    };
     menu.popUpMenuPositioningItem_atLocation_inView(None, location, Some(&host.view));
     for (w, level) in lowered {
         w.setLevel(level);

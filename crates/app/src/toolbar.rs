@@ -6,7 +6,7 @@ use shield::ShieldLevel;
 use std::time::Duration;
 use store::WebEngine;
 use ui::controls::{field, icon_button, icon_frame, spinner, tooltip};
-use ui::icon::{Icon, icon};
+use ui::icon::{ICON_SMALL, Icon, icon};
 use ui::text::bounded_title;
 use ui::theme::{SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
 use url::Url;
@@ -123,9 +123,10 @@ fn settings(cx: &mut Context<Browser>) -> Stateful<Div> {
 }
 
 /// Windows has no menu bar; this button opens the same menus.
-fn app_menu_button(cx: &mut Context<Browser>) -> Option<Stateful<Div>> {
+fn app_menu_button(b: &Browser, cx: &mut Context<Browser>) -> Option<Stateful<Div>> {
     cfg!(windows).then(|| {
         icon_button("app-menu", Icon::Ellipsis, true)
+            .child(measure(b.app_menu_anchor.clone()))
             .occlude()
             .tooltip(crate::shortcuts::tip("Menu", &crate::OpenAppMenu))
             .on_click(cx.listener(|b, _, w, cx| b.open_app_menu(w, cx)))
@@ -153,7 +154,7 @@ fn render_classic(b: &Browser, inset: f32, cx: &mut Context<Browser>) -> Div {
                 .when(b.devtools_on(), |d| d.child(devtools(b, cx)))
                 .child(crate::extensions::buttons(b, cx))
                 .child(settings(cx))
-                .children(app_menu_button(cx)),
+                .children(app_menu_button(b, cx)),
         )
 }
 
@@ -287,11 +288,12 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .hover(|s| s.bg(Secure::hover()))
         .active(|s| s.bg(Secure::pressed()))
         .on_click(cx.listener(|b, _, window, cx| b.open_command(CommandMode::Current, window, cx)))
+        .on_mouse_down(MouseButton::Right, cx.listener(|b, _, w, cx| b.address_menu(w, cx)))
         .on_scroll_wheel(cx.listener(|b, e, w, cx| b.toolbar_swipe(e, true, w, cx)))
         .relative()
         .child(measure(b.address.field.clone()))
         // Both sides share the spare room equally, so the host stays centred in the chip.
-        .child(div().flex_1().flex().child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, 13., Secure::faint()))))
+        .child(div().flex_1().flex().child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, ICON_SMALL, Secure::faint()))))
         .child(tail_first(div(), text, color))
         .child(
             div()
@@ -336,6 +338,7 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
                     .hover(|s| s.bg(Theme::hover()))
                     .active(|s| s.bg(Theme::pressed()))
                     .on_click(cx.listener(|b, _, window, cx| b.open_command(CommandMode::Current, window, cx)))
+                    .on_mouse_down(MouseButton::Right, cx.listener(|b, _, w, cx| b.address_menu(w, cx)))
                     .on_scroll_wheel(cx.listener(|b, e, w, cx| b.toolbar_swipe(e, true, w, cx)))
                     .relative()
                     .child(measure(b.address.field.clone()))
@@ -356,7 +359,7 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
         .when(b.devtools_on(), |d| d.child(devtools(b, cx)))
         .child(crate::extensions::buttons(b, cx))
         .child(settings(cx))
-        .children(app_menu_button(cx))
+        .children(app_menu_button(b, cx))
 }
 
 /// The address field opened in place, or folding back: it grows from its resting place and width
@@ -390,7 +393,7 @@ fn open_field(b: &Browser, t: f32, editing: bool, centered: bool, cx: &mut Conte
                 .items_center()
                 .gap_2()
                 .on_key_down(cx.listener(|b, e: &KeyDownEvent, _, cx| b.suggestion_key(e, cx)))
-                .child(icon(Icon::Search, 13., Theme::faint()))
+                .child(icon(Icon::Search, ICON_SMALL, Theme::faint()))
                 .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(content))
                 .child(measure(b.address.field.clone())),
         )

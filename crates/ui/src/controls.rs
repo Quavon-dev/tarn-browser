@@ -3,13 +3,13 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
-    AnyView, AnyWindowHandle, App, AppContext, Bounds, BoxShadow, Context, DisplayId, Div, ElementId, FontWeight, InteractiveElement, IntoElement,
+    AnyView, AnyWindowHandle, App, AppContext, Bounds, BoxShadow, Context, DisplayId, Div, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Pixels, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Svg, Transformation, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, percentage, point, prelude::FluentBuilder, px,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div, percentage, point, prelude::FluentBuilder, px,
 };
 
 use crate::icon::{Icon, icon};
-use crate::theme::{SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, Theme};
+use crate::theme::{Elevation, ROW_HEIGHT, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, Theme};
 
 pub fn button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
     let colors = if primary { (Theme::accent(), Theme::surface_edge()) } else { (Theme::control(), Theme::hairline()) };
@@ -87,6 +87,42 @@ fn ring(color: Rgba, spread: f32, blur: f32) -> BoxShadow {
 /// The flat opaque card behind every popover, banner, toast and centred card.
 pub fn surface(radius: f32) -> Div {
     div().rounded(px(radius)).bg(Theme::surface()).border_1().border_color(Theme::surface_edge()).font_family(Theme::font()).overflow_hidden()
+}
+
+/// The transparent margin a pop-up window keeps around its card, room for the card's shadow.
+pub const POPOVER_INSET: f32 = 16.;
+
+/// A pop-up window's card: `surface` with the pop-up elevation, inset `top` from the window's
+/// top edge and `POPOVER_INSET` from the others.
+pub fn popover(radius: f32, top: f32) -> Div {
+    surface(radius).absolute().top(px(top)).left(px(POPOVER_INSET)).right(px(POPOVER_INSET)).bottom(px(POPOVER_INSET)).shadow(Elevation::Popover.shadow())
+}
+
+/// Opens a pop-up window at `bounds` without the system frame and shadow, clipped to its card
+/// `inset` (top, left, right, bottom) from its edges with `radius` corners. The new window renders
+/// at once, so this runs outside an update, as from `cx.defer`.
+pub fn open_popup<V: Render + 'static>(
+    cx: &mut App,
+    bounds: Bounds<Pixels>,
+    display: Option<DisplayId>,
+    focus: bool,
+    inset: [f32; 4],
+    radius: f32,
+    build: impl FnOnce(&mut Window, &mut Context<V>) -> V,
+) -> (Option<WindowHandle<V>>, Option<engine::Host>) {
+    let mut popup = None;
+    let handle = cx
+        .open_window(popup_options(bounds, display, focus), |window, cx| {
+            popup = engine::Host::from_window(window);
+            if let Some(host) = &popup {
+                host.strip_frame();
+                let [top, left, right, bottom] = inset.map(f64::from);
+                host.round_corners(top, left, right, bottom, f64::from(radius));
+            }
+            cx.new(|cx| build(window, cx))
+        })
+        .ok();
+    (handle, popup)
 }
 
 /// `surface` in the fixed security palette and the system font, for prompts, banners and
@@ -288,7 +324,7 @@ impl Tooltip {
 
 impl Render for Tooltip {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        self.card()
+        div().size_full().relative().child(self.card().absolute().top(px(POPOVER_INSET)).left(px(POPOVER_INSET)).shadow(Elevation::Popover.shadow()))
     }
 }
 
@@ -331,22 +367,19 @@ impl Render for TooltipAnchor {
         div().invisible().child(self.tip.card()).on_children_prepainted(move |cards, window, cx| {
             let Some(card) = cards.first().filter(|_| matches!(*popup.borrow(), TooltipPopup::Closed)) else { return };
             *popup.borrow_mut() = TooltipPopup::Opening;
-            let bounds = Bounds::new(window.bounds().origin + card.origin, card.size);
+            let margin = px(POPOVER_INSET);
+            let bounds = Bounds::new(window.bounds().origin + card.origin - point(margin, margin), card.size + gpui::size(margin * 2., margin * 2.));
             let (display, shell) = (window.display(cx).map(|d| d.id()), engine::Host::from_window(window));
             let (tip, popup) = (tip.clone(), popup.clone());
             cx.defer(move |cx| {
-                let handle = cx.open_window(popup_options(bounds, display, false), |window, cx| {
-                    if let Some(host) = engine::Host::from_window(window) {
-                        host.strip_frame();
-                        host.ignore_mouse();
-                        host.round_corners(0., 0., 0., 0., f64::from(Theme::radius_small()));
-                        if let Some(shell) = &shell {
-                            shell.follow(&host);
-                        }
+                let (handle, host) = open_popup(cx, bounds, display, false, [POPOVER_INSET; 4], Theme::radius_small(), |_, _| tip);
+                if let Some(host) = &host {
+                    host.ignore_mouse();
+                    if let Some(shell) = &shell {
+                        shell.follow(host);
                     }
-                    cx.new(|_| tip)
-                });
-                let Ok(handle) = handle else { return };
+                }
+                let Some(handle) = handle else { return };
                 let mut state = popup.borrow_mut();
                 if matches!(*state, TooltipPopup::Opening) {
                     *state = TooltipPopup::Open(handle.into());
@@ -423,6 +456,78 @@ pub fn row(first: bool) -> Div {
         .gap_3()
         .text_size(px(TEXT))
         .when(!first, |d| d.child(div().absolute().top_0().left(px(12.)).right_0().h(px(1.)).bg(Theme::separator())))
+}
+
+/// A row that toggles its switch: the whole row is the target, with hover and pressed fills, and
+/// a tab stop. `body` is the row's text.
+pub fn switch_row(id: impl Into<ElementId>, first: bool, body: impl IntoElement, on: bool) -> Stateful<Div> {
+    tab_stop(row(first).id(id).cursor_pointer().hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())).child(body).child(switch(on)))
+}
+
+/// An interactive list row: one line high (`ROW_HEIGHT`), highlighted while `selected`,
+/// otherwise filled on hover and press.
+pub fn list_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(ROW_HEIGHT))
+        .flex_none()
+        .px_2p5()
+        .flex()
+        .items_center()
+        .gap_2p5()
+        .rounded(px(Theme::radius_row()))
+        .cursor_pointer()
+        .map(|d| if selected { d.bg(Theme::selected()) } else { d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())) })
+}
+
+/// A title over a muted detail; the detail wraps.
+pub fn text_block(title: impl Into<SharedString>, detail: impl Into<SharedString>) -> Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .gap_0p5()
+        .child(title.into())
+        .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
+}
+
+/// `text_block` kept to one line each, cut with an ellipsis, for list rows.
+pub fn text_lines(title: impl Into<SharedString>, detail: impl Into<SharedString>) -> Div {
+    let line = || div().overflow_hidden().whitespace_nowrap().text_ellipsis();
+    div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .child(line().child(title.into()))
+        .child(line().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
+}
+
+/// The heading of a group of rows in a pop-up or list, smaller and quieter than `section`.
+pub fn caption(title: impl Into<SharedString>) -> Div {
+    div().text_size(px(TEXT_SMALL)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::muted()).child(title.into())
+}
+
+/// What a list shows when it has nothing to list.
+pub fn empty(text: impl Into<SharedString>) -> Div {
+    div().h(px(ROW_HEIGHT + 10.)).flex_none().px_3().flex().items_center().justify_center().text_color(Theme::muted()).child(text.into())
+}
+
+/// Makes `control` reachable with Tab and rings it while it has the keyboard; Enter and Space
+/// click it. A mouse press leaves the focus where it was, so the ring shows only for the
+/// keyboard. For windows that move the focus on Tab: pop-ups and Settings.
+pub fn tab_stop(control: Stateful<Div>) -> Stateful<Div> {
+    // A click moves no ring onto the control and clears one a Tab left elsewhere.
+    control.tab_index(0).focus(|s| s.shadow(focus_ring())).on_mouse_down(MouseButton::Left, |_, window, _| {
+        window.blur();
+        window.prevent_default();
+    })
+}
+
+/// The keyboard focus ring: `field`'s 3 points of `accent_soft` outside the control.
+pub fn focus_ring() -> Vec<BoxShadow> {
+    vec![ring(Theme::accent_soft(), 3., 0.)]
 }
 
 pub fn section(title: impl Into<SharedString>) -> Div {

@@ -9,7 +9,7 @@ use gpui::{
 use shield::ShieldLevel;
 use ui::controls::{button, key_hint, segment, segmented, surface};
 use ui::text::bounded_title;
-use ui::theme::{TEXT_SMALL, Theme};
+use ui::theme::{Elevation, TEXT, Theme};
 use url::Url;
 
 use crate::browser::{Browser, Msg, TabKey};
@@ -271,13 +271,13 @@ pub fn render(b: &Browser, cx: &mut Context<Browser>) -> Option<AnyElement> {
         .text_size(px(text))
         .line_height(px(text * 1.6))
         .child(div().text_size(px(text * 1.7)).line_height(px(text * 2.1)).font_weight(FontWeight::BOLD).child(reader.title.clone()))
-        .when(!reader.byline.is_empty(), |d| d.child(div().text_size(px(TEXT_SMALL + 1.)).text_color(Theme::muted()).child(reader.byline.clone())))
+        .when(!reader.byline.is_empty(), |d| d.child(div().text_size(px(TEXT)).text_color(Theme::muted()).child(reader.byline.clone())))
         .children(blocks);
     // The controls stay put while the article scrolls under them.
     let article = div().id("reader").flex_1().min_h_0().w_full().overflow_y_scroll().flex().flex_col().items_center().px_6().pb_6().child(page);
     let card = surface(Theme::radius_page())
         .size_full()
-        .shadow(Theme::elevation(6., 24.))
+        .shadow(Elevation::Page.shadow())
         .flex()
         .flex_col()
         .gap_6()

@@ -15,8 +15,8 @@ use gpui::{
 };
 use store::{Bookmark, Download, HistoryEntry, Id, Snapshot, Tab};
 use ui::command::fuzzy_score;
-use ui::controls::{button, icon_button, key_hint, surface};
-use ui::icon::{Icon, icon};
+use ui::controls::{button, caption, empty, icon_button, key_hint, surface};
+use ui::icon::{ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, POP, animate};
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
@@ -330,7 +330,7 @@ impl Browser {
                 cx.notify();
             }
             // The click that took focus from the library already closed it; it must not reopen it.
-            None if self.library_closed.is_some_and(|t| t.elapsed() < Duration::from_millis(300)) => {}
+            None if self.library_closed.is_some_and(|t| t.elapsed() < ui::motion::REOPEN_GUARD) => {}
             None => self.show_library(None, window, cx),
         }
     }
@@ -657,7 +657,8 @@ impl LibraryWindow {
         let mut subscriptions = vec![
             cx.subscribe_in(&query, window, Self::on_query),
             cx.observe_window_activation(window, |this, window, cx| {
-                if !window.is_window_active() && !this.holding {
+                let menu = this.query.read(cx).menu_open() || this.renaming.as_ref().is_some_and(|(_, input, _)| input.read(cx).menu_open());
+                if !window.is_window_active() && !this.holding && !menu {
                     this.close(false, window, cx);
                 }
             }),
@@ -776,6 +777,12 @@ impl LibraryWindow {
                 }
             }
             TextInputEvent::Cancel => self.back(window, cx),
+            TextInputEvent::MenuClosed => {
+                if !window.is_window_active() && !self.holding {
+                    self.close(false, window, cx);
+                }
+                return;
+            }
         }
         if !matches!(event, TextInputEvent::Changed) {
             self.reveal();
@@ -899,6 +906,7 @@ impl LibraryWindow {
         let events = cx.subscribe_in(&input, window, |this, _, event, window, cx| match event {
             TextInputEvent::Submit => this.end_rename(true, window, cx),
             TextInputEvent::Cancel => this.end_rename(false, window, cx),
+            TextInputEvent::MenuClosed if !window.is_window_active() && !this.holding => this.close(false, window, cx),
             _ => {}
         });
         let focus = input.focus_handle(cx);
@@ -1182,7 +1190,7 @@ impl LibraryWindow {
         self.holding = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, items, move |cmd| {
+            menu::show(&host, items, None, move |cmd| {
                 tx.send(cmd).ok();
             });
             let cmd = rx.await.ok();
@@ -1300,7 +1308,7 @@ impl LibraryWindow {
                     },
                 )))
             })
-            .when(drills, |d| d.child(icon(Icon::ChevronRight, 11., Theme::muted())))
+            .when(drills, |d| d.child(icon(Icon::ChevronRight, ICON_SMALL, Theme::muted())))
             .when(!matches!(r.item, Item::Page(_) | Item::ClearDownloads | Item::SleepInactive | Item::Source(_)), |d| {
                 d.on_mouse_down(MouseButton::Right, cx.listener(move |this, _, window, cx| this.row_menu(menu_item.clone(), named, window, cx)))
             })
@@ -1360,7 +1368,7 @@ impl Render for LibraryWindow {
             div().id("library-list").track_scroll(&self.scroll).flex_1().min_h_0().overflow_y_scroll().px_1p5().pb(px(LIST_PAD)).flex().flex_col().gap(px(1.));
         for (entry, leading) in entries {
             list = list.child(match entry {
-                Entry::Header(text, n) => div()
+                Entry::Header(text, n) => caption(text)
                     .h(px(HEADER_ROW))
                     .flex_none()
                     .flex()
@@ -1368,10 +1376,6 @@ impl Render for LibraryWindow {
                     .justify_between()
                     .px_2()
                     .pb_1()
-                    .text_size(px(TEXT_SMALL))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(Theme::muted())
-                    .child(text)
                     .children(n.and_then(tally).map(|n| div().font_weight(FontWeight::NORMAL).text_color(Theme::faint()).child(n)))
                     .into_any_element(),
                 Entry::Back(title) => div()
@@ -1401,19 +1405,7 @@ impl Render for LibraryWindow {
                     .on_click(cx.listener(|this, _, window, cx| this.back(window, cx)))
                     .into_any_element(),
                 Entry::Divider => div().mx_2().my_1p5().h(px(1.)).flex_none().bg(Theme::hairline()).into_any_element(),
-                Entry::Empty(text) => div()
-                    .h(px(EMPTY_ROW))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .px_2()
-                    .text_color(Theme::muted())
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(text)
-                    .into_any_element(),
+                Entry::Empty(text) => empty(text).h(px(EMPTY_ROW)).px_2().overflow_hidden().whitespace_nowrap().text_ellipsis().into_any_element(),
                 Entry::Row(r) => {
                     ix += 1;
                     self.render_row(ix - 1, r, leading.unwrap_or_else(|| div().into_any_element()), cx)

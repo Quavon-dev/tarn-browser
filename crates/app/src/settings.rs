@@ -11,11 +11,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::{Id, Profile, WebEngine};
 use ui::command::ENGINES;
-use ui::controls::{button, disabled_segment, group, note, radio, row, section, segment, segmented, swatch, switch};
+use ui::controls::{button, disabled_segment, group, note, radio, row, section, segment, segmented, swatch, switch, switch_row, tab_stop, text_block};
 use ui::icon::{Icon, icon};
 use ui::motion::fade_in;
 use ui::text::bounded_title;
-use ui::theme::{ACCENTS, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
+use ui::theme::{ACCENTS, TEXT, TEXT_TITLE, Theme};
 
 use crate::browser::Browser;
 
@@ -175,10 +175,6 @@ fn licenses() -> Option<std::path::PathBuf> {
         path.is_file().then_some(path)
     });
     PATH.clone()
-}
-
-fn text_block(title: impl Into<SharedString>, detail: impl Into<SharedString>) -> Div {
-    div().flex_1().min_w_0().flex().flex_col().child(title.into()).child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
 }
 
 fn danger(id: impl Into<ElementId>, idle: &'static str, armed_text: &'static str, armed: bool) -> Stateful<Div> {
@@ -404,13 +400,7 @@ impl SettingsWindow {
     }
 
     fn pref_row(&self, first: bool, pref: Pref, title: &'static str, detail: impl Into<SharedString>, on: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        row(first)
-            .id(title)
-            .cursor_pointer()
-            .hover(|s| s.bg(Theme::hover()))
-            .active(|s| s.bg(Theme::pressed()))
-            .child(text_block(title, detail))
-            .child(switch(on))
+        switch_row(title, first, text_block(title, detail), on)
             .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_pref(pref, !on, cx))))
     }
 
@@ -754,6 +744,8 @@ impl Render for SettingsWindow {
                 let step = match event.keystroke.key.as_str() {
                     "up" => -1,
                     "down" => 1,
+                    "tab" if this.recording.is_none() && event.keystroke.modifiers.shift => return window.focus_prev(),
+                    "tab" if this.recording.is_none() => return window.focus_next(),
                     _ => return,
                 };
                 if !this.focus.is_focused(window) || this.recording.is_some() || event.keystroke.modifiers.modified() {
@@ -824,7 +816,7 @@ fn week(card: &Card) -> Div {
                 .flex()
                 .flex_col()
                 .justify_end()
-                .rounded_sm()
+                .rounded(px(Theme::radius_small()))
                 .overflow_hidden()
                 .bg(Theme::raised())
                 .child(div().h(px(fill)).bg(Theme::accent()))
@@ -1677,7 +1669,7 @@ impl SettingsWindow {
                 let on = e.enabled;
                 let (install_id, app_path) = (e.install_id.clone(), e.app_path.clone());
                 let mut r = row(ix == 0).child(text_block(format!("{} \u{00B7} {}", e.name, e.badge), e.permissions)).child(
-                    div().id(("extension-switch", ix)).cursor_pointer().child(switch(on)).on_click(cx.listener(move |this, _, _, cx| {
+                    tab_stop(div().id(("extension-switch", ix))).cursor_pointer().child(switch(on)).on_click(cx.listener(move |this, _, _, cx| {
                         let (install_id, app_path) = (install_id.clone(), app_path.clone());
                         this.with_browser(cx, move |b, w, cx| match (install_id, app_path) {
                             (Some(id), _) => b.set_extension(&id, !on, w, cx),
