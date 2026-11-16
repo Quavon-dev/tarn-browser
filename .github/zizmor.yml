@@ -7,6 +7,9 @@ rules:
       # Cancels CI runs of a closed pull request: no checkout, only gh with the head SHA passed
       # through env, and actions: write as its single permission.
       - ci-cancel.yml
+      # Re-runs a CI run GitHub cancelled for lack of a runner: no checkout, only gh with the run ID
+      # passed through env, and actions: write plus checks: read.
+      - ci-retry.yml
   self-repository:
     ignore:
       # Reusable workflows called at the commit under test; ./ is the form actionlint validates.
