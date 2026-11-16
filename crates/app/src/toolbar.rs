@@ -115,11 +115,27 @@ fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
         .children(private_mark(b))
 }
 
-fn settings(cx: &mut Context<Browser>) -> Stateful<Div> {
-    icon_button("settings", Icon::Gear, true)
+/// Split view and Share, for the page on screen. Share dispatches one action, so the share
+/// menu can take its place.
+fn page_actions(b: &Browser) -> Div {
+    let page = b.model.active.is_some();
+    let split = if b.model.active.is_some_and(|a| b.splits.contains(a)) { "Close Split View" } else { "Open Split View" };
+    div()
         .occlude()
-        .tooltip(crate::shortcuts::tip("Settings", &crate::Settings))
-        .on_click(cx.listener(|b, _, w, cx| b.open_settings(w, cx)))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(2.))
+        .child(
+            icon_button("split-view", Icon::SplitAdd, page)
+                .tooltip(crate::shortcuts::tip(split, &crate::split::ToggleSplitView))
+                .on_click(|_, w, cx| w.dispatch_action(Box::new(crate::split::ToggleSplitView), cx)),
+        )
+        .child(
+            icon_button("share", Icon::Share, page)
+                .tooltip(crate::shortcuts::tip("Share", &crate::qr::ShareLink))
+                .on_click(|_, w, cx| w.dispatch_action(Box::new(crate::qr::ShareLink), cx)),
+        )
 }
 
 /// Windows has no menu bar; this button opens the same menus.
@@ -153,7 +169,7 @@ fn render_classic(b: &Browser, inset: f32, cx: &mut Context<Browser>) -> Div {
                 .gap_2()
                 .when(b.devtools_on(), |d| d.child(devtools(b, cx)))
                 .child(crate::extensions::buttons(b, cx))
-                .child(settings(cx))
+                .child(page_actions(b))
                 .children(app_menu_button(b, cx)),
         )
 }
@@ -185,22 +201,41 @@ fn address_text(site: &Site) -> (String, gpui::Rgba) {
     }
 }
 
+/// What Shield stopped on the site on screen, for the current profile.
+fn site_count(b: &Browser, site: &Site) -> Option<i64> {
+    let host = site.url.as_ref().and_then(browser_core::command::page_host)?;
+    let space = b.model.current_space()?;
+    b.store(space.private).shield_site_total(space.space.profile_id, &host).ok().filter(|n| *n > 0)
+}
+
+/// The Shield chip at the start of the address: the level's glyph and what Shield stopped on
+/// the site; a click opens Site Settings.
 fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl IntoElement {
     let level = site.url.as_ref().map(|u| b.level_for(u.as_str())).unwrap_or_default();
     let overridden = site.host.as_deref().is_some_and(|h| b.has_override(h));
     let shield_color = if level == ShieldLevel::Standard { Secure::muted() } else { Secure::shield_raised() };
-    chip_frame("shield", b.site_popover.window.is_none())
+    let open = b.site_popover.window.is_some();
+    let count = site_count(b, site);
+    div()
+        .id("shield")
         .occlude()
+        .h(px(24.))
+        .px_1p5()
+        .flex()
+        .flex_none()
+        .items_center()
         .gap_1()
+        .rounded(px(Theme::radius_small()))
+        .bg(if open || overridden { Secure::pressed() } else { Secure::control() })
+        .when(!open, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
+        .cursor_pointer()
         .text_size(px(TEXT_SMALL))
-        .when(overridden, |d| d.bg(Secure::pressed()))
         .text_color(shield_color)
         .relative()
         .child(measure(b.site_popover.anchor.clone()))
-        .when(b.site_popover.window.is_some(), |d| d.bg(Secure::pressed()))
-        .when(b.site_popover.window.is_none(), |d| d.tooltip(tooltip(format!("Shield: {} — Site Settings", shield_badge(level)), None)))
+        .when(!open, |d| d.tooltip(tooltip(format!("Shield: {} — Site Settings", shield_badge(level)), None)))
         .child(icon(if level == ShieldLevel::Standard { Icon::Shield } else { Icon::ShieldCheck }, 14., shield_color))
-        .when(level != ShieldLevel::Standard || overridden, |d| d.child(shield_badge(level)))
+        .when_some(count, |d, n| d.child(browser_core::shield_card::thousands(n.unsigned_abs())))
         .on_click(cx.listener(|b, _, window, cx| {
             cx.stop_propagation();
             b.toggle_site_settings(window, cx);
@@ -293,7 +328,10 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .relative()
         .child(measure(b.address.field.clone()))
         // Both sides share the spare room equally, so the host stays centred in the chip.
-        .child(div().flex_1().flex().child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, ICON_SMALL, Secure::faint()))))
+        .child(div().flex_1().flex().items_center().pl_0p5().map(|d| match site.controls {
+            true => d.child(shield_button(b, &site, cx)),
+            false => d.child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, ICON_SMALL, Secure::faint()))),
+        }))
         .child(tail_first(div(), text, color))
         .child(
             div()
@@ -305,7 +343,7 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .children(reader_button(b, cx))
                 .children(mute_button(b, cx))
                 .children(engine_badge(b))
-                .when(site.controls, |d| d.child(shield_button(b, &site, cx)).child(bookmark_button(b, &site, cx))),
+                .when(site.controls, |d| d.child(bookmark_button(b, &site, cx))),
         )
 }
 
@@ -342,6 +380,7 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
                     .on_scroll_wheel(cx.listener(|b, e, w, cx| b.toolbar_swipe(e, true, w, cx)))
                     .relative()
                     .child(measure(b.address.field.clone()))
+                    .when(site.controls, |d| d.child(shield_button(b, &site, cx)))
                     .child(tail_first(div().flex_shrink_0().max_w_full(), text, color))
                     .when_some(title, |d, title| {
                         d.child(div().flex_none().text_color(Theme::faint()).child("—")).child(
@@ -354,11 +393,11 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
             d.children(reader_button(b, cx))
                 .children(mute_button(b, cx))
                 .children(engine_badge(b))
-                .when(site.controls, |d| d.child(shield_button(b, &site, cx)).child(bookmark_button(b, &site, cx)))
+                .when(site.controls, |d| d.child(bookmark_button(b, &site, cx)))
         })
         .when(b.devtools_on(), |d| d.child(devtools(b, cx)))
         .child(crate::extensions::buttons(b, cx))
-        .child(settings(cx))
+        .child(page_actions(b))
         .children(app_menu_button(b, cx))
 }
 
