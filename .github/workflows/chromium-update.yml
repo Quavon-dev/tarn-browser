@@ -118,10 +118,11 @@ jobs:
           new="${old%.*}.$(( ${old##*.} + 1 ))"
           sed -i "/^\[workspace.package\]/,/^\[/s/^version = \"$old\"$/version = \"$new\"/" Cargo.toml
           cargo update --workspace
+          for dir in linux mobile nsh-shared fuzz; do (cd "$dir" && cargo update --workspace); done
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git commit -m "build: Chromium $CHROMIUM_VERSION (CEF $CEF_VERSION)" -- packaging/cef.lock Cargo.toml Cargo.lock
+          git commit -m "build: Chromium $CHROMIUM_VERSION (CEF $CEF_VERSION)" -- packaging/cef.lock Cargo.toml Cargo.lock linux/Cargo.lock mobile/Cargo.lock nsh-shared/Cargo.lock fuzz/Cargo.lock
           {
             echo "commit=$(git rev-parse HEAD)"
             echo "base=$(git rev-parse HEAD^)"
