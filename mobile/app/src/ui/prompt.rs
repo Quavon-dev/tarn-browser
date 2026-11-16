@@ -4,7 +4,6 @@ use nsh_core::prelude::*;
 
 use browser_core::prompts::meaning;
 use nsh_base::ButtonElement;
-use nsh_base::button;
 use tarn_nsh_shared::controls::{glyph_tile, secure_button, secure_surface};
 use tarn_nsh_shared::theme::Secure;
 
@@ -12,7 +11,7 @@ use super::{Screen, Ui};
 
 use crate::events::Answer;
 use crate::shell::PromptRequest;
-use crate::theme::{SYSTEM_FONT, TEXT_TITLE, TOUCH_TARGET, Theme};
+use crate::theme::Theme;
 
 const TILE: f32 = 30.;
 const RADIUS: f32 = 12.;
@@ -49,28 +48,6 @@ fn field(value: Signal<String>, label: &'static str, masked: bool) -> Input {
         .masked(masked)
         .auto_capitalize(AutoCapitalize::None)
         .test_id(label)
-}
-
-fn ask(prompt: &PromptRequest) -> String {
-    match prompt.kind.as_str() {
-        "alert" | "confirm" | "text" => "says".to_owned(),
-        "credentials" => "asks you to sign in".to_owned(),
-        kind => format!("wants to use your {kind}"),
-    }
-}
-
-fn ghost(name: &str, press: impl Fn() + 'static) -> ButtonElement {
-    let name = name.to_owned();
-    button()
-        .accessibility_label(name.clone())
-        .on_press(press)
-        .min_h(px(TOUCH_TARGET))
-        .px_3()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .active(|s| s.bg(Secure::pressed()))
-        .child(text(name).text_size(px(TEXT_TITLE)).font_family(SYSTEM_FONT).text_color(Secure::text))
 }
 
 fn tile(kind: &str) -> View {
@@ -131,7 +108,7 @@ fn body(ui: Ui, prompt: PromptRequest) -> AnyElement {
             let remember = prompt.rememberable();
             buttons
                 .justify_end()
-                .child(ghost("Deny", move || answer(ui, false, false, None, None, None)))
+                .child(tarn_nsh_shared::controls::secure_ghost("Deny", move || answer(ui, false, false, None, None, None)))
                 .child(secure_button("Allow Once", move || answer(ui, true, false, None, None, None), !remember))
                 .child(remember.then(|| accent_pill("Always Allow", move || answer(ui, true, true, None, None, None))))
                 .into_element()
@@ -186,7 +163,7 @@ pub fn prompt_panel(ui: Ui) -> impl IntoElement {
         }
         Some(
             card()
-                .child(head(&prompt.origin, ask(&prompt), &prompt.kind, prompt.message.clone().or_else(|| meaning(&prompt.kind).map(str::to_owned))))
+                .child(head(&prompt.origin, prompt.ask(), &prompt.kind, prompt.message.clone().or_else(|| meaning(&prompt.kind).map(str::to_owned))))
                 .child(body(ui, prompt))
                 .into_element(),
         )

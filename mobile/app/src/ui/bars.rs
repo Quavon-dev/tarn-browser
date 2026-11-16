@@ -357,6 +357,10 @@ fn shield_chip(ui: Ui) -> impl IntoElement {
             view().text_color(tint).bind_motion(&tarn_nsh_shared::motion::fade_in()).child(glyphs::icon(glyph, CHIP_GLYPH))
         }))
         .child(dynamic(move || {
+            let raised = matches!(level.get(), Some(ShieldLevel::Strict | ShieldLevel::Lockdown));
+            raised.then(|| small(level_name(level.get())).text_color(Secure::accent).font_family(SYSTEM_FONT).font_weight(FontWeight::MEDIUM))
+        }))
+        .child(dynamic(move || {
             let n = count();
             (n > 0).then(|| small(browser_core::shield_card::thousands(n as u64)).text_color(Secure::muted).font_family(SYSTEM_FONT))
         }))

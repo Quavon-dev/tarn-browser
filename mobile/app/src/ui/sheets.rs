@@ -608,9 +608,8 @@ fn share_card(ui: Ui, card: &Card, dark: bool) {
         {
             return;
         }
-        let saved = super::downloads_dir().map(|dir| dir.join(CARD_FILE)).filter(|path| std::fs::write(path, &drawing).is_ok());
         ui.act(|s| {
-            s.notice = Some(if saved.is_some() { format!("Saved {CARD_FILE} to Downloads.") } else { "Tarn could not save the card.".to_owned() });
+            s.notice = Some("Tarn could not share the card.".to_owned());
             Vec::new()
         });
     });
@@ -678,7 +677,7 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
                                     Vec::new()
                                 })
                             }))
-                            .child(pill("Share card", move || share_card(ui, &shared, dark))),
+                            .children((!private).then(|| pill("Share card", move || share_card(ui, &shared, dark)))),
                     )
                     .child(caption(kept).number_of_lines(0).px_1())
                     .child(last_week(&card))

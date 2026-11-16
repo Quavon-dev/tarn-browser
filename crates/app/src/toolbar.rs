@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, Context, Div, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, SharedString, Stateful, StatefulInteractiveElement,
-    Styled, div, prelude::FluentBuilder, px,
+    AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
 use shield::ShieldLevel;
 use std::time::Duration;
@@ -226,6 +226,7 @@ fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl In
         .child(measure(b.site_popover.anchor.clone()))
         .when(!open, |d| d.tooltip(tooltip(format!("Shield: {} — Site Settings", shield_badge(level)), None)))
         .child(icon(if level == ShieldLevel::Standard { Icon::Shield } else { Icon::ShieldCheck }, 14., shield_color))
+        .when(level != ShieldLevel::Standard, |d| d.child(div().font_weight(FontWeight::MEDIUM).child(shield_badge(level))))
         .when_some(count, |d, n| d.child(browser_core::shield_card::thousands(n.unsigned_abs())))
         .on_click(cx.listener(|b, _, window, cx| {
             cx.stop_propagation();

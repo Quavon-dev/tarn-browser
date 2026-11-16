@@ -858,12 +858,16 @@ fn shield_chip(ui: Ui) -> nsh_base::ButtonElement {
         .gap_1()
         .flex_none()
         .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
-        .bg(Theme::raised())
-        .hover(|s| s.bg(Theme::hover()))
+        .bg(Secure::control())
+        .hover(|s| s.bg(Secure::hover()))
         .text_color(color)
         .child(dynamic(move || {
             tarn_nsh_shared::motion::popping(view().child(icons::icon(if standard() { icons::SHIELD } else { icons::SHIELD_CHECK }, CHIP_GLYPH)))
         }))
+        .child(when(
+            move || !standard(),
+            move || small(move || ui.snap.with(|s| panels::capitalised(&s.level))).text_color(color).font_family(SYSTEM_FONT).font_weight(FontWeight::MEDIUM),
+        ))
         .child(when(move || ui.snap.with(|s| s.site_total > 0), move || small(count).text_color(color).font_family(SYSTEM_FONT)))
 }
 
@@ -962,9 +966,9 @@ fn toolbar(ui: Ui) -> View {
             .child(reload_button(ui))
             .child(private_mark(ui))
     };
+    let split_shown = computed(move || ui.snap.with(|s| s.split.is_some()));
     let actions = move || {
-        let in_split = ui.snap.with(|s| s.split.is_some());
-        let name = if in_split { "Close Split View" } else { "Open Split View" };
+        let name = if split_shown.get() { "Close Split View" } else { "Open Split View" };
         let tip = shortcut_of(ui, Action::ToggleSplitView).map_or_else(|| name.to_owned(), |keys| format!("{name} ({keys})"));
         let split = controls::icon_button_at(icons::SPLIT_ADD, &tip, Placement::Left, move || act(ui, Browser::toggle_split));
         let share = controls::icon_button_at(icons::SHARE, "Share", Placement::Left, move || show(ui, Panel::Share));
@@ -1425,11 +1429,7 @@ fn prompt_bar(ui: Ui) -> AnyElement {
         let prompt = shown.get()?;
         let id = prompt.id;
         let reply = move |accept: bool| answer_prompt(ui, id, accept);
-        let ask = match prompt.kind.as_str() {
-            "alert" | "confirm" | "text" => "says".to_owned(),
-            "credentials" => format!("asks you to sign in{}", prompt.realm.as_deref().filter(|r| !r.is_empty()).map(|r| format!(" ({r})")).unwrap_or_default()),
-            kind => format!("wants to use your {kind}"),
-        };
+        let ask = prompt.ask();
         let glyph = icons::glyph(browser_core::glyphs::glyph(&prompt.kind));
         let message = prompt.message.clone().filter(|m| !m.is_empty()).or_else(|| browser_core::prompts::meaning(&prompt.kind).map(str::to_owned));
         if prompt.kind == "text" && ui.answer_text.get_untracked().is_empty() {

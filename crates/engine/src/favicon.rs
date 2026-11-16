@@ -13,7 +13,7 @@ use url::Url;
 pub const MAX_BYTES: usize = 256 * 1024;
 const MAX_DIMENSION: u32 = 1024;
 const MAX_URL_LEN: usize = 2048;
-pub const MAX_CANDIDATES: usize = 4;
+const MAX_CANDIDATES: usize = 4;
 const MAX_LOADED_HOSTS: usize = 64;
 pub const SIZE: u32 = 64;
 pub const MAX_TRIES: u8 = 3;

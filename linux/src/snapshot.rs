@@ -284,6 +284,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
     let host = b.site_host().unwrap_or_default();
     let profile_id = b.model.profile().map(|p| p.1);
     let private = b.model.private();
+    let profile_row = b.model.current_space().filter(|s| !s.private).and_then(|s| b.core.disk.profile(s.space.profile_id).ok());
     let overridden = profile_id.is_some_and(|p| b.core.has_override(private, p, &host));
     let split = b.shown_split();
     let blank = key.is_some() && split.is_none() && (page.url.is_empty() || page.url == crate::browser::START_URL) && page.error.is_none();
@@ -302,20 +303,8 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
             })
             .collect(),
         profile: b.model.current_space().map(|_| space_label(b, b.model.space_ix)).unwrap_or_default(),
-        profile_color: b
-            .model
-            .current_space()
-            .filter(|s| !s.private)
-            .and_then(|s| b.core.disk.profile(s.space.profile_id).ok())
-            .map(|p| p.color)
-            .unwrap_or_default(),
-        profile_name: b
-            .model
-            .current_space()
-            .filter(|s| !s.private)
-            .and_then(|s| b.core.disk.profile(s.space.profile_id).ok())
-            .map(|p| p.name)
-            .unwrap_or_default(),
+        profile_color: profile_row.as_ref().map(|p| p.color.clone()).unwrap_or_default(),
+        profile_name: profile_row.map(|p| p.name).unwrap_or_default(),
         space_name: b.model.current_space().map(|s| if s.private { space_label(b, b.model.space_ix) } else { s.space.name.clone() }).unwrap_or_default(),
         space_icon: b.model.current_space().map(|s| s.space.icon.clone()).unwrap_or_default(),
         space: b.model.current_space().map(|s| (s.private, s.space.id)),

@@ -1104,7 +1104,7 @@ impl SettingsWindow {
         });
         let saved = card.clone();
         let shared = card.clone();
-        let system = cfg!(target_os = "macos") && !private;
+        let system = cfg!(target_os = "macos");
         let share = if system { "Share Card" } else { "Save as Image" };
         let actions = div()
             .flex()
@@ -1124,16 +1124,18 @@ impl SettingsWindow {
                     });
                 },
             )))
-            .child(tab_stop(button("share-card", share, false)).child(icon(Icon::Share, 13., Theme::muted())).on_click(cx.listener(
-                move |this, _, window, cx| {
-                    if system {
-                        this.share_card(shared.clone(), window, cx);
-                    } else {
-                        this.save_card(shared.clone(), cx);
-                    }
-                },
-            )))
-            .when(system, |d| {
+            .when(!private, |d| {
+                d.child(tab_stop(button("share-card", share, false)).child(icon(Icon::Share, 13., Theme::muted())).on_click(cx.listener(
+                    move |this, _, window, cx| {
+                        if system {
+                            this.share_card(shared.clone(), window, cx);
+                        } else {
+                            this.save_card(shared.clone(), cx);
+                        }
+                    },
+                )))
+            })
+            .when(system && !private, |d| {
                 d.child(tab_stop(button("save-card", "Save as Image", false)).on_click(cx.listener(move |this, _, _, cx| this.save_card(saved.clone(), cx))))
             });
         div().pt_4().flex().items_start().gap_6().child(face).child(

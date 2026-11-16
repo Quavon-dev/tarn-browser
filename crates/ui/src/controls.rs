@@ -226,10 +226,15 @@ thread_local! {
     static SWITCHES: RefCell<std::collections::HashMap<ElementId, (bool, u64)>> = RefCell::default();
 }
 
+const MAX_SWITCHES: usize = 256;
+
 pub fn sliding_switch(id: impl Into<ElementId>, on: bool) -> gpui::AnyElement {
     let id = id.into();
     let flips = SWITCHES.with(|s| {
         let mut s = s.borrow_mut();
+        if s.len() >= MAX_SWITCHES && !s.contains_key(&id) {
+            s.clear();
+        }
         let entry = s.entry(id.clone()).or_insert((on, 0));
         if entry.0 != on {
             *entry = (on, entry.1 + 1);

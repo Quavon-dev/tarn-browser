@@ -209,6 +209,7 @@ pub struct Browser {
     favicons: favicon::Tracker<(bool, Id), Arc<Image>>,
     /// `favicon` results by page URL for one profile, emptied whenever `favicons` changes.
     favicon_memo: RefCell<Option<((bool, Id), FaviconMemo)>>,
+    pub(crate) site_stopped_memo: RefCell<Option<((u64, bool, Id, String), i64)>>,
     #[cfg(feature = "translation")]
     pub(crate) translation_offered: HashSet<(bool, Id, String)>,
     pub sidebar_open: bool,
@@ -400,6 +401,7 @@ impl Browser {
             qr: None,
             favicons: favicon::Tracker::default(),
             favicon_memo: RefCell::new(None),
+            site_stopped_memo: RefCell::new(None),
             #[cfg(feature = "translation")]
             translation_offered: HashSet::new(),
             sidebar_open,

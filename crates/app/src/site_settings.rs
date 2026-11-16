@@ -259,7 +259,16 @@ impl Browser {
     }
 
     pub(crate) fn site_stopped(&self, key: TabKey, url: &Url) -> i64 {
-        self.profile_of(key).map_or(0, |profile_id| self.core.site_stopped(key.private, profile_id, url))
+        let Some(profile_id) = self.profile_of(key) else { return 0 };
+        let id = (crate::shield_card::changes(), key.private, profile_id, url.as_str().to_owned());
+        if let Some((seen, n)) = self.site_stopped_memo.borrow().as_ref()
+            && *seen == id
+        {
+            return *n;
+        }
+        let n = self.core.site_stopped(key.private, profile_id, url);
+        *self.site_stopped_memo.borrow_mut() = Some((id, n));
+        n
     }
 
     fn show_site_settings(&mut self, again: bool, window: &mut Window, cx: &mut Context<Self>) {

@@ -66,18 +66,6 @@ pub fn read(store: &store::Store, profile_id: store::Id, private: bool, name: St
     })
 }
 
-pub fn week_rows(week: &[store::ShieldDay]) -> Vec<(&'static str, Vec<i64>)> {
-    const NAMES: [&str; 5] =
-        ["Tracking parameters removed", "Pages upgraded to HTTPS", "Local network visits blocked", "Pages on block lists stopped", "Pop-ups blocked"];
-    NAMES
-        .iter()
-        .enumerate()
-        .map(|(ix, name)| {
-            (*name, week.iter().map(|d| [d.tracking_params, d.https_upgrades, d.local_blocked, d.listed_stopped, d.popups_blocked][ix].max(0)).collect())
-        })
-        .collect()
-}
-
 pub fn day_totals(week: &[store::ShieldDay]) -> Vec<(&'static str, i64)> {
     const DAYS: [&str; 7] = ["M", "T", "W", "T", "F", "S", "S"];
     week.iter()
@@ -517,7 +505,7 @@ mod tests {
         assert_ne!(landscape(7, false).2, landscape(8, false).2);
         let (dawn, night) = (landscape(7, false), landscape(7, true));
         assert!(!dawn.0.dark && night.0.dark && dawn.0.sky != night.0.sky);
-        assert_eq!(dawn.2.len(), night.2.len().max(dawn.2.len()));
+        assert_eq!(dawn.2, night.2);
         assert!(night.1.contains("url(#aurora)") && !dawn.1.contains("url(#aurora)"));
         let front = front_svg(&card("Personal"), true, true);
         assert!(front.contains("TARN SHIELD") && front.contains("M9 12h6"));
@@ -552,9 +540,6 @@ mod tests {
         assert_eq!(date(0), "1970-01-01");
         assert_eq!(date(951_782_400_000), "2000-02-29");
         assert_eq!(date(1_794_441_600_000), "2026-11-12");
-        let rows = week_rows(&card.week);
-        assert_eq!(rows.len(), 5);
-        assert!(rows.iter().all(|(_, days)| days.len() == card.week.len()));
     }
 
     #[test]

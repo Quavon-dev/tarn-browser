@@ -1179,11 +1179,15 @@ final class TarnWebView implements NshComponent {
     }
 
     private final class IconChrome extends Chrome {
+        private Page iconPage;
+
         @Override
         public void onReceivedIcon(WebView view, Bitmap icon) {
             Page current = top;
+            if (current == null || current == iconPage || pending != null || !javaScriptOn) return;
             ByteArrayOutputStream png = new ByteArrayOutputStream();
-            if (current == null || pending != null || !javaScriptOn || !icon.compress(Bitmap.CompressFormat.PNG, 100, png)) return;
+            if (!icon.compress(Bitmap.CompressFormat.PNG, 100, png)) return;
+            iconPage = current;
             emit("pageIcon", "url", current.url(), "text", Base64.encodeToString(png.toByteArray(), Base64.NO_WRAP));
         }
     }

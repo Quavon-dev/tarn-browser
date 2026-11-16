@@ -14,7 +14,7 @@ pub fn meaning(kind: &str) -> Option<&'static str> {
         "notifications" => "The site can show notifications while Tarn runs.",
         "credentials" => "Your name and password go to this site only.",
         "extension" => "The extension can read and change pages on this site.",
-        "download" | "malicious download" => "The file comes from a site on the malware list.",
+        "malicious download" => "The file comes from a site on the malware list.",
         "external" => "Tarn hands the link to the app that opens it.",
         _ => return None,
     })
@@ -33,6 +33,20 @@ pub struct Prompt {
 }
 
 impl Prompt {
+    /// What the site asks, after its origin in bold; a sign-in names its realm, which the server
+    /// sets, bounded.
+    pub fn ask(&self) -> String {
+        match self.kind.as_str() {
+            "alert" | "confirm" | "text" => "says".to_owned(),
+            "credentials" => match self.realm.as_deref().map(crate::text::bounded_title).filter(|r| !r.is_empty()) {
+                Some(realm) => format!("asks you to sign in ({realm})"),
+                None => "asks you to sign in".to_owned(),
+            },
+            "camera+microphone" | "camera and microphone" => "wants to use your camera and microphone".to_owned(),
+            kind => format!("wants to use your {kind}"),
+        }
+    }
+
     pub fn from_event(data: &Value) -> Option<Prompt> {
         let text = |field: &str| data.get(field).and_then(Value::as_str).map(str::to_owned);
         Some(Prompt {
@@ -104,5 +118,17 @@ mod tests {
         assert!(meaning("location").is_some_and(|m| m.contains("where you are")));
         assert!(PERMISSIONS.iter().all(|kind| meaning(kind).is_some()));
         assert_eq!(meaning("alert"), None);
+        assert_eq!(meaning("download"), None, "only a listed download names the malware list");
+    }
+
+    #[test]
+    fn a_prompt_says_what_the_site_asks() {
+        let ask =
+            |kind: &str, realm: Option<&str>| Prompt::from_event(&json!({ "id": 1, "kind": kind, "origin": "https://a.test", "realm": realm })).unwrap().ask();
+        assert_eq!(ask("confirm", None), "says");
+        assert_eq!(ask("camera+microphone", None), "wants to use your camera and microphone");
+        assert_eq!(ask("credentials", Some("")), "asks you to sign in");
+        assert_eq!(ask("credentials", Some("Admin")), "asks you to sign in (Admin)");
+        assert!(ask("credentials", Some(&"r".repeat(5000))).len() < 600);
     }
 }
