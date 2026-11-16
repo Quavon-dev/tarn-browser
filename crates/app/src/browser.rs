@@ -2604,6 +2604,9 @@ impl Browser {
         if !new_store {
             self.core.apply_extensions(private, profile_id);
         }
+        if !private {
+            crate::tarn_ext::level_changed(&self.core, profile_id, cx);
+        }
         self.restart_profile_views(private, profile_id, None, new_store, window, cx);
         #[cfg(feature = "chromium")]
         if new_store

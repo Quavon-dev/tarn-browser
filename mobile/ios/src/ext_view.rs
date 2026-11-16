@@ -147,13 +147,15 @@ impl Inner {
             let same = worlds.len() == built.ext.worlds.len() && worlds.iter().zip(&built.ext.worlds).all(|(a, b)| Rc::ptr_eq(a, b));
             if !same {
                 let name = NSString::from_str(HANDLER);
-                for (world, _) in built.ext.handlers.drain(..) {
+                let gone: Vec<_> = built.ext.handlers.extract_if(.., |(w, _)| !worlds.iter().any(|x| x.world == *w)).collect();
+                for (world, _) in gone {
                     // SAFETY: main thread; the handler was added under this name for this world.
                     unsafe { built.controller.removeScriptMessageHandlerForName_contentWorld(&name, &content_world(&world, self.mtm)) };
                 }
-                for world in &worlds {
+                let added: Vec<&Rc<WorldScripts>> = worlds.iter().filter(|x| !built.ext.handlers.iter().any(|(w, _)| *w == x.world)).collect();
+                for world in added {
                     let handler = ExtHandler::new(self.mtm, Rc::downgrade(self), world.world.clone());
-                    // SAFETY: main thread; no handler is registered under this name in this world (removed above).
+                    // SAFETY: main thread; no handler is registered under this name in this world (checked above).
                     unsafe {
                         built.controller.addScriptMessageHandler_contentWorld_name(
                             ProtocolObject::from_ref(&*handler),

@@ -53,9 +53,9 @@ fn the_fixtures_rules_block_only_on_granted_sites() {
     let lockdown = Context { view_level: ShieldLevel::Lockdown, ..NORMAL };
     assert!(tarn_ext::rule_list(&package, &lockdown, &Scope::Every).is_none());
     android::set_rule_lists("rules-store", vec![(package.install_id.clone(), list)]);
-    assert_eq!(android::verdict("rules-store", "https://ads.test/x.js", Some("https://page.test/"), SCRIPT, 0), BLOCK);
-    assert_eq!(android::verdict("rules-store", "https://ads.test/x.js", Some("https://elsewhere.test/"), SCRIPT, 0), ALLOW);
-    assert_eq!(android::verdict("rules-store", "https://ads.test/x.js", Some("https://page.test/"), SCRIPT, 2), ALLOW);
+    assert_eq!(android::verdict("rules-store", "https://ads.test/x.js", SCRIPT, &[(Some("https://page.test/"), 0)]), BLOCK);
+    assert_eq!(android::verdict("rules-store", "https://ads.test/x.js", SCRIPT, &[(Some("https://elsewhere.test/"), 0)]), ALLOW);
+    assert_eq!(android::verdict("rules-store", "https://ads.test/x.js", SCRIPT, &[(Some("https://page.test/"), 2)]), ALLOW);
 }
 
 #[test]

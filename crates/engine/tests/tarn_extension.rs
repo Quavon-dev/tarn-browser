@@ -1,107 +1,39 @@
 //! A Tarn extension in a real WebKit view: its content script runs only in its own world and only
-//! where the gate lets it, the page's main world never sees the bridge, messages go both ways,
-//! its network rule blocks, and its background page loads from `tarn-extension://`. It opens a
-//! window, so it runs only when asked:
-//! `cargo test -p engine --test tarn_extension -- --ignored`.
+//! where the gate lets it, the page's main world never sees the bridge or loads the extension's
+//! files, messages go both ways with the sender's frame and origin from WebKit, in same-site and
+//! cross-site frames, nothing runs in a Lockdown view, its network rule blocks, and its own pages
+//! load from `tarn-extension://` and frame nothing but their origin. It opens a window, so it runs
+//! only when asked: `cargo test -p engine --test tarn_extension -- --ignored`.
+
+#[cfg(target_os = "macos")]
+mod common;
 
 #[cfg(target_os = "macos")]
 mod window {
     use std::cell::RefCell;
-    use std::io::{BufRead, BufReader, Write};
-    use std::net::TcpListener;
-    use std::ptr::NonNull;
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, Instant};
 
     use engine::nav_policy::Site;
     use engine::tarn_ext::{ExtensionView, FrameId, PageSpec, Resource, RunAt, Script, World, WorldScripts, bootstrap};
     use engine::{DataStore, Event, ExtensionPage, FilterLists, Host, WebView};
-    use objc2::rc::Retained;
-    use objc2::{MainThreadMarker, MainThreadOnly};
-    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSWindow, NSWindowStyleMask};
-    use objc2_foundation::{NSDate, NSPoint, NSRect, NSRunLoop, NSSize};
-    use raw_window_handle::{AppKitWindowHandle, HandleError, HasWindowHandle, RawWindowHandle, WindowHandle};
+    use objc2::MainThreadMarker;
     use serde_json::{Value, json};
     use shield::ShieldLevel;
     use url::Url;
 
-    struct View(Retained<objc2_app_kit::NSView>);
-
-    impl HasWindowHandle for View {
-        fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-            let raw = RawWindowHandle::AppKit(AppKitWindowHandle::new(NonNull::from(&*self.0).cast()));
-            // SAFETY: the view outlives the borrowed handle.
-            Ok(unsafe { WindowHandle::borrow_raw(raw) })
-        }
-    }
-
-    fn spin(seconds: f64, done: &dyn Fn() -> bool) {
-        let until = Instant::now() + Duration::from_secs_f64(seconds);
-        while !done() && Instant::now() < until {
-            NSRunLoop::mainRunLoop().runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.05));
-        }
-    }
-
-    const PAGE: &str = "<title>PAGE</title><script src=\"/blocked.js\"></script><script>\
-        addEventListener('load', () => { document.title += '|main:' + typeof window.chrome + typeof window.browser + typeof window.__tarnExtPost + typeof window.__tarnExtRun + typeof (window.webkit && window.webkit.messageHandlers.tarnExt); });\
-        </script><p>page</p>";
-
-    fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        std::thread::spawn(move || {
-            for mut stream in listener.incoming().flatten() {
-                let seen = seen.clone();
-                std::thread::spawn(move || {
-                    let mut first = String::new();
-                    let mut reader = BufReader::new(stream.try_clone().unwrap());
-                    reader.read_line(&mut first).ok();
-                    while reader.read_line(&mut String::new()).unwrap_or(0) > 2 {}
-                    let path = first.split_whitespace().nth(1).unwrap_or_default().to_owned();
-                    seen.lock().unwrap().push(path.clone());
-                    if path == "/slow" {
-                        std::thread::sleep(Duration::from_millis(1500));
-                    }
-                    let (kind, body) = if path.ends_with(".js") { ("text/javascript", "window.blockedRan = 1;") } else { ("text/html", PAGE) };
-                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).ok();
-                });
-            }
-        });
-        port
-    }
-
-    /// The fixture's files, as a package would ship them.
-    fn fixture() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        let files = [
-            ("content.js", "'use strict';\nlet started = document.readyState;\nchrome.storage.local.set({ seen: true });"),
-            (
-                "late.js",
-                "document.title = 'EXT:' + document.title + '|start:' + started + '|late:' + typeof chrome.runtime.id;\nchrome.runtime.sendMessage({ ping: 1 }).then(r => { document.title += '|reply:' + r.pong; });",
-            ),
-            ("content.css", "p { color: rgb(1, 2, 3); }"),
-            ("bg.html", "<!doctype html><script src=\"bg.js\"></script>"),
-            ("bg.js", "chrome.runtime.sendMessage('from-background');"),
-        ];
-        for (name, text) in files {
-            std::fs::write(dir.path().join(name), text).unwrap();
-        }
-        dir
-    }
+    use super::common::{INSTALL, ORIGIN, View, fixture, serve, spin, window};
 
     pub fn run() {
         let mtm = MainThreadMarker::new().expect("main thread");
-        let app = NSApplication::sharedApplication(mtm);
-        app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
-        app.finishLaunching();
+        let window = window(mtm);
         let seen = Arc::new(Mutex::new(Vec::new()));
         let port = serve(seen.clone());
         let dir = fixture();
         let read = |name: &str| std::fs::read_to_string(dir.path().join(name)).unwrap();
 
-        let world = World::for_install("0a1b2c").unwrap();
-        let origin = "0123456789abcdef0123456789abcdef";
+        let world = World::for_install(INSTALL).unwrap();
+        let origin = ORIGIN;
         let config = |page: bool| json!({"id": origin, "base": format!("tarn-extension://{origin}/"), "manifest": "{}", "messages": {}, "locale": "en", "storage": true, "page": page});
         let scripts = Rc::new(WorldScripts {
             world: world.clone(),
@@ -109,6 +41,7 @@ mod window {
             scripts: vec![
                 Script { run_at: RunAt::DocumentStart, all_frames: false, js: vec![read("content.js")], css: vec![read("content.css")] },
                 Script { run_at: RunAt::DocumentEnd, all_frames: false, js: vec![read("late.js")], css: vec![] },
+                Script { run_at: RunAt::DocumentEnd, all_frames: true, js: vec![read("frame.js")], css: vec![] },
             ],
         });
 
@@ -121,19 +54,6 @@ mod window {
         spin(10.0, &|| compiled.borrow().is_some());
         data.set_extension_rule_lists("tarn-ext.test", compiled.borrow().as_ref());
 
-        // SAFETY: main-thread creation of a fresh window.
-        let window = unsafe {
-            NSWindow::initWithContentRect_styleMask_backing_defer(
-                NSWindow::alloc(mtm),
-                NSRect::new(NSPoint::new(100., 100.), NSSize::new(800., 600.)),
-                NSWindowStyleMask::Titled,
-                NSBackingStoreType::Buffered,
-                false,
-            )
-        };
-        // SAFETY: the window is not released on close; this binding owns it.
-        unsafe { window.setReleasedWhenClosed(false) };
-        window.makeKeyAndOrderFront(None);
         let host = Host::from_window(&View(window.contentView().unwrap())).unwrap();
 
         type Heard = (World, FrameId, Option<Url>, Value);
@@ -154,17 +74,27 @@ mod window {
                 messages.borrow_mut().push((world, frame, origin, message));
             })
         };
-        let granted_host = "127.0.0.1";
         let site_for: engine::SiteFor = Rc::new(|_| Site::new(ShieldLevel::Standard));
-        let open = |url: &str| {
-            let view = Rc::new(WebView::new(&host, &data, ShieldLevel::Standard, true, false, site_for.clone(), sink.clone()));
+        let open_at = |url: &str, level: ShieldLevel| {
+            let view = Rc::new(WebView::new(&host, &data, level, true, false, site_for.clone(), sink.clone()));
             view.set_frame(0., 0., 800., 600.);
-            view.set_extension_gate(Rc::new(move |_, frame| if frame.url.host_str() == Some(granted_host) { vec![0, 1] } else { Vec::new() }));
+            view.set_extension_gate(Rc::new(|_, frame| {
+                let (host, query) = (frame.url.host_str(), frame.url.query());
+                let mut run = Vec::new();
+                if frame.main_frame && host == Some("127.0.0.1") {
+                    run.extend([0, 1]);
+                }
+                if (host == Some("127.0.0.1") || (host == Some("localhost") && !frame.main_frame)) && query != Some("no") {
+                    run.push(2);
+                }
+                run
+            }));
             view.add_extension_scripts(scripts.clone());
             views.borrow_mut().push(view.clone());
             view.load(&Url::parse(url).unwrap());
             view
         };
+        let open = |url: &str| open_at(url, ShieldLevel::Standard);
 
         let other = open(&format!("http://localhost:{port}/other"));
         spin(5.0, &|| other.title().contains("|main:"));
@@ -180,8 +110,9 @@ mod window {
         assert!(got.iter().all(|(w, f, o, _)| *w == world && *f == FrameId::MAIN && o.is_none()), "messages name the world and frame they came from: {got:?}");
         assert!(got.iter().any(|(_, _, _, m)| m["call"] == "runtime.sendMessage" && m["args"][0]["ping"] == 1), "{got:?}");
         assert!(got.iter().any(|(_, _, _, m)| m["call"] == "storage.set" && m["args"][0]["seen"] == true), "{got:?}");
-        let requested = seen.lock().unwrap().clone();
-        assert_eq!(requested.iter().filter(|p| *p == "/blocked.js").count(), 1, "the rule blocks the granted page's script, not the other's: {requested:?}");
+        let requested = |entry: &str| seen.lock().unwrap().iter().filter(|s| *s == entry).count();
+        assert_eq!(requested(&format!("127.0.0.1:{port} /blocked.js")), 0, "the rule blocks the granted page's script");
+        assert_eq!(requested(&format!("localhost:{port} /blocked.js")), 1, "and not the other's");
 
         let ungated = Rc::new(WebView::new(&host, &data, ShieldLevel::Standard, true, false, site_for.clone(), sink.clone()));
         ungated.set_frame(0., 0., 800., 600.);
@@ -205,6 +136,61 @@ mod window {
         tab.reload_from_origin();
         spin(8.0, &|| tab.title().starts_with("EXT:") && tab.title().contains("|main:"));
         assert!(tab.title().starts_with("EXT:PAGE"), "the page runs in the tab once that view is gone: {}", tab.title());
+
+        let probe = open(&format!("http://127.0.0.1:{port}/probe?o={origin}"));
+        spin(10.0, &|| probe.title().contains("|s1:") && probe.title().contains("|reply:"));
+        let title = probe.title();
+        assert!(title.starts_with("EXT:PROBE"), "the extension runs in the probed page: {title}");
+        assert!(title.contains("|main:undefined,undefined,,undefined"), "no chrome.runtime, browser, binding or handler in the main world: {title}");
+        assert!(title.contains("|s1:refused,error,about:blank"), "a web page cannot fetch, show or frame the extension's files: {title}");
+
+        messages.borrow_mut().clear();
+        let locked = open_at(&format!("http://127.0.0.1:{port}/page?locked"), ShieldLevel::Lockdown);
+        spin(3.0, &|| false);
+        assert_eq!(requested(&format!("127.0.0.1:{port} /page?locked")), 0, "a Lockdown view never loads a private-network page");
+        assert!(!locked.title().starts_with("EXT:") && messages.borrow().is_empty(), "nothing runs in a Lockdown view: {}", locked.title());
+
+        let frames_seen = |label: &str| {
+            let here = |host: &str, path: &str| format!("http://{host}:{port}{path}");
+            let sub = |host: &str, query: &str| here(host, &format!("/sub?{query}"));
+            spin(15.0, &|| {
+                let got = messages.borrow();
+                [here("127.0.0.1", "/frames"), sub("127.0.0.1", "ok"), sub("localhost", "ok")]
+                    .iter()
+                    .all(|want| got.iter().any(|(_, _, _, m)| m["args"][0]["replied"].as_str() == Some(want.as_str())))
+            });
+            let got = messages.borrow().clone();
+            let from = |want: &str| -> Vec<(FrameId, Option<String>)> {
+                got.iter()
+                    .filter(|(w, _, _, m)| *w == world && m["args"][0]["frame"].as_str() == Some(want))
+                    .map(|(_, f, o, _)| (*f, o.as_ref().map(|u| u.origin().ascii_serialization())))
+                    .collect()
+            };
+            let (main, same, cross) = (from(&here("127.0.0.1", "/frames")), from(&sub("127.0.0.1", "ok")), from(&sub("localhost", "ok")));
+            assert_eq!(main, vec![(FrameId::MAIN, None)], "{label}: the top document is the main frame: {got:?}");
+            assert!(same.len() == 1 && same[0].0 != FrameId::MAIN, "{label}: a same-site frame is heard as a subframe whatever it claims: {got:?}");
+            assert_eq!(same[0].1.as_deref(), Some(here("127.0.0.1", "").as_str()), "{label}: with its own origin: {got:?}");
+            assert!(
+                cross.len() == 1 && cross[0].0 != FrameId::MAIN && cross[0].0 != same[0].0,
+                "{label}: a cross-site frame is heard as a frame of its own: {got:?}"
+            );
+            assert_eq!(cross[0].1.as_deref(), Some(here("localhost", "").as_str()), "{label}: with its own origin: {got:?}");
+            assert!(from(&sub("127.0.0.1", "no")).is_empty(), "{label}: a frame the gate keeps out sends nothing: {got:?}");
+            let replied = |want: &str| {
+                got.iter()
+                    .filter(|(_, _, _, m)| m["args"][0]["replied"].as_str() == Some(want) && m["args"][0]["pong"] == 2)
+                    .map(|(_, f, _, _)| *f)
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(replied(&sub("127.0.0.1", "ok")), vec![same[0].0], "{label}: a reply reaches the same-site frame: {got:?}");
+            assert_eq!(replied(&sub("localhost", "ok")), vec![cross[0].0], "{label}: a reply reaches the cross-site frame: {got:?}");
+        };
+        messages.borrow_mut().clear();
+        let frames = open(&format!("http://127.0.0.1:{port}/frames"));
+        frames_seen("first load");
+        messages.borrow_mut().clear();
+        frames.reload_from_origin();
+        frames_seen("reload");
 
         let fixture_dir = dir.path().to_owned();
         let resources = Arc::new(move |url: &Url| {
@@ -237,10 +223,26 @@ mod window {
             got.iter().any(|(w, f, j)| *w == world && *f == FrameId::MAIN && j.contains("from-background")),
             "the background page talks through the bridge: {got:?}"
         );
+        page.load(&Url::parse(&format!("tarn-extension://{origin}/framer.html?port={port}")).unwrap());
+        spin(2.0, &|| false);
+        let reported = || page_messages.borrow().iter().any(|(_, _, j)| j.contains("framed:"));
+        for _ in 0..8 {
+            page.post(&json!({"event": "runtime.onMessage", "delivery": 1, "message": "report", "sender": {}}).to_string());
+            spin(1.0, &reported);
+            if reported() {
+                break;
+            }
+        }
+        let framed = page_messages.borrow().iter().find(|(_, _, j)| j.contains("framed:")).map(|(_, _, j)| j.clone());
+        assert!(
+            framed.as_deref().is_some_and(|j| j.contains(&format!("framed:tarn-extension://{origin}/inner.html,about:blank"))),
+            "an extension page frames its own pages, never a web page: {framed:?}"
+        );
+        assert_eq!(requested(&format!("127.0.0.1:{port} /sub?from-extension")), 0, "the web frame was never requested");
 
         drop(page);
         drop(views.borrow_mut().drain(..));
-        drop((granted, other, ungated, tab));
+        drop((granted, other, ungated, tab, probe, locked, frames));
         DataStore::wipe_persistent(uuid);
         FilterLists::remove("tarn-ext.test");
         window.close();

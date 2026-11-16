@@ -604,6 +604,16 @@ impl Browser {
         }
     }
 
+    /// Forgets the install's site answers, stored and of this session: it asks again on every site.
+    pub fn forget_extension_answers(&mut self, install_id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(row) = self.row_of(install_id) else { return };
+        match crate::tarn_ext::forget_answers(&self.core, row.profile_id, install_id) {
+            Ok(()) if row.source != "appex" && browser_core::tarn_ext::is_tarn_dir(Path::new(&row.path)) => {}
+            Ok(()) => self.after_extension_change(row.profile_id, window, cx),
+            Err(e) => eprintln!("tarn: the site answers of extension {install_id} were not forgotten: {e}"),
+        }
+    }
+
     fn after_extension_change(&mut self, profile_id: Id, window: &mut Window, cx: &mut Context<Self>) {
         crate::extensions::verify(cx);
         self.core.apply_extensions(false, profile_id);

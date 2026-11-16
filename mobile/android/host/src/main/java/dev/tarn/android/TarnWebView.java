@@ -651,7 +651,7 @@ final class TarnWebView implements NshComponent {
     private String documentVerdict(String target, int site) {
         if (!isWeb(target)) return target;
         int verdict = Native.stricter(Native.verdict(target, target, Native.MAIN_FRAME, site),
-                extensionVerdict(target, target, Native.MAIN_FRAME, site));
+                extensionVerdict(target, target, site, Native.MAIN_FRAME));
         if (verdict == Native.VERDICT_BLOCK) {
             block(target, "shield");
             return null;
@@ -715,7 +715,7 @@ final class TarnWebView implements NshComponent {
         int site = levelFor(url);
         if (isWeb(url)) {
             int verdict = Native.stricter(Native.verdict(url, url, Native.MAIN_FRAME, site),
-                    extensionVerdict(url, url, Native.MAIN_FRAME, site));
+                    extensionVerdict(url, url, site, Native.MAIN_FRAME));
             if (verdict != Native.VERDICT_ALLOW) {
                 block(url, verdict == Native.VERDICT_BLOCK ? "shield" : "https_only");
                 return;
@@ -805,9 +805,14 @@ final class TarnWebView implements NshComponent {
         }
     }
 
-    private int extensionVerdict(String url, String top, int kind, int pageLevel) {
+    private int extensionVerdict(String url, String top, int pageLevel, int kind) {
+        return extensionVerdict(url, top, pageLevel, null, kind);
+    }
+
+    private int extensionVerdict(String url, String top, int pageLevel, Page next, int kind) {
         String rules = ruleStore;
-        return rules == null ? Native.VERDICT_ALLOW : Native.extensionVerdict(rules, url, top, kind, Math.max(pageLevel, viewLevel));
+        return rules == null ? Native.VERDICT_ALLOW : Native.extensionVerdict(rules, url, top, Math.max(pageLevel, viewLevel),
+                next == null ? null : next.url(), next == null ? 0 : Math.max(next.level(), viewLevel), kind);
     }
 
     private static void deliver(TarnWebView from, Map<String, Object> data) {
@@ -918,10 +923,9 @@ final class TarnWebView implements NshComponent {
             Page judge = current != null ? current : next;
             int verdict = Native.verdict(target, judge == null ? null : judge.url(), kind,
                     judge == null ? level : judge.level());
-            if (next != null && current != null && !next.url().equals(current.url())) {
-                verdict = Native.stricter(verdict, Native.verdict(target, next.url(), kind, next.level()));
-            }
-            if (judge != null) verdict = Native.stricter(verdict, extensionVerdict(target, judge.url(), kind, judge.level()));
+            Page coming = next != null && current != null && !next.url().equals(current.url()) ? next : null;
+            if (coming != null) verdict = Native.stricter(verdict, Native.verdict(target, coming.url(), kind, coming.level()));
+            if (judge != null) verdict = Native.stricter(verdict, extensionVerdict(target, judge.url(), judge.level(), coming, kind));
             Hooks.log("verdict=" + verdict + " us=" + (System.nanoTime() - start) / 1000 + " kind=" + kind
                     + " url=" + target + " top=" + (current == null ? null : current.url())
                     + " pending=" + (next == null ? null : next.url()));
@@ -937,7 +941,7 @@ final class TarnWebView implements NshComponent {
             int site = levelFor(target);
             int pageLevel = expected ? next.level() : Math.max(site, viewLevel);
             int verdict = Native.stricter(Native.verdict(target, target, Native.MAIN_FRAME, pageLevel),
-                    extensionVerdict(target, target, Native.MAIN_FRAME, pageLevel));
+                    extensionVerdict(target, target, pageLevel, Native.MAIN_FRAME));
             boolean userStarted = expected && shellNavigation;
             String from = expected ? next.from() : origin();
             if (verdict != Native.VERDICT_BLOCK && Native.intoPrivateNetwork(target, from, userStarted, pageLevel)) {

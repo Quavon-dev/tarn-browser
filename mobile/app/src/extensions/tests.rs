@@ -256,3 +256,54 @@ fn closing_the_tab_ends_its_once_grant() {
     s.shell.close_tab(tab);
     assert!(s.shell.ext.rt.session.next_expiry(now).is_none());
 }
+
+#[test]
+fn forgetting_site_answers_ends_this_sessions_answers_too() {
+    let mut s = setup();
+    let now = Instant::now();
+    gate(&mut s, "https://shop.test/", now);
+    s.shell.answer_ask(true, false, now);
+    assert_eq!(gate(&mut s, "https://shop.test/", now), vec![0]);
+    s.shell.forget_site_answers(s.profile, ID).unwrap();
+    assert!(gate(&mut s, "https://shop.test/", now).is_empty());
+    assert!(s.shell.active_ask().is_some(), "it asks again");
+}
+
+#[test]
+fn no_extension_page_opens_at_lockdown() {
+    let mut s = setup();
+    s.shell.set_default_level(ShieldLevel::Lockdown);
+    s.shell.click_action(ID, Instant::now());
+    assert!(s.shell.popup().is_none());
+    assert!(s.shell.page_views().is_empty());
+}
+
+#[test]
+fn pages_already_open_close_when_the_profile_moves_into_lockdown() {
+    let mut s = setup();
+    let now = Instant::now();
+    gate(&mut s, "https://shop.test/", now);
+    s.shell.answer_ask(true, true, now);
+    message(&mut s, json!({"id": 1, "call": "runtime.sendMessage", "args": ["ping"]}));
+    s.shell.click_action(ID, now);
+    assert_eq!(s.shell.page_views().len(), 1);
+    assert!(s.shell.popup().is_some());
+    s.shell.set_default_level(ShieldLevel::Lockdown);
+    assert!(s.shell.popup().is_none() && s.shell.page_views().is_empty());
+    let get = json!({"world": world().name(), "json": json!({"id": 2, "call": "storage.get", "args": [null]}).to_string()});
+    assert!(s.shell.page_message(s.profile, ID, PageKind::Background, &get, now).is_empty());
+}
+
+#[test]
+fn a_site_set_to_lockdown_drops_the_rules_there_until_it_is_lifted() {
+    let mut s = setup();
+    let now = Instant::now();
+    gate(&mut s, "https://shop.test/cart", now);
+    s.shell.answer_ask(true, true, now);
+    let rules = || ext::RULES.with(|m| m.borrow().get(&s.store_id).cloned()).unwrap();
+    assert_eq!(rules().len(), 1);
+    assert!(s.shell.set_site_level(Some(ShieldLevel::Lockdown)));
+    assert!(rules().is_empty(), "a host set to Lockdown takes no extension rules");
+    assert!(s.shell.set_site_level(None));
+    assert_eq!(rules().len(), 1, "lifting it brings them back");
+}

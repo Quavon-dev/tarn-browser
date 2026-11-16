@@ -215,12 +215,16 @@ pub extern "system" fn Java_dev_tarn_android_Native_extensionVerdict(
     store: JString,
     url: JString,
     top: JString,
-    kind: jint,
     level: jint,
+    next: JString,
+    next_level: jint,
+    kind: jint,
 ) -> jint {
-    let top = string(&mut env, &top);
+    let (top, next) = (string(&mut env, &top), string(&mut env, &next));
+    let mut pages = vec![(top.as_deref(), level)];
+    pages.extend(next.as_deref().map(|n| (Some(n), next_level)));
     match (string(&mut env, &store), string(&mut env, &url)) {
-        (Some(store), Some(url)) => tarn_ext::verdict(&store, &url, top.as_deref(), kind, level),
+        (Some(store), Some(url)) => tarn_ext::verdict(&store, &url, kind, &pages),
         _ => policy::VERDICT_ALLOW,
     }
 }

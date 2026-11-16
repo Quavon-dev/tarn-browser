@@ -1686,6 +1686,12 @@ impl SettingsWindow {
                         },
                     )));
                 }
+                if let Some(id) = e.install_id.clone() {
+                    r = r.child(button(("extension-forget", ix), "Forget Site Answers", false).on_click(cx.listener(move |this, _, _, cx| {
+                        let id = id.clone();
+                        this.with_browser(cx, move |b, w, cx| b.forget_extension_answers(&id, w, cx))
+                    })));
+                }
                 if let Some(id) = e.install_id {
                     r = r.child(button(("extension-remove", ix), "Remove", false).on_click(cx.listener(move |this, _, _, cx| {
                         let id = id.clone();

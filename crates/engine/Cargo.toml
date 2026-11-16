@@ -76,6 +76,11 @@ name = "tarn_extension"
 harness = false
 
 [[test]]
+name = "tarn_extension_chromium"
+harness = false
+required-features = ["chromium"]
+
+[[test]]
 name = "import_cookies"
 harness = false
 

@@ -237,7 +237,10 @@ decisions come from `browser_core::tarn_ext`.
   them per request in `shouldInterceptRequest` and in the main-frame checks of `shellLoad`, link navigations
   and history steps, never at Lockdown (the view's or the site's level). As with Shield on Android, an
   `upgradeScheme` rule upgrades a main-frame load and blocks a subresource (WebView cannot rewrite a
-  subresource request). WebSocket and service-worker requests are not seen (the WebView gap above).
+  subresource request). WebSocket and service-worker requests are not seen (the WebView gap above). While a
+  navigation is pending WebView cannot say whether a subresource belongs to the page being left or the page
+  coming, so an extension rule acts on it only if it acts for both: an extension never acts on a site it holds
+  no grant for, and the first requests of a granted page reached from another site may go unfiltered.
 - **Extension pages** (`tarn.extpage`): a view of the profile's WebView profile that loads only
   `tarn-extension://<origin id>/` URLs, answered in `shouldInterceptRequest` from the store's `serve()`
   handler with its status and MIME type; a `tarn-extension://` request for another origin is refused with
@@ -254,6 +257,19 @@ decisions come from `browser_core::tarn_ext`.
   `tarn-extension://<origin id>/`, and the component takes messages only from the main frame while it
   shows that origin. An http frame inside an extension page gets the port object but nothing it posts is
   read, and nothing is posted to it.
+
+Checked on the `slideout_3gb` emulator (Android 16, Android System WebView 157.0.8103.38) with a fresh app
+data directory, an Unverified test extension installed from Downloads, and local test servers on
+`127.0.0.1` and `localhost` (HTTP, and HTTPS with a throwaway CA installed as a user certificate; the debug
+build trusts user certificates for the debug test hosts only): consent sheet, the per-site prompt (Allow Once,
+Always Allow, Deny), content script and CSS in the install's world while the page's main world sees no
+`chrome`, `browser` or `__tarnExt*` globals, a message round trip with the background page, storage, the popup
+with its badge, a network rule blocking a subresource only after the grant, "Forget Site Answers" stopping an
+open page's messages and asking again, a cross-site `all_frames` frame that runs and messages only once its
+own origin is allowed, a frame of a Lockdown host inside an allowed page running nothing, a web page unable to
+fetch, embed or frame the extension's files (a top-level link is offered to another app and never loads),
+the popup's frames limited to its own origin, nothing in the private space or a burner tab, and nothing at
+Lockdown for the site or the profile (no scripts, no rules, no popup).
 
 ### Tarn extensions: the shared shell and iOS
 
@@ -279,7 +295,9 @@ decisions come from `browser_core::tarn_ext`.
   source's trust label, on/off per profile, "every site it lists" for App and Official installs, forget site
   answers, check for update, remove. Only Tarn extensions install here; a classic package is refused by name.
   Install folders are found from the extensions folder, not the stored absolute path, because iOS moves the
-  app's data container on every update. Nothing runs in a private space, a burner tab or at Lockdown.
+  app's data container on every update. "Forget Site Answers" drops the stored answers and this session's
+  (Allow Once and Deny), so it asks again on every site at once. Nothing runs in a private space, a burner tab
+  or at Lockdown; at profile Lockdown the action entry stays in the menu but opens no page, as on desktop.
 - **iOS engine** (`ios/src/tarn_ext.rs`, `ext_view.rs`, `ext_scripts.rs`, `extpage.rs`). NSH runs the shell on
   its own thread, so the hooks hand owned copies to the main queue. Each install gets
   `WKContentWorld worldWithName:` (`tarn-ext-<install id>`, never the page world or Tarn's own client world),
@@ -312,7 +330,13 @@ in the private space for a site allowed with Always Allow in the profile. Eviden
 `mobile/ios/evidence/extensions/`. Unit tests: `app/src/extensions/tests.rs` (grants, prompt, storage,
 messaging, background start and idle stop, popup and badge, private space, changed files),
 `crates/browser-core/src/extensions/install.rs` (install, consent, classic refusal, a tree changed before consent) and
-`ios/src/ext_scripts.rs` (guards). Not checked on the simulator: network rules blocking a request, subframes.
+`ios/src/ext_scripts.rs` (guards).
+
+Checked again on the same simulator with a fresh install and the local test servers used for Android (HTTPS
+with a throwaway CA added to the simulator's keychain only): everything listed for Android above, including
+the network rule acting only after the grant, cross-site frames, and Lockdown for the site and the profile.
+An open page keeps its message handlers when the shell sends the worlds again (any change in Settings ›
+Extensions); only an install that goes away loses its handler.
 
 ## 3. Data stores (`browser_core::WebsiteData`)
 

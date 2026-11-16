@@ -354,6 +354,20 @@ pub(crate) fn on_msg(msg: Msg, cx: &mut App) {
     }
 }
 
+/// The profile's Shield level changed: at Lockdown its extension pages close.
+pub(crate) fn level_changed(core: &Rc<AppCore>, profile: Id, cx: &mut App) {
+    let policy = policy(core, profile);
+    let effects = core.tarn.borrow_mut().rt.level_changed(profile, &policy);
+    run(core, effects, cx);
+}
+
+/// Forgets the install's site answers, stored and of this session: it asks again on every site.
+pub(crate) fn forget_answers(core: &Rc<AppCore>, profile: Id, install: &str) -> Result<(), store::Error> {
+    core.tarn.borrow_mut().rt.forget_answers(&core.disk, profile, install)?;
+    apply_rules(core, profile);
+    Ok(())
+}
+
 fn answered(core: &Rc<AppCore>, answer: Answer, cx: &mut App) {
     core.tarn.borrow_mut().rt.answer(&answer, &core.disk, Instant::now());
     apply_rules(core, answer.profile);
@@ -382,7 +396,7 @@ fn clicked(core: &Rc<AppCore>, profile: Id, install: &str, tab: Option<u64>, (ho
     let call = Call { tabs: &tabs, store: Some(&core.disk), policy: &policy, now: Instant::now() };
     let effects = core.tarn.borrow_mut().rt.clicked(profile, install, &info, &call);
     run(core, effects, cx);
-    let popup = core.tarn.borrow().rt.loaded(profile, install).and_then(|l| l.package.popup_url());
+    let popup = core.tarn.borrow().rt.page_url(profile, install, PageKind::Popup, &policy);
     if let Some(url) = popup
         && let Some(page) = open_page(core, profile, install, PageKind::Popup, host)
     {
@@ -393,12 +407,9 @@ fn clicked(core: &Rc<AppCore>, profile: Id, install: &str, tab: Option<u64>, (ho
     }
 }
 
-/// One of the install's own pages, with the profile's built-in rules; never under Lockdown.
+/// One of the install's own pages, with the profile's built-in rules.
 fn open_page(core: &Rc<AppCore>, profile: Id, install: &str, kind: PageKind, host: &Host) -> Option<ExtensionPage> {
     let level = policy(core, profile).level;
-    if level == ShieldLevel::Lockdown {
-        return None;
-    }
     let (spec, sender) = {
         let tarn = core.tarn.borrow();
         let l = tarn.rt.loaded(profile, install)?;
@@ -428,7 +439,7 @@ fn run(core: &Rc<AppCore>, effects: Effects, cx: &mut App) {
             Effect::Post { profile, install_id, target, json } => post(core, profile, &install_id, target, &json, cx),
             Effect::StartBackground { profile, install_id } => {
                 let Some(host) = any_host(cx) else { continue };
-                let url = core.tarn.borrow().rt.loaded(profile, &install_id).and_then(|l| l.package.background_url());
+                let url = core.tarn.borrow().rt.page_url(profile, &install_id, PageKind::Background, &policy(core, profile));
                 let Some(url) = url else { continue };
                 if let Some(page) = open_page(core, profile, &install_id, PageKind::Background, &host) {
                     page.load(&url);

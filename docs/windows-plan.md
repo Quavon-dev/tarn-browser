@@ -348,7 +348,8 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
   WebKit rules; a slow matcher would hurt page loads.
 - **Classic extensions (M8), a gap; Tarn extensions run.** Packages for Tarn's own runtime
   (`browser_specific_settings.tarn.runtime`) work on Windows as on macOS: content scripts in an
-  isolated world per install through new-document scripts and a binding of that world only, rules
+  isolated world per install through new-document scripts and a binding of that world only (cross-site
+  frames attached as targets of their own), rules
   in the request filter, pages from `tarn-extension://` registered per request context, all through
   the in-process DevTools channel (S22). Their popup is a Chromium view placed under the toolbar
   button that closes on a second click, not a native popover. For full extensions: CEF 156 (Chrome

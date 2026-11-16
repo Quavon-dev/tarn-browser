@@ -115,7 +115,7 @@ pub struct Ui {
     toast_timer: Signal<u64>,
     reloaded: Signal<u64>,
     settings_pane: Signal<tarn_nsh_shared::panes::Pane>,
-    ext_popup: Signal<Option<(store::Id, String)>>,
+    ext_popup: Signal<Option<(store::Id, String, u64)>>,
     ext_pane: Signal<bool>,
     remember: Signal<bool>,
     open: Signal<bool>,
@@ -1138,7 +1138,7 @@ fn escape(ui: Ui) {
     } else if ui.finding.get_untracked() {
         close_find(ui);
     } else if ui.ext_popup.get_untracked().is_some() {
-        ui.ext_popup.set(None);
+        extensions::show_popup(ui, None);
     } else if ui.panel.get_untracked() != Panel::None {
         show(ui, Panel::None);
     } else if ui.snap.with_untracked(|s| s.reader.is_some()) {
@@ -1222,6 +1222,7 @@ fn close_window(ui: Ui, here: &WindowRef) {
     if WINDOWS.with_borrow(|windows| windows.len()) <= 1 {
         return quit();
     }
+    extensions::show_popup(ui, None);
     act(ui, Browser::close_window);
     BROWSERS.with_borrow_mut(|windows| windows.remove(&ui.window));
     WINDOWS.with_borrow_mut(|windows| windows.retain(|w| w.window != ui.window));

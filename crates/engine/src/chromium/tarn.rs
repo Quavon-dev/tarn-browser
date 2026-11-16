@@ -1,7 +1,8 @@
 //! Chromium's side of Tarn extensions (`tarn_ext`), over the in-process DevTools channel only
 //! (S22): each install's scripts are new-document scripts in an isolated world named after it, its
 //! messages arrive through a binding that exists only in that world, and replies are evaluated in
-//! the world's context of the frame they go to.
+//! the world's context of the frame they go to. Frames in other processes are targets of their
+//! own, attached over the same channel (`Target.setAutoAttach`), where the same happens.
 
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
@@ -10,7 +11,7 @@ use std::sync::{Mutex, PoisonError};
 use cef::*;
 use url::Url;
 
-use super::{ADD_SCRIPT, Tab, call, emit, string_at, value_at};
+use super::{ADD_SCRIPT, Tab, call, call_in, emit, string_at, value_at};
 use crate::Event;
 use crate::handover::js_string;
 use crate::tarn_ext::{
@@ -30,21 +31,64 @@ pub(super) struct TarnTab {
     page_contexts: HashMap<i32, String>,
     /// DevTools' id of the tab's main frame.
     main_frame: Option<String>,
+    sessions: Sessions,
+    contexts_seen: u64,
+}
+
+/// Where a DevTools message goes or came from: an attached frame's session, or the page itself.
+type Target = Option<String>;
+
+/// The sessions of the frames in other processes, with the target each was attached from: those
+/// announced, whose setup waits for the event's dispatch to end, and those set up.
+#[derive(Default)]
+struct Sessions {
+    announced: BTreeMap<String, Target>,
+    live: BTreeMap<String, Target>,
+}
+
+impl Sessions {
+    fn announce(&mut self, session: String, parent: Target) {
+        self.announced.insert(session, parent);
+    }
+
+    /// Sets up an announced session, kept when `keep`; false when it ended before.
+    fn start(&mut self, session: &str, keep: bool) -> bool {
+        let Some(parent) = self.announced.remove(session) else { return false };
+        if keep {
+            self.live.insert(session.to_owned(), parent);
+        }
+        true
+    }
+
+    /// Ends the session and those attached through it, announced or set up; returns them.
+    fn end(&mut self, session: String) -> Vec<Target> {
+        let mut gone: Vec<Target> = vec![Some(session)];
+        while let Some(next) =
+            self.live.iter().chain(&self.announced).find(|(s, parent)| gone.contains(parent) && !gone.contains(&Some((*s).clone()))).map(|(s, _)| s.clone())
+        {
+            gone.push(Some(next));
+        }
+        self.live.retain(|s, _| !gone.contains(&Some(s.clone())));
+        self.announced.retain(|s, _| !gone.contains(&Some(s.clone())));
+        gone
+    }
 }
 
 struct WorldState {
     scripts: Rc<WorldScripts>,
     decisions: Decisions,
-    registered: Vec<String>,
+    registered: Vec<(Target, String)>,
     generation: u64,
-    contexts: HashMap<i32, Context>,
+    contexts: HashMap<(Target, i32), Context>,
 }
 
-/// A context of the world as DevTools reported it, never as its scripts say.
+/// A context of the world as DevTools reported it, never as its scripts say; `serial` numbers it
+/// across the tab's targets, whose context ids overlap.
 struct Context {
     frame: String,
     origin: Option<Url>,
     ended: bool,
+    serial: u64,
 }
 
 fn binding(world: &World) -> String {
@@ -107,18 +151,36 @@ pub(super) fn add(tab: &Rc<Tab>, scripts: Rc<WorldScripts>) {
 pub(super) fn remove(tab: &Rc<Tab>, world: &World) {
     let Some(state) = tab.tarn.borrow_mut().worlds.remove(world) else { return };
     let Some(host) = host_of(tab) else { return };
-    for identifier in state.registered {
-        super::remove_script(tab, &host, &identifier);
+    for (target, identifier) in state.registered {
+        remove_script(tab, &host, target.as_deref(), &identifier);
     }
-    call(tab, &host, "Runtime.removeBinding", &format!("{{\"name\":{}}}", js_string(&binding(world))), |_| {});
+    for target in targets(tab) {
+        call_in(tab, &host, target.as_deref(), "Runtime.removeBinding", &format!("{{\"name\":{}}}", js_string(&binding(world))), |_| {});
+    }
+}
+
+fn remove_script(tab: &Tab, host: &BrowserHost, target: Option<&str>, identifier: &str) {
+    call_in(tab, host, target, "Page.removeScriptToEvaluateOnNewDocument", &format!("{{\"identifier\":{}}}", js_string(identifier)), |_| {});
+}
+
+/// The page and every attached frame.
+fn targets(tab: &Tab) -> Vec<Target> {
+    std::iter::once(None).chain(tab.tarn.borrow().sessions.live.keys().cloned().map(Some)).collect()
 }
 
 /// The Runtime domain must be on for a binding to reach contexts made after it, as every new
-/// document's are; it is only on in tabs of a profile with Tarn extensions.
+/// document's are (without it no `Runtime.bindingCalled` arrives from a new document); it is
+/// only on in tabs of a profile with Tarn extensions.
 fn bind(tab: &Rc<Tab>, host: &BrowserHost, world: &World) {
     enable(tab, host);
+    for target in targets(tab) {
+        bind_in(tab, host, target.as_deref(), world);
+    }
+}
+
+fn bind_in(tab: &Tab, host: &BrowserHost, target: Option<&str>, world: &World) {
     let params = format!("{{\"name\":{},\"executionContextName\":{}}}", js_string(&binding(world)), js_string(world.name()));
-    call(tab, host, "Runtime.addBinding", &params, |_| {});
+    call_in(tab, host, target, "Runtime.addBinding", &params, |_| {});
 }
 
 /// Everything for the tab's first page, sent before the steps its first load waits for.
@@ -137,11 +199,10 @@ pub(super) fn first(tab: &Rc<Tab>, host: &BrowserHost) -> bool {
     !worlds.is_empty() || page.is_some()
 }
 
-/// Turns on the domains whose events say which frame and origin each context belongs to, and
-/// learns the main frame's id.
+/// Turns on the domains whose events say which frame and origin each context belongs to, has
+/// frames in other processes attached before their first document, and learns the main frame's id.
 fn enable(tab: &Rc<Tab>, host: &BrowserHost) {
-    call(tab, host, "Page.enable", "{}", |_| {});
-    call(tab, host, "Runtime.enable", "{}", |_| {});
+    enable_in(tab, host, None);
     let weak = Rc::downgrade(tab);
     call(tab, host, "Page.getFrameTree", "{}", move |tree| {
         if let (Some(tab), Some(id)) = (weak.upgrade(), string_at(tree, &["frameTree", "frame", "id"])) {
@@ -150,31 +211,87 @@ fn enable(tab: &Rc<Tab>, host: &BrowserHost) {
     });
 }
 
-/// Replaces the world's new-document scripts with ones carrying its current decisions; replies to
-/// an earlier generation remove what they registered.
+fn enable_in(tab: &Tab, host: &BrowserHost, target: Option<&str>) {
+    call_in(tab, host, target, "Page.enable", "{}", |_| {});
+    call_in(tab, host, target, "Runtime.enable", "{}", |_| {});
+    let attach = r#"{"autoAttach":true,"waitForDebuggerOnStart":true,"flatten":true,"filter":[{"type":"iframe"}]}"#;
+    call_in(tab, host, target, "Target.setAutoAttach", attach, |_| {});
+}
+
+/// Replaces the world's new-document scripts in every target with ones carrying its current
+/// decisions; replies to an earlier generation remove what they registered.
 fn register(tab: &Rc<Tab>, host: &BrowserHost, world: &World) {
-    let (old, generation, list) = {
+    let old = {
         let mut tarn = tab.tarn.borrow_mut();
         let Some(state) = tarn.worlds.get_mut(world) else { return };
         state.generation += 1;
+        std::mem::take(&mut state.registered)
+    };
+    for (target, identifier) in old {
+        remove_script(tab, host, target.as_deref(), &identifier);
+    }
+    for target in targets(tab) {
+        register_in(tab, host, target, world);
+    }
+}
+
+/// Adds the world's current new-document scripts to one target.
+fn register_in(tab: &Rc<Tab>, host: &BrowserHost, target: Target, world: &World) {
+    let (generation, list) = {
+        let tarn = tab.tarn.borrow();
+        let Some(state) = tarn.worlds.get(world) else { return };
         let list: Vec<Injection> =
             injections(&state.scripts, &state.decisions, &setup(world)).into_iter().filter(|i| i.run_at == RunAt::DocumentStart).collect();
-        (std::mem::take(&mut state.registered), state.generation, list)
+        (state.generation, list)
     };
-    for identifier in old {
-        super::remove_script(tab, host, &identifier);
-    }
     for injection in list {
         let params = format!("{{\"source\":{},\"worldName\":{}}}", js_string(&injection.source), js_string(world.name()));
-        let (weak, world) = (Rc::downgrade(tab), world.clone());
-        call(tab, host, ADD_SCRIPT, &params, move |result| {
+        let (weak, world, target) = (Rc::downgrade(tab), world.clone(), target.clone());
+        call_in(tab, host, target.clone().as_deref(), ADD_SCRIPT, &params, move |result| {
             let (Some(tab), Some(identifier)) = (weak.upgrade(), string_at(result, &["identifier"])) else { return };
-            let current =
-                tab.tarn.borrow_mut().worlds.get_mut(&world).filter(|s| s.generation == generation).map(|s| s.registered.push(identifier.clone())).is_some();
+            let current = tab
+                .tarn
+                .borrow_mut()
+                .worlds
+                .get_mut(&world)
+                .filter(|s| s.generation == generation)
+                .map(|s| s.registered.push((target.clone(), identifier.clone())))
+                .is_some();
             if !current && let Some(host) = host_of(&tab) {
-                super::remove_script(&tab, &host, &identifier);
+                remove_script(&tab, &host, target.as_deref(), &identifier);
             }
         });
+    }
+}
+
+/// A frame in another process was attached, paused before its first document: it gets the
+/// worlds' bindings and scripts, and attaches its own such frames, before it goes on. Called
+/// after the event's dispatch: a resume sent from inside it is lost and the frame never loads.
+fn attach(tab: &Rc<Tab>, session: &str, params: Option<Value>) {
+    let frame = string_at(params, &["targetInfo", "type"]).as_deref() == Some("iframe");
+    if !tab.tarn.borrow_mut().sessions.start(session, frame) {
+        return;
+    }
+    let Some(host) = host_of(tab) else { return };
+    if frame {
+        let worlds: Vec<World> = tab.tarn.borrow().worlds.keys().cloned().collect();
+        enable_in(tab, &host, Some(session));
+        for world in &worlds {
+            bind_in(tab, &host, Some(session), world);
+            register_in(tab, &host, Some(session.to_owned()), world);
+        }
+    }
+    call_in(tab, &host, Some(session), "Runtime.runIfWaitingForDebugger", "{}", |_| {});
+}
+
+/// A frame's session ended, and with it the sessions attached through it.
+fn detach(tab: &Tab, params: Option<Value>) {
+    let Some(session) = string_at(params, &["sessionId"]) else { return };
+    let mut tarn = tab.tarn.borrow_mut();
+    let gone = tarn.sessions.end(session);
+    for state in tarn.worlds.values_mut() {
+        state.registered.retain(|(t, _)| !gone.contains(t));
+        state.contexts.retain(|(t, _), _| !gone.contains(t));
     }
 }
 
@@ -208,35 +325,58 @@ pub(super) fn page_allows(tab: &Tab, url: &Url, main_frame: bool) -> Option<bool
     Some(crate::tarn_ext::page_loads(url, &spec.origin, main_frame))
 }
 
-fn frame_of(main: bool, context: i32) -> FrameId {
-    if main { FrameId::MAIN } else { FrameId(u64::from(context.unsigned_abs()) | 1 << 62) }
+fn frame_of(main: bool, serial: u64) -> FrameId {
+    if main { FrameId::MAIN } else { FrameId(serial | 1 << 62) }
 }
 
 fn int_at(params: Option<Value>, path: &[&str]) -> Option<i32> {
     value_at(params, path).filter(|v| v.get_type() == ValueType::INT).map(|v| v.int())
 }
 
-/// The DevTools events that say where each context is, and the bindings' calls.
+/// The DevTools events of the page that say where each context is, and the bindings' calls.
 pub(super) fn devtools_event(tab: &Rc<Tab>, method: &str, params: Option<Value>) {
     match method {
-        "Runtime.bindingCalled" => binding_called(tab, params),
-        "Runtime.executionContextCreated" => context_created(tab, params),
-        "Runtime.executionContextDestroyed" => {
-            if let Some(context) = int_at(params, &["executionContextId"]) {
-                forget_contexts(tab, Some(context));
-            }
-        }
-        "Runtime.executionContextsCleared" => forget_contexts(tab, None),
         "Page.frameNavigated" if string_at(params.clone(), &["frame", "parentId"]).is_none() => {
             if let Some(id) = string_at(params, &["frame", "id"]) {
                 tab.tarn.borrow_mut().main_frame = Some(id);
             }
         }
+        _ => target_event(tab, None, method, params),
+    }
+}
+
+/// An event of an attached frame, with the session it came from.
+pub(super) fn session_event(tab: &Rc<Tab>, message: Value) {
+    let (Some(session), Some(method)) = (string_at(Some(message.clone()), &["sessionId"]), string_at(Some(message.clone()), &["method"])) else { return };
+    target_event(tab, Some(session), &method, value_at(Some(message), &["params"]));
+}
+
+fn target_event(tab: &Rc<Tab>, target: Target, method: &str, params: Option<Value>) {
+    match method {
+        "Runtime.bindingCalled" => binding_called(tab, target, params),
+        "Runtime.executionContextCreated" => context_created(tab, target, params),
+        "Runtime.executionContextDestroyed" => {
+            if let Some(context) = int_at(params, &["executionContextId"]) {
+                forget_contexts(tab, &target, Some(context));
+            }
+        }
+        "Runtime.executionContextsCleared" => forget_contexts(tab, &target, None),
+        "Target.attachedToTarget" => {
+            let Some(session) = string_at(params.clone(), &["sessionId"]) else { return };
+            tab.tarn.borrow_mut().sessions.announce(session.clone(), target);
+            let weak = Rc::downgrade(tab);
+            super::super::runtime::after(std::time::Duration::ZERO, move || {
+                if let Some(tab) = weak.upgrade() {
+                    attach(&tab, &session, params);
+                }
+            });
+        }
+        "Target.detachedFromTarget" => detach(tab, params),
         _ => {}
     }
 }
 
-fn context_created(tab: &Tab, params: Option<Value>) {
+fn context_created(tab: &Tab, target: Target, params: Option<Value>) {
     let Some(id) = int_at(params.clone(), &["context", "id"]) else { return };
     let (Some(name), Some(frame)) = (string_at(params.clone(), &["context", "name"]), string_at(params.clone(), &["context", "auxData", "frameId"])) else {
         return;
@@ -244,30 +384,37 @@ fn context_created(tab: &Tab, params: Option<Value>) {
     let default = value_at(params.clone(), &["context", "auxData", "isDefault"]).filter(|v| v.get_type() == ValueType::BOOL).is_some_and(|v| v.bool() == 1);
     let origin = string_at(params, &["context", "origin"]).and_then(|o| Url::parse(&o).ok()).filter(|u| matches!(u.scheme(), "http" | "https"));
     let mut tarn = tab.tarn.borrow_mut();
+    tarn.contexts_seen += 1;
+    let serial = tarn.contexts_seen;
     if default && tarn.page.is_some() {
-        tarn.page_contexts.insert(id, frame);
+        if target.is_none() {
+            tarn.page_contexts.insert(id, frame);
+        }
     } else if let Some(state) = tarn.worlds.iter_mut().find(|(w, _)| w.name() == name).map(|(_, s)| s) {
-        state.contexts.insert(id, Context { frame, origin, ended: false });
+        state.contexts.insert((target, id), Context { frame, origin, ended: false, serial });
     }
 }
 
-fn forget_contexts(tab: &Tab, context: Option<i32>) {
+fn forget_contexts(tab: &Tab, target: &Target, context: Option<i32>) {
     let mut tarn = tab.tarn.borrow_mut();
-    let gone = |c: &i32| context.is_none_or(|x| x == *c);
-    tarn.page_contexts.retain(|c, _| !gone(c));
+    let gone = |t: &Target, c: &i32| t == target && context.is_none_or(|x| x == *c);
+    tarn.page_contexts.retain(|c, _| !gone(&None, c));
     for state in tarn.worlds.values_mut() {
-        state.contexts.retain(|c, _| !gone(c));
+        state.contexts.retain(|(t, c), _| !gone(t, c));
     }
 }
 
 /// `Runtime.bindingCalled`: the world is the binding's, the frame and origin those DevTools gave
 /// the context it was called in; a context DevTools did not report sends nothing.
-fn binding_called(tab: &Rc<Tab>, params: Option<Value>) {
+fn binding_called(tab: &Rc<Tab>, target: Target, params: Option<Value>) {
     let (Some(name), Some(payload)) = (string_at(params.clone(), &["name"]), string_at(params.clone(), &["payload"])) else { return };
     let Some(context) = int_at(params, &["executionContextId"]) else { return };
     let hello = payload.strip_prefix(HELLO);
     let page_world = tab.tarn.borrow().page.as_ref().filter(|s| binding(&s.world) == name).map(|s| s.world.clone());
     if let Some(world) = page_world {
+        if target.is_some() {
+            return;
+        }
         let main = {
             let tarn = tab.tarn.borrow();
             tarn.page_contexts.get(&context).is_some_and(|f| tarn.main_frame.as_ref() == Some(f))
@@ -283,8 +430,8 @@ fn binding_called(tab: &Rc<Tab>, params: Option<Value>) {
         let mut tarn = tab.tarn.borrow_mut();
         let main_frame = tarn.main_frame.clone();
         let Some(state) = tarn.worlds.get_mut(&world) else { return };
-        let Some(known) = state.contexts.get_mut(&context) else { return };
-        let main = main_frame.as_ref() == Some(&known.frame);
+        let Some(known) = state.contexts.get_mut(&(target.clone(), context)) else { return };
+        let main = target.is_none() && main_frame.as_ref() == Some(&known.frame);
         match hello {
             Some("end") if !known.ended => {
                 known.ended = true;
@@ -292,7 +439,7 @@ fn binding_called(tab: &Rc<Tab>, params: Option<Value>) {
                 None
             }
             Some(_) => None,
-            None => payload.starts_with('{').then(|| (frame_of(main, context), if main { None } else { known.origin.clone() })),
+            None => payload.starts_with('{').then(|| (frame_of(main, known.serial), if main { None } else { known.origin.clone() })),
         }
     };
     if let Some((frame, origin)) = message {
@@ -300,31 +447,36 @@ fn binding_called(tab: &Rc<Tab>, params: Option<Value>) {
     }
     if let Some(host) = host_of(tab) {
         for source in evaluate {
-            run_in(tab, &host, context, &source);
+            run_in(tab, &host, target.as_deref(), context, &source);
         }
     }
 }
 
-fn run_in(tab: &Tab, host: &BrowserHost, context: i32, source: &str) {
+fn run_in(tab: &Tab, host: &BrowserHost, target: Option<&str>, context: i32, source: &str) {
     let params = format!("{{\"expression\":{},\"contextId\":{context},\"returnByValue\":true,\"silent\":true}}", js_string(source));
-    call(tab, host, "Runtime.evaluate", &params, |_| {});
+    call_in(tab, host, target, "Runtime.evaluate", &params, |_| {});
 }
 
 pub(super) fn post(tab: &Rc<Tab>, world: &World, frame: Option<FrameId>, json: &str) {
     let Some(host) = host_of(tab) else { return };
     let source = format!("globalThis.{RECEIVE} && globalThis.{RECEIVE}({})", js_string(json));
-    let contexts: Vec<i32> = {
+    let contexts: Vec<(Target, i32)> = {
         let tarn = tab.tarn.borrow();
         if tarn.page.as_ref().is_some_and(|s| s.world == *world) {
-            tarn.page_contexts.iter().filter(|(_, f)| tarn.main_frame.as_ref() == Some(*f)).map(|(c, _)| *c).collect()
+            tarn.page_contexts.iter().filter(|(_, f)| tarn.main_frame.as_ref() == Some(*f)).map(|(c, _)| (None, *c)).collect()
         } else {
             let Some(state) = tarn.worlds.get(world) else { return };
-            let main = |known: &Context| tarn.main_frame.as_ref() == Some(&known.frame);
-            state.contexts.iter().filter(|(c, known)| frame.is_none_or(|f| f == frame_of(main(known), **c))).map(|(c, _)| *c).collect()
+            let main = |target: &Target, known: &Context| target.is_none() && tarn.main_frame.as_ref() == Some(&known.frame);
+            state
+                .contexts
+                .iter()
+                .filter(|((t, _), known)| frame.is_none_or(|f| f == frame_of(main(t, known), known.serial)))
+                .map(|(key, _)| key.clone())
+                .collect()
         }
     };
-    for context in contexts {
-        run_in(tab, &host, context, &source);
+    for (target, context) in contexts {
+        run_in(tab, &host, target.as_deref(), context, &source);
     }
 }
 
@@ -417,5 +569,35 @@ wrap_resource_handler! {
             }
             1
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_that_ends_before_its_setup_is_never_kept() {
+        let mut sessions = Sessions::default();
+        sessions.announce("a".into(), None);
+        assert_eq!(sessions.end("a".into()), [Some("a".to_owned())]);
+        assert!(!sessions.start("a", true), "its setup finds it gone");
+        assert!(sessions.live.is_empty() && sessions.announced.is_empty());
+    }
+
+    #[test]
+    fn ending_a_session_ends_those_attached_through_it() {
+        let mut sessions = Sessions::default();
+        sessions.announce("a".into(), None);
+        assert!(sessions.start("a", true));
+        sessions.announce("b".into(), Some("a".into()));
+        assert!(sessions.start("b", true));
+        sessions.announce("c".into(), Some("b".into()));
+        sessions.announce("d".into(), None);
+        let mut gone = sessions.end("a".into());
+        gone.sort();
+        assert_eq!(gone, [Some("a".to_owned()), Some("b".to_owned()), Some("c".to_owned())]);
+        assert!(!sessions.start("c", true), "a child announced under it goes too");
+        assert!(sessions.start("d", false) && sessions.live.is_empty(), "another frame's target is set up, not kept");
     }
 }

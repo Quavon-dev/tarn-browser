@@ -3,6 +3,7 @@ pub mod popup;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use browser_core::Core;
@@ -13,22 +14,36 @@ use browser_core::tarn_ext::runtime::{self, Action, Call, Effect, Policy};
 use browser_core::tarn_ext::{LoadError, Package};
 use engine::tarn_ext::{FrameId, FrameNav, PageKind, World};
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use futures_util::StreamExt;
 use shield::ShieldLevel;
 use store::{Id, InstalledExtension};
 use url::Url;
 
 use crate::data::{Data, StoreKey};
-use crate::webview::ext::{self as view, Attach, PageSpec, PageView, ViewInfo};
+use crate::webview::ext::{self as view, Event, PageSpec};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Note {
     Ask { profile: Id, tab: u64, install: String, host: String },
     OpenTab { url: Url, active: bool },
     Changed,
+    PageClosed(u64),
 }
 
-type Runtime = runtime::Runtime<Rc<PageView>, String>;
-type Effects = Vec<Effect<Rc<PageView>>>;
+/// An extension page the runtime keeps open; it is made and closed on the GTK thread.
+#[derive(Debug)]
+pub struct Page(u64);
+
+impl Drop for Page {
+    fn drop(&mut self) {
+        view::close_page(self.0);
+    }
+}
+
+static NEXT_PAGE: AtomicU64 = AtomicU64::new(1);
+
+type Runtime = runtime::Runtime<Page, String>;
+type Effects = Vec<Effect<Page>>;
 pub type Button = Action<String>;
 
 #[derive(Default)]
@@ -97,27 +112,44 @@ impl State {
         decision.run
     }
 
-    fn attach(&self, info: &ViewInfo) -> Option<(Id, Attach)> {
-        let StoreKey::Persistent(_) = info.key else { return None };
-        let tab: u64 = info.tab.strip_prefix("false-")?.parse().ok()?;
+    fn profile_of(&self, store: &str) -> Option<Id> {
         let core = self.core()?;
-        let space = core.disk.tab(tab as Id).ok()?.space_id;
-        let profile = self.rt.profiles().into_iter().find(|id| core.disk.spaces(*id).unwrap_or_default().iter().any(|s| s.id == space))?;
-        let policy = policy(&core, profile);
-        if !policy.context(info.level).runs_extensions() || self.rt.installs(profile).next().is_none() {
-            return None;
-        }
-        let rules = self
-            .rt
-            .rule_lists(profile, &policy, info.level, Instant::now())
+        let profiles = core.profiles.borrow();
+        let mut users = profiles.iter().filter(|((private, _), rt)| !private && rt.profile.data_store_uuid == store).map(|((_, id), _)| *id);
+        let only = users.next().filter(|_| users.next().is_none())?;
+        self.uuids.get(&only).is_some_and(|own| own == store).then_some(only)
+    }
+
+    fn rule_ids(&self, profile: Id) -> Vec<(String, String)> {
+        self.rt
+            .rules(profile)
             .into_iter()
+            .flatten()
             .map(|(id, json)| {
-                let hash = shield::groups::hex(shield::lists::fingerprint(&[&json]));
-                (format!("tarn-ext-{id}-{}", &hash[..16]), json)
+                let hash = shield::groups::hex(shield::lists::fingerprint(&[json]));
+                (format!("tarn-ext-{id}-{}", &hash[..16]), json.clone())
             })
-            .collect();
-        let gate: engine::tarn_ext::Gate = Rc::new(move |world: &World, nav: &FrameNav| with(|rt| rt.gate(profile, tab, world, nav)));
-        Some((profile, Attach { gate, worlds: self.rt.scripts(profile), rules }))
+            .collect()
+    }
+
+    /// Hands the profile's worlds and rules to its views.
+    fn push(&mut self, profile: Id) {
+        let Some(store) = self.uuids.get(&profile).cloned() else { return };
+        view::set_scripts(store, self.rt.scripts(profile).iter().map(|w| (**w).clone()).collect());
+        self.rt.reset_rules(profile);
+        self.push_rules(profile);
+    }
+
+    /// The profile's network rules where its installs hold grants now; sent when they changed.
+    fn push_rules(&mut self, profile: Id) {
+        let (Some(core), Some(store)) = (self.core(), self.uuids.get(&profile).cloned()) else { return };
+        if self.rt.update_rules(profile, &policy(&core, profile), Instant::now()).is_some() {
+            view::set_rules(store, self.rule_ids(profile));
+        }
+    }
+
+    fn push_all_rules(&mut self) {
+        self.rt.profiles().into_iter().for_each(|p| self.push_rules(p));
     }
 
     fn tabs(&self, profile: Id) -> Vec<TabInfo> {
@@ -149,15 +181,13 @@ impl State {
 
     fn page_spec(&self, profile: Id, install_id: &str, kind: PageKind) -> Option<PageSpec> {
         let core = self.core()?;
+        let policy = policy(&core, profile);
+        let url = self.rt.page_url(profile, install_id, kind, &policy)?;
         let l = self.rt.loaded(profile, install_id)?;
-        let url = match kind {
-            PageKind::Background => l.package.background_url()?,
-            PageKind::Popup => l.package.popup_url()?,
-        };
         let key = core.profiles.borrow().get(&(false, profile)).map(|rt| rt.data.key.clone());
         Some(PageSpec {
             key: key.or_else(|| Some(StoreKey::Persistent(self.uuids.get(&profile)?.clone())))?,
-            level: policy(&core, profile).level,
+            level: policy.level,
             lists: self.lists(),
             origin: l.package.origin_id.clone(),
             url,
@@ -174,40 +204,90 @@ fn carry_out(effects: Effects) {
             Effect::Post { profile, install_id, target, json } => {
                 let Some(world) = World::for_install(&install_id) else { continue };
                 match target {
-                    Target::Frame { tab, frame } => view::post(Some(&tab_prop(tab)), &world, Some(frame), &json),
-                    Target::Tab(tab) => view::post(Some(&tab_prop(tab)), &world, None, &json),
-                    Target::AllTabs => view::post(None, &world, None, &json),
+                    Target::Frame { tab, frame } => view::post(Some(tab_prop(tab)), world, Some(frame), json),
+                    Target::Tab(tab) => view::post(Some(tab_prop(tab)), world, None, json),
+                    Target::AllTabs => view::post(None, world, None, json),
                     Target::Page(kind) => {
-                        if let Some(page) = with(|rt| rt.rt.page(profile, &install_id, kind).cloned()) {
-                            page.post(&json);
+                        if let Some(page) = with(|rt| rt.rt.page(profile, &install_id, kind).map(|p| p.0)) {
+                            view::post_page(page, json);
                         }
                     }
                 }
             }
-            Effect::StartBackground { profile, install_id } => start_page(profile, &install_id, PageKind::Background, |_| {}),
-            Effect::Close(page) => drop(page),
+            Effect::StartBackground { profile, install_id } => drop(start_page(profile, &install_id, PageKind::Background)),
+            Effect::Close(page) => {
+                let id = page.0;
+                drop(page);
+                with(|rt| note(rt, Note::PageClosed(id)));
+            }
             Effect::OpenTab { url, active, .. } => with(|rt| note(rt, Note::OpenTab { url, active })),
             Effect::ActionChanged(_) => with(|rt| note(rt, Note::Changed)),
         }
     }
 }
 
-fn start_page(profile: Id, install_id: &str, kind: PageKind, shown: impl FnOnce(Rc<PageView>) + 'static) {
-    let Some(spec) = with(|rt| rt.page_spec(profile, install_id, kind)) else { return };
-    let (install, message_install) = (install_id.to_owned(), install_id.to_owned());
-    let message = move |json: String| page_message(profile, &message_install, kind, &json);
-    view::open_page(spec, message, move |page| {
-        let returned = with(|rt| rt.rt.page_opened(profile, &install, kind, page.clone(), Instant::now()));
-        let kept = !returned.as_ref().is_some_and(|r| Rc::ptr_eq(r, &page));
-        drop(returned);
-        if kept {
-            shown(page);
-        }
-    });
+fn start_page(profile: Id, install_id: &str, kind: PageKind) -> Option<u64> {
+    let spec = with(|rt| rt.page_spec(profile, install_id, kind))?;
+    let id = NEXT_PAGE.fetch_add(1, Ordering::Relaxed);
+    let returned = with(|rt| rt.rt.page_opened(profile, install_id, kind, Page(id), Instant::now()));
+    let kept = returned.as_ref().is_none_or(|p| p.0 != id);
+    if kept {
+        view::open_page(id, spec);
+    }
+    if let Some(old) = returned.filter(|p| p.0 != id) {
+        let old_id = old.0;
+        drop(old);
+        with(|rt| note(rt, Note::PageClosed(old_id)));
+    }
+    kept.then_some(id)
 }
 
-pub fn provider() -> view::Provider {
-    Rc::new(|info: &ViewInfo| with(|rt| rt.attach(info)).map(|(_, a)| a))
+/// Connects the views on the GTK thread to this thread's runtime; their questions and page
+/// messages arrive on the receiver, for `on_event`.
+pub fn connect() -> UnboundedReceiver<Event> {
+    let (tx, rx) = unbounded();
+    view::connect(tx);
+    rx
+}
+
+pub fn on_event(event: Event) {
+    match event {
+        Event::Frame(frame) => {
+            let view::Frame { request, tab, store, worlds, url, top, main } = *frame;
+            let nav = FrameNav { url: &url, top: &top, main_frame: main };
+            let tab: Option<u64> = tab.strip_prefix("false-").and_then(|t| t.parse().ok());
+            let runs = with(|rt| {
+                let (Some(profile), Some(tab)) = (rt.profile_of(&store), tab) else { return Vec::new() };
+                worlds
+                    .into_iter()
+                    .map(|w| {
+                        let run = rt.gate(profile, tab, &w, &nav);
+                        (w, run)
+                    })
+                    .collect()
+            });
+            view::answer(request, runs);
+        }
+        Event::PageMessage { page, json } => {
+            let Some((profile, install_id, kind)) = page_of(page) else { return };
+            let sender = Sender { install_id, from: From::Page(kind), origin: None };
+            carry_out(with(|rt| rt.call(profile, |rt, call| rt.handle(profile, &sender, &json, call))));
+        }
+        Event::PageFailed { page } => {
+            let Some((profile, install_id, kind)) = page_of(page) else { return };
+            eprintln!("tarn: a page of extension {install_id} could not open");
+            carry_out(with(|rt| rt.rt.page_closed(profile, &install_id, kind)));
+        }
+    }
+}
+
+fn page_of(page: u64) -> Option<(Id, String, PageKind)> {
+    with(|rt| rt.rt.pages().find(|(_, _, _, p)| p.0 == page).map(|(profile, install, kind, _)| (profile, install.to_owned(), kind)))
+}
+
+/// Runs `future` on this thread for as long as it needs, whatever view started it.
+fn detached(future: impl Future<Output = ()> + 'static) {
+    nsh_core::prelude::Owner::detached().run(|| drop(nsh_core::prelude::spawn(future)));
 }
 
 pub fn init(core: Rc<Core<Data>>) -> UnboundedReceiver<Note> {
@@ -217,7 +297,12 @@ pub fn init(core: Rc<Core<Data>>) -> UnboundedReceiver<Note> {
         rt.core = Some(core);
         rt.notes = Some(tx);
     });
-    view::set_provider(provider());
+    let mut events = connect();
+    detached(async move {
+        while let Some(event) = events.next().await {
+            on_event(event);
+        }
+    });
     profiles.into_iter().for_each(reload);
     rx
 }
@@ -236,9 +321,9 @@ pub fn reload(profile: Id) {
         return apply(profile, &seed, Vec::new());
     }
     let locales = ui_locales();
-    webkit6::glib::MainContext::default().spawn_local(async move {
+    detached(async move {
         let worker = seed.clone();
-        let results = webkit6::gio::spawn_blocking(move || runtime::load_rows(rows, runtime::row_dir, &worker, &locales)).await.unwrap_or_default();
+        let results = nsh_core::prelude::blocking(move || runtime::load_rows(rows, runtime::row_dir, &worker, &locales)).await.unwrap_or_default();
         apply(profile, &seed, results);
     });
 }
@@ -256,6 +341,7 @@ fn apply(profile: Id, seed: &str, results: Results) {
     let (effects, failed) = with(|rt| {
         rt.uuids.insert(profile, seed.to_owned());
         let done = rt.rt.replace(profile, results, &core.disk, icon_file);
+        rt.push(profile);
         note(rt, Note::Changed);
         done
     });
@@ -266,7 +352,6 @@ fn apply(profile: Id, seed: &str, results: Results) {
         }
     }
     carry_out(effects);
-    view::refresh();
 }
 
 pub fn message(profile: Id, tab: u64, world: &str, json: &str) {
@@ -275,17 +360,16 @@ pub fn message(profile: Id, tab: u64, world: &str, json: &str) {
     carry_out(with(|rt| rt.call(profile, |rt, call| rt.handle(profile, &sender, json, call))));
 }
 
-fn page_message(profile: Id, install_id: &str, kind: PageKind, json: &str) {
-    let sender = Sender { install_id: install_id.to_owned(), from: From::Page(kind), origin: None };
-    carry_out(with(|rt| rt.call(profile, |rt, call| rt.handle(profile, &sender, json, call))));
-}
-
 pub fn activated(tab: Option<u64>) {
     with(|rt| rt.active = tab);
 }
 
 pub fn tab_closed(tab: u64) {
-    carry_out(with(|rt| rt.rt.tab_gone(tab, true)));
+    carry_out(with(|rt| {
+        let effects = rt.rt.tab_gone(tab, true);
+        rt.push_all_rules();
+        effects
+    }));
 }
 
 pub fn navigated(profile: Id, tab: u64) {
@@ -293,11 +377,14 @@ pub fn navigated(profile: Id, tab: u64) {
 }
 
 pub fn tick() {
-    let (effects, expired) = with(|rt| rt.rt.tick(Instant::now()));
+    let effects = with(|rt| {
+        let (effects, expired) = rt.rt.tick(Instant::now());
+        if expired {
+            rt.push_all_rules();
+        }
+        effects
+    });
     carry_out(effects);
-    if expired {
-        view::refresh();
-    }
 }
 
 pub fn buttons(profile: Id, tab: Option<u64>) -> Vec<Button> {
@@ -314,12 +401,38 @@ pub fn clicked(profile: Id, install_id: &str, tab: u64) -> bool {
     popup
 }
 
-pub fn open_popup(profile: Id, install_id: &str, shown: impl FnOnce(Rc<PageView>) + 'static) {
-    start_page(profile, install_id, PageKind::Popup, shown);
+/// Opens the install's popup; the GTK thread shows the returned page with `show_page`.
+pub fn open_popup(profile: Id, install_id: &str) -> Option<u64> {
+    start_page(profile, install_id, PageKind::Popup)
 }
 
-pub fn popup_closed(profile: Id, install_id: &str) {
-    carry_out(with(|rt| rt.rt.page_closed(profile, install_id, PageKind::Popup)));
+pub fn popup_closed(profile: Id, install_id: &str, page: u64) {
+    carry_out(with(|rt| {
+        if rt.rt.page(profile, install_id, PageKind::Popup).is_none_or(|p| p.0 != page) {
+            return Vec::new();
+        }
+        rt.rt.page_closed(profile, install_id, PageKind::Popup)
+    }));
+}
+
+/// Forgets the install's site answers.
+pub fn forget_answers(profile: Id, install_id: &str) -> Result<(), String> {
+    with(|rt| {
+        let core = rt.core().ok_or("Extensions are not running.")?;
+        let forgot = rt.rt.forget_answers(&core.disk, profile, install_id).map_err(|e| e.to_string());
+        rt.push_rules(profile);
+        forgot
+    })
+}
+
+/// The profile's Shield level or a site's level changed: its installs' rules are worked out
+/// again, and at a Lockdown profile its extension pages close.
+pub fn levels_changed(profile: Id) {
+    carry_out(with(|rt| {
+        rt.push_rules(profile);
+        let Some(core) = rt.core() else { return Vec::new() };
+        rt.rt.level_changed(profile, &policy(&core, profile))
+    }));
 }
 
 pub fn asking(profile: Id, install_id: &str) -> Option<Asking> {
@@ -334,9 +447,9 @@ pub fn answer(profile: Id, install_id: &str, host: &str, allow: bool, remember: 
     with(|rt| {
         if let Some(core) = rt.core() {
             rt.rt.answer(&answer, &core.disk, Instant::now());
+            rt.push_rules(profile);
         }
     });
-    view::refresh();
     allow
 }
 

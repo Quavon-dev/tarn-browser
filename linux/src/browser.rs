@@ -568,6 +568,9 @@ impl Browser {
                 None => overrides.remove(&host),
             };
         }
+        if !key.private {
+            crate::extensions::levels_changed(profile);
+        }
         let url = self.pages.get(&key).map(|p| p.url.clone()).unwrap_or_default();
         self.load(key, &url);
     }
@@ -584,11 +587,19 @@ impl Browser {
         {
             rt.profile.shield_level = level;
         }
+        if !private {
+            crate::extensions::levels_changed(id);
+        }
         if level == ShieldLevel::Lockdown {
             self.notice =
                 Some(Notice::Message("Lockdown: JavaScript is off for new loads; this profile's stored website data is deleted when Tarn next starts.".into()));
         }
-        if let Some(key) = self.model.active {
+        let reload: Vec<TabKey> = if level == ShieldLevel::Lockdown {
+            self.pages.keys().copied().filter(|k| k.private == private && self.model.profile_of(&self.core, *k) == Some(id)).collect()
+        } else {
+            self.model.active.into_iter().collect()
+        };
+        for key in reload {
             let url = self.pages.get(&key).map(|p| p.url.clone()).unwrap_or_default();
             self.load(key, &url);
         }

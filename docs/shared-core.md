@@ -43,10 +43,14 @@ Every shell's web view offers the same operations and reports the same events. T
 adds:
 - `ExtensionView::set_extension_gate(Gate)`: the engine asks the gate synchronously for each frame
   navigation (`FrameNav`: frame URL, top URL, main frame or not) which of a world's scripts may run
-  there, and injects nothing else. The shell's gate calls `tarn_ext::frame_decision`.
+  there, and injects nothing else. The shell's gate calls `tarn_ext::frame_decision`. Where the
+  shell runs on its own thread (NSH: Linux, iOS, Android), the engine asks it through a round trip
+  instead and holds each document until the answer arrives; nothing runs before it.
 - `add_extension_scripts(Rc<WorldScripts>)` / `remove_extension_scripts(&World)`: the bootstrap
   first, then each approved `Script`'s CSS and JS at its `RunAt`, main frame or all frames, in the
-  isolated world `World::name()` (`tarn-ext-<install id>`), never the page's main world.
+  isolated world `World::name()` (`tarn-ext-<install id>`), never the page's main world. All
+  frames include cross-site frames in another process; an engine that sees one as a target of its
+  own (Chromium) attaches it, with the same scripts, before its first document.
 - `post_extension_message(&World, Option<FrameId>, &str)`: calls `__tarnExtReceive(json)` in that
   world of one frame, or of every frame where the world runs (`None`).
 - Event `ExtensionMessage { world, frame, origin, json }`: the world called `__tarnExtPost(json)`.
@@ -96,7 +100,9 @@ on a message (who may receive it, grants, quotas, rate, `tabs.*` filtering) is m
 install with `tarn_ext::rule_list` into one content rule list that WebKit engines load and other
 engines evaluate per request with `engine::content_rules` (`ResourceKind::Document` for a main
 frame, `Subdocument` for a sub frame, so `load-context` holds); neither is attached to a
-Lockdown-level view. Shells build the runtime's `Policy` with `Core::extension_policy`.
+Lockdown-level view. Shells build the runtime's `Policy` with `Core::extension_policy` and call
+`Runtime::level_changed` after a profile's Shield level changes, which closes its extension pages
+when it moved into Lockdown.
 
 ## 2. Where new logic goes
 

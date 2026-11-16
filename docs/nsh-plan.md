@@ -87,11 +87,21 @@ runtime in `browser_core::tarn_ext`; the shell only carries out its decisions.
   reloads the profile's runtime (`linux/src/extensions`).
 - **Content scripts and CSS:** `webkit_user_script_new_for_world` and
   `webkit_user_style_sheet_new_for_world` in the world `tarn-ext-<install id>`. WebKitGTK user
-  content is pattern based, so the shell asks the core's gate when the main frame starts a
-  document (`load-changed` started or redirected) and for every frame navigation
-  (`decide-policy`), and gives each approved script an allow-list of exactly that document's
-  address, query included, which a later answer for the same address takes away again. Nothing the gate did not return is injected; the site prompt is raised for the main
-  frame only.
+  content is pattern based: a view holds each frame's document at its response decision
+  (`decide-policy`, response, the final address after redirects) until the core's gate has
+  answered, and gives each approved script an allow-list of exactly that document's address,
+  query included, which a later answer for the same address takes away again. Nothing the gate
+  did not return is injected, a main-frame load clears the earlier answers and drops the documents
+  still held for the page before (a late answer for them allows nothing), a view that goes while
+  it waits ignores the held document, and a document whose question cannot reach the shell loads
+  with nothing allowed at its address. The site prompt is raised for the main frame only.
+- **Threads:** NSH runs the shell on its `nsh-engine` thread and WebKitGTK on the GTK main
+  thread. The runtime lives on the shell thread (`linux/src/extensions`); it hands owned copies
+  to the GTK thread through the default main context (`glib::MainContext::spawn`): each
+  persistent store's worlds and rule lists, replies, and extension pages to make, post to or
+  close. The views send frame questions and page messages back over a channel the shell thread
+  drains; a tab's messages arrive as the view's `extensionMessage` event. Tested with the runtime
+  on its own thread in `linux/src/webview/ext_display_tests.rs`.
 - **Messages:** a script message handler registered for that world only
   (`webkit_user_content_manager_register_script_message_handler(name, world)`), so the page's
   main world cannot post; replies are evaluated in the same world.
@@ -108,13 +118,23 @@ runtime in `browser_core::tarn_ext`; the shell only carries out its decisions.
 
 Gaps, with their reason:
 
-- **Messaging from subframes.** WebKitGTK's script-message signal does not say which frame
-  posted, and `webkit_web_view_evaluate_javascript` reaches only the main frame. Content scripts
-  with `all_frames` therefore run (JS and CSS) in subframes, but the shim's `chrome.runtime` and
-  `chrome.storage` calls from a subframe fail with an error and `tabs.sendMessage` reaches only
-  the main frame. Anything a subframe's world still posts counts as the tab's main frame and is
-  dropped unless the install holds a grant for the main frame's host. Closing this needs a
-  web-process extension.
+- **Messaging from subframes.** WebKitGTK gives the UI process no frame for a script message:
+  in WebKitGTK 2.54.2 (Fedora 43, checked 2026-11-16) and the pinned `webkit6` 0.6.1,
+  `script-message-received` carries only the value and `script-message-with-reply-received` adds
+  only a `WebKitScriptMessageReply` (a return value or an error), and `WebKit-6.0.gir` has no
+  `WebKitFrame`. `WebKitFrame` and per-frame script worlds exist only in
+  `WebKitWebProcessExtension-6.0`, a shared library loaded into the web process, which needs
+  bindings `webkit6` 0.6.1 does not have; `webkit_web_view_evaluate_javascript` reaches only the
+  main frame. A frame named in the message body would make the body the sender's identity,
+  which the contract forbids (`docs/shared-core.md` §1). So the shim's transport is set up only
+  in the top frame: content scripts with `all_frames` run (JS and CSS) in a subframe only when
+  the gate grants that frame's own host, but their `chrome.runtime` and `chrome.storage` calls
+  reject with "The message could not be sent." and `tabs.sendMessage` reaches only the main
+  frame (`linux/src/webview/ext_display_tests.rs`, cross-site frame test). The world's message
+  handler itself is registered for the whole view, so anything a subframe's world still posts
+  through `window.webkit.messageHandlers` counts as the tab's main frame and is heard only when
+  the install holds a grant for the main frame's host. Closing this needs a web-process
+  extension.
 - **`document_idle`** runs at document end: WebKitGTK user scripts have only start and end.
 
 ## 5. Platform pieces outside the web view

@@ -167,6 +167,16 @@ impl<P, I: Clone> Runtime<P, I> {
         self.profiles.get(&profile)?.loaded.get(install_id)
     }
 
+    /// The address the install's page of `kind` opens at; none under a Lockdown profile, where no
+    /// extension page opens.
+    pub fn page_url(&self, profile: Id, install_id: &str, kind: PageKind, policy: &Policy) -> Option<Url> {
+        let package = &self.loaded(profile, install_id).filter(|_| policy.level != ShieldLevel::Lockdown)?.package;
+        match kind {
+            PageKind::Background => package.background_url(),
+            PageKind::Popup => package.popup_url(),
+        }
+    }
+
     pub fn installs(&self, profile: Id) -> impl Iterator<Item = &Loaded<I>> {
         self.profiles.get(&profile).into_iter().flat_map(|p| p.loaded.values())
     }
@@ -352,10 +362,11 @@ impl<P, I: Clone> Runtime<P, I> {
 
     /// A message from the install's world in a tab, or from one of its own open pages.
     pub fn handle(&mut self, profile: Id, sender: &Sender, json: &str, call: &Call) -> Vec<Effect<P>> {
-        let refused = match sender.from {
-            From::Page(kind) => self.page(profile, &sender.install_id, kind).is_none(),
-            From::Tab { tab, .. } => call.tabs.iter().find(|t| t.id == tab).and_then(|t| t.url.as_ref()).is_none_or(|u| call.policy.locks(u)),
-        };
+        let refused = call.policy.level == ShieldLevel::Lockdown
+            || match sender.from {
+                From::Page(kind) => self.page(profile, &sender.install_id, kind).is_none(),
+                From::Tab { tab, .. } => call.tabs.iter().find(|t| t.id == tab).and_then(|t| t.url.as_ref()).is_none_or(|u| call.policy.locks(u)),
+            };
         if refused {
             return Vec::new();
         }
@@ -365,6 +376,9 @@ impl<P, I: Clone> Runtime<P, I> {
     /// The user chose the install's action with `tab` in front. The shell opens its popup, if it
     /// has one.
     pub fn clicked(&mut self, profile: Id, install_id: &str, tab: &TabInfo, call: &Call) -> Vec<Effect<P>> {
+        if call.policy.level == ShieldLevel::Lockdown {
+            return Vec::new();
+        }
         self.route(profile, call, |router, env| router.clicked(install_id, tab, env))
     }
 
@@ -410,6 +424,26 @@ impl<P, I: Clone> Runtime<P, I> {
             }
         }
         self.expiry = self.session.next_expiry(now);
+    }
+
+    /// Forgets the install's site answers, stored and of this session: it asks again on every site.
+    pub fn forget_answers(&mut self, store: &Store, profile: Id, install_id: &str) -> Result<(), store::Error> {
+        store.retain_extension_hosts(profile, install_id, |_| false)?;
+        self.session.forget(profile, Some(install_id));
+        if let Some(l) = self.profiles.get_mut(&profile).and_then(|p| p.loaded.get_mut(install_id)) {
+            l.stored.clear();
+        }
+        Ok(())
+    }
+
+    /// The profile's Shield level changed: at Lockdown its open pages close, since no extension
+    /// page runs there.
+    pub fn level_changed(&mut self, profile: Id, policy: &Policy) -> Vec<Effect<P>> {
+        if policy.level != ShieldLevel::Lockdown {
+            return Vec::new();
+        }
+        let open: Vec<(String, PageKind)> = self.profiles.get(&profile).map(|p| p.pages.keys().cloned().collect()).unwrap_or_default();
+        open.into_iter().flat_map(|(install_id, kind)| self.page_closed(profile, &install_id, kind)).collect()
     }
 
     /// A tab's view went away: the replies it waited for end, and when the tab `closed`, its Once
@@ -558,6 +592,25 @@ mod tests {
     }
 
     #[test]
+    fn forgetting_answers_ends_stored_and_session_answers() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let profile = store.create_profile("P", "2fda0aba-1c3e-4e0b-9c51-4f7f1b2d3e4a", false).unwrap().id;
+        let mut rt = Rt::default();
+        rt.insert(row("aa", dir.path()), package(dir.path(), "aa", false), Vec::new(), None);
+        let (world, now) = (World::for_install("aa").unwrap(), Instant::now());
+        let (once, kept) = (Url::parse("https://a.shop.test/").unwrap(), Url::parse("https://b.shop.test/").unwrap());
+        let run = |rt: &mut Rt, url: &Url| rt.gate(profile, &world, &FrameNav { url, top: url, main_frame: true }, &policy(), ShieldLevel::Standard, now).run;
+        rt.answer(&Answer { profile, install_id: "aa".into(), host: "a.shop.test".into(), allow: true, remember: false, tab: Some(3) }, &store, now);
+        rt.answer(&Answer { profile, install_id: "aa".into(), host: "b.shop.test".into(), allow: true, remember: true, tab: None }, &store, now);
+        assert_eq!((run(&mut rt, &once), run(&mut rt, &kept)), (vec![0], vec![0]));
+        rt.forget_answers(&store, profile, "aa").unwrap();
+        assert!(run(&mut rt, &once).is_empty() && run(&mut rt, &kept).is_empty(), "neither answer holds any more");
+        assert!(store.extension_hosts(profile, "aa").unwrap().is_empty());
+        assert!(rt.loaded(profile, "aa").unwrap().stored.is_empty());
+    }
+
+    #[test]
     fn frames_in_a_lockdown_page_run_and_send_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let mut rt = Rt::default();
@@ -576,6 +629,42 @@ mod tests {
         let json = r#"{"id":1,"call":"storage.get","args":[null]}"#;
         assert_eq!(rt.handle(1, &sender, json, &Call { tabs: &tabs, store: None, policy: &open, now }).len(), 1);
         assert!(rt.handle(1, &sender, json, &Call { tabs: &tabs, store: None, policy: &locked, now }).is_empty());
+    }
+
+    #[test]
+    fn no_extension_page_opens_under_a_lockdown_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rt = Rt::default();
+        rt.insert(row("aa", dir.path()), package(dir.path(), "aa", true), Vec::new(), None);
+        let background = rt.loaded(1, "aa").unwrap().package.background_url();
+        assert!(background.is_some());
+        assert_eq!(rt.page_url(1, "aa", PageKind::Background, &policy()), background);
+        let locked = Policy { level: ShieldLevel::Lockdown, ..policy() };
+        assert_eq!(rt.page_url(1, "aa", PageKind::Background, &locked), None);
+        assert_eq!(rt.page_url(1, "aa", PageKind::Popup, &locked), None);
+        assert_eq!(rt.page_url(1, "zz", PageKind::Background, &policy()), None);
+    }
+
+    #[test]
+    fn a_profile_moved_into_lockdown_closes_its_pages_and_hears_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rt = Rt::default();
+        rt.insert(row("aa", dir.path()), package(dir.path(), "aa", true), Vec::new(), None);
+        let now = Instant::now();
+        rt.page_opened(1, "aa", PageKind::Background, "background", now);
+        rt.page_opened(1, "aa", PageKind::Popup, "popup", now);
+        let sender = Sender { install_id: "aa".into(), from: From::Page(PageKind::Background), origin: None };
+        let json = r#"{"id":1,"call":"storage.get","args":[null]}"#;
+        let locked = Policy { level: ShieldLevel::Lockdown, ..policy() };
+        assert!(rt.handle(1, &sender, json, &Call { tabs: &[], store: None, policy: &locked, now }).is_empty());
+        assert_eq!(rt.handle(1, &sender, json, &Call { tabs: &[], store: None, policy: &policy(), now }).len(), 1);
+        let tab = TabInfo { id: 4, url: Url::parse("https://shop.test/").ok(), title: String::new(), active: true, current_window: true };
+        assert!(rt.clicked(1, "aa", &tab, &Call { tabs: &[], store: None, policy: &locked, now }).is_empty());
+        assert!(rt.level_changed(1, &policy()).is_empty());
+        let mut closed: Vec<&str> = rt.level_changed(1, &locked).into_iter().filter_map(|e| if let Effect::Close(p) = e { Some(p) } else { None }).collect();
+        closed.sort_unstable();
+        assert_eq!(closed, ["background", "popup"]);
+        assert!(rt.pages().next().is_none());
     }
 
     #[test]

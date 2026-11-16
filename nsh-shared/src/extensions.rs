@@ -26,6 +26,8 @@ pub trait Host: Copy + 'static {
     /// A new install id: 32 lowercase hex digits.
     fn new_id(self) -> String;
     fn ui_locales(self) -> Vec<String>;
+    /// Forgets the install's site answers, stored and of this session (`Runtime::forget_answers`).
+    fn forget_answers(self, profile: Id, install_id: &str) -> Result<(), String>;
     /// The installs of the profile changed: the client reloads its extension runtime.
     fn changed(self);
     /// A line the client wants shown above the list, such as a missing engine feature.
@@ -264,7 +266,7 @@ fn installed<H: Host>(pane: Pane<H>, r: InstalledExtension) -> View {
     let armed = pane.get(|s| s.armed.as_deref() == Some(r.install_id.as_str()));
     let (forget, update, remove) = (r.clone(), r.clone(), r.clone());
     let mut buttons = row().child(pill("Forget Site Answers", move || {
-        let cleared = host.with_store(|s| s.retain_extension_hosts(forget.profile_id, &forget.install_id, |_| false).map_err(|e| e.to_string()));
+        let cleared = host.forget_answers(forget.profile_id, &forget.install_id);
         pane.report(cleared, "It asks again on every site.");
     }));
     if r.source != "file" {

@@ -85,7 +85,7 @@ impl Browser {
                 }
                 true
             }
-            Note::Changed => false,
+            Note::Changed | Note::PageClosed(_) => false,
         }
     }
 

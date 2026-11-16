@@ -200,6 +200,11 @@ pub(crate) fn close_all() {
 
 /// Sends one DevTools method to the tab's page; `reply` gets the parsed result, or `None`.
 fn call(tab: &Tab, host: &BrowserHost, method: &str, params: &str, reply: impl FnOnce(Option<Value>) + 'static) {
+    call_in(tab, host, None, method, params, reply);
+}
+
+/// As `call`, to the target attached as `session` (`Target.setAutoAttach`) or, without one, the page.
+fn call_in(tab: &Tab, host: &BrowserHost, session: Option<&str>, method: &str, params: &str, reply: impl FnOnce(Option<Value>) + 'static) {
     if tab.devtools.borrow().is_none() {
         *tab.devtools.borrow_mut() = host.add_dev_tools_message_observer(Some(&mut TarnDevTools::new(tab.id)));
     }
@@ -209,7 +214,8 @@ fn call(tab: &Tab, host: &BrowserHost, method: &str, params: &str, reply: impl F
     let id = tab.next_call.get() + 1;
     tab.next_call.set(id);
     tab.calls.borrow_mut().insert(id, Box::new(reply));
-    let message = format!("{{\"id\":{id},\"method\":{},\"params\":{params}}}", js_string(method));
+    let session = session.map(|s| format!(",\"sessionId\":{}", js_string(s))).unwrap_or_default();
+    let message = format!("{{\"id\":{id},\"method\":{},\"params\":{params}{session}}}", js_string(method));
     if host.send_dev_tools_message(Some(message.as_bytes())) != 1 {
         let failed = tab.calls.borrow_mut().remove(&id);
         if let Some(reply) = failed {
@@ -426,6 +432,28 @@ wrap_dev_tools_message_observer! {
     }
 
     impl DevToolsMessageObserver {
+        fn on_dev_tools_message(&self, _browser: Option<&mut Browser>, message: Option<&[u8]>) -> ::std::os::raw::c_int {
+            let Some(tab) = tab(self.id) else { return 0 };
+            let Some(parsed) = message
+                .filter(|m| m.windows(11).any(|w| w == b"\"sessionId\""))
+                .and_then(|m| parse_json_buffer(Some(m), JsonParserOptions::default()))
+                .filter(|p| string_at(Some(p.clone()), &["sessionId"]).is_some())
+            else {
+                return 0;
+            };
+            let id = value_at(Some(parsed.clone()), &["id"]).filter(|v| v.get_type() == ValueType::INT).map(|v| v.int());
+            match id {
+                Some(id) => {
+                    let reply = tab.calls.borrow_mut().remove(&id);
+                    if let Some(reply) = reply {
+                        reply(value_at(Some(parsed), &["result"]));
+                    }
+                }
+                None => tarn::session_event(&tab, parsed),
+            }
+            1
+        }
+
         fn on_dev_tools_method_result(&self, _browser: Option<&mut Browser>, message_id: i32, success: i32, result: Option<&[u8]>) {
             let Some(tab) = tab(self.id) else { return };
             let reply = tab.calls.borrow_mut().remove(&message_id);

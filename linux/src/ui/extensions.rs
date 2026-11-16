@@ -25,6 +25,10 @@ pub(super) fn route(core: Rc<Core<Data>>) {
     drop(spawn(async move {
         while let Some(note) = notes.next().await {
             let windows = WINDOWS.with_borrow(Vec::clone);
+            if let Note::PageClosed(page) = note {
+                windows.iter().filter(|ui| ui.ext_popup.get_untracked().is_some_and(|(_, _, p)| p == page)).for_each(|ui| ui.ext_popup.set(None));
+                continue;
+            }
             let mut handled = false;
             for ui in windows {
                 act(ui, |b| handled = handled || b.on_extension_note(&note));
@@ -52,8 +56,8 @@ pub(super) fn buttons(ui: Ui) -> AnyElement {
             let press = move || {
                 let mut open = false;
                 act(ui, |b| open = b.click_extension(profile, &install));
-                let shown = ui.ext_popup.get_untracked().is_some_and(|(_, i)| i == install);
-                ui.ext_popup.set((open && !shown).then(|| (profile, install.clone())));
+                let shown = ui.ext_popup.get_untracked().is_some_and(|(_, i, _)| i == install);
+                show_popup(ui, (open && !shown).then(|| (profile, install.clone())));
             };
             let badge = (!button.state.badge_text.is_empty()).then(|| {
                 view()
@@ -83,15 +87,19 @@ pub(super) fn buttons(ui: Ui) -> AnyElement {
     })
 }
 
+/// Closes the popup on screen and opens `next`'s, if any.
+pub(super) fn show_popup(ui: Ui, next: Option<(Id, String)>) {
+    if let Some((profile, install, page)) = ui.ext_popup.get_untracked() {
+        extensions::popup_closed(profile, &install, page);
+    }
+    ui.ext_popup.set(next.and_then(|(profile, install)| Some((profile, install.clone(), extensions::open_popup(profile, &install)?))));
+}
+
 pub(super) fn popup_panel(ui: Ui) -> AnyElement {
     dynamic(move || {
-        let (profile, install) = ui.ext_popup.get()?;
-        let close = move || ui.ext_popup.set(None);
-        let page = native(popup::NAME)
-            .prop("profile", JsonValue::from(profile))
-            .prop("install", JsonValue::from(install.clone()))
-            .w(px(POPUP_WIDTH))
-            .h(px(POPUP_HEIGHT));
+        let (_, _, page) = ui.ext_popup.get()?;
+        let close = move || show_popup(ui, None);
+        let page = native(popup::NAME).prop("page", JsonValue::from(page)).w(px(POPUP_WIDTH)).h(px(POPUP_HEIGHT));
         Some(view().flex_row().justify_end().mb_2().child(
             card().flex_col().gap_2().p_2().shadow(Theme::elevation(4., 14.)).child(page).child(view().flex_row().justify_end().child(pill("Close", close))),
         ))
@@ -161,6 +169,9 @@ impl tarn_nsh_shared::extensions::Host for Installs {
     }
     fn ui_locales(self) -> Vec<String> {
         extensions::ui_locales()
+    }
+    fn forget_answers(self, profile: Id, install_id: &str) -> Result<(), String> {
+        extensions::forget_answers(profile, install_id)
     }
     fn changed(self) {
         if let Some((id, _)) = self.profile() {

@@ -334,12 +334,12 @@ fn decide(state: &Rc<State>, web: &WebView, decision: &webkit6::PolicyDecision, 
             decision.ignore();
             true
         }
-        PolicyDecisionType::Response => decide_response(decision),
+        PolicyDecisionType::Response => decide_response(state, decision),
         _ => false,
     }
 }
 
-fn decide_response(decision: &webkit6::PolicyDecision) -> bool {
+fn decide_response(state: &State, decision: &webkit6::PolicyDecision) -> bool {
     let Some(response) = decision.downcast_ref::<ResponsePolicyDecision>() else { return false };
     let attachment = response
         .response()
@@ -347,7 +347,7 @@ fn decide_response(decision: &webkit6::PolicyDecision) -> bool {
         .and_then(|h| h.one("Content-Disposition"))
         .is_some_and(|v| v.trim_start().to_ascii_lowercase().starts_with("attachment"));
     match (attachment || !response.is_mime_type_supported(), response.is_main_frame_main_resource()) {
-        (false, _) => false,
+        (false, _) => ext::hold(state, response),
         (true, true) => {
             decision.download();
             true
@@ -421,7 +421,6 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
             if !javascript && let Some(settings) = WebViewExt::settings(web) {
                 settings.set_enable_javascript(false);
             }
-            ext::frame(state, &url);
             return false;
         }
         Verdict::Blocked(reason) => {
@@ -619,7 +618,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
             LoadEvent::Started | LoadEvent::Redirected => {
                 s.failed.set(false);
                 s.note_processes();
-                ext::started(&s, web.uri().and_then(|u| Url::parse(&u).ok()).as_ref());
+                ext::started(&s);
             }
             LoadEvent::Committed => {
                 let page = web.uri().and_then(|u| Url::parse(&u).ok());

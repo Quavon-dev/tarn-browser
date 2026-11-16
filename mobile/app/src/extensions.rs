@@ -186,13 +186,10 @@ impl<D: Platform> Shell<D> {
     }
 
     fn page(&mut self, profile: Id, install_id: &str, kind: PageKind) -> Option<PageView> {
-        let l = self.ext.rt.loaded(profile, install_id)?;
-        let url = match kind {
-            PageKind::Background => l.package.background_url(),
-            PageKind::Popup => l.package.popup_url(),
-        }?;
-        let package = l.package.clone();
-        let level = self.policy(profile).level;
+        let policy = self.policy(profile);
+        let url = self.ext.rt.page_url(profile, install_id, kind, &policy)?;
+        let package = self.ext.rt.loaded(profile, install_id)?.package.clone();
+        let level = policy.level;
         let title = self.ext.rt.action(profile, install_id, None).map_or_else(|| package.name.clone(), |a| a.title);
         Some(PageView {
             profile,
@@ -245,6 +242,21 @@ impl<D: Platform> Shell<D> {
             }
         }
         effects
+    }
+
+    /// The profile's Shield level changed: at Lockdown its extension pages close.
+    pub fn extension_level_changed(&mut self, profile: Id) {
+        let policy = self.policy(profile);
+        let outs = self.ext.rt.level_changed(profile, &policy);
+        let effects = self.carry(outs, Instant::now());
+        self.ext.queued.extend(effects);
+    }
+
+    /// Forgets the install's site answers, stored and of this session: it asks again on every site.
+    pub fn forget_site_answers(&mut self, profile: Id, install_id: &str) -> Result<(), String> {
+        self.ext.rt.forget_answers(&self.core.disk, profile, install_id).map_err(|e| e.to_string())?;
+        self.push_rules(profile, Instant::now());
+        Ok(())
     }
 
     /// The action entries of the profile on screen, with their title and badge for the active tab.

@@ -71,6 +71,14 @@ impl Host for Exts {
             Vec::new()
         });
     }
+    fn forget_answers(self, profile: Id, install_id: &str) -> Result<(), String> {
+        let mut result = Ok(());
+        self.0.act(|s| {
+            result = s.forget_site_answers(profile, install_id);
+            Vec::new()
+        });
+        result
+    }
     fn notice(self) -> Option<String> {
         (!ext::worlds_supported()).then(|| NO_WORLDS.to_owned())
     }

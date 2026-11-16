@@ -69,6 +69,7 @@ adb reverse tcp:8771 tcp:8771
 adb logcat -s tarn
 ```
 
-The debug build only: cleartext is allowed for `localhost`, `127.0.0.1` and `*.test`, and the
+The debug build only: cleartext is allowed for `localhost`, `127.0.0.1` and `*.test`, which also trust
+user-installed CA certificates (a test CA for HTTPS and Lockdown checks), and the
 `debug-proxy` file sends WebView traffic through `server.py`, so `http://public.test/` pages count as
 public. Release builds allow no cleartext and have no proxy hook or logging.

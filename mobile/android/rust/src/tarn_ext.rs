@@ -209,9 +209,21 @@ pub fn frame(tab: &str, store_id: &str, world: &str, url: &str, top: Option<&str
     units
 }
 
-/// The stricter verdict of `store_id`'s extension rule lists for one request; extensions never
-/// act in a Lockdown-level view.
-pub fn verdict(store_id: &str, url: &str, top: Option<&str>, kind: i32, level: i32) -> i32 {
+/// The verdict of `store_id`'s extension rule lists for one request of a page (`top`, view level);
+/// extensions never act in a Lockdown-level view. While a navigation is pending the request may
+/// belong to the page being left or the one coming, so a rule acts only if it acts for each.
+pub fn verdict(store_id: &str, url: &str, kind: i32, pages: &[(Option<&str>, i32)]) -> i32 {
+    let verdicts: Vec<i32> = pages.iter().map(|(top, level)| page_verdict(store_id, url, *top, kind, *level)).collect();
+    if verdicts.is_empty() || verdicts.contains(&policy::VERDICT_ALLOW) {
+        policy::VERDICT_ALLOW
+    } else if verdicts.iter().all(|v| *v == policy::VERDICT_BLOCK) {
+        policy::VERDICT_BLOCK
+    } else {
+        policy::VERDICT_MAKE_HTTPS
+    }
+}
+
+fn page_verdict(store_id: &str, url: &str, top: Option<&str>, kind: i32, level: i32) -> i32 {
     if policy::level(level) == shield::ShieldLevel::Lockdown {
         return policy::VERDICT_ALLOW;
     }
@@ -342,14 +354,23 @@ mod tests {
         let rules = shield::dnr::compile(&[br#"[{"id":1,"action":{"type":"block"},"condition":{"urlFilter":"||ads.test^"}}]"#]).unwrap();
         let list = rules.content_rules(&shield::dnr::Scope::Hosts(vec!["page.test".into()])).unwrap();
         set_rule_lists("s1", vec![("i1".into(), list), ("i2".into(), "not json".into())]);
-        let top = Some("https://page.test/");
-        assert_eq!(verdict("s1", "https://ads.test/x.js", top, 4, 0), policy::VERDICT_BLOCK);
-        assert_eq!(verdict("s1", "https://ads.test/x.js", top, 4, 2), policy::VERDICT_ALLOW, "not at Lockdown");
-        assert_eq!(verdict("s1", "https://ads.test/x.js", Some("https://other.test/"), 4, 0), policy::VERDICT_ALLOW, "only on granted sites");
-        assert_eq!(verdict("s1", "https://ok.test/x.js", top, 4, 0), policy::VERDICT_ALLOW);
-        assert_eq!(verdict("s2", "https://ads.test/x.js", top, 4, 0), policy::VERDICT_ALLOW);
+        let page = |top: &'static str, level: i32| [(Some(top), level)];
+        assert_eq!(verdict("s1", "https://ads.test/x.js", 4, &page("https://page.test/", 0)), policy::VERDICT_BLOCK);
+        assert_eq!(verdict("s1", "https://ads.test/x.js", 4, &page("https://page.test/", 2)), policy::VERDICT_ALLOW, "not at Lockdown");
+        assert_eq!(verdict("s1", "https://ads.test/x.js", 4, &page("https://other.test/", 0)), policy::VERDICT_ALLOW, "only on granted sites");
+        assert_eq!(verdict("s1", "https://ok.test/x.js", 4, &page("https://page.test/", 0)), policy::VERDICT_ALLOW);
+        assert_eq!(verdict("s2", "https://ads.test/x.js", 4, &page("https://page.test/", 0)), policy::VERDICT_ALLOW);
+        let leaving = (Some("https://page.test/"), 0);
+        assert_eq!(
+            verdict("s1", "https://ads.test/x.js", 4, &[leaving, (Some("https://other.test/"), 0)]),
+            policy::VERDICT_ALLOW,
+            "nor while one leaves for another site"
+        );
+        assert_eq!(verdict("s1", "https://ads.test/x.js", 4, &[leaving, (Some("https://page.test/b"), 2)]), policy::VERDICT_ALLOW);
+        assert_eq!(verdict("s1", "https://ads.test/x.js", 4, &[leaving, (Some("https://page.test/b"), 0)]), policy::VERDICT_BLOCK);
+        assert_eq!(verdict("s1", "https://ads.test/x.js", 4, &[]), policy::VERDICT_ALLOW);
         set_rule_lists("s1", Vec::new());
-        assert_eq!(verdict("s1", "https://ads.test/x.js", top, 4, 0), policy::VERDICT_ALLOW);
+        assert_eq!(verdict("s1", "https://ads.test/x.js", 4, &page("https://page.test/", 0)), policy::VERDICT_ALLOW);
     }
 
     #[test]

@@ -563,6 +563,9 @@ impl<D: Platform> Shell<D> {
                 None => overrides.remove(&host),
             };
         }
+        if !private {
+            self.push_rules(id, std::time::Instant::now());
+        }
         true
     }
 
@@ -580,6 +583,7 @@ impl<D: Platform> Shell<D> {
         self.open_current_profile();
         if !private {
             self.load_extensions(id);
+            self.extension_level_changed(id);
         }
         true
     }
