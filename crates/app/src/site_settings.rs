@@ -499,7 +499,7 @@ impl SiteSettingsWindow {
             group().h_full().px_3().justify_center().gap_0p5().child(
                 div()
                     .flex()
-                    .items_baseline()
+                    .items_center()
                     .gap_2()
                     .child(div().text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).child(browser_core::shield_card::thousands(stopped.max(0) as u64)))
                     .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(caption)),
