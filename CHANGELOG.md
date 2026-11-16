@@ -6,6 +6,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-16
+
 ### Added
 
 - Nightly builds: Settings › General › Nightly builds updates Tarn every day to a signed build of
@@ -219,5 +221,6 @@ All notable changes to Tarn are documented in this file. The format is based on
 - One address field for URLs, search, open tabs and app actions, with configurable shortcuts.
 - Split View, link peek, tab groups, pinned tabs that remember their page and sleeping tabs.
 
-[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Quavon-dev/tarn-browser/releases/tag/v0.1.0
