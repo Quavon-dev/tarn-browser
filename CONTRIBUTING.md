@@ -35,7 +35,7 @@ Each must pass before a pull request is merged; CI (`.github/workflows/ci.yml`) 
 | Android build | `mobile/android/build.sh` |
 | Windows (Git Bash, MSVC) | `export CEF_PATH="$(cygpath -w "$(scripts/fetch-cef.sh windows64)")"; cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked` |
 | every workspace | `cargo fmt --all --check` |
-| root | `cargo deny check` |
+| every workspace (root, `linux/`, `mobile/`, `nsh-shared/`, `fuzz/`) | `cargo deny check` |
 
 ## Commits
 
@@ -81,6 +81,17 @@ Open an issue from one of the forms. Labels are set by the forms and kept up to 
 
 Adding `type: feature` or `type: change` to any issue puts it to a vote too.
 
+## Maintainers and access
+
+Write access, membership of `@Quavon-dev/maintainers`, admin rights, approval of the
+`release-signing` environment and access to any secret are granted only after the existing
+maintainers have reviewed the person: their merged contributions and reviews here, and how they
+handled security reports. The decision is a vote of the maintainers in a private discussion, with
+more 👍 than 👎 and at least two votes in favour. Each person gets only the access their work
+needs. Organisation membership requires two-factor authentication. Maintainers review the list
+once a year and when someone leaves, remove access that is no longer used, and rotate the secrets
+that person could reach (`docs/release.md`, "Secrets and credentials").
+
 ## Voting
 
 Maintainers (write access or above) vote with 👍 or 👎 reactions on the issue itself. The author's
@@ -94,6 +105,10 @@ Reactions do not trigger workflows, so votes are counted every five minutes and 
 issue. Run the **Issues** workflow by hand to count right away.
 
 ## Pull requests
+
+Every pull request to `main` needs the approval of a maintainer who did not author it; no person
+can merge past that rule. The only exception is the update app, whose Chromium update pull
+requests merge once CI on them has passed (`docs/release.md`, "Automatic engine updates").
 
 A change to `Cargo.lock` needs `scripts/third-party-licenses.sh` run and its output committed; CI
 checks it.

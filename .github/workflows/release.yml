@@ -115,6 +115,26 @@ jobs:
           path: crashes/
           if-no-files-found: ignore
 
+  deny:
+    if: inputs.commit != '' || (startsWith(github.ref, 'refs/tags/v') && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        manifest: [Cargo.toml, linux/Cargo.toml, mobile/Cargo.toml, nsh-shared/Cargo.toml, fuzz/Cargo.toml]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: ${{ matrix.manifest }}
+          command: check advisories bans licenses sources
+      - if: matrix.manifest == 'Cargo.toml'
+        run: scripts/check-vex.sh
+
   windows:
     # Engine updates (chromium-update.yml) and manual runs ship the macOS bundle alone, without waiting for the rest.
     if: (github.event_name == 'push' || inputs.nightly || inputs.full) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
@@ -199,6 +219,7 @@ jobs:
     outputs:
       ios: ${{ steps.ios.outputs.artifact-id }}
       android: ${{ steps.android.outputs.artifact-id }}
+      android-sbom: ${{ steps.android-sbom.outputs.artifact-id }}
     runs-on: macos-15
     permissions:
       contents: read
@@ -252,13 +273,29 @@ jobs:
           name: android
           path: ${{ runner.temp }}/out-android/
           if-no-files-found: error
+      - name: Android Java SBOM
+        run: |
+          (cd mobile/android/host && ./gradlew --quiet -Psbom cyclonedxDirectBom)
+          embed="$(sed -n 's/^EMBED_URL=.*\/download\/v\([^/]*\)\/.*/\1/p' mobile/android/build.sh)"
+          hash="$(sed -n 's/^EMBED_SHA256=//p' mobile/android/build.sh)"
+          [[ -n "$embed" && -n "$hash" ]] || { echo "EMBED_URL or EMBED_SHA256 not found in mobile/android/build.sh" >&2; exit 1; }
+          mkdir "$RUNNER_TEMP/out-android-sbom"
+          jq --arg v "$embed" --arg h "$hash" \
+            '.components += [{type: "library", name: "nsh-embed-android", version: $v, purl: "pkg:github/longbridge/nsh@v\($v)", hashes: [{alg: "SHA-256", content: $h}]}]' \
+            mobile/android/host/build/reports/cyclonedx-direct/bom.json > "$RUNNER_TEMP/out-android-sbom/Tarn-${TAG}-android-java.cdx.json"
+      - id: android-sbom
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-sbom
+          path: ${{ runner.temp }}/out-android-sbom/
+          if-no-files-found: error
 
   # Signs in a job that runs no build code, with keys that only the signing environments hold
   # (docs/release.md, threat model S4): the macOS bundle with the Developer ID certificate,
   # notarised, as zip, disk image and appcast; the Windows update feed with the update key.
   sign:
-    needs: [build, fuzz, windows]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.fuzz.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped') }}
+    needs: [build, fuzz, deny, windows]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.fuzz.result == 'success' && needs.deny.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped') }}
     runs-on: macos-15
     environment: ${{ inputs.nightly && 'nightly-signing' || 'release-signing' }}
     permissions:
@@ -393,6 +430,7 @@ jobs:
     needs: build
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
+      clients: ${{ steps.clients.outputs.artifact-id }}
     runs-on: macos-15
     permissions:
       contents: read
@@ -405,15 +443,41 @@ jobs:
         with:
           toolchain: "1.99.1"
       - run: cargo install cargo-cyclonedx --version "=$CYCLONEDX_VERSION" --locked
-      - run: cargo cyclonedx --format json --spec-version 1.5 --override-filename tarn.cdx --all-features
       - run: |
+          set -euo pipefail
+          sbom() { cargo cyclonedx --format json --spec-version 1.5 --override-filename "$@"; }
+          sbom tarn.cdx --all-features
           mkdir "$RUNNER_TEMP/sbom"
-          cp crates/app/tarn.cdx.json "$RUNNER_TEMP/sbom/Tarn-${TAG}.cdx.json"
+          sparkle="$(sed -n 's/^sparkle_version=//p' packaging/sparkle.lock)"
+          hash="$(sed -n 's/^sha256=//p' packaging/sparkle.lock)"
+          [[ -n "$sparkle" && -n "$hash" ]] || { echo "sparkle_version or sha256 not found in packaging/sparkle.lock" >&2; exit 1; }
+          jq --arg v "$sparkle" --arg h "$hash" '.components += [{type: "framework", name: "Sparkle", version: $v,
+            purl: "pkg:github/sparkle-project/Sparkle@\($v)", hashes: [{alg: "SHA-256", content: $h}]}]' \
+            crates/app/tarn.cdx.json > "$RUNNER_TEMP/sbom/Tarn-${TAG}.cdx.json"
+      - if: github.event_name == 'push' || inputs.nightly || inputs.full
+        run: |
+          set -euo pipefail
+          sbom() { cargo cyclonedx --format json --spec-version 1.5 --override-filename "$@"; }
+          sbom tarn-windows.cdx --target x86_64-pc-windows-msvc
+          (cd linux && sbom tarn-linux.cdx --target x86_64-unknown-linux-gnu)
+          (cd mobile && sbom tarn-ios.cdx --target aarch64-apple-ios && sbom tarn-android.cdx --target aarch64-linux-android)
+          mkdir "$RUNNER_TEMP/sbom-clients"
+          cp crates/app-dll/tarn-windows.cdx.json "$RUNNER_TEMP/sbom-clients/Tarn-${TAG}-windows-x64.cdx.json"
+          cp linux/tarn-linux.cdx.json "$RUNNER_TEMP/sbom-clients/Tarn-${TAG}-linux.cdx.json"
+          cp mobile/app/tarn-ios.cdx.json "$RUNNER_TEMP/sbom-clients/Tarn-${TAG}-ios.cdx.json"
+          cp mobile/app/tarn-android.cdx.json "$RUNNER_TEMP/sbom-clients/Tarn-${TAG}-android.cdx.json"
       - id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom
           path: ${{ runner.temp }}/sbom/
+          if-no-files-found: error
+      - id: clients
+        if: github.event_name == 'push' || inputs.nightly || inputs.full
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-clients
+          path: ${{ runner.temp }}/sbom-clients/
           if-no-files-found: error
 
   # Runs no build code: it takes each build job's files by their fixed names, so no job can replace
@@ -446,6 +510,12 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: github.event_name == 'push' || inputs.nightly || inputs.full
         with:
+          artifact-ids: ${{ needs.sbom.outputs.clients }}
+          path: artifacts/sbom-clients
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: github.event_name == 'push' || inputs.nightly || inputs.full
+        with:
           artifact-ids: ${{ needs.windows.outputs.artifact }}
           path: artifacts/windows
           merge-multiple: true
@@ -466,6 +536,12 @@ jobs:
         with:
           artifact-ids: ${{ needs.mobile.outputs.android }}
           path: artifacts/android
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: github.event_name == 'push' || inputs.nightly || inputs.full
+        with:
+          artifact-ids: ${{ needs.mobile.outputs.android-sbom }}
+          path: artifacts/android-sbom
           merge-multiple: true
       - name: Collect assets
         env:
@@ -495,11 +571,13 @@ jobs:
             take signed "Tarn-${TAG}.zip" "Tarn-${TAG}.dmg" appcast.xml
           else
             take signed "Tarn-${TAG}.zip" "Tarn-${TAG}.dmg" appcast.xml windows-update.json windows-update.json.sig
+            take sbom-clients "Tarn-${TAG}-windows-x64.cdx.json" "Tarn-${TAG}-linux.cdx.json" "Tarn-${TAG}-ios.cdx.json" "Tarn-${TAG}-android.cdx.json"
             take windows "Tarn-${TAG}-windows-x64-unsigned.zip" "Tarn-${TAG}-windows-x64-setup-unsigned.exe"
             take linux "tarn_${version}_debian*_amd64.deb" "tarn_${version}_ubuntu*_amd64.deb" \
               "tarn-${version}-*.x86_64.rpm" "tarn-${version}-*-x86_64.pkg.tar.zst"
             take ios "Tarn-${TAG}-ios-unsigned.zip"
             take android "Tarn-${TAG}-android-unsigned.apk"
+            take android-sbom "Tarn-${TAG}-android-java.cdx.json"
           fi
           cd dist && sha256sum ./* > SHA256SUMS
       - id: predicate
@@ -518,6 +596,8 @@ jobs:
             dist/*.rpm
             dist/*.pkg.tar.zst
             dist/*.apk
+            dist/*.cdx.json
+            dist/SHA256SUMS
           predicate-type: https://github.com/Quavon-dev/tarn-browser/attestations/release/v1
           predicate: ${{ steps.predicate.outputs.json }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
