@@ -244,7 +244,7 @@ text over its SVG landscape since NSH's SVG renderer draws no text) flips and ta
 desktop's image loaders draw the SVG); Settings is a sheet with grouped navigation (You: Profile, Profiles; Browser:
 General, Appearance, Search, Privacy, Permissions, Shortcuts) over scrolling panes, without the Mac's cross-fade,
 and the History, Downloads and Reading List panels replace the page, so they neither grow in nor slide; memory per tab only where the web
-process can be told apart; skipped: translation, startup trace, favicons, live peek.
+process can be told apart; skipped: translation, startup trace, live peek.
 
 **P3: iOS app.**
 - Phone and tablet layouts: tab switcher, bottom toolbar, sheets for settings and Shield.

@@ -95,6 +95,7 @@ pub enum Panel {
 pub struct Ui {
     window: u64,
     snap: Signal<Snapshot>,
+    icons: Signal<crate::browser::icons::SiteIcons>,
     panel: Signal<Panel>,
     rev: Signal<u64>,
     sidebar: Signal<bool>,
@@ -175,6 +176,7 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         let forgotten = std::mem::take(&mut b.forgotten);
         let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key));
         Some((
+            ui.icons.with_untracked(|i| b.site_icons(i)),
             std::mem::take(&mut b.outbox),
             std::mem::take(&mut b.released),
             std::mem::take(&mut b.cancelled_downloads),
@@ -183,7 +185,7 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
             forgotten,
         ))
     });
-    let Some((commands, released, cancelled, snap, moved, forgotten)) = done else { return };
+    let Some((icons, commands, released, cancelled, snap, moved, forgotten)) = done else { return };
     let rebuild = rebuild
         || ui.snap.with_untracked(|s| *s != snap)
         || match ui.panel.get_untracked() {
@@ -192,6 +194,9 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
             _ => false,
         };
     ui.snap.set(snap);
+    if let Some(icons) = icons {
+        ui.icons.set(icons);
+    }
     if !(released.is_empty() && cancelled.is_empty()) {
         drop(run_on_main_thread(move || {
             released.iter().for_each(webview::session::release);
@@ -314,6 +319,9 @@ fn web_views(ui: Ui) -> View {
                     .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s }))))
                     .prop("active", move || JsonValue::from(item.with(|v| v.active)))
                     .on_native_event(move |event: &NativeEvent| {
+                        if &*event.name == "iconData" {
+                            return icon_data(ui, key, event.data.clone());
+                        }
                         if &*event.name != "pressed" || read(ui, |b| b.in_split(key) && b.model.active != Some(key)) == Some(true) {
                             act_quietly(ui, |b| b.on_event(key, &event.name, &event.data));
                         }
@@ -328,7 +336,15 @@ fn web_views(ui: Ui) -> View {
         ))
 }
 
-pub fn site_tile(host: &str, size: f32) -> View {
+pub fn site_tile(ui: Ui, host: &str, size: f32) -> View {
+    let host = host.to_owned();
+    view().w(px(size)).h(px(size)).flex_none().child(dynamic(move || match ui.icons.with(|i| i.find(&host)) {
+        Some(icon) => image(SharedString::from(icon)).w(px(size)).h(px(size)).rounded(px(size * 0.22)).into_element(),
+        None => letter_tile(&host, size).into_element(),
+    }))
+}
+
+fn letter_tile(host: &str, size: f32) -> View {
     let letter = host.trim_start_matches("www.").chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
     let tile = view().w(px(size)).h(px(size)).flex_none().rounded(px(size * 0.28)).items_center().justify_center();
     if letter.is_empty() {
@@ -366,7 +382,7 @@ fn tiles(ui: Ui) -> View {
                 .bg(move || if active() { Theme::selected() } else { Theme::raised() })
                 .child(dynamic(move || {
                     let host = item.with(|r| r.host.clone());
-                    site_tile(&host, 20.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element()
+                    site_tile(ui, &host, 20.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element()
                 }));
             view()
                 .w(px(side))
@@ -452,7 +468,7 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
                                     .text_color(Theme::space_label())
                                     .child(tarn_nsh_shared::motion::spinner(14., icons::icon(icons::RELOAD, 14.)))
                                     .into_element(),
-                                (false, host) => site_tile(&host, 16.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element(),
+                                (false, host) => site_tile(ui, &host, 16.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element(),
                             })
                         })
                         .child(
@@ -743,6 +759,11 @@ fn load_history(ui: Ui) {
 /// Clears the profile's history, and the cache that would still suggest it.
 fn clear_history(ui: Ui) {
     act(ui, |b| b.clear_history());
+    if let Some(Some(profile)) = read(ui, |b| b.model.profile()) {
+        for other in WINDOWS.with_borrow(Vec::clone).into_iter().filter(|o| o.window != ui.window) {
+            act_quietly(other, |b| b.favicons.forget(&profile));
+        }
+    }
     ui.history.set(Default::default());
 }
 
@@ -1103,7 +1124,7 @@ fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
                 let target = url.clone();
                 suggestion_row(url.clone(), move || go(ui, target.clone()))
                     .bg(move || picked_fill(ui, first.get() + ix.get()))
-                    .child(view().w(px(28.)).items_center().child(site_tile(&host, 20.)))
+                    .child(view().w(px(28.)).items_center().child(site_tile(ui, &host, 20.)))
                     .child(label(if title.is_empty() { url.clone() } else { title }).flex_1().truncate())
                     .child(detail(url.trim_start_matches("https://").trim_end_matches('/').to_owned()))
             },
@@ -1751,6 +1772,14 @@ fn close_window(ui: Ui, here: &WindowRef) {
     }
 }
 
+fn icon_data(ui: Ui, key: TabKey, data: JsonValue) {
+    let text = data["text"].as_str().unwrap_or_default().to_owned();
+    drop(spawn(async move {
+        let png = blocking(move || engine::favicon::normalize(&text)).await.ok().flatten();
+        act_quietly(ui, |b| b.on_icon_event(key, &data, png));
+    }));
+}
+
 fn route_downloads() {
     let mut downloads = webview::session::route();
     drop(spawn(async move {
@@ -1781,6 +1810,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         window,
         open: signal(true),
         snap: signal(Snapshot::default()),
+        icons: signal(Default::default()),
         panel: signal(Panel::None),
         rev: signal(0),
         sidebar: signal(true),

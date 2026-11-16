@@ -154,7 +154,7 @@ fn boxed(name: &str, aside: Option<String>) -> View {
     group().gap_3().p_4().flex_1().min_w(px(260.)).child(head)
 }
 
-fn week(card: &Card) -> View {
+fn week(ui: Ui, card: &Card) -> View {
     let days = day_totals(&card.week);
     let total: i64 = days.iter().map(|(_, n)| *n).sum();
     let chart = boxed("Last 7 days", Some(format!("{} protected", thousands(total.max(0) as u64)))).child(tarn_nsh_shared::card::day_chart(&days));
@@ -168,7 +168,7 @@ fn week(card: &Card) -> View {
                 .items_center()
                 .gap_2()
                 .min_h(px(24.))
-                .child(super::site_tile(host, 16.))
+                .child(super::site_tile(ui, host, 16.))
                 .child(label(browser_core::command::host_tail(&engine::view_policy::title(host), 28)).w(px(130.)).truncate())
                 .child(tarn_nsh_shared::card::share_bar(*n, most).flex_1())
                 .child(small(thousands((*n).max(0) as u64)).w(px(44.)).text_right())
@@ -368,7 +368,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                     .gap_4()
                     .child(super::panels::heading(ui, view().flex_row().items_center().flex_1().child(title("Profile")).child(view().flex_1()).child(chip)))
                     .child(hero(ui, card.clone(), level, private))
-                    .child(week(&card))
+                    .child(week(ui, &card))
             }
             None => body.child(note("No profile is open.")),
         },

@@ -18,6 +18,8 @@ pub enum Request {
     Text(TabKey, Id),
     Find(TabKey, String),
     Pick(TabKey),
+    IconLinks(TabKey, super::icons::Profile, String),
+    IconData(TabKey, super::icons::Profile, String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -93,7 +95,7 @@ impl Browser {
         (self.level_for(key, url.as_str()) != ShieldLevel::Lockdown).then_some(url)
     }
 
-    fn ask(&mut self, key: TabKey, request: Request, name: &'static str, args: Value) {
+    pub(super) fn ask(&mut self, key: TabKey, request: Request, name: &'static str, args: Value) {
         let seq = self.next_seq();
         self.requests.insert(seq, request);
         let mut args = args;
@@ -140,6 +142,7 @@ impl Browser {
             return;
         }
         self.ask(key, Request::Probe(key), "readArticle", json!({ "probe": true }));
+        self.request_favicon(key, url);
         let keeps = self.model.profile_of(&self.core, key).is_some_and(|p| self.core.keeps_records(key.private, p));
         if let Some(visit) = visit.filter(|_| !key.private && keeps && !self.setting_off(HISTORY_TEXT) && url.scheme() != "file") {
             self.ask(key, Request::Text(key, visit), "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT }));

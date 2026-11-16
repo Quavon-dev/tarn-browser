@@ -1,3 +1,4 @@
+pub mod icons;
 pub mod pages;
 mod site;
 pub mod spaces;
@@ -106,6 +107,7 @@ pub struct Browser {
     pub download_owners: HashMap<String, Option<Id>>,
     pub cancelled_downloads: Vec<String>,
     pub text_found: suggest::TextMatches,
+    pub favicons: engine::favicon::Tracker<icons::Profile, std::sync::Arc<str>>,
     pub elsewhere: HashSet<TabKey>,
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
@@ -168,6 +170,7 @@ impl Browser {
             download_owners: HashMap::new(),
             cancelled_downloads: Vec::new(),
             text_found: Default::default(),
+            favicons: Default::default(),
             elsewhere,
             forgotten: Vec::new(),
             themes,
@@ -400,6 +403,7 @@ impl Browser {
         self.counted.remove(&key);
         self.processes.remove(&key);
         self.used.remove(&key);
+        self.withdraw_icons(|k| k == key);
         if self.reader.as_ref().is_some_and(|r| r.key == key) {
             self.close_reader();
         }
@@ -652,6 +656,7 @@ impl Browser {
     pub fn clear_history(&mut self) {
         if let Some((private, id)) = self.profile_of_space() {
             self.core.store(private).clear_history(id).ok();
+            self.favicons.forget(&(private, id));
         }
         self.text_found.clear();
     }
@@ -726,6 +731,7 @@ impl Browser {
                 }
             }
             "article" | "pageText" | "textFound" | "picked" => self.on_script_event(key, name, data),
+            "iconLinks" => self.on_icon_event(key, data, None),
             "shielded" => self.on_shielded(key, data),
             "process" => {
                 if let Some(pid) = data["pid"].as_i64().and_then(|p| i32::try_from(p).ok()) {

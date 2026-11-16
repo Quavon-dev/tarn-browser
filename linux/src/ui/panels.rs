@@ -39,6 +39,7 @@ pub(super) fn counted(name: &str, count: usize) -> View {
 }
 
 pub(super) fn library_row<M>(
+    ui: Ui,
     name: impl IntoProp<Option<SharedString>, M>,
     host: &str,
     label_text: String,
@@ -46,7 +47,7 @@ pub(super) fn library_row<M>(
 ) -> nsh_base::ButtonElement {
     crate::controls::row(name, press)
         .h(px(30.))
-        .child(site_tile(host, 16.))
+        .child(site_tile(ui, host, 16.))
         .child(label(label_text).flex_1().truncate())
         .child(small(host.trim_start_matches("www.").to_owned()).max_w(px(220.)).truncate().text_color(Theme::faint()))
 }
@@ -74,7 +75,7 @@ fn shield_panel(ui: Ui) -> AnyElement {
         .flex_row()
         .items_center()
         .gap(px(10.))
-        .child(site_tile(&host, 28.))
+        .child(site_tile(ui, &host, 28.))
         .child(
             view()
                 .flex_col()
@@ -230,7 +231,7 @@ fn history_panel(ui: Ui) -> AnyElement {
             let host = url::Url::parse(&h.url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
             let name = if h.title.is_empty() { h.url.clone() } else { h.title.clone() };
             let link = url.clone();
-            library_row(h.url.clone(), &host, name, move || {
+            library_row(ui, h.url.clone(), &host, name, move || {
                 ui.panel.set(Panel::None);
                 let url = url.clone();
                 act(ui, move |b| {

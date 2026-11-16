@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::*;
 
-const PAGE: &str = "<html><body><h1>Title</h1><div id=\"ad\" class=\"ad\">advert</div>\
+const PAGE: &str = "<html><head><link rel=\"icon\" href=\"/i.png\" sizes=\"32x32\"></head><body><h1>Title</h1><div id=\"ad\" class=\"ad\">advert</div>\
     <p id=\"p\">The quick zebrafish swims past the reef while the tide turns slowly over the sand.</p></body></html>";
 
 fn spin_until(done: impl Fn() -> bool, secs: u64) -> bool {
@@ -72,6 +72,10 @@ fn contract_v3_scripts_run_in_the_tarn_world_and_styles_and_zaps_apply() {
     assert!(found["snippets"][0].as_str().unwrap().contains("quick zebrafish swims"), "{found}");
     let text = ask(&state, "readText", json!({ "seq": 5, "maxChars": 30 }), "pageText");
     assert!(!text["text"].as_str().unwrap().is_empty() && text["text"].as_str().unwrap().encode_utf16().count() <= 30, "{text}");
+    let links = ask(&state, "iconLinks", json!({ "seq": 8 }), "iconLinks");
+    assert!(links["text"].as_str().unwrap().starts_with("http://page.test/i.png\t32x32\n"), "{links}");
+    let icon = ask(&state, "fetchIcon", json!({ "seq": 9, "urls": ["http://page.test/i.png"], "maxBytes": 1024 }), "iconData");
+    assert_eq!((icon["seq"].clone(), icon["text"].clone()), (json!(9), json!("")), "only https icons are fetched");
     let probe = ask(&state, "readArticle", json!({ "seq": 6, "probe": true }), "article");
     assert_eq!(probe["text"], "", "a short page has no article");
     state.events.borrow_mut().clear();
@@ -93,6 +97,7 @@ fn nothing_runs_or_applies_under_lockdown() {
     spin_until(|| false, 2);
     let found = ask(&state, "findText", json!({ "seq": 1, "query": "zebrafish" }), "textFound");
     assert_eq!(found["snippets"], json!([]));
+    assert_eq!(ask(&state, "iconLinks", json!({ "seq": 2 }), "iconLinks")["text"], "");
     assert!(state.zap_filter.borrow().is_none(), "no zap filter under Lockdown");
     let settings = WebViewExt::settings(&web).unwrap();
     assert!(!settings.enables_javascript());
