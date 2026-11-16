@@ -381,10 +381,12 @@ runs again when a merge to `main` changes `packaging/cef.lock`:
    host, hashes) and merges it.
 4. The merge's push to `main` changes `packaging/cef.lock` and starts the workflow again: `tag`
    checks that the commit is the merge of the app's own `chromium-update/` pull request, tags it
-   `v<version>` with the app, and `build` calls `release.yml` with it. It refuses a pull request
-   that changed anything but `packaging/cef.lock`, `Cargo.toml` and the lockfiles, and a version
-   that is already tagged (two update pull requests cut from the same `main`): those are released
-   by hand after raising the version. Otherwise `build` makes the macOS bundle, which is signed and
+   `v<version>` with the app, and `build` calls `release.yml` with it. Against `main` before the
+   merge it refuses a change to anything but `packaging/cef.lock`, `Cargo.toml` and the lockfiles,
+   any changed line in those other than a `version = "…"` line, a `cef.lock` that names another
+   CEF build than its branch or a mismatched Chromium version, and a version that is already
+   tagged (two update pull requests cut from the same `main`): those are released by hand after
+   raising the version. Otherwise `build` makes the macOS bundle, which is signed and
    published as a macOS-only release once a maintainer approves its `release-signing` deployment.
    Any other change to `packaging/cef.lock` is released by hand.
 

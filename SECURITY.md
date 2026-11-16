@@ -40,8 +40,8 @@ who bring in the other maintainers as needed.
    exploited or public is fixed and published as fast as possible.
 
 Published advisories: <https://github.com/Quavon-dev/tarn-browser/security/advisories>. Every
-vulnerability confirmed in Tarn is published there once fixed; while that list is empty, no
-vulnerability in Tarn has been confirmed. A
+vulnerability the maintainers rate as one in a released version is published there once fixed,
+and every security-relevant fix is listed under "Security" in the release notes. A
 vulnerability in an upstream engine is reported to its vendor (see "Scope"); when it affects the
 Chromium that Tarn bundles, the update release notes name the Chromium version that fixes it.
 

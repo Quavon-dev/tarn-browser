@@ -1,6 +1,8 @@
 //! The TLS provider every shell request uses (`rustls::crypto::ring::default_provider()` in
-//! `filters.rs`, `ext_sources.rs`, the AI provider and the Windows updater) refuses RSA keys under
-//! 2048 bits and offers only ephemeral elliptic-curve key exchange (docs/cryptography.md).
+//! `filters.rs`, `ext_sources.rs`, the AI provider and the Windows updater) refuses a server key
+//! under 2048 bits RSA for the handshake signature and offers only ephemeral elliptic-curve key
+//! exchange; the chain's intermediate and root keys are left to the platform verifier
+//! (docs/cryptography.md).
 //! The vectors are public keys (RSAPublicKey DER) and SHA-256 PKCS#1 signatures of `MESSAGE`, made
 //! with `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:N` and `openssl dgst -sha256 -sign`;
 //! the private keys were discarded.

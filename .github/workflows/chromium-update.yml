@@ -190,12 +190,27 @@ jobs:
         run: |
           set -euo pipefail
           api="repos/$GITHUB_REPOSITORY"
-          pr="$(gh api "$api/commits/$COMMIT/pulls" | jq -r --arg app "${APP}[bot]" \
-            '[.[] | select(.merged_at != null and (.head.ref | startswith("chromium-update/")) and .user.login == $app)][0].number // empty')"
+          read -r pr branch < <(gh api "$api/commits/$COMMIT/pulls" | jq -r --arg app "${APP}[bot]" \
+            '[.[] | select(.merged_at != null and (.head.ref | startswith("chromium-update/")) and .user.login == $app)][0] // {} | "\(.number // "") \(.head.ref // "")"')
           [[ -n "$pr" ]] || { echo "$COMMIT is not the merge of an engine update pull request"; exit 0; }
-          files="$(gh api --paginate "$api/pulls/$pr/files" --jq '.[].filename')"
-          extra="$(grep -vxE 'packaging/cef\.lock|Cargo\.toml|Cargo\.lock|(linux|mobile|nsh-shared|fuzz)/Cargo\.lock' <<<"$files" || true)"
-          [[ -z "$extra" ]] || { echo "pull request $pr also changes $extra; release it by hand" >&2; exit 1; }
+          # A push to the update branch could change the pinned build; fetch-cef.sh already refuses
+          # another host or a wrong hash, so the lock must name exactly the build the branch is for.
+          lock="$(gh api "$api/contents/packaging/cef.lock?ref=$COMMIT" --jq .content | base64 -d)"
+          cef="$(sed -n 's/^cef_version=//p' <<<"$lock")"
+          chromium="$(sed -n 's/^chromium_version=//p' <<<"$lock")"
+          [[ "$cef" == "${branch#chromium-update/}" && "$chromium" == "${cef##*+chromium-}" ]] \
+            || { echo "packaging/cef.lock names CEF '$cef' (Chromium '$chromium'), not the build of $branch" >&2; exit 1; }
+          # Against main before the merge, only the pinned build and the version may change: in
+          # Cargo.toml and the lockfiles, any changed line other than a `version = "…"` line (a
+          # dependency, source, checksum or patch) means the branch was edited.
+          parent="$(gh api "$api/commits/$COMMIT" --jq '.parents[0].sha')"
+          gh api "$api/compare/$parent...$COMMIT" > compare.json
+          extra="$(jq -r '.files[].filename' compare.json \
+            | grep -vxE 'packaging/cef\.lock|Cargo\.toml|Cargo\.lock|(linux|mobile|nsh-shared|fuzz)/Cargo\.lock' || true)"
+          [[ -z "$extra" ]] || { echo "the merge also changes $extra; release it by hand" >&2; exit 1; }
+          other="$(jq -r '.files[] | select(.filename != "packaging/cef.lock") | if .patch == null then "no patch for \(.filename)" else .patch end' compare.json \
+            | grep -E '^([+-]|no patch)' | grep -vE '^[+-]version = "[0-9]+\.[0-9]+\.[0-9]+"$' || true)"
+          [[ -z "$other" ]] || { echo "the merge changes more than versions: $other" >&2; exit 1; }
           version="$(gh api "$api/contents/Cargo.toml?ref=$COMMIT" --jq .content | base64 -d \
             | sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p')"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Cargo.toml has no release version at $COMMIT" >&2; exit 1; }
