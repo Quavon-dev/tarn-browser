@@ -7,16 +7,20 @@ mod sheets;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::Duration;
 
 use browser_core::tabs::TabKey;
 use nsh_core::prelude::*;
+use nsh_core::{LayoutAnimation, LayoutCurve, LayoutTransition};
 use serde_json::{Value, json};
 
 use crate::data::{Data, Platform};
 use crate::shell::{Effect, Shell, ViewProps};
 use crate::theme::{MARK_SIZE, Paint, Secure, Theme, WIDE_LAYOUT, themed};
-pub use controls::{accent_pill, caption, heading, icon_button, icons, label, pill, row, segmented, small, surface, switch_row};
+pub use controls::{
+    accent_pill, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface, switch_row, text_field,
+};
 
 pub type AppShell = Shell<Data>;
 
@@ -89,7 +93,21 @@ impl Ui {
         }
         self.editing.set(false);
         self.fresh.set(None);
+        if screen == Screen::Find {
+            self.act(|s| {
+                s.found = None;
+                Vec::new()
+            });
+        }
+        if screen != self.screen.get_untracked() && !untracked(reduce_motion) {
+            let fade = LayoutTransition::new(LayoutCurve::EaseOut, tarn_nsh_shared::motion::FADE.as_secs_f32() * 1000.);
+            animate_layout(LayoutAnimation { create: Some(fade), ..LayoutAnimation::default() });
+        }
         self.screen.set(screen);
+    }
+
+    pub fn toggle(self, screen: Screen) {
+        self.show(if self.screen.get_untracked() == screen { Screen::Browse } else { screen });
     }
 
     pub fn wide(self) -> bool {
@@ -127,7 +145,7 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
         .prop("zaps", move || json!(item.get().zaps))
         .prop("sortDownloads", move || json!(item.get().sort_downloads))
         .prop("load", move || item.get().load.map_or(Value::Null, |l| json!({ "url": l.url, "seq": l.seq, "opener": l.opener })))
-        .prop("active", move || json!(ui.browsing() && ui.read(|s| s.model.active == Some(key))))
+        .prop("active", move || json!(ui.read(|s| s.model.active == Some(key) && s.active_prompt().is_none() && s.external.is_none())))
         .on_native_event(move |e: &NativeEvent| ui.act(|s| s.event(key, &e.name, &e.data, browser_core::now())))
         .flex_1()
         .style_when(move || !(ui.browsing() && ui.read(|s| s.model.active == Some(key) && !s.active_url().is_empty())), |s| s.hidden())
@@ -135,16 +153,21 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
 
 fn notice(ui: Ui) -> impl IntoElement {
     let message = move || ui.read(|s| s.notice.clone());
+    let shown = computed(move || ui.read(|s| (s.notice.clone(), s.undo.clone())));
+    let timer: Rc<RefCell<Option<Spawned<()>>>> = Rc::default();
     effect(move || {
-        if let Some(shown) = message() {
-            set_timeout(Duration::from_secs(5), move || {
+        if let Some(old) = timer.borrow_mut().take() {
+            old.cancel();
+        }
+        if let (Some(shown), _) = shown.get() {
+            *timer.borrow_mut() = Some(set_timeout(Duration::from_secs(5), move || {
                 ui.act(|s| {
                     if s.notice.as_ref() == Some(&shown) {
                         s.notice = None;
                     }
                     Vec::new()
                 })
-            });
+            }));
         }
     });
     dynamic(move || {
@@ -236,6 +259,29 @@ fn search_card(ui: Ui) -> impl IntoElement {
         .child(view().relative().child(tarn_nsh_shared::search_fx::search_fx(SEARCH_ROW)).child(field))
 }
 
+fn back(ui: Ui) -> bool {
+    if ui.read(|s| s.active_prompt().is_some() || s.external.is_some()) {
+        return true;
+    }
+    if ui.editing.get_untracked() {
+        bars::cancel(ui);
+        return true;
+    }
+    match ui.screen.get_untracked() {
+        Screen::Browse => {
+            let can = ui.read(|s| s.active_page().is_some_and(|p| p.back));
+            if can {
+                ui.act(|s| s.active_command("back", Value::Null));
+            }
+            can
+        }
+        screen => {
+            panels::leave(ui, panels::parent(screen).unwrap_or(Screen::Browse));
+            true
+        }
+    }
+}
+
 #[component]
 pub fn App() -> impl IntoElement {
     open_shell();
@@ -257,7 +303,8 @@ pub fn App() -> impl IntoElement {
             })
         });
     });
-    let pages = move || ui.read(|s| s.views());
+    on_back_press(move || untracked(|| back(ui)));
+    let pages = computed(move || ui.read(|s| s.views()));
     let reading = move || ui.read(|s| s.reader.as_ref().map(|r| (r.key, r.url.clone())));
     effect(move || match reading() {
         Some(_) => ui.show(Screen::Reader),
@@ -286,13 +333,19 @@ pub fn App() -> impl IntoElement {
         .font_family(Theme::font_family)
         .child(themed(|| view().absolute().inset_0().paint(Theme::backdrop())))
         .child(bars::top_bar(ui))
-        .child(notice(ui))
-        .child(sheets::picking_banner(ui))
-        .child(bars::page_error(ui))
         .child(
             view()
                 .flex_1()
-                .child(each(pages, |v: &ViewProps| (v.key, v.born), move |item, _| web_view(ui, item)))
+                .relative()
+                .child(
+                    view()
+                        .z_index(1)
+                        .style_when(move || ui.browsing(), |s| s.absolute().top(px(0.)).left(px(0.)).right(px(0.)))
+                        .child(notice(ui))
+                        .child(sheets::picking_banner(ui))
+                        .child(bars::page_error(ui)),
+                )
+                .child(each(move || pages.get(), |v: &ViewProps| (v.key, v.born), move |item, _| web_view(ui, item)))
                 .child(start(ui))
                 .child(bars::suggestions(ui))
                 .child(prompt::prompt_panel(ui))

@@ -68,6 +68,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- iOS and Android: opening a sheet or the address field no longer pauses the page's audio and
+  video, and banners float over the page instead of pushing it down.
 - Sites can use the camera and microphone again on macOS: the app declares both and asks macOS;
   Chromium tabs ask through Tarn's prompt instead of refusing.
 - Chromium tabs apply a site's pop-up rule and count only refused pop-ups; tracking parameters

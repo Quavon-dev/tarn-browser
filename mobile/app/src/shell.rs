@@ -628,8 +628,15 @@ impl<D: Platform> Shell<D> {
     /// For an address field edited from `typed` to `value` (`suggest::edit`): the history rows
     /// `value` names, and the completion to prefill from the open tabs and the history.
     pub fn suggestions(&self, typed: &str, value: &str) -> (Vec<HistoryEntry>, Option<suggest::Completion>) {
-        let history = self.profile_id().and_then(|id| self.store().history(id, 500).ok()).unwrap_or_default();
-        let (rows, completion) = suggest::edit(typed, value, &self.model.tabs, &history, SUGGESTIONS, browser_core::now());
+        self.suggest_from(&self.suggestion_history(), typed, value)
+    }
+
+    pub fn suggestion_history(&self) -> Vec<HistoryEntry> {
+        self.profile_id().and_then(|id| self.store().history(id, 500).ok()).unwrap_or_default()
+    }
+
+    pub fn suggest_from(&self, history: &[HistoryEntry], typed: &str, value: &str) -> (Vec<HistoryEntry>, Option<suggest::Completion>) {
+        let (rows, completion) = suggest::edit(typed, value, &self.model.tabs, history, SUGGESTIONS, browser_core::now());
         (rows.into_iter().cloned().collect(), completion)
     }
 

@@ -1,8 +1,8 @@
-use nsh_base::button;
+use nsh_base::{Input, button, input};
 use nsh_core::prelude::*;
-pub use tarn_nsh_shared::controls::{accent_pill, label, pill, segmented, surface, switch_row};
+pub use tarn_nsh_shared::controls::{accent_pill, label, pill, section, segmented, surface, switch_row};
 
-use crate::theme::{ICON, TEXT, TEXT_HEADING, TEXT_SMALL, TOUCH_TARGET, Theme};
+use crate::theme::{ICON, TEXT, TEXT_HEADING, TEXT_SMALL, TEXT_TITLE, TOUCH_TARGET, Theme};
 
 pub mod icons {
     use nsh_core::prelude::*;
@@ -35,6 +35,7 @@ pub mod icons {
     pub const PENCIL: ImageAsset = asset!("icons/pencil.svg");
     pub const CHECK: ImageAsset = asset!("icons/check.svg");
     pub const APP_WINDOW: ImageAsset = asset!("icons/app-window.svg");
+    pub const SMARTPHONE: ImageAsset = asset!("icons/smartphone.svg");
     pub const MARK: ImageAsset = asset!("brand/mark.svg");
 }
 
@@ -73,4 +74,40 @@ pub fn row(asset: ImageAsset, text_: impl Into<String>, press: impl Fn() + 'stat
         .on_press(press)
         .child(icon(asset, Theme::muted))
         .child(label(text_).flex_1())
+}
+
+pub fn detail_row(asset: Option<ImageAsset>, name: String, detail: Option<nsh_core::element::Text>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
+    button()
+        .accessibility_label(SharedString::from(name.clone()))
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .min_h(px(TOUCH_TARGET))
+        .px_3()
+        .py_1()
+        .border_b_1()
+        .border_color(Theme::separator)
+        .active(|s| s.bg(Theme::pressed))
+        .on_press(press)
+        .child(asset.map(|a| icon(a, Theme::muted)))
+        .child(view().flex_1().child(label(name).number_of_lines(1)).child(detail))
+}
+
+pub fn framed(rows: View) -> View {
+    tarn_nsh_shared::controls::group().overflow_hidden().child(rows)
+}
+
+pub fn text_field(placeholder: &'static str, name: &'static str) -> Input {
+    input()
+        .placeholder(placeholder)
+        .placeholder_color(Theme::faint)
+        .label(name)
+        .h(px(TOUCH_TARGET))
+        .px_3()
+        .rounded(px(Theme::radius_row()))
+        .bg(Theme::raised)
+        .border_1()
+        .border_color(Theme::hairline)
+        .text_size(px(TEXT_TITLE))
+        .text_color(Theme::text)
 }

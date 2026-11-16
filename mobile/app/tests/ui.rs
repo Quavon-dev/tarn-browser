@@ -23,6 +23,19 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.press("Done").unwrap();
 
     app.press("label:Menu").unwrap();
+    app.press("label:History").unwrap();
+    app.press("label:Back to Menu").unwrap();
+    app.wait_for("label:Reopen Closed Tab").unwrap();
+    app.press("label:History").unwrap();
+    app.back().unwrap();
+    app.wait_for("label:Reopen Closed Tab").unwrap();
+    app.back().unwrap();
+    assert!(!app.screen().shows("Reopen Closed Tab"), "Back closes the Menu sheet");
+    app.press("label:Menu").unwrap();
+    app.press("label:Menu").unwrap();
+    assert!(!app.screen().shows("Reopen Closed Tab"), "the Menu button closes its own sheet");
+
+    app.press("label:Menu").unwrap();
     app.press("New Tab >> nth=0").unwrap();
     app.wait_for("label:Tabs 2").unwrap();
     app.press("label:Tabs 2").unwrap();

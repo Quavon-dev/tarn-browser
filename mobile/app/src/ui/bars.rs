@@ -4,7 +4,7 @@ use serde_json::Value;
 use shield::ShieldLevel;
 
 use super::controls::icon;
-use super::{Screen, Ui, accent_pill, caption, icon_button, icons, label, pill, small, surface};
+use super::{Screen, Ui, accent_pill, caption, detail_row, icon_button, icons, label, pill, small, surface};
 use crate::theme::{BADGE_SIZE, SYSTEM_FONT, Secure, TEXT_SMALL, TEXT_TITLE, TOOLBAR_HEIGHT, TOUCH_TARGET, Theme, themed};
 
 fn level_name(level: Option<ShieldLevel>) -> &'static str {
@@ -32,7 +32,7 @@ fn tabs(ui: Ui) -> impl IntoElement {
         .justify_center()
         .rounded_full()
         .active(|s| s.bg(Theme::pressed))
-        .on_press(move || ui.show(Screen::Tabs))
+        .on_press(move || ui.toggle(Screen::Tabs))
         .child(
             view()
                 .min_w(px(BADGE_SIZE))
@@ -61,7 +61,7 @@ fn new_tab(ui: Ui) -> impl IntoElement {
     })
 }
 
-fn cancel(ui: Ui) {
+pub(super) fn cancel(ui: Ui) {
     ui.editing.set(false);
     dismiss_keyboard();
     let Some((key, before)) = ui.fresh.get_untracked() else { return };
@@ -148,6 +148,7 @@ pub fn top_bar(ui: Ui) -> impl IntoElement {
     let field = ui.field;
     let typed = signal(String::new());
     let completed = signal(None::<(String, String)>);
+    let history = signal(std::rc::Rc::new(Vec::<store::HistoryEntry>::new()));
     let resting = move || ui.read(|s| browser_core::command::display_host(&s.active_url()));
     view()
         .flex_row()
@@ -180,6 +181,7 @@ pub fn top_bar(ui: Ui) -> impl IntoElement {
                             typed.set(String::new());
                             completed.set(None);
                             ui.suggest.set(Vec::new());
+                            history.set(std::rc::Rc::new(ui.read(|s| s.suggestion_history())));
                             ui.editing.set(true);
                             field.set_selection(0, end);
                         })
@@ -187,7 +189,7 @@ pub fn top_bar(ui: Ui) -> impl IntoElement {
                             if !ui.editing.get_untracked() || value == ui.address.get_untracked() {
                                 return;
                             }
-                            let (rows, completion) = ui.read(|s| s.suggestions(&typed.get_untracked(), value));
+                            let (rows, completion) = ui.read(|s| s.suggest_from(&history.get_untracked(), &typed.get_untracked(), value));
                             typed.set(value.to_owned());
                             ui.suggest.set(rows);
                             let full = format!("{value}{}", completion.as_ref().map_or("", |c| c.suffix.as_str()));
@@ -248,7 +250,7 @@ pub fn top_bar(ui: Ui) -> impl IntoElement {
         .child(themed(move || {
             dynamic(move || {
                 (ui.wide() && !ui.editing.get())
-                    .then(|| view().flex_row().child(new_tab(ui)).child(tabs(ui)).child(icon_button(icons::MENU, "Menu", move || ui.show(Screen::Menu))))
+                    .then(|| view().flex_row().child(new_tab(ui)).child(tabs(ui)).child(icon_button(icons::MENU, "Menu", move || ui.toggle(Screen::Menu))))
             })
         }))
 }
@@ -289,7 +291,7 @@ pub fn bottom_bar(ui: Ui) -> impl IntoElement {
         .child(forward(ui))
         .child(new_tab(ui))
         .child(tabs(ui))
-        .child(icon_button(icons::MENU, "Menu", move || ui.show(Screen::Menu)))
+        .child(icon_button(icons::MENU, "Menu", move || ui.toggle(Screen::Menu)))
 }
 
 pub fn suggestions(ui: Ui) -> impl IntoElement {
@@ -303,23 +305,13 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
                 let url = entry.url.clone();
                 let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title.clone() };
                 let detail = entry.url.trim_start_matches("https://").trim_end_matches('/').to_owned();
-                button()
-                    .accessibility_label(SharedString::from(name.clone()))
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .min_h(px(TOUCH_TARGET))
-                    .px_3()
-                    .py_1()
-                    .rounded(px(Theme::radius_row()))
-                    .active(|s| s.bg(Theme::selected))
-                    .on_press(move || {
-                        ui.editing.set(false);
-                        dismiss_keyboard();
-                        ui.act(|s| s.navigate(&url));
-                    })
-                    .child(icon(icons::GLOBE, Theme::muted))
-                    .child(view().flex_1().child(label(name).number_of_lines(1)).child(caption(detail).number_of_lines(1)))
+                detail_row(Some(icons::GLOBE), name, Some(caption(detail).number_of_lines(1)), move || {
+                    ui.editing.set(false);
+                    dismiss_keyboard();
+                    ui.act(|s| s.navigate(&url));
+                })
+                .border_b(px(0.))
+                .rounded(px(Theme::radius_row()))
             },
         )),
     )

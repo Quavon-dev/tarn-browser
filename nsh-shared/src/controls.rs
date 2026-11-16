@@ -81,19 +81,23 @@ pub fn icon_button<M>(icon: impl IntoElement, name: impl IntoProp<Option<SharedS
 
 fn pill_button(name: String, press: impl Fn() + 'static, primary: bool) -> ButtonElement {
     let m = metrics();
-    let button = pressable(name.clone(), press)
-        .flex_row()
-        .items_center()
-        .justify_center()
-        .border_1()
-        .border_color(if primary { Theme::surface_edge } else { Theme::hairline })
-        .bg(if primary { Theme::accent } else { Theme::control });
+    let button = if primary {
+        button().accessibility_label(name.clone()).on_press(press).hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7))
+    } else {
+        pressable(name.clone(), press)
+    }
+    .flex_row()
+    .items_center()
+    .justify_center()
+    .border_1()
+    .border_color(if primary { Theme::surface_edge } else { Theme::hairline })
+    .bg(if primary { Theme::accent } else { Theme::control });
     let text = label(name);
     match density() {
         Density::Touch => button.min_h(px(m.pill_height)).px_4().rounded_full(),
         Density::Desktop => button.h(px(m.pill_height)).px_3().rounded(px(m.pill_height / 2.)),
     }
-    .child(if primary { text.font_weight(FontWeight::MEDIUM) } else { text })
+    .child(if primary { text.font_weight(FontWeight::MEDIUM).text_color(Theme::on_accent) } else { text })
 }
 
 pub fn secure_button(name: impl Into<String>, press: impl Fn() + 'static, primary: bool) -> ButtonElement {
@@ -109,8 +113,8 @@ pub fn secure_button(name: impl Into<String>, press: impl Fn() + 'static, primar
         .border_1()
         .border_color(edge)
         .bg(fill)
-        .hover(|s| s.bg(Secure::hover()))
-        .active(|s| s.bg(Secure::pressed()));
+        .hover(move |s| if primary { s.opacity(0.88) } else { s.bg(Secure::hover()) })
+        .active(move |s| if primary { s.opacity(0.7) } else { s.bg(Secure::pressed()) });
     let text = text(name).text_size(px(m.text)).font_family(SYSTEM_FONT).text_color(if primary { Theme::on_accent() } else { Secure::text() });
     match density() {
         Density::Touch => button.min_h(px(m.pill_height)).px_4().rounded_full(),
@@ -200,6 +204,14 @@ pub fn switch_row(name: impl Into<String>, on: impl Fn() -> bool + Copy + 'stati
                 .style_when(on, |s| s.justify_end())
                 .child(view().w(px(m.thumb)).h(px(m.thumb)).rounded_full().bg(Theme::text).shadow(Theme::elevation(1., 2.))),
         )
+}
+
+pub fn section(name: impl IntoReactive<SharedString>) -> Text {
+    let header = label(name).font_weight(FontWeight::SEMIBOLD).px_1();
+    match density() {
+        Density::Touch => header.pt_3(),
+        Density::Desktop => header.pt_5().pb_2(),
+    }
 }
 
 pub fn group() -> View {

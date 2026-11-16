@@ -1,4 +1,4 @@
-use nsh_base::input;
+use nsh_base::Input;
 use nsh_core::prelude::*;
 
 use nsh_base::ButtonElement;
@@ -9,7 +9,7 @@ use super::Ui;
 
 use crate::events::Answer;
 use crate::shell::PromptRequest;
-use crate::theme::{TEXT_HEADING, TEXT_TITLE, TOUCH_TARGET, Theme};
+use crate::theme::{TEXT_HEADING, Theme};
 
 fn label(content: impl IntoReactive<SharedString>) -> Text {
     super::label(content).text_color(Secure::text)
@@ -35,24 +35,13 @@ fn answer(ui: Ui, accept: bool, remember: bool, text: Option<String>, user: Opti
     ui.act(|s| s.answer(Answer { accept, text, user, password, remember }));
 }
 
-fn field(value: Signal<String>, label: &'static str, masked: bool) -> impl IntoElement {
-    input()
+fn field(value: Signal<String>, label: &'static str, masked: bool) -> Input {
+    super::text_field(label, label)
         .value(move || value.get())
         .on_change(move |v: &str| value.set(v.to_owned()))
         .masked(masked)
         .auto_capitalize(AutoCapitalize::None)
-        .placeholder(label)
-        .label(label)
         .test_id(label)
-        .h(px(TOUCH_TARGET))
-        .px_3()
-        .rounded(px(Theme::radius_row()))
-        .bg(Theme::raised)
-        .border_1()
-        .border_color(Theme::hairline)
-        .placeholder_color(Theme::faint)
-        .text_size(px(TEXT_TITLE))
-        .text_color(Theme::text)
 }
 
 fn title(prompt: &PromptRequest) -> String {
@@ -75,7 +64,7 @@ fn body(ui: Ui, prompt: PromptRequest) -> AnyElement {
             let value = signal(prompt.default.clone().unwrap_or_default());
             view()
                 .gap_2()
-                .child(field(value, "Answer", false))
+                .child(field(value, "Answer", false).on_submit(move |v: &str| answer(ui, true, false, Some(v.to_owned()), None, None)))
                 .child(
                     buttons
                         .child(accent_pill("OK", move || answer(ui, true, false, Some(value.get_untracked()), None, None)))
@@ -90,7 +79,9 @@ fn body(ui: Ui, prompt: PromptRequest) -> AnyElement {
                 .child(prompt.realm.clone().map(|r| caption(format!("Realm: {r}"))))
                 .child(prompt.insecure.then(|| caption("This connection is not secure: the password would be sent unencrypted.").text_color(Secure::warning)))
                 .child(field(user, "User name", false))
-                .child(field(password, "Password", true))
+                .child(
+                    field(password, "Password", true).on_submit(move |v: &str| answer(ui, true, false, None, Some(user.get_untracked()), Some(v.to_owned()))),
+                )
                 .child(
                     buttons
                         .child(accent_pill("Sign In", move || answer(ui, true, false, None, Some(user.get_untracked()), Some(password.get_untracked()))))
