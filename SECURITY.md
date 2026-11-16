@@ -47,8 +47,9 @@ Out of scope, report upstream instead:
 
 - **WebKit** (rendering, JavaScript, TLS, content-process sandbox) on macOS and iOS: Apple
   (<https://security.apple.com>). Tarn uses the system WebKit and cannot ship WebKit fixes.
-- **WebKitGTK** on Linux: the WebKit project (<https://webkit.org/security-policy/>). Tarn uses the
-  distribution's WebKitGTK; fixes reach users through distribution updates.
+- **WebKitGTK** on Linux: the WebKit project (<https://webkit.org/security-policy/>). Tarn's
+  distribution packages use the distribution's WebKitGTK, so fixes arrive with distribution updates;
+  the Flatpak uses the WebKitGTK of the GNOME Flatpak runtime, so fixes arrive with runtime updates.
 - **Chromium** engine bugs, including the Android System WebView: Google
   (<https://bughunters.google.com>). If Tarn's bundled Chromium is behind a fixed release, report
   that to us as well.

@@ -1,7 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use shield::domains::{DomainSet, entry};
+use shield::domains::{DomainSet, ENTRY_BYTES, MAX_ENTRIES, entry};
 use shield::lists::MAX_RULES_PER_LIST;
 use shield::rules::domain_rules;
 
@@ -15,7 +15,11 @@ fuzz_target!(|data: &[u8]| {
         assert!(rules.as_array().expect("a chunk is an array").len() <= MAX_RULES_PER_LIST);
     }
     let entries: Vec<String> = text.lines().filter_map(entry).collect();
-    let set = DomainSet::from_bytes(&DomainSet::encode(entries.iter().map(String::as_str))).expect("encoded entries load");
+    let encoded = DomainSet::encode(entries.iter().map(String::as_str));
+    let Some(set) = DomainSet::from_bytes(&encoded) else {
+        assert!(encoded.len() / ENTRY_BYTES > MAX_ENTRIES, "encoded entries within the cap load");
+        return;
+    };
     for line in text.lines() {
         let _ = set.contains(line);
     }
