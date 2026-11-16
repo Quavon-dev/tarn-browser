@@ -59,6 +59,8 @@ off at Lockdown, TLS errors are never bypassed, and there is no remote debugging
 | event | `prompt` | `{id, kind, origin, topOrigin?, message?, default?, realm?, insecure?}` | `kind`: alert, confirm, text, camera, microphone, location, credentials |
 | event | `download` | `{state, name, path?, message?, url?, quarantined?}` | `state`: started, finished, failed; `finished` carries the download's `url` (without user name and password; empty for `blob:` and `data:` on iOS and Linux, which Android sends unchanged) and whether the file was marked with its origin (`quarantined`). Names are sanitised (`engine::downloads`); downloads are never opened automatically |
 | event | `found` | `{matched}` | The number of matches, 0 for none |
+| event | `history` | `{canGoBack, canGoForward}` | The back/forward list changed without a commit: a same-document navigation (`pushState`, a fragment). iOS observes `canGoBack`/`canGoForward`, Android sends it from `doUpdateVisitedHistory` |
+| event | `pressed` | none | A touch went down on the page; it still reaches the page. A split pane on a tablet takes the focus. iOS reports it from the component's view (`hitTest:withEvent:` for touches, not hover), Android from the web view's touch listener |
 | event | `crashed` | none | The content process ended; the shell reloads at most once per minute |
 
 Store ids: an ephemeral store lives as long as the shell holds its `Data` (until the private space closes, Clear
@@ -74,6 +76,8 @@ Platform differences left in the contract, and why:
   isolated world, times the boost WebKit's text autosizing gave the page's main paragraph, because
   `pageZoom` raises the page scale and autosizing then shrinks its boost) and the whole page on Linux, as a
   desktop browser does (`WebKitWebView` zoom level, like the macOS app);
+- `find` on iOS: WebKit finds from the page's selection, so a new text clears the selection first and
+  starts again at the first match; the same text steps from the current one, as Android's `findNext`;
 - `found.matched` on iOS: WebKit says only whether anything matched; the count is the page's visible text
   searched case-insensitively in the shell's isolated world (frames are not counted, at least 1 when
   WebKit found a match); Android and Linux report the engine's count;

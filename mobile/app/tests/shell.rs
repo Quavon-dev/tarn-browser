@@ -707,3 +707,55 @@ fn closing_the_private_space_ends_its_splits_even_when_their_panes_sleep() {
     shell.close_private();
     assert!(!shell.splits.contains(a) && !shell.splits.contains(b), "no private pane outlives its session");
 }
+
+#[test]
+fn a_press_on_a_page_focuses_its_pane_only_in_the_split_on_screen() {
+    let (_dir, mut shell) = open();
+    let a = active(&shell);
+    let b = shell.new_tab(Some("https://b.example/")).unwrap();
+    let c = shell.new_tab(Some("https://c.example/")).unwrap();
+    shell.activate(a);
+    shell.split_with(b);
+    shell.event(a, "pressed", &Value::Null, 1);
+    assert_eq!(shell.model.active, Some(b), "a phone shows one pane, so a press focuses nothing");
+    shell.set_wide(true);
+    shell.event(a, "pressed", &Value::Null, 1);
+    assert_eq!(shell.model.active, Some(a));
+    shell.event(c, "pressed", &Value::Null, 1);
+    assert_eq!(shell.model.active, Some(a), "a tab outside the split is not focused by its page");
+}
+
+#[test]
+fn same_document_history_moves_back_and_forward() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://a.example/");
+    let key = active(&shell);
+    let page = json!({ "url": "https://a.example/", "title": "A", "canGoBack": false, "canGoForward": false });
+    shell.event(key, "committed", &page, 1);
+    shell.event(key, "history", &json!({ "canGoBack": true, "canGoForward": false }), 2);
+    assert!(shell.active_page().is_some_and(|p| p.back && !p.forward));
+    shell.event(key, "history", &json!({ "canGoBack": false, "canGoForward": true }), 3);
+    assert!(shell.active_page().is_some_and(|p| !p.back && p.forward));
+}
+
+#[test]
+fn commands_with_nothing_to_act_on_are_not_offered() {
+    let (_dir, mut shell) = open();
+    assert!(shell.duplicate_tabs().is_empty() && !shell.zappable());
+    finish(&mut shell, "https://a.example/", "A");
+    assert!(shell.zappable());
+    shell.new_tab(Some("https://a.example/"));
+    assert_eq!(shell.duplicate_tabs().len(), 1, "one of the two tabs on the same page");
+    shell.enter_private();
+    finish(&mut shell, "https://a.example/", "A");
+    assert!(!shell.zappable(), "a private space keeps no hidden elements");
+}
+
+#[test]
+fn views_share_the_profile_props_read_once() {
+    let (_dir, mut shell) = open();
+    shell.new_tab(Some("https://b.example/"));
+    let props = shell.profile_props();
+    assert_eq!(shell.views_from(props.as_ref()), shell.views());
+    assert!(shell.views_from(None).is_empty());
+}

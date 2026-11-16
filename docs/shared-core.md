@@ -31,10 +31,13 @@ Every shell's web view offers the same operations and reports the same events. T
 - `FullScreen`: Chromium views on Windows only, whose element full screen fills the browser's
   view; WebKit and the other engines open their own full-screen window;
 - `DownloadFinished`, `DownloadFailed`, `DownloadsActive`;
-- `pressed`: Linux only, a pointer press on the page, which still reaches the page, so a split
-  pane takes the focus. macOS and Windows see the same press through the shell's mouse monitor
-  (`engine::menu::EventMonitor::on_mouse_down`); iOS and Android do not report it yet
-  (`docs/port-backlog.md`, split view).
+- `pressed`: Linux, iOS and Android, a pointer or touch press on the page, which still reaches the
+  page, so a split pane takes the focus. macOS and Windows see the same press through the shell's
+  mouse monitor (`engine::menu::EventMonitor::on_mouse_down`);
+- `history`: iOS and Android, whether the view can go back and forward after a same-document
+  navigation (`pushState`, a fragment), which commits nothing: what `UrlChanged` carries in
+  `can_go_back` and `can_go_forward` on macOS and Windows. Linux sends `finished` with
+  `canGoBack` and `canGoForward` when the URL changes without a load, which covers the same case.
 
 **Rules for every implementation:**
 - **Decisions inside the web view:** policy decisions are made inside the web view, synchronously,

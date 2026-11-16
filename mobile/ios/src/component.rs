@@ -29,6 +29,9 @@ use crate::webkit::WebView;
 use crate::zoom;
 
 const MAX_DIALOGS: u32 = 10;
+/// The web view's properties the handler reports: the title, and the history a same-document
+/// navigation (`pushState`, a fragment) changes without a `committed`.
+const OBSERVED: [&str; 3] = ["title", "canGoBack", "canGoForward"];
 
 thread_local! {
     static NEXT_PROMPT: Cell<u64> = const { Cell::new(1) };
@@ -94,6 +97,7 @@ pub struct Inner {
     shell_load: RefCell<Option<Url>>,
     opener: RefCell<Option<Url>>,
     shell_history: Cell<bool>,
+    find_text: RefCell<String>,
     popups: RefCell<view_policy::Burst>,
     downloads: RefCell<view_policy::Burst>,
     zoom: Cell<f64>,
@@ -247,7 +251,9 @@ impl Inner {
         let handler = Handler::new(mtm, Rc::downgrade(self), level);
         web.set_navigation_delegate(Some(ProtocolObject::from_ref(&*handler)));
         web.set_ui_delegate(Some(ProtocolObject::from_ref(&*handler)));
-        web.add_observer(&handler, &NSString::from_str("title"), 1, std::ptr::null_mut());
+        for path in OBSERVED {
+            web.add_observer(&handler, &NSString::from_str(path), 1, std::ptr::null_mut());
+        }
         self.root.addSubview(&web);
         *self.built.borrow_mut() = Some(Built { web, handler, controller, styles: None, zaps: None, zap_list: None, profile: profile.to_owned(), level });
         self.apply_content();
@@ -255,7 +261,9 @@ impl Inner {
 
     fn teardown(&self) {
         if let Some(old) = self.built.borrow_mut().take() {
-            old.web.remove_observer(&old.handler, &NSString::from_str("title"));
+            for path in OBSERVED {
+                old.web.remove_observer(&old.handler, &NSString::from_str(path));
+            }
             old.web.set_navigation_delegate(None);
             old.web.set_ui_delegate(None);
             old.web.stop_loading();
@@ -435,8 +443,9 @@ impl Inner {
     }
 
     fn find(&self, web: &WebView, args: &Value) {
-        let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
+        let text = args.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
         if text.is_empty() {
+            self.find_text.borrow_mut().clear();
             return;
         }
         // SAFETY: main thread (marker); plain setters on a fresh configuration.
@@ -448,7 +457,7 @@ impl Inner {
         };
         let context = self.context.clone();
         let target = web.retain();
-        let script = NSString::from_str(&find::count_script(text));
+        let script = NSString::from_str(&find::count_script(&text));
         let mtm = self.mtm;
         let done = RcBlock::new(move |result: NonNull<WKFindResult>| {
             // SAFETY: WebKit passes a valid result for the duration of the call, on the main thread.
@@ -466,7 +475,17 @@ impl Inner {
             let world = unsafe { WKContentWorld::defaultClientWorld(mtm) };
             target.evaluate(&script, None, &world, Some(&counted));
         });
-        web.find(&NSString::from_str(text), Some(&configuration), &done);
+        let query = NSString::from_str(&text);
+        if *self.find_text.borrow() == text {
+            return web.find(&query, Some(&configuration), &done);
+        }
+        // WebKit finds from the selection, the previous match: a new text starts again at the top.
+        *self.find_text.borrow_mut() = text;
+        let again = web.retain();
+        let restart = RcBlock::new(move |_: *mut AnyObject, _: *mut NSError| again.find(&query, Some(&configuration), &done));
+        // SAFETY: main thread (marker); the script runs in the shell's isolated world and only clears the selection.
+        let world = unsafe { WKContentWorld::defaultClientWorld(self.mtm) };
+        web.evaluate(&NSString::from_str(find::RESTART), None, &world, Some(&restart));
     }
 
     fn close(&self) {
@@ -574,10 +593,10 @@ pub fn register(components: &Components) {
         "tarn.webview",
         Rc::new(|context: ComponentContext| -> Box<dyn NativeComponent> {
             let mtm = MainThreadMarker::new().expect("components are made on the main thread");
-            let inner = Rc::new(Inner {
+            let inner = Rc::new_cyclic(|weak| Inner {
                 mtm,
                 context,
-                root: UIView::new(mtm),
+                root: crate::page_root::PageRoot::view(mtm, weak.clone()),
                 props: RefCell::new(Props::default()),
                 built: RefCell::new(None),
                 level_dirty: Cell::new(false),
@@ -587,6 +606,7 @@ pub fn register(components: &Components) {
                 shell_load: RefCell::new(None),
                 opener: RefCell::new(None),
                 shell_history: Cell::new(false),
+                find_text: RefCell::default(),
                 popups: RefCell::default(),
                 downloads: RefCell::default(),
                 zoom: Cell::new(1.0),

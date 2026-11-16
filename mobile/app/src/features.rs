@@ -78,11 +78,25 @@ impl<D: Platform> Shell<D> {
         }
     }
 
-    pub fn close_duplicates(&mut self) {
+    /// The tabs Close Duplicates closes: every later tab with the page of an earlier one.
+    pub fn duplicate_tabs(&self) -> Vec<TabKey> {
         let urls: BTreeMap<Id, String> = self.model.tabs.iter().map(|t| (t.id, self.tab_url(self.model.key(t)))).collect();
         let ids = duplicates(&self.model.tabs, self.model.active.map(|k| k.id), |t| urls.get(&t.id).cloned().unwrap_or_default());
         let private = self.model.private();
-        let keys: Vec<TabKey> = ids.into_iter().map(|id| TabKey { private, id }).collect();
+        ids.into_iter().map(|id| TabKey { private, id }).collect()
+    }
+
+    /// Whether Zap Element has a page to pick from that keeps what it hides.
+    pub fn zappable(&self) -> bool {
+        !self.model.private() && self.share_url().is_some()
+    }
+
+    pub fn permissions(&self) -> Vec<browser_core::permissions::SitePermission> {
+        self.profile_id().map(|p| browser_core::permissions::list(self.store(), p)).unwrap_or_default()
+    }
+
+    pub fn close_duplicates(&mut self) {
+        let keys = self.duplicate_tabs();
         match keys.len() {
             0 => self.notice = Some("No duplicate tabs in this space.".into()),
             n => {

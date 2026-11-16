@@ -1,6 +1,7 @@
 use browser_core::command::ENGINES;
 use browser_core::tabs::TabKey;
 use nsh_base::{alert_dialog, button, input};
+use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use serde_json::json;
 use shield::ShieldLevel;
@@ -13,6 +14,7 @@ use super::{
 };
 use crate::shell::{FILTER_SWITCHES, SpaceItem};
 use crate::theme::{GAP, SHEET_WIDTH, Secure, TAB_MIN_WIDTH, TAB_PREVIEW_HEIGHT, TEXT_TITLE, TOUCH_TARGET, Theme};
+use tarn_nsh_shared::controls::empty_state;
 use tarn_nsh_shared::panes::{self, Pane};
 
 fn title(screen: Screen) -> &'static str {
@@ -126,7 +128,6 @@ fn tabs(ui: Ui) -> impl IntoElement {
                 .collect::<Vec<(TabKey, String, String)>>()
         })
     };
-    let movable = computed(move || ui.read(|s| !s.in_burner() && s.model.active.is_some_and(|k| !s.move_targets(k).is_empty())));
     let split = move |f: fn(&mut super::AppShell, TabKey) -> bool| {
         move || {
             ui.act(|s| {
@@ -146,6 +147,7 @@ fn tabs(ui: Ui) -> impl IntoElement {
             move |card, _| {
                 let (key, title, url) = card.get_untracked();
                 let current = move || ui.read(|s| s.model.active == Some(key));
+                let movable = move || ui.read(|s| !s.in_burner() && !s.move_targets(key).is_empty());
                 view()
                     .w(move || card_width(ui))
                     .rounded(px(Theme::radius_tile()))
@@ -160,9 +162,7 @@ fn tabs(ui: Ui) -> impl IntoElement {
                             .pl_3()
                             .child(dynamic(move || ui.read(|s| s.in_burner()).then(|| icon(icons::FLAME, Secure::warning))))
                             .child(label(title.clone()).font_weight(FontWeight::SEMIBOLD).number_of_lines(1).flex_1())
-                            .child(dynamic(move || {
-                                (ui.wide() && movable.get()).then(|| icon_button(icons::CHEVRON_RIGHT, "Move to Space", move || ui.show(Screen::Move(key))))
-                            }))
+                            .child(dynamic(move || movable().then(|| icon_button(icons::CHEVRON_RIGHT, "Move to Space", move || ui.show(Screen::Move(key))))))
                             .child(dynamic(move || {
                                 let menu = ui.read(|s| s.splits.menu(s.model.active, key));
                                 (ui.wide() && menu.enabled).then(|| {
@@ -233,18 +233,13 @@ fn tabs(ui: Ui) -> impl IntoElement {
                     });
                     ui.show(Screen::Browse);
                 }))
-                .child(pill("Close Duplicates", move || {
-                    ui.act(|s| {
-                        s.close_duplicates();
-                        Vec::new()
-                    })
-                }))
                 .child(dynamic(move || {
-                    (!ui.wide() && movable.get()).then(|| {
-                        pill("Move Tab", move || {
-                            if let Some(key) = ui.read(|s| s.model.active) {
-                                ui.show(Screen::Move(key));
-                            }
+                    ui.read(|s| !s.duplicate_tabs().is_empty()).then(|| {
+                        pill("Close Duplicates", move || {
+                            ui.act(|s| {
+                                s.close_duplicates();
+                                Vec::new()
+                            })
                         })
                     })
                 }))
@@ -315,14 +310,18 @@ fn menu(ui: Ui) -> impl IntoElement {
                         })
                     })
                 }))
-                .child(row(icons::UNDO, "Reopen Closed Tab", move || {
-                    ui.act(|s| {
-                        if !s.reopen_closed() {
-                            s.notice = Some("No closed tab to reopen.".into());
-                        }
-                        Vec::new()
-                    });
-                    ui.show(Screen::Browse);
+                .child(dynamic(move || {
+                    ui.read(|s| !s.model.closed_tabs.is_empty()).then(|| {
+                        row(icons::UNDO, "Reopen Closed Tab", move || {
+                            ui.act(|s| {
+                                if !s.reopen_closed() {
+                                    s.notice = Some("No closed tab to reopen.".into());
+                                }
+                                Vec::new()
+                            });
+                            ui.show(Screen::Browse);
+                        })
+                    })
                 })),
         ))
         .child(framed(
@@ -346,9 +345,13 @@ fn menu(ui: Ui) -> impl IntoElement {
                         .child(pill("+", move || zoom(0.1)).accessibility_label("Zoom In")),
                 )
                 .child(row(icons::SHIELD, "Shield and Settings for This Site", move || ui.show(Screen::Shield)))
-                .child(row(icons::CLOSE, "Zap Element", move || {
-                    ui.show(Screen::Browse);
-                    ui.act(|s| s.pick());
+                .child(dynamic(move || {
+                    ui.read(|s| s.zappable()).then(|| {
+                        row(icons::CLOSE, "Zap Element", move || {
+                            ui.show(Screen::Browse);
+                            ui.act(|s| s.pick());
+                        })
+                    })
                 })),
         ))
         .child(framed(
@@ -438,7 +441,7 @@ fn site_shield(ui: Ui) -> impl IntoElement {
                 }, true)
             })
         }))
-        .child(caption(move || format!("Profile default: {}", ui.read(|s| s.default_level().as_str()))))
+        .child(caption(move || format!("Profile default: {}", ui.read_data(|s| s.default_level().as_str()))))
         .child(caption("Standard blocks trackers and private-network requests. Strict adds HTTPS-only. Lockdown also turns JavaScript off and keeps website data in memory."))
         .child(sheets::site(ui))
 }
@@ -467,7 +470,7 @@ fn settings(ui: Ui) -> impl IntoElement {
         .child(sheets::shield_card(ui))
         .child(pane_heading(Pane::General))
         .child(section("Downloads"))
-        .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
+        .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
             ui.act(|s| {
                 let on = s.setting_on(crate::scripts::SORT_DOWNLOADS);
                 s.set_setting_on(crate::scripts::SORT_DOWNLOADS, !on)
@@ -486,7 +489,7 @@ fn settings(ui: Ui) -> impl IntoElement {
                 .map(|(ix, engine)| {
                     (
                         engine.name.to_owned(),
-                        Box::new(move || ui.read(|s| s.search_engine()) == ix) as Box<dyn Fn() -> bool>,
+                        Box::new(move || ui.read_data(|s| s.search_engine()) == ix) as Box<dyn Fn() -> bool>,
                         Box::new(move || ui.act(|s| {
                             s.set_search_engine(ix);
                             Vec::new()
@@ -496,7 +499,7 @@ fn settings(ui: Ui) -> impl IntoElement {
                 .collect(),
         ))
         .child(section("History"))
-        .child(framed(group().child(switch_row("Search the text of visited pages", move || ui.read(|s| s.setting_on(crate::scripts::HISTORY_TEXT)), move || {
+        .child(framed(group().child(switch_row("Search the text of visited pages", move || ui.read_data(|s| s.setting_on(crate::scripts::HISTORY_TEXT)), move || {
             ui.act(|s| {
                 let on = s.setting_on(crate::scripts::HISTORY_TEXT);
                 s.set_setting_on(crate::scripts::HISTORY_TEXT, !on)
@@ -505,7 +508,7 @@ fn settings(ui: Ui) -> impl IntoElement {
         .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1())
         .child(pane_heading(Pane::Privacy))
         .child(section("Shield"))
-        .child(levels(move || Some(ui.read(|s| s.default_level())), move |level| {
+        .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
             ui.act(|s| {
                 if let Some(level) = level {
                     s.set_default_level(level);
@@ -515,7 +518,7 @@ fn settings(ui: Ui) -> impl IntoElement {
         }, false))
         .child(section("Filter lists"))
         .child(framed(group().child(FILTER_SWITCHES.iter().map(|(key, name, _)| {
-            switch_row(*name, move || ui.read(|s| s.filter_switch(key)), move || {
+            switch_row(*name, move || ui.read_data(|s| s.filter_switch(key)), move || {
                 ui.act(|s| {
                     s.set_filter_switch(key, !s.filter_switch(key));
                     Vec::new()
@@ -529,29 +532,31 @@ fn settings(ui: Ui) -> impl IntoElement {
         .child(permissions(ui))
         .child(section("Your data"))
         .child(framed(group().child(row(icons::TRASH, "Clear Browsing Data…", move || {
-            let answer = alert_dialog()
-                .title("Clear browsing data?")
-                .description("History, downloads list, closed tabs and this profile's website data are removed.")
-                .cancel("cancel", "Cancel")
-                .destructive("clear", "Clear")
-                .show();
-            spawn(async move {
-                if answer.await.is_ok_and(|a| a.action.as_deref() == Some("clear")) {
-                    ui.act(|s| {
-                        s.clear_data();
-                        Vec::new()
-                    });
-                }
-            });
+            confirm("Clear browsing data?", "History, downloads list, closed tabs and this profile's website data are removed.", "Clear", move || {
+                ui.act(|s| {
+                    s.clear_data();
+                    Vec::new()
+                })
+            })
         }))))
+}
+
+/// Asks before a destructive action, which runs only on `action`.
+pub(super) fn confirm(title: &'static str, description: &'static str, action: &'static str, then: impl FnOnce() + 'static) {
+    let answer = alert_dialog().title(title).description(description).cancel("cancel", "Cancel").destructive("confirm", action).show();
+    spawn(async move {
+        if answer.await.is_ok_and(|a| a.action.as_deref() == Some("confirm")) {
+            then();
+        }
+    });
 }
 
 /// The profile's remembered site permissions, each with Allow, Block and Forget.
 fn permissions(ui: Ui) -> impl IntoElement {
     dynamic(move || {
-        let rows = ui.read(|s| s.profile_id().map(|p| browser_core::permissions::list(s.store(), p)).unwrap_or_default());
+        let rows = ui.read_data(|s| s.permissions());
         if rows.is_empty() {
-            return caption("No site has asked yet. A camera, microphone or location answer you remember shows here.").number_of_lines(0).px_1().into_element();
+            return empty_state("No site has asked yet. A camera, microphone or location answer you remember shows here.").into_element();
         }
         let set = move |origin: String, kind: String, allow: Option<bool>| {
             move || {
@@ -625,8 +630,8 @@ fn history(ui: Ui) -> impl IntoElement {
         .child(dynamic(move || {
             let (count, q) = (found.with(Vec::len), query.get());
             Some(match (count, q.trim().is_empty()) {
-                (0, true) => caption("No history yet").px_1().into_element(),
-                (0, false) => caption(format!("No results for “{}”", q.trim())).px_1().into_element(),
+                (0, true) => empty_state("No history yet").into_element(),
+                (0, false) => empty_state(format!("No results for “{}”", q.trim())).into_element(),
                 (n, _) => small(if n == 1 { "1 page".to_owned() } else { format!("{n} pages") }).px_1().into_element(),
             })
         }))
@@ -652,7 +657,7 @@ fn downloads(ui: Ui) -> impl IntoElement {
         .gap_2()
         .child(caption("Downloads are saved in the Files app under Tarn › Downloads and are never opened automatically.").px_1())
         .child(sheets::transfers(ui))
-        .child(dynamic(move || rows().is_empty().then(|| caption("No downloads yet").px_1())))
+        .child(dynamic(move || rows().is_empty().then(|| empty_state("No downloads yet"))))
         .child(framed(group().child(each(
             rows,
             |d: &store::Download| d.id,
@@ -675,7 +680,7 @@ fn downloads(ui: Ui) -> impl IntoElement {
 
 fn spaces(ui: Ui) -> impl IntoElement {
     let name = signal(String::new());
-    let rows = move || ui.read(|s| s.spaces());
+    let rows = move || ui.read_data(|s| s.spaces());
     let current = move || ui.read(|s| s.model.space_ix);
     let add = move |profile: bool| {
         let n = name.get_untracked();
@@ -749,6 +754,10 @@ fn find(ui: Ui) -> impl IntoElement {
         ui.act(|s| s.active_command("find", json!({ "text": text, "backwards": backwards })));
     };
     let count = move || ui.read(|s| s.found).filter(|_| !query.get().is_empty());
+    let always = KeyOptions { when: When::Always, ..KeyOptions::default() };
+    on_key_with("escape", always, move |_| ui.show(Screen::Browse));
+    on_key_with("mod+g", always, move |_| search(false));
+    on_key_with("shift+mod+g", always, move |_| search(true));
     surface(Theme::radius_panel())
         .flex_row()
         .items_center()
@@ -765,6 +774,10 @@ fn find(ui: Ui) -> impl IntoElement {
                 .on_change(move |v: &str| {
                     let typed = v.to_owned();
                     query.set(typed.clone());
+                    ui.act_on_screen(|s| {
+                        s.found = None;
+                        Vec::new()
+                    });
                     set_timeout(sheets::FIND_DELAY, move || {
                         if query.get_untracked() == typed {
                             search(false);

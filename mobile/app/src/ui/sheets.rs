@@ -168,7 +168,7 @@ pub fn qr(ui: Ui) -> impl IntoElement {
 }
 
 pub fn reading_list(ui: Ui) -> impl IntoElement {
-    let rows = move || ui.read(|s| s.reading_list());
+    let rows = move || ui.read_data(|s| s.reading_list());
     view().gap_2().child(caption("Pages you saved for later, kept as bookmarks in the Reading List folder.").px_1()).child(framed(view().child(each(
         rows,
         |b: &store::Bookmark| b.id,
@@ -395,7 +395,7 @@ pub fn space_edit(ui: Ui, ix: usize) -> impl IntoElement {
 }
 
 pub fn snapshots(ui: Ui, name: Signal<String>) -> impl IntoElement {
-    let rows = move || ui.read(|s| s.snapshots());
+    let rows = move || ui.read_data(|s| s.snapshots());
     let none = move || rows().is_empty();
     view()
         .gap_2()
@@ -432,9 +432,12 @@ pub fn snapshots(ui: Ui, name: Signal<String>) -> impl IntoElement {
                             .flex_1(),
                         )
                         .child(icon_button(icons::TRASH, "Delete Snapshot", move || {
-                            ui.act(|s| {
-                                s.delete_snapshot(&remove);
-                                Vec::new()
+                            let remove = remove.clone();
+                            super::panels::confirm("Delete this snapshot?", "Its saved tabs cannot be restored afterwards.", "Delete", move || {
+                                ui.act(|s| {
+                                    s.delete_snapshot(&remove);
+                                    Vec::new()
+                                })
                             })
                         }))
                 },

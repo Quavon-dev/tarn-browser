@@ -4,6 +4,7 @@ mod controls;
 mod panels;
 mod prompt;
 mod sheets;
+mod split;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -56,6 +57,14 @@ thread_local! {
 #[derive(Clone, Copy)]
 pub struct Ui {
     rev: Signal<u64>,
+    /// Moves on every action that may change the profile's stored data, not on the pages' events.
+    changes: Signal<u64>,
+    /// The page area's frame in the window.
+    pub area: Signal<Bounds<Points>>,
+    /// A pane header being dragged, and the pane it would swap with.
+    pub dragging: Signal<Option<(TabKey, Option<TabKey>)>>,
+    /// The suggestion row the keyboard's arrows highlight.
+    pub picked: Signal<Option<usize>>,
     pub screen: Signal<Screen>,
     pub address: Signal<String>,
     pub editing: Signal<bool>,
@@ -70,9 +79,35 @@ impl Ui {
         SHELL.with(|s| f(s.borrow().as_ref().expect("the shell opens with the app")))
     }
 
+    /// Reads what only the actions change, such as the profile's stored data, and not the pages' events.
+    pub fn read_data<T>(self, f: impl FnOnce(&AppShell) -> T) -> T {
+        self.changes.get();
+        SHELL.with(|s| f(s.borrow().as_ref().expect("the shell opens with the app")))
+    }
+
     pub fn act(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>) {
+        self.run(f, true);
+    }
+
+    /// An action that changes what is on screen but none of the profile's stored data.
+    pub fn act_on_screen(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>) {
+        self.run(f, false);
+    }
+
+    fn event(self, key: TabKey, e: &NativeEvent) {
+        if &*e.name == "pressed" && self.read(|s| s.model.active == Some(key)) {
+            return;
+        }
+        // A picked element is stored, and a pop-up may open in another profile's space.
+        self.run(|s| s.event(key, &e.name, &e.data, browser_core::now()), matches!(&*e.name, "picked" | "popup"));
+    }
+
+    fn run(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>, changed: bool) {
         let effects = SHELL.with(|s| f(s.borrow_mut().as_mut().expect("the shell opens with the app")));
         self.rev.update(|r| *r += 1);
+        if changed {
+            self.changes.update(|r| *r += 1);
+        }
         for effect in effects {
             match effect {
                 Effect::Command(key, name, args) => VIEWS.with(|v| {
@@ -156,9 +191,9 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
             let shown = ui.pane(key).is_some();
             json!(ui.read(|s| (shown || s.model.active == Some(key)) && s.active_prompt().is_none() && s.external.is_none()))
         })
-        .on_native_event(move |e: &NativeEvent| ui.act(|s| s.event(key, &e.name, &e.data, browser_core::now())))
+        .on_native_event(move |e: &NativeEvent| ui.event(key, e))
         .flex_1();
-    let focused = move || ui.read(|s| s.model.active == Some(key));
+    let focused = move || ui.read(|s| s.model.active == Some(key)) || ui.dragging.get().is_some_and(|(_, over)| over == Some(key));
     view()
         .style_with(move |s| match ui.pane(key) {
             Some((x, y, w, h)) => {
@@ -180,7 +215,7 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
 
 fn pane_header(ui: Ui, key: TabKey) -> impl IntoElement {
     let title = move || ui.read(|s| Some(s.tab_title(key)).filter(|t| !t.is_empty()).unwrap_or_else(|| "New Tab".to_owned()));
-    view()
+    split::draggable(ui, key, view())
         .flex_row()
         .items_center()
         .h(px(PANE_HEADER))
@@ -350,6 +385,10 @@ pub fn App() -> impl IntoElement {
     open_shell();
     let ui = Ui {
         rev: signal(0),
+        changes: signal(0),
+        area: signal(Bounds::default()),
+        dragging: signal(None),
+        picked: signal(None),
         screen: signal(Screen::Browse),
         address: signal(String::new()),
         editing: signal(false),
@@ -376,7 +415,8 @@ pub fn App() -> impl IntoElement {
         });
     });
     on_back_press(move || untracked(|| back(ui)));
-    let pages = computed(move || ui.read(|s| s.views()));
+    let profile = computed(move || ui.read_data(|s| s.profile_props()));
+    let pages = computed(move || profile.with(|p| ui.read(|s| s.views_from(p.as_ref()))));
     let reading = move || ui.read(|s| s.reader.as_ref().map(|r| (r.key, r.url.clone())));
     effect(move || match reading() {
         Some(_) => ui.show(Screen::Reader),
@@ -409,6 +449,7 @@ pub fn App() -> impl IntoElement {
             view()
                 .flex_1()
                 .relative()
+                .on_layout(move |bounds: &Bounds<Points>| ui.area.set(*bounds))
                 .child(
                     view()
                         .z_index(1)
@@ -418,6 +459,7 @@ pub fn App() -> impl IntoElement {
                         .child(bars::page_error(ui)),
                 )
                 .child(each(move || pages.get(), |v: &ViewProps| (v.key, v.born), move |item, _| web_view(ui, item)))
+                .child(split::dividers(ui))
                 .child(start(ui))
                 .child(bars::suggestions(ui))
                 .child(prompt::prompt_panel(ui))

@@ -44,6 +44,13 @@ All notable changes to Tarn are documented in this file. The format is based on
   another row's edge moves it there.
 - Android: the system back gesture closes a prompt, a sheet or the address field before it goes
   back in the page; iOS and Android sheets have a Back button to the sheet they came from.
+- iOS and Android tablets: a split's dividers drag and a double tap evens them out, a pane header
+  dropped on another pane swaps the two, and a tap on a pane's page focuses it. With a hardware
+  keyboard, Esc declines a page's dialog or permission prompt without remembering it, Enter
+  accepts an alert or confirm, arrows and Page Up / Page Down pick address suggestions, and
+  ⌘G / ⇧⌘G (Ctrl on Android) and Esc work in the find bar. The menu and Tabs sheet leave out
+  Reopen Closed Tab, Close Duplicates and Zap Element when they have nothing to act on, every tab
+  card offers Move to Space, and deleting a snapshot asks first.
 - Clean Up under New Tab sorts tabs into groups on this device and archives unused tabs (macOS,
   Windows).
 - Tiles arrange themselves: one row while they fit, then as few rows as fit, filled evenly; Add to
@@ -92,6 +99,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- iOS and Android: Back and Forward are dimmed when there is nowhere to go, also after a page
+  changes its address in place (`pushState`, a fragment); on iOS, typing in the find bar starts
+  again at the first match instead of stepping forward with every key; a primary button's label
+  turns dark when white would drop under 3:1 on a theme's accent (also Linux); the switch's thumb
+  and off track keep their contrast in the light theme.
 - macOS and Windows: the loading spinner stops when a load fails or the tab sleeps; banners show
   up to three lines; the site settings popover scrolls when it is tall; the hover card stays
   inside the window; the reader's controls stay in view while the article scrolls; a switch that

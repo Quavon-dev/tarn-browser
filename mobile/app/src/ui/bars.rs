@@ -1,10 +1,13 @@
+use browser_core::suggest::step_selection;
 use nsh_base::{button, input};
+use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use serde_json::Value;
 use shield::ShieldLevel;
 
 use super::controls::icon;
 use super::{Screen, Ui, accent_pill, caption, detail_row, icon_button, icons, label, pill, small, surface};
+use crate::shell::Page;
 use crate::theme::{BADGE_SIZE, SYSTEM_FONT, Secure, TEXT_SMALL, TEXT_TITLE, TOOLBAR_HEIGHT, TOUCH_TARGET, Theme, themed};
 
 fn level_name(level: Option<ShieldLevel>) -> &'static str {
@@ -15,12 +18,18 @@ fn level_name(level: Option<ShieldLevel>) -> &'static str {
     }
 }
 
+fn history_button(ui: Ui, asset: ImageAsset, name: &'static str, command: &'static str, can: fn(&Page) -> bool) -> impl IntoElement {
+    icon_button(asset, name, move || ui.act_on_screen(|s| s.active_command(command, Value::Null)))
+        .disabled(move || !ui.read(|s| s.active_page().is_some_and(can)))
+        .disabled_style(|s| s.opacity(0.35))
+}
+
 fn back(ui: Ui) -> impl IntoElement {
-    icon_button(icons::BACK, "Back", move || ui.act(|s| s.active_command("back", Value::Null)))
+    history_button(ui, icons::BACK, "Back", "back", |p| p.back)
 }
 
 fn forward(ui: Ui) -> impl IntoElement {
-    icon_button(icons::FORWARD, "Forward", move || ui.act(|s| s.active_command("forward", Value::Null)))
+    history_button(ui, icons::FORWARD, "Forward", "forward", |p| p.forward)
 }
 
 fn tabs(ui: Ui) -> impl IntoElement {
@@ -180,6 +189,7 @@ pub fn top_bar(ui: Ui) -> impl IntoElement {
                             ui.address.set(current);
                             typed.set(String::new());
                             completed.set(None);
+                            ui.picked.set(None);
                             ui.suggest.set(Vec::new());
                             history.set(std::rc::Rc::new(ui.read(|s| s.suggestion_history())));
                             ui.editing.set(true);
@@ -191,6 +201,7 @@ pub fn top_bar(ui: Ui) -> impl IntoElement {
                             }
                             let (rows, completion) = ui.read(|s| s.suggest_from(&history.get_untracked(), &typed.get_untracked(), value));
                             typed.set(value.to_owned());
+                            ui.picked.set(None);
                             ui.suggest.set(rows);
                             let full = format!("{value}{}", completion.as_ref().map_or("", |c| c.suffix.as_str()));
                             completed.set(completion.map(|c| (full.clone(), c.url.to_string())));
@@ -200,7 +211,10 @@ pub fn top_bar(ui: Ui) -> impl IntoElement {
                             }
                         })
                         .on_submit(move |value: &str| {
-                            let typed = completed.get_untracked().filter(|(full, _)| full == value).map_or_else(|| value.to_owned(), |(_, url)| url);
+                            let picked = ui.picked.get_untracked().and_then(|ix| ui.suggest.with_untracked(|rows| rows.get(ix).map(|h| h.url.clone())));
+                            let typed = picked
+                                .or_else(|| completed.get_untracked().filter(|(full, _)| full == value).map(|(_, url)| url))
+                                .unwrap_or_else(|| value.to_owned());
                             ui.editing.set(false);
                             ui.fresh.set(None);
                             ui.screen.set(Screen::Browse);
@@ -294,13 +308,43 @@ pub fn bottom_bar(ui: Ui) -> impl IntoElement {
         .child(icon_button(icons::MENU, "Menu", move || ui.toggle(Screen::Menu)))
 }
 
+/// While the address field is edited, Up and Down step through the rows and wrap at the ends; Page
+/// Up and Page Down jump to the first and last. Elsewhere the keys stay with the page.
+fn suggestion_keys(ui: Ui) -> impl IntoElement {
+    dynamic(move || {
+        ui.editing.get().then(|| {
+            bind_suggestion_keys(ui);
+            view()
+        })
+    })
+}
+
+fn bind_suggestion_keys(ui: Ui) {
+    for key in ["up", "down", "pageup", "pagedown"] {
+        on_key_with(key, KeyOptions { when: When::Always, repeat: true, ..KeyOptions::default() }, move |_| {
+            let len = ui.suggest.with_untracked(Vec::len);
+            if len == 0 {
+                return;
+            }
+            let forward = matches!(key, "down" | "pagedown");
+            let next = match (key, ui.picked.get_untracked()) {
+                ("pageup", _) => 0,
+                ("pagedown", _) => len - 1,
+                (_, Some(at)) => step_selection(at, len, forward),
+                (_, None) => step_selection(if forward { len - 1 } else { 0 }, len, forward),
+            };
+            ui.picked.set(Some(next));
+        });
+    }
+}
+
 pub fn suggestions(ui: Ui) -> impl IntoElement {
     let found = move || if ui.editing.get() { ui.suggest.get() } else { Vec::new() };
-    scroll().flex_1().style_when(move || !ui.editing.get(), |s| s.hidden()).child(
+    scroll().flex_1().style_when(move || !ui.editing.get(), |s| s.hidden()).child(suggestion_keys(ui)).child(
         surface(Theme::radius_panel()).p_1().m_2().style_when(move || found().is_empty(), |s| s.hidden()).child(each(
             found,
             |h: &store::HistoryEntry| h.url.clone(),
-            move |h, _| {
+            move |h, ix| {
                 let entry = h.get_untracked();
                 let url = entry.url.clone();
                 let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title.clone() };
@@ -312,6 +356,7 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
                 })
                 .border_b(px(0.))
                 .rounded(px(Theme::radius_row()))
+                .bg(move || if ui.picked.get() == Some(ix.get()) { Theme::selected() } else { Theme::clear() })
             },
         )),
     )

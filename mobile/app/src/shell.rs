@@ -65,6 +65,18 @@ pub struct ViewProps {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct ProfileProps {
+    pub profile: String,
+    pub level: ShieldLevel,
+    pub levels: BTreeMap<String, String>,
+    pub lists: Vec<String>,
+    pub styles: BTreeMap<String, String>,
+    pub theme_styles: Vec<(String, String)>,
+    pub zaps: BTreeMap<String, Vec<String>>,
+    pub sort_downloads: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct PromptRequest {
     pub tab: TabKey,
     pub prompt: Prompt,
@@ -213,27 +225,44 @@ impl<D: Platform> Shell<D> {
         self.model.profile().is_some_and(|(private, id)| self.core.keeps_records(private, id))
     }
 
-    pub fn views(&self) -> Vec<ViewProps> {
-        let Some((private, profile_id)) = self.model.profile() else { return Vec::new() };
-        let Some(profile) = self.store_id(private, profile_id) else { return Vec::new() };
+    /// What every view of the current profile shares, read from its stores.
+    pub fn profile_props(&self) -> Option<ProfileProps> {
+        let (private, profile_id) = self.model.profile()?;
+        let profile = self.store_id(private, profile_id)?;
         let profiles = self.core.profiles.borrow();
-        let Some(rt) = profiles.get(&(private, profile_id)) else { return Vec::new() };
+        let rt = profiles.get(&(private, profile_id))?;
         let mut levels: BTreeMap<String, String> = rt.overrides.borrow().iter().map(|(h, l)| (h.clone(), l.as_str().to_owned())).collect();
         levels.insert(DEFAULT_LEVEL_KEY.to_owned(), rt.profile.shield_level.as_str().to_owned());
-        let lists = shield::groups::switched_on(|k| self.core.disk.setting(k).ok().flatten());
         let store = self.core.store(private);
-        let styles: BTreeMap<String, String> =
-            engine::page_scripts::site_styles(store.site_css(profile_id).unwrap_or_default(), store.dark_sites(profile_id).unwrap_or_default())
-                .into_iter()
-                .collect();
-        let theme_styles = self.theme_styles(private, profile_id);
+        let styles = engine::page_scripts::site_styles(store.site_css(profile_id).unwrap_or_default(), store.dark_sites(profile_id).unwrap_or_default())
+            .into_iter()
+            .collect();
         let mut zaps: BTreeMap<String, Vec<String>> = BTreeMap::new();
         if !private {
             for (host, selector) in store.zapped_elements(profile_id).unwrap_or_default() {
                 zaps.entry(host).or_default().push(selector);
             }
         }
-        let sort_downloads = self.setting_on(crate::scripts::SORT_DOWNLOADS);
+        Some(ProfileProps {
+            profile,
+            level: rt.profile.shield_level,
+            levels,
+            lists: shield::groups::switched_on(|k| self.core.disk.setting(k).ok().flatten()),
+            styles,
+            theme_styles: self.theme_styles(private, profile_id),
+            zaps,
+            sort_downloads: self.setting_on(crate::scripts::SORT_DOWNLOADS),
+        })
+    }
+
+    pub fn views(&self) -> Vec<ViewProps> {
+        self.views_from(self.profile_props().as_ref())
+    }
+
+    /// The live tabs' views over `props`, which `profile_props` read and the caller may keep until
+    /// the profile's data changes.
+    pub fn views_from(&self, props: Option<&ProfileProps>) -> Vec<ViewProps> {
+        let Some(props) = props else { return Vec::new() };
         let mut keys: Vec<TabKey> = self.model.lifecycle.live().filter(|k| self.model.tab(*k).is_some()).collect();
         keys.sort_by_key(|k| k.id);
         keys.into_iter()
@@ -241,14 +270,14 @@ impl<D: Platform> Shell<D> {
                 key,
                 born: self.model.lifecycle.born(key).unwrap_or_default(),
                 tab: format!("{}{}", if key.private { "p" } else { "n" }, key.id),
-                profile: profile.clone(),
-                level: rt.profile.shield_level,
-                levels: levels.clone(),
-                lists: lists.clone(),
-                styles: styles.clone(),
-                theme_styles: theme_styles.clone(),
-                zaps: zaps.clone(),
-                sort_downloads,
+                profile: props.profile.clone(),
+                level: props.level,
+                levels: props.levels.clone(),
+                lists: props.lists.clone(),
+                styles: props.styles.clone(),
+                theme_styles: props.theme_styles.clone(),
+                zaps: props.zaps.clone(),
+                sort_downloads: props.sort_downloads,
                 load: self.loads.get(&key).cloned(),
             })
             .collect()
