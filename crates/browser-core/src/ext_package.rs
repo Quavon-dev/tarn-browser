@@ -191,7 +191,7 @@ fn seal(dir: &Path) -> std::io::Result<()> {
 }
 
 /// Windows keeps only a read-only flag, which it honours on files.
-fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
+pub(crate) fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
     #[cfg(unix)]
     return fs::set_permissions(path, fs::Permissions::from_mode(mode));
     #[cfg(not(unix))]

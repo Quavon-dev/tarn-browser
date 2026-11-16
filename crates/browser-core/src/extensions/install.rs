@@ -454,9 +454,8 @@ mod tests {
         let slot = slot(&store, profile, &root.path().join("Extensions"), None, || "0123456789abcdef0123456789abcdef".to_owned()).unwrap();
         let Fetched::Offer(offer) = fetch(&NoNet, Install::File(file), &slot, &BTreeSet::new(), "seed", &[]).unwrap() else { panic!("no offer") };
         let p = pending(slot.clone(), offer).unwrap();
-        use std::os::unix::fs::PermissionsExt;
         let script = slot.dir.join("c.js");
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o600)).unwrap();
+        crate::ext_package::set_mode(&script, 0o600).unwrap();
         std::fs::write(&script, "steal()").unwrap();
         assert!(confirm(&store, &p).is_err());
         assert!(store.extensions(profile).unwrap().is_empty());

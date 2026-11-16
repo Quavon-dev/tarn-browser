@@ -2,7 +2,9 @@
 //! profile's views, the site prompt is raised where the gate asks, and the runtime's effects are
 //! carried out. Every decision is the core's; this module only renders and forwards.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+#[cfg(target_os = "macos")]
+use std::collections::BTreeMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -31,6 +33,7 @@ use crate::prefs::Pref;
 use crate::shared::AppCore;
 
 pub(crate) const TICK: Duration = Duration::from_secs(5);
+#[cfg(target_os = "macos")]
 const GROUP: &str = "tarn-ext";
 
 /// What reaches the shell from the engine and the UI, handled outside any window's update.
