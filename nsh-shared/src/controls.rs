@@ -328,6 +328,19 @@ pub fn avatar(initial: String, fill: Rgba, size: f32) -> View {
         .child(text(initial).text_size(px((size * 0.5).round())).font_weight(FontWeight::BOLD).text_color(Theme::on_fill(fill)))
 }
 
+/// A site's icon (a `data:` or file URI), else its initial on the site's colour.
+pub fn site_tile(icon: Option<String>, host: &str, size: f32) -> View {
+    let tile = view().w(px(size)).h(px(size)).flex_none().rounded(px(size * 0.28)).overflow_hidden().items_center().justify_center();
+    if let Some(icon) = icon {
+        return tile.child(image(icon).w(px(size)).h(px(size)));
+    }
+    let letter = host.trim_start_matches("www.").chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().to_string()).unwrap_or_default();
+    if letter.is_empty() {
+        return tile.bg(Theme::control());
+    }
+    tile.bg(Theme::monogram(host)).child(text(letter).text_size(px((size * 0.62).round())).font_weight(FontWeight::BOLD).text_color(Theme::text()))
+}
+
 pub fn section(name: impl IntoReactive<SharedString>) -> Text {
     let header = label(name).font_weight(FontWeight::SEMIBOLD).px_1();
     match density() {

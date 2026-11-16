@@ -2,6 +2,8 @@
 //! and user agent apply; the shell only picks same-site URLs, or another site's the page already
 //! loaded from, and decodes the bytes with limits.
 
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::io::Cursor;
 
 use base64::Engine as _;
@@ -23,7 +25,7 @@ pub const MAX_AGE: i64 = 30 * 24 * 3_600_000;
 /// icons are keyed by host and a service on another port must not set the site's icon, and never
 /// under Lockdown.
 pub fn icon_host(url: &Url, lockdown: bool) -> Option<String> {
-    url.host_str().filter(|_| url.scheme() == "https" && url.port().is_none() && !lockdown).map(str::to_ascii_lowercase)
+    url.host_str().filter(|_| url.scheme() == "https" && url.port().is_none() && !lockdown).map(|h| h.trim_end_matches('.').to_ascii_lowercase())
 }
 
 /// An icon may come from the page's host or a subdomain of it (a `www.` prefix is ignored), so a
@@ -136,6 +138,96 @@ fn is_dark_on_clear(icon: &RgbaImage) -> bool {
     luma / opaque.len() as u64 <= 60
 }
 
+/// `png` as a `data:` URI, for shells that show images by URI.
+pub fn data_uri(png: &[u8]) -> String {
+    format!("data:image/png;base64,{}", STANDARD.encode(png))
+}
+
+/// A shell's site icons by profile and host, with the fetch bookkeeping every client shares:
+/// a profile's stored icons load once, a stored icon older than `MAX_AGE` is fetched again on its
+/// site's next load and kept if that fails, and a failed fetch is retried up to `MAX_TRIES` times
+/// a session.
+pub struct Icons<P, T> {
+    icons: HashMap<(P, String), T>,
+    loaded: HashSet<P>,
+    requested: HashSet<(P, String)>,
+    failures: HashMap<(P, String), u8>,
+    stale: HashSet<(P, String)>,
+}
+
+impl<P, T> Default for Icons<P, T> {
+    fn default() -> Self {
+        Self { icons: HashMap::new(), loaded: HashSet::new(), requested: HashSet::new(), failures: HashMap::new(), stale: HashSet::new() }
+    }
+}
+
+impl<P: Copy + Eq + Hash, T> Icons<P, T> {
+    /// Reads `profile`'s stored icons and its stale hosts with `read` the first time only.
+    pub fn load(&mut self, profile: P, read: impl FnOnce() -> (Vec<(String, T)>, Vec<String>)) {
+        if !self.loaded.insert(profile) {
+            return;
+        }
+        let (icons, stale) = read();
+        self.icons.extend(icons.into_iter().map(|(host, icon)| ((profile, host), icon)));
+        self.stale.extend(stale.into_iter().map(|host| (profile, host)));
+    }
+
+    /// The host's icon, else the nearest parent's within its site (`lookup_hosts`).
+    pub fn find(&self, profile: P, host: &str) -> Option<&T> {
+        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        if let Some(icon) = self.icons.get(&(profile, host.clone())) {
+            return Some(icon);
+        }
+        lookup_hosts(&host).into_iter().skip(1).find_map(|host| self.icons.get(&(profile, host)))
+    }
+
+    /// Whether to fetch the host's icon now; it then counts as requested until `stored`, `failed`
+    /// or `withdraw`.
+    pub fn request(&mut self, profile: P, host: &str) -> bool {
+        let key = (profile, host.to_owned());
+        let fresh = self.icons.contains_key(&key) && !self.stale.contains(&key);
+        !fresh && self.failures.get(&key).copied().unwrap_or(0) < MAX_TRIES && self.requested.insert(key)
+    }
+
+    pub fn requested(&self, profile: P, host: &str) -> bool {
+        self.requested.contains(&(profile, host.to_owned()))
+    }
+
+    /// Drops a request that ended without an answer, so the site's next load asks again.
+    pub fn withdraw(&mut self, profile: P, host: &str) {
+        self.requested.remove(&(profile, host.to_owned()));
+    }
+
+    /// Withdraws a request whose fetch failed and counts the failure.
+    pub fn failed(&mut self, profile: P, host: &str) {
+        let key = (profile, host.to_owned());
+        if self.requested.remove(&key) {
+            *self.failures.entry(key).or_default() += 1;
+        }
+    }
+
+    /// Keeps a fetched icon; false when the request was withdrawn meanwhile (a history clear),
+    /// so the caller must not store it.
+    pub fn stored(&mut self, profile: P, host: &str, icon: T) -> bool {
+        let key = (profile, host.to_owned());
+        if !self.requested.remove(&key) {
+            return false;
+        }
+        self.stale.remove(&key);
+        self.icons.insert(key, icon);
+        true
+    }
+
+    /// Forgets everything kept for `profile`, after its history was cleared or it was removed.
+    pub fn forget(&mut self, profile: P) {
+        self.icons.retain(|(p, _), _| *p != profile);
+        self.loaded.remove(&profile);
+        self.requested.retain(|(p, _)| *p != profile);
+        self.failures.retain(|(p, _), _| *p != profile);
+        self.stale.retain(|(p, _)| *p != profile);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +262,7 @@ mod tests {
         let host = |url: &str, lockdown| icon_host(&Url::parse(url).unwrap(), lockdown);
         assert_eq!(host("https://News.A.test/x", false).as_deref(), Some("news.a.test"));
         assert_eq!(host("https://a.test:443/", false).as_deref(), Some("a.test"));
+        assert_eq!(host("https://a.test./", false).as_deref(), Some("a.test"));
         assert_eq!(host("https://a.test/", true), None);
         assert_eq!(host("http://a.test/", false), None);
         assert_eq!(host("https://a.test:8443/", false), None);
@@ -227,5 +320,36 @@ mod tests {
         mark.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).unwrap();
         let out = image::load_from_memory(&normalize(&STANDARD.encode(png)).unwrap()).unwrap().to_rgba8();
         assert_eq!(out.get_pixel(0, 0)[3], 255);
+    }
+
+    #[test]
+    fn icons_fetch_once_retry_failures_and_refresh_stale_ones() {
+        let mut icons: Icons<u8, &str> = Icons::default();
+        icons.load(1, || (vec![("a.test".into(), "a"), ("old.test".into(), "o")], vec!["old.test".into()]));
+        icons.load(1, || panic!("loaded twice"));
+        assert_eq!(icons.find(1, "www.a.test"), Some(&"a"));
+        assert_eq!(icons.find(2, "a.test"), None);
+        assert!(!icons.request(1, "a.test"));
+        assert!(icons.request(1, "old.test") && !icons.request(1, "old.test"));
+        icons.failed(1, "old.test");
+        assert_eq!(icons.find(1, "old.test"), Some(&"o"));
+        for _ in 1..MAX_TRIES {
+            assert!(icons.request(1, "b.test"));
+            icons.failed(1, "b.test");
+        }
+        assert!(icons.request(1, "b.test"));
+        icons.withdraw(1, "b.test");
+        assert!(icons.request(1, "b.test"));
+        icons.failed(1, "b.test");
+        assert!(!icons.request(1, "b.test"));
+        assert!(icons.request(1, "old.test") && icons.stored(1, "old.test", "n"));
+        assert!(!icons.request(1, "old.test"));
+        assert!(icons.request(1, "c.test"));
+        icons.forget(1);
+        assert!(!icons.stored(1, "c.test", "c"));
+        assert_eq!(icons.find(1, "a.test"), None);
+        assert!(icons.request(1, "b.test"));
+        icons.load(1, || (Vec::new(), Vec::new()));
+        assert_eq!(data_uri(b"\x89P"), "data:image/png;base64,iVA=");
     }
 }

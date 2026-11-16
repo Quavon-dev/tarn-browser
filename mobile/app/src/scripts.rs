@@ -1,9 +1,11 @@
 use browser_core::find::{insert_text_rows, named};
 use browser_core::tabs::TabKey;
+use engine::favicon;
 use engine::page_scripts::find_snippets;
 use engine::reader::{Article, Block};
 use serde_json::{Value, json};
-use store::Counter;
+use shield::ShieldLevel;
+use store::{Counter, Id};
 use url::Url;
 
 use crate::data::Platform;
@@ -18,6 +20,8 @@ pub enum Script {
     Probe,
     Article,
     Text,
+    IconLinks,
+    Icon,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -116,7 +120,74 @@ impl<D: Platform> Shell<D> {
         if !self.model.private() && self.records() && self.setting_on(HISTORY_TEXT) && self.visits.contains_key(&key) {
             effects.extend(self.ask(key, Script::Text, "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT })));
         }
+        effects.extend(self.request_icon(key));
         effects
+    }
+
+    /// The profile and host a page in `key` may fetch and store an icon for; none under Lockdown.
+    fn icon_key(&self, key: TabKey, url: &str) -> Option<((bool, Id), String)> {
+        let url = Url::parse(url).ok()?;
+        let profile = self.model.profile_of(&self.core, key)?;
+        let lockdown = self.core.level(key.private, profile, Some(&url)).is_none_or(|l| l == ShieldLevel::Lockdown);
+        Some(((key.private, profile), favicon::icon_host(&url, lockdown)?))
+    }
+
+    pub(crate) fn load_icons(&mut self, (private, profile): (bool, Id)) {
+        let store = self.core.store(private);
+        self.icons.load((private, profile), || {
+            let icons = store.favicons(profile).unwrap_or_default().into_iter().map(|(host, png)| (host, favicon::data_uri(&png))).collect();
+            (icons, store.stale_favicons(profile, browser_core::now() - favicon::MAX_AGE).unwrap_or_default())
+        });
+    }
+
+    /// The site icon a tab row shows for `url` in the current profile.
+    pub fn site_icon(&self, url: &str) -> Option<String> {
+        let host = Url::parse(url).ok()?.host_str()?.to_owned();
+        self.icons.find(self.model.profile()?, &host).cloned()
+    }
+
+    fn request_icon(&mut self, key: TabKey) -> Vec<Effect> {
+        if D::page_world_scripts() {
+            return Vec::new();
+        }
+        let Some(url) = self.pages.get(&key).and_then(|p| p.committed.clone()) else { return Vec::new() };
+        let Some((profile, host)) = self.icon_key(key, &url) else { return Vec::new() };
+        self.load_icons(profile);
+        if !self.icons.request(profile, &host) {
+            return Vec::new();
+        }
+        self.ask(key, Script::IconLinks, "readIconLinks", json!({}))
+    }
+
+    fn icon_answer(&mut self, key: TabKey, data: &Value, script: Script) -> Option<(String, (bool, Id), String)> {
+        let asked = text(data, "url");
+        let (profile, host) = self.icon_key(key, &asked)?;
+        match self.answer_for(key, data, script) {
+            Some(url) if self.icons.requested(profile, &host) => Some((url, profile, host)),
+            _ => {
+                self.icons.withdraw(profile, &host);
+                None
+            }
+        }
+    }
+
+    fn icon_links(&mut self, key: TabKey, data: &Value) -> Vec<Effect> {
+        let Some((url, profile, host)) = self.icon_answer(key, data, Script::IconLinks) else { return Vec::new() };
+        let urls: Vec<String> =
+            Url::parse(&url).map(|page| favicon::candidates(&page, &text(data, "text"))).unwrap_or_default().into_iter().map(String::from).collect();
+        if urls.is_empty() {
+            self.icons.withdraw(profile, &host);
+            return Vec::new();
+        }
+        self.ask(key, Script::Icon, "fetchIcon", json!({ "urls": urls }))
+    }
+
+    fn icon_data(&mut self, key: TabKey, data: &Value) {
+        let Some((_, profile, host)) = self.icon_answer(key, data, Script::Icon) else { return };
+        let Some(png) = favicon::normalize(&text(data, "text")) else { return self.icons.failed(profile, &host) };
+        if self.icons.stored(profile, &host, favicon::data_uri(&png)) && self.core.keeps_records(profile.0, profile.1) {
+            self.core.store(profile.0).set_favicon(profile.1, &host, &png).ok();
+        }
     }
 
     pub fn offers_reader(&self) -> bool {
@@ -162,6 +233,8 @@ impl<D: Platform> Shell<D> {
                     self.store().set_history_text(id, visit, &url, store::clip_history_text(&page)).ok();
                 }
             }
+            "iconLinks" => return self.icon_links(key, data),
+            "iconData" => self.icon_data(key, data),
             "textFound" => self.text_found(key, data),
             "picked" => self.picked(key, data),
             "shielded" => self.shielded_event(key, data),

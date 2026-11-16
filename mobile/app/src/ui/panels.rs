@@ -19,6 +19,7 @@ use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::panes::{self, Pane};
 
 const FIND_RADIUS: f32 = 12.;
+const TAB_ICON: f32 = 20.;
 const FIND_WIDTH: f32 = 420.;
 
 fn title(screen: Screen) -> &'static str {
@@ -167,6 +168,13 @@ fn tabs(ui: Ui) -> impl IntoElement {
                             .items_center()
                             .pl_3()
                             .child(dynamic(move || ui.read(|s| s.in_burner()).then(|| icon(icons::FLAME, Secure::warning))))
+                            .child(dynamic({
+                                let url = url.clone();
+                                move || {
+                                    let host = url::Url::parse(&url).ok().and_then(|u| browser_core::command::page_host(&u)).unwrap_or_default();
+                                    tarn_nsh_shared::controls::site_tile(ui.read(|s| s.site_icon(&url)), &host, TAB_ICON).mr_2()
+                                }
+                            }))
                             .child(label(title.clone()).font_weight(FontWeight::SEMIBOLD).number_of_lines(1).flex_1())
                             .child(dynamic(move || movable().then(|| icon_button(icons::CHEVRON_RIGHT, "Move to Space", move || ui.show(Screen::Move(key))))))
                             .child(dynamic(move || {

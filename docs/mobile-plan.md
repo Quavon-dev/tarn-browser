@@ -128,7 +128,7 @@ world, so it runs the script in the page world (gap below). Rules for every run:
 
 Android runner: a synchronous body (`find_text_script` is not used there, see `findText`; `page_text_script`)
 runs as `evaluateJavascript("(() => {" + body + "})()")` and the JSON string result is decoded. An async body
-(`reader::script`, `PICKER`) runs as `(async () => {body})().then(r => { window[K] = String(r); })` with a
+(`reader::script`, `PICKER`, and the icon scripts should a shell send them) runs as `(async () => {body})().then(r => { window[K] = String(r); })` with a
 fresh random 128-bit name `K` per run, then the component polls `(() => { const r = window[K]; delete window[K];
 return r; })()` every 100 ms and answers empty after 10 s (the picker waits until `pickCancel`, another `pick`
 or the next commit). The page can read and forge these values; the Rust checks limit that to its own article,
@@ -147,6 +147,10 @@ its own text and a selector hiding part of itself.
 | event | `article` | `{seq, url, text}` | With `probe`: `"1"` when the page has an article, else empty. Without: JSON for `engine::reader::Article::parse`, which refuses anything malformed or too large; the shell draws the article as text and stores nothing of it. Read Aloud speaks the parsed text with the platform's on-device voice |
 | command | `readText` | `{seq, maxChars}` | Full-text history: runs `engine::page_scripts::page_text_script(origin, maxChars)`. The shell asks only after `finished` (never after a same-document change), with `maxChars` = `store::MAX_HISTORY_TEXT`, never for private or burner stores, and only while the setting is on |
 | event | `pageText` | `{seq, url, text}` | The shell keeps `store::clip_history_text(text)` with `Store::set_history_text` for its visit of `url` |
+| command | `readIconLinks` | `{seq}` | Site icons: runs `engine::page_scripts::icon_links_script(origin)`. The shell asks after `finished` when `engine::favicon::icon_host` allows the page (https, default port, not Lockdown) and its `favicon::Icons` has no fresh icon for the host, no request running and fewer than `MAX_TRIES` failures this session. Not on Android, where scripts run in the page world (see the gap below) |
+| event | `iconLinks` | `{seq, url, text}` | The shell picks at most four URLs with `favicon::candidates(url, text)` and sends `fetchIcon`; none withdraws the request |
+| command | `fetchIcon` | `{seq, urls}` | Runs `engine::page_scripts::fetch_icon_script(origin, urls, favicon::MAX_BYTES)` |
+| event | `iconData` | `{seq, url, text}` | Base64 bytes, else empty. The shell keeps `favicon::normalize(text)` (a 64×64 PNG) in memory and, when the profile keeps records, with `Store::set_favicon`; anything else counts as a failure. Stored icons load with `Store::favicons` when a space shows, those older than `favicon::MAX_AGE` (`Store::stale_favicons`) are fetched again and replaced only on success, and clearing history or closing a private space forgets them |
 | command | `findText` | `{seq, query}` | Find in Tabs: runs `engine::page_scripts::find_text_script(query)` (the query is a JS string literal, at most 200 characters) and cuts the answer with `page_scripts::find_snippets`. Android never sends the query to a page world: it reads the page's text with `page_text_script` and matches it in Rust (see the v3 differences) |
 | event | `textFound` | `{seq, url, snippets, matched?}` | At most `page_scripts::FIND_MATCHES` snippets, each at most 320 characters; `matched` (the page's total) only on Android. The shell lists title and address matches of every tab with `browser_core::find::named` at once and puts text rows above them as they arrive with `browser_core::find::insert_text_rows`; snippets are never stored |
 | event | `shielded` | `{kind, url}` | For the per-profile Shield counters (`Store::count`, shown by `Store::shield_week`): `https_upgrade` (`Counter::HttpsUpgrades`), `local_network` (`LocalBlocked`), `listed` (`ListedStopped`: a page stopped because a domain set names its site) and `popup` (`PopupsBlocked`: a pop-up refused for lacking a gesture; the shell skips it when `shield::rules::local_target(url)`, as macOS does). The shell counts each kind at most once per committed page |
@@ -274,8 +278,11 @@ v3, with host tests in `app/tests/features.rs` and `site_ui.rs`:
   per counter in faint tracks and the sites protected most (no tilt, NSH has no 3D transform); Cookie banners filter switch (`block_annoyances`), "Search the text of visited
   pages" (`history_text`, History gets a search field), "Sort downloads into folders" (`sort_downloads`);
 - Downloads sheet: running transfers with progress, Pause/Resume/Cancel, Keep/Delete for flagged ones.
-Not on mobile: shortcut rebinding, memory panel, live peek, translation, startup trace,
-favicons (the mobile shell shows none). The background tab memory budget is a gap: neither iOS nor
+Not on mobile: shortcut rebinding, memory panel, live peek, translation, startup trace. Site icons are
+iOS only: Android WebView has no isolated world, and the icon scripts would run in every page's own world after
+loads the user did not ask about, so a page could notice a Tarn user (`docs/threat-model.md`, page scripts on
+Android); Android implements `readIconLinks` and `fetchIcon` but the shell never sends them, so it shows
+letter tiles. The background tab memory budget is a gap: neither iOS nor
 Android lets an app read the memory of the web content or renderer process, and both reclaim it
 themselves under pressure.
 

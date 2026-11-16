@@ -18,7 +18,8 @@ Every shell's web view offers the same operations and reports the same events. T
 - frame, visibility, focus and raise: on NSH, layout and focus come from the shell;
 - `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted`;
 - `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`;
-- isolated-world reads for the shell: `icon_links`, `fetch_icon`, `json_text`;
+- isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`,
+  `fetchIcon`, `docs/mobile-plan.md` §2), `json_text`;
 - `interaction_state` and `restore_interaction_state`, where the engine has them;
 - `filtered`: whether the view applies Shield's rules.
 

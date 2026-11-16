@@ -7,7 +7,7 @@ use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::motion::{SCRIM, fade_to, pop_out, slide_up};
 
 use super::{Screen, Ui, caption, label};
-use crate::theme::{ICON, SHEET_WIDTH, TEXT_SMALL, TEXT_TITLE, TOUCH_TARGET, Theme};
+use crate::theme::{ICON, SHEET_WIDTH, TEXT_SMALL, TOUCH_TARGET, Theme};
 
 const TARGET: f32 = 52.;
 const TILE: f32 = 40.;
@@ -76,7 +76,7 @@ fn sheet(ui: Ui) -> impl IntoElement {
     let (url, title) = page;
     let host = url.as_deref().map(browser_core::command::display_host).unwrap_or_default();
     let site = url.as_deref().and_then(|u| url::Url::parse(u).ok()).and_then(|u| browser_core::command::page_host(&u)).unwrap_or_else(|| host.clone());
-    let initial = site.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().to_string()).unwrap_or_default();
+    let icon = url.as_deref().and_then(|u| ui.read(|s| s.site_icon(u)));
     let shown_title = if title.trim().is_empty() { host.clone() } else { title };
     let link = url.clone();
     let copy = move || {
@@ -131,11 +131,7 @@ fn sheet(ui: Ui) -> impl IntoElement {
                         .pl_4()
                         .pr_2()
                         .pt_3()
-                        .child(
-                            view().w(px(TILE)).h(px(TILE)).rounded(px(Theme::radius_tile())).bg(Theme::accent).items_center().justify_center().child(
-                                text(initial).text_size(px(TEXT_TITLE + 3.)).font_weight(FontWeight::BOLD).text_color(|| Theme::on_fill(Theme::accent())),
-                            ),
-                        )
+                        .child(tarn_nsh_shared::controls::site_tile(icon, &site, TILE))
                         .child(
                             view()
                                 .flex_1()
