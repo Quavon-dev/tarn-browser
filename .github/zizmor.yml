@@ -15,3 +15,4 @@ rules:
       # Reusable workflows called at the commit under test; ./ is the form actionlint validates.
       - chromium-update.yml
       - nightly.yml
+      - start-release.yml
