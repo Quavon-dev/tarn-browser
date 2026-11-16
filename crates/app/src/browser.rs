@@ -2286,14 +2286,6 @@ impl Browser {
         self.active_prompt().is_some_and(|p| p.kind.is_permission() || matches!(p.kind, PromptKind::MaliciousDownload { .. })) && !self.layout_stable()
     }
 
-    pub fn toggle_remember(&mut self, cx: &mut Context<Self>) {
-        if self.prompt_guarded() {
-            return;
-        }
-        self.remember_permission = !self.remember_permission;
-        cx.notify();
-    }
-
     fn on_prompt_input_event(&mut self, input: &Entity<TextInput>, event: &TextInputEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             TextInputEvent::Submit if input == &self.auth_user => {

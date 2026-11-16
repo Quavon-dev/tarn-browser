@@ -25,6 +25,14 @@ pub fn secure_button(id: impl Into<ElementId>, text: impl Into<SharedString>, pr
         .when(!primary, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
 }
 
+/// A borderless button on a security surface, for the quietest answer, such as Deny.
+pub fn secure_ghost_button(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
+    pill(id, text, false, (Secure::surface(), Secure::surface()), Secure::text())
+        .font_family(SYSTEM_FONT)
+        .hover(|s| s.bg(Secure::hover()))
+        .active(|s| s.bg(Secure::pressed()))
+}
+
 fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
     div()
         .id(id)

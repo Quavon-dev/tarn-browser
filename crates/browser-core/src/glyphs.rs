@@ -13,6 +13,7 @@ pub fn glyph(kind: &str) -> &'static str {
         "extension" => "shield",
         "download" | "malicious download" => "triangle-alert",
         "external" => "external-link",
+        "confirm" => "triangle-alert",
         _ => "info",
     }
 }
@@ -38,6 +39,7 @@ mod tests {
     #[test]
     fn prompts_and_files_get_a_glyph() {
         assert_eq!((glyph("location"), glyph("camera"), glyph("alert")), ("map-pin", "camera", "info"));
+        assert_eq!(glyph("confirm"), "triangle-alert");
         assert_eq!(file_glyph("tarn-1.4.DMG"), "file-archive");
         assert_eq!(file_glyph("threat-model.pdf"), "file-text");
         assert_eq!(file_glyph("photo.HEIC"), "file-image");
