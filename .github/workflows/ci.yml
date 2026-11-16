@@ -299,6 +299,12 @@ jobs:
         with:
           manifest-path: fuzz/Cargo.toml
           command: check advisories bans licenses sources
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        if: ${{ !inputs.commit }}
+        with:
+          manifest-path: linux/Cargo.toml
+          command: check advisories bans licenses sources
+      - run: scripts/check-vex.sh
 
   coverage:
     needs: changes

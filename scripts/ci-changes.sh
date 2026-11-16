@@ -28,7 +28,7 @@ classify() {
     [[ -n "$path" ]] || continue
     case "$path" in
       # browser-core's tests read docs/themes.md.
-      docs/themes.md) ;;
+      docs/themes.md | docs/vex.json) ;;
       *.md | docs/* | */evidence/* | LICENSE* | .github/ISSUE_TEMPLATE/* | .github/CODEOWNERS | .editorconfig) continue ;;
     esac
     code=true
