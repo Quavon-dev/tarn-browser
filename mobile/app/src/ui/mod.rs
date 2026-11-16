@@ -21,7 +21,7 @@ use crate::data::{Data, Platform};
 use crate::shell::{Effect, Shell, ViewProps};
 use crate::theme::{MARK_SIZE, Paint, Secure, Theme, WIDE_LAYOUT, themed};
 pub use controls::{
-    accent_pill, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface, switch_row, text_field,
+    accent_pill, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, switch_row, text_field,
 };
 
 pub type AppShell = Shell<Data>;
@@ -300,18 +300,23 @@ fn notice(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         message().map(|m| {
             let local = ui.read(|s| s.can_open_anyway());
-            let base = if local { tarn_nsh_shared::controls::secure_surface(Theme::radius_panel()) } else { surface(Theme::radius_panel()) };
-            base.flex_row()
-                .bind_motion(&tarn_nsh_shared::motion::pop_in())
-                .items_center()
-                .gap_2()
+            let base = if local {
+                tarn_nsh_shared::controls::secure_surface(Theme::radius_panel()).flex_row().items_center().gap_2().pl_4().py_1()
+            } else {
+                tarn_nsh_shared::controls::toast(ui.read(|s| s.notice_tone())).self_center()
+            };
+            base.bind_motion(&tarn_nsh_shared::motion::pop_in())
                 .mx_3()
                 .my_1()
-                .pl_4()
                 .pr_1()
-                .py_1()
                 .shadow(Theme::elevation(4., 14.))
-                .child(label(m).flex_1().test_id("notice").text_color(move || if local { Secure::text() } else { Theme::text() }))
+                .child(
+                    label(m)
+                        .flex_shrink(1.)
+                        .flex_grow(if local { 1. } else { 0. })
+                        .test_id("notice")
+                        .text_color(move || if local { Secure::text() } else { Theme::text() }),
+                )
                 .child(local.then(|| {
                     tarn_nsh_shared::controls::secure_button(
                         "Open Anyway",

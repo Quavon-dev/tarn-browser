@@ -57,7 +57,7 @@ pub fn reader(ui: Ui) -> impl IntoElement {
                                     speaking.set(started);
                                     if !started {
                                         ui.act(|s| {
-                                            s.notice = Some("Read Aloud needs an on-device voice for this language.".into());
+                                            s.toast_as(browser_core::toast::Tone::Warning, "Read Aloud needs an on-device voice for this language.".into());
                                             Vec::new()
                                         });
                                     }
@@ -242,7 +242,7 @@ pub fn site(ui: Ui) -> impl IntoElement {
                     let value = css.get_untracked();
                     ui.act(|s| {
                         if s.set_site_css(&value) {
-                            s.notice = Some("Site CSS saved".into());
+                            s.toast_as(browser_core::toast::Tone::Success, "Site CSS saved".into());
                         }
                         Vec::new()
                     })

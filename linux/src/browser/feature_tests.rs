@@ -301,6 +301,7 @@ fn clean_links_drop_tracking_parameters_and_pages_go_to_the_reading_list() {
     visit(&mut b, key, "https://shop.test/item?id=4&utm_source=x&utm_medium=y");
     assert_eq!(b.copy_link(true).as_deref(), Some("https://shop.test/item?id=4"));
     assert_eq!(b.toast.as_ref().unwrap().text, "Link copied, 2 tracking parameters removed");
+    assert_eq!(b.toast.as_ref().unwrap().tone, browser_core::toast::Tone::Success);
     let profile = b.model.profile().unwrap().1;
     assert_eq!(b.core.disk.shield_stats(profile).unwrap().tracking_params, 2);
     assert!(b.qr_code().is_some_and(|(code, host)| !code.is_empty() && host == "shop.test"));

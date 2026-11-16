@@ -3,7 +3,7 @@ use std::time::Duration;
 use browser_core::command::rank_commands;
 use nsh_core::prelude::*;
 
-use super::{Panel, Ui, act, bar, read, show};
+use super::{Panel, Ui, act, read, show};
 use crate::browser::Browser;
 use crate::browser::spaces::SpaceCommand;
 use crate::controls::{accent_pill, body, icon_button, label, pill, small};
@@ -185,14 +185,17 @@ pub fn toast_bar(ui: Ui) -> AnyElement {
     dynamic(move || {
         let toast = ui.snap.with(|s| s.toast.clone())?;
         let action = toast.action.map(|_| accent_pill("Undo", move || act(ui, Browser::take_toast_action)));
-        Some(view().flex_row().justify_center().child(
-            bar().mb_0().mt_2().min_w(px(300.)).child(label(toast.text).flex_1().truncate()).children(action).child(crate::controls::icon_button_at(
-                icons::CLOSE,
-                "Dismiss",
-                Placement::Left,
-                move || act(ui, |b| b.expire_toast(toast.serial)),
-            )),
-        ))
+        Some(
+            view().flex_row().justify_center().child(
+                tarn_nsh_shared::controls::toast(toast.tone)
+                    .mt_2()
+                    .pr_1()
+                    .max_w(px(560.))
+                    .child(label(toast.text).flex_shrink(1.).truncate())
+                    .children(action)
+                    .child(crate::controls::icon_button_at(icons::CLOSE, "Dismiss", Placement::Left, move || act(ui, |b| b.expire_toast(toast.serial)))),
+            ),
+        )
     })
 }
 
@@ -362,7 +365,7 @@ pub fn reader_view(ui: Ui) -> AnyElement {
                             } else if speech::speak(&full, SPEEDS[ui.reader_speed.get_untracked()]) {
                                 ui.speaking.set(true);
                             } else {
-                                act(ui, |b| b.show_toast("This computer could not start speaking", None));
+                                act(ui, |b| b.show_toast_as(browser_core::toast::Tone::Warning, "This computer could not start speaking", None));
                             }
                         }))
                         .child(pill(format!("{}×", SPEEDS[speed]), move || ui.reader_speed.update(|s| *s = (*s + 1) % SPEEDS.len())));

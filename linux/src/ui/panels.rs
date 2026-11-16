@@ -351,7 +351,7 @@ pub(super) fn rename_row(ui: Ui, target: String, current: &str, save: impl Fn(St
 pub(super) fn copy_link(ui: Ui, url: String) -> nsh_base::ButtonElement {
     pill("Copy Link", move || {
         set_clipboard(url.clone());
-        act(ui, |b| b.show_toast("Link copied", None));
+        act(ui, |b| b.show_toast_as(browser_core::toast::Tone::Success, "Link copied", None));
     })
 }
 

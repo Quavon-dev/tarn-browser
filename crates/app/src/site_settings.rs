@@ -234,7 +234,9 @@ impl Browser {
     pub fn route_site(&mut self, host: &str, space_id: Option<Id>, cx: &mut Context<Self>) {
         let disk = &self.core.disk;
         match space_id {
-            Some(id) if disk.set_space_rule(host, id).is_err() => return self.show_toast("Tarn could not save this rule", None, cx),
+            Some(id) if disk.set_space_rule(host, id).is_err() => {
+                return self.show_toast_as(browser_core::toast::Tone::Warning, "Tarn could not save this rule", None, cx);
+            }
             Some(_) => {}
             None => {
                 for rule in disk.space_rules().unwrap_or_default().into_iter().filter(|r| r.host_pattern == host) {

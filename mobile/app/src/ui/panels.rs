@@ -466,7 +466,7 @@ pub fn share(ui: Ui) {
         if !crate::platform::share(url.clone()).await {
             set_clipboard(url);
             ui.act(|s| {
-                s.notice = Some("Link copied".into());
+                s.toast_as(browser_core::toast::Tone::Success, "Link copied".into());
                 Vec::new()
             });
         }

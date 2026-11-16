@@ -77,6 +77,7 @@ pub enum ToastAction {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Toast {
     pub text: String,
+    pub tone: browser_core::toast::Tone,
     pub action: Option<ToastAction>,
     pub serial: u64,
 }
@@ -250,8 +251,12 @@ impl Browser {
     }
 
     pub fn show_toast(&mut self, text: impl Into<String>, action: Option<ToastAction>) {
+        self.show_toast_as(browser_core::toast::Tone::Info, text, action);
+    }
+
+    pub fn show_toast_as(&mut self, tone: browser_core::toast::Tone, text: impl Into<String>, action: Option<ToastAction>) {
         self.toast_serial += 1;
-        self.toast = Some(Toast { text: text.into(), action, serial: self.toast_serial });
+        self.toast = Some(Toast { text: text.into(), tone, action, serial: self.toast_serial });
     }
 
     pub fn expire_toast(&mut self, serial: u64) {

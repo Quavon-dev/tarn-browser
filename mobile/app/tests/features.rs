@@ -1,4 +1,5 @@
 use browser_core::tabs::TabKey;
+use browser_core::toast::Tone;
 use serde_json::{Value, json};
 use store::Schedule;
 use tarn_mobile::data::{Memory, Platform};
@@ -76,6 +77,9 @@ fn clean_links_drop_tracking_parameters_and_count_them() {
     let copied = shell.copy_clean_link().unwrap();
     assert_eq!(copied, "https://a.test/p?id=3");
     assert_eq!(shell.notice.as_deref(), Some("Link copied, 2 tracking parameters removed"));
+    assert_eq!(shell.notice_tone(), Tone::Success);
+    shell.notice = Some("something else".into());
+    assert_eq!(shell.notice_tone(), Tone::Info, "a tone belongs to its own notice");
     assert_eq!(counted(&shell), 4, "the copied link of the committed page loses its two");
     visit(&mut shell, "https://a.test/p?id=3", "A");
     shell.copy_clean_link().unwrap();

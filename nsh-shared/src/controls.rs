@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use browser_core::toast::Tone;
 use nsh_base::{ButtonElement, button};
 use nsh_core::element::IntoProp;
 use nsh_core::prelude::*;
@@ -378,6 +379,20 @@ pub fn surface(radius: f32) -> View {
 
 pub fn card() -> View {
     surface(Theme::radius_panel()).flex_col()
+}
+
+/// A toast's pill: its tone's icon and edge, ready for the message and any buttons.
+pub fn toast(tone: Tone) -> View {
+    let mark = match tone {
+        Tone::Info => None,
+        Tone::Success => Some((crate::icons::CIRCLE_CHECK, Theme::success())),
+        Tone::Warning => Some((crate::icons::TRIANGLE_ALERT, Theme::warning())),
+    };
+    let pill = view().flex_row().items_center().gap_2().min_h(px(36.)).pl(px(14.)).py_1().rounded(px(18.)).surface().font_weight(FontWeight::MEDIUM);
+    match mark {
+        Some((glyph, color)) => pill.border_color(color.alpha(0.5)).child(view().text_color(color).child(crate::icons::icon(glyph, 14.))),
+        None => pill,
+    }
 }
 
 #[cfg(test)]

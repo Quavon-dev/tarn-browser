@@ -41,6 +41,7 @@ pub mod text;
 pub mod theme;
 pub mod theme_fetch;
 pub mod theme_library;
+pub mod toast;
 pub mod windows;
 
 pub use data::WebsiteData;

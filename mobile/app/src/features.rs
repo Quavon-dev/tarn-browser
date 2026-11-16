@@ -24,6 +24,15 @@ impl<D: Platform> Shell<D> {
         self.notice = Some(text);
     }
 
+    pub fn toast_as(&mut self, tone: browser_core::toast::Tone, text: String) {
+        self.tone = Some((text.clone(), tone));
+        self.notice = Some(text);
+    }
+
+    pub fn notice_tone(&self) -> browser_core::toast::Tone {
+        self.tone.as_ref().filter(|(text, _)| self.notice.as_ref() == Some(text)).map_or_else(Default::default, |(_, tone)| *tone)
+    }
+
     pub fn can_undo(&self) -> bool {
         self.undo.as_ref().is_some_and(|(text, serial)| self.notice.as_ref() == Some(text) && self.model.closed_tabs.newest() == Some(*serial))
     }
@@ -120,11 +129,12 @@ impl<D: Platform> Shell<D> {
             let host = Url::parse(&url).ok().and_then(|u| u.host_str().map(str::to_owned));
             self.core.store(private).count(id, Counter::TrackingParams, removed, host.as_deref()).ok();
         }
-        self.notice = Some(match removed {
+        let text = match removed {
             0 => "Link copied".to_owned(),
             1 => "Link copied, 1 tracking parameter removed".to_owned(),
             n => format!("Link copied, {n} tracking parameters removed"),
-        });
+        };
+        self.toast_as(browser_core::toast::Tone::Success, text);
         Some(url)
     }
 
@@ -139,7 +149,7 @@ impl<D: Platform> Shell<D> {
         }
         let from = self.model.current_space().map(|s| (s.private, s.space.id));
         let Some(ix) = self.model.open_burner(&self.core) else {
-            self.notice = Some("Tarn could not open a burner tab.".into());
+            self.toast_as(browser_core::toast::Tone::Warning, "Tarn could not open a burner tab.".into());
             return;
         };
         self.switch_space(ix);
@@ -263,18 +273,21 @@ impl<D: Platform> Shell<D> {
 
     pub fn save_snapshot(&mut self, name: &str, now: i64) -> bool {
         let saved = self.model.current_space().and_then(|space| snapshot::save(&self.core.disk, space, name, now));
-        self.notice = Some(if saved.is_some() { format!("Saved snapshot {name}") } else { "This space has nothing to save.".into() });
+        match saved {
+            Some(_) => self.toast_as(browser_core::toast::Tone::Success, format!("Saved snapshot {name}")),
+            None => self.notice = Some("This space has nothing to save.".into()),
+        }
         saved.is_some()
     }
 
     pub fn restore_snapshot(&mut self, saved: &Snapshot) -> bool {
         if self.model.current_space().is_none_or(|s| s.private || s.space.profile_id != saved.profile_id) {
-            self.notice = Some("Switch to a space of this snapshot's profile to restore it.".into());
+            self.toast_as(browser_core::toast::Tone::Warning, "Switch to a space of this snapshot's profile to restore it.".into());
             return false;
         }
         let store = &self.core.disk;
         let Ok(snapshot) = SpaceSnapshot::load(store, saved.profile_id, saved.id) else {
-            self.notice = Some("This snapshot could not be read.".into());
+            self.toast_as(browser_core::toast::Tone::Warning, "This snapshot could not be read.".into());
             return false;
         };
         let taken: Vec<String> = self.model.spaces.iter().filter(|s| !s.private).map(|s| s.space.name.clone()).collect();
@@ -317,7 +330,8 @@ impl<D: Platform> Shell<D> {
             };
             folder.is_some_and(|folder| store.add_bookmark(id, Some(folder), Some(&url), if title.is_empty() { &url } else { &title }, now).is_ok())
         };
-        self.notice = Some(if saved { "Saved to Reading List".into() } else { "Could not save to Reading List".into() });
+        let (tone, text) = browser_core::toast::reading_list(saved);
+        self.toast_as(tone, text.into());
         saved
     }
 
@@ -359,7 +373,7 @@ impl<D: Platform> Shell<D> {
         let (Some(id), Some(host)) = (self.profile_id(), self.active_host()) else { return false };
         let css = css.replace(['\n', '\r'], " ");
         if css.len() > MAX_SITE_CSS || self.store().set_site_css(id, &host, css.trim()).is_err() {
-            self.notice = Some("Tarn could not save this style sheet.".into());
+            self.toast_as(browser_core::toast::Tone::Warning, "Tarn could not save this style sheet.".into());
             return false;
         }
         self.reload_host(&host);

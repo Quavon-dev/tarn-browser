@@ -166,13 +166,17 @@ impl Browser {
             Some(id) => id,
             None => match self.store(private).add_bookmark(profile_id, None, None, READING_LIST, now()) {
                 Ok(folder) => folder.id,
-                Err(_) => return,
+                Err(_) => {
+                    let (tone, text) = browser_core::toast::reading_list(false);
+                    return self.show_toast_as(tone, text, None, cx);
+                }
             },
         };
         let saved = self.bookmarks.iter().any(|b| b.parent_id == Some(folder) && b.url.as_deref() == Some(url.as_str()))
             || self.store(private).add_bookmark(profile_id, Some(folder), Some(&url), &title, now()).is_ok();
         self.reload_bookmarks(cx);
-        self.show_toast(if saved { "Saved to Reading List" } else { "Could not save to Reading List" }, None, cx);
+        let (tone, text) = browser_core::toast::reading_list(saved);
+        self.show_toast_as(tone, text, None, cx);
     }
 
     /// Bookmarks the tab, or returns its bookmark when it already has one.

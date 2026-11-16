@@ -119,6 +119,8 @@ pub struct Shell<D: Platform> {
     pub external: Option<(TabKey, String)>,
     pub external_origin: String,
     pub notice: Option<String>,
+    /// The tone of the notice with this text; any other notice reads as information.
+    pub tone: Option<(String, browser_core::toast::Tone)>,
     pub open_offer: Option<(TabKey, String, String)>,
     pub found: Option<u64>,
     pub undo: Option<(String, u64)>,
@@ -165,6 +167,7 @@ impl<D: Platform> Shell<D> {
             external: None,
             external_origin: String::new(),
             notice: None,
+            tone: None,
             open_offer: None,
             found: None,
             undo: None,
@@ -187,7 +190,7 @@ impl<D: Platform> Shell<D> {
         shell.switch_space(ix);
         shell.apply_theme();
         if shell.model.current_space().is_none() {
-            shell.notice = Some("The private space could not be opened.".into());
+            shell.toast_as(browser_core::toast::Tone::Warning, "The private space could not be opened.".into());
         }
         shell
     }
@@ -568,7 +571,7 @@ impl<D: Platform> Shell<D> {
     pub fn enter_private(&mut self) {
         if let Some(started) = D::open_private_space() {
             if !started {
-                self.notice = Some("The private space could not be opened.".into());
+                self.toast_as(browser_core::toast::Tone::Warning, "The private space could not be opened.".into());
             }
             return;
         }
@@ -580,7 +583,7 @@ impl<D: Platform> Shell<D> {
     pub fn close_private(&mut self) {
         if let Some(closed) = D::close_private_space() {
             if !closed {
-                self.notice = Some("The private space could not be closed.".into());
+                self.toast_as(browser_core::toast::Tone::Warning, "The private space could not be closed.".into());
             }
             return;
         }

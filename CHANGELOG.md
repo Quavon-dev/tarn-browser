@@ -14,6 +14,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Toasts are centred pills sized to their message on every client. A copied link or a saved page
+  shows a green check, and a failure such as a Reading List save that did not work shows an amber
+  warning.
 - The Shield card follows the theme: dawn with the sun behind the peak in light themes, night
   with stars, a crescent and an aurora in dark ones; New Design still reshapes the ridges (macOS,
   Windows, Linux, iOS, Android).
