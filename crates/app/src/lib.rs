@@ -10,7 +10,6 @@ mod downloads;
 mod ext_package;
 mod ext_sources;
 mod extensions;
-mod favicon;
 mod filters;
 mod find_tabs;
 mod gestures;

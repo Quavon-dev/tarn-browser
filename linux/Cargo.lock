@@ -996,10 +996,12 @@ dependencies = [
 name = "engine"
 version = "0.1.1"
 dependencies = [
+ "base64 0.22.1",
  "block2",
  "cef",
  "core-foundation",
  "dispatch2",
+ "image",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

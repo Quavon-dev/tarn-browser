@@ -19,9 +19,9 @@ use url::Url;
 
 use crate::blocking::{BlockedPage, Offer};
 use crate::devtools::JsonPage;
-use crate::favicon;
 use crate::filters;
 use crate::settings::SettingsWindow;
+use engine::favicon;
 
 mod context;
 
@@ -3036,11 +3036,8 @@ impl Browser {
 
     /// Lockdown pages get no extra requests.
     fn request_favicon(&mut self, key: TabKey, url: &Url) {
-        let (Some(profile_id), Some(host)) = (self.profile_of(key), tab_host(url.as_str())) else { return };
-        // Icons are keyed by host, so a service on another port must not set the site's icon.
-        if url.scheme() != "https" || url.port().is_some() || self.level_for_tab(key, url.as_str()) == ShieldLevel::Lockdown {
-            return;
-        }
+        let lockdown = self.level_for_tab(key, url.as_str()) == ShieldLevel::Lockdown;
+        let (Some(profile_id), Some(host)) = (self.profile_of(key), favicon::icon_host(url, lockdown)) else { return };
         self.load_favicons(key.private, profile_id);
         let icon = (key.private, profile_id, host);
         let Some(view) = self.views.get(&key) else { return };

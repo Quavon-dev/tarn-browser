@@ -19,7 +19,6 @@ chromium = ["engine/chromium"]
 translation = ["engine/translation"]
 
 [dependencies]
-base64 = "=0.22.1"
 devkit.workspace = true
 platform.workspace = true
 browser-core.workspace = true

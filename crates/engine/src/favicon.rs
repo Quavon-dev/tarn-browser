@@ -1,4 +1,4 @@
-//! Site icons (threat model S14). WebKit fetches them inside the tab, so content rules, proxy
+//! Site icons for every client (threat model S14). WebKit fetches them inside the tab, so content rules, proxy
 //! and user agent apply; the shell only picks same-site URLs, or another site's the page already
 //! loaded from, and decodes the bytes with limits.
 
@@ -18,6 +18,13 @@ pub const SIZE: u32 = 64;
 pub const MAX_TRIES: u8 = 3;
 /// A stored icon older than this (in milliseconds) is fetched again, and kept if that fails.
 pub const MAX_AGE: i64 = 30 * 24 * 3_600_000;
+
+/// The host a page at `url` may fetch and store an icon for: https on the default port, since
+/// icons are keyed by host and a service on another port must not set the site's icon, and never
+/// under Lockdown.
+pub fn icon_host(url: &Url, lockdown: bool) -> Option<String> {
+    url.host_str().filter(|_| url.scheme() == "https" && url.port().is_none() && !lockdown).map(str::to_ascii_lowercase)
+}
 
 /// An icon may come from the page's host or a subdomain of it (a `www.` prefix is ignored), so a
 /// page cannot make the browser contact an unrelated server.
@@ -72,7 +79,7 @@ pub fn candidates(page: &Url, links: &str) -> Vec<Url> {
 /// so one tenant of a shared host never shows another's icon.
 pub fn lookup_hosts(host: &str) -> Vec<String> {
     let host = host.trim_end_matches('.');
-    let site = engine::cookies::site(host);
+    let site = crate::cookies::site(host);
     let mut hosts = vec![host.to_owned()];
     let mut rest = host;
     while rest != site
@@ -156,6 +163,17 @@ mod tests {
         let many = "https://a.test/1.png\t96x96\nhttps://a.test/2.png\t48x48\nhttps://a.test/3.png\t16x16\nhttps://a.test/4.svg\tany";
         let urls: Vec<String> = candidates(&Url::parse("https://a.test/").unwrap(), many).into_iter().map(String::from).collect();
         assert_eq!(urls, ["https://a.test/1.png", "https://a.test/4.svg", "https://a.test/2.png", "https://a.test/favicon.ico"]);
+    }
+
+    #[test]
+    fn icons_are_fetched_only_for_https_pages_on_the_default_port_outside_lockdown() {
+        let host = |url: &str, lockdown| icon_host(&Url::parse(url).unwrap(), lockdown);
+        assert_eq!(host("https://News.A.test/x", false).as_deref(), Some("news.a.test"));
+        assert_eq!(host("https://a.test:443/", false).as_deref(), Some("a.test"));
+        assert_eq!(host("https://a.test/", true), None);
+        assert_eq!(host("http://a.test/", false), None);
+        assert_eq!(host("https://a.test:8443/", false), None);
+        assert_eq!(host("about:blank", false), None);
     }
 
     #[test]
