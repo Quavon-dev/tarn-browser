@@ -21,7 +21,7 @@ use crate::data::{Data, Platform};
 use crate::shell::{Effect, Shell, ViewProps};
 use crate::theme::{MARK_SIZE, Paint, Secure, Theme, WIDE_LAYOUT, themed};
 pub use controls::{
-    accent_pill, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, switch_row, text_field,
+    accent_pill, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface, switch_row, text_field,
 };
 
 pub type AppShell = Shell<Data>;
