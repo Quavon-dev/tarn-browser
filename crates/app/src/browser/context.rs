@@ -286,7 +286,7 @@ impl Browser {
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, items, None, move |cmd| {
+            menu::show(&host, crate::menu_glyphs::with_glyphs(items), None, move |cmd| {
                 tx.send(cmd).ok();
             });
             this.update(cx, |b, _| b.menu_open = false).ok();

@@ -19,6 +19,7 @@ mod hover_card;
 mod library;
 mod link_peek;
 mod memory;
+mod menu_glyphs;
 mod menubar;
 mod peek;
 mod prefs;
