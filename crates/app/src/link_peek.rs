@@ -204,6 +204,7 @@ impl Browser {
         let view = view.rehost(&host, self.sink(key));
         view.set_gestures(self.pref(Pref::Gestures));
         self.views.insert(key, Rc::new(view));
+        self.attach_tarn(key);
         self.reload_space();
         self.activate(key, window, cx);
     }

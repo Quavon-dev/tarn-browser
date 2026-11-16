@@ -1,5 +1,6 @@
 pub mod data;
 pub mod events;
+pub mod extensions;
 pub mod features;
 pub mod platform;
 pub mod scripts;

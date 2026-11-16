@@ -212,8 +212,9 @@ fn nav(ui: Ui, current: Pane) -> View {
         .iter()
         .map(|(pane, name)| {
             let pane = *pane;
-            let selected = pane == current;
+            let selected = pane == current && !ui.ext_pane.get_untracked();
             crate::controls::row(*name, move || {
+                ui.ext_pane.set(false);
                 ui.settings_pane.set(pane);
                 act(ui, |_| {});
             })
@@ -228,12 +229,29 @@ fn nav(ui: Ui, current: Pane) -> View {
             .into_element()
         })
         .collect();
-    view().flex_col().gap(px(2.)).w(px(NAV_WIDTH)).flex_none().pt_2().children(rows)
+    let on = ui.ext_pane.get_untracked();
+    let extensions = crate::controls::row("Extensions", move || {
+        ui.ext_pane.set(true);
+        act(ui, |_| {});
+    })
+    .h(px(30.))
+    .px(px(10.))
+    .rounded(px(Theme::radius_row()))
+    .bg(if on { Theme::selected() } else { rgba(0) })
+    .hover(|s| s.bg(Theme::hover()))
+    .text_color(if on { Theme::text() } else { Theme::muted() })
+    .child(crate::icons::icon(crate::icons::SPARKLES, 14.))
+    .child(label("Extensions").text_color(if on { Theme::text() } else { Theme::muted() }));
+    view().flex_col().gap(px(2.)).w(px(NAV_WIDTH)).flex_none().pt_2().children(rows).child(extensions)
 }
 
 pub fn settings_panel(ui: Ui) -> AnyElement {
     let pane = ui.settings_pane.get_untracked();
-    let body = pane_body(ui, pane).unwrap_or_else(panel);
+    let body = if ui.ext_pane.get_untracked() {
+        panel().gap_0().child(title("Extensions")).child(view().pt_3().child(super::extensions::pane(ui)))
+    } else {
+        pane_body(ui, pane).unwrap_or_else(panel)
+    };
     view().flex_row().flex_1().gap_4().child(nav(ui, pane)).child(scroll().flex_1().child(body.child(view().h(px(12.))))).into_element()
 }
 

@@ -290,6 +290,7 @@ impl Browser {
                 let profiles: Vec<_> = self.core.profiles.borrow().keys().filter(|(private, _)| !private).map(|(_, id)| *id).collect();
                 for id in &profiles {
                     self.core.apply_extensions(false, *id);
+                    crate::tarn_ext::apply_rules(&self.core, *id);
                 }
                 cx.defer(move |cx| {
                     crate::shared::each(cx, |b, window, cx| profiles.iter().for_each(|id| b.restart_views_here(false, *id, None, false, window, cx)));
@@ -447,4 +448,17 @@ fn archiving_is_off_by_default() {
     assert_eq!(archive_after(&store), None);
     store.set_setting(Choice::ArchiveAfter.key(), "1 day").unwrap();
     assert_eq!(archive_after(&store), Some(24 * HOUR));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_every_site_switch_is_the_setting_every_client_reads() {
+        assert_eq!(Pref::ExtensionsEverySite.key(), browser_core::extensions::EVERY_SITE_SETTING);
+        assert_eq!(Pref::ExtensionsEverySite.default(), browser_core::extensions::every_site_setting(None));
+        assert!(!browser_core::extensions::every_site_setting(Some("off")));
+        assert!(browser_core::extensions::every_site_setting(Some("on")));
+    }
 }

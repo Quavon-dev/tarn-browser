@@ -7,6 +7,7 @@ const REGEX_SIZE_LIMIT: usize = 1 << 20;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceKind {
     Document,
+    Subdocument,
     Image,
     StyleSheet,
     Script,
@@ -21,7 +22,7 @@ pub enum ResourceKind {
 impl ResourceKind {
     fn matches(self, name: &str) -> bool {
         match name {
-            "document" | "svg-document" => self == Self::Document,
+            "document" | "svg-document" => matches!(self, Self::Document | Self::Subdocument),
             "image" => self == Self::Image,
             "style-sheet" => self == Self::StyleSheet,
             "script" => self == Self::Script,
@@ -67,6 +68,8 @@ struct Rule {
     unless_domain: Vec<String>,
     if_top: Vec<Regex>,
     unless_top: Vec<Regex>,
+    /// `load-context`, read only on a document rule: whether it is for top-level documents.
+    top_frame: Option<bool>,
     action: Action,
 }
 
@@ -79,6 +82,13 @@ pub struct Request<'a> {
     pub url: &'a Url,
     pub top: Option<&'a Url>,
     pub kind: ResourceKind,
+}
+
+impl<'a> Request<'a> {
+    /// A top-level document is judged as its own page, as in WebKit, never as the page it replaces.
+    pub fn new(url: &'a Url, top: Option<&'a Url>, kind: ResourceKind) -> Self {
+        Request { url, top: if kind == ResourceKind::Document { Some(url) } else { top }, kind }
+    }
 }
 
 impl RuleList {
@@ -135,7 +145,7 @@ pub fn evaluate<'a>(lists: impl IntoIterator<Item = &'a RuleList>, request: &Req
 }
 
 const TRIGGER_FIELDS: &[&str] =
-    &["url-filter", "url-filter-is-case-sensitive", "resource-type", "load-type", "if-domain", "unless-domain", "if-top-url", "unless-top-url"];
+    &["url-filter", "url-filter-is-case-sensitive", "resource-type", "load-type", "if-domain", "unless-domain", "if-top-url", "unless-top-url", "load-context"];
 
 fn rule(item: &Value) -> Option<Rule> {
     let trigger = item.get("trigger")?.as_object()?;
@@ -157,16 +167,24 @@ fn rule(item: &Value) -> Option<Rule> {
         Some(types) if types.is_empty() => LoadType::Any,
         Some(_) => return None,
     };
+    let kinds = trigger.get("resource-type").map(strings).unwrap_or_default();
+    let top_frame = match trigger.get("load-context").map(strings) {
+        None => None,
+        Some(context) if kinds == ["document"] && context == ["top-frame"] => Some(true),
+        Some(context) if kinds == ["document"] && context == ["child-frame"] => Some(false),
+        Some(_) => return None,
+    };
     let patterns = |key: &str| -> Option<Vec<Regex>> { trigger.get(key).map_or(Some(Vec::new()), |v| strings(v).iter().map(|p| pattern(p, false)).collect()) };
     let domains = |key: &str| trigger.get(key).map(strings).unwrap_or_default().iter().map(|d| d.to_ascii_lowercase()).collect();
     Some(Rule {
         url,
-        kinds: trigger.get("resource-type").map(strings).unwrap_or_default(),
+        kinds,
         load,
         if_domain: domains("if-domain"),
         unless_domain: domains("unless-domain"),
         if_top: patterns("if-top-url")?,
         unless_top: patterns("unless-top-url")?,
+        top_frame,
         action,
     })
 }
@@ -190,6 +208,9 @@ struct Context<'a> {
 impl Rule {
     fn matches(&self, context: &Context) -> bool {
         if !self.kinds.is_empty() && !self.kinds.iter().any(|k| context.kind.matches(k)) {
+            return false;
+        }
+        if self.top_frame.is_some_and(|top| top != (context.kind == ResourceKind::Document)) {
             return false;
         }
         if !self.url.is_match(context.url) {
@@ -306,6 +327,17 @@ mod tests {
     }
 
     #[test]
+    fn a_top_level_document_is_judged_as_its_own_page() {
+        let json = r#"[{"trigger":{"url-filter":"x","if-top-url":["^https?://shop\\.test[:/]"]},"action":{"type":"block"}}]"#;
+        let lists = [RuleList::parse(json).unwrap()];
+        let (shop, away) = (Url::parse("https://shop.test/x").unwrap(), Url::parse("https://away.test/x").unwrap());
+        let judge = |url: &Url, top: &Url, kind| evaluate(&lists, &Request::new(url, Some(top), kind));
+        assert_eq!(judge(&shop, &away, ResourceKind::Document), Verdict::Block);
+        assert_eq!(judge(&away, &shop, ResourceKind::Document), Verdict::Allow);
+        assert_eq!(judge(&away, &shop, ResourceKind::Subdocument), Verdict::Block);
+    }
+
+    #[test]
     fn ip_hosts_are_their_own_site() {
         let json = r#"[{"trigger":{"url-filter":"track","load-type":["third-party"]},"action":{"type":"block"}}]"#;
         let lists = [RuleList::parse(json).unwrap()];
@@ -323,6 +355,19 @@ mod tests {
         let lists = [RuleList::parse(json).unwrap()];
         assert_eq!(verdict(&lists, "https://tracker.test/track", None, ResourceKind::Fetch), Verdict::Block);
         assert_eq!(verdict(&lists, "https://site.test/own", None, ResourceKind::Fetch), Verdict::Allow);
+    }
+
+    #[test]
+    fn document_rules_tell_top_level_documents_from_frames() {
+        let json = r#"[{"trigger":{"url-filter":"ads","resource-type":["document"],"load-context":["child-frame"]},"action":{"type":"block"}},
+            {"trigger":{"url-filter":"bad","resource-type":["document"],"load-context":["top-frame"]},"action":{"type":"block"}},
+            {"trigger":{"url-filter":"any","resource-type":["document","script"],"load-context":["top-frame"]},"action":{"type":"block"}}]"#;
+        let lists = [RuleList::parse(json).unwrap()];
+        assert_eq!(lists[0].len(), 2, "load-context is read on document rules only");
+        assert_eq!(verdict(&lists, "https://ads.test/", None, ResourceKind::Subdocument), Verdict::Block);
+        assert_eq!(verdict(&lists, "https://ads.test/", None, ResourceKind::Document), Verdict::Allow);
+        assert_eq!(verdict(&lists, "https://bad.test/", None, ResourceKind::Document), Verdict::Block);
+        assert_eq!(verdict(&lists, "https://bad.test/", None, ResourceKind::Subdocument), Verdict::Allow);
     }
 
     #[test]

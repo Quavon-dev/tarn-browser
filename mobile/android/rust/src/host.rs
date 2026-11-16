@@ -116,6 +116,10 @@ pub(crate) fn call_bool(method: &str, value: &str) -> bool {
     call(method, "(Ljava/lang/String;)Z", |env| Some(vec![string(env, value)?])) == Some(1)
 }
 
+pub(crate) fn frame_ready(request: &str, units: &[String]) -> bool {
+    call("extensionFrameReady", "(Ljava/lang/String;[Ljava/lang/String;)V", |env| Some(vec![string(env, request)?, strings(env, units)?])).is_some()
+}
+
 pub type Fetched = Result<(u16, Option<String>, Vec<u8>), String>;
 
 fn read_reply(env: &mut JNIEnv, reply: &JObject) -> Option<Fetched> {

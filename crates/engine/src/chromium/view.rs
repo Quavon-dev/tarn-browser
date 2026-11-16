@@ -18,6 +18,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::handover::{self, Storage, js_string};
 use crate::nav_policy::{self, Decision, GateAction, Source};
+use crate::tarn_ext::{ExtensionView, FrameId, Gate, PageSpec, World, WorldScripts};
 use crate::{Event, Host, Protection};
 
 type Found = Box<dyn Fn(bool)>;
@@ -26,6 +27,9 @@ type Reply = Box<dyn FnOnce(Option<Value>)>;
 type CreatedHook = Box<dyn FnOnce(Browser)>;
 
 const ADD_SCRIPT: &str = "Page.addScriptToEvaluateOnNewDocument";
+
+#[path = "tarn.rs"]
+mod tarn;
 
 struct Tab {
     id: u64,
@@ -113,6 +117,7 @@ struct Tab {
     /// The restore's own load, which keeps the restored forward list.
     #[cfg(windows)]
     restoring: Cell<bool>,
+    tarn: RefCell<tarn::TarnTab>,
 }
 
 thread_local! {
@@ -428,6 +433,12 @@ wrap_dev_tools_message_observer! {
                 reply(result.filter(|_| success == 1).and_then(|r| parse_json_buffer(Some(r), JsonParserOptions::default())));
             }
         }
+
+        fn on_dev_tools_event(&self, _browser: Option<&mut Browser>, method: Option<&CefString>, params: Option<&[u8]>) {
+            if let Some(tab) = tab(self.id) {
+                tarn::devtools_event(&tab, &string(method), params.and_then(|p| parse_json_buffer(Some(p), JsonParserOptions::default())));
+            }
+        }
     }
 }
 
@@ -652,8 +663,18 @@ wrap_request_handler! {
         fn on_before_browse(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, request: Option<&mut Request>, user_gesture: i32, is_redirect: i32) -> i32 {
             let (Some(tab), Some(frame), Some(request)) = (tab(self.id), frame, request) else { return 1 };
             let Ok(url) = Url::parse(&CefString::from(&request.url()).to_string()) else { return 1 };
+            if let Some(allowed) = tarn::page_allows(&tab, &url, frame.is_main() == 1) {
+                if !allowed && frame.is_main() == 1 && user_gesture == 1 && crate::tarn_ext::opens_as_tab(&url) {
+                    emit(&tab, Event::OpenTab { url, from: None, background: false });
+                }
+                return i32::from(!allowed);
+            }
             if frame.is_main() != 1 {
-                return i32::from(!nav_policy::chromium_subframe_allowed(&url) || (!self.lockdown_view && lockdown(&self.profile, &url)));
+                let refused = !nav_policy::chromium_subframe_allowed(&url) || (!self.lockdown_view && lockdown(&self.profile, &url));
+                if !refused {
+                    tarn::before_browse(&tab, &url, page_url(browser.as_deref()).as_ref(), false);
+                }
+                return i32::from(refused);
             }
             if super::outdated() {
                 emit(&tab, Event::WebEngineOutdated);
@@ -773,6 +794,7 @@ wrap_request_handler! {
                 }
             }
             *tab.navigating.borrow_mut() = crate::page::serialized_origin(&url);
+            tarn::before_browse(&tab, &url, None, true);
             0
         }
 
@@ -995,6 +1017,7 @@ wrap_life_span_handler! {
         fn on_after_created(&self, browser: Option<&mut Browser>) {
             OPEN.set(OPEN.get() + 1);
             if let (Some(tab), Some(browser)) = (tab(self.id), browser) {
+                tarn::page_created(&tab, browser);
                 *tab.browser.borrow_mut() = Some(browser.clone());
                 #[cfg(windows)]
                 if let Some(hook) = tab.created_hook.take() {
@@ -1004,8 +1027,11 @@ wrap_life_span_handler! {
             }
         }
 
-        fn on_before_close(&self, _browser: Option<&mut Browser>) {
+        fn on_before_close(&self, browser: Option<&mut Browser>) {
             OPEN.set(OPEN.get().saturating_sub(1));
+            if let Some(browser) = browser {
+                tarn::page_closed(browser);
+            }
             if let Some(tab) = TABS.with_borrow_mut(|t| t.remove(&self.id)) {
                 tab.browser.take();
                 tab.devtools.take();
@@ -1811,6 +1837,7 @@ impl WebView {
             restored_started: Cell::new(false),
             #[cfg(windows)]
             restoring: Cell::new(false),
+            tarn: RefCell::default(),
         });
         Rc::new(Inner {
             created: RefCell::new(None),
@@ -1838,6 +1865,9 @@ impl WebView {
         }
         let id = self.0.tab.id;
         TABS.with_borrow_mut(|t| t.insert(id, self.0.tab.clone()));
+        if let Some(spec) = self.0.tab.tarn.borrow().page.as_ref() {
+            tarn::register_scheme(context, spec);
+        }
         #[cfg(windows)]
         let lockdown_view = self.0.tab.lockdown_view.get();
         #[cfg(target_os = "macos")]
@@ -1924,7 +1954,8 @@ impl WebView {
         let mut bypass_step = None;
         #[cfg(windows)]
         let mut page_step = None;
-        if host.is_some() {
+        if let Some(host) = &host {
+            let tarn = tarn::first(&self.0.tab, host);
             steps.extend(super::data::take_pending_sites().iter().flat_map(|h| clear_storage_calls(h, &[])));
             let handover = self.0.handover.borrow_mut().take();
             // A service worker the site registered before it was set to Lockdown would run its
@@ -1939,7 +1970,7 @@ impl WebView {
             let page_world = !self.0.tab.lockdown_view.get();
             #[cfg(target_os = "macos")]
             let page_world = false;
-            if self.0.site_styles.is_some() || handover.is_some() || page_world {
+            if self.0.site_styles.is_some() || handover.is_some() || page_world || tarn {
                 // The page agent runs new-document scripts only once the Page domain is enabled.
                 steps.push(("Page.enable", "{}".into(), None));
             }
@@ -2193,6 +2224,21 @@ impl WebView {
 
     pub fn load(&self, url: &Url) {
         self.start(url, false);
+    }
+
+    /// Makes this view one of an install's own pages (`tarn_ext::PageKind`): it loads only that
+    /// origin, served by the profile's handler, with the bootstrap in its main world. Call it
+    /// right after creating the view, before its first load.
+    pub fn set_extension_page(&self, spec: PageSpec) {
+        self.0.tab.tarn.borrow_mut().page = Some(spec);
+    }
+
+    /// Sends `json` to an extension page view's own page.
+    pub fn post_to_page(&self, json: &str) {
+        let world = self.0.tab.tarn.borrow().page.as_ref().map(|s| s.world.clone());
+        if let Some(world) = world {
+            tarn::post(&self.0.tab, &world, Some(FrameId::MAIN), json);
+        }
     }
 
     /// Loads `url` as a page's link: without the shell's mark, so S10 judges it and every redirect
@@ -2645,5 +2691,23 @@ mod tests {
         tab.page_script.take();
         super::keep_page_script(tab, 2, None);
         assert_eq!(tab.page_hash.get(), 0, "a refused script lets the next change register it");
+    }
+}
+
+impl ExtensionView for WebView {
+    fn set_extension_gate(&self, gate: Gate) {
+        tarn::set_gate(&self.0.tab, gate);
+    }
+
+    fn add_extension_scripts(&self, scripts: Rc<WorldScripts>) {
+        tarn::add(&self.0.tab, scripts);
+    }
+
+    fn remove_extension_scripts(&self, world: &World) {
+        tarn::remove(&self.0.tab, world);
+    }
+
+    fn post_extension_message(&self, world: &World, frame: Option<FrameId>, json: &str) {
+        tarn::post(&self.0.tab, world, frame, json);
     }
 }

@@ -104,12 +104,15 @@ pub fn unlocked<'a>(state: &State, entries: &'a [(String, String)]) -> impl Iter
 }
 
 pub fn apply_styles(state: &State, content: &UserContentManager) {
-    content.remove_all_scripts();
+    if let Some(old) = state.style_script.take() {
+        content.remove_script(&old);
+    }
     let themed = state.theme_styles.borrow().clone().into_iter().filter(|_| state.level.get() != ShieldLevel::Lockdown);
     let styles: Vec<(String, String)> = themed.chain(unlocked(state, &state.styles.borrow()).cloned()).collect();
     if let Some(source) = page_scripts::site_styles_script(&styles).map(|s| page_scripts::outside_lockdown(s, &state.levels.borrow())) {
         let script = UserScript::for_world(&source, UserContentInjectedFrames::TopFrame, UserScriptInjectionTime::Start, WORLD, &[], &[]);
         content.add_script(&script);
+        *state.style_script.borrow_mut() = Some(script);
     }
 }
 

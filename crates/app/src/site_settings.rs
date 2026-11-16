@@ -151,6 +151,9 @@ impl Browser {
             };
         }
         self.core.apply_extensions(private, profile_id);
+        if !private {
+            crate::tarn_ext::apply_rules(&self.core, profile_id);
+        }
         // Frames and back/forward-cache pages of the site may live in any Chromium view.
         let in_chromium = |b: &Browser| b.views.iter().any(|(k, v)| v.is_chromium() && k.private == private && b.profile_of(*k) == Some(profile_id));
         let mut chromium = in_chromium(self);

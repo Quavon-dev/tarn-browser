@@ -24,7 +24,7 @@ const SOURCES: [Source; 3] = [Source::Typed, Source::Link, Source::Popup];
 
 const KINDS: [(ResourceKind, &str); 11] = [
     (ResourceKind::Document, "main_frame"),
-    (ResourceKind::Document, "sub_frame"),
+    (ResourceKind::Subdocument, "sub_frame"),
     (ResourceKind::Image, "image"),
     (ResourceKind::StyleSheet, "stylesheet"),
     (ResourceKind::Script, "script"),
@@ -96,12 +96,20 @@ pub fn may_ask_credentials(challenge: &str, page: Option<&str>, failures: i32) -
     view_policy::may_ask_credentials(&challenge, page.as_ref(), failures)
 }
 
+fn kind_names(kind: i32) -> (ResourceKind, &'static str) {
+    usize::try_from(kind).ok().and_then(|i| KINDS.get(i).copied()).unwrap_or((ResourceKind::Other, "other"))
+}
+
+pub(crate) fn resource_kind(kind: i32) -> ResourceKind {
+    kind_names(kind).0
+}
+
 pub fn verdict(url: &str, top: Option<&str>, kind: i32, level_index: i32) -> i32 {
     let Ok(parsed) = Url::parse(url) else {
         return VERDICT_BLOCK;
     };
     let top_url = top.and_then(|t| Url::parse(t).ok());
-    let (kind, adblock_kind) = usize::try_from(kind).ok().and_then(|i| KINDS.get(i).copied()).unwrap_or((ResourceKind::Other, "other"));
+    let (kind, adblock_kind) = kind_names(kind);
     let request = Request { url: &parsed, top: top_url.as_ref(), kind };
     let verdict = content_rules::evaluate([builtin(level(level_index))], &request);
     if verdict == Verdict::Block {

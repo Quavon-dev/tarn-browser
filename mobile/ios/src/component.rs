@@ -57,6 +57,7 @@ pub(crate) struct Props {
     pub(crate) zaps: Vec<(String, String)>,
     pub(crate) sort_downloads: bool,
     pub(crate) profile: String,
+    pub(crate) tab: String,
     level: ShieldLevel,
     levels: Value,
     load: Option<(String, u64)>,
@@ -77,6 +78,8 @@ pub(crate) struct Built {
     pub(crate) styles: Option<Vec<(String, String)>>,
     pub(crate) zaps: Option<String>,
     pub(crate) zap_list: Option<Retained<WKContentRuleList>>,
+    pub(crate) site_script: Option<Retained<objc2_web_kit::WKUserScript>>,
+    pub(crate) ext: crate::ext_view::ExtView,
     profile: String,
     pub(crate) level: ShieldLevel,
 }
@@ -249,12 +252,26 @@ impl Inner {
         web.set_ui_delegate(Some(ProtocolObject::from_ref(&*handler)));
         web.add_observer(&handler, &NSString::from_str("title"), 1, std::ptr::null_mut());
         self.root.addSubview(&web);
-        *self.built.borrow_mut() = Some(Built { web, handler, controller, styles: None, zaps: None, zap_list: None, profile: profile.to_owned(), level });
+        *self.built.borrow_mut() = Some(Built {
+            web,
+            handler,
+            controller,
+            styles: None,
+            zaps: None,
+            zap_list: None,
+            site_script: None,
+            ext: crate::ext_view::ExtView::default(),
+            profile: profile.to_owned(),
+            level,
+        });
         self.apply_content();
+        self.apply_extensions();
     }
 
     fn teardown(&self) {
-        if let Some(old) = self.built.borrow_mut().take() {
+        let old = self.built.borrow_mut().take();
+        if let Some(mut old) = old {
+            old.ext.cancel_pending();
             old.web.remove_observer(&old.handler, &NSString::from_str("title"));
             old.web.set_navigation_delegate(None);
             old.web.set_ui_delegate(None);
@@ -341,6 +358,7 @@ impl Inner {
 
     pub fn committed(&self) {
         self.dialogs.set(0);
+        self.ext_committed();
         self.end_popup();
     }
 
@@ -391,6 +409,9 @@ impl Inner {
     fn command(self: &Rc<Self>, name: &str, args: &Value) {
         if self.script_command(name, args) || crate::transfers::command(name, args, self.mtm) {
             return;
+        }
+        if name == crate::ext_scripts::POST {
+            return self.ext_post(args);
         }
         if name == "answer" {
             let pending = args.get("id").and_then(Value::as_u64).and_then(|id| self.pending.borrow_mut().remove(&id));
@@ -542,6 +563,7 @@ impl NativeComponent for TarnWebView {
                     props.load = value.and_then(|v| Some((v.get("url")?.as_str()?.to_owned(), v.get("seq")?.as_u64()?)));
                     props.opener = value.and_then(|v| v.get("opener")?.as_str().map(str::to_owned));
                 }
+                "tab" => props.tab = text(),
                 "active" => props.active = value.and_then(Value::as_bool).unwrap_or(false),
                 "styles" => props.styles = crate::scripts::host_map(value).into_iter().filter_map(|(h, v)| Some((h, v.as_str()?.to_owned()))).collect(),
                 "themeStyles" => props.theme_styles = value.map(engine::page_scripts::theme_sheets).unwrap_or_default(),
@@ -570,6 +592,7 @@ impl Drop for TarnWebView {
 }
 
 pub fn register(components: &Components) {
+    crate::extpage::register(components);
     components.register(
         "tarn.webview",
         Rc::new(|context: ComponentContext| -> Box<dyn NativeComponent> {
@@ -595,6 +618,7 @@ pub fn register(components: &Components) {
                 dialogs: Cell::new(0),
             });
             crate::transfers::register(&inner);
+            crate::tarn_ext::register(&inner);
             Box::new(TarnWebView(inner))
         }),
     );

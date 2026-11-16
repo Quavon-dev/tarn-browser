@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Tarn Fixture",
+  "version": "1.0",
+  "browser_specific_settings": { "tarn": { "runtime": 1 } },
+  "permissions": ["storage", "declarativeNetRequest"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "content_scripts": [
+    { "matches": ["http://127.0.0.1/*"], "js": ["content.js"], "css": ["content.css"], "run_at": "document_end" }
+  ],
+  "declarative_net_request": { "rule_resources": [{ "id": "block", "enabled": true, "path": "rules.json" }] },
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Fixture", "default_popup": "popup.html" }
+}

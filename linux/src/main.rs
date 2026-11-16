@@ -1,6 +1,7 @@
 mod browser;
 mod controls;
 mod data;
+mod extensions;
 mod fetch;
 mod input;
 mod memory;
@@ -28,6 +29,10 @@ fn main() -> impl std::process::Termination {
     }
     let components = Components::default();
     components.register(webview::NAME, Rc::new(|context: ComponentContext| -> Box<dyn NativeComponent> { Box::new(webview::TarnWebView::new(context)) }));
+    components.register(
+        extensions::popup::NAME,
+        Rc::new(|context: ComponentContext| -> Box<dyn NativeComponent> { Box::new(extensions::popup::Popup::new(context)) }),
+    );
     let code = platform::run_app(
         platform::AppSource::Rust(platform::Root::of::<ui::App>()),
         platform::AppOptions {

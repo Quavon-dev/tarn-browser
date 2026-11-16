@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use cef::*;
 use url::Url;
 
+use crate::content_rules::{self, ResourceKind, RuleList, Verdict};
 use crate::request_filter::{self, RequestAction, Shield};
 
 #[cfg(target_os = "macos")]
@@ -11,6 +12,47 @@ static SHIELD: RwLock<Option<Arc<Shield>>> = RwLock::new(None);
 /// Each profile's choices on Windows, by `DataStore::shield_key`.
 #[cfg(windows)]
 static SHIELDS: RwLock<BTreeMap<String, Arc<Shield>>> = RwLock::new(BTreeMap::new());
+
+/// Each profile's Tarn extension rules (`DataStore::set_extension_rules`), by Shield key; one set
+/// on macOS, where one profile owns Chromium.
+static EXTENSION_RULES: RwLock<BTreeMap<String, Arc<Vec<RuleList>>>> = RwLock::new(BTreeMap::new());
+
+/// Replaces the Tarn extension rules of the profile with this Shield key: content rule lists,
+/// one per install, already limited to the hosts it holds grants for. A list that does not parse
+/// is left out.
+pub(crate) fn set_extension_rules_for(key: &str, lists: &[String]) {
+    let parsed: Vec<RuleList> = lists.iter().filter_map(|json| RuleList::parse(json).ok()).collect();
+    let mut rules = EXTENSION_RULES.write().unwrap_or_else(PoisonError::into_inner);
+    if parsed.is_empty() {
+        rules.remove(key);
+    } else {
+        rules.insert(key.to_owned(), Arc::new(parsed));
+    }
+}
+
+/// Applies the Tarn extension rules of the profile that owns Chromium on macOS.
+#[cfg(target_os = "macos")]
+pub fn set_extension_rules(lists: &[String]) {
+    set_extension_rules_for("", lists);
+}
+
+fn extension_verdict(profile: &str, url: &Url, kind: &str, top: Option<&Url>) -> Verdict {
+    let Some(lists) = EXTENSION_RULES.read().unwrap_or_else(PoisonError::into_inner).get(profile).cloned() else { return Verdict::Allow };
+    let kind = match kind {
+        "main_frame" => ResourceKind::Document,
+        "sub_frame" => ResourceKind::Subdocument,
+        "stylesheet" => ResourceKind::StyleSheet,
+        "script" => ResourceKind::Script,
+        "image" => ResourceKind::Image,
+        "font" => ResourceKind::Font,
+        "media" => ResourceKind::Media,
+        "xhr" => ResourceKind::Fetch,
+        "websocket" => ResourceKind::WebSocket,
+        "ping" => ResourceKind::Ping,
+        _ => ResourceKind::Other,
+    };
+    content_rules::evaluate(lists.iter(), &content_rules::Request::new(url, top, kind))
+}
 
 /// Requests other than page loads the filter cancelled, by Shield key (empty on macOS, where one
 /// profile owns Chromium) and host of the page shown.
@@ -122,7 +164,21 @@ wrap_resource_request_handler! {
             let first_party = parse(&request.first_party_for_cookies());
             let top = browser.and_then(|b| b.main_frame()).and_then(|f| parse(&f.url())).or_else(|| first_party.clone());
             let referrer = parse(&request.referrer_url());
-            match request_filter::decide(&shield, &url, kind, top.as_ref(), first_party.as_ref(), referrer.as_ref(), self.lockdown_view) {
+            let decided = request_filter::decide(&shield, &url, kind, top.as_ref(), first_party.as_ref(), referrer.as_ref(), self.lockdown_view);
+            let extensions_act = !self.lockdown_view && matches!(url.scheme(), "http" | "https" | "ws" | "wss");
+            let decided = match (&decided, extensions_act) {
+                (RequestAction::Continue { upgrade, strip_referrer }, true) => match extension_verdict(&self.profile, upgrade.as_ref().unwrap_or(&url), kind, top.as_ref()) {
+                    Verdict::Block => RequestAction::Cancel,
+                    Verdict::MakeHttps if upgrade.is_none() && matches!(url.scheme(), "http" | "ws") => {
+                        let mut secure = url.clone();
+                        let scheme = if url.scheme() == "http" { "https" } else { "wss" };
+                        RequestAction::Continue { upgrade: secure.set_scheme(scheme).ok().map(|_| secure), strip_referrer: *strip_referrer }
+                    }
+                    _ => decided,
+                },
+                _ => decided,
+            };
+            match decided {
                 RequestAction::Cancel => {
                     if let Some(host) = top.as_ref().and_then(Url::host_str).filter(|_| kind != "main_frame") {
                         *BLOCKED.lock().unwrap_or_else(PoisonError::into_inner).entry((self.profile.clone(), host.to_owned())).or_default() += 1;

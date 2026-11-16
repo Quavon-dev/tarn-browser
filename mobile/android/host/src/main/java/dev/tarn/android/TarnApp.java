@@ -20,6 +20,9 @@ public final class TarnApp extends Application {
         if (getProcessName().endsWith(":private")) return;
         if (!PrivateSpace.running(this)) PrivateSpace.sweep(this, true);
         if (!Native.start(Host.class, getFilesDir().getPath(), null)) Log.e(TAG, "native host not started");
+        boolean worlds = Extensions.worldsSupported();
+        Native.setWorldsSupported(worlds);
+        Hooks.log("extension worlds supported=" + worlds);
         warm();
         interceptServiceWorkers();
         Hooks.configure(this);

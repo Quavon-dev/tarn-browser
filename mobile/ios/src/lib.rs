@@ -1,6 +1,11 @@
 #[cfg(target_os = "ios")]
 mod component;
 mod data;
+pub mod ext_scripts;
+#[cfg(target_os = "ios")]
+mod ext_view;
+#[cfg(target_os = "ios")]
+mod extpage;
 #[cfg(target_os = "ios")]
 mod fetch;
 pub mod find;
@@ -12,6 +17,8 @@ mod scripts;
 mod stores;
 #[cfg(target_os = "ios")]
 pub mod system;
+#[cfg(target_os = "ios")]
+pub mod tarn_ext;
 #[cfg(target_os = "ios")]
 mod transfers;
 #[cfg(target_os = "ios")]

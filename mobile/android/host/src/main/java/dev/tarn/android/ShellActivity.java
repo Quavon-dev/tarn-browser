@@ -24,6 +24,7 @@ abstract class ShellActivity extends Activity {
         nsh.setErrorListener(message -> Log.e(TAG, message));
         if (storage != null) nsh.setStorageDirectory(storage);
         nsh.registerComponent("tarn.webview", context -> new TarnWebView(context, noPersonalizedLearning));
+        nsh.registerComponent("tarn.extpage", ExtensionPage::new);
         setContentView(nsh);
         nsh.runRustApp("nsh");
     }

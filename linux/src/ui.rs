@@ -1,4 +1,5 @@
 mod appearance;
+mod extensions;
 mod library;
 mod panels;
 mod settings;
@@ -114,6 +115,9 @@ pub struct Ui {
     toast_timer: Signal<u64>,
     reloaded: Signal<u64>,
     settings_pane: Signal<tarn_nsh_shared::panes::Pane>,
+    ext_popup: Signal<Option<(store::Id, String)>>,
+    ext_pane: Signal<bool>,
+    remember: Signal<bool>,
     open: Signal<bool>,
     root: Owner,
 }
@@ -660,11 +664,13 @@ fn toolbar(ui: Ui) -> View {
             .child(private_mark(ui))
     };
     let actions = move || {
-        view().flex_row().items_center().gap(px(2.)).child(icon_button(icons::APP_WINDOW, "Tab", move || show(ui, Panel::Tab))).child(icon_button(
-            icons::GEAR,
-            "Settings",
-            move || show(ui, Panel::Settings),
-        ))
+        view()
+            .flex_row()
+            .items_center()
+            .gap(px(2.))
+            .child(extensions::buttons(ui))
+            .child(icon_button(icons::APP_WINDOW, "Tab", move || show(ui, Panel::Tab)))
+            .child(icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings)))
     };
     view().flex_row().items_center().gap_2().h(px(TOOLBAR_HEIGHT)).child(themed(navigation)).child(address(ui)).child(themed(actions))
 }
@@ -956,6 +962,9 @@ fn prompt_bar(ui: Ui) -> AnyElement {
             ui.answer_password.set(String::new());
             act(ui, |b| b.answer(id, accept, remember, &t, &u, &p));
         };
+        if prompt.kind == crate::browser::extensions::PROMPT_KIND {
+            return Some(extensions::site_prompt(ui, &prompt));
+        }
         let title = match prompt.kind.as_str() {
             "alert" | "confirm" | "text" => format!("{} says", prompt.origin),
             "credentials" => format!(
@@ -1128,6 +1137,8 @@ fn escape(ui: Ui) {
         ui.address_ref.blur();
     } else if ui.finding.get_untracked() {
         close_find(ui);
+    } else if ui.ext_popup.get_untracked().is_some() {
+        ui.ext_popup.set(None);
     } else if ui.panel.get_untracked() != Panel::None {
         show(ui, Panel::None);
     } else if ui.snap.with_untracked(|s| s.reader.is_some()) {
@@ -1286,6 +1297,9 @@ fn new_ui(row: SavedWindow) -> Ui {
         toast_timer: signal(0),
         reloaded: signal(0),
         settings_pane: signal(tarn_nsh_shared::panes::Pane::Profile),
+        ext_popup: signal(None),
+        ext_pane: signal(false),
+        remember: signal(false),
         root: Owner::current(),
     };
     let shown_space = std::cell::Cell::new(None);
@@ -1349,6 +1363,7 @@ fn browser_window(ui: Ui) -> AnyElement {
                 .flex_col()
                 .flex_1()
                 .child(toolbar(ui))
+                .child(themed(move || extensions::popup_panel(ui)))
                 .child(address_suggestions(ui))
                 .child(notice_bar(ui))
                 .child(error_bar(ui))
@@ -1367,6 +1382,7 @@ pub fn App() -> impl IntoElement {
     attributes.close_on_press = Some(false);
     main_window().set(attributes);
     route_downloads();
+    extensions::route(core());
     let mut rows = Browser::saved_windows(&core()).into_iter();
     let ui = new_ui(rows.next().unwrap_or_default());
     if shift_held() {

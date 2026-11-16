@@ -1,3 +1,4 @@
+pub mod ext;
 pub mod filters;
 pub use engine::view_policy as policy;
 mod scripts;
@@ -75,6 +76,8 @@ struct State {
     find_text: RefCell<String>,
     zoom: Cell<f64>,
     content: RefCell<Option<UserContentManager>>,
+    style_script: RefCell<Option<webkit6::UserScript>>,
+    ext: ext::Ext,
     styles: RefCell<Vec<(String, String)>>,
     theme_styles: RefCell<Vec<(String, String)>>,
     zaps: RefCell<Vec<(String, String)>>,
@@ -150,6 +153,8 @@ impl State {
 
     fn drop_view(&self) {
         self.decline_all();
+        ext::detach(self);
+        self.style_script.replace(None);
         self.content.replace(None);
         if let Some(old) = self.view.replace(None) {
             old.stop_loading();
@@ -253,6 +258,7 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
     *state.content.borrow_mut() = Some(content.clone());
     *state.zap_filter.borrow_mut() = None;
     apply_zaps(state);
+    ext::attach(state);
     let web = WebView::builder().network_session(&session).user_content_manager(&content).build();
     if let Some(settings) = WebViewExt::settings(&web) {
         settings.set_enable_javascript(wanted.level.policy().javascript);
@@ -415,6 +421,7 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
             if !javascript && let Some(settings) = WebViewExt::settings(web) {
                 settings.set_enable_javascript(false);
             }
+            ext::frame(state, &url);
             return false;
         }
         Verdict::Blocked(reason) => {
@@ -609,9 +616,10 @@ fn connect(state: &Rc<State>, web: &WebView) {
     web.connect_load_changed(move |web, event| {
         let Some(s) = w.upgrade() else { return };
         match event {
-            LoadEvent::Started => {
+            LoadEvent::Started | LoadEvent::Redirected => {
                 s.failed.set(false);
                 s.note_processes();
+                ext::started(&s, web.uri().and_then(|u| Url::parse(&u).ok()).as_ref());
             }
             LoadEvent::Committed => {
                 let page = web.uri().and_then(|u| Url::parse(&u).ok());
@@ -735,6 +743,8 @@ fn connect(state: &Rc<State>, web: &WebView) {
 
 #[cfg(test)]
 mod display_tests;
+#[cfg(test)]
+mod ext_display_tests;
 
 pub struct TarnWebView(Rc<State>);
 

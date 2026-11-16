@@ -134,7 +134,8 @@ pub fn prompt_panel(ui: Ui) -> impl IntoElement {
                     .into_element(),
             );
         }
-        let prompt: PromptRequest = first.get()?;
+        let Some(prompt) = first.get() else { return super::extensions::ask(ui).map(IntoElement::into_element) };
+        let prompt: PromptRequest = prompt;
         Some(
             card()
                 .child(label(title(&prompt)).font_weight(FontWeight::SEMIBOLD).text_color(Secure::text))

@@ -1,3 +1,4 @@
+pub mod extensions;
 pub mod pages;
 mod site;
 pub mod spaces;
@@ -109,6 +110,8 @@ pub struct Browser {
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
     pub themes: themes::Themes,
+    pub ext_prompts: HashMap<u64, extensions::ExtPrompt>,
+    ext_prompt_serial: u64,
     text_rows: usize,
     burner_return: Option<(bool, Id)>,
     window: SavedWindow,
@@ -168,6 +171,8 @@ impl Browser {
             elsewhere,
             forgotten: Vec::new(),
             themes,
+            ext_prompts: HashMap::new(),
+            ext_prompt_serial: 0,
             text_rows: 0,
             burner_return: None,
             window,
@@ -267,6 +272,7 @@ impl Browser {
         let at = std::time::Instant::now();
         self.used.extend(self.model.active.into_iter().chain([key]).map(|k| (k, at)));
         self.model.active = Some(key);
+        self.ext_activated(key);
         self.model.touch(&self.core, key, now());
         self.forget_silent_views();
         for evicted in self.model.lifecycle.activate(key) {
@@ -358,6 +364,7 @@ impl Browser {
             let title = self.pages.get(key).map(|p| p.title.clone()).unwrap_or(tab.title.clone());
             closed.push(ClosedTab { url, title, state: None, position: tab.position, group: None, web_engine: None });
             self.core.store(private).delete_tab(key.id).ok();
+            self.ext_tab_closed(*key);
             self.forget_tab(*key);
         }
         if burner && self.model.tabs.len() == keys.len() {
@@ -633,6 +640,9 @@ impl Browser {
         let Some(page) = self.pages.get_mut(&key) else { return };
         let Some(at) = page.prompts.iter().position(|p| p.id == id) else { return };
         let prompt = page.prompts.remove(at).expect("position is valid");
+        if prompt.kind == extensions::PROMPT_KIND {
+            return self.answer_extension(key, &prompt, accept, remember);
+        }
         if remember
             && prompt.rememberable()
             && let Some(profile) = self.model.profile_of(&self.core, key)
@@ -693,6 +703,7 @@ impl Browser {
                 }
             }
             "prompt" => self.on_prompt(key, data),
+            "extensionMessage" => self.on_extension_message(key, data),
             "found" => {
                 if let Some(page) = self.pages.get_mut(&key) {
                     page.found = data["matched"].as_u64();
@@ -734,9 +745,13 @@ impl Browser {
             page.crashed = false;
         } else {
             page.error = None;
-            page.prompts.clear();
+            let host = Url::parse(&url).ok().and_then(|u| u.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase()));
+            page.prompts.retain(|p| p.kind == extensions::PROMPT_KIND && host.as_deref() == Some(p.origin.as_str()));
         }
         let page_title = page.title.clone();
+        if !finished {
+            self.ext_navigated(key);
+        }
         let store = self.core.store(key.private);
         store.update_tab_page(key.id, &url, &page_title).ok();
         let parsed = Url::parse(&url).ok().filter(|u| matches!(u.scheme(), "http" | "https"));

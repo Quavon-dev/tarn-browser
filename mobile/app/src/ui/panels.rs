@@ -22,6 +22,7 @@ fn title(screen: Screen) -> &'static str {
         Screen::History => "History",
         Screen::Downloads => "Downloads",
         Screen::Spaces => "Spaces and Profiles",
+        Screen::Extensions => "Extensions",
         other => sheets::heading_for(other).unwrap_or_default(),
     }
 }
@@ -45,6 +46,8 @@ pub fn panel(ui: Ui) -> impl IntoElement {
             Screen::ReadingList => sheets::reading_list(ui).into_element(),
             Screen::Move(key) => sheets::move_tab(ui, key).into_element(),
             Screen::SpaceEdit(ix) => sheets::space_edit(ui, ix).into_element(),
+            Screen::Extensions => super::extensions::pane(ui),
+            Screen::ExtensionPopup => return Some(super::extensions::popup(ui).into_element()),
         };
         Some(sheet(ui, title(screen), body).into_element())
     })
@@ -289,8 +292,10 @@ fn menu(ui: Ui) -> impl IntoElement {
                 .child(row(icons::HISTORY, "History", move || ui.show(Screen::History)))
                 .child(row(icons::DOWNLOADS, "Downloads", move || ui.show(Screen::Downloads)))
                 .child(row(icons::PERSON, "Spaces and Profiles", move || ui.show(Screen::Spaces)))
-                .child(row(icons::GEAR, "Settings", move || ui.show(Screen::Settings))),
+                .child(row(icons::GEAR, "Settings", move || ui.show(Screen::Settings)))
+                .child(dynamic(move || (!ui.read(|s| s.model.private())).then(|| row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions))))),
         ))
+        .child(super::extensions::actions(ui))
         .child(framed(
             group()
                 .child(row(icons::SHARE, "Share…", move || share(ui)))
@@ -455,6 +460,8 @@ fn settings(ui: Ui) -> impl IntoElement {
         .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1())
         .child(pane_heading(Pane::Permissions))
         .child(permissions(ui))
+        .child(section("Extensions"))
+        .child(framed(group().child(row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions)))))
         .child(section("Your data"))
         .child(framed(group().child(row(icons::CLOSE, "Clear Browsing Data…", move || {
             let answer = alert_dialog()

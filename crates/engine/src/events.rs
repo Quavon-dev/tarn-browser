@@ -127,4 +127,13 @@ pub enum Event {
     DownloadCancelled(u64),
     /// How many downloads of this data store are saving or paused; sent whenever it may change.
     DownloadsActive(usize),
+    /// A Tarn extension's world, or its own page's main world, called `__tarnExtPost`; `world`,
+    /// `frame` and `origin` (the subframe document's web origin) are where the call arrived, never
+    /// read from `json`.
+    ExtensionMessage {
+        world: crate::tarn_ext::World,
+        frame: crate::tarn_ext::FrameId,
+        origin: Option<url::Url>,
+        json: String,
+    },
 }

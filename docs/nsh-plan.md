@@ -75,7 +75,47 @@ All three backends call the same `nav_policy::decide` and `level_action`.
 | **Dialogs and permissions** | `WKUIDelegate` | `WebChromeClient` (`onJsAlert`, `onPermissionRequest`, …) | `script-dialog` and `permission-request` signals |
 | **HTTP sign-in and TLS** | delegate challenge, default trust | `onReceivedHttpAuthRequest`; `onReceivedSslError` always cancels | `authenticate` signal; TLS errors always fail |
 | **Downloads** | `WKDownload` into the app container, shared through the Files app | `DownloadManager` or a stream to app storage | `download-started`; name sanitising and quarantine attribute (`user.xdg.origin.url`) |
-| **Extensions** | `WKWebExtensionController` if available on iOS (to verify); otherwise none | None | None |
+| **Extensions** | `WKWebExtensionController` if available on iOS (to verify); otherwise none | None | Tarn extensions (`browser_core::tarn_ext`, see below); classic WebExtensions are not supported |
+
+### Tarn extensions on Linux
+
+Linux runs Tarn extensions (manifest `browser_specific_settings.tarn.runtime: 1`) on the shared
+runtime in `browser_core::tarn_ext`; the shell only carries out its decisions.
+
+- **Install, consent, enable, every-site, remove:** Settings › Extensions, the shared pane
+  `tarn_nsh_shared::extensions` (file, GitHub repository, official catalog). A changed install
+  reloads the profile's runtime (`linux/src/extensions`).
+- **Content scripts and CSS:** `webkit_user_script_new_for_world` and
+  `webkit_user_style_sheet_new_for_world` in the world `tarn-ext-<install id>`. WebKitGTK user
+  content is pattern based, so the shell asks the core's gate when the main frame starts a
+  document (`load-changed` started or redirected) and for every frame navigation
+  (`decide-policy`), and gives each approved script an allow-list of exactly that document's
+  address, query included, which a later answer for the same address takes away again. Nothing the gate did not return is injected; the site prompt is raised for the main
+  frame only.
+- **Messages:** a script message handler registered for that world only
+  (`webkit_user_content_manager_register_script_message_handler(name, world)`), so the page's
+  main world cannot post; replies are evaluated in the same world.
+- **Extension pages:** `tarn-extension://` registered on the web context
+  (`webkit_web_context_register_uri_scheme`, secure and display-isolated). The handler serves the
+  core's `Resources` with their CSP only to the extension's own page views; any other requester,
+  web pages included, gets 403. Background pages are hidden views in the profile's network session
+  with its Shield rules, started on demand and stopped after 30 s idle; the popup is shown under
+  the toolbar. Page views may only navigate within their own origin.
+- **Network rules:** each install's rule list compiles through `WebKitUserContentFilterStore`
+  into the tab's content manager, for the hosts it holds a grant for.
+- **Not in private spaces, burner tabs or Lockdown.** Files are hash-checked before every load; a
+  changed install is turned off and its site grants are dropped.
+
+Gaps, with their reason:
+
+- **Messaging from subframes.** WebKitGTK's script-message signal does not say which frame
+  posted, and `webkit_web_view_evaluate_javascript` reaches only the main frame. Content scripts
+  with `all_frames` therefore run (JS and CSS) in subframes, but the shim's `chrome.runtime` and
+  `chrome.storage` calls from a subframe fail with an error and `tabs.sendMessage` reaches only
+  the main frame. Anything a subframe's world still posts counts as the tab's main frame and is
+  dropped unless the install holds a grant for the main frame's host. Closing this needs a
+  web-process extension.
+- **`document_idle`** runs at document end: WebKitGTK user scripts have only start and end.
 
 ## 5. Platform pieces outside the web view
 

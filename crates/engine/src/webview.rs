@@ -42,6 +42,7 @@ pub struct Popup {
 impl Drop for Popup {
     fn drop(&mut self) {
         if let Some((view, _)) = &self.parts {
+            crate::tarn_webkit::forget_view(view);
             detach(view);
         }
     }
@@ -641,6 +642,7 @@ impl Drop for WebView {
         if let Some(tab) = &self.tab {
             tab.close();
         }
+        crate::tarn_webkit::forget_view(&self.view);
         self._delegate.run_after_commit();
         detach(&self.view);
     }
@@ -718,6 +720,24 @@ fn remove_user_script(controller: &WKUserContentController, script: &WKUserScrip
         for other in others {
             controller.addUserScript(&other);
         }
+    }
+}
+
+impl crate::tarn_ext::ExtensionView for WebView {
+    fn set_extension_gate(&self, gate: crate::tarn_ext::Gate) {
+        crate::tarn_webkit::set_gate(&self.view, &self._delegate, gate);
+    }
+
+    fn add_extension_scripts(&self, scripts: Rc<crate::tarn_ext::WorldScripts>) {
+        crate::tarn_webkit::add_scripts(&self.view, scripts);
+    }
+
+    fn remove_extension_scripts(&self, world: &crate::tarn_ext::World) {
+        crate::tarn_webkit::remove_scripts(&self.view, world);
+    }
+
+    fn post_extension_message(&self, world: &crate::tarn_ext::World, frame: Option<crate::tarn_ext::FrameId>, json: &str) {
+        crate::tarn_webkit::post(&self.view, world, frame, json);
     }
 }
 

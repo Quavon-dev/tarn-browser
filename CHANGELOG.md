@@ -8,6 +8,12 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Tarn extensions: a package whose manifest sets `browser_specific_settings.tarn.runtime` to 1
+  runs on Tarn's own runtime with content scripts, static network rules, `runtime`, `storage`,
+  `tabs`, `action`, `i18n` and a background page, the same on every engine, installed from a file,
+  GitHub or the official catalog with per-site grants (macOS, Windows, Linux, iOS, Android). On
+  macOS they run in WebKit and Chromium tabs alike, with a toolbar button, badge and popup; on
+  Windows they are the extensions Tarn can run.
 - Settings › Permissions lists the camera, microphone, location and pop-up answers a profile
   remembered, with Allow, Block and Forget (macOS, Windows, Linux, iOS, Android).
 - Split view holds up to four tabs; drop a tab on another tab in the sidebar to split them

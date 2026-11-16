@@ -140,6 +140,14 @@ final class Host {
         });
     }
 
+    static void extensionScriptsChanged(String store) {
+        MAIN.post(() -> TarnWebView.extensionScriptsChanged(store));
+    }
+
+    static void extensionFrameReady(String request, String[] units) {
+        MAIN.post(() -> Extensions.ready(request, units));
+    }
+
     static Object[] fetch(String url, long max, String agent, int stallMs, int totalMs) {
         return Fetch.get(url, max, agent, stallMs, totalMs);
     }

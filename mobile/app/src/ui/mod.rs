@@ -1,6 +1,7 @@
 mod appearance;
 mod bars;
 mod controls;
+mod extensions;
 mod panels;
 mod prompt;
 mod sheets;
@@ -40,6 +41,8 @@ pub enum Screen {
     ReadingList,
     Move(TabKey),
     SpaceEdit(usize),
+    Extensions,
+    ExtensionPopup,
 }
 
 thread_local! {
@@ -65,7 +68,13 @@ impl Ui {
     }
 
     pub fn act(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>) {
-        let effects = SHELL.with(|s| f(s.borrow_mut().as_mut().expect("the shell opens with the app")));
+        let effects = SHELL.with(|s| {
+            let mut shell = s.borrow_mut();
+            let shell = shell.as_mut().expect("the shell opens with the app");
+            let mut effects = f(shell);
+            effects.extend(shell.take_effects());
+            effects
+        });
         self.rev.update(|r| *r += 1);
         for effect in effects {
             match effect {
@@ -74,6 +83,7 @@ impl Ui {
                         view.command(name, args);
                     }
                 }),
+                Effect::PagePost(install_id, kind, json) => extensions::post(install_id, kind, json),
                 Effect::Open(url) => {
                     spawn(async move {
                         let _ = open_url(url).await;
@@ -128,7 +138,12 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
         .prop("sortDownloads", move || json!(item.get().sort_downloads))
         .prop("load", move || item.get().load.map_or(Value::Null, |l| json!({ "url": l.url, "seq": l.seq, "opener": l.opener })))
         .prop("active", move || json!(ui.browsing() && ui.read(|s| s.model.active == Some(key))))
-        .on_native_event(move |e: &NativeEvent| ui.act(|s| s.event(key, &e.name, &e.data, browser_core::now())))
+        .on_native_event(move |e: &NativeEvent| {
+            if &*e.name == crate::extensions::FRAME {
+                return crate::platform::ext::frame_event(&e.data);
+            }
+            ui.act(|s| s.event(key, &e.name, &e.data, browser_core::now()))
+        })
         .flex_1()
         .style_when(move || !(ui.browsing() && ui.read(|s| s.model.active == Some(key) && !s.active_url().is_empty())), |s| s.hidden())
 }
@@ -277,6 +292,7 @@ pub fn App() -> impl IntoElement {
     };
     follow();
     set_interval(Duration::from_secs(60), follow);
+    extensions::start(ui);
     view()
         .flex_1()
         .pt_safe_area()
@@ -299,4 +315,5 @@ pub fn App() -> impl IntoElement {
                 .child(panels::panel(ui)),
         )
         .child(themed(move || bars::bottom_bar(ui)))
+        .child(extensions::backgrounds(ui))
 }

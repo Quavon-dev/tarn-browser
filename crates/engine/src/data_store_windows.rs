@@ -96,6 +96,7 @@ struct ShieldKey(String);
 impl Drop for ShieldKey {
     fn drop(&mut self) {
         crate::chromium::drop_shield(&self.0);
+        crate::chromium::set_extension_rules_for(&self.0, &[]);
         STYLES.with_borrow_mut(|s| s.remove(&self.0));
         PAGE_SCRIPTS.with_borrow_mut(|s| s.remove(&self.0));
     }
@@ -206,6 +207,12 @@ impl DataStore {
         crate::chromium::downloads_windows::quit(&self.key);
     }
 
+    /// Applies the Tarn extensions' rules (`browser_core::tarn_ext::rule_list`, one content rule
+    /// list per install) to this profile's Chromium requests.
+    pub fn set_extension_rules(&self, lists: &[String]) {
+        crate::chromium::set_extension_rules_for(self.shield_key(), lists);
+    }
+
     pub fn set_extensions(&self, _enabled: &[Enabled], _blocked: &[String], _level: ShieldLevel) {}
 
     pub fn remove_extension(&self, _key: &str, done: impl FnOnce() + 'static) {
@@ -296,6 +303,8 @@ impl DataStore {
 
     /// Filter lists reach Chromium through the matcher in `set_shield`.
     pub fn set_rule_lists(&self, _group: &str, _lists: Option<&FilterLists>, _pausable: bool) {}
+
+    pub fn set_extension_rule_lists(&self, _group: &str, _lists: Option<&FilterLists>) {}
 }
 
 const WIPED: &str = "WIPED";

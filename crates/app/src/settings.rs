@@ -1558,13 +1558,13 @@ impl SettingsWindow {
 
 impl SettingsWindow {
     fn extensions(&self, s: Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        if cfg!(windows) {
-            return div().child(section("Extensions")).child(note("Extensions are not available on Windows yet.")).into_any_element();
-        }
         if !s.extensions_allowed {
             return div().child(section("Extensions")).child(note("Extensions are off in private and Lockdown profiles.")).into_any_element();
         }
         let mut page = div();
+        if cfg!(windows) {
+            page = page.child(note("Windows runs Tarn extensions only; Safari and Chrome extensions need their own engine and are not available here."));
+        }
         if s.all_sites_notice {
             page = page.child(
                 group().child(
