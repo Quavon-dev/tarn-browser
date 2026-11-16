@@ -132,6 +132,7 @@ pub struct Shell<D: Platform> {
     pub(crate) crashed: HashSet<TabKey>,
     pub(crate) seq: u64,
     pub themes: crate::themes::Themes,
+    pub icons: engine::favicon::Tracker<(bool, Id), String>,
 }
 
 fn downloads_sink() -> Rc<dyn Fn(engine::Event)> {
@@ -175,6 +176,7 @@ impl<D: Platform> Shell<D> {
             crashed: HashSet::new(),
             seq: 0,
             themes,
+            icons: engine::favicon::Tracker::default(),
         };
         shell.switch_space(ix);
         shell.apply_theme();
@@ -522,6 +524,9 @@ impl<D: Platform> Shell<D> {
             self.unmount(key);
         }
         self.open_current_profile();
+        if let Some(profile) = self.model.profile() {
+            self.load_icons(profile);
+        }
         match self.model.pick(|_| false) {
             Some(key) => self.activate(key),
             None => {
@@ -589,6 +594,7 @@ impl<D: Platform> Shell<D> {
         let memory = self.core.store(true);
         for (_, profile_id) in &private {
             memory.delete_profile(*profile_id).ok();
+            self.icons.forget(&(true, *profile_id));
             self.core.profiles.borrow_mut().remove(&(true, *profile_id));
             self.model.closed_tabs.clear_profile(true, *profile_id);
         }
@@ -671,6 +677,7 @@ impl<D: Platform> Shell<D> {
         store.clear_history(id).ok();
         store.clear_downloads(id).ok();
         self.model.closed_tabs.clear_profile(private, id);
+        self.icons.forget(&(private, id));
         let before = self.store_id(private, id);
         if let Some(rt) = self.core.profiles.borrow_mut().remove(&(private, id)) {
             D::wipe_persistent(&rt.own_store);

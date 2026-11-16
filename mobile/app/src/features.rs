@@ -160,6 +160,7 @@ impl<D: Platform> Shell<D> {
         let profile = self.model.burner.and_then(|id| self.model.spaces.iter().find(|s| s.private && s.space.id == id)).map(|s| s.space.profile_id);
         if let Some(profile) = profile {
             self.model.closed_tabs.clear_profile(true, profile);
+            self.icons.forget(&(true, profile));
         }
         for key in self.model.burner_tabs(&self.core) {
             self.forget(key);

@@ -72,9 +72,9 @@ fn contract_v3_scripts_run_in_the_tarn_world_and_styles_and_zaps_apply() {
     assert!(found["snippets"][0].as_str().unwrap().contains("quick zebrafish swims"), "{found}");
     let text = ask(&state, "readText", json!({ "seq": 5, "maxChars": 30 }), "pageText");
     assert!(!text["text"].as_str().unwrap().is_empty() && text["text"].as_str().unwrap().encode_utf16().count() <= 30, "{text}");
-    let links = ask(&state, "iconLinks", json!({ "seq": 8 }), "iconLinks");
+    let links = ask(&state, "readIconLinks", json!({ "seq": 8 }), "iconLinks");
     assert!(links["text"].as_str().unwrap().starts_with("http://page.test/i.png\t32x32\n"), "{links}");
-    let icon = ask(&state, "fetchIcon", json!({ "seq": 9, "urls": ["http://page.test/i.png"], "maxBytes": 1024 }), "iconData");
+    let icon = ask(&state, "fetchIcon", json!({ "seq": 9, "urls": ["http://page.test/i.png"] }), "iconData");
     assert_eq!((icon["seq"].clone(), icon["text"].clone()), (json!(9), json!("")), "only https icons are fetched");
     let probe = ask(&state, "readArticle", json!({ "seq": 6, "probe": true }), "article");
     assert_eq!(probe["text"], "", "a short page has no article");
@@ -97,7 +97,7 @@ fn nothing_runs_or_applies_under_lockdown() {
     spin_until(|| false, 2);
     let found = ask(&state, "findText", json!({ "seq": 1, "query": "zebrafish" }), "textFound");
     assert_eq!(found["snippets"], json!([]));
-    assert_eq!(ask(&state, "iconLinks", json!({ "seq": 2 }), "iconLinks")["text"], "");
+    assert_eq!(ask(&state, "readIconLinks", json!({ "seq": 2 }), "iconLinks")["text"], "");
     assert!(state.zap_filter.borrow().is_none(), "no zap filter under Lockdown");
     let settings = WebViewExt::settings(&web).unwrap();
     assert!(!settings.enables_javascript());

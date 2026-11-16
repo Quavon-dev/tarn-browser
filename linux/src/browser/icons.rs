@@ -62,7 +62,7 @@ impl Browser {
         let live: Vec<TabKey> = self.model.lifecycle.live().collect();
         self.withdraw_icons(|k| !live.contains(&k));
         if self.favicons.request(&profile, &host) {
-            self.ask(key, Request::IconLinks(key, profile, host), "iconLinks", json!({}));
+            self.ask(key, Request::IconLinks(key, profile, host), "readIconLinks", json!({}));
         }
     }
 
@@ -90,7 +90,7 @@ impl Browser {
                 if urls.is_empty() || !self.favicons.is_requested(&profile, &host) {
                     return self.favicons.withdraw(&profile, &host);
                 }
-                self.ask(key, Request::IconData(key, profile, host), "fetchIcon", json!({ "urls": urls, "maxBytes": favicon::MAX_BYTES }));
+                self.ask(key, Request::IconData(key, profile, host), "fetchIcon", json!({ "urls": urls }));
             }
             Request::IconData(_, profile, host) => {
                 let uri = png.as_deref().map(|p| Arc::from(favicon::data_uri(p)));

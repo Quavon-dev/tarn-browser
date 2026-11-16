@@ -68,6 +68,16 @@ impl Inner {
                 let body = url.as_ref().and_then(|u| page_scripts::page_text_script(u, max));
                 self.run(body, move |text| context.emit("pageText", json!({ "seq": seq, "url": shown, "text": text })));
             }
+            "readIconLinks" => {
+                let body = url.as_ref().and_then(page_scripts::icon_links_script);
+                self.run(body, move |text| context.emit("iconLinks", json!({ "seq": seq, "url": shown, "text": text })));
+            }
+            "fetchIcon" => {
+                let urls: Vec<url::Url> =
+                    args.get("urls").and_then(Value::as_array).into_iter().flatten().filter_map(|u| url::Url::parse(u.as_str()?).ok()).collect();
+                let body = url.as_ref().and_then(|u| page_scripts::fetch_icon_script(u, &urls, engine::favicon::MAX_BYTES));
+                self.run(body, move |text| context.emit("iconData", json!({ "seq": seq, "url": shown, "text": text })));
+            }
             "findText" => {
                 let query = args.get("query").and_then(Value::as_str).unwrap_or_default();
                 let body = (!query.is_empty()).then(|| page_scripts::find_text_script(query));

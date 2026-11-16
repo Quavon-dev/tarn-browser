@@ -434,17 +434,16 @@ fn site_icons_load_at_start_fetch_inside_the_tab_and_go_with_history() {
     assert_eq!(icons.find("www.b.test").as_deref(), Some(engine::favicon::data_uri(b"png").as_str()));
     assert!(b.site_icons(&icons).is_none(), "unchanged");
     visit(&mut b, key, "https://b.test/");
-    assert!(asked(&b, "iconLinks").is_empty(), "a fresh stored icon is not fetched again");
+    assert!(asked(&b, "readIconLinks").is_empty(), "a fresh stored icon is not fetched again");
     visit(&mut b, key, "http://a.test/");
-    assert!(asked(&b, "iconLinks").is_empty(), "only https");
+    assert!(asked(&b, "readIconLinks").is_empty(), "only https");
     for _ in 0..engine::favicon::MAX_TRIES {
         b.outbox.clear();
         visit(&mut b, key, "https://a.test/x");
-        let seq = asked(&b, "iconLinks")[0]["seq"].as_u64().unwrap();
+        let seq = asked(&b, "readIconLinks")[0]["seq"].as_u64().unwrap();
         b.on_event(key, "iconLinks", &json!({ "seq": seq, "url": "https://a.test/x", "text": "https://a.test/i.png\t32x32\nhttps://evil.test/p.png\t64x64" }));
         let fetch = asked(&b, "fetchIcon");
         assert_eq!(fetch[0]["urls"], json!(["https://a.test/i.png", "https://a.test/favicon.ico"]));
-        assert_eq!(fetch[0]["maxBytes"], engine::favicon::MAX_BYTES);
         b.on_icon_event(
             key,
             &json!({ "seq": fetch[0]["seq"], "url": "https://a.test/x", "text": "bm90IGFuIGltYWdl" }),
@@ -453,17 +452,17 @@ fn site_icons_load_at_start_fetch_inside_the_tab_and_go_with_history() {
     }
     b.outbox.clear();
     visit(&mut b, key, "https://a.test/x");
-    assert!(asked(&b, "iconLinks").is_empty(), "gives up after MAX_TRIES failed fetches");
+    assert!(asked(&b, "readIconLinks").is_empty(), "gives up after MAX_TRIES failed fetches");
     assert!(b.core.disk.favicons(profile).unwrap().iter().all(|(h, _)| h == "b.test"));
     b.clear_history();
     let cleared = b.site_icons(&icons).unwrap();
     assert!(cleared.find("b.test").is_none());
     b.outbox.clear();
     visit(&mut b, key, "https://a.test/x");
-    assert_eq!(asked(&b, "iconLinks").len(), 1, "a history clear starts over");
+    assert_eq!(asked(&b, "readIconLinks").len(), 1, "a history clear starts over");
     b.close_tab(key);
     let next = b.new_tab("https://a.test/x").unwrap();
     b.outbox.clear();
     visit(&mut b, next, "https://a.test/x");
-    assert_eq!(asked(&b, "iconLinks").len(), 1, "a closed tab's unanswered request does not hold the host");
+    assert_eq!(asked(&b, "readIconLinks").len(), 1, "a closed tab's unanswered request does not hold the host");
 }

@@ -88,7 +88,7 @@ impl<D: Platform> Shell<D> {
                 }
             }
             "prompt" => return self.prompt(key, data),
-            "article" | "pageText" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
+            "article" | "pageText" | "iconLinks" | "iconData" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
             "found" => self.found = data.get("matched").and_then(Value::as_u64),
             "history" => {
                 if let Some(page) = self.pages.get_mut(&key) {

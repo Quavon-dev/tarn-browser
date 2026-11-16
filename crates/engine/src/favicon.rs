@@ -25,7 +25,7 @@ pub const MAX_AGE: i64 = 30 * 24 * 3_600_000;
 /// icons are keyed by host and a service on another port must not set the site's icon, and never
 /// under Lockdown.
 pub fn icon_host(url: &Url, lockdown: bool) -> Option<String> {
-    url.host_str().filter(|_| url.scheme() == "https" && url.port().is_none() && !lockdown).map(str::to_ascii_lowercase)
+    url.host_str().filter(|_| url.scheme() == "https" && url.port().is_none() && !lockdown).map(|h| h.trim_end_matches('.').to_ascii_lowercase())
 }
 
 /// An icon may come from the page's host or a subdomain of it (a `www.` prefix is ignored), so a
@@ -196,7 +196,11 @@ impl<P: Clone + Eq + Hash, I> Tracker<P, I> {
 
     /// The host's icon, else the nearest one `lookup_hosts` allows.
     pub fn find(&self, profile: &P, host: &str) -> Option<&I> {
-        lookup_hosts(host).into_iter().find_map(|host| self.icons.get(&(profile.clone(), host)))
+        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        if let Some(icon) = self.icons.get(&(profile.clone(), host.clone())) {
+            return Some(icon);
+        }
+        lookup_hosts(&host).into_iter().skip(1).find_map(|host| self.icons.get(&(profile.clone(), host)))
     }
 
     /// The profile's icons by host.
@@ -266,6 +270,7 @@ mod tests {
         let host = |url: &str, lockdown| icon_host(&Url::parse(url).unwrap(), lockdown);
         assert_eq!(host("https://News.A.test/x", false).as_deref(), Some("news.a.test"));
         assert_eq!(host("https://a.test:443/", false).as_deref(), Some("a.test"));
+        assert_eq!(host("https://a.test./", false).as_deref(), Some("a.test"));
         assert_eq!(host("https://a.test/", true), None);
         assert_eq!(host("http://a.test/", false), None);
         assert_eq!(host("https://a.test:8443/", false), None);

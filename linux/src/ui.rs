@@ -338,19 +338,11 @@ fn web_views(ui: Ui) -> View {
 
 pub fn site_tile(ui: Ui, host: &str, size: f32) -> View {
     let host = host.to_owned();
-    view().w(px(size)).h(px(size)).flex_none().child(dynamic(move || match ui.icons.with(|i| i.find(&host)) {
-        Some(icon) => image(SharedString::from(icon)).w(px(size)).h(px(size)).rounded(px(size * 0.22)).into_element(),
-        None => letter_tile(&host, size).into_element(),
-    }))
-}
-
-fn letter_tile(host: &str, size: f32) -> View {
-    let letter = host.trim_start_matches("www.").chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
-    let tile = view().w(px(size)).h(px(size)).flex_none().rounded(px(size * 0.28)).items_center().justify_center();
-    if letter.is_empty() {
-        return tile.bg(Theme::control());
-    }
-    tile.bg(Theme::monogram(host)).child(text(letter).text_size(px(size * 0.62)).font_weight(FontWeight::BOLD).text_color(Theme::text()))
+    view()
+        .w(px(size))
+        .h(px(size))
+        .flex_none()
+        .child(dynamic(move || tarn_nsh_shared::controls::site_tile(ui.icons.with(|i| i.find(&host)).map(|icon| icon.to_string()), &host, size).into_element()))
 }
 
 fn space_tint(color: &str, alpha: f32) -> Option<Rgba> {

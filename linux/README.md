@@ -58,7 +58,7 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   `spd-say`, shown only when it is on `PATH` (Read Aloud / Stop, no pause: `spd-say` has none);
 - full-text history (`readText`, off by default) feeding address suggestions; Find in Tabs
   (`Ctrl+Shift+F`, `findText`);
-- site icons (`iconLinks`, `fetchIcon`): fetched inside the tab after each https load, kept per profile
+- site icons (`readIconLinks`, `fetchIcon`): fetched inside the tab after each https load, kept per profile
   by `engine::favicon::Tracker`, stored with `Store::set_favicon` and drawn wherever a site's letter
   tile was (tiles, tab rows, split panes, history, bookmarks, suggestions, site and share popovers);
 - Shield: cookie-banner lists switch, the Shield card (front and stamps side, no 3D tilt in NSH)

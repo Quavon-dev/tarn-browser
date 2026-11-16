@@ -56,7 +56,7 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             let body = (!query.is_empty()).then(|| page_scripts::find_text_script(query));
             run(state, body, move |s, url, text| s.emit("textFound", json!({ "seq": seq, "url": url, "snippets": page_scripts::find_snippets(&text) })));
         }
-        "iconLinks" => {
+        "readIconLinks" => {
             let body = page.as_ref().and_then(page_scripts::icon_links_script);
             run(state, body, move |s, url, text| s.emit("iconLinks", json!({ "seq": seq, "url": url, "text": text })));
         }
@@ -68,8 +68,7 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
                 .filter_map(|u| Url::parse(u.as_str()?).ok().filter(|u| u.scheme() == "https"))
                 .take(favicon::MAX_CANDIDATES)
                 .collect();
-            let max = args["maxBytes"].as_u64().unwrap_or(0).min(favicon::MAX_BYTES as u64) as usize;
-            let body = page.as_ref().filter(|_| max > 0 && !urls.is_empty()).and_then(|p| page_scripts::fetch_icon_script(p, &urls, max));
+            let body = page.as_ref().filter(|_| !urls.is_empty()).and_then(|p| page_scripts::fetch_icon_script(p, &urls, favicon::MAX_BYTES));
             run(state, body, move |s, url, text| s.emit("iconData", json!({ "seq": seq, "url": url, "text": text })));
         }
         "pick" => run(state, Some(PICKER.to_owned()), move |s, url, selector| s.emit("picked", json!({ "seq": seq, "url": url, "selector": selector }))),

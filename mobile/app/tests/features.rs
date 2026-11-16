@@ -300,7 +300,10 @@ fn a_burner_tab_has_its_own_store_keeps_no_records_and_is_released_when_burned()
     shell.open_burner();
     let second = shell.views()[0].profile.clone();
     assert_ne!(second, burner, "every burner gets a new store");
-    visit(&mut shell, "https://burned.test/", "Burned");
+    let effects = visit(&mut shell, "https://burned.test/", "Burned");
+    fetch_icon(&mut shell, "https://burned.test/", &effects, PNG);
+    let burned = shell.model.profile().unwrap();
+    assert!(shell.icons.find(&burned, "burned.test").is_some());
     shell.event(active(&shell), "download", &json!({ "id": "1", "state": "finished", "name": "x.txt", "path": "/x" }), 3);
     shell.close_tab(active(&shell));
     assert!(!shell.in_burner());
@@ -308,6 +311,7 @@ fn a_burner_tab_has_its_own_store_keeps_no_records_and_is_released_when_burned()
     assert!(shell.history().iter().all(|h| h.url != "https://burned.test/"));
     assert!(shell.downloads().is_empty());
     assert!(shell.spaces().iter().all(|s| !s.burner));
+    assert!(shell.icons.find(&burned, "burned.test").is_none(), "burning forgets the burner's icons");
 }
 
 #[test]
@@ -482,4 +486,54 @@ fn a_new_tab_reusing_a_closed_tabs_id_gets_its_own_view() {
     assert_eq!(reused, closed, "the store hands the freed id to the next tab");
     let now = shell.views().iter().find(|v| v.key == reused).map(|v| v.born);
     assert!(born.is_some() && now.is_some() && born != now, "a fresh web view, not the closed tab's page");
+}
+
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+fn fetch_icon(shell: &mut TestShell, url: &str, effects: &[Effect], icon: &str) -> Vec<Effect> {
+    let key = active(shell);
+    let links = command(effects, "readIconLinks").expect("asks for the icon links").clone();
+    let fetch = shell.event(key, "iconLinks", &json!({ "seq": seq(&links), "url": url, "text": format!("{url}i.png\t32x32") }), 3);
+    let args = command(&fetch, "fetchIcon").expect("fetches the icon").clone();
+    assert_eq!(args["urls"], json!([format!("{url}i.png"), format!("{url}favicon.ico")]));
+    shell.event(key, "iconData", &json!({ "seq": seq(&args), "url": url, "text": icon }), 4)
+}
+
+#[test]
+fn site_icons_are_fetched_kept_per_profile_and_retried_after_failures() {
+    let (dir, mut shell) = open();
+    let effects = visit(&mut shell, "https://a.test/", "A");
+    fetch_icon(&mut shell, "https://a.test/", &effects, PNG);
+    assert!(shell.site_icon("https://www.a.test/page").is_some_and(|i| i.starts_with("data:image/png;base64,")));
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_none(), "a kept icon is not fetched again");
+    assert!(command(&visit(&mut shell, "http://b.test/", "B"), "readIconLinks").is_none());
+    assert!(command(&visit(&mut shell, "https://b.test:8443/", "B"), "readIconLinks").is_none());
+
+    let effects = visit(&mut shell, "https://c.test/", "C");
+    fetch_icon(&mut shell, "https://c.test/", &effects, "not an image");
+    assert!(shell.site_icon("https://c.test/").is_none());
+    let effects = visit(&mut shell, "https://c.test/", "C");
+    assert!(command(&effects, "readIconLinks").is_some(), "a failed fetch is tried again on the next load");
+
+    shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
+    assert!(command(&visit(&mut shell, "https://c.test/", "C"), "readIconLinks").is_none(), "Lockdown pages fetch no icon");
+
+    let reopened = TestShell::open(dir.path());
+    assert!(reopened.site_icon("https://a.test/").is_some(), "stored icons load at start");
+
+    shell.clear_data();
+    assert!(shell.site_icon("https://a.test/").is_none(), "clearing history forgets the icons");
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some());
+}
+
+#[test]
+fn private_spaces_show_icons_without_storing_them() {
+    let (dir, mut shell) = open();
+    shell.enter_private();
+    let effects = visit(&mut shell, "https://p.test/", "P");
+    fetch_icon(&mut shell, "https://p.test/", &effects, PNG);
+    assert!(shell.site_icon("https://p.test/").is_some());
+    shell.close_private();
+    assert!(shell.site_icon("https://p.test/").is_none());
+    assert!(TestShell::open(dir.path()).site_icon("https://p.test/").is_none());
 }
