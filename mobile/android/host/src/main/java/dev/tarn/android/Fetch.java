@@ -20,6 +20,7 @@ final class Fetch {
             URL url = new URL(address);
             if (!"https".equals(url.getProtocol())) return new Object[] {"only HTTPS is allowed"};
             connection = (HttpURLConnection) url.openConnection(Hooks.proxy());
+            StrongKeys.apply(connection);
             HttpURLConnection watched = connection;
             timer.schedule(new TimerTask() {
                 @Override
