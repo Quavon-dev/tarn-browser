@@ -105,17 +105,9 @@ impl Drop for WebKitCookies {
     }
 }
 
-/// WebKit has no "unspecified": a cookie without `SameSite` is read as `Lax`, as Chromium reads it.
 fn from_ns(c: &NSHTTPCookie) -> Cookie {
     let domain = c.domain().to_string().to_ascii_lowercase();
-    // SAFETY: Foundation's exported constant strings.
-    let (lax, strict) = unsafe { (NSHTTPCookieSameSiteLax, NSHTTPCookieSameSiteStrict) };
-    let same_site = match c.sameSitePolicy() {
-        Some(p) if p.caseInsensitiveCompare(strict) == objc2_foundation::NSComparisonResult::Same => SameSite::Strict,
-        Some(p) if p.caseInsensitiveCompare(lax) == objc2_foundation::NSComparisonResult::Same => SameSite::Lax,
-        Some(p) if p.to_string().eq_ignore_ascii_case("none") => SameSite::None,
-        _ => SameSite::Lax,
-    };
+    let same_site = same_site(c.sameSitePolicy().map(|p| p.to_string()).as_deref());
     let partitioned = c.properties().is_some_and(|p| p.allKeys().iter().any(|k| k.to_string().to_ascii_lowercase().contains("partition")));
     Cookie {
         name: c.name().to_string(),
@@ -129,6 +121,13 @@ fn from_ns(c: &NSHTTPCookie) -> Cookie {
         expires: (!c.isSessionOnly()).then(|| c.expiresDate().map(|d| d.timeIntervalSince1970() as i64)).flatten(),
         partitioned,
     }
+}
+
+/// WebKit has no "unspecified": it reports a cookie without `SameSite` as `none`, the same as an
+/// explicit `SameSite=None`. Both are read as `Lax`, as Chromium reads an unspecified one, so the
+/// bridge never writes a cookie to Chromium with fewer restrictions than Chromium's default.
+fn same_site(policy: Option<&str>) -> SameSite {
+    if policy.is_some_and(|p| p.eq_ignore_ascii_case("strict")) { SameSite::Strict } else { SameSite::Lax }
 }
 
 /// `HttpOnly` has no public property key; WebKit's own conversion uses this one, and `set`
@@ -168,4 +167,17 @@ fn to_ns(c: &Cookie) -> Option<Retained<NSHTTPCookie>> {
     let properties = NSDictionary::<NSString, AnyObject>::from_retained_objects(&keys, &values);
     // SAFETY: the dictionary holds only NSHTTPCookie property keys with values of the documented types.
     unsafe { NSHTTPCookie::cookieWithProperties(&properties) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn webkits_none_reads_as_lax() {
+        assert_eq!(same_site(Some("none")), SameSite::Lax, "WebKit reports a cookie without SameSite as none");
+        assert_eq!(same_site(None), SameSite::Lax);
+        assert_eq!(same_site(Some("lax")), SameSite::Lax);
+        assert_eq!(same_site(Some("strict")), SameSite::Strict);
+    }
 }

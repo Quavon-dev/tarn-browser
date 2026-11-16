@@ -62,6 +62,11 @@ fn main() {
     store.import_cookies(many, now, move |ok, refused| *slot.borrow_mut() = Some((ok, refused)));
     assert_eq!(wait_for(&counts), (engine::cookies::MAX_COOKIES_PER_SITE, 5), "a site stays within the bridge's cap");
 
+    let cross_site = Cookie { same_site: SameSite::None, ..cookie("embed", "c.test", now + 3600) };
+    let slot = counts.clone();
+    store.import_cookies(vec![cross_site], now, move |ok, refused| *slot.borrow_mut() = Some((ok, refused)));
+    assert_eq!(wait_for(&counts), (0, 1), "WebKit cannot hold SameSite=None faithfully, so it is refused");
+
     let jar = Rc::new(RefCell::new(None));
     let slot = jar.clone();
     store.cookies(move |all| *slot.borrow_mut() = Some(all));
