@@ -9,6 +9,19 @@ The thresholds are the ones that criterion uses (NIST, valid through 2030): symm
 bits, RSA modulus 2048, discrete-logarithm group 2048 with a 224-bit key, elliptic curve 224 bits,
 hash 224 bits. Password hashing is excluded.
 
+## Scope
+
+The security mechanisms Tarn produces are the ones in the next section and the shell's own HTTPS
+client on macOS and Windows (rustls with `ring`): their key lengths are fixed in Tarn's code and
+none can go below the thresholds. `crates/app/tests/tls_policy.rs` checks the TLS client on every
+pull request: a signature by a 1024-bit RSA key does not verify, a 2048-bit one does, and the only
+key exchange groups are X25519, P-256 and P-384.
+
+Web pages, and the shell's requests on Linux, iOS and Android, use the TLS stack of the operating
+system or of the browser engine, which Tarn does not produce. The table under "TLS" names each
+one, its defaults and the setting that turns smaller keys off where the platform has one; the
+Chromium limitation below is the one case where no such setting exists.
+
 ## Tarn's own mechanisms
 
 Tarn implements no primitive itself; each comes from an open-source library pinned in the
