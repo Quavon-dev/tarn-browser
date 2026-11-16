@@ -38,6 +38,8 @@ pub struct Downloads {
     pub(crate) transfers: BTreeMap<(bool, Id, u64), Transfer>,
     pub(crate) changed: u64,
     closed: Option<Instant>,
+    /// The header button as last painted, which the popover's caret points at.
+    pub(crate) button: std::rc::Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
 }
 
 impl Downloads {
@@ -196,7 +198,12 @@ impl Browser {
         let anchor = window.bounds();
         let saving = self.transfers().len();
         let rows = (self.downloads().len() + saving).min(MAX_ROWS) + saving.min(MAX_ROWS);
-        let button = SIDEBAR_MARGIN + self.sidebar_width - TILE_GAP - 14.;
+        let painted = self.downloads_popover.button.get();
+        let button = if painted.size.width > px(0.) && !self.peek.is_window(window) {
+            f32::from(painted.center().x)
+        } else {
+            SIDEBAR_MARGIN + self.sidebar_width - TILE_GAP - 14.
+        };
         let bounds = Bounds::new(
             point(anchor.origin.x + px(button - CARET_AT - POPOVER_INSET), anchor.origin.y + px(top)),
             size(px(WIDTH + 2. * POPOVER_INSET), px(CARET + card_height(rows) + POPOVER_INSET)),
@@ -225,6 +232,7 @@ pub fn header_button(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement
     let share = saved_share(b.transfers().iter().map(|(_, t)| t));
     icon_button("downloads", Icon::Download, true)
         .relative()
+        .child(crate::address::measure(b.downloads_popover.button.clone()))
         .when(!b.downloads_popover.is_open(), |d| d.tooltip(crate::shortcuts::tip("Downloads", &crate::ToggleDownloads)))
         .when(b.downloads_popover.is_open(), |d| d.bg(Theme::selected()))
         .when_some(share, |d, share| d.child(ring(share)))

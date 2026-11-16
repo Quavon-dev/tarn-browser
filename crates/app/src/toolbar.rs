@@ -6,7 +6,7 @@ use shield::ShieldLevel;
 use std::time::Duration;
 use store::WebEngine;
 use ui::controls::{icon_button, icon_frame, spinner, tooltip};
-use ui::icon::{ICON_SMALL, Icon, icon};
+use ui::icon::{ICON, Icon, icon};
 use ui::text::bounded_title;
 use ui::theme::{SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
 use url::Url;
@@ -216,13 +216,13 @@ fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl In
     div()
         .id("shield")
         .occlude()
-        .h(px(24.))
+        .h(px(CHIP))
         .px_1p5()
         .flex()
         .flex_none()
         .items_center()
         .gap_1()
-        .rounded(px(Theme::radius_small()))
+        .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
         .bg(if open || overridden { Secure::pressed() } else { Secure::control() })
         .when(!open, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
         .cursor_pointer()
@@ -243,12 +243,12 @@ fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl In
 fn chip_frame(id: &'static str, enabled: bool) -> Stateful<Div> {
     div()
         .id(id)
-        .h(px(22.))
+        .h(px(CHIP))
         .px_1p5()
         .flex()
         .flex_none()
         .items_center()
-        .rounded(px(Theme::radius_small()))
+        .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
         .when(enabled, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())).cursor_pointer())
 }
 
@@ -298,6 +298,11 @@ fn engine_badge(b: &Browser) -> Option<Div> {
         .then(|| div().px_1p5().text_size(px(TEXT_SMALL)).text_color(Secure::muted()).child(crate::tabs::web_engine_name(engine)))
 }
 
+/// The resting address field's height, and the even gap around the chips inside its border.
+const FIELD: f32 = 30.;
+const CHIP_INSET: f32 = 3.;
+const CHIP: f32 = FIELD - 2. - 2. * CHIP_INSET;
+
 fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let site = site(b);
     let (text, color) = address_text(&site);
@@ -307,8 +312,8 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .group("origin")
         .w_full()
         .max_w(px(560.))
-        .h(px(30.))
-        .px_1()
+        .h(px(FIELD))
+        .px(px(CHIP_INSET))
         .flex()
         .items_center()
         .rounded(px(Theme::radius_row()))
@@ -326,9 +331,9 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .relative()
         .child(measure(b.address.field.clone()))
         // Both sides share the spare room equally, so the host stays centred in the chip.
-        .child(div().flex_1().flex().items_center().pl_0p5().map(|d| match site.controls {
+        .child(div().flex_1().flex().items_center().map(|d| match site.controls {
             true => d.child(shield_button(b, &site, cx)),
-            false => d.child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, ICON_SMALL, Secure::faint()))),
+            false => d.child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, ICON, Secure::faint()))),
         }))
         .child(tail_first(div(), text, color))
         .child(

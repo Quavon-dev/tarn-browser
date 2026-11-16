@@ -14,7 +14,9 @@ use crate::theme::{BADGE_SIZE, ICON, SYSTEM_FONT, Secure, TEXT_SMALL, TEXT_TITLE
 
 const PILL_HEIGHT: f32 = 46.;
 const PILL_RADIUS: f32 = 15.;
-const CHIP_HEIGHT: f32 = 30.;
+/// The even gap around the Shield chip inside the pill's border.
+const CHIP_INSET: f32 = 6.;
+const CHIP_HEIGHT: f32 = PILL_HEIGHT - 2. - 2. * CHIP_INSET;
 const CHIP_GLYPH: f32 = 15.;
 
 fn level_name(level: Option<ShieldLevel>) -> &'static str {
@@ -346,7 +348,7 @@ fn shield_chip(ui: Ui) -> impl IntoElement {
         .gap_1()
         .items_center()
         .justify_center()
-        .rounded(px(Theme::radius_row()))
+        .rounded(px(PILL_RADIUS - 1. - CHIP_INSET))
         .bg(Secure::control)
         .active(|s| s.bg(Secure::pressed()))
         .on_press(move || ui.show(Screen::Shield))
@@ -370,7 +372,7 @@ fn address_pill(ui: Ui) -> impl IntoElement {
         .flex_row()
         .items_center()
         .h(px(PILL_HEIGHT))
-        .px_1()
+        .px(px(CHIP_INSET))
         .gap_1()
         .rounded(px(PILL_RADIUS))
         .bg(move || if ui.editing.get() { Theme::raised() } else { Secure::chip() })

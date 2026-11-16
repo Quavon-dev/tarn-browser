@@ -509,14 +509,14 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| menu(b, w, cx)))
         .children(glyph.map(|(glyph, color)| {
             div()
-                .size(px(24.))
+                .size(px(28.))
                 .flex_none()
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(Theme::radius_small()))
+                .rounded(px(Theme::radius_row()))
                 .bg(Theme::selected())
-                .child(icon(glyph, 14., color))
+                .child(icon(glyph, 16., color))
         }))
         .child(div().min_w_0().text_size(px(14.)).font_weight(FontWeight::BOLD).child(name(b, RenameTarget::Space(space_id), &space_name, cx)))
         .child(icon(Icon::ChevronDown, 14., Theme::muted()))
@@ -530,10 +530,10 @@ fn profile_avatar(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let tip = profile.map(|p| bounded_title(&p.name)).unwrap_or_default();
     let face = if private {
         let glyph = if b.model.burner_shown() { Icon::Flame } else { Icon::Hand };
-        div().size(px(22.)).flex().items_center().justify_center().child(icon(glyph, 14., Theme::warning())).into_any_element()
+        div().size(px(24.)).flex().items_center().justify_center().child(icon(glyph, 16., Theme::warning())).into_any_element()
     } else {
         let color = profile.and_then(|p| Theme::profile_color(&p.color)).unwrap_or(Theme::accent());
-        avatar(color, profile.map_or("", |p| p.name.as_str()), 22.).into_any_element()
+        avatar(color, profile.map_or("", |p| p.name.as_str()), 24.).into_any_element()
     };
     div()
         .id("profile-avatar")
@@ -1108,17 +1108,17 @@ fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         let name = bounded_title(&s.space.name);
         div()
             .id(("space", ix))
-            .w(px(20.))
-            .h(px(20.))
+            .w(px(28.))
+            .h(px(28.))
             .flex_none()
             .flex()
             .items_center()
             .justify_center()
-            .rounded_full()
+            .rounded(px(Theme::radius_row()))
             .cursor_pointer()
             .when(current, |d| d.bg(Theme::hover()))
             .hover(|st| st.bg(Theme::hover()))
-            .child(icon(if s.private && Some(s.space.id) == b.model.burner { Icon::Flame } else { ui::icon::space_icon(&s.space.icon) }, 13., color))
+            .child(icon(if s.private && Some(s.space.id) == b.model.burner { Icon::Flame } else { ui::icon::space_icon(&s.space.icon) }, 16., color))
             .map(|d| match crate::menubar::SPACES.get(ix) {
                 Some(action) => d.tooltip(crate::shortcuts::tip(name, *action)),
                 None => d.tooltip(tooltip(name, None)),
@@ -1127,7 +1127,7 @@ fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
             .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.space_menu(ix, w, cx)))
     });
     // Centred while they fit; past that the row scrolls instead of squeezing the dots.
-    let fits = b.model.spaces.len() as f32 * 22. + 84. + 16. <= b.sidebar_width;
+    let fits = b.model.spaces.len() as f32 * 30. + 84. + 16. <= b.sidebar_width;
     div()
         .h(px(36.))
         .flex_none()

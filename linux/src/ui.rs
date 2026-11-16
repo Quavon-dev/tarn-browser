@@ -30,7 +30,7 @@ use crate::theme::{Paint, SYSTEM_FONT, Secure, TEXT_TITLE, TOOLBAR_HEIGHT, Theme
 use browser_core::command::{ENGINES, Input, classify_input};
 use browser_core::{Core, suggest};
 use store::SavedWindow;
-use tarn_nsh_shared::controls::{secure_button, secure_surface};
+use tarn_nsh_shared::controls::{icon_size, secure_button, secure_surface};
 
 use crate::data::Data;
 
@@ -44,6 +44,12 @@ const TILE_GAP: f32 = 6.;
 const TILE_HEIGHT: f32 = 40.;
 /// A space button as big as the footer's icon buttons; more spaces than fit wrap to another row.
 const SPACE_BUTTON: f32 = 28.;
+/// The address field's height, the even gap around the chips inside its border, their height
+/// and glyph size.
+const FIELD: f32 = 30.;
+const CHIP_INSET: f32 = 3.;
+const CHIP: f32 = FIELD - 2. - 2. * CHIP_INSET;
+const CHIP_GLYPH: f32 = 14.;
 /// The sidebar list's width inside its border and padding.
 const LIST_WIDTH: f32 = SIDEBAR_WIDTH - 2. - 16.;
 use crate::webview;
@@ -570,7 +576,7 @@ fn space_bar(ui: Ui) -> View {
                 (true, false) => space_tint(&color, 1.).unwrap_or(Theme::text()),
                 (false, _) => space_tint(&color, 0.45).unwrap_or(Theme::faint()),
             })
-            .child(icons::icon(source, 13.))
+            .child(icons::icon(source, icon_size()))
         },
     );
     view()
@@ -621,12 +627,21 @@ fn space_switcher(ui: Ui) -> nsh_base::ButtonElement {
         .min_w(px(0.))
         .px_1()
         .gap(px(6.))
-        .child(view().w(px(24.)).h(px(24.)).flex_none().rounded(px(6.)).bg(Theme::selected()).items_center().justify_center().text_color(glyph).child(dynamic(
-            move || {
-                let icon = ui.snap.with(|s| s.space_icon.clone());
-                icons::icon(icons::space_icon(&icon), 14.)
-            },
-        )))
+        .child(
+            view()
+                .w(px(SPACE_BUTTON))
+                .h(px(SPACE_BUTTON))
+                .flex_none()
+                .rounded(px(Theme::radius_row()))
+                .bg(Theme::selected())
+                .items_center()
+                .justify_center()
+                .text_color(glyph)
+                .child(dynamic(move || {
+                    let icon = ui.snap.with(|s| s.space_icon.clone());
+                    icons::icon(icons::space_icon(&icon), icon_size())
+                })),
+        )
         .child(text(name).text_size(px(14.)).font_weight(FontWeight::BOLD).text_color(Theme::text()).truncate())
         .child(view().flex_none().text_color(Theme::muted()).child(icons::icon(icons::CHEVRON_DOWN, 14.)))
 }
@@ -637,10 +652,10 @@ fn profile_button(ui: Ui) -> AnyElement {
         let (private, name, color) = ui.snap.with(|s| (s.private, s.profile_name.clone(), s.profile_color.clone()));
         let tip = if private { "Private space".to_owned() } else { name.clone() };
         let face = if private {
-            view().w(px(22.)).h(px(22.)).items_center().justify_center().text_color(Secure::warning()).child(icons::icon(icons::HAND, 14.))
+            view().w(px(24.)).h(px(24.)).items_center().justify_center().text_color(Secure::warning()).child(icons::icon(icons::HAND, icon_size()))
         } else {
             let initial = name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
-            tarn_nsh_shared::controls::avatar(initial, Theme::profile_color(&color).unwrap_or(Theme::accent()), 22.)
+            tarn_nsh_shared::controls::avatar(initial, Theme::profile_color(&color).unwrap_or(Theme::accent()), 24.)
         };
         controls::pressable(tip.clone(), move || open_settings(ui, tarn_nsh_shared::panes::Pane::Profile))
             .w(px(28.))
@@ -833,15 +848,17 @@ fn shield_chip(ui: Ui) -> nsh_base::ButtonElement {
         Some(SharedString::from(format!("Site settings: Shield {level}, {total} stopped on this site")))
     };
     row(name, move || show(ui, Panel::Shield))
-        .h(px(24.))
+        .h(px(CHIP))
         .px(px(6.))
         .gap_1()
         .flex_none()
-        .rounded(px(Theme::radius_small()))
+        .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
         .bg(Theme::raised())
         .hover(|s| s.bg(Theme::hover()))
         .text_color(color)
-        .child(dynamic(move || tarn_nsh_shared::motion::popping(view().child(icons::icon(if standard() { icons::SHIELD } else { icons::SHIELD_CHECK }, 13.)))))
+        .child(dynamic(move || {
+            tarn_nsh_shared::motion::popping(view().child(icons::icon(if standard() { icons::SHIELD } else { icons::SHIELD_CHECK }, CHIP_GLYPH)))
+        }))
         .child(when(move || ui.snap.with(|s| s.site_total > 0), move || small(count).text_color(color).font_family(SYSTEM_FONT)))
 }
 
@@ -885,9 +902,8 @@ fn address(ui: Ui) -> View {
         .flex_1()
         .max_w(px(ADDRESS_WIDTH))
         .items_center()
-        .pl(px(3.))
-        .pr(px(4.))
-        .h(px(30.))
+        .px(px(CHIP_INSET))
+        .h(px(FIELD))
         .rounded(move || px(Theme::radius_row()))
         .bg(Secure::chip())
         .border_1()
@@ -896,7 +912,7 @@ fn address(ui: Ui) -> View {
         .text_color(Theme::faint)
         .child(themed(move || {
             if ui.snap.with(|s| s.host.is_empty()) {
-                view().w(px(28.)).items_center().child(icons::icon(icons::SEARCH, 13.)).into_element()
+                view().w(px(28.)).items_center().child(icons::icon(icons::SEARCH, CHIP_GLYPH)).into_element()
             } else {
                 shield_chip(ui).into_element()
             }
@@ -907,6 +923,8 @@ fn address(ui: Ui) -> View {
                 move || ui.snap.with(|s| s.article),
                 move || {
                     icon_button(icons::BOOK_OPEN, "Reader", move || act(ui, |b| b.toggle_reader()))
+                        .h(px(CHIP))
+                        .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
                         .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent() } else { Theme::muted() })
                 },
             )
