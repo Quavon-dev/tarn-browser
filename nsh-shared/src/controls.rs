@@ -198,6 +198,7 @@ pub fn segmented(options: Vec<Segment>) -> View {
             let shown = chosen.clone();
             let size = if touch { TEXT } else { TEXT_SMALL };
             pressable(name.clone(), press)
+                .flex_grow(1.)
                 .min_h(px(m.segment_height))
                 .px(px(if touch { 8. } else { 12. }))
                 .items_center()
