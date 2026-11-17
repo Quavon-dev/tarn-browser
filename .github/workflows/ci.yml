@@ -170,7 +170,7 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
 
-  mobile:
+  ios:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.mobile != 'false' }}
     runs-on: macos-15
@@ -181,6 +181,49 @@ jobs:
     env:
       NSH_RELEASE: https://github.com/longbridge/nsh/releases/download/v0.5.0
       NSH_SHA256: e6722427b391b00cf7ec13137db9366e78d1e7a045f2933cf00b340365309d9d
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: "1.99.1"
+          components: clippy
+          targets: aarch64-apple-ios-sim, aarch64-apple-ios
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: mobile -> target
+          # nsh builds the apps as its own generated workspace into mobile/app/target; a workspace
+          # entry would prune that workspace's crates before saving.
+          cache-directories: mobile/app/target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - name: iOS simulator
+        run: cargo clippy --target aarch64-apple-ios-sim --all-targets --locked -- -D warnings
+      - name: iOS device build
+        # Links the app as release.yml does, which clippy for the simulator does not.
+        working-directory: mobile/app
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/nsh.tar.gz" "$NSH_RELEASE/nsh-macos-arm64.tar.gz"
+          echo "$NSH_SHA256  $RUNNER_TEMP/nsh.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/nsh.tar.gz" -C "$RUNNER_TEMP"
+          PATH="$RUNNER_TEMP/nsh/bin:$PATH" nsh package --target ios -o "$RUNNER_TEMP/ios"
+
+  # Android needs no macOS: the NDK, Gradle and nsh all run on Linux, so it builds beside the iOS job.
+  android:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.mobile != 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      NSH_RELEASE: https://github.com/longbridge/nsh/releases/download/v0.5.0
+      NSH_LINUX_SHA256: a422bbe5dc2a7ae3ff308ee56e05d73d5becc81f57adf11447fc570dcee65e0f
       NSH_ANDROID_SHA256: bd9f42c043c08f0c29c874d2a8247e389258f88778a5160d646f73fc2ccfbe73
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -190,7 +233,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           components: clippy
-          targets: aarch64-apple-ios-sim, aarch64-apple-ios, aarch64-linux-android, armv7-linux-androideabi
+          targets: aarch64-linux-android, armv7-linux-androideabi
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: mobile -> target
@@ -201,32 +244,23 @@ jobs:
             ~/.gradle/caches
             mobile/android/build/gradle-*
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
-      - name: iOS simulator
-        run: cargo clippy --target aarch64-apple-ios-sim --all-targets --locked -- -D warnings
       - name: Android
-        # nsh-testing's QuickJS bindings do not build for Android, so tests and dev-dependencies stay on the host.
+        # nsh-testing's QuickJS bindings do not build for Android, so tests and dev-dependencies stay
+        # on the host, which the ios job covers.
         run: |
-          bin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+          bin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export CC_aarch64_linux_android="$bin/aarch64-linux-android28-clang" AR_aarch64_linux_android="$bin/llvm-ar"
           cargo clippy --target aarch64-linux-android --locked -- -D warnings
       - name: Android debug APK
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/nsh.tar.gz" "$NSH_RELEASE/nsh-macos-arm64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/nsh.tar.gz" "$NSH_RELEASE/nsh-linux-x86_64.tar.gz"
           curl -fsSL -o "$RUNNER_TEMP/nsh-android.tar.gz" "$NSH_RELEASE/nsh-android.tar.gz"
-          echo "$NSH_SHA256  $RUNNER_TEMP/nsh.tar.gz" | shasum -a 256 -c -
+          echo "$NSH_LINUX_SHA256  $RUNNER_TEMP/nsh.tar.gz" | shasum -a 256 -c -
           echo "$NSH_ANDROID_SHA256  $RUNNER_TEMP/nsh-android.tar.gz" | shasum -a 256 -c -
           tar -xzf "$RUNNER_TEMP/nsh.tar.gz" -C "$RUNNER_TEMP"
           tar -xzf "$RUNNER_TEMP/nsh-android.tar.gz" -C "$RUNNER_TEMP"
           PATH="$RUNNER_TEMP/nsh/bin:$PATH" android/build.sh
           android/gradle.sh --quiet testDebugUnitTest
-      - name: iOS device build
-        # Links the app as release.yml does, which clippy for the simulator does not.
-        working-directory: mobile/app
-        env:
-          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
-        run: PATH="$RUNNER_TEMP/nsh/bin:$PATH" nsh package --target ios -o "$RUNNER_TEMP/ios"
 
   linux:
     needs: changes
