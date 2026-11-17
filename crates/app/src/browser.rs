@@ -51,7 +51,7 @@ impl Browser {
 }
 
 use browser_core::closed::ClosedTab;
-pub use browser_core::tabs::{SpaceRef, TabKey, folder_tree, same_page};
+pub use browser_core::tabs::{SpaceRef, TabKey, folder_tree};
 
 #[derive(Default, Clone)]
 pub struct PageState {
@@ -557,10 +557,7 @@ impl Browser {
     /// A loopback link loads as typed while Settings allows it (`nav_policy::app_link_typed`).
     pub(crate) fn open_urls(&mut self, urls: impl IntoIterator<Item = String>, from_app: bool, window: &mut Window, cx: &mut Context<Self>) {
         for arg in urls {
-            let Ok(url) = Url::parse(&arg) else { continue };
-            if nav_policy::decide(&url, Source::ExternalApp) != Decision::Allow {
-                continue;
-            }
+            let Some((url, typed)) = browser_core::incoming::app_link(&arg, self.pref(crate::prefs::Pref::LocalhostFromApps)) else { continue };
             if self.command_mode.is_some() {
                 self.close_command(window, cx);
             }
@@ -568,7 +565,7 @@ impl Browser {
             if let Some(ix) = self.routed_space(&url) {
                 self.switch_space(ix, window, cx);
             }
-            if !from_app || nav_policy::app_link_typed(&url, self.pref(crate::prefs::Pref::LocalhostFromApps)) {
+            if !from_app || typed {
                 self.new_tab(&url, window, cx);
             } else if let Some(key) = self.model.new_tab(&self.core, url.as_str(), self.saved.web_engine) {
                 self.link_loads.insert(key, None);
@@ -1539,15 +1536,8 @@ impl Browser {
         let typed = out.len();
         let listed: HashSet<TabKey> = out.iter().filter_map(|s| if let Target::Tab(k) = s.target { Some(k) } else { None }).collect();
         let completed = completion.as_ref().map(|c| c.url.as_str());
-        let mut shown_tabs = 0;
-        let mut ranked: Vec<usize> = suggest::rank_pages(&query, &pages, now())
-            .into_iter()
-            .filter(|&ix| if ix < tabs.len() { !listed.contains(&TabKey { private, id: tabs[ix].id }) } else { Some(pages[ix].url) != completed })
-            .filter(|&ix| {
-                shown_tabs += usize::from(ix < tabs.len());
-                ix >= tabs.len() || shown_tabs <= 5
-            })
-            .collect();
+        let skip = |ix: usize| if ix < tabs.len() { listed.contains(&TabKey { private, id: tabs[ix].id }) } else { Some(pages[ix].url) == completed };
+        let mut ranked: Vec<usize> = suggest::rank_rows(&query, &pages, tabs.len(), skip, now());
         let search_text = !private && suggest::searches_text(&query) && suggest_on && self.pref(crate::prefs::Pref::HistoryText);
         let text_profile = self.model.current_space().filter(|_| search_text).map(|s| s.space.profile_id);
         let cached = self.history_text.as_ref().filter(|(p, q, _)| Some(*p) == text_profile && *q == query).map(|(_, _, found)| found.clone());
@@ -1695,29 +1685,15 @@ impl Browser {
     /// "Switch to Tab" rows for open tabs showing `url`: the current space's first, then other
     /// spaces of the same profile and privacy, named in the detail.
     fn open_tabs_at(&self, url: &Url) -> Vec<Suggestion> {
-        let Some(current) = self.model.current_space() else { return Vec::new() };
-        let (private, profile_id) = (current.private, current.space.profile_id);
-        let row = |t: &Tab, detail: String| Suggestion {
-            label: ui::text::bounded_title(if t.title.is_empty() { &t.url } else { &t.title }),
-            detail,
-            target: Target::Tab(TabKey { private, id: t.id }),
-        };
-        let mut out: Vec<Suggestion> = self
-            .model
-            .tabs
-            .iter()
-            .filter(|t| self.model.active != Some(TabKey { private, id: t.id }) && same_page(url, &t.url))
-            .map(|t| row(t, "Switch to Tab".to_owned()))
-            .collect();
-        for (ix, space) in self.model.spaces.iter().enumerate() {
-            if ix == self.model.space_ix || space.private != private || space.space.profile_id != profile_id {
-                continue;
-            }
-            for tab in self.store(private).tabs(space.space.id).unwrap_or_default().iter().filter(|t| same_page(url, &t.url)) {
-                out.push(row(tab, format!("Switch to Tab · {}", ui::text::bounded_title(&space.space.name))));
-            }
-        }
-        out
+        self.model
+            .tabs_showing(&self.core, url)
+            .into_iter()
+            .map(|(key, t, space)| Suggestion {
+                label: ui::text::bounded_title(if t.title.is_empty() { &t.url } else { &t.title }),
+                detail: browser_core::tabs::switch_detail(space.as_deref()),
+                target: Target::Tab(key),
+            })
+            .collect()
     }
 
     pub fn resolve_external(&mut self, open: bool, cx: &mut Context<Self>) {

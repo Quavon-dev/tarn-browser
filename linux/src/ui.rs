@@ -32,7 +32,7 @@ use crate::icons;
 use crate::shortcuts::Action;
 use crate::snapshot::{self, RowKind, Snapshot};
 use crate::theme::{Paint, SYSTEM_FONT, Secure, TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
-use browser_core::command::{ENGINES, Input, classify_input};
+use browser_core::command::{ENGINES, Input, Section, classify_input};
 use browser_core::{Core, suggest};
 use store::SavedWindow;
 use tarn_nsh_shared::controls::{icon_size, secure_button, secure_surface};
@@ -79,6 +79,11 @@ thread_local! {
     static LAUNCHING: Cell<usize> = const { Cell::new(0) };
     /// Each window's web views by tab, with the wake number the view was made for.
     static REFS: RefCell<HashMap<(u64, TabKey), (u64, ElementRef)>> = RefCell::default();
+    static WINDOW_REFS: RefCell<HashMap<u64, WindowRef>> = RefCell::default();
+    static FOCUSED: Cell<u64> = const { Cell::new(0) };
+    static INCOMING: RefCell<Vec<std::time::Instant>> = const { RefCell::new(Vec::new()) };
+    static PENDING_LINKS: RefCell<Vec<(Vec<String>, usize)>> = const { RefCell::new(Vec::new()) };
+    static LAUNCH_ARGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -96,6 +101,8 @@ pub enum Panel {
     Archived,
     Qr,
     Share,
+    Address,
+    Shortcuts,
     Folder(store::Id),
     Bookmarks(Option<store::Id>),
     Group(store::Id),
@@ -117,6 +124,8 @@ pub struct Ui {
     new_tab_card: Signal<bool>,
     command: Signal<String>,
     suggest: Signal<Vec<(String, String)>>,
+    tabs: Signal<Vec<crate::browser::links::TabRow>>,
+    pasteable: Signal<bool>,
     finding: Signal<bool>,
     find: Signal<String>,
     address_ref: ElementRef,
@@ -867,10 +876,16 @@ fn history(ui: Ui) -> Rc<Vec<store::HistoryEntry>> {
 fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: Signal<String>) {
     ui.picked.set(usize::from(tools::listing(query)));
     if read(ui, |b| !b.suggestions()).unwrap_or(false) {
-        return ui.suggest.set(Vec::new());
+        return clear_suggestions(ui);
     }
+    let tabs = if tools::listing(query) { Vec::new() } else { read(ui, |b| b.tab_suggestions(query)).unwrap_or_default() };
+    let open_tabs = read(ui, |b| b.model.tabs.iter().map(|t| t.url.clone()).collect::<Vec<_>>()).unwrap_or_default();
+    let open: HashSet<String> = open_tabs.into_iter().chain(tabs.iter().map(|t| t.url.clone())).collect();
+    let without_tabs = move |rows: Vec<(String, String)>| rows.into_iter().filter(|(_, url)| !open.contains(url)).collect::<Vec<_>>();
+    ui.tabs.set(tabs);
+    let rows = without_tabs(rows);
     let found = read(ui, |b| b.cached_text_matches(query)).flatten();
-    let shown = crate::input::with_text(rows.clone(), found.as_deref().unwrap_or_default(), SUGGESTIONS);
+    let shown = without_tabs(crate::input::with_text(rows.clone(), found.as_deref().unwrap_or_default(), SUGGESTIONS));
     ui.suggest.set(shown.clone());
     if found.is_some() {
         return;
@@ -882,7 +897,7 @@ fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: S
                 return;
             }
             let found = BROWSERS.with_borrow_mut(|windows| windows.get_mut(&ui.window).map(|b| b.search_text_matches(&query, SUGGESTIONS))).unwrap_or_default();
-            ui.suggest.set(crate::input::with_text(rows, &found, SUGGESTIONS));
+            ui.suggest.set(without_tabs(crate::input::with_text(rows, &found, SUGGESTIONS)));
         }))
     });
 }
@@ -892,7 +907,8 @@ fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: S
 fn step_pick(ui: Ui, query: Signal<String>, key: &str) {
     let query = query.get_untracked();
     let commands = tools::commands(ui, &query).len();
-    let (first, rows) = if tools::listing(&query) { (1, commands) } else { (0, 1 + commands + ui.suggest.with_untracked(Vec::len)) };
+    let listed = ui.tabs.with_untracked(Vec::len) + ui.suggest.with_untracked(Vec::len);
+    let (first, rows) = if tools::listing(&query) { (1, commands) } else { (0, 1 + commands + listed) };
     ui.picked.update(|p| {
         *p = first
             + match key {
@@ -920,8 +936,26 @@ fn submit(ui: Ui, query: Signal<String>, text: String) {
     if let Some((_, command)) = commands.get(picked - 1) {
         return tools::pick(ui, *command);
     }
-    let url = ui.suggest.with_untracked(|s| s.get(picked - 1 - commands.len()).map(|(_, url)| url.clone()));
+    let row = picked - 1 - commands.len();
+    if let Some(key) = ui.tabs.with_untracked(|t| t.get(row).map(|t| t.key)) {
+        return switch_to_tab(ui, key);
+    }
+    let url = ui.suggest.with_untracked(|s| s.get(row - ui.tabs.with_untracked(Vec::len)).map(|(_, url)| url.clone()));
     go(ui, url.unwrap_or(text));
+}
+
+fn clear_suggestions(ui: Ui) {
+    ui.suggest.set(Vec::new());
+    ui.tabs.set(Vec::new());
+}
+
+fn switch_to_tab(ui: Ui, key: TabKey) {
+    ui.picked.set(0);
+    ui.editing.set(false);
+    clear_suggestions(ui);
+    ui.address_ref.blur();
+    ui.command.set(String::new());
+    act(ui, |b| b.switch_to_tab(key));
 }
 
 fn go(ui: Ui, text: String) {
@@ -941,9 +975,31 @@ fn go(ui: Ui, text: String) {
     let new_tab = ui.new_tab_card.get_untracked();
     ui.new_tab_card.set(false);
     ui.editing.set(false);
-    ui.suggest.set(Vec::new());
+    clear_suggestions(ui);
     ui.address_ref.blur();
     act(ui, |b| b.navigate_in(&text, new_tab));
+}
+
+fn address_menu(ui: Ui) {
+    ui.pasteable.set(false);
+    drop(spawn(async move {
+        let has = nsh_core::prelude::clipboard_has_string().await;
+        ui.pasteable.set(has);
+    }));
+    show(ui, Panel::Address);
+}
+
+pub(super) fn paste_and_go(ui: Ui) {
+    drop(spawn(async move {
+        let text = nsh_core::prelude::clipboard_string().await;
+        let line: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        if line.trim().is_empty() {
+            return;
+        }
+        show(ui, Panel::None);
+        ui.completed.set(None);
+        go(ui, line);
+    }));
 }
 
 fn shield_chip(ui: Ui) -> nsh_base::ButtonElement {
@@ -983,7 +1039,7 @@ fn open_palette(ui: Ui) {
     ui.typed.set(String::new());
     ui.completed.set(None);
     ui.picked.set(0);
-    ui.suggest.set(Vec::new());
+    clear_suggestions(ui);
     load_history(ui);
     ui.editing.set(true);
 }
@@ -994,7 +1050,7 @@ fn close_palette(ui: Ui) {
     }
     ui.editing.set(false);
     ui.new_tab_card.set(false);
-    ui.suggest.set(Vec::new());
+    clear_suggestions(ui);
     ui.address_ref.blur();
 }
 
@@ -1029,7 +1085,7 @@ fn address(ui: Ui) -> View {
                 shield_chip(ui).into_element()
             }
         }))
-        .child(shown)
+        .child(view().flex_row().flex_1().min_w(px(0.)).h_full().on_context_menu(move |_: &ContextMenuEvent| address_menu(ui)).child(shown))
         .child(themed(move || {
             when(
                 move || ui.snap.with(|s| s.article),
@@ -1261,13 +1317,29 @@ fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
         });
     }
     let listed = move || if query.with(|q| tools::listing(q)) { Vec::new() } else { ui.suggest.get() };
+    let tabs = move || if query.with(|q| tools::listing(q)) { Vec::new() } else { ui.tabs.get() };
+    let after_tabs = computed(move || first.get() + ui.tabs.with(Vec::len));
     view()
         .flex_col()
         .gap(px(2.))
         .py(px(6.))
         .child(input_row(ui, query))
         .child(tools::command_rows(ui, query))
-        .child(when(move || !listed().is_empty(), || row_section("Suggestions")))
+        .child(when(move || !tabs().is_empty(), || row_section(Section::Tabs.title())))
+        .child(each(
+            tabs,
+            |row| format!("{}-{}", row.key.private, row.key.id),
+            move |item, ix| {
+                let row = item.get_untracked();
+                let (key, detail_text) = (row.key, row.detail());
+                suggestion_row(row.title.clone(), move || switch_to_tab(ui, key))
+                    .bg(move || picked_fill(ui, first.get() + ix.get()))
+                    .child(view().w(px(28.)).items_center().child(site_tile(ui, &host_of(&row.url), 20.)))
+                    .child(label(row.title.clone()).flex_1().truncate())
+                    .child(detail(detail_text))
+            },
+        ))
+        .child(when(move || !listed().is_empty(), || row_section(Section::History.title())))
         .child(each(
             listed,
             |(_, url)| url.clone(),
@@ -1276,7 +1348,7 @@ fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
                 let host = host_of(&url);
                 let target = url.clone();
                 suggestion_row(url.clone(), move || go(ui, target.clone()))
-                    .bg(move || picked_fill(ui, first.get() + ix.get()))
+                    .bg(move || picked_fill(ui, after_tabs.get() + ix.get()))
                     .child(view().w(px(28.)).items_center().child(site_tile(ui, &host, 20.)))
                     .child(label(if title.is_empty() { url.clone() } else { title }).flex_1().truncate())
                     .child(detail(url.trim_start_matches("https://").trim_end_matches('/').to_owned()))
@@ -1298,7 +1370,7 @@ fn palette(ui: Ui) -> AnyElement {
                     if !ui.find_tabs.get_untracked() {
                         ui.editing.set(false);
                     }
-                    ui.suggest.set(Vec::new());
+                    clear_suggestions(ui);
                 })
                 .on_change(move |value: &str| {
                     if ui.find_tabs.get_untracked() {
@@ -1819,6 +1891,9 @@ fn run_action(ui: Ui, action: Action) {
         Action::RotateSplitLayout => act(ui, |b| b.model.active.into_iter().for_each(|k| b.rotate_split(k))),
         Action::RemoveFromSplitView => act(ui, |b| b.model.active.into_iter().for_each(|k| b.leave_split(k))),
         Action::CloseAllTabs => act_moving(ui, Browser::close_all_tabs),
+        Action::LastTab => act(ui, |b| b.slot(9)),
+        Action::CopyMarkdownLink => tools::copy_page(ui, true),
+        Action::ToggleShortcuts => show(ui, Panel::Shortcuts),
     }
 }
 
@@ -1875,8 +1950,17 @@ fn bind_fixed(ui: Ui) {
     for (keys, backwards) in [(crate::shortcuts::FIND_NEXT, false), (crate::shortcuts::FIND_PREVIOUS, true)] {
         on_key(keys, move |_| find_again(ui, backwards));
     }
-    for n in 1..=9usize {
+    for n in 1..=8usize {
         on_key(&format!("mod+{n}"), move |_| act(ui, |b| b.slot(n)));
+    }
+    for n in 1..=9usize {
+        on_key(&format!("alt+{n}"), move |_| {
+            act(ui, |b| {
+                if n <= b.model.spaces.len() {
+                    b.switch_space_by_user(n - 1);
+                }
+            })
+        });
     }
 }
 
@@ -1940,6 +2024,9 @@ fn close_window(ui: Ui, here: &WindowRef) {
     act(ui, Browser::close_window);
     BROWSERS.with_borrow_mut(|windows| windows.remove(&ui.window));
     WINDOWS.with_borrow_mut(|windows| windows.retain(|w| w.window != ui.window));
+    if !here.is_main() {
+        WINDOW_REFS.with_borrow_mut(|refs| refs.remove(&ui.window));
+    }
     ui.open.set(false);
     if here.is_main() {
         here.hide();
@@ -1998,6 +2085,8 @@ fn new_ui(row: SavedWindow) -> Ui {
         new_tab_card: signal(false),
         command: signal(String::new()),
         suggest: signal(Vec::new()),
+        tabs: signal(Vec::new()),
+        pasteable: signal(false),
         finding: signal(false),
         find: signal(String::new()),
         address_ref: element_ref(),
@@ -2064,7 +2153,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         if shown_space.replace(Some(space)).is_some_and(|before| before != space) {
             untracked(|| {
                 ui.command.set(String::new());
-                ui.suggest.set(Vec::new());
+                clear_suggestions(ui);
                 if ui.editing.get() {
                     ui.editing.set(false);
                     ui.address_ref.blur();
@@ -2086,8 +2175,10 @@ fn new_ui(row: SavedWindow) -> Ui {
 fn browser_window(ui: Ui) -> AnyElement {
     let here = current_window();
     keep_placement(ui, here.clone());
+    WINDOW_REFS.with_borrow_mut(|refs| refs.insert(ui.window, here.clone()));
     here.on_focus_change(move |focused| {
         if focused {
+            FOCUSED.with(|f| f.set(ui.window));
             act(ui, |b| {
                 b.sync_shared();
                 b.settle_downloads();
@@ -2116,6 +2207,13 @@ fn browser_window(ui: Ui) -> AnyElement {
         })
     }));
     act(ui, |b| b.schedule_tick());
+    for (urls, dropped) in PENDING_LINKS.take() {
+        deliver_links(ui, &urls, dropped);
+    }
+    let launch = LAUNCH_ARGS.take();
+    if !launch.is_empty() {
+        open_app_links(launch);
+    }
     effect(move || {
         let light = !dark();
         untracked(|| act(ui, |b| b.follow_appearance(light)));
@@ -2172,5 +2270,79 @@ pub fn App() -> impl IntoElement {
         act(ui, Browser::enter_safe_mode);
     }
     rows.for_each(open_browser_window);
+    LAUNCH_ARGS.set(std::env::args().skip(1).collect());
+    drop(spawn(async move {
+        loop {
+            let launch = next_second_instance().await;
+            open_app_links(launch.args);
+        }
+    }));
     view().size_full().child(when(move || ui.open.get(), move || browser_window(ui)))
+}
+
+fn open_app_links(args: Vec<String>) {
+    let windows = WINDOWS.with_borrow(Vec::clone);
+    hide_closed_main(&windows);
+    let now = std::time::Instant::now();
+    let (urls, dropped) = if args.is_empty() {
+        if INCOMING.with_borrow_mut(|seen| browser_core::incoming::admit(seen, now, 1)) == 0 {
+            return;
+        }
+        (Vec::new(), 0)
+    } else {
+        let (urls, dropped) = INCOMING.with_borrow_mut(|seen| browser_core::incoming::admit_links(seen, now, args));
+        if urls.is_empty() {
+            return;
+        }
+        (urls, dropped)
+    };
+    let usable: Vec<u64> =
+        windows.iter().filter(|ui| ui.open.get_untracked() && read(**ui, |b| !b.model.burner_shown()) == Some(true)).map(|ui| ui.window).collect();
+    let target = link_window(&usable, FOCUSED.with(Cell::get)).and_then(|id| windows.iter().find(|w| w.window == id).copied());
+    match target {
+        Some(ui) => deliver_links(ui, &urls, dropped),
+        None if urls.is_empty() => windows.first().into_iter().for_each(|ui| deliver_links(*ui, &[], 0)),
+        None => {
+            PENDING_LINKS.with_borrow_mut(|pending| pending.push((urls, dropped)));
+            open_browser_window(Browser::window_row(&core(), SavedWindow::default()));
+        }
+    }
+}
+
+fn link_window(usable: &[u64], focused: u64) -> Option<u64> {
+    usable.contains(&focused).then_some(focused).or_else(|| usable.first().copied())
+}
+
+fn deliver_links(ui: Ui, urls: &[String], dropped: usize) {
+    if !urls.is_empty() {
+        if ui.editing.get_untracked() {
+            close_palette(ui);
+        }
+        act(ui, |b| {
+            b.open_app_links(urls);
+            if dropped > 0 {
+                b.show_toast(browser_core::incoming::dropped_notice(dropped), None);
+            }
+        });
+    }
+    if let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned()) {
+        here.show();
+        here.focus();
+    }
+}
+
+fn hide_closed_main(windows: &[Ui]) {
+    let open: HashSet<u64> = windows.iter().map(|w| w.window).collect();
+    let closed = WINDOW_REFS.with_borrow(|refs| refs.iter().filter(|(id, r)| r.is_main() && !open.contains(id)).map(|(_, r)| r.clone()).collect::<Vec<_>>());
+    closed.iter().for_each(WindowRef::hide);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn links_go_to_the_focused_usable_window_else_the_first() {
+        assert_eq!(super::link_window(&[1, 2, 3], 2), Some(2));
+        assert_eq!(super::link_window(&[1, 3], 2), Some(1), "the focused window shows a burner tab or is closed");
+        assert_eq!(super::link_window(&[], 2), None);
+    }
 }

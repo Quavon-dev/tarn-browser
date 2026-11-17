@@ -749,6 +749,36 @@ fn sidebar_panel(ui: Ui) -> AnyElement {
     popover().child(heading(ui, title("Tabs"))).child(tab_rows).child(list_rows).child(profile_rows).children(close_rows).into_element()
 }
 
+fn address_panel(ui: Ui) -> AnyElement {
+    let site = ui.snap.with(|s| !s.host.is_empty());
+    let tool = |name: &'static str, command: Command, action: Action| menu_row(name, super::shortcut_of(ui, action), move || super::tools::run(ui, command));
+    let paste =
+        menu_row("Paste and Go", None, move || super::paste_and_go(ui)).disabled(move || !ui.pasteable.get()).disabled_style(|s| s.text_color(Theme::faint()));
+    popover()
+        .child(
+            group()
+                .child(tool("Copy Link", Command::CopyLink, Action::CopyLink))
+                .child(tool("Copy Clean Link", Command::CopyCleanLink, Action::CopyCleanLink))
+                .child(paste),
+        )
+        .children(site.then(|| group().child(menu_row("Site Settings…", None, move || show(ui, Panel::Shield)))))
+        .into_element()
+}
+
+fn shortcuts_panel(ui: Ui) -> AnyElement {
+    let map = read(ui, |b| shortcuts::keymap(&shortcuts::stored(&b.core.disk))).unwrap_or_default();
+    let columns = shortcuts::SECTIONS.iter().map(|(name, rows)| {
+        let bound = rows.iter().map(|(row_label, action, _)| {
+            let keys = map.iter().find(|(_, a)| a == action).map(|(k, _)| shortcuts::display(k)).unwrap_or_default();
+            line(*row_label).child(tarn_nsh_shared::controls::key_caps(&keys)).into_element()
+        });
+        let fixed =
+            shortcuts::FIXED.iter().filter(|(section, ..)| section == name).map(|(_, row_label, keys)| line(*row_label).child(small(*keys)).into_element());
+        view().flex_col().w(px(250.)).gap_1().child(caps_label(name)).children(bound.chain(fixed).collect::<Vec<_>>()).into_element()
+    });
+    popover().child(heading(ui, title("Keyboard Shortcuts"))).child(view().flex_row().flex_wrap().gap_6().children(columns.collect::<Vec<_>>())).into_element()
+}
+
 pub fn panel_view(ui: Ui) -> AnyElement {
     dynamic(move || {
         ui.rev.get();
@@ -763,6 +793,8 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Qr => super::tools::qr_panel(ui),
             Panel::Share => super::tools::share_panel(ui),
             Panel::Library => super::library::library_panel(ui),
+            Panel::Address => address_panel(ui),
+            Panel::Shortcuts => shortcuts_panel(ui),
             Panel::History => history_panel(ui),
             Panel::Downloads => downloads_panel(ui),
             Panel::Tab => tab_panel(ui),
@@ -774,6 +806,8 @@ pub fn panel_view(ui: Ui) -> AnyElement {
         let panel = ui.panel.get_untracked();
         let (width, side) = match panel {
             Panel::Share => (320., Side::End),
+            Panel::Address => (320., Side::Centre),
+            Panel::Shortcuts => (PANEL_WIDTH + 200., Side::Centre),
             Panel::Shield => (SITE_WIDTH, Side::Centre),
             Panel::Downloads => (380., Side::Start),
             Panel::Sidebar => (320., Side::Start),

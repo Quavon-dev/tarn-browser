@@ -112,6 +112,21 @@ impl Model {
         self.spaces.get(self.space_ix)
     }
 
+    pub fn tabs_showing<D: WebsiteData>(&self, core: &Core<D>, url: &Url) -> Vec<(TabKey, Tab, Option<String>)> {
+        let Some(current) = self.current_space() else { return Vec::new() };
+        let (private, profile_id) = (current.private, current.space.profile_id);
+        let key = |t: &Tab| TabKey { private, id: t.id };
+        let mut out: Vec<_> = self.tabs.iter().filter(|t| self.active != Some(key(t)) && same_page(url, &t.url)).map(|t| (key(t), t.clone(), None)).collect();
+        for (ix, space) in self.spaces.iter().enumerate() {
+            if ix == self.space_ix || space.private != private || space.space.profile_id != profile_id {
+                continue;
+            }
+            let tabs = core.store(private).tabs(space.space.id).unwrap_or_default();
+            out.extend(tabs.into_iter().filter(|t| same_page(url, &t.url)).map(|t| (key(&t), t, Some(space.space.name.clone()))));
+        }
+        out
+    }
+
     pub fn private(&self) -> bool {
         self.current_space().is_some_and(|s| s.private)
     }
@@ -444,6 +459,10 @@ pub fn same_page(typed: &Url, open: &str) -> bool {
     let Ok(open) = Url::parse(open) else { return false };
     let key = |u: &Url| u.host_str().map(|h| (h.trim_start_matches("www.").to_ascii_lowercase(), u.port(), u.path().trim_end_matches('/').to_owned()));
     key(typed).is_some() && key(typed) == key(&open)
+}
+
+pub fn switch_detail(space: Option<&str>) -> String {
+    space.map_or_else(|| "Switch to Tab".to_owned(), |name| format!("Switch to Tab · {}", crate::text::bounded_title(name)))
 }
 
 /// A pinned page has drifted once the tab shows another host or path; query and fragment do not count.
@@ -946,6 +965,23 @@ mod tests {
         let store = Store::open(dir.path()).unwrap();
         assert_eq!(store.tab(id).unwrap().web_engine, Some(WebEngine::Chromium));
         assert_eq!(store.interaction_state(id).unwrap(), None);
+    }
+
+    #[test]
+    fn tabs_showing_a_page_skip_the_active_one_and_name_other_spaces() {
+        let (_dir, core, mut model) = opened();
+        let p = core.disk.profiles().unwrap()[0].id;
+        let here = model.new_tab(&core, "https://www.a.test/x/", None).unwrap();
+        let other = model.new_tab(&core, "https://a.test/x", None).unwrap();
+        model.new_tab(&core, "https://a.test/y", None).unwrap();
+        let work = core.disk.create_space(p, "Work", "").unwrap();
+        let there = core.disk.create_tab(work.id, TabKind::Ephemeral, None, "https://a.test/x", "").unwrap().id;
+        model.reload_spaces(&core);
+        model.reload_space(&core);
+        model.active = Some(here);
+        let url = Url::parse("https://a.test/x").unwrap();
+        let found: Vec<(Id, Option<String>)> = model.tabs_showing(&core, &url).into_iter().map(|(k, _, space)| (k.id, space)).collect();
+        assert_eq!(found, [(other.id, None), (there, Some("Work".to_owned()))]);
     }
 
     #[test]

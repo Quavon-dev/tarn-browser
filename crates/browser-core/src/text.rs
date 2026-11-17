@@ -49,6 +49,19 @@ pub fn title_or_host(title: &str, url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_else(|| bounded_title(url))
 }
 
+pub fn markdown_link(title: &str, url: &str) -> String {
+    let title = bounded_title(title);
+    let text = if title.is_empty() { url } else { &title };
+    let mut escaped = String::new();
+    for c in text.chars() {
+        if matches!(c, '\\' | '[' | ']') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    format!("[{escaped}]({})", url.replace('(', "%28").replace(')', "%29").replace(' ', "%20"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,5 +99,13 @@ mod tests {
         assert!(shown.starts_with('…') && shown.ends_with(".evil.test"));
         assert_eq!(shown.chars().count(), MAX_ORIGIN_CHARS);
         assert_eq!(bounded_origin("https://a.test"), "https://a.test");
+    }
+
+    #[test]
+    fn markdown_links_escape_brackets_and_parentheses() {
+        assert_eq!(markdown_link("Rust [book]", "https://a.test/x"), r"[Rust \[book\]](https://a.test/x)");
+        assert_eq!(markdown_link(r"a\]b", "https://a.test/f(1)"), r"[a\\\]b](https://a.test/f%281%29)");
+        assert_eq!(markdown_link("", "https://a.test/"), "[https://a.test/](https://a.test/)");
+        assert_eq!(markdown_link("Line\nbreak", "https://a.test/"), "[Line break](https://a.test/)");
     }
 }

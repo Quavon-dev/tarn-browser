@@ -42,6 +42,7 @@ fn main() -> impl std::process::Termination {
             size: (1280, 800),
             components,
             data_dir: Some(root.join("nsh")),
+            single_instance: std::env::var_os("TARN_DATA_DIR").is_none(),
             ..Default::default()
         },
     );

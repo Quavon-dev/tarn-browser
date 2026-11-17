@@ -43,6 +43,20 @@ impl Browser {
         Some(link)
     }
 
+    pub fn copy_page(&mut self, markdown: bool) -> Option<String> {
+        let key = self.model.active?;
+        let page = self.pages.get(&key).map(|p| p.title.clone()).filter(|t| !t.is_empty());
+        let title = page.or_else(|| self.model.tab(key).map(|t| t.title.clone())).unwrap_or_default();
+        let text = if markdown { browser_core::text::markdown_link(&title, &self.active_url()?) } else { browser_core::text::bounded_title(&title) };
+        self.show_toast_as(browser_core::toast::Tone::Success, if markdown { "Link copied" } else { "Title copied" }, None);
+        Some(text)
+    }
+
+    pub fn close_all_tabs(&mut self) {
+        let keys = self.model.ephemeral_keys();
+        self.close_tabs(keys);
+    }
+
     pub fn qr_code(&mut self) -> Option<(Vec<Vec<bool>>, String)> {
         let url = self.active_url()?;
         let Some(code) = engine::qr::encode(&url) else {

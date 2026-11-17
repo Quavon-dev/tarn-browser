@@ -5,6 +5,7 @@ mod groups;
 pub mod icons;
 pub mod library;
 pub mod link_peek;
+pub mod links;
 pub mod pages;
 pub mod profile_data;
 mod site;

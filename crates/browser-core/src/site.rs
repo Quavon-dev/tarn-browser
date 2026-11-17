@@ -21,7 +21,7 @@ pub const POPUPS: &str = "popups";
 /// A site's pop-up choices, as labelled.
 pub const POPUP_RULES: [(PopupRule, &str); 3] = [(PopupRule::Default, "Default"), (PopupRule::Allow, "Allow"), (PopupRule::Block, "Block")];
 pub const DEFAULT_WEB_ENGINE: &str = "default_web_engine";
-pub const LOCALHOST_FROM_APPS: &str = "localhost_from_apps";
+pub use crate::incoming::LOCALHOST_FROM_APPS;
 
 /// The domain-set categories, the setting that switches each and whether it is on by default.
 pub const SET_SWITCHES: [(Category, &str, bool); 3] =

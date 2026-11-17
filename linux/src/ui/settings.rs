@@ -15,9 +15,9 @@ use crate::theme::Theme;
 use crate::webview;
 use browser_core::closed::ARCHIVE_AFTER;
 use browser_core::command::ENGINES;
+use browser_core::incoming::LOCALHOST_FROM_APPS;
 use browser_core::prefs::{CLOSE_SELECTS_PREVIOUS, GESTURES, NEW_TAB_START_PAGE};
 use browser_core::settings::{self as prefs, LIVE_TABS, LIVE_TABS_KEY, SLEEP_AFTER_DEFAULT, SLEEP_AFTER_KEY, SUGGESTIONS};
-use browser_core::site::LOCALHOST_FROM_APPS;
 
 const NAV_WIDTH: f32 = 180.;
 const CARD_SCALE: u32 = 3;

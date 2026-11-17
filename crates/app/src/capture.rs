@@ -19,19 +19,6 @@ pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
         .on_action(cx.listener(|b, _: &PictureInPicture, _, cx| b.picture_in_picture(cx)))
 }
 
-pub fn markdown_link(title: &str, url: &str) -> String {
-    let title = ui::text::bounded_title(title);
-    let text = if title.is_empty() { url } else { &title };
-    let mut escaped = String::new();
-    for c in text.chars() {
-        if matches!(c, '\\' | '[' | ']') {
-            escaped.push('\\');
-        }
-        escaped.push(c);
-    }
-    format!("[{escaped}]({})", url.replace('(', "%28").replace(')', "%29").replace(' ', "%20"))
-}
-
 impl Browser {
     fn page_title(&self, key: TabKey) -> String {
         self.views.get(&key).map(|v| v.title()).filter(|t| !t.is_empty()).or_else(|| self.model.tab(key).map(|t| t.title.clone())).unwrap_or_default()
@@ -98,7 +85,7 @@ impl Browser {
     fn copy_page(&mut self, markdown: bool, cx: &mut Context<Self>) {
         let Some(key) = self.model.active else { return };
         let title = self.page_title(key);
-        let text = if markdown { markdown_link(&title, &self.tab_url(key).unwrap_or_default()) } else { ui::text::bounded_title(&title) };
+        let text = if markdown { browser_core::text::markdown_link(&title, &self.tab_url(key).unwrap_or_default()) } else { ui::text::bounded_title(&title) };
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         self.show_toast_as(browser_core::toast::Tone::Success, if markdown { "Link copied" } else { "Title copied" }, None, cx);
     }
@@ -130,17 +117,4 @@ pub(crate) fn write_download(name: &str, bytes: &[u8]) -> std::io::Result<PathBu
     let path = engine::downloads::unique_path(&dir, name, |p| p.symlink_metadata().is_ok());
     std::fs::OpenOptions::new().write(true).create_new(true).open(&path)?.write_all(bytes)?;
     Ok(path)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn markdown_links_escape_brackets_and_parentheses() {
-        assert_eq!(markdown_link("Rust [book]", "https://a.test/x"), r"[Rust \[book\]](https://a.test/x)");
-        assert_eq!(markdown_link(r"a\]b", "https://a.test/f(1)"), r"[a\\\]b](https://a.test/f%281%29)");
-        assert_eq!(markdown_link("", "https://a.test/"), "[https://a.test/](https://a.test/)");
-        assert_eq!(markdown_link("Line\nbreak", "https://a.test/"), "[Line break](https://a.test/)");
-    }
 }

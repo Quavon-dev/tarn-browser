@@ -67,11 +67,21 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Compact toolbar, auto-hiding sidebar, the tab hover card with its Alt page snapshot, and link
   peek (Shift-click opens a link in a card over the page, in the opener's profile and Shield
   rules) (Linux).
+- Linux: "Switch to Tab" rows for open tabs in address suggestions, an address field menu (Copy
+  Link, Copy Clean Link, Paste and Go, Site Settings), Copy Link as Markdown and Copy Title, the
+  Keyboard Shortcuts sheet (`Ctrl+/`), the macOS commands and shortcuts it was missing, switching
+  to space 1–9 with `Alt+1`…`Alt+9`, and Settings › Privacy › Open localhost links from other apps.
 
 ### Changed
 
 - The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and
   your rights, and states per client what it describes.
+
+### Fixed
+
+- Linux: links from other apps open in Tarn. The desktop entry made Tarn a browser for http and
+  https links, but the URLs it was started with were ignored; now they, and those of a later
+  launch, open as new tabs in the running Tarn, under the same rules as on macOS.
 
 ### Security
 

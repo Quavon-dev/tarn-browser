@@ -1120,3 +1120,57 @@ fn compact_toolbar_and_auto_hide_sidebar_are_off_until_turned_on() {
     assert!(crate::snapshot::snapshot(&b, true).compact);
     assert_eq!(b.core.disk.setting(COMPACT_TOOLBAR).unwrap().as_deref(), Some("on"), "the key the macOS client reads");
 }
+
+#[test]
+fn links_from_other_apps_open_in_new_tabs_and_load_as_a_pages_link() {
+    let (_dir, mut b) = browser();
+    let before = b.model.tabs.len();
+    let args = ["https://a.test/?utm_source=x", "javascript:alert(1)", "file:///etc/passwd", "--new-window", "http://localhost:3000/", "http://192.168.1.1/"];
+    b.open_app_links(&args.map(str::to_owned));
+    assert_eq!(b.model.tabs.len(), before + 3, "only web addresses open");
+    let link = |b: &Browser, url: &str| b.pages.values().find(|p| p.load.as_ref().is_some_and(|(u, _)| u == url)).map(|p| p.link);
+    assert_eq!(link(&b, "https://a.test/"), Some(true), "tracking parameters go and the load is a page's link");
+    assert_eq!(link(&b, "http://localhost:3000/"), Some(false), "localhost opens as typed by default");
+    assert_eq!(link(&b, "http://192.168.1.1/"), Some(true));
+    b.toggle_setting(browser_core::incoming::LOCALHOST_FROM_APPS);
+    b.open_app_links(&["http://localhost:4000/".to_owned()]);
+    assert_eq!(link(&b, "http://localhost:4000/"), Some(true));
+}
+
+#[test]
+fn open_tabs_are_offered_as_switch_to_tab_rows_across_the_profiles_spaces() {
+    let (_dir, mut b) = browser();
+    let docs = b.new_tab("https://docs.test/guide").unwrap();
+    b.new_tab("https://news.test/").unwrap();
+    let rows = b.tab_suggestions("docs");
+    assert_eq!(rows.iter().map(|r| r.key).collect::<Vec<_>>(), [docs]);
+    assert_eq!(rows[0].detail(), "Switch to Tab");
+    assert!(b.tab_suggestions(" ").is_empty());
+    let home = b.model.space_ix;
+    b.new_space();
+    let rows = b.tab_suggestions("docs.test/guide");
+    assert_eq!(rows.iter().map(|r| (r.key, r.space.is_some())).collect::<Vec<_>>(), [(docs, true)]);
+    assert!(rows[0].detail().starts_with("Switch to Tab · "));
+    b.switch_to_tab(docs);
+    assert_eq!((b.model.space_ix, b.model.active), (home, Some(docs)));
+}
+
+#[test]
+fn page_commands_copy_the_title_or_a_markdown_link_and_close_or_sleep_tabs() {
+    let (_dir, mut b) = browser();
+    let key = b.new_tab("https://a.test/x").unwrap();
+    b.on_event(key, "committed", &json!({ "url": "https://a.test/x", "title": "A [b]" }));
+    assert_eq!(b.copy_page(true).as_deref(), Some(r"[A \[b\]](https://a.test/x)"));
+    assert_eq!(b.copy_page(false).as_deref(), Some("A [b]"));
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some("Title copied"));
+    b.duplicate_tab(key);
+    let copy = b.model.active.unwrap();
+    assert_ne!(copy, key);
+    assert!(b.pages[&copy].load.as_ref().is_some_and(|(u, _)| u == "https://a.test/x"));
+    b.sleep_tabs(b.model.other_tabs(copy));
+    assert!(b.model.lifecycle.live().all(|k| k == copy));
+    b.close_all_tabs();
+    assert_eq!(b.model.tabs.len(), 1, "a blank tab replaces them");
+    assert_eq!(b.active_url(), None);
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some("3 tabs closed"));
+}

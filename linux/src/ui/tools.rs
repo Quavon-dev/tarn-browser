@@ -34,6 +34,10 @@ pub enum Command {
     FindInTabs,
     CopyLink,
     CopyCleanLink,
+    CopyMarkdownLink,
+    CopyTitle,
+    SiteSettings,
+    EditSpace,
     ShowQrCode,
     SavePdf,
     Print,
@@ -56,8 +60,16 @@ pub enum Command {
     SleepOthers,
 }
 
-const COMMANDS: [(&str, &str, Command); 37] = [
+const COMMANDS: [(&str, &str, Command); 48] = [
+    ("Settings", "preferences options", Command::Key(Action::Settings)),
+    ("New Space", "workspace profile", Command::Key(Action::NewSpace)),
+    ("Edit Space", "workspace rename color icon", Command::EditSpace),
+    ("Private Space", "incognito", Command::Key(Action::PrivateSpace)),
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
+    ("Toggle Sidebar", "show hide", Command::Key(Action::ToggleSidebar)),
+    ("Show Downloads", "files", Command::Key(Action::ToggleDownloads)),
+    ("Show History", "visited", Command::Key(Action::ShowHistory)),
+    ("Site Settings", "shield permissions zoom mute clear data", Command::SiteSettings),
     ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
     ("New Tab Group", "group", Command::Key(Action::NewGroup)),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
@@ -71,6 +83,8 @@ const COMMANDS: [(&str, &str, Command); 37] = [
     ("Find in Tabs", "search text all pages", Command::FindInTabs),
     ("Copy Link", "url address", Command::CopyLink),
     ("Copy Clean Link", "url tracking parameters utm strip", Command::CopyCleanLink),
+    ("Copy Link as Markdown", "url markdown", Command::CopyMarkdownLink),
+    ("Copy Title", "page name", Command::CopyTitle),
     ("Show QR Code", "phone scan link", Command::ShowQrCode),
     ("Save Page as PDF", "export print", Command::SavePdf),
     ("Save Space as Snapshot", "session tabs save", Command::SaveSnapshot),
@@ -94,6 +108,7 @@ const COMMANDS: [(&str, &str, Command); 37] = [
     ("Return to Pinned URL", "home back pinned", Command::ReturnToPinned),
     ("Set Pinned URL to Current Page", "pinned home", Command::SetPinnedUrl),
     ("Sleep Other Tabs", "hibernate unload memory", Command::SleepOthers),
+    ("Keyboard Shortcuts", "help keys cheat sheet", Command::Key(Action::ToggleShortcuts)),
 ];
 
 /// Whether `query` asks for the command list: every command it names, and nothing else.
@@ -160,6 +175,10 @@ pub fn run(ui: Ui, command: Command) {
         Command::FindInTabs => open_find_tabs(ui),
         Command::CopyLink => copy_link(ui, false),
         Command::CopyCleanLink => copy_link(ui, true),
+        Command::CopyMarkdownLink => copy_page(ui, true),
+        Command::CopyTitle => copy_page(ui, false),
+        Command::SiteSettings => show(ui, Panel::Shield),
+        Command::EditSpace => show(ui, Panel::Space),
         Command::ShowQrCode => show_qr(ui),
         Command::SavePdf => save_pdf(ui),
         Command::Print => act(ui, Browser::print),
@@ -229,6 +248,14 @@ pub fn copy_link(ui: Ui, clean: bool) {
     }
 }
 
+pub fn copy_page(ui: Ui, markdown: bool) {
+    let mut text = None;
+    act(ui, |b| text = b.copy_page(markdown));
+    if let Some(text) = text {
+        set_clipboard(text);
+    }
+}
+
 pub fn show_qr(ui: Ui) {
     let mut code = None;
     act(ui, |b| code = b.qr_code());
@@ -292,6 +319,7 @@ fn action(command: Command) -> Option<Action> {
         Command::Key(action) => Some(action),
         Command::CopyLink => Some(Action::CopyLink),
         Command::CopyCleanLink => Some(Action::CopyCleanLink),
+        Command::CopyMarkdownLink => Some(Action::CopyMarkdownLink),
         Command::Reader => Some(Action::ToggleReader),
         Command::Print => Some(Action::Print),
         Command::BurnerTab => Some(Action::BurnerTab),
