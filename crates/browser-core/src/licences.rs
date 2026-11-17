@@ -7,7 +7,8 @@ pub struct Section {
 /// Splits a `packaging/third-party-licenses*.txt` file at its `=====` lines; the first line of
 /// each part is its title.
 pub fn sections(text: &str) -> Vec<Section> {
-    text.split("\n=====\n")
+    text.replace("\r\n", "\n")
+        .split("\n=====\n")
         .filter_map(|part| {
             let part = part.trim_matches('\n');
             let (title, body) = part.split_once('\n').unwrap_or((part, ""));
@@ -37,6 +38,11 @@ mod tests {
         assert_eq!(found[0].body, "WebKit is part of iOS. Rust crates:");
         assert_eq!(found[1].body, "Licence: MIT\n\n--- LICENSE ---\nMIT text");
         assert_eq!(found[2].body, "Permission is hereby granted");
+    }
+
+    #[test]
+    fn crlf_checkouts_split_the_same() {
+        assert_eq!(sections(&FILE.replace('\n', "\r\n")), sections(FILE));
     }
 
     #[test]
