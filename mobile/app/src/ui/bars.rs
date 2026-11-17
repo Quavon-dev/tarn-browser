@@ -256,6 +256,7 @@ fn page_actions(ui: Ui) -> impl IntoElement {
                     tarn_nsh_shared::controls::icon_button(view().text_color(Theme::text).child(glyphs::icon(glyphs::SHARE, ICON)), "Share", move || {
                         ui.show(Screen::Share)
                     })
+                    .element_ref(&ui.popovers.share)
                 })
             })
         }))
@@ -349,6 +350,7 @@ fn shield_chip(ui: Ui) -> impl IntoElement {
         .rounded(px(PILL_RADIUS - 1. - CHIP_INSET))
         .bg(Secure::control)
         .active(|s| s.bg(Secure::pressed()))
+        .element_ref(&ui.popovers.shield)
         .on_press(move || ui.show(Screen::Shield))
         .child(dynamic(move || {
             let (glyph, tint): (&'static str, fn() -> Rgba) = match (burner(), level.get()) {

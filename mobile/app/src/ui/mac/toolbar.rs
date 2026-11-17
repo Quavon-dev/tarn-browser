@@ -103,7 +103,7 @@ fn shield(ui: Ui) -> impl IntoElement {
     let total = move || ui.read(|s| s.site_shield_total());
     let count = move || (total() > 0).then(|| browser_core::shield_card::thousands(total() as u64));
     let name = move || SharedString::from(format!("Site settings: Shield {}, {} stopped on this site", level_name(level()), total().max(0)));
-    shield_chip(name, raised, count, move || ui.toggle(Screen::Shield))
+    shield_chip(name, raised, count, move || ui.toggle(Screen::Shield)).element_ref(&ui.popovers.shield)
 }
 
 fn address_field(ui: Ui) -> impl IntoElement {
@@ -169,7 +169,9 @@ fn page_actions(ui: Ui) -> View {
         let name = if in_split(ui) { "Close Split View" } else { "Open Split View" };
         tool_button(glyphs::SPLIT_ADD, name, Placement::Left, move || toggle_split(ui)).disabled(move || ui.read(|s| s.model.active.is_none()))
     };
-    let share = tool_button(glyphs::SHARE, "Share", Placement::Left, move || ui.toggle(Screen::Share)).disabled(move || ui.read(|s| s.share_url().is_none()));
+    let share = tool_button(glyphs::SHARE, "Share", Placement::Left, move || ui.toggle(Screen::Share))
+        .disabled(move || ui.read(|s| s.share_url().is_none()))
+        .element_ref(&ui.popovers.share);
     tools().child(dynamic(split)).child(share)
 }
 

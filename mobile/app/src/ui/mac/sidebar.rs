@@ -158,6 +158,7 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
         item(bar, "Open", true, move |ui| activate(ui, key))
     }];
     let link = url.clone();
+    let clean = url.clone();
     items.extend([
         item(bar, "Duplicate", !url.is_empty(), move |ui| {
             act(ui, |s| {
@@ -169,6 +170,13 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
         item(bar, "Copy Link", !link.is_empty(), move |ui| {
             set_clipboard(link.clone());
             act(ui, |s| s.toast_as(browser_core::toast::Tone::Success, "Link copied".to_owned()));
+        }),
+        item(bar, "Copy Clean Link", !clean.is_empty(), move |ui| {
+            let mut link = None;
+            act(ui, |s| link = s.copy_clean_link_of(key));
+            if let Some(link) = link {
+                set_clipboard(link);
+            }
         }),
     ]);
     if ui.wide() {
@@ -830,6 +838,7 @@ fn downloads_button(ui: Ui) -> View {
         .relative()
         .child(
             glyph_button(glyphs::CIRCLE_ARROW_DOWN, "Downloads", Placement::Bottom, move || ui.toggle(Screen::Downloads))
+                .element_ref(&ui.popovers.downloads)
                 .bg(move || if ui.screen.get() == Screen::Downloads { Theme::selected() } else { Theme::clear() }),
         )
         .child(dynamic(move || {

@@ -118,6 +118,10 @@ impl<D: Platform> Shell<D> {
 
     pub fn copy_clean_link(&mut self) -> Option<String> {
         let key = self.model.active?;
+        self.copy_clean_link_of(key)
+    }
+
+    pub fn copy_clean_link_of(&mut self, key: TabKey) -> Option<String> {
         let url = self.tab_url(key);
         if url.is_empty() {
             return None;
