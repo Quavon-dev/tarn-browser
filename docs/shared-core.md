@@ -111,13 +111,17 @@ request, and reports `Event::StoreInstall(id)`; NSH engines emit `tarn_ext::STOR
 normally. WebKit on macOS reads the gesture from the navigation action's private
 `_isUserInitiated` and redirects from `_isRedirect`; without them only shell loads count. iOS uses
 only public signals: a shell load or a main-frame `linkActivated` navigation, script-started ones
-included. The shell takes at most one store link per `install::STORE_LINK_INTERVAL` (10 s,
+and redirects after a link click included. The shell takes at most one store link per `install::STORE_LINK_INTERVAL` (10 s,
 `Core::admit_store_link`) and ignores the others without a sheet. It makes no request on the
 link: `extensions::install::store_step` (with `Core::store_link_allowed` for the tab and the
-catalog copy the shell already holds) returns the entry, which Settings › Extensions shows with
-`store_sheet`, or the notice the shell shows on the tab (no fresh catalog: load it in Settings ›
-Extensions). Install on that sheet runs `store_confirm` (everything again, and the same entry),
-then `Install::Official(entry)`; when the unpacked package's source is that entry
+catalog copy the shell already holds) returns the entry, which the shell keeps in an
+`install::StoreSheet` and Settings › Extensions shows with `store_sheet`, or the notice the shell
+shows on the tab (no fresh catalog: load it in Settings › Extensions). A new store link replaces
+the sheet under a new `StoreToken` (sequence number, id and SHA-256); closing the Extensions pane
+or Settings drops it. The Install button carries the token of the sheet it was drawn for, and
+`StoreSheet::take` hands the offer over only for that token and only `STORE_CONFIRM_DELAY` (700 ms)
+after the sheet appeared (on macOS and Windows also only while `Browser::layout_stable`); then
+`store_confirm` checks everything again (and the same entry), then `Install::Official(entry)`; when the unpacked package's source is that entry
 (`store_confirmed`) the shell confirms it without a second prompt. Settings › Extensions links
 `extensions::STORE_URL` on every client.
 
