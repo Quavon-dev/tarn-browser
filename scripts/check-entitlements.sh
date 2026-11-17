@@ -20,11 +20,12 @@ check() {
   local target="$1" expected="$2"
   codesign -d --entitlements - --xml "$target" 2>/dev/null > "$plist" || true
   local actual=""
-  [[ -s "$plist" ]] && actual="$(plutil -p "$plist" | awk '
-    /=> \[$/ { key = $1; gsub(/"/, "", key); items = 0; next }
-    /^ *\]$/ { if (!items) print key " []"; key = ""; next }
-    key != "" { value = $3; gsub(/"/, "", value); print key " " value; items++; next }
-    /=>/ { name = $1; gsub(/"/, "", name); print name " " $3 }' | sort)"
+  if [[ -s "$plist" ]]; then
+    actual="$(plutil -convert json -o - "$plist" | jq -r 'to_entries[]
+      | if (.value | type) != "array" then "\(.key) \(.value)"
+        elif .value == [] then "\(.key) []"
+        else "\(.key) \(.value[])" end' | sort)" || actual="<unparseable entitlements>"
+  fi
   local wanted=""
   [[ -n "$expected" ]] && wanted="$(printf '%s\n' "$expected" | sort)"
   if [[ "$actual" != "$wanted" ]]; then

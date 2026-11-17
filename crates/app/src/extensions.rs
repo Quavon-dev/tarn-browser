@@ -444,6 +444,7 @@ impl AppCore {
                     confirmed: r.permissions.lines().map(str::to_owned).collect(),
                     allowed: allowed.into_iter().map(|(h, _)| h).collect(),
                     denied: denied.into_iter().map(|(h, _)| h).collect(),
+                    bitwarden: self.pref(Pref::ExtensionsBitwarden),
                 })
             })
             .collect()

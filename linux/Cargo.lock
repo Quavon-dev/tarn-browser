@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "browser-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cssparser",
  "engine",
@@ -1211,7 +1211,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "engine"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -2338,7 +2338,7 @@ dependencies = [
 
 [[package]]
 name = "import"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes",
  "cbc",
@@ -4258,7 +4258,7 @@ dependencies = [
 
 [[package]]
 name = "shield"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "adblock",
  "ed25519-dalek 3.0.0",
@@ -4435,7 +4435,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -4612,7 +4612,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "tarn-linux"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "browser-core",
  "devkit",

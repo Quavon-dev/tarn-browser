@@ -1834,14 +1834,25 @@ impl SettingsWindow {
                 ),
             );
         }
-        let every_site = group().child(self.pref_row(
-            true,
-            Pref::ExtensionsEverySite,
-            "Allow extensions on every site",
-            "App and official extensions read and change every site they list without asking. Unverified extensions always ask per site.",
-            s.prefs.get(Pref::ExtensionsEverySite),
-            cx,
-        ));
+        let access = group()
+            .child(self.pref_row(
+                true,
+                Pref::ExtensionsEverySite,
+                "Allow extensions on every site",
+                "App and official extensions read and change every site they list without asking. Unverified extensions always ask per site.",
+                s.prefs.get(Pref::ExtensionsEverySite),
+                cx,
+            ))
+            .when(cfg!(target_os = "macos"), |g| {
+                g.child(self.pref_row(
+                    false,
+                    Pref::ExtensionsBitwarden,
+                    "Bitwarden integration",
+                    "Lets Bitwarden's app extension unlock with Touch ID through the Bitwarden app, use the clipboard and offer passkeys on sites. Off, it runs like any other app extension.",
+                    s.prefs.get(Pref::ExtensionsBitwarden),
+                    cx,
+                ))
+            });
         let installed = if s.extensions.is_empty() {
             note("No extensions yet. Apps with a Safari web extension, such as Bitwarden from the Mac App Store, appear here.")
         } else {
@@ -1914,7 +1925,7 @@ impl SettingsWindow {
                         .when(downloads, |d| d.on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.check_extension_updates(cx))))),
                 ),
             );
-        page = page.child(section("Installed")).child(installed).child(section("Access")).child(every_site).child(section("Add")).child(add);
+        page = page.child(section("Installed")).child(installed).child(section("Access")).child(access).child(section("Add")).child(add);
         if !downloads {
             page = page.child(note("Extension downloads are off in Privacy settings; installing from a file still works."));
         }
