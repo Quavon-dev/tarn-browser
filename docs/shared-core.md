@@ -154,7 +154,8 @@ Page scripts the shell runs in the web view's isolated world (Find in Tabs, page
 element picker, per-site styles and forced dark mode) are in `engine::page_scripts`, the reader's in
 `engine::reader`, and a platform-neutral QR encoder in `engine::qr` (contract v3 in
 `docs/mobile-plan.md` §2); clean links are `shield::url_clean::clean_link`, space schedules
-`browser_core::schedule` and Find in Tabs rows `browser_core::find`.
+`browser_core::schedule`, Find in Tabs rows `browser_core::find`, and bookmarks (Bookmark Tab,
+Bookmark All Tabs, New Folder, Save for Later, moves, recent and search) `browser_core::bookmarks`.
 
 The engine choice already follows this: engine resolution is in `store` (`WebEngine::resolve`),
 and `engine::cookies` and `shield::matcher` are in shared crates.

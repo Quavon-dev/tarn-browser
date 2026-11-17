@@ -1,10 +1,9 @@
-use browser_core::now;
+use browser_core::{bookmarks, now};
 use store::{Bookmark, Counter, Id};
 use url::Url;
 
 use super::{Browser, START_URL};
 
-pub const READING_LIST: &str = "Reading List";
 pub const QUIET: usize = 3;
 
 pub fn copied(removed: i64) -> String {
@@ -51,34 +50,14 @@ impl Browser {
         Some((code, label))
     }
 
-    fn reading_list_folder(&self, bookmarks: &[Bookmark]) -> Option<Id> {
-        bookmarks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == READING_LIST).map(|b| b.id)
-    }
-
     pub fn reading_list(&self) -> Vec<Bookmark> {
-        let Some((private, profile)) = self.model.profile() else { return Vec::new() };
-        let bookmarks = self.core.store(private).bookmarks(profile).unwrap_or_default();
-        let folder = self.reading_list_folder(&bookmarks);
-        bookmarks.into_iter().filter(|b| folder.is_some() && b.parent_id == folder && b.url.is_some()).collect()
+        bookmarks::reading_list_pages(self.bookmarks())
     }
 
     pub fn save_for_later(&mut self) {
         let (Some(url), Some((private, profile))) = (self.active_url().filter(|u| u.starts_with("http")), self.model.profile()) else { return };
         let title = self.active_page().map(|p| p.title.clone()).filter(|t| !t.is_empty()).unwrap_or_else(|| url.clone());
-        let store = self.core.store(private);
-        let bookmarks = store.bookmarks(profile).unwrap_or_default();
-        let folder = match self.reading_list_folder(&bookmarks) {
-            Some(id) => id,
-            None => match store.add_bookmark(profile, None, None, READING_LIST, now()) {
-                Ok(folder) => folder.id,
-                Err(_) => {
-                    let (tone, text) = browser_core::toast::reading_list(false);
-                    return self.show_toast_as(tone, text, None);
-                }
-            },
-        };
-        let saved = bookmarks.iter().any(|b| b.parent_id == Some(folder) && b.url.as_deref() == Some(url.as_str()))
-            || store.add_bookmark(profile, Some(folder), Some(&url), &title, now()).is_ok();
+        let saved = bookmarks::save_for_later(self.core.store(private), profile, &self.bookmarks(), &url, &title, now());
         let (tone, text) = browser_core::toast::reading_list(saved);
         self.show_toast_as(tone, text, None);
     }

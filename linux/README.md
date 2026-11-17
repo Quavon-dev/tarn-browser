@@ -49,6 +49,12 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   QR code (`engine::qr`, drawn by `tarn_nsh_shared::qr`), all three in the toolbar's share menu (Linux
   has no system share path, so the menu has no More…), burner tab (its own ephemeral `NetworkSession` per `burner:<32 hex>` id, released when
   burned), Reading List (the `Reading List` bookmark folder);
+- bookmarks (`browser_core::bookmarks`): Bookmark Tab… (`Ctrl+Shift+D`, Tab panel, command rows)
+  opens the Bookmarks panel on the new bookmark's name, Bookmark All Tabs (New Tab row, command rows)
+  files every tab into a dated folder; the Bookmarks panel (`Ctrl+Alt+B`, Manage Bookmarks, and
+  from History and the Reading List) lists recent bookmarks and the folder tree, searches titles and
+  addresses, and renames, moves, deletes and adds folders, in place of the macOS Bookmarks menu and
+  Library › Bookmarks;
 - spaces: schedules by weekday and hour with the one-hour manual hold, snapshots (save, restore in a
   new or this space, delete), "Always open in" rules, switch to and move tabs between spaces from
   the command rows of the address field;

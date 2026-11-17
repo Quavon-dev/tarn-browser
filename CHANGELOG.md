@@ -24,6 +24,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   in Settings › Extensions built only from Tarn's verified catalog, and nothing is downloaded
   until you press Install there; Settings › Extensions links the store (macOS, Windows, Linux,
   iOS, Android).
+- Bookmarks on Linux: Bookmark Tab… (`Ctrl+Shift+D`, the Tab panel and the command rows),
+  Bookmark All Tabs (the New Tab row and the command rows), and a Bookmarks panel (`Ctrl+Alt+B`)
+  with recent bookmarks, folders, search, rename, move, delete and New Folder (Linux).
 
 ### Changed
 

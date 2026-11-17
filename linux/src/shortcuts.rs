@@ -26,6 +26,8 @@ pub enum Action {
     CopyLink,
     CopyCleanLink,
     ToggleReader,
+    BookmarkTab,
+    ManageBookmarks,
     ShowHistory,
     ToggleDownloads,
     ToggleSidebar,
@@ -84,7 +86,15 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
             ("Reader", Action::ToggleReader, "ctrl+shift+r"),
         ],
     ),
-    ("Library", &[("Show history", Action::ShowHistory, "ctrl+h"), ("Show downloads", Action::ToggleDownloads, "ctrl+j")]),
+    (
+        "Library",
+        &[
+            ("Bookmark this tab", Action::BookmarkTab, "ctrl+shift+d"),
+            ("Manage bookmarks", Action::ManageBookmarks, "ctrl+alt+b"),
+            ("Show history", Action::ShowHistory, "ctrl+h"),
+            ("Show downloads", Action::ToggleDownloads, "ctrl+j"),
+        ],
+    ),
     (
         "Window",
         &[

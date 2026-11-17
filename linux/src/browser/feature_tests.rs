@@ -488,3 +488,42 @@ fn a_burner_tab_neither_fetches_nor_keeps_site_icons() {
     assert!(!b.favicons.is_requested(&profile, "a.test", ticket));
     assert!(b.site_icons(&Default::default()).is_none_or(|icons| icons.find("a.test").is_none()));
 }
+
+#[test]
+fn tabs_are_bookmarked_once_filed_into_folders_and_reopened_from_them() {
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    assert_eq!(b.bookmark_tab(None), None, "the start page is not bookmarked");
+    visit(&mut b, first, "https://a.test/");
+    let id = b.bookmark_tab(None).unwrap();
+    assert_eq!(b.bookmark_tab(Some(first)), Some(id));
+    assert_eq!(b.bookmarks()[0].title, "T", "the page's current title is saved");
+    let second = b.new_tab("https://b.test/").unwrap();
+    visit(&mut b, second, "https://b.test/");
+    let folder = b.bookmark_all_tabs().unwrap();
+    let marks = b.bookmarks();
+    assert_eq!(
+        marks.iter().filter(|m| m.parent_id == Some(folder)).filter_map(|m| m.url.as_deref()).collect::<Vec<_>>(),
+        ["https://a.test/", "https://b.test/"]
+    );
+    let sub = b.new_bookmark_folder(Some(folder)).unwrap();
+    b.rename_bookmark(sub, "  Work  ");
+    b.rename_bookmark(sub, " ");
+    b.move_bookmark(id, Some(sub));
+    b.move_bookmark(folder, Some(sub));
+    let marks = b.bookmarks();
+    let get = |id| marks.iter().find(|m| m.id == id).unwrap();
+    assert_eq!(get(sub).title, "Work", "a blank name keeps the old one");
+    assert_eq!(get(id).parent_id, Some(sub));
+    assert_eq!(get(folder).parent_id, None, "a folder cannot move into its own subfolder");
+    b.open_bookmark("https://a.test/");
+    assert_eq!(b.model.active, Some(first), "an open page is switched to");
+    let tabs = b.model.tabs.len();
+    b.open_bookmark("javascript:alert(1)");
+    assert_eq!(b.model.tabs.len(), tabs, "a bookmarklet is refused like a typed one");
+    b.open_bookmark("https://c.test/");
+    assert_eq!(b.model.tabs.len(), tabs + 1);
+    assert_eq!(b.active_page().and_then(|p| p.typed.as_deref()), Some("https://c.test/"));
+    b.delete_bookmark(folder);
+    assert!(b.bookmarks().is_empty(), "a folder goes with everything in it");
+}

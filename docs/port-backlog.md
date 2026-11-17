@@ -20,6 +20,22 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
+### Bookmarks manager (2026-11-17)
+
+What it does: Bookmark Tab… and Bookmark All Tabs, and a manager with recent bookmarks, folders,
+search, rename, move, delete and New Folder.
+Shared API: `browser_core::bookmarks::{bookmark, unbookmark, bookmark_all, new_folder, move_targets, subtree, recent, search,
+save_for_later, reading_list_pages, title_or_host}`;
+`store::Store::{rename_bookmark, move_bookmark, delete_bookmark}`.
+macOS reference: `crates/app/src/library.rs` (`Page::Bookmarks`, `row_menu`), `crates/app/src/menubar.rs` (Bookmarks menu).
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/ui/library.rs` (`bookmarks_panel`), `linux/src/browser/bookmarks.rs`
+- [ ] iOS — `mobile/app` has only the Reading List, with its own copy of Save for Later that saves a page twice
+  (`mobile/app/src/features.rs`); move it onto `bookmarks::save_for_later`, then Bookmark Tab, Bookmark All Tabs and a
+  bookmarks sheet
+- [ ] Android — same as iOS
+
 ### Clean Up (2026-11-16)
 
 What it does: the Clean Up button in the New Tab row sorts the space's loose tabs into tab groups by what each page

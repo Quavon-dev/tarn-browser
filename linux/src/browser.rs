@@ -1,3 +1,4 @@
+pub mod bookmarks;
 pub mod extensions;
 pub mod icons;
 pub mod pages;
