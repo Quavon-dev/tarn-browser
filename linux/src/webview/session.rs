@@ -189,6 +189,7 @@ pub fn from_soup(c: &mut soup::Cookie) -> Option<Cookie> {
         secure: c.is_secure(),
         http_only: c.is_http_only(),
         same_site: match c.same_site_policy() {
+            SameSitePolicy::None => SameSite::None,
             SameSitePolicy::Strict => SameSite::Strict,
             _ => SameSite::Lax,
         },
@@ -198,7 +199,7 @@ pub fn from_soup(c: &mut soup::Cookie) -> Option<Cookie> {
 }
 
 pub fn to_soup(c: &Cookie) -> Option<soup::Cookie> {
-    if c.partitioned {
+    if c.partitioned || c.same_site == SameSite::None {
         return None;
     }
     let domain = if c.host_only { c.domain.clone() } else { format!(".{}", c.domain) };
@@ -425,7 +426,10 @@ mod tests {
             let mut soup = to_soup(&c).unwrap_or_else(|| panic!("{c:?}"));
             assert_eq!(from_soup(&mut soup).as_ref(), Some(&c));
         }
-        assert!(to_soup(&cookie(true, None, SameSite::None)).is_none(), "libsoup reads SameSite=None back as Lax, as WebKit does on macOS, so it is refused");
+        let mut none = soup::Cookie::new("sid", "v", "a.test", "/app", -1);
+        none.set_same_site_policy(SameSitePolicy::None);
+        assert_eq!(from_soup(&mut none).map(|c| c.same_site), Some(SameSite::None));
+        assert!(to_soup(&cookie(true, None, SameSite::None)).is_none(), "SameSite=None is refused on import, as on macOS");
         assert!(to_soup(&Cookie { partitioned: true, ..cookie(true, None, SameSite::Lax) }).is_none(), "a partitioned cookie is refused, not downgraded");
     }
 

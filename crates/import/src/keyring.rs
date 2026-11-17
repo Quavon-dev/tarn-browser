@@ -2,11 +2,21 @@ use std::pin::pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Wake, Waker};
 
-use oo7::dbus::{Error as DbusError, Service};
+use oo7::dbus::{Error as DbusError, Service, ServiceError};
 use zeroize::Zeroizing;
 
-pub(crate) fn password(label: &str) -> Option<Zeroizing<Vec<u8>>> {
-    block_on(lookup(label)).ok().flatten()
+use crate::{Error, Result};
+
+pub(crate) fn password(label: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
+    found(block_on(lookup(label)))
+}
+
+fn found(lookup: std::result::Result<Option<Zeroizing<Vec<u8>>>, DbusError>) -> Result<Option<Zeroizing<Vec<u8>>>> {
+    match lookup {
+        Ok(secret) => Ok(secret),
+        Err(DbusError::Dismissed | DbusError::Service(ServiceError::IsLocked(_))) => Err(Error::KeychainDenied),
+        Err(_) => Ok(None),
+    }
 }
 
 async fn lookup(label: &str) -> std::result::Result<Option<Zeroizing<Vec<u8>>>, DbusError> {
@@ -50,6 +60,17 @@ fn block_on<T>(future: impl Future<Output = T>) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dismissed_or_locked_keyring_is_denied_and_a_missing_one_is_skipped() {
+        assert_eq!(found(Err(DbusError::Dismissed)).err(), Some(Error::KeychainDenied));
+        assert_eq!(found(Err(DbusError::Service(ServiceError::IsLocked("locked".into())))).err(), Some(Error::KeychainDenied));
+        assert_eq!(found(Err(DbusError::NotFound("login".into()))).ok().map(|s| s.is_none()), Some(true));
+        assert_eq!(found(Err(DbusError::Service(ServiceError::NoSuchObject("item".into())))).ok().map(|s| s.is_none()), Some(true));
+        assert_eq!(found(Err(DbusError::Deleted)).ok().map(|s| s.is_none()), Some(true));
+        let secret = found(Ok(Some(Zeroizing::new(b"s".to_vec())))).unwrap();
+        assert_eq!(secret.as_deref().map(Vec::as_slice), Some(b"s".as_slice()));
+    }
 
     #[test]
     fn block_on_waits_for_a_wake_from_another_thread() {
