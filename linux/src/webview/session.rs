@@ -1,17 +1,25 @@
 use std::cell::Cell;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use engine::downloads::{folder_for, free_path, sanitize_filename, sorted_dir};
+use browser_core::site::{Sets, SiteRules};
+use engine::cookies::{Cookie, SameSite};
+use engine::downloads::{flagged_source, folder_for, free_path, sanitize_filename, sorted_dir};
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use futures_channel::oneshot;
 use serde_json::json;
+use shield::ShieldLevel;
+use shield::domains::DomainSet;
+use url::Url;
 use webkit6::glib;
-use webkit6::{CookiePersistentStorage, Download, NetworkSession, TLSErrorsPolicy, WebsiteDataTypes, gio};
+use webkit6::soup::{self, SameSitePolicy};
+use webkit6::{CookiePersistentStorage, Download, NetworkSession, TLSErrorsPolicy, WebsiteData, WebsiteDataTypes, gio};
 
+use crate::browser::profile_data::Wipe;
 use crate::data::{self, StoreKey};
 
 pub const ORIGIN_XATTR: &str = "user.xdg.origin.url";
@@ -22,21 +30,49 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(500);
 
 thread_local! {
     static SESSIONS: RefCell<HashMap<StoreKey, NetworkSession>> = RefCell::default();
-    pub(super) static DOWNLOADS: RefCell<HashMap<String, Download>> = RefCell::default();
-    pub(super) static CANCELLING: RefCell<HashSet<String>> = RefCell::default();
+    pub(super) static DOWNLOADS: RefCell<HashMap<String, Tracked>> = RefCell::default();
     static NEXT_DOWNLOAD: Cell<u64> = const { Cell::new(0) };
 }
 
+pub(super) struct Tracked {
+    download: Download,
+    reported: Rc<Cell<bool>>,
+    cancelling: Cell<bool>,
+    held: Option<Held>,
+}
+
+struct Held {
+    suggested: String,
+    tab: Rc<str>,
+    sort: bool,
+}
+
 pub fn cancel(id: &str) {
-    let Some(download) = DOWNLOADS.with_borrow(|d| d.get(id).cloned()) else { return };
-    if CANCELLING.with_borrow_mut(|c| c.insert(id.to_owned())) {
+    if let Some(download) = DOWNLOADS.with_borrow(|d| d.get(id).filter(|t| !t.cancelling.replace(true)).map(|t| t.download.clone())) {
         download.cancel();
     }
 }
 
-fn settled(id: &str) -> Option<Download> {
-    CANCELLING.with_borrow_mut(|c| c.remove(id));
-    DOWNLOADS.with_borrow_mut(|d| d.remove(id))
+pub fn keep(id: &str, keep: bool) {
+    let held = DOWNLOADS.with_borrow_mut(|d| {
+        let tracked = d.get_mut(id)?;
+        if !keep {
+            tracked.reported.set(true);
+            let again = tracked.cancelling.replace(true);
+            return d.remove(id).filter(|_| !again).map(|t| (t.download, None));
+        }
+        tracked.held.take().filter(|_| !tracked.cancelling.get()).map(|h| (tracked.download.clone(), Some(h)))
+    });
+    match held {
+        Some((download, Some(held))) => place(&download, id, &held.tab, &held.suggested, held.sort),
+        Some((download, None)) => download.cancel(),
+        None => {}
+    }
+}
+
+fn flagged(malware: Option<Arc<DomainSet>>, urls: [Option<Url>; 3]) -> Option<Url> {
+    let sets = RefCell::new(Sets { malware: Some(malware?), ..Sets::default() });
+    flagged_source(urls, |u| browser_core::site::site(ShieldLevel::Standard, &SiteRules::default(), &sets, u))
 }
 
 pub fn release(key: &StoreKey) {
@@ -53,16 +89,72 @@ pub fn acquire(key: &StoreKey) -> Option<NetworkSession> {
 }
 
 pub fn clear(key: &StoreKey) {
+    clear_then(key, || {});
+}
+
+pub fn wipe(wipe: Wipe) {
+    let Wipe { key, remove } = wipe;
+    let released = key.clone();
+    clear_then(&key, move || {
+        if let Some(uuid) = remove {
+            release(&released);
+            data::wipe(&data::root(), &uuid);
+        }
+    });
+}
+
+fn clear_then(key: &StoreKey, done: impl FnOnce() + Send + 'static) {
     let open = SESSIONS.with_borrow(|sessions| sessions.get(key).cloned());
     match (open.and_then(|s| s.website_data_manager()), key) {
-        (Some(manager), _) => manager.clear(WebsiteDataTypes::all(), glib::TimeSpan::from_seconds(0), None::<&gio::Cancellable>, |result| {
+        (Some(manager), _) => manager.clear(WebsiteDataTypes::all(), glib::TimeSpan::from_seconds(0), None::<&gio::Cancellable>, move |result| {
             if let Err(e) = result {
                 eprintln!("tarn: website data was not cleared: {e}");
             }
+            done();
         }),
-        (None, StoreKey::Persistent(uuid)) => data::wipe(&data::root(), uuid),
-        (None, StoreKey::Ephemeral(_) | StoreKey::Burner(_)) => {}
+        (None, StoreKey::Persistent(uuid)) => {
+            data::wipe(&data::root(), uuid);
+            done();
+        }
+        (None, StoreKey::Ephemeral(_) | StoreKey::Burner(_)) => done(),
     }
+}
+
+/// Removes every kind of stored data of `host` and the sites below it from the profile's open
+/// store, then reports how many records went.
+pub fn clear_site(key: &StoreKey, host: &str, done: impl FnOnce(usize) + 'static) {
+    let Some(manager) = SESSIONS.with_borrow(|sessions| sessions.get(key).cloned()).and_then(|s| s.website_data_manager()) else { return done(0) };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    let remover = manager.clone();
+    manager.fetch(WebsiteDataTypes::all(), None::<&gio::Cancellable>, move |records| {
+        let records: Vec<WebsiteData> =
+            records.unwrap_or_default().into_iter().filter(|r| r.name().is_some_and(|n| engine::view_policy::site_matches(&host, &n))).collect();
+        if records.is_empty() {
+            return done(0);
+        }
+        let (sender, removed) = futures_channel::oneshot::channel();
+        let refs: Vec<&WebsiteData> = records.iter().collect();
+        remover.remove(WebsiteDataTypes::all(), &refs, None::<&gio::Cancellable>, move |result| {
+            if let Err(e) = result {
+                eprintln!("tarn: site data was not cleared: {e}");
+            }
+            sender.send(()).ok();
+        });
+        let count = records.len();
+        glib::MainContext::default().spawn_local(async move {
+            removed.await.ok();
+            done(count);
+        });
+    });
+}
+
+pub fn clear_cache(web: &webkit6::WebView) {
+    let Some(manager) = webkit6::prelude::WebViewExt::network_session(web).and_then(|s| s.website_data_manager()) else { return };
+    manager.clear(WebsiteDataTypes::DISK_CACHE | WebsiteDataTypes::MEMORY_CACHE, glib::TimeSpan::from_seconds(0), None::<&gio::Cancellable>, |result| {
+        if let Err(e) = result {
+            eprintln!("tarn: the cache was not cleared: {e}");
+        }
+    });
 }
 
 fn open(key: &StoreKey) -> Option<NetworkSession> {
@@ -88,6 +180,96 @@ fn open(key: &StoreKey) -> Option<NetworkSession> {
     Some(session)
 }
 
+pub fn from_soup(c: &mut soup::Cookie) -> Option<Cookie> {
+    let domain = c.domain()?.to_string();
+    Some(Cookie {
+        name: c.name()?.to_string(),
+        value: c.value().map(|v| v.to_string()).unwrap_or_default(),
+        host_only: !domain.starts_with('.'),
+        domain: domain.trim_start_matches('.').to_ascii_lowercase(),
+        path: c.path().map(|p| p.to_string()).unwrap_or_else(|| "/".into()),
+        secure: c.is_secure(),
+        http_only: c.is_http_only(),
+        same_site: match c.same_site_policy() {
+            SameSitePolicy::None => SameSite::None,
+            SameSitePolicy::Strict => SameSite::Strict,
+            _ => SameSite::Lax,
+        },
+        expires: c.expires().map(|d| d.to_unix()),
+        partitioned: false,
+    })
+}
+
+pub fn to_soup(c: &Cookie) -> Option<soup::Cookie> {
+    if c.partitioned || c.same_site == SameSite::None {
+        return None;
+    }
+    let domain = if c.host_only { c.domain.clone() } else { format!(".{}", c.domain) };
+    let mut out = soup::Cookie::new(&c.name, &c.value, &domain, &c.path, -1);
+    out.set_secure(c.secure);
+    out.set_http_only(c.http_only);
+    out.set_same_site_policy(match c.same_site {
+        SameSite::None => SameSitePolicy::None,
+        SameSite::Lax => SameSitePolicy::Lax,
+        SameSite::Strict => SameSitePolicy::Strict,
+    });
+    if let Some(at) = c.expires {
+        out.set_expires(&glib::DateTime::from_unix_utc(at).ok()?);
+    }
+    from_soup(&mut out).filter(|back| back == c).map(|_| out)
+}
+
+struct Tally {
+    pending: usize,
+    written: usize,
+    refused: usize,
+    done: Option<oneshot::Sender<(usize, usize)>>,
+}
+
+impl Tally {
+    fn settle(&mut self, written: Option<bool>) {
+        if let Some(written) = written {
+            self.pending -= 1;
+            if written { self.written += 1 } else { self.refused += 1 }
+        }
+        if self.pending == 0
+            && let Some(done) = self.done.take()
+        {
+            done.send((self.written, self.refused)).ok();
+        }
+    }
+}
+
+pub fn import_cookies(key: &StoreKey, cookies: Vec<Cookie>, now: i64) -> oneshot::Receiver<(usize, usize)> {
+    let (tx, rx) = oneshot::channel();
+    let total = cookies.len();
+    let manager = matches!(key, StoreKey::Persistent(_)).then(|| acquire(key)).flatten().and_then(|s| s.cookie_manager());
+    let Some(manager) = manager else {
+        tx.send((0, total)).ok();
+        return rx;
+    };
+    let jar = manager.clone();
+    manager.all_cookies(None::<&gio::Cancellable>, move |existing| {
+        let Ok(existing) = existing else {
+            tx.send((0, total)).ok();
+            return;
+        };
+        let existing: Vec<Cookie> = existing.into_iter().filter_map(|mut c| from_soup(&mut c)).collect();
+        let (valid, refused) = engine::cookies::admit_imported(cookies, &existing, now);
+        let tally = Rc::new(RefCell::new(Tally { pending: valid.len(), written: 0, refused, done: Some(tx) }));
+        tally.borrow_mut().settle(None);
+        for cookie in &valid {
+            let Some(soup) = to_soup(cookie) else {
+                tally.borrow_mut().settle(Some(false));
+                continue;
+            };
+            let tally = tally.clone();
+            jar.add_cookie(&soup, None::<&gio::Cancellable>, move |result| tally.borrow_mut().settle(Some(result.is_ok())));
+        }
+    });
+    rx
+}
+
 pub fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)
@@ -100,7 +282,7 @@ pub fn downloads_dir() -> PathBuf {
 pub fn destination(dir: &Path, suggested: &str, sort: bool) -> PathBuf {
     let name = sanitize_filename(suggested);
     let dir = folder_for(&name).filter(|_| sort).and_then(|folder| sorted_dir(dir, folder)).unwrap_or_else(|| dir.to_owned());
-    let saving: Vec<PathBuf> = DOWNLOADS.with_borrow(|d| d.values().filter_map(|d| d.destination()).map(|d| PathBuf::from(d.as_str())).collect());
+    let saving: Vec<PathBuf> = DOWNLOADS.with_borrow(|d| d.values().filter_map(|t| t.download.destination()).map(|d| PathBuf::from(d.as_str())).collect());
     free_path(&dir, &name, |p| saving.iter().any(|s| s == p))
 }
 
@@ -112,6 +294,27 @@ pub trait DownloadSink {
     fn tab(&self) -> String;
     fn admit_download(&self, now: Instant) -> bool;
     fn sort_downloads(&self) -> bool;
+    fn page(&self) -> Option<Url>;
+    fn malware(&self) -> Option<Arc<DomainSet>>;
+}
+
+fn place(download: &Download, id: &str, tab: &str, suggested: &str, sort: bool) {
+    let dir = downloads_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        report(tab, json!({ "id": id, "state": "failed", "name": suggested, "message": e.to_string() }));
+        let pending = DOWNLOADS.with_borrow_mut(|d| d.remove(id)).map(|t| {
+            t.reported.set(true);
+            t.cancelling.get()
+        });
+        if pending != Some(true) {
+            download.cancel();
+        }
+        return;
+    }
+    let path = destination(&dir, suggested, sort);
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    download.set_destination(&path.to_string_lossy());
+    report(tab, json!({ "id": id, "state": "started", "name": name, "path": path, "pausable": false }));
 }
 
 pub fn route() -> UnboundedReceiver<(String, serde_json::Value)> {
@@ -126,39 +329,51 @@ fn report(tab: &str, data: serde_json::Value) {
     }
 }
 
+fn next_id() -> String {
+    NEXT_DOWNLOAD.with(|n| {
+        n.set(n.get() + 1);
+        n.get().to_string()
+    })
+}
+
+pub fn report_saved(tab: &str, url: &str, path: &Path, saved: Result<(), String>) {
+    let (id, name) = (next_id(), path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+    report(
+        tab,
+        match saved {
+            Ok(()) => json!({ "id": id, "state": "finished", "name": name, "path": path, "url": url }),
+            Err(message) => json!({ "id": id, "state": "failed", "name": name, "message": message }),
+        },
+    );
+}
+
 pub fn track(download: &Download, sink: &dyn DownloadSink) {
     if !sink.admit_download(Instant::now()) {
         download.cancel();
         return;
     }
     download.set_allow_overwrite(false);
-    let id = NEXT_DOWNLOAD.with(|n| {
-        n.set(n.get() + 1);
-        n.get().to_string()
-    });
-    DOWNLOADS.with_borrow_mut(|d| d.insert(id.clone(), download.clone()));
+    let id = next_id();
+    let reported = Rc::new(Cell::new(false));
+    DOWNLOADS
+        .with_borrow_mut(|d| d.insert(id.clone(), Tracked { download: download.clone(), reported: reported.clone(), cancelling: Cell::default(), held: None }));
     let tab: Rc<str> = sink.tab().into();
     let sort = sink.sort_downloads();
+    let (page, malware) = (sink.page(), sink.malware());
     let (named, named_id) = (tab.clone(), id.clone());
-    let reported = Rc::new(Cell::new(false));
-    let unplaced = reported.clone();
     download.connect_decide_destination(move |download, suggested| {
         let id = &named_id;
-        let dir = downloads_dir();
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            report(&named, json!({ "id": id, "state": "failed", "name": suggested, "message": e.to_string() }));
-            let pending = CANCELLING.with_borrow(|c| c.contains(id));
-            settled(id);
-            unplaced.set(true);
-            if !pending {
-                download.cancel();
-            }
+        let uri = |u: Option<glib::GString>| u.and_then(|u| Url::parse(&u).ok());
+        let urls = [uri(download.request().and_then(|r| r.uri())), uri(download.response().and_then(|r| r.uri())), page.clone()];
+        let Some(from) = flagged(malware.clone(), urls) else {
+            place(download, id, &named, suggested, sort);
             return true;
-        }
-        let path = destination(&dir, suggested, sort);
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        download.set_destination(&path.to_string_lossy());
-        report(&named, json!({ "id": id, "state": "started", "name": name, "path": path, "pausable": false }));
+        };
+        let name = sanitize_filename(suggested);
+        let held = Held { suggested: suggested.to_owned(), tab: named.clone(), sort };
+        DOWNLOADS.with_borrow_mut(|d| d.get_mut(id).map(|t| t.held = Some(held)));
+        report(&named, json!({ "id": id, "state": "started", "name": name, "pausable": false }));
+        report(&named, json!({ "id": id, "state": "flagged", "name": name, "host": from.host_str().unwrap_or_default() }));
         true
     });
     let (progress, progress_id) = (tab.clone(), id.clone());
@@ -172,16 +387,13 @@ pub fn track(download: &Download, sink: &dyn DownloadSink) {
         let total = download.response().map(|r| r.content_length()).filter(|n| *n > 0);
         report(&progress, json!({ "id": progress_id, "state": "progress", "done": download.received_data_length(), "total": total }));
     });
-    let (finished, finished_id, ended) = (tab.clone(), id.clone(), reported.clone());
+    let (finished, finished_id) = (tab.clone(), id.clone());
     download.connect_finished(move |download| {
-        let cancelled = CANCELLING.with_borrow(|c| c.contains(&finished_id));
-        if settled(&finished_id).is_none() {
-            return;
-        }
+        let Some(tracked) = DOWNLOADS.with_borrow_mut(|d| d.remove(&finished_id)) else { return };
         let Some(path) = download.destination().map(|d| PathBuf::from(d.as_str())) else { return };
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        if cancelled {
-            ended.set(true);
+        if tracked.cancelling.get() {
+            tracked.reported.set(true);
             std::fs::remove_file(&path).ok();
             return report(&finished, json!({ "id": finished_id, "state": "failed", "name": name, "message": "The download was cancelled." }));
         }
@@ -190,7 +402,7 @@ pub fn track(download: &Download, sink: &dyn DownloadSink) {
         report(&finished, json!({ "id": finished_id, "state": "finished", "name": name, "path": path, "url": url, "quarantined": quarantined }));
     });
     download.connect_failed(move |download, error| {
-        settled(&id);
+        DOWNLOADS.with_borrow_mut(|d| d.remove(&id));
         if reported.replace(true) {
             return;
         }
@@ -202,6 +414,34 @@ pub fn track(download: &Download, sink: &dyn DownloadSink) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cookie(host_only: bool, expires: Option<i64>, same_site: SameSite) -> Cookie {
+        Cookie {
+            name: "sid".into(),
+            value: "v".into(),
+            domain: "a.test".into(),
+            host_only,
+            path: "/app".into(),
+            secure: true,
+            http_only: true,
+            same_site,
+            expires,
+            partitioned: false,
+        }
+    }
+
+    #[test]
+    fn imported_cookies_keep_every_attribute_in_libsoup() {
+        for c in [cookie(true, None, SameSite::Lax), cookie(false, Some(2_000_000_000), SameSite::Strict), cookie(true, Some(1_900_000_000), SameSite::Lax)] {
+            let mut soup = to_soup(&c).unwrap_or_else(|| panic!("{c:?}"));
+            assert_eq!(from_soup(&mut soup).as_ref(), Some(&c));
+        }
+        let mut none = soup::Cookie::new("sid", "v", "a.test", "/app", -1);
+        none.set_same_site_policy(SameSitePolicy::None);
+        assert_eq!(from_soup(&mut none).map(|c| c.same_site), Some(SameSite::None));
+        assert!(to_soup(&cookie(true, None, SameSite::None)).is_none(), "SameSite=None is refused on import, as on macOS");
+        assert!(to_soup(&Cookie { partitioned: true, ..cookie(true, None, SameSite::Lax) }).is_none(), "a partitioned cookie is refused, not downgraded");
+    }
 
     #[test]
     fn downloads_get_safe_unique_names_and_their_origin() {

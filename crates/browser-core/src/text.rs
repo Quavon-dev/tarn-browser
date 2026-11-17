@@ -29,14 +29,49 @@ pub fn bounded_title(raw: &str) -> String {
     out
 }
 
+/// A file name for a capture of the page: its title, else its host, as one safe path component.
+pub fn capture_name(title: &str, url: Option<&url::Url>, ext: &str) -> String {
+    let title = bounded_title(title);
+    let base = if title.is_empty() { url.and_then(url::Url::host_str).unwrap_or("Page") } else { &title };
+    format!("{}.{ext}", engine::downloads::sanitize_filename(&base.replace(['/', '\\'], "-")))
+}
+
 pub fn is_bidi(c: char) -> bool {
     // Kept in sync with engine::downloads and ai::page_context, which cannot depend on `browser-core`.
     matches!(c, '\u{061C}' | '\u{115F}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{E0000}'..='\u{E007F}')
 }
 
+pub fn title_or_host(title: &str, url: &str) -> String {
+    let title = bounded_title(title);
+    if !title.is_empty() {
+        return title;
+    }
+    url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_else(|| bounded_title(url))
+}
+
+pub fn markdown_link(title: &str, url: &str) -> String {
+    let title = bounded_title(title);
+    let text = if title.is_empty() { url } else { &title };
+    let mut escaped = String::new();
+    for c in text.chars() {
+        if matches!(c, '\\' | '[' | ']') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    format!("[{escaped}]({})", url.replace('(', "%28").replace(')', "%29").replace(' ', "%20"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_untitled_page_is_named_by_its_host() {
+        assert_eq!(title_or_host(" Inbox ", "https://mail.test/"), "Inbox");
+        assert_eq!(title_or_host("", "https://Mail.Test/x"), "mail.test");
+        assert_eq!(title_or_host("", "about:blank"), "about:blank");
+    }
 
     #[test]
     fn invisible_and_bidi_characters() {
@@ -47,11 +82,30 @@ mod tests {
     }
 
     #[test]
+    fn capture_names_are_one_safe_component() {
+        let url = url::Url::parse("https://news.example/a").ok();
+        assert_eq!(capture_name("Q3 / Q4 report", url.as_ref(), "pdf"), "Q3 - Q4 report.pdf");
+        assert_eq!(capture_name("  \u{202E}", url.as_ref(), "png"), "news.example.png");
+        assert_eq!(capture_name("", None, "png"), "Page.png");
+        assert_eq!(capture_name("../../etc", None, "pdf"), "-..-etc.pdf");
+        assert_eq!(capture_name("..", None, "pdf"), "download.pdf");
+        assert_eq!(capture_name("a:b\nc", None, "png"), "a_b c.png");
+    }
+
+    #[test]
     fn origins_keep_their_end() {
         let long = format!("https://accounts.example.com.{}.evil.test", "a".repeat(120));
         let shown = bounded_origin(&long);
         assert!(shown.starts_with('…') && shown.ends_with(".evil.test"));
         assert_eq!(shown.chars().count(), MAX_ORIGIN_CHARS);
         assert_eq!(bounded_origin("https://a.test"), "https://a.test");
+    }
+
+    #[test]
+    fn markdown_links_escape_brackets_and_parentheses() {
+        assert_eq!(markdown_link("Rust [book]", "https://a.test/x"), r"[Rust \[book\]](https://a.test/x)");
+        assert_eq!(markdown_link(r"a\]b", "https://a.test/f(1)"), r"[a\\\]b](https://a.test/f%281%29)");
+        assert_eq!(markdown_link("", "https://a.test/"), "[https://a.test/](https://a.test/)");
+        assert_eq!(markdown_link("Line\nbreak", "https://a.test/"), "[Line break](https://a.test/)");
     }
 }

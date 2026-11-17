@@ -1,6 +1,3 @@
-use std::time::Duration;
-
-use engine::lifecycle::Lifecycle;
 use gpui::{Context, Window};
 use store::Store;
 
@@ -58,13 +55,13 @@ impl Pref {
         Pref::LocalhostFromApps,
     ];
 
-    fn key(self) -> &'static str {
+    pub(crate) fn key(self) -> &'static str {
         match self {
             Pref::CompactToolbar => "compact_toolbar",
             Pref::AutoHideSidebar => "auto_hide_sidebar",
             Pref::Gestures => "gestures",
             Pref::ReduceMotion => "reduce_motion",
-            Pref::Suggestions => "suggestions",
+            Pref::Suggestions => browser_core::settings::SUGGESTIONS,
             Pref::NewTabStartPage => "new_tab_start_page",
             Pref::ClosePrevious => "close_selects_previous",
             Pref::BlockAds => "block_ads",
@@ -73,14 +70,14 @@ impl Pref {
             Pref::BlockMalware => "block_malware",
             Pref::BlockAdult => "block_adult",
             Pref::BlockPopups => "block_popups",
-            Pref::YouTubeAds => "block_youtube_ads",
+            Pref::YouTubeAds => shield::groups::YOUTUBE_SETTING,
             Pref::UpdateChecks => "update_checks",
             Pref::NightlyUpdates => "nightly_updates",
             Pref::ExtensionsEverySite => "extensions_every_site",
             Pref::ExtensionsBitwarden => "extensions_bitwarden",
             Pref::HistoryText => "history_text",
             Pref::SortDownloads => "sort_downloads",
-            Pref::LocalhostFromApps => "localhost_from_apps",
+            Pref::LocalhostFromApps => browser_core::incoming::LOCALHOST_FROM_APPS,
         }
     }
 
@@ -119,16 +116,7 @@ pub enum Choice {
     ArchiveAfter,
 }
 
-pub const LIVE_TABS: [&str; 4] = ["3", "6", "10", "16"];
-pub const SLEEP_AFTER: [(&str, Option<Duration>); 4] = [
-    ("Never", None),
-    ("10 minutes", Some(Duration::from_secs(600))),
-    ("30 minutes", Some(Duration::from_secs(1_800))),
-    ("2 hours", Some(Duration::from_secs(7_200))),
-];
-pub const ARCHIVE_AFTER: [(&str, Option<i64>); 4] =
-    [("Never", None), ("12 hours", Some(12 * HOUR)), ("1 day", Some(24 * HOUR)), ("7 days", Some(7 * 24 * HOUR))];
-const HOUR: i64 = 3_600_000;
+pub use browser_core::settings::{LIVE_TABS, live_tabs, option_index, sleep_after};
 const SIDEBAR_SETTING: &str = "sidebar_open";
 const SIDEBAR_WIDTH_SETTING: &str = "sidebar_width";
 pub const SIDEBAR_MIN_WIDTH: f32 = 200.;
@@ -142,14 +130,9 @@ pub fn sidebar_width(store: &Store) -> f32 {
     store.setting(SIDEBAR_WIDTH_SETTING).ok().flatten().and_then(|w| w.parse().ok()).map_or(SIDEBAR_WIDTH, clamp_sidebar_width)
 }
 
-/// How long a tab may stay off screen before it sleeps; `None` leaves sleeping to the tab limit.
-pub fn sleep_after(store: &Store) -> Option<Duration> {
-    SLEEP_AFTER[Choice::SleepAfter.load(store)].1
-}
-
 /// How long an unused tab stays open, in milliseconds; `None` keeps tabs open.
 pub fn archive_after(store: &Store) -> Option<i64> {
-    ARCHIVE_AFTER[Choice::ArchiveAfter.load(store)].1
+    browser_core::closed::archive_after(store)
 }
 
 pub fn sidebar_open(store: &Store) -> bool {
@@ -161,39 +144,31 @@ impl Choice {
         match self {
             Choice::Accent => std::iter::once(THEME_ACCENT).chain(ui::theme::ACCENTS.iter().map(|(name, _)| *name)).collect(),
             Choice::LiveTabs => LIVE_TABS.to_vec(),
-            Choice::SleepAfter => SLEEP_AFTER.iter().map(|(name, _)| *name).collect(),
-            Choice::ArchiveAfter => ARCHIVE_AFTER.iter().map(|(name, _)| *name).collect(),
+            Choice::SleepAfter => browser_core::settings::sleep_after_options(),
+            Choice::ArchiveAfter => browser_core::closed::ARCHIVE_AFTER.iter().map(|(name, _)| *name).collect(),
         }
     }
 
     fn key(self) -> &'static str {
         match self {
             Choice::Accent => "accent",
-            Choice::LiveTabs => "live_tabs",
-            Choice::SleepAfter => "sleep_after",
-            Choice::ArchiveAfter => "archive_after",
+            Choice::LiveTabs => browser_core::settings::LIVE_TABS_KEY,
+            Choice::SleepAfter => browser_core::settings::SLEEP_AFTER_KEY,
+            Choice::ArchiveAfter => browser_core::closed::ARCHIVE_AFTER_SETTING,
         }
     }
 
     fn default(self) -> usize {
         match self {
             Choice::Accent | Choice::ArchiveAfter => 0,
-            Choice::LiveTabs => 1,
-            Choice::SleepAfter => 2,
+            Choice::LiveTabs => browser_core::settings::LIVE_TABS_DEFAULT,
+            Choice::SleepAfter => browser_core::settings::SLEEP_AFTER_DEFAULT,
         }
     }
 
     pub fn load(self, store: &Store) -> usize {
-        option_index(&self.options(), store.setting(self.key()).ok().flatten().as_deref()).unwrap_or(self.default())
+        browser_core::settings::choice(store, self.key(), &self.options(), self.default())
     }
-}
-
-pub fn option_index(options: &[&str], stored: Option<&str>) -> Option<usize> {
-    options.iter().position(|o| Some(*o) == stored)
-}
-
-pub fn live_tabs(store: &Store) -> usize {
-    LIVE_TABS[Choice::LiveTabs.load(store)].parse().unwrap_or(6)
 }
 
 /// The accent choice that keeps the theme's own accent.
@@ -334,12 +309,9 @@ impl Browser {
         cx.notify();
     }
 
-    /// Rebuilds the live set oldest first, so the most recent tabs stay awake.
+    /// The most recent tabs stay awake.
     fn set_live_tabs(&mut self, max: usize, cx: &mut Context<Self>) {
-        let live: Vec<_> = self.model.lifecycle.live().collect();
-        self.model.lifecycle = Lifecycle::new(max);
-        let evicted: Vec<_> = live.into_iter().rev().flat_map(|key| self.model.lifecycle.activate(key)).collect();
-        for key in evicted {
+        for key in self.model.lifecycle.set_max_live(max, |_| false) {
             self.sleep_unless_playing(key, cx);
         }
     }
@@ -453,7 +425,7 @@ fn sidebar_width_is_clamped_and_persists() {
 #[test]
 fn background_tabs_sleep_after_half_an_hour_by_default() {
     let store = Store::open_in_memory().unwrap();
-    assert_eq!(sleep_after(&store), Some(Duration::from_secs(1_800)));
+    assert_eq!(sleep_after(&store), Some(std::time::Duration::from_secs(1_800)));
     store.set_setting(Choice::SleepAfter.key(), "Never").unwrap();
     assert_eq!(sleep_after(&store), None);
 }
@@ -463,7 +435,7 @@ fn archiving_is_off_by_default() {
     let store = Store::open_in_memory().unwrap();
     assert_eq!(archive_after(&store), None);
     store.set_setting(Choice::ArchiveAfter.key(), "1 day").unwrap();
-    assert_eq!(archive_after(&store), Some(24 * HOUR));
+    assert_eq!(archive_after(&store), Some(24 * 3_600_000));
 }
 
 #[cfg(test)]
@@ -476,5 +448,24 @@ mod tests {
         assert_eq!(Pref::ExtensionsEverySite.default(), browser_core::extensions::every_site_setting(None));
         assert!(!browser_core::extensions::every_site_setting(Some("off")));
         assert!(browser_core::extensions::every_site_setting(Some("on")));
+    }
+
+    #[test]
+    fn the_shared_switches_and_accent_are_the_settings_every_client_reads() {
+        use browser_core::prefs;
+        for (pref, switch) in [
+            (Pref::Gestures, prefs::GESTURES),
+            (Pref::ReduceMotion, prefs::REDUCE_MOTION),
+            (Pref::NewTabStartPage, prefs::NEW_TAB_START_PAGE),
+            (Pref::ClosePrevious, prefs::CLOSE_SELECTS_PREVIOUS),
+        ] {
+            assert_eq!((pref.key(), pref.default()), (switch.key, switch.default), "{pref:?}");
+        }
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!((Choice::Accent.key(), THEME_ACCENT), (prefs::ACCENT, prefs::THEME_ACCENT));
+        for ix in 0..Choice::Accent.options().len() {
+            store.set_setting(Choice::Accent.key(), Choice::Accent.options()[ix]).unwrap();
+            assert_eq!(prefs::accent_choice(&store), ix);
+        }
     }
 }

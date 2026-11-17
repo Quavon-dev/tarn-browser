@@ -1,10 +1,15 @@
-use browser_core::now;
+use std::path::Path;
+
+use browser_core::bookmarks::top_folder;
+use browser_core::tabs::TabKey;
+use browser_core::{bookmarks, now};
+use serde_json::{Value, json};
 use store::{Bookmark, Counter, Id};
 use url::Url;
 
 use super::{Browser, START_URL};
 
-pub const READING_LIST: &str = "Reading List";
+pub use browser_core::bookmarks::READING_LIST;
 pub const QUIET: usize = 3;
 
 pub fn copied(removed: i64) -> String {
@@ -38,6 +43,15 @@ impl Browser {
         Some(link)
     }
 
+    pub fn copy_page(&mut self, markdown: bool) -> Option<String> {
+        let key = self.model.active?;
+        let page = self.pages.get(&key).map(|p| p.title.clone()).filter(|t| !t.is_empty());
+        let title = page.or_else(|| self.model.tab(key).map(|t| t.title.clone())).unwrap_or_default();
+        let text = if markdown { browser_core::text::markdown_link(&title, &self.active_url()?) } else { browser_core::text::bounded_title(&title) };
+        self.show_toast_as(browser_core::toast::Tone::Success, if markdown { "Link copied" } else { "Title copied" }, None);
+        Some(text)
+    }
+
     pub fn qr_code(&mut self) -> Option<(Vec<Vec<bool>>, String)> {
         let url = self.active_url()?;
         let Some(code) = engine::qr::encode(&url) else {
@@ -51,39 +65,43 @@ impl Browser {
         Some((code, label))
     }
 
-    fn reading_list_folder(&self, bookmarks: &[Bookmark]) -> Option<Id> {
-        bookmarks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == READING_LIST).map(|b| b.id)
+    pub fn pdf_name(&self) -> Option<(TabKey, String, String)> {
+        let (key, url) = (self.model.active?, self.active_url()?);
+        let title = self.active_page().map(|p| p.title.as_str()).unwrap_or_default();
+        let name = browser_core::text::capture_name(title, Url::parse(&url).ok().as_ref(), "pdf");
+        Some((key, url, name))
     }
 
-    pub fn reading_list(&self) -> Vec<Bookmark> {
+    pub fn save_pdf(&mut self, key: TabKey, url: &str, path: &Path) {
+        if self.model.tab(key).is_some() && self.pages.get(&key).is_some_and(|p| p.url == url) {
+            self.outbox.push((key, "pdf", json!({ "path": path })));
+        }
+    }
+
+    pub fn print(&mut self) {
+        if self.active_url().is_some() {
+            self.command("print", Value::Null);
+        }
+    }
+
+    /// The pages in the profile's top-level bookmark folder `name`, such as the Reading List or
+    /// Archived Tabs.
+    pub fn folder_pages(&self, name: &str) -> Vec<Bookmark> {
         let Some((private, profile)) = self.model.profile() else { return Vec::new() };
         let bookmarks = self.core.store(private).bookmarks(profile).unwrap_or_default();
-        let folder = self.reading_list_folder(&bookmarks);
+        let folder = top_folder(&bookmarks, name);
         bookmarks.into_iter().filter(|b| folder.is_some() && b.parent_id == folder && b.url.is_some()).collect()
     }
 
     pub fn save_for_later(&mut self) {
         let (Some(url), Some((private, profile))) = (self.active_url().filter(|u| u.starts_with("http")), self.model.profile()) else { return };
         let title = self.active_page().map(|p| p.title.clone()).filter(|t| !t.is_empty()).unwrap_or_else(|| url.clone());
-        let store = self.core.store(private);
-        let bookmarks = store.bookmarks(profile).unwrap_or_default();
-        let folder = match self.reading_list_folder(&bookmarks) {
-            Some(id) => id,
-            None => match store.add_bookmark(profile, None, None, READING_LIST, now()) {
-                Ok(folder) => folder.id,
-                Err(_) => {
-                    let (tone, text) = browser_core::toast::reading_list(false);
-                    return self.show_toast_as(tone, text, None);
-                }
-            },
-        };
-        let saved = bookmarks.iter().any(|b| b.parent_id == Some(folder) && b.url.as_deref() == Some(url.as_str()))
-            || store.add_bookmark(profile, Some(folder), Some(&url), &title, now()).is_ok();
+        let saved = bookmarks::save_for_later(self.core.store(private), profile, &self.bookmarks(), &url, &title, now());
         let (tone, text) = browser_core::toast::reading_list(saved);
         self.show_toast_as(tone, text, None);
     }
 
-    pub fn remove_from_reading_list(&mut self, id: Id) {
+    pub fn remove_bookmark(&mut self, id: Id) {
         if let Some((private, _)) = self.model.profile() {
             self.core.store(private).delete_bookmark(id).ok();
         }

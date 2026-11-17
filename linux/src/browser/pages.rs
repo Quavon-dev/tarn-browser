@@ -20,6 +20,8 @@ pub enum Request {
     Pick(TabKey),
     IconLinks(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     IconData(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
+    Capture { key: TabKey, profile: Id, url: String, started: i64 },
+    Json(TabKey),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -66,7 +68,27 @@ impl Browser {
 
     fn text_profile(&self, query: &str) -> Option<Id> {
         let (private, id) = self.model.profile()?;
-        (!private && browser_core::suggest::searches_text(query) && !self.setting_off(HISTORY_TEXT)).then_some(id)
+        (!private && browser_core::suggest::searches_text(query) && self.suggestions() && !self.setting_off(HISTORY_TEXT)).then_some(id)
+    }
+
+    pub fn suggestions(&self) -> bool {
+        self.setting_on(browser_core::settings::SUGGESTIONS)
+    }
+
+    /// The history rows and inline completion for the address field's new `value`; none while
+    /// Suggestions is off.
+    pub fn address_edit(
+        &self,
+        typed: &str,
+        value: &str,
+        history: &[store::HistoryEntry],
+        max: usize,
+    ) -> (Vec<(String, String)>, Option<browser_core::suggest::Completion>) {
+        if !self.suggestions() {
+            return (Vec::new(), None);
+        }
+        let (rows, completion) = browser_core::suggest::edit(typed, value, &self.model.tabs, history, max, now());
+        (rows.into_iter().map(|h| (h.title.clone(), h.url.clone())).collect(), completion)
     }
 
     pub fn cached_text_matches(&self, query: &str) -> Option<Vec<store::HistoryEntry>> {
@@ -103,7 +125,7 @@ impl Browser {
         self.outbox.push((key, name, args));
     }
 
-    fn answered(&mut self, data: &Value, key: TabKey) -> Option<Request> {
+    pub(super) fn answered(&mut self, data: &Value, key: TabKey) -> Option<Request> {
         let request = self.requests.remove(&data["seq"].as_u64()?)?;
         let url = self.pages.get(&key).map(|p| p.url.as_str()).unwrap_or_default();
         (data["url"].as_str() == Some(url)).then_some(request)
@@ -131,6 +153,7 @@ impl Browser {
 
     pub(super) fn after_load(&mut self, key: TabKey, finished: bool, url: &Url, visit: Option<Id>) {
         if !finished {
+            self.forget_devtools_page(key);
             self.articles.remove(&key);
             self.counted.remove(&key);
             if self.reader.as_ref().is_some_and(|r| r.key == key) {
@@ -138,6 +161,7 @@ impl Browser {
             }
             return;
         }
+        self.after_load_devtools(key);
         if self.unlocked(key).is_none() {
             return;
         }
@@ -246,7 +270,7 @@ impl Browser {
         let text = |k: &str| data[k].as_str().unwrap_or_default().to_owned();
         let id = text("id");
         let state = text("state");
-        let owner = *self.download_owners.entry(id.clone()).or_insert_with(|| self.model.profile_of(&self.core, key));
+        let (owner, started) = *self.download_owners.entry(id.clone()).or_insert_with(|| (self.model.profile_of(&self.core, key), now()));
         if state == "finished" || state == "failed" {
             self.download_owners.remove(&id);
         }
@@ -254,9 +278,17 @@ impl Browser {
         if state == "progress" {
             if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
                 item.done = data["done"].as_u64().unwrap_or(item.done);
+                if item.total.is_none() && data["total"].as_u64().is_some() {
+                    self.downloads_moved = std::time::Instant::now();
+                }
                 item.total = data["total"].as_u64().or(item.total);
             }
             return known;
+        }
+        self.settle_downloads();
+        let state_is_flagged = state == "flagged";
+        if state_is_flagged && known {
+            self.show_toast_as(browser_core::toast::Tone::Warning, engine::downloads::flagged_notice(&text("name"), &text("host")), None);
         }
         let previous = self.downloads.iter().position(|d| !id.is_empty() && d.id == id);
         let old = previous.map(|ix| self.downloads.remove(ix));
@@ -265,11 +297,12 @@ impl Browser {
             name: Some(text("name")).filter(|n| !n.is_empty()).or_else(|| old.as_ref().map(|o| o.name.clone())).unwrap_or_default(),
             path: Some(text("path")).filter(|p| !p.is_empty()).or_else(|| old.as_ref().map(|o| o.path.clone())).unwrap_or_default(),
             state,
-            message: text("message"),
+            message: if state_is_flagged { engine::downloads::flagged_note(&text("host")) } else { text("message") },
             done: old.as_ref().map_or(0, |o| o.done),
             total: old.as_ref().and_then(|o| o.total),
         };
-        let keeps = owner.filter(|p| self.core.keeps_records(key.private, *p));
+        let wiped = |p: Id| self.core.wiped_at.borrow().get(&(key.private, p)).is_some_and(|at| started < *at);
+        let keeps = owner.filter(|p| self.core.keeps_records(key.private, *p) && !wiped(*p));
         if record
             && item.state == "finished"
             && let Some(profile) = keeps
@@ -282,5 +315,30 @@ impl Browser {
 
     pub fn cancel_download(&mut self, id: &str) {
         self.cancelled_downloads.push(id.to_owned());
+    }
+
+    pub fn keep_download(&mut self, id: &str, keep: bool) {
+        if keep && !browser_core::prompts::stable(self.downloads_moved, std::time::Instant::now()) {
+            return;
+        }
+        self.kept_downloads.push((id.to_owned(), keep));
+        match self.downloads.iter_mut().find(|d| d.id == id) {
+            Some(item) if keep => {
+                item.state = "started".to_owned();
+                item.message.clear();
+                self.settle_downloads();
+            }
+            _ => self.forget_download(id),
+        }
+    }
+
+    pub fn settle_downloads(&mut self) {
+        self.downloads_moved = std::time::Instant::now();
+    }
+
+    pub fn forget_download(&mut self, id: &str) {
+        self.settle_downloads();
+        self.downloads.retain(|d| d.id != id);
+        self.download_owners.remove(id);
     }
 }

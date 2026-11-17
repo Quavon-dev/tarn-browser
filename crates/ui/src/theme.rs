@@ -22,19 +22,7 @@ pub const TRAFFIC_LIGHT_INSET: f32 = if cfg!(target_os = "macos") { 84. } else {
 /// GPUI's name for the platform's interface font.
 pub const SYSTEM_FONT: &str = ".SystemUIFont";
 
-/// Tarn's lake blue (the default), then the macOS accent colours; the user picks one in
-/// Settings › Appearance, stored by name. "Theme" (index 0 in the picker) is the theme's own.
-pub const ACCENTS: [(&str, u32); 9] = [
-    ("Tarn", 0x1f75b0),
-    ("Blue", 0x0a7aff),
-    ("Purple", 0xa550a7),
-    ("Pink", 0xf74f9e),
-    ("Red", 0xff5257),
-    ("Orange", 0xf7821b),
-    ("Yellow", 0xd9a400),
-    ("Green", 0x62ba46),
-    ("Graphite", 0x8c8c8c),
-];
+pub use browser_core::prefs::ACCENTS;
 
 /// Profile colours, stored by name in `Profile.color`.
 pub const PROFILE_COLORS: [(&str, u32); 8] = [

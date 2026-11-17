@@ -33,7 +33,7 @@ const IGNORED_LOAD_ERRORS: [isize; 2] = [-999, 102];
 const MAX_QUEUED_PROMPTS: usize = 8;
 const SAME_DOCUMENT_VISIT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 const MAX_SAME_DOCUMENT_URL: usize = 2048;
-const DEVELOPER_SETTING: &str = "developer_tools";
+const DEVELOPER_SETTING: &str = devkit::SETTING;
 const FILTER_SETTING_WARNING: &str = "The filter-list setting could not be saved";
 /// The page sits 1pt inside its frame, so its corners are 1pt tighter than the frame's.
 pub(crate) fn page_corner() -> f64 {
@@ -69,7 +69,7 @@ impl Browser {
 }
 
 use browser_core::closed::ClosedTab;
-pub use browser_core::tabs::{SpaceRef, TabKey, folder_tree, same_page};
+pub use browser_core::tabs::{SpaceRef, TabKey, folder_tree};
 
 #[derive(Default, Clone)]
 pub struct PageState {
@@ -187,7 +187,7 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
                 .unwrap_or_default();
             let started = started.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
             let state = if quarantined { "finished" } else { "finished-unquarantined" };
-            if core.keeps_records(private, profile_id) && core.wiped_at.borrow().get(&(private, profile_id)).is_none_or(|wiped| started >= *wiped) {
+            if core.keeps_record_since(private, profile_id, started) {
                 core.store(private).add_download(profile_id, &url, &path.to_string_lossy(), state, started).ok();
             }
             (Some(id), Ok((path, quarantined)))
@@ -258,7 +258,7 @@ pub struct Browser {
     pub auth_pass: Entity<TextInput>,
     pub remember_permission: bool,
     /// When a guarded control last appeared or moved, or the tab, window or overlay changed
-    /// (`blocking::BYPASS_DELAY`).
+    /// (`browser_core::site::BYPASS_DELAY`).
     pub layout_stable_since: Instant,
     pub find_open: bool,
     pub find_input: Entity<TextInput>,
@@ -284,7 +284,7 @@ pub struct Browser {
     pub privacy_notice: Option<((bool, Id), String)>,
     pub developer: bool,
     /// A page shows an element full screen, and whether that put the window into full screen.
-    pub(crate) page_fullscreen: Option<bool>,
+    pub(crate) page_fullscreen: browser_core::fullscreen::PageFullScreen,
     pub responsive: Option<usize>,
     zoom_before_responsive: HashMap<TabKey, f64>,
     clear_site_armed: Option<(TabKey, String)>,
@@ -463,7 +463,7 @@ impl Browser {
             next_generation: 0,
             privacy_notice: None,
             developer: false,
-            page_fullscreen: None,
+            page_fullscreen: Default::default(),
             responsive: None,
             zoom_before_responsive: HashMap::new(),
             clear_site_armed: None,
@@ -579,10 +579,7 @@ impl Browser {
     /// A loopback link loads as typed while Settings allows it (`nav_policy::app_link_typed`).
     pub(crate) fn open_urls(&mut self, urls: impl IntoIterator<Item = String>, from_app: bool, window: &mut Window, cx: &mut Context<Self>) {
         for arg in urls {
-            let Ok(url) = Url::parse(&arg) else { continue };
-            if nav_policy::decide(&url, Source::ExternalApp) != Decision::Allow {
-                continue;
-            }
+            let Some((url, typed)) = browser_core::incoming::app_link(&arg, self.pref(crate::prefs::Pref::LocalhostFromApps)) else { continue };
             if self.command_mode.is_some() {
                 self.close_command(window, cx);
             }
@@ -590,7 +587,7 @@ impl Browser {
             if let Some(ix) = self.routed_space(&url) {
                 self.switch_space(ix, window, cx);
             }
-            if !from_app || nav_policy::app_link_typed(&url, self.pref(crate::prefs::Pref::LocalhostFromApps)) {
+            if !from_app || typed {
                 self.new_tab(&url, window, cx);
             } else if let Some(key) = self.model.new_tab(&self.core, url.as_str(), self.saved.web_engine) {
                 self.link_loads.insert(key, None);
@@ -882,7 +879,7 @@ impl Browser {
         let rt = self.runtime(private, profile_id)?;
         let site_for = browser_core::site::site_for(rt.profile.clone(), rt.overrides.clone(), rt.rules.clone(), sets);
         let site = Url::parse(url).map_or(nav_policy::Site::new(rt.profile.shield_level), |u| site_for(&u));
-        let inspectable = developer || rt.profile.is_dev;
+        let inspectable = (developer || rt.profile.is_dev) && site.level != ShieldLevel::Lockdown;
         Some(WebView::new(host, &rt.data, site.level, site.filtered, inspectable, site_for, sink))
     }
 
@@ -1537,15 +1534,8 @@ impl Browser {
         let typed = out.len();
         let listed: HashSet<TabKey> = out.iter().filter_map(|s| if let Target::Tab(k) = s.target { Some(k) } else { None }).collect();
         let completed = completion.as_ref().map(|c| c.url.as_str());
-        let mut shown_tabs = 0;
-        let mut ranked: Vec<usize> = suggest::rank_pages(&query, &pages, now())
-            .into_iter()
-            .filter(|&ix| if ix < tabs.len() { !listed.contains(&TabKey { private, id: tabs[ix].id }) } else { Some(pages[ix].url) != completed })
-            .filter(|&ix| {
-                shown_tabs += usize::from(ix < tabs.len());
-                ix >= tabs.len() || shown_tabs <= 5
-            })
-            .collect();
+        let skip = |ix: usize| if ix < tabs.len() { listed.contains(&TabKey { private, id: tabs[ix].id }) } else { Some(pages[ix].url) == completed };
+        let mut ranked: Vec<usize> = suggest::rank_rows(&query, &pages, tabs.len(), skip, now());
         let search_text = !private && suggest::searches_text(&query) && suggest_on && self.pref(crate::prefs::Pref::HistoryText);
         let text_profile = self.model.current_space().filter(|_| search_text).map(|s| s.space.profile_id);
         let cached = self.history_text.as_ref().filter(|(p, q, _)| Some(*p) == text_profile && *q == query).map(|(_, _, found)| found.clone());
@@ -1693,29 +1683,15 @@ impl Browser {
     /// "Switch to Tab" rows for open tabs showing `url`: the current space's first, then other
     /// spaces of the same profile and privacy, named in the detail.
     fn open_tabs_at(&self, url: &Url) -> Vec<Suggestion> {
-        let Some(current) = self.model.current_space() else { return Vec::new() };
-        let (private, profile_id) = (current.private, current.space.profile_id);
-        let row = |t: &Tab, detail: String| Suggestion {
-            label: ui::text::bounded_title(if t.title.is_empty() { &t.url } else { &t.title }),
-            detail,
-            target: Target::Tab(TabKey { private, id: t.id }),
-        };
-        let mut out: Vec<Suggestion> = self
-            .model
-            .tabs
-            .iter()
-            .filter(|t| self.model.active != Some(TabKey { private, id: t.id }) && same_page(url, &t.url))
-            .map(|t| row(t, "Switch to Tab".to_owned()))
-            .collect();
-        for (ix, space) in self.model.spaces.iter().enumerate() {
-            if ix == self.model.space_ix || space.private != private || space.space.profile_id != profile_id {
-                continue;
-            }
-            for tab in self.store(private).tabs(space.space.id).unwrap_or_default().iter().filter(|t| same_page(url, &t.url)) {
-                out.push(row(tab, format!("Switch to Tab · {}", ui::text::bounded_title(&space.space.name))));
-            }
-        }
-        out
+        self.model
+            .tabs_showing(&self.core, url)
+            .into_iter()
+            .map(|(key, t, space)| Suggestion {
+                label: ui::text::bounded_title(if t.title.is_empty() { &t.url } else { &t.title }),
+                detail: browser_core::tabs::switch_detail(space.as_deref()),
+                target: Target::Tab(key),
+            })
+            .collect()
     }
 
     pub fn resolve_external(&mut self, open: bool, cx: &mut Context<Self>) {
@@ -2013,16 +1989,12 @@ impl Browser {
         if !on {
             return self.leave_page_fullscreen(window);
         }
+        let Some(view) = self.views.get(&key).cloned() else { return };
         // Nothing the shell must show may be hidden: a pending prompt keeps the toolbar and its origin.
-        if self.active_prompt().is_some() {
-            return;
-        }
-        let Some(view) = self.views.get(&key).filter(|_| self.page_fullscreen.is_none()).cloned() else { return };
-        let entered = !window.is_fullscreen();
+        let Some(entered) = self.page_fullscreen.enter(self.active_prompt().is_some(), window.is_fullscreen()) else { return };
         if entered {
             window.toggle_fullscreen();
         }
-        self.page_fullscreen = Some(entered);
         view.set_corner_radius(0.);
         view.raise();
         self.layout_changed();
@@ -2031,19 +2003,22 @@ impl Browser {
     /// Whether the window may show the full-screen page alone: no prompt, overlay, address field,
     /// find bar or notice of the shell waits to be seen, and the page is still the active one.
     pub(crate) fn page_fullscreen_holds(&self) -> bool {
-        self.active_view().is_some()
-            && self.active_prompt().is_none()
-            && !self.overlay_open()
-            && self.command_mode.is_none()
-            && !self.find_open
-            && self.model.active.and_then(|k| self.pages.get(&k)).is_none_or(|p| p.notice.is_none() && p.blocked.is_none())
+        browser_core::fullscreen::Shell {
+            page: self.active_view().is_some(),
+            prompt: self.active_prompt().is_some(),
+            overlay: self.overlay_open(),
+            address: self.command_mode.is_some(),
+            find: self.find_open,
+            notice: self.model.active.and_then(|k| self.pages.get(&k)).is_some_and(|p| p.notice.is_some() || p.blocked.is_some()),
+        }
+        .lets_page_fill_window()
     }
 
     /// Gives the window back its sidebar, toolbar and size: when the page leaves full screen, and
     /// when a prompt, another tab or a crash needs the shell. The page itself may stay full screen
     /// inside the tab until it is put away.
     pub(crate) fn leave_page_fullscreen(&mut self, window: &mut Window) {
-        let Some(entered) = self.page_fullscreen.take() else { return };
+        let Some(entered) = self.page_fullscreen.leave() else { return };
         if entered && window.is_fullscreen() {
             window.toggle_fullscreen();
         }
@@ -2492,7 +2467,7 @@ impl Browser {
 
     pub fn set_json_raw(&mut self, key: TabKey, raw: bool, cx: &mut Context<Self>) {
         if let Some(page) = self.json_pages.get_mut(&key) {
-            page.raw = raw;
+            page.set_raw(raw);
             cx.notify();
         }
     }
@@ -2870,7 +2845,7 @@ impl Browser {
         let name = store.profile(profile_id).map_err(|e| e.to_string())?.name;
         let json = store.export_profile(profile_id).map_err(|e| e.to_string())?;
         let dir = std::env::home_dir().ok_or("no home folder")?.join("Downloads");
-        let file = engine::downloads::sanitize_filename(&format!("Tarn export {name}.json"));
+        let file = browser_core::profile_data::export_name(&name);
         let path = engine::downloads::free_path(&dir, &file, |_| false);
         let mut options = std::fs::OpenOptions::new();
         #[cfg(unix)]
@@ -2892,15 +2867,15 @@ impl Browser {
             .flat_map(|s| self.store(private).folders(s.space.id).unwrap_or_default())
             .map(|f| f.id)
             .collect();
-        let space = match self.store(private).reset_profile(profile_id, if private { "Private" } else { "Home" }) {
-            Ok(space) => space,
+        let reset = match self.core.reset_profile_data(private, profile_id) {
+            Ok(reset) => reset,
             Err(e) => {
                 self.privacy_notice = Some((target, format!("Deleting failed ({e}).")));
                 cx.notify();
                 return;
             }
         };
-        self.core.wiped_at.borrow_mut().insert(target, now());
+        let space = reset.space;
         Self::sync_other_windows(cx);
         crate::shared::others(cx, |b, _, cx| {
             b.forget_history(private, profile_id);
@@ -2926,35 +2901,32 @@ impl Browser {
         self.model.closed_tabs.clear_profile(private, profile_id);
         self.forget_favicons(target);
         self.privacy_notice = Some((target, "Deleting website data…".into()));
-        let own_store = self.store(private).profile(profile_id).map(|p| p.data_store_uuid).unwrap_or_default();
+        let own_store = reset.own_store;
         // WebKit's data removal leaves its tracking-prevention and site-security databases behind,
         // so a profile with a store of its own moves to a new one and the old one goes as a whole.
-        if !private && !self.store_is_shared(profile_id, &own_store) {
-            let fresh = uuid::Uuid::new_v4().to_string();
-            if self.core.disk.set_profile_store(profile_id, &fresh).is_ok() {
-                #[cfg(feature = "chromium")]
-                self.wipe_chromium(&own_store, &fresh);
-                #[cfg(windows)]
-                crate::shared::count_chromium_blocks(&self.core);
-                if let Some(old) = self.core.profiles.borrow_mut().remove(&(false, profile_id)) {
-                    old.data.set_extensions(&[], &[], old.profile.shield_level);
-                    if self.downloads_popover.active.get(&target).is_some_and(|n| *n > 0) {
-                        self.core.retired_stores.borrow_mut().push(old.data);
-                    }
+        if reset.fresh_store.is_some() {
+            #[cfg(feature = "chromium")]
+            self.wipe_chromium(&own_store, reset.fresh_store.as_deref().unwrap_or_default());
+            #[cfg(windows)]
+            crate::shared::count_chromium_blocks(&self.core);
+            if let Some(old) = self.core.profiles.borrow_mut().remove(&(false, profile_id)) {
+                old.data.set_extensions(&[], &[], old.profile.shield_level);
+                if self.downloads_popover.active.get(&target).is_some_and(|n| *n > 0) {
+                    self.core.retired_stores.borrow_mut().push(old.data);
                 }
-                self.core.extensions.borrow_mut().forget_running(false, profile_id);
-                DataStore::wipe_persistent(&own_store);
-                DataStore::wipe_extensions(&own_store);
-                crate::zaps::forget(&own_store);
-                self.retire_store(&own_store, cx);
-                self.runtime(false, profile_id);
-                self.core.sync_shield();
-                self.privacy_notice = Some((target, "All data of this profile was deleted.".into()));
-                self.reload_spaces();
-                let ix = self.model.spaces.iter().position(|s| !s.private && s.space.id == space.id).unwrap_or(0);
-                self.switch_space(ix, window, cx);
-                return;
             }
+            self.core.extensions.borrow_mut().forget_running(false, profile_id);
+            DataStore::wipe_persistent(&own_store);
+            DataStore::wipe_extensions(&own_store);
+            crate::zaps::forget(&own_store);
+            self.retire_store(&own_store, cx);
+            self.runtime(false, profile_id);
+            self.core.sync_shield();
+            self.privacy_notice = Some((target, "All data of this profile was deleted.".into()));
+            self.reload_spaces();
+            let ix = self.model.spaces.iter().position(|s| !s.private && s.space.id == space.id).unwrap_or(0);
+            self.switch_space(ix, window, cx);
+            return;
         }
         #[cfg(feature = "chromium")]
         if !private {
@@ -2971,7 +2943,7 @@ impl Browser {
                     #[cfg(windows)]
                     rt.data.set_hidden_elements(&[]);
                 }
-                Self::clear_site_rules(&rt.rules);
+                rt.rules.clear();
                 if !private && rt.profile.shield_level == ShieldLevel::Lockdown {
                     DataStore::wipe_persistent(&rt.profile.data_store_uuid);
                     DataStore::wipe_extensions(&own_store);
@@ -3151,7 +3123,7 @@ impl Browser {
         let Some(url) = self.tab_url(key).and_then(|u| Url::parse(&u).ok()) else { return };
         let (Some(profile_id), Some(host)) = (self.profile_of(key), url.host_str()) else { return };
         let muted = !self.tab_muted(key);
-        let save = !muted || self.level_for_tab(key, url.as_str()) != ShieldLevel::Lockdown;
+        let save = browser_core::site::saves_mute(muted, self.level_for_tab(key, url.as_str()));
         self.set_site_muted(key.private, profile_id, Some(host), muted, save);
         let host = crate::toolbar::host_tail(host.trim_start_matches("www."), 40);
         self.show_toast(if muted { format!("Muted {host}") } else { format!("Unmuted {host}") }, None, cx);

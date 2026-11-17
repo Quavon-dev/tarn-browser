@@ -188,8 +188,7 @@ impl Browser {
         let space = self.model.current_space().map(|s| (s.private, s.space.profile_id));
         let (mut bookmarks, mut history, mut tabs, mut window) = (Marks::default(), Marks::default(), Marks::default(), Marks::default());
 
-        let mut recent: Vec<&Bookmark> = self.bookmarks.iter().filter(|b| b.url.is_some()).collect();
-        recent.sort_by_key(|b| std::cmp::Reverse(b.created_at));
+        let recent = browser_core::bookmarks::recent(&self.bookmarks, MAX_ITEMS);
         let mut bookmark_items = vec![
             bookmarks.action("Bookmark Tab…", crate::BookmarkTab),
             bookmarks.action("Bookmark All Tabs", crate::BookmarkAllTabs),
@@ -200,7 +199,7 @@ impl Browser {
         }
         if !recent.is_empty() {
             bookmark_items.extend([MenuItem::separator(), bookmarks.action("Recent Bookmarks", Heading)]);
-            bookmark_items.extend(recent.into_iter().take(MAX_ITEMS).map(|b| self.bookmark_item(&mut bookmarks, b)));
+            bookmark_items.extend(recent.into_iter().map(|b| self.bookmark_item(&mut bookmarks, b)));
         }
         let folders: Vec<&Bookmark> = self.bookmarks.iter().filter(|b| b.url.is_none() && b.parent_id.is_none()).take(MAX_ITEMS).collect();
         if !folders.is_empty() {

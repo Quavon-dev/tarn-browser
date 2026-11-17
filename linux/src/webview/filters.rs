@@ -1,14 +1,22 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
-use shield::ShieldLevel;
-use shield::rules::builtin_rules;
+use browser_core::site::Sets;
+use engine::nav_policy::Site;
+use shield::domains::DomainSet;
+use shield::rules::{builtin_rules, youtube_rules};
+use shield::youtube;
+use shield::{Category, ShieldLevel};
+use url::Url;
 use webkit6::{UserContentFilter, UserContentFilterStore, gio, glib};
 
-use shield::groups as bundle;
+use shield::cache;
+use shield::groups::{self as bundle, Group};
+use shield::update::{Status, describe};
 
-type Waiter = Box<dyn FnOnce()>;
+pub type Waiter = Box<dyn FnOnce()>;
 
 enum Groups {
     Idle,
@@ -20,6 +28,56 @@ thread_local! {
     static STORE: UserContentFilterStore = UserContentFilterStore::new(&crate::data::root().join("webkit-filters").to_string_lossy());
     static BUILTIN: RefCell<HashMap<ShieldLevel, UserContentFilter>> = RefCell::default();
     static GROUPS: RefCell<Groups> = const { RefCell::new(Groups::Idle) };
+    static YOUTUBE_SCRIPT: RefCell<String> = RefCell::new(youtube::script(&youtube::Config::default()));
+    static SETS: RefCell<Sets> = RefCell::default();
+    static SET_CATEGORIES: RefCell<Option<Vec<Category>>> = const { RefCell::new(None) };
+    static LOADED: RefCell<Status> = RefCell::default();
+}
+
+pub fn youtube_script() -> String {
+    YOUTUBE_SCRIPT.with_borrow(Clone::clone)
+}
+
+pub fn site(level: ShieldLevel, rules: &browser_core::site::SiteRules, url: &Url) -> Site {
+    SETS.with(|sets| browser_core::site::site(level, rules, sets, url))
+}
+
+pub fn install_sets(incoming: Sets) {
+    let keep = wanted_categories();
+    SETS.with_borrow_mut(|sets| sets.install(incoming, &keep));
+    super::sets_changed();
+}
+
+pub fn wanted_categories() -> Vec<Category> {
+    SET_CATEGORIES.with_borrow(|c| c.clone().unwrap_or_default())
+}
+
+pub fn install_update(sets: Sets, youtube_script: String, done: impl FnOnce()) {
+    YOUTUBE_SCRIPT.set(youtube_script);
+    install_sets(sets);
+    done();
+}
+
+/// Reads the domain sets of `categories` from the installed bundle once they change; the sets of
+/// categories switched off are dropped at once and never read.
+pub fn want_sets(categories: Vec<Category>) {
+    if SET_CATEGORIES.with_borrow(|c| c.as_ref() == Some(&categories)) {
+        return;
+    }
+    SET_CATEGORIES.set(Some(categories.clone()));
+    install_sets(Sets::default());
+    if categories.is_empty() {
+        return;
+    }
+    let dir = crate::data::root().join("filters");
+    glib::MainContext::default().spawn_local(async move {
+        let key = bundle::public_key();
+        let read = gio::spawn_blocking(move || shield::cache::read(&dir, &key).map(|b| Sets::from_bundle(&b, &categories)).map_err(|e| format!("{e:?}"))).await;
+        match read.unwrap_or_else(|_| Err("reader panicked".into())) {
+            Ok(sets) => install_sets(sets),
+            Err(e) => eprintln!("tarn: no domain sets installed ({e})"),
+        }
+    });
 }
 
 async fn compile(identifier: String, source: String) -> Result<UserContentFilter, String> {
@@ -27,28 +85,60 @@ async fn compile(identifier: String, source: String) -> Result<UserContentFilter
     store.save_future(&identifier, &glib::Bytes::from_owned(source.into_bytes())).await.map_err(|e| e.to_string())
 }
 
+async fn compile_group(group: Group) -> Result<Vec<UserContentFilter>, String> {
+    let mut filters = Vec::new();
+    for (n, chunk) in group.chunks.into_iter().enumerate() {
+        let id = format!("tarn-{}-{}-{n}", group.name, &group.key[..16.min(group.key.len())]);
+        match compile(id, chunk).await {
+            Ok(filter) => filters.push(filter),
+            Err(e) => {
+                drop_unused(filters.iter()).await;
+                return Err(format!("{}: {e}", group.name));
+            }
+        }
+    }
+    Ok(filters)
+}
+
 fn ready_groups() {
     let dir = crate::data::root().join("filters");
     glib::MainContext::default().spawn_local(async move {
         let key = bundle::public_key();
-        let loaded = gio::spawn_blocking(move || bundle::load(&dir, &key)).await.unwrap_or_else(|_| Err("converter panicked".into()));
+        let floor = cache::load_state(&dir).version;
+        let loaded = gio::spawn_blocking(move || -> Result<(Vec<Group>, shield::bundle::VerifiedBundle), String> {
+            let verified = cache::read(&dir, &key).map_err(|e| describe(&e))?;
+            cache::raise_floor(&dir, verified.version).ok();
+            Ok((bundle::of(&verified), verified))
+        })
+        .await
+        .unwrap_or_else(|_| Err("converter panicked".into()));
         let mut compiled = HashMap::new();
+        let rules = youtube_rules();
+        let id = format!("tarn-{}-{}-0", bundle::YOUTUBE_GROUP, &bundle::hex(shield::lists::fingerprint(&[&rules]))[..16]);
+        if let Ok(filter) = compile(id, rules).await.inspect_err(|e| eprintln!("tarn: YouTube rules did not compile: {e}")) {
+            compiled.insert(bundle::YOUTUBE_GROUP.to_owned(), vec![filter]);
+        }
         match loaded {
-            Ok(groups) => {
+            Ok((groups, verified)) => {
+                LOADED.with_borrow_mut(|s| s.installed(&verified));
+                YOUTUBE_SCRIPT.with_borrow_mut(|s| *s = youtube::script(&youtube::config(&verified)));
                 for group in groups {
-                    let mut filters = Vec::new();
-                    for (n, chunk) in group.chunks.into_iter().enumerate() {
-                        let id = format!("tarn-{}-{}-{n}", group.name, &group.key[..16.min(group.key.len())]);
-                        match compile(id, chunk).await {
-                            Ok(filter) => filters.push(filter),
-                            Err(e) => eprintln!("tarn: filter list {} chunk {n} did not compile: {e}", group.name),
+                    let name = group.name;
+                    match compile_group(group).await {
+                        Ok(filters) => {
+                            eprintln!("tarn: filter list {name} ready ({} chunks)", filters.len());
+                            compiled.insert(name.to_owned(), filters);
                         }
+                        Err(e) => eprintln!("tarn: filter list did not compile: {e}"),
                     }
-                    eprintln!("tarn: filter list {} ready ({} chunks)", group.name, filters.len());
-                    compiled.insert(group.name.to_owned(), filters);
                 }
             }
-            Err(e) => eprintln!("tarn: no filter lists installed ({e})"),
+            Err(e) => {
+                eprintln!("tarn: no filter lists installed ({e})");
+                if floor.is_some() {
+                    LOADED.with_borrow_mut(|s| s.error = Some(e));
+                }
+            }
         }
         let waiters = GROUPS.with_borrow_mut(|g| match std::mem::replace(g, Groups::Ready(compiled)) {
             Groups::Loading(waiters) => waiters,
@@ -58,7 +148,63 @@ fn ready_groups() {
     });
 }
 
-fn when_groups_ready(then: Waiter) {
+pub fn loaded() -> Status {
+    LOADED.with_borrow(Clone::clone)
+}
+
+pub fn replace(groups: Vec<Group>, done: impl FnOnce(Result<(), String>) + 'static) {
+    glib::MainContext::default().spawn_local(async move { done(replace_groups(groups).await) });
+}
+
+async fn replace_groups(groups: Vec<Group>) -> Result<(), String> {
+    let mut ready = Vec::new();
+    for group in groups {
+        let name = group.name;
+        match compile_group(group).await {
+            Ok(filters) => ready.push((name, filters)),
+            Err(e) => {
+                drop_unused(ready.iter().flat_map(|(_, filters)| filters)).await;
+                return Err(e);
+            }
+        }
+    }
+    let mut stale = Vec::new();
+    for (name, filters) in ready {
+        let old = GROUPS.with_borrow_mut(|g| match g {
+            Groups::Ready(compiled) => compiled.insert(name.to_owned(), filters.clone()).unwrap_or_default(),
+            _ => Vec::new(),
+        });
+        super::swap_group(name, &old, &filters);
+        let kept: Vec<_> = filters.iter().filter_map(UserContentFilter::identifier).collect();
+        stale.extend(old.iter().filter_map(UserContentFilter::identifier).filter(|id| !kept.contains(id)));
+    }
+    let store = STORE.with(Clone::clone);
+    for id in stale {
+        store.remove_future(&id).await.ok();
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn stored(identifier: &str) -> bool {
+    let store = STORE.with(Clone::clone);
+    glib::MainContext::default().block_on(store.load_future(identifier)).is_ok()
+}
+
+/// Removes compiled lists from the store that no live group uses.
+async fn drop_unused<'a>(filters: impl Iterator<Item = &'a UserContentFilter>) {
+    let live: Vec<String> = GROUPS.with_borrow(|g| match g {
+        Groups::Ready(compiled) => compiled.values().flatten().filter_map(UserContentFilter::identifier).map(String::from).collect(),
+        _ => Vec::new(),
+    });
+    let unused: Vec<String> = filters.filter_map(UserContentFilter::identifier).map(String::from).filter(|id| !live.contains(id)).collect();
+    let store = STORE.with(Clone::clone);
+    for id in unused {
+        store.remove_future(&id).await.ok();
+    }
+}
+
+pub fn when_groups_ready(then: Waiter) {
     let run_now = GROUPS.with_borrow_mut(|g| match g {
         Groups::Ready(_) => Some(then),
         Groups::Loading(waiters) => {
@@ -74,6 +220,10 @@ fn when_groups_ready(then: Waiter) {
     if let Some(then) = run_now {
         then();
     }
+}
+
+pub fn malware() -> Option<Arc<DomainSet>> {
+    SETS.with_borrow(|sets| sets.malware.clone())
 }
 
 pub fn with_filters(level: ShieldLevel, groups: Vec<String>, then: impl FnOnce(Result<Vec<UserContentFilter>, String>) + 'static) {
@@ -111,4 +261,22 @@ pub fn compile_one(identifier: String, source: String, then: impl FnOnce(UserCon
             Err(e) => eprintln!("tarn: content rules did not compile: {e}"),
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set(host: &str) -> Option<Arc<DomainSet>> {
+        DomainSet::from_bytes(&DomainSet::encode([host])).map(Arc::new)
+    }
+
+    #[test]
+    fn an_update_installs_the_sets_of_the_wanted_categories_and_the_youtube_script() {
+        SET_CATEGORIES.set(Some(vec![Category::Malware]));
+        install_update(Sets { malware: set("bad.test"), adult: set("adult.test"), popups: None }, "updated youtube script".into(), || ());
+        assert!(malware().is_some_and(|s| s.contains("bad.test")), "the malware set of the update is live");
+        assert!(SETS.with_borrow(|s| s.adult.is_none()), "a category switched off stays empty");
+        assert_eq!(youtube_script(), "updated youtube script");
+    }
 }

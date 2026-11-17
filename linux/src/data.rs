@@ -4,6 +4,7 @@ use std::rc::Rc;
 use browser_core::WebsiteData;
 use engine::Event;
 use engine::cookies::Cookie;
+use nsh_core::prelude::{Owner, run_on_main_thread, spawn};
 
 pub const PRIVATE_PREFIX: &str = "private:";
 pub const BURNER_PREFIX: &str = "burner:";
@@ -63,6 +64,15 @@ pub fn wipe(root: &Path, uuid: &str) {
     }
 }
 
+pub fn wipe_retired(root: &Path, disk: &store::Store) {
+    for uuid in browser_core::profiles::retired_stores(disk) {
+        wipe(root, &uuid);
+        if store_dir(root, &uuid).is_none_or(|dir| !dir.exists()) {
+            browser_core::profiles::set_retired(disk, &uuid, false);
+        }
+    }
+}
+
 pub struct Data {
     pub key: StoreKey,
 }
@@ -82,8 +92,18 @@ impl WebsiteData for Data {
         wipe(&root(), uuid);
     }
 
-    fn import_cookies(&self, cookies: Vec<Cookie>, _now: i64, done: Box<dyn FnOnce(usize, usize)>) {
-        done(0, cookies.len());
+    fn import_cookies(&self, cookies: Vec<Cookie>, now: i64, done: Box<dyn FnOnce(usize, usize)>) {
+        let (key, total) = (self.key.clone(), cookies.len());
+        Owner::detached().run(|| {
+            drop(spawn(async move {
+                let answer = match run_on_main_thread(move || crate::webview::session::import_cookies(&key, cookies, now)).await {
+                    Ok(answer) => answer.await.ok(),
+                    Err(_) => None,
+                };
+                let (written, refused) = answer.unwrap_or((0, total));
+                done(written, refused);
+            }))
+        });
     }
 }
 
@@ -130,5 +150,19 @@ mod tests {
         wipe(dir.path(), "gone");
         wipe(dir.path(), "../keep");
         assert!(keep.exists() && !gone.exists());
+    }
+
+    #[test]
+    fn retired_stores_are_wiped_and_unlisted() {
+        let dir = tempfile::tempdir().unwrap();
+        let disk = store::Store::open_in_memory().unwrap();
+        let (keep, gone) = (store_dir(dir.path(), "keep").unwrap(), store_dir(dir.path(), "gone").unwrap());
+        for d in [&keep, &gone] {
+            std::fs::create_dir_all(d.join("data")).unwrap();
+        }
+        browser_core::profiles::set_retired(&disk, "gone", true);
+        wipe_retired(dir.path(), &disk);
+        assert!(keep.exists() && !gone.exists());
+        assert!(browser_core::profiles::retired_stores(&disk).is_empty());
     }
 }

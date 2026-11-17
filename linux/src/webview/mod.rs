@@ -5,21 +5,24 @@ mod scripts;
 pub mod session;
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
 use std::time::Instant;
 
+use browser_core::site::SiteRules;
+use engine::nav_policy::{self, GateAction, PopupRule, Site};
 use nsh_core::JsonValue;
 use nsh_platform_linux::gtk4 as gtk;
 use nsh_platform_linux::{ComponentContext, NativeComponent};
 use serde_json::json;
-use shield::ShieldLevel;
+use shield::{Category, ShieldLevel};
 use url::Url;
 use webkit6::prelude::*;
 use webkit6::{
     AuthenticationRequest, AuthenticationScheme, Credential, CredentialPersistence, Download, FindOptions, GeolocationPermissionRequest, LoadEvent,
     MediaCaptureState, NavigationPolicyDecision, NavigationType, NetworkError, PermissionRequest, PolicyDecisionType, PolicyError, ResponsePolicyDecision,
-    ScriptDialog, ScriptDialogType, UserContentFilter, UserContentManager, UserMediaPermissionRequest, WebProcessTerminationReason, WebView, glib,
+    ScriptDialog, ScriptDialogType, SnapshotOptions, SnapshotRegion, UserContentFilter, UserContentManager, UserMediaPermissionRequest,
+    WebProcessTerminationReason, WebView, gio, glib,
 };
 
 use self::policy::{Burst, Levels, Navigation, Verdict};
@@ -27,7 +30,9 @@ use crate::data::StoreKey;
 
 pub const NAME: &str = "tarn.webview";
 const FIND_MAX: u32 = 1000;
+const SHIFT_MASK: u32 = 1;
 const CONTROL_MASK: u32 = 1 << 2;
+const SNAPSHOT_WIDTH: i32 = 752;
 
 thread_local! {
     static VIEWS: RefCell<Vec<Weak<State>>> = RefCell::default();
@@ -44,6 +49,7 @@ struct Build {
     key: StoreKey,
     level: ShieldLevel,
     lists: Vec<String>,
+    inspectable: bool,
 }
 
 #[derive(Default)]
@@ -55,8 +61,12 @@ struct State {
     tab: RefCell<String>,
     profile: RefCell<String>,
     level: Cell<ShieldLevel>,
+    inspectable: Cell<bool>,
     levels: RefCell<Levels>,
     lists: RefCell<Vec<String>>,
+    rules: SiteRules,
+    unfiltered: Cell<bool>,
+    main_pending: Cell<bool>,
     load: RefCell<Option<(String, u64)>>,
     loaded_seq: Cell<Option<u64>>,
     shell_url: RefCell<Option<String>>,
@@ -69,26 +79,35 @@ struct State {
     failed: Cell<bool>,
     scheduled: Cell<bool>,
     silenced: Cell<bool>,
+    commits: Cell<u64>,
     prompts: RefCell<HashMap<u64, Pending>>,
     next_prompt: Cell<u64>,
-    prompt_burst: RefCell<Burst>,
-    popup_burst: RefCell<Burst>,
+    bursts: RefCell<Rc<Bursts>>,
     download_burst: RefCell<Burst>,
     auth_failures: RefCell<HashMap<String, u32>>,
     find_text: RefCell<String>,
     zoom: Cell<f64>,
+    muted: Cell<bool>,
     content: RefCell<Option<UserContentManager>>,
     style_script: RefCell<Option<webkit6::UserScript>>,
+    page_scripts: RefCell<Vec<webkit6::UserScript>>,
     ext: ext::Ext,
     styles: RefCell<Vec<(String, String)>>,
     theme_styles: RefCell<Vec<(String, String)>>,
     zaps: RefCell<Vec<(String, String)>>,
     zap_filter: RefCell<Option<String>>,
     sort_downloads: Cell<bool>,
+    youtube: Cell<bool>,
     processes: RefCell<std::collections::HashSet<i32>>,
     process: Cell<Option<i32>>,
     #[cfg(test)]
     events: RefCell<Vec<(String, JsonValue)>>,
+}
+
+#[derive(Default)]
+struct Bursts {
+    prompts: RefCell<Burst>,
+    popups: RefCell<Burst>,
 }
 
 impl State {
@@ -139,8 +158,21 @@ impl State {
         })
     }
 
-    fn admit(&self, burst: &RefCell<Burst>, max: usize) -> bool {
-        burst.borrow_mut().admit(max, Instant::now())
+    fn admit_prompt(&self) -> bool {
+        self.bursts.borrow().prompts.borrow_mut().admit(policy::PROMPT_BURST, Instant::now())
+    }
+
+    fn admit_popup(&self) -> bool {
+        self.bursts.borrow().popups.borrow_mut().admit(policy::POPUP_BURST, Instant::now())
+    }
+
+    fn site(&self, url: &Url) -> Site {
+        filters::site(self.levels.borrow().level(url), &self.rules, url)
+    }
+
+    fn listed(&self, url: &str, category: Category) {
+        self.main_pending.set(false);
+        self.emit("blocked", json!({ "url": url, "reason": "listed", "category": category.as_str() }));
     }
 
     fn origin(&self) -> String {
@@ -157,6 +189,7 @@ impl State {
         self.decline_all();
         ext::detach(self);
         self.style_script.replace(None);
+        self.page_scripts.take();
         self.content.replace(None);
         if let Some(old) = self.view.replace(None) {
             old.stop_loading();
@@ -179,6 +212,14 @@ impl session::DownloadSink for State {
     fn sort_downloads(&self) -> bool {
         self.sort_downloads.get()
     }
+
+    fn page(&self) -> Option<Url> {
+        self.page.borrow().clone()
+    }
+
+    fn malware(&self) -> Option<std::sync::Arc<shield::domains::DomainSet>> {
+        self.lists.borrow().iter().any(|l| l == "malware").then(filters::malware).flatten()
+    }
 }
 
 fn decline(pending: Pending) {
@@ -197,9 +238,25 @@ fn decline(pending: Pending) {
 pub fn adopt_download(download: &Download) {
     let owner = download.web_view();
     let state = VIEWS.with_borrow(|views| views.iter().filter_map(Weak::upgrade).find(|s| owner.is_some() && s.web() == owner));
+    let url = download.request().and_then(|r| r.uri()).and_then(|u| Url::parse(&u).ok());
     match state {
-        Some(state) => session::track(download, &*state),
-        None => download.cancel(),
+        Some(state) if !url.is_some_and(|u| nav_policy::gate(state.site(&u).blocked, false, false, true) == GateAction::Cancel) => {
+            session::track(download, &*state)
+        }
+        _ => download.cancel(),
+    }
+}
+
+fn sets_changed() {
+    let views: Vec<Rc<State>> = VIEWS.with_borrow(|views| views.iter().filter_map(Weak::upgrade).collect());
+    for state in views {
+        let Some(url) = state.page.borrow().clone() else { continue };
+        if let Some(category) = state.site(&url).blocked.filter(|c| c.warns()) {
+            if let Some(web) = state.web() {
+                web.stop_loading();
+            }
+            state.listed(url.as_str(), category);
+        }
     }
 }
 
@@ -222,7 +279,11 @@ fn apply(state: &Rc<State>) {
         *state.built.borrow_mut() = None;
         return state.emit("failed", json!({ "url": "", "message": "This profile's data store is not valid." }));
     };
-    let wanted = Build { key, level: state.level.get(), lists: state.lists.borrow().clone() };
+    let unfiltered = state.unfiltered.get();
+    let youtube = state.youtube.get().then(|| shield::groups::YOUTUBE_GROUP.to_owned());
+    let lists = state.lists.borrow().iter().cloned().chain(youtube).filter(|g| !unfiltered || !shield::groups::pausable(g)).collect();
+    let level = state.level.get();
+    let wanted = Build { key, level, lists, inspectable: state.inspectable.get() && level != ShieldLevel::Lockdown };
     if state.built.borrow().as_ref() == Some(&wanted) {
         if state.web().is_some() {
             load(state, None);
@@ -259,6 +320,7 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
     let content = UserContentManager::new();
     filters.iter().for_each(|f| content.add_filter(f));
     scripts::apply_styles(state, &content);
+    scripts::apply_page_scripts(state, &content);
     *state.content.borrow_mut() = Some(content.clone());
     *state.zap_filter.borrow_mut() = None;
     apply_zaps(state);
@@ -267,13 +329,17 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
     if let Some(settings) = WebViewExt::settings(&web) {
         settings.set_enable_javascript(wanted.level.policy().javascript);
         settings.set_javascript_can_open_windows_automatically(false);
-        settings.set_enable_developer_extras(false);
+        settings.set_enable_developer_extras(wanted.inspectable);
     }
+    let swipes = |web: &WebView, on: bool| WebViewExt::settings(web).into_iter().for_each(|s| s.set_enable_back_forward_navigation_gestures(on));
+    web.connect_map(move |web| swipes(web, true));
+    web.connect_unmap(move |web| swipes(web, false));
     web.set_hexpand(true);
     web.set_vexpand(true);
     if state.zoom.get() > 0.0 {
         web.set_zoom_level(state.zoom.get());
     }
+    web.set_is_muted(state.muted.get());
     connect(state, &web);
     state.note_processes();
     attach_when_sized(state, &web);
@@ -293,6 +359,16 @@ fn attach_when_sized(state: &Rc<State>, web: &WebView) {
         }
         glib::ControlFlow::Break
     });
+}
+
+fn swap_group(name: &str, old: &[UserContentFilter], new: &[UserContentFilter]) {
+    let views: Vec<Rc<State>> = VIEWS.with_borrow(|views| views.iter().filter_map(Weak::upgrade).collect());
+    for state in views {
+        let uses = state.built.borrow().as_ref().is_some_and(|b| b.lists.iter().any(|l| l == name));
+        let Some(content) = state.content.borrow().clone().filter(|_| uses) else { continue };
+        old.iter().filter_map(UserContentFilter::identifier).for_each(|id| content.remove_filter_by_id(&id));
+        new.iter().for_each(|f| content.add_filter(f));
+    }
 }
 
 fn apply_zaps(state: &Rc<State>) {
@@ -333,6 +409,9 @@ fn load(state: &Rc<State>, current: Option<String>) {
     let Ok(url) = Url::parse(&target) else {
         return state.emit("blocked", json!({ "url": target, "reason": "nav_policy" }));
     };
+    if let GateAction::Warn(category) | GateAction::Notice(category) = nav_policy::gate(state.site(&url).blocked, true, true, false) {
+        return state.listed(url.as_str(), category);
+    }
     state.silenced.set(false);
     *state.shell_url.borrow_mut() = Some(url.to_string());
     web.load_uri(url.as_str());
@@ -349,7 +428,7 @@ fn decide(state: &Rc<State>, web: &WebView, decision: &webkit6::PolicyDecision, 
         PolicyDecisionType::NavigationAction => decide_navigation(state, web, decision),
         PolicyDecisionType::NewWindowAction => {
             if let Some((action, uri)) = navigation_uri(decision) {
-                open_popup(state, &uri, action.is_user_gesture(), is_link(&action));
+                open_popup(state, &uri, action.is_user_gesture(), is_link(&action), true, is_peek(&action));
             }
             decision.ignore();
             true
@@ -383,21 +462,35 @@ fn is_link(action: &webkit6::NavigationAction) -> bool {
     action.navigation_type() == NavigationType::LinkClicked
 }
 
-fn open_popup(state: &Rc<State>, uri: &str, gesture: bool, link: bool) {
+fn is_peek(action: &webkit6::NavigationAction) -> bool {
+    is_link(action) && action.mouse_button() != 2 && action.modifiers() & SHIFT_MASK != 0 && action.modifiers() & CONTROL_MASK == 0
+}
+
+/// `by_page`: a window the page opens, which its site's pop-up rule and the domain sets judge; a
+/// link the user opens in a new tab is judged when that tab loads it.
+fn open_popup(state: &Rc<State>, uri: &str, gesture: bool, link: bool, by_page: bool, peek: bool) {
     let Ok(url) = Url::parse(uri) else { return };
     let page = state.page.borrow().clone();
     let verdict = policy::popup(&state.levels.borrow(), state.level.get(), &url, page.as_ref());
     match verdict {
-        Verdict::Allow { .. } if gesture && state.admit(&state.popup_burst, policy::POPUP_BURST) => {
-            state.emit("popup", json!({ "url": url.as_str(), "link": link }))
+        Verdict::Allow { .. } if gesture && by_page && !nav_policy::popup_allowed(opener(state, page.as_ref()), Some(state.site(&url))) => {
+            state.emit("blocked", json!({ "url": url.as_str(), "reason": "shield", "popup": true }))
         }
-        Verdict::External if gesture && state.admit(&state.prompt_burst, policy::PROMPT_BURST) => {
-            state.emit("external", json!({ "url": url.as_str(), "origin": state.origin() }))
+        Verdict::Allow { .. } if gesture && state.admit_popup() => {
+            state.emit(if peek { "peek" } else { "popup" }, json!({ "url": url.as_str(), "link": link }))
         }
+        Verdict::External if gesture && state.admit_prompt() => state.emit("external", json!({ "url": url.as_str(), "origin": state.origin() })),
         Verdict::Blocked(reason) => state.emit("blocked", json!({ "url": url.as_str(), "reason": reason, "popup": true })),
         Verdict::Allow { .. } if !gesture => state.shielded("popup", url.as_str()),
         _ => {}
     }
+}
+
+/// The opening page's verdict. WebKitGTK does not say which frame opened a window, so a site's
+/// "Allow" counts as "Default": it must not cover the ad frames the site embeds.
+fn opener(state: &State, page: Option<&Url>) -> Site {
+    let site = page.map_or(Site::new(state.level.get()), |p| state.site(p));
+    Site { popups: if site.popups == PopupRule::Allow { PopupRule::Default } else { site.popups }, ..site }
 }
 
 fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::PolicyDecision) -> bool {
@@ -410,8 +503,9 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
     let nav_type = action.navigation_type();
     let gesture = action.is_user_gesture();
     let link = matches!(nav_type, NavigationType::LinkClicked | NavigationType::FormSubmitted);
-    if link && gesture && (action.mouse_button() == 2 || action.modifiers() & CONTROL_MASK != 0) {
-        open_popup(state, &uri, true, nav_type == NavigationType::LinkClicked);
+    let peek = gesture && is_peek(&action);
+    if link && gesture && (peek || action.mouse_button() == 2 || action.modifiers() & CONTROL_MASK != 0) {
+        open_popup(state, &uri, true, nav_type == NavigationType::LinkClicked, false, peek);
         decision.ignore();
         return true;
     }
@@ -423,12 +517,22 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
         return true;
     };
     let page_link = state.link_url.borrow_mut().take_if(|s| *s == uri).is_some();
-    let store = engine::nav_policy::StoreNav {
-        redirect: action.is_redirect(),
-        shell_load: from_shell,
-        page_link,
-        clicked: nav_type == NavigationType::LinkClicked && gesture,
-    };
+    let redirect = action.is_redirect();
+    let main_frame = from_shell || step || gesture || upgraded.is_some() || (redirect && state.main_pending.get());
+    let site = state.site(&url);
+    match nav_policy::gate(site.blocked, main_frame, from_shell, false) {
+        GateAction::Allow => {}
+        GateAction::Warn(category) | GateAction::Notice(category) => {
+            state.listed(&uri, category);
+            decision.ignore();
+            return true;
+        }
+        GateAction::Cancel => {
+            decision.ignore();
+            return true;
+        }
+    }
+    let store = engine::nav_policy::StoreNav { redirect, shell_load: from_shell, page_link, clicked: nav_type == NavigationType::LinkClicked && gesture };
     if engine::nav_policy::store_link_asks(store)
         && let Some(id) = engine::tarn_ext::store_install(&url)
     {
@@ -439,6 +543,8 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
     let page = state.page.borrow().clone();
     let nav = Navigation {
         url: &url,
+        site_filtered: site.filtered,
+        filtered: !state.unfiltered.get(),
         from_shell,
         user_link: (link && gesture) || upgraded.as_ref().is_some_and(|(_, link, _)| *link),
         user_step: step || upgraded.as_ref().is_some_and(|(_, _, step)| *step),
@@ -457,6 +563,9 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
             if !javascript && let Some(settings) = WebViewExt::settings(web) {
                 settings.set_enable_javascript(false);
             }
+            if main_frame {
+                state.main_pending.set(true);
+            }
             return false;
         }
         Verdict::Blocked(reason) => {
@@ -467,7 +576,7 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
         }
         Verdict::Rebuild => state.emit("blocked", json!({ "url": uri, "reason": "rebuild" })),
         Verdict::External => {
-            if from_shell || state.admit(&state.prompt_burst, policy::PROMPT_BURST) {
+            if from_shell || state.admit_prompt() {
                 let origin = if from_shell { String::new() } else { state.origin() };
                 state.emit("external", json!({ "url": uri, "origin": origin }));
             }
@@ -502,7 +611,7 @@ fn may_prompt(state: &Rc<State>) -> bool {
     if state.silenced.get() {
         return false;
     }
-    let admitted = state.admit(&state.prompt_burst, policy::PROMPT_BURST);
+    let admitted = state.admit_prompt();
     if !admitted {
         state.silenced.set(true);
     }
@@ -543,9 +652,20 @@ fn permission(state: &Rc<State>, request: &PermissionRequest) -> bool {
         request.deny();
         return true;
     }
-    let origin = state.origin();
-    let data = json!({ "kind": kind, "origin": origin, "topOrigin": "" });
-    prompt(state, Pending::Permission(request.clone()), data);
+    let Some(web) = state.web() else {
+        request.deny();
+        return true;
+    };
+    let (origin, commit, request) = (state.origin(), state.commits.get(), request.clone());
+    let weak = Rc::downgrade(state);
+    web.call_async_javascript_function("return window.length;", None, Some(scripts::WORLD), None, None::<&gio::Cancellable>, move |frames| {
+        let Some(state) = weak.upgrade().filter(|s| !s.silenced.get() && s.commits.get() == commit) else {
+            return request.deny();
+        };
+        let top = frames.ok().is_some_and(|v| v.is_number() && v.to_int32() == 0);
+        let data = json!({ "kind": kind, "origin": origin, "topOrigin": if top { origin.as_str() } else { "" } });
+        prompt(&state, Pending::Permission(request), data);
+    });
     true
 }
 
@@ -585,6 +705,10 @@ fn authenticate(state: &Rc<State>, web: &WebView, request: &AuthenticationReques
 }
 
 fn answer(state: &Rc<State>, args: &JsonValue) {
+    if args["silence"].as_bool() == Some(true) {
+        state.silenced.set(true);
+        return state.decline_all();
+    }
     let Some(pending) = args["id"].as_u64().and_then(|id| state.prompts.borrow_mut().remove(&id)) else { return };
     if !args["accept"].as_bool().unwrap_or(false) {
         return decline(pending);
@@ -605,6 +729,30 @@ fn answer(state: &Rc<State>, args: &JsonValue) {
             request.authenticate(Some(&Credential::new(user, password, CredentialPersistence::None)));
         }
     }
+}
+
+fn save_pdf(state: &Rc<State>, web: &WebView, args: &JsonValue) {
+    let Some(path) = args["path"].as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()) else { return };
+    let settings = gtk::PrintSettings::new();
+    settings.set_printer(&glib::dgettext(Some("gtk40"), "Print to File"));
+    settings.set(gtk::PRINT_SETTINGS_OUTPUT_FILE_FORMAT, Some("pdf"));
+    settings.set(gtk::PRINT_SETTINGS_OUTPUT_URI, Some(&webkit6::gio::File::for_path(&path).uri()));
+    let operation = webkit6::PrintOperation::builder().web_view(web).print_settings(&settings).build();
+    let tab = state.tab.borrow().clone();
+    let url = web.uri().map(|u| policy::without_credentials(&u)).unwrap_or_default();
+    let held = Rc::new(RefCell::new(Some(operation.clone())));
+    let (failed, failed_tab, failed_url, failed_path) = (held.clone(), tab.clone(), url.clone(), path.clone());
+    operation.connect_failed(move |_, error| {
+        if failed.take().is_some() {
+            session::report_saved(&failed_tab, &failed_url, &failed_path, Err(error.message().to_owned()));
+        }
+    });
+    operation.connect_finished(move |_| {
+        if held.take().is_some() {
+            session::report_saved(&tab, &url, &path, Ok(()));
+        }
+    });
+    operation.print();
 }
 
 fn find(state: &Rc<State>, args: &JsonValue) {
@@ -635,6 +783,74 @@ fn find(state: &Rc<State>, args: &JsonValue) {
     finder.search(&text, options.bits(), FIND_MAX);
 }
 
+fn mute(state: &State, muted: bool) {
+    state.muted.set(muted);
+    if let Some(web) = state.web() {
+        web.set_is_muted(muted);
+    }
+}
+
+fn snapshot(state: &Rc<State>, web: &WebView) {
+    let weak = Rc::downgrade(state);
+    web.snapshot(webkit6::SnapshotRegion::Visible, webkit6::SnapshotOptions::NONE, None::<&webkit6::gio::Cancellable>, move |result| {
+        let Some(state) = weak.upgrade() else { return };
+        let png = result.ok().and_then(|texture| scaled_png(&texture, SNAPSHOT_WIDTH));
+        state.emit("snapshot", json!({ "png": png.map(|b| format!("data:image/png;base64,{}", glib::base64_encode(&b))) }));
+    });
+}
+
+fn scaled_png(texture: &webkit6::gdk::Texture, max_width: i32) -> Option<glib::Bytes> {
+    let (width, height) = (texture.width(), texture.height());
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    if width <= max_width {
+        return Some(texture.save_to_png_bytes());
+    }
+    let mut pixels = vec![0u8; width as usize * height as usize * 4];
+    texture.download(&mut pixels, width as usize * 4);
+    let (scaled, w, h) = scale_down(&pixels, width as usize, height as usize, max_width as usize);
+    let small =
+        webkit6::gdk::MemoryTexture::new(w as i32, h as i32, webkit6::gdk::MemoryFormat::B8g8r8a8Premultiplied, &glib::Bytes::from_owned(scaled), w * 4);
+    Some(small.save_to_png_bytes())
+}
+
+fn scale_down(pixels: &[u8], width: usize, height: usize, max_width: usize) -> (Vec<u8>, usize, usize) {
+    let w = max_width.clamp(1, width);
+    let h = (height * w / width).max(1);
+    let mut out = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        let row = (y * height / h) * width;
+        for x in 0..w {
+            let at = (row + x * width / w) * 4;
+            out.extend_from_slice(&pixels[at..at + 4]);
+        }
+    }
+    (out, w, h)
+}
+
+fn screenshot(state: &Rc<State>, web: &WebView, args: &JsonValue) {
+    let seq = args["seq"].as_u64().unwrap_or_default();
+    let name = engine::downloads::sanitize_filename(args["name"].as_str().unwrap_or_default());
+    let weak = Rc::downgrade(state);
+    let clipboard = web.clipboard();
+    web.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| {
+        let saved = result.map_err(|_| "WebKit could not capture the page".to_owned()).and_then(|texture| {
+            clipboard.set_texture(&texture);
+            let dir = session::downloads_dir();
+            std::fs::create_dir_all(&dir).and_then(|()| browser_core::capture::save_new(&dir, &name, &texture.save_to_png_bytes())).map_err(|e| e.to_string())
+        });
+        let Some(state) = weak.upgrade() else { return };
+        state.emit(
+            "screenshot",
+            match saved {
+                Ok(path) => json!({ "seq": seq, "path": path.to_string_lossy() }),
+                Err(message) => json!({ "seq": seq, "message": message }),
+            },
+        );
+    });
+}
+
 fn media_changed(state: &Weak<State>, web: &WebView) {
     let capturing = |state| state != MediaCaptureState::None;
     let playing = web.is_playing_audio() || capturing(web.camera_capture_state()) || capturing(web.microphone_capture_state());
@@ -658,10 +874,12 @@ fn connect(state: &Rc<State>, web: &WebView) {
                 s.emit("started", json!({}));
             }
             LoadEvent::Committed => {
+                s.main_pending.set(false);
                 ext::committed(&s, web);
                 let page = web.uri().and_then(|u| Url::parse(&u).ok());
                 s.user_step.set(false);
                 s.decline_all();
+                s.commits.set(s.commits.get() + 1);
                 *s.page.borrow_mut() = page.clone();
                 if let Some(url) = page.as_ref().filter(|u| policy::needs_stricter_view(&s.levels.borrow(), s.level.get(), u)) {
                     web.stop_loading();
@@ -712,6 +930,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
     web.connect_load_failed(move |_, _, uri, err| {
         if let Some(s) = w.upgrade() {
             s.failed.set(true);
+            s.main_pending.set(false);
             if !err.matches(NetworkError::Cancelled) && !err.matches(PolicyError::FrameLoadInterruptedByPolicyChange) {
                 s.emit("failed", json!({ "url": uri, "message": err.message() }));
             } else {
@@ -752,6 +971,21 @@ fn connect(state: &Rc<State>, web: &WebView) {
         true
     });
     let w = weak.clone();
+    web.connect_enter_fullscreen(move |web| {
+        if let Some(s) = w.upgrade() {
+            let window_full_screen = web.root().and_downcast::<gtk::Window>().is_some_and(|window| window.is_fullscreen());
+            s.emit("fullscreen", json!({ "on": true, "windowFullScreen": window_full_screen }));
+        }
+        false
+    });
+    let w = weak.clone();
+    web.connect_leave_fullscreen(move |_| {
+        if let Some(s) = w.upgrade() {
+            s.emit("fullscreen", json!({ "on": false }));
+        }
+        false
+    });
+    let w = weak.clone();
     web.connect_is_playing_audio_notify(move |web| media_changed(&w, web));
     let w = weak.clone();
     web.connect_camera_capture_state_notify(move |web| media_changed(&w, web));
@@ -762,7 +996,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
         let action = action.clone();
         let uri = action.request().and_then(|r| r.uri()).map(|u| u.to_string());
         if let (Some(s), Some(uri)) = (w.upgrade(), uri) {
-            open_popup(&s, &uri, action.is_user_gesture(), is_link(&action));
+            open_popup(&s, &uri, action.is_user_gesture(), is_link(&action), true, is_peek(&action));
         }
         None
     });
@@ -779,6 +1013,30 @@ fn connect(state: &Rc<State>, web: &WebView) {
             }
         });
     }
+}
+
+fn hosts(value: &JsonValue) -> HashSet<String> {
+    value.as_array().into_iter().flatten().filter_map(|h| h.as_str()).map(|h| h.trim_end_matches('.').to_ascii_lowercase()).collect()
+}
+
+fn set_blocking(state: &Rc<State>, value: &JsonValue) {
+    *state.rules.paused.borrow_mut() = hosts(&value["paused"]);
+    *state.rules.exceptions.borrow_mut() = hosts(&value["exceptions"]);
+    *state.rules.popups.borrow_mut() = value["popups"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(origin, rule)| match rule.as_str() {
+            Some("allow") => Some((origin.clone(), PopupRule::Allow)),
+            Some("block") => Some((origin.clone(), PopupRule::Block)),
+            _ => None,
+        })
+        .collect();
+    let mut categories: Vec<Category> = value["sets"].as_array().into_iter().flatten().filter_map(|c| c.as_str().and_then(Category::parse)).collect();
+    categories.retain(|c| browser_core::site::SET_SWITCHES.iter().any(|(s, ..)| s == c));
+    categories.sort();
+    categories.dedup();
+    filters::want_sets(categories);
 }
 
 #[cfg(test)]
@@ -829,12 +1087,24 @@ impl NativeComponent for TarnWebView {
         let value = value.unwrap_or(&null);
         match name {
             "tab" => return *state.tab.borrow_mut() = value.as_str().unwrap_or_default().to_owned(),
+            "burstsOf" => {
+                let opener = value.as_str().filter(|tab| !tab.is_empty() && *tab != *state.tab.borrow());
+                let shared = opener.and_then(|tab| {
+                    VIEWS.with_borrow(|views| views.iter().filter_map(Weak::upgrade).find(|s| *s.tab.borrow() == tab).map(|s| s.bursts.borrow().clone()))
+                });
+                if let Some(bursts) = shared {
+                    *state.bursts.borrow_mut() = bursts;
+                }
+                return;
+            }
             "profile" => *state.profile.borrow_mut() = value.as_str().unwrap_or_default().to_owned(),
             "level" => state.level.set(value.as_str().and_then(ShieldLevel::parse).unwrap_or(ShieldLevel::Lockdown)),
+            "inspectable" => state.inspectable.set(value.as_bool() == Some(true)),
             "levels" => {
                 *state.levels.borrow_mut() = Levels::parse(value, state.level.get());
                 if let Some(content) = state.content.borrow().as_ref() {
                     scripts::apply_styles(state, content);
+                    scripts::apply_page_scripts(state, content);
                 }
                 apply_zaps(state);
             }
@@ -866,7 +1136,11 @@ impl NativeComponent for TarnWebView {
                 *state.zaps.borrow_mut() = scripts::zaps(value);
                 return apply_zaps(state);
             }
+            "youtube" => state.youtube.set(value.as_bool().unwrap_or(false)),
+            "filtered" => state.unfiltered.set(value.as_bool() == Some(false)),
+            "blocking" => return set_blocking(state, value),
             "sortDownloads" => return state.sort_downloads.set(value.as_bool().unwrap_or(false)),
+            "muted" => return mute(state, value.as_bool().unwrap_or(false)),
             "load" => {
                 *state.load.borrow_mut() = value["url"].as_str().zip(value["seq"].as_u64()).map(|(u, s)| (u.to_owned(), s));
                 state.load_link.set(value["link"].as_bool() == Some(true));
@@ -887,7 +1161,8 @@ impl NativeComponent for TarnWebView {
             "answer" => return answer(state, args),
             "find" => return find(state, args),
             "downloadCancel" => return session::cancel(args["id"].as_str().unwrap_or_default()),
-            "downloadKeep" | "downloadPause" | "downloadResume" => return,
+            "downloadKeep" => return session::keep(args["id"].as_str().unwrap_or_default(), args["keep"].as_bool() == Some(true)),
+            "downloadPause" | "downloadResume" => return,
             _ if scripts::command(state, name, args) => return,
             _ => {}
         }
@@ -905,8 +1180,21 @@ impl NativeComponent for TarnWebView {
                 state.user_step.set(true);
                 web.reload();
             }
-            "back" | "forward" | "reload" => {}
+            "reloadFromOrigin" if web.uri().is_some_and(|u| !u.is_empty()) => {
+                state.user_step.set(true);
+                web.reload_bypass_cache();
+            }
+            "back" | "forward" | "reload" | "reloadFromOrigin" => {}
+            "clearCache" => session::clear_cache(&web),
             "stop" => web.stop_loading(),
+            "print" => {
+                glib::idle_add_local_once(move || {
+                    webkit6::PrintOperation::new(&web).run_dialog(web.root().and_downcast::<gtk::Window>().as_ref());
+                });
+            }
+            "pdf" => save_pdf(state, &web, args),
+            "snapshot" => snapshot(state, &web),
+            "screenshot" => screenshot(state, &web, args),
             "zoom" => {
                 let factor = policy::zoom_factor(args["factor"].as_f64().unwrap_or(1.0));
                 state.zoom.set(factor);

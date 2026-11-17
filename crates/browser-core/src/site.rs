@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use engine::nav_policy::{PopupRule, Site};
 use engine::request_filter::Shield;
+use shield::bundle::{Kind, VerifiedBundle};
 use shield::domains::DomainSet;
 use shield::matcher::Matcher;
 use shield::{Category, ShieldLevel};
@@ -16,7 +17,45 @@ pub type Hosts = Rc<RefCell<HashSet<String>>>;
 /// Pop-up rules by page origin, as stored in the `permissions` table under kind `popups`.
 pub type PopupRules = Rc<RefCell<HashMap<String, PopupRule>>>;
 pub const POPUPS: &str = "popups";
+/// A site's pop-up choices, as labelled.
+pub const POPUP_RULES: [(PopupRule, &str); 3] = [(PopupRule::Default, "Default"), (PopupRule::Allow, "Allow"), (PopupRule::Block, "Block")];
 pub const DEFAULT_WEB_ENGINE: &str = "default_web_engine";
+pub use crate::incoming::LOCALHOST_FROM_APPS;
+pub use crate::prompts::{BYPASS_DELAY, stable};
+
+/// The domain-set categories, the setting that switches each and whether it is on by default.
+pub const SET_SWITCHES: [(Category, &str, bool); 3] =
+    [(Category::Malware, "block_malware", true), (Category::Adult, "block_adult", false), (Category::Popups, "block_popups", true)];
+
+/// The categories whose switch is on, read from settings stored as `on` / `off`.
+pub fn set_categories(setting: impl Fn(&str) -> Option<String>) -> Vec<Category> {
+    SET_SWITCHES.iter().filter(|(_, key, default)| setting(key).map_or(*default, |v| v != "off")).map(|(c, ..)| *c).collect()
+}
+
+pub fn warning_heading(category: Category) -> &'static str {
+    match category {
+        Category::Malware => "Dangerous site blocked",
+        Category::Adult => "Adult site blocked",
+        _ => "Site blocked",
+    }
+}
+
+/// Why the warning page stopped the site; `computer` names the device at risk.
+pub fn warning_reason(category: Category, computer: &str) -> String {
+    match category {
+        Category::Malware => format!(
+            "This site is on a list of sites that spread malware, phishing or scams. Visiting it may put your passwords, payments or {computer} at risk."
+        ),
+        Category::Adult => {
+            "This site is on a list of adult websites, and adult content blocking is on. Turn it off in Settings › Privacy to visit such sites.".into()
+        }
+        _ => "This site is blocked.".into(),
+    }
+}
+
+pub fn warning_source(category: Category) -> String {
+    format!("Listed in Tarn's {} list. Lists are updated daily.", category.as_str())
+}
 
 /// Domain sets of the switched-on categories; `None` while off or not installed.
 #[derive(Default, Clone)]
@@ -27,6 +66,14 @@ pub struct Sets {
 }
 
 impl Sets {
+    /// Domain sets of `categories`; a set that fails its own checks is left out.
+    pub fn from_bundle(bundle: &VerifiedBundle, categories: &[Category]) -> Self {
+        let load = |c: Category| {
+            categories.contains(&c).then(|| bundle.of(c.as_str(), Kind::Set).next().and_then(|l| DomainSet::from_bytes(&l.data)).map(Arc::new)).flatten()
+        };
+        Sets { malware: load(Category::Malware), adult: load(Category::Adult), popups: load(Category::Popups) }
+    }
+
     /// The most severe category naming `host`; `excepted` skips only the malware set, so a malware
     /// exception never lifts an adult or pop-up block.
     pub fn lookup(&self, host: &str, excepted: bool) -> Option<Category> {
@@ -35,6 +82,22 @@ impl Sets {
             .filter(|(c, _)| !(excepted && *c == Category::Malware))
             .find(|(_, set)| set.as_ref().is_some_and(|s| s.contains(host)))
             .map(|(c, _)| c)
+    }
+
+    /// Installs the sets that arrived for categories in `keep` and drops the others. Sets read
+    /// before a switch changed can therefore neither bring back one the user turned off nor remove
+    /// one a later read installed.
+    pub fn install(&mut self, incoming: Sets, keep: &[Category]) {
+        let Sets { malware, adult, popups } = incoming;
+        for (category, current, new) in
+            [(Category::Malware, &mut self.malware, malware), (Category::Adult, &mut self.adult, adult), (Category::Popups, &mut self.popups, popups)]
+        {
+            if !keep.contains(&category) {
+                *current = None;
+            } else if new.is_some() {
+                *current = new;
+            }
+        }
     }
 }
 
@@ -58,6 +121,12 @@ impl SiteRules {
             .map(|(origin, _, decision)| (origin, if decision == "allow" { PopupRule::Allow } else { PopupRule::Block }))
             .collect();
         SiteRules { paused: Rc::new(RefCell::new(paused)), popups: Rc::new(RefCell::new(popups)), exceptions: Rc::default() }
+    }
+
+    pub fn clear(&self) {
+        self.paused.borrow_mut().clear();
+        self.popups.borrow_mut().clear();
+        self.exceptions.borrow_mut().clear();
     }
 }
 
@@ -121,6 +190,10 @@ pub fn shield(profile: &Profile, overrides: &Overrides, rules: &SiteRules, sets:
     Shield { site_for: Box::new(site_for), matcher }
 }
 
+pub fn saves_mute(muted: bool, level: ShieldLevel) -> bool {
+    !muted || level != ShieldLevel::Lockdown
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,6 +202,31 @@ mod tests {
     fn sets() -> RefCell<Sets> {
         let set = |d: &str| DomainSet::from_bytes(&DomainSet::encode([d])).map(Arc::new);
         RefCell::new(Sets { malware: set("evil.example"), adult: set("adult.example"), popups: set("pop.example") })
+    }
+
+    #[test]
+    fn only_switched_on_sets_load_from_a_bundle() {
+        use shield::bundle::VerifiedList;
+        let list = |category: &str, data: Vec<u8>| VerifiedList { name: format!("{category}.x"), category: category.into(), kind: Kind::Set, count: 1, data };
+        let set = DomainSet::encode(["evil.example"]);
+        let bundle = VerifiedBundle {
+            version: 1,
+            created: String::new(),
+            lists: vec![list("malware", set.clone()), list("adult", set), list("popups", b"not a set".to_vec())],
+        };
+        let malware = Sets::from_bundle(&bundle, &[Category::Malware]);
+        assert!(malware.malware.as_ref().is_some_and(|s| s.contains("evil.example")) && malware.adult.is_none() && malware.popups.is_none());
+        let all = Sets::from_bundle(&bundle, &[Category::Malware, Category::Adult, Category::Popups]);
+        assert!(all.adult.is_some() && all.popups.is_none(), "a set that fails its checks is left out");
+        let site = |u: &str| site(ShieldLevel::Standard, &SiteRules::default(), &RefCell::new(malware.clone()), &Url::parse(u).unwrap());
+        let urls = ["https://ok.example/f.zip", "https://evil.example./page"].map(|u| Url::parse(u).ok());
+        assert_eq!(engine::downloads::flagged_source(urls, |u| site(u.as_str())).map(|u| u.to_string()), Some("https://evil.example./page".to_owned()));
+    }
+
+    #[test]
+    fn only_a_lockdown_mute_goes_unsaved() {
+        assert!(saves_mute(true, ShieldLevel::Strict) && saves_mute(false, ShieldLevel::Lockdown));
+        assert!(!saves_mute(true, ShieldLevel::Lockdown));
     }
 
     #[test]
@@ -160,6 +258,40 @@ mod tests {
         assert_eq!(s("https://evil.example/").blocked, Some(Category::Malware));
         assert_eq!(s("https://adult.example/").blocked, Some(Category::Adult));
         assert_eq!(s("https://fine.example/").level, ShieldLevel::Strict);
+    }
+
+    #[test]
+    fn sets_load_switched_on_categories_and_install_only_those_still_on() {
+        use shield::bundle::VerifiedList;
+        let list = |category: &str, data: Vec<u8>| VerifiedList { name: format!("{category}.set"), category: category.into(), kind: Kind::Set, count: 1, data };
+        let bundle = VerifiedBundle {
+            version: 1,
+            created: String::new(),
+            lists: vec![
+                list("malware", DomainSet::encode(["evil.example"])),
+                list("adult", DomainSet::encode(["adult.example"])),
+                list("popups", vec![1, 2, 3]),
+            ],
+        };
+        let loaded = Sets::from_bundle(&bundle, &[Category::Malware, Category::Popups]);
+        assert!(loaded.malware.is_some() && loaded.adult.is_none(), "a category switched off is not loaded");
+        assert!(loaded.popups.is_none(), "a set that fails its checks is left out");
+        let mut sets = Sets { adult: Sets::from_bundle(&bundle, &[Category::Adult]).adult, ..Sets::default() };
+        sets.install(loaded.clone(), &[Category::Malware, Category::Adult]);
+        assert!(sets.malware.is_some() && sets.adult.is_some(), "a read without the adult set keeps the installed one");
+        sets.install(loaded, &[Category::Adult]);
+        assert!(sets.malware.is_none(), "a set read before its switch went off is dropped");
+    }
+
+    #[test]
+    fn set_switches_default_malware_and_popups_on() {
+        assert_eq!(set_categories(|_| None), [Category::Malware, Category::Popups]);
+        let set = |k: &str| match k {
+            "block_adult" => Some("on".to_owned()),
+            "block_popups" => Some("off".to_owned()),
+            _ => None,
+        };
+        assert_eq!(set_categories(set), [Category::Malware, Category::Adult]);
     }
 
     #[test]

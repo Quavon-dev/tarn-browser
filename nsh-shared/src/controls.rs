@@ -63,6 +63,10 @@ fn metrics() -> &'static Metrics {
     }
 }
 
+pub fn target_size() -> f32 {
+    metrics().target
+}
+
 pub fn icon_size() -> f32 {
     metrics().icon
 }

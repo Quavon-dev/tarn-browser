@@ -8,6 +8,8 @@ pub use import::{Bookmark, Browser, Error, Outcome, Parsed, Source, Visit, avail
 use shield::ShieldLevel;
 use store::{Id, Store};
 
+use crate::shield_card::thousands;
+use crate::text::bounded_title;
 use crate::{Core, WebsiteData, now};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +71,60 @@ pub fn engine_cookie(c: &mut import::Cookie) -> Cookie {
         expires: c.expires,
         partitioned: c.partitioned,
     }
+}
+
+pub fn cookies_readable(browser: Browser) -> bool {
+    !cfg!(windows) || browser == Browser::Firefox
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Confirm {
+    pub message: String,
+    pub detail: String,
+    pub cookies: bool,
+}
+
+pub fn confirm(source: &Source, profile: &str, device: &str) -> Confirm {
+    let name = source.browser.name();
+    let cookies = cookies_readable(source.browser);
+    let key = match source.browser {
+        _ if !cookies => format!(" Tarn cannot read {name}’s cookies on Windows, so only history and bookmarks are copied."),
+        Browser::Firefox => String::new(),
+        _ if cfg!(target_os = "linux") => {
+            format!(" To read the cookies, Tarn takes {name}’s Safe Storage key from your keyring, which may ask you to unlock it.")
+        }
+        _ => format!(" To read the cookies, macOS asks once whether Tarn may use {name}’s Safe Storage key."),
+    };
+    Confirm {
+        message: format!("Import from {name} ({}) into “{}”?", bounded_title(&source.label), bounded_title(profile)),
+        detail: format!("Cookies keep you signed in to sites; history and bookmarks join the library. Everything is copied on {device} and sent nowhere.{key}"),
+        cookies,
+    }
+}
+
+fn summary_line(kind: &str, browser: &str, result: &Option<Result<Outcome, Error>>) -> Option<String> {
+    Some(match result.as_ref()? {
+        Ok(o) if o.skipped + o.failed == 0 => format!("{kind}: {} imported.", thousands(o.imported as u64)),
+        Ok(o) => format!("{kind}: {} imported, {} skipped.", thousands(o.imported as u64), thousands((o.skipped + o.failed) as u64)),
+        Err(Error::KeychainDenied) if cfg!(target_os = "linux") => format!("{kind}: the keyring stayed locked, so none were imported."),
+        Err(Error::KeychainDenied) => format!("{kind}: macOS did not give Tarn {browser}’s Safe Storage key, so none were imported."),
+        Err(Error::DiskAccess) if cfg!(windows) => format!("{kind}: Windows did not let Tarn read {browser}’s files. Quit {browser} and try again."),
+        Err(Error::DiskAccess) if cfg!(target_os = "linux") => format!("{kind}: Tarn may not read {browser}’s files. Check their permissions, then try again."),
+        Err(Error::DiskAccess) => format!(
+            "{kind}: macOS did not let Tarn read {browser}’s files. Allow Tarn in System Settings › Privacy & Security › Full Disk Access, then try again."
+        ),
+        Err(Error::NotFound) => format!("{kind}: none found in this profile."),
+        Err(e) => format!("{kind}: could not be imported ({e})."),
+    })
+}
+
+pub fn summary(browser: &str, report: Option<&Report>) -> String {
+    let Some(r) = report else { return "The import did not finish. History and bookmarks may have been added; cookies may be incomplete.".into() };
+    [("Cookies", &r.cookies), ("History", &r.history), ("Bookmarks", &r.bookmarks)]
+        .into_iter()
+        .filter_map(|(kind, result)| summary_line(kind, browser, result))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn store_error(e: store::Error) -> Error {
@@ -190,6 +246,42 @@ mod tests {
 
     fn url(title: &str, url: &str) -> Bookmark {
         Bookmark::Url { title: title.into(), url: url.into() }
+    }
+
+    #[test]
+    fn the_summary_names_each_kind_and_why_one_failed() {
+        let report = Report {
+            cookies: Some(Err(Error::KeychainDenied)),
+            history: Some(Ok(Outcome { imported: 1234, skipped: 0, failed: 0 })),
+            bookmarks: Some(Ok(Outcome { imported: 5, skipped: 2, failed: 1 })),
+        };
+        let denied = if cfg!(target_os = "linux") { "the keyring stayed locked" } else { "macOS did not give Tarn Arc’s Safe Storage key" };
+        assert_eq!(
+            summary("Arc", Some(&report)),
+            format!("Cookies: {denied}, so none were imported.\nHistory: 1,234 imported.\nBookmarks: 5 imported, 3 skipped.")
+        );
+        let disk = Report { history: Some(Err(Error::DiskAccess)), ..Report::default() };
+        let why = if cfg!(windows) {
+            "Quit Firefox"
+        } else if cfg!(target_os = "linux") {
+            "Check their permissions"
+        } else {
+            "Full Disk Access"
+        };
+        assert!(summary("Firefox", Some(&disk)).contains(why));
+        assert!(summary("Arc", None).starts_with("The import did not finish."));
+    }
+
+    #[test]
+    fn the_confirm_step_names_source_target_and_key() {
+        let source = Source { browser: Browser::Chrome, label: "Work\u{202e}".into(), dir: "/x".into() };
+        let c = confirm(&source, "Personal", "this computer");
+        assert_eq!(c.message, "Import from Chrome (Work) into “Personal”?");
+        assert!(c.detail.contains("copied on this computer and sent nowhere"));
+        assert_eq!(c.cookies, !cfg!(windows));
+        assert_eq!(c.detail.contains("keyring"), cfg!(target_os = "linux"));
+        let firefox = confirm(&Source { browser: Browser::Firefox, ..source }, "P", "this computer");
+        assert!(firefox.cookies && !firefox.detail.contains("Safe Storage"));
     }
 
     #[test]

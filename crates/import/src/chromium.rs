@@ -14,7 +14,7 @@ fn unix_seconds(chromium_micros: i64) -> i64 {
     chromium_micros / 1_000_000 - EPOCH_DELTA
 }
 
-pub(crate) fn cookies(path: &Path, key: &[u8; 16]) -> Result<Parsed<Cookie>> {
+pub(crate) fn cookies(path: &Path, keys: &crypto::Keys) -> Result<Parsed<Cookie>> {
     let conn = open(path)?;
     let version: i64 = conn.query_row("SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'version'", [], |r| r.get(0))?;
     let mut stmt = conn.prepare(
@@ -28,7 +28,7 @@ pub(crate) fn cookies(path: &Path, key: &[u8; 16]) -> Result<Parsed<Cookie>> {
         let value = if !plain.is_empty() || encrypted.is_empty() {
             Some(plain)
         } else {
-            crypto::decrypt(key, &encrypted, &host, version >= HASHED_VERSION).map(|v| v.to_string())
+            crypto::decrypt(keys, &encrypted, &host, version >= HASHED_VERSION).map(|v| v.to_string())
         };
         let Some(value) = value else { return Ok(None) };
         Ok(Some(Cookie {
@@ -108,7 +108,7 @@ fn node(n: &Value, depth: usize, skipped: &mut usize) -> Option<Bookmark> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::{derive, encrypt, hashed};
+    use crate::crypto::{Keys, LINUX_ROUNDS, LINUX_V10_PASSWORD, MAC_ROUNDS, derive, encrypt, encrypt_as, hashed, only};
     use rusqlite::{Connection, params};
 
     fn cookie_db(path: &Path, version: i64, rows: &[(&str, &str, &[u8], i64, i64)]) {
@@ -134,9 +134,9 @@ mod tests {
     fn reads_and_decrypts_cookies_with_their_attributes() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Cookies");
-        let key = derive(b"synthetic test password");
-        let good = encrypt(&key, &hashed(".a.test", "v1"));
-        let other_host = encrypt(&key, &hashed(".evil.test", "v2"));
+        let key = only(derive(b"synthetic test password", MAC_ROUNDS));
+        let good = encrypt(&key.v10, &hashed(".a.test", "v1"));
+        let other_host = encrypt(&key.v10, &hashed(".evil.test", "v2"));
         let bad_padding = &good[..good.len() - 1];
         cookie_db(
             &path,
@@ -163,10 +163,28 @@ mod tests {
     fn values_without_the_host_hash_before_version_24() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Cookies");
-        let key = derive(b"synthetic test password");
-        cookie_db(&path, 23, &[("a.test", "old", &encrypt(&key, b"plain"), -1, 0)]);
+        let key = only(derive(b"synthetic test password", MAC_ROUNDS));
+        cookie_db(&path, 23, &[("a.test", "old", &encrypt(&key.v10, b"plain"), -1, 0)]);
         let parsed = cookies(&path, &key).unwrap();
         assert_eq!((parsed.items[0].value.as_str(), parsed.items[0].same_site), ("plain", SameSite::Unspecified));
+    }
+
+    #[test]
+    fn linux_values_decrypt_with_the_fallback_and_the_keyring_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Cookies");
+        let secret = derive(b"synthetic keyring secret", LINUX_ROUNDS);
+        let peanuts = derive(LINUX_V10_PASSWORD, LINUX_ROUNDS);
+        let old = encrypt_as(b"v10", &peanuts, &hashed(".a.test", "basic"));
+        let new = encrypt_as(b"v11", &secret, &hashed("b.test", "keyring"));
+        let moved = encrypt_as(b"v11", &secret, &hashed(".evil.test", "stolen"));
+        cookie_db(&path, 24, &[(".a.test", "old", &old, 1, 0), ("b.test", "new", &new, 1, 0), ("a.test", "moved", &moved, 1, 0)]);
+        let without = cookies(&path, &Keys { v10: peanuts.clone(), v11: None }).unwrap();
+        assert_eq!(without.items.iter().map(|c| c.value.as_str()).collect::<Vec<_>>(), ["basic"]);
+        assert_eq!(without.skipped, 2, "v11 values without the keyring's secret are skipped and counted");
+        let with = cookies(&path, &Keys { v10: peanuts, v11: Some(secret) }).unwrap();
+        assert_eq!(with.items.iter().map(|c| c.value.as_str()).collect::<Vec<_>>(), ["basic", "keyring"]);
+        assert_eq!(with.skipped, 1, "a value moved from another host fails the hash check");
     }
 
     #[test]
