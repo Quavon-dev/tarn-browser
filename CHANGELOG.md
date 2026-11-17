@@ -14,6 +14,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Clean Up sorts by what each page is: a known site decides, other pages by their address and
+  title (Money and Mail and Chat take known sites only); a loose tab joins your own group that
+  already holds two or more tabs of its site (a known site goes to its category's group when
+  there is one), new category groups (now also Learning, Games and Food) come in a fixed order,
+  tabs of one site sit together, and Undo Sort puts everything back (macOS, Windows).
 - Toasts have a calmer design: a tone icon, the message and a quiet text action such as Undo
   (macOS, Windows, Linux, iOS, Android).
 - Tiles stretch to fill their row, so two tiles share the sidebar's width (macOS, Windows, Linux).

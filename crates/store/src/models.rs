@@ -227,6 +227,30 @@ pub struct Group {
     pub icon: String,
 }
 
+/// Where a layout puts a tab: loose, into a group of the space, or into the layout's `n`th new group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Slot {
+    Loose,
+    Group(Id),
+    New(usize),
+}
+
+/// A whole new arrangement of a space's loose and grouped unpinned tabs, applied at once by
+/// `Store::apply_layout`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Layout {
+    /// Groups to create, as name, colour and icon.
+    pub new_groups: Vec<(String, String, String)>,
+    /// Unpinned tabs in their new order, each with its new place.
+    pub tabs: Vec<(Id, Slot)>,
+    /// Groups in their new order.
+    pub groups: Vec<Slot>,
+    /// Groups to delete afterwards, but only if no tab is left in them.
+    pub drop_if_empty: Vec<Id>,
+    /// Groups to collapse afterwards.
+    pub collapse: Vec<Id>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bookmark {
     pub id: Id,
