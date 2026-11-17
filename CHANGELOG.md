@@ -39,6 +39,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The start page's space and Shield pills open the space menu and a Shield level menu (macOS,
   Windows, Linux), and the start card keeps its suggestions inside the window, scrolling when the
   window is short.
+- The reload arrow turns smoothly while a page loads: about 30 even steps a second on macOS and
+  Windows, the toolkit's own animation on Linux, iOS and Android.
 - Dark mode for a site leaves pages that are already dark as they are instead of inverting them to
   light (macOS, Windows, Linux, iOS, Android).
 

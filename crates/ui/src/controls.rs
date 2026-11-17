@@ -352,9 +352,10 @@ pub fn icon_button(id: impl Into<ElementId>, glyph: Icon, enabled: bool) -> Stat
     icon_frame(id, enabled).child(icon(glyph, 16., if enabled { Theme::muted() } else { Theme::faint() }))
 }
 
-/// How often a loading page's spinner steps. The window redraws at this rate while a page loads,
-/// instead of at the display's refresh rate.
-pub const SPIN_FPS: u32 = 12;
+/// The least time between two spinner frames: just under 1/30 s, so that 60, 120 and 144 Hz
+/// displays all draw the spinner about 30 times a second, every few display frames. Each step
+/// redraws the whole window, so the display's full rate would cost several times the CPU.
+pub const SPIN_STEP: Duration = Duration::from_millis(30);
 
 const TURN: Duration = Duration::from_millis(900);
 
@@ -367,7 +368,7 @@ fn spin_turn(elapsed: Duration) -> f32 {
 }
 
 /// The reload arrow where its turn is now, for a page that is loading; the caller redraws it
-/// `SPIN_FPS` times a second.
+/// every `SPIN_STEP`.
 pub fn spinner(size: f32, color: Rgba) -> Svg {
     icon(Icon::Reload, size, color).with_transformation(Transformation::rotate(percentage(spin_turn(SPIN_EPOCH.elapsed()))))
 }
