@@ -279,7 +279,8 @@ impl DataStore {
         let Some(mtm) = MainThreadMarker::new() else { return };
         let rules = &self.extension_rules[level as usize];
         slot.get_or_insert_with(|| extensions::Profile::new(mtm, self.id.as_deref(), &self.store, rules)).set_enabled(enabled, blocked);
-        if enabled.iter().any(|e| e.extension.is_bitwarden()) && !self.passkeys.replace(true) {
+        let bitwarden = enabled.iter().any(Enabled::privileged);
+        if self.passkeys.replace(bitwarden) != bitwarden {
             drop(slot);
             self.reinstall_scripts(mtm);
         }

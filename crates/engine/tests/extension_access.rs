@@ -107,6 +107,7 @@ setInterval(async () => {
                 confirmed: apis.clone(),
                 allowed: allowed.iter().map(|h| h.to_string()).collect(),
                 denied: Vec::new(),
+                bitwarden: false,
             };
             data.set_extensions(&[enabled], &blocked.iter().map(|h| h.to_string()).collect::<Vec<_>>(), ShieldLevel::Standard);
         };

@@ -73,6 +73,14 @@ pub struct Enabled {
     pub confirmed: Vec<String>,
     pub allowed: Vec<String>,
     pub denied: Vec<String>,
+    /// The user turned Bitwarden's privileges on; they also need Bitwarden's own signed app extension.
+    pub bitwarden: bool,
+}
+
+impl Enabled {
+    pub(crate) fn privileged(&self) -> bool {
+        self.bitwarden && self.extension.bitwarden
+    }
 }
 
 impl Extension {
@@ -157,10 +165,6 @@ impl Extension {
     pub fn name(&self) -> String {
         // SAFETY: main-thread read of a loaded extension.
         unsafe { self.web.displayName() }.map(|s| s.to_string()).unwrap_or_else(|| self.path.display().to_string())
-    }
-
-    pub(crate) fn is_bitwarden(&self) -> bool {
-        self.bitwarden
     }
 
     pub fn version(&self) -> String {
@@ -359,7 +363,8 @@ impl Profile {
             // An update loads the new version under the same key, so its storage stays.
             // SAFETY: main-thread read of a loaded context.
             let web = unsafe { context.webExtension() };
-            let stays = enabled.iter().any(|e| e.extension.key == *key && std::ptr::eq(&*e.extension.web, &*web));
+            let stays =
+                enabled.iter().any(|e| e.extension.key == *key && std::ptr::eq(&*e.extension.web, &*web) && e.privileged() == speaks_native(context).is_some());
             if !stays {
                 release(context);
                 // SAFETY: main thread; the context belongs to this controller.
@@ -367,7 +372,8 @@ impl Profile {
             }
             stays
         });
-        for Enabled { extension, .. } in enabled {
+        for enabled in enabled {
+            let extension = &enabled.extension;
             if self.contexts.contains_key(&extension.key) {
                 continue;
             }
@@ -391,7 +397,7 @@ impl Profile {
                     continue;
                 }
                 context.loadBackgroundContentWithCompletionHandler(&RcBlock::new(|_: *mut NSError| {}));
-                if extension.bitwarden {
+                if enabled.privileged() {
                     NATIVE.with_borrow_mut(|native| native.push((context.clone(), extension.path.clone())));
                 }
                 LOADED.with_borrow_mut(|loaded| {
@@ -418,7 +424,7 @@ impl Profile {
         let denied: Vec<_> = blocked.iter().flat_map(|host| [host.clone(), format!("{host}.")]).filter_map(|h| pattern(&h)).collect();
         let now = std::time::Instant::now();
         ONCE.with_borrow_mut(|once| once.retain(|g| g.until > now && g.view.load().is_some()));
-        for Enabled { extension, all_sites, confirmed, allowed, denied: refused } in enabled {
+        for Enabled { extension, all_sites, confirmed, allowed, denied: refused, .. } in enabled {
             let Some(context) = self.contexts.get(&extension.key) else { continue };
             LOADED.with_borrow_mut(|loaded| {
                 if let Some(l) = loaded.iter_mut().find(|l| std::ptr::eq(&*l.context, &**context)) {
