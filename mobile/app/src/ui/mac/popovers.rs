@@ -47,11 +47,11 @@ pub(in crate::ui) fn start_pills(ui: Ui) -> impl IntoElement {
             (open.get() == Some(space)).then(|| {
                 let items: Vec<AnyElement> = untracked(|| {
                     if space {
-                        let (ix, private) = ui.read(|s| (s.model.space_ix, s.model.current_space().is_none_or(|c| c.private)));
+                        let private = ui.read(|s| s.model.current_space().is_none_or(|c| c.private));
                         vec![
                             menu_item("Edit Space…", !private, move || {
                                 open.set(None);
-                                ui.show(Screen::SpaceEdit(ix));
+                                ui.show(Screen::SpaceEdit(ui.read(|s| s.model.space_ix)));
                             })
                             .into_element(),
                             menu_item("New Space…", true, move || {

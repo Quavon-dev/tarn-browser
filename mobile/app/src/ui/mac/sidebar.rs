@@ -447,7 +447,11 @@ fn tab_row(bar: Bar, key: TabKey, depth: usize) -> View {
         .ml(move || px(-CLOSE_GAP * f32::from(u8::from(!shown()))))
         .opacity(move || f32::from(u8::from(shown())))
         .child(glyph_button(glyphs::CLOSE, "Close Tab", Placement::Top, move || {
-            bar.slid.set(if hovered.get_untracked() { bar.layout.with_untracked(|l| bar::slides_under(l, key)) } else { None });
+            bar.slid.set(if hovered.get_untracked() || bar.slid.get_untracked() == Some(key) {
+                bar.layout.with_untracked(|l| bar::slides_under(l, key))
+            } else {
+                None
+            });
             act(ui, |s| s.close_tab(key))
         }));
     let row = pressable_view()
