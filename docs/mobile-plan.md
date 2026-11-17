@@ -692,7 +692,7 @@ Not run in this pass: `Medium_Phone_API_36.1` (the emulator had 344 MB free and 
   `cargo test` in `mobile/`, `cargo clippy --target aarch64-apple-ios-sim --all-targets` and the iOS
   device build; job `android` on `ubuntu-24.04`, in parallel, runs `cargo clippy --target
   aarch64-linux-android` with the runner's NDK (`$ANDROID_NDK_HOME`, API 28 clang; lib and bin targets
-  only, because `nsh-testing`'s QuickJS bindings do not build for Android), the debug APK
+  only, because `nsh-testing`'s QuickJS bindings do not build for Android), the arm64-only debug APK
   (`android/build.sh` with nsh 0.5.0's Linux CLI from its release archive, SHA-256 checked) and the
   host unit tests (`testDebugUnitTest`); job `nsh-shared` on `ubuntu-24.04`. `release.yml` splits its
   iOS and Android builds the same way. No secrets. Each command was run locally on macOS (macOS 27,
