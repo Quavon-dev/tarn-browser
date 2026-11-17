@@ -359,9 +359,10 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
                     .occlude()
                     .flex_1()
                     .min_w_0()
-                    .h(px(28.))
+                    .h(px(CHIP + 2. * CHIP_INSET))
                     .mx_1()
-                    .px_2()
+                    .pl(px(if site.controls { CHIP_INSET } else { 8. }))
+                    .pr(px(CHIP_INSET))
                     .flex()
                     .items_center()
                     .gap_2p5()
@@ -376,18 +377,25 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
                     .relative()
                     .child(measure(b.address.field.clone()))
                     .when(site.controls, |d| d.child(shield_button(b, &site, cx)))
-                    .child(tail_first(div().flex_shrink_0().max_w_full(), text, color))
+                    .child(tail_first(div(), text, color))
                     .when_some(title, |d, title| {
                         d.child(div().flex_none().text_color(Theme::faint()).child("—")).child(
                             div().min_w_0().max_w(px(360.)).overflow_hidden().text_ellipsis().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(title),
                         )
-                    }),
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .items_center()
+                            .justify_end()
+                            .children(reader_button(b, cx))
+                            .children(mute_button(b, cx))
+                            .children(engine_badge(b))
+                            .when(site.controls, |d| d.child(bookmark_button(b, &site, cx))),
+                    ),
             ),
         )
-        .children(reader_button(b, cx))
-        .children(mute_button(b, cx))
-        .children(engine_badge(b))
-        .when(site.controls, |d| d.child(bookmark_button(b, &site, cx)))
         .when(b.devtools_on(), |d| d.child(devtools(b, cx)))
         .child(crate::extensions::buttons(b, cx))
         .child(page_actions(b))

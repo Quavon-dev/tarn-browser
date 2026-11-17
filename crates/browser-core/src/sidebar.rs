@@ -158,7 +158,7 @@ pub fn remove_group<D: WebsiteData>(model: &mut Model, core: &Core<D>, id: Id, k
 }
 
 pub fn closed_group(model: &Model, id: Id) -> Option<ClosedGroup> {
-    model.groups.iter().find(|g| g.id == id).map(|g| ClosedGroup { name: g.name.clone(), color: g.color.clone() })
+    model.groups.iter().find(|g| g.id == id).map(|g| ClosedGroup { name: g.name.clone(), color: g.color.clone(), icon: g.icon.clone() })
 }
 
 pub fn rename_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, key: TabKey, typed: &str, page_title: &str) -> bool {

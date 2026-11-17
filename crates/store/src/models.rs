@@ -167,6 +167,8 @@ pub struct Folder {
     pub parent_id: Option<Id>,
     pub name: String,
     pub position: i64,
+    /// Shown in place of the folder glyph: a symbol name or one emoji (`browser_core::icon`); empty for none.
+    pub icon: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,6 +223,8 @@ pub struct Group {
     pub collapsed: bool,
     /// A name from the UI's colour list; empty until the user picks one.
     pub color: String,
+    /// Shown in place of the letter: a symbol name or one emoji (`browser_core::icon`); empty for none.
+    pub icon: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
