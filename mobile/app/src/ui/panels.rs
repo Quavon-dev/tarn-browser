@@ -539,8 +539,19 @@ fn pane_heading(pane: Pane) -> impl IntoElement {
 pub(super) fn settings(ui: Ui) -> impl IntoElement {
     view()
         .gap_2()
-        .child(pane_heading(Pane::Profile))
-        .child(sheets::shield_card(ui))
+        .children(TOUCH_PANES.map(|pane| view().gap_2().child(pane_heading(pane)).children(pane_body(ui, pane))))
+        .child(section("Extensions"))
+        .child(framed(group().child(row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions)))))
+        .child(your_data(ui))
+}
+
+const TOUCH_PANES: [Pane; 6] = [Pane::Profile, Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions];
+
+pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
+    let body = view().gap_2();
+    Some(match pane {
+        Pane::Profile => body
+            .child(sheets::shield_card(ui))
         .child(section("Shield level"))
         .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
             ui.act(|s| {
@@ -553,9 +564,9 @@ pub(super) fn settings(ui: Ui) -> impl IntoElement {
         .child(dynamic(move || {
             let level = ui.read_data(|s| s.default_level());
             Some(caption(browser_core::shield_card::motto(level).1).px_1())
-        }))
-        .child(pane_heading(Pane::General))
-        .child(section("Downloads"))
+        })),
+        Pane::General => body
+            .child(section("Downloads"))
         .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
             ui.act(|s| {
                 let on = s.setting_on(crate::scripts::SORT_DOWNLOADS);
@@ -563,12 +574,12 @@ pub(super) fn settings(ui: Ui) -> impl IntoElement {
             })
         }))))
         .child(section("About"))
-        .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)).child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL)).child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)).child(pill("Open-source licences", move || ui.show(Screen::Licences))))
-        .child(pane_heading(Pane::Appearance))
-        .child(layout_choice(ui))
-        .child(super::appearance::pane(ui))
-        .child(pane_heading(Pane::Search))
-        .child(section("Search engine"))
+        .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)).child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL)).child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)).child(pill("Open-source licences", move || ui.show(Screen::Licences)))),
+        Pane::Appearance => body
+            .child(layout_choice(ui))
+        .child(super::appearance::pane(ui)),
+        Pane::Search => body
+            .child(section("Search engine"))
         .child(segmented(
             ENGINES
                 .iter()
@@ -592,9 +603,9 @@ pub(super) fn settings(ui: Ui) -> impl IntoElement {
                 s.set_setting_on(crate::scripts::HISTORY_TEXT, !on)
             })
         }))))
-        .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1())
-        .child(pane_heading(Pane::Privacy))
-        .child(section("Filter lists"))
+        .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1()),
+        Pane::Privacy => body
+            .child(section("Filter lists"))
         .child(framed(group().child(FILTER_SWITCHES.iter().map(|(key, name, _)| {
             switch_row(*name, move || ui.read_data(|s| s.filter_switch(key)), move || {
                 ui.act(|s| {
@@ -605,20 +616,22 @@ pub(super) fn settings(ui: Ui) -> impl IntoElement {
             .border_b_1()
             .border_color(Theme::separator)
         }).collect::<Vec<_>>())))
-        .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1())
-        .child(pane_heading(Pane::Permissions))
-        .child(permissions(ui))
-        .child(section("Extensions"))
-        .child(framed(group().child(row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions)))))
-        .child(section("Your data"))
-        .child(framed(group().child(row(icons::TRASH, "Clear Browsing Data…", move || {
-            confirm("Clear browsing data?", "History, downloads list, closed tabs and this profile's website data are removed.", "Clear", move || {
-                ui.act(|s| {
-                    s.clear_data();
-                    Vec::new()
-                })
+        .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1()),
+        Pane::Permissions => body.child(permissions(ui)),
+        Pane::Profiles => body.child(spaces(ui)),
+        Pane::Shortcuts => return None,
+    })
+}
+
+pub(super) fn your_data(ui: Ui) -> View {
+    view().gap_2().child(section("Your data")).child(framed(group().child(row(icons::TRASH, "Clear Browsing Data…", move || {
+        confirm("Clear browsing data?", "History, downloads list, closed tabs and this profile's website data are removed.", "Clear", move || {
+            ui.act(|s| {
+                s.clear_data();
+                Vec::new()
             })
-        }))))
+        })
+    }))))
 }
 
 /// Asks before a destructive action, which runs only on `action`.

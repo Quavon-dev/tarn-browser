@@ -9,7 +9,7 @@ use nsh_core::prelude::*;
 use super::{Screen, Ui};
 
 pub(super) fn owns(screen: Screen) -> bool {
-    screen == Screen::Settings || popovers::owns(screen)
+    settings::owns(screen) || popovers::owns(screen)
 }
 
 pub(super) fn frame<T: IntoElements, B: IntoElements>(
