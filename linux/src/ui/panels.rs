@@ -4,12 +4,14 @@ use shield::ShieldLevel;
 
 use super::tools::{Command, line, note};
 use super::{Panel, Ui, act, confirmed, read, show, site_tile};
+use crate::browser::library::Link;
 use crate::browser::{Browser, ZOOM_STEPS};
 use crate::controls::{body, card, group, icon_button, label, pill, segmented, small, title};
 use crate::icons;
 use crate::shortcuts::{self, Action};
 use crate::theme::Theme;
 use crate::theme::{SYSTEM_FONT, Secure};
+use browser_core::library::LIST_ROWS;
 use browser_core::shield_card::{motto, thousands};
 use store::TabKind;
 use tarn_nsh_shared::controls::{caps_label, glyph_row, glyph_switch};
@@ -221,29 +223,44 @@ fn site_extras(ui: Ui, host: &str) -> View {
     out.children(hidden)
 }
 
+pub(super) fn link_row(ui: Ui, link: Link) -> AnyElement {
+    let host = url::Url::parse(&link.url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+    let (open, new) = (link.url.clone(), link.url.clone());
+    library_row(ui, link.url.clone(), &host, link.name, move || {
+        ui.panel.set(Panel::None);
+        let url = open.clone();
+        act(ui, move |b| b.open_url(&url));
+    })
+    .child(pill("Open in New Tab", move || {
+        ui.panel.set(Panel::None);
+        let url = new.clone();
+        act(ui, move |b| {
+            b.new_tab(&url);
+        });
+    }))
+    .child(copy_link(ui, "Copy Link", link.url))
+    .into_element()
+}
+
+pub(super) fn search_field(ui: Ui) -> nsh_base::Input {
+    super::text_field(ui.library_query, "Search", 220.)
+}
+
+pub(super) fn no_results(query: &str) -> Text {
+    note(format!("No results for “{}”", browser_core::text::bounded_title(query)))
+}
+
 fn history_panel(ui: Ui) -> AnyElement {
-    let entries = read(ui, |b| b.model.profile().map(|(p, id)| b.core.store(p).history(id, 300).unwrap_or_default()).unwrap_or_default()).unwrap_or_default();
-    let count = entries.len();
-    let rows: Vec<AnyElement> = entries
-        .into_iter()
-        .map(|h| {
-            let url = h.url.clone();
-            let host = url::Url::parse(&h.url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
-            let name = if h.title.is_empty() { h.url.clone() } else { h.title.clone() };
-            let link = url.clone();
-            library_row(ui, h.url.clone(), &host, name, move || {
-                ui.panel.set(Panel::None);
-                let url = url.clone();
-                act(ui, move |b| {
-                    b.new_tab(&url);
-                });
-            })
-            .child(copy_link(ui, link))
-            .into_element()
-        })
-        .collect();
+    let history = std::rc::Rc::new(read(ui, Browser::library_history).unwrap_or_default());
+    let count = history.len();
+    let rows = dynamic(move || {
+        let query = ui.library_query.get();
+        let query = query.trim();
+        let links = Browser::history_links(&history, query, LIST_ROWS);
+        let empty = links.is_empty().then(|| if query.is_empty() { note("No history yet") } else { no_results(query) });
+        Some(view().flex_col().gap(px(1.)).children(empty).children(links.into_iter().map(|link| link_row(ui, link))))
+    });
     let clear = (count > 0).then(|| confirmed(ui, "history".to_owned(), "Clear History", move || super::clear_history(ui)));
-    let empty = (count == 0).then(|| note("No history yet"));
     popover()
         .flex_1()
         .child(heading(
@@ -254,11 +271,11 @@ fn history_panel(ui: Ui) -> AnyElement {
                 .gap_2()
                 .flex_1()
                 .child(counted("History", count))
+                .child(search_field(ui))
                 .child(pill("Reading List", move || show(ui, Panel::ReadingList)))
                 .children(clear),
         ))
-        .children(empty)
-        .child(scroll().flex_1().child(view().flex_col().gap(px(1.)).children(rows)))
+        .child(scroll().flex_1().child(rows))
         .into_element()
 }
 
@@ -290,6 +307,23 @@ fn progress(done: u64, total: u64) -> View {
         .child(view().h_full().flex_grow(rest))
 }
 
+pub(super) fn saved_download(ui: Ui, d: store::Download) -> AnyElement {
+    let path = d.path.clone();
+    let file = std::path::Path::new(&d.path);
+    let name = browser_core::library::download_name(&d);
+    let size = std::fs::metadata(file).map(|m| crate::memory::size(m.len())).ok();
+    let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_owned));
+    let note = [size, host].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+    let id = d.id;
+    download_row(name, note, false)
+        .child(icon_button(icons::FOLDER_OPEN, "Show in Folder", move || {
+            drop(reveal_path(std::path::PathBuf::from(&path)));
+        }))
+        .children((!d.url.is_empty()).then(|| copy_link(ui, "Copy Download Link", d.url)))
+        .child(icon_button(icons::TRASH, "Remove from List", move || act(ui, |b| b.remove_download(id))))
+        .into_element()
+}
+
 fn downloads_panel(ui: Ui) -> AnyElement {
     let (session, saved) = read(ui, |b| {
         let saved = b.model.profile().map(|(p, id)| b.core.store(p).downloads(id).unwrap_or_default()).unwrap_or_default();
@@ -316,19 +350,7 @@ fn downloads_panel(ui: Ui) -> AnyElement {
         })
         .collect();
     let empty = rows.is_empty() && saved.is_empty();
-    rows.extend(saved.into_iter().map(|d| {
-        let path = d.path.clone();
-        let file = std::path::Path::new(&d.path);
-        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let size = std::fs::metadata(file).map(|m| crate::memory::size(m.len())).ok();
-        let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_owned));
-        let note = [size, host].into_iter().flatten().collect::<Vec<_>>().join(" · ");
-        download_row(name, note, false)
-            .child(icon_button(icons::FOLDER_OPEN, "Show in Folder", move || {
-                drop(reveal_path(std::path::PathBuf::from(&path)));
-            }))
-            .into_element()
-    }));
+    rows.extend(saved.into_iter().map(|d| saved_download(ui, d)));
     let clear = (!empty).then(|| confirmed(ui, "downloads".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads())));
     let header = heading(ui, view().flex_row().items_center().flex_1().child(title("Downloads")).child(view().flex_1()).children(clear));
     let none = empty.then(|| view().h(px(44.)).px_2().justify_center().child(body("No downloads yet").text_color(Theme::faint())));
@@ -348,8 +370,8 @@ pub(super) fn rename_row(ui: Ui, target: String, current: &str, save: impl Fn(St
 }
 
 /// Copies `url` from a library row.
-pub(super) fn copy_link(ui: Ui, url: String) -> nsh_base::ButtonElement {
-    pill("Copy Link", move || {
+pub(super) fn copy_link(ui: Ui, name: &'static str, url: String) -> nsh_base::ButtonElement {
+    pill(name, move || {
         set_clipboard(url.clone());
         act(ui, |b| b.show_toast_as(browser_core::toast::Tone::Success, "Link copied", None));
     })
@@ -488,6 +510,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::ReadingList => super::library::reading_list_panel(ui),
             Panel::Qr => super::tools::qr_panel(ui),
             Panel::Share => super::tools::share_panel(ui),
+            Panel::Library => super::library::library_panel(ui),
             Panel::History => history_panel(ui),
             Panel::Downloads => downloads_panel(ui),
             Panel::Tab => tab_panel(ui),

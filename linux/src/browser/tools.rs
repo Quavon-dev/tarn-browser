@@ -51,7 +51,7 @@ impl Browser {
         Some((code, label))
     }
 
-    fn reading_list_folder(&self, bookmarks: &[Bookmark]) -> Option<Id> {
+    pub(super) fn reading_list_folder(&self, bookmarks: &[Bookmark]) -> Option<Id> {
         bookmarks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == READING_LIST).map(|b| b.id)
     }
 

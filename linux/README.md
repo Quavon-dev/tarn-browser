@@ -14,9 +14,9 @@ its own Cargo workspace, so NSH stays out of the root workspace and `Cargo.lock`
 | `src/ui.rs`, `src/ui/panels.rs` | The NSH desktop layout |
 | `src/controls.rs` | The desktop's text styles, rows and panels over `tarn_nsh_shared::controls` (desktop density); theme and icons are `tarn_nsh_shared::{theme, icons}` (`../nsh-shared`) |
 | `src/input.rs` | The search-engine setting and history suggestions (with full-text matches); parsing is `browser_core::command` |
-| `src/browser/{pages,site,spaces,tools}.rs` | Reader, page text, Find in Tabs, Shield counters, downloads; site CSS, dark mode, zaps; schedules, burner tab, routing, snapshots, space commands; copy link, QR code, Reading List |
+| `src/browser/{pages,site,spaces,tools,library}.rs` | Reader, page text, Find in Tabs, Shield counters, downloads; site CSS, dark mode, zaps; schedules, burner tab, routing, snapshots, space commands; copy link, QR code, Reading List; Library search |
 | `src/shortcuts.rs`, `src/memory.rs`, `src/speech.rs` | Rebindable shortcuts (`keymap.tarn::<Action>` settings, NSH keystroke text); per-tab memory and CPU from `/proc`; read aloud through `spd-say` |
-| `src/ui/{tools,library,settings}.rs` | Toasts, reader, command rows, QR code; space, memory and Reading List panels; Settings |
+| `src/ui/{tools,library,settings}.rs` | Toasts, reader, command rows, QR code; Library search, space, memory and Reading List panels; Settings |
 | `packaging/` | `.deb`, `.rpm`, AUR `PKGBUILD`, desktop entry |
 | `scripts/` | Container build, Xvfb environment, test server, scenarios, display tests |
 | `evidence/` | Exit-check results (P2) |
@@ -50,7 +50,7 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   has no system share path, so the menu has no More…), burner tab (its own ephemeral `NetworkSession` per `burner:<32 hex>` id, released when
   burned), Reading List (the `Reading List` bookmark folder);
 - spaces: schedules by weekday and hour with the one-hour manual hold, snapshots (save, restore in a
-  new or this space, delete), "Always open in" rules, switch to and move tabs between spaces from
+  new or this space, rename, delete), "Always open in" rules, switch to and move tabs between spaces from
   the command rows of the address field;
 - site panel: dark mode and site CSS (`styles` prop), Zap Element (`pick`, `zaps` prop), hidden
   elements with Undo;
@@ -64,8 +64,11 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
 - Shield: cookie-banner lists switch, the Shield card (front and stamps side, no 3D tilt in NSH)
   with the last seven days and the sites protected most; counters from `shielded` events;
 - downloads: `id`, progress (percentage next to the downloads button, sizes in the panel), cancel,
-  sorting into Downloads subfolders; no pause or resume (WebKitGTK cannot) and no malware flag (no
+  sorting into Downloads subfolders, Remove from List and Copy Download Link; no pause or resume (WebKitGTK cannot) and no malware flag (no
   malware domain set on Linux yet);
+- Library (the sidebar's Library button): one search over open tabs, bookmarks, history and
+  downloads (`browser_core::library`), links to History, Reading List, Downloads, Snapshots and
+  Memory; history rows open (an open tab of that address first), Open in New Tab and Copy Link;
 - keyboard shortcuts rebound in Settings (typed as `Ctrl+Shift+Y`; Linux has its own action list);
 - desktop input: Up and Down pick a suggestion row of the address field or the start card and Enter
   runs it; a right click (or Shift+F10) on a tab or tile opens the Tab panel for that tab; `Ctrl+G` and

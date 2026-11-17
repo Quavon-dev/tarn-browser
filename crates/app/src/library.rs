@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use browser_core::import::{self as data, Error as ImportError, Kinds, Outcome, Report, Source};
+use browser_core::library::{self, HISTORY_LOAD, LIST_ROWS as MAX_LIST, SECTION_ROWS as MAX_ROWS};
 use browser_core::snapshot::{self, LoadError, SpaceSnapshot};
 use engine::menu::{self, Item as MenuItem};
 use futures::channel::oneshot;
@@ -14,7 +15,6 @@ use gpui::{
     prelude::FluentBuilder, px, size,
 };
 use store::{Bookmark, Download, HistoryEntry, Id, Snapshot, Tab};
-use ui::command::fuzzy_score;
 use ui::controls::{button, caption, empty, icon_button, key_hint, surface};
 use ui::icon::{ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, POP, animate};
@@ -40,8 +40,6 @@ const DETAIL_ROW: f32 = 40.;
 const PAGE_SHIFT: f32 = 14.;
 const LIST_PAD: f32 = 6.;
 const SPACE_ROW: f32 = 40.;
-const MAX_ROWS: usize = 8;
-const MAX_LIST: usize = 200;
 const READING_LIST: &str = "Reading List";
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(120);
 const MEMORY_REFRESH: Duration = Duration::from_secs(2);
@@ -61,10 +59,6 @@ fn ago(ms: i64, now: i64) -> String {
     }
 }
 
-fn file_name(d: &Download) -> String {
-    bounded_title(&std::path::Path::new(&d.path).file_name().map(|n| n.to_string_lossy()).unwrap_or_default())
-}
-
 fn download_row(d: &Download, now: i64) -> Entry {
     let state = match d.state.as_str() {
         "failed" => "Failed",
@@ -72,7 +66,7 @@ fn download_row(d: &Download, now: i64) -> Entry {
         _ => "In Progress",
     };
     let detail = tab_host(&d.url).into_iter().chain([state.to_owned(), ago(d.started_at, now)]).collect::<Vec<_>>().join(" · ");
-    Entry::Row(Row { item: Item::Download(d.clone()), title: file_name(d), named: None, detail: Some(detail) })
+    Entry::Row(Row { item: Item::Download(d.clone()), title: library::download_name(d), named: None, detail: Some(detail) })
 }
 
 fn title_or_host(title: &str, url: &str) -> String {
@@ -363,7 +357,7 @@ impl Browser {
         // GPUI cannot move a window and resizes it from the top, so the popover keeps the height of
         // the page it opened on; other pages scroll inside it.
         let sources = if page == Page::Import { detect_sources() } else { Vec::new() };
-        let history = self.model.current_space().and_then(|s| self.store(s.private).history(s.space.profile_id, 2000).ok()).unwrap_or_default();
+        let history = self.model.current_space().and_then(|s| self.store(s.private).history(s.space.profile_id, HISTORY_LOAD).ok()).unwrap_or_default();
         let rows: Vec<&HistoryEntry> = history.iter().collect();
         let height = px(card_height(&entries(self, page, "", &rows, &downloads, &snapshots, &sources), room.max(ROW * 3.)));
         let bounds = Bounds::new(
@@ -470,19 +464,18 @@ fn bookmark_row(bm: &Bookmark) -> Entry {
 }
 
 fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], downloads: &[Download], snapshots: &[Snapshot], sources: &[Source]) -> Vec<Entry> {
-    let matches = |title: &str, url: &str| query.is_empty() || fuzzy_score(query, &format!("{title} {url}")).is_some();
+    let matches = |title: &str, url: &str| library::matches(query, title, url);
     let bookmarks = &b.bookmarks;
-    let found = |limit| bookmarks.iter().filter(|bm| bm.url.as_deref().is_some_and(|u| matches(&bm.title, u))).take(limit).map(bookmark_row);
+    let found = |limit| library::bookmarks(bookmarks, query).take(limit).map(bookmark_row);
     let history = |limit| history.iter().take(limit).map(|h| row(Item::Url(h.url.clone()), title_or_host(&h.title, &h.url), None));
     let downloads = |limit| {
         let now = now();
-        downloads.iter().filter(move |d| query.is_empty() || fuzzy_score(query, &file_name(d)).is_some()).take(limit).map(move |d| download_row(d, now))
+        library::downloads(downloads, query).take(limit).map(move |d| download_row(d, now))
     };
     let mut out = Vec::new();
     match page {
         Page::Home => {
-            let mut tabs: Vec<&Tab> = b.model.tabs.iter().filter(|t| matches(&t.title, &t.url)).collect();
-            tabs.sort_by_key(|t| Reverse(t.last_active));
+            let tabs = library::open_tabs(&b.model.tabs, query);
             if query.is_empty() || !tabs.is_empty() {
                 out.push(Entry::Header("Open Tabs", Some(tabs.len())));
             }
@@ -685,8 +678,7 @@ impl LibraryWindow {
         })
         .detach();
         window.focus(&query.focus_handle(cx));
-        let mut seen = HashSet::new();
-        let history = history.into_iter().filter(|h| seen.insert(h.url.clone())).collect();
+        let history = library::unique_history(history);
         let mut library = LibraryWindow {
             browser,
             main,
@@ -738,8 +730,7 @@ impl LibraryWindow {
         if let Some((_, hits)) = memo.as_ref().filter(|(q, _)| q == query) {
             return hits.clone();
         }
-        let matches = |h: &HistoryEntry| query.is_empty() || fuzzy_score(query, &format!("{} {}", h.title, h.url)).is_some();
-        let hits: Rc<[usize]> = self.history.iter().enumerate().filter(|(_, h)| matches(h)).map(|(ix, _)| ix).collect();
+        let hits: Rc<[usize]> = library::history_hits(&self.history, query).into();
         *memo = Some((query.to_owned(), hits.clone()));
         hits
     }
@@ -1080,7 +1071,7 @@ impl LibraryWindow {
             this.update_in(cx, |this, window, cx| {
                 this.holding = false;
                 if same_profile {
-                    this.history = core.disk.history(profile_id, 2000).unwrap_or_default();
+                    this.history = core.disk.history(profile_id, HISTORY_LOAD).unwrap_or_default();
                     this.history_hits.take();
                 }
                 if !window.is_window_active() {
