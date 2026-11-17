@@ -22,6 +22,8 @@ VersionInfoVersion={#AppVersion}
 PrivilegesRequired=lowest
 DefaultDirName={localappdata}\Programs\Tarn
 DisableDirPage=yes
+; A profile moved to another drive or renamed would otherwise get the old folder, which PrepareToInstall refuses.
+UsePreviousAppDir=no
 DisableProgramGroupPage=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

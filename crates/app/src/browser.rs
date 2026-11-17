@@ -137,7 +137,10 @@ pub(crate) type Core = browser_core::Core<DataStore>;
 pub(crate) type ProfileRuntime = browser_core::ProfileRuntime<DataStore>;
 
 pub(crate) fn data_dir() -> PathBuf {
-    browser_core::data_dir(None).unwrap_or_default()
+    let dir = browser_core::data_dir(None);
+    #[cfg(windows)]
+    let dir = dir.or_else(|| Some(engine::local_app_data()?.join("Tarn")));
+    dir.unwrap_or_default()
 }
 
 /// Purges Chromium's data when its owner is gone or a purge is pending; before CEF starts or once it is gone.

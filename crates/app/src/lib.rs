@@ -465,6 +465,8 @@ pub fn run() {
     }
     #[cfg(windows)]
     engine::chromium::prepare_browser_process();
+    #[cfg(windows)]
+    engine::refresh_browser_registration();
     engine::startup::mark("main");
     record_panics(browser::data_dir());
     #[cfg(feature = "chromium")]
