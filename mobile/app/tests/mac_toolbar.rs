@@ -109,4 +109,15 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.set_viewport(Size::new(Points(700.), Points(1000.))).unwrap();
     app.wait_for("Not Secure —").unwrap();
     assert!(bounds(&app, "capsule").size.width.0 >= 200., "the address keeps room at the narrowest Mac window: {:?}", bounds(&app, "capsule"));
+
+    app.press("label:Search or enter address").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    app.clear("id:palette-field").unwrap();
+    app.type_text("id:palette-field", "reading").unwrap();
+    app.wait_for("label:Reading List").unwrap();
+    app.press_key("down").unwrap();
+    app.press("Search DuckDuckGo").unwrap();
+    app.wait_for_gone("id:palette-field", WAIT).unwrap();
+    app.wait_for("label:duckduckgo.com").unwrap();
+    assert!(!app.screen().shows("Reading List"), "a click on the input row searches, though a command was picked with the keys");
 }

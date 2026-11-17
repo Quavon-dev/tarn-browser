@@ -412,7 +412,7 @@ fn input_row(ui: Ui) -> impl IntoElement {
             _ => (text.clone(), format!("Search {}", engine.name), glyphs::SEARCH, false),
         };
         Some(
-            row(name.clone(), move || submit(ui, ui.address.get_untracked(), None))
+            row(name.clone(), move || go(ui, ui.address.get_untracked()))
                 .bg(move || picked_fill(picked(ui, 0)))
                 .child(row_glyph(glyph, move || picked(ui, 0)))
                 .child(row_name(name, if rejected { Theme::danger() } else { Theme::text() }))
