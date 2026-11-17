@@ -17,7 +17,7 @@ if [ ! -f "$OUT/nsh-classes.jar" ]; then
     unzip -p "$OUT/nsh.aar" classes.jar > "$OUT/nsh-classes.jar"
 fi
 
-(cd "$APP_DIR" && nsh package --target android)
+(cd "$APP_DIR" && nsh package --target android --abi arm64-v8a)
 rm -rf "$OUT/apk" "$OUT/assets"
 unzip -o -q "$APP_DIR"/.nsh/out/*.apk 'lib/arm64-v8a/libnsh.so' 'assets/*' -d "$OUT/apk"
 cp "$OUT/apk/lib/arm64-v8a/libnsh.so" "$OUT/jni/arm64-v8a/"
