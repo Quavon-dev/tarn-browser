@@ -301,6 +301,10 @@ fn only_a_page_without_frames_names_itself_as_the_top_origin() {
     gtk::init().expect("a display");
     let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
     let web = state.web().unwrap();
+    state.container().set_size_request(300, 200);
+    let window = gtk::Window::builder().default_width(400).default_height(300).child(state.container()).build();
+    window.present();
+    assert!(spin_until(|| web.is_mapped(), 10), "the page is on screen, where WebKit asks for the location");
     web.load_html("<p>where</p>", Some("https://geo.test/"));
     assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page loaded");
     let locate = "navigator.geolocation.getCurrentPosition(() => {}, () => {}); 'ok'";
@@ -310,13 +314,16 @@ fn only_a_page_without_frames_names_itself_as_the_top_origin() {
     let asked = event(&state, "prompt").unwrap();
     assert_eq!((asked["origin"].as_str(), asked["topOrigin"].as_str()), (Some("https://geo.test"), Some("https://geo.test")));
     answer(&state, &json!({ "id": asked["id"], "accept": false }));
-    page_eval(&web, "document.body.appendChild(document.createElement('iframe')); 'ok'");
+    state.events.borrow_mut().clear();
+    web.load_html("<p>where</p><iframe></iframe>", Some("https://geo.test/"));
+    assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page with a frame loaded");
     state.events.borrow_mut().clear();
     page_eval(&web, locate);
     assert!(spin_until(|| event(&state, "prompt").is_some(), 20), "the page asks again");
     let asked = event(&state, "prompt").unwrap();
     assert_eq!(asked["topOrigin"], "", "a frame could be the one asking");
     answer(&state, &json!({ "id": asked["id"], "accept": false }));
+    window.destroy();
 }
 
 #[test]
