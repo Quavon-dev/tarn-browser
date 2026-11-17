@@ -425,11 +425,22 @@ fn menu(ui: Ui) -> impl IntoElement {
         ))
 }
 
-fn levels(
-    current: impl Fn() -> Option<ShieldLevel> + Copy + 'static,
-    set: impl Fn(Option<ShieldLevel>) + Copy + 'static,
-    with_default: bool,
-) -> impl IntoElement {
+pub(super) fn default_levels(ui: Ui) -> View {
+    levels(
+        move || Some(ui.read_data(|s| s.default_level())),
+        move |level| {
+            ui.act(|s| {
+                if let Some(level) = level {
+                    s.set_default_level(level);
+                }
+                Vec::new()
+            })
+        },
+        false,
+    )
+}
+
+fn levels(current: impl Fn() -> Option<ShieldLevel> + Copy + 'static, set: impl Fn(Option<ShieldLevel>) + Copy + 'static, with_default: bool) -> View {
     let choices: Vec<(&str, Option<ShieldLevel>)> = [
         ("Profile Default", None),
         ("Standard", Some(ShieldLevel::Standard)),
@@ -540,21 +551,7 @@ const TOUCH_PANES: [Pane; 6] = [Pane::Profile, Pane::General, Pane::Appearance, 
 pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
     let body = view().gap_2();
     Some(match pane {
-        Pane::Profile => body
-            .child(sheets::shield_card(ui))
-        .child(section("Shield level"))
-        .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
-            ui.act(|s| {
-                if let Some(level) = level {
-                    s.set_default_level(level);
-                }
-                Vec::new()
-            })
-        }, false))
-        .child(dynamic(move || {
-            let level = ui.read_data(|s| s.default_level());
-            Some(caption(browser_core::shield_card::motto(level).1).px_1())
-        })),
+        Pane::Profile => body.child(sheets::shield_card(ui)),
         Pane::General => body
             .child(section("Downloads"))
         .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {

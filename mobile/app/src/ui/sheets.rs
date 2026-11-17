@@ -28,6 +28,7 @@ const QR_SIZE: f32 = 240.;
 const SWATCH: f32 = 28.;
 const HERO_GAP: f32 = 24.;
 const HERO_COLUMN: f32 = 240.;
+const NUMBER_WIDTH: f32 = 72.;
 pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -692,8 +693,11 @@ fn shield_words(labels: &[Label]) -> Vec<Words<'_>> {
 fn numbers(card: &Card) -> View {
     let cells = card.counters.iter().zip(browser_core::shield_card::NUMBERS).map(|((_, n), caption)| {
         view()
+            .flex_1()
+            .min_w(px(NUMBER_WIDTH))
+            .test_id("profile-number")
             .child(text(thousands((*n).max(0) as u64)).text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).text_color(Theme::text))
-            .child(small(caption))
+            .child(small(caption).number_of_lines(2))
             .into_element()
     });
     view().flex_row().flex_wrap().gap_x(px(20.)).gap_y(px(8.)).children(cells)
@@ -829,6 +833,16 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
                         .child(small(since(&card, private))),
                 )
                 .child(numbers(&card))
+                .child(
+                    view()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .child(label("Shield level"))
+                        .child(super::panels::default_levels(ui).flex_none().test_id("profile-levels")),
+                )
                 .child(actions);
             let hero = if wide {
                 view().flex_row().items_start().gap(px(HERO_GAP)).child(face).child(column)
@@ -839,7 +853,7 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
                 view()
                     .gap_3()
                     .child(hero.test_id("profile-hero"))
-                    .child(caption(kept).number_of_lines(0).px_1())
+                    .child((!ui.mac.get()).then(|| caption(kept).number_of_lines(0).px_1()))
                     .child(last_week(&card))
                     .child(top_sites(&card))
                     .into_element(),

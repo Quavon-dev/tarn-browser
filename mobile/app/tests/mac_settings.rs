@@ -51,6 +51,19 @@ fn the_mac_settings_window_shows_one_pane_at_a_time() {
         (design.origin.y.0 - flip.origin.y.0).abs() < 0.5 && (design.size.width.0 - flip.size.width.0).abs() < 0.5,
         "Flip and Change Design share a row: {flip:?} {design:?}"
     );
+    let numbers: Vec<_> =
+        app.screen().layout_nodes().into_iter().filter(|n| n.test_id.as_deref() == Some("profile-number") && !n.hidden).map(|n| n.bounds).collect();
+    assert_eq!(numbers.len(), 3);
+    assert!(numbers.iter().all(|b| (b.origin.y.0 - numbers[0].origin.y.0).abs() < 0.5), "the three numbers share one row: {numbers:?}");
+    let levels = bounds_of(&app, "label:Lockdown");
+    let below = numbers.iter().map(|b| b.origin.y.0 + b.size.height.0).fold(0., f32::max);
+    assert!(levels.origin.x.0 >= card.origin.x.0 + card.size.width.0, "the Shield level sits in the column beside the card: {card:?} {levels:?}");
+    assert!(levels.origin.y.0 >= below && levels.origin.y.0 + levels.size.height.0 <= flip.origin.y.0, "under the numbers, above the actions: {levels:?}");
+    assert_eq!(app.screen().texts().iter().filter(|t| **t == "Shield level").count(), 1, "no second Shield level section");
+    assert!(!app.screen().shows("Counted on this device only and never sent anywhere."), "the header badge already says it");
+    app.press("label:Strict").unwrap();
+    app.wait_until("Strict is the profile's level", WAIT, |s| s.selected("label:Strict").unwrap_or(false)).unwrap();
+    app.press("label:Standard").unwrap();
     app.set_viewport(Size::new(Points(834.), Points(1194.))).unwrap();
     app.wait_until("the hero stacks in a narrow pane", WAIT, |s| {
         let found = |sel: &str| s.press_target(sel).ok().flatten().and_then(|id| s.layout_nodes().into_iter().find(|n| n.id == id).map(|n| n.bounds));
