@@ -621,6 +621,12 @@ impl Store {
     /// Moves a tab into the zone `(kind, folder_id)` of its space at `index`, renumbering both zones;
     /// refused for a folder of another space.
     pub fn move_tab(&self, id: Id, kind: TabKind, folder_id: Option<Id>, index: usize) -> Result<()> {
+        self.move_tab_to(id, kind, folder_id, index, None)
+    }
+
+    /// [`Store::move_tab`], also putting an unpinned tab into `group` (`Some(None)`: out of any group), all or
+    /// nothing; refused for a group of another space or one that is gone.
+    pub fn move_tab_to(&self, id: Id, kind: TabKind, folder_id: Option<Id>, index: usize, group: Option<Option<Id>>) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         let (space_id, old_kind, old_folder): (Id, String, Option<Id>) =
             tx.query_row("SELECT space_id, kind, folder_id FROM tabs WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
@@ -635,6 +641,15 @@ impl Store {
              WHERE id = ?1",
             params![id, kind.as_str(), folder_id],
         )?;
+        if let Some(group) = group
+            && tx.execute(
+                "UPDATE tabs SET group_id = ?2 WHERE id = ?1 AND kind = 'ephemeral'
+                 AND (?2 IS NULL OR space_id = (SELECT space_id FROM groups WHERE id = ?2))",
+                params![id, group],
+            )? == 0
+        {
+            return Err(Error::Invalid("tab group"));
+        }
         let zone_ids = |kind: &str, folder: Option<Id>| -> rusqlite::Result<Vec<Id>> {
             let mut stmt = tx.prepare(
                 "SELECT id FROM tabs WHERE space_id = ?1 AND kind = ?2 AND folder_id IS ?3 AND id != ?4

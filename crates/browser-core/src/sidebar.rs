@@ -198,13 +198,15 @@ pub fn drop_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabK
     if at.before == Some(dragged) || (at.before.is_some() && before.is_none()) || model.tab(dragged).is_none() {
         return false;
     }
-    let index = before.map_or_else(|| model.zone_len(at.kind, at.folder), |t| model.drop_index(dragged, t));
-    if !move_tab(model, core, dragged, at.kind, at.folder, index) {
+    if model.burner_shown() && at.kind != TabKind::Ephemeral {
         return false;
     }
-    if at.kind == TabKind::Ephemeral {
-        set_group(model, core, dragged, at.group);
+    let index = before.map_or_else(|| model.zone_len(at.kind, at.folder), |t| model.drop_index(dragged, t));
+    let group = (at.kind == TabKind::Ephemeral).then_some(at.group);
+    if core.store(dragged.private).move_tab_to(dragged.id, at.kind, at.folder, index, group).is_err() {
+        return false;
     }
+    model.reload_space(core);
     model.expanded.extend(at.folder);
     true
 }
@@ -344,6 +346,15 @@ mod tests {
         let t = core.disk.create_tab(s, kind, folder, "https://a.test/", "").unwrap();
         model.reload_space(core);
         model.key(&t)
+    }
+
+    #[test]
+    fn a_drop_into_a_group_that_is_gone_changes_nothing() {
+        let (_dir, core, mut model) = opened();
+        let pinned = tab(&core, &mut model, TabKind::Pinned, None);
+        let gone = DropAt::zone(TabKind::Ephemeral, None, Some(9_999));
+        assert!(!drop_tab(&mut model, &core, pinned, gone), "the drop reports its failure");
+        assert_eq!(model.tab(pinned).unwrap().kind, TabKind::Pinned, "the tab keeps its place");
     }
 
     #[test]
