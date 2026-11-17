@@ -133,7 +133,7 @@ pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
     ("Close Duplicate Tabs", "same page dedupe clean up", &tabs::CloseDuplicateTabs),
     ("Site Settings", "shield permissions zoom mute clear data", &site_settings::SiteSettings),
     ("Zap Element", "hide remove element block", &zaps::ZapElement),
-    ("Open in Split View", "open close side by side tabs grid four", &split::ToggleSplitView),
+    ("Open in Split View", "open or close side by side tabs grid four", &split::ToggleSplitView),
     ("Focus Next Pane", "split view switch", &split::FocusNextPane),
     ("Focus Previous Pane", "split view switch", &split::FocusPreviousPane),
     ("Swap Split Panes", "split view exchange move", &split::SwapPanes),
