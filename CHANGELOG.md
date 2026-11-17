@@ -13,6 +13,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   apply on Save. On macOS and Windows it is a popover above the sidebar's + button, drawn like the
   Library, and the profile card takes the same look; on Linux a popover like the Library; on iOS and
   Android a sheet from Spaces (macOS, Windows, Linux, iOS, Android).
+- Bitwarden's privileges (Touch ID unlock through the Bitwarden app, clipboard and passkeys) are
+  off until you turn on Settings › Extensions › Bitwarden integration; until then Bitwarden runs
+  like any other app extension (macOS).
 - The macOS disk image opens on a window drawn from the Tarn icon's lake, with an arrow from Tarn
   to the Applications folder and the Tarn volume icon.
 
