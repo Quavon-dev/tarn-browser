@@ -83,6 +83,7 @@ impl State {
             Command::CloseDuplicates => self.duplicates,
             Command::ReopenClosedTab => self.reopenable,
             Command::TogglePin => !self.pin_blocked,
+            Command::ToggleSplitView => !self.split,
             Command::CloseSplit
             | Command::FocusNextPane
             | Command::FocusPreviousPane
@@ -134,6 +135,13 @@ mod tests {
     fn plain_text_lists_at_most_four_commands() {
         assert!(names("split", State { split: true, ..State::default() }).len() <= PLAIN_ROOM);
         assert!(names(">", State { split: true, ..State::default() }).len() > PLAIN_ROOM);
+    }
+
+    #[test]
+    fn an_open_split_lists_close_split_view_once() {
+        let listed = names("> split", State { split: true, ..State::default() });
+        assert_eq!(listed.iter().filter(|n| *n == "Close Split View").count(), 1, "{listed:?}");
+        assert!(names("> split", State::default()).contains(&"Open in Split View".to_owned()));
     }
 
     #[test]
