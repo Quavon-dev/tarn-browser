@@ -166,7 +166,13 @@ fn address_field(ui: Ui) -> impl IntoElement {
                     .then(|| chip_button(glyphs::BOOK_OPEN, "Reader", move || ui.read(|s| s.reader.is_some()), move || ui.act(|s| s.open_reader())))
             })
         }));
-    view().flex_row().justify_center().w(px(tarn_nsh_shared::toolbar::ADDRESS_WIDTH)).flex_shrink(1.).min_w(px(0.)).child(capsule)
+    view()
+        .flex_row()
+        .justify_center()
+        .w(px(tarn_nsh_shared::toolbar::ADDRESS_WIDTH))
+        .flex_shrink(1.)
+        .min_w(px(tarn_nsh_shared::toolbar::ADDRESS_MIN))
+        .child(capsule)
 }
 
 fn extensions(ui: Ui) -> impl IntoElement {

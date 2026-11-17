@@ -90,4 +90,16 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
     app.wait_for("example.com").unwrap();
     app.wait_for("label:Site settings: Shield Standard, 0 stopped on this site").unwrap();
+
+    app.press("label:Search or enter address").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    app.clear("id:palette-field").unwrap();
+    app.type_text("id:palette-field", "http://a.very.long.chain.of.subdomains.in.front.of.example.com/").unwrap();
+    app.submit("id:palette-field").unwrap();
+    app.wait_for_gone("id:palette-field", WAIT).unwrap();
+    app.wait_for("Not Secure —").unwrap();
+    app.wait_until("the host ends with its registrable domain", WAIT, |s| s.texts().iter().any(|t| t.starts_with('…') && t.ends_with("example.com"))).unwrap();
+    app.set_viewport(Size::new(Points(700.), Points(1000.))).unwrap();
+    app.wait_for("Not Secure —").unwrap();
+    assert!(bounds(&app, "capsule").size.width.0 >= 200., "the address keeps room at the narrowest Mac window: {:?}", bounds(&app, "capsule"));
 }

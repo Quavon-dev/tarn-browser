@@ -12,6 +12,7 @@ pub const CHIP_INSET: f32 = 3.;
 pub const CHIP: f32 = FIELD - 2. - 2. * CHIP_INSET;
 pub const CHIP_GLYPH: f32 = 14.;
 pub const ADDRESS_WIDTH: f32 = 560.;
+pub const ADDRESS_MIN: f32 = 200.;
 pub const TOOL_GAP: f32 = 2.;
 pub const PALETTE_WIDTH: f32 = 640.;
 pub const PALETTE_ROW: f32 = 40.;
@@ -61,14 +62,25 @@ pub fn capsule(open: impl Fn() -> bool + Copy + 'static) -> View {
         .text_color(Secure::faint)
 }
 
-/// The capsule's middle: the host, coloured by whether the page came over TLS, or the placeholder.
+/// The capsule's middle: the host, cut at its start so the registrable domain stays, after `Not Secure —` for
+/// plain HTTP; or the placeholder.
 pub fn address_text(name: &'static str, host: impl Fn() -> (String, bool) + Copy + 'static, press: impl Fn() + 'static) -> ButtonElement {
-    pressable(name, press).flex_1().min_w(px(0.)).h_full().items_center().justify_center().px_2().child(dynamic(move || {
+    pressable(name, press).flex_1().min_w(px(0.)).h_full().flex_row().items_center().justify_center().px_2().child(dynamic(move || {
         let (host, insecure) = host();
         if host.is_empty() {
-            return text("Search or enter address").text_size(px(TEXT)).text_color(Secure::faint()).number_of_lines(1);
+            return text("Search or enter address").text_size(px(TEXT)).text_color(Secure::faint()).number_of_lines(1).into_element();
         }
-        text(host).text_size(px(TEXT)).text_color(if insecure { Secure::warning() } else { Secure::text() }).number_of_lines(1)
+        let line = |t: String| text(t).text_size(px(TEXT)).number_of_lines(1);
+        view()
+            .flex_row()
+            .min_w(px(0.))
+            .children(insecure.then(|| line("Not Secure — ".to_owned()).flex_none().text_color(Secure::warning())))
+            .child(line(host).min_w(px(0.)).flex_shrink(1.).text_overflow(nsh_core::EllipsizeMode::Head).text_color(if insecure {
+                Secure::warning()
+            } else {
+                Secure::text()
+            }))
+            .into_element()
     }))
 }
 
