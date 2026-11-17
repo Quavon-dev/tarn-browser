@@ -342,7 +342,9 @@ text over its SVG landscape since NSH's SVG renderer draws no text) flips and ta
 desktop's image loaders draw the SVG); Settings is a sheet with grouped navigation (You: Profile, Profiles; Browser:
 General, Appearance, Tabs, Search, Privacy, Permissions, Shortcuts) over scrolling panes, without the Mac's cross-fade,
 and the History, Downloads, Reading List and Archived Tabs panels replace the page, so they neither grow in nor slide; memory per tab only where the web
-process can be told apart; skipped: translation, startup trace, live peek.
+process can be told apart; Open in Tab of a link peek loads the page again in the new tab, since an NSH
+native component cannot hand its WebKit view to another, so the peek's back history stays behind;
+skipped: translation, startup trace.
 
 **P3: iOS app.**
 - Phone and tablet layouts: tab switcher, bottom toolbar, sheets for settings and Shield.

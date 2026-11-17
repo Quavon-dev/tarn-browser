@@ -1066,3 +1066,57 @@ fn library_rows_reuse_an_open_tab_and_edit_downloads_and_snapshots() {
     b.rename_snapshot(id, " Trip ");
     assert_eq!(b.snapshots()[0].name, "Trip");
 }
+
+#[test]
+fn a_shift_clicked_link_peeks_in_the_openers_profile_and_moves_into_a_tab() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://a.test/");
+    b.on_event(key, "peek", &json!({ "url": "https://b.test/page", "link": true }));
+    assert_eq!(b.model.tabs.len(), 1, "a peek is not a tab");
+    let peek = crate::snapshot::snapshot(&b, true).link_peek.expect("the peek shows");
+    assert_eq!((peek.view.key, peek.view.profile.clone(), peek.view.link), (key, b.store_prop(key), true));
+    assert_eq!(peek.view.load.as_ref().map(|(u, _)| u.as_str()), Some("https://b.test/page"));
+    assert!(crate::snapshot::snapshot(&b, false).link_peek.is_none(), "hidden while a panel covers the page");
+    b.on_peek_event("committed", &json!({ "url": "https://b.test/next", "title": "Next" }));
+    assert_eq!(crate::snapshot::snapshot(&b, true).link_peek.map(|p| (p.host, p.title)), Some(("b.test".into(), "Next".into())));
+    b.on_peek_event("prompt", &json!({ "id": 4, "kind": "alert", "origin": "https://b.test" }));
+    assert_eq!(b.peek_outbox, vec![("answer", json!({ "id": 4, "accept": false }))], "the peek's dialogs are declined");
+    b.link_peek_to_tab();
+    assert!(b.link_peek.is_none());
+    assert_eq!(b.model.tabs.len(), 2);
+    let tab = b.model.active.unwrap();
+    assert_ne!(tab, key);
+    assert_eq!(b.pages[&tab].load.as_ref().map(|(u, _)| u.as_str()), Some("https://b.test/next"));
+    assert!(b.pages[&tab].link, "the page's link, not the user's address");
+}
+
+#[test]
+fn a_peek_reloads_at_a_stricter_level_and_closes_with_its_tab() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    b.on_event(key, "peek", &json!({ "url": "https://b.test/" }));
+    let seq = b.link_peek.as_ref().unwrap().load.1;
+    b.on_peek_event("blocked", &json!({ "url": "https://b.test/", "reason": "rebuild" }));
+    assert!(b.link_peek.as_ref().unwrap().load.1 > seq, "loaded again in a rebuilt view");
+    b.on_peek_event("peek", &json!({ "url": "https://c.test/" }));
+    assert_eq!(b.link_peek.as_ref().map(|p| p.load.0.as_str()), Some("https://c.test/"));
+    let other = b.new_tab("https://d.test/").unwrap();
+    assert!(b.link_peek.is_none(), "switching tabs closes the peek");
+    b.activate(key);
+    b.on_event(key, "peek", &json!({ "url": "https://b.test/" }));
+    b.close_tab(key);
+    assert!(b.link_peek.is_none());
+    assert_eq!(b.model.active, Some(other));
+}
+
+#[test]
+fn compact_toolbar_and_auto_hide_sidebar_are_off_until_turned_on() {
+    let (_dir, mut b) = browser();
+    assert!(!b.compact_toolbar() && !b.auto_hide_sidebar());
+    b.toggle_off_setting(COMPACT_TOOLBAR);
+    b.toggle_off_setting(AUTO_HIDE_SIDEBAR);
+    assert!(b.compact_toolbar() && b.auto_hide_sidebar());
+    assert!(crate::snapshot::snapshot(&b, true).compact);
+    assert_eq!(b.core.disk.setting(COMPACT_TOOLBAR).unwrap().as_deref(), Some("on"), "the key the macOS client reads");
+}

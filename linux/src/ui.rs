@@ -3,7 +3,9 @@ mod blocking;
 mod extensions;
 mod groups;
 mod library;
+mod link_peek;
 mod panels;
+mod peek;
 mod settings;
 mod split;
 mod tools;
@@ -41,6 +43,8 @@ const SIDEBAR_WIDTH: f32 = 256.;
 const TAB_ROW: f32 = 30.;
 const CARD_WIDTH: f32 = 680.;
 const ADDRESS_WIDTH: f32 = 560.;
+const COMPACT_FIELD: f32 = 28.;
+const COMPACT_TITLE: f32 = 360.;
 const CLOSE_WIDTH: f32 = 28.;
 const CLOSE_GAP: f32 = 10.;
 const TILE_GAP: f32 = 6.;
@@ -164,6 +168,8 @@ pub struct Ui {
     dragging: Signal<Option<TabKey>>,
     split_drop: Signal<Option<(TabKey, &'static str)>>,
     resizing: Signal<Option<browser_core::split::Divider>>,
+    floating: Signal<peek::Floating>,
+    hover_card: Signal<peek::HoverCard>,
     root: Owner,
 }
 
@@ -375,6 +381,9 @@ fn web_views(ui: Ui) -> View {
                         if &*event.name == "iconData" {
                             return icon_data(ui, key, event.data.clone());
                         }
+                        if &*event.name == "snapshot" {
+                            return peek::shot(ui, key, &event.data["png"]);
+                        }
                         if &*event.name != "pressed" || read(ui, |b| b.in_split(key) && b.model.active != Some(key)) == Some(true) {
                             act_quietly(ui, |b| b.on_event(key, &event.name, &event.data));
                         }
@@ -387,6 +396,7 @@ fn web_views(ui: Ui) -> View {
                     .h(move || px(rect().3))
             },
         ))
+        .child(link_peek::layer(ui))
 }
 
 pub fn site_tile(ui: Ui, host: &str, size: f32) -> View {
@@ -603,9 +613,13 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
     view()
         .relative()
         .on_mouse_up(move |_: &MouseEvent| split::drop_on_row(ui, key))
-        .on_mouse_enter(move |_: &MouseEvent| hover(true))
+        .on_mouse_enter(move |e: &MouseEvent| {
+            hover(true);
+            peek::hover_row(ui, key, true, e.page_position.y.0);
+        })
         .on_mouse_leave(move |_: &MouseEvent| {
             hover(false);
+            peek::hover_row(ui, key, false, 0.);
             split::drop_leave(ui, key);
         })
         .on_mouse_move(move |e: &MouseEvent| split::drop_over(ui, key, browser_core::split::drops_into(e.position.y.0 / TAB_ROW)))
@@ -1064,12 +1078,70 @@ fn toolbar(ui: Ui) -> View {
         let share = controls::icon_button_at(icons::SHARE, "Share", Placement::Left, move || show(ui, Panel::Share));
         view().flex_row().items_center().gap(px(2.)).child(extensions::buttons(ui)).child(split).child(share)
     };
-    view().flex_row().items_center().gap_2().h(px(TOOLBAR_HEIGHT)).child(themed(navigation)).child(address(ui)).child(themed(actions))
+    let compact = computed(move || ui.snap.with(|s| s.compact));
+    let address = move || if compact.get() { compact_address(ui) } else { address(ui) };
+    view().flex_row().items_center().gap_2().h(px(TOOLBAR_HEIGHT)).child(themed(navigation)).child(dynamic(address)).child(themed(actions))
+}
+
+fn compact_address(ui: Ui) -> View {
+    let host = move || ui.snap.with(|s| if s.url == START_URL || s.url.is_empty() { String::new() } else { crate::input::display_host(&s.url) });
+    let title = move || ui.snap.with(|s| if s.host.is_empty() { String::new() } else { browser_core::text::bounded_title(&s.title) });
+    let field = controls::pressable("Address", move || open_palette(ui))
+        .flex_1()
+        .min_w(px(0.))
+        .h(px(COMPACT_FIELD))
+        .px_2()
+        .gap_2()
+        .items_center()
+        .rounded(px(Theme::radius_row()))
+        .font_family(SYSTEM_FONT)
+        .child(themed(move || (!ui.snap.with(|s| s.host.is_empty())).then(|| shield_chip(ui))))
+        .child(dynamic(move || {
+            let host = host();
+            if host.is_empty() {
+                return body("Search or enter address").text_color(Theme::faint()).truncate();
+            }
+            body(host).text_color(if ui.snap.with(|s| s.secure) { Secure::text() } else { Secure::warning() }).flex_shrink_0().truncate()
+        }))
+        .child(dynamic(move || {
+            let title = title();
+            (!title.is_empty()).then(|| {
+                view()
+                    .flex_row()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .items_center()
+                    .gap_2()
+                    .child(small("—").text_color(Theme::faint()))
+                    .child(small(title).text_color(Theme::muted()).max_w(px(COMPACT_TITLE)).truncate())
+            })
+        }));
+    view().flex_row().flex_1().min_w(px(0.)).items_center().gap_1().child(field).child(themed(move || {
+        when(
+            move || ui.snap.with(|s| s.article),
+            move || {
+                icon_button(icons::BOOK_OPEN, "Reader", move || act(ui, |b| b.toggle_reader()))
+                    .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent() } else { Theme::muted() })
+            },
+        )
+    }))
 }
 
 fn toggle_sidebar(ui: Ui) {
     animate_next(SLIDE);
     ui.sidebar.update(|o| *o = !*o);
+    peek::close(ui);
+    peek::hide(ui);
+}
+
+pub(super) fn set_auto_hide_sidebar(ui: Ui) {
+    act(ui, |b| b.toggle_off_setting(crate::browser::AUTO_HIDE_SIDEBAR));
+    let hidden = read(ui, |b| b.auto_hide_sidebar()).unwrap_or_default();
+    for other in WINDOWS.with_borrow(Vec::clone) {
+        other.sidebar.set(!hidden);
+        peek::close(other);
+        peek::hide(other);
+    }
 }
 
 fn reload(ui: Ui) {
@@ -1767,6 +1839,8 @@ fn escape(ui: Ui) {
         tools::close_find_tabs(ui);
     } else if ui.editing.get_untracked() {
         close_palette(ui);
+    } else if ui.snap.with_untracked(|s| s.link_peek.is_some()) {
+        link_peek::close(ui);
     } else if ui.panel.get_untracked() == Panel::Settings && ui.shortcut_edit.get_untracked().is_some() {
         ui.shortcut_edit.set(None);
         act(ui, |_| {});
@@ -1907,6 +1981,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         .unwrap_or_else(|| crate::browser::themes::Themes::open(&core.disk, &crate::data::root().join("filters")));
     let mut browser = Browser::new(core, row, elsewhere, themes);
     browser.downloads = BROWSERS.with_borrow(|windows| windows.values().next().map(|b| b.downloads.clone())).unwrap_or_default();
+    let auto_hide = browser.auto_hide_sidebar();
     BROWSERS.with_borrow_mut(|windows| windows.insert(window, browser));
     let ui = Ui {
         window,
@@ -1915,7 +1990,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         icons: signal(Default::default()),
         panel: signal(Panel::None),
         rev: signal(0),
-        sidebar: signal(true),
+        sidebar: signal(!auto_hide),
         address: signal(String::new()),
         typed: signal(String::new()),
         completed: signal(None),
@@ -1965,6 +2040,8 @@ fn new_ui(row: SavedWindow) -> Ui {
         dragging: signal(None),
         split_drop: signal(None),
         resizing: signal(None),
+        floating: signal(Default::default()),
+        hover_card: signal(Default::default()),
         root: Owner::current(),
     };
     let editing = std::cell::Cell::new(false);
@@ -2052,6 +2129,7 @@ fn browser_window(ui: Ui) -> AnyElement {
         .text_color(Theme::text)
         .font_family(Theme::font_family)
         .child(themed(|| view().absolute().inset_0().paint(Theme::backdrop())))
+        .on_layout(move |b: &Bounds<Points>| peek::window_height(ui, b.size.height.0))
         .child(when(move || ui.sidebar.get(), move || themed(move || sidebar(ui))))
         .child(
             view()
@@ -2066,6 +2144,9 @@ fn browser_window(ui: Ui) -> AnyElement {
                 .child(content(ui))
                 .child(themed(move || tools::toast_bar(ui))),
         )
+        .child(peek::edge(ui))
+        .child(peek::floating(ui))
+        .child(peek::card(ui))
         .child(bound_keys(ui))
         .on_mouse_up(move |_: &MouseEvent| split::release(ui))
         .on_mouse_move(move |e: &MouseEvent| {

@@ -29,7 +29,9 @@ use crate::data::StoreKey;
 
 pub const NAME: &str = "tarn.webview";
 const FIND_MAX: u32 = 1000;
+const SHIFT_MASK: u32 = 1;
 const CONTROL_MASK: u32 = 1 << 2;
+const SNAPSHOT_WIDTH: i32 = 752;
 
 thread_local! {
     static VIEWS: RefCell<Vec<Weak<State>>> = RefCell::default();
@@ -409,7 +411,7 @@ fn decide(state: &Rc<State>, web: &WebView, decision: &webkit6::PolicyDecision, 
         PolicyDecisionType::NavigationAction => decide_navigation(state, web, decision),
         PolicyDecisionType::NewWindowAction => {
             if let Some((action, uri)) = navigation_uri(decision) {
-                open_popup(state, &uri, action.is_user_gesture(), is_link(&action), true);
+                open_popup(state, &uri, action.is_user_gesture(), is_link(&action), true, is_peek(&action));
             }
             decision.ignore();
             true
@@ -443,9 +445,13 @@ fn is_link(action: &webkit6::NavigationAction) -> bool {
     action.navigation_type() == NavigationType::LinkClicked
 }
 
+fn is_peek(action: &webkit6::NavigationAction) -> bool {
+    is_link(action) && action.mouse_button() != 2 && action.modifiers() & SHIFT_MASK != 0 && action.modifiers() & CONTROL_MASK == 0
+}
+
 /// `by_page`: a window the page opens, which its site's pop-up rule and the domain sets judge; a
 /// link the user opens in a new tab is judged when that tab loads it.
-fn open_popup(state: &Rc<State>, uri: &str, gesture: bool, link: bool, by_page: bool) {
+fn open_popup(state: &Rc<State>, uri: &str, gesture: bool, link: bool, by_page: bool, peek: bool) {
     let Ok(url) = Url::parse(uri) else { return };
     let page = state.page.borrow().clone();
     let verdict = policy::popup(&state.levels.borrow(), state.level.get(), &url, page.as_ref());
@@ -453,7 +459,9 @@ fn open_popup(state: &Rc<State>, uri: &str, gesture: bool, link: bool, by_page: 
         Verdict::Allow { .. } if gesture && by_page && !nav_policy::popup_allowed(opener(state, page.as_ref()), Some(state.site(&url))) => {
             state.emit("blocked", json!({ "url": url.as_str(), "reason": "shield", "popup": true }))
         }
-        Verdict::Allow { .. } if gesture && state.admit_popup() => state.emit("popup", json!({ "url": url.as_str(), "link": link })),
+        Verdict::Allow { .. } if gesture && state.admit_popup() => {
+            state.emit(if peek { "peek" } else { "popup" }, json!({ "url": url.as_str(), "link": link }))
+        }
         Verdict::External if gesture && state.admit_prompt() => state.emit("external", json!({ "url": url.as_str(), "origin": state.origin() })),
         Verdict::Blocked(reason) => state.emit("blocked", json!({ "url": url.as_str(), "reason": reason, "popup": true })),
         Verdict::Allow { .. } if !gesture => state.shielded("popup", url.as_str()),
@@ -478,8 +486,9 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
     let nav_type = action.navigation_type();
     let gesture = action.is_user_gesture();
     let link = matches!(nav_type, NavigationType::LinkClicked | NavigationType::FormSubmitted);
-    if link && gesture && (action.mouse_button() == 2 || action.modifiers() & CONTROL_MASK != 0) {
-        open_popup(state, &uri, true, nav_type == NavigationType::LinkClicked, false);
+    let peek = gesture && is_peek(&action);
+    if link && gesture && (peek || action.mouse_button() == 2 || action.modifiers() & CONTROL_MASK != 0) {
+        open_popup(state, &uri, true, nav_type == NavigationType::LinkClicked, false, peek);
         decision.ignore();
         return true;
     }
@@ -764,6 +773,45 @@ fn mute(state: &State, muted: bool) {
     }
 }
 
+fn snapshot(state: &Rc<State>, web: &WebView) {
+    let weak = Rc::downgrade(state);
+    web.snapshot(webkit6::SnapshotRegion::Visible, webkit6::SnapshotOptions::NONE, None::<&webkit6::gio::Cancellable>, move |result| {
+        let Some(state) = weak.upgrade() else { return };
+        let png = result.ok().and_then(|texture| scaled_png(&texture, SNAPSHOT_WIDTH));
+        state.emit("snapshot", json!({ "png": png.map(|b| format!("data:image/png;base64,{}", glib::base64_encode(&b))) }));
+    });
+}
+
+fn scaled_png(texture: &webkit6::gdk::Texture, max_width: i32) -> Option<glib::Bytes> {
+    let (width, height) = (texture.width(), texture.height());
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    if width <= max_width {
+        return Some(texture.save_to_png_bytes());
+    }
+    let mut pixels = vec![0u8; width as usize * height as usize * 4];
+    texture.download(&mut pixels, width as usize * 4);
+    let (scaled, w, h) = scale_down(&pixels, width as usize, height as usize, max_width as usize);
+    let small =
+        webkit6::gdk::MemoryTexture::new(w as i32, h as i32, webkit6::gdk::MemoryFormat::B8g8r8a8Premultiplied, &glib::Bytes::from_owned(scaled), w * 4);
+    Some(small.save_to_png_bytes())
+}
+
+fn scale_down(pixels: &[u8], width: usize, height: usize, max_width: usize) -> (Vec<u8>, usize, usize) {
+    let w = max_width.clamp(1, width);
+    let h = (height * w / width).max(1);
+    let mut out = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        let row = (y * height / h) * width;
+        for x in 0..w {
+            let at = (row + x * width / w) * 4;
+            out.extend_from_slice(&pixels[at..at + 4]);
+        }
+    }
+    (out, w, h)
+}
+
 fn media_changed(state: &Weak<State>, web: &WebView) {
     let capturing = |state| state != MediaCaptureState::None;
     let playing = web.is_playing_audio() || capturing(web.camera_capture_state()) || capturing(web.microphone_capture_state());
@@ -894,7 +942,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
         let action = action.clone();
         let uri = action.request().and_then(|r| r.uri()).map(|u| u.to_string());
         if let (Some(s), Some(uri)) = (w.upgrade(), uri) {
-            open_popup(&s, &uri, action.is_user_gesture(), is_link(&action), true);
+            open_popup(&s, &uri, action.is_user_gesture(), is_link(&action), true, is_peek(&action));
         }
         None
     });
@@ -1085,6 +1133,7 @@ impl NativeComponent for TarnWebView {
                 });
             }
             "pdf" => save_pdf(state, &web, args),
+            "snapshot" => snapshot(state, &web),
             "zoom" => {
                 let factor = policy::zoom_factor(args["factor"].as_f64().unwrap_or(1.0));
                 state.zoom.set(factor);

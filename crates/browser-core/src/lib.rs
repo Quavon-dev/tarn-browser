@@ -27,6 +27,7 @@ pub mod find;
 pub mod fog;
 pub mod github;
 pub mod glyphs;
+pub mod hover;
 pub mod import;
 pub mod library;
 pub mod licences;

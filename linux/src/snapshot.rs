@@ -88,6 +88,14 @@ pub struct ViewItem {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct PeekItem {
+    pub view: ViewItem,
+    pub title: String,
+    pub host: String,
+    pub insecure: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Pane {
     pub key: TabKey,
     pub title: String,
@@ -145,6 +153,8 @@ pub struct Snapshot {
     pub downloading: Option<f32>,
     /// Whether Clean Up has loose tabs to sort.
     pub cleanable: bool,
+    pub compact: bool,
+    pub link_peek: Option<PeekItem>,
 }
 
 pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
@@ -351,6 +361,29 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
         .collect()
 }
 
+fn peek_item(b: &Browser) -> Option<PeekItem> {
+    let peek = b.link_peek.as_ref()?;
+    let key = peek.opener;
+    let (host, insecure) = url::Url::parse(&peek.url).ok().map(|u| browser_core::command::address(&u)).unwrap_or_default();
+    let view = ViewItem {
+        key,
+        born: 0,
+        profile: b.store_prop(key),
+        level: peek.level.as_str().to_owned(),
+        levels: b.levels(key),
+        lists: b.lists(),
+        styles: b.styles(key),
+        theme_styles: b.theme_styles(key),
+        zaps: b.zaps(key),
+        sort_downloads: !b.setting_off(crate::browser::pages::SORT_DOWNLOADS),
+        load: Some(peek.load.clone()),
+        link: true,
+        active: true,
+        pane: None,
+    };
+    Some(PeekItem { view, title: browser_core::text::bounded_title(&peek.title), host, insecure })
+}
+
 pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
     let key = b.model.active;
     let heavy = b.heavy_tabs();
@@ -412,6 +445,8 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         find_rows: b.find_rows.clone(),
         downloading: downloading(b),
         cleanable: browser_core::cleanup::cleanable(&b.model.tabs) && !b.model.burner_shown(),
+        compact: b.compact_toolbar(),
+        link_peek: peek_item(b).filter(|_| web_shown),
     }
 }
 

@@ -64,6 +64,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Settings › General › Tabs chooses whether New Tab opens the command card or the start page and
   which tab becomes active after closing one, and turns touchpad gestures off; Settings ›
   Appearance picks the accent colour and turns on Reduce motion, as on macOS (Linux).
+- Compact toolbar, auto-hiding sidebar, the tab hover card with its Alt page snapshot, and link
+  peek (Shift-click opens a link in a card over the page, in the opener's profile and Shield
+  rules) (Linux).
 
 ### Changed
 

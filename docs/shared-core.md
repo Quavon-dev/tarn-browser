@@ -22,7 +22,8 @@ Every shell's web view offers the same operations and reports the same events. T
 - `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`; Linux has `print` (the GTK print
   dialog) and `pdf` with the absolute `path` the user picked in the save dialog, printed there by
   WebKitGTK and reported on the download route as a finished download; iOS and Android have
-  neither yet (`docs/port-backlog.md`);
+  neither yet (`docs/port-backlog.md`); Linux's `snapshot` command answers with a `snapshot` event carrying a PNG
+  `data:` URI at most 752 px wide (the tab hover card), which iOS and Android do not take yet;
 - isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
   and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
   has no isolated world and runs those scripts in the page world, so a shell must not send it
@@ -40,7 +41,9 @@ Every shell's web view offers the same operations and reports the same events. T
   main-frame load began before it commits, or ended without `Finished` or `Failed` (a stop, a
   cancel, a load that turned into a download);
 - `Blocked`, `PopupBlocked`, `Popup`, `ShieldLevelChanged`;
-- `Prompt`, `PeekLink`, `ExternalScheme`, `ContentProcessTerminated`;
+- `Prompt`, `PeekLink`, `ExternalScheme`, `ContentProcessTerminated`; `PeekLink` is `peek {url}`
+  on Linux, sent only for the user's own Shift-click under the pop-up rules; iOS and Android have
+  no Shift-click and send none;
 - `OpenTab`: Chromium views only, for a link the user opens in a new tab (Ctrl- or middle-click,
   the page menu); WebKit views report it as a `Popup`;
 - `FullScreen`: Chromium views on Windows only, whose element full screen fills the browser's

@@ -4,6 +4,7 @@ pub mod extensions;
 mod groups;
 pub mod icons;
 pub mod library;
+pub mod link_peek;
 pub mod pages;
 pub mod profile_data;
 mod site;
@@ -36,6 +37,8 @@ use crate::input;
 use crate::webview::policy::DEFAULT_LEVEL_KEY;
 
 pub const START_URL: &str = "about:blank";
+pub const COMPACT_TOOLBAR: &str = "compact_toolbar";
+pub const AUTO_HIDE_SIDEBAR: &str = "auto_hide_sidebar";
 pub const ZOOM_STEPS: [f64; 9] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0];
 
 #[derive(Clone, Debug, Default)]
@@ -138,6 +141,8 @@ pub struct Browser {
     pub splits: browser_core::split::Splits<TabKey>,
     /// When the page area last changed under the pointer; guarded buttons wait `BYPASS_DELAY`.
     pub guard_since: std::time::Instant,
+    pub link_peek: Option<link_peek::LinkPeek>,
+    pub peek_outbox: Vec<(&'static str, Value)>,
     text_rows: usize,
     burner_return: Option<(bool, Id)>,
     window: SavedWindow,
@@ -206,6 +211,8 @@ impl Browser {
             ext_prompt_serial: 0,
             splits: Default::default(),
             guard_since: std::time::Instant::now(),
+            link_peek: None,
+            peek_outbox: Vec::new(),
             text_rows: 0,
             burner_return: None,
             window,
@@ -305,6 +312,9 @@ impl Browser {
         let Some(tab) = self.model.tab(key).cloned() else { return };
         if self.model.active != Some(key) {
             self.close_reader();
+        }
+        if self.link_peek.as_ref().is_some_and(|p| p.opener != key) {
+            self.link_peek = None;
         }
         let at = std::time::Instant::now();
         self.guard_since = at;
@@ -457,6 +467,9 @@ impl Browser {
         self.processes.remove(&key);
         self.used.remove(&key);
         self.withdraw_icons(|k| k == key);
+        if self.link_peek.as_ref().is_some_and(|p| p.opener == key) {
+            self.link_peek = None;
+        }
         if self.reader.as_ref().is_some_and(|r| r.key == key) {
             self.close_reader();
         }
@@ -719,6 +732,14 @@ impl Browser {
         self.core.disk.set_setting(key, if on { "off" } else { "on" }).ok();
     }
 
+    pub fn compact_toolbar(&self) -> bool {
+        !self.setting_off(COMPACT_TOOLBAR)
+    }
+
+    pub fn auto_hide_sidebar(&self) -> bool {
+        !self.setting_off(AUTO_HIDE_SIDEBAR)
+    }
+
     pub fn lists(&self) -> Vec<String> {
         shield::groups::switched_on(|k| self.core.disk.setting(k).ok().flatten())
     }
@@ -840,6 +861,7 @@ impl Browser {
                     page.link = true;
                 }
             }
+            link_peek::PEEK_EVENT => self.open_link_peek(key, &text("url")),
             "article" | "pageText" | "textFound" | "picked" => self.on_script_event(key, name, data),
             "iconLinks" => self.on_icon_event(key, data, None),
             "shielded" => self.on_shielded(key, data),
