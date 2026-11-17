@@ -811,16 +811,20 @@ app like the macOS client: sidebar, toolbar and a Settings window (`mobile/app/s
 area and its web views stay mounted across a switch. Phones and narrow multitasking windows always use
 Touch.
 
-The Mac layout mirrors the macOS surfaces: the sidebar (space switcher, Downloads, profile, tiles, pinned
-tabs, folders, groups, Clean Up, tab rows with one tab menu in the macOS order, footer); the toolbar
+The Mac layout mirrors the macOS surfaces: the sidebar (space switcher, Downloads, tiles that fill their row,
+pinned tabs, folders and groups with their icons and Change Icon…, Clean Up by category with Undo Sort, tab rows with one tab menu in the macOS order, footer); the toolbar
 (sidebar toggle, Back, Forward, Reload, the private-space mark while the sidebar is hidden, the address
 capsule with the Shield chip, Split View, Share) and the command palette with key caps on its commands;
 Site settings, Downloads, Share and QR as popovers anchored under their buttons with the page still shown
-behind them; the Settings window with one pane at a time, the Shortcuts pane read from
+behind them; New Space and Edit Space as the shared space card in a popover above the sidebar's +
+button; the start card's space and Shield pills; the Settings window with one pane at a time, General
+listing every profile, the Shortcuts pane read from
 `browser_core::shortcuts`, and Back stepping from a licence to the list and then to the pane. A hardware
 keyboard runs the macOS shortcuts from the same table (⌘ on iPad, Ctrl on Android), the sidebar's shown
 state is stored like the macOS one (`sidebar_open`), and the address and palette fields have
 autocorrection, spell-check and capitals off.
+The Change Icon… picker takes an emoji in a text field: NSH 0.5.0 has no call that opens the system
+emoji keyboard or the Emoji & Symbols palette, which the macOS picker offers.
 
 Gaps (NSH 0.5.0): iPadOS lists no hardware-keyboard shortcut in the ⌘-hold overlay or the menu bar, since
 `nsh-platform-ios` matches keys in `pressesBegan` and registers no `UIKeyCommand` or menu builder;

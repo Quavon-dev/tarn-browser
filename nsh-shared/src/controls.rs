@@ -343,18 +343,6 @@ pub fn tip(name: &str, side: Placement) -> nsh_base::TooltipElement {
     nsh_base::tooltip().placement(side).child(bubble.child(text(name.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::text)))
 }
 
-pub fn avatar(initial: String, fill: Rgba, size: f32) -> View {
-    view()
-        .w(px(size))
-        .h(px(size))
-        .flex_none()
-        .rounded_full()
-        .items_center()
-        .justify_center()
-        .bg(fill)
-        .child(text(initial).text_size(px((size * 0.5).round())).font_weight(FontWeight::BOLD).text_color(Theme::on_fill(fill)))
-}
-
 pub fn site_tile(icon: Option<String>, host: &str, size: f32) -> View {
     let tile = view().w(px(size)).h(px(size)).flex_none().rounded(px(size * 0.28)).overflow_hidden().items_center().justify_center();
     if let Some(icon) = icon {

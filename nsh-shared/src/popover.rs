@@ -10,6 +10,7 @@ pub const MARGIN: f32 = 8.;
 pub const SITE_WIDTH: f32 = 340.;
 pub const SHARE_WIDTH: f32 = 272.;
 pub const DOWNLOADS_WIDTH: f32 = 320.;
+pub const SPACE_WIDTH: f32 = 360.;
 pub const QR_WIDTH: f32 = 260.;
 pub const HEADER: f32 = 52.;
 pub const ROW: f32 = 30.;
@@ -21,15 +22,17 @@ pub const FILE_TILE: f32 = 28.;
 pub enum Anchor {
     Below(ElementRef, Align),
     Box(Bounds<Points>, Align),
+    Above(ElementRef, Align),
 }
 
 pub fn popover(anchor: Anchor, width: f32, close: impl Fn() + Copy + 'static, content: impl IntoElement) -> View {
     let backdrop = overlay().inset_0().focusable(false).on_press(close);
     let popup = match anchor {
-        Anchor::Below(at, align) => overlay().anchor(&at).align(align).offset(px(GAP)),
-        Anchor::Box(at, align) => overlay().anchor_bounds(move || at).align(align).offset(px(GAP)),
+        Anchor::Below(at, align) => overlay().anchor(&at).align(align).offset(px(GAP)).placement(Placement::Bottom),
+        Anchor::Box(at, align) => overlay().anchor_bounds(move || at).align(align).offset(px(GAP)).placement(Placement::Bottom),
+        Anchor::Above(at, align) => overlay().anchor(&at).align(align).offset(px(GAP)).placement(Placement::Top),
     };
-    let popup = popup.placement(Placement::Bottom).margin(px(MARGIN)).on_cancel(close).child(
+    let popup = popup.margin(px(MARGIN)).on_cancel(close).child(
         card()
             .test_id("popover")
             .w(px(width))

@@ -125,5 +125,5 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.press("label:/^Space /").unwrap();
     app.wait_for("label:New Space…").unwrap();
     app.press("label:New Space…").unwrap();
-    app.wait_for("Spaces and Profiles").unwrap();
+    app.wait_for("Create Space").unwrap();
 }

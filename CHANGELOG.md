@@ -11,7 +11,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Tablets: Settings › Appearance › Layout switches an iPad or Android tablet between the touch layout
   and a Mac layout like the macOS app: the sidebar with tiles, pinned tabs, folders, groups and tab
   menus, a toolbar with a command palette, Site settings, Downloads and Share as popovers under their
-  buttons, a Settings window, and the macOS keyboard shortcuts with a hardware keyboard (iOS, Android).
+  buttons, New Space and Edit Space above the sidebar's + button, Clean Up with Undo Sort, group and
+  folder icons, a Settings window, and the macOS keyboard shortcuts with a hardware keyboard (iOS,
+  Android).
 - Tab groups and folders can show an icon: one of twenty symbols or a single emoji, set with
   Change Icon… in their menu (macOS, Windows; folders on Linux). Clean Up gives each group it
   makes the icon of its kind.

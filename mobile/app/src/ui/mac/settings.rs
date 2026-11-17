@@ -19,6 +19,7 @@ const NAV_GLYPH: f32 = 15.;
 const CAPTION: f32 = 10.;
 const LIGHT: f32 = 12.;
 const LIGHT_INSET: f32 = 18.;
+const LIGHT_TOP: f32 = 10.;
 const LIGHT_GAP: f32 = 8.;
 const CLOSE_RED: u32 = 0xff5f_57ff;
 const CLOSE_EDGE: u32 = 0xe044_3eff;
@@ -100,7 +101,7 @@ fn traffic_lights(ui: Ui) -> impl IntoElement {
     let off = move || view().w(px(LIGHT)).h(px(LIGHT)).rounded_full().bg(Theme::hairline);
     view()
         .absolute()
-        .top(px(LIGHT_INSET))
+        .top(px(LIGHT_TOP))
         .left(px(LIGHT_INSET))
         .flex_row()
         .items_center()
@@ -201,6 +202,33 @@ fn shortcuts() -> View {
     ))
 }
 
+fn profiles(ui: Ui) -> View {
+    let (list, current) = ui.read_data(|s| (s.profiles(), s.model.profile()));
+    let rows = list.into_iter().enumerate().map(move |(ix, p)| {
+        let this = current == Some((p.is_private, p.id));
+        let mark = if p.is_private {
+            view().text_color(Theme::warning).child(glyphs::icon(glyphs::PERSON, 14.))
+        } else {
+            view().w(px(12.)).h(px(12.)).rounded_full().bg(Theme::profile_color(&p.color).unwrap_or_else(Theme::muted))
+        };
+        let value = |t: &str| text(t.to_owned()).text_size(px(TEXT)).text_color(Theme::muted);
+        view()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .min_h(px(40.))
+            .px_3()
+            .when(ix > 0, |v| v.border_t_1().border_color(Theme::separator))
+            .child(view().w(px(14.)).items_center().child(mark))
+            .child(label(p.name.clone()).flex_1().number_of_lines(1))
+            .child(this.then(|| value("This window")))
+            .child(p.is_private.then(|| value("Private, not saved")))
+            .child(value(browser_core::shield_card::motto(p.shield_level).0))
+            .into_element()
+    });
+    view().child(section("Profiles")).child(group().children(rows))
+}
+
 fn body(ui: Ui, pane: Signal<Pane>) -> AnyElement {
     match ui.screen.get() {
         Screen::Extensions => super::super::extensions::pane(ui),
@@ -210,6 +238,7 @@ fn body(ui: Ui, pane: Signal<Pane>) -> AnyElement {
             Pane::Shortcuts => shortcuts().into_element(),
             Pane::Profile => view().pt_4().children(panels::pane_body(ui, Pane::Profile)).into_element(),
             Pane::Privacy => view().children(panels::pane_body(ui, Pane::Privacy)).child(panels::your_data(ui)).into_element(),
+            Pane::General => view().child(profiles(ui)).children(panels::pane_body(ui, Pane::General)).into_element(),
             p => view().children(panels::pane_body(ui, p)).into_element(),
         },
     }

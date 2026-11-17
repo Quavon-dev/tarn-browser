@@ -31,7 +31,9 @@ macOS reference: `crates/app/src/sidebar.rs` (`chosen_icon`, `icon_picker`, `gro
 
 - [x] Windows — same code in `crates/app`; no Emoji & Symbols button, since GPUI cannot open the Windows emoji panel
 - [ ] Linux — folders done (`linux/src/ui.rs` `folder_icon`, `linux/src/ui/panels.rs` `icon_choice`); group icons come with tab groups
-- [ ] iOS — `mobile/app` has no folders or tab groups yet; both first
+- [ ] iOS — the tablet Mac layout shows folder and group icons and has Change Icon… with the 20 symbols and an
+  emoji field (`mobile/app/src/ui/mac/sidebar.rs`, `tarn_nsh_shared::sidebar::{chosen_icon, group_avatar}`); the phone and
+  Touch layouts have no folders or tab groups yet
 - [ ] Android — same as iOS
 
 ### Clean Up (2026-11-16, reworked 2026-11-17)
@@ -49,9 +51,9 @@ macOS reference: `crates/app/src/browser/context.rs` (`clean_up_tabs`, `undo_sor
 
 - [x] Windows — same code in `crates/app`
 - [ ] Linux — `linux/` has no tab groups or archiving yet; both first, then the row in `linux/src/ui.rs`
-- [ ] iOS — the tablet Mac layout has tab groups and the Clean Up button that sorts into them
-  (`mobile/app/src/ui/mac/sidebar.rs`, `browser_core::sidebar::clean_up`); archiving unused tabs and the phone
-  and Touch layouts are still missing
+- [ ] iOS — the tablet Mac layout sorts by category with Undo Sort in its toast
+  (`mobile/app/src/ui/mac/sidebar.rs`, `browser_core::sidebar::{clean_up, undo_sort}`); archiving unused tabs and the
+  phone and Touch layouts are still missing
 - [ ] Android — same as iOS
 
 ### Tile grid (2026-11-16)

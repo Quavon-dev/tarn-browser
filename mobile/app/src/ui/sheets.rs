@@ -369,7 +369,7 @@ pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
     let profiles = ui.read_data(|s| s.profiles());
     let known = signal(profiles.clone());
     let ready = move || ui.read_data(|s| known.with(|p| draft.get().ready(&s.model.spaces, p).is_some()));
-    let back = move || ui.show(Screen::Spaces);
+    let back = move || ui.show(if ui.mac.get_untracked() { Screen::Browse } else { Screen::Spaces });
     on_key_with("escape", KeyOptions { when: nsh_core::keymap::When::Always, ..KeyOptions::default() }, move |_| back());
     let confirm = move || {
         if !ready() {
@@ -382,7 +382,7 @@ pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
             Vec::new()
         });
         if saved.get() {
-            ui.show(if d.editing.is_none() { Screen::Browse } else { Screen::Spaces });
+            ui.show(if d.editing.is_none() || ui.mac.get_untracked() { Screen::Browse } else { Screen::Spaces });
         }
     };
     let private = draft.get_untracked().private;

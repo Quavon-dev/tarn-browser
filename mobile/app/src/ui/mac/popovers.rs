@@ -1,9 +1,10 @@
 use browser_core::shield_card::{motto, thousands};
 use nsh_core::prelude::*;
 use shield::ShieldLevel;
-use tarn_nsh_shared::controls::{caps_label, empty_state, glyph_row, glyph_switch, group, icon_button, label, segmented, site_tile};
+use tarn_nsh_shared::controls::{caps_label, empty_state, glyph_row, glyph_switch, group, icon_button, icon_pill, label, segmented, site_tile};
 use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::popover::{self as pop, Anchor};
+use tarn_nsh_shared::sidebar::{menu_card, menu_check, menu_item};
 use tarn_nsh_shared::toolbar::small;
 
 use super::super::{Screen, Ui, panels, sheets};
@@ -13,6 +14,7 @@ const SITE_HEADER: f32 = 60.;
 const FOOTER: f32 = 40.;
 const ZOOM_STEP: f64 = 0.1;
 const QR_SIZE: f32 = 204.;
+const SPACE_HEIGHT: f32 = 560.;
 
 #[derive(Clone, Copy)]
 pub struct Anchors {
@@ -20,16 +22,99 @@ pub struct Anchors {
     pub share: ElementRef,
     pub downloads: ElementRef,
     pub toggle: ElementRef,
+    pub new_space: ElementRef,
 }
 
 impl Default for Anchors {
     fn default() -> Self {
-        Self { shield: element_ref(), share: element_ref(), downloads: element_ref(), toggle: element_ref() }
+        Self { shield: element_ref(), share: element_ref(), downloads: element_ref(), toggle: element_ref(), new_space: element_ref() }
     }
 }
 
 pub(super) fn owns(screen: Screen) -> bool {
-    matches!(screen, Screen::Shield | Screen::Downloads | Screen::Share | Screen::Qr)
+    matches!(screen, Screen::Shield | Screen::Downloads | Screen::Share | Screen::Qr | Screen::SpaceNew | Screen::SpaceEdit(_))
+}
+
+pub(in crate::ui) fn start_pills(ui: Ui) -> impl IntoElement {
+    let open = signal(None::<bool>);
+    let close = move |e: &nsh_base::PopoverEvent| {
+        if let nsh_base::PopoverEvent::OpenChange(false, _) = e {
+            open.set(None);
+        }
+    };
+    let menu = move |space: bool| {
+        dynamic(move || {
+            (open.get() == Some(space)).then(|| {
+                let items: Vec<AnyElement> = if space {
+                    let (ix, private) = ui.read(|s| (s.model.space_ix, s.model.current_space().is_none_or(|c| c.private)));
+                    vec![
+                        menu_item("Edit Space…", !private, move || {
+                            open.set(None);
+                            ui.show(Screen::SpaceEdit(ix));
+                        })
+                        .into_element(),
+                        menu_item("New Space…", true, move || {
+                            open.set(None);
+                            ui.show(Screen::SpaceNew);
+                        })
+                        .into_element(),
+                    ]
+                } else {
+                    let current = ui.read_data(|s| s.default_level());
+                    ShieldLevel::ALL
+                        .into_iter()
+                        .map(|level| {
+                            menu_check(motto(level).0, level == current, move || {
+                                open.set(None);
+                                ui.act(|s| {
+                                    s.set_default_level(level);
+                                    Vec::new()
+                                });
+                            })
+                            .into_element()
+                        })
+                        .collect()
+                };
+                view().absolute().right(px(0.)).bottom(px(0.)).w(px(0.)).h(px(0.)).child(
+                    nsh_base::popover()
+                        .open(move || Some(true))
+                        .on_open_change(close)
+                        .placement(Placement::Bottom)
+                        .align(Align::End)
+                        .offset(Points(4.))
+                        .trigger(view().w(px(0.)).h(px(0.)))
+                        .child(menu_card().child(view().flex_col().children(items))),
+                )
+            })
+        })
+    };
+    let space = computed(move || {
+        ui.read(|s| s.model.current_space().map(|c| (c.space.name.clone(), if c.private { glyphs::HAND } else { glyphs::space_icon(&c.space.icon) })))
+    });
+    let level = computed(move || ui.read_data(|s| s.default_level()));
+    view()
+        .flex_row()
+        .justify_end()
+        .gap_2()
+        .pt_2()
+        .child(
+            view()
+                .relative()
+                .child(dynamic(move || {
+                    let (name, glyph) = space.get().unwrap_or_default();
+                    icon_pill(glyph, name, move || open.set(Some(true)))
+                }))
+                .child(menu(true)),
+        )
+        .child(
+            view()
+                .relative()
+                .child(dynamic(move || {
+                    icon_pill(glyphs::SHIELD, motto(level.get()).0, move || open.set(Some(false)))
+                        .accessibility_label(format!("Shield: {}", motto(level.get()).0))
+                }))
+                .child(menu(false)),
+        )
 }
 
 pub(super) fn popovers(ui: Ui) -> impl IntoElement {
@@ -43,6 +128,11 @@ pub(super) fn popovers(ui: Ui) -> impl IntoElement {
                 Screen::Share => (Anchor::Below(ui.popovers.share, Align::End), pop::SHARE_WIDTH, share_menu(ui).into_element()),
                 Screen::Qr => (Anchor::Below(ui.popovers.share, Align::End), pop::QR_WIDTH, qr(ui).into_element()),
                 Screen::Downloads => (downloads_anchor(ui, open == Some(true)), pop::DOWNLOADS_WIDTH, downloads(ui).into_element()),
+                Screen::SpaceNew | Screen::SpaceEdit(_) => {
+                    let editing = if let Screen::SpaceEdit(ix) = screen { Some(ix) } else { None };
+                    let card = scroll().max_h(px(SPACE_HEIGHT)).child(view().p_3().child(sheets::space_card(ui, editing)));
+                    (Anchor::Above(ui.popovers.new_space, Align::Start), pop::SPACE_WIDTH, card.into_element())
+                }
                 _ => return None,
             };
             Some(pop::popover(anchor, width, move || ui.show(Screen::Browse), body))

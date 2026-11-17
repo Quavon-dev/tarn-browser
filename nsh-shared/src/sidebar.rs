@@ -29,6 +29,28 @@ pub fn tile_grid(width: f32) -> (usize, f32) {
     browser_core::tabs::tile_grid(width - 2. - 2. * TILE_GAP, TILE_GAP)
 }
 
+pub fn chosen_icon(stored: &str, size: f32) -> Option<AnyElement> {
+    Some(match browser_core::icon::parse(stored)? {
+        browser_core::icon::Icon::Symbol(name) => icons::icon(icons::named(name)?, size).into_element(),
+        browser_core::icon::Icon::Emoji(emoji) => text(emoji.to_owned()).text_size(px(size)).line_height(px(size + 2.)).into_element(),
+    })
+}
+
+pub fn group_avatar(name: &str, icon: &str, fill: Rgba, size: f32) -> View {
+    let initial = || text(name.trim().chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()).font_weight(FontWeight::BOLD).into_element();
+    view()
+        .w(px(size))
+        .h(px(size))
+        .flex_none()
+        .rounded_full()
+        .items_center()
+        .justify_center()
+        .bg(fill)
+        .text_size(px(if size > 20. { TEXT_SMALL } else { 10. }))
+        .text_color(Theme::on_fill(fill))
+        .child(chosen_icon(icon, 12.).unwrap_or_else(initial))
+}
+
 pub fn group_color(color: &str, id: i64) -> Rgba {
     let fixed = PROFILE_COLORS[id.unsigned_abs() as usize % PROFILE_COLORS.len()];
     rgb(PROFILE_COLORS.iter().find(|(n, _)| *n == color).unwrap_or(&fixed).1)
@@ -86,6 +108,24 @@ pub fn menu_item(name: impl Into<String>, enabled: bool, press: impl Fn() + 'sta
         .text_color(if enabled { Theme::text } else { Theme::faint })
         .child(text(name).text_size(px(TEXT)).flex_1().truncate());
     if enabled { item.on_press(press).hover(|s| s.bg(Theme::accent()).text_color(Theme::on_fill(Theme::accent()))) } else { item }
+}
+
+pub fn menu_check(name: impl Into<String>, checked: bool, press: impl Fn() + 'static) -> ButtonElement {
+    let name: String = name.into();
+    button()
+        .accessibility_label(name.clone())
+        .selected(checked)
+        .on_press(press)
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .h(px(MENU_ROW))
+        .px_1()
+        .rounded(px(Theme::radius_small()))
+        .text_color(Theme::text)
+        .hover(|s| s.bg(Theme::accent()).text_color(Theme::on_fill(Theme::accent())))
+        .child(view().w(px(14.)).items_center().children(checked.then(|| icons::icon(icons::CHECK, 12.))))
+        .child(text(name).text_size(px(TEXT)).flex_1().truncate())
 }
 
 pub fn menu_heading(name: impl Into<String>) -> View {

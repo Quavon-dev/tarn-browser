@@ -427,6 +427,7 @@ fn search_card(ui: Ui) -> impl IntoElement {
         .max_w(px(SEARCH_WIDTH))
         .px(px(browser_core::effects::MAX_SIDE + 8.))
         .child(view().relative().child(tarn_nsh_shared::search_fx::search_fx(SEARCH_ROW)).child(field))
+        .child(when(move || ui.mac.get(), move || mac::popovers::start_pills(ui)))
 }
 
 fn back(ui: Ui) -> bool {
