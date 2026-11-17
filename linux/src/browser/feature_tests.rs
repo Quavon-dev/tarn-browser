@@ -36,6 +36,46 @@ fn duplicates_close_with_one_undo_that_reopens_them() {
 }
 
 #[test]
+fn closing_the_active_tab_selects_the_neighbour_the_setting_names() {
+    let (_dir, mut b) = browser();
+    let tabs: Vec<TabKey> = (0..4).map(|n| b.new_tab(&format!("https://t{n}.test/")).unwrap()).collect();
+    let middle = |b: &Browser| {
+        b.model
+            .tabs
+            .iter()
+            .map(|t| b.model.key(t))
+            .find(|k| tabs.contains(k) && b.model.close_neighbour(*k, &[], false) != b.model.close_neighbour(*k, &[], true))
+    };
+    let mid = middle(&b).unwrap();
+    let next = b.model.close_neighbour(mid, &[], false);
+    b.activate(mid);
+    b.close_tab(mid);
+    assert_eq!(b.model.active, next, "Next by default");
+    b.set_pref(browser_core::prefs::CLOSE_SELECTS_PREVIOUS, true);
+    let mid = middle(&b).unwrap();
+    let previous = b.model.close_neighbour(mid, &[], true);
+    b.activate(mid);
+    b.close_tab(mid);
+    assert_eq!(b.model.active, previous);
+}
+
+#[test]
+fn the_command_card_opens_what_was_typed_in_a_new_tab() {
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    let count = b.model.tabs.len();
+    b.navigate_in("https://first.test/", true);
+    assert_eq!((b.model.active, b.model.tabs.len()), (Some(first), count), "a blank tab takes it");
+    visit(&mut b, first, "https://kept.test/");
+    b.navigate_in("https://new.test/", true);
+    let opened = b.model.active.unwrap();
+    assert_ne!(opened, first);
+    assert_eq!(b.model.tabs.len(), count + 1);
+    assert_eq!(b.pages[&first].url, "https://kept.test/", "the page it was opened over keeps its address");
+    assert_eq!(b.pages[&opened].load.as_ref().map(|(url, _)| url.as_str()), Some("https://new.test/"));
+}
+
+#[test]
 fn a_download_outlives_its_tab_and_is_cancelled_by_id() {
     let (_dir, mut b) = browser();
     let key = b.model.active.unwrap();
@@ -296,7 +336,7 @@ fn ruled_hosts_open_in_their_space_and_spaces_switch_on_schedule() {
     b.switch_space_by_user(home);
     let before = b.model.tabs.len();
     b.new_tab(START_URL);
-    b.navigate("https://docs.test/typed");
+    b.navigate_in("https://docs.test/typed", false);
     assert_eq!(b.model.space_ix, work);
     b.switch_space_by_user(home);
     assert_eq!(b.model.tabs.len(), before, "the blank tab that was routed away is gone");

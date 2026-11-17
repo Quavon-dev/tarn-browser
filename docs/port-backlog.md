@@ -84,6 +84,24 @@ macOS reference: `crates/app/src/browser/context.rs` (`tab_menu`, `sidebar_menu`
   tab sheet of `mobile/app/src/ui/panels.rs`
 - [ ] Android — the `muted` prop in `TarnWebView` and the same tab actions in `mobile/app`
 
+### Tab, accent and motion settings (2026-11-17)
+
+What it does: "New tab opens" (command card or start page), "After closing a tab" (next or
+previous), Touchpad gestures, the accent colour and Reduce motion, stored under the macOS keys.
+Shared API: `browser_core::prefs` (`NEW_TAB_START_PAGE`, `CLOSE_SELECTS_PREVIOUS`, `GESTURES`,
+`REDUCE_MOTION`, `accent_choice`, `accented`); `tarn_nsh_shared::motion::{set_reduced, reduced}`;
+the Accent and Reduce motion rows in `tarn_nsh_shared::appearance` show where
+`Host::accent_and_motion` is true.
+macOS reference: `crates/app/src/settings.rs` (`appearance`, `tabs`), `crates/app/src/prefs.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/ui/settings.rs`, `linux/src/ui.rs` (`new_tab`, `go`), `linux/src/browser/themes.rs`
+- [ ] iOS — `mobile/app`: `accent_and_motion` in `ui/appearance.rs`, `prefs::accented` and
+  `motion::set_reduced` in `themes.rs`, `motion::reduced` for its own `reduce_motion()` checks
+  (`ui/mod.rs`, `ui/bars.rs`),
+  `CLOSE_SELECTS_PREVIOUS` in `features.rs` (`close_neighbour`); new-tab and gesture rows where they apply
+- [ ] Android — same as iOS
+
 ### Clean Up (2026-11-16)
 
 What it does: the Clean Up button in the New Tab row sorts the space's loose tabs into tab groups by what each page

@@ -51,6 +51,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   URL and Set Pinned URL, Duplicate Tab, Close All, Other and Below, Sleep Tab, Other and All
   Inactive Tabs, reopening a chosen recently closed tab, Delete Folder and the sidebar menu; closing
   a pinned tab unloads it (Linux).
+- Settings › General › Tabs chooses whether New Tab opens the command card or the start page and
+  which tab becomes active after closing one, and turns touchpad gestures off; Settings ›
+  Appearance picks the accent colour and turns on Reduce motion, as on macOS (Linux).
 
 ### Changed
 

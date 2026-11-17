@@ -222,5 +222,7 @@ parsing, `engine_key`, the address label: `address`, which the macOS toolbar use
 `browser_core::prompts` (prompt events, which permission answers are remembered); like macOS they reload
 a crashed page once and then stop until a page finishes loading; their web views share `engine::view_policy`
 (site levels with `"*"`, bursts, the NSH zoom range `MIN_PAGE_ZOOM`..`MAX_PAGE_ZOOM`, 0.5 to 3.0; the macOS app keeps its own `engine::MIN_ZOOM` of 0.3) and the filter-list groups in `shield::groups`.
+The tab, motion and gesture switches and the accent choice are stored under the macOS keys through
+`browser_core::prefs`.
 
 The NSH shells for Linux, iOS and Android (`docs/nsh-plan.md` P2–P4) sit on `browser-core`.

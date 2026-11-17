@@ -30,6 +30,7 @@ pub mod glyphs;
 pub mod import;
 pub mod licences;
 pub mod permissions;
+pub mod prefs;
 pub mod profile_data;
 pub mod prompts;
 pub mod routing;

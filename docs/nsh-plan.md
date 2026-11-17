@@ -262,7 +262,8 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
 - The address field's inline completion (`suggest::edit`) runs only when one character was typed at the end of what was typed before (the first key replaces the address selected on focus), since NSH inputs report the new text but not the caret or the kind of edit, so a paste never completes; Enter on the completed text opens the visited page it completes to.
 - Motion uses `tarn_nsh_shared::motion` (POP, FADE, EXIT, SLIDE as on macOS): pop-ups, the palette, prompts, the find pill
   and state glyphs pop in; tab rows grow and shrink, the sidebar and space switches move as layout animations; switch
-  knobs slide. All of it lands at once under the desktop's reduced motion. Pop-ups do not animate out (NSH removes a
+  knobs slide. All of it lands at once under the desktop's reduced motion or Settings › Appearance › Reduce motion
+  (`tarn_nsh_shared::motion::reduced`; NSH's own transitions follow only the desktop's). Pop-ups do not animate out (NSH removes a
   view at once) and a space switch does not slide its list sideways; the start-page fog, the tab close button and the reload and tab-row spinners (`tarn_nsh_shared::motion`, turned on the UI thread) move. The fog and spinners stand still while the window is not the active one (`lifecycle()`), as on macOS.
 - Pop-ups (panels, suggestions, popovers, tooltips) are views and NSH overlays inside the main window, and menus are
   GTK popovers of it, so none floats over another app's window when Tarn is behind it (checked with a second GTK
@@ -304,7 +305,15 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   (nsh-platform-linux `wheel_event` drops GDK's zero-delta scroll-stop event, `gdk::ScrollEvent::is_stop`),
   so a gesture ends after 200 ms without scrolling and the list does not follow the fingers and
   spring back as with macOS `gestures::follow`. The direction follows the content, so it matches
-  the fingers with natural scrolling on.
+  the fingers with natural scrolling on. Settings › General › Tabs › Touchpad gestures turns it off
+  (`browser_core::prefs::GESTURES`, on by default as on macOS).
+- Settings › General › Tabs (NSH's settings panes, shared with mobile, have no Tabs pane) also has
+  "New tab opens" and "After closing a tab" from `browser_core::prefs`, with the macOS defaults.
+  Command card opens the palette for a new tab: Enter opens what was typed in a new tab
+  (`Browser::navigate_in`), Esc leaves the page as it was. Start page opens a blank tab with the
+  start card at once, where macOS shows the start page and makes the tab on Enter.
+- Settings › Appearance has the accent picker (the theme's own accent, then `browser_core::prefs::ACCENTS`,
+  stored by name as on macOS and applied over the theme's tokens with `prefs::accented`).
 - A blocked pop-up's notice offers "Open in New Tab" for an http(s) address, as on macOS: the
   button opens it once as the user's own load, in the opener's space; the page alone cannot, nor
   can it replace a notice that already offers an action (`browser::tests`). Evidence:

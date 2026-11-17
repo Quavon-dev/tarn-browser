@@ -23,11 +23,11 @@ fn a_fresh_window_opens_one_blank_tab() {
 fn typed_addresses_load_with_a_new_sequence_and_the_site_level() {
     let (_dir, mut b) = browser();
     let key = active(&b);
-    b.navigate("example.com");
+    b.navigate_in("example.com", false);
     let first = b.pages[&key].load.clone().unwrap();
     assert_eq!(first.0, "https://example.com/");
     assert!(b.pages[&key].loading, "a load the shell starts shows as loading before it commits");
-    b.navigate("example.com");
+    b.navigate_in("example.com", false);
     assert!(b.pages[&key].load.as_ref().unwrap().1 > first.1, "the same URL loads again");
     b.on_event(key, "committed", &json!({ "url": "https://example.com/", "title": "", "canGoBack": false }));
     b.set_site_level(Some(ShieldLevel::Lockdown));
@@ -48,7 +48,7 @@ fn store_links_install_only_from_a_profile_tab_outside_lockdown() {
     assert!(!b.store_link_allowed(key), "from a Lockdown site");
     b.set_site_level(None);
     assert!(b.store_link_allowed(key));
-    b.navigate("https://extensions.tarnbrowser.com/install/helper");
+    b.navigate_in("https://extensions.tarnbrowser.com/install/helper", false);
     assert!(b.pages[&key].loading);
     b.on_event(key, browser_core::extensions::STORE_EVENT, &json!({ "id": "helper" }));
     assert!(!b.pages[&key].loading, "the cancelled load stops");
@@ -58,7 +58,7 @@ fn store_links_install_only_from_a_profile_tab_outside_lockdown() {
     assert!(b.pages[&popup].link, "a page's pop-up loads as the page's link, not as the user's own load");
     let view = crate::snapshot::snapshot(&b, true).views.into_iter().find(|v| v.key == popup).unwrap();
     assert!(view.link);
-    b.navigate("https://extensions.tarnbrowser.com/install/helper");
+    b.navigate_in("https://extensions.tarnbrowser.com/install/helper", false);
     assert!(!b.pages[&popup].link, "the user's own load in that tab is theirs");
     b.activate(key);
     b.private_space();

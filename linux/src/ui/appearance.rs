@@ -47,6 +47,9 @@ impl Host for Looks {
     fn desktop(self) -> bool {
         true
     }
+    fn accent_and_motion(self) -> bool {
+        true
+    }
 }
 
 pub(super) fn pane(ui: Ui) -> AnyElement {
