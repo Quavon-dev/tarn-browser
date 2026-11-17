@@ -107,13 +107,17 @@ fn sidebar_toggle(ui: Ui) -> impl IntoElement {
     })
 }
 
+#[cfg(target_os = "android")]
+const PRIVATE_MARK: &str = "Private space: deleted when it closes";
+#[cfg(not(target_os = "android"))]
+const PRIVATE_MARK: &str = "Private space: kept in memory only";
+
 fn private_mark(ui: Ui) -> impl IntoElement {
     let state = computed(move || ui.read(|s| (s.model.current_space().is_some_and(|c| c.private), s.model.burner_shown(), s.sidebar_open)));
     dynamic(move || {
         let (private, burner, open) = state.get();
         (private && !open).then(|| {
-            let (glyph, name) =
-                if burner { (glyphs::FLAME, "Burner tab: nothing is kept after it closes") } else { (glyphs::HAND, "Private space: kept in memory only") };
+            let (glyph, name) = if burner { (glyphs::FLAME, "Burner tab: nothing is kept after it closes") } else { (glyphs::HAND, PRIVATE_MARK) };
             view()
                 .w(px(tarn_nsh_shared::controls::target_size()))
                 .h(px(tarn_nsh_shared::controls::target_size()))
