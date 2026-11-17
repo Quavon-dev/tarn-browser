@@ -75,7 +75,7 @@ fn run(ui: Ui, action: Action) {
         Action::ToggleReader => ui.act(|s| if s.offers_reader() { s.open_reader() } else { Vec::new() }),
         Action::ShowHistory => ui.toggle(Screen::History),
         Action::ToggleDownloads => ui.toggle(Screen::Downloads),
-        Action::NewSpace => ui.toggle(Screen::Spaces),
+        Action::NewSpace => ui.toggle(Screen::SpaceNew),
         Action::PrivateSpace => {
             ui.act(|s| {
                 if s.model.private() {

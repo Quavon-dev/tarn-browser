@@ -57,6 +57,21 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     assert!(card.origin.y.0 + card.size.height.0 <= plus.origin.y.0, "the space card opens above +: {plus:?} {card:?}");
     app.press_key("escape").unwrap();
     app.wait_for_gone("Create Space", WAIT).unwrap();
+    app.press_key("mod+shift+s").unwrap();
+    app.wait_for("Create Space").unwrap();
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("Create Space", WAIT).unwrap();
+    app.press_key("mod+s").unwrap();
+    app.wait_for_gone("label:New Folder", WAIT).unwrap();
+    app.press("label:Home").unwrap();
+    app.press("label:New Space…").unwrap();
+    app.wait_for("Create Space").unwrap();
+    let (toggle, card) = (bounds_of(&app, "label:Show Sidebar"), bounds(&app, "popover"));
+    assert!(card.origin.y.0 >= toggle.origin.y.0 + toggle.size.height.0, "with the sidebar hidden the card hangs from the sidebar toggle: {toggle:?} {card:?}");
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("Create Space", WAIT).unwrap();
+    app.press_key("mod+s").unwrap();
+    app.wait_for("label:New Folder").unwrap();
 
     app.press("label:New Folder").unwrap();
     app.wait_for("label:Folder 1").unwrap();

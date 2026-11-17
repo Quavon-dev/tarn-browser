@@ -45,36 +45,38 @@ pub(in crate::ui) fn start_pills(ui: Ui) -> impl IntoElement {
     let menu = move |space: bool| {
         dynamic(move || {
             (open.get() == Some(space)).then(|| {
-                let items: Vec<AnyElement> = if space {
-                    let (ix, private) = ui.read(|s| (s.model.space_ix, s.model.current_space().is_none_or(|c| c.private)));
-                    vec![
-                        menu_item("Edit Space…", !private, move || {
-                            open.set(None);
-                            ui.show(Screen::SpaceEdit(ix));
-                        })
-                        .into_element(),
-                        menu_item("New Space…", true, move || {
-                            open.set(None);
-                            ui.show(Screen::SpaceNew);
-                        })
-                        .into_element(),
-                    ]
-                } else {
-                    let current = ui.read_data(|s| s.default_level());
-                    ShieldLevel::ALL
-                        .into_iter()
-                        .map(|level| {
-                            menu_check(motto(level).0, level == current, move || {
+                let items: Vec<AnyElement> = untracked(|| {
+                    if space {
+                        let (ix, private) = ui.read(|s| (s.model.space_ix, s.model.current_space().is_none_or(|c| c.private)));
+                        vec![
+                            menu_item("Edit Space…", !private, move || {
                                 open.set(None);
-                                ui.act(|s| {
-                                    s.set_default_level(level);
-                                    Vec::new()
-                                });
+                                ui.show(Screen::SpaceEdit(ix));
                             })
-                            .into_element()
-                        })
-                        .collect()
-                };
+                            .into_element(),
+                            menu_item("New Space…", true, move || {
+                                open.set(None);
+                                ui.show(Screen::SpaceNew);
+                            })
+                            .into_element(),
+                        ]
+                    } else {
+                        let current = ui.read_data(|s| s.default_level());
+                        ShieldLevel::ALL
+                            .into_iter()
+                            .map(|level| {
+                                menu_check(motto(level).0, level == current, move || {
+                                    open.set(None);
+                                    ui.act(|s| {
+                                        s.set_default_level(level);
+                                        Vec::new()
+                                    });
+                                })
+                                .into_element()
+                            })
+                            .collect()
+                    }
+                });
                 view().absolute().right(px(0.)).bottom(px(0.)).w(px(0.)).h(px(0.)).child(
                     nsh_base::popover()
                         .open(move || Some(true))
@@ -121,7 +123,8 @@ pub(super) fn popovers(ui: Ui) -> impl IntoElement {
     let sidebar = computed(move || ui.read_data(|s| s.sidebar_open));
     dynamic(move || {
         let screen = ui.screen.get();
-        let open = (screen == Screen::Downloads).then(|| sidebar.get());
+        let open = matches!(screen, Screen::Downloads | Screen::SpaceNew | Screen::SpaceEdit(_)).then(|| sidebar.get());
+        let sidebar_shown = open == Some(true);
         untracked(|| {
             let (anchor, width, body) = match screen {
                 Screen::Shield => (Anchor::Below(ui.popovers.shield, Align::Center), pop::SITE_WIDTH, site_popover(ui).into_element()),
@@ -131,7 +134,9 @@ pub(super) fn popovers(ui: Ui) -> impl IntoElement {
                 Screen::SpaceNew | Screen::SpaceEdit(_) => {
                     let editing = if let Screen::SpaceEdit(ix) = screen { Some(ix) } else { None };
                     let card = scroll().max_h(px(SPACE_HEIGHT)).child(view().p_3().child(sheets::space_card(ui, editing)));
-                    (Anchor::Above(ui.popovers.new_space, Align::Start), pop::SPACE_WIDTH, card.into_element())
+                    let anchor =
+                        if sidebar_shown { Anchor::Above(ui.popovers.new_space, Align::Start) } else { Anchor::Below(ui.popovers.toggle, Align::Start) };
+                    (anchor, pop::SPACE_WIDTH, card.into_element())
                 }
                 _ => return None,
             };

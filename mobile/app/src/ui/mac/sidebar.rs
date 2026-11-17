@@ -447,7 +447,7 @@ fn tab_row(bar: Bar, key: TabKey, depth: usize) -> View {
         .ml(move || px(-CLOSE_GAP * f32::from(u8::from(!shown()))))
         .opacity(move || f32::from(u8::from(shown())))
         .child(glyph_button(glyphs::CLOSE, "Close Tab", Placement::Top, move || {
-            bar.slid.set(ui.read(|s| bar::tabs_below(&s.model, key).first().copied()));
+            bar.slid.set(if hovered.get_untracked() { bar.layout.with_untracked(|l| bar::slides_under(l, key)) } else { None });
             act(ui, |s| s.close_tab(key))
         }));
     let row = pressable_view()
@@ -640,6 +640,7 @@ fn rows(bar: Bar, list: impl Fn() -> Vec<Row> + 'static) -> AnyElement {
 
 fn folder_row(bar: Bar, id: Id, depth: usize) -> View {
     let ui = bar.ui;
+    let icon = computed(move || ui.read(|s| s.model.folders.iter().find(|f| f.id == id).map(|f| f.icon.clone()).unwrap_or_default()));
     let name = move || ui.read(|s| s.model.folders.iter().find(|f| f.id == id).map(|f| f.name.clone()).unwrap_or_default());
     let open = move || ui.read(|s| s.model.expanded.contains(&id));
     let header = pressable_view()
@@ -655,7 +656,7 @@ fn folder_row(bar: Bar, id: Id, depth: usize) -> View {
         .hover(|s| s.bg(Theme::hover()))
         .active(|s| s.bg(Theme::pressed()))
         .child(view().w(px(GLYPH)).h(px(GLYPH)).items_center().justify_center().text_color(Theme::space_label).child(dynamic(move || {
-            let stored = ui.read(|s| s.model.folders.iter().find(|f| f.id == id).map(|f| f.icon.clone()).unwrap_or_default());
+            let stored = icon.get();
             chosen_icon(&stored, 14.).unwrap_or_else(|| glyphs::icon(glyphs::FOLDER, 14.).into_element())
         })))
         .child(text(name).text_size(px(TEXT)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::text).truncate())

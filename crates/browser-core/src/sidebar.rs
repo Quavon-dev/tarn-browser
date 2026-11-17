@@ -214,6 +214,17 @@ pub fn drop_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabK
     true
 }
 
+pub fn slides_under(sidebar: &Sidebar, closed: TabKey) -> Option<TabKey> {
+    let lists = sidebar.groups.iter().map(|(_, rows)| rows).chain([&sidebar.loose]);
+    lists.into_iter().find_map(|rows| {
+        let at = rows.iter().position(|r| r.kind == RowKind::Tab(closed))?;
+        match rows.get(at + 1).map(|r| &r.kind) {
+            Some(RowKind::Tab(next)) => Some(Some(*next)),
+            _ => Some(None),
+        }
+    })?
+}
+
 pub fn saved_share(transfers: impl IntoIterator<Item = (u64, Option<u64>)>) -> Option<f32> {
     let (done, total) = transfers.into_iter().filter_map(|(done, total)| Some((done, total?))).fold((0, 0), |(d, s), (done, total)| (d + done, s + total));
     (total > 0).then(|| (done as f64 / total as f64) as f32)
@@ -385,6 +396,18 @@ mod tests {
         assert!(again.undo.is_none(), "a second run changes nothing");
         assert!(undo_sort(&mut model, &core, &sorted.undo.unwrap()));
         assert!(model.groups.is_empty(), "Undo Sort removes the group it made");
+    }
+
+    #[test]
+    fn only_the_next_row_of_the_same_list_slides_under_a_closed_tab() {
+        let key = |id| TabKey { private: false, id };
+        let row = |id| Row { kind: RowKind::Tab(key(id)), depth: 0 };
+        let bar = Sidebar { groups: vec![(9, vec![row(1), row(2)])], loose: vec![row(3), row(4)], ..Sidebar::default() };
+        assert_eq!(slides_under(&bar, key(1)), Some(key(2)));
+        assert_eq!(slides_under(&bar, key(2)), None, "the last tab of a group leaves the group header under the pointer");
+        assert_eq!(slides_under(&bar, key(3)), Some(key(4)));
+        assert_eq!(slides_under(&bar, key(4)), None);
+        assert_eq!(slides_under(&bar, key(7)), None);
     }
 
     #[test]
