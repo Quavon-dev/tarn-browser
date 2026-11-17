@@ -168,7 +168,8 @@ pub fn file_read_access(url: &Url) -> Option<std::path::PathBuf> {
     let folder = file.parent()?;
     let real = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
     let home = std::env::home_dir().into_iter().flat_map(|home| [home.canonicalize().ok(), Some(home)]).flatten();
-    let broad = volume_root(&real) || home.into_iter().any(|home| home.starts_with(folder) || home.starts_with(&real));
+    let holds_home = |home: std::path::PathBuf| home.ancestors().any(|a| a == folder || a == real || same_file(a, &real));
+    let broad = volume_root(&real) || home.into_iter().any(holds_home);
     Some(if broad { file } else { folder.to_path_buf() })
 }
 
@@ -185,8 +186,24 @@ fn volume_root(folder: &std::path::Path) -> bool {
     }
 }
 
+/// The same file or folder under two paths, such as a firmlink (`/System/Volumes/Data/Users`).
+fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(a).ok().zip(std::fs::metadata(b).ok()).is_some_and(|(a, b)| (a.dev(), a.ino()) == (b.dev(), b.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        a == b
+    }
+}
+
+/// A local path without a host, and on Windows without an alternate data stream (`a.html:s`).
 fn local_path(url: &Url) -> Option<std::path::PathBuf> {
-    (url.scheme() == "file" && url.host().is_none()).then(|| url.to_file_path().ok()).flatten()
+    let path = (url.scheme() == "file" && url.host().is_none()).then(|| url.to_file_path().ok()).flatten()?;
+    let stream = cfg!(windows) && path.components().any(|c| matches!(c, std::path::Component::Normal(name) if name.to_string_lossy().contains(':')));
+    (!stream).then_some(path)
 }
 
 /// Whether a main-frame navigation is the user's: a load or history step the shell started, or a
@@ -595,12 +612,25 @@ mod tests {
         assert!(!file_subresource_allowed(&u("file://evil.test/s/a.png"), Some(&top)), "a host is never asked");
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn an_alternate_data_stream_is_never_read() {
+        let stream = Url::parse("file:///C:/d/a.html%3As").unwrap();
+        assert_eq!(file_read_access(&stream), None);
+        assert!(!file_subresource_allowed(&stream, Some(&Url::parse("file:///C:/d/index.html").unwrap())));
+    }
+
     #[test]
     fn a_file_in_the_home_folder_or_a_root_reads_only_itself() {
         let home = std::env::home_dir().unwrap();
         let root = if cfg!(windows) { "C:\\page.html" } else { "/page.html" };
         for file in [home.join("page.html"), std::path::PathBuf::from(root)] {
             assert_eq!(file_read_access(&Url::from_file_path(&file).unwrap()), Some(file));
+        }
+        #[cfg(target_os = "macos")]
+        if home.starts_with("/Users") {
+            let firmlink = std::path::Path::new("/System/Volumes/Data").join(home.strip_prefix("/").unwrap()).join("page.html");
+            assert_eq!(file_read_access(&Url::from_file_path(&firmlink).unwrap()), Some(firmlink), "the home folder by another path");
         }
         let deep = home.join("Sites/blog/index.html");
         assert_eq!(file_read_access(&Url::from_file_path(&deep).unwrap()), Some(home.join("Sites/blog")));

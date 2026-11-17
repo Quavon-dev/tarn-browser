@@ -110,6 +110,22 @@ fn a_slept_file_tab_wakes_as_open_file() {
 }
 
 #[test]
+fn a_burner_shows_a_second_file_in_a_fresh_view() {
+    let (_dir, mut shell) = open();
+    shell.open_burner();
+    let key = active(&shell);
+    let first = browser_core::open_file::stage(&shell.opened_dir(), "a.html", b"a").unwrap();
+    shell.open_file(&first);
+    let born = shell.model.lifecycle.born(key);
+    let second = browser_core::open_file::stage(&shell.opened_dir(), "b.html", b"b").unwrap();
+    shell.open_file(&second);
+    assert_eq!(active(&shell), key);
+    assert!(shell.model.lifecycle.born(key).is_some() && shell.model.lifecycle.born(key) != born);
+    let load = shell.views().into_iter().find(|v| v.key == key).and_then(|v| v.load).unwrap();
+    assert_eq!((load.url.as_str(), load.file), (second.as_str(), true));
+}
+
+#[test]
 fn burning_deletes_the_burners_opened_files() {
     let (_dir, mut shell) = open();
     shell.open_burner();

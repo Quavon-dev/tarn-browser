@@ -619,19 +619,27 @@ impl Browser {
         if self.command_mode.is_some() {
             self.close_command(window, cx);
         }
+        if !self.model.burner_shown() {
+            // WebKit, whose read grant keeps an opened page to its folder (verified on macOS).
+            return self.new_file_tab(&url, cfg!(target_os = "macos").then_some(WebEngine::WebKit), window, cx);
+        }
         // A burner keeps its one tab, which shows the file in place of its page.
-        let key = if self.model.burner_shown() {
-            self.model.active
-        } else {
-            let before = self.model.active;
-            self.new_tab(&url, window, cx);
-            self.model.active.filter(|k| Some(*k) != before)
-        };
-        let Some(key) = key else { return };
-        self.pages.entry(key).or_default().opened_file = Some(url.clone());
-        if let Some(view) = self.active_view() {
+        let Some(key) = self.model.active else { return };
+        let earlier = self.pages.entry(key).or_default().opened_file.replace(url.clone());
+        if earlier.is_some() {
+            // Its view would keep the read grant of the file it showed before.
+            self.rebuild_view_loading(key, &url, None, None, cx);
+        } else if let Some(view) = self.active_view() {
             view.load_file(&url);
         }
+    }
+
+    /// A new tab showing a file the user opened, which `wake` loads with `load_file`.
+    pub(crate) fn new_file_tab(&mut self, url: &Url, web_engine: Option<WebEngine>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(key) = self.model.new_tab(&self.core, url.as_str(), web_engine.or(self.saved.web_engine)) else { return };
+        self.pages.entry(key).or_default().opened_file = Some(url.clone());
+        self.reload_space();
+        self.activate(key, window, cx);
     }
 
     /// Another non-private space whose rule claims new tabs of `url`; none from a private space.
@@ -716,7 +724,15 @@ impl Browser {
                 taken = b.give_up_view(key, window, cx);
             }
         });
-        let (view, page) = taken?;
+        let Some((view, page)) = taken else {
+            // A view still held there was hibernated; the tab's opened file comes along all the same.
+            let mut opened = None;
+            crate::shared::others(cx, |b, _, _| opened = opened.take().or_else(|| b.pages.get_mut(&key).and_then(|p| p.opened_file.take())));
+            if opened.is_some() {
+                self.pages.entry(key).or_default().opened_file = opened;
+            }
+            return None;
+        };
         let view = Rc::new(view.rehost(&host, self.sink(key)));
         view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
         self.views.insert(key, view.clone());
@@ -1109,6 +1125,8 @@ impl Browser {
                     if let Some(url) = url {
                         match &as_link {
                             _ if opened => view.load_file(&url),
+                            // Says why a file tab no Open File vouches for stays empty.
+                            _ if url.scheme() == "file" => view.load(&url),
                             _ if nav_policy::decide(&url, Source::Sync) != Decision::Allow => {}
                             Some(from) => view.load_link(&url, from.as_ref()),
                             None => view.load(&url),
@@ -2151,7 +2169,7 @@ impl Browser {
                     view.hand_over(storage);
                 }
                 match &link {
-                    _ if self.pages.get(&key).and_then(|p| p.opened_file.as_ref()) == Some(url) => view.load_file(url),
+                    None if self.pages.get(&key).and_then(|p| p.opened_file.as_ref()) == Some(url) => view.load_file(url),
                     Some(opener) => view.load_link(url, opener.as_ref()),
                     None => view.load(url),
                 }

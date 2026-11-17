@@ -383,7 +383,11 @@ impl<D: Platform> Shell<D> {
     /// Shows a file the user picked, staged by `browser_core::open_file::stage`, in a new tab.
     pub fn open_file(&mut self, url: &Url) {
         let Some(key) = self.new_tab(None) else { return };
-        self.opened_files.insert(key, url.to_string());
+        // A burner's one view would keep the read grant of the file it showed before.
+        if self.opened_files.insert(key, url.to_string()).is_some() {
+            self.unmount(key);
+            self.activate(key);
+        }
         self.load_in(key, url.as_str(), None);
     }
 

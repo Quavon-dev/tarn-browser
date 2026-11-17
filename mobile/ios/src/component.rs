@@ -472,12 +472,16 @@ impl Inner {
                 self.shell_history.set(true);
                 web.go_forward();
             }
-            "reload" => {
-                self.shell_history.set(true);
-                if web.reload().is_none() {
-                    self.shell_history.set(false);
+            "reload" => match web.current_url().filter(|u| self.opened_files.borrow().contains(u)) {
+                // A new content process needs the opened file's read grant again.
+                Some(url) => self.load(&url, None, true),
+                None => {
+                    self.shell_history.set(true);
+                    if web.reload().is_none() {
+                        self.shell_history.set(false);
+                    }
                 }
-            }
+            },
             "stop" => web.stop_loading(),
             "zoom" => {
                 self.zoom.set(zoom::clamp(args.get("factor").and_then(Value::as_f64).unwrap_or(1.0)));

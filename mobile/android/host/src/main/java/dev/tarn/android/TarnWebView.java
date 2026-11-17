@@ -1141,7 +1141,11 @@ final class TarnWebView implements NshComponent {
         public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
             if (view != web) return true;
             Page current = top;
-            if (current != null) loadUrl = current.url();
+            if (current != null) {
+                loadUrl = current.url();
+                loadOpener = null;
+                loadFile = isFile(loadUrl) && fileFolder != null;
+            }
             tearDown();
             appliedSeq = null;
             emit("crashed");
