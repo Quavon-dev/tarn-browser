@@ -8,7 +8,7 @@ use browser_core::theme_fetch::{self as fetch, shown};
 use nsh_base::input;
 use nsh_core::picker::FilePickRequest;
 use nsh_core::prelude::*;
-use shield::catalog::{Entry, Index};
+use shield::catalog::Index;
 use store::{Id, InstalledExtension, Store};
 
 use crate::controls::{accent_pill, group, label, pill, secure_button, switch_row};
@@ -45,7 +45,7 @@ struct State {
     choice: Option<(String, Vec<Asset>)>,
     catalog: Option<Index>,
     armed: Option<String>,
-    offer: Option<(TabKey, Entry)>,
+    offer: Option<install::StoreOffer>,
     confirmed: Option<String>,
 }
 
@@ -220,7 +220,7 @@ impl<H: Host> Pane<H> {
         });
     }
 
-    fn store_check(self, tab: TabKey, busy: bool, step: impl FnOnce(StoreContext, StoreCatalog) -> Result<Box<Entry>, String>) -> Result<Box<Entry>, String> {
+    fn store_check<R>(self, tab: TabKey, busy: bool, step: impl FnOnce(StoreContext, StoreCatalog) -> R) -> R {
         let allowed = self.host.profile().is_some() && self.host.store_link_allowed(tab);
         let context = StoreContext { allowed, configured: install::catalog_configured(), downloads: self.host.with_store(fetch::downloads_on), busy };
         let (catalog, installed) = (self.state.with_untracked(|s| s.catalog.clone()), self.rows());
@@ -229,7 +229,7 @@ impl<H: Host> Pane<H> {
     }
 
     fn confirm_offer(self) {
-        let Some((tab, offered)) = self.state.with_untracked(|s| s.offer.clone()) else { return };
+        let Some(install::StoreOffer { tab, entry: offered }) = self.state.with_untracked(|s| s.offer.clone()) else { return };
         self.set(|s| s.offer = None);
         let busy = self.state.with_untracked(|s| s.busy || s.pending.is_some() || s.choice.is_some());
         match self.store_check(tab, busy, |context, catalog| install::store_confirm(&offered, context, catalog)) {
@@ -330,7 +330,7 @@ fn consent<H: Host>(pane: Pane<H>) -> Option<View> {
 }
 
 fn store_offer<H: Host>(pane: Pane<H>) -> Option<View> {
-    let (title, lines) = pane.get(|s| s.offer.as_ref().map(|(_, entry)| install::store_sheet(entry)))?;
+    let (title, lines) = pane.get(|s| s.offer.as_ref().map(|o| install::store_sheet(&o.entry)))?;
     let lines = lines.into_iter().map(|l| text(l).text_size(px(TEXT_SMALL)).text_color(Secure::muted()).into_element());
     Some(
         view().pt_3().child(
@@ -498,8 +498,8 @@ pub fn extensions<H: Host>(host: H) -> AnyElement {
 
 pub fn store_link<H: Host>(host: H, tab: TabKey, id: &str) -> Result<(), String> {
     let pane = opened(host);
-    let busy = pane.state.with_untracked(|s| s.busy || s.pending.is_some() || s.choice.is_some() || s.offer.is_some());
-    let entry = pane.store_check(tab, busy, |context, catalog| install::store_step(id, context, catalog))?;
-    pane.set(|s| s.offer = Some((tab, *entry)));
+    let (mut slot, busy) = pane.state.with_untracked(|s| (s.offer.clone(), s.busy || s.pending.is_some() || s.choice.is_some()));
+    pane.store_check(tab, busy, |context, catalog| install::offer_store_link(&mut slot, tab, id, context, catalog))?;
+    pane.set(|s| s.offer = slot);
     Ok(())
 }

@@ -9,7 +9,7 @@ use gpui::{
     prelude::FluentBuilder, px,
 };
 use shield::ShieldLevel;
-use shield::catalog::{self, Entry, Index};
+use shield::catalog::{self, Index};
 use store::{Id, InstalledExtension};
 use ui::controls::{icon_button, tooltip};
 use ui::icon::Icon;
@@ -147,7 +147,7 @@ pub struct Extensions {
     repin: HashSet<String>,
     /// Check for Updates runs once the catalog it asked for arrives.
     check_after_catalog: bool,
-    store_offer: Option<(TabKey, Entry)>,
+    store_offer: Option<install::StoreOffer>,
     store_confirmed: Option<(u64, String)>,
     catalog: Option<Index>,
 }
@@ -1019,15 +1019,13 @@ impl Browser {
         if !self.core.admit_store_link(std::time::Instant::now()) {
             return;
         }
-        let offer = {
+        let (mut slot, busy) = {
             let ext = self.core.extensions.borrow();
-            let busy = ext.busy.is_some() || ext.pending.is_some() || ext.choice.is_some() || ext.store_offer.is_some();
-            drop(ext);
-            self.store_check(key, busy, |context, catalog| install::store_step(&id, context, catalog))
+            (ext.store_offer.clone(), ext.busy.is_some() || ext.pending.is_some() || ext.choice.is_some())
         };
-        match offer {
-            Ok(entry) => {
-                self.core.extensions.borrow_mut().store_offer = Some((key, *entry));
+        match self.store_check(key, busy, |context, catalog| install::offer_store_link(&mut slot, key, &id, context, catalog)) {
+            Ok(()) => {
+                self.core.extensions.borrow_mut().store_offer = slot;
                 self.open_settings_pane(crate::settings::SettingsPane::Extensions, window, cx);
             }
             Err(why) => self.notify_offer(key, why, None),
@@ -1035,7 +1033,7 @@ impl Browser {
         cx.notify();
     }
 
-    fn store_check(&self, key: TabKey, busy: bool, step: impl FnOnce(StoreContext, StoreCatalog) -> Result<Box<Entry>, String>) -> Result<Box<Entry>, String> {
+    fn store_check<R>(&self, key: TabKey, busy: bool, step: impl FnOnce(StoreContext, StoreCatalog) -> R) -> R {
         let page = self.views.get(&key).and_then(|v| v.url());
         let profile = self.model.profile_of(&self.core, key).filter(|p| self.current_profile_id() == Some(*p));
         let allowed = self.extensions_allowed() && profile.is_some_and(|p| self.core.store_link_allowed(key.private, p, page.as_ref()));
@@ -1046,7 +1044,7 @@ impl Browser {
     }
 
     pub fn store_sheet(&self) -> Option<(String, Vec<String>)> {
-        self.core.extensions.borrow().store_offer.as_ref().map(|(_, entry)| install::store_sheet(entry))
+        self.core.extensions.borrow().store_offer.as_ref().map(|o| install::store_sheet(&o.entry))
     }
 
     pub fn cancel_store_offer(&mut self, cx: &mut Context<Self>) {
@@ -1055,7 +1053,7 @@ impl Browser {
     }
 
     pub fn confirm_store_offer(&mut self, cx: &mut Context<Self>) {
-        let Some((key, offered)) = self.core.extensions.borrow_mut().store_offer.take() else { return };
+        let Some(install::StoreOffer { tab: key, entry: offered }) = self.core.extensions.borrow_mut().store_offer.take() else { return };
         let busy = {
             let ext = self.core.extensions.borrow();
             ext.busy.is_some() || ext.pending.is_some() || ext.choice.is_some()

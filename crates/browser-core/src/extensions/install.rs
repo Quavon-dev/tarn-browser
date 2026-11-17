@@ -399,6 +399,18 @@ pub fn store_step(id: &str, context: StoreContext, catalog: StoreCatalog) -> Res
     Ok(Box::new(entry.clone()))
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct StoreOffer {
+    pub tab: crate::tabs::TabKey,
+    pub entry: Entry,
+}
+
+pub fn offer_store_link(slot: &mut Option<StoreOffer>, tab: crate::tabs::TabKey, id: &str, context: StoreContext, catalog: StoreCatalog) -> Result<(), String> {
+    let entry = store_step(id, context, catalog)?;
+    *slot = Some(StoreOffer { tab, entry: *entry });
+    Ok(())
+}
+
 pub fn store_confirm(offered: &Entry, context: StoreContext, catalog: StoreCatalog) -> Result<Box<Entry>, String> {
     let entry = store_step(&offered.id, context, catalog)?;
     if *entry != *offered {
@@ -610,6 +622,23 @@ mod tests {
         assert_eq!(store_confirm(&offered, ok, stale), Err(STORE_NEEDS_CATALOG.to_owned()));
         let grown = Entry { hosts: vec!["*://*.bank.test/*".into()], ..offered.clone() };
         assert_eq!(store_confirm(&grown, ok, fresh), Err(STORE_CHANGED.to_owned()), "what was shown is what installs");
+    }
+
+    #[test]
+    fn a_new_store_link_replaces_an_unanswered_confirmation_and_only_a_running_install_blocks() {
+        let now = 1_900_000_000;
+        let index = store_index(now);
+        let none = BTreeSet::new();
+        let ok = StoreContext { allowed: true, configured: true, downloads: true, busy: false };
+        let catalog = StoreCatalog { index: Some(&index), now, revoked: &none, installed: &[] };
+        let (first, second) = (crate::tabs::TabKey { private: false, id: 1 }, crate::tabs::TabKey { private: false, id: 2 });
+        let mut slot = None;
+        offer_store_link(&mut slot, first, "helper", ok, catalog).unwrap();
+        offer_store_link(&mut slot, second, "pulled", ok, catalog).unwrap();
+        assert_eq!(slot.as_ref().map(|o| (o.tab, o.entry.id.as_str())), Some((second, "pulled")), "the unanswered one is replaced");
+        assert_eq!(offer_store_link(&mut slot, first, "helper", StoreContext { busy: true, ..ok }, catalog), Err(STORE_BUSY.to_owned()));
+        assert_eq!(offer_store_link(&mut slot, first, "missing", ok, catalog), Err(STORE_UNKNOWN.to_owned()));
+        assert_eq!(slot.map(|o| o.entry.id), Some("pulled".to_owned()), "a refused link leaves the confirmation shown");
     }
 
     #[test]
