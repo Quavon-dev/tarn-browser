@@ -372,6 +372,11 @@ impl Model {
         self.spaces.iter().find(|s| s.private == key.private && s.space.id == space_id).map(|s| s.space.profile_id)
     }
 
+    pub fn active_profile<D: WebsiteData>(&self, core: &Core<D>) -> Option<(bool, Id)> {
+        let key = self.active?;
+        Some((key.private, self.profile_of(core, key)?))
+    }
+
     /// Whether the space at `ix` belongs to the profile, and the side, of the tab.
     pub fn same_profile<D: WebsiteData>(&self, core: &Core<D>, key: TabKey, ix: usize) -> bool {
         self.spaces.get(ix).is_some_and(|s| holds(s, key, self.profile_of(core, key)))
@@ -464,13 +469,11 @@ pub fn duplicates(tabs: &[Tab], active: Option<Id>, url: impl Fn(&Tab) -> String
 }
 
 /// The narrowest a tile gets before the tile grid starts another row.
-pub const TILE_MIN_WIDTH: f32 = 40.;
+pub const TILE_MIN_WIDTH: f32 = 46.;
 
-/// Columns of the tile grid for `count` tiles in `width` points with `gap` between them: one row
-/// while every tile fits at `TILE_MIN_WIDTH`, else as few rows as fit, filled evenly.
-pub fn tile_columns(count: usize, width: f32, gap: f32) -> usize {
-    let fit = (((width + gap) / (TILE_MIN_WIDTH + gap)).floor() as usize).max(1);
-    if count <= fit { count.max(1) } else { count.div_ceil(count.div_ceil(fit)) }
+pub fn tile_grid(width: f32, gap: f32) -> (usize, f32) {
+    let columns = (((width + gap) / (TILE_MIN_WIDTH + gap)).floor() as usize).max(1);
+    (columns, ((width - (columns - 1) as f32 * gap) / columns as f32).floor().max(0.))
 }
 
 /// The tab next to `closed` in `order`, the previous one first when `previous_first` is set.
@@ -739,13 +742,12 @@ mod tests {
     }
 
     #[test]
-    fn tiles_share_one_row_while_they_fit_and_then_fill_rows_evenly() {
-        use super::tile_columns;
-        let width = 238.;
-        assert_eq!([0, 1, 2, 3, 4, 5].map(|n| tile_columns(n, width, 8.)), [1, 1, 2, 3, 4, 5]);
-        assert_eq!([6, 7, 8, 9, 10, 11].map(|n| tile_columns(n, width, 8.)), [3, 4, 4, 5, 5, 4]);
-        assert_eq!(tile_columns(6, 400., 8.), 6, "a wide sidebar keeps them in one row");
-        assert_eq!(tile_columns(4, 10., 8.), 1, "a sidebar narrower than one tile stacks them");
+    fn tiles_are_squares_of_one_size_in_as_many_columns_as_fit() {
+        use super::tile_grid;
+        assert_eq!(tile_grid(244., 8.), (4, 55.));
+        assert_eq!(tile_grid(400., 8.), (7, 50.), "a wide sidebar fits more tiles a row");
+        assert_eq!(tile_grid(250., 8.), (4, 56.), "the side is whole points so a full row fits");
+        assert_eq!(tile_grid(10., 8.), (1, 10.), "a sidebar narrower than one tile stacks them");
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use gpui::{Animation, AnimationExt, AnyElement, ElementId, IntoElement, Styled, px};
@@ -9,6 +10,16 @@ pub const SLIDE: Duration = Duration::from_millis(280);
 /// How soon after a pop-up closed a click on its button does not reopen it: the click that took
 /// the focus from the pop-up has already closed it.
 pub const REOPEN_GUARD: Duration = Duration::from_millis(300);
+
+static REDUCE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_reduced(reduce: bool) {
+    REDUCE.store(reduce, Ordering::Relaxed);
+}
+
+pub fn reduced() -> bool {
+    REDUCE.load(Ordering::Relaxed)
+}
 
 /// A critically damped spring, rescaled so it ends exactly at 1.
 pub fn spring(t: f32) -> f32 {
@@ -45,13 +56,11 @@ pub fn pop_out<E: Styled>(element: E, t: f32) -> E {
     element.opacity(1. - t).relative().top(px(t * 5.))
 }
 
-/// A pop-up card's motion: in, it fades in while dropping a few points from its button; while
-/// `closing`, it fades out over `EXIT`, as long as its window waits before it goes.
 pub fn popover_motion<E: Styled + IntoElement + 'static>(element: E, id: &'static str, closing: bool, reduce: bool) -> AnyElement {
     if closing {
-        animate(element, (id, 1u64), EXIT, reduce, |e, t| e.opacity(1. - t))
+        animate(element, (id, 1u64), EXIT, reduce, |e, t| e.opacity(1. - t).top(px(5. * t)))
     } else {
-        animate(element, (id, 0u64), FADE, reduce, |e, t| e.opacity(t).top(px(-6. * (1. - t))))
+        animate(element, (id, 0u64), POP, reduce, |e, t| e.opacity(t).top(px(5. * (1. - t))))
     }
 }
 

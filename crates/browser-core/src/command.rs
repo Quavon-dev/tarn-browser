@@ -97,6 +97,132 @@ fn host_like(input: &str) -> Option<Url> {
     (has_tld || punycode_tld).then(|| Url::parse(&format!("https://{input}")).ok())?
 }
 
+pub const GLYPHS: &[(&str, &str)] = &[
+    ("Settings", "gear"),
+    ("Site Settings", "shield"),
+    ("New Tab Group", "group"),
+    ("New Tab", "plus"),
+    ("New Window", "app-window"),
+    ("New Space", "layout-grid"),
+    ("Edit Space", "pencil"),
+    ("Private Space", "hand"),
+    ("Burner Tab", "flame"),
+    ("New Burner Tab", "flame"),
+    ("New Profile", "user-plus"),
+    ("Edit Profile", "person"),
+    ("Bookmark", "bookmark"),
+    ("Remove Bookmark", "bookmark"),
+    ("Save for Later", "bookmark"),
+    ("Reading List", "bookmark"),
+    ("Reopen Closed Tab", "undo-2"),
+    ("Toggle Sidebar", "sidebar"),
+    ("Auto-Hide Sidebar", "sidebar"),
+    ("Compact Toolbar", "app-window"),
+    ("Close All Tabs", "close"),
+    ("Close Duplicate Tabs", "copy"),
+    ("Close Split View", "close"),
+    ("Show Library", "library"),
+    ("Save Space as Snapshot", "archive"),
+    ("Restore Snapshot", "history"),
+    ("Show Downloads", "circle-arrow-down"),
+    ("Reload", "reload"),
+    ("Copy Link", "link"),
+    ("Copy Clean Link", "link"),
+    ("Copy Title", "copy"),
+    ("Pin", "pin"),
+    ("Unpin", "pin"),
+    ("Add to Tiles", "layout-grid"),
+    ("Remove from Tiles", "layout-grid"),
+    ("Close Tab", "close"),
+    ("New Subfolder", "folder-plus"),
+    ("Rotate Layout", "reload"),
+    ("Remove from Split View", "arrow-up-right"),
+    ("Mute or Unmute Site", "volume-x"),
+    ("Show History", "history"),
+    ("Reset Tab Title", "undo-2"),
+    ("Return to Pinned URL", "undo-2"),
+    ("Set Pinned URL", "pin"),
+    ("Sleep Other Tabs", "moon"),
+    ("Show Memory Use", "gauge"),
+    ("Memory", "gauge"),
+    ("Zap Element", "zap"),
+    ("Open or Close Split View", "columns-2"),
+    ("Focus Next Pane", "chevron-right"),
+    ("Focus Previous Pane", "chevron-left"),
+    ("Swap Split Panes", "arrow-left-right"),
+    ("Rotate Split Layout", "reload"),
+    ("Remove Tab from Split View", "arrow-up-right"),
+    ("Reader", "book-open"),
+    ("Picture in Picture", "picture-in-picture-2"),
+    ("Take Screenshot", "camera"),
+    ("Save Page as PDF", "file-down"),
+    ("Print", "printer"),
+    ("Share", "share"),
+    ("Show QR Code", "qr-code"),
+    ("Find in Tabs", "search"),
+    ("Find", "search"),
+    ("Keyboard Shortcuts", "keyboard"),
+    ("Clean Up", "broom-sparkles"),
+    ("Clear Site Data", "trash"),
+    ("Open Link in New Tab", "app-window"),
+    ("Open in Split View", "split-add"),
+    ("Open in Private", "hand"),
+    ("Inspect", "code"),
+    ("Open", "arrow-up-right"),
+    ("Open in New Tab", "app-window"),
+    ("Duplicate", "copy"),
+    ("Copy Download Link", "link"),
+    ("Paste and Go", "arrow-up-right"),
+    ("Mute Site", "volume-x"),
+    ("Unmute Site", "volume-2"),
+    ("Rename", "pencil"),
+    ("Reset Title", "undo-2"),
+    ("Return to ", "undo-2"),
+    ("Close Other Tabs", "close"),
+    ("Close Tabs Below", "close"),
+    ("Close Group", "close"),
+    ("Unload Tab", "moon"),
+    ("Sleep Tab", "moon"),
+    ("New Group", "group"),
+    ("Ungroup", "group"),
+    ("Remove from Group", "group"),
+    ("New Folder", "folder-plus"),
+    ("Delete", "trash"),
+    ("Remove from List", "close"),
+    ("Restore in", "history"),
+    ("Customize in Settings", "gear"),
+    ("Show Tabs in Sidebar", "sidebar"),
+    ("Auto-Hide Tabs", "sidebar"),
+    ("Classic Toolbar", "app-window"),
+];
+
+pub fn glyph(label: &str) -> &'static str {
+    GLYPHS.iter().filter(|(start, _)| label.starts_with(start)).max_by_key(|(start, _)| start.len()).map_or("command", |(_, g)| g)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Section {
+    Commands,
+    Tabs,
+    Suggestions,
+    History,
+}
+
+impl Section {
+    pub fn title(self) -> &'static str {
+        match self {
+            Section::Commands => "COMMANDS",
+            Section::Tabs => "TABS",
+            Section::Suggestions => "SUGGESTIONS",
+            Section::History => "HISTORY",
+        }
+    }
+}
+
+pub fn section_headers(rows: &[Section]) -> Vec<Option<Section>> {
+    rows.iter().enumerate().map(|(ix, s)| (ix == 0 || rows[ix - 1] != *s).then_some(*s)).collect()
+}
+
 /// The longest host the address shows in full.
 pub const MAX_HOST: usize = 40;
 
@@ -209,6 +335,17 @@ pub fn rank_commands<'a>(query: &str, commands: impl IntoIterator<Item = (&'a st
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_header_starts_each_run_of_one_kind() {
+        use super::{Section::*, section_headers};
+        assert_eq!(
+            section_headers(&[Suggestions, Commands, Commands, Tabs, History, History]),
+            [Some(Suggestions), Some(Commands), None, Some(Tabs), Some(History), None]
+        );
+        assert_eq!(section_headers(&[Tabs, History, Tabs]), [Some(Tabs), Some(History), Some(Tabs)]);
+        assert!(section_headers(&[]).is_empty());
+    }
+
     use super::*;
 
     fn kind(s: &str) -> Option<Input> {
@@ -316,5 +453,67 @@ mod tests {
         assert_eq!(rank("> new space"), [2]);
         assert_eq!(rank(">"), [0, 1, 2, 3]);
         assert_eq!(rank(">hist"), [3]);
+    }
+
+    #[test]
+    fn commands_take_the_glyph_of_their_longest_matching_label() {
+        assert_eq!(glyph("New Tab Group"), "group");
+        assert_eq!(glyph("New Tab"), "plus");
+        assert_eq!(glyph("Copy Clean Link"), "link");
+        assert_eq!(glyph("Reload in Chromium"), "reload");
+        assert_eq!(glyph("Bookmark All Tabs"), "bookmark");
+        assert_eq!((glyph("Unpin"), glyph("Remove from Tiles"), glyph("New Burner Tab")), ("pin", "layout-grid", "flame"));
+        let labels: std::collections::HashSet<&str> = GLYPHS.iter().map(|(label, _)| *label).collect();
+        assert_eq!(labels.len(), GLYPHS.len(), "each label has one glyph");
+        assert_eq!((glyph("Close Tabs Below"), glyph("Close All Tabs")), ("close", "close"));
+        assert_eq!(glyph("Something New"), "command");
+    }
+
+    #[test]
+    fn every_fixed_context_menu_label_has_a_glyph() {
+        let labels = [
+            "Open",
+            "Duplicate",
+            "Reload in WebKit",
+            "Copy Link",
+            "Copy Clean Link",
+            "Bookmark Tab…",
+            "Remove Bookmark",
+            "Pin Tab",
+            "Unpin Tab",
+            "Add to Tiles",
+            "Remove from Tiles",
+            "Rename",
+            "Reset Title",
+            "Return to tarn.example",
+            "Set Pinned URL to Current Page",
+            "Close Tab",
+            "Unload Tab",
+            "Sleep Tab",
+            "Close Other Tabs",
+            "Close Tabs Below",
+            "New Group",
+            "Ungroup",
+            "Remove from Group",
+            "New Folder",
+            "Delete Folder…",
+            "Delete Space…",
+            "Edit Space…",
+            "Open in Split View",
+            "Rotate Layout",
+            "Close Split View",
+            "Paste and Go",
+            "Restore in New Space",
+            "Customize in Settings…",
+            "Show Tabs in Sidebar",
+            "Classic Toolbar",
+            "Compact Toolbar",
+            "Site Settings…",
+        ];
+        for label in labels {
+            assert_ne!(glyph(label), "command", "{label}");
+        }
+        assert_eq!(glyph("Open in New Tab"), "app-window");
+        assert_eq!(glyph("Delete…"), "trash");
     }
 }

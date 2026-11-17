@@ -7,11 +7,11 @@ use gpui::{
     Styled, Subscription, WeakEntity, Window, WindowHandle, canvas, div, point, prelude::FluentBuilder, px, size, svg,
 };
 use store::{Download, Id};
-use ui::controls::{POPOVER_INSET, button, empty, icon_button, list_row, open_popup, popover, tab_stop, text_lines, tooltip};
+use ui::controls::{POPOVER_INSET, empty, icon_button, list_row, open_popup, popover, tab_stop, text_lines, tooltip};
 use ui::icon::{Icon, icon};
 use ui::motion::{REOPEN_GUARD, popover_motion};
 use ui::text::bounded_title;
-use ui::theme::{TEXT, Theme};
+use ui::theme::{Secure, TEXT, TEXT_SMALL, Theme};
 
 use crate::ToggleDownloads;
 use crate::browser::Browser;
@@ -19,12 +19,12 @@ use crate::peek::remove_after_exit;
 use crate::prefs::Pref;
 use crate::sidebar::{HEADER_HEIGHT, SIDEBAR_MARGIN, TILE_GAP};
 
-const WIDTH: f32 = 280.;
+const WIDTH: f32 = 320.;
 const CARET: f32 = 10.;
 /// The caret's centre, from the popover's left edge.
 const CARET_AT: f32 = 160.;
 const HEADER: f32 = 40.;
-const ROW: f32 = 44.;
+const ROW: f32 = 48.;
 const FOOTER: f32 = 37.;
 const PAD: f32 = 6.;
 const MAX_ROWS: usize = 5;
@@ -38,6 +38,7 @@ pub struct Downloads {
     pub(crate) transfers: BTreeMap<(bool, Id, u64), Transfer>,
     pub(crate) changed: u64,
     closed: Option<Instant>,
+    pub(crate) button: std::rc::Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
 }
 
 impl Downloads {
@@ -55,9 +56,21 @@ pub(crate) struct Transfer {
     pub paused: bool,
 }
 
-/// Under the file name: its type.
-fn subtitle(d: &Download) -> String {
-    Path::new(&d.path).extension().map_or_else(|| "File".into(), |e| bounded_title(&e.to_string_lossy().to_lowercase()))
+fn subtitle(d: &Download, size: Option<u64>) -> (String, bool) {
+    match d.state.as_str() {
+        "failed" => ("Failed".into(), true),
+        "finished-unquarantined" => ("Not marked as downloaded · open only if you trust it".into(), true),
+        _ => {
+            let what = size
+                .map_or_else(|| Path::new(&d.path).extension().map_or_else(|| "File".into(), |e| bounded_title(&e.to_string_lossy().to_lowercase())), bytes);
+            (crate::browser::tab_host(&d.url).into_iter().fold(what, |line, host| format!("{line} · {host}")), false)
+        }
+    }
+}
+
+fn tile(name: &str, color: gpui::Rgba) -> gpui::Div {
+    let glyph = Icon::named(browser_core::glyphs::file_glyph(name)).unwrap_or(Icon::File);
+    div().size(px(28.)).flex_none().flex().items_center().justify_center().rounded(px(Theme::radius_row())).bg(Theme::control()).child(icon(glyph, 15., color))
 }
 
 /// Under the name of a download in progress: how much of it is saved.
@@ -180,7 +193,12 @@ impl Browser {
         let anchor = window.bounds();
         let saving = self.transfers().len();
         let rows = (self.downloads().len() + saving).min(MAX_ROWS) + saving.min(MAX_ROWS);
-        let button = SIDEBAR_MARGIN + self.sidebar_width - TILE_GAP - 14.;
+        let painted = self.downloads_popover.button.get();
+        let button = if painted.size.width > px(0.) && !self.peek.is_window(window) {
+            f32::from(painted.center().x)
+        } else {
+            SIDEBAR_MARGIN + self.sidebar_width - TILE_GAP - 14.
+        };
         let bounds = Bounds::new(
             point(anchor.origin.x + px(button - CARET_AT - POPOVER_INSET), anchor.origin.y + px(top)),
             size(px(WIDTH + 2. * POPOVER_INSET), px(CARET + card_height(rows) + POPOVER_INSET)),
@@ -209,6 +227,7 @@ pub fn header_button(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement
     let share = saved_share(b.transfers().iter().map(|(_, t)| t));
     icon_button("downloads", Icon::Download, true)
         .relative()
+        .child(crate::address::measure(b.downloads_popover.button.clone()))
         .when(!b.downloads_popover.is_open(), |d| d.tooltip(crate::shortcuts::tip("Downloads", &crate::ToggleDownloads)))
         .when(b.downloads_popover.is_open(), |d| d.bg(Theme::selected()))
         .when_some(share, |d, share| d.child(ring(share)))
@@ -222,7 +241,7 @@ pub struct DownloadsWindow {
     browser: WeakEntity<Browser>,
     main: WindowHandle<Browser>,
     focus: FocusHandle,
-    rows: Vec<Download>,
+    rows: Vec<(Download, Option<u64>)>,
     seen: Option<u64>,
     closing: bool,
     caret: bool,
@@ -273,25 +292,50 @@ impl DownloadsWindow {
         self.main.update(cx, |b, window, cx| b.open_library(crate::library::Page::Downloads, None, window, cx)).ok();
     }
 
-    fn row(&self, d: &Download) -> impl IntoElement {
+    fn row(&self, d: &Download, size: Option<u64>) -> impl IntoElement {
         let path = d.path.clone();
         let reveal = move || engine::reveal_in_finder(Path::new(&path));
         let button_reveal = reveal.clone();
         let name = Path::new(&d.path).file_name().map(|n| bounded_title(&n.to_string_lossy())).unwrap_or_default();
+        let (detail, warn) = subtitle(d, size);
+        let line = || div().overflow_hidden().whitespace_nowrap().text_ellipsis();
+        let trailing = if warn {
+            div().size(px(28.)).flex().flex_none().items_center().justify_center().child(icon(Icon::TriangleAlert, 15., Secure::warning())).into_any_element()
+        } else {
+            icon_button(("reveal", d.id as u64), Icon::FolderOpen, true)
+                .tooltip(tooltip(ui::controls::REVEAL, None))
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    button_reveal();
+                })
+                .into_any_element()
+        };
         tab_stop(list_row(("download", d.id as u64), false).h(px(ROW)).px_2())
             .on_click(move |_, _, _| reveal())
-            .child(icon(Icon::File, 20., Theme::muted()))
-            .child(text_lines(name, subtitle(d)))
-            .child(icon_button(("reveal", d.id as u64), Icon::Folder, true).tooltip(tooltip(ui::controls::REVEAL, None)).on_click(move |_, _, cx| {
-                cx.stop_propagation();
-                button_reveal();
-            }))
+            .child(tile(&name, if warn { Secure::warning() } else { Theme::muted() }))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(line().child(name))
+                    .child(line().text_size(px(TEXT_SMALL)).text_color(if warn { Secure::warning() } else { Theme::muted() }).child(detail)),
+            )
+            .child(trailing)
     }
 
     fn transfer_row(&self, id: u64, t: &Transfer, cx: &mut Context<Self>) -> impl IntoElement {
         let name = t.path.file_name().map(|n| bounded_title(&n.to_string_lossy())).unwrap_or_default();
         let paused = t.paused;
         let (glyph, label) = if paused { (Icon::Play, "Resume") } else { (Icon::Pause, "Pause") };
+        let share = t.total.filter(|total| *total > 0).map(|total| (t.done as f64 / total as f64).clamp(0., 1.) as f32);
+        let bar = div()
+            .h(px(3.))
+            .rounded_full()
+            .bg(Theme::separator())
+            .overflow_hidden()
+            .child(div().h_full().w(gpui::relative(share.unwrap_or(0.))).rounded_full().bg(if paused { Theme::faint() } else { Theme::accent() }));
         div()
             .h(px(ROW))
             .flex_none()
@@ -299,8 +343,17 @@ impl DownloadsWindow {
             .flex()
             .items_center()
             .gap_2p5()
-            .child(icon(Icon::ArrowDown, 20., if paused { Theme::muted() } else { Theme::accent() }))
-            .child(text_lines(name, transfer_subtitle(t)))
+            .child(tile(&name, if paused { Theme::muted() } else { Theme::accent() }))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(text_lines(name.clone(), transfer_subtitle(t)))
+                    .when(share.is_some(), |d| d.child(bar)),
+            )
             .child(tab_stop(icon_button(("transfer", id), glyph, true)).tooltip(tooltip(label, None)).on_click(cx.listener(move |this, _, _, cx| {
                 this.browser.update(cx, |b, _| b.pause_or_resume(id, paused)).ok();
             })))
@@ -311,11 +364,27 @@ impl Render for DownloadsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(browser) = self.browser.upgrade() else { return div().into_any_element() };
         let fit = rows_fit(f32::from(window.bounds().size.height));
-        let b = browser.read(cx);
-        if self.seen != Some(b.downloads_popover.changed) {
-            self.seen = Some(b.downloads_popover.changed);
-            self.rows = b.downloads().into_iter().take(MAX_ROWS).collect();
+        let changed = browser.read(cx).downloads_popover.changed;
+        if self.seen != Some(changed) {
+            self.seen = Some(changed);
+            self.rows = browser.read(cx).downloads().into_iter().take(MAX_ROWS).map(|d| (d, None)).collect();
+            let paths: Vec<_> = self.rows.iter().map(|(d, _)| d.path.clone()).collect();
+            cx.spawn(async move |this, cx| {
+                let sizes: Vec<Option<u64>> = cx
+                    .background_executor()
+                    .spawn(async move { paths.iter().map(|p| std::fs::metadata(p).ok().filter(|m| m.is_file()).map(|m| m.len())).collect() })
+                    .await;
+                this.update(cx, |w, cx| {
+                    if w.seen == Some(changed) {
+                        w.rows.iter_mut().zip(sizes).for_each(|(row, size)| row.1 = size);
+                        cx.notify();
+                    }
+                })
+                .ok();
+            })
+            .detach();
         }
+        let b = browser.read(cx);
         let (transfers, reduce) = (b.transfers(), b.pref(Pref::ReduceMotion));
         let header = div()
             .h(px(HEADER))
@@ -325,9 +394,13 @@ impl Render for DownloadsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .child(div().font_weight(FontWeight::MEDIUM).child("Downloads"))
+            .child(div().font_weight(FontWeight::BOLD).child("Downloads"))
             .when(!self.rows.is_empty(), |d| {
-                d.child(tab_stop(button("downloads-clear", "Clear", false)).on_click(cx.listener(|this, _, window, cx| this.clear(window, cx))))
+                d.child(
+                    tab_stop(div().id("downloads-clear").px_1().rounded(px(Theme::radius_small())).cursor_pointer().text_color(Theme::accent()).child("Clear"))
+                        .hover(|s| s.opacity(0.8))
+                        .on_click(cx.listener(|this, _, window, cx| this.clear(window, cx))),
+                )
             });
         let saving: Vec<_> = transfers.iter().take(fit).map(|(id, t)| self.transfer_row(*id, t, cx).into_any_element()).collect();
         let empty = (self.rows.is_empty() && transfers.is_empty()).then(|| empty("No downloads yet"));
@@ -347,7 +420,8 @@ impl Render for DownloadsWindow {
             .child(icon(Icon::ArrowUpRight, 14., Theme::muted()))
             .on_click(cx.listener(|this, _, window, cx| this.view_all(window, cx)));
         let finished = fit.saturating_sub(saving.len());
-        let list = div().px_1p5().flex().flex_col().children(saving).children(self.rows.iter().take(finished).map(|d| self.row(d))).children(empty);
+        let list =
+            div().px_1p5().flex().flex_col().children(saving).children(self.rows.iter().take(finished).map(|(d, size)| self.row(d, *size))).children(empty);
         let card = popover(Theme::radius_panel(), CARET).flex().flex_col().child(header).child(list).child(div().flex_1()).child(footer);
         let caret = svg()
             .path(Icon::Caret.path())
@@ -383,8 +457,16 @@ mod tests {
     #[test]
     fn rows_name_the_file_type() {
         let d = Download { id: 1, url: String::new(), path: "/Users/u/Downloads/ipogo-4.6.3.IPA".into(), state: "finished".into(), started_at: 0 };
-        assert_eq!(subtitle(&d), "ipa");
-        assert_eq!(subtitle(&Download { path: "/Users/u/Downloads/README".into(), ..d }), "File");
+        assert_eq!(subtitle(&d, None), ("ipa".into(), false));
+        assert_eq!(subtitle(&Download { path: "/Users/u/Downloads/README".into(), ..d.clone() }, None), ("File".into(), false));
+    }
+
+    #[test]
+    fn rows_show_size_and_site_or_a_warning() {
+        let d = Download { id: 1, url: "https://tarn.example/a.zip".into(), path: "/d/a.zip".into(), state: "finished".into(), started_at: 0 };
+        assert_eq!(subtitle(&d, Some(1_200_000)), ("1.2 MB · tarn.example".into(), false));
+        assert!(subtitle(&Download { state: "failed".into(), ..d.clone() }, None).1);
+        assert!(subtitle(&Download { state: "finished-unquarantined".into(), ..d }, Some(1)).1);
     }
 
     #[test]

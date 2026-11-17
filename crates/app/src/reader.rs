@@ -178,7 +178,12 @@ impl Browser {
         reader.paused = false;
         reader.speak_from(0, speed);
         if reader.reading.is_none() {
-            return self.show_toast(if cfg!(windows) { "This PC could not start speaking" } else { "This Mac could not start speaking" }, None, cx);
+            return self.show_toast_as(
+                browser_core::toast::Tone::Warning,
+                if cfg!(windows) { "This PC could not start speaking" } else { "This Mac could not start speaking" },
+                None,
+                cx,
+            );
         }
         let key = reader.key;
         reader.poll = Some(cx.spawn(async move |this, cx| {

@@ -25,6 +25,13 @@ pub fn secure_button(id: impl Into<ElementId>, text: impl Into<SharedString>, pr
         .when(!primary, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
 }
 
+pub fn secure_ghost_button(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
+    pill(id, text, false, (Secure::surface(), Secure::surface()), Secure::text())
+        .font_family(SYSTEM_FONT)
+        .hover(|s| s.bg(Secure::hover()))
+        .active(|s| s.bg(Secure::pressed()))
+}
+
 fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
     div()
         .id(id)
@@ -49,6 +56,46 @@ fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, 
 /// A key hint inside a button, such as "ESC" or "↩".
 pub fn key_hint(text: impl Into<SharedString>) -> Div {
     div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(keys(&text.into()))
+}
+
+pub fn key_caps(glyphs: &str) -> Vec<String> {
+    keys(glyphs)
+        .split(' ')
+        .flat_map(|chord| {
+            if cfg!(windows) {
+                return windows_caps(chord);
+            }
+            let mods = chord.chars().take_while(|c| "⌃⌥⇧⌘".contains(*c));
+            let rest: String = chord.chars().skip_while(|c| "⌃⌥⇧⌘".contains(*c)).collect();
+            mods.map(String::from).chain((!rest.is_empty()).then_some(rest)).collect()
+        })
+        .collect()
+}
+
+fn windows_caps(chord: &str) -> Vec<String> {
+    let mut caps: Vec<String> = chord.split('+').filter(|k| !k.is_empty()).map(str::to_owned).collect();
+    if chord.ends_with('+') {
+        caps.push("+".to_owned());
+    }
+    caps
+}
+
+pub fn key_cap(key: impl Into<SharedString>) -> Div {
+    div()
+        .h(px(18.))
+        .min_w(px(18.))
+        .px_1()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(Theme::radius_small()))
+        .border_1()
+        .border_color(Theme::hairline())
+        .bg(Theme::control())
+        .text_size(px(TEXT_SMALL - 1.))
+        .text_color(Theme::muted())
+        .child(key.into())
 }
 
 /// A shortcut written with macOS glyphs (`⇧⌘J`) as the platform shows it. Windows writes
@@ -172,7 +219,39 @@ pub fn switch(on: bool) -> Div {
         .rounded_full()
         .bg(if on { Theme::accent() } else { Theme::faint() })
         .when(on, |d| d.justify_end())
-        .child(div().w(px(16.)).h(px(16.)).rounded_full().bg(Theme::on_accent()).shadow(vec![ring(rgba_black(), 0., 2.)]))
+        .child(knob())
+}
+
+thread_local! {
+    static SWITCHES: RefCell<std::collections::HashMap<ElementId, (bool, u64)>> = RefCell::default();
+}
+
+const MAX_SWITCHES: usize = 256;
+
+pub fn sliding_switch(id: impl Into<ElementId>, on: bool) -> gpui::AnyElement {
+    let id = id.into();
+    let flips = SWITCHES.with(|s| {
+        let mut s = s.borrow_mut();
+        if s.len() >= MAX_SWITCHES && !s.contains_key(&id) {
+            s.clear();
+        }
+        let entry = s.entry(id.clone()).or_insert((on, 0));
+        if entry.0 != on {
+            *entry = (on, entry.1 + 1);
+        }
+        entry.1
+    });
+    if flips == 0 || crate::motion::reduced() {
+        return switch(on).into_any_element();
+    }
+    let track = div().relative().w(px(34.)).h(px(20.)).flex_none().rounded_full().bg(if on { Theme::accent() } else { Theme::faint() });
+    let (from, to) = if on { (2., 16.) } else { (16., 2.) };
+    let key = ElementId::NamedChild(Box::new(id), SharedString::from(format!("flip-{flips}")));
+    crate::motion::animate(track, key, crate::motion::POP, false, move |track, t| track.child(knob().absolute().top(px(2.)).left(px(from + (to - from) * t))))
+}
+
+fn knob() -> Div {
+    div().w(px(16.)).h(px(16.)).rounded_full().bg(Theme::on_accent()).shadow(vec![ring(rgba_black(), 0., 2.)])
 }
 
 fn rgba_black() -> Rgba {
@@ -461,7 +540,9 @@ pub fn row(first: bool) -> Div {
 /// A row that toggles its switch: the whole row is the target, with hover and pressed fills, and
 /// a tab stop. `body` is the row's text.
 pub fn switch_row(id: impl Into<ElementId>, first: bool, body: impl IntoElement, on: bool) -> Stateful<Div> {
-    tab_stop(row(first).id(id).cursor_pointer().hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())).child(body).child(switch(on)))
+    let id = id.into();
+    let knob = sliding_switch(ElementId::NamedChild(Box::new(id.clone()), "switch".into()), on);
+    tab_stop(row(first).id(id).cursor_pointer().hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())).child(body).child(knob))
 }
 
 /// An interactive list row: one line high (`ROW_HEIGHT`), highlighted while `selected`,
@@ -540,6 +621,24 @@ pub fn note(text: impl Into<SharedString>) -> Div {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_chords_keep_a_plus_key() {
+        assert_eq!(super::windows_caps("Ctrl++"), ["Ctrl", "+"]);
+        assert_eq!(super::windows_caps("Ctrl+Shift+S"), ["Ctrl", "Shift", "S"]);
+        assert_eq!(super::windows_caps("+"), ["+"]);
+    }
+
+    #[test]
+    fn shortcuts_split_into_one_cap_per_key() {
+        if cfg!(windows) {
+            assert_eq!(super::key_caps("⇧⌘S"), ["Ctrl", "Shift", "S"]);
+        } else {
+            assert_eq!(super::key_caps("⇧⌘S"), ["⇧", "⌘", "S"]);
+            assert_eq!(super::key_caps("⌘F5"), ["⌘", "F5"]);
+        }
+        assert!(super::key_caps("").is_empty());
+    }
+
     #[test]
     fn the_spinner_turns_evenly_with_time() {
         use std::time::Duration;

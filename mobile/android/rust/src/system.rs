@@ -2,6 +2,10 @@ pub fn share(url: &str) -> bool {
     crate::host::call_bool("share", url)
 }
 
+pub fn share_file(path: &std::path::Path) -> bool {
+    path.to_str().is_some_and(|path| crate::host::call_bool("shareFile", path))
+}
+
 pub fn speak(text: &str) -> bool {
     crate::host::call_string("speak", text)
 }

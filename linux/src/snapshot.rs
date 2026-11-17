@@ -39,6 +39,7 @@ pub struct Row {
     pub heavy: bool,
     pub asleep: bool,
     pub loading: bool,
+    pub playing: bool,
     /// In a split: `Some(true)` for the split on screen.
     pub split: Option<bool>,
     /// A split row's panes, in layout order.
@@ -95,6 +96,7 @@ pub struct Snapshot {
     pub spaces: Vec<SpaceItem>,
     pub profile: String,
     pub profile_color: String,
+    pub profile_name: String,
     pub space_name: String,
     pub space_icon: String,
     /// The current space, private or not; the start card's text belongs to it.
@@ -115,6 +117,7 @@ pub struct Snapshot {
     pub level: String,
     pub overridden: bool,
     pub host: String,
+    pub site_total: i64,
     pub zoom: f64,
     pub found: Option<u64>,
     pub error: Option<String>,
@@ -179,6 +182,7 @@ fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Opti
             heavy: heavy.contains(&key),
             asleep: b.model.active != Some(key) && !b.elsewhere.contains(&key) && !b.model.lifecycle.live().any(|k| k == key),
             loading: b.pages.get(&key).is_some_and(|p| p.loading),
+            playing: b.playing.contains(&key),
             split: b.splits.contains(key).then(|| b.in_split(key)),
             host,
             depth,
@@ -207,6 +211,7 @@ fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: 
             heavy: false,
             asleep: false,
             loading: false,
+            playing: false,
             split: None,
             panes: Vec::new(),
         });
@@ -279,6 +284,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
     let host = b.site_host().unwrap_or_default();
     let profile_id = b.model.profile().map(|p| p.1);
     let private = b.model.private();
+    let profile_row = b.model.current_space().filter(|s| !s.private).and_then(|s| b.core.disk.profile(s.space.profile_id).ok());
     let overridden = profile_id.is_some_and(|p| b.core.has_override(private, p, &host));
     let split = b.shown_split();
     let blank = key.is_some() && split.is_none() && (page.url.is_empty() || page.url == crate::browser::START_URL) && page.error.is_none();
@@ -297,13 +303,8 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
             })
             .collect(),
         profile: b.model.current_space().map(|_| space_label(b, b.model.space_ix)).unwrap_or_default(),
-        profile_color: b
-            .model
-            .current_space()
-            .filter(|s| !s.private)
-            .and_then(|s| b.core.disk.profile(s.space.profile_id).ok())
-            .map(|p| p.color)
-            .unwrap_or_default(),
+        profile_color: profile_row.as_ref().map(|p| p.color.clone()).unwrap_or_default(),
+        profile_name: profile_row.map(|p| p.name).unwrap_or_default(),
         space_name: b.model.current_space().map(|s| if s.private { space_label(b, b.model.space_ix) } else { s.space.name.clone() }).unwrap_or_default(),
         space_icon: b.model.current_space().map(|s| s.space.icon.clone()).unwrap_or_default(),
         space: b.model.current_space().map(|s| (s.private, s.space.id)),
@@ -321,6 +322,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         loading: page.loading,
         level: page.level.as_str().to_owned(),
         overridden,
+        site_total: b.model.active_profile(&b.core).zip(url::Url::parse(&page.url).ok()).map_or(0, |((private, p), url)| b.core.site_stopped(private, p, &url)),
         host,
         zoom: if page.zoom > 0.0 { page.zoom } else { 1.0 },
         found: page.found,
@@ -392,5 +394,20 @@ mod tests {
         assert!(snap.views.iter().all(|v| v.levels["*"] == "standard" && v.lists.len() == shield::groups::SETTINGS.len()));
         assert_eq!(snap.space_name, "Home");
         assert!(!snap.blank && snap.secure, "the active tab shows https://loose.test/");
+    }
+
+    #[test]
+    fn the_snapshot_counts_what_shield_stopped_on_the_site_and_marks_playing_tabs() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = Browser::open(dir.path());
+        let key = b.model.active.unwrap();
+        b.on_event(key, "committed", &serde_json::json!({ "url": "https://c.test/" }));
+        assert_eq!(snapshot(&b, true).site_total, 0);
+        b.on_event(key, "shielded", &serde_json::json!({ "kind": "https_upgrade", "url": "https://c.test/" }));
+        b.on_event(key, "playing", &serde_json::json!({ "playing": true }));
+        let snap = snapshot(&b, true);
+        assert_eq!((snap.host.as_str(), snap.site_total), ("c.test", 1));
+        assert!(snap.rows.iter().any(|r| r.kind == RowKind::Tab(key) && r.playing));
+        assert!(!snap.profile_name.is_empty());
     }
 }

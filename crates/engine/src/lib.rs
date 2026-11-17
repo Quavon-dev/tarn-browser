@@ -4,6 +4,7 @@ pub mod content_rules;
 pub mod cookies;
 pub mod downloads;
 pub mod events;
+pub mod favicon;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub mod handover;
 pub mod lifecycle;

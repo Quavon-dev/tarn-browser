@@ -23,7 +23,7 @@ impl Browser {
     pub fn copy_link(&mut self, clean: bool) -> Option<String> {
         let url = self.active_url()?;
         if !clean {
-            self.show_toast("Link copied", None);
+            self.show_toast_as(browser_core::toast::Tone::Success, "Link copied", None);
             return Some(url);
         }
         let (link, removed) = shield::url_clean::clean_link(&url);
@@ -34,7 +34,7 @@ impl Browser {
             let host = Url::parse(&url).ok().and_then(|u| browser_core::site::site_host(&u).map(str::to_owned));
             self.core.store(key.private).count(profile, Counter::TrackingParams, removed, host.as_deref()).ok();
         }
-        self.show_toast(copied(removed), None);
+        self.show_toast_as(browser_core::toast::Tone::Success, copied(removed), None);
         Some(link)
     }
 
@@ -71,12 +71,16 @@ impl Browser {
             Some(id) => id,
             None => match store.add_bookmark(profile, None, None, READING_LIST, now()) {
                 Ok(folder) => folder.id,
-                Err(_) => return self.show_toast("Could not save to Reading List", None),
+                Err(_) => {
+                    let (tone, text) = browser_core::toast::reading_list(false);
+                    return self.show_toast_as(tone, text, None);
+                }
             },
         };
         let saved = bookmarks.iter().any(|b| b.parent_id == Some(folder) && b.url.as_deref() == Some(url.as_str()))
             || store.add_bookmark(profile, Some(folder), Some(&url), &title, now()).is_ok();
-        self.show_toast(if saved { "Saved to Reading List" } else { "Could not save to Reading List" }, None);
+        let (tone, text) = browser_core::toast::reading_list(saved);
+        self.show_toast_as(tone, text, None);
     }
 
     pub fn remove_from_reading_list(&mut self, id: Id) {

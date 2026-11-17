@@ -172,7 +172,7 @@ fn card(ui: Ui, pane: Pane, (x, y, w, h): Rect) -> View {
         .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
         .on_mouse_move(move |_: &MouseEvent| drop_over(ui, key, true))
         .on_mouse_leave(move |_: &MouseEvent| drop_leave(ui, key))
-        .child(site_tile(&host, 14.))
+        .child(site_tile(ui, &host, 14.))
         .child(body(title).text_color(if focused { Theme::text() } else { Theme::muted() }).flex_1().truncate())
         .children(roomy.then(|| small(host.clone()).text_color(Theme::faint()).max_w(px(w * 0.4)).truncate()))
         .child(dynamic(move || ui.split_drop.with(|d| d.filter(|(k, _)| *k == key).map(|(_, does)| small(does).text_color(Theme::accent())))))

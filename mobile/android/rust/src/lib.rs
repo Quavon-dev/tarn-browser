@@ -143,6 +143,21 @@ pub extern "system" fn Java_dev_tarn_android_Native_pageTextScript(mut env: JNIE
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_iconLinksScript(mut env: JNIEnv, _: JClass, page: JString) -> jstring {
+    let script = string(&mut env, &page).and_then(|p| url::Url::parse(&p).ok()).and_then(|u| engine::page_scripts::icon_links_script(&u));
+    java_string(&mut env, script)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_fetchIconScript(mut env: JNIEnv, _: JClass, page: JString, urls: JObjectArray) -> jstring {
+    let urls = engine::favicon::fetch_urls(string_array(&mut env, &urls).iter().map(String::as_str));
+    let script = string(&mut env, &page)
+        .and_then(|p| url::Url::parse(&p).ok())
+        .and_then(|u| engine::page_scripts::fetch_icon_script(&u, &urls, engine::favicon::MAX_BYTES));
+    java_string(&mut env, script)
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_tarn_android_Native_picker(mut env: JNIEnv, _: JClass) -> jstring {
     java_string(&mut env, Some(engine::page_scripts::PICKER.to_owned()))
 }

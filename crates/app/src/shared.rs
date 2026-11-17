@@ -310,10 +310,10 @@ pub(crate) fn count_chromium_blocks(core: &AppCore) {
     crate::shield_card::touch();
 }
 
-fn toast_front(text: impl Into<gpui::SharedString>, action: Option<crate::toast::Action>, cx: &mut App) {
+fn toast_front(tone: browser_core::toast::Tone, text: impl Into<gpui::SharedString>, action: Option<crate::toast::Action>, cx: &mut App) {
     let front = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().find_map(|w| w.downcast::<Browser>());
     if let Some(handle) = front {
-        handle.update(cx, |b, _, cx| b.show_toast(text, action, cx)).ok();
+        handle.update(cx, |b, _, cx| b.show_toast_as(tone, text, action, cx)).ok();
     }
 }
 
@@ -330,9 +330,11 @@ fn updater_reported(report: platform::updater::Report, cx: &mut App) {
     match report {
         Report::FeedVerified => core.feed_verified(browser_core::now()),
         Report::CriticalFound => core.critical_found(browser_core::now()),
-        Report::UpdateReady(version) => toast_front(format!("Tarn {version} is ready to install"), Some(crate::toast::Action::RestartToUpdate), cx),
-        Report::UpToDate => toast_front("Tarn is up to date", None, cx),
-        Report::CheckFailed => toast_front("Tarn could not check for updates", None, cx),
+        Report::UpdateReady(version) => {
+            toast_front(browser_core::toast::Tone::Info, format!("Tarn {version} is ready to install"), Some(crate::toast::Action::RestartToUpdate), cx)
+        }
+        Report::UpToDate => toast_front(browser_core::toast::Tone::Success, "Tarn is up to date", None, cx),
+        Report::CheckFailed => toast_front(browser_core::toast::Tone::Warning, "Tarn could not check for updates", None, cx),
     }
     #[cfg(any(feature = "chromium", windows))]
     check_chromium(cx);

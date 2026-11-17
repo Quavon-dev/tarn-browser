@@ -46,8 +46,8 @@ contract v2 (`docs/mobile-plan.md` §2), which also lists what stays different. 
 Same store schema and setting keys as macOS (`block_annoyances`, `history_text`, `sort_downloads`,
 `keymap.tarn::<Action>`):
 - tabs: close duplicate tabs, toasts with Undo, copy link and clean link (tracking parameters counted),
-  QR code (`engine::qr`, drawn by `tarn_nsh_shared::qr`; the share sheet is macOS-only, Linux copies
-  the link), burner tab (its own ephemeral `NetworkSession` per `burner:<32 hex>` id, released when
+  QR code (`engine::qr`, drawn by `tarn_nsh_shared::qr`), all three in the toolbar's share menu (Linux
+  has no system share path, so the menu has no More…), burner tab (its own ephemeral `NetworkSession` per `burner:<32 hex>` id, released when
   burned), Reading List (the `Reading List` bookmark folder);
 - spaces: schedules by weekday and hour with the one-hour manual hold, snapshots (save, restore in a
   new or this space, delete), "Always open in" rules, switch to and move tabs between spaces from
@@ -58,6 +58,9 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   `spd-say`, shown only when it is on `PATH` (Read Aloud / Stop, no pause: `spd-say` has none);
 - full-text history (`readText`, off by default) feeding address suggestions; Find in Tabs
   (`Ctrl+Shift+F`, `findText`);
+- site icons (`readIconLinks`, `fetchIcon`): fetched inside the tab after each https load, kept per profile
+  by `engine::favicon::Tracker`, stored with `Store::set_favicon` and drawn wherever a site's letter
+  tile was (tiles, tab rows, split panes, history, bookmarks, suggestions, site and share popovers);
 - Shield: cookie-banner lists switch, the Shield card (front and stamps side, no 3D tilt in NSH)
   with the last seven days and the sites protected most; counters from `shielded` events;
 - downloads: `id`, progress (percentage next to the downloads button, sizes in the panel), cancel,
@@ -77,8 +80,8 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   `process {pid}` (a Linux addition) when exactly one new `WebKitWebProcess` below the app appears
   between a load's start and its commit; tabs it cannot tell apart are "Not measured".
 
-Not ported: on-device translation and the startup trace (macOS-only), favicons (the Linux shell
-draws letter tiles), the live page peek (optional, skipped).
+Not ported: on-device translation and the startup trace (macOS-only), the live page peek (optional,
+skipped).
 
 ## Build and test (Docker; no Linux desktop is needed)
 
