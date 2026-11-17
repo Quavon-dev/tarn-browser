@@ -51,7 +51,15 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   burned), Reading List (the `Reading List` bookmark folder);
 - spaces: schedules by weekday and hour with the one-hour manual hold, snapshots (save, restore in a
   new or this space, delete), "Always open in" rules, switch to and move tabs between spaces from
-  the command rows of the address field;
+  the command rows of the address field; the New Space and Edit Space card (name, colour, icon, and
+  for a new space its profile or a new one), Delete Space…, a right click on a space button for
+  Rename, Edit, New and Delete, and `Alt+1` … `Alt+9` for spaces 1–9 (macOS's ⌃1 … ⌃9, as on Windows);
+- profiles (`browser_core::profiles`): Create Profile (name, colour, first space, Shield level, search
+  engine, shared data) and Edit Profile, the switcher with colour dots, New Profile… and Manage
+  Profiles… in the Space panel, and the Settings › Profiles list with Edit…, Delete… (asks once
+  more) and the Developer badge. Deleting retires the profile's own store like macOS: its
+  `NetworkSession` is released, the folder is listed in `retired_stores` and removed three seconds
+  later or at the next launch;
 - site panel: dark mode and site CSS (`styles` prop), Zap Element (`pick`, `zaps` prop), hidden
   elements with Undo;
 - reader view (`readArticle`) with text size and width; Read Aloud through speech-dispatcher's

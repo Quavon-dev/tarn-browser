@@ -72,6 +72,8 @@ pub fn space_panel(ui: Ui) -> AnyElement {
         &name,
         move |name| act(ui, |b| b.rename_space(&name)),
     ));
+    let key = ui.snap.with_untracked(|s| s.space);
+    body = body.children(key.map(|key| super::profiles::space_actions(ui, key)));
     body = match schedule {
         Some(schedule) => body.child(section("Schedule")).child(schedule_rows(ui, schedule)),
         None => body.child(note("A private space has no schedule or snapshots.")),
@@ -98,6 +100,7 @@ pub fn space_panel(ui: Ui) -> AnyElement {
     )
     .children(empty)
     .child(view().flex_col().children(rows))
+    .child(super::profiles::switcher(ui))
     .into_element()
 }
 

@@ -13,7 +13,7 @@ use ui::motion::pop_in;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_HEADING, Theme};
 
-use browser_core::{share_store, shared_key};
+use browser_core::shared_key;
 
 use crate::browser::Browser;
 use crate::prefs::{Pref, option_index};
@@ -24,7 +24,6 @@ use crate::toolbar::shield_badge;
 
 actions!(profiles, [NewProfile, EditProfile, ConfirmProfile, NextField, PreviousField, NextOption, PreviousOption]);
 
-const MAX_NAME: usize = 48;
 const DEFAULT_COLOR: usize = 2;
 
 pub fn bind_keys(cx: &mut App) {
@@ -54,32 +53,21 @@ pub struct ProfileEditor {
     _subscription: Subscription,
 }
 
-/// The trimmed name without control or bidi characters, if it is non-empty and not taken.
-pub fn valid_name<'a>(raw: &str, taken: impl IntoIterator<Item = &'a str>) -> Option<String> {
-    let name: String = raw.trim().chars().filter(|c| !c.is_control() && !ui::text::is_bidi(*c)).take(MAX_NAME).collect();
-    let name = name.trim_end().to_owned();
-    let free = taken.into_iter().all(|t| !t.trim().eq_ignore_ascii_case(&name));
-    (!name.is_empty() && free).then_some(name)
-}
+pub use browser_core::profiles::valid_name;
 
 use browser_core::command::engine_key;
 
-/// Stores of deleted profiles or of "Delete everything" that WebKit has not removed yet.
-const RETIRED_STORES: &str = "retired_stores";
-
 /// Only stores Tarn retired itself: other data folders share WebKit's store folder.
 pub(crate) fn delete_retired_stores(core: &Rc<AppCore>) {
-    let listed = core.disk.setting(RETIRED_STORES).ok().flatten().unwrap_or_default();
-    for uuid in listed.lines().filter(|u| !u.is_empty()) {
-        delete_store(core.clone(), uuid.to_owned());
+    for uuid in browser_core::profiles::retired_stores(&core.disk) {
+        delete_store(core.clone(), uuid);
     }
 }
 
 fn delete_store(core: Rc<AppCore>, uuid: String) {
     engine::DataStore::delete_persistent(&uuid.clone(), move |gone| {
         if gone {
-            let listed = core.disk.setting(RETIRED_STORES).ok().flatten().unwrap_or_default();
-            core.disk.set_setting(RETIRED_STORES, &toggled(&listed, &uuid, false)).ok();
+            browser_core::profiles::set_retired(&core.disk, &uuid, false);
         }
     });
 }
@@ -88,8 +76,7 @@ impl Browser {
     /// Removes the store a few seconds from now, once its views and extension pages let go of it,
     /// and keeps it listed until WebKit confirms, so a later launch retries.
     pub(crate) fn retire_store(&mut self, uuid: &str, cx: &mut Context<Self>) {
-        let listed = self.core.disk.setting(RETIRED_STORES).ok().flatten().unwrap_or_default();
-        self.core.disk.set_setting(RETIRED_STORES, &toggled(&listed, uuid, true)).ok();
+        browser_core::profiles::set_retired(&self.core.disk, uuid, true);
         let (uuid, core) = (uuid.to_owned(), self.core.clone());
         cx.spawn(async move |_, cx| {
             cx.background_executor().timer(std::time::Duration::from_secs(3)).await;
@@ -291,27 +278,15 @@ impl Browser {
 
     /// Writes the profile with its first space, given as `[name, color, icon]`, and switches to it.
     pub(crate) fn create_profile(&mut self, editor: &ProfileEditor, name: &str, color: &str, space: [&str; 3], window: &mut Window, cx: &mut Context<Self>) {
-        let shared = editor.share.and_then(|id| self.core.disk.profile(id).ok()).map(|mut p| {
-            share_store(&self.core.disk, &mut p);
-            p.data_store_uuid
-        });
-        let Ok(profile) = self.core.disk.create_profile(name, &uuid::Uuid::new_v4().to_string(), false) else { return };
-        let id = profile.id;
-        let written = self
-            .core
-            .disk
-            .set_profile(id, name, color)
-            .and_then(|_| self.core.disk.set_profile_shield_level(id, editor.level))
-            .and_then(|_| self.core.disk.set_setting(&shared_key(id), shared.as_deref().unwrap_or("")))
-            .and_then(|_| self.core.disk.set_setting(&engine_key(false, id), ENGINES[editor.engine].name))
-            .and_then(|_| self.core.disk.create_space(id, space[0], space[2]))
-            .and_then(|s| self.core.disk.update_space(s.id, space[0], space[1], space[2]));
-        if let Err(e) = written {
-            self.core.disk.delete_profile(id).ok();
-            self.warning = Some(format!("The profile could not be created ({e})."));
-            cx.notify();
-            return;
-        }
+        let new = browser_core::profiles::NewProfile { name, color, level: editor.level, engine: ENGINES[editor.engine].name, share: editor.share, space };
+        let id = match browser_core::profiles::create(&self.core.disk, &new, &uuid::Uuid::new_v4().to_string()) {
+            Ok(id) => id,
+            Err(e) => {
+                self.warning = Some(format!("The profile could not be created ({e})."));
+                cx.notify();
+                return;
+            }
+        };
         self.reload_spaces();
         if let Some(ix) = self.model.spaces.iter().position(|s| !s.private && s.space.profile_id == id) {
             self.switch_space(ix, window, cx);
@@ -321,35 +296,26 @@ impl Browser {
     /// Deletes a saved profile with its spaces, tabs and history; website data goes too unless
     /// another profile still uses the same store.
     pub fn delete_profile(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
-        let profiles = self.core.disk.profiles().unwrap_or_default();
-        let Some(mut profile) = profiles.iter().find(|p| p.id == id).cloned().filter(|_| profiles.len() > 1) else { return };
-        let own_store = profile.data_store_uuid.clone();
-        share_store(&self.core.disk, &mut profile);
+        if !browser_core::profiles::deletable(&self.core.disk, id) {
+            return;
+        }
         let keys: Vec<_> = self.views.keys().filter(|k| !k.private && self.profile_of(**k) == Some(id)).copied().collect();
         for key in keys {
             self.hibernate(key, cx);
         }
         let current = self.model.current_space().map(|s| (s.private, s.space.id));
-        if self.core.disk.delete_profile(id).is_err() {
-            return;
-        }
+        let Some(deleted) = browser_core::profiles::delete(&self.core.disk, id) else { return };
+        let own_store = deleted.own_store;
         Self::sync_other_windows(cx);
         crate::shared::others(cx, |b, _, _| b.forget_history(false, id));
         #[cfg(feature = "chromium")]
         self.wipe_chromium(&own_store, &own_store);
-        self.core.disk.delete_setting(&shared_key(id)).ok();
-        self.core.disk.delete_setting(&engine_key(false, id)).ok();
-        self.core.disk.delete_setting(&browser_core::theme::pages_setting(id)).ok();
         crate::ext_package::remove_tree(&crate::extensions::root().join(id.to_string())).ok();
-        let still_used = profiles.into_iter().filter(|p| p.id != id).any(|mut p| {
-            share_store(&self.core.disk, &mut p);
-            p.data_store_uuid == profile.data_store_uuid
-        });
         #[cfg(windows)]
         crate::shared::count_chromium_blocks(&self.core);
         if let Some(rt) = self.core.profiles.borrow_mut().remove(&(false, id)) {
             rt.data.set_extensions(&[], &[], rt.profile.shield_level);
-            if still_used || self.downloads_popover.active.get(&(false, id)).is_some_and(|n| *n > 0) {
+            if deleted.still_used || self.downloads_popover.active.get(&(false, id)).is_some_and(|n| *n > 0) {
                 self.core.retired_stores.borrow_mut().push(rt.data);
             }
         }
@@ -358,24 +324,15 @@ impl Browser {
         self.forget_favicons((false, id));
         self.core.wiped_at.borrow_mut().remove(&(false, id));
         self.pages.retain(|k, _| k.private || self.core.disk.tab(k.id).is_ok());
-        if !still_used {
-            engine::DataStore::wipe_persistent(&profile.data_store_uuid);
-            self.retire_store(&profile.data_store_uuid, cx);
+        if !deleted.still_used {
+            engine::DataStore::wipe_persistent(&deleted.store);
+            self.retire_store(&deleted.store, cx);
         }
         self.reload_spaces();
         self.model.closed_tabs.retain(&self.model.spaces);
         let ix = self.model.spaces.iter().position(|s| Some((s.private, s.space.id)) == current).unwrap_or(0);
         self.switch_space(ix, window, cx);
     }
-}
-
-/// The stored list `stored` (one entry per line) with `entry` added or removed.
-fn toggled(stored: &str, entry: &str, on: bool) -> String {
-    let mut entries: Vec<&str> = stored.lines().filter(|p| !p.is_empty() && *p != entry).collect();
-    if on {
-        entries.push(entry);
-    }
-    entries.join("\n")
 }
 
 pub(crate) fn focus_ring(d: Div, on: bool) -> Div {
@@ -574,18 +531,4 @@ pub fn render_editor(b: &Browser, window: &Window, cx: &mut Context<Browser>) ->
             .child(pop_in(card, ("profile-editor", step as usize), b.pref(Pref::ReduceMotion)))
             .into_any_element(),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn names_are_trimmed_cleaned_and_unique() {
-        assert_eq!(valid_name("  Work  ", []), Some("Work".into()));
-        assert_eq!(valid_name("   ", []), None);
-        assert_eq!(valid_name("Wo\u{202e}rk\n", []), Some("Work".into()));
-        assert_eq!(valid_name("work", ["Personal", " Work"]), None);
-        assert_eq!(valid_name(&"x".repeat(200), []).map(|n| n.chars().count()), Some(MAX_NAME));
-    }
 }

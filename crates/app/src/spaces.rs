@@ -9,9 +9,9 @@ use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{PROFILE_COLORS, TEXT_SMALL, Theme};
 
-use crate::browser::{Browser, SpaceRef};
+use crate::browser::Browser;
 
-use crate::profiles::{Parts, ProfileEditor, choice_row, color_row, focus_ring, profile_dot, valid_name};
+use crate::profiles::{Parts, ProfileEditor, choice_row, color_row, focus_ring, profile_dot};
 
 actions!(spaces, [EditSpace]);
 
@@ -46,11 +46,7 @@ enum Field {
     End,
 }
 
-/// The cleaned space name, unless another space of the same profile already has it.
-pub fn space_name(raw: &str, spaces: &[SpaceRef], private: bool, profile: Option<Id>, editing: Option<Id>) -> Option<String> {
-    let taken = spaces.iter().filter(|s| s.private == private && Some(s.space.profile_id) == profile && Some(s.space.id) != editing);
-    valid_name(raw, taken.map(|s| s.space.name.as_str()))
-}
+pub use browser_core::profiles::space_name;
 
 impl Browser {
     pub(crate) fn scheduled_now(&self) -> Option<usize> {
@@ -93,11 +89,7 @@ impl Browser {
         let private = editing.as_ref().is_some_and(|(p, _)| *p);
         let text = match &editing {
             Some((_, s)) => s.name.clone(),
-            None => {
-                let count = self.model.spaces.iter().filter(|s| !s.private && Some(s.space.profile_id) == profile).count();
-                let mut names = (count + 1..).map(|n| format!("Space {n}"));
-                names.find(|n| space_name(n, &self.model.spaces, false, profile, None).is_some()).unwrap_or_default()
-            }
+            None => browser_core::profiles::next_space_name(&self.model.spaces, profile),
         };
         let color = editing.as_ref().and_then(|(_, s)| PROFILE_COLORS.iter().position(|(n, _)| *n == s.color));
         let icon = editing.as_ref().and_then(|(_, s)| SPACE_ICONS.iter().position(|(n, _)| *n == s.icon)).unwrap_or(0);
@@ -223,15 +215,10 @@ impl Browser {
             return self.create_profile(&editor, &profile_name, PROFILE_COLORS[editor.color].0, [&name, color, icon], window, cx);
         }
         let store = self.store(card.private);
-        let saved = match (card.editing, card.profile) {
-            (Some(id), _) => store
-                .update_space(id, &name, color, icon)
-                .and_then(|_| if card.private { Ok(()) } else { store.set_space_schedule(id, card.schedule) })
-                .map(|_| id),
-            (None, Some(profile)) => store.create_space(profile, &name, icon).and_then(|s| store.update_space(s.id, &name, color, icon).map(|_| s.id)),
-            (None, None) => return,
-        };
-        let Ok(id) = saved else { return };
+        let Some(profile) = card.profile else { return };
+        let schedule = (card.editing.is_some() && !card.private).then_some(card.schedule);
+        let edit = browser_core::profiles::SpaceEdit { editing: card.editing, profile, name: &name, color, icon, schedule };
+        let Ok(id) = browser_core::profiles::save_space(store, &edit) else { return };
         self.reload_spaces();
         Self::sync_other_windows(cx);
         if card.editing.is_none()
@@ -380,28 +367,4 @@ fn schedule_rows(schedule: Schedule, [days_ring, start_ring, end_ring]: [bool; 3
                 .text_color(Theme::muted())
                 .child("On these days and hours each window switches to this space, unless you changed space in the last hour. No days, no schedule."),
         )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn space(id: Id, profile_id: Id, name: &str, private: bool) -> SpaceRef {
-        SpaceRef {
-            private,
-            space: Space { id, profile_id, name: name.into(), icon: String::new(), position: 0, color: String::new(), schedule: Schedule::default() },
-        }
-    }
-
-    #[test]
-    fn space_names_are_unique_within_their_profile_only() {
-        let spaces = [space(1, 1, "Work", false), space(2, 2, "Home", false), space(1, 9, "Private", true)];
-        assert_eq!(space_name(" work ", &spaces, false, Some(1), None), None);
-        assert_eq!(space_name("Work", &spaces, false, Some(1), Some(1)), Some("Work".into()));
-        assert_eq!(space_name("Work", &spaces, false, Some(2), None), Some("Work".into()));
-        assert_eq!(space_name("Work", &spaces, false, None, None), Some("Work".into()));
-        assert_eq!(space_name("private", &spaces, false, Some(9), None), Some("private".into()));
-        assert_eq!(space_name("private", &spaces, true, Some(9), None), None);
-        assert_eq!(space_name("  ", &spaces, false, Some(1), None), None);
-    }
 }

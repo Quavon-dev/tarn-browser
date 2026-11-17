@@ -488,3 +488,78 @@ fn a_burner_tab_neither_fetches_nor_keeps_site_icons() {
     assert!(!b.favicons.is_requested(&profile, "a.test", ticket));
     assert!(b.site_icons(&Default::default()).is_none_or(|icons| icons.find("a.test").is_none()));
 }
+
+#[test]
+fn profiles_are_created_edited_switched_and_deleted_with_their_store_retired() {
+    let (_dir, mut b) = browser();
+    let first = b.current_profile().unwrap();
+    assert!(!b.delete_profile(first), "the last profile stays");
+    let new = browser_core::profiles::NewProfile {
+        name: " Work ",
+        color: "red",
+        level: ShieldLevel::Strict,
+        engine: browser_core::command::ENGINES[1].name,
+        share: None,
+        space: ["Desk", "green", "code"],
+    };
+    b.create_profile(&new).unwrap();
+    let work = b.current_profile().unwrap();
+    assert_ne!(work, first);
+    let space = b.model.current_space().unwrap().space.clone();
+    assert_eq!((space.name.as_str(), space.color.as_str(), space.icon.as_str()), ("Desk", "green", "code"));
+    assert_eq!(b.core.disk.profile(work).unwrap().name, "Work");
+    assert!(b.create_profile(&new).is_err(), "names are unique");
+    assert_eq!(b.create_profile(&browser_core::profiles::NewProfile { name: " ", ..new }), Err("Name the profile.".to_owned()));
+    std::fs::create_dir_all(b.extensions_root.join(work.to_string()).join("install")).unwrap();
+    assert!(!b.edit_profile(work, "personal", "blue"), "taken by the first profile");
+    assert!(b.edit_profile(work, "Office", "blue"));
+    assert_eq!((b.core.disk.profile(work).unwrap().name.as_str(), b.core.disk.profile(work).unwrap().color.as_str()), ("Office", "blue"));
+    let key = b.new_tab("https://work.test/").unwrap();
+    let store = b.store_key().unwrap();
+    b.switch_profile(first);
+    assert_eq!(b.current_profile(), Some(first));
+    b.switch_profile(work);
+    assert!(b.delete_profile(work));
+    assert!(b.core.disk.profile(work).is_err());
+    assert!(!b.extensions_root.join(work.to_string()).exists(), "its extension files go too");
+    assert!(!b.pages.contains_key(&key));
+    assert_eq!(b.current_profile(), Some(first));
+    assert!(b.released.contains(&store));
+    let crate::data::StoreKey::Persistent(uuid) = store else { panic!("a saved profile's store") };
+    assert_eq!(b.retired, [uuid.clone()]);
+    assert_eq!(browser_core::profiles::retired_stores(&b.core.disk), [uuid]);
+}
+
+#[test]
+fn spaces_are_edited_deleted_and_switched_by_number() {
+    let (_dir, mut b) = browser();
+    let profile = b.current_profile().unwrap();
+    let home = b.model.space_ix;
+    let home_key = (false, b.model.spaces[home].space.id);
+    let before = b.model.spaces.len();
+    assert!(!b.model.can_delete_space(home), "a profile's last space stays");
+    b.delete_space(home_key);
+    assert_eq!(b.model.spaces.len(), before);
+    let form = |editing, name, color, icon| crate::browser::profiles::SpaceForm { editing, profile, name, color, icon };
+    assert!(b.save_space(&form(None, "Work", "red", "briefcase")));
+    let work = b.model.space_ix;
+    assert_ne!(work, home);
+    assert!(!b.save_space(&form(Some(home_key), " work", "", "")), "taken in this profile");
+    assert!(!b.save_space(&form(Some((false, 999)), "Gone", "", "")), "a space deleted meanwhile");
+    assert!(b.save_space(&form(Some(home_key), "Home", "blue", "star")));
+    let edited = &b.model.spaces[home].space;
+    assert_eq!((edited.color.as_str(), edited.icon.as_str()), ("blue", "star"));
+    assert_eq!(b.model.space_ix, work, "editing does not switch");
+    b.space_number(home + 1);
+    assert_eq!(b.model.space_ix, home);
+    b.space_number(9);
+    assert_eq!(b.model.space_ix, home, "no ninth space");
+    let key = b.new_tab("https://gone.test/").unwrap();
+    b.space_number(work + 1);
+    let shown = b.model.active;
+    b.delete_space(home_key);
+    assert_eq!(b.model.spaces.len(), before);
+    assert!(b.core.disk.tab(key.id).is_err() && !b.pages.contains_key(&key));
+    assert_eq!(b.model.current_space().unwrap().space.name, "Work");
+    assert_eq!(b.model.active, shown, "deleting another space keeps the tab shown");
+}

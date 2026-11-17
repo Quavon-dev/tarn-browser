@@ -1,6 +1,7 @@
 pub mod extensions;
 pub mod icons;
 pub mod pages;
+pub mod profiles;
 mod site;
 pub mod spaces;
 mod split;
@@ -107,6 +108,8 @@ pub struct Browser {
     pub playing: HashSet<TabKey>,
     pub swipe: swipe::Swipe,
     pub released: Vec<crate::data::StoreKey>,
+    pub retired: Vec<String>,
+    pub extensions_root: std::path::PathBuf,
     pub download_owners: HashMap<String, Option<Id>>,
     pub cancelled_downloads: Vec<String>,
     pub text_found: suggest::TextMatches,
@@ -145,7 +148,9 @@ impl Browser {
         let core = Browser::open_core(dir);
         let row = Browser::saved_windows(&core).remove(0);
         let themes = themes::Themes::open(&core.disk, &dir.join("filters"));
-        Browser::new(core, row, HashSet::new(), themes)
+        let mut browser = Browser::new(core, row, HashSet::new(), themes);
+        browser.extensions_root = dir.join("extensions");
+        browser
     }
 
     pub fn new(core: Rc<Core<Data>>, window: SavedWindow, elsewhere: HashSet<TabKey>, themes: themes::Themes) -> Browser {
@@ -172,6 +177,8 @@ impl Browser {
             playing: HashSet::new(),
             swipe: Default::default(),
             released: Vec::new(),
+            retired: Vec::new(),
+            extensions_root: crate::data::root().join("extensions"),
             download_owners: HashMap::new(),
             cancelled_downloads: Vec::new(),
             text_found: Default::default(),
@@ -226,27 +233,6 @@ impl Browser {
 
     pub fn private_space(&mut self) {
         if let Some(ix) = self.model.private_space(&self.core) {
-            self.switch_space(ix);
-        }
-    }
-
-    pub fn new_space(&mut self) {
-        let Some((private, profile)) = self.profile_of_space() else { return };
-        let n = self.model.spaces.iter().filter(|s| s.private == private && s.space.profile_id == profile).count() + 1;
-        let Ok(space) = self.core.store(private).create_space(profile, &format!("Space {n}"), "") else { return };
-        self.model.reload_spaces(&self.core);
-        if let Some(ix) = self.model.spaces.iter().position(|s| s.private == private && s.space.id == space.id) {
-            self.switch_space(ix);
-        }
-    }
-
-    pub fn new_profile(&mut self) {
-        let n = self.core.disk.profiles().map(|p| p.len()).unwrap_or(0) + 1;
-        let uuid = uuid::Uuid::new_v4().to_string();
-        let Ok(profile) = self.core.disk.create_profile(&format!("Profile {n}"), &uuid, false) else { return };
-        let Ok(space) = self.core.disk.create_space(profile.id, "Home", "") else { return };
-        self.model.reload_spaces(&self.core);
-        if let Some(ix) = self.model.spaces.iter().position(|s| !s.private && s.space.id == space.id) {
             self.switch_space(ix);
         }
     }

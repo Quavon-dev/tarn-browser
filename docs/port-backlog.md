@@ -20,6 +20,23 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
+### Profile editor and space card (2026-11-17)
+
+What it does: Create and Edit Profile (name, colour, first space, Shield level, search engine,
+shared data), Delete Profile with its website data retired, the profile switcher with colour dots
+and Manage Profiles, the Settings › Profiles list with the Developer badge, the Edit Space card
+(icon, colour, name), Delete Space…, the space context menu, and switching to space 1–9 by key.
+Shared API: `browser_core::profiles::{create, delete, deletable, profile_name, space_name,
+next_space_name, save_space, retired_stores, set_retired}`; `Model::can_delete_space`,
+`Model::space_to_delete`.
+macOS reference: `crates/app/src/profiles.rs`, `crates/app/src/spaces.rs`,
+`crates/app/src/browser/context.rs` (`space_menu`, `delete_space`), `crates/app/src/menubar.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/ui/profiles.rs`, `linux/src/browser/profiles.rs`
+- [ ] iOS — `mobile/app` creates profiles but cannot edit or delete them, has no space card or Delete Space; the store retirement needs the `WKWebsiteDataStore` removal macOS uses
+- [ ] Android — same as iOS, retiring the profile's WebView data folder
+
 ### Clean Up (2026-11-16)
 
 What it does: the Clean Up button in the New Tab row sorts the space's loose tabs into tab groups by what each page

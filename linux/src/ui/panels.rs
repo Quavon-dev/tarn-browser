@@ -492,6 +492,8 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Downloads => downloads_panel(ui),
             Panel::Tab => tab_panel(ui),
             Panel::Folder(id) => folder_panel(ui, id),
+            Panel::Card(card) => super::profiles::card_panel(ui, card),
+            Panel::SpaceMenu(key) => super::profiles::space_menu(ui, key),
         };
         let panel = ui.panel.get_untracked();
         let (width, side) = match panel {

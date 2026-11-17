@@ -8,6 +8,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Profiles and spaces on Linux: Create and Edit Profile (name, colour, first space), Delete Profile
+  with its website data retired as on macOS, the profile switcher with colour dots and Manage
+  Profiles, the Settings › Profiles list with the Developer badge, the Edit Space card (icon,
+  colour, name), Delete Space…, the space context menu, and Alt+1 … Alt+9 to switch to space 1–9
+  (Linux).
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages

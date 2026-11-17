@@ -63,6 +63,15 @@ pub fn wipe(root: &Path, uuid: &str) {
     }
 }
 
+pub fn wipe_retired(root: &Path, disk: &store::Store) {
+    for uuid in browser_core::profiles::retired_stores(disk) {
+        wipe(root, &uuid);
+        if store_dir(root, &uuid).is_none_or(|dir| !dir.exists()) {
+            browser_core::profiles::set_retired(disk, &uuid, false);
+        }
+    }
+}
+
 pub struct Data {
     pub key: StoreKey,
 }
@@ -130,5 +139,19 @@ mod tests {
         wipe(dir.path(), "gone");
         wipe(dir.path(), "../keep");
         assert!(keep.exists() && !gone.exists());
+    }
+
+    #[test]
+    fn retired_stores_are_wiped_and_unlisted() {
+        let dir = tempfile::tempdir().unwrap();
+        let disk = store::Store::open_in_memory().unwrap();
+        let (keep, gone) = (store_dir(dir.path(), "keep").unwrap(), store_dir(dir.path(), "gone").unwrap());
+        for d in [&keep, &gone] {
+            std::fs::create_dir_all(d.join("data")).unwrap();
+        }
+        browser_core::profiles::set_retired(&disk, "gone", true);
+        wipe_retired(dir.path(), &disk);
+        assert!(keep.exists() && !gone.exists());
+        assert!(browser_core::profiles::retired_stores(&disk).is_empty());
     }
 }
