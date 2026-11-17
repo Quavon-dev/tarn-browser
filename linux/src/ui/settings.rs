@@ -4,9 +4,9 @@ use nsh_core::prelude::*;
 use shield::ShieldLevel;
 use tarn_nsh_shared::panes::{self, GROUPS, Pane};
 
-use super::panels::{levels, section};
+use super::panels::{capitalised, levels, section};
 use super::tools::{line, note};
-use super::{Panel, Ui, act, read};
+use super::{Panel, Ui, WINDOWS, act, confirmed, in_other_windows, read};
 use crate::browser::pages::{HISTORY_TEXT, SORT_DOWNLOADS};
 use crate::browser::{Browser, Notice};
 use crate::controls::{accent_pill, group, group_row, label, pill, segmented, small, switch, title};
@@ -16,6 +16,7 @@ use crate::webview;
 use browser_core::closed::ARCHIVE_AFTER;
 use browser_core::command::ENGINES;
 use browser_core::settings::{self as prefs, LIVE_TABS, LIVE_TABS_KEY, SLEEP_AFTER_DEFAULT, SLEEP_AFTER_KEY, SUGGESTIONS};
+use browser_core::site::LOCALHOST_FROM_APPS;
 
 const NAV_WIDTH: f32 = 180.;
 const CARD_SCALE: u32 = 3;
@@ -293,6 +294,126 @@ fn permissions(ui: Ui) -> View {
     view().flex_col().children(rows)
 }
 
+fn overrides(ui: Ui) -> View {
+    let rows = read(ui, Browser::site_overrides).unwrap_or_default();
+    if rows.is_empty() {
+        return view().child(note("No site overrides. Use the Shield button in the address bar to set one for a site."));
+    }
+    let rows: Vec<AnyElement> = rows
+        .into_iter()
+        .map(|(host, level)| {
+            line(engine::view_policy::title(&host))
+                .child(small(capitalised(level.as_str())))
+                .child(pill("Remove", move || remove_override(ui, host.clone())))
+                .into_element()
+        })
+        .collect();
+    view().flex_col().children(rows)
+}
+
+fn remove_override(ui: Ui, host: String) {
+    let Some(Some((private, profile))) = read(ui, |b| b.model.profile()) else { return };
+    act(ui, |b| b.remove_site_override(&host));
+    in_other_windows(ui, move |b| b.reload_level(private, profile, &host));
+}
+
+fn zooms(ui: Ui, rows: Vec<(String, f64)>) -> View {
+    if rows.is_empty() {
+        return view().child(note("No saved zoom levels. Zooming in or out remembers the zoom for the site; Actual Size forgets it."));
+    }
+    let rows: Vec<AnyElement> = rows
+        .into_iter()
+        .map(|(host, zoom)| {
+            line(engine::view_policy::title(&host))
+                .child(small(format!("{:.0} %", zoom * 100.)))
+                .child(pill("Remove", move || remove_zoom(ui, Some(host.clone()))))
+                .into_element()
+        })
+        .collect();
+    view().flex_col().children(rows)
+}
+
+fn remove_zoom(ui: Ui, host: Option<String>) {
+    let Some(Some((private, profile))) = read(ui, |b| b.model.profile()) else { return };
+    act(ui, |b| b.remove_site_zoom(host.as_deref()));
+    in_other_windows(ui, move |b| b.reset_zooms(private, profile, host.as_deref()));
+}
+
+fn export_profile(ui: Ui) {
+    let (name, json) = match read(ui, Browser::export_profile) {
+        Some(Ok(export)) => export,
+        Some(Err(e)) => return act(ui, |b| b.notice = Some(Notice::Message(format!("Export failed: {e}.")))),
+        None => return,
+    };
+    let mut dialog = SaveDialog::new().file_name(name).filter(FileFilter::new("JSON", ["json"]));
+    if let Some(downloads) = std::env::home_dir().map(|h| h.join("Downloads")) {
+        dialog = dialog.directory(downloads);
+    }
+    ui.root.run(|| {
+        drop(spawn(async move {
+            let Ok(Some(path)) = pick_save_path(dialog).await else { return };
+            let message = match write_private(&path, &json) {
+                Ok(()) => format!("Exported to {}.", path.display()),
+                Err(e) => format!("Export failed: {e}."),
+            };
+            act(ui, |b| b.notice = Some(Notice::Message(message)));
+        }))
+    });
+}
+
+fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::PermissionsExt;
+    let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    file.write_all(text.as_bytes())
+}
+
+fn delete_profile_data(ui: Ui) {
+    let Some(Some((private, profile))) = read(ui, |b| b.model.profile()) else { return };
+    let mut wipes = Vec::new();
+    act(ui, |b| wipes = b.delete_profile_data());
+    in_other_windows(ui, move |b| b.forget_profile(private, profile));
+    for window in WINDOWS.with_borrow(Vec::clone) {
+        window.history.set(Default::default());
+    }
+    if !wipes.is_empty() {
+        run_on_main_thread(move || wipes.into_iter().for_each(webview::session::wipe));
+    }
+}
+
+fn data_row(name: &str, action: AnyElement) -> View {
+    group_row().child(label(name.to_owned()).flex_1()).child(action)
+}
+
+fn overview(ui: Ui) -> View {
+    let overrides = match read(ui, |b| b.site_overrides().len()).unwrap_or(0) {
+        0 => "None".to_owned(),
+        1 => "1 site".to_owned(),
+        n => format!("{n} sites"),
+    };
+    let mut out = view().flex_col();
+    if crate::desktop::is_default_browser() == Some(false) {
+        let text = view().flex_col().flex_1().child(label("Tarn isn't your default browser")).child(small("Links from other apps open in another browser."));
+        out = out.child(section("Default browser")).child(group().child(group_row().child(text).child(accent_pill("Make Default", move || make_default(ui)))));
+    }
+    let change = pill("Change…", move || {
+        ui.settings_pane.set(Pane::Privacy);
+        act(ui, |_| {});
+    });
+    out.child(section("Shield")).child(group().child(group_row().child(label("Site overrides").flex_1()).child(small(overrides)).child(change)))
+}
+
+fn make_default(ui: Ui) {
+    let made = crate::desktop::make_default_browser();
+    act(ui, |b| {
+        if let Err(e) = made {
+            b.notice = Some(Notice::Message(format!("Tarn could not be made the default browser ({e}).")));
+        }
+    });
+}
+
 fn nav(ui: Ui, current: Pane) -> View {
     let ext_on = ui.ext_pane.get_untracked();
     let mut out = view().flex_col().gap(px(2.)).w(px(NAV_WIDTH)).flex_none().p_2().rounded(px(Theme::radius_group())).bg(Theme::panel_nav());
@@ -404,6 +525,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                     .child(super::panels::heading(ui, view().flex_row().items_center().flex_1().child(title("Profile")).child(view().flex_1()).child(chip)))
                     .child(hero(ui, card.clone(), level, private))
                     .child(week(ui, &card))
+                    .child(overview(ui))
             }
             None => body.child(note("No profile is open.")),
         },
@@ -427,8 +549,10 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             .child(group().child(switch(sort, "Sort downloads into folders", toggle_off(SORT_DOWNLOADS))))
             .child(note("New files go into Images, Videos, Audio, Documents, Archives or Installers inside Downloads; other types stay at the top."))
             .child(section("About"))
+            .child(group().child(group_row().child(label("Tarn version").flex_1()).child(small(browser_core::VERSION))))
             .child(
                 view()
+                    .pt_2()
                     .flex_row()
                     .flex_wrap()
                     .gap_2()
@@ -461,6 +585,8 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 .child(note("Search the text of visited pages keeps up to 4 KB of each page's text on this computer so history suggestions match what a page said. Never for the private space or Lockdown pages; cleared with history, and when you turn this off."))
         }
         Pane::Privacy => {
+            let (localhost, zoom_rows) = read(ui, |b| (b.setting_on(LOCALHOST_FROM_APPS), b.site_zooms())).unwrap_or((true, Vec::new()));
+            let has_zooms = !zoom_rows.is_empty();
             let clear_data = move || {
                 if let Some(key) = read(ui, |b| b.store_key()).flatten() {
                     run_on_main_thread(move || webview::session::clear(&key));
@@ -482,18 +608,36 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 )
                 .child(note("EasyList Cookie and uBlock Cookie Notices hide consent pop-ups and stop the scripts that show them. Nothing is accepted or refused for you."))
                 .child(note("Filter lists apply to pages loaded after a change; they need the signed list bundle."))
-                .child(section("Hidden elements"))
-                .child(hidden(ui, private))
-                .child(section("Clear data"))
+                .child(section("Links from other apps"))
+                .child(group().child(switch(localhost, "Open localhost links from other apps", toggle(LOCALHOST_FROM_APPS))))
+                .child(note("A link to this computer (localhost, 127.0.0.1) from a terminal, editor or other app opens like a typed address, and the page it shows may lead elsewhere on your network as a typed one can. Off: Tarn refuses it, since a link in a mail could reach services running here; Open Anyway on the notice still opens it. Links to other addresses on your network are refused; Open Anyway on the notice opens them. Applies to every profile."))
+                .child(section("Site overrides"))
+                .child(overrides(ui))
                 .child(
                     view()
                         .flex_row()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(super::confirmed(ui, "history".to_owned(), "Clear History", move || super::clear_history(ui)))
-                        .child(super::confirmed(ui, "download list".to_owned(), "Clear Download List", move || act(ui, |b| b.clear_downloads())))
-                        .child(super::confirmed(ui, "data".to_owned(), "Clear Website Data", clear_data)),
+                        .items_center()
+                        .child(section("Site zoom levels").flex_1())
+                        .children(has_zooms.then(|| confirmed(ui, "zooms".to_owned(), "Reset All", move || remove_zoom(ui, None)))),
                 )
+                .child(zooms(ui, zoom_rows))
+                .child(section("Hidden elements"))
+                .child(hidden(ui, private))
+                .child(section("Your data"))
+                .child(
+                    group()
+                        .children((!private).then(|| data_row("Export this profile's data as JSON", pill("Export…", move || export_profile(ui)).into_element())))
+                        .child(data_row(
+                            "Clear browsing history, site icons, zoom levels, protected sites and hidden elements",
+                            confirmed(ui, "history".to_owned(), "Clear", move || super::clear_history(ui)),
+                        ))
+                        .child(data_row("Clear the download list", confirmed(ui, "download list".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads()))))
+                        .child(data_row("Clear cookies and website data", confirmed(ui, "data".to_owned(), "Clear", clear_data)))
+                        .child(data_row("Delete everything in this profile", confirmed(ui, "delete".to_owned(), "Delete", move || delete_profile_data(ui)))),
+                )
+                .child(note(
+                    "Delete everything removes spaces, tabs, history, cookies, site data and site settings of this profile. Cookies and site data shared with another profile are deleted there too. Files you downloaded stay in Downloads.",
+                ))
         }
         Pane::Profiles => body
             .child(

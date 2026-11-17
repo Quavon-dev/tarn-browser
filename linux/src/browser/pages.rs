@@ -266,7 +266,7 @@ impl Browser {
         let text = |k: &str| data[k].as_str().unwrap_or_default().to_owned();
         let id = text("id");
         let state = text("state");
-        let owner = *self.download_owners.entry(id.clone()).or_insert_with(|| self.model.profile_of(&self.core, key));
+        let (owner, started) = *self.download_owners.entry(id.clone()).or_insert_with(|| (self.model.profile_of(&self.core, key), now()));
         if state == "finished" || state == "failed" {
             self.download_owners.remove(&id);
         }
@@ -297,7 +297,8 @@ impl Browser {
             done: old.as_ref().map_or(0, |o| o.done),
             total: old.as_ref().and_then(|o| o.total),
         };
-        let keeps = owner.filter(|p| self.core.keeps_records(key.private, *p));
+        let wiped = |p: Id| self.core.wiped_at.borrow().get(&(key.private, p)).is_some_and(|at| started < *at);
+        let keeps = owner.filter(|p| self.core.keeps_records(key.private, *p) && !wiped(*p));
         if record
             && item.state == "finished"
             && let Some(profile) = keeps

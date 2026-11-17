@@ -18,6 +18,7 @@ pub type Hosts = Rc<RefCell<HashSet<String>>>;
 pub type PopupRules = Rc<RefCell<HashMap<String, PopupRule>>>;
 pub const POPUPS: &str = "popups";
 pub const DEFAULT_WEB_ENGINE: &str = "default_web_engine";
+pub const LOCALHOST_FROM_APPS: &str = "localhost_from_apps";
 
 /// Domain sets of the switched-on categories; `None` while off or not installed.
 #[derive(Default, Clone)]
@@ -67,6 +68,12 @@ impl SiteRules {
             .map(|(origin, _, decision)| (origin, if decision == "allow" { PopupRule::Allow } else { PopupRule::Block }))
             .collect();
         SiteRules { paused: Rc::new(RefCell::new(paused)), popups: Rc::new(RefCell::new(popups)), exceptions: Rc::default() }
+    }
+
+    pub fn clear(&self) {
+        self.paused.borrow_mut().clear();
+        self.popups.borrow_mut().clear();
+        self.exceptions.borrow_mut().clear();
     }
 }
 

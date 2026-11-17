@@ -30,6 +30,7 @@ pub mod glyphs;
 pub mod import;
 pub mod licences;
 pub mod permissions;
+pub mod profile_data;
 pub mod prompts;
 pub mod routing;
 pub mod schedule;
@@ -63,6 +64,11 @@ pub const LICENCE_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/
 pub const PRIVACY_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/PRIVACY.md");
 pub const IMPRINT_URL: &str = "https://tarnbrowser.com/imprint";
 pub const LINUX_LICENCES_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/raw/v", env!("CARGO_PKG_VERSION"), "/packaging/third-party-licenses-linux.txt");
+
+pub const VERSION: &str = match option_env!("TARN_BUILD_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)

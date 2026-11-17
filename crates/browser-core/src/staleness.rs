@@ -52,11 +52,7 @@ impl Updates {
     }
 }
 
-/// This build's version: a nightly's `TARN_BUILD_VERSION`, else the crate's.
-pub const VERSION: &str = match option_env!("TARN_BUILD_VERSION") {
-    Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
-};
+pub use crate::VERSION;
 
 pub fn critical_value(at: i64, version: &str) -> String {
     format!("{at} {version}")

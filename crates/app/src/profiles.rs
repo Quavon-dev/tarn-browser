@@ -113,14 +113,7 @@ impl Browser {
 
     /// Whether this profile borrows another's store or another profile borrows this one's.
     pub(crate) fn store_is_shared(&self, id: Id, own_store: &str) -> bool {
-        self.core.disk.setting(&shared_key(id)).ok().flatten().is_some_and(|u| !u.is_empty())
-            || self
-                .core
-                .disk
-                .profiles()
-                .unwrap_or_default()
-                .iter()
-                .any(|p| p.id != id && self.core.disk.setting(&shared_key(p.id)).ok().flatten().as_deref() == Some(own_store))
+        browser_core::profile_data::store_is_shared(&self.core.disk, id, own_store)
     }
 }
 
