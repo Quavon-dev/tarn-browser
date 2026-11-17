@@ -908,7 +908,7 @@ impl Store {
                 _ => {}
             }
         }
-        group_order.extend(groups.iter().chain(&created).filter(|id| !listed.contains(id)));
+        group_order.extend(groups.iter().filter(|id| !listed.contains(id)));
         for &id in &layout.drop_if_empty {
             tx.execute("DELETE FROM groups WHERE id = ?1 AND space_id = ?2 AND NOT EXISTS (SELECT 1 FROM tabs WHERE group_id = ?1)", params![id, space_id])?;
         }
@@ -2195,6 +2195,18 @@ mod tests {
         assert_eq!(store.site_css(p).unwrap()[0], ("a.test".to_owned(), "p { margin: 0 }".to_owned()));
         store.set_site_css(p, "b.test", " \n").unwrap();
         assert_eq!(store.site_css(p).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn an_unlisted_new_group_is_placed_once_after_the_listed_ones() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "uuid", false).unwrap();
+        let space = store.create_space(p.id, "S", "").unwrap().id;
+        let (a, b) = (store.create_group(space, "A").unwrap().id, store.create_group(space, "B").unwrap().id);
+        let layout = Layout { new_groups: vec![("N".into(), String::new(), String::new())], groups: vec![Slot::Group(b)], ..Default::default() };
+        let created = store.apply_layout(space, &layout).unwrap();
+        let groups = store.groups(space).unwrap();
+        assert_eq!(groups.iter().map(|g| (g.id, g.position)).collect::<Vec<_>>(), [(b, 0), (a, 1), (created[0], 2)]);
     }
 
     #[test]

@@ -32,6 +32,7 @@ pub mod layout;
 pub mod licences;
 pub mod palette;
 pub mod permissions;
+pub mod profiles;
 pub mod prompts;
 pub mod routing;
 pub mod schedule;

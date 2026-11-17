@@ -1,10 +1,14 @@
 use store::{Id, Profile, Schedule, Store};
 
+use shield::ShieldLevel;
+
+use crate::profiles::NewProfile;
 use crate::tabs::SpaceRef;
 use crate::text::is_bidi;
 
 pub const MAX_NAME: usize = 48;
 pub const DEFAULT_PROFILE_COLOR: &str = "blue";
+pub const DEFAULT_SPACE_ICON: &str = "house";
 pub const DEFAULT_SCHEDULE: Schedule = Schedule { days: 0, start: 9, end: 17 };
 
 pub fn valid_name<'a>(raw: &str, taken: impl IntoIterator<Item = &'a str>) -> Option<String> {
@@ -52,7 +56,7 @@ impl SpaceDraft {
             profile,
             name: next_space_name(spaces, profile),
             color: String::new(),
-            icon: String::new(),
+            icon: DEFAULT_SPACE_ICON.into(),
             schedule: DEFAULT_SCHEDULE,
             profile_name: String::new(),
             profile_color: DEFAULT_PROFILE_COLOR.into(),
@@ -97,13 +101,10 @@ impl SpaceDraft {
                 store.update_space(id, &name, &self.color, &self.icon)?;
                 Ok(id)
             }),
-            (None, None, Some(profile_name)) => disk.batch(|disk| {
-                let profile = disk.create_profile(&profile_name, &uuid::Uuid::new_v4().to_string(), false)?;
-                disk.set_profile(profile.id, &profile_name, &self.profile_color)?;
-                let id = disk.create_space(profile.id, &name, &self.icon)?.id;
-                disk.update_space(id, &name, &self.color, &self.icon)?;
-                Ok(id)
-            }),
+            (None, None, Some(profile_name)) => {
+                let profile = NewProfile { name: &profile_name, color: &self.profile_color, level: ShieldLevel::Standard, engine: 0, share: None };
+                crate::profiles::create(disk, &profile, [&name, &self.color, &self.icon]).map(|(_, space)| space)
+            }
             (None, None, None) => return Err(Unsaved::Invalid),
         };
         written.map_err(Unsaved::Failed)
@@ -191,5 +192,16 @@ mod tests {
         let work = disk.profiles().unwrap().into_iter().find(|p| p.name == "Work").unwrap();
         assert_eq!(work.color, "green");
         assert_eq!(disk.spaces(work.id).unwrap().iter().map(|s| s.id).collect::<Vec<_>>(), [id]);
+        assert_eq!(work.shield_level, shield::ShieldLevel::Standard);
+        assert_eq!(disk.setting(&crate::command::engine_key(false, work.id)).unwrap().as_deref(), Some(crate::command::ENGINES[0].name));
+        assert_eq!(disk.setting(&crate::shared_key(work.id)).unwrap().as_deref(), Some(""), "a new profile keeps its own website data, as on macOS");
+    }
+
+    #[test]
+    fn a_new_space_starts_with_the_first_space_icon() {
+        let disk = Store::open_in_memory().unwrap();
+        disk.create_profile("Personal", "uuid", false).unwrap();
+        let draft = SpaceDraft::new(&refs(&disk), None, &disk.profiles().unwrap());
+        assert_eq!(draft.icon, DEFAULT_SPACE_ICON);
     }
 }

@@ -316,34 +316,15 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let shared = editor.share.and_then(|id| self.core.disk.profile(id).ok()).map(|mut p| {
-            share_store(&self.core.disk, &mut p);
-            p.data_store_uuid
-        });
-        let profile = match self.core.disk.create_profile(name, &uuid::Uuid::new_v4().to_string(), false) {
-            Ok(profile) => profile,
+        let new = browser_core::profiles::NewProfile { name, color, level: editor.level, engine: editor.engine, share: editor.share };
+        let id = match browser_core::profiles::create(&self.core.disk, &new, space) {
+            Ok((id, _)) => id,
             Err(e) => {
                 self.warning = Some(format!("The profile could not be created ({e})."));
                 cx.notify();
                 return false;
             }
         };
-        let id = profile.id;
-        let written = self
-            .core
-            .disk
-            .set_profile(id, name, color)
-            .and_then(|_| self.core.disk.set_profile_shield_level(id, editor.level))
-            .and_then(|_| self.core.disk.set_setting(&shared_key(id), shared.as_deref().unwrap_or("")))
-            .and_then(|_| self.core.disk.set_setting(&engine_key(false, id), ENGINES[editor.engine].name))
-            .and_then(|_| self.core.disk.create_space(id, space[0], space[2]))
-            .and_then(|s| self.core.disk.update_space(s.id, space[0], space[1], space[2]));
-        if let Err(e) = written {
-            self.core.disk.delete_profile(id).ok();
-            self.warning = Some(format!("The profile could not be created ({e})."));
-            cx.notify();
-            return false;
-        }
         self.reload_spaces();
         if let Some(ix) = self.model.spaces.iter().position(|s| !s.private && s.space.profile_id == id) {
             self.switch_space(ix, window, cx);
