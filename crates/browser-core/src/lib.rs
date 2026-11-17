@@ -14,6 +14,7 @@ use store::{Id, Profile, Store, WebEngine};
 use url::Url;
 
 pub mod bookmarks;
+pub mod capture;
 pub mod cleanup;
 pub mod closed;
 pub mod command;
@@ -25,6 +26,7 @@ pub mod ext_package;
 pub mod extensions;
 pub mod find;
 pub mod fog;
+pub mod fullscreen;
 pub mod github;
 pub mod glyphs;
 pub mod hover;
@@ -213,6 +215,10 @@ impl<D: WebsiteData> Core<D> {
         !(private && self.burners.borrow().contains(&profile_id))
     }
 
+    pub fn keeps_record_since(&self, private: bool, profile_id: Id, started: i64) -> bool {
+        self.keeps_records(private, profile_id) && self.wiped_at.borrow().get(&(private, profile_id)).is_none_or(|wiped| started >= *wiped)
+    }
+
     pub fn site_stopped(&self, private: bool, profile_id: Id, url: &Url) -> i64 {
         command::page_host(url).and_then(|host| self.store(private).shield_site_total(profile_id, host.trim_end_matches('.')).ok()).unwrap_or(0).max(0)
     }
@@ -317,6 +323,19 @@ impl<D: WebsiteData> Core<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn records_started_before_a_wipe_or_in_a_burner_are_not_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = TestCore::open(dir.path(), false);
+        assert!(core.keeps_record_since(false, 1, 10));
+        core.wiped_at.borrow_mut().insert((false, 1), 20);
+        assert!(!core.keeps_record_since(false, 1, 10));
+        assert!(core.keeps_record_since(false, 1, 20));
+        assert!(core.keeps_record_since(true, 1, 10), "the wipe was of the other store");
+        core.burners.borrow_mut().insert(1);
+        assert!(!core.keeps_record_since(true, 1, 30));
+    }
 
     #[test]
     fn shared_store_replaces_the_uuid_only_when_set() {

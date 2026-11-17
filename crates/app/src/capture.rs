@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -67,8 +66,7 @@ impl Browser {
                 write_download(&name, &bytes).map_err(|e| e.to_string())
             });
         if let Ok(path) = &result
-            && self.core.keeps_records(private, profile_id)
-            && self.core.wiped_at.borrow().get(&(private, profile_id)).is_none_or(|wiped| started >= *wiped)
+            && self.core.keeps_record_since(private, profile_id, started)
         {
             self.store(private).add_download(profile_id, &url, &path.to_string_lossy(), "finished", now()).ok();
             self.downloads_popover.changed += 1;
@@ -114,7 +112,5 @@ impl Browser {
 
 pub(crate) fn write_download(name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
     let dir = std::env::home_dir().ok_or(std::io::ErrorKind::NotFound)?.join("Downloads");
-    let path = engine::downloads::unique_path(&dir, name, |p| p.symlink_metadata().is_ok());
-    std::fs::OpenOptions::new().write(true).create_new(true).open(&path)?.write_all(bytes)?;
-    Ok(path)
+    browser_core::capture::save_new(&dir, name, bytes)
 }

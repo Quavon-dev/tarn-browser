@@ -648,3 +648,26 @@ fn a_snapshot_answers_and_a_scripted_shift_click_does_not_peek() {
     assert!(event(&state, "peek").is_none(), "only the user's Shift-click peeks");
     window.close();
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_screenshot_saves_a_new_png_under_the_given_name_only() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "private:display-snapshot");
+    let window = gtk::Window::builder().default_width(400).default_height(300).child(state.container()).build();
+    window.present();
+    let web = open(&state);
+    assert!(WebViewExt::settings(&web).unwrap().enables_back_forward_navigation_gestures(), "touchpad swipes step through history");
+    state.events.borrow_mut().clear();
+    screenshot(&state, &web, &json!({ "seq": 3, "name": "../tarn-display-snapshot.png" }));
+    assert!(spin_until(|| event(&state, "screenshot").is_some(), 20), "the screenshot answered");
+    let answer = event(&state, "screenshot").unwrap();
+    assert_eq!(answer["seq"], 3, "{answer}");
+    let path = std::path::PathBuf::from(answer["path"].as_str().unwrap_or_default());
+    assert_eq!(path.parent(), Some(session::downloads_dir().as_path()), "{answer}");
+    assert!(path.file_name().unwrap().to_string_lossy().starts_with("tarn-display-snapshot"), "{answer}");
+    let png = std::fs::read(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert!(png.starts_with(b"\x89PNG\r\n\x1a\n") && png.len() > 100);
+    window.destroy();
+}

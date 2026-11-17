@@ -1,6 +1,8 @@
 pub mod blocking;
 pub mod bookmarks;
+mod capture;
 pub mod extensions;
+mod fullscreen;
 mod groups;
 pub mod icons;
 pub mod library;
@@ -89,6 +91,7 @@ pub struct DownloadItem {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastAction {
     Undo(u64),
+    Reveal(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -144,6 +147,10 @@ pub struct Browser {
     pub guard_since: std::time::Instant,
     pub link_peek: Option<link_peek::LinkPeek>,
     pub peek_outbox: Vec<(&'static str, Value)>,
+    pub page_fullscreen: browser_core::fullscreen::PageFullScreen,
+    pub window_request: Option<nsh_core::desktop::WindowMode>,
+    window_mode: nsh_core::desktop::WindowMode,
+    restore_mode: nsh_core::desktop::WindowMode,
     text_rows: usize,
     burner_return: Option<(bool, Id)>,
     window: SavedWindow,
@@ -214,6 +221,10 @@ impl Browser {
             guard_since: std::time::Instant::now(),
             link_peek: None,
             peek_outbox: Vec::new(),
+            page_fullscreen: Default::default(),
+            window_request: None,
+            window_mode: Default::default(),
+            restore_mode: Default::default(),
             text_rows: 0,
             burner_return: None,
             window,
@@ -313,6 +324,7 @@ impl Browser {
         let Some(tab) = self.model.tab(key).cloned() else { return };
         if self.model.active != Some(key) {
             self.close_reader();
+            self.leave_page_fullscreen();
         }
         if self.link_peek.as_ref().is_some_and(|p| p.opener != key) {
             self.link_peek = None;
@@ -879,6 +891,8 @@ impl Browser {
                 }
             }
             "crashed" => self.on_crash(key),
+            "fullscreen" => self.on_fullscreen(key, data),
+            "screenshot" => self.on_snapshot(key, data),
             "pressed" if self.in_split(key) && self.model.active != Some(key) => self.activate(key),
             "playing" => {
                 if data["playing"].as_bool() == Some(true) {
@@ -1004,6 +1018,9 @@ impl Browser {
     }
 
     fn on_crash(&mut self, key: TabKey) {
+        if self.model.active == Some(key) {
+            self.leave_page_fullscreen();
+        }
         let page = self.pages.entry(key).or_default();
         if page.crashed {
             page.loading = false;

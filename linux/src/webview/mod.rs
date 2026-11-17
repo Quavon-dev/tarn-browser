@@ -21,7 +21,8 @@ use webkit6::prelude::*;
 use webkit6::{
     AuthenticationRequest, AuthenticationScheme, Credential, CredentialPersistence, Download, FindOptions, GeolocationPermissionRequest, LoadEvent,
     MediaCaptureState, NavigationPolicyDecision, NavigationType, NetworkError, PermissionRequest, PolicyDecisionType, PolicyError, ResponsePolicyDecision,
-    ScriptDialog, ScriptDialogType, UserContentFilter, UserContentManager, UserMediaPermissionRequest, WebProcessTerminationReason, WebView, gio, glib,
+    ScriptDialog, ScriptDialogType, SnapshotOptions, SnapshotRegion, UserContentFilter, UserContentManager, UserMediaPermissionRequest,
+    WebProcessTerminationReason, WebView, gio, glib,
 };
 
 use self::policy::{Burst, Levels, Navigation, Verdict};
@@ -326,6 +327,7 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
         settings.set_enable_javascript(wanted.level.policy().javascript);
         settings.set_javascript_can_open_windows_automatically(false);
         settings.set_enable_developer_extras(false);
+        settings.set_enable_back_forward_navigation_gestures(true);
     }
     web.set_hexpand(true);
     web.set_vexpand(true);
@@ -812,6 +814,28 @@ fn scale_down(pixels: &[u8], width: usize, height: usize, max_width: usize) -> (
     (out, w, h)
 }
 
+fn screenshot(state: &Rc<State>, web: &WebView, args: &JsonValue) {
+    let seq = args["seq"].as_u64().unwrap_or_default();
+    let name = engine::downloads::sanitize_filename(args["name"].as_str().unwrap_or_default());
+    let weak = Rc::downgrade(state);
+    let clipboard = web.clipboard();
+    web.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| {
+        let saved = result.map_err(|_| "WebKit could not capture the page".to_owned()).and_then(|texture| {
+            clipboard.set_texture(&texture);
+            let dir = session::downloads_dir();
+            std::fs::create_dir_all(&dir).and_then(|()| browser_core::capture::save_new(&dir, &name, &texture.save_to_png_bytes())).map_err(|e| e.to_string())
+        });
+        let Some(state) = weak.upgrade() else { return };
+        state.emit(
+            "screenshot",
+            match saved {
+                Ok(path) => json!({ "seq": seq, "path": path.to_string_lossy() }),
+                Err(message) => json!({ "seq": seq, "message": message }),
+            },
+        );
+    });
+}
+
 fn media_changed(state: &Weak<State>, web: &WebView) {
     let capturing = |state| state != MediaCaptureState::None;
     let playing = web.is_playing_audio() || capturing(web.camera_capture_state()) || capturing(web.microphone_capture_state());
@@ -930,6 +954,21 @@ fn connect(state: &Rc<State>, web: &WebView) {
             request.cancel();
         }
         true
+    });
+    let w = weak.clone();
+    web.connect_enter_fullscreen(move |web| {
+        if let Some(s) = w.upgrade() {
+            let window_full_screen = web.root().and_downcast::<gtk::Window>().is_some_and(|window| window.is_fullscreen());
+            s.emit("fullscreen", json!({ "on": true, "windowFullScreen": window_full_screen }));
+        }
+        false
+    });
+    let w = weak.clone();
+    web.connect_leave_fullscreen(move |_| {
+        if let Some(s) = w.upgrade() {
+            s.emit("fullscreen", json!({ "on": false }));
+        }
+        false
     });
     let w = weak.clone();
     web.connect_is_playing_audio_notify(move |web| media_changed(&w, web));
@@ -1134,6 +1173,7 @@ impl NativeComponent for TarnWebView {
             }
             "pdf" => save_pdf(state, &web, args),
             "snapshot" => snapshot(state, &web),
+            "screenshot" => screenshot(state, &web, args),
             "zoom" => {
                 let factor = policy::zoom_factor(args["factor"].as_f64().unwrap_or(1.0));
                 state.zoom.set(factor);

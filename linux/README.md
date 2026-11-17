@@ -44,6 +44,9 @@ contract v2 (`docs/mobile-plan.md` §2), which also lists what stays different. 
 - `print` opens the GTK print dialog; `pdf {path}` prints the page to that absolute path through
   WebKitGTK's print operation (GTK's file printer) and reports the file on the same route as a
   finished `download`, so it is listed like one.
+- `screenshot {seq, name}` saves the visible page as a new PNG in Downloads and answers `screenshot
+  {seq, path}` or `{seq, message}`; `fullscreen {on, windowFullScreen}` reports WebKitGTK's
+  `enter-fullscreen` and `leave-fullscreen` (`docs/shared-core.md` §1).
 
 ## Features from the macOS app
 
@@ -147,9 +150,13 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   so the peek's back history stays behind);
 - memory panel and heavy-tab marks: WebKitGTK gives no process id, so the component reports
   `process {pid}` (a Linux addition) when exactly one new `WebKitWebProcess` below the app appears
-  between a load's start and its commit; tabs it cannot tell apart are "Not measured".
+  between a load's start and its commit; tabs it cannot tell apart are "Not measured";
+- Take Screenshot (Ctrl+Alt+Shift+S or the command bar), a page's full screen that hides the shell,
+  window full screen on F11, and back and forward by a two-finger swipe over the page
+  (`docs/nsh-plan.md`, P2).
 
-Not ported: on-device translation and the startup trace (macOS-only).
+Not ported: Picture in Picture (WebKitGTK has none), on-device translation and the startup trace
+(macOS-only).
 
 ## Build and test (Docker; no Linux desktop is needed)
 

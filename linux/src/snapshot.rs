@@ -155,6 +155,7 @@ pub struct Snapshot {
     pub cleanable: bool,
     pub compact: bool,
     pub link_peek: Option<PeekItem>,
+    pub fullscreen: bool,
 }
 
 pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
@@ -323,7 +324,7 @@ fn tiles_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
 }
 
 pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
-    let panes = b.shown_split().map(|s| s.panes().to_vec()).unwrap_or_default();
+    let panes = b.shown_split().filter(|_| !b.page_fullscreen.is_on()).map(|s| s.panes().to_vec()).unwrap_or_default();
     let lists = b.lists();
     let sort_downloads = !b.setting_off(crate::browser::pages::SORT_DOWNLOADS);
     let youtube = b.setting_on(shield::groups::YOUTUBE_SETTING);
@@ -393,7 +394,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
     let private = b.model.private();
     let profile_row = b.model.current_space().filter(|s| !s.private).and_then(|s| b.core.disk.profile(s.space.profile_id).ok());
     let overridden = profile_id.is_some_and(|p| b.core.has_override(private, p, &host));
-    let split = b.shown_split();
+    let split = b.shown_split().filter(|_| !b.page_fullscreen.is_on());
     let blank = key.is_some() && split.is_none() && (page.url.is_empty() || page.url == crate::browser::START_URL) && page.error.is_none();
     Snapshot {
         spaces: (0..b.model.spaces.len())
@@ -447,6 +448,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         cleanable: browser_core::cleanup::cleanable(&b.model.tabs) && !b.model.burner_shown(),
         compact: b.compact_toolbar(),
         link_peek: peek_item(b).filter(|_| web_shown),
+        fullscreen: b.page_fullscreen.is_on(),
     }
 }
 

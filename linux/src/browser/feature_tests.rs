@@ -1174,3 +1174,127 @@ fn page_commands_copy_the_title_or_a_markdown_link_and_close_or_sleep_tabs() {
     assert_eq!(b.active_url(), None);
     assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some("3 tabs closed"));
 }
+
+#[test]
+fn a_screenshot_is_named_after_the_page_and_recorded_in_its_own_profile() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    let profile = b.model.profile().unwrap().1;
+    b.on_event(key, "finished", &json!({ "url": "https://a.test/x", "title": "Q3 / Q4 report" }));
+    b.take_screenshot();
+    let requests = asked(&b, "screenshot");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["name"], "Q3 - Q4 report.png");
+    let seq = requests[0]["seq"].clone();
+    let other = b.new_tab("https://b.test/").unwrap();
+    b.on_event(other, "screenshot", &json!({ "seq": seq, "path": "/d/elsewhere.png" }));
+    assert!(b.core.disk.downloads(profile).unwrap().is_empty(), "only the tab asked answers");
+    b.on_event(key, "screenshot", &json!({ "seq": seq, "path": "/d/Q3 - Q4 report.png" }));
+    let saved = b.core.disk.downloads(profile).unwrap();
+    assert_eq!((saved.len(), saved[0].path.as_str(), saved[0].url.as_str()), (1, "/d/Q3 - Q4 report.png", "https://a.test/x"));
+    let toast = b.toast.clone().unwrap();
+    assert_eq!((toast.text.as_str(), toast.action), ("Screenshot saved", Some(ToastAction::Reveal("/d/Q3 - Q4 report.png".into()))));
+    b.on_event(key, "screenshot", &json!({ "seq": seq, "path": "/d/again.png" }));
+    assert_eq!(b.core.disk.downloads(profile).unwrap().len(), 1, "one answer per request");
+
+    b.activate(key);
+    b.take_screenshot();
+    let seq = asked(&b, "screenshot").last().unwrap()["seq"].clone();
+    b.on_event(key, "screenshot", &json!({ "seq": seq, "message": "WebKit could not capture the page" }));
+    assert_eq!(b.notice, Some(Notice::Message("Download failed: WebKit could not capture the page".into())));
+}
+
+#[test]
+fn a_burner_screenshot_is_saved_but_not_recorded() {
+    let (_dir, mut b) = browser();
+    b.open_burner();
+    let key = b.model.active.unwrap();
+    let profile = b.model.profile().unwrap().1;
+    b.take_screenshot();
+    let seq = asked(&b, "screenshot")[0]["seq"].clone();
+    b.on_event(key, "screenshot", &json!({ "seq": seq, "path": "/d/Page.png" }));
+    assert!(b.core.store(true).downloads(profile).unwrap().is_empty());
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some("Screenshot saved"));
+}
+
+#[test]
+fn a_full_screen_page_hides_the_shell_until_the_shell_needs_it() {
+    use nsh_core::desktop::WindowMode;
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://video.test/");
+    b.window_changed(WindowMode::Maximized);
+    b.on_event(key, "fullscreen", &json!({ "on": true, "windowFullScreen": false }));
+    assert!(b.page_fullscreen.is_on());
+    assert_eq!(b.window_request.take(), Some(WindowMode::FullScreen));
+    b.window_changed(WindowMode::FullScreen);
+    assert!(crate::snapshot::snapshot(&b, true).fullscreen);
+    b.keep_page_fullscreen(false, false, false);
+    assert!(b.page_fullscreen.is_on());
+    b.on_event(key, "fullscreen", &json!({ "on": false }));
+    assert!(!b.page_fullscreen.is_on());
+    assert_eq!(b.window_request.take(), Some(WindowMode::Maximized), "the window goes back to how it was");
+
+    b.window_changed(WindowMode::Maximized);
+    for shell in [(true, false, false), (false, true, false), (false, false, true)] {
+        b.on_event(key, "fullscreen", &json!({ "on": true, "windowFullScreen": false }));
+        b.window_request = None;
+        b.keep_page_fullscreen(shell.0, shell.1, shell.2);
+        assert!(!b.page_fullscreen.is_on(), "{shell:?}");
+        assert_eq!(b.window_request.take(), Some(WindowMode::Maximized));
+    }
+    b.on_event(key, "fullscreen", &json!({ "on": true, "windowFullScreen": false }));
+    b.notice = Some(Notice::Message("m".into()));
+    b.keep_page_fullscreen(false, false, false);
+    assert!(!b.page_fullscreen.is_on(), "a notice brings the shell back");
+    b.notice = None;
+
+    b.on_event(key, "fullscreen", &json!({ "on": true, "windowFullScreen": false }));
+    b.new_tab("https://b.test/").unwrap();
+    assert!(!b.page_fullscreen.is_on(), "another tab brings the shell back");
+    b.window_request = None;
+    b.on_event(key, "fullscreen", &json!({ "on": true, "windowFullScreen": false }));
+    assert!(!b.page_fullscreen.is_on(), "only the active tab fills the window");
+    assert_eq!(b.window_request.take(), Some(WindowMode::Maximized), "WebKit's full-screen window is undone");
+
+    b.activate(key);
+    b.on_event(key, "prompt", &json!({ "id": 1, "kind": "camera", "origin": "https://video.test" }));
+    b.on_event(key, "fullscreen", &json!({ "on": true, "windowFullScreen": false }));
+    assert!(!b.page_fullscreen.is_on(), "a pending prompt keeps the shell");
+    assert_eq!(b.window_request.take(), Some(WindowMode::Maximized));
+}
+
+#[test]
+fn full_screen_keys_and_pages_keep_a_window_that_was_already_full_screen() {
+    use nsh_core::desktop::WindowMode;
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    b.toggle_full_screen();
+    assert_eq!(b.window_request.take(), Some(WindowMode::FullScreen));
+    b.window_changed(WindowMode::FullScreen);
+    b.on_event(key, "fullscreen", &json!({ "on": true, "windowFullScreen": true }));
+    assert!(b.page_fullscreen.is_on());
+    b.window_request = None;
+    b.toggle_full_screen();
+    assert!(!b.page_fullscreen.is_on(), "the key first gives the shell back");
+    assert_eq!(b.window_request.take(), Some(WindowMode::FullScreen), "the window stays in full screen");
+    b.on_event(key, "fullscreen", &json!({ "on": false }));
+    assert_eq!(b.window_request.take(), None);
+    b.toggle_full_screen();
+    assert_eq!(b.window_request.take(), Some(WindowMode::Normal));
+}
+
+#[test]
+fn a_full_screen_page_alone_fills_a_split() {
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    visit(&mut b, first, "https://a.test/");
+    b.new_tab("https://b.test/").unwrap();
+    b.activate(first);
+    b.open_split();
+    let active = b.model.active.unwrap();
+    b.on_event(active, "fullscreen", &json!({ "on": true, "windowFullScreen": false }));
+    let snap = crate::snapshot::snapshot(&b, true);
+    assert!(snap.split.is_none());
+    assert_eq!(snap.views.iter().filter(|v| v.active).map(|v| (v.key, v.pane)).collect::<Vec<_>>(), [(active, None)]);
+}

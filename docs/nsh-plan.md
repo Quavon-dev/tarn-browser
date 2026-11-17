@@ -323,6 +323,34 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   start card at once, where macOS shows the start page and makes the tab on Enter.
 - Settings › Appearance has the accent picker (the theme's own accent, then `browser_core::prefs::ACCENTS`,
   stored by name as on macOS and applied over the theme's tokens with `prefs::accented`).
+- A two-finger horizontal swipe over the page goes back or forward, drawn by WebKitGTK
+  (`enable-back-forward-navigation-gestures`, as WebKit's own swipe on macOS). As on macOS such a
+  step is the page's, not the user's history step, for the navigation policy. Settings ›
+  General › Tabs › Touchpad gestures does not turn this page swipe off yet; it covers the space swipe.
+- Take Screenshot (Ctrl+Alt+Shift+S, rebindable, or "Take Screenshot" in the command bar; macOS
+  ⌘⌥S, whose Ctrl+Alt+S is Swap split panes on Linux) saves the visible page as a new PNG in
+  Downloads under the page's title (`browser_core::capture`), copies it to the clipboard, lists it
+  in the tab's own profile store (none for a burner, in memory for the private space) and shows
+  "Screenshot saved" with Show in Folder, through the component's `screenshot` command
+  (`webkit_web_view_get_snapshot`, `docs/shared-core.md` §1).
+- A page's element full screen (a video) fills the window alone: the sidebar, toolbar, error bar,
+  toast and window padding hide and a split shows only the active pane; a prompt, notice, panel,
+  the find bar, the command palette, Reader or another tab brings the shell back, as on macOS
+  (`browser_core::fullscreen`). WebKitGTK puts the window in full screen itself (`enter-fullscreen`)
+  and takes it out on `leave-fullscreen`, so the shell then restores the window's mode from before
+  (maximized stays maximized) or keeps a window that was already in full screen there. F11 (fixed;
+  macOS ⌃⌘F, Windows F11) enters or leaves window full screen, and first gives a full-screen page's
+  shell back.
+  Limits: WebKitGTK takes the window out of full screen whenever a page leaves element full screen,
+  so a page that leaves it after the shell was given back (F11, a prompt) also ends a window full
+  screen the user had chosen; and when the window manager ends full screen during a page's full
+  screen, the shell stays hidden until the page leaves it or Esc. A screenshot whose tab closes
+  before WebKit returns the image is saved but not listed, and shows no toast.
+- Gap: no Picture in Picture. WebKitGTK has no Picture-in-Picture API; WebKit's video presentation
+  modes exist only in its Cocoa ports, so Linux has no Picture in Picture command (macOS ⌘⌃P).
+- Not a gap but a design decision: Linux uses only the distribution's WebKitGTK, never a bundled
+  Chromium, so the macOS features of the Chromium engine (a site or tab opened in Chromium, the
+  default web engine choice, Chromium's update gate) do not exist there.
 - A blocked pop-up's notice offers "Open in New Tab" for an http(s) address, as on macOS: the
   button opens it once as the user's own load, in the opener's space; the page alone cannot, nor
   can it replace a notice that already offers an action (`browser::tests`). Evidence:

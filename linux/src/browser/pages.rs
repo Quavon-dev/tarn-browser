@@ -20,6 +20,7 @@ pub enum Request {
     Pick(TabKey),
     IconLinks(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     IconData(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
+    Capture { key: TabKey, profile: Id, url: String, started: i64 },
 }
 
 #[derive(Clone, Debug, PartialEq)]
