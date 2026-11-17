@@ -5,7 +5,7 @@ use std::time::Instant;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, App, AppContext, Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Render, Rgba,
+    AnyElement, App, AppContext, Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Rgba,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, WindowHandle, canvas, div, point, prelude::FluentBuilder, px, size,
 };
 use ui::controls::{key_cap, surface};
@@ -34,7 +34,7 @@ pub struct Address {
     pub(crate) content: Rc<Cell<Bounds<Pixels>>>,
     popup: Option<Popups>,
     opening: bool,
-    placed: Option<(Bounds<Pixels>, Bounds<Pixels>)>,
+    placed: Option<(Bounds<Pixels>, Bounds<Pixels>, Point<Pixels>)>,
     clicks: Option<engine::menu::EventMonitor>,
 }
 
@@ -136,11 +136,12 @@ impl Browser {
             return self.address.close(reduce, cx);
         }
         let frame = palette_frame(content, self.palette_list());
-        if content.size.width <= px(0.) || self.address.opening || self.address.placed == Some((frame, content)) {
+        let origin = window.bounds().origin;
+        if content.size.width <= px(0.) || self.address.opening || self.address.placed == Some((frame, content, origin)) {
             return;
         }
         if let (Some(host), Some(popup)) = (self.host.clone(), self.address.popup.as_ref()) {
-            self.address.placed = Some((frame, content));
+            self.address.placed = Some((frame, content, origin));
             let (palette, dim) = (popup.palette.1.clone(), popup.dim.1.clone());
             let rect = |b: Bounds<Pixels>| {
                 (f32::from(b.origin.x).into(), f32::from(b.origin.y).into(), f32::from(b.size.width).into(), f32::from(b.size.height).into())
@@ -154,7 +155,6 @@ impl Browser {
             return;
         }
         let Some(main) = window.window_handle().downcast::<Browser>() else { return };
-        let origin = window.bounds().origin;
         let on_screen = |b: Bounds<Pixels>| Bounds::new(point(origin.x + b.origin.x, origin.y + b.origin.y), b.size);
         let (frame, content) = (on_screen(frame), on_screen(content));
         let display = window.display(cx).map(|d| d.id());

@@ -200,7 +200,7 @@ impl<D: WebsiteData> Core<D> {
     }
 
     pub fn site_stopped(&self, private: bool, profile_id: Id, url: &Url) -> i64 {
-        command::page_host(url).and_then(|host| self.store(private).shield_site_total(profile_id, &host).ok()).unwrap_or(0).max(0)
+        command::page_host(url).and_then(|host| self.store(private).shield_site_total(profile_id, host.trim_end_matches('.')).ok()).unwrap_or(0).max(0)
     }
 
     /// The Shield level for `url` under an opened profile.
@@ -329,6 +329,8 @@ mod tests {
         let url = |u: &str| Url::parse(u).unwrap();
         assert_eq!(core.site_stopped(false, id, &url("https://NEWS.test/a")), 7);
         assert_eq!(core.site_stopped(false, id, &url("blob:https://news.test/x")), 7);
+        assert_eq!(core.site_stopped(false, id, &url("https://news.test./")), 7);
+        assert_eq!(core.site_stopped(false, id, &url("blob:https://news.test./x")), 7);
         assert_eq!(core.site_stopped(false, id, &url("https://other.test/")), 0);
         assert_eq!(core.site_stopped(false, id, &url("about:blank")), 0);
         assert_eq!(core.site_stopped(false, id + 1, &url("https://news.test/")), 0);

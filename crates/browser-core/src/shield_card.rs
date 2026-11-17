@@ -26,7 +26,10 @@ const DAY_MS: i64 = 86_400_000;
 pub fn export_path(file: &str) -> std::io::Result<PathBuf> {
     static EXPORTS: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!("tarn-card-{}-{}", std::process::id(), EXPORTS.fetch_add(1, Ordering::Relaxed)));
-    std::fs::create_dir_all(&dir)?;
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&dir)?;
     Ok(dir.join(file))
 }
 
@@ -477,6 +480,16 @@ pub fn back(card: &Card, dark: bool) -> (&'static str, String, Vec<Label>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn an_export_lands_in_a_new_directory_only_its_owner_can_open() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = export_path("card.png").unwrap();
+        let dir = path.parent().unwrap();
+        assert_eq!(std::fs::metadata(dir).unwrap().permissions().mode() & 0o777, 0o700);
+        std::fs::remove_dir(dir).unwrap();
+    }
 
     #[test]
     fn a_site_line_names_the_level_it_follows() {

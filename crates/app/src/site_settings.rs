@@ -59,6 +59,7 @@ pub struct SitePopover {
     pub(crate) anchor: Rc<Cell<Bounds<Pixels>>>,
     closed: Option<Instant>,
     more: bool,
+    draft: Option<(String, String)>,
 }
 
 /// A remembered permission for the page's origin or for a frame embedded in it.
@@ -344,7 +345,11 @@ impl SiteSettingsWindow {
             })
         }));
         let host = browser.upgrade().and_then(|b| b.read(cx).site()).and_then(|(_, url)| url.host_str().map(str::to_owned));
-        let current = browser.upgrade().zip(host.as_ref()).map(|(b, host)| b.read(cx).site_css(host)).unwrap_or_default();
+        let draft = browser.upgrade().and_then(|b| b.update(cx, |b, _| b.site_popover.draft.take()));
+        let current = match draft {
+            Some((drafted, text)) if again && host.as_ref() == Some(&drafted) => text,
+            _ => browser.upgrade().zip(host.as_ref()).map(|(b, host)| b.read(cx).site_css(host)).unwrap_or_default(),
+        };
         let css = cx.new(|cx| {
             let mut input = TextInput::new("body { font-size: 18px }", cx);
             input.set_text(current, cx);
@@ -437,9 +442,11 @@ impl SiteSettingsWindow {
 
     fn toggle_more(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.closing = true;
+        let draft = self.css_host.clone().map(|host| (host, self.css.read(cx).text().to_owned()));
         window.remove_window();
-        self.on_main(cx, |b, w, cx| {
+        self.on_main(cx, move |b, w, cx| {
             b.site_popover.window = None;
+            b.site_popover.draft = draft;
             b.site_popover.more = !b.site_popover.more;
             b.show_site_settings(true, w, cx);
         });
