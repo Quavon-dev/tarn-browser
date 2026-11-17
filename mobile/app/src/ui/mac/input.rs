@@ -37,7 +37,7 @@ fn run(ui: Ui, action: Action) {
         }
         Action::CloseTab => ui.act(|s| {
             if let Some(key) = s.model.active {
-                s.close_tab(key);
+                s.close_or_unload(key);
             }
             Vec::new()
         }),

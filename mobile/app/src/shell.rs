@@ -413,11 +413,15 @@ impl<D: Platform> Shell<D> {
         }
     }
 
-    pub fn close_tab(&mut self, key: TabKey) {
+    pub fn close_or_unload(&mut self, key: TabKey) {
         if self.model.tab(key).is_some_and(|t| t.kind != store::TabKind::Ephemeral) {
             self.unload_tab(key);
-            return;
+        } else {
+            self.close_tab(key);
         }
+    }
+
+    pub fn close_tab(&mut self, key: TabKey) {
         if self.in_burner() {
             self.burn();
             return;

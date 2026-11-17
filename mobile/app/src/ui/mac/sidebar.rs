@@ -211,7 +211,7 @@ fn run_tab(bar: Bar, ui: Ui, key: TabKey, command: tab_menu::Command) {
             bar::set_group(&mut s.model, &s.core, key, None);
         }),
         C::Unload => act(ui, |s| s.unload_tab(key)),
-        C::Close => act(ui, |s| s.close_tab(key)),
+        C::Close => act(ui, |s| s.close_or_unload(key)),
         C::CloseOthers => act(ui, |s| s.close_many(&bar::other_unpinned(&s.model, key))),
         C::CloseBelow => act(ui, |s| s.close_many(&bar::tabs_below(&s.model, key))),
     }
@@ -434,7 +434,7 @@ fn tab_row(bar: Bar, key: TabKey, depth: usize) -> View {
             } else {
                 None
             });
-            act(ui, |s| s.close_tab(key))
+            act(ui, |s| s.close_or_unload(key))
         }));
     let row = pressable_view()
         .test_id("tab")

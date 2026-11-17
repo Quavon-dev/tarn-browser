@@ -632,10 +632,12 @@ fn closing_a_pinned_tab_or_tile_unloads_it_and_keeps_it() {
     browser_core::sidebar::toggle_tile(&mut shell.model, &shell.core, tile);
     for key in [pinned, tile] {
         shell.activate(key);
-        shell.close_tab(key);
-        assert!(shell.model.tab(key).is_some(), "a pinned tab or tile stays in the sidebar");
+        shell.close_or_unload(key);
+        assert!(shell.model.tab(key).is_some(), "a pinned tab or tile stays in the Mac sidebar");
         assert!(!shell.model.lifecycle.live().any(|k| k == key), "its page is unloaded");
     }
+    shell.close_tab(pinned);
+    assert!(shell.model.tab(pinned).is_none(), "the touch layout's Close still removes a pinned tab, which it cannot unpin");
 }
 
 #[test]
