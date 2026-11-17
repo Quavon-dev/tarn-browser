@@ -730,3 +730,34 @@ fn imported_cookies_land_in_the_profile_jar_with_every_attribute() {
     assert_eq!(stored, [domain.clone(), host.clone()], "both kept every attribute");
     assert_eq!(run(vec![Cookie { value: "replaced".into(), ..host }]), (0, 1), "an import never replaces a cookie the jar holds");
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_filter_update_with_a_group_that_does_not_compile_swaps_no_group() {
+    gtk::init().expect("a display");
+    let ready = Rc::new(Cell::new(false));
+    let flag = ready.clone();
+    filters::when_groups_ready(Box::new(move || flag.set(true)));
+    assert!(spin_until(|| ready.get(), 60), "the installed lists loaded");
+    let rule = r#"[{"trigger":{"url-filter":"replaced\\.test"},"action":{"type":"block"}}]"#;
+    let group = |name, key: &str, chunk: &str| shield::groups::Group { name, key: key.repeat(16), chunks: vec![chunk.to_owned()] };
+    let replace = |groups| {
+        let out = Rc::new(RefCell::new(None));
+        let slot = out.clone();
+        filters::replace(groups, move |r| *slot.borrow_mut() = Some(r));
+        assert!(spin_until(|| out.borrow().is_some(), 60), "the update finished");
+        out.take().unwrap()
+    };
+    let ads = || {
+        let out = Rc::new(RefCell::new(None));
+        let slot = out.clone();
+        filters::with_filters(ShieldLevel::Standard, vec!["ads".into()], move |f| *slot.borrow_mut() = Some(f));
+        assert!(spin_until(|| out.borrow().is_some(), 60), "the filters compiled");
+        out.take().unwrap().unwrap().iter().skip(1).filter_map(UserContentFilter::identifier).map(|id| id.to_string()).collect::<Vec<_>>()
+    };
+
+    assert_eq!(replace(vec![group("ads", "a", rule), group("trackers", "b", rule)]), Ok(()));
+    assert_eq!(ads(), ["tarn-ads-aaaaaaaaaaaaaaaa-0"]);
+    assert!(replace(vec![group("ads", "c", rule), group("trackers", "d", "not json")]).is_err(), "a list that does not compile fails the update");
+    assert_eq!(ads(), ["tarn-ads-aaaaaaaaaaaaaaaa-0"], "no list of a failed update replaces the installed one");
+}
