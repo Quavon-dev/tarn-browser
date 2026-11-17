@@ -43,13 +43,17 @@ fn edit_draft(ui: Ui, f: impl FnOnce(&mut SpaceDraft)) {
     });
 }
 
-fn ready(ui: Ui) -> bool {
+fn profiles(ui: Ui) -> Vec<Profile> {
+    read(ui, |b| b.core.disk.profiles().unwrap_or_default()).unwrap_or_default()
+}
+
+fn ready(ui: Ui, profiles: &[Profile]) -> bool {
     let Some(d) = ui.space_draft.with(Clone::clone) else { return false };
-    read(ui, |b| d.ready(&b.model.spaces, &b.core.disk.profiles().unwrap_or_default()).is_some()) == Some(true)
+    read(ui, |b| d.ready(&b.model.spaces, profiles).is_some()) == Some(true)
 }
 
 fn confirm(ui: Ui) {
-    let Some(d) = ui.space_draft.get_untracked().filter(|_| ready(ui)) else { return };
+    let Some(d) = ui.space_draft.get_untracked().filter(|_| ready(ui, &profiles(ui))) else { return };
     let saved = std::cell::Cell::new(false);
     act(ui, |b| saved.set(b.save_space(&d)));
     if saved.get() {
@@ -63,12 +67,13 @@ fn field(ui: Ui, name: &str, get: fn(&SpaceDraft) -> String, set: fn(&mut SpaceD
 }
 
 fn footer(ui: Ui, name: &str) -> View {
+    let known = profiles(ui);
     view()
         .flex_row()
         .justify_end()
         .gap_2()
         .child(pill("Cancel", move || super::show(ui, Panel::None)))
-        .child(accent_pill(name, move || confirm(ui)).disabled(move || !ready(ui)).disabled_style(|s| s.text_color(Theme::faint())))
+        .child(accent_pill(name, move || confirm(ui)).disabled(move || !ready(ui, &known)).disabled_style(|s| s.text_color(Theme::faint())))
 }
 
 fn swatches(ui: Ui, chosen: &str, none: bool, set: fn(&mut SpaceDraft, String)) -> View {
