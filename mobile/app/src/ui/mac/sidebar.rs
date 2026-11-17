@@ -671,7 +671,7 @@ fn pinned(bar: Bar) -> View {
         .child(each(move || bar.layout.with(|l| l.pinned.clone()), |b: &Vec<Row>| b.clone(), move |b, _| pinned_block(bar, b.get_untracked())))
         .child(when(
             move || ui.read(|s| !s.model.tabs.iter().any(|t| t.kind == TabKind::Pinned) && s.model.folders.is_empty()),
-            || {
+            move || {
                 view()
                     .h(px(TAB_ROW))
                     .px(px(ROW_INSET))
@@ -680,10 +680,14 @@ fn pinned(bar: Bar) -> View {
                     .border_1()
                     .border_dashed()
                     .border_color(Theme::hairline)
-                    .child(text("Drag tabs here to pin them").text_size(px(TEXT_SMALL)).text_color(Theme::faint))
+                    .child(text(move || pin_hint(bar.pointer.get())).text_size(px(TEXT_SMALL)).text_color(Theme::faint))
             },
         ));
     spot(bar, Spot::Pinned, area)
+}
+
+fn pin_hint(pointer: bool) -> &'static str {
+    if pointer { "Drag tabs here to pin them" } else { "Pin tabs from their menu" }
 }
 
 fn tiles(bar: Bar) -> View {

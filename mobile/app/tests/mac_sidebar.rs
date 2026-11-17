@@ -25,7 +25,7 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     for part in ["label:/^Space /", "label:Downloads", "label:New Tab Group", "label:New Folder", "label:Library", "label:New Space", "label:Close Tab"] {
         app.wait_for(part).unwrap();
     }
-    assert!(app.screen().shows("Drag tabs here to pin them"), "no pinned tab yet");
+    assert!(app.screen().shows("Pin tabs from their menu"), "no pinned tab yet");
     assert!(!app.screen().matches("label:Clean Up").unwrap(), "one tab has nothing to sort");
 
     app.long_press("label:New Tab >> nth=1").unwrap();
@@ -38,7 +38,7 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     assert!(!app.screen().enabled("label:Duplicate").unwrap(), "an empty tab has nothing to duplicate");
     app.press("label:Pin Tab").unwrap();
     app.wait_for("label:Pinned").unwrap();
-    app.wait_for_gone("Drag tabs here to pin them", WAIT).unwrap();
+    app.wait_for_gone("Pin tabs from their menu", WAIT).unwrap();
     assert!(!app.screen().matches("label:Close Tab").unwrap(), "a pinned tab has no close button");
 
     app.long_press("label:New Tab >> nth=0").unwrap();
@@ -47,7 +47,7 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     assert!(!app.screen().matches("text:Close Tab").unwrap(), "a pinned tab is never deleted from its menu");
     app.press("label:Add to Tiles").unwrap();
     app.wait_for_gone("label:Pinned", WAIT).unwrap();
-    app.wait_for("Drag tabs here to pin them").unwrap();
+    app.wait_for("Pin tabs from their menu").unwrap();
 
     app.long_press("label:New Tab >> nth=0").unwrap();
     app.wait_for("label:Unload Tab").unwrap();
@@ -67,6 +67,7 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     })
     .unwrap();
     app.hover("label:example.com").unwrap();
+    app.wait_for("Drag tabs here to pin them").unwrap();
     app.drag("label:example.com", point(Points(0.), Points(-74.))).unwrap();
     app.wait_for("label:Pinned").unwrap();
     app.wait_for_gone("Drag tabs here to pin them", WAIT).unwrap();

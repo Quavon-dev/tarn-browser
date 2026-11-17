@@ -128,8 +128,8 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.wait_for("label:Pin Tab").unwrap();
     app.press_key("mod+d").unwrap();
     app.wait_for("label:Unpin Tab").unwrap();
-    app.wait_for_gone("Drag tabs here to pin them", WAIT).unwrap();
+    app.wait_for_gone("Pin tabs from their menu", WAIT).unwrap();
     app.submit("id:palette-field").unwrap();
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
-    app.wait_for("Drag tabs here to pin them").unwrap();
+    app.wait_for("Pin tabs from their menu").unwrap();
 }

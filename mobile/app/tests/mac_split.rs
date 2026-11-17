@@ -32,7 +32,7 @@ fn a_pinned_tab_closed_from_its_split_pane_is_unloaded_in_the_mac_layout() {
 
     open(&mut app, "example.com", "example.com");
     app.press_key("mod+d").unwrap();
-    app.wait_for_gone("Drag tabs here to pin them", WAIT).unwrap();
+    app.wait_for_gone("Pin tabs from their menu", WAIT).unwrap();
     open(&mut app, "example.org", "example.org");
     app.long_press("label:example.com").unwrap();
     app.press("label:Open in Split View").unwrap();
@@ -40,6 +40,6 @@ fn a_pinned_tab_closed_from_its_split_pane_is_unloaded_in_the_mac_layout() {
     let pinned = (0..2).find(|n| app.screen().matches(&format!("id:pane >> nth={n} >> label:example.com")).unwrap()).unwrap();
     app.press(&format!("id:pane >> nth={pinned} >> label:Close Tab")).unwrap();
     app.wait_for_gone("id:pane", WAIT).unwrap();
-    assert!(!app.screen().shows("Drag tabs here to pin them"), "the pinned tab stays pinned");
+    assert!(!app.screen().shows("Pin tabs from their menu"), "the pinned tab stays pinned");
     assert_eq!(app.screen().count("id:tab").unwrap(), 3, "the pinned tab keeps its row beside the start tab and example.org");
 }
