@@ -65,6 +65,11 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             let asked = args["page"].as_str().and_then(|p| Url::parse(p).ok());
             fetch_icon(state, seq, asked, &urls);
         }
+        "readJson" => {
+            let max = args["maxBytes"].as_u64().unwrap_or(0).min(devkit::json_view::MAX_BYTES as u64) as usize;
+            let body = page.as_ref().filter(|_| max > 0).and_then(|p| page_scripts::json_text_script(p, max));
+            run(state, body, move |s, url, text| s.emit("jsonText", json!({ "seq": seq, "url": url, "text": text })));
+        }
         "pick" => run(state, Some(PICKER.to_owned()), move |s, url, selector| s.emit("picked", json!({ "seq": seq, "url": url, "selector": selector }))),
         "pickCancel" => run(state, Some(PICK_CANCEL.to_owned()), |_, _, _| {}),
         _ => return false,

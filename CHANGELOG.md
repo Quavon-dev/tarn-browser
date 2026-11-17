@@ -8,6 +8,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Settings › Developer: the developer tools switch (Web Inspector through Inspect Element, JSON
+  viewer, responsive sizes, local servers) and the Developer profile; the Web Inspector never
+  opens on Lockdown pages (Linux).
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages

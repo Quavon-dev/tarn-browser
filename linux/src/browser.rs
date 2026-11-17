@@ -1,3 +1,4 @@
+mod devtools;
 pub mod extensions;
 pub mod icons;
 pub mod pages;
@@ -119,6 +120,10 @@ pub struct Browser {
     ext_prompt_serial: u64,
     /// Every split of this window, for the session only.
     pub splits: browser_core::split::Splits<TabKey>,
+    pub json_pages: HashMap<TabKey, (String, Rc<devkit::json_view::Tree>)>,
+    pub local_servers: Option<Vec<u16>>,
+    responsive: Option<usize>,
+    responsive_zoom: HashMap<TabKey, f64>,
     text_rows: usize,
     burner_return: Option<(bool, Id)>,
     window: SavedWindow,
@@ -182,6 +187,10 @@ impl Browser {
             ext_prompts: HashMap::new(),
             ext_prompt_serial: 0,
             splits: Default::default(),
+            json_pages: HashMap::new(),
+            local_servers: None,
+            responsive: None,
+            responsive_zoom: HashMap::new(),
             text_rows: 0,
             burner_return: None,
             window,
@@ -417,6 +426,7 @@ impl Browser {
         self.counted.remove(&key);
         self.processes.remove(&key);
         self.used.remove(&key);
+        self.forget_devtools(key);
         self.withdraw_icons(|k| k == key);
         if self.reader.as_ref().is_some_and(|r| r.key == key) {
             self.close_reader();
@@ -552,7 +562,8 @@ impl Browser {
     }
 
     pub fn reload(&mut self) {
-        self.command("reload", Value::Null);
+        let dev = self.model.active.is_some_and(|k| self.is_dev_tab(k));
+        self.command(if dev { "reloadFromOrigin" } else { "reload" }, Value::Null);
     }
 
     pub fn stop(&mut self) {
@@ -576,6 +587,9 @@ impl Browser {
     }
 
     pub fn zoom(&mut self, step: i32) {
+        if self.responsive_preset().is_some() {
+            return;
+        }
         let Some(key) = self.model.active else { return };
         let Some(page) = self.pages.get_mut(&key) else { return };
         let current = if page.zoom > 0.0 { page.zoom } else { 1.0 };
@@ -852,7 +866,9 @@ impl Browser {
                 }
             } else if let Some(zoom) = browser_core::site::site_host(parsed).and_then(|h| store.site_zoom(profile, h).ok().flatten()) {
                 self.pages.entry(key).or_default().zoom = zoom;
-                self.outbox.push((key, "zoom", json!({ "factor": zoom })));
+                if !self.responsive_zoom.contains_key(&key) {
+                    self.outbox.push((key, "zoom", json!({ "factor": zoom })));
+                }
             }
         }
         if let Some(parsed) = parsed {

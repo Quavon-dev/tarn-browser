@@ -1,4 +1,5 @@
 mod appearance;
+mod devtools;
 mod extensions;
 mod library;
 mod panels;
@@ -174,7 +175,7 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         f(b);
         let moved = b.model.active.filter(|k| b.elsewhere.contains(k));
         let forgotten = std::mem::take(&mut b.forgotten);
-        let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key));
+        let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key)) && b.active_json().is_none();
         Some((
             ui.icons.with_untracked(|i| b.site_icons(i)),
             std::mem::take(&mut b.outbox),
@@ -315,6 +316,7 @@ fn web_views(ui: Ui) -> View {
                     .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
                     .prop("zaps", move || item.with(|v| v.zaps.clone()))
                     .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
+                    .prop("inspectable", move || JsonValue::from(item.with(|v| v.inspectable)))
                     .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link }))))
                     .prop("active", move || JsonValue::from(item.with(|v| v.active)))
                     .on_native_event(move |event: &NativeEvent| {
@@ -323,6 +325,9 @@ fn web_views(ui: Ui) -> View {
                         }
                         if &*event.name == "iconData" {
                             return icon_data(ui, key, event.data.clone());
+                        }
+                        if &*event.name == "jsonText" {
+                            return devtools::json_text(ui, key, event.data.clone());
                         }
                         if &*event.name != "pressed" || read(ui, |b| b.in_split(key) && b.model.active != Some(key)) == Some(true) {
                             act_quietly(ui, |b| b.on_event(key, &event.name, &event.data));
@@ -980,7 +985,7 @@ fn toolbar(ui: Ui) -> View {
         let tip = shortcut_of(ui, Action::ToggleSplitView).map_or_else(|| name.to_owned(), |keys| format!("{name} ({keys})"));
         let split = controls::icon_button_at(icons::SPLIT_ADD, &tip, Placement::Left, move || act(ui, Browser::toggle_split));
         let share = controls::icon_button_at(icons::SHARE, "Share", Placement::Left, move || show(ui, Panel::Share));
-        view().flex_row().items_center().gap(px(2.)).child(extensions::buttons(ui)).child(split).child(share)
+        view().flex_row().items_center().gap(px(2.)).child(devtools::responsive_button(ui)).child(extensions::buttons(ui)).child(split).child(share)
     };
     view().flex_row().items_center().gap_2().h(px(TOOLBAR_HEIGHT)).child(themed(navigation)).child(address(ui)).child(themed(actions))
 }
@@ -1254,6 +1259,9 @@ fn start_card(ui: Ui) -> AnyElement {
     when(
         move || ui.snap.with(|s| s.blank) && ui.panel.get() == Panel::None && !ui.editing.get(),
         move || {
+            if ui.snap.with_untracked(|s| s.devtools) {
+                devtools::refresh_servers(ui);
+            }
             let field = input()
                 .value(move || ui.command.get())
                 .on_change(move |v: &str| {
@@ -1312,6 +1320,7 @@ fn start_card(ui: Ui) -> AnyElement {
                 .child(view().flex_grow(0.22_f32))
                 .child(icons::mark(64.))
                 .child(view().relative().mt(px(28.)).child(tarn_nsh_shared::search_fx::search_fx(54.)).child(card))
+                .child(view().w(px(CARD_WIDTH)).child(devtools::server_strip(ui)))
                 .child(view().flex_grow(0.78_f32));
             view().flex_col().flex_1().relative().child(fog()).child(column)
         },
@@ -1588,7 +1597,7 @@ fn error_bar(ui: Ui) -> AnyElement {
 }
 
 fn content(ui: Ui) -> View {
-    let covered = move || ui.snap.with(|s| s.blank || s.reader.is_some()) || ui.panel.get() != Panel::None || ui.editing.get();
+    let covered = move || ui.snap.with(|s| s.blank || s.reader.is_some() || s.json.is_some()) || ui.panel.get() != Panel::None || ui.editing.get();
     let bare = move || covered() || ui.snap.with(|s| s.split.is_some());
     view()
         .flex_col()
@@ -1601,6 +1610,7 @@ fn content(ui: Ui) -> View {
         .child(themed(move || palette(ui)))
         .child(when(move || !ui.editing.get(), move || panels::panel_view(ui)))
         .child(themed(move || tools::reader_view(ui)))
+        .child(themed(move || devtools::json_view(ui)))
         .child(themed(move || start_card(ui)))
         .child(web_views(ui).flex_grow(move || if covered() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
 }
@@ -1875,6 +1885,14 @@ fn new_ui(row: SavedWindow) -> Ui {
             untracked(tarn_nsh_shared::extensions::close_store_sheet);
         }
     });
+    let fitted = std::cell::Cell::new(None);
+    effect(move || {
+        let area = ui.area.get();
+        let wanted = ui.snap.with(|s| (s.responsive, s.views.iter().find(|v| v.active && v.pane.is_none()).map(|v| v.key), s.url.clone()));
+        if fitted.replace(Some((area, wanted.clone()))) != Some((area, wanted)) {
+            untracked(|| act_quietly(ui, |b| b.fit_responsive(area.0, area.1)));
+        }
+    });
     let shown_space = std::cell::Cell::new(None);
     effect(move || {
         let space = ui.snap.with(|s| s.space);
@@ -1904,6 +1922,9 @@ fn browser_window(ui: Ui) -> AnyElement {
     let closing = here.clone();
     here.on_close_press(move |_| close_window(ui, &closing));
     act(ui, |_| {});
+    if read(ui, Browser::devtools_on) == Some(true) {
+        devtools::refresh_servers(ui);
+    }
     drop(set_interval(SCHEDULE_TICK, move || {
         act_quietly(ui, |b| {
             b.schedule_tick();

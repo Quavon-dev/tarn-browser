@@ -69,6 +69,7 @@ pub struct ViewItem {
     pub theme_styles: Value,
     pub zaps: Value,
     pub sort_downloads: bool,
+    pub inspectable: bool,
     pub load: Option<(String, u64)>,
     pub link: bool,
     pub active: bool,
@@ -131,6 +132,10 @@ pub struct Snapshot {
     pub burner: bool,
     pub find_rows: Vec<crate::browser::FindRow>,
     pub downloading: Option<f32>,
+    pub devtools: bool,
+    pub responsive: Option<devkit::responsive::Preset>,
+    pub json: Option<std::rc::Rc<devkit::json_view::Tree>>,
+    pub local_servers: Option<Vec<u16>>,
 }
 
 pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
@@ -251,6 +256,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
     let panes = b.shown_split().map(|s| s.panes().to_vec()).unwrap_or_default();
     let lists = b.lists();
     let sort_downloads = !b.setting_off(crate::browser::pages::SORT_DOWNLOADS);
+    let developer = b.developer();
     let mut keys: Vec<TabKey> = b.model.lifecycle.live().filter(|k| b.model.tab(*k).is_some()).collect();
     keys.sort_by_key(|k| k.id);
     let mut site = HashMap::new();
@@ -270,6 +276,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 theme_styles,
                 zaps,
                 sort_downloads,
+                inspectable: developer || b.is_dev_tab(key),
                 load: page.and_then(|p| p.load.clone()),
                 link: page.is_some_and(|p| p.link),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
@@ -338,6 +345,10 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         burner: b.model.burner_shown(),
         find_rows: b.find_rows.clone(),
         downloading: downloading(b),
+        devtools: b.devtools_on(),
+        responsive: b.responsive_preset(),
+        json: b.active_json(),
+        local_servers: b.local_servers.clone(),
     }
 }
 

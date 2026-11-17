@@ -302,6 +302,9 @@ fn nav(ui: Ui, current: Pane) -> View {
             out = out.child(
                 crate::controls::row(name, move || {
                     ui.ext_pane.set(false);
+                    if pane == Pane::Developer {
+                        super::devtools::refresh_servers(ui);
+                    }
                     ui.settings_pane.set(pane);
                     act(ui, |_| {});
                 })
@@ -466,6 +469,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             .child(note("This profile's answers to sites. A site you forget asks again next time; Lockdown sites never ask."))
             .child(view().pt_2().child(permissions(ui))),
         Pane::Shortcuts => body.child(view().pt_3().child(shortcut_rows(ui))),
+        Pane::Developer => super::devtools::pane(ui, body),
     })
 }
 

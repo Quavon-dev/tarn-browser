@@ -488,3 +488,83 @@ fn a_burner_tab_neither_fetches_nor_keeps_site_icons() {
     assert!(!b.favicons.is_requested(&profile, "a.test", ticket));
     assert!(b.site_icons(&Default::default()).is_none_or(|icons| icons.find("a.test").is_none()));
 }
+
+#[test]
+fn developer_tools_follow_the_switch_and_the_developer_profile() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://api.test/data.json");
+    assert!(!b.devtools_on() && asked(&b, "readJson").is_empty());
+    assert!(crate::snapshot::views(&b, true).iter().all(|v| !v.inspectable));
+    b.set_developer(true);
+    assert!(b.devtools_on() && crate::snapshot::views(&b, true).iter().all(|v| v.inspectable));
+    visit(&mut b, key, "https://api.test/data.json");
+    assert!(asked(&b, "clearCache").is_empty(), "only the Developer profile clears its cache");
+    let seq = asked(&b, "readJson").first().and_then(|a| a["seq"].as_u64()).expect("a JSON read after the load");
+    assert!(!b.json_request(key, &json!({ "seq": seq, "url": "https://evil.test/" })), "an answer for another page");
+    visit(&mut b, key, "https://api.test/data.json");
+    let seq = asked(&b, "readJson").last().and_then(|a| a["seq"].as_u64()).unwrap();
+    assert!(b.json_request(key, &json!({ "seq": seq, "url": "https://api.test/data.json" })));
+    assert!(!b.json_request(key, &json!({ "seq": seq, "url": "https://api.test/data.json" })), "an answer counts once");
+    b.show_json(key, "https://api.test/old.json", devkit::json_view::Tree::parse("[]").unwrap());
+    assert!(b.active_json().is_none(), "a tree for a page no longer shown");
+    b.show_json(key, "https://api.test/data.json", devkit::json_view::Tree::parse(r#"{"a":1}"#).unwrap());
+    assert!(b.active_json().is_some_and(|t| t.rows.len() == 2));
+    b.set_json_raw(true);
+    assert!(b.active_json().is_some_and(|t| t.raw));
+    b.on_event(key, "committed", &json!({ "url": "https://api.test/other", "title": "T" }));
+    assert!(b.active_json().is_none());
+    b.outbox.clear();
+    b.reload();
+    assert_eq!(b.outbox.last().map(|(_, n, _)| *n), Some("reload"));
+    visit(&mut b, key, "https://locked.test/data.json");
+    b.set_site_level(Some(ShieldLevel::Lockdown));
+    b.outbox.clear();
+    visit(&mut b, key, "https://locked.test/data.json");
+    assert!(asked(&b, "readJson").is_empty(), "no script of Tarn's runs on a Lockdown page");
+    b.set_developer(false);
+    b.create_dev_profile();
+    assert!(b.current_is_dev() && b.devtools_on() && b.dev_profile().is_some());
+    let dev = b.model.active.unwrap();
+    b.outbox.clear();
+    visit(&mut b, dev, "https://a.test/");
+    assert!(!asked(&b, "clearCache").is_empty() && !asked(&b, "readJson").is_empty());
+    b.reload();
+    assert_eq!(b.outbox.last().map(|(_, n, _)| *n), Some("reloadFromOrigin"));
+    let spaces = b.model.spaces.len();
+    b.create_dev_profile();
+    assert_eq!(b.model.spaces.len(), spaces, "a second Create opens the same profile");
+}
+
+#[test]
+fn responsive_sizes_zoom_the_page_and_give_its_zoom_back() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    b.cycle_responsive();
+    assert!(b.responsive_preset().is_none(), "only while the developer tools are on");
+    b.set_developer(true);
+    assert_eq!(b.responsive_preset().map(|p| p.name), Some("iPhone SE"));
+    b.outbox.clear();
+    b.fit_responsive(1000., 333.5);
+    assert_eq!(asked(&b, "zoom"), [json!({ "factor": 0.5 })]);
+    b.fit_responsive(1000., 333.5);
+    assert_eq!(asked(&b, "zoom").len(), 1);
+    b.zoom(1);
+    assert_eq!(asked(&b, "zoom").len(), 1, "the zoom keys wait while a size is shown");
+    let profile = b.model.profile().unwrap().1;
+    b.core.disk.set_site_zoom(profile, "z.test", Some(1.25)).unwrap();
+    b.on_event(key, "committed", &json!({ "url": "https://z.test/", "title": "Z" }));
+    assert_eq!(asked(&b, "zoom").len(), 1, "a saved site zoom waits too");
+    b.set_developer(false);
+    assert_eq!(
+        b.outbox.last().map(|(k, n, a)| (*k, *n, a.clone())),
+        Some((key, "zoom", json!({ "factor": 1.25 }))),
+        "the switch going off gives the zoom back"
+    );
+    b.set_developer(true);
+    b.cycle_responsive();
+    b.fit_responsive(1000., 333.5);
+    (0..devkit::responsive::PRESETS.len()).for_each(|_| b.cycle_responsive());
+    assert!(b.responsive_preset().is_none());
+    assert_eq!(b.outbox.last().map(|(k, n, a)| (*k, *n, a.clone())), Some((key, "zoom", json!({ "factor": 1.25 }))));
+}

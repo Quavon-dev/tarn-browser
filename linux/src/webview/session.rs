@@ -58,6 +58,15 @@ pub fn clear(key: &StoreKey) {
     }
 }
 
+pub fn clear_cache(web: &webkit6::WebView) {
+    let Some(manager) = webkit6::prelude::WebViewExt::network_session(web).and_then(|s| s.website_data_manager()) else { return };
+    manager.clear(WebsiteDataTypes::DISK_CACHE | WebsiteDataTypes::MEMORY_CACHE, glib::TimeSpan::from_seconds(0), None::<&gio::Cancellable>, |result| {
+        if let Err(e) = result {
+            eprintln!("tarn: the cache was not cleared: {e}");
+        }
+    });
+}
+
 fn open(key: &StoreKey) -> Option<NetworkSession> {
     let session = match key {
         StoreKey::Ephemeral(_) | StoreKey::Burner(_) => NetworkSession::new_ephemeral(),
