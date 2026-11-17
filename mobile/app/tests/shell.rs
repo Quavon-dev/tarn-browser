@@ -688,6 +688,35 @@ fn closing_the_private_space_forgets_its_undo_sort() {
 }
 
 #[test]
+fn a_burner_never_holds_a_sort_and_burning_one_keeps_the_private_spaces() {
+    let (_dir, mut shell) = open();
+    shell.enter_private();
+    for url in ["https://github.com/a", "https://gitlab.com/b"] {
+        shell.new_tab(None);
+        shell.navigate(url);
+        finish(&mut shell, url, "");
+    }
+    shell.clean_up();
+    let sorted = shell.sort_undo.as_ref().map(|(text, _)| text.clone());
+    assert!(sorted.is_some() && !shell.model.groups.is_empty());
+    shell.open_burner();
+    assert!(shell.in_burner());
+    for url in ["https://github.com/c", "https://gitlab.com/d"] {
+        shell.new_tab(None);
+        shell.navigate(url);
+        finish(&mut shell, url, "");
+    }
+    shell.clean_up();
+    assert!(shell.model.groups.is_empty(), "a burner's tabs are never sorted");
+    assert_eq!(shell.sort_undo.as_ref().map(|(text, _)| text.clone()), sorted, "so the only undo is the private space's");
+    shell.burn();
+    assert!(!shell.in_burner() && shell.model.private(), "back in the private space, which still exists");
+    shell.undo_sort();
+    assert!(shell.model.groups.is_empty(), "its sort can still be undone");
+    assert!(shell.sort_undo.is_none());
+}
+
+#[test]
 fn zoom_steps_from_the_page_and_resets() {
     let (_dir, mut shell) = open();
     shell.navigate("https://example.com/");
