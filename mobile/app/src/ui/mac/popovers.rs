@@ -271,8 +271,16 @@ fn copy(ui: Ui, clean: bool) {
 }
 
 fn share_menu(ui: Ui) -> impl IntoElement {
-    let url = ui.read(|s| s.share_url()).unwrap_or_default();
-    let title = ui.read(|s| s.active_page().map(|p| browser_core::text::bounded_title(&p.title)).unwrap_or_default());
+    let page = computed(move || {
+        ui.read(|s| (s.share_url().unwrap_or_default(), s.active_page().map(|p| browser_core::text::bounded_title(&p.title)).unwrap_or_default()))
+    });
+    dynamic(move || {
+        let (url, title) = page.get();
+        untracked(|| share_body(ui, url, title))
+    })
+}
+
+fn share_body(ui: Ui, url: String, title: String) -> impl IntoElement {
     let host = browser_core::command::display_host(&url);
     let shown = url.split_once("://").map_or(url.as_str(), |(_, rest)| rest).trim_end_matches('/').to_owned();
     let tile = site_tile(ui.read(|s| s.site_icon(&url)), &host, 28.);
