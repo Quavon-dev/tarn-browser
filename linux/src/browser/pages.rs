@@ -21,6 +21,7 @@ pub enum Request {
     IconLinks(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     IconData(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     Capture { key: TabKey, profile: Id, url: String, started: i64 },
+    Json(TabKey),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -124,7 +125,7 @@ impl Browser {
         self.outbox.push((key, name, args));
     }
 
-    fn answered(&mut self, data: &Value, key: TabKey) -> Option<Request> {
+    pub(super) fn answered(&mut self, data: &Value, key: TabKey) -> Option<Request> {
         let request = self.requests.remove(&data["seq"].as_u64()?)?;
         let url = self.pages.get(&key).map(|p| p.url.as_str()).unwrap_or_default();
         (data["url"].as_str() == Some(url)).then_some(request)
@@ -152,6 +153,7 @@ impl Browser {
 
     pub(super) fn after_load(&mut self, key: TabKey, finished: bool, url: &Url, visit: Option<Id>) {
         if !finished {
+            self.forget_devtools_page(key);
             self.articles.remove(&key);
             self.counted.remove(&key);
             if self.reader.as_ref().is_some_and(|r| r.key == key) {
@@ -159,6 +161,7 @@ impl Browser {
             }
             return;
         }
+        self.after_load_devtools(key);
         if self.unlocked(key).is_none() {
             return;
         }

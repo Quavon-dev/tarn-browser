@@ -33,7 +33,7 @@ const IGNORED_LOAD_ERRORS: [isize; 2] = [-999, 102];
 const MAX_QUEUED_PROMPTS: usize = 8;
 const SAME_DOCUMENT_VISIT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 const MAX_SAME_DOCUMENT_URL: usize = 2048;
-const DEVELOPER_SETTING: &str = "developer_tools";
+const DEVELOPER_SETTING: &str = devkit::SETTING;
 const FILTER_SETTING_WARNING: &str = "The filter-list setting could not be saved";
 /// The page sits 1pt inside its frame, so its corners are 1pt tighter than the frame's.
 pub(crate) fn page_corner() -> f64 {
@@ -881,7 +881,7 @@ impl Browser {
         let rt = self.runtime(private, profile_id)?;
         let site_for = browser_core::site::site_for(rt.profile.clone(), rt.overrides.clone(), rt.rules.clone(), sets);
         let site = Url::parse(url).map_or(nav_policy::Site::new(rt.profile.shield_level), |u| site_for(&u));
-        let inspectable = developer || rt.profile.is_dev;
+        let inspectable = (developer || rt.profile.is_dev) && site.level != ShieldLevel::Lockdown;
         Some(WebView::new(host, &rt.data, site.level, site.filtered, inspectable, site_for, sink))
     }
 
@@ -2469,7 +2469,7 @@ impl Browser {
 
     pub fn set_json_raw(&mut self, key: TabKey, raw: bool, cx: &mut Context<Self>) {
         if let Some(page) = self.json_pages.get_mut(&key) {
-            page.raw = raw;
+            page.set_raw(raw);
             cx.notify();
         }
     }

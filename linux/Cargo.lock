@@ -825,6 +825,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
 
 [[package]]
+name = "devkit"
+version = "0.1.1"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4127,6 +4134,7 @@ name = "tarn-linux"
 version = "0.1.1"
 dependencies = [
  "browser-core",
+ "devkit",
  "engine",
  "futures-channel",
  "futures-util",

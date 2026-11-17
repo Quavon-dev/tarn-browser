@@ -78,6 +78,7 @@ pub struct ViewItem {
     pub zaps: Value,
     pub sort_downloads: bool,
     pub youtube: bool,
+    pub inspectable: bool,
     pub load: Option<(String, u64)>,
     pub link: bool,
     pub muted: bool,
@@ -156,6 +157,10 @@ pub struct Snapshot {
     pub compact: bool,
     pub link_peek: Option<PeekItem>,
     pub fullscreen: bool,
+    pub devtools: bool,
+    pub responsive: Option<devkit::responsive::Preset>,
+    pub json: Option<std::rc::Rc<devkit::json_view::Tree>>,
+    pub local_servers: Option<Vec<u16>>,
 }
 
 pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
@@ -328,6 +333,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
     let lists = b.lists();
     let sort_downloads = !b.setting_off(crate::browser::pages::SORT_DOWNLOADS);
     let youtube = b.setting_on(shield::groups::YOUTUBE_SETTING);
+    let developer = b.developer();
     let mut keys: Vec<TabKey> = b.model.lifecycle.live().filter(|k| b.model.tab(*k).is_some()).collect();
     keys.sort_by_key(|k| k.id);
     let mut site = HashMap::new();
@@ -351,6 +357,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 zaps,
                 sort_downloads,
                 youtube,
+                inspectable: developer || b.is_dev_tab(key),
                 load: page.and_then(|p| p.load.clone()),
                 link: page.is_some_and(|p| p.link),
                 muted: b.muted_with(key, &muted),
@@ -380,6 +387,7 @@ fn peek_item(b: &Browser) -> Option<PeekItem> {
         zaps: b.zaps(key),
         sort_downloads: !b.setting_off(crate::browser::pages::SORT_DOWNLOADS),
         youtube: b.setting_on(shield::groups::YOUTUBE_SETTING),
+        inspectable: b.developer() || b.is_dev_tab(key),
         load: Some(peek.load.clone()),
         link: true,
         muted: false,
@@ -454,6 +462,10 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         compact: b.compact_toolbar(),
         link_peek: peek_item(b).filter(|_| web_shown),
         fullscreen: b.page_fullscreen.is_on(),
+        devtools: b.devtools_on(),
+        responsive: b.responsive_preset(),
+        json: b.active_json(),
+        local_servers: b.local_servers.clone(),
     }
 }
 

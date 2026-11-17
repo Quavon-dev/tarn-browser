@@ -32,6 +32,11 @@ Every shell's web view offers the same operations and reports the same events. T
   has no isolated world and runs those scripts in the page world, so a shell must not send it
   `readIconLinks` or `fetchIcon`, and Android shows letter tiles (`docs/mobile-plan.md`);
 - `interaction_state` and `restore_interaction_state`, where the engine has them;
+- Web Inspector availability, fixed when the view is created (macOS and Windows: `inspectable`
+  at creation; NSH: the `inspectable` prop, which Linux applies outside Lockdown views only), and
+  `clear_cache` on the profile's data store (NSH: the `clearCache` command on a view of that
+  store). Linux's component implements `reloadFromOrigin`, `clearCache` and `readJson` (answered
+  by `jsonText`); iOS and Android do not have them yet;
 - `filtered`: whether the view applies Shield's rules;
 - start-of-document page-world scripts: `engine::page_scripts::ALWAYS_VISIBLE` in every view but
   Lockdown's, and `shield::youtube::script` where blocking is not paused and Block YouTube ads is

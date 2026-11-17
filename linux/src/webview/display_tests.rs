@@ -37,7 +37,7 @@ fn view(level: ShieldLevel, profile: &str) -> Rc<State> {
     *state.theme_styles.borrow_mut() =
         scripts::theme_styles(&json!([["*", "p { padding-left: 11px !important }"], ["*.page.test", "p { margin-top: 5px !important }"]]));
     *state.zaps.borrow_mut() = scripts::zaps(&json!({ "page.test": ["div.ad"] }));
-    let wanted = Build { key: StoreKey::parse(profile).unwrap(), level, lists: Vec::new() };
+    let wanted = Build { key: StoreKey::parse(profile).unwrap(), level, lists: Vec::new(), inspectable: false };
     *state.built.borrow_mut() = Some(wanted.clone());
     build(&state, &wanted, &[]);
     state
@@ -170,7 +170,7 @@ fn youtube_and_netflix_scripts_run_only_on_their_hosts_and_never_under_lockdown(
         *state.profile.borrow_mut() = profile.to_owned();
         *state.levels.borrow_mut() = Levels::parse(&json!({ "*": level.as_str() }), level);
         let lists = if youtube { vec![shield::groups::YOUTUBE_GROUP.to_owned()] } else { Vec::new() };
-        let wanted = Build { key: StoreKey::parse(profile).unwrap(), level, lists };
+        let wanted = Build { key: StoreKey::parse(profile).unwrap(), level, lists, inspectable: false };
         *state.built.borrow_mut() = Some(wanted.clone());
         build(&state, &wanted, &[]);
         state
@@ -335,7 +335,7 @@ fn the_page_joins_the_window_only_once_its_area_has_a_size() {
     let window = gtk::Window::builder().default_width(400).default_height(300).child(&area).build();
     window.present();
     assert!(spin_until(|| state.container().is_mapped(), 10), "the empty area is on screen");
-    let wanted = Build { key: StoreKey::parse("private:display-size").unwrap(), level: ShieldLevel::Standard, lists: Vec::new() };
+    let wanted = Build { key: StoreKey::parse("private:display-size").unwrap(), level: ShieldLevel::Standard, lists: Vec::new(), inspectable: false };
     *state.built.borrow_mut() = Some(wanted.clone());
     build(&state, &wanted, &[]);
     let web = state.web().unwrap();
@@ -463,7 +463,8 @@ fn a_muted_view_stays_muted_when_rebuilt_and_unmutes() {
     assert!(!state.web().unwrap().is_muted());
     mute(&state, true);
     assert!(state.web().unwrap().is_muted());
-    let wanted = Build { key: StoreKey::parse("burner:0123456789abcdef0123456789abcdee").unwrap(), level: ShieldLevel::Strict, lists: Vec::new() };
+    let wanted =
+        Build { key: StoreKey::parse("burner:0123456789abcdef0123456789abcdee").unwrap(), level: ShieldLevel::Strict, lists: Vec::new(), inspectable: false };
     state.drop_view();
     build(&state, &wanted, &[]);
     assert!(state.web().unwrap().is_muted(), "a rebuilt view keeps the mute");

@@ -49,6 +49,7 @@ struct Build {
     key: StoreKey,
     level: ShieldLevel,
     lists: Vec<String>,
+    inspectable: bool,
 }
 
 #[derive(Default)]
@@ -60,6 +61,7 @@ struct State {
     tab: RefCell<String>,
     profile: RefCell<String>,
     level: Cell<ShieldLevel>,
+    inspectable: Cell<bool>,
     levels: RefCell<Levels>,
     lists: RefCell<Vec<String>>,
     rules: SiteRules,
@@ -280,7 +282,8 @@ fn apply(state: &Rc<State>) {
     let unfiltered = state.unfiltered.get();
     let youtube = state.youtube.get().then(|| shield::groups::YOUTUBE_GROUP.to_owned());
     let lists = state.lists.borrow().iter().cloned().chain(youtube).filter(|g| !unfiltered || !shield::groups::pausable(g)).collect();
-    let wanted = Build { key, level: state.level.get(), lists };
+    let level = state.level.get();
+    let wanted = Build { key, level, lists, inspectable: state.inspectable.get() && level != ShieldLevel::Lockdown };
     if state.built.borrow().as_ref() == Some(&wanted) {
         if state.web().is_some() {
             load(state, None);
@@ -326,7 +329,7 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
     if let Some(settings) = WebViewExt::settings(&web) {
         settings.set_enable_javascript(wanted.level.policy().javascript);
         settings.set_javascript_can_open_windows_automatically(false);
-        settings.set_enable_developer_extras(false);
+        settings.set_enable_developer_extras(wanted.inspectable);
     }
     let swipes = |web: &WebView, on: bool| WebViewExt::settings(web).into_iter().for_each(|s| s.set_enable_back_forward_navigation_gestures(on));
     web.connect_map(move |web| swipes(web, true));
@@ -1086,6 +1089,7 @@ impl NativeComponent for TarnWebView {
             }
             "profile" => *state.profile.borrow_mut() = value.as_str().unwrap_or_default().to_owned(),
             "level" => state.level.set(value.as_str().and_then(ShieldLevel::parse).unwrap_or(ShieldLevel::Lockdown)),
+            "inspectable" => state.inspectable.set(value.as_bool() == Some(true)),
             "levels" => {
                 *state.levels.borrow_mut() = Levels::parse(value, state.level.get());
                 if let Some(content) = state.content.borrow().as_ref() {
@@ -1166,7 +1170,12 @@ impl NativeComponent for TarnWebView {
                 state.user_step.set(true);
                 web.reload();
             }
-            "back" | "forward" | "reload" => {}
+            "reloadFromOrigin" if web.uri().is_some_and(|u| !u.is_empty()) => {
+                state.user_step.set(true);
+                web.reload_bypass_cache();
+            }
+            "back" | "forward" | "reload" | "reloadFromOrigin" => {}
+            "clearCache" => session::clear_cache(&web),
             "stop" => web.stop_loading(),
             "print" => {
                 glib::idle_add_local_once(move || {
