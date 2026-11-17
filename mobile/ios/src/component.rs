@@ -9,8 +9,8 @@ use engine::nav_policy::{self, Decision, LevelAction, Site, Source};
 use engine::view_policy::{self, Levels};
 use nsh_platform_ios::{ComponentContext, Components, NativeComponent};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool, NSObjectProtocol, ProtocolObject};
-use objc2::{MainThreadMarker, MainThreadOnly, Message, msg_send, sel};
+use objc2::runtime::{AnyObject, Bool, ProtocolObject};
+use objc2::{MainThreadMarker, MainThreadOnly, Message};
 use objc2_foundation::{NSError, NSInteger, NSNumber, NSOperationQueue, NSString, NSURL, NSURLCredential, NSURLCredentialPersistence, NSURLRequest};
 use objc2_ui_kit::{UIView, UIViewAutoresizing};
 use objc2_web_kit::{
@@ -111,15 +111,6 @@ pub struct Inner {
 
 fn origin_of(url: &Url) -> String {
     url.origin().ascii_serialization()
-}
-
-fn store_link_activated(action: &WKNavigationAction, shell_load: bool, kind: WKNavigationType) -> bool {
-    if !action.respondsToSelector(sel!(_isRedirect)) || !action.respondsToSelector(sel!(_isUserInitiated)) {
-        return shell_load;
-    }
-    // SAFETY: main-thread reads of the live action; both private selectors exist (checked first) and return a BOOL.
-    let (redirect, user): (bool, bool) = unsafe { (msg_send![action, _isRedirect], msg_send![action, _isUserInitiated]) };
-    !redirect && (shell_load || (kind == WKNavigationType::LinkActivated && user))
 }
 
 fn page_origin(web: &WebView) -> String {
@@ -345,7 +336,7 @@ impl Inner {
         }
         let from_shell = self.shell_load.take().is_some_and(|expected| expected == url);
         let opener = self.opener.borrow().clone();
-        if store_link_activated(action, from_shell && opener.is_none(), kind)
+        if crate::store_link::asks(from_shell && opener.is_none(), kind == WKNavigationType::LinkActivated)
             && let Some(id) = engine::tarn_ext::store_install(&url)
         {
             self.emit(engine::tarn_ext::STORE_EVENT, json!({ "id": id }));

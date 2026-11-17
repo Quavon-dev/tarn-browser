@@ -283,8 +283,11 @@ worlds_supported, frame_event}` in its crate, the `extensionPost` command and `e
 decisions come from `browser_core::tarn_ext`.
 
 - **Store install link** (`docs/shared-core.md` §1). iOS cancels it in the navigation delegate
-  (`ios/src/component.rs`: a shell load, or `LinkActivated` with WebKit's private `_isUserInitiated` and
-  not `_isRedirect`), Android in `shouldOverrideUrlLoading` (main frame, `hasGesture`, not `isRedirect`) and
+  (`ios/src/component.rs`, `ios/src/store_link.rs`: a shell load or a main-frame `linkActivated`
+  navigation). iOS uses no private WebKit API and has no public user-gesture or redirect flag, so a page's
+  own script-started link click, or a redirect after a link click, can raise the consent sheet; the shell
+  takes at most one store link per 10 s (`Core::admit_store_link`, on every client) and nothing is
+  installed without the user's confirmation. Android in `shouldOverrideUrlLoading` (main frame, `hasGesture`, not `isRedirect`) and
   in its shell load (`Native.storeInstall`); both emit `storeInstall`, and the shared shell checks
   `Shell::store_link_allowed` and opens Settings › Extensions on the consent
   (`tarn_nsh_shared::extensions::store_link`). Not yet run in the simulator or the emulator.

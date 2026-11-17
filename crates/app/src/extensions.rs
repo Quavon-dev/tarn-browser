@@ -1018,6 +1018,9 @@ impl Browser {
     }
 
     pub(crate) fn store_link(&mut self, key: TabKey, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.core.admit_store_link(std::time::Instant::now()) {
+            return;
+        }
         let page = self.views.get(&key).and_then(|v| v.url());
         let profile = self.model.profile_of(&self.core, key).filter(|p| self.current_profile_id() == Some(*p));
         if !profile.is_some_and(|p| self.core.store_link_allowed(key.private, p, page.as_ref())) {

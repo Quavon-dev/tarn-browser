@@ -18,6 +18,7 @@ pub const MAX_INSTALLS: usize = 32;
 pub const REVOKED_SETTING: &str = "extension_revoked";
 pub const CATALOG_SEEN_SETTING: &str = "extension_catalog_version";
 pub const UNREVIEWED: &str = "Nobody reviewed this extension's code. It can read and change the sites you allow and send what it reads anywhere.";
+pub const STORE_LINK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 pub const STORE_REFUSED: &str = "Extensions are not installed in private spaces, burner tabs or Lockdown.";
 pub const STORE_NO_CATALOG: &str = "The official catalog is not available in this build.";
 pub const STORE_DOWNLOADS_OFF: &str = "Extension downloads are off in Privacy settings.";

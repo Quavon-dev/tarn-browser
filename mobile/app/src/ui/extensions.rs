@@ -93,6 +93,9 @@ impl Host for Exts {
 }
 
 pub(super) fn store_link(ui: Ui, key: TabKey, id: &str) {
+    if !ui.read(|s| s.core.admit_store_link(Instant::now())) {
+        return;
+    }
     let allowed = ui.read(|s| s.store_link_allowed(key));
     tarn_nsh_shared::extensions::store_link(Exts(ui), id, allowed);
     ui.show(Screen::Extensions);

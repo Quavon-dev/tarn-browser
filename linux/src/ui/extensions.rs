@@ -192,6 +192,9 @@ impl tarn_nsh_shared::extensions::Host for Installs {
 }
 
 pub(super) fn store_link(ui: Ui, key: TabKey, id: &str) {
+    if read(ui, |b| b.core.admit_store_link(std::time::Instant::now())) != Some(true) {
+        return;
+    }
     let allowed = read(ui, |b| b.store_link_allowed(key)).unwrap_or(false);
     tarn_nsh_shared::extensions::store_link(Installs(ui), id, allowed);
     ui.ext_pane.set(true);
