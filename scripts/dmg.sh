@@ -29,6 +29,7 @@ assessment="$(spctl -a -vv -t open --context context:primary-signature "$out" 2>
   || { echo "Gatekeeper does not accept $out as notarised" >&2; exit 1; }
 
 hdiutil attach -quiet -nobrowse -readonly -mountpoint "$tmp/mnt" "$out"
+LC_ALL=C
 items=("$tmp/mnt"/* "$tmp/mnt"/.[!.]*)
 [[ "${items[*]##*/}" == "Applications Tarn.app .DS_Store .VolumeIcon.icns .background" \
   && "$(readlink "$tmp/mnt/Applications")" == /Applications ]] \
