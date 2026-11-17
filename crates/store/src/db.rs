@@ -852,9 +852,10 @@ impl Store {
     pub fn apply_layout(&self, space_id: Id, layout: &Layout) -> Result<Vec<Id>> {
         let tx = self.conn.unchecked_transaction()?;
         let mut created = Vec::with_capacity(layout.new_groups.len());
-        for (name, color) in &layout.new_groups {
+        for (name, color, icon) in &layout.new_groups {
             let group = self.create_group(space_id, name)?;
             self.set_group_color(group.id, color)?;
+            self.set_group_icon(group.id, icon)?;
             created.push(group.id);
         }
         let ids = |sql: &str| -> Result<Vec<Id>> {
@@ -2208,7 +2209,7 @@ mod tests {
         store.update_group(old.id, "Old", true).unwrap();
         let foreign = store.create_group(other, "Foreign").unwrap();
         let layout = Layout {
-            new_groups: vec![("New".into(), "blue".into())],
+            new_groups: vec![("New".into(), "blue".into(), "star".into())],
             tabs: vec![(c, Slot::New(0)), (a, Slot::Group(old.id)), (pinned, Slot::Loose), (9999, Slot::Loose)],
             groups: vec![Slot::New(0), Slot::Group(old.id)],
             ..Default::default()
@@ -2221,14 +2222,17 @@ mod tests {
         assert_eq!(tab(pinned).kind, TabKind::Pinned, "a pinned tab is not part of a layout");
         let groups = store.groups(space).unwrap();
         assert_eq!(groups.iter().map(|g| (g.id, g.collapsed)).collect::<Vec<_>>(), [(created[0], false), (old.id, false)], "a group that gets a tab opens");
-        assert_eq!(groups[0].color, "blue");
+        assert_eq!((groups[0].color.as_str(), groups[0].icon.as_str()), ("blue", "star"));
 
         let before = store.tabs(space).unwrap();
         let into_foreign = Layout { tabs: vec![(b, Slot::Group(foreign.id))], ..Default::default() };
         assert!(store.apply_layout(space, &into_foreign).is_err());
         let foreign_tab = add(other, "https://d.test/");
-        let with_foreign =
-            Layout { new_groups: vec![("X".into(), String::new())], tabs: vec![(b, Slot::New(0)), (foreign_tab, Slot::Loose)], ..Default::default() };
+        let with_foreign = Layout {
+            new_groups: vec![("X".into(), String::new(), String::new())],
+            tabs: vec![(b, Slot::New(0)), (foreign_tab, Slot::Loose)],
+            ..Default::default()
+        };
         assert!(store.apply_layout(space, &with_foreign).is_err());
         assert_eq!(store.tabs(space).unwrap(), before, "a refused layout changes nothing");
         assert_eq!(store.groups(space).unwrap().len(), 2);

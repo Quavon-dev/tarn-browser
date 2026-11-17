@@ -239,8 +239,8 @@ pub enum Slot {
 /// `Store::apply_layout`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Layout {
-    /// Groups to create, as name and colour.
-    pub new_groups: Vec<(String, String)>,
+    /// Groups to create, as name, colour and icon.
+    pub new_groups: Vec<(String, String, String)>,
     /// Unpinned tabs in their new order, each with its new place.
     pub tabs: Vec<(Id, Slot)>,
     /// Groups in their new order.

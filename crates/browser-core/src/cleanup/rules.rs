@@ -9,6 +9,7 @@
 pub(super) struct Category {
     pub name: &'static str,
     pub color: &'static str,
+    /// One of `crate::icon::SYMBOLS`.
     pub icon: &'static str,
     pub sites: &'static [&'static str],
     /// Labels of the host left of its last one: `shop` in `shop.example.com`.

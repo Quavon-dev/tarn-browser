@@ -146,10 +146,10 @@ pub struct Ui {
     rename: Signal<String>,
     /// What `rename` names, so a panel that changes target starts from the new name.
     rename_for: Signal<String>,
+    space_draft: Signal<Option<browser_core::space_card::SpaceDraft>>,
     /// The emoji field of the folder panel and the folder it belongs to.
     emoji: Signal<String>,
     emoji_for: Signal<String>,
-    space_draft: Signal<Option<browser_core::space_card::SpaceDraft>>,
     open: Signal<bool>,
     /// The page area's size, which places the panes of a split.
     area: Signal<(f32, f32)>,
@@ -246,8 +246,8 @@ pub fn show(ui: Ui, panel: Panel) {
     ui.confirm.set(None);
     ui.rename.set(String::new());
     ui.rename_for.set(String::new());
-    ui.emoji_for.set(String::new());
     ui.space_draft.set(None);
+    ui.emoji_for.set(String::new());
     ui.panel.set(next);
     act(ui, |_| {});
 }
@@ -1861,9 +1861,9 @@ fn new_ui(row: SavedWindow) -> Ui {
         confirm: signal(None),
         rename: signal(String::new()),
         rename_for: signal(String::new()),
+        space_draft: signal(None),
         emoji: signal(String::new()),
         emoji_for: signal(String::new()),
-        space_draft: signal(None),
         area: signal((0., 0.)),
         dragging: signal(None),
         split_drop: signal(None),
