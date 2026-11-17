@@ -34,6 +34,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - In a split, an unfocused pane's header uses its full width for the address.
 - After closing a tab, the tab that moves under the pointer shows its close button at once.
 - Library rows show their edit and delete buttons side by side inside the row on hover.
+- Dark mode for a site leaves pages that are already dark as they are instead of inverting them to
+  light (macOS, Windows, Linux, iOS, Android).
 
 ## [0.1.2] - 2026-11-17
 
