@@ -869,6 +869,11 @@ impl<D: Platform> Shell<D> {
         Vec::new()
     }
 
+    pub fn zoom_by(&mut self, step: f64) -> Vec<Effect> {
+        let now = self.active_page().map_or(1.0, |p| p.zoom);
+        self.zoom(if step == 0.0 { 1.0 } else { now + step })
+    }
+
     pub fn zoom(&mut self, factor: f64) -> Vec<Effect> {
         let Some(key) = self.model.active else { return Vec::new() };
         let factor = zoom_factor(factor);

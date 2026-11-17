@@ -23,16 +23,7 @@ fn select_tab(ui: Ui, action: Action) {
 }
 
 fn zoom(ui: Ui, delta: f64) {
-    ui.act(|s| {
-        let z = s.active_page().map_or(1.0, |p| p.zoom);
-        s.zoom(if delta == 0.0 { 1.0 } else { z + delta })
-    });
-}
-
-fn copy(link: Option<String>) {
-    if let Some(url) = link {
-        set_clipboard(url);
-    }
+    ui.act(|s| s.zoom_by(delta));
 }
 
 fn run(ui: Ui, action: Action) {
@@ -63,15 +54,8 @@ fn run(ui: Ui, action: Action) {
         Action::ZoomIn => zoom(ui, 0.1),
         Action::ZoomOut => zoom(ui, -0.1),
         Action::ZoomReset => zoom(ui, 0.0),
-        Action::CopyLink => copy(ui.read(|s| s.share_url())),
-        Action::CopyCleanLink => {
-            let mut link = None;
-            ui.act(|s| {
-                link = s.copy_clean_link();
-                Vec::new()
-            });
-            copy(link);
-        }
+        Action::CopyLink => ui.copy_link(None, false),
+        Action::CopyCleanLink => ui.copy_link(None, true),
         Action::ToggleReader => ui.act(|s| if s.offers_reader() { s.open_reader() } else { Vec::new() }),
         Action::ShowHistory => ui.toggle(Screen::History),
         Action::ToggleDownloads => ui.toggle(Screen::Downloads),

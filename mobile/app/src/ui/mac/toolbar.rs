@@ -284,14 +284,7 @@ fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
 }
 
 fn copy(ui: Ui, clean: bool) {
-    let mut link = None;
-    ui.act(|s| {
-        link = if clean { s.copy_clean_link() } else { s.share_url() };
-        Vec::new()
-    });
-    if let Some(link) = link {
-        set_clipboard(link);
-    }
+    ui.copy_link(None, clean);
 }
 
 fn on_active(ui: Ui, f: impl FnOnce(&mut crate::shell::Shell<crate::data::Data>, browser_core::tabs::TabKey)) {

@@ -3196,7 +3196,7 @@ pub fn tab_host(url: &str) -> Option<String> {
     Url::parse(url).ok()?.host_str().map(|h| h.to_ascii_lowercase())
 }
 
-pub use browser_core::command::{page_host, page_label};
+pub use browser_core::command::page_host;
 
 /// The row to write for a site's zoom: `Some(None)` forgets it, `None` writes nothing.
 fn zoom_to_save(zoom: f64, lockdown: bool) -> Option<Option<f64>> {

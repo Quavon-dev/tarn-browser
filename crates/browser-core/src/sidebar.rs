@@ -175,9 +175,9 @@ pub fn rename_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, key: TabKey
     saved
 }
 
-pub fn shown_title(model: &Model, key: TabKey, page_title: String) -> String {
-    let custom = model.tab(key).map(|t| crate::text::bounded_title(&t.custom_title)).unwrap_or_default();
-    [custom, page_title].into_iter().find(|t| !t.trim().is_empty()).unwrap_or_else(|| "New Tab".to_owned())
+pub fn shown_title(model: &Model, key: TabKey, page_title: &str, url: &str) -> String {
+    let custom = model.tab(key).map(|t| t.custom_title.as_str()).unwrap_or_default();
+    crate::command::display_title(custom, page_title, url)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -456,11 +456,12 @@ mod tests {
         let (_dir, core, mut model) = opened();
         let key = tab(&core, &mut model, TabKind::Ephemeral, None);
         assert!(rename_tab(&mut model, &core, key, "  Mail  ", "Inbox"));
-        assert_eq!(shown_title(&model, key, "Inbox".into()), "Mail");
+        assert_eq!(shown_title(&model, key, "Inbox", ""), "Mail");
         assert!(!rename_tab(&mut model, &core, key, "   ", "Inbox"), "a blank name is ignored");
         assert!(rename_tab(&mut model, &core, key, "Inbox", "Inbox"));
         assert_eq!(model.tab(key).unwrap().custom_title, "", "the page title again follows the page");
-        assert_eq!(shown_title(&model, key, String::new()), "New Tab");
+        assert_eq!(shown_title(&model, key, "", ""), "New Tab");
+        assert_eq!(shown_title(&model, key, "", "data:text/html,x"), "data:", "a page without a title shows its label, never its whole address");
         let tile = tab(&core, &mut model, TabKind::Tile, None);
         assert!(!rename_tab(&mut model, &core, tile, "Tile", ""), "tiles show no title");
     }

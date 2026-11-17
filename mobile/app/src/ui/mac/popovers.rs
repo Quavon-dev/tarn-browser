@@ -215,12 +215,7 @@ fn site_settings(ui: Ui, host: Option<String>, secure: bool) -> impl IntoElement
             text(move || thousands(ui.read(|s| s.site_shield_total()).max(0) as u64)).text_size(px(22.)).font_weight(FontWeight::BOLD).text_color(Theme::text),
         )
         .child(small("stopped on this site in this profile"));
-    let zoom = move |delta: f64| {
-        ui.act(|s| {
-            let z = s.active_page().map_or(1.0, |p| p.zoom);
-            s.zoom(if delta == 0.0 { 1.0 } else { z + delta })
-        })
-    };
+    let zoom = move |delta: f64| ui.act(|s| s.zoom_by(delta));
     let list = group()
         .mx_3()
         .overflow_hidden()
@@ -277,23 +272,13 @@ fn site_settings(ui: Ui, host: Option<String>, secure: bool) -> impl IntoElement
 }
 
 fn copy(ui: Ui, clean: bool) {
-    let mut link = None;
-    ui.act(|s| {
-        link = if clean { s.copy_clean_link() } else { s.share_url() };
-        if !clean && link.is_some() {
-            s.toast_as(browser_core::toast::Tone::Success, "Link copied".into());
-        }
-        Vec::new()
-    });
-    if let Some(link) = link {
-        set_clipboard(link);
-    }
+    ui.copy_link(None, clean);
     ui.show(Screen::Browse);
 }
 
 fn share_menu(ui: Ui) -> impl IntoElement {
     let url = ui.read(|s| s.share_url()).unwrap_or_default();
-    let title = ui.read(|s| s.active_page().map(|p| p.title.clone()).unwrap_or_default());
+    let title = ui.read(|s| s.active_page().map(|p| browser_core::text::bounded_title(&p.title)).unwrap_or_default());
     let host = browser_core::command::display_host(&url);
     let shown = url.split_once("://").map_or(url.as_str(), |(_, rest)| rest).trim_end_matches('/').to_owned();
     let tile = site_tile(ui.read(|s| s.site_icon(&url)), &host, 28.);

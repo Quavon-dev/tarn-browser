@@ -20,7 +20,7 @@ fn open(app: &mut Headless, url: &str) {
     app.type_text("id:palette-field", url).unwrap();
     app.submit("id:palette-field").unwrap();
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
-    app.wait_for(&format!("label:{url}")).unwrap();
+    app.wait_for(&format!("label:{}", url::Url::parse(url).unwrap().host_str().unwrap())).unwrap();
 }
 
 #[test]
@@ -103,13 +103,13 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     })
     .unwrap();
     let before = app.screen().count("label:Close Tab").unwrap();
-    app.hover("label:https://github.com/a").unwrap();
+    app.hover("label:github.com").unwrap();
     app.wait_until("a close button on the hovered row", WAIT, |s| s.count("label:Close Tab").unwrap_or(0) == before + 1).unwrap();
-    app.press("label:https://github.com/a >> label:Close Tab").unwrap();
-    app.wait_for_gone("label:https://github.com/a", WAIT).unwrap();
+    app.press("label:github.com >> label:Close Tab").unwrap();
+    app.wait_for_gone("label:github.com", WAIT).unwrap();
     assert_eq!(app.screen().count("label:Close Tab").unwrap(), before + 1, "the row that slid under the pointer shows its close button at once");
-    app.press("label:https://gitlab.com/b >> label:Close Tab").unwrap();
-    app.wait_for_gone("label:https://gitlab.com/b", WAIT).unwrap();
+    app.press("label:gitlab.com >> label:Close Tab").unwrap();
+    app.wait_for_gone("label:gitlab.com", WAIT).unwrap();
     assert_eq!(app.screen().count("label:Close Tab").unwrap(), before + 1, "closing tab after tab in place keeps a close button under the pointer");
     app.set_environment("touch", |e| (e.os, e.idiom) = touch.unwrap()).unwrap();
 }

@@ -82,7 +82,7 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
 
     assert_eq!(app.screen().count("label:Close Tab").unwrap(), 1);
-    app.long_press("label:https://example.com/").unwrap();
+    app.long_press("label:example.com").unwrap();
     app.wait_for("label:Copy Clean Link").unwrap();
     assert_eq!(app.screen().count("label:Close Tab").unwrap(), 2, "the tab menu ends with Close Tab");
     app.press_key("escape").unwrap();
@@ -94,9 +94,9 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
         (e.os, e.idiom) = (Os::MacOs, Idiom::Desktop);
     })
     .unwrap();
-    app.hover("label:https://example.com/").unwrap();
-    app.long_press("label:https://example.com/").unwrap();
-    app.wait_for("label:https://example.com/").unwrap();
+    app.hover("label:example.com").unwrap();
+    app.long_press("label:example.com").unwrap();
+    app.wait_for("label:example.com").unwrap();
     assert!(!app.screen().matches("label:Copy Clean Link").unwrap(), "a held trackpad click opens the tab, not its menu");
     app.set_environment("touch", |e| (e.os, e.idiom) = touch.unwrap()).unwrap();
 }

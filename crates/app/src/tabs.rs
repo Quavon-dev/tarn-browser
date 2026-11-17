@@ -52,12 +52,7 @@ pub fn web_engine_name(engine: WebEngine) -> &'static str {
 
 /// The name a tab shows: the user's own, the page title, the host or scheme, or "New Tab".
 pub fn display_title(tab: &Tab) -> String {
-    [&tab.custom_title, &tab.title]
-        .into_iter()
-        .map(|t| bounded_title(t))
-        .find(|t| !t.trim().is_empty())
-        .or_else(|| Url::parse(&tab.url).ok().map(|u| crate::browser::page_label(&u)))
-        .unwrap_or_else(|| "New Tab".into())
+    browser_core::command::display_title(&tab.custom_title, &tab.title, &tab.url)
 }
 
 /// What a rename stores: nothing when the name is the page's own title, so the tab follows the page again.

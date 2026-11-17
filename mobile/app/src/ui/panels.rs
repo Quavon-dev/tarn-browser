@@ -301,12 +301,7 @@ fn tab_card(ui: Ui, key: TabKey, title: String, url: String) -> View {
 
 fn menu(ui: Ui) -> impl IntoElement {
     let private = move || ui.read(|s| s.model.private());
-    let zoom = move |delta: f64| {
-        ui.act(|s| {
-            let z = s.active_page().map_or(1.0, |p| p.zoom);
-            s.zoom(if delta == 0.0 { 1.0 } else { z + delta })
-        })
-    };
+    let zoom = move |delta: f64| ui.act(|s| s.zoom_by(delta));
     let level = computed(move || ui.read(|s| (s.active_page().map_or(1.0, |p| p.zoom) * 100.).round() as i64));
     let shareable = computed(move || ui.read(|s| s.share_url().is_some()));
     view()

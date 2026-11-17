@@ -184,6 +184,20 @@ impl Ui {
         self.show(if self.screen.get_untracked() == screen { Screen::Browse } else { screen });
     }
 
+    pub fn copy_link(self, key: Option<TabKey>, clean: bool) {
+        let mut link = None;
+        self.act(|s| {
+            link = match key {
+                Some(key) => s.copy_link_of(key, clean),
+                None => s.copy_link(clean),
+            };
+            Vec::new()
+        });
+        if let Some(link) = link {
+            set_clipboard(link);
+        }
+    }
+
     pub fn edit_address(self) {
         if self.mac.get_untracked() {
             mac::open_palette(self);

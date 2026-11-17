@@ -143,11 +143,27 @@ impl<D: Platform> Shell<D> {
         self.copy_clean_link_of(key)
     }
 
-    pub fn copy_clean_link_of(&mut self, key: TabKey) -> Option<String> {
+    pub fn web_link_of(&self, key: TabKey) -> Option<String> {
         let url = self.tab_url(key);
-        if url.is_empty() {
-            return None;
+        Url::parse(&url).ok().filter(|u| matches!(u.scheme(), "http" | "https")).map(|_| url)
+    }
+
+    pub fn copy_link(&mut self, clean: bool) -> Option<String> {
+        let key = self.model.active?;
+        self.copy_link_of(key, clean)
+    }
+
+    pub fn copy_link_of(&mut self, key: TabKey, clean: bool) -> Option<String> {
+        if clean {
+            return self.copy_clean_link_of(key);
         }
+        let link = self.web_link_of(key)?;
+        self.toast_as(browser_core::toast::Tone::Success, "Link copied".into());
+        Some(link)
+    }
+
+    pub fn copy_clean_link_of(&mut self, key: TabKey) -> Option<String> {
+        let url = self.web_link_of(key)?;
         let (url, removed) = shield::url_clean::clean_link(&url);
         if removed > 0
             && let Some((private, id)) = self.model.profile()

@@ -260,6 +260,16 @@ pub fn address(url: &Url) -> (String, bool) {
     (host, url.scheme() == "http" || url.as_str().starts_with("blob:http:"))
 }
 
+/// What a tab row shows: its own name or the page's title, bounded and cleaned, else the page's label.
+pub fn display_title(custom: &str, title: &str, url: &str) -> String {
+    [custom, title]
+        .into_iter()
+        .map(crate::text::bounded_title)
+        .find(|t| !t.trim().is_empty())
+        .or_else(|| Url::parse(url).ok().map(|u| page_label(&u)))
+        .unwrap_or_else(|| "New Tab".into())
+}
+
 /// The address at rest as text: `Not Secure — host` for plain HTTP, empty without a page.
 pub fn display_host(url: &str) -> String {
     match Url::parse(url).map(|u| address(&u)) {
@@ -402,6 +412,16 @@ mod tests {
         assert_eq!(u.as_str(), "https://duckduckgo.com/?q=a%26b%3Dc+d");
         let Some(Input::Search(u)) = classify_input("a b", &ENGINES[1]) else { panic!() };
         assert_eq!(u.as_str(), "https://www.startpage.com/sp/search?query=a+b");
+    }
+
+    #[test]
+    fn a_tab_shows_a_bounded_title_or_its_page_label() {
+        assert_eq!(display_title("", "", ""), "New Tab");
+        assert_eq!(display_title("Mail", "Inbox", "https://mail.test/"), "Mail");
+        assert_eq!(display_title(" ", "In\u{202e}box\n\tnow", "https://mail.test/"), "Inbox now");
+        assert_eq!(display_title("", "", "https://www.example.com/a?b"), "www.example.com");
+        assert_eq!(display_title("", "", "data:text/html,<h1>bank.test</h1>"), "data:");
+        assert!(display_title("", &"x".repeat(5000), "").chars().count() < 500, "a page cannot make a row unbounded");
     }
 
     #[test]

@@ -70,7 +70,7 @@ fn host(url: &str) -> String {
 }
 
 fn tab_title(s: &AppShell, key: TabKey) -> String {
-    bar::shown_title(&s.model, key, s.tab_title(key))
+    bar::shown_title(&s.model, key, &s.page_title(key), &s.tab_url(key))
 }
 
 fn asleep(s: &AppShell, key: TabKey) -> bool {
@@ -146,7 +146,7 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
         Some(tab_menu::Tab {
             kind: t.kind,
             active: s.model.active == Some(key),
-            has_link: !s.tab_url(key).is_empty(),
+            has_link: s.web_link_of(key).is_some(),
             split: s.splits.menu(s.model.active, key),
             split_view: ui.wide(),
             burner: s.model.burner_shown(),
@@ -182,18 +182,8 @@ fn run_tab(bar: Bar, ui: Ui, key: TabKey, command: tab_menu::Command) {
             });
             ui.show(Screen::Browse);
         }
-        C::CopyLink => {
-            let url = ui.read(|s| s.tab_url(key));
-            set_clipboard(url);
-            act(ui, |s| s.toast_as(browser_core::toast::Tone::Success, "Link copied".to_owned()));
-        }
-        C::CopyCleanLink => {
-            let mut link = None;
-            act(ui, |s| link = s.copy_clean_link_of(key));
-            if let Some(link) = link {
-                set_clipboard(link);
-            }
-        }
+        C::CopyLink => ui.copy_link(Some(key), false),
+        C::CopyCleanLink => ui.copy_link(Some(key), true),
         C::Split => {
             act(ui, |s| s.split_with(key));
             ui.show(Screen::Browse);

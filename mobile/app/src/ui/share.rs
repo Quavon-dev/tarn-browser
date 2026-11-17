@@ -70,7 +70,7 @@ fn sheet(ui: Ui) -> impl IntoElement {
             ));
         };
     let copied = signal(false);
-    let page = ui.read(|s| (s.share_url(), s.active_page().map(|p| p.title.clone()).unwrap_or_default()));
+    let page = ui.read(|s| (s.share_url(), s.active_page().map(|p| browser_core::text::bounded_title(&p.title)).unwrap_or_default()));
     let (url, title) = page;
     let host = url.as_deref().map(browser_core::command::display_host).unwrap_or_default();
     let site = url.as_deref().and_then(|u| url::Url::parse(u).ok()).and_then(|u| browser_core::command::page_host(&u)).unwrap_or_else(|| host.clone());

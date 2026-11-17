@@ -602,6 +602,37 @@ fn the_private_process_reaches_no_other_space_and_offers_no_new_one() {
 }
 
 #[test]
+fn every_copy_link_says_so_and_copies_only_web_links() {
+    let (_dir, mut shell) = open();
+    shell.navigate("data:text/html,hi");
+    let data = active(&shell);
+    assert_eq!(shell.copy_link_of(data, false), None, "a data: page has no link to copy");
+    assert_eq!(shell.copy_link_of(data, true), None);
+    shell.new_tab(None);
+    shell.navigate("https://example.com/?utm_source=x");
+    finish(&mut shell, "https://example.com/?utm_source=x", "Example");
+    let web = active(&shell);
+    shell.notice = None;
+    assert_eq!(shell.copy_link(false).as_deref(), Some("https://example.com/?utm_source=x"));
+    assert_eq!(shell.notice.as_deref(), Some("Link copied"));
+    shell.notice = None;
+    assert_eq!(shell.copy_link_of(web, true).as_deref(), Some("https://example.com/"));
+    assert!(shell.notice.as_deref().is_some_and(|n| n.starts_with("Link copied")));
+}
+
+#[test]
+fn zoom_steps_from_the_page_and_resets() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://example.com/");
+    let key = active(&shell);
+    shell.zoom_by(0.1);
+    shell.zoom_by(0.1);
+    assert!((shell.pages[&key].zoom - 1.2).abs() < 1e-9);
+    shell.zoom_by(0.0);
+    assert!((shell.pages[&key].zoom - 1.0).abs() < 1e-9);
+}
+
+#[test]
 fn a_finished_load_that_never_committed_leaves_the_tab_where_it_was() {
     let (_dir, mut shell) = open();
     shell.navigate("https://public.test/redirect");

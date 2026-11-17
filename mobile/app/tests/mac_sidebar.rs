@@ -59,31 +59,31 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.wait_for("id:palette-field").unwrap();
     app.type_text("id:palette-field", "example.com").unwrap();
     app.submit("id:palette-field").unwrap();
-    app.wait_for("label:https://example.com/").unwrap();
+    app.wait_for("label:example.com").unwrap();
     let mut touch = None;
     app.set_environment("pointer", |e| {
         touch = Some((e.os, e.idiom));
         (e.os, e.idiom) = (Os::MacOs, Idiom::Desktop);
     })
     .unwrap();
-    app.hover("label:https://example.com/").unwrap();
-    app.drag("label:https://example.com/", point(Points(0.), Points(-74.))).unwrap();
+    app.hover("label:example.com").unwrap();
+    app.drag("label:example.com", point(Points(0.), Points(-74.))).unwrap();
     app.wait_for("label:Pinned").unwrap();
     app.wait_for_gone("Drag tabs here to pin them", WAIT).unwrap();
     app.set_environment("touch", |e| (e.os, e.idiom) = touch.unwrap()).unwrap();
-    app.long_press("label:https://example.com/").unwrap();
+    app.long_press("label:example.com").unwrap();
     app.press("label:Unpin Tab").unwrap();
     app.wait_for("Drag tabs here to pin them").unwrap();
 
-    app.long_press("label:https://example.com/").unwrap();
+    app.long_press("label:example.com").unwrap();
     app.wait_for("label:Duplicate").unwrap();
     app.press("label:Duplicate").unwrap();
-    app.wait_for("label:https://example.com/ >> nth=1").unwrap();
-    app.long_press("label:https://example.com/ >> nth=0").unwrap();
+    app.wait_for("label:example.com >> nth=1").unwrap();
+    app.long_press("label:example.com >> nth=0").unwrap();
     app.press("label:Copy Link").unwrap();
     app.wait_for("Link copied").unwrap();
     assert_eq!(app.screen().clipboard(), Some("https://example.com/"));
-    app.long_press("label:https://example.com/ >> nth=0").unwrap();
+    app.long_press("label:example.com >> nth=0").unwrap();
     app.press("label:Rename").unwrap();
     app.wait_for("label:Name").unwrap();
     app.clear("label:Name").unwrap();
