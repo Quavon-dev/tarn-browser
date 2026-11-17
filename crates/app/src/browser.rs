@@ -40,6 +40,24 @@ pub(crate) fn page_corner() -> f64 {
     ui::theme::Theme::radius_page() as f64 - 1.
 }
 
+/// Redraws the windows that draw spinners on the first display frame `SPIN_STEP` after `drawn`, so
+/// the spinners move in even steps on the display's beat. Only these windows redraw, not every
+/// observer of the browser.
+fn spin_step(window: &Window, browser: gpui::WeakEntity<Browser>, drawn: Instant) {
+    window.on_next_frame(move |window, cx| {
+        if drawn.elapsed() < ui::controls::SPIN_STEP {
+            return spin_step(window, browser, drawn);
+        }
+        window.refresh();
+        if let Ok(Some(peek)) = browser.update(cx, |b, _| {
+            b.spinning = false;
+            b.peek.window
+        }) {
+            peek.update(cx, |_, window, _| window.refresh()).ok();
+        }
+    });
+}
+
 impl Browser {
     /// Gives open web views the page radius of a theme chosen after they were made.
     pub(crate) fn follow_theme(&mut self) {
@@ -255,7 +273,7 @@ pub struct Browser {
     pub space_switched_at: Option<i64>,
     /// When Reload was last asked for, so its arrow spins at least `SPIN` even for a cached page.
     pub(crate) reload_spin: Option<(TabKey, Instant)>,
-    /// A timer redraws the window while spinners turn.
+    /// A display frame is booked to redraw the spinners.
     spinning: bool,
     /// The profile whose bookmarks `bookmarks` holds; `reload_bookmarks` refreshes them.
     pub(crate) bookmarks_of: Option<(bool, Id)>,
@@ -717,38 +735,14 @@ impl Browser {
         self.pages.get(&key).is_some_and(|p| p.loading)
     }
 
-    /// Redraws the window `SPIN_FPS` times a second while a spinner of this space turns.
+    /// Books the redraw of the spinners' next step while a spinner of this space turns.
     pub(crate) fn keep_spinning(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let wanted = |b: &Browser| {
-            let reloading = b.reload_spin.is_some_and(|(_, at)| at.elapsed() < crate::toolbar::SPIN);
-            !b.still() && (reloading || b.model.tabs.iter().any(|t| b.loading(b.model.key(t))))
-        };
-        if self.spinning || !wanted(self) {
+        let reloading = self.reload_spin.is_some_and(|(_, at)| at.elapsed() < crate::toolbar::SPIN);
+        if self.spinning || self.still() || !reloading && !self.model.tabs.iter().any(|t| self.loading(self.model.key(t))) {
             return;
         }
         self.spinning = true;
-        let step = std::time::Duration::from_secs(1) / ui::controls::SPIN_FPS;
-        // Redraws only the windows that draw spinners, not every observer of the browser.
-        cx.spawn_in(window, async move |this, cx| {
-            loop {
-                cx.background_executor().timer(step).await;
-                let Ok((again, peek)) = this.update_in(cx, |b, window, _| {
-                    b.spinning = wanted(b);
-                    // The last tick redraws too, so a finished spinner leaves the screen.
-                    window.refresh();
-                    (b.spinning, b.peek.window)
-                }) else {
-                    break;
-                };
-                if let Some(peek) = peek {
-                    peek.update(cx, |_, window, _| window.refresh()).ok();
-                }
-                if !again {
-                    break;
-                }
-            }
-        })
-        .detach();
+        spin_step(window, cx.entity().downgrade(), Instant::now());
     }
 
     /// Whether spinners stand still: motion is reduced or Tarn is in the background.

@@ -70,6 +70,11 @@ fn shield_panel(ui: Ui) -> AnyElement {
     let (host, level, overridden, secure, zoom, total) = ui.snap.with(|s| (s.host.clone(), s.level.clone(), s.overridden, s.secure, s.zoom, s.site_total));
     let default = read(ui, |b| b.default_level()).unwrap_or_default();
     let set = move |level: Option<ShieldLevel>| act(ui, |b| b.set_site_level(level));
+    if host.is_empty() {
+        let profile = heading(ui, label("Shield level").font_weight(FontWeight::BOLD));
+        let levels = segmented(levels(), default, move |l| act(ui, move |b| b.set_default_level(l)));
+        return popover().gap_3().child(profile).child(levels).child(small(motto(default).1)).into_element();
+    }
     let (glyph, color, connection) =
         if secure { (icons::LOCK, Secure::success(), "Connection is secure") } else { (icons::TRIANGLE_ALERT, Secure::warning(), "Not secure") };
     let header = view()
@@ -78,26 +83,18 @@ fn shield_panel(ui: Ui) -> AnyElement {
         .gap(px(10.))
         .child(site_tile(ui, &host, 28.))
         .child(
-            view()
-                .flex_col()
-                .flex_1()
-                .min_w(px(0.))
-                .child(label(if host.is_empty() { "This page".to_owned() } else { host.clone() }).font_weight(FontWeight::BOLD).truncate())
-                .child(
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .gap_1()
-                        .text_color(color)
-                        .child(icons::icon(glyph, 11.))
-                        .child(small(connection).text_color(color).font_family(SYSTEM_FONT)),
-                ),
+            view().flex_col().flex_1().min_w(px(0.)).child(label(host.clone()).font_weight(FontWeight::BOLD).truncate()).child(
+                view()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
+                    .text_color(color)
+                    .child(icons::icon(glyph, 11.))
+                    .child(small(connection).text_color(color).font_family(SYSTEM_FONT)),
+            ),
         )
         .child(icon_button(icons::CLOSE, "Close", move || show(ui, Panel::None)));
     let body = popover().gap_3().child(header);
-    if host.is_empty() {
-        return body.into_element();
-    }
     let summary = view()
         .flex_col()
         .px_3()
@@ -357,7 +354,7 @@ pub(super) fn copy_link(ui: Ui, url: String) -> nsh_base::ButtonElement {
 }
 
 fn folder_panel(ui: Ui, id: store::Id) -> AnyElement {
-    let Some(name) = read(ui, |b| b.model.folders.iter().find(|f| f.id == id).map(|f| f.name.clone())).flatten() else {
+    let Some((name, current)) = read(ui, |b| b.model.folders.iter().find(|f| f.id == id).map(|f| (f.name.clone(), f.icon.clone()))).flatten() else {
         return view().into_element();
     };
     let new = menu_row("New Subfolder", None, move || {
@@ -368,7 +365,32 @@ fn folder_panel(ui: Ui, id: store::Id) -> AnyElement {
         .child(heading(ui, title(format!("Folder “{name}”")).truncate()))
         .child(rename_row(ui, format!("folder {id}"), &name, move |name| act(ui, |b| b.rename_folder(id, &name))))
         .child(group().child(new))
+        .child(icon_choice(ui, format!("folder {id}"), current, move |icon| {
+            ui.emoji.set(browser_core::icon::emoji(&icon).to_owned());
+            act(ui, |b| b.set_folder_icon(id, &icon));
+        }))
         .into_element()
+}
+
+/// The symbols to pick from, a field for one emoji and, while one is set, Remove.
+fn icon_choice(ui: Ui, target: String, current: String, set: impl Fn(String) + Copy + 'static) -> View {
+    if ui.emoji_for.get_untracked() != target {
+        ui.emoji_for.set(target);
+        ui.emoji.set(browser_core::icon::emoji(&current).to_owned());
+    }
+    let emoji = ui.emoji;
+    let symbols = browser_core::icon::SYMBOLS
+        .iter()
+        .filter_map(|name| Some(icon_button(icons::named(name)?, name, move || set((*name).to_owned())).opacity(if current == *name { 1. } else { 0.7 })));
+    let save = move || Some(emoji.get_untracked()).filter(|e| !e.trim().is_empty()).into_iter().for_each(set);
+    let field = view()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(super::text_field(emoji, "Emoji", 120.).on_submit(move |_: &str| save()))
+        .child(pill("Set Emoji", save))
+        .children((!current.is_empty()).then(|| pill("Remove", move || set(String::new()))));
+    view().flex_col().gap_2().child(section("Icon".to_owned())).child(view().flex_row().flex_wrap().children(symbols)).child(field)
 }
 
 pub(super) fn menu_row(name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {

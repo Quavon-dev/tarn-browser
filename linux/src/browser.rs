@@ -478,6 +478,16 @@ impl Browser {
         }
     }
 
+    /// Sets a folder's icon from a symbol name or one emoji; empty clears it, anything else changes nothing.
+    pub fn set_folder_icon(&mut self, id: Id, icon: &str) {
+        match browser_core::icon::set_folder(self.core.store(self.model.private()), id, icon) {
+            Ok(()) => {
+                self.model.reload_space(&self.core);
+            }
+            Err(_) => self.show_toast_as(browser_core::toast::Tone::Warning, "Use one emoji or a listed symbol", None),
+        }
+    }
+
     /// Moves `key` to `target`'s place in its zone: before it from below, after it from above.
     pub fn move_tab_to(&mut self, key: TabKey, target: TabKey) {
         let Some(tab) = self.model.tab(target).filter(|_| key != target && key.private == target.private) else { return };

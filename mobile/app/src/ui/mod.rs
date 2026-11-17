@@ -316,14 +316,13 @@ fn notice(ui: Ui) -> impl IntoElement {
         message().map(|m| {
             let local = ui.read(|s| s.can_open_anyway());
             let base = if local {
-                tarn_nsh_shared::controls::secure_surface(Theme::radius_panel()).flex_row().items_center().gap_2().pl_4().py_1()
+                tarn_nsh_shared::controls::secure_surface(Theme::radius_panel()).flex_row().items_center().gap_2().pl_4().pr_1().py_1()
             } else {
                 tarn_nsh_shared::controls::toast(ui.read(|s| s.notice_tone())).self_center()
             };
             base.bind_motion(&tarn_nsh_shared::motion::pop_in())
                 .mx_3()
                 .my_1()
-                .pr_1()
                 .shadow(Theme::elevation(4., 14.))
                 .child(
                     label(m)
@@ -346,7 +345,7 @@ fn notice(ui: Ui) -> impl IntoElement {
                 }))
                 .child(dynamic(move || {
                     ui.read(|s| s.can_undo()).then(|| {
-                        pill("Undo", move || {
+                        tarn_nsh_shared::controls::toast_action("Undo", move || {
                             ui.act(|s| {
                                 s.undo_close();
                                 Vec::new()

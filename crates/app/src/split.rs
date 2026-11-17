@@ -307,10 +307,11 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
     let close = icon_button(("pane-close", ix), Icon::Close, true).tooltip(tooltip("Close Tab", keys(&crate::CloseTab)));
     let header = div()
         .id(("pane-header", ix))
+        .relative()
         .h(px(HEADER))
         .flex_none()
         .pl_2p5()
-        .pr_0p5()
+        .map(|d| if focused { d.pr_0p5() } else { d.pr_2p5() })
         .flex()
         .items_center()
         .gap_2()
@@ -327,7 +328,10 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
             div()
                 .flex()
                 .flex_none()
-                .when(!focused, |d| d.opacity(0.).group_hover("pane", |s| s.opacity(1.)))
+                // Unfocused, the buttons float over the host only while the pane is hovered, so the text keeps the full width.
+                .when(!focused, |d| {
+                    d.absolute().top_0().bottom_0().right_0p5().items_center().bg(Theme::page()).opacity(0.).group_hover("pane", |s| s.opacity(1.))
+                })
                 .child(leave.on_click(cx.listener(move |b, _, window, cx| {
                     cx.stop_propagation();
                     b.leave_split(key, window, cx);

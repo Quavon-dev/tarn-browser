@@ -23,6 +23,8 @@ pub struct SnapshotTab {
 pub struct SnapshotGroup {
     pub name: String,
     pub color: String,
+    #[serde(default)]
+    pub icon: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,7 +57,7 @@ impl SpaceSnapshot {
             .into_iter()
             .map(|t| SnapshotTab { group: t.group_id.and_then(|id| groups.iter().position(|g| g.id == id)), url: t.url, title: t.title, position: t.position })
             .collect();
-        let groups = groups.into_iter().map(|g| SnapshotGroup { name: g.name, color: g.color }).collect();
+        let groups = groups.into_iter().map(|g| SnapshotGroup { name: g.name, color: g.color, icon: g.icon }).collect();
         Ok(SpaceSnapshot { version: VERSION, tabs, groups })
     }
 
@@ -102,6 +104,7 @@ impl SpaceSnapshot {
                     && let Ok(created) = store.create_group(space_id, &group.name)
                 {
                     store.set_group_color(created.id, &group.color).ok();
+                    crate::icon::set_group(store, created.id, &group.icon).ok();
                     *made = Some(created.id);
                 }
                 if let Some(id) = *made {
@@ -134,11 +137,13 @@ mod tests {
         (store, SpaceRef { private: false, space })
     }
 
-    fn listing(store: &Store, space_id: Id) -> Vec<(String, Option<(String, String)>)> {
+    fn listing(store: &Store, space_id: Id) -> Vec<(String, Option<[String; 3]>)> {
         let groups = store.groups(space_id).unwrap();
         let mut tabs: Vec<_> = store.tabs(space_id).unwrap().into_iter().filter(|t| t.kind == TabKind::Ephemeral).collect();
         tabs.sort_by_key(|t| t.position);
-        tabs.into_iter().map(|t| (t.url, t.group_id.map(|id| groups.iter().find(|g| g.id == id).map(|g| (g.name.clone(), g.color.clone())).unwrap()))).collect()
+        tabs.into_iter()
+            .map(|t| (t.url, t.group_id.map(|id| groups.iter().find(|g| g.id == id).map(|g| [g.name.clone(), g.color.clone(), g.icon.clone()]).unwrap())))
+            .collect()
     }
 
     #[test]
@@ -147,6 +152,7 @@ mod tests {
         let id = space.space.id;
         let work = store.create_group(id, "Work").unwrap();
         store.set_group_color(work.id, "green").unwrap();
+        crate::icon::set_group(&store, work.id, "briefcase").unwrap();
         store.create_group(id, "Empty").unwrap();
         for url in ["https://a.test/", "https://b.test/", "https://c.test/"] {
             store.create_tab(id, TabKind::Ephemeral, None, url, "T").unwrap();
