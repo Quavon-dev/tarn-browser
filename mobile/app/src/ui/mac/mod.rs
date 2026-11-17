@@ -1,5 +1,5 @@
 mod input;
-mod popovers;
+pub(super) mod popovers;
 mod settings;
 mod sidebar;
 mod toolbar;

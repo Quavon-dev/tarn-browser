@@ -26,25 +26,29 @@ fn tab_row(ui: Ui, key: TabKey) -> impl IntoElement {
         .rounded(px(Theme::radius_row()))
         .bg(move || if active() { Theme::selected() } else { Theme::clear() })
         .child(
-            pressable(
-                move || SharedString::from(tab_title(ui, key)),
-                move || {
+            super::popovers::tab_context(ui, key, view())
+                .test_id("tab")
+                .accessible(true)
+                .label(move || SharedString::from(tab_title(ui, key)))
+                .role(AccessibilityRole::Button)
+                .hover(|s| s.bg(Theme::hover()))
+                .active(|s| s.bg(Theme::pressed()))
+                .on_press(move |_: &PressEvent| {
                     ui.act(|s| {
                         s.activate(key);
                         Vec::new()
                     });
                     ui.show(Screen::Browse);
-                },
-            )
-            .flex_1()
-            .h_full()
-            .flex_row()
-            .items_center()
-            .gap_2()
-            .pl_2()
-            .rounded(px(Theme::radius_row()))
-            .child(view().text_color(Theme::muted).child(glyphs::icon(glyphs::GLOBE, GLYPH)))
-            .child(label(move || SharedString::from(tab_title(ui, key))).number_of_lines(1).flex_1()),
+                })
+                .flex_1()
+                .h_full()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .pl_2()
+                .rounded(px(Theme::radius_row()))
+                .child(view().text_color(Theme::muted).child(glyphs::icon(glyphs::GLOBE, GLYPH)))
+                .child(label(move || SharedString::from(tab_title(ui, key))).number_of_lines(1).flex_1()),
         )
         .child(icon_button(view().text_color(Theme::muted).child(glyphs::icon(glyphs::CLOSE, GLYPH)), "Close Tab", move || {
             ui.act(|s| {

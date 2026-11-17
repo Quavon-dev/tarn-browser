@@ -81,6 +81,7 @@ pub struct Ui {
     pub field: ElementRef,
     pub fresh: Signal<Option<(TabKey, TabKey)>>,
     pub mac: Signal<bool>,
+    pub popovers: mac::popovers::Anchors,
 }
 
 impl Ui {
@@ -160,6 +161,7 @@ impl Ui {
     }
 
     pub fn show(self, screen: Screen) {
+        self.popovers.menu.set(None);
         if self.editing.get_untracked() {
             dismiss_keyboard();
         }
@@ -452,6 +454,7 @@ pub fn App() -> impl IntoElement {
         field: element_ref(),
         fresh: signal(None),
         mac: signal(false),
+        popovers: mac::popovers::Anchors::default(),
     };
     let extensions_open = std::cell::Cell::new(false);
     effect(move || {

@@ -6,6 +6,7 @@ pub mod fog;
 pub mod icons;
 pub mod motion;
 pub mod panes;
+pub mod popover;
 pub mod qr;
 pub mod search_fx;
 pub mod theme;

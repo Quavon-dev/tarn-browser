@@ -56,7 +56,7 @@ fn action_row(name: &'static str, source: &'static str, press: impl Fn() + 'stat
 }
 
 pub fn share_sheet(ui: Ui) -> impl IntoElement {
-    when(move || ui.screen.get() == Screen::Share, move || sheet(ui))
+    when(move || ui.screen.get() == Screen::Share && !ui.mac.get(), move || sheet(ui))
 }
 
 fn sheet(ui: Ui) -> impl IntoElement {
