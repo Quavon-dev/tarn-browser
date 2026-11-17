@@ -82,6 +82,7 @@ pub enum Panel {
     None,
     Shield,
     Settings,
+    Library,
     History,
     Downloads,
     Tab,
@@ -155,6 +156,7 @@ pub struct Ui {
     rename_for: Signal<String>,
     mark_query: Signal<String>,
     mark_edit: Signal<Option<library::MarkEdit>>,
+    library_query: Signal<String>,
     open: Signal<bool>,
     /// The page area's size, which places the panes of a split.
     area: Signal<(f32, f32)>,
@@ -266,6 +268,7 @@ pub fn show(ui: Ui, panel: Panel) {
     ui.rename_for.set(String::new());
     ui.mark_query.set(String::new());
     ui.mark_edit.set(None);
+    ui.library_query.set(String::new());
     ui.panel.set(next);
     act(ui, move |b| {
         if next == Panel::Downloads {
@@ -648,7 +651,7 @@ fn space_bar(ui: Ui) -> View {
         .min_h(px(40.))
         .py(px(6.))
         .px_1()
-        .child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::History)))
+        .child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::Library)))
         .child(view().flex_row().flex_wrap().flex_1().items_center().justify_center().gap(px(2.)).child(spaces))
         .child(icon_button(icons::PLUS, "New Space", move || act(ui, |b| b.new_space())))
         .child(icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings)))
@@ -1957,6 +1960,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         rename_for: signal(String::new()),
         mark_query: signal(String::new()),
         mark_edit: signal(None),
+        library_query: signal(String::new()),
         area: signal((0., 0.)),
         dragging: signal(None),
         split_drop: signal(None),

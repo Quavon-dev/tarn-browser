@@ -1012,3 +1012,57 @@ fn clearing_site_data_forgets_its_zaps_and_reports_what_went() {
     b.site_cleared("news.test", 0);
     assert_eq!(b.notice, Some(Notice::Message("news.test had no stored data.".into())));
 }
+
+#[test]
+fn the_library_searches_tabs_bookmarks_history_and_downloads() {
+    let (_dir, mut b) = browser();
+    let (private, profile) = b.model.profile().unwrap();
+    let store = b.core.store(private);
+    store.add_history(profile, "https://news.test/a", "Morning News", 1, false).unwrap();
+    store.add_history(profile, "https://news.test/a", "Morning News", 2, false).unwrap();
+    store.add_history(profile, "https://cook.test/", "Recipes", 3, false).unwrap();
+    store.add_bookmark(profile, None, Some("https://news.test/b"), "Evening News", 4).unwrap();
+    store.add_download(profile, "https://files.test/n", "/tmp/news-report.pdf", "finished", 5).unwrap();
+    b.new_tab("https://news.test/live");
+    let history = b.library_history();
+    assert_eq!(history.len(), 2);
+
+    let all = b.library_search("", &history);
+    assert_eq!(all.tab_count, b.model.tabs.len());
+    assert!(all.bookmarks.is_empty() && all.history.is_empty() && all.downloads.is_empty());
+
+    let found = b.library_search("news", &history);
+    assert_eq!(found.tabs.len(), 1);
+    assert_eq!(found.bookmarks.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["Evening News"]);
+    assert_eq!(found.history.iter().map(|l| l.url.as_str()).collect::<Vec<_>>(), ["https://news.test/a"]);
+    assert_eq!(found.downloads.len(), 1);
+    assert!(b.library_search("zzzz", &history).is_empty());
+}
+
+#[test]
+fn library_rows_reuse_an_open_tab_and_edit_downloads_and_snapshots() {
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    let two = b.new_tab("https://two.test/").unwrap();
+    b.activate(first);
+    let tabs = b.model.tabs.len();
+    b.open_url("https://two.test/");
+    assert_eq!((b.model.tabs.len(), b.model.active), (tabs, Some(two)));
+    b.open_url("https://three.test/");
+    assert_eq!(b.model.tabs.len(), tabs + 1);
+
+    let (private, profile) = b.model.profile().unwrap();
+    b.core.store(private).add_download(profile, "https://files.test/a", "/tmp/a.zip", "finished", 1).unwrap();
+    b.core.store(private).add_download(profile, "https://files.test/b", "/tmp/b.zip", "finished", 2).unwrap();
+    let gone = b.saved_downloads()[0].id;
+    b.remove_download(gone);
+    assert_eq!(b.saved_downloads().iter().map(|d| d.id).filter(|id| *id == gone).count(), 0);
+    assert_eq!(b.saved_downloads().len(), 1);
+
+    b.save_snapshot();
+    let id = b.snapshots()[0].id;
+    b.rename_snapshot(id, "  ");
+    assert_ne!(b.snapshots()[0].name, "");
+    b.rename_snapshot(id, " Trip ");
+    assert_eq!(b.snapshots()[0].name, "Trip");
+}

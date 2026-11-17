@@ -28,6 +28,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Permission prompts offer Always Allow, saved per site and listed in Settings › Permissions, and
   every page prompt offers "Block requests from this page"; popup tabs share their opener's prompt
   and popup limits (Linux).
+- Library on Linux: one search across open tabs, bookmarks, history and downloads, with links to
+  History, Reading List, Downloads, Snapshots and Memory; history rows have Open in New Tab,
+  snapshots can be renamed, and a download can be removed from the list or its link copied (Linux).
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages

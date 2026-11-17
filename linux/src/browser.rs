@@ -3,6 +3,7 @@ pub mod bookmarks;
 pub mod extensions;
 mod groups;
 pub mod icons;
+pub mod library;
 pub mod pages;
 pub mod profile_data;
 mod site;

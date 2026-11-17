@@ -71,12 +71,16 @@ pub fn space_panel(ui: Ui) -> AnyElement {
     let Some((name, schedule, snapshots)) = read(ui, |b| (ui.snap.with(|s| s.space_name.clone()), b.space_schedule(), b.snapshots())) else {
         return view().into_element();
     };
-    let mut body = popover().child(super::panels::heading(ui, title(format!("Space “{name}”")).truncate())).child(super::panels::rename_row(
-        ui,
-        format!("space {:?}", ui.snap.with_untracked(|s| s.space)),
-        &name,
-        move |name| act(ui, |b| b.rename_space(&name)),
-    ));
+    let renaming = ui
+        .rename_for
+        .with_untracked(|t| t.strip_prefix("snapshot ").and_then(|id| id.parse::<store::Id>().ok()))
+        .filter(|id| snapshots.iter().any(|s| s.id == *id));
+    let mut body = popover().child(super::panels::heading(ui, title(format!("Space “{name}”")).truncate()));
+    if renaming.is_none() {
+        body = body.child(super::panels::rename_row(ui, format!("space {:?}", ui.snap.with_untracked(|s| s.space)), &name, move |name| {
+            act(ui, |b| b.rename_space(&name))
+        }));
+    }
     body = match schedule {
         Some(schedule) => body.child(section("Schedule")).child(schedule_rows(ui, schedule)),
         None => body.child(note("A private space has no schedule or snapshots.")),
@@ -84,11 +88,20 @@ pub fn space_panel(ui: Ui) -> AnyElement {
     let rows: Vec<AnyElement> = snapshots
         .into_iter()
         .map(|saved| {
-            let (a, b, c) = (saved.clone(), saved.clone(), saved.clone());
+            let id = saved.id;
+            if renaming == Some(id) {
+                return snapshot_rename(ui, id, &saved.name).into_element();
+            }
+            let (a, b, c, name) = (saved.clone(), saved.clone(), saved.clone(), saved.name.clone());
             line(saved.name.clone())
                 .child(small(crate::browser::spaces::date(saved.created_at)))
                 .child(pill("Restore in New Space", move || act(ui, |br| br.restore_snapshot(&a, true))))
                 .child(pill("Restore in This Space", move || act(ui, |br| br.restore_snapshot(&b, false))))
+                .child(pill("Rename", move || {
+                    ui.rename_for.set(format!("snapshot {id}"));
+                    ui.rename.set(name.clone());
+                    act(ui, |_| {});
+                }))
                 .child(super::confirmed(ui, format!("snapshot{}", saved.id), "Delete", move || act(ui, |br| br.delete_snapshot(&c))))
                 .into_element()
         })
@@ -104,6 +117,92 @@ pub fn space_panel(ui: Ui) -> AnyElement {
     .children(empty)
     .child(view().flex_col().children(rows))
     .into_element()
+}
+
+fn snapshot_rename(ui: Ui, id: store::Id, name: &str) -> View {
+    let done = move || {
+        ui.rename_for.set(String::new());
+        ui.rename.set(String::new());
+    };
+    super::panels::rename_row(ui, format!("snapshot {id}"), name, move |name| {
+        done();
+        act(ui, |b| b.rename_snapshot(id, &name));
+    })
+    .child(pill("Cancel", move || {
+        done();
+        act(ui, |_| {});
+    }))
+}
+
+fn section_rows(name: &'static str, rows: Vec<AnyElement>) -> Option<View> {
+    (!rows.is_empty()).then(|| view().flex_col().gap(px(1.)).child(section(name)).children(rows))
+}
+
+fn library_links(ui: Ui, reading_list: bool, private: bool) -> View {
+    let link = |name: &'static str, panel: Panel| Some(super::panels::menu_row(name, None, move || super::show(ui, panel)));
+    let links = [
+        link("History", Panel::History),
+        link("Bookmarks", Panel::Bookmarks(None)),
+        reading_list.then(|| link("Reading List", Panel::ReadingList)).flatten(),
+        link("Downloads", Panel::Downloads),
+        (!private).then(|| link("Snapshots", Panel::Space)).flatten(),
+        link("Memory", Panel::Memory),
+    ];
+    view().flex_col().child(section("Library")).child(crate::controls::group().children(links.into_iter().flatten()))
+}
+
+fn library_results(ui: Ui, history: &[store::HistoryEntry], query: &str) -> View {
+    let Some((found, reading_list, private)) = read(ui, |b| (b.library_search(query, history), b.has_reading_list(), b.model.private())) else {
+        return view();
+    };
+    let nothing = !query.is_empty() && found.is_empty();
+    let tabs: Vec<AnyElement> = found
+        .tabs
+        .into_iter()
+        .map(|(key, name, url)| {
+            let host = url::Url::parse(&url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+            super::panels::library_row(ui, Some(SharedString::from(name.clone())), &host, name, move || {
+                ui.panel.set(Panel::None);
+                act(ui, |b| b.activate(key));
+            })
+            .into_element()
+        })
+        .collect();
+    let open = (query.is_empty() || !tabs.is_empty()).then(|| {
+        let empty = (query.is_empty() && tabs.is_empty()).then(|| note("No open tabs"));
+        view()
+            .flex_col()
+            .gap(px(1.))
+            .child(view().flex_row().items_baseline().gap_2().child(section("Open Tabs")).child(small(found.tab_count.to_string()).text_color(Theme::faint())))
+            .children(empty)
+            .children(tabs)
+    });
+    let links = |rows: Vec<crate::browser::library::Link>| -> Vec<AnyElement> { rows.into_iter().map(|link| super::panels::link_row(ui, link)).collect() };
+    let downloads: Vec<AnyElement> = found.downloads.into_iter().map(|d| super::panels::saved_download(ui, d)).collect();
+    view()
+        .flex_col()
+        .gap_3()
+        .children(open)
+        .children(section_rows("Bookmarks", links(found.bookmarks)))
+        .children(section_rows("History", links(found.history)))
+        .children(section_rows("Downloads", downloads))
+        .children(nothing.then(|| super::panels::no_results(query)))
+        .child(library_links(ui, reading_list, private))
+}
+
+pub fn library_panel(ui: Ui) -> AnyElement {
+    let history = std::rc::Rc::new(read(ui, Browser::library_history).unwrap_or_default());
+    let results = dynamic(move || {
+        let query = ui.library_query.get();
+        Some(library_results(ui, &history, query.trim()))
+    });
+    popover()
+        .child(super::panels::heading(
+            ui,
+            view().flex_row().items_center().gap_2().flex_1().child(title("Library").flex_1()).child(super::panels::search_field(ui)),
+        ))
+        .child(results)
+        .into_element()
 }
 
 pub fn memory_panel(ui: Ui) -> AnyElement {
@@ -178,7 +277,7 @@ fn folder_panel(ui: Ui, name: &'static str, empty: &'static str, other: (&'stati
                     br.new_tab(&url);
                 });
             })
-            .child(super::panels::copy_link(ui, url))
+            .child(super::panels::copy_link(ui, "Copy Link", url))
             .child(crate::controls::icon_button(icons::TRASH, "Remove", move || act(ui, |br| br.remove_bookmark(b.id))))
             .into_element()
         })
@@ -251,7 +350,7 @@ fn mark_row(ui: Ui, marks: &[Bookmark], mark: &Bookmark, edit: Option<MarkEdit>,
                 let url = open.clone();
                 act(ui, move |b| b.open_bookmark(&url));
             })
-            .child(super::panels::copy_link(ui, url.clone()))
+            .child(super::panels::copy_link(ui, "Copy Link", url.clone()))
         }
         None => crate::controls::row(Some(SharedString::from(name.clone())), move || super::show(ui, Panel::Bookmarks(Some(id))))
             .h(px(30.))
