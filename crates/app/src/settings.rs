@@ -1204,16 +1204,9 @@ impl SettingsWindow {
     }
 
     fn general(&self, s: &Snapshot, cx: &mut Context<Self>) -> AnyElement {
-        let name = s.profile.as_ref().map(|p| bounded_title(&p.name)).unwrap_or_default();
-        let color = s.profile.as_ref().map(|p| p.color.clone()).unwrap_or_default();
         div()
-            .child(section("Profile"))
-            .child(group().child(row(true).child(profile_dot(&color, 12.)).child(label(name)).when(!s.private, |d| {
-                d.child(
-                    button("edit-current-profile", "Edit…", false)
-                        .on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, w, cx| b.edit_current_profile(w, cx)))),
-                )
-            })))
+            .child(section("Profiles"))
+            .child(s.profiles.iter().enumerate().fold(group(), |list, (ix, p)| list.child(self.profile_row(s, ix, p, false, cx))))
             .child(section("Updates"))
             .child(if s.updater {
                 group()
@@ -1970,39 +1963,36 @@ impl SettingsWindow {
             .into_any_element()
     }
 
+    fn profile_row(&self, s: &Snapshot, ix: usize, p: &Profile, deletable: bool, cx: &mut Context<Self>) -> gpui::Div {
+        let id = p.id;
+        let armed = self.armed == Some(("delete-profile", false, id));
+        let current = s.profile.as_ref().is_some_and(|c| c.id == id && c.is_private == p.is_private);
+        row(ix == 0)
+            .child(if p.is_private { icon(Icon::Person, 14., Theme::warning()).into_any_element() } else { profile_dot(&p.color, 12.).into_any_element() })
+            .child(label(bounded_title(&p.name)))
+            .when(current, |d| d.child(value("This window")))
+            .when(p.is_private, |d| d.child(value("Private, not saved")))
+            .when(p.is_dev, |d| d.child(value("Developer")))
+            .child(value(shield_badge(p.shield_level)))
+            .when(!p.is_private, |d| {
+                d.child(
+                    button(("edit-profile", ix), "Edit…", false)
+                        .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.open_profile_editor(Some(id), w, cx)))),
+                )
+            })
+            .when(!p.is_private && deletable, |d| {
+                d.child(danger(("delete-profile", ix), "Delete…", "Confirm Delete", armed).on_click(cx.listener(move |this, _, _, cx| {
+                    if confirm_twice(&mut this.armed, ("delete-profile", false, id)) {
+                        this.with_browser(cx, |b, w, cx| b.delete_profile(id, w, cx));
+                    }
+                    cx.notify();
+                })))
+            })
+    }
+
     fn profiles(&self, s: &Snapshot, cx: &mut Context<Self>) -> AnyElement {
         let deletable = s.profiles.iter().filter(|p| !p.is_private).count() > 1;
-        let mut list = group();
-        for (ix, p) in s.profiles.iter().enumerate() {
-            let id = p.id;
-            let armed = self.armed == Some(("delete-profile", false, id));
-            list = list.child(
-                row(ix == 0)
-                    .child(if p.is_private {
-                        icon(Icon::Person, 14., Theme::warning()).into_any_element()
-                    } else {
-                        profile_dot(&p.color, 12.).into_any_element()
-                    })
-                    .child(label(bounded_title(&p.name)))
-                    .when(p.is_private, |d| d.child(value("Private, not saved")))
-                    .when(p.is_dev, |d| d.child(value("Developer")))
-                    .child(value(shield_badge(p.shield_level)))
-                    .when(!p.is_private, |d| {
-                        d.child(
-                            button(("edit-profile", ix), "Edit…", false)
-                                .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.open_profile_editor(Some(id), w, cx)))),
-                        )
-                    })
-                    .when(!p.is_private && deletable, |d| {
-                        d.child(danger(("delete-profile", ix), "Delete…", "Confirm Delete", armed).on_click(cx.listener(move |this, _, _, cx| {
-                            if confirm_twice(&mut this.armed, ("delete-profile", false, id)) {
-                                this.with_browser(cx, |b, w, cx| b.delete_profile(id, w, cx));
-                            }
-                            cx.notify();
-                        })))
-                    }),
-            );
-        }
+        let list = s.profiles.iter().enumerate().fold(group(), |list, (ix, p)| list.child(self.profile_row(s, ix, p, deletable, cx)));
         let rules = if s.space_rules.is_empty() {
             note("No rules. \u{201c}Always open in\u{201d} in a site's settings opens its new tabs in the space you pick.")
         } else {

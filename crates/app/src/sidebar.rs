@@ -529,7 +529,6 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .text_size(px(14.))
         .font_weight(FontWeight::BOLD)
         .child(name(b, RenameTarget::Space(space_id), &space_name, cx))
-        .child(icon(Icon::ChevronDown, 14., Theme::muted()))
 }
 
 fn tab_drop(
@@ -1179,6 +1178,9 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         .into_any_element()
 }
 
+/// Library on the left and New Space and Settings on the right get the same width, so the space icons sit in the bar's centre.
+const BAR_SIDE: f32 = 58.;
+
 fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let dots = b.model.spaces.iter().enumerate().map(|(ix, s)| {
         let current = ix == b.model.space_ix;
@@ -1210,7 +1212,7 @@ fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
             .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.space_menu(ix, w, cx)))
     });
     // Centred while they fit; past that the row scrolls instead of squeezing the dots.
-    let fits = b.model.spaces.len() as f32 * 30. + 84. + 16. <= b.sidebar_width;
+    let fits = b.model.spaces.len() as f32 * 30. + 2. * (BAR_SIDE + 2.) + 16. <= b.sidebar_width;
     div()
         .h(px(36.))
         .flex_none()
@@ -1219,24 +1221,31 @@ fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .items_center()
         .gap_0p5()
         .child(
-            icon_button("library", Icon::Library, true)
-                .flex_none()
-                .tooltip(crate::shortcuts::tip("Library", &crate::ToggleLibrary))
-                .when(b.library.is_some(), |d| d.bg(Theme::selected()))
-                .on_click(cx.listener(|b, _, window, cx| b.toggle_library(window, cx))),
+            div().w(px(BAR_SIDE)).flex_none().flex().child(
+                icon_button("library", Icon::Library, true)
+                    .tooltip(crate::shortcuts::tip("Library", &crate::ToggleLibrary))
+                    .when(b.library.is_some(), |d| d.bg(Theme::selected()))
+                    .on_click(cx.listener(|b, _, window, cx| b.toggle_library(window, cx))),
+            ),
         )
         .child(div().id("space-dots").flex_1().min_w_0().flex().when(fits, |d| d.justify_center()).gap_0p5().overflow_x_scroll().children(dots))
         .child(
-            icon_button("new-space", Icon::Plus, true)
+            div()
+                .w(px(BAR_SIDE))
                 .flex_none()
-                .tooltip(crate::shortcuts::tip("New Space", &crate::NewSpace))
-                .on_click(cx.listener(|b, _, window, cx| b.new_space(window, cx))),
-        )
-        .child(
-            icon_button("settings", Icon::Gear, true)
-                .flex_none()
-                .tooltip(crate::shortcuts::tip("Settings", &crate::Settings))
-                .on_click(cx.listener(|b, _, window, cx| b.open_settings(window, cx))),
+                .flex()
+                .justify_end()
+                .gap_0p5()
+                .child(
+                    icon_button("new-space", Icon::Plus, true)
+                        .tooltip(crate::shortcuts::tip("New Space", &crate::NewSpace))
+                        .on_click(cx.listener(|b, _, window, cx| b.new_space(window, cx))),
+                )
+                .child(
+                    icon_button("settings", Icon::Gear, true)
+                        .tooltip(crate::shortcuts::tip("Settings", &crate::Settings))
+                        .on_click(cx.listener(|b, _, window, cx| b.open_settings(window, cx))),
+                ),
         )
 }
 

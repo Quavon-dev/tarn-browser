@@ -20,6 +20,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The profile button left the sidebar header; profiles stay in Settings › Profile and the menu
   (macOS, Windows, Linux).
 - Appearance has no separate Theme picker; the Themes grid sets the theme.
+- Settings › General lists every profile and marks the one the window uses.
+- The space name in the sidebar header has no chevron, and the space icons in the sidebar's bottom
+  bar sit in its centre (macOS, Windows, Linux).
+- The compact toolbar's address field keeps the same inset around the shield and the trailing
+  buttons, which now sit inside it.
 
 ### Fixed
 
@@ -28,6 +33,7 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The settings window's close, minimise and zoom buttons respond on their whole area.
 - In a split, an unfocused pane's header uses its full width for the address.
 - After closing a tab, the tab that moves under the pointer shows its close button at once.
+- Library rows show their edit and delete buttons side by side inside the row on hover.
 
 ## [0.1.2] - 2026-11-17
 

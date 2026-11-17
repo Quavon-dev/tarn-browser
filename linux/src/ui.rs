@@ -608,10 +608,16 @@ fn space_bar(ui: Ui) -> View {
         .min_h(px(40.))
         .py(px(6.))
         .px_1()
-        .child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::History)))
+        .child(view().flex_row().flex_none().w(px(2. * SPACE_BUTTON)).child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::History))))
         .child(view().flex_row().flex_wrap().flex_1().items_center().justify_center().gap(px(2.)).child(spaces))
-        .child(icon_button(icons::PLUS, "New Space", move || act(ui, |b| b.new_space())))
-        .child(icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings)))
+        .child(
+            view()
+                .flex_row()
+                .flex_none()
+                .w(px(2. * SPACE_BUTTON))
+                .child(icon_button(icons::PLUS, "New Space", move || act(ui, |b| b.new_space())))
+                .child(icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings))),
+        )
 }
 
 fn downloads_button(ui: Ui) -> AnyElement {
@@ -656,7 +662,6 @@ fn space_switcher(ui: Ui) -> nsh_base::ButtonElement {
                 })),
         )
         .child(text(name).text_size(px(14.)).font_weight(FontWeight::BOLD).text_color(Theme::text()).truncate())
-        .child(view().flex_none().text_color(Theme::muted()).child(icons::icon(icons::CHEVRON_DOWN, 14.)))
 }
 
 fn new_tab_row(ui: Ui) -> View {
