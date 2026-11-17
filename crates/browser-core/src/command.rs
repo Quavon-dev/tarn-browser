@@ -257,16 +257,18 @@ pub fn page_label(url: &Url) -> String {
 /// The address at rest: the page's label without `www.`, and whether it was loaded without TLS.
 /// An opened file shows `File:` and its name, marked since its author chose the name.
 pub fn address(url: &Url) -> (String, bool) {
-    let file = url
-        .to_file_path()
-        .ok()
-        .filter(|_| url.scheme() == "file" && url.host().is_none())
-        .and_then(|p| p.file_name().map(|n| engine::downloads::sanitize_filename(&n.to_string_lossy())));
-    let host = match file {
+    let host = match file_name(url) {
         Some(name) => format!("File: {}", host_tail(&name, MAX_HOST)),
         None => host_tail(page_label(url).trim_start_matches("www."), MAX_HOST),
     };
     (host, url.scheme() == "http" || url.as_str().starts_with("blob:http:"))
+}
+
+/// The name of a local file a `file:` URL shows, safe to display; a tab without a page title
+/// shows it.
+pub fn file_name(url: &Url) -> Option<String> {
+    let path = url.to_file_path().ok().filter(|_| url.scheme() == "file" && url.host().is_none())?;
+    path.file_name().map(|n| engine::downloads::sanitize_filename(&n.to_string_lossy()))
 }
 
 /// The address at rest as text: `Not Secure — host` for plain HTTP, empty without a page.
@@ -426,6 +428,8 @@ mod tests {
         assert_eq!(display_host(&format!("{home}/My%20Notes.html")), "File: My Notes.html");
         assert_eq!(display_host(&format!("{home}/txt.\u{202E}exe")), "File: txt.exe");
         assert_eq!(display_host("file://server.test/share/a.html"), "server.test", "a network file names its server");
+        assert_eq!(file_name(&Url::parse(&format!("{home}/doc.pdf")).unwrap()).as_deref(), Some("doc.pdf"));
+        assert_eq!(file_name(&Url::parse("https://a.test/doc.pdf").unwrap()), None);
         assert_eq!(display_host(""), "");
         let long = format!("https://{}.login.attacker.example/", "a".repeat(40));
         let shown = display_host(&long);

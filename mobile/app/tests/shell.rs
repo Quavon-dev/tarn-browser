@@ -73,6 +73,7 @@ fn only_open_file_marks_its_load_as_a_file() {
     let load = |key| views.iter().find(|v| v.key == key).and_then(|v| v.load.clone()).unwrap();
     let opened = load(active(&shell));
     assert_eq!((opened.url.as_str(), opened.file), (url.as_str(), true));
+    assert_eq!(shell.tab_title(active(&shell)), "page.html", "a file without a title shows its name");
     assert!(views.iter().filter(|v| v.key != active(&shell)).all(|v| v.load.as_ref().is_none_or(|l| !l.file)));
     shell.navigate(url.as_str());
     let typed = shell.views().into_iter().find(|v| v.key == active(&shell)).and_then(|v| v.load).unwrap();

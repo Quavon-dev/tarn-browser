@@ -200,6 +200,8 @@ fn only_open_file_loads_a_file_url_from_the_shell() {
     let key = active(&b);
     let view = crate::snapshot::snapshot(&b, true).views.into_iter().find(|v| v.key == key).unwrap();
     assert_eq!((view.load.unwrap().0, view.file, view.link), (url.to_string(), true, false));
+    let tab = b.model.tab(key).cloned().unwrap();
+    assert_eq!(crate::snapshot::tab_label(&tab, &b, key), "page.html", "a file without a title shows its name");
     let nav = |from_shell, file_open| Navigation {
         url: &url,
         from_shell,

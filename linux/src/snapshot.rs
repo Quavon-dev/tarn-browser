@@ -141,7 +141,8 @@ pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
     let custom = (!tab.custom_title.is_empty()).then_some(tab.custom_title.as_str());
     let url = page.map(|p| p.url.as_str()).filter(|u| !u.is_empty()).unwrap_or(&tab.url);
     let url = if url.is_empty() || url == crate::browser::START_URL { "New Tab" } else { url };
-    custom.or((!title.is_empty()).then_some(title)).unwrap_or(url).to_owned()
+    let untitled = || url::Url::parse(url).ok().and_then(|u| browser_core::command::file_name(&u)).unwrap_or_else(|| url.to_owned());
+    custom.or((!title.is_empty()).then_some(title)).map_or_else(untitled, str::to_owned)
 }
 
 fn space_label(b: &Browser, ix: usize) -> String {
