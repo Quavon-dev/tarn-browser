@@ -236,7 +236,7 @@ impl Browser {
         self.core.disk.set_setting(settings::SLEEP_AFTER_KEY, name).is_ok() && was_never && settings::sleep_after(&self.core.disk).is_some()
     }
 
-    pub fn apply_tab_choices(&mut self, restart: bool) {
+    pub fn apply_tab_choices(&mut self, restart: bool, windows: usize) {
         let shown = self.model.active.map(|active| self.split_partners(active).into_iter().chain([active]).collect::<Vec<_>>()).unwrap_or_default();
         let playing = &self.playing;
         for key in self.model.lifecycle.set_max_live(settings::live_tabs(&self.core.disk), |k| playing.contains(&k) || shown.contains(&k)) {
@@ -246,7 +246,7 @@ impl Browser {
             let now = Instant::now();
             self.used.values_mut().for_each(|used| *used = now);
         }
-        self.idle_tick();
+        self.idle_tick(windows);
     }
 
     pub fn sleep_idle_tabs(&mut self, now: Instant, pressure: bool) {

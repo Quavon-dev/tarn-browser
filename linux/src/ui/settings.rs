@@ -502,8 +502,10 @@ fn options(names: &[&str]) -> Vec<(usize, String)> {
 fn set_tab_choice(ui: Ui, set: impl FnOnce(&mut Browser) -> bool) {
     let mut restart = false;
     act(ui, |b| restart = set(b));
-    for window in super::WINDOWS.with_borrow(Vec::clone) {
-        act(window, |b| b.apply_tab_choices(restart));
+    let windows = super::WINDOWS.with_borrow(Vec::clone);
+    let count = windows.len();
+    for window in windows {
+        act(window, |b| b.apply_tab_choices(restart, count));
     }
 }
 

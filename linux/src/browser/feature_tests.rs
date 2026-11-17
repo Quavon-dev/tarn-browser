@@ -516,7 +516,7 @@ fn the_tab_choices_set_the_live_limit_and_the_sleep_time() {
     let live = |b: &Browser, key| b.model.lifecycle.live().any(|k| k == key);
     let number = b.model.lifecycle.born(tabs[0]);
     b.set_live_tabs(0);
-    b.apply_tab_choices(false);
+    b.apply_tab_choices(false, 1);
     assert_eq!(b.model.lifecycle.born(tabs[0]), number, "the playing tab keeps its view");
     assert_eq!(browser_core::settings::live_tabs(&b.core.disk), 3);
     assert!(!live(&b, first) && !live(&b, tabs[1]) && b.pages[&first].load.is_none(), "the least recent tabs sleep");
@@ -527,7 +527,7 @@ fn the_tab_choices_set_the_live_limit_and_the_sleep_time() {
     assert!(live(&b, tabs[2]), "Never keeps idle tabs awake, short of memory too");
     assert!(!b.set_sleep_after(9), "an unknown choice is ignored");
     assert!(b.set_sleep_after(1), "turning sleep on after Never counts idle times afresh");
-    b.apply_tab_choices(true);
+    b.apply_tab_choices(true, 1);
     b.sleep_idle_tabs(Instant::now() + Duration::from_secs(9 * 60), false);
     assert!(live(&b, tabs[2]));
     b.sleep_idle_tabs(Instant::now() + Duration::from_secs(11 * 60), false);
