@@ -63,14 +63,29 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
         "fetchIcon" => {
             let urls = favicon::fetch_urls(args["urls"].as_array().into_iter().flatten().filter_map(|u| u.as_str()));
             let asked = args["page"].as_str().and_then(|p| Url::parse(p).ok());
-            let body = asked.filter(|_| !urls.is_empty()).and_then(|p| page_scripts::fetch_icon_script(&p, &urls, favicon::MAX_BYTES));
-            run(state, body, move |s, url, text| s.emit("iconData", json!({ "seq": seq, "url": url, "text": text })));
+            fetch_icon(state, seq, asked, &urls);
         }
         "pick" => run(state, Some(PICKER.to_owned()), move |s, url, selector| s.emit("picked", json!({ "seq": seq, "url": url, "selector": selector }))),
         "pickCancel" => run(state, Some(PICK_CANCEL.to_owned()), |_, _, _| {}),
         _ => return false,
     }
     true
+}
+
+fn shows(state: &State, asked: Option<&Url>) -> bool {
+    asked.is_some_and(|a| state.page.borrow().as_ref().is_some_and(|p| p.origin() == a.origin()))
+}
+
+fn fetch_icon(state: &Rc<State>, seq: JsonValue, asked: Option<Url>, urls: &[Url]) {
+    let (Some((first, rest)), true) = (urls.split_first(), shows(state, asked.as_ref())) else {
+        return run(state, None, move |s, url, _| s.emit("iconData", json!({ "seq": seq, "url": url, "text": "" })));
+    };
+    let body = asked.as_ref().and_then(|p| page_scripts::fetch_icon_script(p, std::slice::from_ref(first), favicon::MAX_BYTES));
+    let (weak, rest) = (Rc::downgrade(state), rest.to_vec());
+    run(state, body, move |s, url, text| match weak.upgrade() {
+        Some(state) if text.is_empty() && shows(s, asked.as_ref()) => fetch_icon(&state, seq, asked, &rest),
+        _ => s.emit("iconData", json!({ "seq": seq, "url": url, "text": if shows(s, asked.as_ref()) { text } else { String::new() } })),
+    });
 }
 
 pub fn styles(value: &JsonValue) -> Vec<(String, String)> {

@@ -617,6 +617,7 @@ fn downloads_button(ui: Ui) -> AnyElement {
 
 fn open_settings(ui: Ui, pane: tarn_nsh_shared::panes::Pane) {
     ui.settings_pane.set(pane);
+    ui.ext_pane.set(false);
     if ui.panel.get_untracked() == Panel::Settings {
         act(ui, |_| {});
     } else {
@@ -1248,7 +1249,7 @@ fn chip() -> View {
 
 fn start_card(ui: Ui) -> AnyElement {
     when(
-        move || ui.snap.with(|s| s.blank) && ui.panel.get() == Panel::None,
+        move || ui.snap.with(|s| s.blank) && ui.panel.get() == Panel::None && !ui.editing.get(),
         move || {
             let field = input()
                 .value(move || ui.command.get())

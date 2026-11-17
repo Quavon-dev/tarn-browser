@@ -187,3 +187,44 @@ fn the_page_joins_the_window_only_once_its_area_has_a_size() {
     assert!(state.container().first_child().is_none());
     window.destroy();
 }
+
+fn counting_listener(hold: Duration) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let count = std::sync::Arc::new(AtomicUsize::new(0));
+    let seen = count.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            seen.fetch_add(1, Ordering::SeqCst);
+            std::thread::spawn(move || {
+                std::thread::sleep(hold);
+                drop(stream);
+            });
+        }
+    });
+    (port, count)
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn icon_candidates_stop_once_the_tab_leaves_the_origin() {
+    use std::sync::atomic::Ordering;
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "private:display-icons");
+    let web = state.web().unwrap();
+    web.load_html(PAGE, Some("https://page.test/"));
+    assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page loaded");
+    *state.page.borrow_mut() = Url::parse("https://page.test/").ok();
+    let (first, first_seen) = counting_listener(Duration::from_secs(2));
+    let (second, second_seen) = counting_listener(Duration::ZERO);
+    let urls = json!([format!("https://127.0.0.1:{first}/a.png"), format!("https://127.0.0.1:{second}/b.png")]);
+    state.events.borrow_mut().clear();
+    assert!(scripts::command(&state, "fetchIcon", &json!({ "seq": 3, "page": "https://page.test/", "urls": urls })));
+    assert!(spin_until(|| first_seen.load(Ordering::SeqCst) > 0, 20), "the first candidate was asked");
+    *state.page.borrow_mut() = Url::parse("https://other.test/").ok();
+    assert!(spin_until(|| event(&state, "iconData").is_some(), 30), "fetchIcon answered");
+    spin_until(|| false, 2);
+    assert_eq!(event(&state, "iconData").unwrap()["text"], "");
+    assert_eq!(second_seen.load(Ordering::SeqCst), 0, "no candidate is asked once the tab shows another origin");
+}

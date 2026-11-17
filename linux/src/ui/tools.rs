@@ -334,7 +334,7 @@ pub fn share_panel(ui: Ui) -> AnyElement {
 
 pub fn reader_view(ui: Ui) -> AnyElement {
     when(
-        move || ui.snap.with(|s| s.reader.is_some()) && ui.panel.get() == Panel::None,
+        move || ui.snap.with(|s| s.reader.is_some()) && ui.panel.get() == Panel::None && !ui.editing.get(),
         move || {
             dynamic(move || {
                 let reader = ui.snap.with(|s| s.reader.clone())?;

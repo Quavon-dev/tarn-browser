@@ -41,7 +41,7 @@ impl Browser {
     }
 
     pub fn site_icons(&mut self, shown: &SiteIcons) -> Option<SiteIcons> {
-        let profile = self.model.profile();
+        let profile = self.model.profile().filter(|&(private, id)| self.core.keeps_records(private, id));
         if let Some(profile) = profile {
             self.load_favicons(profile);
         }
@@ -55,6 +55,9 @@ impl Browser {
     pub(super) fn request_favicon(&mut self, key: TabKey, url: &Url) {
         let lockdown = self.level_for(key, url.as_str()) == ShieldLevel::Lockdown;
         let (Some(id), Some(host)) = (self.model.profile_of(&self.core, key), favicon::icon_host(url, lockdown)) else { return };
+        if !self.core.keeps_records(key.private, id) {
+            return;
+        }
         let profile = (key.private, id);
         self.load_favicons(profile);
         let live: Vec<TabKey> = self.model.lifecycle.live().collect();
@@ -91,9 +94,12 @@ impl Browser {
                 self.ask(key, Request::IconData(key, profile, host, ticket), "fetchIcon", json!({ "page": page.as_str(), "urls": urls }));
             }
             Request::IconData(_, profile, host, ticket) => {
+                if !self.core.keeps_records(profile.0, profile.1) {
+                    return self.favicons.withdraw(&profile, &host, ticket);
+                }
                 let uri = png.as_deref().map(|p| Arc::from(favicon::data_uri(p)));
                 if self.favicons.accept(&profile, &host, ticket, uri)
-                    && let Some(png) = png.filter(|_| self.core.keeps_records(profile.0, profile.1))
+                    && let Some(png) = png
                 {
                     self.core.store(profile.0).set_favicon(profile.1, &host, &png).ok();
                 }

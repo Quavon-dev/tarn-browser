@@ -471,3 +471,20 @@ fn site_icons_load_at_start_fetch_inside_the_tab_and_go_with_history() {
     visit(&mut b, next, "https://a.test/x");
     assert_eq!(asked(&b, "readIconLinks").len(), 1, "a closed tab's unanswered request does not hold the host");
 }
+
+#[test]
+fn a_burner_tab_neither_fetches_nor_keeps_site_icons() {
+    let (_dir, mut b) = browser();
+    b.open_burner();
+    let key = b.model.active.unwrap();
+    let profile = (true, b.model.profile().unwrap().1);
+    b.outbox.clear();
+    visit(&mut b, key, "https://a.test/x");
+    assert!(asked(&b, "readIconLinks").is_empty(), "a burner tab asks for no icons");
+    let ticket = b.favicons.request(&profile, "a.test").unwrap();
+    b.requests.insert(900, crate::browser::pages::Request::IconData(key, profile, "a.test".to_owned(), ticket));
+    b.on_icon_event(key, &json!({ "seq": 900, "url": "https://a.test/x" }), Some(b"png".to_vec()));
+    assert!(b.favicons.icons(&profile).next().is_none(), "a burner answer never enters memory");
+    assert!(!b.favicons.is_requested(&profile, "a.test", ticket));
+    assert!(b.site_icons(&Default::default()).is_none_or(|icons| icons.find("a.test").is_none()));
+}
