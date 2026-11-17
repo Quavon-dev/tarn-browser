@@ -31,6 +31,7 @@ fn zoom(ui: Ui, delta: f64) {
 fn run(ui: Ui, action: Action) {
     match action {
         Action::NewTab => bars::open_new_tab(ui),
+        Action::OpenFile => super::super::panels::open_file(ui),
         Action::OpenLocation | Action::CommandBar => {
             ui.show(Screen::Browse);
             ui.edit_address();

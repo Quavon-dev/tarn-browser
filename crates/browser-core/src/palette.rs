@@ -5,6 +5,7 @@ pub const PLAIN_ROOM: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Command {
+    OpenFile,
     ReopenClosedTab,
     TogglePin,
     CloseDuplicates,
@@ -30,7 +31,8 @@ pub enum Command {
     CloseSplit,
 }
 
-pub const COMMANDS: [(&str, &str, Command); 23] = [
+pub const COMMANDS: [(&str, &str, Command); 24] = [
+    ("Open File…", "local html pdf image text document view", Command::OpenFile),
     ("Reopen Closed Tab", "undo restore", Command::ReopenClosedTab),
     ("Pin or Unpin Tab", "", Command::TogglePin),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),

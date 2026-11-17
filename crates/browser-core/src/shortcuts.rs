@@ -2,6 +2,7 @@
 pub enum Action {
     NewTab,
     OpenLocation,
+    OpenFile,
     CommandBar,
     CloseTab,
     ReopenClosedTab,
@@ -39,6 +40,7 @@ pub const SECTIONS: [(&str, &[Binding]); 4] = [
         &[
             ("New tab", Action::NewTab, "mod+t"),
             ("Open location", Action::OpenLocation, "mod+l"),
+            ("Open file", Action::OpenFile, "mod+o"),
             ("Command bar", Action::CommandBar, "mod+k"),
             ("Close tab", Action::CloseTab, "mod+w"),
             ("Reopen closed tab", Action::ReopenClosedTab, "mod+shift+t"),
@@ -132,6 +134,7 @@ pub fn keys_for(action: Action, apple: bool) -> Option<String> {
 pub fn for_command(command: crate::palette::Command) -> Option<Action> {
     use crate::palette::Command;
     match command {
+        Command::OpenFile => Some(Action::OpenFile),
         Command::ReopenClosedTab => Some(Action::ReopenClosedTab),
         Command::TogglePin => Some(Action::TogglePin),
         Command::Reader => Some(Action::ToggleReader),

@@ -20,7 +20,8 @@ use url::Url;
 use super::super::{Screen, Ui, bars};
 use crate::theme::{TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
 
-const OFFERED: [Command; 17] = [
+const OFFERED: [Command; 18] = [
+    Command::OpenFile,
     Command::ReopenClosedTab,
     Command::TogglePin,
     Command::CloseDuplicates,
@@ -308,6 +309,7 @@ fn run(ui: Ui, command: Command) {
         })
     };
     match command {
+        Command::OpenFile => super::super::panels::open_file(ui),
         Command::ReopenClosedTab => quiet(|s| {
             s.reopen_closed();
         }),
