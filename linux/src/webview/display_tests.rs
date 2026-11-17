@@ -190,9 +190,16 @@ fn youtube_and_netflix_scripts_run_only_on_their_hosts_and_never_under_lockdown(
     *on.levels.borrow_mut() = Levels::parse(&json!({ "*": "standard", "www.youtube.com": "lockdown", "www.netflix.com": "lockdown" }), ShieldLevel::Standard);
     scripts::apply_page_scripts(&on, on.content.borrow().as_ref().unwrap());
     assert_eq!(on.page_scripts.borrow().len(), 2, "the old scripts were replaced, not added to");
-    assert_eq!(patched_on(&on, "https://www.youtube.com/"), neither, "not on a host set to Lockdown");
-    assert_eq!(patched_on(&on, "https://www.netflix.com/"), neither, "not on a host set to Lockdown");
     assert_eq!(patched_on(&on, "https://m.youtube.com/"), youtube);
+    let lockdown = on.levels.replace(Levels::parse(&json!({ "*": "standard" }), ShieldLevel::Standard));
+    assert_eq!(patched_on(&on, "https://www.youtube.com/"), neither, "the installed scripts skip the hosts set to Lockdown when they were installed");
+    assert_eq!(patched_on(&on, "https://www.netflix.com/"), neither, "the installed scripts skip the hosts set to Lockdown when they were installed");
+    *on.levels.borrow_mut() = lockdown;
+    for host in ["https://www.youtube.com/", "https://www.netflix.com/"] {
+        let answer = patched_on(&on, host);
+        assert!(answer.starts_with("error ") && answer.contains("Cannot execute JavaScript"), "not on a host set to Lockdown: {host} answered {answer}");
+        assert!(!WebViewExt::settings(&on.web().unwrap()).unwrap().enables_javascript(), "JavaScript is off on {host}, so no page-world script runs");
+    }
 
     let off = built(ShieldLevel::Strict, "burner:1123456789abcdef0123456789abcdef", false);
     assert_eq!(off.page_scripts.borrow().len(), 1, "only the Netflix script while YouTube ads are not blocked");
