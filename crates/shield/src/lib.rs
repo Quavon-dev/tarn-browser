@@ -12,6 +12,7 @@ pub mod matcher;
 mod policy;
 pub mod revocations;
 pub mod rules;
+pub mod update;
 pub mod url_clean;
 pub mod youtube;
 

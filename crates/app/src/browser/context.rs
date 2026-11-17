@@ -573,11 +573,7 @@ impl Browser {
         if burner || (tabs.is_empty() && group.is_none()) {
             return;
         }
-        let text = match (&group, tabs.len()) {
-            (Some(_), _) => "Group closed".to_owned(),
-            (None, 1) => "Tab closed".to_owned(),
-            (None, n) => format!("{n} tabs closed"),
-        };
+        let text = browser_core::toast::closed(group.is_some(), tabs.len());
         let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs, group });
         self.show_toast(text, Some(crate::toast::Action::Undo(serial)), cx);
     }

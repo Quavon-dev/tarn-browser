@@ -18,6 +18,8 @@ pub mod detect;
 mod firefox;
 #[cfg(target_os = "macos")]
 mod keychain;
+#[cfg(target_os = "linux")]
+mod keyring;
 
 pub use detect::{available, sources};
 
@@ -28,11 +30,12 @@ pub enum Browser {
     Brave,
     Arc,
     Dia,
+    Chromium,
     Firefox,
 }
 
 impl Browser {
-    pub const ALL: [Browser; 6] = [Browser::Chrome, Browser::Edge, Browser::Brave, Browser::Arc, Browser::Dia, Browser::Firefox];
+    pub const ALL: [Browser; 7] = [Browser::Chrome, Browser::Edge, Browser::Brave, Browser::Arc, Browser::Dia, Browser::Chromium, Browser::Firefox];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -41,34 +44,50 @@ impl Browser {
             Browser::Brave => "Brave",
             Browser::Arc => "Arc",
             Browser::Dia => "Dia",
+            Browser::Chromium => "Chromium",
             Browser::Firefox => "Firefox",
         }
     }
 
     /// Where the browser keeps its profiles, relative to the home folder.
-    #[cfg(not(windows))]
-    fn profiles_dir(self) -> Option<&'static str> {
-        Some(match self {
-            Browser::Chrome => "Library/Application Support/Google/Chrome",
-            Browser::Edge => "Library/Application Support/Microsoft Edge",
-            Browser::Brave => "Library/Application Support/BraveSoftware/Brave-Browser",
-            Browser::Arc => "Library/Application Support/Arc/User Data",
-            Browser::Dia => "Library/Application Support/Dia/User Data",
-            Browser::Firefox => "Library/Application Support/Firefox/Profiles",
-        })
+    #[cfg(target_os = "macos")]
+    fn profiles_dirs(self) -> &'static [&'static str] {
+        match self {
+            Browser::Chrome => &["Library/Application Support/Google/Chrome"],
+            Browser::Edge => &["Library/Application Support/Microsoft Edge"],
+            Browser::Brave => &["Library/Application Support/BraveSoftware/Brave-Browser"],
+            Browser::Arc => &["Library/Application Support/Arc/User Data"],
+            Browser::Dia => &["Library/Application Support/Dia/User Data"],
+            Browser::Chromium => &[],
+            Browser::Firefox => &["Library/Application Support/Firefox/Profiles"],
+        }
     }
 
     /// Where the browser keeps its profiles, relative to the home folder.
     #[cfg(windows)]
-    fn profiles_dir(self) -> Option<&'static str> {
+    fn profiles_dirs(self) -> &'static [&'static str] {
         match self {
-            Browser::Chrome => Some("AppData/Local/Google/Chrome/User Data"),
-            Browser::Edge => Some("AppData/Local/Microsoft/Edge/User Data"),
-            Browser::Brave => Some("AppData/Local/BraveSoftware/Brave-Browser/User Data"),
+            Browser::Chrome => &["AppData/Local/Google/Chrome/User Data"],
+            Browser::Edge => &["AppData/Local/Microsoft/Edge/User Data"],
+            Browser::Brave => &["AppData/Local/BraveSoftware/Brave-Browser/User Data"],
             // Arc for Windows is a packaged app: Windows keeps its data in the package's folder.
-            Browser::Arc => Some("AppData/Local/Packages/TheBrowserCompany.Arc_*/LocalCache/Local/Arc/User Data"),
-            Browser::Dia => None,
-            Browser::Firefox => Some("AppData/Roaming/Mozilla/Firefox/Profiles"),
+            Browser::Arc => &["AppData/Local/Packages/TheBrowserCompany.Arc_*/LocalCache/Local/Arc/User Data"],
+            Browser::Dia | Browser::Chromium => &[],
+            Browser::Firefox => &["AppData/Roaming/Mozilla/Firefox/Profiles"],
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", windows)))]
+    fn profiles_dirs(self) -> &'static [&'static str] {
+        match self {
+            Browser::Chrome => &[".config/google-chrome", ".var/app/com.google.Chrome/config/google-chrome"],
+            Browser::Edge => &[".config/microsoft-edge", ".var/app/com.microsoft.Edge/config/microsoft-edge"],
+            Browser::Brave => &[".config/BraveSoftware/Brave-Browser", ".var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser"],
+            Browser::Arc | Browser::Dia => &[],
+            Browser::Chromium => &[".config/chromium", ".var/app/org.chromium.Chromium/config/chromium", "snap/chromium/common/chromium"],
+            Browser::Firefox => {
+                &[".mozilla/firefox", ".config/mozilla/firefox", "snap/firefox/common/.mozilla/firefox", ".var/app/org.mozilla.firefox/.mozilla/firefox"]
+            }
         }
     }
 
@@ -76,10 +95,12 @@ impl Browser {
     fn keychain_item(self) -> Option<(&'static str, &'static str)> {
         match self {
             Browser::Chrome => Some(("Chrome Safe Storage", "Chrome")),
+            Browser::Edge if cfg!(target_os = "linux") => Some(("Chromium Safe Storage", "Chromium")),
             Browser::Edge => Some(("Microsoft Edge Safe Storage", "Microsoft Edge")),
             Browser::Brave => Some(("Brave Safe Storage", "Brave")),
             Browser::Arc => Some(("Arc Safe Storage", "Arc")),
             Browser::Dia => Some(("Dia Safe Storage", "Dia")),
+            Browser::Chromium => Some(("Chromium Safe Storage", "Chromium")),
             Browser::Firefox => None,
         }
     }
@@ -191,10 +212,14 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::NotFound => f.write_str("not found"),
-            Error::DiskAccess => {
-                f.write_str(if cfg!(windows) { "Windows did not allow reading the browser's files" } else { "macOS did not allow reading the browser's files" })
-            }
-            Error::KeychainDenied => f.write_str("keychain access was denied"),
+            Error::DiskAccess => f.write_str(if cfg!(windows) {
+                "Windows did not allow reading the browser's files"
+            } else if cfg!(target_os = "macos") {
+                "macOS did not allow reading the browser's files"
+            } else {
+                "the system did not allow reading the browser's files"
+            }),
+            Error::KeychainDenied => f.write_str(if cfg!(target_os = "linux") { "keyring access was denied" } else { "keychain access was denied" }),
             Error::Keychain(code) => write!(f, "keychain error {code}"),
             Error::Unsupported => f.write_str("not readable on this system"),
             Error::Database(e) => write!(f, "database: {e}"),
@@ -232,8 +257,7 @@ impl Source {
             Some(item) => {
                 let path = [self.dir.join("Network/Cookies"), self.dir.join("Cookies")].into_iter().find(|p| p.exists()).ok_or(Error::NotFound)?;
                 std::fs::File::open(&path)?;
-                let key = crypto::derive(&password(item)?);
-                chromium::cookies(&path, &key)
+                chromium::cookies(&path, &keys(item)?)
             }
         }
     }
@@ -255,12 +279,17 @@ impl Source {
 }
 
 #[cfg(target_os = "macos")]
-fn password((service, account): (&str, &str)) -> Result<zeroize::Zeroizing<Vec<u8>>> {
-    keychain::password(service, account)
+fn keys((service, account): (&str, &str)) -> Result<crypto::Keys> {
+    Ok(crypto::Keys { v10: crypto::derive(&keychain::password(service, account)?, crypto::MAC_ROUNDS), v11: None })
 }
 
-#[cfg(not(target_os = "macos"))]
-fn password(_: (&str, &str)) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+#[cfg(target_os = "linux")]
+fn keys((label, _): (&str, &str)) -> Result<crypto::Keys> {
+    Ok(crypto::linux_keys(keyring::password(label)?.as_deref().map(Vec::as_slice)))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn keys(_: (&str, &str)) -> Result<crypto::Keys> {
     Err(Error::Unsupported)
 }
 

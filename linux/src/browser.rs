@@ -1,10 +1,22 @@
+pub mod blocking;
+pub mod bookmarks;
+mod capture;
+mod devtools;
 pub mod extensions;
+mod fullscreen;
+mod groups;
 pub mod icons;
+pub mod library;
+pub mod link_peek;
+pub mod links;
 pub mod pages;
+pub mod profile_data;
+pub mod profiles;
 mod site;
 pub mod spaces;
 mod split;
 pub mod swipe;
+mod tab_actions;
 pub mod themes;
 pub mod tools;
 
@@ -12,8 +24,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::rc::Rc;
 
-use browser_core::closed::{Closed, ClosedTab};
+use browser_core::closed::{Closed, ClosedGroup, ClosedTab};
 use browser_core::command::{ENGINES, Input, classify_input, engine_key};
+use browser_core::prefs::{self, Switch};
 use browser_core::prompts::Prompt;
 use browser_core::suggest;
 use browser_core::tabs::{Model, TabKey};
@@ -28,8 +41,9 @@ use crate::data::Data;
 use crate::input;
 use crate::webview::policy::DEFAULT_LEVEL_KEY;
 
-pub const LIVE_TABS: usize = 6;
 pub const START_URL: &str = "about:blank";
+pub const COMPACT_TOOLBAR: &str = "compact_toolbar";
+pub const AUTO_HIDE_SIDEBAR: &str = "auto_hide_sidebar";
 pub const ZOOM_STEPS: [f64; 9] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0];
 
 #[derive(Clone, Debug, Default)]
@@ -42,14 +56,19 @@ pub struct Page {
     pub loading: bool,
     pub load: Option<(String, u64)>,
     pub level: ShieldLevel,
+    /// The user paused ad, tracker and cookie-banner blocking on the site of the shell's last load.
+    pub paused: bool,
+    pub blocked: Option<blocking::BlockedPage>,
     pub zoom: f64,
     pub found: Option<u64>,
     pub error: Option<String>,
     pub crashed: bool,
     pub prompts: VecDeque<Prompt>,
+    pub opener: Option<TabKey>,
     /// The address the user last opened in this tab from the address field, until a load of it
     /// commits: that visit counts toward inline completion (`suggest::typed_visit`).
     pub typed: Option<String>,
+    pub muted_host: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -74,6 +93,8 @@ pub struct DownloadItem {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastAction {
     Undo(u64),
+    UndoSort(Box<(bool, browser_core::cleanup::Undo)>),
+    Reveal(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -107,18 +128,38 @@ pub struct Browser {
     pub playing: HashSet<TabKey>,
     pub swipe: swipe::Swipe,
     pub released: Vec<crate::data::StoreKey>,
-    pub download_owners: HashMap<String, Option<Id>>,
+    pub retired: Vec<String>,
+    pub extensions_root: std::path::PathBuf,
+    pub download_owners: HashMap<String, (Option<Id>, i64)>,
     pub cancelled_downloads: Vec<String>,
+    pub kept_downloads: Vec<(String, bool)>,
+    pub downloads_moved: std::time::Instant,
     pub text_found: suggest::TextMatches,
     pub favicons: engine::favicon::Tracker<icons::Profile, std::sync::Arc<str>>,
     pub elsewhere: HashSet<TabKey>,
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
+    /// Groups this window deleted; other windows drop them from their reopen stacks.
+    pub forgotten_groups: Vec<(bool, Id)>,
+    /// The space whose groups this window changed; other windows showing it reload it.
+    pub regrouped_space: Option<(bool, Id)>,
     pub themes: themes::Themes,
     pub ext_prompts: HashMap<u64, extensions::ExtPrompt>,
     ext_prompt_serial: u64,
     /// Every split of this window, for the session only.
     pub splits: browser_core::split::Splits<TabKey>,
+    /// When the page area last changed under the pointer; guarded buttons wait `BYPASS_DELAY`.
+    pub guard_since: std::time::Instant,
+    pub link_peek: Option<link_peek::LinkPeek>,
+    pub peek_outbox: Vec<(&'static str, Value)>,
+    pub page_fullscreen: browser_core::fullscreen::PageFullScreen,
+    pub window_request: Option<nsh_core::desktop::WindowMode>,
+    window_mode: nsh_core::desktop::WindowMode,
+    restore_mode: nsh_core::desktop::WindowMode,
+    pub json_pages: HashMap<TabKey, (String, Rc<devkit::json_view::Tree>)>,
+    pub local_servers: Option<Vec<u16>>,
+    responsive: Option<usize>,
+    responsive_zoom: HashMap<TabKey, f64>,
     text_rows: usize,
     burner_return: Option<(bool, Id)>,
     window: SavedWindow,
@@ -145,11 +186,13 @@ impl Browser {
         let core = Browser::open_core(dir);
         let row = Browser::saved_windows(&core).remove(0);
         let themes = themes::Themes::open(&core.disk, &dir.join("filters"));
-        Browser::new(core, row, HashSet::new(), themes)
+        let mut browser = Browser::new(core, row, HashSet::new(), themes);
+        browser.extensions_root = dir.join("extensions");
+        browser
     }
 
     pub fn new(core: Rc<Core<Data>>, window: SavedWindow, elsewhere: HashSet<TabKey>, themes: themes::Themes) -> Browser {
-        let mut model = Model::new(LIVE_TABS);
+        let mut model = Model::new(browser_core::settings::live_tabs(&core.disk));
         model.reload_spaces(&core);
         let mut browser = Browser {
             core,
@@ -172,16 +215,33 @@ impl Browser {
             playing: HashSet::new(),
             swipe: Default::default(),
             released: Vec::new(),
+            retired: Vec::new(),
+            extensions_root: crate::data::root().join("extensions"),
             download_owners: HashMap::new(),
             cancelled_downloads: Vec::new(),
+            kept_downloads: Vec::new(),
+            downloads_moved: std::time::Instant::now(),
             text_found: Default::default(),
             favicons: Default::default(),
             elsewhere,
             forgotten: Vec::new(),
+            forgotten_groups: Vec::new(),
+            regrouped_space: None,
             themes,
             ext_prompts: HashMap::new(),
             ext_prompt_serial: 0,
             splits: Default::default(),
+            guard_since: std::time::Instant::now(),
+            link_peek: None,
+            peek_outbox: Vec::new(),
+            page_fullscreen: Default::default(),
+            window_request: None,
+            window_mode: Default::default(),
+            restore_mode: Default::default(),
+            json_pages: HashMap::new(),
+            local_servers: None,
+            responsive: None,
+            responsive_zoom: HashMap::new(),
             text_rows: 0,
             burner_return: None,
             window,
@@ -230,17 +290,6 @@ impl Browser {
         }
     }
 
-    pub fn new_profile(&mut self) {
-        let n = self.core.disk.profiles().map(|p| p.len()).unwrap_or(0) + 1;
-        let uuid = uuid::Uuid::new_v4().to_string();
-        let Ok(profile) = self.core.disk.create_profile(&format!("Profile {n}"), &uuid, false) else { return };
-        let Ok(space) = self.core.disk.create_space(profile.id, "Home", "") else { return };
-        self.model.reload_spaces(&self.core);
-        if let Some(ix) = self.model.spaces.iter().position(|s| !s.private && s.space.id == space.id) {
-            self.switch_space(ix);
-        }
-    }
-
     pub fn next_seq(&mut self) -> u64 {
         self.seq += 1;
         self.seq
@@ -262,8 +311,10 @@ impl Browser {
     }
 
     pub fn take_toast_action(&mut self) {
-        if let Some(ToastAction::Undo(serial)) = self.toast.take().and_then(|t| t.action) {
-            self.undo_close(serial);
+        match self.toast.take().and_then(|t| t.action) {
+            Some(ToastAction::Undo(serial)) => self.undo_close(serial),
+            Some(ToastAction::UndoSort(sort)) => self.undo_sort(*sort),
+            Some(ToastAction::Reveal(_)) | None => {}
         }
     }
 
@@ -271,8 +322,13 @@ impl Browser {
         let Some(tab) = self.model.tab(key).cloned() else { return };
         if self.model.active != Some(key) {
             self.close_reader();
+            self.leave_page_fullscreen();
+        }
+        if self.link_peek.as_ref().is_some_and(|p| p.opener != key) {
+            self.link_peek = None;
         }
         let at = std::time::Instant::now();
+        self.guard_since = at;
         self.used.extend(self.model.active.into_iter().chain([key]).map(|k| (k, at)));
         self.model.active = Some(key);
         self.ext_activated(key);
@@ -306,19 +362,20 @@ impl Browser {
     }
 
     pub fn level_for(&self, key: TabKey, url: &str) -> ShieldLevel {
-        let profile = self.model.profile_of(&self.core, key);
-        let url = Url::parse(url).ok();
-        profile.and_then(|p| self.core.level(key.private, p, url.as_ref())).unwrap_or_default()
+        self.model.level_for(&self.core, key, url)
     }
 
     pub fn load(&mut self, key: TabKey, url: &str) {
         let seq = self.next_seq();
         let level = self.level_for(key, url);
+        let paused = !self.filtered(key, url);
         let page = self.pages.entry(key).or_default();
         page.load = Some((url.to_owned(), seq));
         page.link = false;
         page.loading = true;
         page.level = level;
+        page.paused = paused;
+        page.blocked = None;
         page.error = None;
         page.found = None;
         if page.url.is_empty() {
@@ -326,8 +383,10 @@ impl Browser {
         }
     }
 
-    pub fn navigate(&mut self, text: &str) {
+    pub fn navigate_in(&mut self, text: &str, new_tab: bool) {
         let Some((private, profile)) = self.profile_of_space() else { return };
+        let blank = self.active_page().is_none_or(|p| p.url.is_empty() || p.url == START_URL);
+        let new_tab = new_tab && !blank;
         let engine = &ENGINES[input::engine_index(self.core.store(private), private, profile)];
         let input = match classify_input(text, engine) {
             Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(Some((private, profile)), url))),
@@ -335,9 +394,9 @@ impl Browser {
         };
         let credit = matches!(input, Some(Input::Navigate(_)));
         match input {
-            Some(Input::Navigate(url)) if self.active_page().is_none_or(|p| p.url.is_empty() || p.url == START_URL) && self.open_routed(url.as_str()) => {}
+            Some(Input::Navigate(url)) if (new_tab || blank) && self.open_routed(url.as_str()) => {}
             Some(Input::Navigate(url) | Input::Search(url)) => {
-                match self.model.active {
+                match self.model.active.filter(|_| !new_tab) {
                     Some(key) => self.load(key, url.as_str()),
                     None => {
                         self.new_tab(url.as_str());
@@ -358,21 +417,31 @@ impl Browser {
     }
 
     pub fn close_tabs(&mut self, keys: Vec<TabKey>) {
+        self.close_batch(keys, None);
+    }
+
+    fn close_batch(&mut self, keys: Vec<TabKey>, group: Option<ClosedGroup>) {
         let Some((private, profile_id)) = self.profile_of_space() else { return };
         let keys: Vec<TabKey> = keys.into_iter().filter(|k| self.model.tab(*k).is_some()).collect();
         let Some(first) = keys.first().and_then(|k| self.model.tab(*k)).cloned() else { return };
         let burner = self.model.burner_shown();
         let mut next = self.model.active;
+        let previous_first = prefs::CLOSE_SELECTS_PREVIOUS.on(&self.core.disk);
         let mut closed = Vec::new();
         for key in &keys {
             let Some(tab) = self.model.tab(*key).cloned() else { continue };
             if next == Some(*key) {
                 // A split that keeps two panes keeps the focus too.
-                next = self.splits.heir(*key, &keys).or_else(|| self.model.close_neighbour(*key, &keys, false));
+                next = self.splits.heir(*key, &keys).or_else(|| self.model.close_neighbour(*key, &keys, previous_first));
+            }
+            if tab.kind != TabKind::Ephemeral {
+                self.unload_tab(*key);
+                continue;
             }
             let url = self.pages.get(key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url.clone());
             let title = self.pages.get(key).map(|p| p.title.clone()).unwrap_or(tab.title.clone());
-            closed.push(ClosedTab { url, title, state: None, position: tab.position, group: None, web_engine: None });
+            let in_group = tab.group_id.and_then(|id| Some((id, self.model.groups.iter().find(|g| g.id == id)?.name.clone())));
+            closed.push(ClosedTab { url, title, state: None, position: tab.position, group: in_group, web_engine: None });
             self.core.store(private).delete_tab(key.id).ok();
             self.ext_tab_closed(*key);
             self.forget_tab(*key);
@@ -381,10 +450,9 @@ impl Browser {
             self.model.reload_space(&self.core);
             return self.leave_burner();
         }
-        if !burner {
-            let count = closed.len();
-            let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id: first.space_id, tabs: closed, group: None });
-            let text = if count == 1 { "Tab closed".to_owned() } else { format!("{count} tabs closed") };
+        if !burner && !closed.is_empty() {
+            let text = browser_core::toast::closed(group.is_some(), closed.len());
+            let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id: first.space_id, tabs: closed, group });
             self.show_toast(text, Some(ToastAction::Undo(serial)));
         }
         self.model.reload_space(&self.core);
@@ -407,7 +475,11 @@ impl Browser {
         self.counted.remove(&key);
         self.processes.remove(&key);
         self.used.remove(&key);
+        self.forget_devtools(key);
         self.withdraw_icons(|k| k == key);
+        if self.link_peek.as_ref().is_some_and(|p| p.opener == key) {
+            self.link_peek = None;
+        }
         if self.reader.as_ref().is_some_and(|r| r.key == key) {
             self.close_reader();
         }
@@ -422,6 +494,10 @@ impl Browser {
 
     pub fn reopen(&mut self) {
         let Some((ix, closed)) = self.model.closed_tabs.pop(&self.model.spaces) else { return };
+        self.restore_closed(ix, closed);
+    }
+
+    fn restore_closed(&mut self, ix: usize, closed: Closed) {
         let Some(id) = closed.restore(&self.core) else { return };
         if ix != self.model.space_ix {
             self.switch_space(ix);
@@ -488,6 +564,16 @@ impl Browser {
         }
     }
 
+    /// Sets a group's icon from a symbol name or one emoji; empty clears it, anything else changes nothing.
+    pub fn set_group_icon(&mut self, id: Id, icon: &str) {
+        match browser_core::icon::set_group(self.core.store(self.model.private()), id, icon) {
+            Ok(()) => {
+                self.model.reload_space(&self.core);
+            }
+            Err(_) => self.show_toast_as(browser_core::toast::Tone::Warning, "Use one emoji or a listed symbol", None),
+        }
+    }
+
     /// Moves `key` to `target`'s place in its zone: before it from below, after it from above.
     pub fn move_tab_to(&mut self, key: TabKey, target: TabKey) {
         let Some(tab) = self.model.tab(target).filter(|_| key != target && key.private == target.private) else { return };
@@ -495,7 +581,11 @@ impl Browser {
         if self.model.burner_shown() && kind != TabKind::Ephemeral {
             return;
         }
+        let group = tab.group_id;
         if self.core.store(key.private).move_tab(key.id, kind, folder, index).is_ok() {
+            if kind == TabKind::Ephemeral {
+                self.core.store(key.private).set_tab_group(key.id, group).ok();
+            }
             self.model.reload_space(&self.core);
         }
     }
@@ -545,7 +635,8 @@ impl Browser {
     }
 
     pub fn reload(&mut self) {
-        self.command("reload", Value::Null);
+        let dev = self.model.active.is_some_and(|k| self.is_dev_tab(k));
+        self.command(if dev { "reloadFromOrigin" } else { "reload" }, Value::Null);
     }
 
     pub fn stop(&mut self) {
@@ -569,6 +660,9 @@ impl Browser {
     }
 
     pub fn zoom(&mut self, step: i32) {
+        if self.responsive_preset().is_some() {
+            return;
+        }
         let Some(key) = self.model.active else { return };
         let Some(page) = self.pages.get_mut(&key) else { return };
         let current = if page.zoom > 0.0 { page.zoom } else { 1.0 };
@@ -602,18 +696,8 @@ impl Browser {
     pub fn set_site_level(&mut self, level: Option<ShieldLevel>) {
         let (Some(key), Some(host)) = (self.model.active, self.site_host()) else { return };
         let Some(profile) = self.model.profile_of(&self.core, key) else { return };
-        if self.core.store(key.private).set_site_override(profile, &host, level).is_err() {
+        if !self.store_site_level(key.private, profile, &host, level) {
             return;
-        }
-        if let Some(rt) = self.core.profiles.borrow().get(&(key.private, profile)) {
-            let mut overrides = rt.overrides.borrow_mut();
-            match level {
-                Some(level) => overrides.insert(host, level),
-                None => overrides.remove(&host),
-            };
-        }
-        if !key.private {
-            crate::extensions::levels_changed(profile);
         }
         let url = self.pages.get(&key).map(|p| p.url.clone()).unwrap_or_default();
         self.load(key, &url);
@@ -662,19 +746,40 @@ impl Browser {
         self.core.disk.setting(key).ok().flatten().is_none_or(|v| v != "off")
     }
 
+    pub fn pref(&self, switch: Switch) -> bool {
+        switch.on(&self.core.disk)
+    }
+
+    pub fn set_pref(&mut self, switch: Switch, on: bool) {
+        switch.set(&self.core.disk, on);
+    }
+
     pub fn toggle_setting(&mut self, key: &str) {
         let on = self.setting_on(key);
         self.core.disk.set_setting(key, if on { "off" } else { "on" }).ok();
+    }
+
+    pub fn compact_toolbar(&self) -> bool {
+        !self.setting_off(COMPACT_TOOLBAR)
+    }
+
+    pub fn auto_hide_sidebar(&self) -> bool {
+        !self.setting_off(AUTO_HIDE_SIDEBAR)
     }
 
     pub fn lists(&self) -> Vec<String> {
         shield::groups::switched_on(|k| self.core.disk.setting(k).ok().flatten())
     }
 
+    pub fn filter_updates(&self) -> (Option<bool>, String) {
+        (shield::update::configured().then(|| self.setting_on(shield::update::SETTING)), crate::filter_updates::status().summary())
+    }
+
     pub fn clear_history(&mut self) {
         if let Some((private, id)) = self.profile_of_space() {
             self.core.store(private).clear_history(id).ok();
             self.favicons.forget(&(private, id));
+            self.reset_zooms(private, id, None);
         }
         self.text_found.clear();
     }
@@ -683,7 +788,8 @@ impl Browser {
         if let Some((private, id)) = self.profile_of_space() {
             self.core.store(private).clear_downloads(id).ok();
         }
-        self.downloads.retain(|d| d.state == "started");
+        self.settle_downloads();
+        self.downloads.retain(|d| d.state == "started" || d.state == "flagged");
     }
 
     pub fn store_key(&self) -> Option<crate::data::StoreKey> {
@@ -704,13 +810,24 @@ impl Browser {
             return self.answer_extension(key, &prompt, accept, remember);
         }
         if remember
-            && prompt.rememberable()
+            && prompt.remembered_at(self.level_for(key, &prompt.origin))
             && let Some(profile) = self.model.profile_of(&self.core, key)
         {
             let decision = if accept { "allow" } else { "deny" };
             self.core.store(key.private).set_permission(profile, &prompt.origin, &prompt.kind, decision).ok();
         }
         self.outbox.push((key, "answer", prompt.answer(accept, Some(text.to_owned()), Some(user.to_owned()), Some(password.to_owned()))));
+    }
+
+    pub fn silence(&mut self, id: u64) {
+        let Some((key, prompt)) = self.take_prompt(id) else { return };
+        let queued = self.pages.get_mut(&key).map(|page| std::mem::take(&mut page.prompts)).unwrap_or_default();
+        self.ext_prompts_dropped(queued.iter().filter(|p| p.kind == extensions::PROMPT_KIND).map(|p| p.id).collect());
+        self.outbox.push((key, "answer", prompt.silence()));
+    }
+
+    pub fn remembers(&self, prompt: &Prompt) -> bool {
+        self.model.active.is_some_and(|key| prompt.remembered_at(self.level_for(key, &prompt.origin)))
     }
 
     pub fn store_link_allowed(&self, key: TabKey) -> bool {
@@ -748,6 +865,12 @@ impl Browser {
                     });
                 }
             }
+            "blocked" if text("reason") == "listed" => {
+                let page = self.pages.entry(key).or_default();
+                page.loading = false;
+                suggest::typed_visit(&mut page.typed, &text("url"));
+                self.on_listed(key, &text("url"), &text("category"));
+            }
             "blocked" => {
                 // A rebuild reloads the same address, which keeps its typed credit.
                 if text("reason") != "rebuild" {
@@ -760,13 +883,16 @@ impl Browser {
             "external" => self.notice = Some(Notice::External { url: text("url"), origin: text("origin") }),
             "popup" => {
                 let url = text("url");
-                if !(data["link"].as_bool() == Some(true) && self.open_routed(&url)) {
-                    self.new_tab(&url);
+                if !(data["link"].as_bool() == Some(true) && self.open_routed(&url))
+                    && let Some(popup) = self.new_tab(&url)
+                {
+                    self.pages.entry(popup).or_default().opener = Some(key);
                 }
                 if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)).filter(|p| p.load.as_ref().is_some_and(|(u, _)| *u == url)) {
                     page.link = true;
                 }
             }
+            link_peek::PEEK_EVENT => self.open_link_peek(key, &text("url")),
             "article" | "pageText" | "textFound" | "picked" => self.on_script_event(key, name, data),
             "iconLinks" => self.on_icon_event(key, data, None),
             "shielded" => self.on_shielded(key, data),
@@ -783,6 +909,8 @@ impl Browser {
                 }
             }
             "crashed" => self.on_crash(key),
+            "fullscreen" => self.on_fullscreen(key, data),
+            "screenshot" => self.on_snapshot(key, data),
             "pressed" if self.in_split(key) && self.model.active != Some(key) => self.activate(key),
             "playing" => {
                 if data["playing"].as_bool() == Some(true) {
@@ -805,6 +933,9 @@ impl Browser {
         let mut dropped = Vec::new();
         let page = self.pages.entry(key).or_default();
         let new_url = page.url != url;
+        if !finished && page.muted_host.as_deref() != Url::parse(&url).ok().as_ref().and_then(Url::host_str) {
+            page.muted_host = None;
+        }
         page.url = url.clone();
         if !title.is_empty() || new_url {
             page.title = title.clone();
@@ -845,7 +976,9 @@ impl Browser {
                 }
             } else if let Some(zoom) = browser_core::site::site_host(parsed).and_then(|h| store.site_zoom(profile, h).ok().flatten()) {
                 self.pages.entry(key).or_default().zoom = zoom;
-                self.outbox.push((key, "zoom", json!({ "factor": zoom })));
+                if !self.responsive_zoom.contains_key(&key) {
+                    self.outbox.push((key, "zoom", json!({ "factor": zoom })));
+                }
             }
         }
         if let Some(parsed) = parsed {
@@ -892,9 +1025,10 @@ impl Browser {
 
     fn on_prompt(&mut self, key: TabKey, data: &Value) {
         let Some(prompt) = Prompt::from_event(data) else { return };
-        if prompt.rememberable()
+        if prompt.remembered_at(self.level_for(key, &prompt.origin))
             && let Some(profile) = self.model.profile_of(&self.core, key)
             && let Some(decision) = self.core.store(key.private).permission(profile, &prompt.origin, &prompt.kind).ok().flatten()
+            && decision != "ask"
         {
             let accept = decision == "allow";
             self.outbox.push((key, "answer", json!({ "id": prompt.id, "accept": accept })));
@@ -904,6 +1038,9 @@ impl Browser {
     }
 
     fn on_crash(&mut self, key: TabKey) {
+        if self.model.active == Some(key) {
+            self.leave_page_fullscreen();
+        }
         let page = self.pages.entry(key).or_default();
         if page.crashed {
             page.loading = false;

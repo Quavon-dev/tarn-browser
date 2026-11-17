@@ -497,8 +497,19 @@ fn downloads_report_progress_pause_and_flagged_files() {
     assert_eq!(shell.transfers[0].state, TransferState::Saving);
     shell.event(key, "download", &json!({ "id": "7", "state": "flagged", "name": "a.zip", "host": "bad.test" }), 3);
     assert_eq!(shell.transfers[0].state, TransferState::Flagged("bad.test".into()));
-    let keep = shell.transfer_command("7", "downloadKeep", false);
-    assert_eq!(command(&keep, "downloadKeep"), Some(&json!({ "id": "7", "keep": false })));
+    assert!(shell.transfer_command("7", "downloadKeep", true).is_empty(), "Keep ignores taps while the rows still move");
+    shell.transfers_moved -= browser_core::prompts::BYPASS_DELAY;
+    let kept = shell.transfer_command("7", "downloadKeep", true);
+    assert_eq!(command(&kept, "downloadKeep"), Some(&json!({ "id": "7", "keep": true })));
+    assert_eq!(shell.transfers[0].state, TransferState::Saving, "a kept row loses Keep and Delete at once");
+    assert!(!browser_core::prompts::stable(shell.transfers_moved, std::time::Instant::now()), "a kept row moves the rest");
+    shell.event(key, "download", &json!({ "id": "8", "state": "started", "name": "b.zip", "pausable": false }), 3);
+    shell.event(key, "download", &json!({ "id": "8", "state": "flagged", "name": "b.zip", "host": "bad.test" }), 3);
+    shell.transfers_moved -= browser_core::prompts::BYPASS_DELAY;
+    shell.transfer_command("7", "downloadCancel", false);
+    assert!(shell.transfer_command("8", "downloadKeep", true).is_empty(), "a removed row moves the rest");
+    let keep = shell.transfer_command("8", "downloadKeep", false);
+    assert_eq!(command(&keep, "downloadKeep"), Some(&json!({ "id": "8", "keep": false })));
     assert!(shell.transfers.is_empty());
 }
 

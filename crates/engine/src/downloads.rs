@@ -190,6 +190,14 @@ pub fn malware_warning(from: &url::Url) -> String {
     format!("{} is on the malware list. The file may harm your {device}.", from.host_str().unwrap_or_default())
 }
 
+pub fn flagged_note(host: &str) -> String {
+    format!("From {host}, a site on the malware list. Not saved until you keep it.")
+}
+
+pub fn flagged_notice(name: &str, host: &str) -> String {
+    format!("{name} comes from {host}, a site on the malware list.")
+}
+
 /// Downloads subfolders by lowercase extension; other types stay at the top.
 const FOLDERS: &[(&str, &[&str])] = &[
     ("Images", &["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "tif", "tiff", "bmp", "ico", "svg", "dng"]),

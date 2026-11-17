@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::bundle::{Kind, VerifiedBundle};
+
 const SOURCE: &str = include_str!("youtube.js");
 const MAX_KEYS: usize = 32;
 /// Fields playback depends on; a config naming one is refused, so a bad bundle cannot break video.
@@ -40,6 +42,10 @@ pub fn parse(bytes: &[u8]) -> Option<Config> {
     (!config.keys.is_empty() && config.keys.len() <= MAX_KEYS && config.keys.iter().all(valid)).then_some(config)
 }
 
+pub fn config(bundle: &VerifiedBundle) -> Config {
+    bundle.of("youtube", Kind::Config).next().and_then(|l| parse(&l.data)).unwrap_or_default()
+}
+
 /// Keys are ASCII letters only (`parse`), so their JSON form is a safe JavaScript literal.
 pub fn script(config: &Config) -> String {
     SOURCE.replace("__TARN_KEYS__", &serde_json::to_string(&config.keys).unwrap_or_else(|_| "[]".into()))
@@ -64,6 +70,16 @@ mod tests {
         }
         let many = format!(r#"{{"keys":[{}]}}"#, vec!["\"adSlots\""; MAX_KEYS + 1].join(","));
         assert_eq!(parse(many.as_bytes()), None);
+    }
+
+    #[test]
+    fn config_comes_from_the_bundle_or_defaults() {
+        use crate::bundle::VerifiedList;
+        let list = |data: &[u8]| VerifiedList { name: "youtube.json".into(), category: "youtube".into(), kind: Kind::Config, count: 1, data: data.to_vec() };
+        let bundle = |lists| VerifiedBundle { version: 1, created: String::new(), lists };
+        assert_eq!(config(&bundle(vec![list(br#"{"keys":["adSlots"]}"#)])).keys, ["adSlots"]);
+        assert_eq!(config(&bundle(vec![list(br#"{"keys":["streamingData"]}"#)])), Config::default());
+        assert_eq!(config(&bundle(Vec::new())), Config::default());
     }
 
     #[test]

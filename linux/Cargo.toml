@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 browser-core = { path = "../crates/browser-core" }
+devkit = { path = "../crates/devkit" }
 engine = { path = "../crates/engine" }
 shield = { path = "../crates/shield" }
 store = { path = "../crates/store" }

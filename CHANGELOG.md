@@ -8,6 +8,66 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Background tabs sleep, the heaviest first, once their web processes together hold more than
+  1 GB, split between windows (Linux).
+- The share menu has Save Page as PDF, through the save dialog and listed in Downloads (also a
+  command row), and Print… (Ctrl+P) (Linux). Linux desktops have no system share sheet, so it has
+  no More….
+- A download from a site on the malware list waits, unsaved, until you choose Keep or Delete in the
+  Downloads panel, as on macOS (Linux).
+- Tab groups, Clean Up and closing unused tabs after a time set in Settings › Tabs, with an
+  Archived Tabs panel next to the Reading List (Linux).
+- Settings on Linux list site Shield overrides and saved zoom levels (with Remove and Reset All),
+  switch localhost links from other apps, export the profile as JSON, clear each kind of data or
+  delete everything in the profile, show the Tarn version and offer Make Default when Tarn is not
+  the default browser (Linux).
+- Malware, adult and pop-up ad domain sets stop sites in every frame, redirect and download before
+  the request, with the warning page (Go Back, Visit Anyway for malware), the per-site switch for
+  ad, tracker and cookie-banner blocking, pop-up rules, permission rows and Clear site data in the
+  site popover, and the Privacy switches and paused-site list (Linux).
+- Permission prompts offer Always Allow, saved per site and listed in Settings › Permissions, and
+  every page prompt offers "Block requests from this page"; popup tabs share their opener's prompt
+  and popup limits (Linux).
+- Library on Linux: one search across open tabs, bookmarks, history and downloads, with links to
+  History, Reading List, Downloads, Snapshots and Memory; history rows have Open in New Tab,
+  snapshots can be renamed, and a download can be removed from the list or its link copied (Linux).
+- Take Screenshot, a video's full screen that hides the toolbar and sidebar, full screen (F11 and a command)
+  and back and forward by a two-finger swipe over the page (Linux).
+- Profiles and spaces on Linux: Create and Edit Profile (name, colour, first space), Delete Profile
+  with its website data retired as on macOS, the profile switcher with colour dots and Manage
+  Profiles, the Settings › Profiles list with the Developer badge, the Edit Space card (icon,
+  colour, name), Delete Space…, the space context menu, and Alt+1 … Alt+9 to switch to space 1–9
+  (Linux).
+- Settings › Developer: the developer tools switch (Web Inspector through Inspect Element, JSON
+  viewer, responsive sizes, local servers) and the Developer profile; the Web Inspector never
+  opens on Lockdown pages (Linux).
+- Import Browser Data: history, bookmarks and cookies from Chrome, Edge, Brave, Chromium and Firefox, with
+  Chromium's cookie key from the keyring (Linux).
+- Filter-list updates: the signed Shield list bundle is downloaded once a day, with the same checks
+  as on macOS, and Settings › Privacy shows the installed lists' date and the last error, with a
+  switch to turn updates off (Linux).
+- Bookmarks on Linux: Bookmark Tab… (`Ctrl+Shift+D`, the Tab panel and the command rows),
+  Bookmark All Tabs (the New Tab row and the command rows), and a Bookmarks panel (`Ctrl+Alt+B`)
+  with recent bookmarks, folders, search, rename, move, delete and New Folder (Linux).
+- Settings › Search › Suggestions turns history suggestions and the address field's
+  inline completion off, and Settings › Tabs chooses how many tabs stay awake and how
+  long a background tab waits before it sleeps, as on macOS (Linux).
+- Settings › Privacy › Block YouTube ads removes ads from YouTube's player data and hides ad
+  slots, and Netflix keeps playing when the window loses focus (Linux).
+- Tab actions: Mute Site with the Muted sites list, Rename Tab and Reset Title, Return to Pinned
+  URL and Set Pinned URL, Duplicate Tab, Close All, Other and Below, Sleep Tab, Other and All
+  Inactive Tabs, reopening a chosen recently closed tab, Delete Folder and the sidebar menu; closing
+  a pinned tab unloads it (Linux).
+- Settings › Tabs chooses whether New Tab opens the command card or the start page and
+  which tab becomes active after closing one, and turns touchpad gestures off; Settings ›
+  Appearance picks the accent colour and turns on Reduce motion, as on macOS (Linux).
+- Compact toolbar, auto-hiding sidebar, the tab hover card with its Alt page snapshot, and link
+  peek (Shift-click opens a link in a card over the page, in the opener's profile and Shield
+  rules) (Linux).
+- Linux: "Switch to Tab" rows for open tabs in address suggestions, an address field menu (Copy
+  Link, Copy Clean Link, Paste and Go, Site Settings), Copy Link as Markdown and Copy Title, the
+  Keyboard Shortcuts sheet (`Ctrl+/`), the macOS commands and shortcuts it was missing, switching
+  to space 1–9 with `Alt+1`…`Alt+9`, and Settings › Privacy › Open localhost links from other apps.
 - Tab groups and folders can show an icon: one of twenty symbols or a single emoji, set with
   Change Icon… in their menu (macOS, Windows; folders on Linux). Clean Up gives each group it
   makes the icon of its kind.
@@ -30,9 +90,19 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The profile button left the sidebar header; profiles stay in Settings › Profile and the menu
   (macOS, Windows, Linux).
 - Appearance has no separate Theme picker; the Themes grid sets the theme.
+- New Space and Edit Space open as one card on every client: pick a profile or start a new one,
+  then name the space and give it a colour and icon; Edit Space also sets the schedule, and changes
+  apply on Save. On macOS and Windows it is a popover above the sidebar's + button, drawn like the
+  Library, and the profile card takes the same look; on Linux a popover like the Library; on iOS and
+  Android a sheet from Spaces (macOS, Windows, Linux, iOS, Android).
 - Bitwarden's privileges (Touch ID unlock through the Bitwarden app, clipboard and passkeys) are
   off until you turn on Settings › Extensions › Bitwarden integration; until then Bitwarden runs
   like any other app extension (macOS).
+- Clean Up sorts by what each page is: a known site decides, other pages by their address and
+  title (Money and Mail and Chat take known sites only); a loose tab joins your own group that
+  already holds two or more tabs of its site (a known site goes to its category's group when
+  there is one), new category groups (now also Learning, Games and Food) come in a fixed order,
+  tabs of one site sit together, and Undo Sort puts everything back (macOS, Windows).
 - The macOS disk image opens on a window drawn from the Tarn icon's lake, with an arrow from Tarn
   to the Applications folder and the Tarn volume icon.
 - Settings › General lists every profile and marks the one the window uses.
@@ -58,6 +128,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   Windows, the toolkit's own animation on Linux, iOS and Android.
 - Dark mode for a site leaves pages that are already dark as they are instead of inverting them to
   light (macOS, Windows, Linux, iOS, Android).
+- Linux: links from other apps open in Tarn. The desktop entry made Tarn a browser for http and
+  https links, but the URLs it was started with were ignored; now they, and those of a later
+  launch, open as new tabs in the running Tarn, under the same rules as on macOS.
 
 ## [0.1.2] - 2026-11-17
 

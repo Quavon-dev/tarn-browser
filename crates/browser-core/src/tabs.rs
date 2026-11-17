@@ -112,6 +112,21 @@ impl Model {
         self.spaces.get(self.space_ix)
     }
 
+    pub fn tabs_showing<D: WebsiteData>(&self, core: &Core<D>, url: &Url) -> Vec<(TabKey, Tab, Option<String>)> {
+        let Some(current) = self.current_space() else { return Vec::new() };
+        let (private, profile_id) = (current.private, current.space.profile_id);
+        let key = |t: &Tab| TabKey { private, id: t.id };
+        let mut out: Vec<_> = self.tabs.iter().filter(|t| self.active != Some(key(t)) && same_page(url, &t.url)).map(|t| (key(t), t.clone(), None)).collect();
+        for (ix, space) in self.spaces.iter().enumerate() {
+            if ix == self.space_ix || space.private != private || space.space.profile_id != profile_id {
+                continue;
+            }
+            let tabs = core.store(private).tabs(space.space.id).unwrap_or_default();
+            out.extend(tabs.into_iter().filter(|t| same_page(url, &t.url)).map(|t| (key(&t), t, Some(space.space.name.clone()))));
+        }
+        out
+    }
+
     pub fn private(&self) -> bool {
         self.current_space().is_some_and(|s| s.private)
     }
@@ -334,6 +349,11 @@ impl Model {
         moved
     }
 
+    pub fn pinned_drift(&self, key: TabKey, current: &str) -> Option<Url> {
+        let pinned = self.tab(key).filter(|t| t.kind != TabKind::Ephemeral)?.pinned_url.as_deref()?;
+        drifted(pinned, current).then(|| Url::parse(pinned).ok()).flatten()
+    }
+
     /// The tabs inside folder `id` and its subfolders, and the folders themselves.
     pub fn folder_contents(&self, id: Id) -> (Vec<TabKey>, HashSet<Id>) {
         let tree = folder_tree(&self.folders, id);
@@ -361,6 +381,12 @@ impl Model {
             group.collapsed = !group.collapsed;
         }
         changed
+    }
+
+    /// The Shield level that applies to `url` in the tab's own profile; Standard when unknown.
+    pub fn level_for<D: WebsiteData>(&self, core: &Core<D>, key: TabKey, url: &str) -> shield::ShieldLevel {
+        let url = Url::parse(url).ok();
+        self.profile_of(core, key).and_then(|p| core.level(key.private, p, url.as_ref())).unwrap_or_default()
     }
 
     /// The profile of the space holding `key`, which need not be the current one.
@@ -441,9 +467,22 @@ pub fn same_page(typed: &Url, open: &str) -> bool {
     key(typed).is_some() && key(typed) == key(&open)
 }
 
+pub fn switch_detail(space: Option<&str>) -> String {
+    space.map_or_else(|| "Switch to Tab".to_owned(), |name| format!("Switch to Tab · {}", crate::text::bounded_title(name)))
+}
+
 /// A pinned page has drifted once the tab shows another host or path; query and fragment do not count.
 pub fn drifted(pinned: &str, current: &str) -> bool {
     Url::parse(pinned).is_ok_and(|pinned| !same_page(&pinned, current))
+}
+
+/// A group's colour from the client's `palette` of named colours: its pick, or one fixed by its id.
+pub fn group_color(group: &Group, palette: &[(&str, u32)]) -> u32 {
+    palette.iter().find(|(n, _)| *n == group.color).unwrap_or(&palette[group.id.unsigned_abs() as usize % palette.len()]).1
+}
+
+pub fn custom_title(typed: &str, page_title: &str) -> String {
+    if typed == crate::text::bounded_title(page_title) { String::new() } else { typed.to_owned() }
 }
 
 /// Unpinned tabs showing a page another tab of `tabs` shows too, the fragment ignored. Per page the
@@ -908,6 +947,25 @@ mod tests {
     }
 
     #[test]
+    fn a_pinned_tab_drifts_from_its_pinned_url_and_a_loose_tab_never() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let pinned = core.disk.create_tab(s, TabKind::Pinned, None, "https://mail.test/inbox", "").unwrap();
+        let loose = core.disk.create_tab(s, TabKind::Ephemeral, None, "https://mail.test/inbox", "").unwrap();
+        model.reload_space(&core);
+        let (pinned, loose) = (model.key(model.tab(TabKey { private: false, id: pinned.id }).unwrap()), TabKey { private: false, id: loose.id });
+        assert_eq!(model.pinned_drift(pinned, "https://mail.test/inbox?page=2").map(String::from), None);
+        assert_eq!(model.pinned_drift(pinned, "https://other.test/").map(String::from).as_deref(), Some("https://mail.test/inbox"));
+        assert_eq!(model.pinned_drift(loose, "https://other.test/"), None);
+    }
+
+    #[test]
+    fn a_custom_title_equal_to_the_page_title_is_not_kept() {
+        assert_eq!(custom_title("Inbox", "  Inbox "), "");
+        assert_eq!(custom_title("Mail", "Inbox"), "Mail");
+    }
+
+    #[test]
     fn drift_counts_host_and_path_only() {
         assert!(!drifted("https://github.com/", "https://github.com/?tab=repos#top"));
         assert!(!drifted("https://github.com/a", "https://www.github.com/a/"));
@@ -928,6 +986,23 @@ mod tests {
         let store = Store::open(dir.path()).unwrap();
         assert_eq!(store.tab(id).unwrap().web_engine, Some(WebEngine::Chromium));
         assert_eq!(store.interaction_state(id).unwrap(), None);
+    }
+
+    #[test]
+    fn tabs_showing_a_page_skip_the_active_one_and_name_other_spaces() {
+        let (_dir, core, mut model) = opened();
+        let p = core.disk.profiles().unwrap()[0].id;
+        let here = model.new_tab(&core, "https://www.a.test/x/", None).unwrap();
+        let other = model.new_tab(&core, "https://a.test/x", None).unwrap();
+        model.new_tab(&core, "https://a.test/y", None).unwrap();
+        let work = core.disk.create_space(p, "Work", "").unwrap();
+        let there = core.disk.create_tab(work.id, TabKind::Ephemeral, None, "https://a.test/x", "").unwrap().id;
+        model.reload_spaces(&core);
+        model.reload_space(&core);
+        model.active = Some(here);
+        let url = Url::parse("https://a.test/x").unwrap();
+        let found: Vec<(Id, Option<String>)> = model.tabs_showing(&core, &url).into_iter().map(|(k, _, space)| (k.id, space)).collect();
+        assert_eq!(found, [(other.id, None), (there, Some("Work".to_owned()))]);
     }
 
     #[test]

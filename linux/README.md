@@ -14,9 +14,10 @@ its own Cargo workspace, so NSH stays out of the root workspace and `Cargo.lock`
 | `src/ui.rs`, `src/ui/panels.rs` | The NSH desktop layout |
 | `src/controls.rs` | The desktop's text styles, rows and panels over `tarn_nsh_shared::controls` (desktop density); theme and icons are `tarn_nsh_shared::{theme, icons}` (`../nsh-shared`) |
 | `src/input.rs` | The search-engine setting and history suggestions (with full-text matches); parsing is `browser_core::command` |
-| `src/browser/{pages,site,spaces,tools}.rs` | Reader, page text, Find in Tabs, Shield counters, downloads; site CSS, dark mode, zaps; schedules, burner tab, routing, snapshots, space commands; copy link, QR code, Reading List |
+| `src/browser/blocking.rs` | Warning page, Visit Anyway, paused sites, pop-up rules, site permissions and Clear site data |
+| `src/browser/{pages,site,spaces,tools,library}.rs` | Reader, page text, Find in Tabs, Shield counters, downloads; site CSS, dark mode, zaps; schedules, burner tab, routing, snapshots, space commands; copy link, QR code, Reading List; Library search |
 | `src/shortcuts.rs`, `src/memory.rs`, `src/speech.rs` | Rebindable shortcuts (`keymap.tarn::<Action>` settings, NSH keystroke text); per-tab memory and CPU from `/proc`; read aloud through `spd-say` |
-| `src/ui/{tools,library,settings}.rs` | Toasts, reader, command rows, QR code; space, memory and Reading List panels; Settings |
+| `src/ui/{tools,library,settings}.rs` | Toasts, reader, command rows, QR code; Library search, space, memory and Reading List panels; Settings |
 | `packaging/` | `.deb`, `.rpm`, AUR `PKGBUILD`, desktop entry |
 | `scripts/` | Container build, Xvfb environment, test server, scenarios, display tests |
 | `evidence/` | Exit-check results (P2) |
@@ -40,18 +41,54 @@ contract v2 (`docs/mobile-plan.md` §2), which also lists what stays different. 
 - `zoom` scales the whole page (desktop behaviour); `download` files get `user.xdg.origin.url`.
 - `download` events go to the app by download id (`session::route`), not through the view, so a
   download keeps running and reporting after its tab closes, is evicted or its burner is burned (as on macOS).
+- `print` opens the GTK print dialog; `pdf {path}` prints the page to that absolute path through
+  WebKitGTK's print operation (GTK's file printer) and reports the file on the same route as a
+  finished `download`, so it is listed like one.
+- `screenshot {seq, name}` saves the visible page as a new PNG in Downloads and answers `screenshot
+  {seq, path}` or `{seq, message}`; `fullscreen {on, windowFullScreen}` reports WebKitGTK's
+  `enter-fullscreen` and `leave-fullscreen` (`docs/shared-core.md` §1).
 
 ## Features from the macOS app
 
 Same store schema and setting keys as macOS (`block_annoyances`, `history_text`, `sort_downloads`,
 `keymap.tarn::<Action>`):
+- tabs: Mute Site (`muted` prop, WebKitGTK `is-muted`; saved per profile, a Lockdown mute lasts
+  while the tab stays on the host; a speaker mark on the tab row, the site panel's switch and the
+  Muted sites list in Settings › Privacy), Rename Tab and Reset Title, Return to Pinned URL and Set
+  Pinned URL to Current Page, Duplicate Tab, Close All Tabs (`Ctrl+Shift+K`), Close Other Tabs and
+  Close Tabs Below, Sleep Tab, Sleep Other Tabs and Sleep All Inactive Tabs (Memory panel), closing
+  a pinned tab unloads it (Unload Tab), reopening a chosen tab from Recently Closed in the History
+  panel, Delete Folder, and a sidebar menu on a right click of the sidebar (New Tab, Reopen Closed
+  Tab, New Folder, Bookmark All Tabs, Hide Tabs, New Profile, Edit Profile, Close All Tabs, Close
+  Duplicate Tabs);
 - tabs: close duplicate tabs, toasts with Undo, copy link and clean link (tracking parameters counted),
-  QR code (`engine::qr`, drawn by `tarn_nsh_shared::qr`), all three in the toolbar's share menu (Linux
-  has no system share path, so the menu has no More…), burner tab (its own ephemeral `NetworkSession` per `burner:<32 hex>` id, released when
+  QR code (`engine::qr`, drawn by `tarn_nsh_shared::qr`), all three in the toolbar's share menu with Save
+  Page as PDF (through the save dialog, listed in Downloads) and Print… (Linux has no system share
+  sheet, so the menu has no More…; `docs/nsh-plan.md` §5), burner tab (its own ephemeral `NetworkSession` per `burner:<32 hex>` id, released when
   burned), Reading List (the `Reading List` bookmark folder);
+- bookmarks (`browser_core::bookmarks`): Bookmark Tab… (`Ctrl+Shift+D`, Tab panel, command rows)
+  opens the Bookmarks panel on the new bookmark's name, Bookmark All Tabs (New Tab row, command rows)
+  files every tab into a dated folder; the Bookmarks panel (`Ctrl+Alt+B`, Manage Bookmarks, and
+  from History and the Reading List) lists recent bookmarks and the folder tree, searches titles and
+  addresses, and renames, moves, deletes and adds folders, in place of the macOS Bookmarks menu and
+  Library › Bookmarks;
+- tab groups: a card per group with its colour, collapse and close, New Tab Group in the New Tab row
+  (`Ctrl+Alt+G`), Add to Group and Remove from Group in the tab panel, rename, colour, Ungroup and
+  Close Group in the group's panel, a dropped tab joins the group it lands in; Clean Up in the New
+  Tab row (`browser_core::cleanup`); Settings › Tabs closes unused tabs into the `Archived Tabs`
+  bookmark folder (`Model::archive_unused`, every 10 minutes and on launch), listed in the
+  Archived Tabs panel next to the Reading List and as a folder in the Bookmarks panel;
 - spaces: schedules by weekday and hour with the one-hour manual hold, snapshots (save, restore in a
-  new or this space, delete), "Always open in" rules, switch to and move tabs between spaces from
-  the command rows of the address field;
+  new or this space, rename, delete), "Always open in" rules, switch to and move tabs between spaces from
+  the command rows of the address field; the New Space and Edit Space card (name, colour, icon, and
+  for a new space its profile or a new one), Delete Space…, a right click on a space button for
+  Rename, Edit, New and Delete, and `Alt+1` … `Alt+9` for spaces 1–9 (macOS's ⌃1 … ⌃9, as on Windows);
+- profiles (`browser_core::profiles`): Create Profile (name, colour, first space, Shield level, search
+  engine, shared data) and Edit Profile, the switcher with colour dots, New Profile… and Manage
+  Profiles… in the Space panel, and the Settings › Profiles list with Edit…, Delete… (asks once
+  more) and the Developer badge. Deleting retires the profile's own store like macOS: its
+  `NetworkSession` is released, the folder is listed in `retired_stores` and removed three seconds
+  later or at the next launch;
 - site panel: dark mode and site CSS (`styles` prop), Zap Element (`pick`, `zaps` prop), hidden
   elements with Undo;
 - reader view (`readArticle`) with text size and width; Read Aloud through speech-dispatcher's
@@ -61,12 +98,40 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
 - site icons (`readIconLinks`, `fetchIcon`): fetched inside the tab after each https load, kept per profile
   by `engine::favicon::Tracker`, stored with `Store::set_favicon` and drawn wherever a site's letter
   tile was (tiles, tab rows, split panes, history, bookmarks, suggestions, site and share popovers);
-- Shield: cookie-banner lists switch, the Shield card (front and stamps side, no 3D tilt in NSH)
+- blocking (threat model S25): the malware, adult and pop-up ad domain sets of the installed bundle stop
+  navigations in the component (`blocking` prop, `blocked` `listed`), with the warning page (Go Back,
+  Visit Anyway for malware after 700 ms, remembered until quit), Privacy switches and the list of sites
+  without ad, tracker and cookie-banner blocking; the site panel adds that per-site switch (`filtered`
+  prop), the pop-up rule, the site's permission rows (Allow, Ask, Deny, Remove) and Clear site data
+  (click twice; WebKitGTK's `WebsiteDataManager` records of the host and below). Gaps in
+  `docs/nsh-plan.md` (no main-frame flag on WebKitGTK navigation actions);
+- Shield: cookie-banner lists switch, Block YouTube ads (the YouTube page script and ad-slot rules,
+  `youtube` prop), the Netflix visibility script in every view but Lockdown's, the Shield card (front and stamps side, no 3D tilt in NSH)
   with the last seven days and the sites protected most; counters from `shielded` events;
 - downloads: `id`, progress (percentage next to the downloads button, sizes in the panel), cancel,
-  sorting into Downloads subfolders; no pause or resume (WebKitGTK cannot) and no malware flag (no
-  malware domain set on Linux yet);
-- keyboard shortcuts rebound in Settings (typed as `Ctrl+Shift+Y`; Linux has its own action list);
+  sorting into Downloads subfolders, Remove from List and Copy Download Link; a download whose request, response or page host is on the
+  installed malware set (Block malware sites on) is `flagged` and waits, unsaved, for Keep or Delete
+  in the Downloads panel (`downloadKeep`); no pause or resume (WebKitGTK cannot);
+- Library (the sidebar's Library button): one search over open tabs, bookmarks, history and
+  downloads (`browser_core::library`), links to History, Reading List, Downloads, Snapshots and
+  Memory; history rows open (an open tab of that address first), Open in New Tab and Copy Link;
+- keyboard shortcuts rebound in Settings (typed as `Ctrl+Shift+Y`; Linux has its own action list),
+  with the macOS rows Close all tabs (`Ctrl+Shift+K`), Select last tab (`Ctrl+9`), Copy link as
+  Markdown (`Ctrl+Alt+C`) and Keyboard shortcuts (`Ctrl+/`, a sheet of every key, also a command);
+  `Alt+1`…`Alt+9` switch to space 1–9 (macOS `⌃1`…`⌃9`);
+- links from other apps (`browser_core::incoming`, as macOS `open_urls`): the URLs `tarn` is started
+  with, and those of a later launch once the window is open (`docs/nsh-plan.md` has the gap), which NSH's single instance hands the running Tarn over D-Bus
+  (GApplication `command-line`; not while `TARN_DATA_DIR` is set, so a throwaway profile never
+  hands its links to the running Tarn), open as new tabs in the focused window that shows no burner tab;
+  only what `nav_policy` allows from another app, at most 10 in 10 s, each loaded as a page's link
+  (S10) unless it is a loopback link and Settings › Privacy › Open localhost links from other apps
+  is on (the default). A desktop launch cannot be told from a terminal one, so every argument counts
+  as another app's link;
+- address field: open tabs as "Switch to Tab" rows under a Tabs header (also tabs of the profile's
+  other spaces that show the typed page), then History; a right click on the address opens Copy
+  Link, Copy Clean Link, Paste and Go and Site Settings…; the command list adds Settings, New Space,
+  Edit Space, Private Space, Toggle Sidebar, Close All Tabs, Show Downloads, Duplicate Tab, Show
+  History, Sleep Other Tabs, Site Settings, Copy Link as Markdown, Copy Title and Keyboard Shortcuts;
 - desktop input: Up and Down pick a suggestion row of the address field or the start card and Enter
   runs it; a right click (or Shift+F10) on a tab or tile opens the Tab panel for that tab; `Ctrl+G` and
   `Ctrl+Shift+G` step through the find bar's matches (fixed keys); icon buttons have tooltips, placed
@@ -76,12 +141,30 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   drag and even out on a double click, drops on a sidebar row's middle, a pane header or a page;
   a click in a pane's page focuses it through `pressed` (a Linux addition the component emits from
   a click it does not claim), as WebKitGTK keeps the page's pointer events from the shell;
+- layout (Settings › Appearance › Layout, keys `compact_toolbar` and `auto_hide_sidebar`): the compact
+  toolbar puts Shield, host and page title into one slim field; with the sidebar hidden, resting the
+  pointer at the window's left edge slides it in over the page (`browser_core::hover::Hover`) and it
+  closes once the pointer has left it;
+- tab hover card: resting on a sidebar row shows title, host and path and "Sleeping"
+  (`browser_core::hover::{Rest, card_lines}`; Linux has no tab mute); holding Alt shows the larger
+  card with a snapshot of an awake tab (`snapshot` command, answered by a `snapshot` event with a PNG
+  `data:` URI at most 752 px wide, kept only while the card shows);
+- link peek: a Shift-click on a link (`peek {url}`, a Linux event for `PeekLink`, under the pop-up
+  rules: user gesture, pop-up rate, `view_policy::popup` with the private-network check) opens the
+  link in a card over the page, in a web view with the opener's profile, data store and Shield
+  rules (S9); Esc, the backdrop or Close closes it, switching tabs too; its dialogs are declined;
+  Open in Tab opens the peeked address in a new tab of the current space when that space has the
+  opener's profile (the tab loads the page again: NSH cannot move a web view between components,
+  so the peek's back history stays behind);
 - memory panel and heavy-tab marks: WebKitGTK gives no process id, so the component reports
   `process {pid}` (a Linux addition) when exactly one new `WebKitWebProcess` below the app appears
-  between a load's start and its commit; tabs it cannot tell apart are "Not measured".
+  between a load's start and its commit; tabs it cannot tell apart are "Not measured";
+- Take Screenshot (Ctrl+Alt+Shift+S or the command bar), a page's full screen that hides the shell,
+  window full screen on F11, and back and forward by a two-finger swipe over the page
+  (`docs/nsh-plan.md`, P2).
 
-Not ported: on-device translation and the startup trace (macOS-only), the live page peek (optional,
-skipped).
+Not ported: Picture in Picture (WebKitGTK has none), on-device translation and the startup trace
+(macOS-only).
 
 ## Build and test (Docker; no Linux desktop is needed)
 
@@ -116,6 +199,11 @@ Moved out of this crate, with the macOS app using the same code where it had a c
 - `engine::view_policy`: site levels, navigation and popup verdicts, bursts, the zoom range
   (`engine::delegates` uses its bursts and title cut);
 - `shield::groups`: the bundle-to-rule-list conversion and the debug signing key (`crates/app` uses it);
+- `browser_core::site`: domain sets from the bundle and their install, the set switches, the warning
+  page's words and its click guard; `browser_core::permissions::permission_rows` for the site panel
+  (`crates/app` uses them);
+- `shield::update`: the daily filter-list update (when it is due, the download and its checks, the
+  Settings status line); `src/filter_updates.rs` only schedules it and fetches through `src/fetch.rs`;
 - `browser_core::command`: input parsing, `engine_key`, the address label (`display_host`, the text of
   the macOS label `address`); `browser_core::prompts`: the prompt model and what may be remembered (the mobile shell
   uses both). A crashed page reloads once and stays until a page finishes loading, as on macOS.

@@ -48,7 +48,7 @@ pub fn search_fx(row: f32) -> AnyElement {
         let t = signal(STILL);
         let size = signal((0f32, 0f32));
         nsh_core::prelude::effect(move || {
-            if animates(effect, reduce_motion(), lifecycle()) {
+            if animates(effect, crate::motion::reduced(), lifecycle()) {
                 let start = Instant::now();
                 let task = set_interval(Duration::from_secs_f32(1. / effect.fps()), move || t.set(effects::clock(start.elapsed())));
                 cleanup(move || task.cancel());

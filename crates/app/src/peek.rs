@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use futures::StreamExt;
 use futures::channel::mpsc;
@@ -13,70 +13,11 @@ use ui::theme::TOOLBAR_HEIGHT;
 use crate::browser::Browser;
 use crate::prefs::Pref;
 use crate::sidebar::{self, SIDEBAR_MARGIN};
+pub use browser_core::hover::GRACE;
+use browser_core::hover::{CLOSE_DELAY, Hover};
 
-/// The invisible strip at the window's left edge that opens the floating sidebar.
-const EDGE_WIDTH: f32 = 12.;
-const OPEN_DELAY: Duration = Duration::from_millis(100);
-const CLOSE_DELAY: Duration = Duration::from_millis(350);
-/// Faster than this, in points per millisecond, the pointer is passing through, not resting.
-const REST_SPEED: f32 = 0.5;
-/// Room around the card that still counts as on it; the popup window includes it.
-pub const GRACE: f32 = 16.;
 /// The card starts below the toolbar, so the window's own traffic lights stay above it.
 const CARD_TOP: f32 = TOOLBAR_HEIGHT;
-
-/// The floating sidebar's hover rules, fed with pointer moves over the main window and with the
-/// pointer entering or leaving the card's window.
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
-pub struct Hover {
-    pub open: bool,
-    /// Since when the pointer has rested in the edge strip.
-    rest: Option<Instant>,
-    /// Since when the pointer has been off the open card.
-    left: Option<Instant>,
-    last: Option<(f32, f32, Instant)>,
-}
-
-impl Hover {
-    /// A pointer move at `(x, y)` in main-window points, which may lie outside the window of
-    /// `height`; `reach` is the card's right edge plus its grace margin. Returns whether a pending
-    /// open or close changed.
-    pub fn moved(&mut self, x: f32, y: f32, pressed: bool, reach: f32, height: f32, now: Instant) -> bool {
-        let before = (self.rest, self.left);
-        let fast = self.last.is_some_and(|(lx, ly, at)| (x - lx).hypot(y - ly) > REST_SPEED * (now - at).as_secs_f32().max(0.001) * 1000.);
-        self.last = Some((x, y, now));
-        if self.open {
-            self.card((0. ..reach).contains(&x) && (CARD_TOP - GRACE..height).contains(&y), now);
-        } else {
-            let edge = (0. ..EDGE_WIDTH).contains(&x) && (CARD_TOP..height).contains(&y) && !pressed;
-            self.rest = if edge && !fast { self.rest.or(Some(now)) } else { edge.then_some(now) };
-        }
-        before != (self.rest, self.left)
-    }
-
-    /// The pointer entered or left the card's window.
-    pub fn card(&mut self, inside: bool, now: Instant) {
-        self.left = if inside { None } else { self.left.or(Some(now)) };
-    }
-
-    fn opened(&mut self) {
-        *self = Hover { open: true, last: self.last, ..Hover::default() };
-    }
-
-    fn closed(&mut self) {
-        *self = Hover { last: self.last, ..Hover::default() };
-    }
-
-    /// Whether to open (`true`) or close, and how much longer to wait first.
-    pub fn next(&self, now: Instant) -> Option<(bool, Duration)> {
-        let wait = |since: Instant, delay: Duration| delay.saturating_sub(now - since);
-        match (self.open, self.rest, self.left) {
-            (false, Some(since), _) => Some((true, wait(since, OPEN_DELAY))),
-            (true, _, Some(since)) => Some((false, wait(since, CLOSE_DELAY))),
-            _ => None,
-        }
-    }
-}
 
 type Origin = (Bounds<Pixels>, Option<DisplayId>);
 
@@ -150,7 +91,7 @@ impl Browser {
         }
         let reach = SIDEBAR_MARGIN + self.sidebar_width + GRACE;
         let height = f32::from(window.bounds().size.height);
-        if self.peek.hover.moved(x, y, pressed || cx.has_active_drag(), reach, height, Instant::now()) {
+        if self.peek.hover.moved(x, y, pressed || cx.has_active_drag(), reach, CARD_TOP..height, Instant::now()) {
             self.peek.origin = Some((window.bounds(), window.display(cx).map(|d| d.id())));
             self.schedule_peek(cx);
         }
@@ -277,65 +218,5 @@ impl Render for PeekWindow {
             .child(exit.absolute().size_full())
             .child(card)
             .into_any_element()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const REACH: f32 = 300.;
-    const Y: f32 = 400.;
-    const H: f32 = 800.;
-
-    fn at(start: Instant, ms: u64) -> Instant {
-        start + Duration::from_millis(ms)
-    }
-
-    #[test]
-    fn opens_after_resting_in_the_edge_strip() {
-        let (mut hover, t) = (Hover::default(), Instant::now());
-        assert!(!hover.moved(200., Y, false, REACH, H, t));
-        assert_eq!(hover.next(t), None);
-        assert!(hover.moved(EDGE_WIDTH - 1., Y, false, REACH, H, at(t, 400)));
-        assert_eq!(hover.next(at(t, 430)), Some((true, OPEN_DELAY - Duration::from_millis(30))));
-        assert!(!hover.moved(EDGE_WIDTH - 2., Y + 1., false, REACH, H, at(t, 450)), "a slow drift keeps resting");
-        assert_eq!(hover.next(at(t, 500)), Some((true, Duration::ZERO)));
-    }
-
-    #[test]
-    fn ignores_fast_moves_buttons_and_the_toolbar() {
-        let (mut hover, t) = (Hover::default(), Instant::now());
-        hover.moved(4., Y, false, REACH, H, t);
-        hover.moved(4., Y + 60., false, REACH, H, at(t, 20));
-        assert_eq!(hover.next(at(t, 100)), Some((true, Duration::from_millis(20))), "a fast move restarts the wait");
-        hover.moved(40., Y + 60., false, REACH, H, at(t, 30));
-        assert_eq!(hover.next(at(t, 500)), None, "passing through never opens");
-        hover.moved(4., Y, true, REACH, H, at(t, 600));
-        assert_eq!(hover.next(at(t, 800)), None, "not while a button is down");
-        hover.moved(4., CARD_TOP - 1., false, REACH, H, at(t, 900));
-        assert_eq!(hover.next(at(t, 1100)), None, "not beside the traffic lights");
-        hover.moved(-4., Y, false, REACH, H, at(t, 1200));
-        hover.moved(4., H + 10., false, REACH, H, at(t, 1300));
-        assert_eq!(hover.next(at(t, 1500)), None, "not from outside the window");
-    }
-
-    #[test]
-    fn stays_open_on_the_card_and_its_margin_then_closes_after_leaving() {
-        let (mut hover, t) = (Hover::default(), Instant::now());
-        hover.opened();
-        assert_eq!(hover.next(t), None);
-        hover.moved(REACH - 1., Y, false, REACH, H, at(t, 10));
-        assert_eq!(hover.next(at(t, 1000)), None);
-        hover.moved(REACH + 50., Y, false, REACH, H, at(t, 1000));
-        assert_eq!(hover.next(at(t, 1100)), Some((false, CLOSE_DELAY - Duration::from_millis(100))));
-        hover.moved(REACH - 1., H + 10., false, REACH, H, at(t, 1150));
-        assert!(hover.next(at(t, 1150)).is_some(), "below the window is off the card");
-        hover.card(true, at(t, 1200));
-        assert_eq!(hover.next(at(t, 2000)), None, "coming back cancels the close");
-        hover.card(false, at(t, 2000));
-        assert_eq!(hover.next(at(t, 2000 + CLOSE_DELAY.as_millis() as u64)), Some((false, Duration::ZERO)));
-        hover.closed();
-        assert_eq!(hover.next(at(t, 3000)), None);
     }
 }
