@@ -64,7 +64,7 @@ fn sheet(ui: Ui) -> impl IntoElement {
     let panel = slide_up(TRAVEL);
     let close =
         move |next: Screen| {
-            pop_out(scrim, move || ui.show(next));
+            pop_out(scrim, SCRIM, move || ui.show(next));
             drop(panel.play(
                 MotionSpec::new(KeyframeTiming::new(tarn_nsh_shared::motion::EXIT.as_secs_f32() * 1000.)).values(MotionChannel::TranslateY, [0., TRAVEL]),
             ));
@@ -77,6 +77,7 @@ fn sheet(ui: Ui) -> impl IntoElement {
     let icon = url.as_deref().and_then(|u| ui.read(|s| s.site_icon(u)));
     let shown_title = if title.trim().is_empty() { host.clone() } else { title };
     let link = url.clone();
+    let shared = url.clone();
     let copy = move || {
         if let Some(url) = link.clone() {
             set_clipboard(url);
@@ -147,7 +148,16 @@ fn sheet(ui: Ui) -> impl IntoElement {
                         .pb_3()
                         .child(round_target("Copy", move || if copied.get() { glyphs::CHECK } else { glyphs::LINK }, true, copy))
                         .child(round_target("QR Code", || glyphs::QR_CODE, false, move || ui.show(Screen::Qr)))
-                        .child(round_target("More…", || glyphs::ELLIPSIS, false, move || super::panels::share(ui))),
+                        .child(round_target(
+                            "More…",
+                            || glyphs::ELLIPSIS,
+                            false,
+                            move || {
+                                if let Some(url) = shared.clone() {
+                                    super::panels::share(ui, url);
+                                }
+                            },
+                        )),
                 )
                 .child(view().px_3().child(group().overflow_hidden().child(actions))),
         )

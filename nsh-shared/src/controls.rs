@@ -303,8 +303,19 @@ pub fn key_caps(shortcut: &str) -> View {
     view().flex_row().items_center().gap(px(3.)).accessibility_elements_hidden(true).children(caps)
 }
 
+pub fn hint_label(key: &str, does: &str) -> String {
+    format!("{}: {does}", keys_of(key).join(" "))
+}
+
 pub fn key_hint(key: &str, does: &str) -> View {
-    view().flex_row().items_center().gap(px(5.)).child(key_caps(key)).child(text(does.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::faint))
+    view()
+        .accessible(true)
+        .label(hint_label(key, does))
+        .flex_row()
+        .items_center()
+        .gap(px(5.))
+        .child(key_caps(key))
+        .child(text(does.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::faint))
 }
 
 pub fn avatar(initial: String, fill: Rgba, size: f32) -> View {
@@ -402,5 +413,11 @@ mod tests {
         assert_eq!(keys_of("Ctrl++"), ["Ctrl", "+"]);
         assert_eq!(keys_of("F5"), ["F5"]);
         assert!(keys_of("").is_empty());
+    }
+
+    #[test]
+    fn a_key_hint_speaks_the_key_and_what_it_does() {
+        assert_eq!(hint_label("Enter", "Open"), "Enter: Open");
+        assert_eq!(hint_label("Ctrl+Shift+Y", "Downloads"), "Ctrl Shift Y: Downloads");
     }
 }

@@ -84,7 +84,11 @@ pub fn day_chart(days: &[(&str, i64)]) -> View {
                 .into_element()
         })
         .collect();
-    view().flex_row().items_end().gap_1().h(px(CHART_HEIGHT + 40.)).accessibility_elements_hidden(true).children(bars)
+    view().flex_row().items_end().gap_1().h(px(CHART_HEIGHT + 40.)).accessible(true).label(day_summary(days)).children(bars)
+}
+
+pub fn day_summary(days: &[(&str, i64)]) -> String {
+    days.iter().map(|(day, n)| format!("{day} {}", browser_core::shield_card::thousands((*n).max(0) as u64))).collect::<Vec<_>>().join(", ")
 }
 
 pub fn share_bar(n: i64, most: i64) -> View {
@@ -138,5 +142,10 @@ mod tests {
         assert_eq!(colour("white", 1.), rgb(0xffffff));
         assert_eq!((bar_height(0, 5), bar_height(5, 5), bar_height(1, 1000)), (0., WEEK_HEIGHT, 3.));
         assert_eq!((scaled_height(0, 9, 90.), scaled_height(9, 9, 90.), scaled_height(3, 9, 90.), scaled_height(1, 1000, 90.)), (0., 90., 30., 3.));
+    }
+
+    #[test]
+    fn the_day_chart_speaks_every_day_and_count() {
+        assert_eq!(day_summary(&[("Mon", 0), ("Tue", 1234), ("Wed", -2)]), "Mon 0, Tue 1,234, Wed 0");
     }
 }
