@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 pub use browser_core::sidebar::{Step, Swipe};
 
 use super::Browser;
