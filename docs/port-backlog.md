@@ -20,6 +20,23 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
+### Settings › Developer (2026-11-17)
+
+What it does: a switch for the developer tools (Web Inspector through Inspect Element, the JSON viewer,
+responsive sizes, local servers) and the Developer profile; the Web Inspector never opens on Lockdown
+pages.
+Shared API: `devkit::SETTING`, `Store::create_dev_profile`, `Profile::is_dev`;
+`tarn_nsh_shared::panes::Pane::Developer`.
+macOS reference: `crates/app/src/settings.rs` (`developer`); Linux: `linux/src/browser/devtools.rs`,
+`linux/src/ui/settings.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/browser/devtools.rs`, `linux/src/ui/settings.rs`
+- [ ] iOS — the pane in `mobile/app` (the Mac layout's Settings window skips `Pane::Developer` today) and
+  `WKWebView.isInspectable` in `mobile/ios` behind the switch, off under Lockdown
+- [ ] Android — the same pane and `WebView.setWebContentsDebuggingEnabled` in `TarnWebView`, which
+  turns it off today, behind the switch
+
 ### Shared tablet tables that macOS and Linux still duplicate (2026-11-17)
 
 What it does: the tablet Mac layout reads its tab menu, keyboard shortcuts, command palette and trackpad
