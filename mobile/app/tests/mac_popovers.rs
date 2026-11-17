@@ -1,3 +1,4 @@
+use nsh_core::ViewKind;
 use nsh_core::geometry::{Bounds, Points, Size};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
@@ -40,6 +41,17 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
     assert!((centre(card) - centre(chip)).abs() < 0.5 || card.origin.x.0 <= 8.5, "centred under the chip: {chip:?} {card:?}");
     app.press_key("escape").unwrap();
     app.wait_for_gone("Open a site to choose its level.", WAIT).unwrap();
+
+    app.type_text("id:address", "example.com").unwrap();
+    app.submit("id:address").unwrap();
+    app.wait_for("label:Share").unwrap();
+    let page_shown = |app: &Headless| app.screen().layout_nodes().iter().any(|n| n.kind == ViewKind::Native && !n.hidden && n.bounds.size.height.0 > 0.);
+    assert!(page_shown(&app));
+    app.press("label:Shield: Standard").unwrap();
+    app.wait_for("id:popover").unwrap();
+    assert!(page_shown(&app), "the page stays visible behind a popover");
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("id:popover", WAIT).unwrap();
 
     app.press("label:Menu").unwrap();
     app.wait_for("label:Downloads").unwrap();
