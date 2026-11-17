@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use browser_core::snapshot::{self, SpaceSnapshot};
 use browser_core::split::{Share, Split};
 use browser_core::tabs::{TabKey, duplicates};
-use store::{Bookmark, Counter, Id, Schedule, Snapshot};
+use store::{Bookmark, Counter, Id, Snapshot};
 use url::Url;
 
 use crate::data::Platform;
@@ -193,19 +193,6 @@ impl<D: Platform> Shell<D> {
         }
         let Some(ix) = browser_core::schedule::due(&self.model.spaces, self.model.space_ix, weekday, hour, self.switched_at, now) else { return false };
         self.switch_space(ix);
-        true
-    }
-
-    pub fn schedule(&self, ix: usize) -> Schedule {
-        self.model.spaces.get(ix).map(|s| s.space.schedule).unwrap_or_default()
-    }
-
-    pub fn set_schedule(&mut self, ix: usize, schedule: Schedule) -> bool {
-        let Some(space) = self.model.spaces.get(ix).filter(|s| !s.private) else { return false };
-        if self.core.disk.set_space_schedule(space.space.id, schedule).is_err() {
-            return false;
-        }
-        self.model.reload_spaces(&self.core);
         true
     }
 

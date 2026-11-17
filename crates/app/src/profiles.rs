@@ -24,7 +24,6 @@ use crate::toolbar::shield_badge;
 
 actions!(profiles, [NewProfile, EditProfile, ConfirmProfile, NextField, PreviousField, NextOption, PreviousOption]);
 
-const MAX_NAME: usize = 48;
 const DEFAULT_COLOR: usize = 2;
 
 pub fn bind_keys(cx: &mut App) {
@@ -52,18 +51,11 @@ pub struct ProfileEditor {
     pub(crate) field: usize,
     pub(crate) focus: FocusHandle,
     pub(crate) space: Option<SpaceCard>,
-    /// Shown in the space popover above the sidebar instead of over the page.
     pub(crate) floating: bool,
     _subscription: Subscription,
 }
 
-/// The trimmed name without control or bidi characters, if it is non-empty and not taken.
-pub fn valid_name<'a>(raw: &str, taken: impl IntoIterator<Item = &'a str>) -> Option<String> {
-    let name: String = raw.trim().chars().filter(|c| !c.is_control() && !ui::text::is_bidi(*c)).take(MAX_NAME).collect();
-    let name = name.trim_end().to_owned();
-    let free = taken.into_iter().all(|t| !t.trim().eq_ignore_ascii_case(&name));
-    (!name.is_empty() && free).then_some(name)
-}
+pub use browser_core::space_card::valid_name;
 
 use browser_core::command::engine_key;
 
@@ -166,12 +158,13 @@ impl Browser {
         self.start_editor(editing, false, window, cx);
     }
 
-    /// Opens the editor over the page, or with `floating` for the space popover, which leaves the
-    /// page, the reader and the command card as they are.
     pub(crate) fn start_editor(&mut self, editing: Option<Id>, floating: bool, window: &mut Window, cx: &mut Context<Self>) {
         let profile = editing.and_then(|id| self.core.disk.profile(id).ok());
         if editing.is_some() && profile.is_none() {
             return;
+        }
+        if floating && (self.inline_editing() || self.overlay_exit.is_some() || self.profile_editor.as_ref().is_some_and(|e| !e.floating)) {
+            self.close_command(window, cx);
         }
         if !floating {
             self.command_mode = None;
@@ -186,6 +179,7 @@ impl Browser {
         let subscription = cx.subscribe_in(&name, window, |b, _, event: &TextInputEvent, window, cx| match event {
             TextInputEvent::Submit => b.confirm_profile(window, cx),
             TextInputEvent::Cancel => b.dismiss_overlay(window, cx),
+            TextInputEvent::MenuClosed => b.space_menu_closed(cx),
             _ => cx.notify(),
         });
         let color = profile.and_then(|p| PROFILE_COLORS.iter().position(|(n, _)| *n == p.color)).unwrap_or(DEFAULT_COLOR);
@@ -306,17 +300,34 @@ impl Browser {
                     rt.profile.color = color.into();
                 }
             }
-            None => self.create_profile(&editor, &name, color, ["Home", "", ""], window, cx),
+            None => {
+                self.create_profile(&editor, &name, color, ["Home", "", ""], window, cx);
+            }
         }
     }
 
     /// Writes the profile with its first space, given as `[name, color, icon]`, and switches to it.
-    pub(crate) fn create_profile(&mut self, editor: &ProfileEditor, name: &str, color: &str, space: [&str; 3], window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn create_profile(
+        &mut self,
+        editor: &ProfileEditor,
+        name: &str,
+        color: &str,
+        space: [&str; 3],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let shared = editor.share.and_then(|id| self.core.disk.profile(id).ok()).map(|mut p| {
             share_store(&self.core.disk, &mut p);
             p.data_store_uuid
         });
-        let Ok(profile) = self.core.disk.create_profile(name, &uuid::Uuid::new_v4().to_string(), false) else { return };
+        let profile = match self.core.disk.create_profile(name, &uuid::Uuid::new_v4().to_string(), false) {
+            Ok(profile) => profile,
+            Err(e) => {
+                self.warning = Some(format!("The profile could not be created ({e})."));
+                cx.notify();
+                return false;
+            }
+        };
         let id = profile.id;
         let written = self
             .core
@@ -331,12 +342,13 @@ impl Browser {
             self.core.disk.delete_profile(id).ok();
             self.warning = Some(format!("The profile could not be created ({e})."));
             cx.notify();
-            return;
+            return false;
         }
         self.reload_spaces();
         if let Some(ix) = self.model.spaces.iter().position(|s| !s.private && s.space.profile_id == id) {
             self.switch_space(ix, window, cx);
         }
+        true
     }
 
     /// Deletes a saved profile with its spaces, tabs and history; website data goes too unless
@@ -403,8 +415,6 @@ pub(crate) fn focus_ring(d: Div, on: bool) -> Div {
     d.p(px(2.)).rounded(px(Theme::radius_row() + 2.)).border_2().border_color(if on { Theme::accent_soft().into() } else { transparent_black() })
 }
 
-/// A text field drawn like the Library's search field: a raised fill without an edge, which
-/// turns accent when focused.
 pub(crate) fn input(focused: bool) -> Div {
     div().h(px(32.)).px_2().flex().flex_col().justify_center().rounded(px(Theme::radius_row())).bg(Theme::raised()).border_1().border_color(if focused {
         Theme::accent_soft().into()
@@ -413,7 +423,6 @@ pub(crate) fn input(focused: bool) -> Div {
     })
 }
 
-/// A list row drawn like the Library's rows: the chosen one carries the accent tint.
 pub(crate) fn choice_row(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<Div> {
     div()
         .id(id)
@@ -563,7 +572,6 @@ pub fn render_editor(b: &Browser, window: &Window, cx: &mut Context<Browser>) ->
     )
 }
 
-/// The editor's card, without its width and placement.
 pub(crate) fn editor_card(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut Context<Browser>) -> gpui::Stateful<Div> {
     let (title, subtitle, body, leading, confirm, ready) = match &editor.space {
         Some(card) => crate::spaces::parts(b, editor, card, window, cx),
@@ -606,20 +614,6 @@ pub(crate) fn editor_card(b: &Browser, editor: &ProfileEditor, window: &Window, 
                 .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).child(title))
                 .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(subtitle)),
         )
-        .child(body)
+        .child(div().id("profile-editor-body").flex_shrink().min_h_0().overflow_y_scroll().child(body))
         .child(footer)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn names_are_trimmed_cleaned_and_unique() {
-        assert_eq!(valid_name("  Work  ", []), Some("Work".into()));
-        assert_eq!(valid_name("   ", []), None);
-        assert_eq!(valid_name("Wo\u{202e}rk\n", []), Some("Work".into()));
-        assert_eq!(valid_name("work", ["Personal", " Work"]), None);
-        assert_eq!(valid_name(&"x".repeat(200), []).map(|n| n.chars().count()), Some(MAX_NAME));
-    }
 }

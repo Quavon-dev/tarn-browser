@@ -286,7 +286,6 @@ pub struct Browser {
     pub peek: crate::peek::Peek,
     pub library: Option<WindowHandle<crate::library::LibraryWindow>>,
     pub(crate) library_closed: Option<std::time::Instant>,
-    /// The popover that shows the space card, and the main window it belongs to.
     pub(crate) space_popover: Option<(WindowHandle<crate::spaces::SpacePopover>, WindowHandle<Browser>)>,
     pub(crate) space_closed: Option<std::time::Instant>,
     pub(crate) samples: crate::memory::Samples,
@@ -1323,7 +1322,7 @@ impl Browser {
             input.set_placeholder(placeholder);
             input.set_text(text, cx);
         });
-        if self.model.active.is_some() && self.profile_editor.is_none() {
+        if self.model.active.is_some() && !self.profile_editor.as_ref().is_some_and(|e| !e.floating) {
             self.open_inline(window, cx);
         } else if let Some(view) = self.active_view() {
             view.set_visible(false);

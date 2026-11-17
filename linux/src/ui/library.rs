@@ -1,15 +1,19 @@
+use browser_core::space_card::SpaceDraft;
 use nsh_core::prelude::*;
-use store::Schedule;
+use store::{Id, Profile, Schedule};
+use tarn_nsh_shared::icons::SPACE_ICONS;
+use tarn_nsh_shared::theme::PROFILE_COLORS;
 
-use super::panels::{popover, section};
+use super::panels::{capitalised, heading, popover, section};
 use super::tools::{line, note};
 use super::{Panel, Ui, act, read, site_tile};
 use crate::browser::Browser;
-use crate::controls::{accent_pill, label, pill, small, title};
+use crate::controls::{accent_pill, label, pill, pressable, small, title};
 use crate::icons;
 use crate::memory;
 use crate::theme::Theme;
 
+const FIELD_WIDTH: f32 = 388.;
 const DAYS: [(&str, u8); 7] = [("Mon", 1), ("Tue", 2), ("Wed", 3), ("Thu", 4), ("Fri", 5), ("Sat", 6), ("Sun", 0)];
 
 fn hour(value: u8, set: impl Fn(u8) + Copy + 'static) -> View {
@@ -22,12 +26,112 @@ fn hour(value: u8, set: impl Fn(u8) + Copy + 'static) -> View {
         .child(crate::controls::icon_button(icons::CHEVRON_RIGHT, "Later", move || set((value + 1) % 24)))
 }
 
-fn schedule_rows(ui: Ui, schedule: Schedule) -> View {
-    let set = move |f: fn(&mut Schedule, u8), value: u8| {
-        let mut next = schedule;
-        f(&mut next, value);
-        act(ui, move |b| b.set_space_schedule(next));
+fn draft<R>(ui: Ui, f: impl FnOnce(&SpaceDraft) -> R) -> Option<R> {
+    ui.space_draft.with(|d| d.as_ref().map(f))
+}
+
+fn edit_draft(ui: Ui, f: impl FnOnce(&mut SpaceDraft)) {
+    ui.space_draft.update(|d| {
+        if let Some(d) = d {
+            f(d);
+        }
+    });
+}
+
+fn ready(ui: Ui) -> bool {
+    let Some(d) = ui.space_draft.with(Clone::clone) else { return false };
+    read(ui, |b| d.ready(&b.model.spaces, &b.core.disk.profiles().unwrap_or_default()).is_some()) == Some(true)
+}
+
+fn confirm(ui: Ui) {
+    let Some(d) = ui.space_draft.get_untracked().filter(|_| ready(ui)) else { return };
+    let saved = std::cell::Cell::new(false);
+    act(ui, |b| saved.set(b.save_space(&d)));
+    if saved.get() {
+        ui.panel.set(Panel::None);
+    }
+}
+
+fn field(ui: Ui, name: &str, get: fn(&SpaceDraft) -> String, set: fn(&mut SpaceDraft, String)) -> nsh_base::Input {
+    super::bound_field(move || draft(ui, get).unwrap_or_default(), move |v| edit_draft(ui, |d| set(d, v)), name, FIELD_WIDTH)
+        .on_submit(move |_: &str| confirm(ui))
+}
+
+fn footer(ui: Ui, name: &str) -> View {
+    view()
+        .flex_row()
+        .justify_end()
+        .gap_2()
+        .child(pill("Cancel", move || super::show(ui, Panel::None)))
+        .child(accent_pill(name, move || confirm(ui)).disabled(move || !ready(ui)).disabled_style(|s| s.text_color(Theme::faint())))
+}
+
+fn swatches(ui: Ui, chosen: &str, none: bool, set: fn(&mut SpaceDraft, String)) -> View {
+    let dots: Vec<AnyElement> = none
+        .then_some("")
+        .into_iter()
+        .chain(PROFILE_COLORS.iter().map(|(name, _)| *name))
+        .map(|name| {
+            let label = if name.is_empty() { "No Color".to_owned() } else { capitalised(name) };
+            pressable(label, move || edit_draft(ui, |d| set(d, name.to_owned())))
+                .w(px(22.))
+                .h(px(22.))
+                .rounded_full()
+                .items_center()
+                .justify_center()
+                .border_1()
+                .border_color(Theme::hairline())
+                .bg(Theme::profile_color(name).unwrap_or(Theme::control()))
+                .text_color(if name.is_empty() { Theme::text() } else { rgb(0xffffff) })
+                .children((name == chosen).then(|| icons::icon(icons::CHECK, 12.)))
+                .into_element()
+        })
+        .collect();
+    view().flex_row().flex_wrap().gap_2().children(dots)
+}
+
+fn icon_grid(ui: Ui, d: &SpaceDraft) -> View {
+    let tint = Theme::profile_color(&d.color).unwrap_or(Theme::accent());
+    let chosen = if d.icon.is_empty() { SPACE_ICONS[0].0 } else { d.icon.as_str() };
+    let cells: Vec<AnyElement> = SPACE_ICONS
+        .iter()
+        .map(|&(name, glyph)| {
+            let on = name == chosen;
+            crate::controls::row(capitalised(name), move || edit_draft(ui, |d| d.icon = name.to_owned()))
+                .w(px(30.))
+                .h(px(30.))
+                .px_0()
+                .justify_center()
+                .bg(if on { Theme::selected() } else { Theme::clear() })
+                .text_color(if on { tint } else { Theme::muted() })
+                .child(icons::icon(glyph, 16.))
+                .into_element()
+        })
+        .collect();
+    view().flex_row().flex_wrap().gap_1().children(cells)
+}
+
+fn profile_rows(ui: Ui, profiles: &[Profile], chosen: Option<Id>) -> View {
+    let choice = |name: String, id: Option<Id>, lead: View| {
+        crate::controls::row(name.clone(), move || edit_draft(ui, |d| d.profile = id))
+            .bg(if chosen == id { Theme::selected() } else { Theme::clear() })
+            .child(lead.w(px(16.)).items_center())
+            .child(label(name).flex_1().truncate())
+            .into_element()
     };
+    let rows: Vec<AnyElement> = profiles
+        .iter()
+        .map(|p| {
+            let dot = view().w(px(8.)).h(px(8.)).rounded_full().bg(Theme::profile_color(&p.color).unwrap_or(Theme::faint()));
+            choice(p.name.clone(), Some(p.id), view().child(dot))
+        })
+        .chain([choice("New Profile…".to_owned(), None, view().text_color(Theme::muted()).child(icons::icon(icons::PLUS, 14.)))])
+        .collect();
+    view().flex_col().gap(px(2.)).children(rows)
+}
+
+fn schedule_rows(ui: Ui, schedule: Schedule) -> View {
+    let set = move |f: fn(&mut Schedule, u8), value: u8| edit_draft(ui, |d| f(&mut d.schedule, value));
     let days: Vec<AnyElement> = DAYS
         .iter()
         .map(|(name, bit)| {
@@ -62,20 +166,61 @@ fn schedule_rows(ui: Ui, schedule: Schedule) -> View {
         .child(note("On these days and hours each window switches to this space, unless you changed space in the last hour. No days, no schedule."))
 }
 
+pub fn new_space_panel(ui: Ui) -> AnyElement {
+    if ui.space_draft.with_untracked(Option::is_none) {
+        ui.space_draft.set(read(ui, Browser::new_space_draft));
+    }
+    let profiles = read(ui, |b| b.core.disk.profiles().unwrap_or_default()).unwrap_or_default();
+    let new_profile = move || {
+        view()
+            .flex_col()
+            .gap_2()
+            .child(note("Starts empty, with its own logins, cookies, site data, history and bookmarks."))
+            .child(section("Profile Name"))
+            .child(field(ui, "Profile Name", |d| d.profile_name.clone(), |d, v| d.profile_name = v))
+            .child(section("Profile Color"))
+            .child(dynamic(move || draft(ui, |d| swatches(ui, &d.profile_color, false, |d, c| d.profile_color = c))))
+    };
+    popover()
+        .child(heading(ui, title("New Space")))
+        .child(note("A space keeps its own tabs, pinned tabs and folders; spaces of one profile share its logins, cookies and history."))
+        .child(section("Profile"))
+        .child(dynamic(move || draft(ui, |d| profile_rows(ui, &profiles, d.profile))))
+        .child(when(move || draft(ui, |d| d.profile.is_none()) == Some(true), new_profile))
+        .child(section("Space Name"))
+        .child(field(ui, "Space Name", |d| d.name.clone(), |d, v| d.name = v))
+        .child(section("Color"))
+        .child(dynamic(move || draft(ui, |d| swatches(ui, &d.color, true, |d, c| d.color = c))))
+        .child(section("Icon"))
+        .child(dynamic(move || draft(ui, |d| icon_grid(ui, d))))
+        .child(footer(ui, "Create Space"))
+        .into_element()
+}
+
 pub fn space_panel(ui: Ui) -> AnyElement {
-    let Some((name, schedule, snapshots)) = read(ui, |b| (ui.snap.with(|s| s.space_name.clone()), b.space_schedule(), b.snapshots())) else {
+    let Some((current, snapshots)) = read(ui, |b| (b.model.current_space().map(SpaceDraft::edit), b.snapshots())) else {
         return view().into_element();
     };
-    let mut body = popover().child(super::panels::heading(ui, title(format!("Space “{name}”")).truncate())).child(super::panels::rename_row(
-        ui,
-        format!("space {:?}", ui.snap.with_untracked(|s| s.space)),
-        &name,
-        move |name| act(ui, |b| b.rename_space(&name)),
-    ));
-    body = match schedule {
-        Some(schedule) => body.child(section("Schedule")).child(schedule_rows(ui, schedule)),
-        None => body.child(note("A private space has no schedule or snapshots.")),
+    let target = |d: &SpaceDraft| (d.editing, d.private);
+    if ui.space_draft.with_untracked(|d| d.as_ref().map(target)) != current.as_ref().map(target) {
+        ui.space_draft.set(current);
+    }
+    let private = ui.space_draft.with_untracked(|d| d.as_ref().is_some_and(|d| d.private));
+    let mut body = popover()
+        .child(heading(ui, title("Edit Space")))
+        .child(note("Rename the space, give it another colour and icon, or schedule it."))
+        .child(section("Name"))
+        .child(field(ui, "Name", |d| d.name.clone(), |d, v| d.name = v));
+    if !private {
+        body = body.child(section("Color")).child(dynamic(move || draft(ui, |d| swatches(ui, &d.color, true, |d, c| d.color = c))));
+    }
+    body = body.child(section("Icon")).child(dynamic(move || draft(ui, |d| icon_grid(ui, d))));
+    body = if private {
+        body.child(note("A private space has no schedule or snapshots."))
+    } else {
+        body.child(section("Schedule")).child(dynamic(move || draft(ui, |d| schedule_rows(ui, d.schedule))))
     };
+    body = body.child(footer(ui, "Save"));
     let rows: Vec<AnyElement> = snapshots
         .into_iter()
         .map(|saved| {

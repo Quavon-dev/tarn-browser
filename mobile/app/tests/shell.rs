@@ -6,6 +6,20 @@ use tarn_mobile::shell::{Effect, Shell};
 
 type TestShell = Shell<Memory>;
 
+fn add_space<D: Platform>(shell: &mut Shell<D>, name: &str) -> bool {
+    let mut draft = shell.space_draft(None);
+    draft.name = name.into();
+    shell.save_space(&draft)
+}
+
+fn add_profile<D: Platform>(shell: &mut Shell<D>, name: &str) -> bool {
+    let mut draft = shell.space_draft(None);
+    draft.profile = None;
+    draft.profile_name = name.into();
+    draft.name = "Home".into();
+    shell.save_space(&draft)
+}
+
 fn open() -> (tempfile::TempDir, TestShell) {
     let dir = tempfile::tempdir().unwrap();
     let shell = TestShell::open(dir.path());
@@ -184,15 +198,45 @@ fn the_private_space_uses_its_own_ephemeral_store_and_forgets_everything() {
 fn spaces_and_profiles_have_their_own_tabs_and_stores() {
     let (_dir, mut shell) = open();
     let personal = shell.views()[0].profile.clone();
-    assert!(shell.new_space("Work"));
+    assert!(add_space(&mut shell, "Work"));
     assert_eq!(shell.views()[0].profile, personal, "a space of the same profile shares its store");
-    assert!(shell.new_profile("Banking"));
+    assert!(add_profile(&mut shell, "Banking"));
     let banking = shell.views()[0].profile.clone();
     assert_ne!(banking, personal);
     let names: Vec<(String, String)> = shell.spaces().into_iter().map(|s| (s.name, s.profile)).collect();
     assert_eq!(names, [("Home".into(), "Personal".into()), ("Work".into(), "Personal".into()), ("Home".into(), "Banking".into())]);
     shell.switch_space(0);
     assert_eq!(shell.views()[0].profile, personal);
+}
+
+#[test]
+fn space_drafts_create_edit_and_add_a_profile_only_when_saved() {
+    let (_dir, mut shell) = open();
+    let mut draft = shell.space_draft(None);
+    assert_eq!(draft.name, "Space 2");
+    draft.name = "Work".into();
+    draft.icon = "code".into();
+    assert!(shell.save_space(&draft));
+    let work = shell.model.space_ix;
+    assert_eq!(shell.model.spaces[work].space.name, "Work", "a new space is switched to");
+
+    let mut edit = shell.space_draft(Some(work));
+    edit.name = "Home".into();
+    assert!(!shell.save_space(&edit), "a name taken in the profile is refused");
+    edit.name = "Code".into();
+    edit.color = "blue".into();
+    assert_eq!(shell.model.spaces[work].space.name, "Work", "nothing changes before Save");
+    assert!(shell.save_space(&edit));
+    assert_eq!((shell.model.spaces[work].space.name.as_str(), shell.model.spaces[work].space.color.as_str()), ("Code", "blue"));
+
+    let mut fresh = shell.space_draft(None);
+    fresh.profile = None;
+    fresh.profile_name = "Banking".into();
+    fresh.profile_color = "green".into();
+    assert!(shell.save_space(&fresh));
+    let names: Vec<(String, String)> = shell.spaces().into_iter().map(|s| (s.name, s.profile)).collect();
+    assert_eq!(names, [("Home".into(), "Personal".into()), ("Code".into(), "Personal".into()), ("Space 3".into(), "Banking".into())]);
+    assert_eq!(shell.model.current_space().map(|s| s.space.name.as_str()), Some("Space 3"));
 }
 
 #[test]
@@ -349,7 +393,7 @@ fn a_space_round_trip_reloads_the_page_the_tab_shows_and_drops_its_prompts() {
     finish(&mut shell, "https://b.test/later", "B");
     let key = active(&shell);
     shell.event(key, "prompt", &json!({ "id": 1, "kind": "alert", "origin": "https://b.test" }), 3);
-    assert!(shell.new_space("Work"));
+    assert!(add_space(&mut shell, "Work"));
     assert!(shell.prompts.is_empty(), "a hidden tab's view is gone, and its prompts with it");
     shell.switch_space(0);
     assert_eq!(active(&shell), key);
@@ -533,7 +577,7 @@ fn the_private_process_shows_only_the_private_space_and_closes_through_the_platf
     assert!(shell.model.private());
     assert!(shell.views()[0].profile.starts_with("private:"));
     assert!(shell.spaces().iter().all(|s| s.private));
-    assert!(!shell.new_profile("Work"), "no persistent profile in the private process");
+    assert!(!add_profile(&mut shell, "Work"), "no persistent profile in the private process");
     shell.close_private();
     assert!(shell.model.private());
     assert_eq!(HANDED_OFF.with(|h| h.take()), vec!["close"]);
