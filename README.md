@@ -119,6 +119,25 @@ the Linux, iOS and Android apps. Pages render in each platform's own engine.
   </tr>
 </table>
 
+### iPhone, iPad and Android
+
+<table>
+  <tr>
+    <td width="25%"><img src="docs/media/store/ios-phone/02-browse.png" alt="Tarn on iPhone showing a Wikipedia article with the address bar at the bottom" /></td>
+    <td width="25%"><img src="docs/media/store/ios-phone/03-shield-card.png" alt="The Shield card on iPhone counting tracking parameters removed on this device" /></td>
+    <td width="25%"><img src="docs/media/store/android-phone/05-tabs.png" alt="The tab grid on Android" /></td>
+    <td width="25%"><img src="docs/media/store/android-phone/06-themes.png" alt="Tarn on Android in the Ember theme with the theme picker open" /></td>
+  </tr>
+</table>
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/store/ios-tablet/01-split.png" alt="Split View on iPad with the WebKit blog and a Wikipedia article side by side" /></td>
+    <td width="50%"><img src="docs/media/store/android-tablet/01-split.png" alt="Split View on an Android tablet with Hacker News and the WebKit blog side by side" /></td>
+  </tr>
+</table>
+
+<sub>App Store and Google Play sets at their store sizes: <a href="docs/media/store/"><code>docs/media/store/</code></a>.</sub>
+
 ## Platforms
 
 macOS is the lead client; every feature ships on all five in the same change.
