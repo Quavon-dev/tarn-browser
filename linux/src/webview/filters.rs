@@ -8,7 +8,7 @@ use webkit6::{UserContentFilter, UserContentFilterStore, gio, glib};
 
 use shield::cache;
 use shield::groups::{self as bundle, Group};
-use shield::update::describe;
+use shield::update::{Status, describe};
 
 pub type Waiter = Box<dyn FnOnce()>;
 
@@ -22,6 +22,7 @@ thread_local! {
     static STORE: UserContentFilterStore = UserContentFilterStore::new(&crate::data::root().join("webkit-filters").to_string_lossy());
     static BUILTIN: RefCell<HashMap<ShieldLevel, UserContentFilter>> = RefCell::default();
     static GROUPS: RefCell<Groups> = const { RefCell::new(Groups::Idle) };
+    static LOADED: RefCell<Status> = RefCell::default();
 }
 
 async fn compile(identifier: String, source: String) -> Result<UserContentFilter, String> {
@@ -53,7 +54,7 @@ fn ready_groups() {
         let mut compiled = HashMap::new();
         match loaded {
             Ok((groups, verified)) => {
-                crate::filter_updates::loaded(&verified);
+                LOADED.with_borrow_mut(|s| s.installed(&verified));
                 for group in groups {
                     let name = group.name;
                     match compile_group(group).await {
@@ -68,7 +69,7 @@ fn ready_groups() {
             Err(e) => {
                 eprintln!("tarn: no filter lists installed ({e})");
                 if floor.is_some() {
-                    crate::filter_updates::failed(e);
+                    LOADED.with_borrow_mut(|s| s.error = Some(e));
                 }
             }
         }
@@ -80,7 +81,15 @@ fn ready_groups() {
     });
 }
 
-pub async fn replace(groups: Vec<Group>) -> Result<(), String> {
+pub fn loaded() -> Status {
+    LOADED.with_borrow(Clone::clone)
+}
+
+pub fn replace(groups: Vec<Group>, done: impl FnOnce(Result<(), String>) + 'static) {
+    glib::MainContext::default().spawn_local(async move { done(replace_groups(groups).await) });
+}
+
+async fn replace_groups(groups: Vec<Group>) -> Result<(), String> {
     let mut first_error = None;
     for group in groups {
         let name = group.name;
