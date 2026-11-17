@@ -77,11 +77,13 @@ final class Host {
 
     static boolean shareFile(String path) {
         if (activity == null || app == null) return false;
-        File dir = new File(app.getCacheDir(), CARD_DIR);
-        File card = new File(dir, new File(path).getName());
+        File source = new File(path);
+        File parent = source.getParentFile();
+        if (parent == null) return false;
+        File card = new File(new File(new File(app.getCacheDir(), CARD_DIR), parent.getName()), source.getName());
         Uri uri;
         try {
-            Files.createDirectories(dir.toPath());
+            Files.createDirectories(card.getParentFile().toPath());
             Files.copy(Paths.get(path), card.toPath(), StandardCopyOption.REPLACE_EXISTING);
             uri = FileProvider.getUriForFile(app, app.getPackageName() + "." + CARD_DIR, card);
         } catch (IOException | RuntimeException e) {
