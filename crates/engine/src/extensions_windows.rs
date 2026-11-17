@@ -17,6 +17,7 @@ pub struct Enabled {
     pub confirmed: Vec<String>,
     pub allowed: Vec<String>,
     pub denied: Vec<String>,
+    pub bitwarden: bool,
 }
 
 impl Extension {
