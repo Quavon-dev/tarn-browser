@@ -607,6 +607,30 @@ fn answer(state: &Rc<State>, args: &JsonValue) {
     }
 }
 
+fn save_pdf(state: &Rc<State>, web: &WebView, args: &JsonValue) {
+    let Some(path) = args["path"].as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()) else { return };
+    let settings = gtk::PrintSettings::new();
+    settings.set_printer(&glib::dgettext(Some("gtk40"), "Print to File"));
+    settings.set(gtk::PRINT_SETTINGS_OUTPUT_FILE_FORMAT, Some("pdf"));
+    settings.set(gtk::PRINT_SETTINGS_OUTPUT_URI, Some(&webkit6::gio::File::for_path(&path).uri()));
+    let operation = webkit6::PrintOperation::builder().web_view(web).print_settings(&settings).build();
+    let tab = state.tab.borrow().clone();
+    let url = web.uri().map(|u| policy::without_credentials(&u)).unwrap_or_default();
+    let held = Rc::new(RefCell::new(Some(operation.clone())));
+    let (failed, failed_tab, failed_url, failed_path) = (held.clone(), tab.clone(), url.clone(), path.clone());
+    operation.connect_failed(move |_, error| {
+        if failed.take().is_some() {
+            session::report_saved(&failed_tab, &failed_url, &failed_path, Err(error.message().to_owned()));
+        }
+    });
+    operation.connect_finished(move |_| {
+        if held.take().is_some() {
+            session::report_saved(&tab, &url, &path, Ok(()));
+        }
+    });
+    operation.print();
+}
+
 fn find(state: &Rc<State>, args: &JsonValue) {
     let Some(web) = state.web() else { return };
     let Some(finder) = web.find_controller() else { return };
@@ -907,6 +931,12 @@ impl NativeComponent for TarnWebView {
             }
             "back" | "forward" | "reload" => {}
             "stop" => web.stop_loading(),
+            "print" => {
+                glib::idle_add_local_once(move || {
+                    webkit6::PrintOperation::new(&web).run_dialog(web.root().and_downcast::<gtk::Window>().as_ref());
+                });
+            }
+            "pdf" => save_pdf(state, &web, args),
             "zoom" => {
                 let factor = policy::zoom_factor(args["factor"].as_f64().unwrap_or(1.0));
                 state.zoom.set(factor);

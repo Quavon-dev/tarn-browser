@@ -19,13 +19,6 @@ pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
         .on_action(cx.listener(|b, _: &PictureInPicture, _, cx| b.picture_in_picture(cx)))
 }
 
-/// A file name for a capture of the page: its title, else its host, as one safe path component.
-pub fn file_name(title: &str, url: Option<&Url>, ext: &str) -> String {
-    let title = ui::text::bounded_title(title);
-    let base = if title.is_empty() { url.and_then(Url::host_str).unwrap_or("Page") } else { &title };
-    format!("{}.{ext}", engine::downloads::sanitize_filename(&base.replace(['/', '\\'], "-")))
-}
-
 pub fn markdown_link(title: &str, url: &str) -> String {
     let title = ui::text::bounded_title(title);
     let text = if title.is_empty() { url } else { &title };
@@ -77,7 +70,7 @@ impl Browser {
         cx: &mut Context<Self>,
     ) {
         let (profile_id, url, title) = page;
-        let name = file_name(&title, Url::parse(&url).ok().as_ref(), if screenshot { "png" } else { "pdf" });
+        let name = browser_core::text::capture_name(&title, Url::parse(&url).ok().as_ref(), if screenshot { "png" } else { "pdf" });
         let result = bytes
             .ok_or_else(|| if cfg!(windows) { "Chromium could not capture the page" } else { "WebKit could not capture the page" }.to_owned())
             .and_then(|bytes| {
@@ -142,17 +135,6 @@ pub(crate) fn write_download(name: &str, bytes: &[u8]) -> std::io::Result<PathBu
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn capture_names_are_one_safe_component() {
-        let url = Url::parse("https://news.example/a").ok();
-        assert_eq!(file_name("Q3 / Q4 report", url.as_ref(), "pdf"), "Q3 - Q4 report.pdf");
-        assert_eq!(file_name("  \u{202E}", url.as_ref(), "png"), "news.example.png");
-        assert_eq!(file_name("", None, "png"), "Page.png");
-        assert_eq!(file_name("../../etc", None, "pdf"), "-..-etc.pdf");
-        assert_eq!(file_name("..", None, "pdf"), "download.pdf");
-        assert_eq!(file_name("a:b\nc", None, "png"), "a_b c.png");
-    }
 
     #[test]
     fn markdown_links_escape_brackets_and_parentheses() {

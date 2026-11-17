@@ -29,6 +29,13 @@ pub fn bounded_title(raw: &str) -> String {
     out
 }
 
+/// A file name for a capture of the page: its title, else its host, as one safe path component.
+pub fn capture_name(title: &str, url: Option<&url::Url>, ext: &str) -> String {
+    let title = bounded_title(title);
+    let base = if title.is_empty() { url.and_then(url::Url::host_str).unwrap_or("Page") } else { &title };
+    format!("{}.{ext}", engine::downloads::sanitize_filename(&base.replace(['/', '\\'], "-")))
+}
+
 pub fn is_bidi(c: char) -> bool {
     // Kept in sync with engine::downloads and ai::page_context, which cannot depend on `browser-core`.
     matches!(c, '\u{061C}' | '\u{115F}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{E0000}'..='\u{E007F}')
@@ -44,6 +51,17 @@ mod tests {
             assert!(is_bidi(c), "{:?}", c);
         }
         assert!(!is_bidi('a') && !is_bidi('é'));
+    }
+
+    #[test]
+    fn capture_names_are_one_safe_component() {
+        let url = url::Url::parse("https://news.example/a").ok();
+        assert_eq!(capture_name("Q3 / Q4 report", url.as_ref(), "pdf"), "Q3 - Q4 report.pdf");
+        assert_eq!(capture_name("  \u{202E}", url.as_ref(), "png"), "news.example.png");
+        assert_eq!(capture_name("", None, "png"), "Page.png");
+        assert_eq!(capture_name("../../etc", None, "pdf"), "-..-etc.pdf");
+        assert_eq!(capture_name("..", None, "pdf"), "download.pdf");
+        assert_eq!(capture_name("a:b\nc", None, "png"), "a_b c.png");
     }
 
     #[test]

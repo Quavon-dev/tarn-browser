@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use browser_core::command::rank_commands;
+use nsh_core::file_dialog::{FileFilter, SaveDialog};
 use nsh_core::prelude::*;
 
 use super::{Panel, Ui, act, read, show};
@@ -34,6 +35,8 @@ pub enum Command {
     CopyLink,
     CopyCleanLink,
     ShowQrCode,
+    SavePdf,
+    Print,
     SaveSnapshot,
     Snapshots,
     Memory,
@@ -44,7 +47,7 @@ pub enum Command {
     Space(SpaceCommand),
 }
 
-const COMMANDS: [(&str, &str, Command); 23] = [
+const COMMANDS: [(&str, &str, Command); 24] = [
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
     ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
@@ -56,6 +59,7 @@ const COMMANDS: [(&str, &str, Command); 23] = [
     ("Copy Link", "url address", Command::CopyLink),
     ("Copy Clean Link", "url tracking parameters utm strip", Command::CopyCleanLink),
     ("Show QR Code", "phone scan link", Command::ShowQrCode),
+    ("Save Page as PDF", "export print", Command::SavePdf),
     ("Save Space as Snapshot", "session tabs save", Command::SaveSnapshot),
     ("Restore Snapshot…", "session tabs open", Command::Snapshots),
     ("Memory", "process cpu ram usage sleep", Command::Memory),
@@ -126,6 +130,8 @@ pub fn run(ui: Ui, command: Command) {
         Command::CopyLink => copy_link(ui, false),
         Command::CopyCleanLink => copy_link(ui, true),
         Command::ShowQrCode => show_qr(ui),
+        Command::SavePdf => save_pdf(ui),
+        Command::Print => act(ui, Browser::print),
         Command::SaveSnapshot => act(ui, Browser::save_snapshot),
         Command::Snapshots => show(ui, Panel::Space),
         Command::Memory => show(ui, Panel::Memory),
@@ -161,6 +167,18 @@ pub fn show_qr(ui: Ui) {
         ui.panel.set(Panel::Qr);
         act(ui, |_| {});
     }
+}
+
+fn save_pdf(ui: Ui) {
+    let Some((key, url, name)) = read(ui, Browser::pdf_name).flatten() else { return };
+    let dialog = SaveDialog::new().file_name(name).filter(FileFilter::new("PDF document", ["pdf"])).directory(crate::webview::session::downloads_dir());
+    ui.root.run(|| {
+        drop(spawn(async move {
+            if let Ok(Some(path)) = pick_save_path(dialog).await {
+                act(ui, |b| b.save_pdf(key, &url, &path));
+            }
+        }))
+    });
 }
 
 pub fn open_find_tabs(ui: Ui) {
@@ -205,6 +223,7 @@ fn action(command: Command) -> Option<Action> {
         Command::CopyLink => Some(Action::CopyLink),
         Command::CopyCleanLink => Some(Action::CopyCleanLink),
         Command::Reader => Some(Action::ToggleReader),
+        Command::Print => Some(Action::Print),
         Command::BurnerTab => Some(Action::BurnerTab),
         Command::FindInTabs => Some(Action::FindInTabs),
         Command::NewWindow => Some(Action::NewWindow),
@@ -329,6 +348,13 @@ pub fn share_panel(ui: Ui) -> AnyElement {
         .child(item("Copy Link", Command::CopyLink, Some(Action::CopyLink)))
         .child(item("Copy Clean Link", Command::CopyCleanLink, Some(Action::CopyCleanLink)))
         .child(item("Show QR Code", Command::ShowQrCode, None))
+        .child(
+            view().flex_col().gap_1().pt_1().border_t_1().border_color(Theme::hairline()).child(item("Save Page as PDF", Command::SavePdf, None)).child(item(
+                "Print…",
+                Command::Print,
+                Some(Action::Print),
+            )),
+        )
         .into_element()
 }
 

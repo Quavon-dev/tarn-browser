@@ -1632,6 +1632,7 @@ fn run_action(ui: Ui, action: Action) {
         Action::CopyLink => tools::copy_link(ui, false),
         Action::CopyCleanLink => tools::copy_link(ui, true),
         Action::ToggleReader => act(ui, |b| b.toggle_reader()),
+        Action::Print => act(ui, Browser::print),
         Action::ShowHistory => show(ui, Panel::History),
         Action::ToggleDownloads => show(ui, Panel::Downloads),
         Action::ToggleSidebar => toggle_sidebar(ui),

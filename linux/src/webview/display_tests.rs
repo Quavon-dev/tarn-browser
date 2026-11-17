@@ -274,3 +274,36 @@ fn icon_candidates_stop_once_the_tab_leaves_the_origin() {
     assert_eq!(event(&state, "iconData").unwrap()["text"], "");
     assert_eq!(second_seen.load(Ordering::SeqCst), 0, "no candidate is asked once the tab shows another origin");
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn save_pdf_prints_the_page_to_the_chosen_file_and_lists_it_as_a_download() {
+    gtk::init().expect("a display");
+    let route = RefCell::new(session::route());
+    let state = view(ShieldLevel::Standard, "private:display-pdf");
+    *state.tab.borrow_mut() = "tab-pdf".to_owned();
+    let web = open(&state);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("Title.pdf");
+    save_pdf(&state, &web, &json!({ "path": "relative.pdf" }));
+    save_pdf(&state, &web, &json!({ "path": path }));
+    let reported = RefCell::new(None);
+    let arrived = || {
+        if reported.borrow().is_none() {
+            *reported.borrow_mut() = route.borrow_mut().try_recv().ok();
+        }
+        reported.borrow().is_some()
+    };
+    assert!(spin_until(arrived, 30), "the save was reported");
+    let (tab, data) = reported.take().unwrap();
+    assert_eq!(tab, "tab-pdf");
+    assert_eq!(
+        (data["state"].as_str(), data["name"].as_str(), data["url"].as_str()),
+        (Some("finished"), Some("Title.pdf"), Some("http://page.test/")),
+        "{data}"
+    );
+    assert_eq!(data["path"], json!(path));
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.starts_with(b"%PDF-"), "a PDF was written");
+    assert!(!dir.path().join("relative.pdf").exists() && std::fs::read_dir(dir.path()).unwrap().count() == 1, "a relative path is refused");
+}
