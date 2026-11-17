@@ -12,27 +12,35 @@ use crate::icon::{Icon, icon};
 use crate::theme::{Elevation, ROW_HEIGHT, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, Theme};
 
 pub fn button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
+    themed_button(id, None, text, primary)
+}
+
+pub fn icon_text_button(id: impl Into<ElementId>, glyph: Icon, text: impl Into<SharedString>) -> Stateful<Div> {
+    themed_button(id, Some(glyph), text, false)
+}
+
+fn themed_button(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
     let colors = if primary { (Theme::accent(), Theme::surface_edge()) } else { (Theme::control(), Theme::hairline()) };
     let label = if primary { Theme::on_fill(Theme::accent()) } else { Theme::text() };
-    pill(id, text, primary, colors, label).when(!primary, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
+    pill(id, glyph, text, primary, colors, label).when(!primary, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
 }
 
 /// A button on a security surface (prompts, banners, blocking pages), in colours no theme sets.
 pub fn secure_button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
     let colors = if primary { (Secure::accent(), Secure::surface_edge()) } else { (Secure::control(), Secure::hairline()) };
-    pill(id, text, primary, colors, if primary { Theme::on_accent() } else { Secure::text() })
+    pill(id, None, text, primary, colors, if primary { Theme::on_accent() } else { Secure::text() })
         .font_family(SYSTEM_FONT)
         .when(!primary, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
 }
 
 pub fn secure_ghost_button(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
-    pill(id, text, false, (Secure::surface(), Secure::surface()), Secure::text())
+    pill(id, None, text, false, (Secure::surface(), Secure::surface()), Secure::text())
         .font_family(SYSTEM_FONT)
         .hover(|s| s.bg(Secure::hover()))
         .active(|s| s.bg(Secure::pressed()))
 }
 
-fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
+fn pill(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
     div()
         .id(id)
         .flex_none()
@@ -50,6 +58,7 @@ fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, 
         .when(primary, |d| d.font_weight(FontWeight::MEDIUM))
         .text_color(color)
         .when(primary, |d| d.hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7)))
+        .children(glyph.map(|g| icon(g, 13., Theme::muted())))
         .child(text.into())
 }
 

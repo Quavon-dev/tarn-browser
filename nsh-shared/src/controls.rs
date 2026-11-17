@@ -85,7 +85,7 @@ pub fn icon_button<M>(icon: impl IntoElement, name: impl IntoProp<Option<SharedS
     .child(icon)
 }
 
-fn pill_button(name: String, press: impl Fn() + 'static, primary: bool) -> ButtonElement {
+fn pill_button(name: String, glyph: Option<&str>, press: impl Fn() + 'static, primary: bool) -> ButtonElement {
     let m = metrics();
     let button = if primary {
         button().accessibility_label(name.clone()).on_press(press).hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7))
@@ -95,6 +95,7 @@ fn pill_button(name: String, press: impl Fn() + 'static, primary: bool) -> Butto
     .flex_row()
     .items_center()
     .justify_center()
+    .gap_1p5()
     .border_1()
     .border_color(if primary { Theme::surface_edge } else { Theme::hairline })
     .bg(if primary { Theme::accent } else { Theme::control });
@@ -103,6 +104,7 @@ fn pill_button(name: String, press: impl Fn() + 'static, primary: bool) -> Butto
         Density::Touch => button.min_h(px(m.pill_height)).px_4().rounded_full(),
         Density::Desktop => button.h(px(m.pill_height)).px_3().rounded(px(m.pill_height / 2.)),
     }
+    .children(glyph.map(|g| view().text_color(Theme::muted).child(icons::icon(g, m.text))))
     .child(if primary { text.font_weight(FontWeight::MEDIUM).text_color(|| Theme::on_fill(Theme::accent())) } else { text })
 }
 
@@ -157,11 +159,25 @@ pub fn secure_surface(radius: f32) -> View {
 }
 
 pub fn pill(name: impl Into<String>, press: impl Fn() + 'static) -> ButtonElement {
-    pill_button(name.into(), press, false)
+    pill_button(name.into(), None, press, false)
+}
+
+pub fn icon_pill(glyph: &str, name: impl Into<String>, press: impl Fn() + 'static) -> ButtonElement {
+    pill_button(name.into(), Some(glyph), press, false)
 }
 
 pub fn accent_pill(name: impl Into<String>, press: impl Fn() + 'static) -> ButtonElement {
-    pill_button(name.into(), press, true)
+    pill_button(name.into(), None, press, true)
+}
+
+pub fn pill_grid(pills: Vec<ButtonElement>) -> View {
+    let mut pills = pills.into_iter().map(|p| p.flex_1().min_w_0().into_element());
+    let mut grid = view().flex_col().gap_2();
+    while let Some(first) = pills.next() {
+        let second = pills.next().unwrap_or_else(|| view().flex_1().into_element());
+        grid = grid.child(view().flex_row().gap_2().child(first).child(second));
+    }
+    grid
 }
 
 pub type Segment = (String, Box<dyn Fn() -> bool>, Box<dyn Fn()>);
