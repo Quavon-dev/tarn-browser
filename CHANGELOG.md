@@ -34,8 +34,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Added
 
 - Site icons in tiles, tab rows, split panes, history, bookmarks, suggestions and the site and share
-  popovers on Linux, and on tab cards and the share sheet on iOS and Android, kept per profile as on
-  macOS. Android takes the icon its web view reports and runs no script in the page for it.
+  popovers on Linux, and on tab cards and the share sheet on iOS, kept per profile as on macOS.
+  Android shows letter tiles and makes no icon request of its own.
 
 ### Changed
 

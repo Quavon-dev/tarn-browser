@@ -191,10 +191,8 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn icon_event(&mut self, key: TabKey, name: &str, data: &Value, png: Option<Vec<u8>>) {
-        match name {
-            "iconData" => self.icon_data(key, data, png),
-            "pageIcon" => self.page_icon(key, data, png),
-            _ => {}
+        if name == "iconData" {
+            self.icon_data(key, data, png);
         }
     }
 
@@ -202,16 +200,6 @@ impl<D: Platform> Shell<D> {
         let Some((_, profile, host, ticket)) = self.icon_answer(key, data, Script::Icon) else { return };
         self.icon_done(key, &profile, &host);
         self.keep_icon(profile, &host, ticket, png);
-    }
-
-    fn page_icon(&mut self, key: TabKey, data: &Value, png: Option<Vec<u8>>) {
-        let Some((profile, host)) = self.current_page(key, data).filter(|_| D::page_world_scripts()).and_then(|url| self.icon_key(key, &url)) else {
-            return;
-        };
-        self.load_icons(profile);
-        if let Some(ticket) = self.icons.request(&profile, &host) {
-            self.keep_icon(profile, &host, ticket, png);
-        }
     }
 
     pub(crate) fn forget_icons(&mut self, profile: (bool, Id)) {
@@ -278,7 +266,7 @@ impl<D: Platform> Shell<D> {
                 }
             }
             "iconLinks" => return self.icon_links(key, data),
-            "iconData" | "pageIcon" => self.icon_event(key, name, data, favicon::normalize(&text(data, "text"))),
+            "iconData" => self.icon_event(key, name, data, favicon::normalize(&text(data, "text"))),
             "textFound" => self.text_found(key, data),
             "picked" => self.picked(key, data),
             "shielded" => self.shielded_event(key, data),

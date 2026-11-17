@@ -566,55 +566,14 @@ fn a_closed_tab_does_not_hold_its_sites_icon_request() {
 }
 
 #[test]
-fn page_world_platforms_keep_the_icon_their_engine_reports_without_a_script() {
+fn page_world_platforms_request_no_site_icons() {
     let dir = tempfile::tempdir().unwrap();
     let mut shell = Shell::<PageWorld>::open(dir.path());
     let key = shell.model.active.unwrap();
-    let load = |shell: &mut Shell<PageWorld>, url: &str| {
-        shell.navigate(url);
-        let page = json!({ "url": url, "title": "A", "canGoBack": false, "canGoForward": false });
-        shell.event(key, "committed", &page, 1);
-        assert!(shell.event(key, "finished", &page, 2).is_empty(), "no icon script after a load");
-    };
-    let icon = |shell: &mut Shell<PageWorld>, url: &str, text: &str| shell.event(key, "pageIcon", &json!({ "url": url, "text": text }), 3);
-
-    load(&mut shell, "https://a.test/");
-    icon(&mut shell, "https://b.test/", PNG);
-    assert!(shell.site_icon("https://b.test/").is_none(), "only for the page the tab shows");
-    for url in ["http://a.test/", "https://a.test:8443/"] {
-        load(&mut shell, url);
-        icon(&mut shell, url, PNG);
-        assert!(shell.site_icon("https://a.test/").is_none());
-    }
-    shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
-    load(&mut shell, "https://a.test/");
-    icon(&mut shell, "https://a.test/", PNG);
-    assert!(shell.site_icon("https://a.test/").is_none(), "never under Lockdown");
-    shell.set_site_level(None);
-
-    load(&mut shell, "https://a.test/");
-    icon(&mut shell, "https://a.test/", "not an image");
-    assert!(shell.site_icon("https://a.test/").is_none());
-    icon(&mut shell, "https://a.test/", PNG);
-    assert!(shell.site_icon("https://www.a.test/x").is_some_and(|i| i.starts_with("data:image/png;base64,")));
-    assert!(Shell::<PageWorld>::open(dir.path()).site_icon("https://a.test/").is_some(), "stored per profile");
-
-    shell.enter_private();
-    let key = shell.model.active.unwrap();
-    shell.navigate("https://p.test/");
-    let page = json!({ "url": "https://p.test/", "title": "P", "canGoBack": false, "canGoForward": false });
+    shell.navigate("https://a.test/");
+    let page = json!({ "url": "https://a.test/", "title": "A", "canGoBack": false, "canGoForward": false });
     shell.event(key, "committed", &page, 1);
-    shell.event(key, "pageIcon", &json!({ "url": "https://p.test/", "text": PNG }), 2);
-    assert!(shell.site_icon("https://p.test/").is_some());
-    shell.close_private();
-    assert!(Shell::<PageWorld>::open(dir.path()).site_icon("https://p.test/").is_none(), "private icons are not stored");
-}
-
-#[test]
-fn engines_with_an_isolated_world_ignore_page_icons() {
-    let (_dir, mut shell) = open();
-    visit(&mut shell, "https://a.test/", "A");
-    shell.event(active(&shell), "pageIcon", &json!({ "url": "https://a.test/", "text": PNG }), 3);
+    assert!(shell.event(key, "finished", &page, 2).is_empty(), "no icon script after a load");
     assert!(shell.site_icon("https://a.test/").is_none());
 }
 

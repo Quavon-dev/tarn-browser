@@ -5,7 +5,6 @@ import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Message;
 import android.os.SystemClock;
-import android.util.Base64;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -38,7 +37,6 @@ import com.longbridge.nsh.NshComponent;
 import com.longbridge.nsh.NshComponentContext;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -534,7 +532,10 @@ final class TarnWebView implements NshComponent {
         CookieManager cookies = Stores.cookies(name);
         if (cookies != null) cookies.setAcceptThirdPartyCookies(view, false);
         view.setWebViewClient(new Client());
-        siteIcons(view);
+        view.setWebChromeClient(new Chrome());
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOWNLOAD_FAVICONS_ENABLED)) {
+            WebSettingsCompat.setDownloadFaviconsEnabled(settings, false);
+        }
         view.setDownloadListener(this::download);
         view.setOnTouchListener((touched, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) emit("pressed");
@@ -573,14 +574,6 @@ final class TarnWebView implements NshComponent {
     private void setJavaScript(int action) {
         javaScriptOn = action == Native.CONTINUE_JS;
         web.getSettings().setJavaScriptEnabled(javaScriptOn);
-        siteIcons(web);
-    }
-
-    private void siteIcons(WebView view) {
-        view.setWebChromeClient(javaScriptOn ? new IconChrome() : new Chrome());
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOWNLOAD_FAVICONS_ENABLED)) {
-            WebSettingsCompat.setDownloadFaviconsEnabled(view.getSettings(), javaScriptOn);
-        }
     }
 
     private boolean admitPopup(long now) {
@@ -1234,20 +1227,6 @@ final class TarnWebView implements NshComponent {
             resultMsg.sendToTarget();
             container.postDelayed(() -> popup.caught(null), POPUP_WAIT_MS);
             return true;
-        }
-    }
-
-    private final class IconChrome extends Chrome {
-        private Page iconPage;
-
-        @Override
-        public void onReceivedIcon(WebView view, Bitmap icon) {
-            Page current = top;
-            if (current == null || current == iconPage || pending != null || !javaScriptOn) return;
-            ByteArrayOutputStream png = new ByteArrayOutputStream();
-            if (!icon.compress(Bitmap.CompressFormat.PNG, 100, png)) return;
-            iconPage = current;
-            emit("pageIcon", "url", current.url(), "text", Base64.encodeToString(png.toByteArray(), Base64.NO_WRAP));
         }
     }
 
