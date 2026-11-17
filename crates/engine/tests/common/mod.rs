@@ -64,7 +64,7 @@ const SUB_WAIT: &str = "<title>SUB</title><script>addEventListener('load', () =>
 
 const SUB_LATE: &str = "<title>SUB</title><script>setTimeout(() => { location.search = '?ok&again'; }, 4000);</script>";
 
-const STORE_LINK: &str = "https://extension.tarnbrowser.com/install/helper";
+const STORE_LINK: &str = "https://extensions.tarnbrowser.com/install/helper";
 
 /// Serves the test site; `seen` gets `host path` of every request.
 pub fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {

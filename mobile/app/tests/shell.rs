@@ -789,7 +789,7 @@ fn store_links_install_only_from_a_profile_tab_outside_lockdown() {
     assert!(!shell.store_link_allowed(key), "from a Lockdown site");
     assert!(shell.set_site_level(None));
     assert!(shell.store_link_allowed(key));
-    shell.navigate("https://extension.tarnbrowser.com/install/helper");
+    shell.navigate("https://extensions.tarnbrowser.com/install/helper");
     shell.event(key, browser_core::extensions::STORE_EVENT, &json!({ "id": "helper" }), 3);
     assert!(!shell.pages[&key].loading, "the cancelled load stops");
     shell.enter_private();

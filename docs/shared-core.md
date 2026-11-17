@@ -108,7 +108,7 @@ Store install link: every implementation cancels a main-frame navigation the use
 (`nav_policy::store_link_asks`: a shell load that is not a link or pop-up the shell loads for a
 page, or a link click with a user gesture)
 whose URL `tarn_ext::store_install` maps to a catalog id (exactly
-`https://extension.tarnbrowser.com/install/<id>`, with or without a final `/`), before any
+`https://extensions.tarnbrowser.com/install/<id>`, with or without a final `/`), before any
 request, and reports `Event::StoreInstall(id)`; NSH engines emit `tarn_ext::STORE_EVENT`
 (`storeInstall`, `{id}`). Redirects, subframes and script navigations without a gesture load
 normally. WebKit on macOS reads the gesture from the navigation action's private

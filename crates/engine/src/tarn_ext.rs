@@ -18,8 +18,8 @@ pub const WORLD_PREFIX: &str = "tarn-ext-";
 pub const POST: &str = "__tarnExtPost";
 pub const RECEIVE: &str = "__tarnExtReceive";
 pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
-pub const STORE_HOST: &str = "extension.tarnbrowser.com";
-pub const STORE_URL: &str = "https://extension.tarnbrowser.com/";
+pub const STORE_HOST: &str = "extensions.tarnbrowser.com";
+pub const STORE_URL: &str = "https://extensions.tarnbrowser.com/";
 pub const STORE_EVENT: &str = "storeInstall";
 /// Starts the messages an engine's own setup code sends; the shim only sends JSON objects.
 pub const HELLO: char = '\u{1}';
@@ -321,36 +321,36 @@ mod tests {
     #[test]
     fn only_the_store_install_address_names_a_catalog_id() {
         let id = |s: &str| store_install(&Url::parse(s).unwrap());
-        assert_eq!(id("https://extension.tarnbrowser.com/install/ublock-lite"), Some("ublock-lite".into()));
-        assert_eq!(id("https://extension.tarnbrowser.com/install/ublock-lite/"), Some("ublock-lite".into()));
-        assert_eq!(id("https://EXTENSION.tarnbrowser.com/install/a1?x=1#y"), Some("a1".into()));
-        assert_eq!(id("https://extension.tarnbrowser.com:443/install/a1"), Some("a1".into()));
-        assert_eq!(id(&format!("https://extension.tarnbrowser.com/install/{}", "a".repeat(64))), Some("a".repeat(64)));
+        assert_eq!(id("https://extensions.tarnbrowser.com/install/ublock-lite"), Some("ublock-lite".into()));
+        assert_eq!(id("https://extensions.tarnbrowser.com/install/ublock-lite/"), Some("ublock-lite".into()));
+        assert_eq!(id("https://EXTENSIONS.tarnbrowser.com/install/a1?x=1#y"), Some("a1".into()));
+        assert_eq!(id("https://extensions.tarnbrowser.com:443/install/a1"), Some("a1".into()));
+        assert_eq!(id(&format!("https://extensions.tarnbrowser.com/install/{}", "a".repeat(64))), Some("a".repeat(64)));
         for refused in [
-            "http://extension.tarnbrowser.com/install/a1",
-            "https://extension.tarnbrowser.com./install/a1",
-            "https://evil.extension.tarnbrowser.com/install/a1",
+            "http://extensions.tarnbrowser.com/install/a1",
+            "https://extensions.tarnbrowser.com./install/a1",
+            "https://evil.extensions.tarnbrowser.com/install/a1",
             "https://tarnbrowser.com/install/a1",
-            "https://extension.tarnbrowser.com.evil.test/install/a1",
-            "https://extension.tarnbrowser.com:8443/install/a1",
-            "https://user@extension.tarnbrowser.com/install/a1",
-            "https://:pw@extension.tarnbrowser.com/install/a1",
-            "https://extension.tarnbrowser.com/",
-            "https://extension.tarnbrowser.com/install/",
-            "https://extension.tarnbrowser.com/install//",
-            "https://extension.tarnbrowser.com/install",
-            "https://extension.tarnbrowser.com/extension/a1",
-            "https://extension.tarnbrowser.com/install/a1/b",
-            "https://extension.tarnbrowser.com/install/a1//",
-            "https://extension.tarnbrowser.com/install/A1",
-            "https://extension.tarnbrowser.com/install/a_1",
-            "https://extension.tarnbrowser.com/install/a%2D1",
-            "https://extension.tarnbrowser.com/x/install/a1",
-            "tarn-extension://extension.tarnbrowser.com/install/a1",
+            "https://extensions.tarnbrowser.com.evil.test/install/a1",
+            "https://extensions.tarnbrowser.com:8443/install/a1",
+            "https://user@extensions.tarnbrowser.com/install/a1",
+            "https://:pw@extensions.tarnbrowser.com/install/a1",
+            "https://extensions.tarnbrowser.com/",
+            "https://extensions.tarnbrowser.com/install/",
+            "https://extensions.tarnbrowser.com/install//",
+            "https://extensions.tarnbrowser.com/install",
+            "https://extensions.tarnbrowser.com/extension/a1",
+            "https://extensions.tarnbrowser.com/install/a1/b",
+            "https://extensions.tarnbrowser.com/install/a1//",
+            "https://extensions.tarnbrowser.com/install/A1",
+            "https://extensions.tarnbrowser.com/install/a_1",
+            "https://extensions.tarnbrowser.com/install/a%2D1",
+            "https://extensions.tarnbrowser.com/x/install/a1",
+            "tarn-extension://extensions.tarnbrowser.com/install/a1",
         ] {
             assert_eq!(id(refused), None, "{refused}");
         }
-        assert_eq!(id(&format!("https://extension.tarnbrowser.com/install/{}", "a".repeat(65))), None);
+        assert_eq!(id(&format!("https://extensions.tarnbrowser.com/install/{}", "a".repeat(65))), None);
     }
 
     #[test]

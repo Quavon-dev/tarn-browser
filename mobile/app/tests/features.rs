@@ -427,11 +427,11 @@ fn a_pop_up_to_a_store_link_keeps_its_opener() {
     shell.new_space("Work");
     let work = shell.model.space_ix;
     shell.choose_space(0, 1);
-    visit(&mut shell, "https://extension.tarnbrowser.com/", "Store");
+    visit(&mut shell, "https://extensions.tarnbrowser.com/", "Store");
     assert!(shell.set_site_rule(Some(work)));
     shell.new_tab(None);
     visit(&mut shell, "https://a.test/", "A");
-    let link = "https://extension.tarnbrowser.com/install/helper";
+    let link = "https://extensions.tarnbrowser.com/install/helper";
     shell.event(active(&shell), "popup", &json!({ "url": link, "link": true }), 3);
     assert_eq!(shell.model.space_ix, 0, "not routed as a fresh tab");
     let load = shell.views().iter().filter_map(|v| v.load.clone()).find(|l| l.url == link).unwrap();

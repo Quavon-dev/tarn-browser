@@ -102,7 +102,7 @@ fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
     filters::compile_one("store-block.test".into(), rules.into(), move |f| *slot.borrow_mut() = Some(f));
     assert!(spin_until(|| block.borrow().is_some(), 20), "the test's rule compiled");
     state.content.borrow().as_ref().unwrap().add_filter(block.borrow().as_ref().unwrap());
-    let link = "https://extension.tarnbrowser.com/install/helper";
+    let link = "https://extensions.tarnbrowser.com/install/helper";
     let decided = |state: &State| state.events.borrow().iter().any(|(n, d)| n == "decided" && d["url"].as_str().is_some_and(|u| u.starts_with(link)));
     for script in [
         format!("location.href = '{link}'"),

@@ -329,7 +329,7 @@ mod window {
                 _ => {}
             })
         };
-        let link = "https://extension.tarnbrowser.com/install/helper";
+        let link = "https://extensions.tarnbrowser.com/install/helper";
         let store = WebView::new(&host, &data, ShieldLevel::Standard, true, false, site_for.clone(), store_sink);
         store.set_frame(0., 0., 800., 600.);
         for page in ["store?click", "store?assign", "store-redirect"] {
