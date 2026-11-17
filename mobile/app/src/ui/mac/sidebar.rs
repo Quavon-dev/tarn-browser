@@ -510,6 +510,13 @@ fn renamable(ui: Ui, key: TabKey) -> bool {
 fn spot(bar: Bar, at: Spot, element: View) -> View {
     let handle = element_ref();
     bar.spots.with(|m| m.insert(at, handle));
+    cleanup(move || {
+        bar.spots.with(|m| {
+            if m.get(&at) == Some(&handle) {
+                m.remove(&at);
+            }
+        })
+    });
     element.element_ref(&handle)
 }
 
