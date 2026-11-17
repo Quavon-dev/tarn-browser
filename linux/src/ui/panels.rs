@@ -544,10 +544,14 @@ pub(super) fn icon_choice(ui: Ui, target: String, current: String, set: impl Fn(
 }
 
 pub(super) fn menu_row(name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
+    named_row(browser_core::command::glyph(name), name, keys, press)
+}
+
+pub(super) fn named_row(glyph: &str, name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
     crate::controls::row(name.to_owned(), press)
         .px_2()
         .gap(px(10.))
-        .child(view().w(px(16.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::glyph(browser_core::command::glyph(name)), 15.)))
+        .child(view().w(px(16.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::glyph(glyph), 15.)))
         .child(label(name.to_owned()).flex_1())
         .children(keys.map(|k| tarn_nsh_shared::controls::key_caps(&k)))
 }

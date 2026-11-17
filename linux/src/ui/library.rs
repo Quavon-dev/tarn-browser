@@ -291,14 +291,14 @@ fn section_rows(name: &'static str, rows: Vec<AnyElement>) -> Option<View> {
 }
 
 fn library_links(ui: Ui, reading_list: bool, private: bool) -> View {
-    let link = |name: &'static str, panel: Panel| Some(super::panels::menu_row(name, None, move || super::show(ui, panel)));
+    let link = |glyph: &'static str, name: &'static str, panel: Panel| Some(super::panels::named_row(glyph, name, None, move || super::show(ui, panel)));
     let links = [
-        link("History", Panel::History),
-        link("Bookmarks", Panel::Bookmarks(None)),
-        reading_list.then(|| link("Reading List", Panel::ReadingList)).flatten(),
-        link("Downloads", Panel::Downloads),
-        (!private).then(|| link("Snapshots", Panel::Space)).flatten(),
-        link("Memory", Panel::Memory),
+        link("history", "History", Panel::History),
+        link("bookmark", "Bookmarks", Panel::Bookmarks(None)),
+        reading_list.then(|| link("bookmark", "Reading List", Panel::ReadingList)).flatten(),
+        link("circle-arrow-down", "Downloads", Panel::Downloads),
+        (!private).then(|| link("group", "Snapshots", Panel::Space)).flatten(),
+        link("gauge", "Memory", Panel::Memory),
     ];
     view().flex_col().child(section("Library")).child(crate::controls::group().children(links.into_iter().flatten()))
 }
@@ -325,7 +325,14 @@ fn library_results(ui: Ui, history: &[store::HistoryEntry], query: &str) -> View
         view()
             .flex_col()
             .gap(px(1.))
-            .child(view().flex_row().items_baseline().gap_2().child(section("Open Tabs")).child(small(found.tab_count.to_string()).text_color(Theme::faint())))
+            .child(
+                view()
+                    .flex_row()
+                    .items_end()
+                    .justify_between()
+                    .child(section("Open Tabs"))
+                    .child(small(found.tab_count.to_string()).text_color(Theme::faint()).px_2().pb_2()),
+            )
             .children(empty)
             .children(tabs)
     });
@@ -510,7 +517,8 @@ fn mark_row(ui: Ui, marks: &[Bookmark], mark: &Bookmark, edit: Option<MarkEdit>,
             .child(label(name.clone()).flex_1().truncate()),
     };
     if !actions {
-        return row.into_element();
+        let actions_width = 3. * tarn_nsh_shared::controls::target_size() + 2. * 8.;
+        return row.child(view().w(px(actions_width)).flex_none()).into_element();
     }
     let alone = mark.url.is_some() || !marks.iter().any(|m| m.parent_id == Some(id));
     let deletion = crate::controls::icon_button(icons::TRASH, "Delete", move || match alone {

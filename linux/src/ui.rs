@@ -796,11 +796,11 @@ fn new_tab_row(ui: Ui) -> View {
             view()
                 .w(px(16.))
                 .h(px(16.))
-                .rounded_full()
-                .bg(Theme::accent_soft())
+                .rounded(px(Theme::radius_small()))
+                .bg(Theme::accent())
                 .items_center()
                 .justify_center()
-                .text_color(Theme::space_label())
+                .text_color(Theme::on_fill(Theme::accent()))
                 .child(icons::icon(icons::PLUS, 11.)),
         )
         .child(body("New Tab").text_color(Theme::muted()));
@@ -809,7 +809,6 @@ fn new_tab_row(ui: Ui) -> View {
         .items_center()
         .mb_1()
         .child(new)
-        .child(icon_button(icons::BOOKMARK, "Bookmark All Tabs", move || library::bookmark_all_tabs(ui)))
         .child(icon_button(icons::GROUP, "New Tab Group", move || groups::new_group(ui, None)))
         .child(icon_button(icons::FOLDER_PLUS, "New Folder", move || act(ui, |b| b.new_folder(None))))
         .child(when(
