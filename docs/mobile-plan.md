@@ -707,13 +707,16 @@ Not run in this pass: `Medium_Phone_API_36.1` (the emulator had 344 MB free and 
 - README.
 
 *Status M4:*
-- **CI** (`.github/workflows/ci.yml`): job `mobile` on `macos-15` runs `cargo clippy --all-targets` and
-  `cargo test` in `mobile/`, `cargo clippy --target aarch64-apple-ios-sim --all-targets`, `cargo clippy
-  --target aarch64-linux-android` with the runner's NDK (`$ANDROID_NDK_HOME`, API 28 clang; lib and bin
-  targets only, because `nsh-testing`'s QuickJS bindings do not build for Android) and the debug APK
-  (`android/build.sh` with nsh 0.5.0 from its release archive, SHA-256 checked); job `nsh-shared` on
-  `ubuntu-24.04`. No secrets. Each command was run locally (macOS 27, NDK 28.2; the APK from a fresh nsh
-  install; `nsh-shared` in an `ubuntu:24.04` container). The nsh CLI and its Android runtime
+- **CI** (`.github/workflows/ci.yml`): job `ios` on `macos-15` runs `cargo clippy --all-targets` and
+  `cargo test` in `mobile/`, `cargo clippy --target aarch64-apple-ios-sim --all-targets` and the iOS
+  device build; job `android` on `ubuntu-24.04`, in parallel, runs `cargo clippy --target
+  aarch64-linux-android` with the runner's NDK (`$ANDROID_NDK_HOME`, API 28 clang; lib and bin targets
+  only, because `nsh-testing`'s QuickJS bindings do not build for Android), the arm64-only debug APK
+  (`android/build.sh` with nsh 0.5.0's Linux CLI from its release archive, SHA-256 checked) and the
+  host unit tests (`testDebugUnitTest`); job `nsh-shared` on `ubuntu-24.04`. `release.yml` splits its
+  iOS and Android builds the same way. No secrets. Each command was run locally on macOS (macOS 27,
+  NDK 28.2; the APK from a fresh nsh install; `nsh-shared` in an `ubuntu:24.04` container); the
+  Android build on a Linux host runs only in CI. The nsh CLI and its Android runtime
   (`nsh-android.tar.gz`) are both downloaded with pinned SHA-256 sums. The simulator app itself is not
   packaged in CI (`nsh package --target ios-simulator`), only checked. Engine update pull requests
   run these jobs like any other; `chromium-update.yml` refreshes the `mobile/`, `linux/` and
