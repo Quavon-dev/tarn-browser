@@ -656,7 +656,14 @@ fn a_screenshot_saves_a_new_png_under_the_given_name_only() {
     let window = gtk::Window::builder().default_width(400).default_height(300).child(state.container()).build();
     window.present();
     let web = open(&state);
-    assert!(WebViewExt::settings(&web).unwrap().enables_back_forward_navigation_gestures(), "touchpad swipes step through history");
+    assert!(
+        spin_until(|| web.is_mapped() && WebViewExt::settings(&web).unwrap().enables_back_forward_navigation_gestures(), 10),
+        "touchpad swipes step through history on a page on screen"
+    );
+    window.set_child(None::<&gtk::Widget>);
+    assert!(spin_until(|| !WebViewExt::settings(&web).unwrap().enables_back_forward_navigation_gestures(), 10), "and not once the page is off screen");
+    window.set_child(Some(state.container()));
+    assert!(spin_until(|| web.is_mapped(), 10), "the page is back on screen");
     state.events.borrow_mut().clear();
     screenshot(&state, &web, &json!({ "seq": 3, "name": "../tarn-display-snapshot.png" }));
     assert!(spin_until(|| event(&state, "screenshot").is_some(), 20), "the screenshot answered");
