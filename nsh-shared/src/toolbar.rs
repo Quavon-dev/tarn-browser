@@ -1,8 +1,8 @@
-use nsh_base::{ButtonElement, TooltipElement};
+use nsh_base::ButtonElement;
 use nsh_core::element::IntoProp;
 use nsh_core::prelude::*;
 
-use crate::controls::{glyph_tile, icon_button, key_hint, pressable, site_tile};
+use crate::controls::{glyph_tile, icon_button, key_hint, pressable, site_tile, tip};
 use crate::icons;
 use crate::motion::{fading, popping};
 use crate::theme::{Paint, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, Theme};
@@ -32,11 +32,6 @@ pub fn chip_radius() -> f32 {
 
 pub fn small(content: impl IntoReactive<SharedString>) -> Text {
     text(content).text_size(px(TEXT_SMALL)).text_color(Theme::muted)
-}
-
-pub fn tip(name: &str, side: Placement) -> TooltipElement {
-    let bubble = view().px_2().py_1().rounded(px(Theme::radius_small())).surface();
-    nsh_base::tooltip().placement(side).child(bubble.child(small(name.to_owned()).text_color(Theme::text)))
 }
 
 /// A toolbar icon button whose tooltip goes on `side`, away from the page.

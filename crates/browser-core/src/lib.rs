@@ -35,6 +35,7 @@ pub mod prompts;
 pub mod routing;
 pub mod schedule;
 pub mod shield_card;
+pub mod shortcuts;
 pub mod sidebar;
 pub mod site;
 pub mod snapshot;

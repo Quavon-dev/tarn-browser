@@ -1,7 +1,7 @@
-use nsh_base::{ButtonElement, TooltipElement, button, tooltip};
+use nsh_base::{ButtonElement, button};
 use nsh_core::prelude::*;
 
-use crate::controls::icon_button;
+use crate::controls::{icon_button, tip};
 use crate::icons;
 use crate::theme::{PROFILE_COLORS, Paint, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
 
@@ -32,11 +32,6 @@ pub fn tile_grid(width: f32) -> (usize, f32) {
 pub fn group_color(color: &str, id: i64) -> Rgba {
     let fixed = PROFILE_COLORS[id.unsigned_abs() as usize % PROFILE_COLORS.len()];
     rgb(PROFILE_COLORS.iter().find(|(n, _)| *n == color).unwrap_or(&fixed).1)
-}
-
-pub fn tip(name: &str, side: Placement) -> TooltipElement {
-    let bubble = view().px_2().py_1().rounded(px(Theme::radius_small())).surface();
-    tooltip().placement(side).child(bubble.child(text(name.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::text())))
 }
 
 pub fn glyph_button(glyph: &'static str, name: &str, side: Placement, press: impl Fn() + 'static) -> ButtonElement {

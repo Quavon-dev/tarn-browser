@@ -9,13 +9,12 @@ use nsh_base::{PopoverEvent, button, input, popover};
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use store::{Id, TabKind};
-use tarn_nsh_shared::controls::{avatar, site_tile};
+use tarn_nsh_shared::controls::{avatar, site_tile, tip};
 use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::motion::spinner;
 use tarn_nsh_shared::sidebar::{
     BUTTON, CLOSE_GAP, CLOSE_WIDTH, FOOTER_HEIGHT, GLYPH, HEADER_HEIGHT, HEADER_INSET, INDENT, INNER_PAD, MARGIN, ROW_GAP, ROW_INSET, STATE_GLYPH, TAB_ROW,
     TILE_GAP, TILE_ICON, WIDTH, divider, glyph_button, group_color, menu_card, menu_heading, menu_item, menu_separator, new_tab_mark, progress_ring, tile_grid,
-    tip,
 };
 
 use super::super::{AppShell, Screen, Ui, bars, panels};
@@ -380,6 +379,7 @@ fn tab_row(bar: Bar, key: TabKey, depth: usize) -> View {
         .opacity(move || f32::from(u8::from(shown())))
         .child(glyph_button(glyphs::CLOSE, "Close Tab", Placement::Top, move || act(ui, |s| s.close_tab(key))));
     let row = pressable_view()
+        .test_id("tab")
         .label(title)
         .on_press(move |e: &PressEvent| {
             activate(ui, key);

@@ -318,6 +318,11 @@ pub fn key_hint(key: &str, does: &str) -> View {
         .child(text(does.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::faint))
 }
 
+pub fn tip(name: &str, side: Placement) -> nsh_base::TooltipElement {
+    let bubble = view().px_2().py_1().rounded(px(Theme::radius_small())).surface();
+    nsh_base::tooltip().placement(side).child(bubble.child(text(name.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::text)))
+}
+
 pub fn avatar(initial: String, fill: Rgba, size: f32) -> View {
     view()
         .w(px(size))
