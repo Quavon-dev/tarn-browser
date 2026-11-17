@@ -259,8 +259,15 @@ pub fn undo_sort<D: WebsiteData>(model: &mut Model, core: &Core<D>, (private, un
     done
 }
 
+/// The unpinned tabs in the order the sidebar shows them: each group's in turn, then the loose ones.
+pub fn unpinned_order(model: &Model) -> Vec<TabKey> {
+    let grouped = model.groups.iter().flat_map(|g| sorted(model, |t| t.kind == TabKind::Ephemeral && t.group_id == Some(g.id)));
+    let loose = sorted(model, |t| t.kind == TabKind::Ephemeral && t.group_id.is_none());
+    grouped.chain(loose).map(|t| model.key(t)).collect()
+}
+
 pub fn tabs_below(model: &Model, key: TabKey) -> Vec<TabKey> {
-    model.ephemeral_keys().into_iter().skip_while(|k| *k != key).skip(1).collect()
+    unpinned_order(model).into_iter().skip_while(|k| *k != key).skip(1).collect()
 }
 
 pub fn other_unpinned(model: &Model, key: TabKey) -> Vec<TabKey> {
@@ -337,6 +344,21 @@ mod tests {
         let t = core.disk.create_tab(s, kind, folder, "https://a.test/", "").unwrap();
         model.reload_space(core);
         model.key(&t)
+    }
+
+    #[test]
+    fn tabs_below_follow_the_sidebar_where_groups_come_before_loose_tabs() {
+        let (_dir, core, mut model) = opened();
+        let (a, b, c) = (
+            tab(&core, &mut model, TabKind::Ephemeral, None),
+            tab(&core, &mut model, TabKind::Ephemeral, None),
+            tab(&core, &mut model, TabKind::Ephemeral, None),
+        );
+        let group = new_group(&mut model, &core, Some(c)).unwrap();
+        assert_eq!(group_tabs(&model, group), [c]);
+        assert_eq!(tabs_below(&model, a), [b], "the grouped tab shows above the loose ones");
+        assert_eq!(tabs_below(&model, c), [a, b]);
+        assert_eq!(tabs_below(&model, b), []);
     }
 
     #[test]
