@@ -26,6 +26,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and
   your rights, and states per client what it describes.
 
+### Fixed
+
+- Windows: the installer always installs into the current user's `AppData\Local\Programs\Tarn`,
+  also after the user profile moved to another drive, and a link set up with Make Default follows
+  the install to its new folder. Without `LOCALAPPDATA` in its environment, Tarn keeps its data in
+  the Local AppData folder Windows reports instead of the folder it was started from.
+
 ### Security
 
 - On Android, Tarn's own requests and file downloads refuse a server whose verified certificate
