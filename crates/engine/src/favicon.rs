@@ -1,7 +1,8 @@
-//! Site icons (threat model S14). WebKit fetches them inside the tab, so content rules, proxy
 //! and user agent apply; the shell only picks same-site URLs, or another site's the page already
 //! loaded from, and decodes the bytes with limits.
 
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::io::Cursor;
 
 use base64::Engine as _;
@@ -18,6 +19,10 @@ pub const SIZE: u32 = 64;
 pub const MAX_TRIES: u8 = 3;
 /// A stored icon older than this (in milliseconds) is fetched again, and kept if that fails.
 pub const MAX_AGE: i64 = 30 * 24 * 3_600_000;
+
+pub fn icon_host(url: &Url, lockdown: bool) -> Option<String> {
+    url.host_str().filter(|_| url.scheme() == "https" && url.port().is_none() && !lockdown).map(|h| h.trim_end_matches('.').to_ascii_lowercase())
+}
 
 /// An icon may come from the page's host or a subdomain of it (a `www.` prefix is ignored), so a
 /// page cannot make the browser contact an unrelated server.
@@ -67,12 +72,16 @@ pub fn candidates(page: &Url, links: &str) -> Vec<Url> {
     out
 }
 
+pub fn fetch_urls<'a>(urls: impl IntoIterator<Item = &'a str>) -> Vec<Url> {
+    urls.into_iter().filter_map(|u| Url::parse(u).ok().filter(|u| u.scheme() == "https")).take(MAX_CANDIDATES).collect()
+}
+
 /// Hosts whose stored icon may stand for `host`, nearest first: the host, each parent up to its
 /// registrable domain, then that domain's `www.` host. Never climbs above the registrable domain,
 /// so one tenant of a shared host never shows another's icon.
 pub fn lookup_hosts(host: &str) -> Vec<String> {
     let host = host.trim_end_matches('.');
-    let site = engine::cookies::site(host);
+    let site = crate::cookies::site(host);
     let mut hosts = vec![host.to_owned()];
     let mut rest = host;
     while rest != site
@@ -117,6 +126,113 @@ pub fn normalize(encoded: &str) -> Option<Vec<u8>> {
     Some(png)
 }
 
+pub fn data_uri(png: &[u8]) -> String {
+    format!("data:image/png;base64,{}", STANDARD.encode(png))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Ticket(u64);
+
+pub struct Tracker<P, I> {
+    icons: HashMap<(P, String), I>,
+    loaded: HashSet<P>,
+    requested: HashMap<(P, String), Ticket>,
+    tickets: u64,
+    failures: HashMap<(P, String), u8>,
+    stale: HashSet<(P, String)>,
+    version: u64,
+}
+
+impl<P, I> Default for Tracker<P, I> {
+    fn default() -> Self {
+        Self {
+            icons: HashMap::new(),
+            loaded: HashSet::new(),
+            requested: HashMap::new(),
+            tickets: 0,
+            failures: HashMap::new(),
+            stale: HashSet::new(),
+            version: 0,
+        }
+    }
+}
+
+impl<P: Clone + Eq + Hash, I> Tracker<P, I> {
+    pub fn load(&mut self, profile: &P, read: impl FnOnce() -> (Vec<(String, I)>, Vec<String>)) {
+        if !self.loaded.insert(profile.clone()) {
+            return;
+        }
+        let (icons, stale) = read();
+        self.icons.extend(icons.into_iter().map(|(host, icon)| ((profile.clone(), host), icon)));
+        self.stale.extend(stale.into_iter().map(|host| (profile.clone(), host)));
+        self.version += 1;
+    }
+
+    pub fn request(&mut self, profile: &P, host: &str) -> Option<Ticket> {
+        let key = (profile.clone(), host.to_owned());
+        let fresh = self.icons.contains_key(&key) && !self.stale.contains(&key);
+        if fresh || self.failures.get(&key).copied().unwrap_or(0) >= MAX_TRIES || self.requested.contains_key(&key) {
+            return None;
+        }
+        self.tickets += 1;
+        let ticket = Ticket(self.tickets);
+        self.requested.insert(key, ticket);
+        Some(ticket)
+    }
+
+    pub fn is_requested(&self, profile: &P, host: &str, ticket: Ticket) -> bool {
+        self.requested.get(&(profile.clone(), host.to_owned())) == Some(&ticket)
+    }
+
+    pub fn withdraw(&mut self, profile: &P, host: &str, ticket: Ticket) {
+        let key = (profile.clone(), host.to_owned());
+        if self.requested.get(&key) == Some(&ticket) {
+            self.requested.remove(&key);
+        }
+    }
+
+    pub fn accept(&mut self, profile: &P, host: &str, ticket: Ticket, icon: Option<I>) -> bool {
+        let key = (profile.clone(), host.to_owned());
+        if self.requested.get(&key) != Some(&ticket) {
+            return false;
+        }
+        self.requested.remove(&key);
+        let Some(icon) = icon else {
+            *self.failures.entry(key).or_default() += 1;
+            return false;
+        };
+        self.stale.remove(&key);
+        self.icons.insert(key, icon);
+        self.version += 1;
+        true
+    }
+
+    pub fn find(&self, profile: &P, host: &str) -> Option<&I> {
+        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        if let Some(icon) = self.icons.get(&(profile.clone(), host.clone())) {
+            return Some(icon);
+        }
+        lookup_hosts(&host).into_iter().skip(1).find_map(|host| self.icons.get(&(profile.clone(), host)))
+    }
+
+    pub fn icons<'a>(&'a self, profile: &'a P) -> impl Iterator<Item = (&'a str, &'a I)> {
+        self.icons.iter().filter(move |((p, _), _)| p == profile).map(|((_, host), icon)| (host.as_str(), icon))
+    }
+
+    pub fn forget(&mut self, profile: &P) {
+        self.icons.retain(|(p, _), _| p != profile);
+        self.requested.retain(|(p, _), _| p != profile);
+        self.failures.retain(|(p, _), _| p != profile);
+        self.stale.retain(|(p, _)| p != profile);
+        self.loaded.remove(profile);
+        self.version += 1;
+    }
+
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+}
+
 /// A dark mark on a transparent background disappears on the dark sidebar, so it gets a light
 /// plate, as Safari does.
 fn is_dark_on_clear(icon: &RgbaImage) -> bool {
@@ -156,6 +272,35 @@ mod tests {
         let many = "https://a.test/1.png\t96x96\nhttps://a.test/2.png\t48x48\nhttps://a.test/3.png\t16x16\nhttps://a.test/4.svg\tany";
         let urls: Vec<String> = candidates(&Url::parse("https://a.test/").unwrap(), many).into_iter().map(String::from).collect();
         assert_eq!(urls, ["https://a.test/1.png", "https://a.test/4.svg", "https://a.test/2.png", "https://a.test/favicon.ico"]);
+    }
+
+    #[test]
+    fn icons_are_fetched_only_for_https_pages_on_the_default_port_outside_lockdown() {
+        let host = |url: &str, lockdown| icon_host(&Url::parse(url).unwrap(), lockdown);
+        assert_eq!(host("https://News.A.test/x", false).as_deref(), Some("news.a.test"));
+        assert_eq!(host("https://a.test:443/", false).as_deref(), Some("a.test"));
+        assert_eq!(host("https://a.test./", false).as_deref(), Some("a.test"));
+        assert_eq!(host("https://a.test/", true), None);
+        assert_eq!(host("http://a.test/", false), None);
+        assert_eq!(host("https://a.test:8443/", false), None);
+        assert_eq!(host("about:blank", false), None);
+    }
+
+    #[test]
+    fn components_fetch_only_a_few_https_urls() {
+        let urls = fetch_urls([
+            "http://a.test/i.png",
+            "nonsense",
+            "https://a.test/1.png",
+            "https://a.test/2.png",
+            "https://a.test/3.png",
+            "https://a.test/4.png",
+            "https://a.test/5.png",
+        ]);
+        assert_eq!(
+            urls.iter().map(Url::as_str).collect::<Vec<_>>(),
+            ["https://a.test/1.png", "https://a.test/2.png", "https://a.test/3.png", "https://a.test/4.png"]
+        );
     }
 
     #[test]
@@ -209,5 +354,51 @@ mod tests {
         mark.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).unwrap();
         let out = image::load_from_memory(&normalize(&STANDARD.encode(png)).unwrap()).unwrap().to_rgba8();
         assert_eq!(out.get_pixel(0, 0)[3], 255);
+    }
+
+    #[test]
+    fn the_tracker_fetches_once_retries_failures_and_refreshes_stale_icons() {
+        let mut t: Tracker<u8, &str> = Tracker::default();
+        t.load(&1, || (vec![("old.test".to_owned(), "old"), ("a.test".to_owned(), "a")], vec!["old.test".to_owned()]));
+        t.load(&1, || panic!("read once"));
+        assert!(t.request(&1, "a.test").is_none(), "fresh icons are not fetched");
+        let old = t.request(&1, "old.test").unwrap();
+        assert!(t.request(&1, "old.test").is_none(), "one fetch at a time");
+        assert!(!t.accept(&1, "old.test", old, None));
+        assert_eq!(t.find(&1, "old.test"), Some(&"old"), "a stale icon stays until a new one arrives");
+        let old = t.request(&1, "old.test").unwrap();
+        assert!(t.accept(&1, "old.test", old, Some("new")));
+        assert!(t.request(&1, "old.test").is_none());
+        for _ in 0..MAX_TRIES {
+            let b = t.request(&1, "b.test").unwrap();
+            t.accept(&1, "b.test", b, None);
+        }
+        assert!(t.request(&1, "b.test").is_none(), "gives up after MAX_TRIES failures");
+        let c = t.request(&1, "c.test").unwrap();
+        t.withdraw(&1, "c.test", c);
+        assert!(t.request(&1, "c.test").is_some(), "a withdrawn request counts no failure");
+        assert_eq!(t.find(&1, "news.a.test"), Some(&"a"));
+        assert_eq!(t.find(&2, "a.test"), None, "per profile");
+        let version = t.version();
+        let late = t.is_requested(&1, "c.test", c);
+        t.forget(&1);
+        assert!(!late && t.version() > version && t.find(&1, "a.test").is_none() && t.icons(&1).next().is_none());
+        assert!(t.request(&1, "b.test").is_some(), "forgetting resets failures");
+        t.load(&1, || (vec![("a.test".to_owned(), "a")], Vec::new()));
+        assert_eq!(t.icons(&1).collect::<Vec<_>>(), [("a.test", &"a")]);
+        assert!(data_uri(&[1, 2]).starts_with("data:image/png;base64,AQI"));
+    }
+
+    #[test]
+    fn an_answer_ends_only_the_request_it_belongs_to() {
+        let mut t: Tracker<u8, &str> = Tracker::default();
+        let before = t.request(&1, "a.test").unwrap();
+        t.forget(&1);
+        let after = t.request(&1, "a.test").unwrap();
+        t.withdraw(&1, "a.test", before);
+        assert!(!t.accept(&1, "a.test", before, Some("old")), "a request from before a clear keeps nothing");
+        assert!(t.is_requested(&1, "a.test", after));
+        assert!(t.accept(&1, "a.test", after, Some("new")));
+        assert_eq!(t.find(&1, "a.test"), Some(&"new"));
     }
 }

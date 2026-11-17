@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use browser_core::toast::Tone;
 use gpui::{
-    Bounds, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, WindowHandle,
-    div, point, prelude::FluentBuilder, px, size,
+    Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Render, Rgba, SharedString, Styled, Subscription, WeakEntity,
+    Window, WindowHandle, div, point, prelude::FluentBuilder, px, size,
 };
 use ui::controls::{POPOVER_INSET, button, open_popup, popover};
+use ui::icon::{ICON, Icon, icon};
 use ui::motion::{EXIT, animate, fade_in};
 use ui::theme::{TEXT, Theme};
 
@@ -16,10 +18,15 @@ use crate::sidebar::SIDEBAR_MARGIN;
 const TOAST_TIME: Duration = Duration::from_secs(5);
 /// A toast with a button stays longer, so the action is still there after a glance away.
 const ACTION_TIME: Duration = Duration::from_secs(10);
-const WIDTH: f32 = 340.;
-/// Room for the message beside the widest button, "Restart to Update".
-const ACTION_WIDTH: f32 = 440.;
-const HEIGHT: f32 = 40.;
+/// The widest a toast grows before its message is cut short.
+const MAX_WIDTH: f32 = 440.;
+const HEIGHT: f32 = 36.;
+const PAD: f32 = 14.;
+const GAP: f32 = 8.;
+/// The card's left and right border, and a pixel so rounding never cuts the message.
+const EDGES: f32 = 3.;
+/// A pill button's padding and border beside its label, and the inset after it.
+const BUTTON: f32 = 26. + 5.;
 /// Between the toast and the window's bottom edge.
 const MARGIN: f32 = 24.;
 
@@ -44,6 +51,7 @@ impl Action {
 #[derive(Debug)]
 pub struct Toast {
     pub text: SharedString,
+    pub tone: Tone,
     pub action: Option<Action>,
     serial: u64,
     pub closing: bool,
@@ -64,9 +72,9 @@ pub struct Toasts {
 
 impl Toasts {
     /// Replaces any toast; returns the new toast's serial.
-    fn show(&mut self, text: SharedString, action: Option<Action>) -> u64 {
+    fn show(&mut self, tone: Tone, text: SharedString, action: Option<Action>) -> u64 {
         self.serial += 1;
-        self.current = Some(Toast { text, action, serial: self.serial, closing: false });
+        self.current = Some(Toast { text, tone, action, serial: self.serial, closing: false });
         self.serial
     }
 
@@ -95,8 +103,12 @@ impl Toasts {
 
 impl Browser {
     pub(crate) fn show_toast(&mut self, text: impl Into<SharedString>, action: Option<Action>, cx: &mut Context<Self>) {
+        self.show_toast_as(Tone::Info, text, action, cx);
+    }
+
+    pub(crate) fn show_toast_as(&mut self, tone: Tone, text: impl Into<SharedString>, action: Option<Action>, cx: &mut Context<Self>) {
         let wait = if action.is_some() { ACTION_TIME } else { TOAST_TIME };
-        let serial = self.toast.show(text.into(), action);
+        let serial = self.toast.show(tone, text.into(), action);
         cx.notify();
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(wait).await;
@@ -132,7 +144,7 @@ impl Browser {
 
     /// Opens the toast's popup while a toast is live and closes it once none is.
     pub(crate) fn sync_toast(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(width) = self.toast.live(self.model.closed_tabs.newest()).map(|t| if t.action.is_some() { ACTION_WIDTH } else { WIDTH }) else {
+        let Some(width) = self.toast.live(self.model.closed_tabs.newest()).map(|t| toast_width(t, window)) else {
             return self.close_toast_window(cx);
         };
         if self.toast.opening {
@@ -160,8 +172,7 @@ impl Browser {
         let browser = cx.entity().downgrade();
         self.toast.opening = true;
         cx.defer(move |cx| {
-            let (handle, popup) =
-                open_popup(cx, bounds, display, false, [POPOVER_INSET; 4], Theme::radius_panel(), |_, cx| ToastWindow::new(browser.clone(), main, cx));
+            let (handle, popup) = open_popup(cx, bounds, display, false, [POPOVER_INSET; 4], HEIGHT / 2., |_, cx| ToastWindow::new(browser.clone(), main, cx));
             let kept = browser.update(cx, |b, cx| {
                 b.toast.opening = false;
                 let live = b.toast.live(b.model.closed_tabs.newest()).is_some();
@@ -190,6 +201,28 @@ impl Browser {
     }
 }
 
+fn tone_icon(tone: Tone) -> Option<(Icon, Rgba)> {
+    match tone {
+        Tone::Info => None,
+        Tone::Success => Some((Icon::CircleCheck, Theme::success())),
+        Tone::Warning => Some((Icon::TriangleAlert, Theme::warning())),
+    }
+}
+
+/// The pill's width for its message, icon and button, so the pop-up hugs the pill and covers no
+/// more of the page.
+fn toast_width(toast: &Toast, window: &Window) -> f32 {
+    let measure = |text: SharedString, weight: FontWeight| {
+        let mut style = window.text_style();
+        (style.font_family, style.font_weight) = (Theme::font(), weight);
+        let run = style.to_run(text.len());
+        f32::from(window.text_system().shape_line(text, px(TEXT), &[run], None).width)
+    };
+    let icon = if tone_icon(toast.tone).is_some() { ICON + GAP } else { 0. };
+    let action = toast.action.as_ref().map_or(PAD, |a| GAP + measure(a.label().into(), FontWeight::MEDIUM) + BUTTON);
+    (PAD + icon + measure(toast.text.clone(), FontWeight::MEDIUM) + action + EDGES).ceil().min(MAX_WIDTH)
+}
+
 /// The toast's card. It never takes keyboard focus; its button acts on mouse-down.
 pub struct ToastWindow {
     browser: WeakEntity<Browser>,
@@ -211,14 +244,17 @@ impl Render for ToastWindow {
         let Some(toast) = b.toast.live(b.model.closed_tabs.newest()) else { return div().into_any_element() };
         let main = self.main;
         let label = toast.action.as_ref().map(Action::label);
-        let card = popover(Theme::radius_panel(), POPOVER_INSET)
-            .pl_3()
-            .pr(px(if label.is_some() { 4. } else { 12. }))
+        let tone = tone_icon(toast.tone);
+        let card = popover(HEIGHT / 2., POPOVER_INSET)
+            .pl(px(PAD))
+            .pr(px(if label.is_some() { 5. } else { PAD }))
             .flex()
             .items_center()
-            .gap_2()
+            .gap(px(GAP))
             .text_size(px(TEXT))
+            .font_weight(FontWeight::MEDIUM)
             .text_color(Theme::text())
+            .when_some(tone, |d, (glyph, color)| d.border_color(Rgba { a: 0.5, ..color }).child(icon(glyph, ICON, color)))
             .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(toast.text.clone()))
             .when_some(label, |d, label| {
                 d.child(button("toast-action", label, true).on_mouse_down(MouseButton::Left, move |_, _, cx| {
@@ -241,8 +277,8 @@ mod tests {
     #[test]
     fn an_old_timer_leaves_a_newer_toast_alone() {
         let mut toasts = Toasts::default();
-        let first = toasts.show("Link copied".into(), None);
-        let second = toasts.show("Screenshot saved".into(), Some(Action::Reveal(PathBuf::from("/tmp/a.png"))));
+        let first = toasts.show(Tone::Info, "Link copied".into(), None);
+        let second = toasts.show(Tone::Info, "Screenshot saved".into(), Some(Action::Reveal(PathBuf::from("/tmp/a.png"))));
         assert!(!toasts.fade(first) && !toasts.expire(first));
         assert_eq!(toasts.live(None).map(|t| (t.text.as_ref(), t.closing)), Some(("Screenshot saved", false)));
         assert!(toasts.fade(second));
@@ -254,11 +290,11 @@ mod tests {
     #[test]
     fn undo_shows_only_while_its_entry_is_the_newest() {
         let mut toasts = Toasts::default();
-        toasts.show("Tab closed".into(), Some(Action::Undo(7)));
+        toasts.show(Tone::Info, "Tab closed".into(), Some(Action::Undo(7)));
         assert!(toasts.live(Some(7)).is_some());
         assert!(toasts.live(Some(8)).is_none());
         assert!(toasts.live(None).is_none());
-        toasts.show("Site muted".into(), None);
-        assert!(toasts.live(None).is_some());
+        toasts.show(Tone::Warning, "Could not save to Reading List".into(), None);
+        assert_eq!(toasts.live(None).map(|t| t.tone), Some(Tone::Warning));
     }
 }

@@ -4,6 +4,7 @@ mod controls;
 mod extensions;
 mod panels;
 mod prompt;
+mod share;
 mod sheets;
 mod split;
 
@@ -45,6 +46,7 @@ pub enum Screen {
     Reader,
     FindTabs,
     Qr,
+    Share,
     ReadingList,
     Move(TabKey),
     SpaceEdit(usize),
@@ -101,6 +103,21 @@ impl Ui {
 
     fn event(self, key: TabKey, e: &NativeEvent) {
         if &*e.name == "pressed" && self.read(|s| s.model.active == Some(key)) {
+            return;
+        }
+        if &*e.name == "iconData" {
+            let (name, data) = (e.name.to_string(), e.data.clone());
+            let encoded = data.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned();
+            spawn(async move {
+                let png = blocking(move || engine::favicon::normalize(&encoded)).await.ok().flatten();
+                self.run(
+                    |s| {
+                        s.icon_event(key, &name, &data, png);
+                        Vec::new()
+                    },
+                    false,
+                );
+            });
             return;
         }
         // A picked element is stored, and a pop-up may open in another profile's space.
@@ -169,14 +186,20 @@ impl Ui {
     }
 
     fn browsing(self) -> bool {
-        matches!(self.screen.get(), Screen::Browse | Screen::Find) && !self.editing.get() && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
+        matches!(self.screen.get(), Screen::Browse | Screen::Find | Screen::Share)
+            && !self.editing.get()
+            && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
     }
+}
+
+fn shell_dir() -> std::path::PathBuf {
+    Data::data_dir().or_else(|| browser_core::data_dir(data_dir().as_deref())).unwrap_or_else(|| std::env::temp_dir().join("tarn"))
 }
 
 fn open_shell() {
     SHELL.with(|s| {
         if s.borrow().is_none() {
-            let dir = Data::data_dir().or_else(|| browser_core::data_dir(data_dir().as_deref())).unwrap_or_else(|| std::env::temp_dir().join("tarn"));
+            let dir = shell_dir();
             std::fs::create_dir_all(&dir).ok();
             *s.borrow_mut() = Some(AppShell::open(&dir));
         }
@@ -288,17 +311,23 @@ fn notice(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         message().map(|m| {
             let local = ui.read(|s| s.can_open_anyway());
-            let base = if local { tarn_nsh_shared::controls::secure_surface(Theme::radius_panel()) } else { surface(Theme::radius_panel()) };
-            base.flex_row()
-                .items_center()
-                .gap_2()
+            let base = if local {
+                tarn_nsh_shared::controls::secure_surface(Theme::radius_panel()).flex_row().items_center().gap_2().pl_4().py_1()
+            } else {
+                tarn_nsh_shared::controls::toast(ui.read(|s| s.notice_tone())).self_center()
+            };
+            base.bind_motion(&tarn_nsh_shared::motion::pop_in())
                 .mx_3()
                 .my_1()
-                .pl_4()
                 .pr_1()
-                .py_1()
                 .shadow(Theme::elevation(4., 14.))
-                .child(label(m).flex_1().test_id("notice").text_color(move || if local { Secure::text() } else { Theme::text() }))
+                .child(
+                    label(m)
+                        .flex_shrink(1.)
+                        .flex_grow(if local { 1. } else { 0. })
+                        .test_id("notice")
+                        .text_color(move || if local { Secure::text() } else { Theme::text() }),
+                )
                 .child(local.then(|| {
                     tarn_nsh_shared::controls::secure_button(
                         "Open Anyway",
@@ -483,6 +512,7 @@ pub fn App() -> impl IntoElement {
                 .child(prompt::prompt_panel(ui))
                 .child(panels::panel(ui)),
         )
-        .child(themed(move || bars::bottom_bar(ui)))
+        .child(bars::bottom_bar(ui))
+        .child(share::share_sheet(ui))
         .child(extensions::backgrounds(ui))
 }

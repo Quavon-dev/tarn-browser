@@ -133,7 +133,7 @@ fn bitmap(image: &Image, size: i32) -> Option<HBITMAP> {
             dot(pixels, size, *rgb);
             true
         }
-        Image::Png(png) => icon_into(bitmap, png, size),
+        Image::Png(png) | Image::Template(png) => icon_into(bitmap, png, size),
         Image::Symbol(_) => false,
     };
     if !drawn {
@@ -177,9 +177,9 @@ fn icon_into(bitmap: HBITMAP, png: &[u8], size: i32) -> bool {
     }
 }
 
-/// An image beside a menu entry: a site's icon or a colour dot; system symbols are macOS only.
 pub enum Image {
     Png(Vec<u8>),
+    Template(Vec<u8>),
     Symbol(&'static str),
     Dot(u32),
 }

@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use nsh_core::platform::Lifecycle;
 use nsh_core::prelude::*;
+use nsh_core::{LayoutAnimation, LayoutCurve, LayoutTransition};
 
 pub fn animates(reduced: bool, lifecycle: Lifecycle) -> bool {
     !reduced && lifecycle == Lifecycle::Active
@@ -22,10 +23,37 @@ pub fn while_active(period: Duration, running: impl Fn() -> bool + 'static, tick
     });
 }
 
+pub const POP: Duration = Duration::from_millis(160);
 pub const FADE: Duration = Duration::from_millis(130);
+pub const EXIT: Duration = Duration::from_millis(110);
+pub const SLIDE: Duration = Duration::from_millis(280);
+pub const RISE: f32 = 5.;
+pub const SCRIM: f32 = 0.45;
 pub const SPIN_TURN: Duration = Duration::from_millis(900);
 pub const RELOAD_SPIN: Duration = Duration::from_millis(600);
 const SPIN_FRAME: Duration = Duration::from_millis(33);
+
+pub fn fading<E: Element>(element: E) -> E {
+    element.bind_motion(&fade_in())
+}
+
+pub fn popping<E: Element>(element: E) -> E {
+    element.bind_motion(&pop_in())
+}
+
+pub fn layout(duration: Duration) -> LayoutTransition {
+    LayoutTransition::new(LayoutCurve::EaseOut, ms(duration))
+}
+
+pub fn animate_next(moving: Duration) {
+    if !reduce_motion() {
+        animate_layout(LayoutAnimation { create: Some(layout(POP)), update: Some(layout(moving)), delete: Some(layout(EXIT)) });
+    }
+}
+
+pub fn ms(duration: Duration) -> f32 {
+    duration.as_secs_f32() * 1000.
+}
 
 pub fn spin_angle(elapsed: Duration) -> f32 {
     (elapsed.as_secs_f32() / SPIN_TURN.as_secs_f32()).fract() * std::f32::consts::TAU
@@ -36,6 +64,39 @@ pub fn spinner(size: f32, glyph: impl IntoElement) -> View {
     let angle = signal(0f32);
     while_active(SPIN_FRAME, || true, move || angle.set(spin_angle(start.elapsed())));
     view().w(px(size)).h(px(size)).items_center().justify_center().rotate(move || Radians(angle.get())).child(glyph)
+}
+
+fn eased(duration: Duration) -> MotionSpec {
+    MotionSpec::new(KeyframeTiming::new(ms(duration)).easing(Easing::EaseOut))
+}
+
+pub fn pop_in() -> Motion {
+    motion().entering(eased(POP).values(MotionChannel::Opacity, [0., 1.]).values(MotionChannel::TranslateY, [RISE, 0.]))
+}
+
+pub fn pop_out(shown: Motion, from: f32, then: impl FnOnce() + 'static) {
+    if reduce_motion() {
+        then();
+        return;
+    }
+    drop(shown.play(eased(EXIT).values(MotionChannel::Opacity, [from, 0.]).values(MotionChannel::TranslateY, [0., RISE])));
+    drop(set_timeout(EXIT, then));
+}
+
+pub fn fade_in() -> Motion {
+    motion().entering(eased(FADE).values(MotionChannel::Opacity, [0., 1.]))
+}
+
+pub fn slide_up(distance: f32) -> Motion {
+    motion().entering(eased(SLIDE).values(MotionChannel::TranslateY, [distance, 0.]))
+}
+
+pub fn fade_to(opacity: f32) -> Motion {
+    motion().entering(eased(SLIDE).values(MotionChannel::Opacity, [0., opacity]))
+}
+
+pub fn transition_ms(duration: Duration) -> f32 {
+    if reduce_motion() { 0. } else { ms(duration) }
 }
 
 #[cfg(test)]
@@ -51,9 +112,12 @@ mod tests {
     }
 
     #[test]
-    fn the_fade_matches_the_gpui_motion() {
-        let line = format!("pub const FADE: Duration = Duration::from_millis({});", FADE.as_millis());
-        assert!(include_str!("../../crates/ui/src/motion.rs").contains(&line), "{line}");
+    fn the_durations_match_the_gpui_motion() {
+        for (name, duration) in [("POP", POP), ("FADE", FADE), ("EXIT", EXIT), ("SLIDE", SLIDE)] {
+            let line = format!("pub const {name}: Duration = Duration::from_millis({});", duration.as_millis());
+            assert!(include_str!("../../crates/ui/src/motion.rs").contains(&line), "{line}");
+        }
+        assert_eq!((ms(POP), layout(SLIDE).duration_ms), (160., 280.));
     }
 
     #[test]

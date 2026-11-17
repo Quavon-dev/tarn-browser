@@ -31,6 +31,46 @@ All notable changes to Tarn are documented in this file. The format is based on
 - On Android, Tarn's own requests and file downloads refuse a server whose verified certificate
   path, root included, holds an RSA key under 2048 bits or an elliptic-curve key under 224 bits.
 
+### Added
+
+- Site icons in tiles, tab rows, split panes, history, bookmarks, suggestions and the site and share
+  popovers on Linux, and on tab cards and the share sheet on iOS, kept per profile as on macOS.
+  Android shows letter tiles and makes no icon request of its own.
+
+### Changed
+
+- Toasts are centred pills sized to their message on every client. A copied link or a saved page
+  shows a green check, and a failure such as a Reading List save that did not work shows an amber
+  warning.
+- The Shield card follows the theme: dawn with the sun behind the peak in light themes, night
+  with stars, a crescent and an aurora in dark ones; New Design still reshapes the ridges (macOS,
+  Windows, Linux, iOS, Android).
+- The sidebar opens with a space switcher, downloads and the profile's avatar; the selected tab is
+  an outlined row with its close button, pinned and sleeping tabs show a glyph, and Library, the
+  spaces, New Space and Settings sit at the bottom (macOS, Windows, Linux); Clean Up is a button
+  beside New Tab Group and New Folder (macOS, Windows).
+- The address field starts with a Shield chip that shows how much Shield stopped on the site and
+  opens Site Settings; Split View and Share sit beside it, and Settings moved to the sidebar
+  (macOS, Windows, Linux). On phones the address and the Shield chip sit in the bottom bar above
+  Back, Forward, New Tab, Tabs and Menu (iOS, Android).
+- Typing an address or `>` opens a centred palette over the page with sections, a glyph per row,
+  shortcuts as key caps and key hints (macOS, Windows, Linux).
+- Site Settings shows what Shield stopped on the site, the site's Shield switch, what the chosen
+  level does and the site's options in one grouped list; rarer ones sit behind More site settings
+  (macOS, Windows, Linux).
+- Share opens a menu with Copy Link, Copy Clean Link, Show QR Code and, where the system offers
+  them, More…, Save Page as PDF and Print… (macOS, Windows, Linux); on phones a share sheet slides
+  up (iOS, Android).
+- Permission prompts lead with a glyph, the site in bold and a line on what allowing means; the
+  find bar is a pill at the page's top right; downloads show a file-type tile, the size and a
+  progress bar (macOS, Windows, Linux, iOS, Android).
+- Settings groups its panes under You and Browser; the Profile pane shows the card beside its
+  numbers and Shield level with Flip, Change Design and Share Card, one chart of the week and the
+  most protected sites; Appearance is a grouped list (macOS, Windows, Linux, iOS, Android).
+- Menus Tarn builds show a glyph beside each entry (macOS, Windows, Linux). Popovers, sheets and
+  prompts pop in and out, switches slide, tab rows grow and shrink, all with the shared timings
+  and none under Reduce Motion (macOS, Windows, Linux, iOS, Android).
+
 ## [0.1.1] - 2026-11-16
 
 ### Added

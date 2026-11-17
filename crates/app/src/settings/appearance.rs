@@ -11,7 +11,7 @@ use gpui::{
     div, prelude::FluentBuilder, px, rgba,
 };
 use store::Id;
-use ui::controls::{button, field, group, note, row, section, secure_button, segment, segmented, swatch, switch_row};
+use ui::controls::{button, field, group, note, row, section, secure_button, segment, segmented, swatch, switch_row, tab_stop};
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{Secure, TEXT_SMALL, Theme};
@@ -481,11 +481,11 @@ impl SettingsWindow {
         self.report(saved, "Appearance reset to Tarn.", cx);
     }
 
-    fn search_effect_row(&self, cx: &mut Context<Self>) -> gpui::Div {
+    pub(super) fn search_effect_row(&self, first: bool, cx: &mut Context<Self>) -> gpui::Div {
         use browser_core::effects::Effect;
         let stored = library::chosen_effect(&crate::shared::core(cx).disk);
         let choices = std::iter::once((None, "Theme")).chain(Effect::ALL.map(|e| (Some(e), e.label())));
-        row(true).child(text_block("Search bar effect", "Around the search field on the start page and in the command bar.")).child(segmented().children(
+        row(first).child(text_block("Search bar effect", "Around the search field on the start page and in the command bar.")).child(segmented().children(
             choices.enumerate().map(|(ix, (effect, label))| {
                 segment(("search-effect", ix), label, effect == stored).on_click(cx.listener(move |this, _, _, cx| {
                     let saved = library::set_effect(&crate::shared::core(cx).disk, effect);
@@ -494,6 +494,76 @@ impl SettingsWindow {
                 }))
             }),
         ))
+    }
+
+    pub(super) fn theme_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let core = crate::shared::core(cx);
+        let selection = Selection::load(&core.disk);
+        let cards = self.cards(cx);
+        let match_system = selection.match_system;
+        let system = if cfg!(windows) { "Windows" } else { "macOS" };
+        let mut rows = vec![
+            switch_row("theme-match-system", true, text_block("Match system", format!("Follow {system}'s light and dark appearance.")), match_system)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let core = crate::shared::core(cx);
+                    let mut selection = Selection::load(&core.disk);
+                    selection.match_system = !match_system;
+                    let saved = selection.save(&core.disk).map_err(|e| e.to_string());
+                    this.report(saved, "", cx);
+                    this.appearance.message = None;
+                }))
+                .into_any_element(),
+        ];
+        let slots: Vec<(&'static str, &'static str, Option<Scheme>, ThemeRef)> = if match_system {
+            vec![
+                ("theme-dark", "Dark theme", Some(Scheme::Dark), selection.dark.clone()),
+                ("theme-light", "Light theme", Some(Scheme::Light), selection.light.clone()),
+            ]
+        } else {
+            vec![("theme-only", "Theme", None, selection.dark.clone())]
+        };
+        for (id, title, scheme, current) in slots {
+            let detail = match scheme {
+                Some(Scheme::Dark) => "Shown in dark appearance.",
+                Some(Scheme::Light) => "Shown in light appearance.",
+                None => "Shown in light and dark appearance.",
+            };
+            let choices: Vec<(ThemeRef, String)> =
+                cards.iter().filter(|c| scheme.is_none_or(|s| c.scheme == s)).map(|c| (c.id.clone(), bounded_title(&c.name))).collect();
+            let shown = choices.iter().find(|(c, _)| *c == current).map_or_else(|| "Custom".to_owned(), |(_, name)| name.clone());
+            let menu: Vec<(ThemeRef, String, Scheme)> = cards
+                .iter()
+                .filter(|c| !c.withdrawn && scheme.is_none_or(|s| c.scheme == s))
+                .map(|c| (c.id.clone(), bounded_title(&c.name), c.scheme))
+                .collect();
+            rows.push(
+                row(false)
+                    .child(text_block(title, detail))
+                    .child(tab_stop(button(id, shown, false)).child(ui::icon::icon(ui::icon::Icon::ChevronsUpDown, 12., Theme::muted())).on_click(cx.listener(
+                        move |_, _, window, cx| {
+                            let Some(host) = engine::Host::from_window(window) else { return };
+                            let items = menu
+                                .iter()
+                                .enumerate()
+                                .map(|(ix, (id, name, _))| engine::menu::Item::action(name.clone(), ix).checked(*id == current))
+                                .collect();
+                            let menu = menu.clone();
+                            cx.spawn_in(window, async move |this, cx| {
+                                let (tx, rx) = futures::channel::oneshot::channel();
+                                engine::menu::show(&host, items, None, move |ix| {
+                                    tx.send(ix).ok();
+                                });
+                                let Ok(ix) = rx.await else { return };
+                                let Some((id, _, scheme)) = menu.get(ix).cloned() else { return };
+                                this.update(cx, |this, cx| this.select_theme(id, scheme, cx)).ok();
+                            })
+                            .detach();
+                        },
+                    )))
+                    .into_any_element(),
+            );
+        }
+        rows
     }
 
     fn theme_card(&self, card: &Card, selection: &Selection, focused: bool, ix: usize, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -652,36 +722,11 @@ impl SettingsWindow {
             .gap_2()
             .children(cards.iter().enumerate().map(|(ix, card)| self.theme_card(card, &selection, card.id == focused_id, ix, cx)));
         let match_system = selection.match_system;
-        let mut page = div()
-            .child(section("Theme"))
-            .child(
-                group().child(
-                    switch_row(
-                        "theme-match-system",
-                        true,
-                        text_block(
-                            "Match system appearance",
-                            if cfg!(windows) {
-                                "Use one theme while Windows is light and another while it is dark."
-                            } else {
-                                "Use one theme while macOS is light and another while it is dark."
-                            },
-                        ),
-                        match_system,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let core = crate::shared::core(cx);
-                        let mut selection = Selection::load(&core.disk);
-                        selection.match_system = !match_system;
-                        let saved = selection.save(&core.disk).map_err(|e| e.to_string());
-                        this.report(saved, "", cx);
-                        this.appearance.message = None;
-                    })),
-                ),
-            )
-            .child(div().pt_3().child(gallery))
-            .child(div().pt_3().child(group().child(self.search_effect_row(cx))))
-            .child(note(if match_system { "Click a light theme to use it in light mode, a dark one for dark mode." } else { "Click a theme to use it." }));
+        let mut page = div().child(section("Themes")).child(div().pt_1().child(gallery)).child(note(if match_system {
+            "Click a light theme to use it in light mode, a dark one for dark mode."
+        } else {
+            "Click a theme to use it."
+        }));
         let profile = self.browser.upgrade().and_then(|b| {
             let b = b.read(cx);
             let private = b.model.current_space().is_some_and(|s| s.private);

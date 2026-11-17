@@ -22,7 +22,7 @@ macOS reference: <crates/app/... files>.
 
 ### Clean Up (2026-11-16)
 
-What it does: Clean Up under New Tab sorts the space's loose tabs into tab groups by what each page
+What it does: the Clean Up button in the New Tab row sorts the space's loose tabs into tab groups by what each page
 is (on this device, from known sites and title words) and archives tabs unused for longer than
 Settings › Tabs allows.
 Shared API: `browser_core::cleanup::{plan, apply, category}`; archiving through

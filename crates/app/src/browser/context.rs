@@ -286,7 +286,7 @@ impl Browser {
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, items, None, move |cmd| {
+            menu::show(&host, crate::menu_glyphs::with_glyphs(items), None, move |cmd| {
                 tx.send(cmd).ok();
             });
             this.update(cx, |b, _| b.menu_open = false).ok();
@@ -500,7 +500,7 @@ impl Browser {
             1 => "Link copied, 1 tracking parameter removed".to_owned(),
             n => format!("Link copied, {n} tracking parameters removed"),
         };
-        self.show_toast(text, None, cx);
+        self.show_toast_as(browser_core::toast::Tone::Success, text, None, cx);
     }
 
     pub fn toggle_pin_tab(&mut self, key: TabKey, cx: &mut Context<Self>) {
