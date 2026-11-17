@@ -231,7 +231,7 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
         .prop("themeStyles", move || json!(item.get().theme_styles))
         .prop("zaps", move || json!(item.get().zaps))
         .prop("sortDownloads", move || json!(item.get().sort_downloads))
-        .prop("load", move || item.get().load.map_or(Value::Null, |l| json!({ "url": l.url, "seq": l.seq, "opener": l.opener })))
+        .prop("load", move || item.get().load.map_or(Value::Null, |l| json!({ "url": l.url, "seq": l.seq, "opener": l.opener, "file": l.file })))
         .prop("active", move || {
             let shown = ui.pane(key).is_some();
             json!(ui.read(|s| (shown || s.model.active == Some(key)) && s.active_prompt().is_none() && s.external.is_none()))

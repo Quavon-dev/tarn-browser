@@ -17,8 +17,11 @@ impl Browser {
     }
 
     pub fn duplicate_tab(&mut self, key: TabKey) {
-        if let Some(url) = self.tab_url(key).filter(|u| Url::parse(u).is_ok()) {
-            self.new_tab(&url);
+        let Some(url) = self.tab_url(key).filter(|u| Url::parse(u).is_ok()) else { return };
+        // A copy of a file the user opened shows that file too.
+        match Url::parse(&url).ok().filter(|_| self.pages.get(&key).and_then(|p| p.opened_file.as_deref()) == Some(url.as_str())) {
+            Some(file) => self.open_file(&file),
+            None => drop(self.new_tab(&url)),
         }
     }
 

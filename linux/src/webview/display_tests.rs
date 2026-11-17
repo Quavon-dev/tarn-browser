@@ -151,6 +151,32 @@ fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
 
 #[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn only_the_shells_open_file_load_shows_a_local_file() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("page.html");
+    std::fs::write(&path, "<p id=\"p\">local file</p>").unwrap();
+    let url = browser_core::open_file::url_for(&path).unwrap();
+    state.events.borrow_mut().clear();
+    *state.load.borrow_mut() = Some((url.to_string(), 1));
+    load(&state, None);
+    assert!(spin_until(|| event(&state, "blocked").is_some(), 20), "a plain load: {:?}", state.events.borrow());
+    assert_eq!(event(&state, "blocked").unwrap(), json!({ "url": url.as_str(), "reason": "nav_policy" }));
+    state.events.borrow_mut().clear();
+    *state.load.borrow_mut() = Some((url.to_string(), 2));
+    state.load_file.set(true);
+    load(&state, None);
+    assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the Open File load: {:?}", state.events.borrow());
+    assert_eq!(page_eval(&web, "document.getElementById('p').textContent"), "local file");
+    state.events.borrow_mut().clear();
+    page_eval(&web, "location.href = 'file:///etc/hostname'; 1");
+    assert!(spin_until(|| event(&state, "blocked").is_some_and(|d| d["url"] == "file:///etc/hostname"), 20), "the file page's own navigation");
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn nothing_runs_or_applies_under_lockdown() {
     gtk::init().expect("a display");
     let state = view(ShieldLevel::Lockdown, "private:display-lockdown");

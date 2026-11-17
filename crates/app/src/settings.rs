@@ -68,6 +68,7 @@ pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
         &[
             ("New tab", Bound("cmd-t", &crate::NewTab)),
             ("Open location", Bound("cmd-l", &crate::OpenLocation)),
+            ("Open file", Bound("cmd-o", &crate::OpenFile)),
             ("Close tab", Bound("cmd-w", &crate::CloseTab)),
             ("Reopen closed tab", Bound("cmd-shift-t", &crate::ReopenClosedTab)),
             ("Close all tabs", Bound("cmd-shift-k", &crate::CloseAllTabs)),

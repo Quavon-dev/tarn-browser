@@ -65,6 +65,7 @@ pub(crate) struct Props {
     levels: Value,
     load: Option<(String, u64)>,
     opener: Option<String>,
+    file: bool,
     active: bool,
 }
 
@@ -98,6 +99,8 @@ pub struct Inner {
     scheduled: Cell<bool>,
     compiling: Cell<bool>,
     shell_load: RefCell<Option<Url>>,
+    shell_file: Cell<bool>,
+    opened_files: RefCell<std::collections::HashSet<Url>>,
     opener: RefCell<Option<Url>>,
     shell_history: Cell<bool>,
     find_text: RefCell<String>,
@@ -181,10 +184,11 @@ impl Inner {
         }
         self.level_dirty.set(false);
         let opener = load.as_ref().and(props.opener.as_deref()).and_then(|o| Url::parse(o).ok());
+        let file = if load.is_none() { self.opened_files.borrow().contains(&url) } else { props.file };
         if let Some((_, seq)) = load {
             self.loaded_seq.set(seq);
         }
-        self.load(&url, opener);
+        self.load(&url, opener, file);
     }
 
     fn apply_active(&self, active: bool) {
@@ -288,9 +292,17 @@ impl Inner {
         }
     }
 
-    fn load(&self, url: &Url, opener: Option<Url>) {
+    fn load(&self, url: &Url, opener: Option<Url>, file: bool) {
         let Some(web) = self.web() else { return };
-        match nav_policy::decide(url, if opener.is_some() { Source::Popup } else { Source::Typed }) {
+        let file = file && opener.is_none() && url.scheme() == "file";
+        let source = if file {
+            Source::FileOpen
+        } else if opener.is_some() {
+            Source::Popup
+        } else {
+            Source::Typed
+        };
+        match nav_policy::decide(url, source) {
             Decision::Allow => {}
             Decision::Prompt => {
                 return self.emit("external", json!({ "url": url.as_str(), "origin": opener.as_ref().and_then(view_policy::origin).unwrap_or_default() }));
@@ -303,9 +315,20 @@ impl Inner {
             return self.emit("shielded", json!({ "kind": "local_network", "url": url.as_str() }));
         }
         let Some(ns_url) = NSURL::URLWithString(&NSString::from_str(url.as_str())) else { return };
+        let read_access = file.then(|| nav_policy::file_read_access(url)).flatten();
+        if file && read_access.is_none() {
+            return self.emit("blocked", json!({ "url": url.as_str(), "reason": "nav_policy" }));
+        }
         *self.shell_load.borrow_mut() = Some(url.clone());
+        self.shell_file.set(file);
+        if file {
+            self.opened_files.borrow_mut().insert(url.clone());
+        }
         *self.opener.borrow_mut() = opener;
-        web.load_request(&NSURLRequest::requestWithURL(&ns_url));
+        match read_access {
+            Some(dir) => drop(web.load_file_url(&ns_url, &NSURL::fileURLWithPath(&NSString::from_str(&dir.to_string_lossy())))),
+            None => drop(web.load_request(&NSURLRequest::requestWithURL(&ns_url))),
+        }
     }
 
     pub fn decide(&self, web: &WebView, action: &WKNavigationAction, preferences: &WKWebpagePreferences, view: ShieldLevel) -> WKNavigationActionPolicy {
@@ -318,12 +341,17 @@ impl Inner {
         if !main {
             return WKNavigationActionPolicy::Allow;
         }
-        let history = self.shell_history.take() && kind == WKNavigationType::BackForward;
+        let stepped = self.shell_history.take();
+        let history = stepped && kind == WKNavigationType::BackForward;
+        let shell_file = self.shell_file.take();
         let Some(url) = raw.as_deref().and_then(|s| Url::parse(s).ok()) else {
             self.emit("blocked", json!({ "url": raw, "reason": "nav_policy" }));
             return WKNavigationActionPolicy::Cancel;
         };
-        match nav_policy::decide(&url, Source::Link) {
+        let shell_file = shell_file && self.shell_load.borrow().as_ref() == Some(&url);
+        let step = stepped && matches!(kind, WKNavigationType::BackForward | WKNavigationType::Reload) && self.opened_files.borrow().contains(&url);
+        let source = if nav_policy::file_open(&url, shell_file || step) { Source::FileOpen } else { Source::Link };
+        match nav_policy::decide(&url, source) {
             Decision::Allow => {}
             Decision::Prompt => {
                 self.emit("external", json!({ "url": url.as_str(), "origin": page_origin(web) }));
@@ -444,7 +472,16 @@ impl Inner {
                 self.shell_history.set(true);
                 web.go_forward();
             }
-            "reload" => drop(web.reload()),
+            "reload" => match web.current_url().filter(|u| self.opened_files.borrow().contains(u)) {
+                // A new content process needs the opened file's read grant again.
+                Some(url) => self.load(&url, None, true),
+                None => {
+                    self.shell_history.set(true);
+                    if web.reload().is_none() {
+                        self.shell_history.set(false);
+                    }
+                }
+            },
             "stop" => web.stop_loading(),
             "zoom" => {
                 self.zoom.set(zoom::clamp(args.get("factor").and_then(Value::as_f64).unwrap_or(1.0)));
@@ -589,6 +626,7 @@ impl NativeComponent for TarnWebView {
                 "load" => {
                     props.load = value.and_then(|v| Some((v.get("url")?.as_str()?.to_owned(), v.get("seq")?.as_u64()?)));
                     props.opener = value.and_then(|v| v.get("opener")?.as_str().map(str::to_owned));
+                    props.file = value.and_then(|v| v.get("file")?.as_bool()).unwrap_or(false);
                 }
                 "tab" => props.tab = text(),
                 "active" => props.active = value.and_then(Value::as_bool).unwrap_or(false),
@@ -635,6 +673,8 @@ pub fn register(components: &Components) {
                 scheduled: Cell::new(false),
                 compiling: Cell::new(false),
                 shell_load: RefCell::new(None),
+                shell_file: Cell::new(false),
+                opened_files: RefCell::default(),
                 opener: RefCell::new(None),
                 shell_history: Cell::new(false),
                 find_text: RefCell::default(),

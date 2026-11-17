@@ -35,6 +35,7 @@ pub mod import;
 pub mod incoming;
 pub mod library;
 pub mod licences;
+pub mod open_file;
 pub mod permissions;
 pub mod prefs;
 pub mod profile_data;

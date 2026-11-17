@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use browser_core::closed::{Closed, ClosedTab};
@@ -46,6 +46,8 @@ pub struct Load {
     pub url: String,
     pub seq: u64,
     pub opener: Option<String>,
+    /// A file the user opened (S6): only this load may reach a `file:` URL.
+    pub file: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -142,6 +144,9 @@ pub struct Shell<D: Platform> {
     pub themes: crate::themes::Themes,
     pub ext: crate::extensions::Runtime,
     pub icons: engine::favicon::Tracker<(bool, Id), String>,
+    pub(crate) opened: PathBuf,
+    /// The file each tab opened with Open File: a slept tab loads it again as Open File.
+    opened_files: HashMap<TabKey, String>,
 }
 
 fn downloads_sink() -> Rc<dyn Fn(engine::Event)> {
@@ -159,6 +164,8 @@ impl<D: Platform> Shell<D> {
             model.launch_space(&core, &SavedWindow::default())
         };
         let themes = crate::themes::Themes::open(&core.disk, dir);
+        let opened = dir.join("Opened");
+        browser_core::open_file::clear(&opened);
         let mut shell = Shell {
             core,
             model,
@@ -190,6 +197,8 @@ impl<D: Platform> Shell<D> {
             themes,
             ext: crate::extensions::Runtime::default(),
             icons: engine::favicon::Tracker::default(),
+            opened,
+            opened_files: HashMap::new(),
         };
         shell.ext.root = dir.join("Extensions");
         shell.switch_space(ix);
@@ -349,7 +358,8 @@ impl<D: Platform> Shell<D> {
     pub(crate) fn load_in(&mut self, key: TabKey, url: &str, opener: Option<String>) {
         self.shielded.remove(&key);
         self.seq += 1;
-        self.loads.insert(key, Load { url: url.to_owned(), seq: self.seq, opener });
+        let file = self.opened_files.get(&key).is_some_and(|f| f == url);
+        self.loads.insert(key, Load { url: url.to_owned(), seq: self.seq, opener, file });
         let page = self.pages.entry(key).or_insert_with(|| Page { zoom: 1.0, ..Page::default() });
         page.url = url.to_owned();
         page.error = None;
@@ -370,6 +380,29 @@ impl<D: Platform> Shell<D> {
         self.model.reload_space(&self.core);
         self.activate(key);
         Some(key)
+    }
+
+    /// Shows a file the user picked, staged by `browser_core::open_file::stage`, in a new tab.
+    pub fn open_file(&mut self, url: &Url) {
+        let Some(key) = self.new_tab(None) else { return };
+        // A burner's one view would keep the read grant of the file it showed before.
+        if self.opened_files.insert(key, url.to_string()).is_some() {
+            self.unmount(key);
+            self.activate(key);
+        }
+        self.load_in(key, url.as_str(), None);
+    }
+
+    /// Where Open File copies a picked file: under this process's data folder, cleared at launch;
+    /// a private space's and a burner's copies apart, so closing either deletes them.
+    pub fn opened_dir(&self) -> PathBuf {
+        if self.in_burner() {
+            self.opened.join("burner")
+        } else if self.model.private() {
+            self.opened.join("private")
+        } else {
+            self.opened.clone()
+        }
     }
 
     pub fn navigate(&mut self, text: &str) -> Vec<Effect> {
@@ -482,6 +515,7 @@ impl<D: Platform> Shell<D> {
     }
 
     pub(crate) fn forget(&mut self, key: TabKey) {
+        self.opened_files.remove(&key);
         self.splits.leave(key);
         self.unmount(key);
         self.extension_tab_gone(key, true);
@@ -611,6 +645,7 @@ impl<D: Platform> Shell<D> {
         if self.in_burner() {
             self.burn();
         }
+        browser_core::open_file::clear(&self.opened.join("private"));
         let burner = self.model.burner;
         let private: Vec<(Id, Id)> =
             self.model.spaces.iter().filter(|s| s.private && Some(s.space.id) != burner).map(|s| (s.space.id, s.space.profile_id)).collect();
@@ -622,6 +657,7 @@ impl<D: Platform> Shell<D> {
         }
         // Private tab ids start again in the next session, so no private pane may outlive this one.
         self.splits.retain(|k| !k.private);
+        self.opened_files.retain(|k, _| !k.private);
         for (_, profile_id) in &private {
             self.core.store(true).delete_profile(*profile_id).ok();
             self.forget_icons((true, *profile_id));
