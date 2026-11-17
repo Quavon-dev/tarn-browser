@@ -144,6 +144,9 @@ pub struct Ui {
     rename: Signal<String>,
     /// What `rename` names, so a panel that changes target starts from the new name.
     rename_for: Signal<String>,
+    /// The emoji field of the folder panel and the folder it belongs to.
+    emoji: Signal<String>,
+    emoji_for: Signal<String>,
     open: Signal<bool>,
     /// The page area's size, which places the panes of a split.
     area: Signal<(f32, f32)>,
@@ -240,6 +243,7 @@ pub fn show(ui: Ui, panel: Panel) {
     ui.confirm.set(None);
     ui.rename.set(String::new());
     ui.rename_for.set(String::new());
+    ui.emoji_for.set(String::new());
     ui.panel.set(next);
     act(ui, |_| {});
 }
@@ -362,6 +366,7 @@ fn host_of(url: &str) -> String {
 
 fn tiles(ui: Ui) -> View {
     let side = browser_core::tabs::tile_grid(LIST_WIDTH, TILE_GAP).1;
+    let width = move || px(browser_core::tabs::tile_row(LIST_WIDTH, TILE_GAP, ui.snap.with(|s| s.tiles.len())).1);
     view().flex_row().flex_wrap().gap(px(TILE_GAP)).mb_1().child(each(
         move || ui.snap.with(|s| s.tiles.clone()),
         |r| r.id(),
@@ -379,7 +384,7 @@ fn tiles(ui: Ui) -> View {
                     site_tile(ui, &host, 20.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element()
                 }));
             view()
-                .w(px(side))
+                .w(width)
                 .rounded(px(Theme::radius_tile()))
                 .border_1()
                 .border_color(move || if active() { Theme::sidebar_edge() } else { Theme::hairline() })
@@ -425,13 +430,21 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
                                     .text_color(Theme::muted())
                                     .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
                             )
-                            .child(view().text_color(Theme::space_label()).child(icons::icon(icons::FOLDER, 15.)))
+                            .child(view().text_color(Theme::space_label()).child(dynamic(move || folder_icon(&item.with(|r| r.icon.clone())))))
                             .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
                     )
                     .into_element(),
             }
         },
     )
+}
+
+fn folder_icon(stored: &str) -> AnyElement {
+    match browser_core::icon::parse(stored) {
+        Some(browser_core::icon::Icon::Emoji(emoji)) => body(emoji.to_owned()).into_element(),
+        Some(browser_core::icon::Icon::Symbol(name)) => icons::icon(icons::named(name).unwrap_or(icons::FOLDER), 15.).into_element(),
+        None => icons::icon(icons::FOLDER, 15.).into_element(),
+    }
 }
 
 fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -> AnyElement {
@@ -618,16 +631,6 @@ fn downloads_button(ui: Ui) -> AnyElement {
     })
 }
 
-fn open_settings(ui: Ui, pane: tarn_nsh_shared::panes::Pane) {
-    ui.settings_pane.set(pane);
-    ui.ext_pane.set(false);
-    if ui.panel.get_untracked() == Panel::Settings {
-        act(ui, |_| {});
-    } else {
-        show(ui, Panel::Settings);
-    }
-}
-
 fn space_switcher(ui: Ui) -> nsh_base::ButtonElement {
     let tint = move || ui.snap.with(|s| if s.private { Theme::warning() } else { Theme::profile_color(&s.profile_color).unwrap_or(Theme::space_label()) });
     let glyph = move || ui.snap.with(|s| s.spaces.iter().find(|x| x.current && !x.private).and_then(|x| space_tint(&x.color, 1.))).unwrap_or_else(tint);
@@ -656,27 +659,6 @@ fn space_switcher(ui: Ui) -> nsh_base::ButtonElement {
         .child(view().flex_none().text_color(Theme::muted()).child(icons::icon(icons::CHEVRON_DOWN, 14.)))
 }
 
-fn profile_button(ui: Ui) -> AnyElement {
-    dynamic(move || {
-        let (private, name, color) = ui.snap.with(|s| (s.private, s.profile_name.clone(), s.profile_color.clone()));
-        let tip = if private { "Private space".to_owned() } else { name.clone() };
-        let face = if private {
-            view().w(px(24.)).h(px(24.)).items_center().justify_center().text_color(Secure::warning()).child(icons::icon(icons::HAND, icon_size()))
-        } else {
-            let initial = name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
-            tarn_nsh_shared::controls::avatar(initial, Theme::profile_color(&color).unwrap_or(Theme::accent()), 24.)
-        };
-        controls::pressable(tip.clone(), move || open_settings(ui, tarn_nsh_shared::panes::Pane::Profile))
-            .w(px(28.))
-            .h(px(28.))
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .child(view().size_full().items_center().justify_center().tooltip(controls::tip(&tip, Placement::Bottom)).child(face))
-    })
-}
-
 fn new_tab_row(ui: Ui) -> View {
     let new = controls::pressable("New Tab", move || new_tab(ui))
         .flex_row()
@@ -702,15 +684,7 @@ fn new_tab_row(ui: Ui) -> View {
 }
 
 fn sidebar(ui: Ui) -> View {
-    let header = view()
-        .flex_row()
-        .items_center()
-        .gap_1()
-        .h(px(TOOLBAR_HEIGHT - 8.))
-        .pl_1()
-        .child(space_switcher(ui))
-        .child(downloads_button(ui))
-        .child(profile_button(ui));
+    let header = view().flex_row().items_center().gap_1().h(px(TOOLBAR_HEIGHT - 8.)).pl_1().child(space_switcher(ui)).child(downloads_button(ui));
     let list = view()
         .flex_col()
         .gap(px(2.))
@@ -1855,6 +1829,8 @@ fn new_ui(row: SavedWindow) -> Ui {
         confirm: signal(None),
         rename: signal(String::new()),
         rename_for: signal(String::new()),
+        emoji: signal(String::new()),
+        emoji_for: signal(String::new()),
         area: signal((0., 0.)),
         dragging: signal(None),
         split_drop: signal(None),

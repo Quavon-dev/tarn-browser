@@ -6,6 +6,29 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Tab groups and folders can show an icon: one of twenty symbols or a single emoji, set with
+  Change Icon… in their menu (macOS, Windows; folders on Linux). Clean Up gives each group it
+  makes the icon of its kind.
+
+### Changed
+
+- Toasts have a calmer design: a tone icon, the message and a quiet text action such as Undo
+  (macOS, Windows, Linux, iOS, Android).
+- Tiles stretch to fill their row, so two tiles share the sidebar's width (macOS, Windows, Linux).
+- The profile button left the sidebar header; profiles stay in Settings › Profile and the menu
+  (macOS, Windows, Linux).
+- Appearance has no separate Theme picker; the Themes grid sets the theme.
+
+### Fixed
+
+- Settings text no longer runs under the controls beside it, and text fields clip their
+  placeholder.
+- The settings window's close, minimise and zoom buttons respond on their whole area.
+- In a split, an unfocused pane's header uses its full width for the address.
+- After closing a tab, the tab that moves under the pointer shows its close button at once.
+
 ## [0.1.2] - 2026-11-17
 
 ### Added

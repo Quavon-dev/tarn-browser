@@ -23,6 +23,7 @@ pub struct ClosedTab {
 pub struct ClosedGroup {
     pub name: String,
     pub color: String,
+    pub icon: String,
 }
 
 /// Tabs closed together, such as a group or "Close All Tabs"; they reopen together.
@@ -48,6 +49,7 @@ impl Closed {
         let group = self.group.as_ref().and_then(|g| {
             let group = store.create_group(self.space_id, &g.name).ok()?;
             store.set_group_color(group.id, &g.color).ok();
+            crate::icon::set_group(store, group.id, &g.icon).ok();
             Some(group.id)
         });
         let groups = store.groups(self.space_id).unwrap_or_default();
@@ -384,12 +386,12 @@ mod tests {
         let kept = store.create_group(space_id, "Kept").unwrap().id;
         let mut loose = tab("https://c.test/");
         loose.group = Some((kept, "Kept".into()));
-        let group = Some(ClosedGroup { name: "Work".into(), color: "green".into() });
+        let group = Some(ClosedGroup { name: "Work".into(), color: "green".into(), icon: "🧰".into() });
         let closed = Closed { private: false, profile_id: profile, space_id, tabs: vec![tab("https://a.test/"), tab("https://b.test/")], group };
         let last = closed.restore(&core).unwrap();
         let groups = store.groups(space_id).unwrap();
         let work = groups.iter().find(|g| g.name == "Work").unwrap();
-        assert_eq!(work.color, "green");
+        assert_eq!((work.color.as_str(), work.icon.as_str()), ("green", "🧰"));
         let tabs = store.tabs(space_id).unwrap();
         let urls: Vec<&str> = tabs.iter().filter(|t| t.group_id == Some(work.id)).map(|t| t.url.as_str()).collect();
         assert_eq!(urls, ["https://a.test/", "https://b.test/"]);
@@ -447,7 +449,7 @@ mod tests {
         ];
         let ids: Vec<Id> = unused_tabs(&tabs, Some(5), 1000, 500).map(|t| t.id).collect();
         assert_eq!(ids, [1, 6]);
-        let group = |id| store::Group { id, space_id: 1, name: String::new(), position: 0, collapsed: false, color: String::new() };
+        let group = |id| store::Group { id, space_id: 1, name: String::new(), position: 0, collapsed: false, color: String::new(), icon: String::new() };
         assert_eq!(empty_groups(&[group(9), group(11)], &tabs), [11]);
     }
 

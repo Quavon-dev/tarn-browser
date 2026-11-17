@@ -206,7 +206,7 @@ mod tests {
         }
         let kinds = ["camera", "microphone", "camera+microphone", "location", "notifications", "credentials", "extension", "download", "external", "alert"];
         let files = ["a.zip", "a.pdf", "a.png", "a.mp4", "a"];
-        for glyph in kinds.map(browser_core::glyphs::glyph).into_iter().chain(files.map(browser_core::glyphs::file_glyph)) {
+        for glyph in kinds.map(browser_core::glyphs::glyph).into_iter().chain(files.map(browser_core::glyphs::file_glyph)).chain(browser_core::icon::SYMBOLS) {
             assert!(Icon::named(glyph).is_some(), "{glyph} has no icon");
         }
     }
