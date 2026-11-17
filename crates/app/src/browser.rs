@@ -2871,7 +2871,7 @@ impl Browser {
         let json = store.export_profile(profile_id).map_err(|e| e.to_string())?;
         let dir = std::env::home_dir().ok_or("no home folder")?.join("Downloads");
         let file = engine::downloads::sanitize_filename(&format!("Tarn export {name}.json"));
-        let path = engine::downloads::unique_path(&dir, &file, |p| p.exists());
+        let path = engine::downloads::free_path(&dir, &file, |_| false);
         let mut options = std::fs::OpenOptions::new();
         #[cfg(unix)]
         options.mode(0o600);

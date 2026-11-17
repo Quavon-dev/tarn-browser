@@ -134,7 +134,7 @@ impl Browser {
 
 pub(crate) fn write_download(name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
     let dir = std::env::home_dir().ok_or(std::io::ErrorKind::NotFound)?.join("Downloads");
-    let path = engine::downloads::unique_path(&dir, name, |p| p.symlink_metadata().is_ok());
+    let path = engine::downloads::free_path(&dir, name, |_| false);
     std::fs::OpenOptions::new().write(true).create_new(true).open(&path)?.write_all(bytes)?;
     Ok(path)
 }

@@ -998,7 +998,7 @@ impl DownloadDelegate {
         let sorted = self.ivars().sort.get().then(|| downloads::folder_for(name)).flatten().and_then(|f| downloads::sorted_dir(&downloads_dir, f));
         let dir = sorted.unwrap_or(downloads_dir);
         let path = RESERVED.with_borrow_mut(|reserved| {
-            let path = downloads::unique_path(&dir, name, |p| p.symlink_metadata().is_ok() || reserved.contains(p));
+            let path = downloads::free_path(&dir, name, |p| reserved.contains(p));
             reserved.insert(path.clone());
             path
         });

@@ -216,16 +216,20 @@ final class Downloads {
         }
 
         private File complete() throws IOException {
-            synchronized (Downloads.class) {
-                synchronized (this) {
-                    if (cancelled) throw new IOException("Cancelled");
-                    File target = sort ? sorted(dir, name) : dir;
-                    File file = unique(target, name);
-                    Files.move(part.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE);
-                    running = false;
-                    part = null;
-                    return file;
+            File saved;
+            synchronized (this) {
+                if (cancelled) throw new IOException("Cancelled");
+                saved = part;
+            }
+            File file = place(saved, sort ? sorted(dir, name) : dir, name);
+            synchronized (this) {
+                running = false;
+                part = null;
+                if (cancelled) {
+                    Files.deleteIfExists(file.toPath());
+                    throw new IOException("Cancelled");
                 }
+                return file;
             }
         }
     }
@@ -296,7 +300,15 @@ final class Downloads {
         File sub = new File(dir, folder);
         if (Files.isDirectory(sub.toPath(), LinkOption.NOFOLLOW_LINKS)) return sub;
         if (Files.exists(sub.toPath(), LinkOption.NOFOLLOW_LINKS)) return dir;
-        return sub.mkdir() ? sub : dir;
+        return sub.mkdir() || Files.isDirectory(sub.toPath(), LinkOption.NOFOLLOW_LINKS) ? sub : dir;
+    }
+
+    static File place(File part, File dir, String name) throws IOException {
+        synchronized (Downloads.class) {
+            File file = unique(dir, name);
+            Files.move(part.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE);
+            return file;
+        }
     }
 
     private static File unique(File dir, String name) {

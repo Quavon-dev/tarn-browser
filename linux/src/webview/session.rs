@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use engine::downloads::{folder_for, sanitize_filename, sorted_dir, unique_path};
+use engine::downloads::{folder_for, free_path, sanitize_filename, sorted_dir};
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use serde_json::json;
 use webkit6::glib;
@@ -94,7 +94,7 @@ pub fn destination(dir: &Path, suggested: &str, sort: bool) -> PathBuf {
     let name = sanitize_filename(suggested);
     let dir = folder_for(&name).filter(|_| sort).and_then(|folder| sorted_dir(dir, folder)).unwrap_or_else(|| dir.to_owned());
     let saving: Vec<PathBuf> = DOWNLOADS.with_borrow(|d| d.values().filter_map(|d| d.destination()).map(|d| PathBuf::from(d.as_str())).collect());
-    unique_path(&dir, &name, |p| p.symlink_metadata().is_ok() || saving.iter().any(|s| s == p))
+    free_path(&dir, &name, |p| saving.iter().any(|s| s == p))
 }
 
 pub fn mark_origin(path: &Path, url: &str) -> bool {
