@@ -20,6 +20,20 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
+### Tab sleeping choices and the Suggestions switch (2026-11-17)
+
+What it does: Settings chooses how many tabs stay awake (3, 6, 10, 16) and how long a background tab
+waits before it sleeps (Never, 10 minutes, 30 minutes, 2 hours); a switch turns history
+suggestions, the inline completion and full-text matches off.
+Shared API: `browser_core::settings::{live_tabs, sleep_after, max_idle, LIVE_TABS, SLEEP_AFTER, SUGGESTIONS}`,
+`engine::lifecycle::Lifecycle::set_max_live`.
+macOS reference: `crates/app/src/settings.rs` (`tabs`, `search`), `crates/app/src/prefs.rs` (`set_choice`), `crates/app/src/tabs.rs` (`sleep_idle_tabs`).
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/ui/settings.rs` (General › Tabs, Search › Suggestions), `linux/src/memory.rs`
+- [ ] iOS — `mobile/app` keeps a fixed `LIVE_TABS` of 6 and always suggests; the Settings sheet needs both choices and the switch
+- [ ] Android — same as iOS
+
 ### Clean Up (2026-11-16)
 
 What it does: the Clean Up button in the New Tab row sorts the space's loose tabs into tab groups by what each page
@@ -58,7 +72,7 @@ Shared API: `engine::lifecycle::over_budget`, `engine::lifecycle::BACKGROUND_BUD
 macOS reference: `crates/app/src/tabs.rs` (`sleep_idle_tabs`).
 
 - [x] Windows — same code in `crates/app`, with each tab's main-frame renderer as it reports itself (`docs/windows-plan.md`)
-- [ ] Linux — call it from the sample tick in `linux/src/ui.rs` with the costs of `linux/src/memory.rs`; needs a playing-media signal (`is-playing-audio`) in `linux/src/webview` first, and Linux has no tab sleeping timer yet
+- [ ] Linux — call it from `Browser::sleep_idle_tabs` in `linux/src/memory.rs` with the costs of `Browser::tab_costs`, unless "Sleep background tabs after" is Never
 - [x] iOS — gap: an app cannot read the WebContent process's memory (`docs/mobile-plan.md`)
 - [x] Android — gap: an app cannot read the renderer process's memory (`docs/mobile-plan.md`)
 

@@ -66,7 +66,27 @@ impl Browser {
 
     fn text_profile(&self, query: &str) -> Option<Id> {
         let (private, id) = self.model.profile()?;
-        (!private && browser_core::suggest::searches_text(query) && !self.setting_off(HISTORY_TEXT)).then_some(id)
+        (!private && browser_core::suggest::searches_text(query) && self.suggestions() && !self.setting_off(HISTORY_TEXT)).then_some(id)
+    }
+
+    pub fn suggestions(&self) -> bool {
+        self.setting_on(browser_core::settings::SUGGESTIONS)
+    }
+
+    /// The history rows and inline completion for the address field's new `value`; none while
+    /// Suggestions is off.
+    pub fn address_edit(
+        &self,
+        typed: &str,
+        value: &str,
+        history: &[store::HistoryEntry],
+        max: usize,
+    ) -> (Vec<(String, String)>, Option<browser_core::suggest::Completion>) {
+        if !self.suggestions() {
+            return (Vec::new(), None);
+        }
+        let (rows, completion) = browser_core::suggest::edit(typed, value, &self.model.tabs, history, max, now());
+        (rows.into_iter().map(|h| (h.title.clone(), h.url.clone())).collect(), completion)
     }
 
     pub fn cached_text_matches(&self, query: &str) -> Option<Vec<store::HistoryEntry>> {

@@ -259,7 +259,6 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   backdrop instead of the page.
 - The find pill shows the number of matches, not "3 of 17": WebKitGTK's find controller reports a count only.
 - The address field's inline completion (`suggest::edit`) runs only when one character was typed at the end of what was typed before (the first key replaces the address selected on focus), since NSH inputs report the new text but not the caret or the kind of edit, so a paste never completes; Enter on the completed text opens the visited page it completes to.
-- Settings have no Suggestions switch yet, so history rows and the inline completion are always on (macOS gates both on Settings › Suggestions); both are computed locally from history, as on macOS.
 - Motion uses `tarn_nsh_shared::motion` (POP, FADE, EXIT, SLIDE as on macOS): pop-ups, the palette, prompts, the find pill
   and state glyphs pop in; tab rows grow and shrink, the sidebar and space switches move as layout animations; switch
   knobs slide. All of it lands at once under the desktop's reduced motion. Pop-ups do not animate out (NSH removes a
@@ -284,14 +283,16 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   the first window also keeps its placement (`linux.window_placement`). GTK 4 sets no window
   position, so a new window does not open offset from the front one as on macOS. Evidence:
   `linux/evidence/backlog2-new-window.png`.
-- Tab sleeping follows macOS: a tab sleeps beyond the six-tab live limit, or after 30 minutes off
-  screen (one minute while `MemAvailable` in `/proc/meminfo` is under a tenth of `MemTotal`, the
+- Tab sleeping follows macOS: a tab sleeps beyond the live-tab limit (six by default), or after
+  30 minutes (by default) off screen (one minute while `MemAvailable` in `/proc/meminfo` is under a tenth of `MemTotal`, the
   counterpart of the macOS kernel pressure level); pinned tabs and tiles skip the idle timer, and a
   tab playing audio or using the camera or microphone stays awake (WebKitGTK `is-playing-audio` and
   capture states). Sleeping rows are greyed (`Theme::asleep`, the site tile dimmed). Gap: WebKitGTK
   has no playback-state query like WebKit's `requestMediaPlaybackState`, so silent or muted video
-  does not keep a tab awake. Settings has no "Sleep after" or live-tab choice yet; the macOS
-  defaults apply. Evidence: `linux/evidence/parity-sleeping-tabs.png`.
+  does not keep a tab awake. "Tabs kept awake" and "Sleep background tabs after" are in Settings ›
+  General › Tabs (NSH's settings panes, shared with mobile, have no Tabs pane), with the macOS
+  options and defaults from `browser_core::settings`; Never stops idle sleeping, short of memory
+  too. Evidence: `linux/evidence/parity-sleeping-tabs.png`.
 - A two-finger horizontal swipe over the sidebar switches to the previous or next space, never
   towards one that does not exist (`linux/src/browser/swipe.rs`, through NSH `on_wheel` point
   deltas; mouse wheel lines are ignored). Gap: NSH 0.5's `WheelEvent` has no touch phase

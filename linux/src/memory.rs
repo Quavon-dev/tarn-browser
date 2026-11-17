@@ -3,6 +3,7 @@ use std::hash::Hash;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use browser_core::settings;
 use browser_core::tabs::TabKey;
 use store::TabKind;
 
@@ -13,8 +14,6 @@ const MB: f64 = (1u64 << 20) as f64;
 const TICK_NS: u64 = 10_000_000;
 const WEB_PROCESS: &str = "WebKitWebProces";
 const HEAVY_TABS: usize = 3;
-const SLEEP_AFTER: Duration = Duration::from_secs(30 * 60);
-const PRESSURE_IDLE: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Usage {
@@ -201,8 +200,34 @@ impl Browser {
         self.sleep_idle_tabs(Instant::now(), short);
     }
 
+    pub fn set_live_tabs(&mut self, ix: usize) {
+        if let Some(name) = settings::LIVE_TABS.get(ix) {
+            self.core.disk.set_setting(settings::LIVE_TABS_KEY, name).ok();
+        }
+    }
+
+    /// Whether this turned sleeping on after Never, so idle times start afresh.
+    pub fn set_sleep_after(&mut self, ix: usize) -> bool {
+        let was_never = settings::sleep_after(&self.core.disk).is_none();
+        let Some((name, _)) = settings::SLEEP_AFTER.get(ix) else { return false };
+        self.core.disk.set_setting(settings::SLEEP_AFTER_KEY, name).is_ok() && was_never && settings::sleep_after(&self.core.disk).is_some()
+    }
+
+    pub fn apply_tab_choices(&mut self, restart: bool) {
+        let shown = self.model.active.map(|active| self.split_partners(active).into_iter().chain([active]).collect::<Vec<_>>()).unwrap_or_default();
+        let playing = &self.playing;
+        for key in self.model.lifecycle.set_max_live(settings::live_tabs(&self.core.disk), |k| playing.contains(&k) || shown.contains(&k)) {
+            self.unload(key);
+        }
+        if restart {
+            let now = Instant::now();
+            self.used.values_mut().for_each(|used| *used = now);
+        }
+        self.idle_tick();
+    }
+
     pub fn sleep_idle_tabs(&mut self, now: Instant, pressure: bool) {
-        let max_idle = if pressure { PRESSURE_IDLE } else { SLEEP_AFTER };
+        let max_idle = settings::max_idle(settings::sleep_after(&self.core.disk), pressure);
         self.forget_silent_views();
         let live: Vec<TabKey> = self.model.lifecycle.live().collect();
         for key in live {
@@ -212,7 +237,11 @@ impl Browser {
             };
             let ephemeral = tab.kind == TabKind::Ephemeral;
             let used = *self.used.entry(key).or_insert(now);
-            if ephemeral && self.model.active != Some(key) && !self.playing.contains(&key) && now.saturating_duration_since(used) >= max_idle {
+            if ephemeral
+                && self.model.active != Some(key)
+                && !self.playing.contains(&key)
+                && max_idle.is_some_and(|max| now.saturating_duration_since(used) >= max)
+            {
                 self.sleep_tab(key);
             }
         }

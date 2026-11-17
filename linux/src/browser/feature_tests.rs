@@ -488,3 +488,48 @@ fn a_burner_tab_neither_fetches_nor_keeps_site_icons() {
     assert!(!b.favicons.is_requested(&profile, "a.test", ticket));
     assert!(b.site_icons(&Default::default()).is_none_or(|icons| icons.find("a.test").is_none()));
 }
+
+#[test]
+fn the_suggestions_switch_turns_off_history_rows_completion_and_text_search() {
+    let (_dir, mut b) = browser();
+    let history = [store::HistoryEntry { url: "https://zebra.test/".into(), title: "Zebra".into(), visited_at: browser_core::now(), visits: 5, typed: 3 }];
+    let (rows, completion) = b.address_edit("ze", "zeb", &history, 6);
+    assert_eq!(rows, [("Zebra".to_owned(), "https://zebra.test/".to_owned())]);
+    assert_eq!(completion.map(|c| c.suffix), Some("ra.test".to_owned()));
+    b.toggle_off_setting(HISTORY_TEXT);
+    assert_eq!(b.cached_text_matches("zebra"), None, "on by default, so the text is searched");
+    b.toggle_setting(browser_core::settings::SUGGESTIONS);
+    assert!(!b.suggestions());
+    let (rows, completion) = b.address_edit("ze", "zeb", &history, 6);
+    assert!(rows.is_empty() && completion.is_none());
+    assert_eq!(b.cached_text_matches("zebra"), Some(Vec::new()));
+    assert!(b.search_text_matches("zebra", 6).is_empty());
+}
+
+#[test]
+fn the_tab_choices_set_the_live_limit_and_the_sleep_time() {
+    use std::time::{Duration, Instant};
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    let tabs: Vec<TabKey> = (0..5).map(|n| b.new_tab(&format!("https://t{n}.test/")).unwrap()).collect();
+    b.on_event(tabs[0], "playing", &json!({ "playing": true }));
+    let live = |b: &Browser, key| b.model.lifecycle.live().any(|k| k == key);
+    let number = b.model.lifecycle.born(tabs[0]);
+    b.set_live_tabs(0);
+    b.apply_tab_choices(false);
+    assert_eq!(b.model.lifecycle.born(tabs[0]), number, "the playing tab keeps its view");
+    assert_eq!(browser_core::settings::live_tabs(&b.core.disk), 3);
+    assert!(!live(&b, first) && !live(&b, tabs[1]) && b.pages[&first].load.is_none(), "the least recent tabs sleep");
+    assert!(live(&b, tabs[0]), "a playing tab stays awake");
+    assert!(tabs[2..].iter().all(|k| live(&b, *k)));
+    assert!(!b.set_sleep_after(0));
+    b.sleep_idle_tabs(Instant::now() + Duration::from_secs(3 * 3_600), true);
+    assert!(live(&b, tabs[2]), "Never keeps idle tabs awake, short of memory too");
+    assert!(!b.set_sleep_after(9), "an unknown choice is ignored");
+    assert!(b.set_sleep_after(1), "turning sleep on after Never counts idle times afresh");
+    b.apply_tab_choices(true);
+    b.sleep_idle_tabs(Instant::now() + Duration::from_secs(9 * 60), false);
+    assert!(live(&b, tabs[2]));
+    b.sleep_idle_tabs(Instant::now() + Duration::from_secs(11 * 60), false);
+    assert!(!live(&b, tabs[2]) && live(&b, tabs[4]), "after ten minutes, not the shown tab");
+}

@@ -776,9 +776,12 @@ fn history(ui: Ui) -> Rc<Vec<store::HistoryEntry>> {
 }
 
 fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: Signal<String>) {
+    ui.picked.set(usize::from(tools::listing(query)));
+    if read(ui, |b| !b.suggestions()).unwrap_or(false) {
+        return ui.suggest.set(Vec::new());
+    }
     let found = read(ui, |b| b.cached_text_matches(query)).flatten();
     let shown = crate::input::with_text(rows.clone(), found.as_deref().unwrap_or_default(), SUGGESTIONS);
-    ui.picked.set(usize::from(tools::listing(query)));
     ui.suggest.set(shown.clone());
     if found.is_some() {
         return;
@@ -1153,10 +1156,7 @@ fn palette(ui: Ui) -> AnyElement {
                         act(ui, |b| b.find_in_tabs(&query));
                     } else if value != ui.address.get_untracked() {
                         let (history, typed) = (history(ui), ui.typed.get_untracked());
-                        let edit = read(ui, |b| {
-                            let (rows, completion) = suggest::edit(&typed, value, &b.model.tabs, &history, SUGGESTIONS, browser_core::now());
-                            (rows.into_iter().map(|h| (h.title.clone(), h.url.clone())).collect(), completion)
-                        });
+                        let edit = read(ui, |b| b.address_edit(&typed, value, &history, SUGGESTIONS));
                         let Some((rows, completion)) = edit else { return };
                         ui.typed.set(value.to_owned());
                         show_suggestions(ui, rows, value, ui.typed);

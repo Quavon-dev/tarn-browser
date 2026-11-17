@@ -28,7 +28,6 @@ use crate::data::Data;
 use crate::input;
 use crate::webview::policy::DEFAULT_LEVEL_KEY;
 
-pub const LIVE_TABS: usize = 6;
 pub const START_URL: &str = "about:blank";
 pub const ZOOM_STEPS: [f64; 9] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0];
 
@@ -149,7 +148,7 @@ impl Browser {
     }
 
     pub fn new(core: Rc<Core<Data>>, window: SavedWindow, elsewhere: HashSet<TabKey>, themes: themes::Themes) -> Browser {
-        let mut model = Model::new(LIVE_TABS);
+        let mut model = Model::new(browser_core::settings::live_tabs(&core.disk));
         model.reload_spaces(&core);
         let mut browser = Browser {
             core,

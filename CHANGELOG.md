@@ -25,6 +25,10 @@ All notable changes to Tarn are documented in this file. The format is based on
   until you press Install there; Settings › Extensions links the store (macOS, Windows, Linux,
   iOS, Android).
 
+- Settings › Search › Suggestions turns history suggestions and the address field's
+  inline completion off, and Settings › General › Tabs chooses how many tabs stay awake and how
+  long a background tab waits before it sleeps, as on macOS (Linux).
+
 ### Changed
 
 - The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and

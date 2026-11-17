@@ -1,6 +1,3 @@
-use std::time::Duration;
-
-use engine::lifecycle::Lifecycle;
 use gpui::{Context, Window};
 use store::Store;
 
@@ -62,7 +59,7 @@ impl Pref {
             Pref::AutoHideSidebar => "auto_hide_sidebar",
             Pref::Gestures => "gestures",
             Pref::ReduceMotion => "reduce_motion",
-            Pref::Suggestions => "suggestions",
+            Pref::Suggestions => browser_core::settings::SUGGESTIONS,
             Pref::NewTabStartPage => "new_tab_start_page",
             Pref::ClosePrevious => "close_selects_previous",
             Pref::BlockAds => "block_ads",
@@ -116,13 +113,7 @@ pub enum Choice {
     ArchiveAfter,
 }
 
-pub const LIVE_TABS: [&str; 4] = ["3", "6", "10", "16"];
-pub const SLEEP_AFTER: [(&str, Option<Duration>); 4] = [
-    ("Never", None),
-    ("10 minutes", Some(Duration::from_secs(600))),
-    ("30 minutes", Some(Duration::from_secs(1_800))),
-    ("2 hours", Some(Duration::from_secs(7_200))),
-];
+pub use browser_core::settings::{LIVE_TABS, live_tabs, option_index, sleep_after};
 pub const ARCHIVE_AFTER: [(&str, Option<i64>); 4] =
     [("Never", None), ("12 hours", Some(12 * HOUR)), ("1 day", Some(24 * HOUR)), ("7 days", Some(7 * 24 * HOUR))];
 const HOUR: i64 = 3_600_000;
@@ -139,11 +130,6 @@ pub fn sidebar_width(store: &Store) -> f32 {
     store.setting(SIDEBAR_WIDTH_SETTING).ok().flatten().and_then(|w| w.parse().ok()).map_or(SIDEBAR_WIDTH, clamp_sidebar_width)
 }
 
-/// How long a tab may stay off screen before it sleeps; `None` leaves sleeping to the tab limit.
-pub fn sleep_after(store: &Store) -> Option<Duration> {
-    SLEEP_AFTER[Choice::SleepAfter.load(store)].1
-}
-
 /// How long an unused tab stays open, in milliseconds; `None` keeps tabs open.
 pub fn archive_after(store: &Store) -> Option<i64> {
     ARCHIVE_AFTER[Choice::ArchiveAfter.load(store)].1
@@ -158,7 +144,7 @@ impl Choice {
         match self {
             Choice::Accent => std::iter::once(THEME_ACCENT).chain(ui::theme::ACCENTS.iter().map(|(name, _)| *name)).collect(),
             Choice::LiveTabs => LIVE_TABS.to_vec(),
-            Choice::SleepAfter => SLEEP_AFTER.iter().map(|(name, _)| *name).collect(),
+            Choice::SleepAfter => browser_core::settings::sleep_after_options(),
             Choice::ArchiveAfter => ARCHIVE_AFTER.iter().map(|(name, _)| *name).collect(),
         }
     }
@@ -166,8 +152,8 @@ impl Choice {
     fn key(self) -> &'static str {
         match self {
             Choice::Accent => "accent",
-            Choice::LiveTabs => "live_tabs",
-            Choice::SleepAfter => "sleep_after",
+            Choice::LiveTabs => browser_core::settings::LIVE_TABS_KEY,
+            Choice::SleepAfter => browser_core::settings::SLEEP_AFTER_KEY,
             Choice::ArchiveAfter => "archive_after",
         }
     }
@@ -175,22 +161,14 @@ impl Choice {
     fn default(self) -> usize {
         match self {
             Choice::Accent | Choice::ArchiveAfter => 0,
-            Choice::LiveTabs => 1,
-            Choice::SleepAfter => 2,
+            Choice::LiveTabs => browser_core::settings::LIVE_TABS_DEFAULT,
+            Choice::SleepAfter => browser_core::settings::SLEEP_AFTER_DEFAULT,
         }
     }
 
     pub fn load(self, store: &Store) -> usize {
-        option_index(&self.options(), store.setting(self.key()).ok().flatten().as_deref()).unwrap_or(self.default())
+        browser_core::settings::choice(store, self.key(), &self.options(), self.default())
     }
-}
-
-pub fn option_index(options: &[&str], stored: Option<&str>) -> Option<usize> {
-    options.iter().position(|o| Some(*o) == stored)
-}
-
-pub fn live_tabs(store: &Store) -> usize {
-    LIVE_TABS[Choice::LiveTabs.load(store)].parse().unwrap_or(6)
 }
 
 /// The accent choice that keeps the theme's own accent.
@@ -325,12 +303,9 @@ impl Browser {
         cx.notify();
     }
 
-    /// Rebuilds the live set oldest first, so the most recent tabs stay awake.
+    /// The most recent tabs stay awake.
     fn set_live_tabs(&mut self, max: usize, cx: &mut Context<Self>) {
-        let live: Vec<_> = self.model.lifecycle.live().collect();
-        self.model.lifecycle = Lifecycle::new(max);
-        let evicted: Vec<_> = live.into_iter().rev().flat_map(|key| self.model.lifecycle.activate(key)).collect();
-        for key in evicted {
+        for key in self.model.lifecycle.set_max_live(max, |_| false) {
             self.sleep_unless_playing(key, cx);
         }
     }
@@ -443,7 +418,7 @@ fn sidebar_width_is_clamped_and_persists() {
 #[test]
 fn background_tabs_sleep_after_half_an_hour_by_default() {
     let store = Store::open_in_memory().unwrap();
-    assert_eq!(sleep_after(&store), Some(Duration::from_secs(1_800)));
+    assert_eq!(sleep_after(&store), Some(std::time::Duration::from_secs(1_800)));
     store.set_setting(Choice::SleepAfter.key(), "Never").unwrap();
     assert_eq!(sleep_after(&store), None);
 }

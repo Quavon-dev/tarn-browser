@@ -32,6 +32,7 @@ pub mod permissions;
 pub mod prompts;
 pub mod routing;
 pub mod schedule;
+pub mod settings;
 pub mod shield_card;
 pub mod site;
 pub mod snapshot;

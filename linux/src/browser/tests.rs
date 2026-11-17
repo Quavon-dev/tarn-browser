@@ -319,7 +319,7 @@ fn the_window_reopens_on_its_space_and_tab() {
 fn only_the_most_recent_tabs_stay_live() {
     let (_dir, mut b) = browser();
     let first = active(&b);
-    for n in 0..LIVE_TABS {
+    for n in 0..browser_core::settings::live_tabs(&b.core.disk) {
         b.new_tab(&format!("https://t{n}.test/"));
     }
     assert!(b.model.lifecycle.live().all(|k| k != first));
@@ -404,7 +404,7 @@ fn a_playing_tab_stays_awake_beyond_the_live_tab_limit() {
     let (_dir, mut b) = browser();
     let first = active(&b);
     b.on_event(first, "playing", &json!({ "playing": true }));
-    for n in 0..LIVE_TABS {
+    for n in 0..browser_core::settings::live_tabs(&b.core.disk) {
         b.new_tab(&format!("https://t{n}.test/"));
     }
     assert!(b.model.lifecycle.live().any(|k| k == first));

@@ -15,7 +15,7 @@ impl Browser {
 
     /// The other panes of `key`'s split, once those whose tab is gone or shown in another window
     /// have left it.
-    pub(super) fn split_partners(&mut self, key: TabKey) -> Vec<TabKey> {
+    pub(crate) fn split_partners(&mut self, key: TabKey) -> Vec<TabKey> {
         let (model, elsewhere) = (&self.model, &self.elsewhere);
         self.splits.partners(key, |pane| model.tab(pane).is_some() && !elsewhere.contains(&pane))
     }

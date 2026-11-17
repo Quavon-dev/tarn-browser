@@ -14,6 +14,7 @@ use crate::shortcuts;
 use crate::theme::Theme;
 use crate::webview;
 use browser_core::command::ENGINES;
+use browser_core::settings::{self as prefs, LIVE_TABS, LIVE_TABS_KEY, SLEEP_AFTER_DEFAULT, SLEEP_AFTER_KEY, SUGGESTIONS};
 
 const NAV_WIDTH: f32 = 180.;
 const CARD_SCALE: u32 = 3;
@@ -358,6 +359,15 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
     let (level, engine, lists, private, card, history_text, sort) = read(ui, |b| {
         (b.default_level(), b.search_engine(), b.lists(), b.model.private(), card_of(b), !b.setting_off(HISTORY_TEXT), !b.setting_off(SORT_DOWNLOADS))
     })?;
+    let (suggestions, live_tabs, sleep_after) = read(ui, |b| {
+        let disk = &b.core.disk;
+        let sleep_options = prefs::sleep_after_options();
+        (
+            b.suggestions(),
+            prefs::choice(disk, LIVE_TABS_KEY, &LIVE_TABS, prefs::LIVE_TABS_DEFAULT),
+            prefs::choice(disk, SLEEP_AFTER_KEY, &sleep_options, SLEEP_AFTER_DEFAULT),
+        )
+    })?;
     let on = |group: &str| lists.iter().any(|l| l == group);
     let toggle = move |setting: &'static str| move || act(ui, move |b| b.toggle_setting(setting));
     let toggle_off = move |setting: &'static str| move || act(ui, move |b| b.toggle_off_setting(setting));
@@ -388,6 +398,21 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             None => body.child(note("No profile is open.")),
         },
         Pane::General => body
+            .child(section("Tabs"))
+            .child(
+                group()
+                    .child(group_row().child(label("Tabs kept awake").flex_1()).child(segmented(options(&LIVE_TABS), live_tabs, move |ix| set_tab_choice(ui, |b| {
+                        b.set_live_tabs(ix);
+                        false
+                    }))))
+                    .child(
+                        group_row()
+                            .child(label("Sleep background tabs after").flex_1())
+                            .child(segmented(options(&prefs::sleep_after_options()), sleep_after, move |ix| set_tab_choice(ui, |b| b.set_sleep_after(ix)))),
+                    ),
+            )
+            .child(note("Other tabs sleep and reload when you return, unless they are playing video or audio; fewer saves memory."))
+            .child(note("A tab left for this long sleeps and reloads when you return, after a minute while memory is short. Pinned tabs and tabs playing video or audio stay awake."))
             .child(section("Downloads"))
             .child(group().child(switch(sort, "Sort downloads into folders", toggle_off(SORT_DOWNLOADS))))
             .child(note("New files go into Images, Videos, Audio, Documents, Archives or Installers inside Downloads; other types stay at the top."))
@@ -408,8 +433,9 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             let engines: Vec<(usize, String)> = ENGINES.iter().enumerate().map(|(ix, e)| (ix, e.name.to_owned())).collect();
             body.child(section("Search engine"))
                 .child(group().child(group_row().child(label("Search engine").flex_1()).child(segmented(engines, engine, move |ix| act(ui, move |b| b.set_search_engine(ix))))))
-                .child(section("History"))
-                .child(group().child(switch(history_text, "Search the text of visited pages", toggle_off(HISTORY_TEXT))))
+                .child(section("Suggestions"))
+                .child(group().child(switch(suggestions, "Suggest open tabs and history", toggle(SUGGESTIONS))).child(switch(history_text, "Search the text of visited pages", toggle_off(HISTORY_TEXT))))
+                .child(note("Shown under the address field while you type. Nothing you type leaves this computer before you press Enter."))
                 .child(note("Search the text of visited pages keeps up to 4 KB of each page's text on this computer so history suggestions match what a page said. Never for the private space or Lockdown pages; cleared with history, and when you turn this off."))
         }
         Pane::Privacy => {
@@ -467,6 +493,18 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             .child(view().pt_2().child(permissions(ui))),
         Pane::Shortcuts => body.child(view().pt_3().child(shortcut_rows(ui))),
     })
+}
+
+fn options(names: &[&str]) -> Vec<(usize, String)> {
+    names.iter().map(|n| n.to_string()).enumerate().collect()
+}
+
+fn set_tab_choice(ui: Ui, set: impl FnOnce(&mut Browser) -> bool) {
+    let mut restart = false;
+    act(ui, |b| restart = set(b));
+    for window in super::WINDOWS.with_borrow(Vec::clone) {
+        act(window, |b| b.apply_tab_choices(restart));
+    }
 }
 
 fn link_pill(ui: Ui, name: &'static str, url: &'static str) -> impl IntoElement {

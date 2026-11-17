@@ -21,7 +21,6 @@ use crate::memory::Cost;
 actions!(tarn, [RenameTab, ResetTabTitle, ReturnToPinnedUrl, SetPinnedUrl, SleepOtherTabs, ReloadInChromium, ReloadInWebKit, CloseDuplicateTabs]);
 
 pub(crate) const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-const PRESSURE_IDLE: std::time::Duration = std::time::Duration::from_secs(60);
 const HEAVY_TABS: usize = 3;
 
 /// Set once the user has read `GOOGLE_NOTICE`.
@@ -193,7 +192,7 @@ impl Browser {
     /// heaviest first; pinned tabs only for the budget, once unused for `PINNED_IDLE`.
     pub(crate) fn sleep_idle_tabs(&mut self, cx: &mut Context<Self>) {
         // Short of memory, a tab left for a minute sleeps; the web processes are what holds the memory.
-        let max_idle = crate::prefs::sleep_after(&self.core.disk).map(|idle| if platform::memory::pressure() { idle.min(PRESSURE_IDLE) } else { idle });
+        let max_idle = browser_core::settings::max_idle(crate::prefs::sleep_after(&self.core.disk), platform::memory::pressure());
         let (now, keys) = (Instant::now(), self.views.keys().copied().collect::<Vec<_>>());
         self.seen.retain(|k, _| keys.contains(k));
         let mut background = Vec::new();
