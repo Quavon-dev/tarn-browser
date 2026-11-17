@@ -14,7 +14,7 @@ Written in Rust. No telemetry, no accounts, no Electron.
 
 [Features](#features) · [Screenshots](#screenshots) · [Platforms](#platforms) · [Build](#build-and-run) · [Shortcuts](#shortcuts) · [Development](#development)
 
-<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Tarn demo: the address field switching to an open tab, a command opening Split View, link peek, Reader, the Shield site card, themes and the shortcut sheet" width="100%" /></a>
+<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Tarn demo: the address field switching to an open tab, a command opening Split View, link peek, Reader, the Shield site card, the shortcut sheet and the Ember theme" width="100%" /></a>
 
 <sub>▶ Full-quality video: <a href="docs/media/demo.mp4">docs/media/demo.mp4</a></sub>
 
@@ -102,7 +102,7 @@ the Linux, iOS and Android apps. Pages render in each platform's own engine.
     <td align="center"><sub><b>Split View</b> · <kbd>⌃⌘N</kbd></sub></td>
   </tr>
   <tr>
-    <td><img src="docs/media/site-settings.png" alt="Site settings card with the Shield level, zoom, blocking, pop-ups, dark mode and site CSS" /></td>
+    <td><img src="docs/media/site-settings.png" alt="Site card with the connection, the Shield level, pop-ups, mute, dark mode and zoom for this site" /></td>
     <td><img src="docs/media/reader.png" alt="A Wikipedia article in Reader view" /></td>
   </tr>
   <tr>
@@ -110,11 +110,11 @@ the Linux, iOS and Android apps. Pages render in each platform's own engine.
     <td align="center"><sub><b>Reader</b> · <kbd>⇧⌘R</kbd>, with Read Aloud</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/media/themes.png" alt="Tarn in the Ember theme" /></td>
+    <td><img src="docs/media/themes.png" alt="Appearance settings with the Ember theme applied to Tarn" /></td>
     <td><img src="docs/media/shortcuts.png" alt="The keyboard shortcut sheet" /></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Themes</b> · Ember, one of the built-in themes</sub></td>
+    <td align="center"><sub><b>Themes</b> · Ember, one of the built-in themes, or your own CSS</sub></td>
     <td align="center"><sub><b>Shortcut sheet</b> · <kbd>⌘/</kbd></sub></td>
   </tr>
 </table>
