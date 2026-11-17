@@ -206,7 +206,8 @@ table in `store`.
 
 **NSH shells:** the Linux, iOS and Android shells share `browser_core::command` (input
 parsing, `engine_key`, the address label: `address`, which the macOS toolbar uses, and its text form `display_host`) and
-`browser_core::prompts` (prompt events, which permission answers are remembered); like macOS they reload
+`browser_core::prompts` (prompt events, which permission answers are remembered and at which Shield level,
+and the `answer` with `silence` that blocks a page's requests until its next navigation, `docs/mobile-plan.md` §2); like macOS they reload
 a crashed page once and then stop until a page finishes loading; their web views share `engine::view_policy`
 (site levels with `"*"`, bursts, the NSH zoom range `MIN_PAGE_ZOOM`..`MAX_PAGE_ZOOM`, 0.5 to 3.0; the macOS app keeps its own `engine::MIN_ZOOM` of 0.3) and the filter-list groups in `shield::groups`.
 

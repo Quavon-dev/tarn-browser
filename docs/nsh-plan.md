@@ -267,8 +267,9 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
 - Pop-ups (panels, suggestions, popovers, tooltips) are views and NSH overlays inside the main window, and menus are
   GTK popovers of it, so none floats over another app's window when Tarn is behind it (checked with a second GTK
   window over an open panel: `linux/evidence/backlog-popup-*.png`). There is no window level to manage.
-- Prompts have no Remember toggle and no "Block requests from this page" yet, so permission answers
-  are not saved and a page can keep asking.
+- WebKitGTK does not say which frame asks for a permission, so Always Allow is offered, and a saved
+  answer applied, only while the page has no frames; on a page with frames every request asks with
+  Allow Once and Deny (`docs/mobile-plan.md` §2, `topOrigin`).
 - Window controls are the desktop's: the window manager's title bar and buttons (openbox in the
   tests). Without a window manager NSH 0.5.0 drew no title bar of its own under X11.
 - New Window (Ctrl+N, or "New Window" in the command bar) opens another browser window in the same

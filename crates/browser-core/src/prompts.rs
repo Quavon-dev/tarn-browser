@@ -1,6 +1,7 @@
 //! A web view's `prompt` event and what the shell may remember of its answer.
 
 use serde_json::{Value, json};
+use shield::ShieldLevel;
 
 /// Permission kinds a profile can remember per origin.
 pub const PERMISSIONS: [&str; 3] = ["camera", "microphone", "location"];
@@ -70,6 +71,14 @@ impl Prompt {
         self.is_permission() && !self.origin.is_empty() && self.top_origin.as_deref().is_none_or(|top| top == self.origin)
     }
 
+    pub fn remembered_at(&self, level: ShieldLevel) -> bool {
+        self.rememberable() && level == ShieldLevel::Standard
+    }
+
+    pub fn silence(&self) -> Value {
+        json!({ "id": self.id, "accept": false, "silence": true })
+    }
+
     /// The `answer` command's arguments.
     pub fn answer(&self, accept: bool, text: Option<String>, user: Option<String>, password: Option<String>) -> Value {
         let mut args = json!({ "id": self.id, "accept": accept });
@@ -104,6 +113,21 @@ mod tests {
         assert!(!prompt(json!({ "id": 1, "kind": "camera", "origin": "https://ads.test", "topOrigin": "https://a.test" })).rememberable());
         assert!(!prompt(json!({ "id": 1, "kind": "location", "origin": "" })).rememberable());
         assert!(!prompt(json!({ "id": 1, "kind": "confirm", "origin": "https://a.test" })).rememberable());
+    }
+
+    #[test]
+    fn answers_are_remembered_only_at_standard() {
+        let top = prompt(json!({ "id": 1, "kind": "camera", "origin": "https://a.test", "topOrigin": "https://a.test" }));
+        assert!(top.remembered_at(ShieldLevel::Standard));
+        assert!(!top.remembered_at(ShieldLevel::Strict));
+        assert!(!top.remembered_at(ShieldLevel::Lockdown));
+        let unknown_frame = prompt(json!({ "id": 1, "kind": "camera", "origin": "https://a.test", "topOrigin": "" }));
+        assert!(!unknown_frame.remembered_at(ShieldLevel::Standard));
+    }
+
+    #[test]
+    fn silencing_declines_and_names_the_page() {
+        assert_eq!(prompt(json!({ "id": 4, "kind": "alert" })).silence(), json!({ "id": 4, "accept": false, "silence": true }));
     }
 
     #[test]

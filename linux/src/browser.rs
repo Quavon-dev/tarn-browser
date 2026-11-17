@@ -47,6 +47,7 @@ pub struct Page {
     pub error: Option<String>,
     pub crashed: bool,
     pub prompts: VecDeque<Prompt>,
+    pub opener: Option<TabKey>,
     /// The address the user last opened in this tab from the address field, until a load of it
     /// commits: that visit counts toward inline completion (`suggest::typed_visit`).
     pub typed: Option<String>,
@@ -711,13 +712,24 @@ impl Browser {
             return self.answer_extension(key, &prompt, accept, remember);
         }
         if remember
-            && prompt.rememberable()
+            && prompt.remembered_at(self.level_for(key, &prompt.origin))
             && let Some(profile) = self.model.profile_of(&self.core, key)
         {
             let decision = if accept { "allow" } else { "deny" };
             self.core.store(key.private).set_permission(profile, &prompt.origin, &prompt.kind, decision).ok();
         }
         self.outbox.push((key, "answer", prompt.answer(accept, Some(text.to_owned()), Some(user.to_owned()), Some(password.to_owned()))));
+    }
+
+    pub fn silence(&mut self, id: u64) {
+        let Some((key, prompt)) = self.take_prompt(id) else { return };
+        let queued = self.pages.get_mut(&key).map(|page| std::mem::take(&mut page.prompts)).unwrap_or_default();
+        self.ext_prompts_dropped(queued.iter().filter(|p| p.kind == extensions::PROMPT_KIND).map(|p| p.id).collect());
+        self.outbox.push((key, "answer", prompt.silence()));
+    }
+
+    pub fn remembers(&self, prompt: &Prompt) -> bool {
+        self.model.active.is_some_and(|key| prompt.remembered_at(self.level_for(key, &prompt.origin)))
     }
 
     pub fn store_link_allowed(&self, key: TabKey) -> bool {
@@ -767,8 +779,10 @@ impl Browser {
             "external" => self.notice = Some(Notice::External { url: text("url"), origin: text("origin") }),
             "popup" => {
                 let url = text("url");
-                if !(data["link"].as_bool() == Some(true) && self.open_routed(&url)) {
-                    self.new_tab(&url);
+                if !(data["link"].as_bool() == Some(true) && self.open_routed(&url))
+                    && let Some(popup) = self.new_tab(&url)
+                {
+                    self.pages.entry(popup).or_default().opener = Some(key);
                 }
                 if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)).filter(|p| p.load.as_ref().is_some_and(|(u, _)| *u == url)) {
                     page.link = true;
@@ -899,7 +913,7 @@ impl Browser {
 
     fn on_prompt(&mut self, key: TabKey, data: &Value) {
         let Some(prompt) = Prompt::from_event(data) else { return };
-        if prompt.rememberable()
+        if prompt.remembered_at(self.level_for(key, &prompt.origin))
             && let Some(profile) = self.model.profile_of(&self.core, key)
             && let Some(decision) = self.core.store(key.private).permission(profile, &prompt.origin, &prompt.kind).ok().flatten()
         {
