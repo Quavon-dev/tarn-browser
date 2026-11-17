@@ -380,6 +380,40 @@ fn groups_hold_unpinned_tabs_of_their_space_and_close_with_them() {
 }
 
 #[test]
+fn a_move_into_a_group_is_all_or_nothing() {
+    let (store, space) = seeded();
+    let profile = store.profiles().unwrap()[0].id;
+    let other = store.create_space(profile, "Work", "").unwrap();
+    let group = store.create_group(space, "Group 1").unwrap();
+    let foreign = store.create_group(other.id, "Elsewhere").unwrap();
+    let a = store.create_tab(space, TabKind::Ephemeral, None, "https://a.test/", "").unwrap();
+    let b = store.create_tab(space, TabKind::Ephemeral, None, "https://b.test/", "").unwrap();
+    let before = |id| {
+        let t = store.tab(id).unwrap();
+        (t.kind, t.folder_id, t.group_id, t.position)
+    };
+
+    let kept = (before(a.id), before(b.id));
+    assert!(store.move_tab_to(b.id, TabKind::Ephemeral, None, 0, Some(Some(foreign.id))).is_err(), "a group of another space");
+    assert_eq!((before(a.id), before(b.id)), kept, "a refused move leaves every tab where it was");
+    store.delete_group(foreign.id).unwrap();
+    assert!(store.move_tab_to(b.id, TabKind::Ephemeral, None, 0, Some(Some(foreign.id))).is_err(), "a group that is gone");
+    assert_eq!((before(a.id), before(b.id)), kept, "the position change is rolled back with the group");
+    let pinned = store.create_tab(space, TabKind::Pinned, None, "https://p.test/", "").unwrap();
+    assert!(store.move_tab_to(pinned.id, TabKind::Ephemeral, None, 0, Some(Some(foreign.id))).is_err());
+    assert_eq!(before(pinned.id).0, TabKind::Pinned, "the unpin is rolled back when its group is gone");
+    assert_eq!((before(a.id), before(b.id)), kept);
+
+    store.move_tab_to(b.id, TabKind::Ephemeral, None, 0, Some(Some(group.id))).unwrap();
+    assert_eq!((before(b.id).2, before(b.id).3, before(a.id).3), (Some(group.id), 0, 1));
+    store.move_tab_to(b.id, TabKind::Ephemeral, None, 1, Some(None)).unwrap();
+    assert_eq!((before(b.id).2, before(b.id).3, before(a.id).3), (None, 1, 0), "Some(None) takes the tab out of its group");
+    store.set_tab_group(a.id, Some(group.id)).unwrap();
+    store.move_tab_to(a.id, TabKind::Ephemeral, None, 0, None).unwrap();
+    assert_eq!(before(a.id).2, Some(group.id), "None keeps the group");
+}
+
+#[test]
 fn ungroup_keeps_the_tabs() {
     let (store, space) = seeded();
     let group = store.create_group(space, "Group 1").unwrap();
