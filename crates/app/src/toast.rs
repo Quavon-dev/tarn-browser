@@ -34,8 +34,8 @@ const MARGIN: f32 = 24.;
 pub enum Action {
     /// Reopens the closed-tab entry with this serial.
     Undo(u64),
-    /// Puts back what the last Clean Up sorted.
-    UndoSort,
+    /// Puts back what Clean Up sorted, in the private or normal space it sorted.
+    UndoSort(Box<(bool, browser_core::cleanup::Undo)>),
     Reveal(PathBuf),
     RestartToUpdate,
 }
@@ -44,7 +44,7 @@ impl Action {
     fn label(&self) -> &'static str {
         match self {
             Action::Undo(_) => "Undo",
-            Action::UndoSort => "Undo Sort",
+            Action::UndoSort(_) => "Undo Sort",
             Action::Reveal(_) => ui::controls::REVEAL,
             Action::RestartToUpdate => "Restart to Update",
         }
@@ -71,18 +71,12 @@ pub struct Toasts {
     /// Where the popup sits in the window, so it follows the sidebar and window size.
     placed: (f32, f32, f32),
     opening: bool,
-    /// What Undo Sort puts back, for the private or normal space it sorted; kept only while its
-    /// toast is.
-    pub(crate) sort_undo: Option<(bool, browser_core::cleanup::Undo)>,
 }
 
 impl Toasts {
     /// Replaces any toast; returns the new toast's serial.
     fn show(&mut self, tone: Tone, text: SharedString, action: Option<Action>) -> u64 {
         self.serial += 1;
-        if action != Some(Action::UndoSort) {
-            self.sort_undo = None;
-        }
         self.current = Some(Toast { text, tone, action, serial: self.serial, closing: false });
         self.serial
     }
@@ -99,7 +93,6 @@ impl Toasts {
         let current = self.current.as_ref().is_some_and(|t| t.serial == serial);
         if current {
             self.current = None;
-            self.sort_undo = None;
         }
         current
     }
@@ -145,7 +138,7 @@ impl Browser {
         let Some(toast) = self.toast.current.take() else { return };
         match toast.action {
             Some(Action::Undo(serial)) if self.model.closed_tabs.newest() == Some(serial) => self.reopen_closed_tab(window, cx),
-            Some(Action::UndoSort) => self.undo_sort(cx),
+            Some(Action::UndoSort(record)) => self.undo_sort(*record, cx),
             Some(Action::Reveal(path)) => engine::reveal_in_finder(&path),
             Some(Action::RestartToUpdate) => crate::shared::restart_to_update(cx),
             _ => {}
@@ -310,21 +303,17 @@ mod tests {
     }
 
     #[test]
-    fn the_sort_undo_lives_only_with_its_toast() {
+    fn undo_sort_goes_with_its_toast() {
         let store = store::Store::open_in_memory().unwrap();
         let profile = store.create_profile("P", "uuid", false).unwrap();
         let space = store.create_space(profile.id, "S", "").unwrap();
-        let sort = browser_core::cleanup::plan(&[], &[], |t| t.url.clone());
-        let record = browser_core::cleanup::apply(&store, space.id, &sort).unwrap();
+        let record = browser_core::cleanup::apply(&store, space.id, &browser_core::cleanup::plan(&[], &[], |t| t.url.clone())).unwrap();
         let mut toasts = Toasts::default();
-        let serial = toasts.show(Tone::Info, "Sorted 2 tabs into groups".into(), Some(Action::UndoSort));
-        toasts.sort_undo = Some((false, record.clone()));
-        assert!(toasts.live(None).is_some());
-        assert!(toasts.expire(serial));
-        assert!(toasts.sort_undo.is_none(), "dropped when its toast expires");
-        toasts.show(Tone::Info, "Sorted 2 tabs into groups".into(), Some(Action::UndoSort));
-        toasts.sort_undo = Some((false, record));
+        let serial = toasts.show(Tone::Info, "Sorted 2 tabs into groups".into(), Some(Action::UndoSort(Box::new((false, record.clone())))));
+        assert!(matches!(toasts.live(None).and_then(|t| t.action.as_ref()), Some(Action::UndoSort(_))));
+        assert!(toasts.expire(serial) && toasts.live(None).is_none());
+        toasts.show(Tone::Info, "Sorted 2 tabs into groups".into(), Some(Action::UndoSort(Box::new((false, record)))));
         toasts.show(Tone::Info, "Link copied".into(), None);
-        assert!(toasts.sort_undo.is_none(), "dropped when another toast replaces it");
+        assert!(toasts.live(None).is_some_and(|t| t.action.is_none()), "a newer toast takes the undo with the old one");
     }
 }

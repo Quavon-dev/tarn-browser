@@ -3,7 +3,8 @@
 //! A `sites` entry is a host, which also covers its subdomains, optionally followed by `/` and the
 //! first path segment it needs (`google.com/maps`). When several entries match a page, the one
 //! with the longest host wins, then one with a path. `labels`, `paths` and `words` are only asked
-//! for pages of sites no entry knows.
+//! for pages of sites no entry knows. Money and Mail and Chat take known sites only, so a page
+//! that only looks like a bank or a mail service is never filed next to the real ones.
 
 pub(super) struct Category {
     pub name: &'static str,
@@ -126,7 +127,7 @@ pub(super) const CATEGORIES: &[Category] = &[
             "web.de",
             "fastmail.com",
             "tuta.com",
-            "slack.com",
+            "app.slack.com",
             "discord.com",
             "web.whatsapp.com",
             "web.telegram.org",
@@ -138,9 +139,9 @@ pub(super) const CATEGORIES: &[Category] = &[
             "element.io",
             "app.element.io",
         ],
-        labels: &["mail", "webmail", "chat", "messages", "meet"],
-        paths: &["inbox", "mail", "messages", "conversations", "conversation"],
-        words: &["inbox", "mail", "email", "e mail", "posteingang", "meeting room"],
+        labels: &[],
+        paths: &[],
+        words: &[],
     },
     Category {
         name: "Work",
@@ -431,7 +432,6 @@ pub(super) const CATEGORIES: &[Category] = &[
             "revolut.com",
             "n26.com",
             "wise.com",
-            "stripe.com",
             "dashboard.stripe.com",
             "coinbase.com",
             "binance.com",
@@ -452,9 +452,9 @@ pub(super) const CATEGORIES: &[Category] = &[
             "finanzen.net",
             "onvista.de",
         ],
-        labels: &["bank", "banking", "onlinebanking", "pay", "finance", "invest", "broker"],
-        paths: &["banking", "transactions", "portfolio", "finance", "payments", "depot"],
-        words: &["bank", "banking", "konto", "stocks", "stock", "finance", "portfolio", "crypto", "bitcoin", "aktien", "depot", "überweisung", "steuer", "tax"],
+        labels: &[],
+        paths: &[],
+        words: &[],
     },
     Category {
         name: "Games",

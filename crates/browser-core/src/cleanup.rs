@@ -36,12 +36,12 @@ struct Verdict {
     known: bool,
 }
 
-/// The host of an http or https page, lowercase and without `www.`.
+/// The host of an http or https page, lowercase and without `www.` or a trailing dot.
 fn web_host(url: &Url) -> Option<String> {
     if !matches!(url.scheme(), "http" | "https") {
         return None;
     }
-    let host = url.host_str()?.to_ascii_lowercase();
+    let host = url.host_str()?.trim_end_matches('.').to_ascii_lowercase();
     Some(host.strip_prefix("www.").map(str::to_owned).unwrap_or(host))
 }
 
@@ -151,7 +151,8 @@ impl Sort {
 pub fn plan(tabs: &[Tab], groups: &[Group], url: impl Fn(&Tab) -> String) -> Sort {
     let mut zone: Vec<&Tab> = tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.folder_id.is_none()).collect();
     zone.sort_by_key(|t| t.position);
-    let hosts: HashMap<Id, String> = zone.iter().filter_map(|t| Some((t.id, host_of(&url(t))?))).collect();
+    let urls: HashMap<Id, String> = zone.iter().map(|t| (t.id, url(t))).collect();
+    let hosts: HashMap<Id, String> = urls.iter().filter_map(|(&id, url)| Some((id, host_of(url)?))).collect();
 
     let mut kept: HashMap<&str, HashMap<Id, usize>> = HashMap::new();
     for t in zone.iter().filter(|t| t.group_id.is_some()) {
@@ -159,10 +160,16 @@ pub fn plan(tabs: &[Tab], groups: &[Group], url: impl Fn(&Tab) -> String) -> Sor
             *kept.entry(host.as_str()).or_default().entry(group).or_default() += 1;
         }
     }
-    let learned = |host: &str| -> Option<Id> {
+    let known_only: HashMap<Id, usize> = groups
+        .iter()
+        .filter_map(|g| Some((g.id, category_of_group(g)?)))
+        .filter(|&(_, c)| CATEGORIES[c].labels.is_empty() && CATEGORIES[c].paths.is_empty() && CATEGORIES[c].words.is_empty())
+        .collect();
+    let learned = |host: &str, verdict: Option<Verdict>| -> Option<Id> {
         let groups = kept.get(host)?;
         let (&group, &count) = groups.iter().next().filter(|_| groups.len() == 1)?;
-        (count >= LEARN_FROM).then_some(group)
+        let allowed = known_only.get(&group).is_none_or(|&c| verdict.is_some_and(|v| v.known && v.category == c));
+        (count >= LEARN_FROM && allowed).then_some(group)
     };
     let group_for = |category: usize| groups.iter().find(|g| category_of_group(g) == Some(category)).map(|g| g.id);
 
@@ -170,8 +177,8 @@ pub fn plan(tabs: &[Tab], groups: &[Group], url: impl Fn(&Tab) -> String) -> Sor
     let mut new_groups: Vec<usize> = Vec::new();
     let mut pending: HashMap<usize, Vec<Id>> = HashMap::new();
     for t in zone.iter().filter(|t| t.group_id.is_none()) {
-        let verdict = classify(&url(t), &t.title);
-        let host_group = hosts.get(&t.id).and_then(|h| learned(h));
+        let verdict = classify(&urls[&t.id], &t.title);
+        let host_group = hosts.get(&t.id).and_then(|h| learned(h, verdict));
         let category_group = verdict.and_then(|v| group_for(v.category));
         let target = match (host_group, verdict) {
             (Some(_), Some(v)) if v.known && category_group.is_some() => category_group,
@@ -255,45 +262,56 @@ pub struct Undo {
 /// Applies the sort to `space_id` at once, or not at all.
 pub fn apply(store: &Store, space_id: Id, sort: &Sort) -> Result<Undo, store::Error> {
     let created = store.apply_layout(space_id, &sort.layout)?;
-    let after: HashMap<Id, Option<Id>> = sort
-        .layout
-        .tabs
-        .iter()
-        .map(|&(id, slot)| {
-            let group = match slot {
-                Slot::Loose => None,
-                Slot::Group(g) => Some(g),
-                Slot::New(i) => created.get(i).copied(),
-            };
-            (id, group)
-        })
-        .collect();
+    let after: HashMap<Id, Option<Id>> = match store.tabs(space_id) {
+        Ok(tabs) => tabs.into_iter().map(|t| (t.id, t.group_id)).collect(),
+        Err(_) => sort
+            .layout
+            .tabs
+            .iter()
+            .map(|&(id, slot)| {
+                let group = match slot {
+                    Slot::Loose => None,
+                    Slot::Group(g) => Some(g),
+                    Slot::New(i) => created.get(i).copied(),
+                };
+                (id, group)
+            })
+            .collect(),
+    };
     let tabs = sort.before.iter().filter_map(|&(id, group, position)| Some((id, group, position, *after.get(&id)?))).collect();
     let created = created.into_iter().zip(sort.layout.new_groups.iter().map(|(name, _)| name.clone())).collect();
     Ok(Undo { space_id, tabs, groups: sort.groups_before.clone(), created, opened: sort.opened.clone() })
 }
 
-/// Puts back the tabs that still sit where the sort put them, the order of the groups and the
-/// groups it opened, and removes each group the sort made once it is empty; the ids of the groups
-/// removed. Tabs moved to another group or closed since stay as they are.
+/// Puts back the tabs that still sit in the group the sort put them in, the order of the groups and
+/// the groups it opened, and removes each group the sort made once it is empty; the ids of the
+/// groups removed. Tabs moved to another group or closed since stay as they are, and a tab opened
+/// since stays behind the tab it followed.
 pub fn undo(store: &Store, undo: &Undo) -> Result<Vec<Id>, store::Error> {
     let mut zone: Vec<Tab> = store.tabs(undo.space_id)?.into_iter().filter(|t| t.kind == TabKind::Ephemeral && t.folder_id.is_none()).collect();
     zone.sort_by_key(|t| t.position);
     let record: HashMap<Id, (Option<Id>, i64, Option<Id>)> = undo.tabs.iter().map(|&(id, group, position, after)| (id, (group, position, after))).collect();
-    let mut keyed: Vec<(i64, Id, Option<Id>)> = zone
+    let mut anchor = (-1, 0);
+    let mut keyed: Vec<((i64, usize), Id, Option<Id>)> = zone
         .iter()
         .map(|t| match record.get(&t.id) {
-            Some(&(group, position, after)) if t.group_id == after => (position, t.id, group),
-            _ => (t.position, t.id, t.group_id),
+            Some(&(group, rank, after)) if t.group_id == after => {
+                anchor = (rank, 0);
+                (anchor, t.id, group)
+            }
+            _ => {
+                anchor.1 += 1;
+                (anchor, t.id, t.group_id)
+            }
         })
         .collect();
-    keyed.sort_by_key(|&(position, ..)| position);
+    keyed.sort_by_key(|&(key, ..)| key);
     let names: HashMap<Id, String> = store.groups(undo.space_id)?.into_iter().map(|g| (g.id, g.name)).collect();
     let still = |list: &[(Id, String)]| list.iter().filter(|(id, name)| names.get(id) == Some(name)).map(|(id, _)| *id).collect::<Vec<_>>();
     let layout = Layout {
         new_groups: Vec::new(),
         tabs: keyed.into_iter().map(|(_, id, group)| (id, group.map_or(Slot::Loose, Slot::Group))).collect(),
-        groups: undo.groups.iter().map(|&g| Slot::Group(g)).collect(),
+        groups: undo.groups.iter().filter(|g| names.contains_key(g)).map(|&g| Slot::Group(g)).collect(),
         drop_if_empty: still(&undo.created),
         collapse: still(&undo.opened),
     };
@@ -331,7 +349,7 @@ mod tests {
             ("https://claude.ai/new", "Claude", "AI"),
             ("https://outlook.office.com/mail/", "Mail", "Mail and Chat"),
             ("https://app.slack.com/client/T1", "Slack", "Mail and Chat"),
-            ("https://webmail.example.test/", "Webmail", "Mail and Chat"),
+            ("https://webmail.example.test/", "Webmail inbox", "Unsorted"),
             ("https://docs.google.com/document/d/1/edit", "Plan", "Work"),
             ("https://team.atlassian.net/browse/X-1", "X-1", "Work"),
             ("https://www.figma.com/file/1", "Design", "Work"),
@@ -359,14 +377,14 @@ mod tests {
             ("https://www.booking.com/hotel/de/x.html", "Hotel X", "Travel"),
             ("https://int.bahn.de/en", "DB", "Travel"),
             ("https://www.paypal.com/myaccount/", "PayPal", "Money"),
-            ("https://banking.example.test/", "Konto", "Money"),
+            ("https://banking.example.test/banking", "Konto", "Unsorted"),
             ("https://store.steampowered.com/app/1", "Game", "Games"),
             ("https://lichess.org/abc", "Play", "Games"),
             ("https://www.chefkoch.de/rezepte/1/x.html", "Kuchen", "Food"),
             ("https://example.test/recipes/soup", "Soup", "Food"),
             ("https://github.com/shop/cart", "Shop cart checkout buy", "Development"),
             ("https://example.test/", "Hello", "Unsorted"),
-            ("https://example.test/", "Shopping cart and inbox", "Unsorted"),
+            ("https://example.test/", "Shopping cart and recipe", "Unsorted"),
         ];
         for (url, title, want) in pages {
             assert_eq!(category(url, title).unwrap_or("Unsorted"), want, "{url} {title}");
@@ -375,9 +393,28 @@ mod tests {
 
     #[test]
     fn a_page_cannot_outvote_a_known_site() {
-        let title = "Bank banking konto stocks crypto bitcoin";
-        assert_eq!(category("https://github.com/bank/banking/transactions", title), Some("Development"));
-        assert_eq!(category("https://bank.example.test/banking/portfolio", title), Some("Money"));
+        let title = "Cart checkout buy sale deals";
+        assert_eq!(category("https://github.com/shop/cart/checkout", title), Some("Development"));
+        assert_eq!(category("https://shop.example.test/cart/checkout", title), Some("Shopping"));
+    }
+
+    #[test]
+    fn only_known_sites_are_money_or_mail() {
+        assert_eq!(category("https://www.sparkasse.de/", ""), Some("Money"));
+        assert_eq!(category("https://sparkasse-login.test/banking/konto", "Online-Banking Konto Sparkasse"), None);
+        assert_eq!(category("https://mail.example.test/inbox", "Inbox - Mail"), None);
+    }
+
+    #[test]
+    fn hosts_in_every_form_are_read_safely() {
+        assert_eq!(category("https://github.com./x", "bank konto"), Some("Development"), "a trailing dot is the same host");
+        assert_eq!(category("https://GitHub.COM:8443/x", ""), Some("Development"), "case and port do not matter");
+        assert_eq!(category("https://user:pw@github.com/x", ""), Some("Development"));
+        assert_eq!(category("https://github.com.evil.test/x", ""), None, "a known host inside another is not the site");
+        assert_eq!(category("https://bücher.example/cart", ""), Some("Shopping"), "IDN hosts are read as punycode");
+        assert_eq!(category("http://192.168.0.1/cart", ""), Some("Shopping"));
+        assert_eq!(category("http://[::1]/", "Ünïcödé 🎉 title"), None);
+        assert_eq!(category("https://./", "cart"), Some("Shopping"));
     }
 
     #[test]
@@ -538,6 +575,32 @@ mod tests {
     }
 
     #[test]
+    fn a_lookalike_page_stays_out_of_the_money_group() {
+        with_space(|s| {
+            let money = s.group("Money", &["https://www.sparkasse.de/"]);
+            let fake = s.add("https://sparkasse-login.test/banking/konto");
+            let real = s.add("https://www.sparkasse.de/konto");
+            apply(s.store, s.id, &s.plan()).unwrap();
+            assert_eq!((s.group_of(fake), s.group_of(real)), (None, Some(money)));
+            for url in ["https://sparkasse-login.test/1", "https://sparkasse-login.test/2"] {
+                s.store.set_tab_group(s.add(url), Some(money)).unwrap();
+            }
+            let drifted = s.add("https://sparkasse-login.test/3");
+            let mine = s.group("Trip", &["https://hotel.test/1", "https://hotel.test/2"]);
+            let hotel = s.add("https://hotel.test/3");
+            apply(s.store, s.id, &s.plan()).unwrap();
+            assert_eq!(s.group_of(drifted), None, "tabs that drifted into Money teach it nothing");
+            for url in ["https://sparkasse-login.notion.site/1", "https://sparkasse-login.notion.site/2"] {
+                s.store.set_tab_group(s.add(url), Some(money)).unwrap();
+            }
+            let hosted = s.add("https://sparkasse-login.notion.site/3");
+            apply(s.store, s.id, &s.plan()).unwrap();
+            assert_ne!(s.group_of(hosted), Some(money), "a known site of another category is no bank either");
+            assert_eq!(s.group_of(hotel), Some(mine), "the user's own groups still learn");
+        });
+    }
+
+    #[test]
     fn one_drifted_tab_teaches_nothing() {
         with_space(|s| {
             s.group("Bank", &["https://mybank.test/", "https://evil.test/"]);
@@ -620,6 +683,43 @@ mod tests {
         assert_eq!(sort(0, false, false).summary(true, 1, true), "Archived 1 unused tab");
         assert_eq!(sort(0, false, false).summary(true, 0, true), "Already tidy");
         assert_eq!(sort(0, false, false).summary(true, 0, false), "Nothing to sort. Settings › Tabs can archive unused tabs too.");
+    }
+
+    #[test]
+    fn undo_keeps_a_new_tab_behind_the_tab_it_followed() {
+        with_space(|s| {
+            let (a, b, c, d, f) =
+                (s.add("https://github.com/1"), s.add("https://b.test/"), s.add("https://c.test/"), s.add("https://github.com/2"), s.add("https://f.test/"));
+            let undo_record = apply(s.store, s.id, &s.plan()).unwrap();
+            for id in [b, c, f] {
+                s.store.delete_tab(id).unwrap();
+            }
+            let e = s.add("https://e.test/");
+            undo(s.store, &undo_record).unwrap();
+            let mut tabs = s.store.tabs(s.id).unwrap();
+            tabs.sort_by_key(|t| t.position);
+            assert_eq!(tabs.iter().map(|t| t.id).collect::<Vec<_>>(), [a, d, e]);
+            assert!(tabs.iter().all(|t| t.group_id.is_none()));
+        });
+    }
+
+    #[test]
+    fn undo_works_when_a_group_id_went_to_another_space() {
+        with_space(|s| {
+            let mine = s.group("Mine", &["https://x.test/"]);
+            s.add("https://github.com/1");
+            s.add("https://gitlab.com/2");
+            let undo_record = apply(s.store, s.id, &s.plan()).unwrap();
+            let profile = s.store.profiles().unwrap()[0].id;
+            let other = s.store.create_space(profile, "Other", "").unwrap().id;
+            let dev = s.group_named("Development").unwrap();
+            s.store.ungroup(dev).unwrap();
+            s.store.ungroup(mine).unwrap();
+            let taken = s.store.create_group(other, "Elsewhere").unwrap().id;
+            assert!(taken == dev || taken == mine);
+            undo(s.store, &undo_record).unwrap();
+            assert_eq!(s.store.groups(other).unwrap().len(), 1);
+        });
     }
 
     #[test]

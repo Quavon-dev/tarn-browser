@@ -588,9 +588,19 @@ impl Browser {
         }
         let archived = self.archive_unused_tabs(cx);
         let Some((private, space_id)) = self.model.current_space().map(|s| (s.private, s.space.id)) else { return };
-        let sort =
-            browser_core::cleanup::plan(&self.model.tabs, &self.model.groups, |t| self.tab_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone()));
+        let store = self.store(private);
+        let (tabs, groups) = match (store.tabs(space_id), store.groups(space_id)) {
+            (Ok(tabs), Ok(groups)) => (tabs, groups),
+            (Err(e), _) | (_, Err(e)) => {
+                eprintln!("tarn: Clean Up could not read the space: {e}");
+                return self.show_toast_as(browser_core::toast::Tone::Warning, "Could not sort the tabs", None, cx);
+            }
+        };
+        let sort = browser_core::cleanup::plan(&tabs, &groups, |t| self.tab_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone()));
         let applied = if sort.changed { browser_core::cleanup::apply(self.store(private), space_id, &sort).map(Some) } else { Ok(None) };
+        if let Err(e) = &applied {
+            eprintln!("tarn: Clean Up could not sort the tabs: {e}");
+        }
         let text = sort.summary(applied.is_ok(), archived, crate::prefs::archive_after(&self.core.disk).is_some());
         let tone = if applied.is_ok() { browser_core::toast::Tone::Info } else { browser_core::toast::Tone::Warning };
         let undo = applied.ok().flatten();
@@ -598,17 +608,18 @@ impl Browser {
             self.reload_space();
             Self::sync_other_windows(cx);
         }
-        self.show_toast_as(tone, text, undo.is_some().then_some(crate::toast::Action::UndoSort), cx);
-        self.toast.sort_undo = undo.map(|undo| (private, undo));
+        self.show_toast_as(tone, text, undo.map(|undo| crate::toast::Action::UndoSort(Box::new((private, undo)))), cx);
         cx.notify();
     }
 
-    /// Puts back what the last Clean Up sorted, in whichever space it sorted.
-    pub(crate) fn undo_sort(&mut self, cx: &mut Context<Self>) {
-        let Some((private, undo)) = self.toast.sort_undo.take() else { return };
+    /// Puts back what Clean Up sorted, in whichever space it sorted.
+    pub(crate) fn undo_sort(&mut self, (private, undo): (bool, browser_core::cleanup::Undo), cx: &mut Context<Self>) {
         match browser_core::cleanup::undo(self.store(private), &undo) {
             Ok(dropped) => self.forget_groups(private, &dropped, cx),
-            Err(_) => self.show_toast_as(browser_core::toast::Tone::Warning, "Could not undo the sort", None, cx),
+            Err(e) => {
+                eprintln!("tarn: Clean Up could not undo the sort: {e}");
+                self.show_toast_as(browser_core::toast::Tone::Warning, "Could not undo the sort", None, cx);
+            }
         }
         self.reload_space();
         Self::sync_other_windows(cx);
