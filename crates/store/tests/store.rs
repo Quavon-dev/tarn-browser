@@ -414,20 +414,43 @@ fn a_move_into_a_group_is_all_or_nothing() {
 }
 
 #[test]
-fn a_failed_step_in_a_batch_leaves_no_profile_or_space() {
-    let store = Store::open_in_memory().unwrap();
+fn a_profile_whose_last_write_fails_leaves_nothing_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    let home = store.create_profile("Personal", "home-uuid", false).unwrap();
+    let home_space = store.create_space(home.id, "Home", "house").unwrap();
+    let settings_before = (store.setting(&format!("shared_store.{}", home.id)).unwrap(), store.setting(&format!("search_engine.{}", home.id)).unwrap());
+    rusqlite::Connection::open(dir.path().join("tarn.db"))
+        .unwrap()
+        .execute_batch("CREATE TRIGGER refuse_space_update BEFORE UPDATE ON spaces BEGIN SELECT RAISE(ABORT, 'refused'); END;")
+        .unwrap();
     let failed = store.batch(|s| {
-        let profile = s.create_profile("Work", "uuid-w", false)?;
-        s.set_profile(profile.id, "Work", "blue")?;
-        s.set_setting(&format!("profile.{}.engine", profile.id), "Kagi")?;
-        let space = s.create_space(profile.id, "Desk", "code")?;
-        s.update_space(space.id, "Desk", "green", "code")?;
-        s.set_space_schedule(space.id, store::Schedule { days: 0, start: 24, end: 0 })
+        let shared = s.setting(&format!("shared_store.{}", home.id))?.filter(|u| !u.is_empty()).unwrap_or(s.profile(home.id)?.data_store_uuid);
+        let id = s.create_profile("Work", "work-uuid", false)?.id;
+        s.set_profile(id, "Work", "green")?;
+        s.set_profile_shield_level(id, ShieldLevel::Strict)?;
+        s.set_setting(&format!("shared_store.{id}"), &shared)?;
+        s.set_setting(&format!("search_engine.{id}"), "Kagi")?;
+        let space = s.create_space(id, "Desk", "briefcase")?.id;
+        s.update_space(space, "Desk", "blue", "briefcase")
     });
-    assert!(failed.is_err(), "an invalid schedule fails the last step");
-    assert!(store.profiles().unwrap().is_empty(), "no profile row is left");
-    assert!(store.setting("profile.1.engine").unwrap().is_none(), "nor its settings");
-    assert!(store.spaces(1).unwrap().is_empty(), "nor its space");
+    assert!(failed.is_err(), "the last write of profiles::create is refused");
+    let profiles = store.profiles().unwrap();
+    assert_eq!(profiles.iter().map(|p| p.id).collect::<Vec<_>>(), [home.id], "no new profile row");
+    let new_id = home.id + 1;
+    assert!(
+        store.setting(&format!("shared_store.{new_id}")).unwrap().is_none() && store.setting(&format!("search_engine.{new_id}")).unwrap().is_none(),
+        "no settings of the new profile"
+    );
+    assert!(store.spaces(new_id).unwrap().is_empty(), "no new space");
+    assert_eq!(store.spaces(home.id).unwrap().iter().map(|s| s.id).collect::<Vec<_>>(), [home_space.id]);
+    let after = store.profile(home.id).unwrap();
+    assert_eq!(
+        (after.name.as_str(), after.data_store_uuid.as_str(), after.shield_level),
+        ("Personal", "home-uuid", home.shield_level),
+        "the shared-from profile is unchanged"
+    );
+    assert_eq!((store.setting(&format!("shared_store.{}", home.id)).unwrap(), store.setting(&format!("search_engine.{}", home.id)).unwrap()), settings_before);
 }
 
 #[test]
