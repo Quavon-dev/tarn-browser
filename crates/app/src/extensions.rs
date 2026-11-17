@@ -21,8 +21,8 @@ use crate::ext_sources::{self, Net};
 use crate::prefs::Pref;
 use crate::shared::AppCore;
 pub use browser_core::extensions::Install;
-pub use browser_core::extensions::install::UNREVIEWED;
 use browser_core::extensions::install::{self, CATALOG_SEEN_SETTING, Slot, StoreCatalog, StoreContext};
+pub use browser_core::extensions::install::{StoreToken, UNREVIEWED};
 use browser_core::extensions::{Step, Unpacked, badge, every_site, fetch_and_unpack, grew, may_use_all_sites, png_icon};
 
 pub use browser_core::theme_fetch::DOWNLOADS_SETTING;
@@ -147,7 +147,7 @@ pub struct Extensions {
     repin: HashSet<String>,
     /// Check for Updates runs once the catalog it asked for arrives.
     check_after_catalog: bool,
-    store_offer: Option<install::StoreOffer>,
+    store_sheet: install::StoreSheet,
     store_confirmed: Option<(u64, String)>,
     catalog: Option<Index>,
 }
@@ -1019,13 +1019,13 @@ impl Browser {
         if !self.core.admit_store_link(std::time::Instant::now()) {
             return;
         }
-        let (mut slot, busy) = {
+        let (mut sheet, busy) = {
             let ext = self.core.extensions.borrow();
-            (ext.store_offer.clone(), ext.busy.is_some() || ext.pending.is_some() || ext.choice.is_some())
+            (ext.store_sheet.clone(), ext.busy.is_some() || ext.pending.is_some() || ext.choice.is_some())
         };
-        match self.store_check(key, busy, |context, catalog| install::offer_store_link(&mut slot, key, &id, context, catalog)) {
+        match self.store_check(key, busy, |context, catalog| sheet.offer(key, &id, context, catalog, std::time::Instant::now())) {
             Ok(()) => {
-                self.core.extensions.borrow_mut().store_offer = slot;
+                self.core.extensions.borrow_mut().store_sheet = sheet;
                 self.open_settings_pane(crate::settings::SettingsPane::Extensions, window, cx);
             }
             Err(why) => self.notify_offer(key, why, None),
@@ -1043,17 +1043,26 @@ impl Browser {
         step(context, StoreCatalog { index: catalog.as_ref(), now: now(), revoked: &revoked, installed: &rows })
     }
 
-    pub fn store_sheet(&self) -> Option<(String, Vec<String>)> {
-        self.core.extensions.borrow().store_offer.as_ref().map(|o| install::store_sheet(&o.entry))
+    pub fn store_sheet(&self) -> Option<(install::StoreToken, String, Vec<String>)> {
+        let ext = self.core.extensions.borrow();
+        let offer = ext.store_sheet.shown()?;
+        let (title, lines) = install::store_sheet(&offer.entry);
+        Some((offer.token.clone(), title, lines))
     }
 
     pub fn cancel_store_offer(&mut self, cx: &mut Context<Self>) {
-        self.core.extensions.borrow_mut().store_offer = None;
+        self.core.extensions.borrow_mut().store_sheet.clear();
         cx.notify();
     }
 
-    pub fn confirm_store_offer(&mut self, cx: &mut Context<Self>) {
-        let Some(install::StoreOffer { tab: key, entry: offered }) = self.core.extensions.borrow_mut().store_offer.take() else { return };
+    pub fn confirm_store_offer(&mut self, token: &install::StoreToken, cx: &mut Context<Self>) {
+        if !self.layout_stable() {
+            return;
+        }
+        let Some(install::StoreOffer { tab: key, entry: offered, .. }) = self.core.extensions.borrow_mut().store_sheet.take(token, std::time::Instant::now())
+        else {
+            return;
+        };
         let busy = {
             let ext = self.core.extensions.borrow();
             ext.busy.is_some() || ext.pending.is_some() || ext.choice.is_some()

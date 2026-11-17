@@ -1580,6 +1580,13 @@ fn new_ui(row: SavedWindow) -> Ui {
         resizing: signal(None),
         root: Owner::current(),
     };
+    let extensions_open = std::cell::Cell::new(false);
+    effect(move || {
+        let open = ui.panel.get() == Panel::Settings && ui.ext_pane.get();
+        if extensions_open.replace(open) && !open {
+            untracked(tarn_nsh_shared::extensions::close_store_sheet);
+        }
+    });
     let shown_space = std::cell::Cell::new(None);
     effect(move || {
         let space = ui.snap.with(|s| s.space);

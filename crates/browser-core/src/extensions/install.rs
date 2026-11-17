@@ -19,6 +19,7 @@ pub const REVOKED_SETTING: &str = "extension_revoked";
 pub const CATALOG_SEEN_SETTING: &str = "extension_catalog_version";
 pub const UNREVIEWED: &str = "Nobody reviewed this extension's code. It can read and change the sites you allow and send what it reads anywhere.";
 pub const STORE_LINK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+pub const STORE_CONFIRM_DELAY: std::time::Duration = std::time::Duration::from_millis(700);
 pub const STORE_REFUSED: &str = "Extensions are not installed in private spaces, burner tabs or Lockdown.";
 pub const STORE_NO_CATALOG: &str = "The official catalog is not available in this build.";
 pub const STORE_DOWNLOADS_OFF: &str = "Extension downloads are off in Privacy settings.";
@@ -399,16 +400,48 @@ pub fn store_step(id: &str, context: StoreContext, catalog: StoreCatalog) -> Res
     Ok(Box::new(entry.clone()))
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoreToken {
+    seq: u64,
+    id: String,
+    sha256: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct StoreOffer {
     pub tab: crate::tabs::TabKey,
     pub entry: Entry,
+    pub token: StoreToken,
+    shown: std::time::Instant,
 }
 
-pub fn offer_store_link(slot: &mut Option<StoreOffer>, tab: crate::tabs::TabKey, id: &str, context: StoreContext, catalog: StoreCatalog) -> Result<(), String> {
-    let entry = store_step(id, context, catalog)?;
-    *slot = Some(StoreOffer { tab, entry: *entry });
-    Ok(())
+#[derive(Clone, Debug, Default)]
+pub struct StoreSheet {
+    seq: u64,
+    offer: Option<StoreOffer>,
+}
+
+impl StoreSheet {
+    pub fn offer(&mut self, tab: crate::tabs::TabKey, id: &str, context: StoreContext, catalog: StoreCatalog, now: std::time::Instant) -> Result<(), String> {
+        let entry = *store_step(id, context, catalog)?;
+        self.seq += 1;
+        let token = StoreToken { seq: self.seq, id: entry.id.clone(), sha256: entry.sha256.clone() };
+        self.offer = Some(StoreOffer { tab, entry, token, shown: now });
+        Ok(())
+    }
+
+    pub fn shown(&self) -> Option<&StoreOffer> {
+        self.offer.as_ref()
+    }
+
+    pub fn clear(&mut self) {
+        self.offer = None;
+    }
+
+    pub fn take(&mut self, token: &StoreToken, now: std::time::Instant) -> Option<StoreOffer> {
+        let ready = self.offer.as_ref().is_some_and(|o| o.token == *token && now.saturating_duration_since(o.shown) >= STORE_CONFIRM_DELAY);
+        if ready { self.offer.take() } else { None }
+    }
 }
 
 pub fn store_confirm(offered: &Entry, context: StoreContext, catalog: StoreCatalog) -> Result<Box<Entry>, String> {
@@ -632,13 +665,42 @@ mod tests {
         let ok = StoreContext { allowed: true, configured: true, downloads: true, busy: false };
         let catalog = StoreCatalog { index: Some(&index), now, revoked: &none, installed: &[] };
         let (first, second) = (crate::tabs::TabKey { private: false, id: 1 }, crate::tabs::TabKey { private: false, id: 2 });
-        let mut slot = None;
-        offer_store_link(&mut slot, first, "helper", ok, catalog).unwrap();
-        offer_store_link(&mut slot, second, "pulled", ok, catalog).unwrap();
-        assert_eq!(slot.as_ref().map(|o| (o.tab, o.entry.id.as_str())), Some((second, "pulled")), "the unanswered one is replaced");
-        assert_eq!(offer_store_link(&mut slot, first, "helper", StoreContext { busy: true, ..ok }, catalog), Err(STORE_BUSY.to_owned()));
-        assert_eq!(offer_store_link(&mut slot, first, "missing", ok, catalog), Err(STORE_UNKNOWN.to_owned()));
-        assert_eq!(slot.map(|o| o.entry.id), Some("pulled".to_owned()), "a refused link leaves the confirmation shown");
+        let at = std::time::Instant::now();
+        let mut sheet = StoreSheet::default();
+        sheet.offer(first, "helper", ok, catalog, at).unwrap();
+        sheet.offer(second, "pulled", ok, catalog, at).unwrap();
+        assert_eq!(sheet.shown().map(|o| (o.tab, o.entry.id.as_str())), Some((second, "pulled")), "the unanswered one is replaced");
+        assert_eq!(sheet.offer(first, "helper", StoreContext { busy: true, ..ok }, catalog, at), Err(STORE_BUSY.to_owned()));
+        assert_eq!(sheet.offer(first, "missing", ok, catalog, at), Err(STORE_UNKNOWN.to_owned()));
+        assert_eq!(sheet.shown().map(|o| o.entry.id.as_str()), Some("pulled"), "a refused link leaves the confirmation shown");
+        sheet.clear();
+        assert!(sheet.shown().is_none(), "closing the pane drops it");
+    }
+
+    #[test]
+    fn install_confirms_only_the_sheet_it_was_drawn_for_and_not_at_once() {
+        let now = 1_900_000_000;
+        let index = store_index(now);
+        let none = BTreeSet::new();
+        let ok = StoreContext { allowed: true, configured: true, downloads: true, busy: false };
+        let catalog = StoreCatalog { index: Some(&index), now, revoked: &none, installed: &[] };
+        let tab = crate::tabs::TabKey { private: false, id: 1 };
+        let (at, ms) = (std::time::Instant::now(), std::time::Duration::from_millis);
+        let mut sheet = StoreSheet::default();
+        sheet.offer(tab, "helper", ok, catalog, at).unwrap();
+        let a = sheet.shown().unwrap().token.clone();
+        sheet.offer(tab, "pulled", ok, catalog, at + ms(10_000)).unwrap();
+        let b = sheet.shown().unwrap().token.clone();
+        assert_ne!(a, b);
+        assert!(sheet.take(&a, at + ms(20_000)).is_none(), "a click aimed at the replaced sheet never confirms the new one");
+        assert!(sheet.take(&b, at + ms(10_000) + STORE_CONFIRM_DELAY - ms(1)).is_none(), "too soon after it appeared");
+        assert_eq!(sheet.shown().map(|o| o.entry.id.as_str()), Some("pulled"), "refused clicks leave the sheet");
+        let taken = sheet.take(&b, at + ms(10_000) + STORE_CONFIRM_DELAY).unwrap();
+        assert_eq!(taken.entry.id, "pulled");
+        assert!(sheet.shown().is_none() && sheet.take(&b, at + ms(30_000)).is_none(), "taken once");
+        sheet.offer(tab, "helper", ok, catalog, at + ms(40_000)).unwrap();
+        let again = sheet.shown().unwrap().token.clone();
+        assert!(again != a && sheet.take(&a, at + ms(50_000)).is_none(), "the same entry offered again gets a new token");
     }
 
     #[test]

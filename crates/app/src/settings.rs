@@ -231,7 +231,7 @@ struct Snapshot {
     extension_busy: Option<String>,
     extension_choice: Vec<String>,
     consent: Option<crate::extensions::Consent>,
-    store_sheet: Option<(String, Vec<String>)>,
+    store_sheet: Option<(crate::extensions::StoreToken, String, Vec<String>)>,
     catalog: (Vec<crate::extensions::CatalogRow>, bool),
     card: Option<Card>,
     /// `None` outside an app bundle, which cannot become the default browser.
@@ -259,6 +259,7 @@ pub struct SettingsWindow {
     appearance: appearance::Pane,
     _observe: Option<Subscription>,
     _activation: Subscription,
+    _release: Subscription,
 }
 
 impl SettingsWindow {
@@ -308,6 +309,9 @@ impl SettingsWindow {
                     appearance: appearance::Pane::new(cx),
                     _observe: observe,
                     _activation: activation,
+                    _release: cx.on_release(|this: &mut SettingsWindow, cx| {
+                        this.main.update(cx, |b, _, cx| b.cancel_store_offer(cx)).ok();
+                    }),
                 }
             })
         })
@@ -424,6 +428,9 @@ impl SettingsWindow {
     }
 
     pub(crate) fn set_pane(&mut self, pane: SettingsPane, cx: &mut Context<Self>) {
+        if self.pane == SettingsPane::Extensions && pane != SettingsPane::Extensions {
+            self.with_browser(cx, |b, _, cx| b.cancel_store_offer(cx));
+        }
         if pane == SettingsPane::Developer {
             self.with_browser(cx, |b, _, cx| b.refresh_local_servers(cx));
         }
@@ -1607,7 +1614,7 @@ impl SettingsWindow {
                 ),
             );
         }
-        if let Some((title, lines)) = s.store_sheet {
+        if let Some((token, title, lines)) = s.store_sheet {
             let card = group()
                 .child(row(true).child(text_block(title, "From Tarn's signed official catalog.")))
                 .children(lines.into_iter().map(|l| row(false).child(div().flex_1().child(l))))
@@ -1618,10 +1625,10 @@ impl SettingsWindow {
                             button("store-cancel", "Cancel", true)
                                 .on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.cancel_store_offer(cx)))),
                         )
-                        .child(
-                            button("store-install", "Install", false)
-                                .on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.confirm_store_offer(cx)))),
-                        ),
+                        .child(button("store-install", "Install", false).on_click(cx.listener(move |this, _, _, cx| {
+                            let token = token.clone();
+                            this.with_browser(cx, move |b, _, cx| b.confirm_store_offer(&token, cx))
+                        }))),
                 );
             return page.child(section("Confirm")).child(card).into_any_element();
         }

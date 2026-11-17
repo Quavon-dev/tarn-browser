@@ -45,7 +45,7 @@ struct State {
     choice: Option<(String, Vec<Asset>)>,
     catalog: Option<Index>,
     armed: Option<String>,
-    offer: Option<install::StoreOffer>,
+    sheet: install::StoreSheet,
     confirmed: Option<String>,
 }
 
@@ -228,9 +228,10 @@ impl<H: Host> Pane<H> {
         step(context, StoreCatalog { index: catalog.as_ref(), now: now_secs(), revoked: &revoked, installed: &installed })
     }
 
-    fn confirm_offer(self) {
-        let Some(install::StoreOffer { tab, entry: offered }) = self.state.with_untracked(|s| s.offer.clone()) else { return };
-        self.set(|s| s.offer = None);
+    fn confirm_offer(self, token: &install::StoreToken) {
+        let mut sheet = self.state.with_untracked(|s| s.sheet.clone());
+        let Some(install::StoreOffer { tab, entry: offered, .. }) = sheet.take(token, std::time::Instant::now()) else { return };
+        self.set(|s| s.sheet = sheet);
         let busy = self.state.with_untracked(|s| s.busy || s.pending.is_some() || s.choice.is_some());
         match self.store_check(tab, busy, |context, catalog| install::store_confirm(&offered, context, catalog)) {
             Ok(entry) => self.run(Install::Official(*entry), None, None, Some(offered.id)),
@@ -330,7 +331,7 @@ fn consent<H: Host>(pane: Pane<H>) -> Option<View> {
 }
 
 fn store_offer<H: Host>(pane: Pane<H>) -> Option<View> {
-    let (title, lines) = pane.get(|s| s.offer.as_ref().map(|o| install::store_sheet(&o.entry)))?;
+    let (token, (title, lines)) = pane.get(|s| s.sheet.shown().map(|o| (o.token.clone(), install::store_sheet(&o.entry))))?;
     let lines = lines.into_iter().map(|l| text(l).text_size(px(TEXT_SMALL)).text_color(Secure::muted()).into_element());
     Some(
         view().pt_3().child(
@@ -340,9 +341,9 @@ fn store_offer<H: Host>(pane: Pane<H>) -> Option<View> {
                 .gap_2()
                 .child(text(title).font_weight(FontWeight::SEMIBOLD))
                 .children(lines)
-                .child(view().flex_row().gap_2().child(secure_button("Install", move || pane.confirm_offer(), true)).child(secure_button(
+                .child(view().flex_row().gap_2().child(secure_button("Install", move || pane.confirm_offer(&token), true)).child(secure_button(
                     "Cancel",
-                    move || pane.set(|s| s.offer = None),
+                    move || pane.set(|s| s.sheet.clear()),
                     false,
                 ))),
         ),
@@ -498,8 +499,15 @@ pub fn extensions<H: Host>(host: H) -> AnyElement {
 
 pub fn store_link<H: Host>(host: H, tab: TabKey, id: &str) -> Result<(), String> {
     let pane = opened(host);
-    let (mut slot, busy) = pane.state.with_untracked(|s| (s.offer.clone(), s.busy || s.pending.is_some() || s.choice.is_some()));
-    pane.store_check(tab, busy, |context, catalog| install::offer_store_link(&mut slot, tab, id, context, catalog))?;
-    pane.set(|s| s.offer = slot);
+    let (mut sheet, busy) = pane.state.with_untracked(|s| (s.sheet.clone(), s.busy || s.pending.is_some() || s.choice.is_some()));
+    pane.store_check(tab, busy, |context, catalog| sheet.offer(tab, id, context, catalog, std::time::Instant::now()))?;
+    pane.set(|s| s.sheet = sheet);
     Ok(())
+}
+
+pub fn close_store_sheet() {
+    let state = global::<State>();
+    if state.with_untracked(|s| s.sheet.shown().is_some()) {
+        state.update(|s| s.sheet.clear());
+    }
 }
