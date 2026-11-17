@@ -10,8 +10,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use shield::ShieldLevel;
 
 use crate::models::{
-    Bookmark, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Profile, SavedWindow, Schedule, ShieldDay, ShieldStats,
-    Snapshot, Space, SpaceRule, Tab, TabKind, WebEngine,
+    Bookmark, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Profile, SavedWindow, Schedule, ShieldDay,
+    ShieldStats, Slot, Snapshot, Space, SpaceRule, Tab, TabKind, WebEngine,
 };
 
 const MIGRATIONS: &[&str] = &[
@@ -841,6 +841,87 @@ impl Store {
             return Err(Error::Invalid("tab group"));
         }
         Ok(())
+    }
+
+    /// Applies `layout` to the space's top-level unpinned tabs and its groups in one transaction;
+    /// the ids of the groups it created. Tabs and groups gone since the layout was made are skipped,
+    /// ones of another space refuse the whole layout, and unlisted ones keep their order after the
+    /// listed ones. A tab only moves into a group while loose, or out of one, never from one group
+    /// into another, so a layout made from an older view of the space cannot regroup it. A
+    /// collapsed group that receives a tab is expanded.
+    pub fn apply_layout(&self, space_id: Id, layout: &Layout) -> Result<Vec<Id>> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut created = Vec::with_capacity(layout.new_groups.len());
+        for (name, color) in &layout.new_groups {
+            let group = self.create_group(space_id, name)?;
+            self.set_group_color(group.id, color)?;
+            created.push(group.id);
+        }
+        let ids = |sql: &str| -> Result<Vec<Id>> {
+            let mut stmt = tx.prepare(sql)?;
+            let rows = stmt.query_map([space_id], |r| r.get(0))?;
+            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        };
+        let zone = ids("SELECT id FROM tabs WHERE space_id = ?1 AND kind = 'ephemeral' AND folder_id IS NULL ORDER BY position")?;
+        let groups = ids("SELECT id FROM groups WHERE space_id = ?1 ORDER BY position")?;
+        let in_zone: HashSet<Id> = zone.iter().copied().collect();
+        let space_of = |table: &str, id: Id| -> Result<Option<Id>> {
+            Ok(tx.query_row(&format!("SELECT space_id FROM {table} WHERE id = ?1"), [id], |r| r.get(0)).optional()?)
+        };
+        let group = |slot: Slot| -> Result<Option<Option<Id>>> {
+            match slot {
+                Slot::Loose => Ok(Some(None)),
+                Slot::New(i) => created.get(i).map(|&id| Some(Some(id))).ok_or(Error::Invalid("layout group")),
+                Slot::Group(id) => match space_of("groups", id)? {
+                    Some(space) if space == space_id => Ok(Some(Some(id))),
+                    Some(_) => Err(Error::Invalid("layout group")),
+                    None => Ok(None),
+                },
+            }
+        };
+        let (mut order, mut placed) = (Vec::with_capacity(zone.len()), HashSet::new());
+        for &(id, slot) in &layout.tabs {
+            if !in_zone.contains(&id) || placed.contains(&id) {
+                if space_of("tabs", id)?.is_some_and(|space| space != space_id) {
+                    return Err(Error::Invalid("layout tab"));
+                }
+                continue;
+            }
+            let Some(group_id) = group(slot)? else { continue };
+            let moved =
+                tx.execute("UPDATE tabs SET group_id = ?2 WHERE id = ?1 AND group_id IS NOT ?2 AND (group_id IS NULL OR ?2 IS NULL)", params![id, group_id])?;
+            if moved > 0 && group_id.is_some() {
+                tx.execute("UPDATE groups SET collapsed = 0 WHERE id = ?1", [group_id])?;
+            } else if moved == 0 && tx.query_row("SELECT group_id FROM tabs WHERE id = ?1", [id], |r| r.get::<_, Option<Id>>(0))? != group_id {
+                continue;
+            }
+            placed.insert(id);
+            order.push(id);
+        }
+        order.extend(zone.iter().filter(|id| !placed.contains(id)));
+        let (mut group_order, mut listed) = (Vec::with_capacity(groups.len() + created.len()), HashSet::new());
+        for &slot in &layout.groups {
+            match group(slot)? {
+                Some(Some(id)) if listed.insert(id) => group_order.push(id),
+                Some(None) => return Err(Error::Invalid("layout group")),
+                _ => {}
+            }
+        }
+        group_order.extend(groups.iter().chain(&created).filter(|id| !listed.contains(id)));
+        for &id in &layout.drop_if_empty {
+            tx.execute("DELETE FROM groups WHERE id = ?1 AND space_id = ?2 AND NOT EXISTS (SELECT 1 FROM tabs WHERE group_id = ?1)", params![id, space_id])?;
+        }
+        for &id in &layout.collapse {
+            tx.execute("UPDATE groups SET collapsed = 1 WHERE id = ?1 AND space_id = ?2", params![id, space_id])?;
+        }
+        for (table, ids) in [("tabs", &order), ("groups", &group_order)] {
+            let mut renumber = tx.prepare(&format!("UPDATE {table} SET position = ?2 WHERE id = ?1"))?;
+            for (pos, id) in ids.iter().enumerate() {
+                renumber.execute(params![id, pos as i64])?;
+            }
+        }
+        tx.commit()?;
+        Ok(created)
     }
 
     /// Adds a bookmark, or a bookmark folder when `url` is `None`, at the end of `parent_id`.
@@ -2113,5 +2194,77 @@ mod tests {
         assert_eq!(store.site_css(p).unwrap()[0], ("a.test".to_owned(), "p { margin: 0 }".to_owned()));
         store.set_site_css(p, "b.test", " \n").unwrap();
         assert_eq!(store.site_css(p).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_layout_applies_whole_and_refuses_other_spaces() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "uuid", false).unwrap();
+        let (space, other) = (store.create_space(p.id, "S", "").unwrap().id, store.create_space(p.id, "O", "").unwrap().id);
+        let add = |space: Id, url: &str| store.create_tab(space, TabKind::Ephemeral, None, url, "").unwrap().id;
+        let (a, b, c) = (add(space, "https://a.test/"), add(space, "https://b.test/"), add(space, "https://c.test/"));
+        let pinned = store.create_tab(space, TabKind::Pinned, None, "https://p.test/", "").unwrap().id;
+        let old = store.create_group(space, "Old").unwrap();
+        store.update_group(old.id, "Old", true).unwrap();
+        let foreign = store.create_group(other, "Foreign").unwrap();
+        let layout = Layout {
+            new_groups: vec![("New".into(), "blue".into())],
+            tabs: vec![(c, Slot::New(0)), (a, Slot::Group(old.id)), (pinned, Slot::Loose), (9999, Slot::Loose)],
+            groups: vec![Slot::New(0), Slot::Group(old.id)],
+            ..Default::default()
+        };
+        let created = store.apply_layout(space, &layout).unwrap();
+        let tabs = store.tabs(space).unwrap();
+        let tab = |id: Id| tabs.iter().find(|t| t.id == id).unwrap().clone();
+        assert_eq!((tab(c).group_id, tab(a).group_id, tab(b).group_id), (Some(created[0]), Some(old.id), None));
+        assert_eq!((tab(c).position, tab(a).position, tab(b).position), (0, 1, 2), "an unlisted tab keeps its order after the listed ones");
+        assert_eq!(tab(pinned).kind, TabKind::Pinned, "a pinned tab is not part of a layout");
+        let groups = store.groups(space).unwrap();
+        assert_eq!(groups.iter().map(|g| (g.id, g.collapsed)).collect::<Vec<_>>(), [(created[0], false), (old.id, false)], "a group that gets a tab opens");
+        assert_eq!(groups[0].color, "blue");
+
+        let before = store.tabs(space).unwrap();
+        let into_foreign = Layout { tabs: vec![(b, Slot::Group(foreign.id))], ..Default::default() };
+        assert!(store.apply_layout(space, &into_foreign).is_err());
+        let foreign_tab = add(other, "https://d.test/");
+        let with_foreign =
+            Layout { new_groups: vec![("X".into(), String::new())], tabs: vec![(b, Slot::New(0)), (foreign_tab, Slot::Loose)], ..Default::default() };
+        assert!(store.apply_layout(space, &with_foreign).is_err());
+        assert_eq!(store.tabs(space).unwrap(), before, "a refused layout changes nothing");
+        assert_eq!(store.groups(space).unwrap().len(), 2);
+
+        let drop = Layout {
+            tabs: vec![(c, Slot::Loose)],
+            drop_if_empty: vec![created[0], old.id, foreign.id],
+            collapse: vec![old.id, foreign.id],
+            ..Default::default()
+        };
+        store.apply_layout(space, &drop).unwrap();
+        assert_eq!(
+            store.groups(space).unwrap().iter().map(|g| (g.id, g.collapsed)).collect::<Vec<_>>(),
+            [(old.id, true)],
+            "only an empty group of the space is dropped"
+        );
+        assert!(!store.groups(other).unwrap()[0].collapsed);
+        assert_eq!(store.groups(other).unwrap().len(), 1);
+        assert_eq!(store.tabs(space).unwrap().len(), 4, "no tab is lost");
+    }
+
+    #[test]
+    fn a_layout_never_moves_a_tab_from_one_group_into_another() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "uuid", false).unwrap();
+        let space = store.create_space(p.id, "S", "").unwrap().id;
+        let tab = store.create_tab(space, TabKind::Ephemeral, None, "https://a.test/", "").unwrap().id;
+        let (first, second) = (store.create_group(space, "A").unwrap().id, store.create_group(space, "B").unwrap().id);
+        store.set_tab_group(tab, Some(first)).unwrap();
+        let other = store.create_tab(space, TabKind::Ephemeral, None, "https://b.test/", "").unwrap().id;
+        store.set_tab_group(other, Some(second)).unwrap();
+        store.apply_layout(space, &Layout { tabs: vec![(tab, Slot::Group(second)), (other, Slot::Group(second))], ..Default::default() }).unwrap();
+        let tabs = store.tabs(space).unwrap();
+        let of = |id: Id| tabs.iter().find(|t| t.id == id).map(|t| (t.group_id, t.position)).unwrap();
+        assert_eq!((of(other), of(tab)), ((Some(second), 0), (Some(first), 1)), "a refused tab keeps its group and goes after the placed ones");
+        store.apply_layout(space, &Layout { tabs: vec![(tab, Slot::Loose)], ..Default::default() }).unwrap();
+        assert_eq!(store.tabs(space).unwrap().iter().find(|t| t.id == tab).unwrap().group_id, None);
     }
 }

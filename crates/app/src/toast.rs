@@ -35,6 +35,8 @@ const MARGIN: f32 = 24.;
 pub enum Action {
     /// Reopens the closed-tab entry with this serial.
     Undo(u64),
+    /// Puts back what Clean Up sorted, in the private or normal space it sorted.
+    UndoSort(Box<(bool, browser_core::cleanup::Undo)>),
     Reveal(PathBuf),
     RestartToUpdate,
 }
@@ -43,6 +45,7 @@ impl Action {
     fn label(&self) -> &'static str {
         match self {
             Action::Undo(_) => "Undo",
+            Action::UndoSort(_) => "Undo Sort",
             Action::Reveal(_) => ui::controls::REVEAL,
             Action::RestartToUpdate => "Restart to Update",
         }
@@ -136,6 +139,7 @@ impl Browser {
         let Some(toast) = self.toast.current.take() else { return };
         match toast.action {
             Some(Action::Undo(serial)) if self.model.closed_tabs.newest() == Some(serial) => self.reopen_closed_tab(window, cx),
+            Some(Action::UndoSort(record)) => self.undo_sort(*record, cx),
             Some(Action::Reveal(path)) => engine::reveal_in_finder(&path),
             Some(Action::RestartToUpdate) => crate::shared::restart_to_update(cx),
             _ => {}
@@ -312,5 +316,20 @@ mod tests {
         assert!(toasts.live(None).is_none());
         toasts.show(Tone::Warning, "Could not save to Reading List".into(), None);
         assert_eq!(toasts.live(None).map(|t| t.tone), Some(Tone::Warning));
+    }
+
+    #[test]
+    fn undo_sort_goes_with_its_toast() {
+        let store = store::Store::open_in_memory().unwrap();
+        let profile = store.create_profile("P", "uuid", false).unwrap();
+        let space = store.create_space(profile.id, "S", "").unwrap();
+        let record = browser_core::cleanup::apply(&store, space.id, &browser_core::cleanup::plan(&[], &[], |t| t.url.clone())).unwrap();
+        let mut toasts = Toasts::default();
+        let serial = toasts.show(Tone::Info, "Sorted 2 tabs into groups".into(), Some(Action::UndoSort(Box::new((false, record.clone())))));
+        assert!(matches!(toasts.live(None).and_then(|t| t.action.as_ref()), Some(Action::UndoSort(_))));
+        assert!(toasts.expire(serial) && toasts.live(None).is_none());
+        toasts.show(Tone::Info, "Sorted 2 tabs into groups".into(), Some(Action::UndoSort(Box::new((false, record)))));
+        toasts.show(Tone::Info, "Link copied".into(), None);
+        assert!(toasts.live(None).is_some_and(|t| t.action.is_none()), "a newer toast takes the undo with the old one");
     }
 }

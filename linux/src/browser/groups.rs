@@ -128,14 +128,40 @@ impl Browser {
         }
         let archived = self.archive_unused_tabs();
         let Some((private, space_id)) = self.model.current_space().map(|s| (s.private, s.space.id)) else { return };
-        let plan = cleanup::plan(&self.model.tabs, &self.model.groups, |t| self.current_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone()));
-        let sorted = cleanup::apply(self.core.store(private), space_id, plan);
-        if sorted > 0 {
+        let store = self.core.store(private);
+        let (tabs, groups) = match (store.tabs(space_id), store.groups(space_id)) {
+            (Ok(tabs), Ok(groups)) => (tabs, groups),
+            (Err(e), _) | (_, Err(e)) => {
+                eprintln!("tarn: Clean Up could not read the space: {e}");
+                return self.show_toast_as(browser_core::toast::Tone::Warning, "Could not sort the tabs", None);
+            }
+        };
+        let sort = cleanup::plan(&tabs, &groups, |t| self.current_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone()));
+        let applied = if sort.changed { cleanup::apply(self.core.store(private), space_id, &sort).map(Some) } else { Ok(None) };
+        if let Err(e) = &applied {
+            eprintln!("tarn: Clean Up could not sort the tabs: {e}");
+        }
+        let text = sort.summary(applied.is_ok(), archived, closed::archive_after(&self.core.disk).is_some());
+        let tone = if applied.is_ok() { browser_core::toast::Tone::Info } else { browser_core::toast::Tone::Warning };
+        let undo = applied.ok().flatten();
+        if sort.changed {
             self.model.reload_space(&self.core);
             self.regrouped();
         }
-        let text = cleanup::summary(sorted, archived, closed::archive_after(&self.core.disk).is_some());
-        self.show_toast(text, None);
+        self.show_toast_as(tone, text, undo.map(|undo| super::ToastAction::UndoSort(Box::new((private, undo)))));
+    }
+
+    /// Puts back what Clean Up sorted, in whichever space it sorted.
+    pub fn undo_sort(&mut self, (private, undo): (bool, cleanup::Undo)) {
+        match cleanup::undo(self.core.store(private), &undo) {
+            Ok(dropped) => self.forget_groups(private, &dropped),
+            Err(e) => {
+                eprintln!("tarn: Clean Up could not undo the sort: {e}");
+                self.show_toast_as(browser_core::toast::Tone::Warning, "Could not undo the sort", None);
+            }
+        }
+        self.model.reload_space(&self.core);
+        self.regrouped();
     }
 
     fn current_url(&self, key: TabKey) -> Option<String> {

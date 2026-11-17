@@ -843,6 +843,21 @@ fn clean_up_sorts_loose_tabs_into_groups_and_archives_unused_ones() {
 }
 
 #[test]
+fn undo_sort_puts_the_tabs_back_and_removes_the_groups_clean_up_made() {
+    let (_dir, mut b) = browser();
+    let a = b.new_tab("https://github.com/tarn").unwrap();
+    let c = b.new_tab("https://gitlab.com/tarn").unwrap();
+    b.clean_up_tabs();
+    let group = b.model.groups[0].clone();
+    assert_eq!(group.icon, "code", "Clean Up gives the group its category's icon");
+    assert!(matches!(b.toast.as_ref().unwrap().action, Some(crate::browser::ToastAction::UndoSort(_))));
+    b.take_toast_action();
+    assert!(b.model.groups.is_empty(), "the group it made goes once empty");
+    assert!([a, c].iter().all(|k| b.model.tab(*k).is_some_and(|t| t.group_id.is_none())), "and the tabs are loose again");
+    assert_eq!(b.forgotten_groups.last(), Some(&(false, group.id)), "and every window forgets the group");
+}
+
+#[test]
 fn site_overrides_and_zoom_levels_are_listed_and_removed() {
     let (_dir, mut b) = browser();
     let key = b.model.active.unwrap();

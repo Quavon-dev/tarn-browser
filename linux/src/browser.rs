@@ -93,6 +93,7 @@ pub struct DownloadItem {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastAction {
     Undo(u64),
+    UndoSort(Box<(bool, browser_core::cleanup::Undo)>),
     Reveal(String),
 }
 
@@ -310,8 +311,10 @@ impl Browser {
     }
 
     pub fn take_toast_action(&mut self) {
-        if let Some(ToastAction::Undo(serial)) = self.toast.take().and_then(|t| t.action) {
-            self.undo_close(serial);
+        match self.toast.take().and_then(|t| t.action) {
+            Some(ToastAction::Undo(serial)) => self.undo_close(serial),
+            Some(ToastAction::UndoSort(sort)) => self.undo_sort(*sort),
+            Some(ToastAction::Reveal(_)) | None => {}
         }
     }
 
