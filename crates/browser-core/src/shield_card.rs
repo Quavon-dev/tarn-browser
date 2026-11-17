@@ -26,9 +26,14 @@ const DAY_MS: i64 = 86_400_000;
 pub fn export_path(file: &str) -> std::io::Result<PathBuf> {
     static EXPORTS: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!("tarn-card-{}-{}", std::process::id(), EXPORTS.fetch_add(1, Ordering::Relaxed)));
-    let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    let builder = {
+        let mut builder = std::fs::DirBuilder::new();
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder
+    };
+    #[cfg(not(unix))]
+    let builder = std::fs::DirBuilder::new();
     builder.create(&dir)?;
     Ok(dir.join(file))
 }
