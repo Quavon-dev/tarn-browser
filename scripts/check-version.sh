@@ -17,6 +17,7 @@ check mobile/app/nsh.json 's/^  "version": "\(.*\)",$/\1/p'
 check mobile/android/host/build.gradle.kts 's/^ *versionName = "\(.*\)"$/\1/p'
 check linux/packaging/rpm/tarn.spec 's/^Version: *\(.*\)$/\1/p'
 check linux/packaging/arch/PKGBUILD 's/^pkgver=\(.*\)$/\1/p'
-awk -v head="## [$want]" 'index($0, head) == 1 { found = 1; next } /^## \[/ { found = 0 } found && !/^\[[^]]+\]: /' CHANGELOG.md | grep -q '[^[:space:]]' \
+awk -v head="## [$want]" 'index($0, head) == 1 { found = 1; next } /^## \[/ { found = 0 }
+  found && !/^\[[^]]+\]: / && /[^[:space:]]/ { ok = 1 } END { exit !ok }' CHANGELOG.md \
   || { echo "CHANGELOG.md has no '## [$want]' section with entries; the release notes come from it" >&2; status=1; }
 exit "$status"
