@@ -11,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime};
 use cef::*;
 use url::Url;
 
-use crate::downloads::{flagged_source, folder_for, malware_warning, sanitize_filename, sorted_dir, unique_path};
+use crate::downloads::{flagged_source, folder_for, free_path, malware_warning, sanitize_filename, sorted_dir};
 use crate::page::serialized_origin;
 use crate::prompts::Answer;
 use crate::{Event, Prompt, PromptKind};
@@ -123,7 +123,7 @@ fn start(sink: Rc<dyn Fn(Event)>, key: Key, url: Option<Url>, name: &str, callba
     let sort = SORTED.with_borrow(|s| s.contains(&key.0));
     let dir = sort.then(|| folder_for(name)).flatten().and_then(|f| sorted_dir(&downloads, f)).unwrap_or(downloads);
     let reserved: HashSet<PathBuf> = DOWNLOADS.with_borrow(|d| d.values().map(|d| d.path.clone()).collect());
-    let path = unique_path(&dir, name, |p| p.symlink_metadata().is_ok() || reserved.contains(p));
+    let path = free_path(&dir, name, |p| reserved.contains(p));
     let id = NEXT_ID.get();
     NEXT_ID.set(id + 1);
     let download = Download {
