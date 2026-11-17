@@ -14,7 +14,7 @@ impl Browser {
     }
 
     /// Other windows showing this space reload its groups.
-    fn regrouped(&mut self) {
+    pub(super) fn regrouped(&mut self) {
         self.regrouped_space = self.model.current_space().map(|s| (s.private, s.space.id));
     }
 

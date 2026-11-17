@@ -576,7 +576,10 @@ impl Browser {
 
     /// Moves `key` to `target`'s place in its zone: before it from below, after it from above.
     pub fn move_tab_to(&mut self, key: TabKey, target: TabKey) {
-        browser_core::sidebar::land_on(&mut self.model, &self.core, key, target);
+        let group = self.model.tab(key).map(|t| t.group_id);
+        if browser_core::sidebar::land_on(&mut self.model, &self.core, key, target).is_some() && self.model.tab(key).map(|t| t.group_id) != group {
+            self.regrouped();
+        }
     }
 
     pub fn toggle_folder(&mut self, id: Id) {
