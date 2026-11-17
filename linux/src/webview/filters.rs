@@ -2,8 +2,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use shield::ShieldLevel;
+use browser_core::site::Sets;
+use engine::nav_policy::Site;
 use shield::rules::builtin_rules;
+use shield::{Category, ShieldLevel};
+use url::Url;
 use webkit6::{UserContentFilter, UserContentFilterStore, gio, glib};
 
 use shield::groups as bundle;
@@ -20,6 +23,40 @@ thread_local! {
     static STORE: UserContentFilterStore = UserContentFilterStore::new(&crate::data::root().join("webkit-filters").to_string_lossy());
     static BUILTIN: RefCell<HashMap<ShieldLevel, UserContentFilter>> = RefCell::default();
     static GROUPS: RefCell<Groups> = const { RefCell::new(Groups::Idle) };
+    static SETS: RefCell<Sets> = RefCell::default();
+    static SET_CATEGORIES: RefCell<Option<Vec<Category>>> = const { RefCell::new(None) };
+}
+
+pub fn site(level: ShieldLevel, rules: &browser_core::site::SiteRules, url: &Url) -> Site {
+    SETS.with(|sets| browser_core::site::site(level, rules, sets, url))
+}
+
+pub fn install_sets(incoming: Sets) {
+    let keep = SET_CATEGORIES.with_borrow(|c| c.clone().unwrap_or_default());
+    SETS.with_borrow_mut(|sets| sets.install(incoming, &keep));
+    super::sets_changed();
+}
+
+/// Reads the domain sets of `categories` from the installed bundle once they change; the sets of
+/// categories switched off are dropped at once and never read.
+pub fn want_sets(categories: Vec<Category>) {
+    if SET_CATEGORIES.with_borrow(|c| c.as_ref() == Some(&categories)) {
+        return;
+    }
+    SET_CATEGORIES.set(Some(categories.clone()));
+    install_sets(Sets::default());
+    if categories.is_empty() {
+        return;
+    }
+    let dir = crate::data::root().join("filters");
+    glib::MainContext::default().spawn_local(async move {
+        let key = bundle::public_key();
+        let read = gio::spawn_blocking(move || shield::cache::read(&dir, &key).map(|b| Sets::from_bundle(&b, &categories)).map_err(|e| format!("{e:?}"))).await;
+        match read.unwrap_or_else(|_| Err("reader panicked".into())) {
+            Ok(sets) => install_sets(sets),
+            Err(e) => eprintln!("tarn: no domain sets installed ({e})"),
+        }
+    });
 }
 
 async fn compile(identifier: String, source: String) -> Result<UserContentFilter, String> {

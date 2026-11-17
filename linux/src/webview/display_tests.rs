@@ -274,3 +274,105 @@ fn icon_candidates_stop_once_the_tab_leaves_the_origin() {
     assert_eq!(event(&state, "iconData").unwrap()["text"], "");
     assert_eq!(second_seen.load(Ordering::SeqCst), 0, "no candidate is asked once the tab shows another origin");
 }
+
+fn list_malware(hosts: &[&str]) {
+    filters::want_sets(vec![Category::Malware]);
+    let set = shield::domains::DomainSet::from_bytes(&shield::domains::DomainSet::encode(hosts.iter().copied())).map(std::sync::Arc::new);
+    filters::install_sets(browser_core::site::Sets { malware: set, ..Default::default() });
+}
+
+fn listed(state: &State) -> Option<JsonValue> {
+    state.events.borrow().iter().find(|(n, d)| n == "blocked" && d["reason"] == "listed").map(|(_, d)| d.clone())
+}
+
+fn redirect_server(to: String) -> u16 {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut request = [0; 2048];
+            let _ = stream.read(&mut request);
+            let _ = stream.write_all(format!("HTTP/1.1 302 Found\r\nLocation: {to}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes());
+        }
+    });
+    port
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn the_gate_stops_a_listed_host_in_every_frame_and_redirect_before_any_request() {
+    use std::sync::atomic::Ordering;
+    gtk::init().expect("a display");
+    let (port, seen) = counting_listener(Duration::ZERO);
+    let target = format!("http://127.0.0.1:{port}/page");
+    list_malware(&["127.0.0.1"]);
+    for (level, profile) in [(ShieldLevel::Standard, "private:display-gate"), (ShieldLevel::Lockdown, "private:display-gate-lockdown")] {
+        let state = view(level, profile);
+        VIEWS.with_borrow_mut(|views| views.push(Rc::downgrade(&state)));
+        let web = open(&state);
+        state.events.borrow_mut().clear();
+        *state.load.borrow_mut() = Some((target.clone(), 1));
+        load(&state, None);
+        assert!(spin_until(|| listed(&state).is_some(), 20), "{level:?}: the typed load is stopped: {:?}", state.events.borrow());
+        assert_eq!(listed(&state).unwrap(), json!({ "url": target, "reason": "listed", "category": "malware" }));
+        assert_eq!(web.uri().as_deref(), Some("http://page.test/"), "{level:?}: the tab keeps its page");
+        state.events.borrow_mut().clear();
+        web.load_html(&format!("<html><body><iframe src=\"{target}\"></iframe></body></html>"), Some("http://page.test/"));
+        let decided = |state: &State| state.events.borrow().iter().any(|(n, d)| n == "decided" && d["url"] == target.as_str());
+        assert!(spin_until(|| decided(&state), 20), "{level:?}: the frame reached the gate: {:?}", state.events.borrow());
+        spin_until(|| false, 1);
+        assert!(listed(&state).is_none(), "{level:?}: a frame is stopped without a warning page: {:?}", state.events.borrow());
+        if level == ShieldLevel::Standard {
+            state.events.borrow_mut().clear();
+            let redirect = format!("http://localhost:{}/go", redirect_server(target.clone()));
+            *state.load.borrow_mut() = Some((redirect, 2));
+            load(&state, None);
+            assert!(spin_until(|| listed(&state).is_some(), 20), "the redirect hop is stopped: {:?}", state.events.borrow());
+        }
+        state.drop_view();
+    }
+    assert_eq!(seen.load(Ordering::SeqCst), 0, "no request ever reached the listed host");
+    let state = view(ShieldLevel::Standard, "private:display-gate-script");
+    let web = open(&state);
+    state.events.borrow_mut().clear();
+    web.load_html(&format!("<html><body><script>location.href = '{target}'</script></body></html>"), Some("http://page.test/"));
+    assert!(
+        spin_until(|| state.events.borrow().iter().any(|(n, d)| n == "decided" && d["url"] == target.as_str()), 20),
+        "the script's navigation reached the gate"
+    );
+    spin_until(|| false, 1);
+    assert_eq!(seen.load(Ordering::SeqCst), 0, "a page's own navigation never reaches the listed host either");
+    *state.rules.exceptions.borrow_mut() = ["127.0.0.1".to_owned()].into();
+    *state.load.borrow_mut() = Some((target.clone(), 3));
+    load(&state, None);
+    assert!(spin_until(|| seen.load(Ordering::SeqCst) > 0, 20), "Visit Anyway's exception lets the host through");
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_page_already_open_gets_the_warning_once_its_set_arrives() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "private:display-gate-late");
+    VIEWS.with_borrow_mut(|views| views.push(Rc::downgrade(&state)));
+    open(&state);
+    *state.page.borrow_mut() = Url::parse("http://page.test/").ok();
+    state.events.borrow_mut().clear();
+    list_malware(&["page.test"]);
+    assert_eq!(listed(&state).map(|d| d["category"].clone()), Some(json!("malware")));
+    state.events.borrow_mut().clear();
+    filters::want_sets(Vec::new());
+    list_malware(&[]);
+    assert!(listed(&state).is_none(), "a switched-off set stops nothing");
+}
+
+#[test]
+fn a_sites_allow_never_covers_the_pop_ups_of_frames_it_embeds() {
+    let state = State::default();
+    state.rules.popups.borrow_mut().insert("https://a.test".into(), PopupRule::Allow);
+    state.rules.popups.borrow_mut().insert("https://b.test".into(), PopupRule::Block);
+    let page = |u: &str| Url::parse(u).ok();
+    assert_eq!(opener(&state, page("https://a.test/x").as_ref()).popups, PopupRule::Default);
+    assert_eq!(opener(&state, page("https://b.test/x").as_ref()).popups, PopupRule::Block);
+    assert_eq!(opener(&state, None).popups, PopupRule::Default);
+}

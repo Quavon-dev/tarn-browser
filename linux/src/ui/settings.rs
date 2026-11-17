@@ -1,7 +1,7 @@
 use browser_core::shield_card::{Card, H, SHORT, W, back, day_totals, days_text, face, front, front_svg, thousands};
 use nsh_core::file_dialog::{FileFilter, SaveDialog};
 use nsh_core::prelude::*;
-use shield::ShieldLevel;
+use shield::{Category, ShieldLevel};
 use tarn_nsh_shared::panes::{self, GROUPS, Pane};
 
 use super::panels::{levels, section};
@@ -265,6 +265,20 @@ fn hidden(ui: Ui, private: bool) -> View {
     view().flex_col().children(rows)
 }
 
+fn paused_sites(ui: Ui, hosts: Vec<String>) -> View {
+    if hosts.is_empty() {
+        return view().child(note("Blocking runs on every site. Turn it off for one site with the Shield button in the address bar."));
+    }
+    let rows: Vec<AnyElement> = hosts
+        .into_iter()
+        .map(|host| {
+            let shown = browser_core::text::bounded_title(&host);
+            line(shown).child(pill("Turn On", move || act(ui, |b| b.set_site_paused(&host, false)))).into_element()
+        })
+        .collect();
+    view().flex_col().children(rows)
+}
+
 fn permissions(ui: Ui) -> View {
     let rows = read(ui, |b| b.permissions()).unwrap_or_default();
     if rows.is_empty() {
@@ -358,9 +372,11 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
     let (level, engine, lists, private, card, history_text, sort) = read(ui, |b| {
         (b.default_level(), b.search_engine(), b.lists(), b.model.private(), card_of(b), !b.setting_off(HISTORY_TEXT), !b.setting_off(SORT_DOWNLOADS))
     })?;
+    let (sets, paused) = read(ui, |b| (b.set_categories(), b.paused_sites()))?;
     let on = |group: &str| lists.iter().any(|l| l == group);
     let toggle = move |setting: &'static str| move || act(ui, move |b| b.toggle_setting(setting));
     let toggle_off = move |setting: &'static str| move || act(ui, move |b| b.toggle_off_setting(setting));
+    let toggle_set = move |category: Category| move || act(ui, move |b| b.toggle_set(category));
     let body = view().flex_col().child(super::panels::heading(ui, title(panes::name(pane))));
     Some(match pane {
         Pane::Profile => match card {
@@ -430,10 +446,15 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                         .child(switch(on("ads"), "Block ads", toggle("block_ads")))
                         .child(switch(on("trackers"), "Block trackers", toggle("block_trackers")))
                         .child(switch(on("annoyances"), "Block cookie banners", toggle("block_annoyances")))
-                        .child(switch(on("malware"), "Block malware sites", toggle("block_malware"))),
+                        .child(switch(sets.contains(&Category::Popups), "Block pop-ups and ad redirects", toggle_set(Category::Popups)))
+                        .child(switch(sets.contains(&Category::Malware), "Block dangerous sites", toggle_set(Category::Malware)))
+                        .child(switch(sets.contains(&Category::Adult), "Block adult content", toggle_set(Category::Adult))),
                 )
                 .child(note("EasyList Cookie and uBlock Cookie Notices hide consent pop-ups and stop the scripts that show them. Nothing is accepted or refused for you."))
+                .child(note("Pages open windows only when you click, never to known pop-up ad sites, and cannot send you to one. Malware, phishing and scam lists stop dangerous sites with a warning page; adult sites get one with no way past it."))
                 .child(note("Filter lists apply to pages loaded after a change; they need the signed list bundle."))
+                .child(section("Sites without ad, tracker and cookie-banner blocking"))
+                .child(paused_sites(ui, paused))
                 .child(section("Hidden elements"))
                 .child(hidden(ui, private))
                 .child(section("Clear data"))

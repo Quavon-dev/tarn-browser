@@ -8,6 +8,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Malware, adult and pop-up ad domain sets stop sites in every frame, redirect and download before
+  the request, with the warning page (Go Back, Visit Anyway for malware), the per-site switch for
+  ad, tracker and cookie-banner blocking, pop-up rules, permission rows and Clear site data in the
+  site popover, and the Privacy switches and paused-site list (Linux).
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages

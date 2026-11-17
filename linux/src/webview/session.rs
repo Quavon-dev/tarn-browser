@@ -10,7 +10,7 @@ use engine::downloads::{folder_for, sanitize_filename, sorted_dir, unique_path};
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use serde_json::json;
 use webkit6::glib;
-use webkit6::{CookiePersistentStorage, Download, NetworkSession, TLSErrorsPolicy, WebsiteDataTypes, gio};
+use webkit6::{CookiePersistentStorage, Download, NetworkSession, TLSErrorsPolicy, WebsiteData, WebsiteDataTypes, gio};
 
 use crate::data::{self, StoreKey};
 
@@ -56,6 +56,34 @@ pub fn clear(key: &StoreKey) {
         (None, StoreKey::Persistent(uuid)) => data::wipe(&data::root(), uuid),
         (None, StoreKey::Ephemeral(_) | StoreKey::Burner(_)) => {}
     }
+}
+
+/// Removes every kind of stored data of `host` and the sites below it from the profile's open
+/// store, then reports how many records went.
+pub fn clear_site(key: &StoreKey, host: &str, done: impl FnOnce(usize) + 'static) {
+    let Some(manager) = SESSIONS.with_borrow(|sessions| sessions.get(key).cloned()).and_then(|s| s.website_data_manager()) else { return done(0) };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    let remover = manager.clone();
+    manager.fetch(WebsiteDataTypes::all(), None::<&gio::Cancellable>, move |records| {
+        let records: Vec<WebsiteData> =
+            records.unwrap_or_default().into_iter().filter(|r| r.name().is_some_and(|n| engine::view_policy::site_matches(&host, &n))).collect();
+        if records.is_empty() {
+            return done(0);
+        }
+        let (sender, removed) = futures_channel::oneshot::channel();
+        let refs: Vec<&WebsiteData> = records.iter().collect();
+        remover.remove(WebsiteDataTypes::all(), &refs, None::<&gio::Cancellable>, move |result| {
+            if let Err(e) = result {
+                eprintln!("tarn: site data was not cleared: {e}");
+            }
+            sender.send(()).ok();
+        });
+        let count = records.len();
+        glib::MainContext::default().spawn_local(async move {
+            removed.await.ok();
+            done(count);
+        });
+    });
 }
 
 fn open(key: &StoreKey) -> Option<NetworkSession> {

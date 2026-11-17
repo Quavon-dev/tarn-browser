@@ -13,6 +13,10 @@ fn visit(b: &mut Browser, key: TabKey, url: &str) {
     b.on_event(key, "finished", &json!({ "url": url, "title": "T" }));
 }
 
+fn blocked_page(b: &Browser) -> Option<crate::browser::blocking::BlockedPage> {
+    b.active_page().and_then(|p| p.blocked.clone())
+}
+
 fn asked(b: &Browser, name: &str) -> Vec<Value> {
     b.outbox.iter().filter(|(_, n, _)| *n == name).map(|(_, _, a)| a.clone()).collect()
 }
@@ -487,4 +491,122 @@ fn a_burner_tab_neither_fetches_nor_keeps_site_icons() {
     assert!(b.favicons.icons(&profile).next().is_none(), "a burner answer never enters memory");
     assert!(!b.favicons.is_requested(&profile, "a.test", ticket));
     assert!(b.site_icons(&Default::default()).is_none_or(|icons| icons.find("a.test").is_none()));
+}
+
+#[test]
+fn a_dangerous_site_gets_the_warning_page_and_visit_anyway_waits_then_lasts_until_quit() {
+    use browser_core::site::BYPASS_DELAY;
+    use shield::Category;
+    let (dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://news.test/");
+    b.on_event(key, "blocked", &json!({ "url": "https://evil.test/x", "reason": "listed", "category": "malware" }));
+    assert_eq!(blocked_page(&b).map(|p| (p.url, p.category)), Some(("https://evil.test/x".to_owned(), Category::Malware)));
+    assert!(crate::snapshot::snapshot(&b, true).blocked.is_some(), "the warning page covers the tab");
+    assert!(!b.pages[&key].loading);
+    b.visit_anyway();
+    assert!(blocked_page(&b).is_some(), "a click right after the page showed is ignored");
+    b.visit_anyway_at(b.guard_since + BYPASS_DELAY);
+    assert!(blocked_page(&b).is_none());
+    assert_eq!(b.pages[&key].load.as_ref().map(|l| l.0.as_str()), Some("https://evil.test/x"), "loaded as the user's own navigation");
+    assert_eq!(b.blocking(key)["exceptions"], json!(["evil.test"]));
+    let other = b.new_tab("https://news.test/").unwrap();
+    assert_eq!(b.blocking(other)["exceptions"], json!(["evil.test"]), "remembered for the profile");
+    b.private_space();
+    let private = b.model.active.unwrap();
+    assert_eq!(b.blocking(private)["exceptions"], json!([]), "not for another profile");
+    drop(b);
+    let again = Browser::open(dir.path());
+    assert_eq!(again.blocking(again.model.active.unwrap())["exceptions"], json!([]), "nothing is stored");
+}
+
+#[test]
+fn adult_sites_have_no_way_past_and_go_back_keeps_the_page() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://news.test/");
+    b.on_event(key, "blocked", &json!({ "url": "https://adult.test/", "reason": "listed", "category": "adult" }));
+    b.visit_anyway_at(b.guard_since + std::time::Duration::from_secs(60));
+    assert!(blocked_page(&b).is_some(), "Visit Anyway is for malware only");
+    b.leave_blocked();
+    assert!(blocked_page(&b).is_none());
+    assert_eq!(b.pages[&key].url, "https://news.test/");
+    b.on_event(key, "blocked", &json!({ "url": "https://adult.test/", "reason": "listed", "category": "adult" }));
+    b.navigate("https://other.test/");
+    assert!(blocked_page(&b).is_none(), "a new load leaves the warning page");
+    b.on_event(key, "blocked", &json!({ "url": "https://ads.test/", "reason": "listed", "category": "popups" }));
+    assert!(blocked_page(&b).is_none());
+    assert!(matches!(&b.notice, Some(Notice::Open { message, .. }) if message == "Stopped a redirect to ads.test, a known pop-up ad site."));
+}
+
+#[test]
+fn pausing_a_site_drops_its_ad_rules_and_the_privacy_list_turns_it_on_again() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    b.navigate("https://news.test/");
+    visit(&mut b, key, "https://news.test/");
+    let view = |b: &Browser| crate::snapshot::views(b, true).into_iter().find(|v| v.key == key).unwrap();
+    assert!(view(&b).filtered);
+    b.set_site_paused("news.test", true);
+    assert!(b.site_paused("news.test") && !view(&b).filtered, "the tab reloads without ad, tracker and cookie-banner rules");
+    assert_eq!(b.paused_sites(), ["news.test"]);
+    assert_eq!(b.blocking(key)["paused"], json!(["news.test"]));
+    let profile = b.model.profile().unwrap().1;
+    assert_eq!(b.core.disk.paused_sites(profile).unwrap(), ["news.test"]);
+    b.set_site_paused("news.test", false);
+    assert!(view(&b).filtered && b.paused_sites().is_empty());
+}
+
+#[test]
+fn pop_up_rules_and_permission_rows_belong_to_the_site_in_the_popover() {
+    use engine::nav_policy::PopupRule;
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://news.test/a");
+    b.set_site_popups(PopupRule::Block);
+    assert_eq!(b.site_popups(), PopupRule::Block);
+    assert_eq!(b.blocking(key)["popups"], json!({ "https://news.test": "block" }));
+    b.set_site_popups(PopupRule::Default);
+    assert_eq!(b.blocking(key)["popups"], json!({}));
+    let profile = b.model.profile().unwrap().1;
+    b.core.disk.set_permission(profile, "https://news.test", "microphone", "deny").unwrap();
+    b.core.disk.set_permission(profile, "https://other.test", "camera", "allow").unwrap();
+    let rows = b.site_permissions();
+    assert_eq!(rows.iter().map(|r| (r.label.as_str(), r.decision.as_str())).collect::<Vec<_>>(), [("Microphone", "deny")]);
+    b.set_site_permission("https://news.test", "microphone", Some("ask"));
+    b.on_event(key, "prompt", &json!({ "id": 4, "kind": "microphone", "origin": "https://news.test" }));
+    assert!(asked(&b, "answer").is_empty(), "Ask asks again");
+    assert_eq!(b.pages[&key].prompts.len(), 1);
+    b.set_site_permission("https://news.test", "microphone", None);
+    assert!(b.site_permissions().is_empty());
+}
+
+#[test]
+fn privacy_switches_choose_the_domain_sets_and_adult_starts_off() {
+    use shield::Category;
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    assert_eq!(b.set_categories(), [Category::Malware, Category::Popups]);
+    assert_eq!(b.blocking(key)["sets"], json!(["malware", "popups"]));
+    b.toggle_set(Category::Adult);
+    b.toggle_set(Category::Popups);
+    assert_eq!(b.blocking(key)["sets"], json!(["malware", "adult"]));
+    b.toggle_set(Category::Malware);
+    assert!(!b.lists().contains(&"malware".to_owned()), "the malware switch also turns off its rule list");
+}
+
+#[test]
+fn clearing_site_data_forgets_its_zaps_and_reports_what_went() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://news.test/");
+    let profile = b.model.profile().unwrap().1;
+    b.core.disk.zap_element(profile, "news.test", "div.ad").unwrap();
+    assert!(b.clear_site("news.test").is_some(), "the tab's store is named");
+    assert!(b.core.disk.zapped_elements(profile).unwrap().is_empty());
+    b.site_cleared("news.test", 2);
+    assert_eq!(b.notice, Some(Notice::Message("Cleared stored data for news.test.".into())));
+    assert_eq!(asked(&b, "reload").len(), 1);
+    b.site_cleared("news.test", 0);
+    assert_eq!(b.notice, Some(Notice::Message("news.test had no stored data.".into())));
 }

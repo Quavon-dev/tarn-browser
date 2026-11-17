@@ -22,6 +22,8 @@ use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{Secure, TEXT, TEXT_HEADING, TEXT_SMALL, TEXT_TINY, Theme};
 use url::Url;
 
+use browser_core::permissions::{DECISIONS, PermissionRow, permission_rows};
+
 use crate::address::measure;
 use crate::browser::{Browser, TabKey};
 use crate::peek::remove_after_exit;
@@ -39,8 +41,6 @@ const SHIELD: f32 = 92.;
 const FOOTER: f32 = 40.;
 const PAD: f32 = 8.;
 const GAP: f32 = 4.;
-const POPUPS: [(PopupRule, &str); 3] = [(PopupRule::Default, "Default"), (PopupRule::Allow, "Allow"), (PopupRule::Block, "Block")];
-const DECISIONS: [(&str, &str); 3] = [("allow", "Allow"), ("ask", "Ask"), ("deny", "Deny")];
 /// Hands the profile's style sheets to its data store, which never applies them under Lockdown:
 /// the theme's first, then each host's forced dark mode and the user's own CSS, which may adjust
 /// both.
@@ -60,37 +60,6 @@ pub struct SitePopover {
     closed: Option<Instant>,
     more: bool,
     draft: Option<(String, String)>,
-}
-
-/// A remembered permission for the page's origin or for a frame embedded in it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PermissionRow {
-    pub origin: String,
-    pub kind: String,
-    pub label: String,
-    pub decision: String,
-}
-
-/// The rows stored for `page` itself, then those of frames embedded in it, named by their host.
-pub fn permission_rows(stored: Vec<(String, String, String)>, page: &str) -> Vec<PermissionRow> {
-    let embedded = format!(" in {page}");
-    let mut rows: Vec<(bool, PermissionRow)> = stored
-        .into_iter()
-        .filter_map(|(origin, kind, decision)| {
-            let frame = match origin.strip_suffix(&embedded) {
-                Some(frame) => Some(frame.to_owned()),
-                None if origin == page => None,
-                None => return None,
-            };
-            let label = match &frame {
-                Some(frame) => format!("{} — {}", browser_core::permissions::kind_label(&kind), Url::parse(frame).ok()?.host_str()?),
-                None => browser_core::permissions::kind_label(&kind),
-            };
-            Some((frame.is_some(), PermissionRow { origin, kind, label: bounded_title(&label), decision }))
-        })
-        .collect();
-    rows.sort_by_key(|(embedded, _)| *embedded);
-    rows.into_iter().map(|(_, row)| row).collect()
 }
 
 fn card_height(permissions: usize, more: Option<(bool, usize)>) -> f32 {
@@ -638,7 +607,7 @@ impl SiteSettingsWindow {
 
     fn popups(&self, origin: &str, rule: PopupRule, cx: &mut Context<Self>) -> gpui::Div {
         let origin = origin.to_owned();
-        let choices = POPUPS.iter().map(|(rule, text)| (*rule, (*text).to_owned())).collect();
+        let choices = browser_core::site::POPUP_RULES.iter().map(|(rule, text)| (*rule, (*text).to_owned())).collect();
         let select = self.select(
             "popups",
             choices,
@@ -817,27 +786,6 @@ impl Render for SiteSettingsWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn stored(origin: &str, kind: &str, decision: &str) -> (String, String, String) {
-        (origin.into(), kind.into(), decision.into())
-    }
-
-    #[test]
-    fn rows_belong_to_the_page_and_its_frames() {
-        let rows = permission_rows(
-            vec![
-                stored("https://meet.test in https://a.test", "camera", "allow"),
-                stored("https://a.test", "microphone", "deny"),
-                stored("https://other.test", "camera", "allow"),
-                stored("https://a.test in https://other.test", "camera", "allow"),
-                stored("https://a.test", "camera+microphone", "ask"),
-            ],
-            "https://a.test",
-        );
-        let labels: Vec<(&str, &str)> = rows.iter().map(|r| (r.label.as_str(), r.decision.as_str())).collect();
-        assert_eq!(labels, [("Microphone", "deny"), ("Camera and Microphone", "ask"), ("Camera — meet.test", "allow")]);
-        assert_eq!(rows[2].origin, "https://meet.test in https://a.test");
-    }
 
     #[test]
     fn the_card_grows_with_its_permissions_and_more_settings() {

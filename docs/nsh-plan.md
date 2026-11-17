@@ -303,6 +303,15 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   button opens it once as the user's own load, in the opener's space; the page alone cannot, nor
   can it replace a notice that already offers an action (`browser::tests`). Evidence:
   `linux/evidence/parity-popup-offer.png`, `parity-popup-opened.png`.
+- Malware, adult and pop-up ad domain sets stop navigations as on macOS (`nav_policy::gate` in the
+  `decide-policy` handler, `browser_core::site` for the warning page, Visit Anyway and the per-site
+  choices; threat model S25). Gaps, both from WebKitGTK's API: a navigation action does not say which
+  frame it targets (no `isMainFrame`), so only the shell's loads, history steps, clicks and redirects of
+  those count as main-frame navigations and get the warning page or the pop-up ad notice; a page's own
+  script navigation to a listed host is cancelled without either. And `create` does not say which frame
+  opened a window, so a site's pop-up rule "Allow" counts as "Default" (macOS lifts it for the main
+  frame only); "Block" works as on macOS. WebKitGTK has no fraudulent-website check to go with the
+  malware switch.
 - Screenshots: `linux/evidence/design-*.png`.
 
 *macOS features:* built on the shared APIs, with `tarn.webview` contract v3 (scripts in the WebKit world `tarn`,
