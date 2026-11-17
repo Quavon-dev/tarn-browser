@@ -70,6 +70,16 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
     assert!(page_shown(&app), "the page stays visible behind the QR code");
     app.press_key("escape").unwrap();
     app.wait_for_gone("Scan to open on a phone", WAIT).unwrap();
+    app.press_key("mod+,").unwrap();
+    app.wait_for("label:Close Settings").unwrap();
+    assert!(page_shown(&app), "the page stays visible behind the Settings window");
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("label:Close Settings", WAIT).unwrap();
+    app.press("label:Search or enter address").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    assert!(page_shown(&app), "the page stays visible behind the command palette");
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("id:palette-field", WAIT).unwrap();
 
     assert_eq!(app.screen().count("label:Close Tab").unwrap(), 1);
     app.long_press("label:https://example.com/").unwrap();

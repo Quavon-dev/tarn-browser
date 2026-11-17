@@ -40,7 +40,7 @@ fn run(ui: Ui, action: Action) {
         Action::NewTab => bars::open_new_tab(ui),
         Action::OpenLocation | Action::CommandBar => {
             ui.show(Screen::Browse);
-            ui.field.focus();
+            ui.edit_address();
         }
         Action::CloseTab => ui.act(|s| {
             if let Some(key) = s.model.active {

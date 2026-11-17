@@ -183,6 +183,14 @@ impl Ui {
         self.show(if self.screen.get_untracked() == screen { Screen::Browse } else { screen });
     }
 
+    pub fn edit_address(self) {
+        if self.mac.get_untracked() {
+            mac::open_palette(self);
+        } else {
+            self.field.focus();
+        }
+    }
+
     pub fn wide(self) -> bool {
         window().width.0 >= WIDE_LAYOUT
     }
@@ -194,8 +202,8 @@ impl Ui {
 
     fn browsing(self) -> bool {
         let screen = self.screen.get();
-        (matches!(screen, Screen::Browse | Screen::Find | Screen::Share) || self.mac.get() && mac::popovers::owns(screen))
-            && !self.editing.get()
+        (matches!(screen, Screen::Browse | Screen::Find | Screen::Share) || self.mac.get() && mac::owns(screen))
+            && (!self.editing.get() || self.mac.get())
             && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
     }
 }
@@ -393,7 +401,7 @@ fn start(ui: Ui) -> impl IntoElement {
 fn search_card(ui: Ui) -> impl IntoElement {
     let field = nsh_base::button()
         .accessibility_label("Search or enter an address")
-        .on_press(move || ui.field.focus())
+        .on_press(move || ui.edit_address())
         .flex_row()
         .items_center()
         .gap_2()

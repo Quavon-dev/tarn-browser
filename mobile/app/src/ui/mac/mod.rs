@@ -12,6 +12,10 @@ pub(super) fn owns(screen: Screen) -> bool {
     settings::owns(screen) || popovers::owns(screen)
 }
 
+pub(super) fn open_palette(ui: Ui) {
+    toolbar::open_palette(ui);
+}
+
 pub(super) fn back_from(screen: Screen) -> Screen {
     settings::up(screen).unwrap_or(Screen::Browse)
 }

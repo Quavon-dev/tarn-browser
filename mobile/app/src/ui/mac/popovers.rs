@@ -28,7 +28,7 @@ impl Default for Anchors {
     }
 }
 
-pub(in crate::ui) fn owns(screen: Screen) -> bool {
+pub(super) fn owns(screen: Screen) -> bool {
     matches!(screen, Screen::Shield | Screen::Downloads | Screen::Share | Screen::Qr)
 }
 

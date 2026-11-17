@@ -77,7 +77,7 @@ pub(super) fn open_new_tab(ui: Ui) {
     });
     ui.show(Screen::Browse);
     ui.fresh.set(opened.zip(before).filter(|(k, b)| k != b));
-    ui.field.focus();
+    ui.edit_address();
 }
 
 pub(super) fn cancel(ui: Ui) {

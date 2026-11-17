@@ -35,7 +35,8 @@ fn a_tablet_switches_to_the_mac_layout_and_back() {
     app.wait_for("label:New Tab").unwrap();
     app.wait_for("label:Close Tab").unwrap();
     app.wait_for("label:Back").unwrap();
-    app.wait_for("id:address").unwrap();
+    app.wait_for("label:Search or enter address").unwrap();
+    assert!(!app.screen().matches("id:address").unwrap(), "the Mac toolbar mounts no second address input");
     app.press("label:Settings").unwrap();
     app.wait_for("label:Close Settings").unwrap();
     app.back().unwrap();

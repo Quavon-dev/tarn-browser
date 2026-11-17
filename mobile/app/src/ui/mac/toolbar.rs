@@ -148,20 +148,8 @@ fn shield(ui: Ui) -> impl IntoElement {
 
 fn address_field(ui: Ui) -> impl IntoElement {
     let open = move || ui.editing.get() || ui.screen.get() == Screen::Shield;
-    let forward = input()
-        .element_ref(&ui.field)
-        .auto_correct(false)
-        .auto_capitalize(AutoCapitalize::None)
-        .label("Address")
-        .test_id("address")
-        .on_focus(move || open_palette(ui))
-        .absolute()
-        .w(px(1.))
-        .h(px(1.))
-        .opacity(0.);
     let capsule = capsule(open)
         .relative()
-        .child(forward)
         .child(themed(move || {
             dynamic(move || {
                 if ui.read(|s| s.active_host().is_none()) {
@@ -238,7 +226,7 @@ pub(super) fn toolbar(ui: Ui) -> impl IntoElement {
         .child(side().justify_end().gap_2().child(themed(move || extensions(ui))).child(themed(move || page_actions(ui))))
 }
 
-fn open_palette(ui: Ui) {
+pub(super) fn open_palette(ui: Ui) {
     if ui.editing.get_untracked() {
         return;
     }
