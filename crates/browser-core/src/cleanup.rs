@@ -217,7 +217,7 @@ pub fn plan(tabs: &[Tab], groups: &[Group], url: impl Fn(&Tab) -> String) -> Sor
     let groups_reordered = group_order.iter().map(|&(_, s)| s).collect::<Vec<_>>() != groups.iter().map(|g| Slot::Group(g.id)).collect::<Vec<_>>();
     Sort {
         layout: Layout {
-            new_groups: new_groups.iter().map(|&c| (CATEGORIES[c].name.to_owned(), CATEGORIES[c].color.to_owned())).collect(),
+            new_groups: new_groups.iter().map(|&c| (CATEGORIES[c].name.to_owned(), CATEGORIES[c].color.to_owned(), CATEGORIES[c].icon.to_owned())).collect(),
             tabs: order,
             groups: group_order.into_iter().map(|(_, s)| s).collect(),
             ..Default::default()
@@ -274,7 +274,7 @@ pub fn apply(store: &Store, space_id: Id, sort: &Sort) -> Result<Undo, store::Er
             .collect(),
     };
     let tabs = sort.before.iter().filter_map(|&(id, group, position)| Some((id, group, position, *after.get(&id)?))).collect();
-    let created = created.into_iter().zip(sort.layout.new_groups.iter().map(|(name, _)| name.clone())).collect();
+    let created = created.into_iter().zip(sort.layout.new_groups.iter().map(|(name, ..)| name.clone())).collect();
     Ok(Undo { space_id, tabs, groups: sort.groups_before.clone(), created, opened: sort.opened.clone() })
 }
 
@@ -445,6 +445,7 @@ mod tests {
         let mut seen = HashSet::new();
         for c in CATEGORIES {
             assert!(colors.contains(&c.color), "{}", c.name);
+            assert!(crate::icon::SYMBOLS.contains(&c.icon), "{}", c.name);
             for list in [c.sites, c.labels, c.paths, c.words] {
                 for entry in list {
                     assert!(!entry.is_empty() && *entry == entry.to_lowercase() && !entry.starts_with("www."), "{entry}");
@@ -511,10 +512,10 @@ mod tests {
             let e = s.add("https://bbc.com/x");
             let sort = s.plan();
             assert_eq!(sort.moved, 3);
-            assert_eq!(sort.layout.new_groups, [("Development".to_owned(), "indigo".to_owned())]);
+            assert_eq!(sort.layout.new_groups, [("Development".to_owned(), "indigo".to_owned(), "code".to_owned())]);
             apply(s.store, s.id, &sort).unwrap();
             let dev = s.group_named("Development");
-            assert!(dev.is_some());
+            assert_eq!(s.store.groups(s.id).unwrap().into_iter().find(|g| Some(g.id) == dev).unwrap().icon, "code");
             assert_eq!((s.group_of(a), s.group_of(b), s.group_of(c), s.group_of(d), s.group_of(e)), (dev, dev, None, None, Some(news)));
         });
     }

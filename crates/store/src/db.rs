@@ -197,6 +197,8 @@ const MIGRATIONS: &[&str] = &[
          value TEXT NOT NULL,
          PRIMARY KEY (profile_id, install_id, key)
      );",
+    "ALTER TABLE groups ADD COLUMN icon TEXT NOT NULL DEFAULT '';
+     ALTER TABLE folders ADD COLUMN icon TEXT NOT NULL DEFAULT '';",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
@@ -551,11 +553,16 @@ impl Store {
                                   WHERE space_id = ?1 AND parent_id IS ?2))",
             params![space_id, parent_id, name],
         )?;
-        Ok(self.conn.query_row("SELECT id, space_id, parent_id, name, position FROM folders WHERE id = ?1", [self.conn.last_insert_rowid()], folder_row)?)
+        Ok(self.conn.query_row(
+            "SELECT id, space_id, parent_id, name, position, icon FROM folders WHERE id = ?1",
+            [self.conn.last_insert_rowid()],
+            folder_row,
+        )?)
     }
 
     pub fn folders(&self, space_id: Id) -> Result<Vec<Folder>> {
-        let mut stmt = self.conn.prepare("SELECT id, space_id, parent_id, name, position FROM folders WHERE space_id = ?1 ORDER BY parent_id, position")?;
+        let mut stmt =
+            self.conn.prepare("SELECT id, space_id, parent_id, name, position, icon FROM folders WHERE space_id = ?1 ORDER BY parent_id, position")?;
         let rows = stmt.query_map([space_id], folder_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -751,6 +758,12 @@ impl Store {
         Ok(())
     }
 
+    /// Stores `icon` as given; `browser_core::icon::set_folder` checks it first.
+    pub fn set_folder_icon(&self, id: Id, icon: &str) -> Result<()> {
+        self.conn.execute("UPDATE folders SET icon = ?2 WHERE id = ?1", params![id, icon])?;
+        Ok(())
+    }
+
     pub fn create_group(&self, space_id: Id, name: &str) -> Result<Group> {
         self.conn.execute(
             "INSERT INTO groups (space_id, name, position)
@@ -758,14 +771,14 @@ impl Store {
             params![space_id, name],
         )?;
         Ok(self.conn.query_row(
-            "SELECT id, space_id, name, position, collapsed, color FROM groups WHERE id = ?1",
+            "SELECT id, space_id, name, position, collapsed, color, icon FROM groups WHERE id = ?1",
             [self.conn.last_insert_rowid()],
             group_row,
         )?)
     }
 
     pub fn groups(&self, space_id: Id) -> Result<Vec<Group>> {
-        let mut stmt = self.conn.prepare("SELECT id, space_id, name, position, collapsed, color FROM groups WHERE space_id = ?1 ORDER BY position")?;
+        let mut stmt = self.conn.prepare("SELECT id, space_id, name, position, collapsed, color, icon FROM groups WHERE space_id = ?1 ORDER BY position")?;
         let rows = stmt.query_map([space_id], group_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -777,6 +790,12 @@ impl Store {
 
     pub fn set_group_color(&self, id: Id, color: &str) -> Result<()> {
         self.conn.execute("UPDATE groups SET color = ?2 WHERE id = ?1", params![id, color])?;
+        Ok(())
+    }
+
+    /// Stores `icon` as given; `browser_core::icon::set_group` checks it first.
+    pub fn set_group_icon(&self, id: Id, icon: &str) -> Result<()> {
+        self.conn.execute("UPDATE groups SET icon = ?2 WHERE id = ?1", params![id, icon])?;
         Ok(())
     }
 
@@ -833,9 +852,10 @@ impl Store {
     pub fn apply_layout(&self, space_id: Id, layout: &Layout) -> Result<Vec<Id>> {
         let tx = self.conn.unchecked_transaction()?;
         let mut created = Vec::with_capacity(layout.new_groups.len());
-        for (name, color) in &layout.new_groups {
+        for (name, color, icon) in &layout.new_groups {
             let group = self.create_group(space_id, name)?;
             self.set_group_color(group.id, color)?;
+            self.set_group_icon(group.id, icon)?;
             created.push(group.id);
         }
         let ids = |sql: &str| -> Result<Vec<Id>> {
@@ -1727,11 +1747,11 @@ fn space_row(r: &Row) -> rusqlite::Result<Space> {
 }
 
 fn folder_row(r: &Row) -> rusqlite::Result<Folder> {
-    Ok(Folder { id: r.get(0)?, space_id: r.get(1)?, parent_id: r.get(2)?, name: r.get(3)?, position: r.get(4)? })
+    Ok(Folder { id: r.get(0)?, space_id: r.get(1)?, parent_id: r.get(2)?, name: r.get(3)?, position: r.get(4)?, icon: r.get(5)? })
 }
 
 fn group_row(r: &Row) -> rusqlite::Result<Group> {
-    Ok(Group { id: r.get(0)?, space_id: r.get(1)?, name: r.get(2)?, position: r.get(3)?, collapsed: r.get(4)?, color: r.get(5)? })
+    Ok(Group { id: r.get(0)?, space_id: r.get(1)?, name: r.get(2)?, position: r.get(3)?, collapsed: r.get(4)?, color: r.get(5)?, icon: r.get(6)? })
 }
 
 fn bookmark_row(r: &Row) -> rusqlite::Result<Bookmark> {
@@ -2189,7 +2209,7 @@ mod tests {
         store.update_group(old.id, "Old", true).unwrap();
         let foreign = store.create_group(other, "Foreign").unwrap();
         let layout = Layout {
-            new_groups: vec![("New".into(), "blue".into())],
+            new_groups: vec![("New".into(), "blue".into(), "star".into())],
             tabs: vec![(c, Slot::New(0)), (a, Slot::Group(old.id)), (pinned, Slot::Loose), (9999, Slot::Loose)],
             groups: vec![Slot::New(0), Slot::Group(old.id)],
             ..Default::default()
@@ -2202,14 +2222,17 @@ mod tests {
         assert_eq!(tab(pinned).kind, TabKind::Pinned, "a pinned tab is not part of a layout");
         let groups = store.groups(space).unwrap();
         assert_eq!(groups.iter().map(|g| (g.id, g.collapsed)).collect::<Vec<_>>(), [(created[0], false), (old.id, false)], "a group that gets a tab opens");
-        assert_eq!(groups[0].color, "blue");
+        assert_eq!((groups[0].color.as_str(), groups[0].icon.as_str()), ("blue", "star"));
 
         let before = store.tabs(space).unwrap();
         let into_foreign = Layout { tabs: vec![(b, Slot::Group(foreign.id))], ..Default::default() };
         assert!(store.apply_layout(space, &into_foreign).is_err());
         let foreign_tab = add(other, "https://d.test/");
-        let with_foreign =
-            Layout { new_groups: vec![("X".into(), String::new())], tabs: vec![(b, Slot::New(0)), (foreign_tab, Slot::Loose)], ..Default::default() };
+        let with_foreign = Layout {
+            new_groups: vec![("X".into(), String::new(), String::new())],
+            tabs: vec![(b, Slot::New(0)), (foreign_tab, Slot::Loose)],
+            ..Default::default()
+        };
         assert!(store.apply_layout(space, &with_foreign).is_err());
         assert_eq!(store.tabs(space).unwrap(), before, "a refused layout changes nothing");
         assert_eq!(store.groups(space).unwrap().len(), 2);

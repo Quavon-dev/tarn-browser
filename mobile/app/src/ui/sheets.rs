@@ -7,7 +7,7 @@ use nsh_base::button;
 use nsh_core::prelude::*;
 use store::Schedule;
 use tarn_nsh_shared::card::{Words, day_chart, day_summary, picture, share_bar};
-use tarn_nsh_shared::controls::group;
+use tarn_nsh_shared::controls::{group, icon_pill, pill_grid};
 
 use super::{
     Screen, Ui, accent_pill, caption, detail_row, framed, icon_button, icons, label, pill, section, segmented, small, surface, switch_row, text_field,
@@ -662,23 +662,23 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
                         ),
                     )
                     .child(numbers(&card))
-                    .child(
-                        view()
-                            .flex_row()
-                            .flex_wrap()
-                            .justify_center()
-                            .gap_2()
-                            .child(pill("Flip", flip))
-                            .child(pill("Change design", move || {
+                    .child(pill_grid(
+                        [
+                            Some(icon_pill(glyphs::RELOAD, "Flip", flip)),
+                            Some(icon_pill(glyphs::PALETTE, "Change design", move || {
                                 ui.act(|s| {
                                     if let Some((private, id)) = s.model.profile() {
                                         s.core.store(private).new_shield_design(id).ok();
                                     }
                                     Vec::new()
                                 })
-                            }))
-                            .children((!private).then(|| pill("Share card", move || share_card(ui, &shared, dark)))),
-                    )
+                            })),
+                            (!private).then(|| icon_pill(glyphs::SHARE, "Share card", move || share_card(ui, &shared, dark))),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .collect(),
+                    ))
                     .child(caption(kept).number_of_lines(0).px_1())
                     .child(last_week(&card))
                     .child(top_sites(&card))

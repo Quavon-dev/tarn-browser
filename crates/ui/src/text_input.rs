@@ -891,6 +891,7 @@ impl Render for TextInput {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .w_full()
+            .overflow_hidden()
             .line_height(px(22.))
             .text_color(Theme::text())
             .child(TextElement { input: cx.entity(), mirror: false })

@@ -9,6 +9,8 @@
 pub(super) struct Category {
     pub name: &'static str,
     pub color: &'static str,
+    /// One of `crate::icon::SYMBOLS`.
+    pub icon: &'static str,
     pub sites: &'static [&'static str],
     /// Labels of the host left of its last one: `shop` in `shop.example.com`.
     pub labels: &'static [&'static str],
@@ -22,6 +24,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Development",
         color: "indigo",
+        icon: "code",
         sites: &[
             "github.com",
             "gist.github.com",
@@ -87,6 +90,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "AI",
         color: "pink",
+        icon: "sparkles",
         sites: &[
             "chatgpt.com",
             "chat.openai.com",
@@ -112,6 +116,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Mail and Chat",
         color: "blue",
+        icon: "bell",
         sites: &[
             "mail.google.com",
             "meet.google.com",
@@ -146,6 +151,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Work",
         color: "graphite",
+        icon: "briefcase",
         sites: &[
             "docs.google.com",
             "drive.google.com",
@@ -199,6 +205,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Social",
         color: "orange",
+        icon: "heart",
         sites: &[
             "x.com",
             "twitter.com",
@@ -226,6 +233,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Video and Music",
         color: "red",
+        icon: "play",
         sites: &[
             "youtube.com",
             "youtu.be",
@@ -261,6 +269,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Shopping",
         color: "green",
+        icon: "shopping-cart",
         sites: &[
             "amazon.com",
             "amazon.de",
@@ -299,6 +308,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "News",
         color: "vermilion",
+        icon: "globe",
         sites: &[
             "news.google.com",
             "nytimes.com",
@@ -343,6 +353,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Reading",
         color: "graphite",
+        icon: "book-open",
         sites: &[
             "wikipedia.org",
             "wikimedia.org",
@@ -371,6 +382,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Learning",
         color: "green",
+        icon: "graduation-cap",
         sites: &[
             "coursera.org",
             "udemy.com",
@@ -393,6 +405,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Travel",
         color: "blue",
+        icon: "plane",
         sites: &[
             "google.com/maps",
             "maps.google.com",
@@ -427,6 +440,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Money",
         color: "green",
+        icon: "wallet",
         sites: &[
             "paypal.com",
             "revolut.com",
@@ -459,6 +473,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Games",
         color: "pink",
+        icon: "gamepad-2",
         sites: &[
             "steampowered.com",
             "store.steampowered.com",
@@ -486,6 +501,7 @@ pub(super) const CATEGORIES: &[Category] = &[
     Category {
         name: "Food",
         color: "orange",
+        icon: "coffee",
         sites: &[
             "chefkoch.de",
             "allrecipes.com",

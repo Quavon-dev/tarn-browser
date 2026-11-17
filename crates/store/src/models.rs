@@ -167,6 +167,8 @@ pub struct Folder {
     pub parent_id: Option<Id>,
     pub name: String,
     pub position: i64,
+    /// Shown in place of the folder glyph: a symbol name or one emoji (`browser_core::icon`); empty for none.
+    pub icon: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,6 +223,8 @@ pub struct Group {
     pub collapsed: bool,
     /// A name from the UI's colour list; empty until the user picks one.
     pub color: String,
+    /// Shown in place of the letter: a symbol name or one emoji (`browser_core::icon`); empty for none.
+    pub icon: String,
 }
 
 /// Where a layout puts a tab: loose, into a group of the space, or into the layout's `n`th new group.
@@ -235,8 +239,8 @@ pub enum Slot {
 /// `Store::apply_layout`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Layout {
-    /// Groups to create, as name and colour.
-    pub new_groups: Vec<(String, String)>,
+    /// Groups to create, as name, colour and icon.
+    pub new_groups: Vec<(String, String, String)>,
     /// Unpinned tabs in their new order, each with its new place.
     pub tabs: Vec<(Id, Slot)>,
     /// Groups in their new order.
