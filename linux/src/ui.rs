@@ -1705,7 +1705,26 @@ fn bind_fixed(ui: Ui) {
 }
 
 fn core() -> Rc<Core<Data>> {
-    CORE.with_borrow_mut(|core| core.get_or_insert_with(|| Browser::open_core(&crate::data::root())).clone())
+    CORE.with_borrow_mut(|core| {
+        core.get_or_insert_with(|| {
+            let opened = Browser::open_core(&crate::data::root());
+            crate::filter_updates::start(opened.clone());
+            opened
+        })
+        .clone()
+    })
+}
+
+pub fn refresh_panels() {
+    for ui in WINDOWS.with_borrow(Vec::clone) {
+        act(ui, |_| {});
+    }
+}
+
+pub fn themes_changed() {
+    for ui in WINDOWS.with_borrow(Vec::clone) {
+        act(ui, Browser::apply_theme);
+    }
 }
 
 fn shift_held() -> bool {

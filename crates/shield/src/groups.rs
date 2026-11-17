@@ -94,8 +94,12 @@ pub struct Group {
 /// Every group of the bundle cached in `dir`, converted.
 pub fn load(dir: &Path, key: &[u8; 32]) -> Result<Vec<Group>, String> {
     let bundle = cache::read(dir, key).map_err(|e| format!("{e:?}"))?;
-    let inputs = Inputs::new(&bundle);
-    Ok(GROUPS.into_iter().map(|name| Group { name, key: inputs.key(name), chunks: inputs.convert(name) }).collect())
+    Ok(of(&bundle))
+}
+
+pub fn of(bundle: &VerifiedBundle) -> Vec<Group> {
+    let inputs = Inputs::new(bundle);
+    GROUPS.into_iter().map(|name| Group { name, key: inputs.key(name), chunks: inputs.convert(name) }).collect()
 }
 
 /// The groups whose switch is on; every switch defaults to on.

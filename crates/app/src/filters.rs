@@ -1,68 +1,27 @@
 //! Filter-list bundles from GitHub Releases (S20): download, verify, cache, convert, install.
 
-use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use engine::FilterLists;
 use futures::channel::oneshot;
 use gpui::{App, AsyncApp, Task};
-use shield::bundle::{self, BundleError, FILTER_BUNDLE_URL, Kind, MANIFEST, MAX_MANIFEST_BYTES, Manifest, SIGNATURE, VerifiedBundle};
+use shield::bundle::{FILTER_BUNDLE_URL, Kind, VerifiedBundle};
 use shield::cache::{self, State, Stored};
 use shield::domains::DomainSet;
 use shield::groups::{GROUPS, Inputs, hex, public_key};
+pub use shield::update::{SETTING, Status, configured};
+use shield::update::{Update, describe, now};
 use shield::{Category, lists, rules, youtube};
 use ureq::tls::{RootCerts, TlsConfig};
 
 use crate::blocking::Sets;
 use crate::shared::AppCore;
 
-pub const SETTING: &str = "filter_updates";
-const UPDATE_INTERVAL: u64 = 86_400;
-/// Settings warns once the installed lists were signed longer ago than this.
-const OUT_OF_DATE: u64 = 14 * 86_400;
-const TICK: Duration = Duration::from_secs(600);
+const TICK: Duration = Duration::from_secs(shield::update::TICK_SECS);
 pub const YOUTUBE_GROUP: &str = "youtube";
-
-#[derive(Default, Clone)]
-pub struct Status {
-    pub updates: bool,
-    /// `created` of the installed bundle.
-    pub installed: Option<String>,
-    /// `version` of the installed bundle, its signing time.
-    pub version: Option<u64>,
-    pub error: Option<String>,
-    /// Rules or domains per category, as counted when the bundle was prepared.
-    pub counts: BTreeMap<String, u64>,
-}
-
-pub fn configured() -> bool {
-    public_key() != [0; 32] && (FILTER_BUNDLE_URL.starts_with("https://") || cfg!(debug_assertions))
-}
-
-impl Status {
-    pub fn out_of_date(&self) -> bool {
-        self.version.is_some_and(|v| v.saturating_add(OUT_OF_DATE) < now())
-    }
-}
-
-fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
-fn describe(e: &BundleError) -> String {
-    match e {
-        BundleError::NoPublicKey => "no signing key in this build".into(),
-        BundleError::BadSignature => "signature check failed".into(),
-        BundleError::Rollback { .. } => "offered lists are older than the installed ones".into(),
-        BundleError::Stale(_) => "offered lists are out of date".into(),
-        BundleError::Missing(name) => format!("{name} could not be downloaded"),
-        other => format!("invalid bundle ({other:?})"),
-    }
-}
 
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
@@ -86,34 +45,9 @@ fn get(agent: &ureq::Agent, url: &str, max: u64) -> Result<Vec<u8>, String> {
     response.body_mut().with_config().limit(max).read_to_vec().map_err(|e| e.to_string())
 }
 
-pub struct Update {
-    manifest: Vec<u8>,
-    signature: Vec<u8>,
-    bundle: VerifiedBundle,
-}
-
-/// `Ok(None)` when the published bundle is the installed one. The unsigned manifest is read first
-/// only to skip a download that would be refused; list files are fetched after the signature checks
-/// out, all of them, so the download does not reveal which categories are switched on.
 fn download(base: &str, public_key: &[u8; 32], last: Option<u64>, now: u64) -> Result<Option<Update>, String> {
     let agent = agent();
-    let manifest = get(&agent, &format!("{base}{MANIFEST}"), MAX_MANIFEST_BYTES as u64)?;
-    if let Ok(unsigned) = serde_json::from_slice::<Manifest>(&manifest) {
-        if Some(unsigned.version) == last {
-            return Ok(None);
-        }
-        cache::check_age(unsigned.version, now).map_err(|e| describe(&e))?;
-    }
-    let signature = get(&agent, &format!("{base}{SIGNATURE}"), 64)?;
-    let failure = RefCell::new(None);
-    let fetch = |name: &str, size: u64| get(&agent, &format!("{base}{name}"), size.saturating_add(1)).map_err(|e| *failure.borrow_mut() = Some(e)).ok();
-    let bundle = match bundle::verify(&manifest, &signature, &fetch, public_key, last) {
-        Err(BundleError::Rollback { version, last }) if version == last => return Ok(None),
-        Err(e @ BundleError::Missing(_)) => return Err(failure.take().unwrap_or_else(|| describe(&e))),
-        result => result.map_err(|e| describe(&e))?,
-    };
-    cache::check_age(bundle.version, now).map_err(|e| describe(&e))?;
-    Ok(Some(Update { manifest, signature, bundle }))
+    shield::update::download(|url, max| get(&agent, url, max), base, public_key, last, now)
 }
 
 /// Domain sets of `categories`; a set that fails its own checks is left out.
@@ -122,14 +56,6 @@ fn sets(bundle: &VerifiedBundle, categories: &[Category]) -> Sets {
         categories.contains(&c).then(|| bundle.of(c.as_str(), Kind::Set).next().and_then(|l| DomainSet::from_bytes(&l.data)).map(Arc::new)).flatten()
     };
     Sets { malware: load(Category::Malware), adult: load(Category::Adult), popups: load(Category::Popups) }
-}
-
-fn counts(bundle: &VerifiedBundle) -> BTreeMap<String, u64> {
-    let mut counts = BTreeMap::new();
-    for list in bundle.lists.iter().filter(|l| matches!(l.kind, Kind::Filters | Kind::Set)) {
-        *counts.entry(list.category.clone()).or_default() += list.count;
-    }
-    counts
 }
 
 async fn webkit(cx: &mut AsyncApp, run: impl FnOnce(Box<dyn FnOnce(Result<FilterLists, String>)>)) -> Result<FilterLists, String> {
@@ -176,7 +102,7 @@ async fn install(core: &AppCore, state: &mut State, bundle: VerifiedBundle, cx: 
             let keys: Vec<String> = GROUPS.iter().map(|g| inputs.key(g)).collect();
             let config = bundle.of("youtube", Kind::Config).next().and_then(|l| youtube::parse(&l.data)).unwrap_or_default();
             let revocations = bundle.of(shield::revocations::CATEGORY, Kind::Config).next().and_then(|l| shield::revocations::parse(&l.data));
-            (Arc::new(inputs), keys, sets(&bundle, &categories), config, counts(&bundle), bundle.created, revocations)
+            (Arc::new(inputs), keys, sets(&bundle, &categories), config, shield::update::counts(&bundle), bundle.created, revocations)
         })
         .await;
     core.set_youtube_config(&config);
@@ -253,16 +179,11 @@ pub fn spawn(dir: PathBuf, core: Rc<AppCore>, cx: &mut App) -> Task<()> {
                 let filters = core.filters.borrow();
                 (filters.updates, filters.installed.is_some())
             };
-            if updates && now().saturating_sub(state.checked) >= UPDATE_INTERVAL {
+            if shield::update::due(updates, &state, now()) {
                 state.checked = now();
-                match update(&core, &dir, &mut state, installed, cx).await {
-                    Ok(()) => {
-                        if core.filters.borrow().installed.is_some() {
-                            set_error(&core, cx, None);
-                        }
-                    }
-                    Err(e) => set_error(&core, cx, Some(e)),
-                }
+                let result = update(&core, &dir, &mut state, installed, cx).await;
+                core.filters.borrow_mut().checked(result);
+                cx.update(|cx| cx.refresh_windows()).ok();
                 cache::save_state(&dir, &state).ok();
             }
             cx.background_executor().timer(TICK).await;
@@ -300,10 +221,8 @@ pub fn reload_sets(core: Rc<AppCore>, cx: &mut App) {
 }
 
 /// The new bundle replaces the cached one only after every group compiled.
-/// With nothing installed the published copy of the floor version is accepted again, so a lost
-/// cache can be repaired; older versions stay refused.
 async fn update(core: &AppCore, dir: &Path, state: &mut State, installed: bool, cx: &mut AsyncApp) -> Result<(), String> {
-    let last = if installed { state.version } else { state.version.map(|v| v.saturating_sub(1)) };
+    let last = shield::update::floor(state, installed);
     let fetched = cx.background_executor().spawn(async move { download(FILTER_BUNDLE_URL, &public_key(), last, now()) }).await?;
     let Some(Update { manifest, signature, bundle }) = fetched else { return Ok(()) };
     let version = bundle.version;
@@ -323,6 +242,7 @@ async fn update(core: &AppCore, dir: &Path, state: &mut State, installed: bool, 
 mod tests {
     use super::*;
     use shield::bundle::VerifiedList;
+    use std::collections::BTreeMap;
 
     fn list(category: &str, kind: Kind, data: &[u8]) -> VerifiedList {
         VerifiedList { name: format!("{category}.x"), category: category.into(), kind, count: 2, data: data.to_vec() }
@@ -346,20 +266,12 @@ mod tests {
     }
 
     #[test]
-    fn lists_signed_over_two_weeks_ago_are_out_of_date() {
-        let status = |age: u64| Status { version: Some(now() - age), ..Status::default() };
-        assert!(!Status::default().out_of_date());
-        assert!(!status(OUT_OF_DATE - 60).out_of_date());
-        assert!(status(OUT_OF_DATE + 60).out_of_date());
-    }
-
-    #[test]
     fn only_switched_on_sets_load_and_counts_add_up() {
         let b = bundle();
         let loaded = sets(&b, &[Category::Malware]);
         assert!(loaded.malware.as_ref().is_some_and(|s| s.contains("evil.example")) && loaded.adult.is_none() && loaded.popups.is_none());
         assert_eq!(
-            counts(&b),
+            shield::update::counts(&b),
             BTreeMap::from([
                 ("ads".into(), 2),
                 ("adult".into(), 2),

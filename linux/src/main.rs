@@ -3,6 +3,7 @@ mod controls;
 mod data;
 mod extensions;
 mod fetch;
+mod filter_updates;
 mod input;
 mod memory;
 mod shortcuts;

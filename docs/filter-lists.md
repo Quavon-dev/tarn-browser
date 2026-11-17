@@ -78,11 +78,12 @@ Generate a new key as above, replace the secret, update `FILTER_BUNDLE_PUBLIC_KE
 
 ## In the app
 
-`app::filters` checks once a day while **Settings › Privacy › Filter-list updates** is on (the
-default). It downloads `manifest.json` and `manifest.sig`, verifies them, then downloads every list,
+`shield::update` checks once a day while **Settings › Privacy › Filter-list updates** is on (the
+default), on macOS, Windows (`app::filters`) and Linux (`linux/src/filter_updates.rs`). It downloads `manifest.json` and `manifest.sig`, verifies them, then downloads every list,
 refuses a bundle older than 30 days, and stores it under `<data dir>/filters/bundle` with
 `state.json`. Each rule-list group (`ads`, `trackers`, `cosmetic`, `annoyances`, `malware`, and the built-in
-`youtube`) is compiled by WebKit under `tarn.lists.<group>.<fingerprint>.<n>` and looked up again on
+`youtube`) is compiled by WebKit under `tarn.lists.<group>.<fingerprint>.<n>` (on Linux, WebKitGTK's
+`tarn-<group>-<key>-<n>`) and looked up again on
 launch, so conversion runs only when a group's input or the converter changes. Ads and trackers each
 carry the other's exceptions, so either switch works alone; `annoyances` holds the cookie lists'
 network and element-hiding rules, with the network exceptions of all three (element-hiding exceptions only from the cookie lists themselves), so uBlock Unbreak's fixes for

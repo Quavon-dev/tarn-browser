@@ -8,6 +8,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Filter-list updates: the signed Shield list bundle is downloaded once a day, with the same checks
+  as on macOS, and Settings › Privacy shows the installed lists' date and the last error, with a
+  switch to turn updates off (Linux).
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages

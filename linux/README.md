@@ -116,6 +116,8 @@ Moved out of this crate, with the macOS app using the same code where it had a c
 - `engine::view_policy`: site levels, navigation and popup verdicts, bursts, the zoom range
   (`engine::delegates` uses its bursts and title cut);
 - `shield::groups`: the bundle-to-rule-list conversion and the debug signing key (`crates/app` uses it);
+- `shield::update`: the daily filter-list update (when it is due, the download and its checks, the
+  Settings status line); `src/filter_updates.rs` only schedules it and fetches through `src/fetch.rs`;
 - `browser_core::command`: input parsing, `engine_key`, the address label (`display_host`, the text of
   the macOS label `address`); `browser_core::prompts`: the prompt model and what may be remembered (the mobile shell
   uses both). A crashed page reloads once and stays until a page finishes loading, as on macOS.

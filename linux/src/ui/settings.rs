@@ -419,6 +419,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                     act(ui, |b| b.notice = Some(Notice::Message("Website data of this profile was cleared.".into())));
                 }
             };
+            let (filter_updates, filter_status) = read(ui, Browser::filter_updates).unwrap_or_default();
             body.child(section("Shield"))
                 .child(
                     group()
@@ -434,6 +435,9 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 )
                 .child(note("EasyList Cookie and uBlock Cookie Notices hide consent pop-ups and stop the scripts that show them. Nothing is accepted or refused for you."))
                 .child(note("Filter lists apply to pages loaded after a change; they need the signed list bundle."))
+                .child(section("Filter-list updates"))
+                .children(filter_updates.map(|on| group().child(switch(on, "Download filter-list updates", toggle(shield::update::SETTING)))))
+                .child(note(format!("GitHub, once a day. {filter_status}")))
                 .child(section("Hidden elements"))
                 .child(hidden(ui, private))
                 .child(section("Clear data"))

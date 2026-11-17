@@ -4,7 +4,7 @@ use nsh_core::prelude::*;
 use store::{Id, Store};
 use tarn_nsh_shared::appearance::{Host, appearance};
 
-use super::{Ui, act, read};
+use super::{Ui, read};
 
 #[derive(Clone, Copy)]
 struct Looks(Ui);
@@ -21,9 +21,7 @@ impl Host for Looks {
         f(&super::core().disk)
     }
     fn changed(self) {
-        for ui in super::WINDOWS.with_borrow(Vec::clone) {
-            act(ui, |b| b.apply_theme());
-        }
+        super::themes_changed();
     }
     fn profile(self) -> Option<(Id, String)> {
         read(self.0, |b| {

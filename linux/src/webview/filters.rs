@@ -6,9 +6,11 @@ use shield::ShieldLevel;
 use shield::rules::builtin_rules;
 use webkit6::{UserContentFilter, UserContentFilterStore, gio, glib};
 
-use shield::groups as bundle;
+use shield::cache;
+use shield::groups::{self as bundle, Group};
+use shield::update::describe;
 
-type Waiter = Box<dyn FnOnce()>;
+pub type Waiter = Box<dyn FnOnce()>;
 
 enum Groups {
     Idle,
@@ -27,28 +29,48 @@ async fn compile(identifier: String, source: String) -> Result<UserContentFilter
     store.save_future(&identifier, &glib::Bytes::from_owned(source.into_bytes())).await.map_err(|e| e.to_string())
 }
 
+async fn compile_group(group: Group) -> Result<Vec<UserContentFilter>, String> {
+    let mut filters = Vec::new();
+    for (n, chunk) in group.chunks.into_iter().enumerate() {
+        let id = format!("tarn-{}-{}-{n}", group.name, &group.key[..16.min(group.key.len())]);
+        filters.push(compile(id, chunk).await.map_err(|e| format!("{}: {e}", group.name))?);
+    }
+    Ok(filters)
+}
+
 fn ready_groups() {
     let dir = crate::data::root().join("filters");
     glib::MainContext::default().spawn_local(async move {
         let key = bundle::public_key();
-        let loaded = gio::spawn_blocking(move || bundle::load(&dir, &key)).await.unwrap_or_else(|_| Err("converter panicked".into()));
+        let floor = cache::load_state(&dir).version;
+        let loaded = gio::spawn_blocking(move || -> Result<(Vec<Group>, shield::bundle::VerifiedBundle), String> {
+            let verified = cache::read(&dir, &key).map_err(|e| describe(&e))?;
+            cache::raise_floor(&dir, verified.version).ok();
+            Ok((bundle::of(&verified), verified))
+        })
+        .await
+        .unwrap_or_else(|_| Err("converter panicked".into()));
         let mut compiled = HashMap::new();
         match loaded {
-            Ok(groups) => {
+            Ok((groups, verified)) => {
+                crate::filter_updates::loaded(&verified);
                 for group in groups {
-                    let mut filters = Vec::new();
-                    for (n, chunk) in group.chunks.into_iter().enumerate() {
-                        let id = format!("tarn-{}-{}-{n}", group.name, &group.key[..16.min(group.key.len())]);
-                        match compile(id, chunk).await {
-                            Ok(filter) => filters.push(filter),
-                            Err(e) => eprintln!("tarn: filter list {} chunk {n} did not compile: {e}", group.name),
+                    let name = group.name;
+                    match compile_group(group).await {
+                        Ok(filters) => {
+                            eprintln!("tarn: filter list {name} ready ({} chunks)", filters.len());
+                            compiled.insert(name.to_owned(), filters);
                         }
+                        Err(e) => eprintln!("tarn: filter list did not compile: {e}"),
                     }
-                    eprintln!("tarn: filter list {} ready ({} chunks)", group.name, filters.len());
-                    compiled.insert(group.name.to_owned(), filters);
                 }
             }
-            Err(e) => eprintln!("tarn: no filter lists installed ({e})"),
+            Err(e) => {
+                eprintln!("tarn: no filter lists installed ({e})");
+                if floor.is_some() {
+                    crate::filter_updates::failed(e);
+                }
+            }
         }
         let waiters = GROUPS.with_borrow_mut(|g| match std::mem::replace(g, Groups::Ready(compiled)) {
             Groups::Loading(waiters) => waiters,
@@ -58,7 +80,32 @@ fn ready_groups() {
     });
 }
 
-fn when_groups_ready(then: Waiter) {
+pub async fn replace(groups: Vec<Group>) -> Result<(), String> {
+    let mut first_error = None;
+    for group in groups {
+        let name = group.name;
+        match compile_group(group).await {
+            Ok(filters) => {
+                let old = GROUPS.with_borrow_mut(|g| match g {
+                    Groups::Ready(compiled) => compiled.insert(name.to_owned(), filters.clone()).unwrap_or_default(),
+                    _ => Vec::new(),
+                });
+                super::swap_group(name, &old, &filters);
+                let kept: Vec<_> = filters.iter().filter_map(UserContentFilter::identifier).collect();
+                let store = STORE.with(Clone::clone);
+                for id in old.iter().filter_map(UserContentFilter::identifier).filter(|id| !kept.contains(id)) {
+                    store.remove_future(&id).await.ok();
+                }
+            }
+            Err(e) => {
+                first_error.get_or_insert(e);
+            }
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+pub fn when_groups_ready(then: Waiter) {
     let run_now = GROUPS.with_borrow_mut(|g| match g {
         Groups::Ready(_) => Some(then),
         Groups::Loading(waiters) => {

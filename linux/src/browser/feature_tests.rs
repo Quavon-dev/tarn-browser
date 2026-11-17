@@ -488,3 +488,22 @@ fn a_burner_tab_neither_fetches_nor_keeps_site_icons() {
     assert!(!b.favicons.is_requested(&profile, "a.test", ticket));
     assert!(b.site_icons(&Default::default()).is_none_or(|icons| icons.find("a.test").is_none()));
 }
+
+#[test]
+fn filter_list_updates_default_on_switch_off_and_show_the_installed_lists() {
+    let (_dir, mut b) = browser();
+    let (switch, summary) = b.filter_updates();
+    assert_eq!(switch, Some(true));
+    assert_eq!(summary, "No lists installed yet.");
+    b.toggle_setting(shield::update::SETTING);
+    assert_eq!(b.filter_updates().0, Some(false));
+    assert_eq!(b.core.disk.setting(shield::update::SETTING).unwrap().as_deref(), Some("off"));
+    let lists =
+        vec![shield::bundle::VerifiedList { name: "ads.txt".into(), category: "ads".into(), kind: shield::bundle::Kind::Filters, count: 3, data: Vec::new() }];
+    crate::filter_updates::loaded(&shield::bundle::VerifiedBundle { version: shield::update::now(), created: "2026-11-17T08:00:00Z".into(), lists });
+    crate::filter_updates::failed("offline".into());
+    assert_eq!(b.filter_updates().1, "Lists from 2026-11-17 installed. Last update failed: offline.");
+    assert_eq!(crate::filter_updates::status().counts.get("ads"), Some(&3));
+    b.toggle_setting(shield::update::SETTING);
+    assert_eq!(b.filter_updates().0, Some(true));
+}
