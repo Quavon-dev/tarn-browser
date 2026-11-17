@@ -437,4 +437,12 @@ impl<D: Platform> Shell<D> {
         }
         Vec::new()
     }
+
+    pub fn set_layout(&mut self, layout: browser_core::layout::Layout) -> Vec<Effect> {
+        self.layout = layout;
+        if let Err(e) = layout.save(&self.core.disk) {
+            self.toast_as(browser_core::toast::Tone::Warning, format!("The layout could not be saved: {e}"));
+        }
+        Vec::new()
+    }
 }

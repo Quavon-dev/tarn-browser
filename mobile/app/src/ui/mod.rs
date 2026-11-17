@@ -2,6 +2,7 @@ mod appearance;
 mod bars;
 mod controls;
 mod extensions;
+mod mac;
 mod panels;
 mod prompt;
 mod share;
@@ -17,6 +18,7 @@ use browser_core::tabs::TabKey;
 use nsh_core::prelude::*;
 use nsh_core::{LayoutAnimation, LayoutCurve, LayoutTransition};
 use serde_json::{Value, json};
+use tarn_nsh_shared::controls::Density;
 
 use crate::data::{Data, Platform};
 use crate::shell::{Effect, Shell, ViewProps};
@@ -78,6 +80,7 @@ pub struct Ui {
     pub suggest: Signal<Vec<store::HistoryEntry>>,
     pub field: ElementRef,
     pub fresh: Signal<Option<(TabKey, TabKey)>>,
+    pub mac: Signal<bool>,
 }
 
 impl Ui {
@@ -422,6 +425,10 @@ fn back(ui: Ui) -> bool {
             }
             can
         }
+        screen if ui.mac.get_untracked() && mac::owns(screen) => {
+            ui.show(Screen::Browse);
+            true
+        }
         screen => {
             panels::leave(ui, panels::parent(screen).unwrap_or(Screen::Browse));
             true
@@ -444,6 +451,7 @@ pub fn App() -> impl IntoElement {
         suggest: signal(Vec::new()),
         field: element_ref(),
         fresh: signal(None),
+        mac: signal(false),
     };
     let extensions_open = std::cell::Cell::new(false);
     effect(move || {
@@ -469,6 +477,18 @@ pub fn App() -> impl IntoElement {
                 Vec::new()
             })
         });
+    });
+    effect(move || {
+        let size = window();
+        let setting = ui.read_data(|s| s.layout);
+        let mac = browser_core::layout::effective(setting, size.width.0, size.height.0) == browser_core::layout::Layout::Mac;
+        if mac != ui.mac.get_untracked() {
+            if ui.editing.get_untracked() {
+                bars::cancel(ui);
+            }
+            tarn_nsh_shared::controls::set_density(if mac { Density::Desktop } else { Density::Touch });
+            ui.mac.set(mac);
+        }
     });
     on_back_press(move || untracked(|| back(ui)));
     let profile = computed(move || ui.read_data(|s| s.profile_props()));
@@ -501,8 +521,9 @@ pub fn App() -> impl IntoElement {
         .text_color(Theme::text)
         .font_family(Theme::font_family)
         .child(themed(|| view().absolute().inset_0().paint(Theme::backdrop())))
-        .child(bars::top_bar(ui))
-        .child(
+        .child(mac::frame(
+            ui,
+            move || bars::top_bar(ui),
             view()
                 .flex_1()
                 .relative()
@@ -521,8 +542,8 @@ pub fn App() -> impl IntoElement {
                 .child(bars::suggestions(ui))
                 .child(prompt::prompt_panel(ui))
                 .child(panels::panel(ui)),
-        )
-        .child(bars::bottom_bar(ui))
+            move || bars::bottom_bar(ui),
+        ))
         .child(share::share_sheet(ui))
         .child(extensions::backgrounds(ui))
 }

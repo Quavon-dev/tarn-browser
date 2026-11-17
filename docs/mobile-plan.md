@@ -800,5 +800,18 @@ Settings have no Suggestions switch yet, so history rows and the address field's
 always on (macOS gates both on Settings › Suggestions); both are computed on the device from local history, as on macOS.
 Screenshots: `mobile/ios/evidence/design/` (phone and iPad).
 
+### Tablet layout: Touch or Mac
+
+On a tablet (shorter side at least 600 pt) whose window is at least 700 pt wide, Settings › Appearance ›
+Layout chooses Touch (the default, the layout above) or Mac, stored as `layout.tablet` and decided by
+`browser_core::layout::effective`. Mac switches the shared controls to desktop density and arranges the
+app like the macOS client: sidebar, toolbar and a Settings window (`mobile/app/src/ui/mac/`); the page
+area and its web views stay mounted across a switch. Phones and narrow multitasking windows always use
+Touch.
+
+Gaps (NSH 0.5.0): iPadOS lists no hardware-keyboard shortcut in the ⌘-hold overlay or the menu bar, since
+`nsh-platform-ios` matches keys in `pressesBegan` and registers no `UIKeyCommand` or menu builder;
+Android delivers no secondary click as a context-menu event, so tab menus open with a long press there.
+
 Not in scope until there is an account to do it with: device builds needing signing, App Store and Play
 submission, the iOS default-browser entitlement.

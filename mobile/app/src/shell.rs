@@ -114,6 +114,7 @@ pub struct Shell<D: Platform> {
     pub splits: Splits<TabKey>,
     /// Whether the layout is wide enough to show a split's panes; a phone shows one tab.
     pub wide: bool,
+    pub layout: browser_core::layout::Layout,
     pub pages: HashMap<TabKey, Page>,
     pub prompts: Vec<PromptRequest>,
     pub external: Option<(TabKey, String)>,
@@ -157,11 +158,13 @@ impl<D: Platform> Shell<D> {
             model.launch_space(&core, &SavedWindow::default())
         };
         let themes = crate::themes::Themes::open(&core.disk, dir);
+        let layout = browser_core::layout::Layout::load(&core.disk);
         let mut shell = Shell {
             core,
             model,
             splits: Splits::default(),
             wide: false,
+            layout,
             pages: HashMap::new(),
             prompts: Vec::new(),
             external: None,

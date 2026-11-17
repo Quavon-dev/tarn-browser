@@ -27,6 +27,7 @@ pub mod fog;
 pub mod github;
 pub mod glyphs;
 pub mod import;
+pub mod layout;
 pub mod licences;
 pub mod permissions;
 pub mod prompts;

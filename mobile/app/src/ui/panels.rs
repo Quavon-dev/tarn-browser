@@ -1,4 +1,5 @@
 use browser_core::command::ENGINES;
+use browser_core::layout::Layout;
 use browser_core::tabs::TabKey;
 use nsh_base::{alert_dialog, button, input};
 use nsh_core::keymap::When;
@@ -40,6 +41,9 @@ fn title(screen: Screen) -> &'static str {
 pub fn panel(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         let screen = ui.screen.get();
+        if ui.mac.get() && super::mac::owns(screen) {
+            return None;
+        }
         let body = match screen {
             Screen::Browse | Screen::Share => return None,
             Screen::Find => return Some(find(ui).into_element()),
@@ -497,11 +501,42 @@ pub fn share(ui: Ui, url: String) {
     });
 }
 
+fn layout_choice(ui: Ui) -> impl IntoElement {
+    when(
+        move || {
+            let size = window();
+            browser_core::layout::offered(size.width.0, size.height.0)
+        },
+        move || {
+            view()
+                .gap_2()
+                .child(section("Layout"))
+                .child(segmented(
+                    Layout::ALL
+                        .into_iter()
+                        .map(|layout| {
+                            (
+                                layout.label().to_owned(),
+                                Box::new(move || ui.read_data(|s| s.layout) == layout) as Box<dyn Fn() -> bool>,
+                                Box::new(move || ui.act(|s| s.set_layout(layout))) as Box<dyn Fn()>,
+                            )
+                        })
+                        .collect(),
+                ))
+                .child(
+                    caption("Mac arranges Tarn like the Mac app, with a sidebar, a toolbar and desktop-sized controls for a pointer and keyboard.")
+                        .number_of_lines(0)
+                        .px_1(),
+                )
+        },
+    )
+}
+
 fn pane_heading(pane: Pane) -> impl IntoElement {
     label(panes::name(pane)).text_size(px(TEXT_TITLE)).font_weight(FontWeight::BOLD).px_1().pt_4()
 }
 
-fn settings(ui: Ui) -> impl IntoElement {
+pub(super) fn settings(ui: Ui) -> impl IntoElement {
     view()
         .gap_2()
         .child(pane_heading(Pane::Profile))
@@ -530,6 +565,7 @@ fn settings(ui: Ui) -> impl IntoElement {
         .child(section("About"))
         .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)).child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL)).child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)).child(pill("Open-source licences", move || ui.show(Screen::Licences))))
         .child(pane_heading(Pane::Appearance))
+        .child(layout_choice(ui))
         .child(super::appearance::pane(ui))
         .child(pane_heading(Pane::Search))
         .child(section("Search engine"))

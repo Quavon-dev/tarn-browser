@@ -24,6 +24,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   in Settings › Extensions built only from Tarn's verified catalog, and nothing is downloaded
   until you press Install there; Settings › Extensions links the store (macOS, Windows, Linux,
   iOS, Android).
+- Tablets: Settings › Appearance › Layout switches an iPad or Android tablet between the touch layout
+  and a Mac layout with a sidebar, a toolbar and desktop-sized controls (iOS, Android).
 
 ### Changed
 

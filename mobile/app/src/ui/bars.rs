@@ -32,11 +32,11 @@ fn history_button(ui: Ui, asset: ImageAsset, name: &'static str, command: &'stat
         .disabled_style(|s| s.opacity(0.35))
 }
 
-fn back(ui: Ui) -> impl IntoElement {
+pub(super) fn back(ui: Ui) -> impl IntoElement {
     history_button(ui, icons::BACK, "Back", "back", |p| p.back)
 }
 
-fn forward(ui: Ui) -> impl IntoElement {
+pub(super) fn forward(ui: Ui) -> impl IntoElement {
     history_button(ui, icons::FORWARD, "Forward", "forward", |p| p.forward)
 }
 
@@ -65,17 +65,19 @@ fn tabs(ui: Ui) -> impl IntoElement {
 }
 
 fn new_tab(ui: Ui) -> impl IntoElement {
-    icon_button(icons::PLUS, "New Tab", move || {
-        let before = ui.read(|s| s.model.active);
-        let mut opened = None;
-        ui.act(|s| {
-            opened = s.new_tab(None);
-            Vec::new()
-        });
-        ui.show(Screen::Browse);
-        ui.fresh.set(opened.zip(before).filter(|(k, b)| k != b));
-        ui.field.focus();
-    })
+    icon_button(icons::PLUS, "New Tab", move || open_new_tab(ui))
+}
+
+pub(super) fn open_new_tab(ui: Ui) {
+    let before = ui.read(|s| s.model.active);
+    let mut opened = None;
+    ui.act(|s| {
+        opened = s.new_tab(None);
+        Vec::new()
+    });
+    ui.show(Screen::Browse);
+    ui.fresh.set(opened.zip(before).filter(|(k, b)| k != b));
+    ui.field.focus();
 }
 
 pub(super) fn cancel(ui: Ui) {
@@ -128,7 +130,7 @@ fn shield_button(ui: Ui) -> impl IntoElement {
         .child(dynamic(move || named().then(|| small(level_name(level())).text_color(Secure::muted).font_family(SYSTEM_FONT))))
 }
 
-fn reload(ui: Ui) -> impl IntoElement {
+pub(super) fn reload(ui: Ui) -> impl IntoElement {
     let reloaded = signal(0u64);
     let again = move || {
         ui.act(|s| s.active_command("reload", Value::Null));
@@ -224,7 +226,7 @@ fn address_input(ui: Ui) -> nsh_base::Input {
         })
 }
 
-fn cancel_button(ui: Ui) -> impl IntoElement {
+pub(super) fn cancel_button(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         ui.editing.get().then(|| {
             button()
@@ -366,7 +368,7 @@ fn shield_chip(ui: Ui) -> impl IntoElement {
         }))
 }
 
-fn address_pill(ui: Ui) -> impl IntoElement {
+pub(super) fn address_pill(ui: Ui) -> impl IntoElement {
     view()
         .flex_row()
         .items_center()
