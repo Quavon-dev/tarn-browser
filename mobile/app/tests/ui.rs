@@ -2,6 +2,31 @@ use nsh_core::geometry::{Points, Size, point, px};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::{Headless, WAIT};
 
+/// Scrolls the scroll view around `selector` until the view is wholly inside it, as a user scrolls to a
+/// control before tapping it, then presses it.
+fn press_in_view(app: &mut Headless, selector: &str) {
+    for _ in 0..40 {
+        let screen = app.screen();
+        let target = screen.press_target(selector).unwrap().unwrap();
+        let nodes = screen.layout_nodes();
+        let at = nodes.iter().find(|n| n.id == target).unwrap().bounds;
+        let (top, bottom) = (at.origin.y.0, at.origin.y.0 + at.size.height.0);
+        let port = nodes
+            .iter()
+            .filter(|n| n.scroll.is_some() && n.bounds.size.height.0 > 0. && n.bounds.origin.x.0 <= at.origin.x.0)
+            .filter(|n| n.bounds.origin.x.0 + n.bounds.size.width.0 >= at.origin.x.0 + at.size.width.0)
+            .map(|n| (n.bounds.origin.y.0, n.bounds.origin.y.0 + n.bounds.size.height.0))
+            .next_back()
+            .unwrap();
+        if top >= port.0 && bottom <= port.1 {
+            return app.press(selector).unwrap();
+        }
+        let by = if bottom > port.1 { (bottom - port.1 + 24.).min(300.) } else { -((port.0 - top + 24.).min(300.)) };
+        app.scroll(selector, Points(by)).unwrap();
+    }
+    panic!("{selector} never came into view");
+}
+
 #[test]
 fn the_phone_shell_opens_tabs_spaces_and_settings() {
     let dir = tempfile::tempdir().unwrap();
@@ -91,9 +116,9 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.wait_for("label:Settings").unwrap();
     app.press("label:Settings").unwrap();
     app.wait_for("label:Strict").unwrap();
-    app.press("label:Strict").unwrap();
+    press_in_view(&mut app, "label:Strict");
     app.wait_for("label:Clear Browsing Data…").unwrap();
-    app.press("label:Ads: On").unwrap();
+    press_in_view(&mut app, "label:Ads: On");
     app.wait_for("label:Ads: Off").unwrap();
     app.press("label:Done").unwrap();
     app.wait_for("label:Shield: Strict").unwrap();
