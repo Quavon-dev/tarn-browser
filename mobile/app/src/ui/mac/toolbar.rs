@@ -368,7 +368,11 @@ fn submit(ui: Ui, text: String, completed: Option<(String, String)>) {
             return go(ui, url);
         }
     }
-    go(ui, completed.filter(|(full, _)| *full == text).map_or(text, |(_, url)| url));
+    go(ui, typed_target(text, completed));
+}
+
+fn typed_target(text: String, completed: Option<(String, String)>) -> String {
+    completed.filter(|(full, _)| *full == text).map_or(text, |(_, url)| url)
 }
 
 fn step(ui: Ui, key: &str) {
@@ -398,12 +402,12 @@ fn picked(ui: Ui, row: usize) -> bool {
     ui.picked.get().unwrap_or(0) == row
 }
 
-fn input_row(ui: Ui) -> impl IntoElement {
+fn input_row(ui: Ui, completed: Signal<Option<(String, String)>>) -> impl IntoElement {
     dynamic(move || {
-        let text = ui.address.get();
-        if listing(&text) {
+        if ui.address.with(|a| listing(a)) {
             return None;
         }
+        let text = typed_target(ui.address.get(), completed.get());
         let engine = &ENGINES[ui.read(|s| s.search_engine())];
         let (name, note, glyph, rejected) = match classify_input(&text, engine) {
             Some(Input::Navigate(u)) => (u.to_string(), "Open".to_owned(), glyphs::GLOBE, false),
@@ -412,7 +416,7 @@ fn input_row(ui: Ui) -> impl IntoElement {
             _ => (text.clone(), format!("Search {}", engine.name), glyphs::SEARCH, false),
         };
         Some(
-            row(name.clone(), move || go(ui, ui.address.get_untracked()))
+            row(name.clone(), move || go(ui, typed_target(ui.address.get_untracked(), completed.get_untracked())))
                 .bg(move || picked_fill(picked(ui, 0)))
                 .child(row_glyph(glyph, move || picked(ui, 0)))
                 .child(row_name(name, if rejected { Theme::danger() } else { Theme::text() }))
@@ -461,9 +465,8 @@ fn suggestion_rows(ui: Ui) -> impl IntoElement {
     ))
 }
 
-fn palette_field(ui: Ui) -> impl IntoElement {
+fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>) -> impl IntoElement {
     let typed = signal(String::new());
-    let completed = signal(None::<(String, String)>);
     let history = Rc::new(ui.read(|s| s.suggestion_history()));
     let at = element_ref();
     input()
@@ -505,12 +508,26 @@ pub(super) fn palette(ui: Ui) -> impl IntoElement {
         move || ui.editing.get(),
         move || {
             bind_keys(ui);
+            let completed = signal(None::<(String, String)>);
             let typed = move || ui.address.with(|a| !a.trim().is_empty()) && ui.read(|s| ui.address.with(|a| *a != s.active_url()));
             themed(move || {
-                let list = dynamic(move || typed().then(|| rows().child(input_row(ui)).child(command_rows(ui)).child(suggestion_rows(ui))));
-                tarn_nsh_shared::toolbar::palette(palette_field(ui), move || ui.address.with(|a| listing(a)), list, move || close_palette(ui))
+                let list = dynamic(move || typed().then(|| rows().child(input_row(ui, completed)).child(command_rows(ui)).child(suggestion_rows(ui))));
+                tarn_nsh_shared::toolbar::palette(palette_field(ui, completed), move || ui.address.with(|a| listing(a)), list, move || close_palette(ui))
                     .top(px(TOOLBAR_HEIGHT))
             })
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::typed_target;
+
+    #[test]
+    fn the_input_row_opens_the_inline_completion_it_shows() {
+        let completed = Some(("neverssl.test/".to_owned(), "http://neverssl.test/".to_owned()));
+        assert_eq!(typed_target("neverssl.test/".to_owned(), completed.clone()), "http://neverssl.test/");
+        assert_eq!(typed_target("neverssl.te".to_owned(), completed), "neverssl.te", "a completion of other text is stale");
+        assert_eq!(typed_target("example.com".to_owned(), None), "example.com");
+    }
 }
