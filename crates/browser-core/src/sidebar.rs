@@ -90,6 +90,10 @@ pub fn sidebar(model: &Model, splits: &Splits<TabKey>) -> Sidebar {
     Sidebar { tiles, pinned, groups, loose }
 }
 
+pub fn cleanable(model: &Model) -> bool {
+    !model.burner_shown() && crate::cleanup::cleanable(&model.tabs)
+}
+
 fn takes(model: &Model, kind: TabKind) -> bool {
     !model.burner_shown() || kind == TabKind::Ephemeral
 }
@@ -382,6 +386,23 @@ mod tests {
         assert!(land_on(&mut model, &core, c, c).is_none());
         core.store(false).delete_group(group).unwrap();
         assert!(land_on(&mut model, &core, b, a).is_none(), "a row whose group is gone moves nothing");
+    }
+
+    #[test]
+    fn a_burner_is_never_cleaned_up() {
+        let (_dir, core, mut model) = opened();
+        tab(&core, &mut model, TabKind::Ephemeral, None);
+        tab(&core, &mut model, TabKind::Ephemeral, None);
+        assert!(cleanable(&model));
+        let ix = model.open_burner(&core).unwrap();
+        model.switch_space(&core, ix).unwrap();
+        let burner = model.burner.unwrap();
+        for url in ["https://github.com/a", "https://gitlab.com/b"] {
+            core.store(true).create_tab(burner, TabKind::Ephemeral, None, url, "").unwrap();
+        }
+        model.reload_space(&core);
+        assert!(crate::cleanup::cleanable(&model.tabs) && model.burner_shown());
+        assert!(!cleanable(&model), "a burner's tabs are never sorted");
     }
 
     #[test]

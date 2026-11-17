@@ -959,7 +959,7 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
 }
 
 fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
-    let cleanable = browser_core::cleanup::cleanable(&b.model.tabs) && !b.model.burner_shown();
+    let cleanable = browser_core::sidebar::cleanable(&b.model);
     div()
         .id("ephemeral")
         .flex()
