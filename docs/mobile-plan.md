@@ -812,6 +812,11 @@ Touch.
 Gaps (NSH 0.5.0): iPadOS lists no hardware-keyboard shortcut in the ⌘-hold overlay or the menu bar, since
 `nsh-platform-ios` matches keys in `pressesBegan` and registers no `UIKeyCommand` or menu builder;
 Android delivers no secondary click as a context-menu event, so tab menus open with a long press there.
+Sidebar tab rows and tiles drag (to reorder, pin, tile, file into a folder or a group) with a trackpad
+or mouse only: NSH 0.5.0 has pans but no lift-to-drag interaction, a long press already opens the tab's
+menu, and a finger pan on a row would take the list's scrolling; a touch user pins, tiles and groups
+from the menu. A pan reports only its start and end, so no insertion line follows the pointer while
+dragging, as it does on macOS.
 
 Not in scope until there is an account to do it with: device builds needing signing, App Store and Play
 submission, the iOS default-browser entitlement.

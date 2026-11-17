@@ -1,10 +1,12 @@
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Instant;
 
-use browser_core::sidebar::{self as bar, Row, RowKind, Swipe};
+use browser_core::sidebar::{self as bar, DropAt, Row, RowKind, Swipe};
 use browser_core::tabs::TabKey;
-use nsh_base::{PopoverEvent, button, popover};
+use nsh_base::{PopoverEvent, button, input, popover};
+use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use store::{Id, TabKind};
 use tarn_nsh_shared::controls::{avatar, site_tile};
@@ -12,7 +14,8 @@ use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::motion::spinner;
 use tarn_nsh_shared::sidebar::{
     BUTTON, CLOSE_GAP, CLOSE_WIDTH, FOOTER_HEIGHT, GLYPH, HEADER_HEIGHT, HEADER_INSET, INDENT, INNER_PAD, MARGIN, ROW_GAP, ROW_INSET, STATE_GLYPH, TAB_ROW,
-    TILE_GAP, TILE_ICON, WIDTH, divider, glyph_button, group_color, menu_card, menu_heading, menu_item, menu_separator, new_tab_mark, tile_grid, tip,
+    TILE_GAP, TILE_ICON, WIDTH, divider, glyph_button, group_color, menu_card, menu_heading, menu_item, menu_separator, new_tab_mark, progress_ring, tile_grid,
+    tip,
 };
 
 use super::super::{AppShell, Screen, Ui, bars, panels};
@@ -26,11 +29,24 @@ enum Target {
     Space,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Spot {
+    Tab(TabKey),
+    Folder(Id),
+    Group(Id),
+    Tiles,
+    Pinned,
+    Loose,
+}
+
 #[derive(Clone, Copy)]
 struct Bar {
     ui: Ui,
     menu: Signal<Option<(Target, Point<Points>)>>,
     layout: Memo<bar::Sidebar>,
+    renaming: Signal<Option<TabKey>>,
+    pointer: Signal<bool>,
+    spots: Stored<HashMap<Spot, ElementRef>>,
 }
 
 fn act(ui: Ui, f: impl FnOnce(&mut AppShell)) {
@@ -50,7 +66,7 @@ fn host(url: &str) -> String {
 }
 
 fn tab_title(s: &AppShell, key: TabKey) -> String {
-    Some(s.tab_title(key)).filter(|t| !t.is_empty()).unwrap_or_else(|| "New Tab".to_owned())
+    bar::shown_title(&s.model, key, s.tab_title(key))
 }
 
 fn asleep(s: &AppShell, key: TabKey) -> bool {
@@ -120,7 +136,8 @@ fn menu_items(bar: Bar, target: Target) -> View {
 
 fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
     let ui = bar.ui;
-    let Some((kind, group)) = ui.read(|s| s.model.tab(key).map(|t| (t.kind, t.group_id))) else { return Vec::new() };
+    let Some((kind, group, custom)) = ui.read(|s| s.model.tab(key).map(|t| (t.kind, t.group_id, !t.custom_title.is_empty()))) else { return Vec::new() };
+    let url = ui.read(|s| s.tab_url(key));
     let (active, burner, split, in_split, spaces, groups, others, below) = ui.read(|s| {
         let groups: Vec<(Id, String)> = s.model.groups.iter().filter(|g| Some(g.id) != group).map(|g| (g.id, g.name.clone())).collect();
         (
@@ -140,6 +157,20 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
     } else {
         item(bar, "Open", true, move |ui| activate(ui, key))
     }];
+    let link = url.clone();
+    items.extend([
+        item(bar, "Duplicate", !url.is_empty(), move |ui| {
+            act(ui, |s| {
+                s.new_tab(Some(&url));
+            });
+            ui.show(Screen::Browse);
+        }),
+        menu_separator().into_element(),
+        item(bar, "Copy Link", !link.is_empty(), move |ui| {
+            set_clipboard(link.clone());
+            act(ui, |s| s.toast_as(browser_core::toast::Tone::Success, "Link copied".to_owned()));
+        }),
+    ]);
     if ui.wide() {
         items.push(menu_separator().into_element());
         items.push(item(bar, split.entry.label(), split.enabled, move |ui| {
@@ -162,7 +193,16 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
                 bar::toggle_tile(&mut s.model, &s.core, key);
             })
         }),
+        item(bar, "Rename", kind != TabKind::Tile, move |_| bar.renaming.set(Some(key))),
     ]);
+    if custom {
+        items.push(item(bar, "Reset Title", true, move |ui| {
+            act(ui, |s| {
+                s.core.store(key.private).set_tab_custom_title(key.id, "").ok();
+                s.model.reload_space(&s.core);
+            })
+        }));
+    }
     if !spaces.is_empty() {
         items.push(menu_separator().into_element());
         items.push(menu_heading("Move to Space").into_element());
@@ -197,10 +237,11 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
             }));
         }
     }
+    items.push(menu_separator().into_element());
     if !ephemeral {
+        items.push(item(bar, "Unload Tab", true, move |ui| act(ui, |s| s.unload_tab(key))));
         return items;
     }
-    items.push(menu_separator().into_element());
     items.push(item(bar, "Close Tab", true, move |ui| act(ui, |s| s.close_tab(key))));
     items.push(item(bar, "Close Other Tabs", others, move |ui| act(ui, |s| close(s, &bar::other_unpinned(&s.model, key)))));
     items.push(item(bar, "Close Tabs Below", below, move |ui| act(ui, |s| close(s, &bar::tabs_below(&s.model, key)))));
@@ -284,14 +325,7 @@ fn delete_folder(s: &mut AppShell, id: Id) {
 }
 
 fn close_group(ui: Ui, id: Id) {
-    act(ui, |s| {
-        let keys = bar::group_tabs(&s.model, id);
-        let burner = s.in_burner() && !keys.is_empty();
-        close(s, &keys);
-        if !burner {
-            bar::remove_group(&mut s.model, &s.core, id, false);
-        }
-    });
+    act(ui, |s| s.close_group(id));
 }
 
 fn pressable_view() -> View {
@@ -339,7 +373,12 @@ fn tab_row(bar: Bar, key: TabKey, depth: usize) -> View {
         .child(glyph_button(glyphs::CLOSE, "Close Tab", Placement::Top, move || act(ui, |s| s.close_tab(key))));
     let row = pressable_view()
         .label(title)
-        .on_press(move || activate(ui, key))
+        .on_press(move |e: &PressEvent| {
+            activate(ui, key);
+            if e.clicks == 2 && renamable(ui, key) {
+                bar.renaming.set(Some(key));
+            }
+        })
         .relative()
         .flex_row()
         .items_center()
@@ -371,17 +410,128 @@ fn tab_row(bar: Bar, key: TabKey, depth: usize) -> View {
                     .child(glyphs::icon(glyphs::FLAME, 14.))
             })
         }))
-        .child(
+        .child(dynamic(move || {
+            if bar.renaming.get() == Some(key) {
+                return rename_field(bar, key);
+            }
             text(title)
                 .text_size(px(TEXT))
                 .text_color(move || if ui.read(|s| asleep(s, key)) && !active() { Theme::asleep() } else { Theme::text() })
                 .style_when(active, |s| s.font_weight(FontWeight::MEDIUM))
                 .flex_1()
-                .truncate(),
-        )
+                .truncate()
+                .into_element()
+        }))
         .child(state_glyph(ui, key, shown))
         .child(when(closable, move || close.clone()));
-    with_menu(bar, Target::Tab(key), row).on_mouse_enter(move |_: &MouseEvent| hovered.set(true)).on_mouse_leave(move |_: &MouseEvent| hovered.set(false))
+    draggable(bar, key, with_menu(bar, Target::Tab(key), row))
+        .on_mouse_enter(move |_: &MouseEvent| hovered.set(true))
+        .on_mouse_leave(move |_: &MouseEvent| hovered.set(false))
+}
+
+fn renamable(ui: Ui, key: TabKey) -> bool {
+    ui.read(|s| s.model.tab(key).is_some_and(|t| t.kind != TabKind::Tile))
+}
+
+fn spot(bar: Bar, at: Spot, element: View) -> View {
+    let handle = element_ref();
+    bar.spots.with(|m| m.insert(at, handle));
+    element.element_ref(&handle)
+}
+
+fn drop_at(s: &AppShell, at: Spot) -> Option<DropAt> {
+    match at {
+        Spot::Tab(key) => DropAt::before(&s.model, key),
+        Spot::Folder(id) => Some(DropAt::zone(TabKind::Pinned, Some(id), None)),
+        Spot::Group(id) => Some(DropAt::zone(TabKind::Ephemeral, None, Some(id))),
+        Spot::Tiles => Some(DropAt::zone(TabKind::Tile, None, None)),
+        Spot::Pinned => Some(DropAt::zone(TabKind::Pinned, None, None)),
+        Spot::Loose => Some(DropAt::zone(TabKind::Ephemeral, None, None)),
+    }
+}
+
+fn land(bar: Bar, key: TabKey, by: Point<Points>) {
+    let ui = bar.ui;
+    let Some(row) = bar.spots.with(|m| m.get(&Spot::Tab(key)).copied()) else { return };
+    let spots: Vec<(Spot, ElementRef)> = bar.spots.with(|m| m.iter().map(|(k, v)| (*k, *v)).collect());
+    drop(spawn(async move {
+        let Some(row) = row.measure().await else { return };
+        let at = Point::new(row.page.x + row.frame.size.width / 2. + by.x, row.page.y + row.frame.size.height / 2. + by.y);
+        let mut best: Option<(f32, Spot)> = None;
+        for (spot, handle) in spots {
+            let Some(m) = handle.measure().await else { continue };
+            let (w, h) = (m.frame.size.width, m.frame.size.height);
+            let inside = at.x >= m.page.x && at.x <= m.page.x + w && at.y >= m.page.y && at.y <= m.page.y + h;
+            if inside && best.is_none_or(|(area, _)| w.0 * h.0 < area) {
+                best = Some((w.0 * h.0, spot));
+            }
+        }
+        if let Some((_, spot)) = best {
+            act(ui, |s| {
+                if let Some(at) = drop_at(s, spot) {
+                    bar::drop_tab(&mut s.model, &s.core, key, at);
+                }
+            });
+        }
+    }));
+}
+
+fn draggable(bar: Bar, key: TabKey, element: View) -> View {
+    let lift = animated_value(0.);
+    spot(bar, Spot::Tab(key), element)
+        .pan_values(None, Some(&lift))
+        .bind_translate_y(&lift)
+        .pan_enabled(move || bar.pointer.get() && bar.renaming.get() != Some(key))
+        .on_pan_end(move |e: &PanEvent| {
+            lift.set(0.);
+            if !e.cancelled {
+                land(bar, key, e.translation);
+            }
+        })
+        .on_mouse_enter(move |_: &MouseEvent| bar.pointer.set(true))
+}
+
+fn rename_field(bar: Bar, key: TabKey) -> AnyElement {
+    let ui = bar.ui;
+    let start = ui.read(|s| tab_title(s, key));
+    let typed = stored(start.clone());
+    let done = move |commit: bool| {
+        if bar.renaming.get_untracked() != Some(key) {
+            return;
+        }
+        let name = typed.get();
+        bar.renaming.set(None);
+        if commit {
+            act(ui, |s| {
+                let page = s.tab_title(key);
+                bar::rename_tab(&mut s.model, &s.core, key, &name, &page);
+            });
+        }
+    };
+    on_key_with("escape", KeyOptions { when: When::Always, ..KeyOptions::default() }, move |_| done(false));
+    let all = start.encode_utf16().count() as u32;
+    input()
+        .default_value(start)
+        .selected_range((0, all))
+        .auto_focus(true)
+        .label("Name")
+        .on_change(move |v: &str| {
+            typed.replace(v.to_owned());
+        })
+        .on_submit(move |v: &str| {
+            typed.replace(v.to_owned());
+            done(true);
+        })
+        .on_blur(move || done(true))
+        .flex_1()
+        .min_w(px(0.))
+        .h(px(TAB_ROW - 8.))
+        .px_1()
+        .rounded(px(Theme::radius_small()))
+        .bg(Theme::raised)
+        .text_size(px(TEXT))
+        .text_color(Theme::text)
+        .into_element()
 }
 
 fn row(bar: Bar, r: &Row) -> View {
@@ -419,7 +569,7 @@ fn folder_row(bar: Bar, id: Id, depth: usize) -> View {
         .child(view().w(px(GLYPH)).h(px(GLYPH)).items_center().justify_center().text_color(Theme::space_label).child(glyphs::icon(glyphs::FOLDER, 14.)))
         .child(text(name).text_size(px(TEXT)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::text).truncate())
         .child(view().text_color(Theme::muted).child(dynamic(move || glyphs::icon(if open() { glyphs::CHEVRON_DOWN } else { glyphs::CHEVRON_RIGHT }, 12.))));
-    with_menu(bar, Target::Folder(id), header)
+    spot(bar, Spot::Folder(id), with_menu(bar, Target::Folder(id), header))
 }
 
 fn pinned_block(bar: Bar, block: Vec<Row>) -> View {
@@ -437,11 +587,12 @@ fn pinned_block(bar: Bar, block: Vec<Row>) -> View {
 
 fn pinned(bar: Bar) -> View {
     let ui = bar.ui;
-    view()
+    let area = view()
         .flex_col()
         .gap(px(ROW_GAP))
         .mt_1()
         .min_h(px(12.))
+        .rounded(px(Theme::radius_row()))
         .child(each(move || bar.layout.with(|l| l.pinned.clone()), |b: &Vec<Row>| b.clone(), move |b, _| pinned_block(bar, b.get_untracked())))
         .child(when(
             move || ui.read(|s| !s.model.tabs.iter().any(|t| t.kind == TabKind::Pinned) && s.model.folders.is_empty()),
@@ -452,16 +603,18 @@ fn pinned(bar: Bar) -> View {
                     .justify_center()
                     .rounded(px(Theme::radius_row()))
                     .border_1()
+                    .border_dashed()
                     .border_color(Theme::hairline)
-                    .child(text("Pin tabs from their menu").text_size(px(TEXT_SMALL)).text_color(Theme::faint))
+                    .child(text("Drag tabs here to pin them").text_size(px(TEXT_SMALL)).text_color(Theme::faint))
             },
-        ))
+        ));
+    spot(bar, Spot::Pinned, area)
 }
 
 fn tiles(bar: Bar) -> View {
     let ui = bar.ui;
     let (_, side) = tile_grid(WIDTH);
-    view().flex_row().flex_wrap().gap(px(TILE_GAP)).child(each(
+    let grid = view().flex_row().flex_wrap().gap(px(TILE_GAP)).child(each(
         move || bar.layout.with(|l| l.tiles.clone()),
         |k: &TabKey| *k,
         move |key, _| {
@@ -487,9 +640,10 @@ fn tiles(bar: Bar) -> View {
                     (false, (false, false)) => Theme::hairline(),
                 })
                 .child(tab_icon(ui, key, TILE_ICON, 18.));
-            with_menu(bar, Target::Tab(key), tile)
+            draggable(bar, key, with_menu(bar, Target::Tab(key), tile))
         },
-    ))
+    ));
+    spot(bar, Spot::Tiles, grid)
 }
 
 fn new_tab_row(bar: Bar) -> View {
@@ -572,7 +726,7 @@ fn group_card(bar: Bar, id: Id) -> View {
         .child(view().flex_1())
         .child(glyph_button(glyphs::CLOSE, "Close Group and Its Tabs", Placement::Top, move || close_group(ui, id)));
     let tabs = move || bar.layout.with(|l| l.groups.iter().find(|(g, _)| *g == id).map(|(_, rows)| rows.clone()).unwrap_or_default());
-    view()
+    let card = view()
         .flex_col()
         .gap(px(ROW_GAP))
         .my(px(2.))
@@ -596,12 +750,13 @@ fn group_card(bar: Bar, id: Id) -> View {
                     .border_color(Theme::hairline)
                     .child(rows(bar, tabs))
             },
-        ))
+        ));
+    spot(bar, Spot::Group(id), card)
 }
 
 fn ephemeral(bar: Bar) -> View {
     let ui = bar.ui;
-    view()
+    let area = view()
         .flex_col()
         .gap(px(ROW_GAP))
         .min_h(px(120.))
@@ -612,7 +767,8 @@ fn ephemeral(bar: Bar) -> View {
             |id: &Id| *id,
             move |id, _| group_card(bar, id.get_untracked()),
         ))
-        .child(rows(bar, move || bar.layout.with(|l| l.loose.clone())))
+        .child(rows(bar, move || bar.layout.with(|l| l.loose.clone())));
+    spot(bar, Spot::Loose, area)
 }
 
 fn space_tint(color: &str, private: bool) -> Option<Rgba> {
@@ -664,14 +820,33 @@ fn switcher(bar: Bar) -> View {
 }
 
 fn downloads_button(ui: Ui) -> View {
-    let running = move || ui.read(|s| s.transfers.iter().any(|t| t.state == crate::scripts::TransferState::Saving));
+    let saving = computed(move || {
+        ui.read(|s| {
+            let saving: Vec<_> = s.transfers.iter().filter(|t| t.state == crate::scripts::TransferState::Saving).map(|t| (t.done, t.total)).collect();
+            (!saving.is_empty()).then(|| bar::saved_share(saving))
+        })
+    });
     view()
         .relative()
         .child(
             glyph_button(glyphs::CIRCLE_ARROW_DOWN, "Downloads", Placement::Bottom, move || ui.toggle(Screen::Downloads))
                 .bg(move || if ui.screen.get() == Screen::Downloads { Theme::selected() } else { Theme::clear() }),
         )
-        .child(when(running, || view().absolute().top(px(5.)).right(px(5.)).w(px(6.)).h(px(6.)).rounded_full().bg(Theme::accent)))
+        .child(dynamic(move || {
+            saving.get().map(|share| match share {
+                Some(share) => view()
+                    .absolute()
+                    .inset_0()
+                    .items_center()
+                    .justify_center()
+                    .text_color(Theme::accent)
+                    .accessible(true)
+                    .label(format!("{}% saved", (share * 100.).round()))
+                    .child(progress_ring(share))
+                    .into_element(),
+                None => view().absolute().top(px(5.)).right(px(5.)).w(px(6.)).h(px(6.)).rounded_full().bg(Theme::accent).into_element(),
+            })
+        }))
 }
 
 fn profile_avatar(ui: Ui) -> AnyElement {
@@ -794,7 +969,14 @@ fn background(ui: Ui) -> AnyElement {
 }
 
 pub(super) fn sidebar(ui: Ui) -> impl IntoElement {
-    let bar = Bar { ui, menu: signal(None), layout: computed(move || ui.read(|s| bar::sidebar(&s.model, &s.splits))) };
+    let bar = Bar {
+        ui,
+        menu: signal(None),
+        layout: computed(move || ui.read(|s| bar::sidebar(&s.model, &s.splits))),
+        renaming: signal(None),
+        pointer: signal(false),
+        spots: stored(HashMap::new()),
+    };
     let swipe = Rc::new(Cell::new(Swipe::default()));
     let list = view()
         .flex_col()

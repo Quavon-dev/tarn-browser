@@ -31,7 +31,9 @@ macOS reference: `crates/app/src/browser/context.rs` (`clean_up_tabs`), `crates/
 
 - [x] Windows — same code in `crates/app`
 - [ ] Linux — `linux/` has no tab groups or archiving yet; both first, then the row in `linux/src/ui.rs`
-- [ ] iOS — `mobile/app` has no tab groups or archiving yet
+- [ ] iOS — the tablet Mac layout has tab groups and the Clean Up button that sorts into them
+  (`mobile/app/src/ui/mac/sidebar.rs`, `browser_core::sidebar::clean_up`); archiving unused tabs and the phone
+  and Touch layouts are still missing
 - [ ] Android — same as iOS
 
 ### Tile grid (2026-11-16)
@@ -44,7 +46,9 @@ macOS reference: `crates/app/src/sidebar.rs` (`tiles`), `crates/app/src/browser/
 
 - [x] Windows — same code in `crates/app`
 - [x] Linux — `linux/src/ui.rs` (`tiles`), `linux/src/ui/panels.rs` (This Tab panel)
-- [ ] iOS — the tab sheet in `mobile/app/src/ui/panels.rs` shows every tab as a card and has no pinned tabs or tiles yet; tiles need pinning on mobile first
+- [ ] iOS — the tablet Mac layout has pinned tabs and the tile grid with Add to Tiles and Remove from Tiles
+  (`mobile/app/src/ui/mac/sidebar.rs`); the phone and Touch layouts' tab sheet in `mobile/app/src/ui/panels.rs`
+  still shows every tab as a card
 - [ ] Android — same as iOS
 
 ### Background tab memory budget (2026-11-15)

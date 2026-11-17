@@ -57,6 +57,19 @@ pub fn new_tab_mark() -> View {
         .child(icons::icon(icons::PLUS, 11.))
 }
 
+pub fn ring_markup(share: f32) -> String {
+    let share = share.clamp(0.02, 0.999);
+    let angle = std::f32::consts::TAU * share - std::f32::consts::FRAC_PI_2;
+    let (x, y, large) = (12. + 10. * angle.cos(), 12. + 10. * angle.sin(), u8::from(share > 0.5));
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"><path d="M12 2A10 10 0 {large} 1 {x:.2} {y:.2}"/></svg>"#
+    )
+}
+
+pub fn progress_ring(share: f32) -> Svg {
+    icons::picture(&ring_markup(share), GLYPH, GLYPH)
+}
+
 pub fn divider() -> View {
     view().h(px(1.)).mx_2().my(px(6.)).bg(Theme::hairline)
 }
@@ -114,6 +127,13 @@ mod tests {
     fn tiles_are_four_squares_a_row_at_the_default_width() {
         assert_eq!(tile_grid(WIDTH), (4, 53.));
         assert_eq!(tile_grid(420.).0, 7);
+    }
+
+    #[test]
+    fn the_ring_runs_clockwise_from_the_top_over_the_icon_circle() {
+        assert!(ring_markup(0.25).contains(r#"d="M12 2A10 10 0 0 1 22.00 12.00""#));
+        assert!(ring_markup(0.75).contains(r#"d="M12 2A10 10 0 1 1 2.00 12.00""#));
+        assert!(ring_markup(0.).contains("0 0 1 "), "an empty ring still shows a sliver");
     }
 
     #[test]

@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use store::{Folder, Id, Tab, TabKind};
 
+use crate::closed::ClosedGroup;
 use crate::split::Splits;
 use crate::tabs::{Model, TabKey, folder_tree};
 use crate::{Core, WebsiteData};
@@ -154,6 +155,67 @@ pub fn remove_group<D: WebsiteData>(model: &mut Model, core: &Core<D>, id: Id, k
         model.reload_space(core);
     }
     removed
+}
+
+pub fn closed_group(model: &Model, id: Id) -> Option<ClosedGroup> {
+    model.groups.iter().find(|g| g.id == id).map(|g| ClosedGroup { name: g.name.clone(), color: g.color.clone() })
+}
+
+pub fn rename_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, key: TabKey, typed: &str, page_title: &str) -> bool {
+    let typed = crate::text::bounded_title(typed);
+    if typed.is_empty() || model.tab(key).is_none_or(|t| t.kind == TabKind::Tile) {
+        return false;
+    }
+    let custom = if typed == crate::text::bounded_title(page_title) { "" } else { typed.as_str() };
+    let saved = core.store(key.private).set_tab_custom_title(key.id, custom).is_ok();
+    if saved {
+        model.reload_space(core);
+    }
+    saved
+}
+
+pub fn shown_title(model: &Model, key: TabKey, page_title: String) -> String {
+    let custom = model.tab(key).map(|t| crate::text::bounded_title(&t.custom_title)).unwrap_or_default();
+    [custom, page_title].into_iter().find(|t| !t.trim().is_empty()).unwrap_or_else(|| "New Tab".to_owned())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DropAt {
+    pub kind: TabKind,
+    pub folder: Option<Id>,
+    pub group: Option<Id>,
+    pub before: Option<TabKey>,
+}
+
+impl DropAt {
+    pub fn zone(kind: TabKind, folder: Option<Id>, group: Option<Id>) -> Self {
+        DropAt { kind, folder, group, before: None }
+    }
+
+    pub fn before(model: &Model, key: TabKey) -> Option<Self> {
+        model.tab(key).map(|t| DropAt { kind: t.kind, folder: t.folder_id, group: t.group_id, before: Some(key) })
+    }
+}
+
+pub fn drop_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabKey, at: DropAt) -> bool {
+    let before = at.before.and_then(|k| model.tab(k).filter(|_| k.private == dragged.private));
+    if at.before == Some(dragged) || (at.before.is_some() && before.is_none()) || model.tab(dragged).is_none() {
+        return false;
+    }
+    let index = before.map_or_else(|| model.zone_len(at.kind, at.folder), |t| model.drop_index(dragged, t));
+    if !move_tab(model, core, dragged, at.kind, at.folder, index) {
+        return false;
+    }
+    if at.kind == TabKind::Ephemeral {
+        set_group(model, core, dragged, at.group);
+    }
+    model.expanded.extend(at.folder);
+    true
+}
+
+pub fn saved_share(transfers: impl IntoIterator<Item = (u64, Option<u64>)>) -> Option<f32> {
+    let (done, total) = transfers.into_iter().filter_map(|(done, total)| Some((done, total?))).fold((0, 0), |(d, s), (done, total)| (d + done, s + total));
+    (total > 0).then(|| (done as f64 / total as f64) as f32)
 }
 
 pub fn clean_up<D: WebsiteData>(model: &mut Model, core: &Core<D>, url: impl Fn(&Tab) -> String) -> usize {
@@ -326,6 +388,77 @@ mod tests {
         assert!(tabs_below(&model, second).is_empty());
         assert_eq!(other_unpinned(&model, first), [second]);
         assert!(!other_unpinned(&model, first).contains(&pinned));
+    }
+
+    #[test]
+    fn a_closed_group_keeps_its_name_and_colour_to_reopen() {
+        let (_dir, core, mut model) = opened();
+        let key = tab(&core, &mut model, TabKind::Ephemeral, None);
+        let group = new_group(&mut model, &core, Some(key)).unwrap();
+        core.disk.set_group_color(group, "green").unwrap();
+        model.reload_space(&core);
+        let closed = closed_group(&model, group).unwrap();
+        assert_eq!((closed.name.as_str(), closed.color.as_str()), (model.groups[0].name.as_str(), "green"));
+        assert!(closed_group(&model, group + 1).is_none());
+    }
+
+    #[test]
+    fn a_rename_keeps_the_typed_name_until_it_is_the_page_title() {
+        let (_dir, core, mut model) = opened();
+        let key = tab(&core, &mut model, TabKind::Ephemeral, None);
+        assert!(rename_tab(&mut model, &core, key, "  Mail  ", "Inbox"));
+        assert_eq!(shown_title(&model, key, "Inbox".into()), "Mail");
+        assert!(!rename_tab(&mut model, &core, key, "   ", "Inbox"), "a blank name is ignored");
+        assert!(rename_tab(&mut model, &core, key, "Inbox", "Inbox"));
+        assert_eq!(model.tab(key).unwrap().custom_title, "", "the page title again follows the page");
+        assert_eq!(shown_title(&model, key, String::new()), "New Tab");
+        let tile = tab(&core, &mut model, TabKind::Tile, None);
+        assert!(!rename_tab(&mut model, &core, tile, "Tile", ""), "tiles show no title");
+    }
+
+    #[test]
+    fn a_dropped_tab_moves_into_the_zone_folder_or_group_it_lands_on() {
+        let (_dir, core, mut model) = opened();
+        let (a, b, c) = (
+            tab(&core, &mut model, TabKind::Ephemeral, None),
+            tab(&core, &mut model, TabKind::Ephemeral, None),
+            tab(&core, &mut model, TabKind::Ephemeral, None),
+        );
+        let at = DropAt::before(&model, a).unwrap();
+        assert!(drop_tab(&mut model, &core, c, at));
+        assert_eq!(model.ephemeral_keys(), [c, a, b], "from below it goes before the row");
+        let at = DropAt::before(&model, b).unwrap();
+        assert!(drop_tab(&mut model, &core, c, at));
+        assert_eq!(model.ephemeral_keys(), [a, c, b], "from above it goes after the row");
+        let at = DropAt::before(&model, a).unwrap();
+        assert!(!drop_tab(&mut model, &core, a, at));
+
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, None, None)));
+        assert_eq!(model.tab(a).unwrap().kind, TabKind::Pinned);
+        let at = DropAt::before(&model, a).unwrap();
+        assert!(drop_tab(&mut model, &core, b, at));
+        assert_eq!(model.tab(b).unwrap().kind, TabKind::Pinned, "a row of another zone takes the tab into it");
+        assert!(drop_tab(&mut model, &core, b, DropAt::zone(TabKind::Tile, None, None)));
+        assert_eq!(model.tab(b).unwrap().kind, TabKind::Tile);
+
+        let folder = new_folder(&mut model, &core, None).unwrap();
+        model.toggle_folder(folder);
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, Some(folder), None)));
+        assert_eq!(model.tab(a).unwrap().folder_id, Some(folder));
+        assert!(model.expanded.contains(&folder), "the folder opens to show it");
+
+        let group = new_group(&mut model, &core, None).unwrap();
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Ephemeral, None, Some(group))));
+        assert_eq!((model.tab(a).unwrap().kind, model.tab(a).unwrap().group_id), (TabKind::Ephemeral, Some(group)));
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Ephemeral, None, None)));
+        assert_eq!(model.tab(a).unwrap().group_id, None, "the loose tabs take it out of its group");
+    }
+
+    #[test]
+    fn the_ring_shows_the_saved_share_of_downloads_with_a_known_size() {
+        assert_eq!(saved_share([(50, Some(100)), (50, None), (150, Some(300))]), Some(0.5));
+        assert_eq!(saved_share([(10, None)]), None);
+        assert_eq!(saved_share([]), None);
     }
 
     #[test]

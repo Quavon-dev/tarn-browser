@@ -1,4 +1,5 @@
-use nsh_core::geometry::{Points, Size};
+use nsh_core::geometry::{Points, Size, point};
+use nsh_core::platform::{Idiom, Os};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
 
@@ -24,24 +25,80 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     for part in ["label:/^Space /", "label:Downloads", "label:New Tab Group", "label:New Folder", "label:Library", "label:New Space", "label:Close Tab"] {
         app.wait_for(part).unwrap();
     }
-    assert!(app.screen().shows("Pin tabs from their menu"), "no pinned tab yet");
+    assert!(app.screen().shows("Drag tabs here to pin them"), "no pinned tab yet");
     assert!(!app.screen().shows("label:Clean Up"), "one tab has nothing to sort");
 
     app.long_press("label:New Tab >> nth=1").unwrap();
     app.wait_for("label:Pin Tab").unwrap();
     app.wait_for("label:Add to Tiles").unwrap();
     app.wait_for("text:Close Other Tabs").unwrap();
+    for entry in ["label:Duplicate", "label:Copy Link", "label:Rename"] {
+        app.wait_for(entry).unwrap();
+    }
+    assert!(!app.screen().enabled("label:Duplicate").unwrap(), "an empty tab has nothing to duplicate");
     app.press("label:Pin Tab").unwrap();
     app.wait_for("label:Pinned").unwrap();
-    app.wait_for_gone("Pin tabs from their menu", WAIT).unwrap();
+    app.wait_for_gone("Drag tabs here to pin them", WAIT).unwrap();
     assert!(!app.screen().shows("label:Close Tab"), "a pinned tab has no close button");
 
     app.long_press("label:New Tab >> nth=0").unwrap();
     app.wait_for("label:Unpin Tab").unwrap();
+    app.wait_for("label:Unload Tab").unwrap();
     assert!(!app.screen().shows("text:Close Tab"), "a pinned tab is never deleted from its menu");
     app.press("label:Add to Tiles").unwrap();
     app.wait_for_gone("label:Pinned", WAIT).unwrap();
-    app.wait_for("Pin tabs from their menu").unwrap();
+    app.wait_for("Drag tabs here to pin them").unwrap();
+
+    app.long_press("label:New Tab >> nth=0").unwrap();
+    app.wait_for("label:Unload Tab").unwrap();
+    assert!(!app.screen().enabled("label:Rename").unwrap(), "a tile shows no title to rename");
+    app.press("label:Unload Tab").unwrap();
+    app.wait_for("label:Close Tab").unwrap();
+
+    app.type_text("id:address", "example.com").unwrap();
+    app.submit("id:address").unwrap();
+    app.wait_for("label:https://example.com/").unwrap();
+    let mut touch = None;
+    app.set_environment("pointer", |e| {
+        touch = Some((e.os, e.idiom));
+        (e.os, e.idiom) = (Os::MacOs, Idiom::Desktop);
+    })
+    .unwrap();
+    app.hover("label:https://example.com/").unwrap();
+    app.drag("label:https://example.com/", point(Points(0.), Points(-74.))).unwrap();
+    app.wait_for("label:Pinned").unwrap();
+    app.wait_for_gone("Drag tabs here to pin them", WAIT).unwrap();
+    app.set_environment("touch", |e| (e.os, e.idiom) = touch.unwrap()).unwrap();
+    app.long_press("label:https://example.com/").unwrap();
+    app.press("label:Unpin Tab").unwrap();
+    app.wait_for("Drag tabs here to pin them").unwrap();
+
+    app.long_press("label:https://example.com/").unwrap();
+    app.wait_for("label:Duplicate").unwrap();
+    app.press("label:Duplicate").unwrap();
+    app.wait_for("label:https://example.com/ >> nth=1").unwrap();
+    app.long_press("label:https://example.com/ >> nth=0").unwrap();
+    app.press("label:Copy Link").unwrap();
+    app.wait_for("Link copied").unwrap();
+    assert_eq!(app.screen().clipboard(), Some("https://example.com/"));
+    app.long_press("label:https://example.com/ >> nth=0").unwrap();
+    app.press("label:Rename").unwrap();
+    app.wait_for("label:Name").unwrap();
+    app.clear("label:Name").unwrap();
+    app.type_text("label:Name", "Mail").unwrap();
+    app.submit("label:Name").unwrap();
+    app.wait_for("label:Mail").unwrap();
+    app.long_press("label:Mail").unwrap();
+    app.wait_for("label:Reset Title").unwrap();
+    app.press("label:New Group").unwrap();
+    app.wait_for("label:Close Group and Its Tabs").unwrap();
+    app.press("label:Close Group and Its Tabs").unwrap();
+    app.wait_for_gone("label:Close Group and Its Tabs", WAIT).unwrap();
+    app.wait_for("Group closed").unwrap();
+    app.press("label:Menu").unwrap();
+    app.press("Reopen Closed Tab").unwrap();
+    app.wait_for("label:Close Group and Its Tabs").unwrap();
+    app.wait_for("label:Group 1").unwrap();
 
     app.press("label:New Tab Group").unwrap();
     app.wait_for("label:Group 1").unwrap();

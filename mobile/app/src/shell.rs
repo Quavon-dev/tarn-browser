@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 
-use browser_core::closed::{Closed, ClosedTab};
+use browser_core::closed::{Closed, ClosedGroup, ClosedTab};
 use browser_core::command::{ENGINES, Input, classify_input};
 use browser_core::prompts::Prompt;
 use browser_core::split::Splits;
@@ -428,6 +428,41 @@ impl<D: Platform> Shell<D> {
     }
 
     pub(crate) fn close_tabs(&mut self, keys: &[TabKey]) -> Option<u64> {
+        self.close_batch(keys, None)
+    }
+
+    pub(crate) fn close_group(&mut self, id: Id) {
+        let keys = browser_core::sidebar::group_tabs(&self.model, id);
+        if self.in_burner() && !keys.is_empty() {
+            self.burn();
+            return;
+        }
+        let group = browser_core::sidebar::closed_group(&self.model, id);
+        let closed = self.close_batch(&keys, group).is_some();
+        browser_core::sidebar::remove_group(&mut self.model, &self.core, id, false);
+        if closed {
+            self.toast("Group closed".into());
+        }
+    }
+
+    pub(crate) fn unload_tab(&mut self, key: TabKey) {
+        if self.model.tab(key).is_none_or(|t| t.kind == store::TabKind::Ephemeral) {
+            return;
+        }
+        self.splits.leave(key);
+        self.unmount(key);
+        if self.model.active == Some(key) {
+            self.model.active = None;
+            match self.model.pick(|k| k == key) {
+                Some(next) => self.activate(next),
+                None => {
+                    self.new_tab(None);
+                }
+            }
+        }
+    }
+
+    fn close_batch(&mut self, keys: &[TabKey], group: Option<ClosedGroup>) -> Option<u64> {
         let (private, profile_id) = self.model.profile()?;
         let tabs: Vec<_> = keys.iter().filter_map(|k| self.model.tab(*k).cloned().map(|t| (*k, t))).collect();
         let space_id = tabs.first()?.1.space_id;
@@ -451,7 +486,7 @@ impl<D: Platform> Shell<D> {
                 web_engine: None,
             })
             .collect();
-        let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs: closed, group: None });
+        let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs: closed, group });
         for (key, _) in &tabs {
             self.forget(*key);
             self.store().delete_tab(key.id).ok();
