@@ -15,6 +15,12 @@ fn bounds_of(app: &Headless, selector: &str) -> Bounds<Points> {
 
 #[test]
 fn the_mac_toolbar_opens_a_command_palette() {
+    let panics = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (count, report) = (panics.clone(), std::panic::take_hook());
+    std::panic::set_hook(Box::new(move |info| {
+        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        report(info);
+    }));
     let dir = tempfile::tempdir().unwrap();
     // SAFETY: this binary has one test, and it sets the variable before the engine starts.
     unsafe { std::env::set_var("TARN_DATA_DIR", dir.path()) };
@@ -60,6 +66,7 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.wait_for_gone("label:Library", WAIT).unwrap();
     app.press_key("mod+s").unwrap();
     app.wait_for("label:Library").unwrap();
+    assert_eq!(panics.load(std::sync::atomic::Ordering::SeqCst), 0, "hiding and showing the sidebar panics nothing");
 
     app.press_key("mod+l").unwrap();
     app.wait_for("id:palette-field").unwrap();
