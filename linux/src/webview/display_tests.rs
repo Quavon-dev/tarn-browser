@@ -762,4 +762,7 @@ fn a_filter_update_with_a_group_that_does_not_compile_swaps_no_group() {
     assert_eq!(ads(), ["tarn-ads-aaaaaaaaaaaaaaaa-0"], "no list of a failed update replaces the installed one");
     assert!(!filters::stored("tarn-ads-cccccccccccccccc-0"), "and the list it compiled is not kept");
     assert!(filters::stored("tarn-ads-aaaaaaaaaaaaaaaa-0"), "while the installed one stays");
+    let split = shield::groups::Group { name: "trackers", key: "e".repeat(16), chunks: vec![rule.to_owned(), "not json".to_owned()] };
+    assert!(replace(vec![split]).is_err());
+    assert!(!filters::stored("tarn-trackers-eeeeeeeeeeeeeeee-0"), "nor the chunks of a list that failed partway");
 }

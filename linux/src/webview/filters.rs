@@ -89,7 +89,13 @@ async fn compile_group(group: Group) -> Result<Vec<UserContentFilter>, String> {
     let mut filters = Vec::new();
     for (n, chunk) in group.chunks.into_iter().enumerate() {
         let id = format!("tarn-{}-{}-{n}", group.name, &group.key[..16.min(group.key.len())]);
-        filters.push(compile(id, chunk).await.map_err(|e| format!("{}: {e}", group.name))?);
+        match compile(id, chunk).await {
+            Ok(filter) => filters.push(filter),
+            Err(e) => {
+                drop_unused(filters.iter()).await;
+                return Err(format!("{}: {e}", group.name));
+            }
+        }
     }
     Ok(filters)
 }

@@ -508,7 +508,9 @@ fn a_remembered_permission_is_reused_only_in_the_profile_that_stored_it() {
     shell.event(banking, "prompt", &ask(1), 1);
     shell.answer(always);
     assert_eq!(shell.event(banking, "prompt", &ask(2), 2), vec![Effect::Command(banking, "answer", json!({ "id": 2, "accept": true }))]);
-    assert_eq!(shell.event(personal, "prompt", &ask(3), 3), vec![], "another profile's tab is asked, not answered from the profile on screen");
+    shell.switch_space(0);
+    assert_eq!(shell.event(personal, "prompt", &ask(3), 3), vec![], "Banking's answer is not reused in the Personal profile");
+    assert!(shell.remembers(shell.active_prompt().unwrap()), "the prompt itself still offers Always Allow");
 }
 
 #[test]
