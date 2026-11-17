@@ -151,6 +151,67 @@ fn nothing_runs_or_applies_under_lockdown() {
     assert!(!settings.enables_javascript());
 }
 
+fn patched_on(state: &Rc<State>, base: &str) -> String {
+    let web = state.web().unwrap();
+    state.events.borrow_mut().clear();
+    web.load_html(PAGE, Some(base));
+    assert!(spin_until(|| event(state, "finished").is_some(), 30), "{base} loaded");
+    let probe = "[document.hasFocus, JSON.parse].map(f => Function.prototype.toString.call(f).includes('[native code]') ? '-' : 'patched').join()";
+    page_eval(&web, probe)
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn youtube_and_netflix_scripts_run_only_on_their_hosts_and_never_under_lockdown() {
+    gtk::init().expect("a display");
+    let built = |level: ShieldLevel, profile: &str, youtube: bool| {
+        let state = Rc::new(State { container: Some(gtk::Box::new(gtk::Orientation::Vertical, 0)), ..State::default() });
+        state.level.set(level);
+        *state.profile.borrow_mut() = profile.to_owned();
+        *state.levels.borrow_mut() = Levels::parse(&json!({ "*": level.as_str() }), level);
+        let lists = if youtube { vec![shield::groups::YOUTUBE_GROUP.to_owned()] } else { Vec::new() };
+        let wanted = Build { key: StoreKey::parse(profile).unwrap(), level, lists };
+        *state.built.borrow_mut() = Some(wanted.clone());
+        build(&state, &wanted, &[]);
+        state
+    };
+    let (neither, netflix, youtube) = ("-,-", "patched,-", "-,patched");
+
+    let on = built(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef", true);
+    assert_eq!(on.page_scripts.borrow().len(), 2);
+    assert_eq!(patched_on(&on, "https://www.youtube.com/watch?v=1"), youtube);
+    assert_eq!(patched_on(&on, "https://m.youtube.com/"), youtube);
+    assert_eq!(patched_on(&on, "https://accounts.youtube.com/"), neither, "never on accounts.youtube.com");
+    assert_eq!(patched_on(&on, "https://notyoutube.com/"), neither);
+    assert_eq!(patched_on(&on, "https://www.netflix.com/browse"), netflix);
+    assert_eq!(patched_on(&on, "https://netflix.com.evil.test/"), neither);
+    assert_eq!(patched_on(&on, "http://page.test/"), neither);
+
+    *on.levels.borrow_mut() = Levels::parse(&json!({ "*": "standard", "www.youtube.com": "lockdown", "www.netflix.com": "lockdown" }), ShieldLevel::Standard);
+    scripts::apply_page_scripts(&on, on.content.borrow().as_ref().unwrap());
+    assert_eq!(on.page_scripts.borrow().len(), 2, "the old scripts were replaced, not added to");
+    assert_eq!(patched_on(&on, "https://www.youtube.com/"), neither, "not on a host set to Lockdown");
+    assert_eq!(patched_on(&on, "https://www.netflix.com/"), neither, "not on a host set to Lockdown");
+    assert_eq!(patched_on(&on, "https://m.youtube.com/"), youtube);
+
+    let off = built(ShieldLevel::Strict, "burner:1123456789abcdef0123456789abcdef", false);
+    assert_eq!(off.page_scripts.borrow().len(), 1, "only the Netflix script while YouTube ads are not blocked");
+    assert_eq!(patched_on(&off, "https://www.youtube.com/"), neither);
+    assert_eq!(patched_on(&off, "https://www.netflix.com/"), netflix);
+
+    let locked = built(ShieldLevel::Lockdown, "private:display-page-scripts", true);
+    assert!(locked.page_scripts.borrow().is_empty(), "no page script under Lockdown");
+
+    let counts: Rc<RefCell<Vec<usize>>> = Rc::default();
+    for lists in [Vec::new(), vec![shield::groups::YOUTUBE_GROUP.to_owned()]] {
+        let counts = counts.clone();
+        filters::with_filters(ShieldLevel::Standard, lists, move |f| counts.borrow_mut().push(f.map_or(0, |f| f.len())));
+    }
+    assert!(spin_until(|| counts.borrow().len() == 2, 60), "the filters compiled");
+    assert_eq!(*counts.borrow(), [1, 2], "the YouTube rules join the built-in rules only when asked for");
+    eprintln!("YouTube and Netflix scripts installed only where they belong");
+}
+
 fn slow_server(chunks: usize) -> String {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

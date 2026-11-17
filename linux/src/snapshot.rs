@@ -69,6 +69,7 @@ pub struct ViewItem {
     pub theme_styles: Value,
     pub zaps: Value,
     pub sort_downloads: bool,
+    pub youtube: bool,
     pub load: Option<(String, u64)>,
     pub link: bool,
     pub active: bool,
@@ -251,6 +252,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
     let panes = b.shown_split().map(|s| s.panes().to_vec()).unwrap_or_default();
     let lists = b.lists();
     let sort_downloads = !b.setting_off(crate::browser::pages::SORT_DOWNLOADS);
+    let youtube = b.setting_on(shield::groups::YOUTUBE_SETTING);
     let mut keys: Vec<TabKey> = b.model.lifecycle.live().filter(|k| b.model.tab(*k).is_some()).collect();
     keys.sort_by_key(|k| k.id);
     let mut site = HashMap::new();
@@ -270,6 +272,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 theme_styles,
                 zaps,
                 sort_downloads,
+                youtube,
                 load: page.and_then(|p| p.load.clone()),
                 link: page.is_some_and(|p| p.link),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
@@ -394,6 +397,10 @@ mod tests {
         assert!(snapshot(&b, false).views.iter().all(|v| !v.active));
         assert_eq!(snap.views.len(), 3);
         assert!(snap.views.iter().all(|v| v.levels["*"] == "standard" && v.lists.len() == shield::groups::SETTINGS.len()));
+        assert!(snap.views.iter().all(|v| v.youtube), "Block YouTube ads defaults on");
+        b.toggle_setting(shield::groups::YOUTUBE_SETTING);
+        assert!(snapshot(&b, true).views.iter().all(|v| !v.youtube));
+        b.toggle_setting(shield::groups::YOUTUBE_SETTING);
         assert_eq!(snap.space_name, "Home");
         assert!(!snap.blank && snap.secure, "the active tab shows https://loose.test/");
     }

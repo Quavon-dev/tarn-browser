@@ -355,8 +355,9 @@ pub fn settings_panel(ui: Ui) -> AnyElement {
 }
 
 fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
-    let (level, engine, lists, private, card, history_text, sort) = read(ui, |b| {
-        (b.default_level(), b.search_engine(), b.lists(), b.model.private(), card_of(b), !b.setting_off(HISTORY_TEXT), !b.setting_off(SORT_DOWNLOADS))
+    let (level, engine, lists, private, card, history_text, sort, youtube) = read(ui, |b| {
+        let youtube = b.setting_on(shield::groups::YOUTUBE_SETTING);
+        (b.default_level(), b.search_engine(), b.lists(), b.model.private(), card_of(b), !b.setting_off(HISTORY_TEXT), !b.setting_off(SORT_DOWNLOADS), youtube)
     })?;
     let on = |group: &str| lists.iter().any(|l| l == group);
     let toggle = move |setting: &'static str| move || act(ui, move |b| b.toggle_setting(setting));
@@ -430,9 +431,11 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                         .child(switch(on("ads"), "Block ads", toggle("block_ads")))
                         .child(switch(on("trackers"), "Block trackers", toggle("block_trackers")))
                         .child(switch(on("annoyances"), "Block cookie banners", toggle("block_annoyances")))
+                        .child(switch(youtube, "Block YouTube ads", toggle(shield::groups::YOUTUBE_SETTING)))
                         .child(switch(on("malware"), "Block malware sites", toggle("block_malware"))),
                 )
                 .child(note("EasyList Cookie and uBlock Cookie Notices hide consent pop-ups and stop the scripts that show them. Nothing is accepted or refused for you."))
+                .child(note("Block YouTube ads removes ads from YouTube's player data before the player sees them and hides ad slots. YouTube changes often; if videos stop playing, turn this off."))
                 .child(note("Filter lists apply to pages loaded after a change; they need the signed list bundle."))
                 .child(section("Hidden elements"))
                 .child(hidden(ui, private))

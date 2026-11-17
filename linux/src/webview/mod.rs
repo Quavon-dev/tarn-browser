@@ -79,12 +79,14 @@ struct State {
     zoom: Cell<f64>,
     content: RefCell<Option<UserContentManager>>,
     style_script: RefCell<Option<webkit6::UserScript>>,
+    page_scripts: RefCell<Vec<webkit6::UserScript>>,
     ext: ext::Ext,
     styles: RefCell<Vec<(String, String)>>,
     theme_styles: RefCell<Vec<(String, String)>>,
     zaps: RefCell<Vec<(String, String)>>,
     zap_filter: RefCell<Option<String>>,
     sort_downloads: Cell<bool>,
+    youtube: Cell<bool>,
     processes: RefCell<std::collections::HashSet<i32>>,
     process: Cell<Option<i32>>,
     #[cfg(test)]
@@ -157,6 +159,7 @@ impl State {
         self.decline_all();
         ext::detach(self);
         self.style_script.replace(None);
+        self.page_scripts.take();
         self.content.replace(None);
         if let Some(old) = self.view.replace(None) {
             old.stop_loading();
@@ -222,7 +225,8 @@ fn apply(state: &Rc<State>) {
         *state.built.borrow_mut() = None;
         return state.emit("failed", json!({ "url": "", "message": "This profile's data store is not valid." }));
     };
-    let wanted = Build { key, level: state.level.get(), lists: state.lists.borrow().clone() };
+    let youtube = state.youtube.get().then(|| shield::groups::YOUTUBE_GROUP.to_owned());
+    let wanted = Build { key, level: state.level.get(), lists: state.lists.borrow().iter().cloned().chain(youtube).collect() };
     if state.built.borrow().as_ref() == Some(&wanted) {
         if state.web().is_some() {
             load(state, None);
@@ -259,6 +263,7 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
     let content = UserContentManager::new();
     filters.iter().for_each(|f| content.add_filter(f));
     scripts::apply_styles(state, &content);
+    scripts::apply_page_scripts(state, &content);
     *state.content.borrow_mut() = Some(content.clone());
     *state.zap_filter.borrow_mut() = None;
     apply_zaps(state);
@@ -835,6 +840,7 @@ impl NativeComponent for TarnWebView {
                 *state.levels.borrow_mut() = Levels::parse(value, state.level.get());
                 if let Some(content) = state.content.borrow().as_ref() {
                     scripts::apply_styles(state, content);
+                    scripts::apply_page_scripts(state, content);
                 }
                 apply_zaps(state);
             }
@@ -866,6 +872,7 @@ impl NativeComponent for TarnWebView {
                 *state.zaps.borrow_mut() = scripts::zaps(value);
                 return apply_zaps(state);
             }
+            "youtube" => state.youtube.set(value.as_bool().unwrap_or(false)),
             "sortDownloads" => return state.sort_downloads.set(value.as_bool().unwrap_or(false)),
             "load" => {
                 *state.load.borrow_mut() = value["url"].as_str().zip(value["seq"].as_u64()).map(|(u, s)| (u.to_owned(), s));

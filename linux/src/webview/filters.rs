@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use shield::ShieldLevel;
-use shield::rules::builtin_rules;
+use shield::rules::{builtin_rules, youtube_rules};
+use shield::youtube;
 use webkit6::{UserContentFilter, UserContentFilterStore, gio, glib};
 
 use shield::groups as bundle;
@@ -20,6 +21,11 @@ thread_local! {
     static STORE: UserContentFilterStore = UserContentFilterStore::new(&crate::data::root().join("webkit-filters").to_string_lossy());
     static BUILTIN: RefCell<HashMap<ShieldLevel, UserContentFilter>> = RefCell::default();
     static GROUPS: RefCell<Groups> = const { RefCell::new(Groups::Idle) };
+    static YOUTUBE_SCRIPT: RefCell<String> = RefCell::new(youtube::script(&youtube::Config::default()));
+}
+
+pub fn youtube_script() -> String {
+    YOUTUBE_SCRIPT.with_borrow(Clone::clone)
 }
 
 async fn compile(identifier: String, source: String) -> Result<UserContentFilter, String> {
@@ -33,8 +39,14 @@ fn ready_groups() {
         let key = bundle::public_key();
         let loaded = gio::spawn_blocking(move || bundle::load(&dir, &key)).await.unwrap_or_else(|_| Err("converter panicked".into()));
         let mut compiled = HashMap::new();
+        let rules = youtube_rules();
+        let id = format!("tarn-{}-{}-0", bundle::YOUTUBE_GROUP, &bundle::hex(shield::lists::fingerprint(&[&rules]))[..16]);
+        if let Ok(filter) = compile(id, rules).await.inspect_err(|e| eprintln!("tarn: YouTube rules did not compile: {e}")) {
+            compiled.insert(bundle::YOUTUBE_GROUP.to_owned(), vec![filter]);
+        }
         match loaded {
-            Ok(groups) => {
+            Ok((groups, config)) => {
+                YOUTUBE_SCRIPT.with_borrow_mut(|s| *s = youtube::script(&config));
                 for group in groups {
                     let mut filters = Vec::new();
                     for (n, chunk) in group.chunks.into_iter().enumerate() {

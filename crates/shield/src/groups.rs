@@ -3,13 +3,15 @@
 use std::path::Path;
 
 use crate::bundle::{FILTER_BUNDLE_PUBLIC_KEY, Kind, VerifiedBundle};
-use crate::{Category, cache, lists, rules};
+use crate::{Category, cache, lists, rules, youtube};
 
 /// Groups built from the bundle, in install order.
 pub const GROUPS: [&str; 5] = ["ads", "trackers", "cosmetic", "malware", "annoyances"];
 /// The setting that switches each group; cosmetic filtering follows the ads switch.
 pub const SETTINGS: [(&str, &str); 5] =
     [("ads", "block_ads"), ("cosmetic", "block_ads"), ("trackers", "block_trackers"), ("malware", "block_malware"), ("annoyances", "block_annoyances")];
+pub const YOUTUBE_GROUP: &str = "youtube";
+pub const YOUTUBE_SETTING: &str = "block_youtube_ads";
 
 /// The bundle signing key. Debug builds take `TARN_TEST_FILTER_KEY` (64 hex digits) instead, so
 /// tests can install bundles they signed themselves; release builds never read it.
@@ -91,11 +93,12 @@ pub struct Group {
     pub chunks: Vec<String>,
 }
 
-/// Every group of the bundle cached in `dir`, converted.
-pub fn load(dir: &Path, key: &[u8; 32]) -> Result<Vec<Group>, String> {
+/// Every group of the bundle cached in `dir`, converted, and its YouTube script config.
+pub fn load(dir: &Path, key: &[u8; 32]) -> Result<(Vec<Group>, youtube::Config), String> {
     let bundle = cache::read(dir, key).map_err(|e| format!("{e:?}"))?;
     let inputs = Inputs::new(&bundle);
-    Ok(GROUPS.into_iter().map(|name| Group { name, key: inputs.key(name), chunks: inputs.convert(name) }).collect())
+    let groups = GROUPS.into_iter().map(|name| Group { name, key: inputs.key(name), chunks: inputs.convert(name) }).collect();
+    Ok((groups, youtube::config(&bundle)))
 }
 
 /// The groups whose switch is on; every switch defaults to on.

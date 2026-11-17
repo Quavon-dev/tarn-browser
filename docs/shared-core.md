@@ -23,7 +23,11 @@ Every shell's web view offers the same operations and reports the same events. T
   has no isolated world and runs those scripts in the page world, so a shell must not send it
   `readIconLinks` or `fetchIcon`, and Android shows letter tiles (`docs/mobile-plan.md`);
 - `interaction_state` and `restore_interaction_state`, where the engine has them;
-- `filtered`: whether the view applies Shield's rules.
+- `filtered`: whether the view applies Shield's rules;
+- start-of-document page-world scripts: `engine::page_scripts::ALWAYS_VISIBLE` in every view but
+  Lockdown's, and `shield::youtube::script` where blocking is not paused and Block YouTube ads is
+  on (macOS `DataStore::set_page_script`; NSH: the `youtube` prop, Linux so far, iOS and Android
+  per `docs/port-backlog.md`).
 
 **Events:**
 - `Committed`, `Finished`, `TitleChanged`, `UrlChanged`, `Failed`;

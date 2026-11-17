@@ -71,7 +71,7 @@ impl Pref {
             Pref::BlockMalware => "block_malware",
             Pref::BlockAdult => "block_adult",
             Pref::BlockPopups => "block_popups",
-            Pref::YouTubeAds => "block_youtube_ads",
+            Pref::YouTubeAds => shield::groups::YOUTUBE_SETTING,
             Pref::UpdateChecks => "update_checks",
             Pref::NightlyUpdates => "nightly_updates",
             Pref::ExtensionsEverySite => "extensions_every_site",

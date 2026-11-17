@@ -25,7 +25,7 @@ const UPDATE_INTERVAL: u64 = 86_400;
 /// Settings warns once the installed lists were signed longer ago than this.
 const OUT_OF_DATE: u64 = 14 * 86_400;
 const TICK: Duration = Duration::from_secs(600);
-pub const YOUTUBE_GROUP: &str = "youtube";
+pub use shield::groups::YOUTUBE_GROUP;
 
 #[derive(Default, Clone)]
 pub struct Status {
@@ -174,7 +174,7 @@ async fn install(core: &AppCore, state: &mut State, bundle: VerifiedBundle, cx: 
         .spawn(async move {
             let inputs = Inputs::new(&bundle);
             let keys: Vec<String> = GROUPS.iter().map(|g| inputs.key(g)).collect();
-            let config = bundle.of("youtube", Kind::Config).next().and_then(|l| youtube::parse(&l.data)).unwrap_or_default();
+            let config = youtube::config(&bundle);
             let revocations = bundle.of(shield::revocations::CATEGORY, Kind::Config).next().and_then(|l| shield::revocations::parse(&l.data));
             (Arc::new(inputs), keys, sets(&bundle, &categories), config, counts(&bundle), bundle.created, revocations)
         })
