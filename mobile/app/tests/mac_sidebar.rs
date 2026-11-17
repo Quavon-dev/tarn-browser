@@ -86,6 +86,16 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.long_press("label:example.com >> nth=0").unwrap();
     app.press("label:Rename").unwrap();
     app.wait_for("label:Name").unwrap();
+    app.submit("label:Name").unwrap();
+    app.wait_for_gone("label:Name", WAIT).unwrap();
+    app.long_press("label:example.com >> nth=0").unwrap();
+    app.wait_for("label:Rename").unwrap();
+    assert!(!app.screen().matches("label:Reset Title").unwrap(), "an unchanged name stores no custom title");
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("label:Rename", WAIT).unwrap();
+    app.long_press("label:example.com >> nth=0").unwrap();
+    app.press("label:Rename").unwrap();
+    app.wait_for("label:Name").unwrap();
     app.clear("label:Name").unwrap();
     app.type_text("label:Name", "Mail").unwrap();
     app.submit("label:Name").unwrap();

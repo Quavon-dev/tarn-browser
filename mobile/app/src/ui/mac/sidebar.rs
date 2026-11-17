@@ -70,7 +70,7 @@ fn host(url: &str) -> String {
 }
 
 fn tab_title(s: &AppShell, key: TabKey) -> String {
-    bar::shown_title(&s.model, key, &s.page_title(key), &s.tab_url(key))
+    s.tab_title(key)
 }
 
 fn asleep(s: &AppShell, key: TabKey) -> bool {
@@ -576,15 +576,17 @@ fn rename_field(bar: Bar, key: TabKey) -> AnyElement {
     let ui = bar.ui;
     let start = ui.read(|s| tab_title(s, key));
     let typed = stored(start.clone());
+    let start_name = stored(start.clone());
     let done = move |commit: bool| {
         if bar.renaming.get_untracked() != Some(key) {
             return;
         }
         let name = typed.get();
+        let changed = name != start_name.get();
         bar.renaming.set(None);
-        if commit {
+        if commit && changed {
             act(ui, |s| {
-                let page = s.tab_title(key);
+                let page = s.page_shown_title(key);
                 bar::rename_tab(&mut s.model, &s.core, key, &name, &page);
             });
         }

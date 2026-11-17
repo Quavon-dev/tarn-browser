@@ -288,9 +288,12 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn tab_title(&self, key: TabKey) -> String {
-        let page = self.pages.get(&key).map(|p| p.title.clone()).filter(|t| !t.is_empty());
-        let title = page.or_else(|| self.model.tab(key).map(|t| t.title.clone()).filter(|t| !t.is_empty()));
-        title.unwrap_or_else(|| self.tab_url(key))
+        let custom = self.model.tab(key).map(|t| t.custom_title.as_str()).unwrap_or_default();
+        browser_core::command::display_title(custom, &self.page_title(key), &self.tab_url(key))
+    }
+
+    pub fn page_shown_title(&self, key: TabKey) -> String {
+        browser_core::command::display_title("", &self.page_title(key), &self.tab_url(key))
     }
 
     pub fn find_in_tabs(&mut self, query: &str) -> Vec<Effect> {

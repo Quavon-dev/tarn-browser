@@ -659,6 +659,17 @@ fn closing_several_tabs_says_how_many_and_undoes_together() {
 }
 
 #[test]
+fn a_tab_title_is_the_bounded_shown_title_everywhere() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://www.example.com/a?b");
+    let key = active(&shell);
+    assert_eq!(shell.tab_title(key), "www.example.com", "an untitled page shows its label, not its address");
+    finish(&mut shell, "https://www.example.com/a?b", &format!("Bank\u{202e} {}", "x".repeat(900)));
+    let title = shell.tab_title(key);
+    assert!(title.starts_with("Bank x") && !title.contains('\u{202e}') && title.chars().count() < 500, "{title}");
+}
+
+#[test]
 fn zoom_steps_from_the_page_and_resets() {
     let (_dir, mut shell) = open();
     shell.navigate("https://example.com/");
