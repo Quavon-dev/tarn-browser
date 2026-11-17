@@ -75,8 +75,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   Keyboard Shortcuts sheet (`Ctrl+/`), the macOS commands and shortcuts it was missing, switching
   to space 1–9 with `Alt+1`…`Alt+9`, and Settings › Privacy › Open localhost links from other apps.
 - Tab groups and folders can show an icon: one of twenty symbols or a single emoji, set with
-  Change Icon… in their menu (macOS, Windows; folders on Linux). Clean Up gives each group it
-  makes the icon of its kind.
+  Change Icon… in their menu (macOS, Windows, Linux; iOS and Android in the tablet Mac layout).
+  Clean Up gives each group it makes the icon of its kind.
 
 ### Changed
 
@@ -84,12 +84,14 @@ All notable changes to Tarn are documented in this file. The format is based on
   then name the space and give it a colour and icon; Edit Space also sets the schedule, and changes
   apply on Save. On macOS and Windows it is a popover above the sidebar's + button, drawn like the
   Library, and the profile card takes the same look; on Linux a popover like the Library; on iOS and
-  Android a sheet from Spaces (macOS, Windows, Linux, iOS, Android).
+  Android a sheet from Spaces, or in the tablet Mac layout a popover above the sidebar's + button
+  (macOS, Windows, Linux, iOS, Android).
 - Clean Up sorts by what each page is: a known site decides, other pages by their address and
   title (Money and Mail and Chat take known sites only); a loose tab joins your own group that
   already holds two or more tabs of its site (a known site goes to its category's group when
   there is one), new category groups (now also Learning, Games and Food) come in a fixed order,
-  tabs of one site sit together, and Undo Sort puts everything back (macOS, Windows).
+  tabs of one site sit together, and Undo Sort puts everything back (macOS, Windows, Linux; iOS and
+  Android in the tablet Mac layout).
 - Toasts have a calmer design: a tone icon, the message and a quiet text action such as Undo
   (macOS, Windows, Linux, iOS, Android).
 - Tiles stretch to fill their row, so two tiles share the sidebar's width (macOS, Windows, Linux).
