@@ -672,6 +672,22 @@ fn a_tab_title_is_the_bounded_shown_title_everywhere() {
 }
 
 #[test]
+fn closing_the_private_space_forgets_its_undo_sort() {
+    let (_dir, mut shell) = open();
+    shell.enter_private();
+    assert!(shell.model.private());
+    for url in ["https://github.com/a", "https://gitlab.com/b"] {
+        shell.new_tab(None);
+        shell.navigate(url);
+        finish(&mut shell, url, "");
+    }
+    shell.clean_up();
+    assert!(shell.can_undo_sort(), "the private sort can be undone while the session lasts");
+    shell.close_private();
+    assert!(shell.sort_undo.is_none(), "no record of the private session's groups outlives it");
+}
+
+#[test]
 fn zoom_steps_from_the_page_and_resets() {
     let (_dir, mut shell) = open();
     shell.navigate("https://example.com/");

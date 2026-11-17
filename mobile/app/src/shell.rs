@@ -686,6 +686,9 @@ impl<D: Platform> Shell<D> {
         }
         // Private tab ids start again in the next session, so no private pane may outlive this one.
         self.splits.retain(|k| !k.private);
+        if self.sort_undo.as_ref().is_some_and(|(_, (private, _))| *private) {
+            self.sort_undo = None;
+        }
         for (_, profile_id) in &private {
             self.core.store(true).delete_profile(*profile_id).ok();
             self.forget_icons((true, *profile_id));
