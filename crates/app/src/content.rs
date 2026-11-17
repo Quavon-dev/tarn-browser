@@ -50,6 +50,12 @@ impl Browser {
     }
 
     pub fn dismiss_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.in_space_popover(window, cx, |b, window, cx| b.dismiss_overlay(window, cx)) {
+            return;
+        }
+        if self.profile_editor.as_ref().is_some_and(|e| e.floating) {
+            return self.close_space_card(Some(window), cx);
+        }
         if self.inline_editing() {
             return self.close_command(window, cx);
         }

@@ -16,6 +16,7 @@ use tarn_nsh_shared::controls::{caps_label, glyph_row, glyph_switch};
 
 const PANEL_WIDTH: f32 = 720.;
 const SITE_WIDTH: f32 = 340.;
+const SPACE_CARD_WIDTH: f32 = 420.;
 
 enum Side {
     Start,
@@ -484,6 +485,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Shield => shield_panel(ui),
             Panel::Settings => super::settings::settings_panel(ui),
             Panel::Space => super::library::space_panel(ui),
+            Panel::NewSpace => super::library::new_space_panel(ui),
             Panel::Memory => super::library::memory_panel(ui),
             Panel::ReadingList => super::library::reading_list_panel(ui),
             Panel::Qr => super::tools::qr_panel(ui),
@@ -497,6 +499,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
         let (width, side) = match panel {
             Panel::Share => (320., Side::End),
             Panel::Shield => (SITE_WIDTH, Side::Centre),
+            Panel::NewSpace => (SPACE_CARD_WIDTH, Side::Centre),
             Panel::Downloads => (380., Side::Start),
             Panel::Settings => (PANEL_WIDTH + 200., Side::Centre),
             _ => (PANEL_WIDTH, Side::Centre),
@@ -504,7 +507,9 @@ pub fn panel_view(ui: Ui) -> AnyElement {
         let content =
             if panel == Panel::Settings { view().flex_col().flex_1().child(body).into_element() } else { scroll().flex_1().child(body).into_element() };
         let column = view().flex_col().flex_1().w(px(width)).child(content);
-        let area = view().flex_col().flex_1().p_4();
+        let outside = matches!(panel, Panel::NewSpace | Panel::Space)
+            .then(|| nsh_base::button().accessibility_label("Close").on_press(move || show(ui, Panel::None)).absolute().inset_0());
+        let area = view().flex_col().flex_1().relative().p_4().children(outside);
         let area = match side {
             Side::Start => area.items_start(),
             Side::Centre => area.items_center(),
