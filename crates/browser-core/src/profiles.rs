@@ -14,12 +14,12 @@ pub struct NewProfile<'a> {
 
 /// Writes a profile, its settings and its first space, given as `[name, color, icon]`, all or nothing.
 pub fn create(disk: &Store, profile: &NewProfile, space: [&str; 3]) -> Result<(Id, Id), store::Error> {
-    let shared = profile.share.and_then(|id| disk.profile(id).ok()).map(|mut p| {
-        share_store(disk, &mut p);
-        p.data_store_uuid
-    });
     let engine = ENGINES.get(profile.engine).unwrap_or(&ENGINES[0]).name;
     disk.batch(|disk| {
+        let shared = profile.share.and_then(|id| disk.profile(id).ok()).map(|mut p| {
+            share_store(disk, &mut p);
+            p.data_store_uuid
+        });
         let id = disk.create_profile(profile.name, &uuid::Uuid::new_v4().to_string(), false)?.id;
         disk.set_profile(id, profile.name, profile.color)?;
         disk.set_profile_shield_level(id, profile.level)?;

@@ -147,11 +147,6 @@ impl<D: Platform> Shell<D> {
         }
     }
 
-    pub fn copy_clean_link(&mut self) -> Option<String> {
-        let key = self.model.active?;
-        self.copy_clean_link_of(key)
-    }
-
     pub fn web_link_of(&self, key: TabKey) -> Option<String> {
         let url = self.tab_url(key);
         Url::parse(&url).ok().filter(|u| matches!(u.scheme(), "http" | "https")).map(|_| url)

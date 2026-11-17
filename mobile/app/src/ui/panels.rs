@@ -410,14 +410,7 @@ fn menu(ui: Ui) -> impl IntoElement {
                             .child(row(icons::SHARE, "Share…", move || ui.show(Screen::Share)))
                             .child(row(icons::SMARTPHONE, "Show QR Code", move || ui.show(Screen::Qr)))
                             .child(row(icons::CHECK, "Copy Clean Link", move || {
-                                let mut copied = None;
-                                ui.act(|s| {
-                                    copied = s.copy_clean_link();
-                                    Vec::new()
-                                });
-                                if let Some(url) = copied {
-                                    set_clipboard(url);
-                                }
+                                ui.copy_link(None, true);
                                 ui.show(Screen::Browse);
                             }))
                             .child(row(icons::BOOKMARK, "Save to Reading List", move || {

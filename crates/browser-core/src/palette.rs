@@ -97,7 +97,7 @@ impl State {
     fn name(self, label: &str, command: Command) -> String {
         match command {
             Command::TogglePin => (if self.pinned { "Unpin Tab" } else { "Pin Tab" }).to_owned(),
-            Command::ToggleSplitView => (if self.split { "Close Split View" } else { "Open in Split View" }).to_owned(),
+            Command::ToggleSplitView => "Open in Split View".to_owned(),
             _ => label.to_owned(),
         }
     }
