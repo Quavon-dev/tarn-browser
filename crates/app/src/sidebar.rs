@@ -205,7 +205,7 @@ pub fn group_color(g: &Group) -> Rgba {
 
 /// A group's colour as `0xRRGGBB`: its pick, or one fixed by its id.
 pub fn group_rgb(g: &Group) -> u32 {
-    PROFILE_COLORS.iter().find(|(n, _)| *n == g.color).unwrap_or(&PROFILE_COLORS[g.id.unsigned_abs() as usize % PROFILE_COLORS.len()]).1
+    browser_core::tabs::group_color(g, &PROFILE_COLORS)
 }
 
 impl Browser {
@@ -955,7 +955,7 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
 }
 
 fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
-    let cleanable = b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id.is_none()).count() >= 2 && !b.model.burner_shown();
+    let cleanable = browser_core::cleanup::cleanable(&b.model.tabs) && !b.model.burner_shown();
     div()
         .id("ephemeral")
         .flex()
@@ -1000,17 +1000,12 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                     b.new_folder(None, w, cx);
                 })))
                 .when(cleanable, |d| {
-                    d.child(
-                        icon_button("clean-up", Icon::BroomSparkles, true)
-                            .tooltip(tooltip(
-                                "Clean Up: sorts tabs into groups and archives tabs unused for longer than Settings › Tabs allows. Runs on this device.",
-                                None,
-                            ))
-                            .on_click(cx.listener(|b, _, _, cx| {
-                                cx.stop_propagation();
-                                b.clean_up_tabs(cx);
-                            })),
-                    )
+                    d.child(icon_button("clean-up", Icon::BroomSparkles, true).tooltip(tooltip(browser_core::cleanup::DESCRIPTION, None)).on_click(
+                        cx.listener(|b, _, _, cx| {
+                            cx.stop_propagation();
+                            b.clean_up_tabs(cx);
+                        }),
+                    ))
                 })
                 .on_click(cx.listener(|b, _, window, cx| b.new_tab_page(window, cx))),
         )

@@ -546,11 +546,7 @@ impl Browser {
         if burner || (tabs.is_empty() && group.is_none()) {
             return;
         }
-        let text = match (&group, tabs.len()) {
-            (Some(_), _) => "Group closed".to_owned(),
-            (None, 1) => "Tab closed".to_owned(),
-            (None, n) => format!("{n} tabs closed"),
-        };
+        let text = browser_core::toast::closed(group.is_some(), tabs.len());
         let group = group.map(|(name, color)| ClosedGroup { name, color });
         let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs, group });
         self.show_toast(text, Some(crate::toast::Action::Undo(serial)), cx);
@@ -595,13 +591,7 @@ impl Browser {
             self.reload_space();
             Self::sync_other_windows(cx);
         }
-        let text = match (sorted, archived) {
-            (0, 0) if crate::prefs::archive_after(&self.core.disk).is_none() => "Nothing to sort. Settings › Tabs can archive unused tabs too.".to_owned(),
-            (0, 0) => "Already tidy".to_owned(),
-            (s, 0) => format!("Sorted {s} {} into groups", if s == 1 { "tab" } else { "tabs" }),
-            (0, a) => format!("Archived {a} unused {}", if a == 1 { "tab" } else { "tabs" }),
-            (s, a) => format!("Sorted {s} {} into groups, archived {a} unused", if s == 1 { "tab" } else { "tabs" }),
-        };
+        let text = browser_core::cleanup::summary(sorted, archived, crate::prefs::archive_after(&self.core.disk).is_some());
         self.show_toast(text, None, cx);
         cx.notify();
     }

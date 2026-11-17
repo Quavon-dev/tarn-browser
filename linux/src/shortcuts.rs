@@ -15,6 +15,7 @@ pub enum Action {
     PreviousTab,
     TogglePin,
     BurnerTab,
+    NewGroup,
     Reload,
     Back,
     Forward,
@@ -55,6 +56,7 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
             ("Previous tab", Action::PreviousTab, "ctrl+shift+tab"),
             ("Pin or unpin tab", Action::TogglePin, "ctrl+d"),
             ("Burner tab", Action::BurnerTab, "ctrl+alt+shift+n"),
+            ("New tab group", Action::NewGroup, "ctrl+alt+g"),
         ],
     ),
     (

@@ -8,6 +8,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Tab groups, Clean Up and closing unused tabs after a time set in Settings › Tabs, with an
+  Archived Tabs panel next to the Reading List (Linux).
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages

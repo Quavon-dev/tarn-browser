@@ -1,12 +1,31 @@
 //! Tabs a window closed, which "Reopen Closed Tab" brings back, and the archive of unused tabs.
 
-use store::{Id, Store, Tab, TabKind, WebEngine};
+use store::{Bookmark, Id, Store, Tab, TabKind, WebEngine};
 
 use crate::tabs::{Model, SpaceRef, TabKey};
 use crate::{Core, WebsiteData};
 
 const MAX_CLOSED_TABS: usize = 20;
 pub const ARCHIVE_FOLDER: &str = "Archived Tabs";
+/// The setting that holds Settings › Tabs › "Close unused tabs after", by option name.
+pub const ARCHIVE_AFTER_SETTING: &str = "archive_after";
+const HOUR: i64 = 3_600_000;
+/// The choices for how long an unused tab stays open, in milliseconds; `None` keeps tabs open.
+pub const ARCHIVE_AFTER: [(&str, Option<i64>); 4] =
+    [("Never", None), ("12 hours", Some(12 * HOUR)), ("1 day", Some(24 * HOUR)), ("7 days", Some(7 * 24 * HOUR))];
+/// How often the shells archive unused tabs while running.
+pub const ARCHIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// The stored choice's place in `ARCHIVE_AFTER`; "Never" when unset or unknown.
+pub fn archive_after_index(store: &Store) -> usize {
+    let stored = store.setting(ARCHIVE_AFTER_SETTING).ok().flatten();
+    ARCHIVE_AFTER.iter().position(|(name, _)| Some(*name) == stored.as_deref()).unwrap_or(0)
+}
+
+/// How long an unused tab stays open, in milliseconds; `None` keeps tabs open.
+pub fn archive_after(store: &Store) -> Option<i64> {
+    ARCHIVE_AFTER[archive_after_index(store)].1
+}
 
 #[derive(Debug)]
 pub struct ClosedTab {
@@ -236,12 +255,14 @@ impl Model {
     }
 }
 
+/// The top-level bookmark folder named `name`, such as Archived Tabs or the Reading List.
+pub fn top_folder(bookmarks: &[Bookmark], name: &str) -> Option<Id> {
+    bookmarks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == name).map(|b| b.id)
+}
+
 fn archive_folder(store: &Store, profile_id: Id, now: i64) -> Option<Id> {
     let marks = store.bookmarks(profile_id).ok()?;
-    match marks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == ARCHIVE_FOLDER) {
-        Some(folder) => Some(folder.id),
-        None => store.add_bookmark(profile_id, None, None, ARCHIVE_FOLDER, now).ok().map(|b| b.id),
-    }
+    top_folder(&marks, ARCHIVE_FOLDER).or_else(|| store.add_bookmark(profile_id, None, None, ARCHIVE_FOLDER, now).ok().map(|b| b.id))
 }
 
 #[cfg(test)]
@@ -255,6 +276,16 @@ mod tests {
             private,
             space: Space { id, profile_id, name: String::new(), icon: String::new(), position: 0, color: String::new(), schedule: Default::default() },
         }
+    }
+
+    #[test]
+    fn archiving_is_off_by_default_and_follows_the_stored_choice() {
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(archive_after(&store), None);
+        store.set_setting(ARCHIVE_AFTER_SETTING, "1 day").unwrap();
+        assert_eq!((archive_after_index(&store), archive_after(&store)), (2, Some(24 * HOUR)));
+        store.set_setting(ARCHIVE_AFTER_SETTING, "forever").unwrap();
+        assert_eq!(archive_after(&store), None, "an unknown choice keeps tabs open");
     }
 
     fn tab(url: &str) -> ClosedTab {

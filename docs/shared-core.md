@@ -190,7 +190,8 @@ space's tabs, folders and groups, the open folders, the active tab, the tab life
 reopen stack, with the sidebar's tab order, number-key slots, cycling, the tab a close selects,
 the tab to show when none is active, new tabs, pin, folder, group and move-to-space commands,
 which space a window reopens on and the private space. `browser_core::closed` has the reopen stack
-and the archive of unused tabs; `Core::{level, has_override, web_engine}` resolve per tab. The
+and the archive of unused tabs with its Settings › Tabs choice (`ARCHIVE_AFTER`, `archive_after`,
+`ARCHIVE_INTERVAL`); `browser_core::cleanup` is Clean Up (`plan`, `apply`, `cleanable`, `summary`); `Core::{level, has_override, web_engine}` resolve per tab. The
 GPUI `Browser` keeps the views and what only a shell has (pages, prompts, find, favicons,
 rendering, gestures, menus, text inputs, windows) and calls the model; it passes in what the
 model cannot see, such as whether another window shows a tab and a live view's current URL.

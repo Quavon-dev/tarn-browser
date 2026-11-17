@@ -123,9 +123,6 @@ pub const SLEEP_AFTER: [(&str, Option<Duration>); 4] = [
     ("30 minutes", Some(Duration::from_secs(1_800))),
     ("2 hours", Some(Duration::from_secs(7_200))),
 ];
-pub const ARCHIVE_AFTER: [(&str, Option<i64>); 4] =
-    [("Never", None), ("12 hours", Some(12 * HOUR)), ("1 day", Some(24 * HOUR)), ("7 days", Some(7 * 24 * HOUR))];
-const HOUR: i64 = 3_600_000;
 const SIDEBAR_SETTING: &str = "sidebar_open";
 const SIDEBAR_WIDTH_SETTING: &str = "sidebar_width";
 pub const SIDEBAR_MIN_WIDTH: f32 = 200.;
@@ -146,7 +143,7 @@ pub fn sleep_after(store: &Store) -> Option<Duration> {
 
 /// How long an unused tab stays open, in milliseconds; `None` keeps tabs open.
 pub fn archive_after(store: &Store) -> Option<i64> {
-    ARCHIVE_AFTER[Choice::ArchiveAfter.load(store)].1
+    browser_core::closed::archive_after(store)
 }
 
 pub fn sidebar_open(store: &Store) -> bool {
@@ -159,7 +156,7 @@ impl Choice {
             Choice::Accent => std::iter::once(THEME_ACCENT).chain(ui::theme::ACCENTS.iter().map(|(name, _)| *name)).collect(),
             Choice::LiveTabs => LIVE_TABS.to_vec(),
             Choice::SleepAfter => SLEEP_AFTER.iter().map(|(name, _)| *name).collect(),
-            Choice::ArchiveAfter => ARCHIVE_AFTER.iter().map(|(name, _)| *name).collect(),
+            Choice::ArchiveAfter => browser_core::closed::ARCHIVE_AFTER.iter().map(|(name, _)| *name).collect(),
         }
     }
 
@@ -168,7 +165,7 @@ impl Choice {
             Choice::Accent => "accent",
             Choice::LiveTabs => "live_tabs",
             Choice::SleepAfter => "sleep_after",
-            Choice::ArchiveAfter => "archive_after",
+            Choice::ArchiveAfter => browser_core::closed::ARCHIVE_AFTER_SETTING,
         }
     }
 
@@ -453,7 +450,7 @@ fn archiving_is_off_by_default() {
     let store = Store::open_in_memory().unwrap();
     assert_eq!(archive_after(&store), None);
     store.set_setting(Choice::ArchiveAfter.key(), "1 day").unwrap();
-    assert_eq!(archive_after(&store), Some(24 * HOUR));
+    assert_eq!(archive_after(&store), Some(24 * 3_600_000));
 }
 
 #[cfg(test)]

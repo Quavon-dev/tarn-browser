@@ -6,6 +6,9 @@ use std::collections::BTreeMap;
 use store::{Group, Id, Store, Tab, TabKind};
 use url::Url;
 
+/// What the Clean Up button does, for its tooltip.
+pub const DESCRIPTION: &str = "Clean Up: sorts tabs into groups and archives tabs unused for longer than Settings › Tabs allows. Runs on this device.";
+
 /// A category: its group name, its colour and the sites and title words that belong to it.
 struct Category {
     name: &'static str,
@@ -265,6 +268,24 @@ pub fn apply(store: &Store, space_id: Id, plan: Vec<(Target, Vec<Id>)>) -> usize
     moved
 }
 
+/// What Clean Up says it did: `sorted` tabs into groups, `archived` unused ones; `archiving` is
+/// whether Settings › Tabs archives at all.
+pub fn summary(sorted: usize, archived: usize, archiving: bool) -> String {
+    let tabs = |n: usize| if n == 1 { "tab" } else { "tabs" };
+    match (sorted, archived) {
+        (0, 0) if !archiving => "Nothing to sort. Settings › Tabs can archive unused tabs too.".to_owned(),
+        (0, 0) => "Already tidy".to_owned(),
+        (s, 0) => format!("Sorted {s} {} into groups", tabs(s)),
+        (0, a) => format!("Archived {a} unused {}", tabs(a)),
+        (s, a) => format!("Sorted {s} {} into groups, archived {a} unused", tabs(s)),
+    }
+}
+
+/// Whether Clean Up has anything to sort: at least two loose unpinned tabs.
+pub fn cleanable(tabs: &[Tab]) -> bool {
+    tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id.is_none()).count() >= 2
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +304,15 @@ mod tests {
     }
 
     #[test]
+    fn the_summary_names_what_was_sorted_and_archived() {
+        assert_eq!(summary(0, 0, false), "Nothing to sort. Settings › Tabs can archive unused tabs too.");
+        assert_eq!(summary(0, 0, true), "Already tidy");
+        assert_eq!(summary(1, 0, true), "Sorted 1 tab into groups");
+        assert_eq!(summary(0, 3, true), "Archived 3 unused tabs");
+        assert_eq!(summary(2, 1, true), "Sorted 2 tabs into groups, archived 1 unused");
+    }
+
+    #[test]
     fn a_plan_groups_pairs_and_fills_existing_groups() {
         let dir = tempfile::tempdir().unwrap();
         let core = crate::TestCore::open(dir.path(), false);
@@ -295,6 +325,8 @@ mod tests {
         let e = add("https://bbc.com/x");
         let tabs = store.tabs(space).unwrap();
         let groups = store.groups(space).unwrap();
+        assert!(cleanable(&tabs));
+        assert!(!cleanable(&tabs[..1]));
         let plan = plan(&tabs, &groups, |t| t.url.clone());
         assert_eq!(plan, [(Target::New { name: "Development".into(), color: "indigo" }, vec![a.id, b.id]), (Target::Group(news.id), vec![e.id])]);
         assert_eq!(apply(store, space, plan), 3);

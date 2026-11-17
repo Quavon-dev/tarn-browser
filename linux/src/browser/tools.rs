@@ -1,3 +1,4 @@
+use browser_core::closed::top_folder;
 use browser_core::now;
 use store::{Bookmark, Counter, Id};
 use url::Url;
@@ -51,14 +52,12 @@ impl Browser {
         Some((code, label))
     }
 
-    fn reading_list_folder(&self, bookmarks: &[Bookmark]) -> Option<Id> {
-        bookmarks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == READING_LIST).map(|b| b.id)
-    }
-
-    pub fn reading_list(&self) -> Vec<Bookmark> {
+    /// The pages in the profile's top-level bookmark folder `name`, such as the Reading List or
+    /// Archived Tabs.
+    pub fn folder_pages(&self, name: &str) -> Vec<Bookmark> {
         let Some((private, profile)) = self.model.profile() else { return Vec::new() };
         let bookmarks = self.core.store(private).bookmarks(profile).unwrap_or_default();
-        let folder = self.reading_list_folder(&bookmarks);
+        let folder = top_folder(&bookmarks, name);
         bookmarks.into_iter().filter(|b| folder.is_some() && b.parent_id == folder && b.url.is_some()).collect()
     }
 
@@ -67,7 +66,7 @@ impl Browser {
         let title = self.active_page().map(|p| p.title.clone()).filter(|t| !t.is_empty()).unwrap_or_else(|| url.clone());
         let store = self.core.store(private);
         let bookmarks = store.bookmarks(profile).unwrap_or_default();
-        let folder = match self.reading_list_folder(&bookmarks) {
+        let folder = match top_folder(&bookmarks, READING_LIST) {
             Some(id) => id,
             None => match store.add_bookmark(profile, None, None, READING_LIST, now()) {
                 Ok(folder) => folder.id,
@@ -83,7 +82,7 @@ impl Browser {
         self.show_toast_as(tone, text, None);
     }
 
-    pub fn remove_from_reading_list(&mut self, id: Id) {
+    pub fn remove_bookmark(&mut self, id: Id) {
         if let Some((private, _)) = self.model.profile() {
             self.core.store(private).delete_bookmark(id).ok();
         }

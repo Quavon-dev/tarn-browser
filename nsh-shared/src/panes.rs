@@ -3,6 +3,7 @@ pub enum Pane {
     Profile,
     General,
     Appearance,
+    Tabs,
     Search,
     Privacy,
     Permissions,
@@ -10,10 +11,11 @@ pub enum Pane {
     Shortcuts,
 }
 
-pub const PANES: [(Pane, &str); 8] = [
+pub const PANES: [(Pane, &str); 9] = [
     (Pane::Profile, "Profile"),
     (Pane::General, "General"),
     (Pane::Appearance, "Appearance"),
+    (Pane::Tabs, "Tabs"),
     (Pane::Search, "Search"),
     (Pane::Privacy, "Privacy"),
     (Pane::Permissions, "Permissions"),
@@ -23,7 +25,7 @@ pub const PANES: [(Pane, &str); 8] = [
 
 pub const GROUPS: [(&str, &[Pane]); 2] = [
     ("You", &[Pane::Profile, Pane::Profiles]),
-    ("Browser", &[Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Shortcuts]),
+    ("Browser", &[Pane::General, Pane::Appearance, Pane::Tabs, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Shortcuts]),
 ];
 
 pub fn name(pane: Pane) -> &'static str {
@@ -35,6 +37,7 @@ pub fn icon(pane: Pane) -> &'static str {
         Pane::Profile => crate::icons::SHIELD,
         Pane::General => crate::icons::GEAR,
         Pane::Appearance => crate::icons::PALETTE,
+        Pane::Tabs => crate::icons::APP_WINDOW,
         Pane::Search => crate::icons::SEARCH,
         Pane::Privacy => crate::icons::HAND,
         Pane::Permissions => crate::icons::CAMERA,

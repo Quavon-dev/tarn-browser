@@ -4,7 +4,7 @@ use browser_core::prompts::Prompt;
 use browser_core::split::{Divider, Share};
 use browser_core::tabs::TabKey;
 use serde_json::Value;
-use store::{Folder, Id, Tab, TabKind};
+use store::{Folder, Group, Id, Tab, TabKind};
 
 use crate::browser::{Browser, Notice};
 
@@ -24,6 +24,8 @@ pub enum RowKind {
     Folder(Id),
     /// A split's panes side by side, at the place of the first of them in the list.
     Split(TabKey),
+    /// A tab group's card: its header and, in `panes`, its tabs; only the active one while collapsed.
+    Group(Id),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,6 +46,8 @@ pub struct Row {
     pub split: Option<bool>,
     /// A split row's panes, in layout order.
     pub panes: Vec<Row>,
+    /// A group's colour as `0xRRGGBB`.
+    pub color: u32,
 }
 
 impl Row {
@@ -52,6 +56,7 @@ impl Row {
             RowKind::Tab(k) => format!("t{}-{}", k.private, k.id),
             RowKind::Folder(id) => format!("f{id}"),
             RowKind::Split(k) => format!("s{}-{}", k.private, k.id),
+            RowKind::Group(id) => format!("g{id}"),
         }
     }
 }
@@ -131,6 +136,8 @@ pub struct Snapshot {
     pub burner: bool,
     pub find_rows: Vec<crate::browser::FindRow>,
     pub downloading: Option<f32>,
+    /// Whether Clean Up has loose tabs to sort.
+    pub cleanable: bool,
 }
 
 pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
@@ -151,9 +158,23 @@ fn space_label(b: &Browser, ix: usize) -> String {
     format!("{} · {}", profile, s.space.name)
 }
 
-fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Option<TabKind>, depth: usize, rows: &mut Vec<Row>) {
+/// Which tabs a list shows: those in `folder` and `group`, of `kind` when given.
+#[derive(Clone, Copy)]
+struct Zone {
+    folder: Option<Id>,
+    group: Option<Id>,
+    kind: Option<TabKind>,
+}
+
+impl Zone {
+    fn of(kind: TabKind) -> Zone {
+        Zone { folder: None, group: None, kind: Some(kind) }
+    }
+}
+
+fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows: &mut Vec<Row>) {
     let mut list = Vec::new();
-    tab_list(b, heavy, folder, kind, depth, &mut list);
+    tab_list(b, heavy, zone, depth, &mut list);
     let keys: Vec<TabKey> = list.iter().filter_map(|r| if let RowKind::Tab(k) = r.kind { Some(k) } else { None }).collect();
     let pane = |key| list.iter().find(|r| r.kind == RowKind::Tab(key)).cloned();
     for (row, &key) in list.iter().zip(&keys) {
@@ -169,8 +190,9 @@ fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Opti
     }
 }
 
-fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Option<TabKind>, depth: usize, rows: &mut Vec<Row>) {
-    let mut tabs: Vec<&Tab> = b.model.tabs.iter().filter(|t| t.folder_id == folder && kind.is_none_or(|k| t.kind == k)).collect();
+fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows: &mut Vec<Row>) {
+    let mut tabs: Vec<&Tab> =
+        b.model.tabs.iter().filter(|t| t.folder_id == zone.folder && t.group_id == zone.group && zone.kind.is_none_or(|k| t.kind == k)).collect();
     tabs.sort_by_key(|t| t.position);
     for tab in tabs {
         let key = b.model.key(tab);
@@ -191,6 +213,7 @@ fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Opti
             pinned: tab.kind == TabKind::Pinned,
             open: false,
             panes: Vec::new(),
+            color: 0,
         });
     }
 }
@@ -215,11 +238,41 @@ fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: 
             playing: false,
             split: None,
             panes: Vec::new(),
+            color: 0,
         });
         if open {
             folder_rows(b, heavy, Some(folder.id), depth + 1, rows);
-            tab_rows(b, heavy, Some(folder.id), None, depth + 1, rows);
+            tab_rows(b, heavy, Zone { folder: Some(folder.id), group: None, kind: None }, depth + 1, rows);
         }
+    }
+}
+
+fn group_rows(b: &Browser, heavy: &HashSet<TabKey>, rows: &mut Vec<Row>) {
+    let mut groups: Vec<&Group> = b.model.groups.iter().collect();
+    groups.sort_by_key(|g| g.position);
+    for group in groups {
+        let mut panes = Vec::new();
+        tab_rows(b, heavy, Zone { group: Some(group.id), ..Zone::of(TabKind::Ephemeral) }, 0, &mut panes);
+        if group.collapsed {
+            panes.retain(|r| r.active);
+        }
+        rows.push(Row {
+            kind: RowKind::Group(group.id),
+            label: group.name.clone(),
+            host: String::new(),
+            depth: 0,
+            active: false,
+            pinned: false,
+            open: !group.collapsed,
+            burner: false,
+            heavy: false,
+            asleep: false,
+            loading: false,
+            playing: false,
+            split: None,
+            panes,
+            color: browser_core::tabs::group_color(group, &tarn_nsh_shared::theme::PROFILE_COLORS),
+        });
     }
 }
 
@@ -230,9 +283,10 @@ pub fn rows(b: &Browser) -> Vec<Row> {
 
 fn rows_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
     let mut rows = Vec::new();
-    tab_rows(b, heavy, None, Some(TabKind::Pinned), 0, &mut rows);
+    tab_rows(b, heavy, Zone::of(TabKind::Pinned), 0, &mut rows);
     folder_rows(b, heavy, None, 0, &mut rows);
-    tab_rows(b, heavy, None, Some(TabKind::Ephemeral), 0, &mut rows);
+    group_rows(b, heavy, &mut rows);
+    tab_rows(b, heavy, Zone::of(TabKind::Ephemeral), 0, &mut rows);
     rows
 }
 
@@ -243,7 +297,7 @@ pub fn tiles(b: &Browser) -> Vec<Row> {
 
 fn tiles_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
     let mut tiles = Vec::new();
-    tab_list(b, heavy, None, Some(TabKind::Tile), 0, &mut tiles);
+    tab_list(b, heavy, Zone::of(TabKind::Tile), 0, &mut tiles);
     tiles
 }
 
@@ -338,6 +392,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         burner: b.model.burner_shown(),
         find_rows: b.find_rows.clone(),
         downloading: downloading(b),
+        cleanable: browser_core::cleanup::cleanable(&b.model.tabs) && !b.model.burner_shown(),
     }
 }
 

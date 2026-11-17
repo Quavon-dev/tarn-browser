@@ -1,5 +1,6 @@
 mod appearance;
 mod extensions;
+mod groups;
 mod library;
 mod panels;
 mod settings;
@@ -69,6 +70,8 @@ thread_local! {
     static BROWSERS: RefCell<HashMap<u64, Browser>> = RefCell::default();
     static WINDOWS: RefCell<Vec<Ui>> = const { RefCell::new(Vec::new()) };
     static NEXT_WINDOW: Cell<u64> = const { Cell::new(0) };
+    /// Saved windows still to open at launch; the launch archive waits for all of them.
+    static LAUNCHING: Cell<usize> = const { Cell::new(0) };
     /// Each window's web views by tab, with the wake number the view was made for.
     static REFS: RefCell<HashMap<(u64, TabKey), (u64, ElementRef)>> = RefCell::default();
 }
@@ -84,9 +87,11 @@ pub enum Panel {
     Space,
     Memory,
     ReadingList,
+    Archived,
     Qr,
     Share,
     Folder(store::Id),
+    Group(store::Id),
 }
 
 #[derive(Clone, Copy)]
@@ -174,8 +179,10 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         f(b);
         let moved = b.model.active.filter(|k| b.elsewhere.contains(k));
         let forgotten = std::mem::take(&mut b.forgotten);
+        let groups = std::mem::take(&mut b.forgotten_groups);
+        let regrouped = b.regrouped_space.take();
         let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key));
-        Some((
+        let done = (
             ui.icons.with_untracked(|i| b.site_icons(i)),
             std::mem::take(&mut b.outbox),
             std::mem::take(&mut b.released),
@@ -183,9 +190,13 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
             snapshot::snapshot(b, shown),
             moved,
             forgotten,
-        ))
+        );
+        for (_, other) in windows.iter_mut().filter(|(w, _)| **w != ui.window) {
+            groups.iter().for_each(|(private, id)| other.model.closed_tabs.forget_group(*private, *id));
+        }
+        Some((done, regrouped))
     });
-    let Some((icons, commands, released, cancelled, snap, moved, forgotten)) = done else { return };
+    let Some(((icons, commands, released, cancelled, snap, moved, forgotten), regrouped)) = done else { return };
     let rebuild = rebuild
         || ui.snap.with_untracked(|s| *s != snap)
         || match ui.panel.get_untracked() {
@@ -218,7 +229,8 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         {
             act_dyn(other, &mut |b| b.give_up(key), true);
         }
-        if read(other, |b| forgotten.iter().any(|k| b.model.tab(*k).is_some() || b.pages.contains_key(k))) == Some(true) {
+        let shows = |b: &Browser| regrouped.is_some() && b.model.current_space().map(|s| (s.private, s.space.id)) == regrouped;
+        if read(other, |b| shows(b) || forgotten.iter().any(|k| b.model.tab(*k).is_some() || b.pages.contains_key(k))) == Some(true) {
             act_dyn(other, &mut Browser::sync_shared, true);
         }
     }
@@ -396,42 +408,45 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
             ui.snap.with(|s| s.rows.iter().filter(|r| (r.pinned || r.depth > 0 || matches!(r.kind, RowKind::Folder(_))) == pinned).cloned().collect::<Vec<_>>())
         },
         |r| r.id(),
-        move |item, _| {
-            let kind = item.with_untracked(|r| r.kind.clone());
-            let depth = item.with_untracked(|r| r.depth) as f32;
-            let name = move || item.with(|r| r.label.clone());
-            match kind {
-                RowKind::Tab(key) => tab_row(ui, pinned, key, item),
-                RowKind::Split(_) => view()
-                    .flex_row()
-                    .gap(px(2.))
-                    .child(each(
-                        move || item.with(|r| r.panes.clone()),
-                        |r| r.id(),
-                        move |pane, _| {
-                            let RowKind::Tab(key) = pane.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
-                            view().flex_1().min_w_0().child(tab_row(ui, pinned, key, pane)).into_element()
-                        },
-                    ))
-                    .into_element(),
-                RowKind::Folder(id) => view()
-                    .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
-                    .child(
-                        row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
-                            .h(px(TAB_ROW))
-                            .pl(px(8. + depth * 16.))
-                            .child(
-                                view()
-                                    .text_color(Theme::muted())
-                                    .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
-                            )
-                            .child(view().text_color(Theme::space_label()).child(icons::icon(icons::FOLDER, 15.)))
-                            .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
-                    )
-                    .into_element(),
-            }
-        },
+        move |item, _| list_row(ui, pinned, item),
     )
+}
+
+fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement {
+    let kind = item.with_untracked(|r| r.kind.clone());
+    let depth = item.with_untracked(|r| r.depth) as f32;
+    let name = move || item.with(|r| r.label.clone());
+    match kind {
+        RowKind::Tab(key) => tab_row(ui, pinned, key, item),
+        RowKind::Group(id) => groups::group_card(ui, id, item),
+        RowKind::Split(_) => view()
+            .flex_row()
+            .gap(px(2.))
+            .child(each(
+                move || item.with(|r| r.panes.clone()),
+                |r| r.id(),
+                move |pane, _| {
+                    let RowKind::Tab(key) = pane.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
+                    view().flex_1().min_w_0().child(tab_row(ui, pinned, key, pane)).into_element()
+                },
+            ))
+            .into_element(),
+        RowKind::Folder(id) => view()
+            .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
+            .child(
+                row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
+                    .h(px(TAB_ROW))
+                    .pl(px(8. + depth * 16.))
+                    .child(
+                        view()
+                            .text_color(Theme::muted())
+                            .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
+                    )
+                    .child(view().text_color(Theme::space_label()).child(icons::icon(icons::FOLDER, 15.)))
+                    .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
+            )
+            .into_element(),
+    }
 }
 
 fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -> AnyElement {
@@ -698,7 +713,17 @@ fn new_tab_row(ui: Ui) -> View {
                 .child(icons::icon(icons::PLUS, 11.)),
         )
         .child(body("New Tab").text_color(Theme::muted()));
-    view().flex_row().items_center().mb_1().child(new).child(icon_button(icons::FOLDER_PLUS, "New Folder", move || act(ui, |b| b.new_folder(None))))
+    view()
+        .flex_row()
+        .items_center()
+        .mb_1()
+        .child(new)
+        .child(icon_button(icons::GROUP, "New Tab Group", move || groups::new_group(ui, None)))
+        .child(icon_button(icons::FOLDER_PLUS, "New Folder", move || act(ui, |b| b.new_folder(None))))
+        .child(when(
+            move || ui.snap.with(|s| s.cleanable),
+            move || icon_button(icons::BROOM_SPARKLES, browser_core::cleanup::DESCRIPTION, move || act(ui, Browser::clean_up_tabs)),
+        ))
 }
 
 fn sidebar(ui: Ui) -> View {
@@ -1618,6 +1643,7 @@ fn run_action(ui: Ui, action: Action) {
         Action::PreviousTab => act(ui, |b| b.cycle(false)),
         Action::TogglePin => act(ui, |b| b.model.active.into_iter().for_each(|k| b.pin_toggle(k))),
         Action::BurnerTab => tools::run(ui, tools::Command::BurnerTab),
+        Action::NewGroup => groups::new_group(ui, None),
         Action::Reload => reload(ui),
         Action::Back => act(ui, |b| b.back()),
         Action::Forward => act(ui, |b| b.forward()),
@@ -1890,6 +1916,13 @@ fn new_ui(row: SavedWindow) -> Ui {
         }
     });
     WINDOWS.with_borrow_mut(|windows| windows.push(ui));
+    if LAUNCHING.replace(LAUNCHING.get().saturating_sub(1)) == 1 {
+        for ui in WINDOWS.with_borrow(Vec::clone) {
+            act_quietly(ui, |b| {
+                b.archive_unused_tabs();
+            });
+        }
+    }
     ui
 }
 
@@ -1915,6 +1948,11 @@ fn browser_window(ui: Ui) -> AnyElement {
             ui.speaking.set(false);
         }
         act_quietly(ui, |b| b.sample_processes());
+    }));
+    drop(set_interval(browser_core::closed::ARCHIVE_INTERVAL, move || {
+        act_quietly(ui, |b| {
+            b.archive_unused_tabs();
+        })
     }));
     act(ui, |b| b.schedule_tick());
     effect(move || {
@@ -1961,7 +1999,9 @@ pub fn App() -> impl IntoElement {
     main_window().set(attributes);
     route_downloads();
     extensions::route(core());
-    let mut rows = Browser::saved_windows(&core()).into_iter();
+    let saved = Browser::saved_windows(&core());
+    LAUNCHING.set(saved.len().max(1));
+    let mut rows = saved.into_iter();
     let ui = new_ui(rows.next().unwrap_or_default());
     if shift_held() {
         act(ui, Browser::enter_safe_mode);

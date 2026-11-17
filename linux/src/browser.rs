@@ -1,4 +1,5 @@
 pub mod extensions;
+mod groups;
 pub mod icons;
 pub mod pages;
 mod site;
@@ -12,7 +13,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::rc::Rc;
 
-use browser_core::closed::{Closed, ClosedTab};
+use browser_core::closed::{Closed, ClosedGroup, ClosedTab};
 use browser_core::command::{ENGINES, Input, classify_input, engine_key};
 use browser_core::prompts::Prompt;
 use browser_core::suggest;
@@ -114,6 +115,10 @@ pub struct Browser {
     pub elsewhere: HashSet<TabKey>,
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
+    /// Groups this window deleted; other windows drop them from their reopen stacks.
+    pub forgotten_groups: Vec<(bool, Id)>,
+    /// The space whose groups this window changed; other windows showing it reload it.
+    pub regrouped_space: Option<(bool, Id)>,
     pub themes: themes::Themes,
     pub ext_prompts: HashMap<u64, extensions::ExtPrompt>,
     ext_prompt_serial: u64,
@@ -178,6 +183,8 @@ impl Browser {
             favicons: Default::default(),
             elsewhere,
             forgotten: Vec::new(),
+            forgotten_groups: Vec::new(),
+            regrouped_space: None,
             themes,
             ext_prompts: HashMap::new(),
             ext_prompt_serial: 0,
@@ -368,6 +375,10 @@ impl Browser {
     }
 
     pub fn close_tabs(&mut self, keys: Vec<TabKey>) {
+        self.close_batch(keys, None);
+    }
+
+    fn close_batch(&mut self, keys: Vec<TabKey>, group: Option<ClosedGroup>) {
         let Some((private, profile_id)) = self.profile_of_space() else { return };
         let keys: Vec<TabKey> = keys.into_iter().filter(|k| self.model.tab(*k).is_some()).collect();
         let Some(first) = keys.first().and_then(|k| self.model.tab(*k)).cloned() else { return };
@@ -382,7 +393,8 @@ impl Browser {
             }
             let url = self.pages.get(key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url.clone());
             let title = self.pages.get(key).map(|p| p.title.clone()).unwrap_or(tab.title.clone());
-            closed.push(ClosedTab { url, title, state: None, position: tab.position, group: None, web_engine: None });
+            let in_group = tab.group_id.and_then(|id| Some((id, self.model.groups.iter().find(|g| g.id == id)?.name.clone())));
+            closed.push(ClosedTab { url, title, state: None, position: tab.position, group: in_group, web_engine: None });
             self.core.store(private).delete_tab(key.id).ok();
             self.ext_tab_closed(*key);
             self.forget_tab(*key);
@@ -392,9 +404,8 @@ impl Browser {
             return self.leave_burner();
         }
         if !burner {
-            let count = closed.len();
-            let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id: first.space_id, tabs: closed, group: None });
-            let text = if count == 1 { "Tab closed".to_owned() } else { format!("{count} tabs closed") };
+            let text = browser_core::toast::closed(group.is_some(), closed.len());
+            let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id: first.space_id, tabs: closed, group });
             self.show_toast(text, Some(ToastAction::Undo(serial)));
         }
         self.model.reload_space(&self.core);
@@ -502,7 +513,11 @@ impl Browser {
         if self.model.burner_shown() && kind != TabKind::Ephemeral {
             return;
         }
+        let group = tab.group_id;
         if self.core.store(key.private).move_tab(key.id, kind, folder, index).is_ok() {
+            if kind == TabKind::Ephemeral {
+                self.core.store(key.private).set_tab_group(key.id, group).ok();
+            }
             self.model.reload_space(&self.core);
         }
     }

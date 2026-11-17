@@ -313,8 +313,8 @@ scripts, styles and zaps; nothing under Lockdown; no private or burner data on d
 with `spd-say` (no pause), the Shield card (the Mac's glacier lake from `browser_core::shield_card`, words drawn as native
 text over its SVG landscape since NSH's SVG renderer draws no text) flips and takes a New Design but does not tilt, and Share card saves its front as a PNG through the save dialog (the
 desktop's image loaders draw the SVG); Settings is a sheet with grouped navigation (You: Profile, Profiles; Browser:
-General, Appearance, Search, Privacy, Permissions, Shortcuts) over scrolling panes, without the Mac's cross-fade,
-and the History, Downloads and Reading List panels replace the page, so they neither grow in nor slide; memory per tab only where the web
+General, Appearance, Tabs, Search, Privacy, Permissions, Shortcuts) over scrolling panes, without the Mac's cross-fade,
+and the History, Downloads, Reading List and Archived Tabs panels replace the page, so they neither grow in nor slide; memory per tab only where the web
 process can be told apart; skipped: translation, startup trace, live peek.
 
 **P3: iOS app.**
