@@ -388,6 +388,8 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
         decision.ignore();
         return true;
     };
+    #[cfg(test)]
+    state.events.borrow_mut().push(("decided".to_owned(), json!({ "url": uri })));
     let nav_type = action.navigation_type();
     let gesture = action.is_user_gesture();
     let link = matches!(nav_type, NavigationType::LinkClicked | NavigationType::FormSubmitted);

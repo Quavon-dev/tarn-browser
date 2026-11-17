@@ -90,7 +90,14 @@ fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
     gtk::init().expect("a display");
     let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
     let web = open(&state);
+    let block: Rc<RefCell<Option<UserContentFilter>>> = Rc::default();
+    let slot = block.clone();
+    let rules = r#"[{"trigger":{"url-filter":"^https://extension\\.tarnbrowser\\.com/"},"action":{"type":"block"}}]"#;
+    filters::compile_one("store-block.test".into(), rules.into(), move |f| *slot.borrow_mut() = Some(f));
+    assert!(spin_until(|| block.borrow().is_some(), 20), "the test's rule compiled");
+    state.content.borrow().as_ref().unwrap().add_filter(block.borrow().as_ref().unwrap());
     let link = "https://extension.tarnbrowser.com/install/helper";
+    let decided = |state: &State| state.events.borrow().iter().any(|(n, d)| n == "decided" && d["url"].as_str().is_some_and(|u| u.starts_with(link)));
     for script in [
         format!("location.href = '{link}'"),
         format!("const a = document.createElement('a'); a.href = '{link}/'; document.body.append(a); a.click()"),
@@ -98,15 +105,21 @@ fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
     ] {
         state.events.borrow_mut().clear();
         web.load_html(&format!("<html><body><script>{script}</script></body></html>"), Some("http://page.test/"));
-        spin_until(|| false, 2);
+        assert!(spin_until(|| decided(&state), 20), "{script}: the navigation reached the policy: {:?}", state.events.borrow());
+        spin_until(|| false, 1);
         assert!(event(&state, "committed").is_some(), "{script}: the page loaded");
         assert!(event(&state, engine::tarn_ext::STORE_EVENT).is_none(), "{script}: {:?}", state.events.borrow());
+        if !script.contains("iframe") {
+            let blocked = event(&state, "failed").is_some_and(|d| d["url"].as_str().is_some_and(|u| u.starts_with(link)));
+            assert!(blocked, "{script}: the test's rule stopped the request: {:?}", state.events.borrow());
+        }
     }
     state.events.borrow_mut().clear();
     *state.load.borrow_mut() = Some((link.to_owned(), 1));
     state.load_link.set(true);
     load(&state, None);
-    assert!(spin_until(|| event(&state, "started").is_some() || event(&state, "failed").is_some(), 20), "the pop-up's load ran");
+    assert!(spin_until(|| decided(&state), 20), "the pop-up's load reached the policy");
+    spin_until(|| false, 1);
     assert!(event(&state, engine::tarn_ext::STORE_EVENT).is_none(), "a page's pop-up tab never asks: {:?}", state.events.borrow());
     web.load_html(PAGE, Some("http://page.test/"));
     assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page loaded");
