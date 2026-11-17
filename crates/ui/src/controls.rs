@@ -561,28 +561,22 @@ pub fn list_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
         .map(|d| if selected { d.bg(Theme::selected()) } else { d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())) })
 }
 
+/// The text column of a row: shrinks and wraps beside the row's control. `flex_1`'s relative
+/// zero basis lets a block parent lay the text out at its unwrapped width, which GPUI then paints
+/// over the control.
+fn text_column() -> Div {
+    div().flex_1().flex_basis(px(0.)).min_w_0()
+}
+
 /// A title over a muted detail; the detail wraps.
 pub fn text_block(title: impl Into<SharedString>, detail: impl Into<SharedString>) -> Div {
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap_0p5()
-        .child(title.into())
-        .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
+    text_column().flex().flex_col().gap_0p5().child(title.into()).child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
 }
 
 /// `text_block` kept to one line each, cut with an ellipsis, for list rows.
 pub fn text_lines(title: impl Into<SharedString>, detail: impl Into<SharedString>) -> Div {
     let line = || div().overflow_hidden().whitespace_nowrap().text_ellipsis();
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .child(line().child(title.into()))
-        .child(line().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
+    text_column().flex().flex_col().child(line().child(title.into())).child(line().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
 }
 
 /// The heading of a group of rows in a pop-up or list, smaller and quieter than `section`.

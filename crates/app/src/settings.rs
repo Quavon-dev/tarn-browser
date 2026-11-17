@@ -287,7 +287,8 @@ impl SettingsWindow {
             titlebar: Some(TitlebarOptions {
                 title: Some("Settings".into()),
                 appears_transparent: true,
-                traffic_light_position: Some(point(px(18.), px(18.))),
+                // AppKit only hit-tests the buttons inside its titlebar strip, so they stay within it.
+                traffic_light_position: Some(point(px(18.), px(10.))),
             }),
             window_background: WindowBackgroundAppearance::Opaque,
             is_minimizable: false,
@@ -481,7 +482,8 @@ impl SettingsWindow {
                         } else {
                             "Click a shortcut and press the new keys, with ⌘ or ⌃; Esc cancels."
                         })
-                        .flex_1()
+                        .flex_grow()
+                        .flex_basis(px(0.))
                         .pt_0(),
                     )
                     .when(!changed.is_empty(), |d| {
