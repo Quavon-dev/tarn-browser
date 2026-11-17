@@ -1,52 +1,10 @@
-use std::time::{Duration, Instant};
+pub use browser_core::sidebar::{Step, Swipe};
 
 use super::Browser;
 
-const THRESHOLD: f32 = 60.;
-const GAP: Duration = Duration::from_millis(200);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Step {
-    Previous,
-    Next,
-}
-
-#[derive(Default)]
-pub struct Swipe {
-    dx: f32,
-    dy: f32,
-    armed: bool,
-    last: Option<Instant>,
-}
-
-impl Swipe {
-    pub fn feed(&mut self, dx: f32, dy: f32, at: Instant) -> Option<Step> {
-        if self.last.is_none_or(|last| at.saturating_duration_since(last) > GAP) {
-            *self = Swipe { armed: true, ..Swipe::default() };
-        }
-        self.last = Some(at);
-        if !self.armed {
-            return None;
-        }
-        (self.dx, self.dy) = (self.dx + dx, self.dy + dy);
-        if self.dy.abs() > THRESHOLD {
-            self.armed = false;
-        }
-        if !self.armed || self.dx.abs() < THRESHOLD || self.dx.abs() < 2. * self.dy.abs() {
-            return None;
-        }
-        self.armed = false;
-        Some(if self.dx > 0. { Step::Next } else { Step::Previous })
-    }
-}
-
 impl Browser {
     pub fn neighbour_space(&self, step: Step) -> Option<usize> {
-        match step {
-            Step::Next => Some(self.model.space_ix + 1),
-            Step::Previous => self.model.space_ix.checked_sub(1),
-        }
-        .filter(|ix| *ix < self.model.spaces.len())
+        browser_core::sidebar::neighbour_space(&self.model, step, |_| true)
     }
 
     pub fn swipe_to(&mut self, step: Step) {
@@ -58,6 +16,8 @@ impl Browser {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
 
     #[test]
