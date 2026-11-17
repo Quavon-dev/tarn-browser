@@ -6,17 +6,18 @@ use std::time::Instant;
 use browser_core::sidebar::{self as bar, DropAt, Row, RowKind, Swipe};
 use browser_core::tab_menu;
 use browser_core::tabs::TabKey;
-use nsh_base::{PopoverEvent, button, input, popover};
+use nsh_base::{button, input};
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use store::{Id, TabKind};
 use tarn_nsh_shared::controls::{site_tile, tip};
 use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::motion::spinner;
+use tarn_nsh_shared::popover::{self as pop, Anchor};
 use tarn_nsh_shared::sidebar::{
-    BUTTON, CLOSE_GAP, CLOSE_WIDTH, FOOTER_HEIGHT, GLYPH, HEADER_HEIGHT, HEADER_INSET, INDENT, INNER_PAD, MARGIN, ROW_GAP, ROW_INSET, STATE_GLYPH, TAB_ROW,
-    TILE_GAP, TILE_ICON, WIDTH, chosen_icon, divider, glyph_button, group_avatar, group_color, menu_card, menu_heading, menu_item, menu_separator,
-    new_tab_mark, progress_ring, tile_grid,
+    BUTTON, CLOSE_GAP, CLOSE_WIDTH, FOOTER_HEIGHT, GLYPH, HEADER_HEIGHT, HEADER_INSET, INDENT, INNER_PAD, MARGIN, MENU_WIDTH, ROW_GAP, ROW_INSET, STATE_GLYPH,
+    TAB_ROW, TILE_GAP, TILE_ICON, WIDTH, chosen_icon, divider, glyph_button, group_avatar, group_color, menu_heading, menu_item, menu_separator, new_tab_mark,
+    progress_ring, tile_grid,
 };
 
 use super::super::{AppShell, Screen, Ui, bars, panels};
@@ -96,23 +97,14 @@ fn open_menu(bar: Bar, target: Target, at: Point<Points>) {
 fn menu_anchor(bar: Bar, target: Target) -> AnyElement {
     dynamic(move || {
         let at = bar.menu.with(|m| m.filter(|(t, _)| *t == target).map(|(_, at)| at))?;
-        let close = move |e: &PopoverEvent| {
-            if let PopoverEvent::OpenChange(false, _) = e {
-                bar.menu.set(None);
-            }
-        };
-        Some(
-            view().absolute().left(px(at.x.0)).top(px(at.y.0)).w(px(0.)).h(px(0.)).child(
-                popover()
-                    .open(move || Some(true))
-                    .on_open_change(close)
-                    .placement(Placement::Bottom)
-                    .align(Align::Start)
-                    .offset(Points(2.))
-                    .trigger(view().w(px(0.)).h(px(0.)))
-                    .child(menu_card().child(untracked(|| menu_items(bar, target)))),
-            ),
-        )
+        let point = element_ref();
+        let menu = view().p_1().child(untracked(|| menu_items(bar, target)));
+        Some(view().absolute().left(px(at.x.0)).top(px(at.y.0)).w(px(0.)).h(px(0.)).element_ref(&point).child(pop::popover(
+            Anchor::Below(point, Align::Start),
+            MENU_WIDTH,
+            move || bar.menu.set(None),
+            menu,
+        )))
     })
 }
 

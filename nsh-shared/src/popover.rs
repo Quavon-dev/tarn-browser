@@ -26,21 +26,49 @@ pub enum Anchor {
 }
 
 pub fn popover(anchor: Anchor, width: f32, close: impl Fn() + Copy + 'static, content: impl IntoElement) -> View {
+    fitted(anchor, width, close, content, None)
+}
+
+/// The room a card placed as `placed` says may take: what the core told it, less what the software keyboard
+/// covers, and how far a card above its anchor moves up so the keyboard leaves it whole.
+pub fn fit(placed: Option<OverlayPosition>, window: Size<Points>, keyboard: Points) -> (Option<f32>, f32) {
+    let Some(p) = placed else { return (None, 0.) };
+    let clear = window.height.0 - keyboard.0 - MARGIN;
+    let room = p.available.height.0;
+    match p.placement {
+        Placement::Top if keyboard.0 > 0. => {
+            let lift = (p.bounds.origin.y.0 + p.bounds.size.height.0 - clear).max(0.);
+            (Some((room - lift).max(0.)), lift)
+        }
+        Placement::Bottom if keyboard.0 > 0. => (Some(room.min(clear - p.bounds.origin.y.0).max(0.)), 0.),
+        _ => (Some(room), 0.),
+    }
+}
+
+/// A card anchored as `anchor` whose height never passes the room it has: `body` scrolls and `footer` stays.
+pub fn fitted(anchor: Anchor, width: f32, close: impl Fn() + Copy + 'static, body: impl IntoElement, footer: Option<AnyElement>) -> View {
+    let placed = signal(None::<OverlayPosition>);
+    let fitting = move || fit(placed.get(), window(), keyboard_height());
     let backdrop = overlay().inset_0().focusable(false).on_press(close);
     let popup = match anchor {
         Anchor::Below(at, align) => overlay().anchor(&at).align(align).offset(px(GAP)).placement(Placement::Bottom),
         Anchor::Box(at, align) => overlay().anchor_bounds(move || at).align(align).offset(px(GAP)).placement(Placement::Bottom),
         Anchor::Above(at, align) => overlay().anchor(&at).align(align).offset(px(GAP)).placement(Placement::Top),
     };
-    let popup = popup.margin(px(MARGIN)).on_cancel(close).child(
+    let popup = popup.margin(px(MARGIN)).on_cancel(close).on_position(move |p: &OverlayPosition| placed.set(Some(*p))).child(
         card()
             .test_id("popover")
+            .flex_col()
             .w(px(width))
+            .max_h(move || fitting().0.map_or_else(|| relative(1.), |h| px(h).into()))
+            .relative()
+            .top(move || px(-fitting().1))
             .overflow_hidden()
             .text_size(px(TEXT))
             .text_color(Theme::text)
             .bind_motion(&crate::motion::fade_in())
-            .child(content),
+            .child(scroll().flex_shrink(1.).min_h(px(0.)).child(body))
+            .children(footer.map(|f| view().flex_none().child(f))),
     );
     view().child(backdrop).child(popup)
 }

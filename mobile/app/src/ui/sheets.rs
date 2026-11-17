@@ -366,6 +366,11 @@ fn swatches(chosen: impl Fn() -> String + Copy + 'static, pick: impl Fn(&'static
 }
 
 pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
+    let (body, footer) = space_card_parts(ui, editing);
+    view().gap_2().child(body).child(footer)
+}
+
+pub fn space_card_parts(ui: Ui, editing: Option<usize>) -> (View, View) {
     let draft = signal(ui.read(|s| s.space_draft(editing)));
     let profiles = ui.read_data(|s| s.profiles());
     let known = signal(profiles.clone());
@@ -451,7 +456,7 @@ pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
                 .into_element()
         })
         .collect::<Vec<_>>();
-    view()
+    let body = view()
         .gap_2()
         .child(
             caption(if new {
@@ -480,16 +485,15 @@ pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
         }))
         .child(section("Icon"))
         .child(view().flex_row().flex_wrap().gap_1().children(icons_grid))
-        .child((!new && !private).then(|| schedule(draft)))
-        .child(
-            view()
-                .flex_row()
-                .justify_end()
-                .gap_2()
-                .pt_2()
-                .child(pill("Cancel", back))
-                .child(accent_pill(if new { "Create Space" } else { "Save" }, confirm).disabled(move || !ready()).disabled_style(|s| s.opacity(0.35))),
-        )
+        .child((!new && !private).then(|| schedule(draft)));
+    let footer = view()
+        .flex_row()
+        .justify_end()
+        .gap_2()
+        .pt_2()
+        .child(pill("Cancel", back))
+        .child(accent_pill(if new { "Create Space" } else { "Save" }, confirm).disabled(move || !ready()).disabled_style(|s| s.opacity(0.35)));
+    (body, footer)
 }
 
 fn schedule(draft: Signal<SpaceDraft>) -> View {

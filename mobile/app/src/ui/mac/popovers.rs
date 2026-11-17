@@ -4,7 +4,7 @@ use shield::ShieldLevel;
 use tarn_nsh_shared::controls::{caps_label, empty_state, glyph_row, glyph_switch, group, icon_button, icon_pill, label, segmented, site_tile};
 use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::popover::{self as pop, Anchor};
-use tarn_nsh_shared::sidebar::{menu_card, menu_check, menu_item};
+use tarn_nsh_shared::sidebar::{MENU_WIDTH, menu_check, menu_item};
 use tarn_nsh_shared::toolbar::small;
 
 use super::super::{Screen, Ui, panels, sheets};
@@ -14,7 +14,6 @@ const SITE_HEADER: f32 = 60.;
 const FOOTER: f32 = 40.;
 const ZOOM_STEP: f64 = 0.1;
 const QR_SIZE: f32 = 204.;
-const SPACE_HEIGHT: f32 = 560.;
 
 #[derive(Clone, Copy)]
 pub struct Anchors {
@@ -37,11 +36,6 @@ pub(super) fn owns(screen: Screen) -> bool {
 
 pub(in crate::ui) fn start_pills(ui: Ui) -> impl IntoElement {
     let open = signal(None::<bool>);
-    let close = move |e: &nsh_base::PopoverEvent| {
-        if let nsh_base::PopoverEvent::OpenChange(false, _) = e {
-            open.set(None);
-        }
-    };
     let menu = move |space: bool| {
         dynamic(move || {
             (open.get() == Some(space)).then(|| {
@@ -77,16 +71,13 @@ pub(in crate::ui) fn start_pills(ui: Ui) -> impl IntoElement {
                             .collect()
                     }
                 });
-                view().absolute().right(px(0.)).bottom(px(0.)).w(px(0.)).h(px(0.)).child(
-                    nsh_base::popover()
-                        .open(move || Some(true))
-                        .on_open_change(close)
-                        .placement(Placement::Bottom)
-                        .align(Align::End)
-                        .offset(Points(4.))
-                        .trigger(view().w(px(0.)).h(px(0.)))
-                        .child(menu_card().child(view().flex_col().children(items))),
-                )
+                let point = element_ref();
+                view().absolute().right(px(0.)).bottom(px(0.)).w(px(0.)).h(px(0.)).element_ref(&point).child(pop::popover(
+                    Anchor::Below(point, Align::End),
+                    MENU_WIDTH,
+                    move || open.set(None),
+                    view().flex_col().p_1().children(items),
+                ))
             })
         })
     };
@@ -126,6 +117,7 @@ pub(super) fn popovers(ui: Ui) -> impl IntoElement {
         let open = matches!(screen, Screen::Downloads | Screen::SpaceNew | Screen::SpaceEdit(_)).then(|| sidebar.get());
         let sidebar_shown = open == Some(true);
         untracked(|| {
+            let mut footer = None;
             let (anchor, width, body) = match screen {
                 Screen::Shield => (Anchor::Below(ui.popovers.shield, Align::Center), pop::SITE_WIDTH, site_popover(ui).into_element()),
                 Screen::Share => (Anchor::Below(ui.popovers.share, Align::End), pop::SHARE_WIDTH, share_menu(ui).into_element()),
@@ -133,14 +125,16 @@ pub(super) fn popovers(ui: Ui) -> impl IntoElement {
                 Screen::Downloads => (downloads_anchor(ui, open == Some(true)), pop::DOWNLOADS_WIDTH, downloads(ui).into_element()),
                 Screen::SpaceNew | Screen::SpaceEdit(_) => {
                     let editing = if let Screen::SpaceEdit(ix) = screen { Some(ix) } else { None };
-                    let card = scroll().max_h(px(SPACE_HEIGHT)).child(view().p_3().child(sheets::space_card(ui, editing)));
+                    let (body, foot) = sheets::space_card_parts(ui, editing);
+                    footer = Some(foot.px_3().pb_3().into_element());
+                    let card = view().p_3().child(body);
                     let anchor =
                         if sidebar_shown { Anchor::Above(ui.popovers.new_space, Align::Start) } else { Anchor::Below(ui.popovers.toggle, Align::Start) };
                     (anchor, pop::SPACE_WIDTH, card.into_element())
                 }
                 _ => return None,
             };
-            Some(pop::popover(anchor, width, move || ui.show(Screen::Browse), body))
+            Some(pop::fitted(anchor, width, move || ui.show(Screen::Browse), body, footer))
         })
     })
 }
@@ -263,11 +257,11 @@ fn site_settings(ui: Ui, host: Option<String>, secure: bool) -> impl IntoElement
                 .gap(px(6.))
                 .px_3()
                 .child(caps_label("Shield for this site"))
-                .child(view().flex_row().child(segmented(choices)))
+                .child(segmented(choices).test_id("site-levels"))
                 .child(small(meaning).px_1()),
         )
         .child(list)
-        .child(when(move || more.get(), move || scroll().max_h(px(320.)).child(view().px_3().child(sheets::site(ui)))))
+        .child(when(move || more.get(), move || view().px_3().child(sheets::site(ui))))
         .child(view().flex_row().items_center().h(px(FOOTER)).px_3().border_t_1().border_color(Theme::separator).child(toggle))
 }
 

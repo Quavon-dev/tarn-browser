@@ -45,6 +45,8 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
     assert!(!app.screen().shows("Done"), "the touch sheet gives way to the popover");
     let (chip, card) = (bounds_of(&app, "label:Site settings: Shield Standard, 0 stopped on this site"), bounds(&app, "popover"));
     assert_eq!(card.size.width, Points(340.));
+    let levels = bounds(&app, "site-levels");
+    assert!((levels.size.width.0 - (card.size.width.0 - 26.)).abs() < 1., "the Shield levels span the card like the rows below: {levels:?} {card:?}");
     assert!((card.origin.y.0 - (chip.origin.y.0 + chip.size.height.0 + 4.)).abs() < 0.5, "4 pt under the chip: {chip:?} {card:?}");
     let centre = |b: Bounds<Points>| b.origin.x.0 + b.size.width.0 / 2.;
     assert!((centre(card) - centre(chip)).abs() < 0.5 || card.origin.x.0 <= 8.5, "centred under the chip: {chip:?} {card:?}");

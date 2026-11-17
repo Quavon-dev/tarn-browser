@@ -3,7 +3,7 @@ use nsh_core::prelude::*;
 
 use crate::controls::{icon_button, tip};
 use crate::icons;
-use crate::theme::{PROFILE_COLORS, Paint, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
+use crate::theme::{PROFILE_COLORS, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
 
 pub const WIDTH: f32 = 256.;
 pub const MARGIN: f32 = 6.;
@@ -89,10 +89,6 @@ pub fn progress_ring(share: f32) -> Svg {
 
 pub fn divider() -> View {
     view().h(px(1.)).mx_2().my(px(6.)).bg(Theme::hairline)
-}
-
-pub fn menu_card() -> View {
-    view().w(px(MENU_WIDTH)).p_1().rounded(px(Theme::radius_row())).surface()
 }
 
 pub fn menu_item(name: impl Into<String>, enabled: bool, press: impl Fn() + 'static) -> ButtonElement {
