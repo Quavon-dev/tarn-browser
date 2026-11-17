@@ -108,6 +108,8 @@ pub struct Browser {
     pub released: Vec<crate::data::StoreKey>,
     pub download_owners: HashMap<String, Option<Id>>,
     pub cancelled_downloads: Vec<String>,
+    pub kept_downloads: Vec<(String, bool)>,
+    pub downloads_moved: std::time::Instant,
     pub text_found: suggest::TextMatches,
     pub favicons: engine::favicon::Tracker<icons::Profile, std::sync::Arc<str>>,
     pub elsewhere: HashSet<TabKey>,
@@ -173,6 +175,8 @@ impl Browser {
             released: Vec::new(),
             download_owners: HashMap::new(),
             cancelled_downloads: Vec::new(),
+            kept_downloads: Vec::new(),
+            downloads_moved: std::time::Instant::now(),
             text_found: Default::default(),
             favicons: Default::default(),
             elsewhere,
@@ -689,7 +693,8 @@ impl Browser {
         if let Some((private, id)) = self.profile_of_space() {
             self.core.store(private).clear_downloads(id).ok();
         }
-        self.downloads.retain(|d| d.state == "started");
+        self.settle_downloads();
+        self.downloads.retain(|d| d.state == "started" || d.state == "flagged");
     }
 
     pub fn store_key(&self) -> Option<crate::data::StoreKey> {

@@ -240,7 +240,7 @@ pub struct Browser {
     pub auth_pass: Entity<TextInput>,
     pub remember_permission: bool,
     /// When a guarded control last appeared or moved, or the tab, window or overlay changed
-    /// (`blocking::BYPASS_DELAY`).
+    /// (`browser_core::prompts::BYPASS_DELAY`).
     pub layout_stable_since: Instant,
     pub find_open: bool,
     pub find_input: Entity<TextInput>,

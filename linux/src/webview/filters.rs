@@ -1,9 +1,12 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
-use shield::ShieldLevel;
+use browser_core::site::Sets;
+use shield::domains::DomainSet;
 use shield::rules::builtin_rules;
+use shield::{Category, ShieldLevel};
 use webkit6::{UserContentFilter, UserContentFilterStore, gio, glib};
 
 use shield::groups as bundle;
@@ -20,6 +23,7 @@ thread_local! {
     static STORE: UserContentFilterStore = UserContentFilterStore::new(&crate::data::root().join("webkit-filters").to_string_lossy());
     static BUILTIN: RefCell<HashMap<ShieldLevel, UserContentFilter>> = RefCell::default();
     static GROUPS: RefCell<Groups> = const { RefCell::new(Groups::Idle) };
+    pub(super) static MALWARE: RefCell<Option<Arc<DomainSet>>> = const { RefCell::new(None) };
 }
 
 async fn compile(identifier: String, source: String) -> Result<UserContentFilter, String> {
@@ -31,10 +35,16 @@ fn ready_groups() {
     let dir = crate::data::root().join("filters");
     glib::MainContext::default().spawn_local(async move {
         let key = bundle::public_key();
-        let loaded = gio::spawn_blocking(move || bundle::load(&dir, &key)).await.unwrap_or_else(|_| Err("converter panicked".into()));
+        let loaded = gio::spawn_blocking(move || {
+            let cached = shield::cache::read(&dir, &key).map_err(|e| format!("{e:?}"))?;
+            Ok((bundle::of(&cached), Sets::from_bundle(&cached, &[Category::Malware]).malware))
+        })
+        .await
+        .unwrap_or_else(|_| Err(String::from("converter panicked")));
         let mut compiled = HashMap::new();
         match loaded {
-            Ok(groups) => {
+            Ok((groups, malware)) => {
+                MALWARE.with_borrow_mut(|m| *m = malware);
                 for group in groups {
                     let mut filters = Vec::new();
                     for (n, chunk) in group.chunks.into_iter().enumerate() {
@@ -74,6 +84,10 @@ fn when_groups_ready(then: Waiter) {
     if let Some(then) = run_now {
         then();
     }
+}
+
+pub fn malware() -> Option<Arc<DomainSet>> {
+    MALWARE.with_borrow(Clone::clone)
 }
 
 pub fn with_filters(level: ShieldLevel, groups: Vec<String>, then: impl FnOnce(Result<Vec<UserContentFilter>, String>) + 'static) {

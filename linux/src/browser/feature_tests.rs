@@ -55,6 +55,43 @@ fn a_download_outlives_its_tab_and_is_cancelled_by_id() {
 }
 
 #[test]
+fn a_flagged_download_waits_for_keep_or_delete() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    let profile = b.model.profile().unwrap().1;
+    for id in ["4", "5"] {
+        b.on_download(key, &json!({ "id": id, "state": "started", "name": "x.exe", "pausable": false }), true);
+        b.on_download(key, &json!({ "id": id, "state": "flagged", "name": "x.exe", "host": "evil.test" }), true);
+    }
+    assert_eq!(
+        b.toast.as_ref().map(|t| (t.tone, t.text.as_str())),
+        Some((browser_core::toast::Tone::Warning, "x.exe comes from evil.test, a site on the malware list."))
+    );
+    assert!(b.downloads.iter().all(|d| d.state == "flagged" && d.message == "From evil.test, a site on the malware list. Not saved until you keep it."));
+    assert_eq!(crate::snapshot::snapshot(&b, true).downloading, None, "a held download is not counted as saving");
+    b.clear_downloads();
+    assert_eq!(b.downloads.len(), 2, "Clear keeps downloads that wait for an answer");
+    b.keep_download("4", true);
+    assert!(b.kept_downloads.is_empty(), "Keep ignores clicks while the rows still move");
+    b.downloads_moved -= browser_core::prompts::BYPASS_DELAY;
+    b.on_download(key, &json!({ "id": "4", "state": "progress", "done": 0, "total": 9 }), true);
+    b.keep_download("4", true);
+    assert!(b.kept_downloads.is_empty(), "a progress bar appearing moves the rows");
+    b.downloads_moved -= browser_core::prompts::BYPASS_DELAY;
+    b.keep_download("4", true);
+    assert_eq!(b.downloads.iter().find(|d| d.id == "4").map(|d| d.state.as_str()), Some("started"), "a kept row loses Keep and Delete at once");
+    assert!(!browser_core::prompts::stable(b.downloads_moved, std::time::Instant::now()), "a kept row moves the rest");
+    b.keep_download("5", false);
+    assert_eq!(b.kept_downloads, [("4".to_owned(), true), ("5".to_owned(), false)]);
+    assert_eq!(b.downloads.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["4"]);
+    assert!(!b.download_owners.contains_key("5"));
+    b.on_download(key, &json!({ "id": "4", "state": "started", "name": "x.exe", "path": "/d/x.exe", "pausable": false }), true);
+    assert_eq!(b.downloads[0].state, "started");
+    b.on_download(key, &json!({ "id": "4", "state": "finished", "name": "x.exe", "path": "/d/x.exe", "url": "https://evil.test/x.exe" }), true);
+    assert_eq!(b.core.disk.downloads(profile).unwrap().len(), 1, "only the kept file is recorded");
+}
+
+#[test]
 fn a_burned_tab_keeps_its_download_running_and_records_nothing() {
     let (_dir, mut b) = browser();
     b.open_burner();

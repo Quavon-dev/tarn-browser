@@ -315,7 +315,9 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
 nothing under Lockdown, answers checked in Rust); details and deviations in `linux/README.md`
 ("Features from the macOS app"). Verified in Docker under Xvfb: host tests, three display tests (v3
 scripts, styles and zaps; nothing under Lockdown; no private or burner data on disk) and screenshots
-`linux/evidence/feature-*.png`. Deviations: no download pause/resume or malware flag, Read Aloud only
+`linux/evidence/feature-*.png`. Deviations: no download pause/resume (gap: WebKitGTK's `WebKitDownload` offers only `cancel`, with no
+resume data and no way to continue the same transfer; fetching the URL again would be a new download,
+not a resume), Read Aloud only
 with `spd-say` (no pause), the Shield card (the Mac's glacier lake from `browser_core::shield_card`, words drawn as native
 text over its SVG landscape since NSH's SVG renderer draws no text) flips and takes a New Design but does not tilt, and Share card saves its front as a PNG through the save dialog (the
 desktop's image loaders draw the SVG); Settings is a sheet with grouped navigation (You: Profile, Profiles; Browser:

@@ -416,6 +416,10 @@ impl<D: Platform> Shell<D> {
             t.tab = key;
         }
         let number = |field: &str| data.get(field).and_then(Value::as_u64);
+        let bar_appears = at.and_then(|at| self.transfers.get(at)).is_some_and(|t| t.total.is_none() && number("total").is_some());
+        if state != "progress" || bar_appears {
+            self.transfers_moved = std::time::Instant::now();
+        }
         match state.as_str() {
             "started" => {
                 self.notice = Some(format!("Downloading {name}…"));
@@ -433,7 +437,7 @@ impl<D: Platform> Shell<D> {
                     "paused" => TransferState::Paused,
                     "flagged" => {
                         let host = text(data, "host");
-                        self.notice = Some(format!("{} comes from {host}, a site on the malware list.", t.name));
+                        self.notice = Some(engine::downloads::flagged_notice(&t.name, &host));
                         TransferState::Flagged(host)
                     }
                     "resumed" | "progress" if t.state == TransferState::Paused && state == "progress" => TransferState::Paused,
@@ -461,11 +465,20 @@ impl<D: Platform> Shell<D> {
 
     pub fn transfer_command(&mut self, id: &str, command: &'static str, keep: bool) -> Vec<Effect> {
         let Some(t) = self.transfers.iter().find(|t| t.id == id) else { return Vec::new() };
+        if command == "downloadKeep" && keep && !browser_core::prompts::stable(self.transfers_moved, std::time::Instant::now()) {
+            return Vec::new();
+        }
         let live = |k: &TabKey| self.model.lifecycle.live().any(|l| l == *k);
         let Some(tab) = Some(t.tab).filter(live).or(self.model.active).or_else(|| self.model.lifecycle.live().next()) else { return Vec::new() };
         let args = if command == "downloadKeep" { json!({ "id": id, "keep": keep }) } else { json!({ "id": id }) };
         if command == "downloadCancel" || (command == "downloadKeep" && !keep) {
             self.transfers.retain(|t| t.id != id);
+            self.transfers_moved = std::time::Instant::now();
+        } else if command == "downloadKeep"
+            && let Some(t) = self.transfers.iter_mut().find(|t| t.id == id)
+        {
+            t.state = TransferState::Saving;
+            self.transfers_moved = std::time::Instant::now();
         }
         vec![Effect::Command(tab, command, args)]
     }

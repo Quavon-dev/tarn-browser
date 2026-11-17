@@ -68,8 +68,9 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
 - Shield: cookie-banner lists switch, the Shield card (front and stamps side, no 3D tilt in NSH)
   with the last seven days and the sites protected most; counters from `shielded` events;
 - downloads: `id`, progress (percentage next to the downloads button, sizes in the panel), cancel,
-  sorting into Downloads subfolders; no pause or resume (WebKitGTK cannot) and no malware flag (no
-  malware domain set on Linux yet);
+  sorting into Downloads subfolders; a download whose request, response or page host is on the
+  installed malware set (Block malware sites on) is `flagged` and waits, unsaved, for Keep or Delete
+  in the Downloads panel (`downloadKeep`); no pause or resume (WebKitGTK cannot);
 - keyboard shortcuts rebound in Settings (typed as `Ctrl+Shift+Y`; Linux has its own action list);
 - desktop input: Up and Down pick a suggestion row of the address field or the start card and Enter
   runs it; a right click (or Shift+F10) on a tab or tile opens the Tab panel for that tab; `Ctrl+G` and

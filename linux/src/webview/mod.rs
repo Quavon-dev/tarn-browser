@@ -179,6 +179,14 @@ impl session::DownloadSink for State {
     fn sort_downloads(&self) -> bool {
         self.sort_downloads.get()
     }
+
+    fn page(&self) -> Option<Url> {
+        self.page.borrow().clone()
+    }
+
+    fn malware(&self) -> Option<std::sync::Arc<shield::domains::DomainSet>> {
+        self.lists.borrow().iter().any(|l| l == "malware").then(filters::malware).flatten()
+    }
 }
 
 fn decline(pending: Pending) {
@@ -911,7 +919,8 @@ impl NativeComponent for TarnWebView {
             "answer" => return answer(state, args),
             "find" => return find(state, args),
             "downloadCancel" => return session::cancel(args["id"].as_str().unwrap_or_default()),
-            "downloadKeep" | "downloadPause" | "downloadResume" => return,
+            "downloadKeep" => return session::keep(args["id"].as_str().unwrap_or_default(), args["keep"].as_bool() == Some(true)),
+            "downloadPause" | "downloadResume" => return,
             _ if scripts::command(state, name, args) => return,
             _ => {}
         }
