@@ -2,12 +2,14 @@ use std::rc::Rc;
 
 use browser_core::command::{ENGINES, Input, address, classify_input};
 use browser_core::palette::{self, Command, Row, State, listing};
+use browser_core::shortcuts;
 use browser_core::suggest::step_selection;
 use nsh_base::input;
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use serde_json::Value;
 use shield::ShieldLevel;
+use tarn_nsh_shared::controls::key_caps;
 use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::toolbar::{
     address_text, badge_color, capsule, chip_button, extension_button, picked_fill, row, row_detail, row_glyph, row_name, row_section, row_site, rows,
@@ -18,8 +20,9 @@ use url::Url;
 use super::super::{Screen, Ui, bars};
 use crate::theme::{TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
 
-const OFFERED: [Command; 16] = [
+const OFFERED: [Command; 17] = [
     Command::ReopenClosedTab,
+    Command::TogglePin,
     Command::CloseDuplicates,
     Command::ZapElement,
     Command::Reader,
@@ -90,11 +93,46 @@ fn history_button(ui: Ui, glyph: &'static str, name: &'static str, command: &'st
         .disabled_style(|s| s.text_color(Theme::faint()))
 }
 
+fn sidebar_toggle(ui: Ui) -> impl IntoElement {
+    dynamic(move || {
+        let name = if ui.read_data(|s| s.sidebar_open) { "Hide Sidebar" } else { "Show Sidebar" };
+        tool_button(glyphs::SIDEBAR, name, Placement::Right, move || {
+            ui.act(|s| {
+                s.toggle_sidebar();
+                Vec::new()
+            })
+        })
+        .element_ref(&ui.popovers.toggle)
+    })
+}
+
+fn private_mark(ui: Ui) -> impl IntoElement {
+    dynamic(move || {
+        let (private, burner, open) = ui.read(|s| (s.model.current_space().is_some_and(|c| c.private), s.model.burner_shown(), s.sidebar_open));
+        (private && !open).then(|| {
+            let (glyph, name) =
+                if burner { (glyphs::FLAME, "Burner tab: nothing is kept after it closes") } else { (glyphs::HAND, "Private space: kept in memory only") };
+            view()
+                .w(px(tarn_nsh_shared::controls::target_size()))
+                .h(px(tarn_nsh_shared::controls::target_size()))
+                .items_center()
+                .justify_center()
+                .accessible(true)
+                .label(name)
+                .text_color(Theme::warning)
+                .tooltip(tarn_nsh_shared::controls::tip(name, Placement::Right))
+                .child(glyphs::icon(glyph, 14.))
+        })
+    })
+}
+
 fn navigation(ui: Ui) -> View {
     tools()
+        .child(sidebar_toggle(ui))
         .child(history_button(ui, glyphs::BACK, "Back", "back", |p| p.back))
         .child(history_button(ui, glyphs::FORWARD, "Forward", "forward", |p| p.forward))
         .child(reload_button(ui))
+        .child(private_mark(ui))
 }
 
 fn shield(ui: Ui) -> impl IntoElement {
@@ -108,8 +146,17 @@ fn shield(ui: Ui) -> impl IntoElement {
 
 fn address_field(ui: Ui) -> impl IntoElement {
     let open = move || ui.editing.get() || ui.screen.get() == Screen::Shield;
-    let forward =
-        input().element_ref(&ui.field).label("Address").test_id("address").on_focus(move || open_palette(ui)).absolute().w(px(1.)).h(px(1.)).opacity(0.);
+    let forward = input()
+        .element_ref(&ui.field)
+        .auto_correct(false)
+        .auto_capitalize(AutoCapitalize::None)
+        .label("Address")
+        .test_id("address")
+        .on_focus(move || open_palette(ui))
+        .absolute()
+        .w(px(1.))
+        .h(px(1.))
+        .opacity(0.);
     let capsule = capsule(open)
         .relative()
         .child(forward)
@@ -209,7 +256,7 @@ fn close_palette(ui: Ui) {
 
 fn state(ui: Ui) -> State {
     ui.read(|s| State {
-        pinned: false,
+        pinned: s.model.active.and_then(|k| s.model.tab(k)).is_some_and(|t| t.kind == store::TabKind::Pinned),
         split: s.model.active.is_some_and(|k| s.splits.contains(k)),
         reopenable: !s.model.closed_tabs.is_empty(),
         duplicates: !s.duplicate_tabs().is_empty(),
@@ -290,13 +337,8 @@ fn run(ui: Ui, command: Command) {
         Command::CloseSplit => on_active(ui, |s, k| {
             s.splits.close(k);
         }),
-        Command::TogglePin
-        | Command::SaveSnapshot
-        | Command::Memory
-        | Command::NewWindow
-        | Command::FocusNextPane
-        | Command::FocusPreviousPane
-        | Command::SwapPanes => {}
+        Command::TogglePin => on_active(ui, |s, k| s.toggle_pin(k)),
+        Command::SaveSnapshot | Command::Memory | Command::NewWindow | Command::FocusNextPane | Command::FocusPreviousPane | Command::SwapPanes => {}
     }
 }
 
@@ -386,13 +428,15 @@ fn input_row(ui: Ui) -> impl IntoElement {
 
 fn command_rows(ui: Ui) -> impl IntoElement {
     dynamic(move || {
-        let found = commands(ui, &ui.address.get());
+        let query = ui.address.get();
+        let found = untracked(|| commands(ui, &query));
         let shown = !found.is_empty();
         let items = found.into_iter().enumerate().map(move |(ix, (name, command))| {
             row(name.clone(), move || pick(ui, command))
                 .bg(move || picked_fill(picked(ui, ix + 1)))
                 .child(row_glyph(glyphs::glyph(browser_core::command::glyph(&name)), move || picked(ui, ix + 1)))
                 .child(row_name(name, Theme::text()))
+                .children(shortcuts::for_command(command).and_then(|a| shortcuts::keys_for(a, apple_keys())).map(|k| key_caps(&k)))
         });
         view().flex_col().gap(px(tarn_nsh_shared::toolbar::TOOL_GAP)).children(shown.then(|| row_section("Commands"))).children(items)
     })
@@ -446,6 +490,7 @@ fn palette_field(ui: Ui) -> impl IntoElement {
         .keyboard_type(KeyboardType::Url)
         .return_key_type(ReturnKeyType::Go)
         .auto_capitalize(AutoCapitalize::None)
+        .auto_correct(false)
         .auto_focus(true)
         .placeholder("Search or enter address")
         .placeholder_color(Theme::faint)

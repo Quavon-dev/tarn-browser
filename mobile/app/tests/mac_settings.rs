@@ -27,6 +27,10 @@ fn the_mac_settings_window_shows_one_pane_at_a_time() {
 
     app.press("label:Shortcuts").unwrap();
     app.wait_for("Open location").unwrap();
+    for row in ["Pin or unpin tab", "Toggle sidebar", "Select tab 1–8", "Switch to space 1–9", "Close Settings or a popover"] {
+        app.wait_for(row).unwrap();
+    }
+    assert!(app.screen().shows("⌘D") || app.screen().shows("Ctrl+D"), "rows show the shared table's keys");
 
     app.press("label:Privacy").unwrap();
     app.wait_for("Clear Browsing Data…").unwrap();
@@ -36,6 +40,11 @@ fn the_mac_settings_window_shows_one_pane_at_a_time() {
     app.press("Open-source licences").unwrap();
     app.wait_for("Open-Source Licences").unwrap();
     assert!(app.screen().matches("label:Close Settings").unwrap(), "licences open inside the Settings window");
+    app.back().unwrap();
+    app.wait_for("Sort downloads into folders").unwrap();
+    assert!(app.screen().matches("label:Close Settings").unwrap(), "Back steps from the licences to the pane, not out of Settings");
+    app.press("Open-source licences").unwrap();
+    app.wait_for("Open-Source Licences").unwrap();
     app.press("label:Back").unwrap();
     app.wait_for("Sort downloads into folders").unwrap();
 

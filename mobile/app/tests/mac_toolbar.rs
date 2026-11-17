@@ -24,7 +24,7 @@ fn the_mac_toolbar_opens_a_command_palette() {
     for name in ["label:Back", "label:Forward", "label:Reload", "label:Open Split View", "label:Share"] {
         app.wait_for(name).unwrap();
     }
-    assert!(!app.screen().shows("label:Menu"), "the Mac toolbar has no touch menu button");
+    assert!(!app.screen().matches("label:Menu").unwrap(), "the Mac toolbar has no touch menu button");
 
     app.press("label:Search or enter address").unwrap();
     app.wait_for("id:palette-field").unwrap();
@@ -36,8 +36,22 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.press_key("escape").unwrap();
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
 
+    app.press("label:Hide Sidebar").unwrap();
+    app.wait_for_gone("label:Library", WAIT).unwrap();
+    app.wait_for("label:Show Sidebar").unwrap();
+    app.press("label:Show Sidebar").unwrap();
+    app.wait_for("label:Library").unwrap();
+    app.press_key("mod+s").unwrap();
+    app.wait_for_gone("label:Library", WAIT).unwrap();
+    app.press_key("mod+s").unwrap();
+    app.wait_for("label:Library").unwrap();
+
     app.press_key("mod+l").unwrap();
     app.wait_for("id:palette-field").unwrap();
+    app.type_text("id:palette-field", "> pin").unwrap();
+    app.wait_for("label:Pin Tab").unwrap();
+    assert!(app.screen().shows("⌘D") || app.screen().shows("Ctrl+D"), "a command row shows its keys");
+    app.clear("id:palette-field").unwrap();
     app.type_text("id:palette-field", "> reading").unwrap();
     app.wait_for("COMMANDS").unwrap();
     app.wait_for("label:Reading List").unwrap();

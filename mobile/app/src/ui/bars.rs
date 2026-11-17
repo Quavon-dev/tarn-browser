@@ -211,6 +211,7 @@ fn address_input(ui: Ui) -> nsh_base::Input {
         .keyboard_type(KeyboardType::Url)
         .return_key_type(ReturnKeyType::Go)
         .auto_capitalize(AutoCapitalize::None)
+        .auto_correct(false)
         .placeholder("Search or enter address")
         .placeholder_color(Theme::faint)
         .label("Address")

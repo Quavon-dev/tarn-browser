@@ -106,6 +106,60 @@ pub fn bindings(apple: bool) -> Vec<(String, Action)> {
         .collect()
 }
 
+pub fn shown(keys: &str, apple: bool) -> String {
+    let keys = for_keyboard(keys, apple);
+    let mut mods: Vec<&str> = keys.split('+').collect();
+    let key = mods.pop().unwrap_or_default();
+    let has = |m: &str| mods.contains(&m);
+    let key = match (key, apple) {
+        ("tab", true) => "⇥".to_owned(),
+        ("tab", false) => "Tab".to_owned(),
+        ("escape", _) => "Esc".to_owned(),
+        (key, _) => key.to_uppercase(),
+    };
+    if apple {
+        let mods = [("ctrl", "⌃"), ("alt", "⌥"), ("shift", "⇧"), ("mod", "⌘")];
+        return mods.iter().filter(|(m, _)| has(m)).map(|(_, g)| *g).collect::<String>() + &key;
+    }
+    let mods = [(has("mod") || has("ctrl"), "Ctrl"), (has("alt"), "Alt"), (has("shift"), "Shift")];
+    mods.iter().filter(|(on, _)| *on).map(|(_, m)| *m).chain(std::iter::once(key.as_str())).collect::<Vec<_>>().join("+")
+}
+
+pub fn keys_for(action: Action, apple: bool) -> Option<String> {
+    SECTIONS.iter().flat_map(|(_, rows)| rows.iter()).find(|(_, a, _)| *a == action).map(|(_, _, keys)| shown(keys, apple))
+}
+
+pub fn for_command(command: crate::palette::Command) -> Option<Action> {
+    use crate::palette::Command;
+    match command {
+        Command::ReopenClosedTab => Some(Action::ReopenClosedTab),
+        Command::TogglePin => Some(Action::TogglePin),
+        Command::Reader => Some(Action::ToggleReader),
+        Command::BurnerTab => Some(Action::BurnerTab),
+        Command::FindInTabs => Some(Action::FindInTabs),
+        Command::CopyLink => Some(Action::CopyLink),
+        Command::CopyCleanLink => Some(Action::CopyCleanLink),
+        _ => None,
+    }
+}
+
+pub fn table(apple: bool) -> Vec<(&'static str, Vec<(&'static str, String)>)> {
+    let range = |first: &str, last: &str| format!("{}–{}", shown(first, apple), shown(last, apple).chars().last().unwrap_or_default());
+    let space = if apple { "ctrl" } else { "alt" };
+    SECTIONS
+        .iter()
+        .map(|(name, rows)| {
+            let mut rows: Vec<(&'static str, String)> = rows.iter().map(|(does, _, keys)| (*does, shown(keys, apple))).collect();
+            match *name {
+                "Tabs" => rows.push((label(Action::SelectTab(1)), range("mod+1", &format!("mod+{SELECTABLE_TABS}")))),
+                "Window" => rows.push((label(Action::SwitchSpace(1)), range(&format!("{space}+1"), &format!("{space}+{SWITCHABLE_SPACES}")))),
+                _ => {}
+            }
+            (*name, rows)
+        })
+        .collect()
+}
+
 pub fn tab_to_select(action: Action, count: usize, active: Option<usize>) -> Option<usize> {
     let last = count.checked_sub(1)?;
     match action {
@@ -149,6 +203,38 @@ mod tests {
         assert_eq!(of(false, Action::CopyCleanLink).as_deref(), Some("alt+shift+mod+c"));
         assert_eq!(label(Action::ReopenClosedTab), "Reopen closed tab");
         assert_eq!(label(Action::SelectTab(2)), "Select tab 1–8");
+    }
+
+    #[test]
+    fn keys_read_like_each_platform() {
+        assert_eq!(shown("mod+shift+t", true), "⇧⌘T");
+        assert_eq!(shown("mod+shift+t", false), "Ctrl+Shift+T");
+        assert_eq!(shown("ctrl+shift+mod+c", true), "⌃⇧⌘C");
+        assert_eq!(shown("ctrl+shift+mod+c", false), "Ctrl+Alt+Shift+C");
+        assert_eq!(shown("ctrl+tab", true), "⌃⇥");
+        assert_eq!(shown("ctrl+tab", false), "Ctrl+Tab");
+        assert_eq!(shown("mod+,", true), "⌘,");
+        assert_eq!(shown("mod+=", false), "Ctrl+=");
+        assert_eq!(shown("escape", true), "Esc");
+        assert_eq!(keys_for(Action::TogglePin, true).as_deref(), Some("⌘D"));
+        assert_eq!(keys_for(Action::SelectTab(1), true), None);
+        assert_eq!(for_command(crate::palette::Command::TogglePin), Some(Action::TogglePin));
+        assert_eq!(for_command(crate::palette::Command::Memory), None);
+    }
+
+    #[test]
+    fn the_table_lists_every_bound_action_once() {
+        for apple in [true, false] {
+            let table = table(apple);
+            assert_eq!(table.iter().map(|(n, _)| *n).collect::<Vec<_>>(), SECTIONS.map(|(n, _)| n));
+            let rows: Vec<_> = table.iter().flat_map(|(_, r)| r.iter()).collect();
+            assert_eq!(rows.len(), SECTIONS.iter().map(|(_, r)| r.len()).sum::<usize>() + 2);
+            assert!(rows.iter().all(|(does, keys)| !does.is_empty() && !keys.is_empty()));
+        }
+        let tabs = &table(true)[0].1;
+        assert_eq!(tabs.last().map(|(d, k)| (*d, k.as_str())), Some(("Select tab 1–8", "⌘1–8")));
+        let window = &table(false)[3].1;
+        assert_eq!(window.last().map(|(d, k)| (*d, k.as_str())), Some(("Switch to space 1–9", "Alt+1–9")));
     }
 
     #[test]

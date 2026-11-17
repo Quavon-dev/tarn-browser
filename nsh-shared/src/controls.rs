@@ -67,6 +67,10 @@ pub fn icon_size() -> f32 {
     metrics().icon
 }
 
+pub fn target_size() -> f32 {
+    metrics().target
+}
+
 pub fn label(content: impl IntoReactive<SharedString>) -> Text {
     text(content).text_size(px(metrics().text)).text_color(Theme::text)
 }

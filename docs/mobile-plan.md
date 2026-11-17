@@ -809,9 +809,25 @@ app like the macOS client: sidebar, toolbar and a Settings window (`mobile/app/s
 area and its web views stay mounted across a switch. Phones and narrow multitasking windows always use
 Touch.
 
+The Mac layout mirrors the macOS surfaces: the sidebar (space switcher, Downloads, profile, tiles, pinned
+tabs, folders, groups, Clean Up, tab rows with one tab menu in the macOS order, footer); the toolbar
+(sidebar toggle, Back, Forward, Reload, the private-space mark while the sidebar is hidden, the address
+capsule with the Shield chip, Split View, Share) and the command palette with key caps on its commands;
+Site settings, Downloads, Share and QR as popovers anchored under their buttons with the page still shown
+behind them; the Settings window with one pane at a time, the Shortcuts pane read from
+`browser_core::shortcuts`, and Back stepping from a licence to the list and then to the pane. A hardware
+keyboard runs the macOS shortcuts from the same table (⌘ on iPad, Ctrl on Android), the sidebar's shown
+state is stored like the macOS one (`sidebar_open`), and the address and palette fields have
+autocorrection, spell-check and capitals off.
+
 Gaps (NSH 0.5.0): iPadOS lists no hardware-keyboard shortcut in the ⌘-hold overlay or the menu bar, since
 `nsh-platform-ios` matches keys in `pressesBegan` and registers no `UIKeyCommand` or menu builder;
 Android delivers no secondary click as a context-menu event, so tab menus open with a long press there.
+NSH 0.5.0's press events carry no pointer type, and its iOS long-press timer runs for a trackpad press as
+well, so the sidebar tells a held trackpad click from a held finger by whether the pointer hovers the row:
+a hovered row opens its tab on a long press, an unhovered one opens the menu. A hovering Apple Pencil
+therefore also opens the tab. The Settings window is a card inside the app's surface, since separate OS
+windows are desktop-only in NSH.
 Sidebar tab rows and tiles drag (to reorder, pin, tile, file into a folder or a group) with a trackpad
 or mouse only: NSH 0.5.0 has pans but no lift-to-drag interaction, a long press already opens the tab's
 menu, and a finger pan on a row would take the list's scrolling; a touch user pins, tiles and groups

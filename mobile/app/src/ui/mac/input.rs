@@ -6,7 +6,6 @@ use serde_json::Value;
 use super::super::{Screen, Ui, bars};
 
 const ALWAYS: KeyOptions = KeyOptions { when: When::Always, repeat: false, pass_through: false };
-const UNBOUND: [Action; 2] = [Action::TogglePin, Action::ToggleSidebar];
 
 fn select_tab(ui: Ui, action: Action) {
     let target = ui.read(|s| {
@@ -106,12 +105,21 @@ fn run(ui: Ui, action: Action) {
             });
             ui.show(Screen::Browse);
         }
-        Action::TogglePin | Action::ToggleSidebar => {}
+        Action::TogglePin => ui.act(|s| {
+            if let Some(key) = s.model.active {
+                s.toggle_pin(key);
+            }
+            Vec::new()
+        }),
+        Action::ToggleSidebar => ui.act(|s| {
+            s.toggle_sidebar();
+            Vec::new()
+        }),
     }
 }
 
 pub(super) fn bindings(ui: Ui) -> impl IntoElement {
-    for (keys, action) in shortcuts::bindings(apple_keys()).into_iter().filter(|(_, a)| !UNBOUND.contains(a)) {
+    for (keys, action) in shortcuts::bindings(apple_keys()) {
         on_key_with(&keys, ALWAYS, move |_| run(ui, action));
     }
     view().child(when(

@@ -26,7 +26,7 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
         app.wait_for(part).unwrap();
     }
     assert!(app.screen().shows("Drag tabs here to pin them"), "no pinned tab yet");
-    assert!(!app.screen().shows("label:Clean Up"), "one tab has nothing to sort");
+    assert!(!app.screen().matches("label:Clean Up").unwrap(), "one tab has nothing to sort");
 
     app.long_press("label:New Tab >> nth=1").unwrap();
     app.wait_for("label:Pin Tab").unwrap();
@@ -39,12 +39,12 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.press("label:Pin Tab").unwrap();
     app.wait_for("label:Pinned").unwrap();
     app.wait_for_gone("Drag tabs here to pin them", WAIT).unwrap();
-    assert!(!app.screen().shows("label:Close Tab"), "a pinned tab has no close button");
+    assert!(!app.screen().matches("label:Close Tab").unwrap(), "a pinned tab has no close button");
 
     app.long_press("label:New Tab >> nth=0").unwrap();
     app.wait_for("label:Unpin Tab").unwrap();
     app.wait_for("label:Unload Tab").unwrap();
-    assert!(!app.screen().shows("text:Close Tab"), "a pinned tab is never deleted from its menu");
+    assert!(!app.screen().matches("text:Close Tab").unwrap(), "a pinned tab is never deleted from its menu");
     app.press("label:Add to Tiles").unwrap();
     app.wait_for_gone("label:Pinned", WAIT).unwrap();
     app.wait_for("Drag tabs here to pin them").unwrap();

@@ -1,3 +1,4 @@
+use browser_core::shortcuts;
 use nsh_base::button;
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
@@ -25,25 +26,8 @@ const CLOSE_MARK: u32 = 0x4d00_00ff;
 const DIM: u32 = 0x0000_0059;
 const EXTENSIONS: &str = "Extensions";
 
-const SHORTCUTS: [(&str, &[(&str, &str)]); 2] =
-    [("Tabs", &[("Open location", "mod+l")]), ("Window", &[("Settings", "mod+,"), ("Close Settings or a popover", "escape")])];
-
 pub(super) fn owns(screen: Screen) -> bool {
     matches!(screen, Screen::Settings | Screen::Extensions | Screen::Licences | Screen::Licence(_))
-}
-
-fn keys_label(keys: &str) -> String {
-    let android = cfg!(target_os = "android");
-    keys.split('+')
-        .map(|part| match part {
-            "mod" if android => "Ctrl+".to_owned(),
-            "mod" => "⌘".to_owned(),
-            "shift" if android => "Shift+".to_owned(),
-            "shift" => "⇧".to_owned(),
-            "escape" => "Esc".to_owned(),
-            key => key.to_uppercase(),
-        })
-        .collect()
 }
 
 fn private(ui: Ui) -> bool {
@@ -165,12 +149,16 @@ fn kept_chip(ui: Ui) -> impl IntoElement {
         .child(text(move || if private(ui) { "Kept in memory only" } else { "Counted on this device only" }).text_size(px(TEXT_SMALL)).text_color(Theme::muted))
 }
 
-fn header(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
-    let up = move || match ui.screen.get() {
+pub(super) fn up(screen: Screen) -> Option<Screen> {
+    match screen {
         Screen::Licences => Some(Screen::Settings),
         Screen::Licence(_) => Some(Screen::Licences),
         _ => None,
-    };
+    }
+}
+
+fn header(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
+    let up = move || up(ui.screen.get());
     view()
         .flex_row()
         .flex_none()
@@ -195,8 +183,13 @@ fn header(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
 fn shortcuts() -> View {
     let note =
         if cfg!(target_os = "android") { "Shortcuts work with a hardware keyboard; Ctrl stands for ⌘." } else { "Shortcuts work with a hardware keyboard." };
-    view().gap_2().child(text(note).pt_3().px_1().text_size(px(TEXT_SMALL)).text_color(Theme::muted)).children(SHORTCUTS.map(|(name, rows)| {
-        view().child(section(name)).child(group().children(rows.iter().enumerate().map(|(ix, (does, keys))| {
+    let apple = apple_keys();
+    let mut table = shortcuts::table(apple);
+    if let Some((_, window)) = table.last_mut() {
+        window.push(("Close Settings or a popover", shortcuts::shown("escape", apple)));
+    }
+    view().gap_2().child(text(note).pt_3().px_1().text_size(px(TEXT_SMALL)).text_color(Theme::muted)).children(table.into_iter().map(|(name, rows)| {
+        view().child(section(name)).child(group().children(rows.into_iter().enumerate().map(|(ix, (does, keys))| {
             view()
                 .flex_row()
                 .items_center()
@@ -204,8 +197,8 @@ fn shortcuts() -> View {
                 .min_h(px(40.))
                 .px_3()
                 .when(ix > 0, |v| v.border_t_1().border_color(Theme::separator))
-                .child(label(*does).flex_1().number_of_lines(1))
-                .child(text(keys_label(keys)).text_size(px(TEXT)).text_color(Theme::muted))
+                .child(label(does).flex_1().number_of_lines(1))
+                .child(text(keys).text_size(px(TEXT)).text_color(Theme::muted))
                 .into_element()
         })))
     }))
@@ -267,15 +260,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shortcut_keys_read_like_the_mac_app() {
-        assert_eq!(keys_label("mod+l"), if cfg!(target_os = "android") { "Ctrl+L" } else { "⌘L" });
-        assert_eq!(keys_label("escape"), "Esc");
-        assert!(SHORTCUTS.iter().flat_map(|(_, rows)| rows.iter()).all(|(does, keys)| !does.is_empty() && !keys_label(keys).is_empty()));
-    }
-
-    #[test]
     fn the_window_takes_every_settings_screen() {
         assert!([Screen::Settings, Screen::Extensions, Screen::Licences, Screen::Licence(0)].into_iter().all(owns));
         assert!(!owns(Screen::Browse) && !owns(Screen::Shield));
+    }
+
+    #[test]
+    fn back_steps_up_from_a_licence_to_the_pane() {
+        assert_eq!(up(Screen::Licence(3)), Some(Screen::Licences));
+        assert_eq!(up(Screen::Licences), Some(Screen::Settings));
+        assert_eq!(up(Screen::Settings), None);
+        assert_eq!(up(Screen::Extensions), None);
     }
 }

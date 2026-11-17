@@ -442,6 +442,19 @@ impl<D: Platform> Shell<D> {
         Vec::new()
     }
 
+    pub fn toggle_sidebar(&mut self) {
+        self.sidebar_open = !self.sidebar_open;
+        if let Err(e) = browser_core::layout::save_sidebar(&self.core.disk, self.sidebar_open) {
+            self.toast_as(browser_core::toast::Tone::Warning, format!("The sidebar setting could not be saved: {e}"));
+        }
+    }
+
+    pub fn toggle_pin(&mut self, key: TabKey) {
+        if !self.model.burner_shown() && self.model.tab(key).is_some_and(|t| t.kind != store::TabKind::Tile) {
+            browser_core::sidebar::toggle_pin(&mut self.model, &self.core, key);
+        }
+    }
+
     pub fn set_layout(&mut self, layout: browser_core::layout::Layout) -> Vec<Effect> {
         self.layout = layout;
         if let Err(e) = layout.save(&self.core.disk) {

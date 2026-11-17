@@ -49,7 +49,7 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.press("label:Find in Page").unwrap();
     app.wait_for("label:Next").unwrap();
     app.press_key("escape").unwrap();
-    assert!(!app.screen().shows("label:Next"), "Esc closes the find bar");
+    assert!(!app.screen().matches("label:Next").unwrap(), "Esc closes the find bar");
 
     app.press("label:Menu").unwrap();
     app.wait_for("label:Find in Page").unwrap();

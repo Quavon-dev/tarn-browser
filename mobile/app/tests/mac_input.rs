@@ -17,7 +17,7 @@ fn the_mac_layout_answers_the_macos_keys() {
     app.wait_for("label:Tabs 1").unwrap();
     app.press_key("mod+t").unwrap();
     app.wait_for("label:Tabs 1").unwrap();
-    assert!(!app.screen().shows("label:Tabs 2"), "the touch layout binds no browser keys");
+    assert!(!app.screen().matches("label:Tabs 2").unwrap(), "the touch layout binds no browser keys");
 
     app.set_viewport(Size::new(Points(1376.), Points(1032.))).unwrap();
     app.wait_for("label:Menu").unwrap();
@@ -65,6 +65,14 @@ fn the_mac_layout_answers_the_macos_keys() {
     app.press_key("mod+,").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
+    app.press_key("mod+d").unwrap();
+    app.wait_for("label:Pinned").unwrap();
+    app.press_key("mod+d").unwrap();
+    app.wait_for_gone("label:Pinned", WAIT).unwrap();
+
     app.press_key("mod+shift+n").unwrap();
     app.wait_until("a private space", WAIT, |s| s.shows("Private")).unwrap();
+    assert!(!app.screen().matches("label:Private space: kept in memory only").unwrap(), "the sidebar already says it");
+    app.press_key("mod+s").unwrap();
+    app.wait_for("label:Private space: kept in memory only").unwrap();
 }

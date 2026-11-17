@@ -12,6 +12,10 @@ pub(super) fn owns(screen: Screen) -> bool {
     settings::owns(screen) || popovers::owns(screen)
 }
 
+pub(super) fn back_from(screen: Screen) -> Screen {
+    settings::up(screen).unwrap_or(Screen::Browse)
+}
+
 pub(super) fn frame<T: IntoElements, B: IntoElements>(
     ui: Ui,
     touch_top: impl Fn() -> T + 'static,
@@ -23,7 +27,7 @@ pub(super) fn frame<T: IntoElements, B: IntoElements>(
         .flex_1()
         .relative()
         .child(
-            view().flex_1().flex_row().child(when(mac, move || sidebar::sidebar(ui))).child(
+            view().flex_1().flex_row().child(when(move || mac() && ui.read_data(|s| s.sidebar_open), move || sidebar::sidebar(ui))).child(
                 view()
                     .flex_1()
                     .relative()

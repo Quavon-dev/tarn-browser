@@ -16,7 +16,7 @@ fn a_tablet_switches_to_the_mac_layout_and_back() {
     app.wait_for("label:Settings").unwrap();
     app.press("label:Settings").unwrap();
     app.wait_for("Search the text of visited pages").unwrap();
-    assert!(!app.screen().shows("label:Mac"), "a phone offers no layout choice");
+    assert!(!app.screen().matches("label:Mac").unwrap(), "a phone offers no layout choice");
     app.press("Done").unwrap();
     app.wait_for_gone("Search the text of visited pages", WAIT).unwrap();
 
@@ -29,7 +29,7 @@ fn a_tablet_switches_to_the_mac_layout_and_back() {
     app.press("label:Mac").unwrap();
     app.wait_for("label:Close Settings").unwrap();
     assert_eq!(density(), Density::Desktop);
-    assert!(!app.screen().shows("label:Tabs 1"), "the touch toolbar gives way to the Mac one");
+    assert!(!app.screen().matches("label:Tabs 1").unwrap(), "the touch toolbar gives way to the Mac one");
     app.press("label:Close Settings").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
     app.wait_for("label:New Tab").unwrap();
@@ -51,7 +51,7 @@ fn a_tablet_switches_to_the_mac_layout_and_back() {
     app.press("label:Touch").unwrap();
     app.wait_for("label:Tabs 1").unwrap();
     assert_eq!(density(), Density::Touch);
-    assert!(!app.screen().shows("label:Close Settings"));
+    assert!(!app.screen().matches("label:Close Settings").unwrap());
     app.press("Done").unwrap();
     app.wait_for_gone("Search the text of visited pages", WAIT).unwrap();
 

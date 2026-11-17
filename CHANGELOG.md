@@ -9,7 +9,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Added
 
 - Tablets: Settings › Appearance › Layout switches an iPad or Android tablet between the touch layout
-  and a Mac layout with a sidebar, a toolbar and desktop-sized controls (iOS, Android).
+  and a Mac layout like the macOS app: the sidebar with tiles, pinned tabs, folders, groups and tab
+  menus, a toolbar with a command palette, Site settings, Downloads and Share as popovers under their
+  buttons, a Settings window, and the macOS keyboard shortcuts with a hardware keyboard (iOS, Android).
 
 ## [0.1.2] - 2026-11-17
 

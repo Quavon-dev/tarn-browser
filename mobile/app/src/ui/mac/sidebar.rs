@@ -109,7 +109,7 @@ fn menu_anchor(bar: Bar, target: Target) -> AnyElement {
                     .align(Align::Start)
                     .offset(Points(2.))
                     .trigger(view().w(px(0.)).h(px(0.)))
-                    .child(menu_card().child(menu_items(bar, target))),
+                    .child(menu_card().child(untracked(|| menu_items(bar, target)))),
             ),
         )
     })
@@ -190,11 +190,7 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
     }
     items.extend([
         menu_separator().into_element(),
-        item(bar, if kind == TabKind::Pinned { "Unpin Tab" } else { "Pin Tab" }, !burner && kind != TabKind::Tile, move |ui| {
-            act(ui, |s| {
-                bar::toggle_pin(&mut s.model, &s.core, key);
-            })
-        }),
+        item(bar, if kind == TabKind::Pinned { "Unpin Tab" } else { "Pin Tab" }, !burner && kind != TabKind::Tile, move |ui| act(ui, |s| s.toggle_pin(key))),
         item(bar, if kind == TabKind::Tile { "Remove from Tiles" } else { "Add to Tiles" }, !burner, move |ui| {
             act(ui, |s| {
                 bar::toggle_tile(&mut s.model, &s.core, key);
@@ -339,11 +335,26 @@ fn pressable_view() -> View {
     view().accessible(true).role(AccessibilityRole::Button)
 }
 
+fn press(bar: Bar, target: Target) {
+    let ui = bar.ui;
+    match target {
+        Target::Tab(key) => activate(ui, key),
+        Target::Folder(id) => act(ui, |s| s.model.toggle_folder(id)),
+        Target::Group(id) => act(ui, |s| {
+            s.model.toggle_group(&s.core, id);
+        }),
+        Target::Space => {}
+    }
+}
+
 fn with_menu(bar: Bar, target: Target, element: View) -> View {
+    let pointer = signal(false);
     element
         .relative()
+        .on_mouse_enter(move |_: &MouseEvent| pointer.set(true))
+        .on_mouse_leave(move |_: &MouseEvent| pointer.set(false))
         .on_context_menu(move |e: &ContextMenuEvent| open_menu(bar, target, e.position))
-        .on_long_press(move |e: &PressEvent| open_menu(bar, target, e.position))
+        .on_long_press(move |e: &PressEvent| if pointer.get_untracked() { press(bar, target) } else { open_menu(bar, target, e.position) })
         .child(menu_anchor(bar, target))
 }
 

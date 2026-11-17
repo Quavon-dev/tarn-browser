@@ -1,5 +1,6 @@
 use nsh_core::ViewKind;
 use nsh_core::geometry::{Bounds, Points, Size};
+use nsh_core::platform::{Idiom, Os};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
 
@@ -76,4 +77,16 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
     assert_eq!(app.screen().count("label:Close Tab").unwrap(), 2, "the tab menu ends with Close Tab");
     app.press_key("escape").unwrap();
     app.wait_for_gone("label:Copy Clean Link", WAIT).unwrap();
+
+    let mut touch = None;
+    app.set_environment("pointer", |e| {
+        touch = Some((e.os, e.idiom));
+        (e.os, e.idiom) = (Os::MacOs, Idiom::Desktop);
+    })
+    .unwrap();
+    app.hover("label:https://example.com/").unwrap();
+    app.long_press("label:https://example.com/").unwrap();
+    app.wait_for("label:https://example.com/").unwrap();
+    assert!(!app.screen().matches("label:Copy Clean Link").unwrap(), "a held trackpad click opens the tab, not its menu");
+    app.set_environment("touch", |e| (e.os, e.idiom) = touch.unwrap()).unwrap();
 }

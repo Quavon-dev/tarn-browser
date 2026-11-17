@@ -1,6 +1,7 @@
 use store::Store;
 
 pub const SETTING: &str = "layout.tablet";
+pub const SIDEBAR_SETTING: &str = "sidebar_open";
 pub const TABLET_SIDE: f32 = 600.;
 pub const MAC_WIDTH: f32 = 700.;
 
@@ -41,6 +42,14 @@ impl Layout {
     }
 }
 
+pub fn sidebar_open(store: &Store) -> bool {
+    store.setting(SIDEBAR_SETTING).ok().flatten().as_deref() != Some("off")
+}
+
+pub fn save_sidebar(store: &Store, open: bool) -> Result<(), store::Error> {
+    store.set_setting(SIDEBAR_SETTING, if open { "on" } else { "off" })
+}
+
 pub fn tablet(width: f32, height: f32) -> bool {
     width.min(height) >= TABLET_SIDE
 }
@@ -66,6 +75,17 @@ mod tests {
         assert_eq!(Layout::load(&store), Layout::Mac);
         store.set_setting(SETTING, "bogus").unwrap();
         assert_eq!(Layout::load(&store), Layout::Touch);
+    }
+
+    #[test]
+    fn the_sidebar_starts_open_and_remembers_being_hidden() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        assert!(sidebar_open(&store));
+        save_sidebar(&store, false).unwrap();
+        assert!(!sidebar_open(&store));
+        save_sidebar(&store, true).unwrap();
+        assert!(sidebar_open(&store));
     }
 
     #[test]

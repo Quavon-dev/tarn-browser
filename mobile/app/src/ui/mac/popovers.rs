@@ -18,11 +18,12 @@ pub struct Anchors {
     pub shield: ElementRef,
     pub share: ElementRef,
     pub downloads: ElementRef,
+    pub toggle: ElementRef,
 }
 
 impl Default for Anchors {
     fn default() -> Self {
-        Self { shield: element_ref(), share: element_ref(), downloads: element_ref() }
+        Self { shield: element_ref(), share: element_ref(), downloads: element_ref(), toggle: element_ref() }
     }
 }
 
@@ -38,12 +39,16 @@ pub(super) fn popovers(ui: Ui) -> impl IntoElement {
                 Screen::Shield => (Anchor::Below(ui.popovers.shield, Align::Center), pop::SITE_WIDTH, site_popover(ui).into_element()),
                 Screen::Share => (Anchor::Below(ui.popovers.share, Align::End), pop::SHARE_WIDTH, share_menu(ui).into_element()),
                 Screen::Qr => (Anchor::Below(ui.popovers.share, Align::End), pop::QR_WIDTH, qr(ui).into_element()),
-                Screen::Downloads => (Anchor::Below(ui.popovers.downloads, Align::Center), pop::DOWNLOADS_WIDTH, downloads(ui).into_element()),
+                Screen::Downloads => (downloads_anchor(ui), pop::DOWNLOADS_WIDTH, downloads(ui).into_element()),
                 _ => return None,
             };
             Some(pop::popover(anchor, width, move || ui.show(Screen::Browse), body))
         })
     })
+}
+
+fn downloads_anchor(ui: Ui) -> Anchor {
+    if ui.read_data(|s| s.sidebar_open) { Anchor::Below(ui.popovers.downloads, Align::Center) } else { Anchor::Below(ui.popovers.toggle, Align::Start) }
 }
 
 fn small(content: impl IntoReactive<SharedString>) -> Text {

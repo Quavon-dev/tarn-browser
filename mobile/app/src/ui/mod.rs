@@ -428,7 +428,7 @@ fn back(ui: Ui) -> bool {
             can
         }
         screen if ui.mac.get_untracked() && mac::owns(screen) => {
-            ui.show(Screen::Browse);
+            ui.show(mac::back_from(screen));
             true
         }
         screen => {
