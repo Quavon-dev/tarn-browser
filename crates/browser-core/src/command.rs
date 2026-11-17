@@ -275,7 +275,7 @@ pub fn display_title(custom: &str, title: &str, url: &str) -> String {
         .into_iter()
         .map(crate::text::bounded_title)
         .find(|t| !t.trim().is_empty())
-        .or_else(|| Url::parse(url).ok().map(|u| page_label(&u)))
+        .or_else(|| Url::parse(url).ok().map(|u| host_tail(&page_label(&u), crate::text::MAX_TITLE_CHARS)))
         .unwrap_or_else(|| "New Tab".into())
 }
 
@@ -444,6 +444,9 @@ mod tests {
         assert_eq!(display_title("", "", "https://www.example.com/a?b"), "www.example.com");
         assert_eq!(display_title("", "", "data:text/html,<h1>bank.test</h1>"), "data:");
         assert!(display_title("", &"x".repeat(5000), "").chars().count() < 500, "a page cannot make a row unbounded");
+        let host = format!("{}bank.test", "a.".repeat(120));
+        let shown = display_title("", "", &format!("https://{host}/"));
+        assert!(shown.chars().count() <= crate::text::MAX_TITLE_CHARS && shown.ends_with("bank.test"), "a long host keeps its registrable end: {shown}");
     }
 
     #[test]
