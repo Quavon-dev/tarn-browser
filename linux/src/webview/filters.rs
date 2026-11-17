@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use browser_core::site::Sets;
 use shield::domains::DomainSet;
-use shield::rules::builtin_rules;
+use shield::rules::{builtin_rules, youtube_rules};
+use shield::youtube;
 use shield::{Category, ShieldLevel};
 use webkit6::{UserContentFilter, UserContentFilterStore, gio, glib};
 
@@ -24,6 +25,11 @@ thread_local! {
     static BUILTIN: RefCell<HashMap<ShieldLevel, UserContentFilter>> = RefCell::default();
     static GROUPS: RefCell<Groups> = const { RefCell::new(Groups::Idle) };
     pub(super) static MALWARE: RefCell<Option<Arc<DomainSet>>> = const { RefCell::new(None) };
+    static YOUTUBE_SCRIPT: RefCell<String> = RefCell::new(youtube::script(&youtube::Config::default()));
+}
+
+pub fn youtube_script() -> String {
+    YOUTUBE_SCRIPT.with_borrow(Clone::clone)
 }
 
 async fn compile(identifier: String, source: String) -> Result<UserContentFilter, String> {
@@ -37,14 +43,20 @@ fn ready_groups() {
         let key = bundle::public_key();
         let loaded = gio::spawn_blocking(move || {
             let cached = shield::cache::read(&dir, &key).map_err(|e| format!("{e:?}"))?;
-            Ok((bundle::of(&cached), Sets::from_bundle(&cached, &[Category::Malware]).malware))
+            Ok((bundle::of(&cached), Sets::from_bundle(&cached, &[Category::Malware]).malware, youtube::config(&cached)))
         })
         .await
         .unwrap_or_else(|_| Err(String::from("converter panicked")));
         let mut compiled = HashMap::new();
+        let rules = youtube_rules();
+        let id = format!("tarn-{}-{}-0", bundle::YOUTUBE_GROUP, &bundle::hex(shield::lists::fingerprint(&[&rules]))[..16]);
+        if let Ok(filter) = compile(id, rules).await.inspect_err(|e| eprintln!("tarn: YouTube rules did not compile: {e}")) {
+            compiled.insert(bundle::YOUTUBE_GROUP.to_owned(), vec![filter]);
+        }
         match loaded {
-            Ok((groups, malware)) => {
+            Ok((groups, malware, config)) => {
                 MALWARE.with_borrow_mut(|m| *m = malware);
+                YOUTUBE_SCRIPT.with_borrow_mut(|s| *s = youtube::script(&config));
                 for group in groups {
                     let mut filters = Vec::new();
                     for (n, chunk) in group.chunks.into_iter().enumerate() {

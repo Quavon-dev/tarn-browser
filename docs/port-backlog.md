@@ -101,9 +101,12 @@ Shared API: `browser_core` `youtube_script` (the script the app builds), `engine
 both run at document start in the page world, the YouTube one only where blocking is not paused
 and never under Lockdown.
 macOS reference: `crates/engine/src/data_store.rs` (`install_scripts`); Windows:
-`crates/engine/src/chromium/view.rs` (`page_script_for`, `rescript`).
+`crates/engine/src/chromium/view.rs` (`page_script_for`, `rescript`); Linux, whose web view loads
+the bundle itself: `linux/src/webview/scripts.rs` (`apply_page_scripts`) with the script from
+`filters::youtube_script` in `linux/src/webview/filters.rs` (`shield::youtube::script` of the
+config `shield::groups::load` returns), switched by the `youtube` view prop.
 
 - [x] Windows — Chromium `Page.addScriptToEvaluateOnNewDocument`
-- [ ] Linux — document-start page-world user script through WebKitGTK's user content manager in `linux/src/webview`
+- [x] Linux — document-start page-world user script through WebKitGTK's user content manager in `linux/src/webview`
 - [ ] iOS — page-world `WKUserScript` in `mobile/ios`
 - [ ] Android — `WebViewCompat.addDocumentStartJavaScript` in `TarnWebView` (page world)

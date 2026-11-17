@@ -9,7 +9,7 @@ use url::Url;
 use webkit6::prelude::*;
 use webkit6::{UserContentInjectedFrames, UserContentManager, UserScript, UserScriptInjectionTime, gio};
 
-use super::State;
+use super::{State, filters};
 
 pub const WORLD: &str = "tarn";
 const PICK_CANCEL: &str = "if (window.tarnPick) window.tarnPick(); return '';";
@@ -140,6 +140,21 @@ pub fn apply_styles(state: &State, content: &UserContentManager) {
         content.add_script(&script);
         *state.style_script.borrow_mut() = Some(script);
     }
+}
+
+pub fn apply_page_scripts(state: &State, content: &UserContentManager) {
+    state.page_scripts.take().iter().for_each(|old| content.remove_script(old));
+    let built = state.built.borrow();
+    let Some(built) = built.as_ref().filter(|b| b.level.policy().javascript) else { return };
+    let youtube = built.lists.iter().any(|l| l == shield::groups::YOUTUBE_GROUP).then(filters::youtube_script);
+    let scripts: Vec<UserScript> = [Some(page_scripts::ALWAYS_VISIBLE.to_owned()), youtube]
+        .into_iter()
+        .flatten()
+        .map(|source| page_scripts::outside_lockdown(source, &state.levels.borrow()))
+        .map(|source| UserScript::new(&source, UserContentInjectedFrames::AllFrames, UserScriptInjectionTime::Start, &[], &[]))
+        .collect();
+    scripts.iter().for_each(|s| content.add_script(s));
+    *state.page_scripts.borrow_mut() = scripts;
 }
 
 #[cfg(test)]

@@ -44,6 +44,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Settings › Search › Suggestions turns history suggestions and the address field's
   inline completion off, and Settings › General › Tabs chooses how many tabs stay awake and how
   long a background tab waits before it sleeps, as on macOS (Linux).
+- Settings › Privacy › Block YouTube ads removes ads from YouTube's player data and hides ad
+  slots, and Netflix keeps playing when the window loses focus (Linux).
 
 ### Changed
 

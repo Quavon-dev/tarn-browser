@@ -338,6 +338,7 @@ fn web_views(ui: Ui) -> View {
                     .prop("level", move || JsonValue::from(item.with(|v| v.level.clone())))
                     .prop("levels", move || item.with(|v| v.levels.clone()))
                     .prop("lists", move || JsonValue::from(item.with(|v| v.lists.clone())))
+                    .prop("youtube", move || JsonValue::from(item.with(|v| v.youtube)))
                     .prop("styles", move || item.with(|v| v.styles.clone()))
                     .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
                     .prop("zaps", move || item.with(|v| v.zaps.clone()))

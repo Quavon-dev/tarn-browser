@@ -478,7 +478,7 @@ pub fn settings_panel(ui: Ui) -> AnyElement {
 }
 
 fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
-    let (level, engine, lists, private, card, history_text, sort, archive) = read(ui, |b| {
+    let (level, engine, lists, private, card, history_text, sort, archive, youtube) = read(ui, |b| {
         (
             b.default_level(),
             b.search_engine(),
@@ -488,6 +488,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             !b.setting_off(HISTORY_TEXT),
             !b.setting_off(SORT_DOWNLOADS),
             b.archive_after_index(),
+            b.setting_on(shield::groups::YOUTUBE_SETTING),
         )
     })?;
     let (suggestions, live_tabs, sleep_after) = read(ui, |b| {
@@ -604,9 +605,11 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                         .child(switch(on("ads"), "Block ads", toggle("block_ads")))
                         .child(switch(on("trackers"), "Block trackers", toggle("block_trackers")))
                         .child(switch(on("annoyances"), "Block cookie banners", toggle("block_annoyances")))
+                        .child(switch(youtube, "Block YouTube ads", toggle(shield::groups::YOUTUBE_SETTING)))
                         .child(switch(on("malware"), "Block malware sites", toggle("block_malware"))),
                 )
                 .child(note("EasyList Cookie and uBlock Cookie Notices hide consent pop-ups and stop the scripts that show them. Nothing is accepted or refused for you."))
+                .child(note("Block YouTube ads removes ads from YouTube's player data before the player sees them and hides ad slots. YouTube changes often; if videos stop playing, turn this off."))
                 .child(note("Filter lists apply to pages loaded after a change; they need the signed list bundle."))
                 .child(section("Links from other apps"))
                 .child(group().child(switch(localhost, "Open localhost links from other apps", toggle(LOCALHOST_FROM_APPS))))

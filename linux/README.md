@@ -77,7 +77,8 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
 - site icons (`readIconLinks`, `fetchIcon`): fetched inside the tab after each https load, kept per profile
   by `engine::favicon::Tracker`, stored with `Store::set_favicon` and drawn wherever a site's letter
   tile was (tiles, tab rows, split panes, history, bookmarks, suggestions, site and share popovers);
-- Shield: cookie-banner lists switch, the Shield card (front and stamps side, no 3D tilt in NSH)
+- Shield: cookie-banner lists switch, Block YouTube ads (the YouTube page script and ad-slot rules,
+  `youtube` prop), the Netflix visibility script in every view but Lockdown's, the Shield card (front and stamps side, no 3D tilt in NSH)
   with the last seven days and the sites protected most; counters from `shielded` events;
 - downloads: `id`, progress (percentage next to the downloads button, sizes in the panel), cancel,
   sorting into Downloads subfolders; a download whose request, response or page host is on the

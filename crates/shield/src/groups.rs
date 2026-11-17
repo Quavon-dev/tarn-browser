@@ -8,6 +8,8 @@ pub const GROUPS: [&str; 5] = ["ads", "trackers", "cosmetic", "malware", "annoya
 /// The setting that switches each group; cosmetic filtering follows the ads switch.
 pub const SETTINGS: [(&str, &str); 5] =
     [("ads", "block_ads"), ("cosmetic", "block_ads"), ("trackers", "block_trackers"), ("malware", "block_malware"), ("annoyances", "block_annoyances")];
+pub const YOUTUBE_GROUP: &str = "youtube";
+pub const YOUTUBE_SETTING: &str = "block_youtube_ads";
 
 /// The bundle signing key. Debug builds take `TARN_TEST_FILTER_KEY` (64 hex digits) instead, so
 /// tests can install bundles they signed themselves; release builds never read it.
