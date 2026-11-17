@@ -285,8 +285,9 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
 }
 
 fn pane_header(ui: Ui, key: TabKey) -> impl IntoElement {
-    let title = move || ui.read(|s| Some(s.tab_title(key)).filter(|t| !t.is_empty()).unwrap_or_else(|| "New Tab".to_owned()));
+    let title = move || ui.read(|s| s.tab_title(key));
     split::draggable(ui, key, view())
+        .test_id("pane")
         .flex_row()
         .items_center()
         .h(px(PANE_HEADER))
@@ -313,8 +314,13 @@ fn pane_header(ui: Ui, key: TabKey) -> impl IntoElement {
             })
         }))
         .child(icon_button(icons::CLOSE, "Close Tab", move || {
+            let mac = ui.mac.get_untracked();
             ui.act(|s| {
-                s.close_tab(key);
+                if mac {
+                    s.close_or_unload(key);
+                } else {
+                    s.close_tab(key);
+                }
                 Vec::new()
             })
         }))
