@@ -1,13 +1,23 @@
 package dev.tarn.android;
 
 import android.app.Activity;
+import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
 import android.os.Handler;
 import android.os.Looper;
+
+import androidx.core.content.FileProvider;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -17,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 final class Host {
     static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final long IMPORT_WAIT_S = 5;
+    private static final String CARD_DIR = "card";
     static volatile Context app;
     static volatile String privateSession;
     static PrivateActivity privateActivity;
@@ -59,6 +70,30 @@ final class Host {
         MAIN.post(() -> {
             if (activity == null) return;
             Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url);
+            activity.startActivity(Intent.createChooser(send, null));
+        });
+        return true;
+    }
+
+    static boolean shareFile(String path) {
+        if (activity == null || app == null) return false;
+        File dir = new File(app.getCacheDir(), CARD_DIR);
+        File card = new File(dir, new File(path).getName());
+        Uri uri;
+        try {
+            Files.createDirectories(dir.toPath());
+            Files.copy(Paths.get(path), card.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            uri = FileProvider.getUriForFile(app, app.getPackageName() + "." + CARD_DIR, card);
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+        MAIN.post(() -> {
+            if (activity == null) return;
+            Intent send = new Intent(Intent.ACTION_SEND)
+                    .setType(app.getContentResolver().getType(uri))
+                    .putExtra(Intent.EXTRA_STREAM, uri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            send.setClipData(ClipData.newRawUri(null, uri));
             activity.startActivity(Intent.createChooser(send, null));
         });
         return true;

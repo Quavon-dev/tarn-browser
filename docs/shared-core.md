@@ -21,7 +21,7 @@ Every shell's web view offers the same operations and reports the same events. T
 - isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
   and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
   has no isolated world and runs those scripts in the page world, so a shell must not send it
-  `readIconLinks` or `fetchIcon`: Android reports the page's icon with the `pageIcon` event;
+  `readIconLinks` or `fetchIcon`, and Android shows letter tiles (`docs/mobile-plan.md`);
 - `interaction_state` and `restore_interaction_state`, where the engine has them;
 - `filtered`: whether the view applies Shield's rules.
 

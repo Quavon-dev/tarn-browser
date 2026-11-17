@@ -105,7 +105,7 @@ impl Ui {
         if &*e.name == "pressed" && self.read(|s| s.model.active == Some(key)) {
             return;
         }
-        if matches!(&*e.name, "iconData" | "pageIcon") {
+        if &*e.name == "iconData" {
             let (name, data) = (e.name.to_string(), e.data.clone());
             let encoded = data.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned();
             spawn(async move {
