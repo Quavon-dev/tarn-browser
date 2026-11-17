@@ -412,7 +412,7 @@ pub fn bottom_bar(ui: Ui) -> impl IntoElement {
 /// Up and Page Down jump to the first and last. Elsewhere the keys stay with the page.
 fn suggestion_keys(ui: Ui) -> impl IntoElement {
     dynamic(move || {
-        ui.editing.get().then(|| {
+        (ui.editing.get() && !ui.mac.get()).then(|| {
             bind_suggestion_keys(ui);
             view()
         })
@@ -460,5 +460,5 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
             },
         )),
     );
-    view().flex_1().style_when(move || !ui.editing.get(), |s| s.hidden()).style_when(move || !ui.wide(), |s| s.justify_end()).child(list)
+    view().flex_1().style_when(move || !ui.editing.get() || ui.mac.get(), |s| s.hidden()).style_when(move || !ui.wide(), |s| s.justify_end()).child(list)
 }
