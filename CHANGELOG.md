@@ -36,6 +36,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Library rows show their edit and delete buttons side by side inside the row on hover.
 - The Shield card's actions in Settings › Profile sit in an even grid of buttons with icons
   (macOS, Windows, Linux, iOS, Android).
+- The start page's space and Shield pills open the space menu and a Shield level menu (macOS,
+  Windows, Linux), and the start card keeps its suggestions inside the window, scrolling when the
+  window is short.
 - Dark mode for a site leaves pages that are already dark as they are instead of inverting them to
   light (macOS, Windows, Linux, iOS, Android).
 

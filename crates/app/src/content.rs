@@ -4,7 +4,7 @@ use gpui::{
     AnyElement, Context, Focusable, FontWeight, HighlightStyle, InteractiveElement, IntoElement, ParentElement, Rgba, SharedString, Stateful,
     StatefulInteractiveElement, Styled, StyledText, Window, canvas, div, img, prelude::FluentBuilder, px, relative,
 };
-use ui::controls::{button, field, icon_button, list_row, secure_button, secure_ghost_button, secure_surface, surface, tooltip};
+use ui::controls::{button, field, icon_button, list_row, secure_button, secure_ghost_button, secure_surface, surface, tab_stop, tooltip};
 use ui::icon::{ICON_MEDIUM, ICON_SMALL, Icon, MARK, icon};
 use ui::motion::{EXIT, FADE, SLIDE, pop_in, pop_out, progress};
 use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
@@ -585,6 +585,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .id("start-suggestions")
         .track_scroll(&b.suggestions_scroll)
         .max_h(px(SUGGESTION_ROW * SHOWN_SUGGESTIONS as f32 + 12.))
+        .min_h_0()
         .overflow_y_scroll()
         .py_1p5()
         .border_t_1()
@@ -596,6 +597,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .id("start-card")
         .border_color(Theme::accent_soft())
         .w_full()
+        .min_h_0()
         .flex()
         .flex_col()
         .shadow(Elevation::Modal.shadow())
@@ -604,6 +606,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .child(
             div()
                 .h(px(SEARCH_ROW))
+                .flex_none()
                 .px_4()
                 .flex()
                 .items_center()
@@ -616,14 +619,31 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .when(typing && !b.suggestions.is_empty(), |d| d.child(suggestions))
         .child(
             div()
+                .flex_none()
                 .px_3()
                 .pb_3()
                 .when(typing && !b.suggestions.is_empty(), |d| d.pt_1())
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(chip(div()).child(profile_dot(&color, 8.)).child(icon(Icon::Folder, 12., Theme::muted())).child(space))
-                .child(start_shield(level)),
+                .child(
+                    tab_stop(chip(div()).id("start-space"))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(Theme::hover()))
+                        .active(|s| s.bg(Theme::pressed()))
+                        .tooltip(tooltip("Space Options", None))
+                        .child(profile_dot(&color, 8.))
+                        .child(icon(Icon::Folder, 12., Theme::muted()))
+                        .child(space)
+                        .on_click(cx.listener(move |b, _, w, cx| {
+                            b.space_menu(b.model.space_ix, w, cx);
+                            b.keep_command_focus(typing, w, cx);
+                        })),
+                )
+                .child(tab_stop(start_shield(level)).on_click(cx.listener(move |b, _, w, cx| {
+                    b.shield_menu(w, cx);
+                    b.keep_command_focus(typing, w, cx);
+                }))),
         );
     let servers = b.devtools_on().then(|| {
         let ports = b.local_servers.clone().unwrap_or_default();
@@ -662,15 +682,21 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .items_center()
         .pt(relative(0.22))
         .px_4()
+        .pb_4()
         .gap_7()
-        .child(img(MARK).w(px(64.)).h(px(64.)))
-        .child(pop_in(div().relative().w(px(680.)).max_w_full().child(b.search_fx.clone()).child(card.occlude()), ("start-card", typing as usize), reduce))
+        .child(img(MARK).w(px(64.)).h(px(64.)).flex_none())
+        .child(pop_in(
+            div().relative().w(px(680.)).max_w_full().min_h_0().flex().flex_col().child(b.search_fx.clone()).child(card.occlude()),
+            ("start-card", typing as usize),
+            reduce,
+        ))
         .children(servers);
     let left = (b.sidebar_width + crate::sidebar::SIDEBAR_MARGIN) * b.sidebar_shown();
     b.fog.update(cx, |fog, _| (fog.reduce, fog.left) = (reduce, left));
     b.search_fx.update(cx, |fx, _| fx.reduce = reduce);
     div()
         .flex_1()
+        .min_h_0()
         .relative()
         .when(typing, |d| d.on_mouse_down(gpui::MouseButton::Left, cx.listener(|b, _, w, cx| b.dismiss_overlay(w, cx))))
         .child(b.fog.clone())
@@ -756,8 +782,9 @@ impl gpui::Render for Fog {
 }
 
 /// The start card's Shield level, in the fixed security palette (threat model S29).
-fn start_shield(level: shield::ShieldLevel) -> gpui::Div {
+fn start_shield(level: shield::ShieldLevel) -> Stateful<gpui::Div> {
     div()
+        .id("start-shield")
         .h(px(28.))
         .px_2p5()
         .flex()
@@ -767,6 +794,10 @@ fn start_shield(level: shield::ShieldLevel) -> gpui::Div {
         .border_1()
         .border_color(Secure::hairline())
         .bg(Secure::chip())
+        .cursor_pointer()
+        .hover(|s| s.bg(Secure::hover()))
+        .active(|s| s.bg(Secure::pressed()))
+        .tooltip(tooltip(format!("Shield: {} — Change Level", shield_badge(level)), None))
         .font_family(ui::theme::SYSTEM_FONT)
         .text_size(px(TEXT_SMALL))
         .text_color(Secure::muted())

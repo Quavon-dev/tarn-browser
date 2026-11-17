@@ -15,6 +15,7 @@ use futures_util::StreamExt;
 use nsh_base::input;
 use nsh_core::JsonValue;
 use nsh_core::desktop::{WindowAttributes, WindowPlacement};
+use nsh_core::element::IntoProp;
 use nsh_core::element::desktop::{WindowRef, current_window, main_window, open_window, quit, window};
 use nsh_core::prelude::*;
 use nsh_core::{LayoutCurve, LayoutTransition};
@@ -1225,8 +1226,12 @@ fn palette(ui: Ui) -> AnyElement {
     .into_element()
 }
 
-fn chip() -> View {
-    view().flex_row().items_center().gap(px(6.)).h(px(28.)).px(px(10.)).rounded_full().border_1().border_color(Theme::surface_edge()).text_color(Theme::muted())
+fn chip<M>(name: impl IntoProp<Option<SharedString>, M>, on: impl Fn() + 'static) -> nsh_base::ButtonElement {
+    controls::pressable(name, on).h(px(28.)).px(px(10.)).rounded_full().border_1().border_color(Theme::surface_edge()).text_color(Theme::muted())
+}
+
+fn chip_content(name: &'static str) -> View {
+    view().flex_row().items_center().gap(px(6.)).tooltip(controls::tip(name, Placement::Top))
 }
 
 fn start_card(ui: Ui) -> AnyElement {
@@ -1262,15 +1267,30 @@ fn start_card(ui: Ui) -> AnyElement {
                 .justify_between()
                 .px_3()
                 .pb_3()
-                .child(chip().child(dot).child(icons::icon(icons::FOLDER, 12.)).child(small(move || ui.snap.with(|s| s.space_name.clone()))))
                 .child(
-                    chip()
-                        .bg(Secure::chip())
-                        .border_color(Secure::hairline())
-                        .text_color(Secure::muted())
-                        .font_family(SYSTEM_FONT)
-                        .child(icons::icon(icons::SHIELD, 12.))
-                        .child(small(move || ui.snap.with(|s| panels::capitalised(&s.level))).text_color(Secure::muted())),
+                    chip(move || Some(SharedString::from(ui.snap.with(|s| format!("Space: {}", s.space_name)))), move || show(ui, Panel::Space)).child(
+                        chip_content("Space Options")
+                            .child(dot)
+                            .child(icons::icon(icons::FOLDER, 12.))
+                            .child(small(move || ui.snap.with(|s| s.space_name.clone()))),
+                    ),
+                )
+                .child(
+                    chip(
+                        move || Some(SharedString::from(ui.snap.with(|s| format!("Shield level: {}", panels::capitalised(&s.level))))),
+                        move || show(ui, Panel::Shield),
+                    )
+                    .bg(Secure::chip())
+                    .hover(|s| s.bg(Secure::hover()))
+                    .active(|s| s.bg(Secure::pressed()))
+                    .border_color(Secure::hairline())
+                    .text_color(Secure::muted())
+                    .font_family(SYSTEM_FONT)
+                    .child(
+                        chip_content("Shield Level")
+                            .child(icons::icon(icons::SHIELD, 12.))
+                            .child(small(move || ui.snap.with(|s| panels::capitalised(&s.level))).text_color(Secure::muted())),
+                    ),
                 );
             let input_row =
                 view().flex_row().items_center().gap_3().px_4().h(px(54.)).text_color(Theme::muted()).child(icons::icon(icons::SEARCH, 17.)).child(field);
