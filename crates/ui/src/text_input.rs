@@ -363,6 +363,15 @@ impl TextInput {
         cx.stop_propagation();
         window.focus(&self.focus_handle);
         let at = self.index_for_mouse_position(event.position);
+        self.show_menu(at, window, cx);
+    }
+
+    pub fn mirror_menu(&mut self, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        let at = self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position);
+        self.show_menu(at, window, cx);
+    }
+
+    fn show_menu(&mut self, at: usize, window: &mut Window, cx: &mut Context<Self>) {
         if !(self.selected_range.start..=self.selected_range.end).contains(&at) {
             self.move_to(at, cx);
         }
@@ -678,13 +687,17 @@ struct TextElement {
 }
 
 pub fn mirror(input: Entity<TextInput>) -> impl IntoElement {
-    let (press, drag, release, outside) = (input.clone(), input.clone(), input.clone(), input.clone());
+    let (press, menu, drag, release, outside) = (input.clone(), input.clone(), input.clone(), input.clone(), input.clone());
     div()
         .w_full()
         .line_height(px(22.))
         .text_color(Theme::text())
         .cursor(CursorStyle::IBeam)
         .on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, _, cx| press.update(cx, |i, cx| i.mirror_press(e.position, e.modifiers.shift, cx)))
+        .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, window, cx| {
+            cx.stop_propagation();
+            menu.update(cx, |i, cx| i.mirror_menu(e.position, window, cx))
+        })
         .on_mouse_move(move |e: &MouseMoveEvent, _, cx| drag.update(cx, |i, cx| i.mirror_drag(e.position, cx)))
         .on_mouse_up(MouseButton::Left, move |_: &MouseUpEvent, _, cx| release.update(cx, |i, _| i.mirror_release()))
         .on_mouse_up_out(MouseButton::Left, move |_: &MouseUpEvent, _, cx| outside.update(cx, |i, _| i.mirror_release()))

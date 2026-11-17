@@ -418,24 +418,29 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
             b.answer_prompt(accept, false, w, cx);
         })
     };
+    let silence = || {
+        secure_ghost_button("prompt-silence", "Block requests from this page").on_click(cx.listener(|b, _, w, cx| {
+            b.remember_permission = false;
+            b.answer_prompt(false, true, w, cx);
+        }))
+    };
     let buttons = div().flex().flex_none().gap_2().items_center();
     let buttons = match &prompt.kind {
         k if k.is_permission() => buttons
-            .child(secure_ghost_button("prompt-silence", "Block requests from this page").on_click(cx.listener(|b, _, w, cx| {
-                b.remember_permission = false;
-                b.answer_prompt(false, true, w, cx);
-            })))
+            .child(silence())
             .child(secure_ghost_button("prompt-decline", "Deny").on_click(answer(false, false)))
             .child(secure_button("prompt-accept", "Allow Once", !remember_allowed).on_click(answer(false, true)))
             .when(remember_allowed, |d| d.child(secure_button("prompt-remember", "Always Allow", true).on_click(answer(true, true)))),
-        PromptKind::Alert => buttons.child(secure_button("prompt-accept", "OK", true).on_click(answer(false, true))),
+        PromptKind::Alert => buttons.child(silence()).child(secure_button("prompt-accept", "OK", true).on_click(answer(false, true))),
         PromptKind::MaliciousDownload { .. } => buttons
             .child(secure_button("prompt-accept", "Keep Anyway", false).text_color(Secure::danger()).on_click(answer(false, true)))
             .child(secure_button("prompt-decline", "Cancel Download", true).on_click(answer(false, false))),
         PromptKind::Credentials { .. } => buttons
+            .child(silence())
             .child(secure_ghost_button("prompt-decline", "Cancel").on_click(answer(false, false)))
             .child(secure_button("prompt-accept", "Sign In", true).on_click(answer(false, true))),
         _ => buttons
+            .child(silence())
             .child(secure_ghost_button("prompt-decline", "Cancel").on_click(answer(false, false)))
             .child(secure_button("prompt-accept", "OK", true).on_click(answer(false, true))),
     };
