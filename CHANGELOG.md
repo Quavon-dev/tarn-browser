@@ -20,6 +20,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The profile button left the sidebar header; profiles stay in Settings › Profile and the menu
   (macOS, Windows, Linux).
 - Appearance has no separate Theme picker; the Themes grid sets the theme.
+- Bitwarden's privileges (Touch ID unlock through the Bitwarden app, clipboard and passkeys) are
+  off until you turn on Settings › Extensions › Bitwarden integration; until then Bitwarden runs
+  like any other app extension (macOS).
+- The macOS disk image opens on a window drawn from the Tarn icon's lake, with an arrow from Tarn
+  to the Applications folder and the Tarn volume icon.
 - Settings › General lists every profile and marks the one the window uses.
 - The space name in the sidebar header has no chevron, and the space icons in the sidebar's bottom
   bar sit in its centre (macOS, Windows, Linux).
