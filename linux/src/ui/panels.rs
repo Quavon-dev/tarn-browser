@@ -254,6 +254,7 @@ fn history_panel(ui: Ui) -> AnyElement {
                 .gap_2()
                 .flex_1()
                 .child(counted("History", count))
+                .child(pill("Bookmarks", move || show(ui, Panel::Bookmarks(None))))
                 .child(pill("Reading List", move || show(ui, Panel::ReadingList)))
                 .children(clear),
         ))
@@ -475,6 +476,7 @@ fn tab_panel(ui: Ui) -> AnyElement {
         split_rows.push(menu_row("Close Split View", keys(Action::ToggleSplitView), in_split(Browser::close_split)));
     }
     let split_rows = (!split_rows.is_empty()).then(|| view().flex_col().child(section("Split View".to_owned())).child(group().children(split_rows)));
+    let bookmark = menu_row("Bookmark Tab…", keys(Action::BookmarkTab), move || super::library::bookmark_tab(ui, Some(key)));
     let close = menu_row("Close Tab", keys(Action::CloseTab), move || {
         ui.panel.set(Panel::None);
         act(ui, |b| b.close_tab(key));
@@ -487,7 +489,7 @@ fn tab_panel(ui: Ui) -> AnyElement {
         .children(tab_rows)
         .children(pills("Move into a folder", folder_buttons))
         .children(pills("Move to another space of this profile", space_buttons))
-        .child(group().child(close))
+        .child(group().child(bookmark).child(close))
         .into_element()
 }
 
@@ -507,6 +509,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Downloads => downloads_panel(ui),
             Panel::Tab => tab_panel(ui),
             Panel::Folder(id) => folder_panel(ui, id),
+            Panel::Bookmarks(folder) => super::library::bookmarks_panel(ui, folder),
         };
         let panel = ui.panel.get_untracked();
         let (width, side) = match panel {

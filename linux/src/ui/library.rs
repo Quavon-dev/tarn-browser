@@ -1,5 +1,7 @@
+use browser_core::bookmarks;
+use browser_core::text::bounded_title;
 use nsh_core::prelude::*;
-use store::Schedule;
+use store::{Bookmark, Schedule};
 
 use super::panels::{popover, section};
 use super::tools::{line, note};
@@ -10,6 +12,7 @@ use crate::icons;
 use crate::memory;
 use crate::theme::Theme;
 
+const MAX_FOUND: usize = 200;
 const DAYS: [(&str, u8); 7] = [("Mon", 1), ("Tue", 2), ("Wed", 3), ("Thu", 4), ("Fri", 5), ("Sat", 6), ("Sun", 0)];
 
 fn hour(value: u8, set: impl Fn(u8) + Copy + 'static) -> View {
@@ -177,9 +180,182 @@ pub fn reading_list_panel(ui: Ui) -> AnyElement {
                 .gap_2()
                 .flex_1()
                 .child(super::panels::counted("Reading List", count))
+                .child(pill("Bookmarks", move || super::show(ui, Panel::Bookmarks(None))))
                 .child(pill("History", move || super::show(ui, Panel::History))),
         ))
         .children(empty)
         .child(view().flex_col().gap(px(2.)).children(items))
+        .into_element()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MarkEdit {
+    Rename(store::Id),
+    Move(store::Id),
+}
+
+pub fn open_bookmarks(ui: Ui, folder: Option<store::Id>, edit: Option<store::Id>) {
+    if ui.panel.get_untracked() != Panel::Bookmarks(folder) {
+        super::show(ui, Panel::Bookmarks(folder));
+    }
+    ui.mark_query.set(String::new());
+    ui.mark_edit.set(edit.map(MarkEdit::Rename));
+    act(ui, |_| {});
+}
+
+pub fn bookmark_tab(ui: Ui, key: Option<browser_core::tabs::TabKey>) {
+    let mut id = None;
+    act(ui, |b| id = b.bookmark_tab(key));
+    let Some(id) = id else { return };
+    let parent = read(ui, |b| b.bookmarks().into_iter().find(|m| m.id == id).and_then(|m| m.parent_id)).flatten();
+    open_bookmarks(ui, parent, Some(id));
+}
+
+pub fn bookmark_all_tabs(ui: Ui) {
+    let mut folder = None;
+    act(ui, |b| folder = b.bookmark_all_tabs());
+    if folder.is_some() {
+        open_bookmarks(ui, None, folder);
+    }
+}
+
+fn mark_row(ui: Ui, marks: &[Bookmark], mark: &Bookmark, edit: Option<MarkEdit>, actions: bool) -> AnyElement {
+    let (id, parent) = (mark.id, mark.parent_id);
+    let name = bookmarks::title_or_host(&mark.title, mark.url.as_deref().unwrap_or_default());
+    let edit_button = |glyph: &'static str, tip: &'static str, next: MarkEdit| {
+        crate::controls::icon_button(glyph, tip, move || {
+            ui.mark_edit.set(if ui.mark_edit.get_untracked() == Some(next) { None } else { Some(next) });
+        })
+    };
+    let row = match &mark.url {
+        Some(url) => {
+            let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+            let open = url.clone();
+            super::panels::library_row(ui, Some(SharedString::from(name.clone())), &host, name.clone(), move || {
+                ui.panel.set(Panel::None);
+                let url = open.clone();
+                act(ui, move |b| b.open_bookmark(&url));
+            })
+            .child(super::panels::copy_link(ui, url.clone()))
+        }
+        None => crate::controls::row(Some(SharedString::from(name.clone())), move || super::show(ui, Panel::Bookmarks(Some(id))))
+            .h(px(30.))
+            .child(view().w(px(16.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::FOLDER, 15.)))
+            .child(label(name.clone()).flex_1().truncate()),
+    };
+    if !actions {
+        return row.into_element();
+    }
+    let alone = mark.url.is_some() || !marks.iter().any(|m| m.parent_id == Some(id));
+    let deletion = crate::controls::icon_button(icons::TRASH, "Delete", move || match alone {
+        true => act(ui, |b| b.delete_bookmark(id)),
+        false => {
+            ui.confirm.set(Some(format!("bookmark {id}")));
+            act(ui, |_| {});
+        }
+    });
+    let asked = (!alone && ui.confirm.with_untracked(|c| c.as_deref() == Some(format!("bookmark {id}").as_str()))).then(|| {
+        view()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(note(format!("Delete “{name}” and everything in it?")))
+            .child(crate::controls::accent_pill("Delete", move || {
+                ui.confirm.set(None);
+                act(ui, |b| b.delete_bookmark(id));
+            }))
+            .child(pill("Cancel", move || {
+                ui.confirm.set(None);
+                act(ui, |_| {});
+            }))
+    });
+    let row = row
+        .child(edit_button(icons::PENCIL, "Rename", MarkEdit::Rename(id)))
+        .child(edit_button(icons::FOLDER_OPEN, "Move to Folder", MarkEdit::Move(id)))
+        .child(deletion);
+    let editor = match edit {
+        Some(MarkEdit::Rename(e)) if e == id => Some(super::panels::rename_row(ui, format!("bookmark {id}"), &bounded_title(&mark.title), move |title| {
+            ui.mark_edit.set(None);
+            act(ui, |b| {
+                let shown = b.bookmarks().into_iter().find(|m| m.id == id).map(|m| bounded_title(&m.title));
+                if shown.as_deref() != Some(title.trim()) {
+                    b.rename_bookmark(id, &title);
+                }
+            });
+        })),
+        Some(MarkEdit::Move(e)) if e == id => {
+            let to = move |target: Option<store::Id>| {
+                move || {
+                    ui.mark_edit.set(None);
+                    act(ui, |b| b.move_bookmark(id, target));
+                }
+            };
+            let mut targets = vec![pill("Bookmarks", to(None)).disabled(parent.is_none()).into_element()];
+            targets.extend(
+                bookmarks::move_targets(marks, id)
+                    .into_iter()
+                    .map(|f| pill(bounded_title(&f.title), to(Some(f.id))).disabled(parent == Some(f.id)).into_element()),
+            );
+            Some(view().flex_col().gap_1().child(note("Move to folder")).child(view().flex_row().flex_wrap().gap_2().children(targets)))
+        }
+        _ => asked,
+    };
+    view().flex_col().child(row).children(editor.map(|e| e.pl(px(34.)).py_1())).into_element()
+}
+
+fn mark_list(ui: Ui, folder: Option<store::Id>) -> AnyElement {
+    dynamic(move || {
+        ui.rev.get();
+        let query = ui.mark_query.get();
+        let edit = ui.mark_edit.get();
+        let marks = untracked(|| read(ui, Browser::bookmarks)).unwrap_or_default();
+        let rows = |list: Vec<&Bookmark>, actions: bool| list.into_iter().map(|m| mark_row(ui, &marks, m, edit, actions)).collect::<Vec<_>>();
+        let query = query.trim();
+        let mut out = view().flex_col().gap(px(2.));
+        if !query.is_empty() {
+            let found = rows(bookmarks::search(&marks, query, MAX_FOUND), true);
+            let none = found.is_empty().then(|| note(format!("No results for “{}”", bounded_title(query))));
+            return Some(out.children(none).children(found));
+        }
+        let recent = if folder.is_none() { rows(bookmarks::recent(&marks, bookmarks::RECENT), false) } else { Vec::new() };
+        if !recent.is_empty() {
+            out = out.child(section("Recent")).children(recent).child(section("All Bookmarks"));
+        }
+        let inside = rows(marks.iter().filter(|m| m.parent_id == folder).collect(), true);
+        let empty = inside.is_empty().then(|| note(if folder.is_none() { "No bookmarks yet" } else { "This folder is empty" }));
+        Some(out.children(empty).children(inside))
+    })
+}
+
+pub fn bookmarks_panel(ui: Ui, folder: Option<store::Id>) -> AnyElement {
+    let marks = read(ui, Browser::bookmarks).unwrap_or_default();
+    let current = folder.and_then(|id| marks.iter().find(|m| m.id == id));
+    let name = current.map_or_else(|| "Bookmarks".to_owned(), |m| bounded_title(&m.title));
+    let parent = current.and_then(|m| m.parent_id);
+    let back = folder.is_some().then(|| crate::controls::icon_button(icons::CHEVRON_LEFT, "Back", move || super::show(ui, Panel::Bookmarks(parent))));
+    let count = marks.iter().filter(|m| m.parent_id == folder).count();
+    let new_folder = pill(bookmarks::NEW_FOLDER, move || {
+        let mut id = None;
+        act(ui, |b| id = b.new_bookmark_folder(folder));
+        ui.mark_query.set(String::new());
+        ui.mark_edit.set(id.map(MarkEdit::Rename));
+        act(ui, |_| {});
+    });
+    popover()
+        .child(super::panels::heading(
+            ui,
+            view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .flex_1()
+                .children(back)
+                .child(super::panels::counted(&name, count))
+                .child(new_folder)
+                .child(pill("Bookmark All Tabs", move || bookmark_all_tabs(ui)))
+                .child(pill("History", move || super::show(ui, Panel::History))),
+        ))
+        .child(super::text_field(ui.mark_query, "Search Bookmarks", 260.))
+        .child(mark_list(ui, folder))
         .into_element()
 }

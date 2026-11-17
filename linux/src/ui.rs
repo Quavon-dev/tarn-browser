@@ -87,6 +87,7 @@ pub enum Panel {
     Qr,
     Share,
     Folder(store::Id),
+    Bookmarks(Option<store::Id>),
 }
 
 #[derive(Clone, Copy)]
@@ -144,6 +145,8 @@ pub struct Ui {
     rename: Signal<String>,
     /// What `rename` names, so a panel that changes target starts from the new name.
     rename_for: Signal<String>,
+    mark_query: Signal<String>,
+    mark_edit: Signal<Option<library::MarkEdit>>,
     open: Signal<bool>,
     /// The page area's size, which places the panes of a split.
     area: Signal<(f32, f32)>,
@@ -246,6 +249,8 @@ pub fn show(ui: Ui, panel: Panel) {
     ui.confirm.set(None);
     ui.rename.set(String::new());
     ui.rename_for.set(String::new());
+    ui.mark_query.set(String::new());
+    ui.mark_edit.set(None);
     ui.panel.set(next);
     act(ui, move |b| {
         if next == Panel::Downloads {
@@ -708,7 +713,13 @@ fn new_tab_row(ui: Ui) -> View {
                 .child(icons::icon(icons::PLUS, 11.)),
         )
         .child(body("New Tab").text_color(Theme::muted()));
-    view().flex_row().items_center().mb_1().child(new).child(icon_button(icons::FOLDER_PLUS, "New Folder", move || act(ui, |b| b.new_folder(None))))
+    view()
+        .flex_row()
+        .items_center()
+        .mb_1()
+        .child(new)
+        .child(icon_button(icons::BOOKMARK, "Bookmark All Tabs", move || library::bookmark_all_tabs(ui)))
+        .child(icon_button(icons::FOLDER_PLUS, "New Folder", move || act(ui, |b| b.new_folder(None))))
 }
 
 fn sidebar(ui: Ui) -> View {
@@ -1643,6 +1654,8 @@ fn run_action(ui: Ui, action: Action) {
         Action::CopyCleanLink => tools::copy_link(ui, true),
         Action::ToggleReader => act(ui, |b| b.toggle_reader()),
         Action::Print => act(ui, Browser::print),
+        Action::BookmarkTab => library::bookmark_tab(ui, None),
+        Action::ManageBookmarks => show(ui, Panel::Bookmarks(None)),
         Action::ShowHistory => show(ui, Panel::History),
         Action::ToggleDownloads => show(ui, Panel::Downloads),
         Action::ToggleSidebar => toggle_sidebar(ui),
@@ -1866,6 +1879,8 @@ fn new_ui(row: SavedWindow) -> Ui {
         confirm: signal(None),
         rename: signal(String::new()),
         rename_for: signal(String::new()),
+        mark_query: signal(String::new()),
+        mark_edit: signal(None),
         area: signal((0., 0.)),
         dragging: signal(None),
         split_drop: signal(None),

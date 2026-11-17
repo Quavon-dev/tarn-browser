@@ -37,6 +37,7 @@ pub enum Command {
     ShowQrCode,
     SavePdf,
     Print,
+    BookmarkAllTabs,
     SaveSnapshot,
     Snapshots,
     Memory,
@@ -47,12 +48,15 @@ pub enum Command {
     Space(SpaceCommand),
 }
 
-const COMMANDS: [(&str, &str, Command); 24] = [
+const COMMANDS: [(&str, &str, Command); 27] = [
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
     ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
     ("Zap Element", "hide remove element block", Command::ZapElement),
     ("Reader", "article reading view text", Command::Reader),
+    ("Bookmark Tab…", "favorite save star", Command::Key(Action::BookmarkTab)),
+    ("Bookmark All Tabs", "favorite save folder", Command::BookmarkAllTabs),
+    ("Manage Bookmarks", "favorites library folders edit", Command::Key(Action::ManageBookmarks)),
     ("Save for Later", "reading list read later bookmark", Command::SaveForLater),
     ("Burner Tab", "throwaway incognito temporary private", Command::BurnerTab),
     ("Find in Tabs", "search text all pages", Command::FindInTabs),
@@ -132,6 +136,7 @@ pub fn run(ui: Ui, command: Command) {
         Command::ShowQrCode => show_qr(ui),
         Command::SavePdf => save_pdf(ui),
         Command::Print => act(ui, Browser::print),
+        Command::BookmarkAllTabs => super::library::bookmark_all_tabs(ui),
         Command::SaveSnapshot => act(ui, Browser::save_snapshot),
         Command::Snapshots => show(ui, Panel::Space),
         Command::Memory => show(ui, Panel::Memory),

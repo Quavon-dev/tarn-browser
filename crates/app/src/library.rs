@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use browser_core::bookmarks::{self, title_or_host};
 use browser_core::import::{self as data, Error as ImportError, Kinds, Outcome, Report, Source};
 use browser_core::snapshot::{self, LoadError, SpaceSnapshot};
 use engine::menu::{self, Item as MenuItem};
@@ -42,7 +43,6 @@ const LIST_PAD: f32 = 6.;
 const SPACE_ROW: f32 = 40.;
 const MAX_ROWS: usize = 8;
 const MAX_LIST: usize = 200;
-const READING_LIST: &str = "Reading List";
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(120);
 const MEMORY_REFRESH: Duration = Duration::from_secs(2);
 
@@ -73,11 +73,6 @@ fn download_row(d: &Download, now: i64) -> Entry {
     };
     let detail = tab_host(&d.url).into_iter().chain([state.to_owned(), ago(d.started_at, now)]).collect::<Vec<_>>().join(" · ");
     Entry::Row(Row { item: Item::Download(d.clone()), title: file_name(d), named: None, detail: Some(detail) })
-}
-
-fn title_or_host(title: &str, url: &str) -> String {
-    let title = bounded_title(title);
-    if title.is_empty() { tab_host(url).unwrap_or_else(|| bounded_title(url)) } else { title }
 }
 
 fn detect_sources() -> Vec<Source> {
@@ -116,22 +111,6 @@ fn snapshot_error(e: LoadError) -> &'static str {
     }
 }
 
-fn find_bookmark<'a>(bookmarks: &'a [Bookmark], url: &str) -> Option<&'a Bookmark> {
-    bookmarks.iter().find(|b| b.url.as_deref() == Some(url))
-}
-
-/// `id` and everything nested in it.
-fn subtree(bookmarks: &[Bookmark], id: Id) -> HashSet<Id> {
-    let mut inside = HashSet::from([id]);
-    loop {
-        let more: Vec<Id> = bookmarks.iter().filter(|b| !inside.contains(&b.id) && b.parent_id.is_some_and(|p| inside.contains(&p))).map(|b| b.id).collect();
-        if more.is_empty() {
-            return inside;
-        }
-        inside.extend(more);
-    }
-}
-
 impl Browser {
     pub(crate) fn reload_bookmarks(&mut self, cx: &mut Context<Self>) {
         self.bookmarks_of = self.model.profile();
@@ -142,7 +121,7 @@ impl Browser {
     }
 
     pub fn is_bookmarked(&self, url: &str) -> bool {
-        find_bookmark(&self.bookmarks, url).is_some()
+        bookmarks::find(&self.bookmarks, url).is_some()
     }
 
     fn bookmark_target(&self, key: Option<TabKey>) -> Option<(String, String)> {
@@ -153,7 +132,7 @@ impl Browser {
 
     /// The top-level folder Save for Later files pages into, if it exists.
     pub(crate) fn reading_list(&self) -> Option<Id> {
-        self.bookmarks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == READING_LIST).map(|b| b.id)
+        bookmarks::reading_list(&self.bookmarks)
     }
 
     /// Files the active page into the Reading List bookmark folder, made on first use, so it is
@@ -162,18 +141,7 @@ impl Browser {
         let (Some((title, url)), Some(space)) = (self.bookmark_target(None), self.model.current_space()) else { return };
         let (private, profile_id) = (space.private, space.space.profile_id);
         self.reload_bookmarks(cx);
-        let folder = match self.reading_list() {
-            Some(id) => id,
-            None => match self.store(private).add_bookmark(profile_id, None, None, READING_LIST, now()) {
-                Ok(folder) => folder.id,
-                Err(_) => {
-                    let (tone, text) = browser_core::toast::reading_list(false);
-                    return self.show_toast_as(tone, text, None, cx);
-                }
-            },
-        };
-        let saved = self.bookmarks.iter().any(|b| b.parent_id == Some(folder) && b.url.as_deref() == Some(url.as_str()))
-            || self.store(private).add_bookmark(profile_id, Some(folder), Some(&url), &title, now()).is_ok();
+        let saved = bookmarks::save_for_later(self.store(private), profile_id, &self.bookmarks, &url, &title, now());
         self.reload_bookmarks(cx);
         let (tone, text) = browser_core::toast::reading_list(saved);
         self.show_toast_as(tone, text, None, cx);
@@ -182,44 +150,43 @@ impl Browser {
     /// Bookmarks the tab, or returns its bookmark when it already has one.
     pub fn bookmark_tab(&mut self, key: Option<TabKey>, cx: &mut Context<Self>) -> Option<Id> {
         let (title, url) = self.bookmark_target(key)?;
-        if let Some(existing) = find_bookmark(&self.bookmarks, &url) {
-            return Some(existing.id);
-        }
         let space = self.model.current_space()?;
-        let id = self.store(space.private).add_bookmark(space.space.profile_id, None, Some(&url), &title, now()).ok()?.id;
+        let id = bookmarks::bookmark(self.store(space.private), space.space.profile_id, &self.bookmarks, &url, &title, now())?;
         self.reload_bookmarks(cx);
         Some(id)
     }
 
     pub fn unbookmark_tab(&mut self, key: Option<TabKey>, cx: &mut Context<Self>) {
         let Some((_, url)) = self.bookmark_target(key) else { return };
-        let store = self.store(self.model.private());
-        for bm in self.bookmarks.iter().filter(|b| b.url.as_deref() == Some(url.as_str())) {
-            store.delete_bookmark(bm.id).ok();
-        }
+        bookmarks::unbookmark(self.store(self.model.private()), &self.bookmarks, &url);
         self.reload_bookmarks(cx);
     }
 
     /// Saves every tab into a new dated folder and opens the library on its name field.
     pub fn bookmark_all_tabs(&mut self, cx: &mut Context<Self>) {
         let Some(space) = self.model.current_space().filter(|_| !self.model.tabs.is_empty()) else { return };
-        let (store, profile_id) = (self.store(space.private), space.space.profile_id);
-        let Ok(folder) = store.add_bookmark(profile_id, None, None, &format!("Tabs {}", date(now())), now()) else { return };
-        for tab in self.model.tabs.iter().filter(|t| !t.url.is_empty()) {
-            let url = self.tab_url(self.model.key(tab)).unwrap_or_else(|| tab.url.clone());
-            store.add_bookmark(profile_id, Some(folder.id), Some(&url), &title_or_host(&tab.title, &url), now()).ok();
-        }
+        let pages: Vec<(&str, String)> = self
+            .model
+            .tabs
+            .iter()
+            .filter(|t| !t.url.is_empty())
+            .map(|t| (t.title.as_str(), self.tab_url(self.model.key(t)).unwrap_or_else(|| t.url.clone())))
+            .collect();
+        let Some(folder) = bookmarks::bookmark_all(self.store(space.private), space.space.profile_id, pages.iter().map(|(t, u)| (*t, u.as_str())), now())
+        else {
+            return;
+        };
         self.reload_bookmarks(cx);
         if let Some(main) = self.peek.main {
             cx.defer(move |cx| {
-                main.update(cx, |b, window, cx| b.show_library(Some(folder.id), window, cx)).ok();
+                main.update(cx, |b, window, cx| b.show_library(Some(folder), window, cx)).ok();
             });
         }
     }
 
     pub fn new_bookmark_folder(&mut self, parent: Option<Id>, cx: &mut Context<Self>) -> Option<Id> {
         let space = self.model.current_space()?;
-        let id = self.store(space.private).add_bookmark(space.space.profile_id, parent, None, "New Folder", now()).ok()?.id;
+        let id = bookmarks::new_folder(self.store(space.private), space.space.profile_id, parent, now())?;
         self.reload_bookmarks(cx);
         Some(id)
     }
@@ -472,7 +439,7 @@ fn bookmark_row(bm: &Bookmark) -> Entry {
 fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], downloads: &[Download], snapshots: &[Snapshot], sources: &[Source]) -> Vec<Entry> {
     let matches = |title: &str, url: &str| query.is_empty() || fuzzy_score(query, &format!("{title} {url}")).is_some();
     let bookmarks = &b.bookmarks;
-    let found = |limit| bookmarks.iter().filter(|bm| bm.url.as_deref().is_some_and(|u| matches(&bm.title, u))).take(limit).map(bookmark_row);
+    let found = |limit| bookmarks::search(bookmarks, query, limit).into_iter().map(bookmark_row);
     let history = |limit| history.iter().take(limit).map(|h| row(Item::Url(h.url.clone()), title_or_host(&h.title, &h.url), None));
     let downloads = |limit| {
         let now = now();
@@ -505,7 +472,7 @@ fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], down
             out.push(row(Item::Page(Page::History), "History".into(), None));
             out.push(row(Item::Page(Page::Bookmarks(None)), "Bookmarks".into(), None));
             if let Some(folder) = b.reading_list() {
-                out.push(row(Item::Page(Page::Bookmarks(Some(folder))), READING_LIST.into(), None));
+                out.push(row(Item::Page(Page::Bookmarks(Some(folder))), bookmarks::READING_LIST.into(), None));
             }
             out.push(row(Item::Page(Page::Downloads), "Downloads".into(), None));
             if !b.model.private() {
@@ -946,7 +913,7 @@ impl LibraryWindow {
         let Some(id) = self.browser.update(cx, |b, cx| b.new_bookmark_folder(parent, cx)).ok().flatten() else { return };
         self.go(Page::Bookmarks(parent), cx);
         self.select(Named::Bookmark(id), cx);
-        self.begin_rename(Named::Bookmark(id), "New Folder".into(), window, cx);
+        self.begin_rename(Named::Bookmark(id), bookmarks::NEW_FOLDER.into(), window, cx);
     }
 
     fn delete(&mut self, named: Named, window: &mut Window, cx: &mut Context<Self>) {
@@ -964,7 +931,7 @@ impl LibraryWindow {
         let Some(browser) = self.browser.upgrade() else { return };
         let b = browser.read(cx);
         let Some(bm) = b.bookmarks.iter().find(|bm| bm.id == id) else { return };
-        if subtree(&b.bookmarks, id).len() == 1 {
+        if bookmarks::subtree(&b.bookmarks, id).len() == 1 {
             browser.update(cx, |b, cx| b.delete_bookmark(id, cx));
             return;
         }
@@ -1174,12 +1141,10 @@ impl LibraryWindow {
         }
         if let Some(Named::Bookmark(id)) = named {
             let parent = b.bookmarks.iter().find(|bm| bm.id == id).and_then(|bm| bm.parent_id);
-            let inside = subtree(&b.bookmarks, id);
             let mut folders = vec![MenuItem::action("Bookmarks", Cmd::Move(id, None)).checked(parent.is_none()).enabled(parent.is_some())];
             folders.extend(
-                b.bookmarks
-                    .iter()
-                    .filter(|f| f.url.is_none() && !inside.contains(&f.id))
+                bookmarks::move_targets(&b.bookmarks, id)
+                    .into_iter()
                     .map(|f| MenuItem::action(bounded_title(&f.title), Cmd::Move(id, Some(f.id))).checked(parent == Some(f.id)).enabled(parent != Some(f.id))),
             );
             items.extend([
@@ -1464,10 +1429,6 @@ impl Render for LibraryWindow {
 mod tests {
     use super::*;
 
-    fn bookmark(id: Id, parent_id: Option<Id>, url: Option<&str>) -> Bookmark {
-        Bookmark { id, profile_id: 1, parent_id, url: url.map(String::from), title: String::new(), position: 0, created_at: 0 }
-    }
-
     #[test]
     fn card_fits_its_entries_up_to_the_cap() {
         let entries = [Entry::Header("Open Tabs", Some(0)), Entry::Empty(String::new()), Entry::Divider, row(Item::Page(Page::History), String::new(), None)];
@@ -1515,13 +1476,6 @@ mod tests {
     }
 
     #[test]
-    fn an_already_bookmarked_url_is_found_instead_of_added_again() {
-        let marks = [bookmark(1, None, None), bookmark(2, Some(1), Some("https://a.test/")), bookmark(3, None, Some("https://b.test/"))];
-        assert_eq!(find_bookmark(&marks, "https://a.test/").map(|b| b.id), Some(2));
-        assert!(find_bookmark(&marks, "https://c.test/").is_none());
-    }
-
-    #[test]
     fn the_import_summary_names_each_kind_and_why_one_failed() {
         let report = Report {
             cookies: Some(Err(ImportError::KeychainDenied)),
@@ -1535,12 +1489,5 @@ mod tests {
         let disk = Report { history: Some(Err(ImportError::DiskAccess)), ..Report::default() };
         assert!(import_summary("Firefox", Some(&disk)).contains(if cfg!(windows) { "Quit Firefox" } else { "Full Disk Access" }));
         assert!(import_summary("Arc", None).starts_with("The import did not finish."));
-    }
-
-    #[test]
-    fn a_folder_cannot_move_into_itself_or_its_children() {
-        let marks = [bookmark(1, None, None), bookmark(2, Some(1), None), bookmark(3, Some(2), Some("https://a.test/")), bookmark(4, None, None)];
-        assert_eq!(subtree(&marks, 1), HashSet::from([1, 2, 3]));
-        assert_eq!(subtree(&marks, 4), HashSet::from([4]));
     }
 }
