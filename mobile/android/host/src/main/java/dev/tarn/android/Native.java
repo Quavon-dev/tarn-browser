@@ -66,6 +66,8 @@ final class Native {
 
     static native String downloadName(String suggested);
 
+    static native String storeInstall(String url);
+
     static native boolean mayAskCredentials(String challenge, String page, int failures);
 
     static native int popupBurst();

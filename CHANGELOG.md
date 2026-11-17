@@ -22,6 +22,10 @@ All notable changes to Tarn are documented in this file. The format is based on
   GitHub or the official catalog with per-site grants (macOS, Windows, Linux, iOS, Android). On
   macOS they run in WebKit and Chromium tabs alike, cross-site frames included, with a toolbar
   button, badge and popup; on Windows they are the extensions Tarn can run.
+- Extension store: an "Install in Tarn" link on extensions.tarnbrowser.com opens a confirmation
+  in Settings › Extensions built only from Tarn's verified catalog, and nothing is downloaded
+  until you press Install there; Settings › Extensions links the store (macOS, Windows, Linux,
+  iOS, Android).
 - Site icons in tiles, tab rows, split panes, history, bookmarks, suggestions and the site and share
   popovers on Linux, and on tab cards and the share sheet on iOS, kept per profile as on macOS.
   Android shows letter tiles and makes no icon request of its own.

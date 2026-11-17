@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use browser_core::extensions::install::access_title;
+use browser_core::tabs::TabKey;
 use engine::tarn_ext::PageKind;
 use nsh_base::button;
 use nsh_core::prelude::*;
@@ -81,6 +82,29 @@ impl Host for Exts {
     }
     fn notice(self) -> Option<String> {
         (!ext::worlds_supported()).then(|| NO_WORLDS.to_owned())
+    }
+    fn store_link_allowed(self, tab: TabKey) -> bool {
+        self.0.read(|s| s.store_link_allowed(tab))
+    }
+    fn open_link(self, url: &'static str) {
+        self.0.act(|s| {
+            s.new_tab(Some(url));
+            Vec::new()
+        });
+        self.0.show(Screen::Browse);
+    }
+}
+
+pub(super) fn store_link(ui: Ui, key: TabKey, id: &str) {
+    if !ui.read(|s| s.core.admit_store_link(Instant::now())) {
+        return;
+    }
+    match tarn_nsh_shared::extensions::store_link(Exts(ui), key, id) {
+        Ok(()) => ui.show(Screen::Extensions),
+        Err(why) => ui.act_on_screen(|s| {
+            s.notice = Some(why);
+            Vec::new()
+        }),
     }
 }
 

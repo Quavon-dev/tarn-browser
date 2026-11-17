@@ -422,6 +422,23 @@ fn ruled_hosts_open_link_popups_in_their_space() {
 }
 
 #[test]
+fn a_pop_up_to_a_store_link_keeps_its_opener() {
+    let (_dir, mut shell) = open();
+    shell.new_space("Work");
+    let work = shell.model.space_ix;
+    shell.choose_space(0, 1);
+    visit(&mut shell, "https://extensions.tarnbrowser.com/", "Store");
+    assert!(shell.set_site_rule(Some(work)));
+    shell.new_tab(None);
+    visit(&mut shell, "https://a.test/", "A");
+    let link = "https://extensions.tarnbrowser.com/install/helper";
+    shell.event(active(&shell), "popup", &json!({ "url": link, "link": true }), 3);
+    assert_eq!(shell.model.space_ix, 0, "not routed as a fresh tab");
+    let load = shell.views().iter().filter_map(|v| v.load.clone()).find(|l| l.url == link).unwrap();
+    assert_eq!(load.opener.as_deref(), Some("https://a.test/"), "the page's pop-up, never the user's own load");
+}
+
+#[test]
 fn snapshots_save_and_restore_a_space() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");

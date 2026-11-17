@@ -118,6 +118,13 @@ runtime in `browser_core::tarn_ext`; the shell only carries out its decisions.
 
 Gaps, with their reason:
 
+- **Store links in frames.** WebKitGTK's navigation policy decision names no frame: the pinned
+  `webkit6` 0.6.1 `NavigationAction` has only `frame_name`, the target name a page may give, and
+  no main-frame flag. So the user's own click (with a gesture) on an install link inside a frame
+  also opens the consent for that catalog id. Frames a page loads and script navigations without
+  a gesture never do (`linux/src/webview/display_tests.rs`), and the consent still shows only
+  Tarn's verified catalog entry and waits for the user.
+
 - **Messaging from subframes.** WebKitGTK gives the UI process no frame for a script message:
   in WebKitGTK 2.54.2 (Fedora 43, checked 2026-11-16) and the pinned `webkit6` 0.6.1,
   `script-message-received` carries only the value and `script-message-with-reply-received` adds
