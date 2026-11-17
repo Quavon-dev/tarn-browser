@@ -23,6 +23,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- The macOS disk image opens on a window drawn from the Tarn icon's lake, with an arrow from Tarn
+  to the Applications folder and the Tarn volume icon.
 - The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and
   your rights, and states per client what it describes.
 
