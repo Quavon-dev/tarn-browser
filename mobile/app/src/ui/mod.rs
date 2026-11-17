@@ -193,7 +193,8 @@ impl Ui {
     }
 
     fn browsing(self) -> bool {
-        matches!(self.screen.get(), Screen::Browse | Screen::Find | Screen::Share)
+        let screen = self.screen.get();
+        (matches!(screen, Screen::Browse | Screen::Find | Screen::Share) || self.mac.get() && mac::popovers::owns(screen))
             && !self.editing.get()
             && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
     }

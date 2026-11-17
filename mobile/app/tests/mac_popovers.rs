@@ -1,3 +1,4 @@
+use nsh_core::ViewKind;
 use nsh_core::geometry::{Bounds, Points, Size};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
@@ -35,8 +36,11 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
     app.type_text("id:palette-field", "example.com").unwrap();
     app.submit("id:palette-field").unwrap();
     app.wait_for("label:Site settings: Shield Standard, 0 stopped on this site").unwrap();
+    let page_shown = |app: &Headless| app.screen().layout_nodes().iter().any(|n| n.kind == ViewKind::Native && !n.hidden && n.bounds.size.height.0 > 0.);
+    assert!(page_shown(&app));
     app.press("label:Site settings: Shield Standard, 0 stopped on this site").unwrap();
     app.wait_for("SHIELD FOR THIS SITE").unwrap();
+    assert!(page_shown(&app), "the page stays visible behind the Shield popover");
     assert!(!app.screen().shows("Done"), "the touch sheet gives way to the popover");
     let (chip, card) = (bounds_of(&app, "label:Site settings: Shield Standard, 0 stopped on this site"), bounds(&app, "popover"));
     assert_eq!(card.size.width, Points(340.));
@@ -53,8 +57,18 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
     assert_eq!(card.size.width, Points(320.));
     assert!((card.origin.y.0 - (button.origin.y.0 + button.size.height.0 + 4.)).abs() < 0.5, "4 pt under the button: {button:?} {card:?}");
     assert!(!app.screen().shows("Done"));
+    assert!(page_shown(&app), "the page stays visible behind Downloads");
     app.press_key("escape").unwrap();
     app.wait_for_gone("No downloads yet", WAIT).unwrap();
+
+    app.press("label:Share").unwrap();
+    app.wait_for("label:Show QR Code").unwrap();
+    assert!(page_shown(&app), "the page stays visible behind Share");
+    app.press("label:Show QR Code").unwrap();
+    app.wait_for("Scan to open on a phone").unwrap();
+    assert!(page_shown(&app), "the page stays visible behind the QR code");
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("Scan to open on a phone", WAIT).unwrap();
 
     assert_eq!(app.screen().count("label:Close Tab").unwrap(), 1);
     app.long_press("label:https://example.com/").unwrap();
