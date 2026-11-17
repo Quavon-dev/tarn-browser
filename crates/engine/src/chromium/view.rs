@@ -718,15 +718,19 @@ wrap_request_handler! {
                 emit(&tab, Event::WebEngineOutdated);
                 return 1;
             }
-            let (shell, user_started) = if is_redirect == 1 {
-                (false, tab.user_started.get())
+            let (shell, user_started, activated) = if is_redirect == 1 {
+                (false, tab.user_started.get(), false)
             } else {
                 let (shell, step) = (tab.shell_load.take().is_some_and(|u| u == url), tab.history_step.take().contains(&url));
                 // CEF reports the shell's own LoadURL as a gesture; a link the shell loads for a page stays the page's.
                 let link = tab.link_load.take();
-                (shell, !link && (shell || user_gesture == 1 || step))
+                (shell, !link && (shell || user_gesture == 1 || step), !link && (shell || user_gesture == 1))
             };
             tab.user_started.set(user_started);
+            if activated && let Some(id) = crate::tarn_ext::store_install(&url) {
+                emit(&tab, Event::StoreInstall(id));
+                return 1;
+            }
             let source = if shell { Source::Typed } else { Source::Link };
             match nav_policy::decide_chromium(&url, source) {
                 #[cfg(target_os = "macos")]

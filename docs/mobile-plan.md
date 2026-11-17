@@ -282,6 +282,12 @@ worlds_supported, frame_event}` in its crate, the `extensionPost` command and `e
 `tarn.webview`, and the `tarn.extpage` component (`mobile/app` reaches the crate as `platform::ext`). All
 decisions come from `browser_core::tarn_ext`.
 
+- **Store install link** (`docs/shared-core.md` §1). iOS cancels it in the navigation delegate
+  (`ios/src/component.rs`: a shell load, or `LinkActivated` with WebKit's private `_isUserInitiated` and
+  not `_isRedirect`), Android in `shouldOverrideUrlLoading` (main frame, `hasGesture`, not `isRedirect`) and
+  in its shell load (`Native.storeInstall`); both emit `storeInstall`, and the shared shell checks
+  `Shell::store_link_allowed` and opens Settings › Extensions on the consent
+  (`tarn_nsh_shared::extensions::store_link`). Not yet run in the simulator or the emulator.
 - **Shared shell** (`app/src/extensions.rs`, `app/src/ui/extensions.rs`). For the persistent profile on
   screen it loads each enabled install with `tarn_ext::load`, so the tree is hashed against the stored hash
   before anything runs (a mismatch turns the install off and drops its site answers, as on desktop); a

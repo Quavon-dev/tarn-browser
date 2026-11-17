@@ -15,14 +15,14 @@ use ui::controls::{icon_button, tooltip};
 use ui::icon::Icon;
 use ui::theme::Theme;
 
-use crate::browser::Browser;
+use crate::browser::{Browser, TabKey};
 use crate::ext_package;
 use crate::ext_sources::{self, Net};
 use crate::prefs::Pref;
 use crate::shared::AppCore;
 pub use browser_core::extensions::Install;
 pub use browser_core::extensions::install::UNREVIEWED;
-use browser_core::extensions::install::{self, CATALOG_SEEN_SETTING, Slot};
+use browser_core::extensions::install::{self, CATALOG_SEEN_SETTING, Slot, StoreContext, StoreStep};
 use browser_core::extensions::{Step, Unpacked, badge, every_site, fetch_and_unpack, grew, may_use_all_sites, png_icon};
 
 pub use browser_core::theme_fetch::DOWNLOADS_SETTING;
@@ -147,6 +147,7 @@ pub struct Extensions {
     repin: HashSet<String>,
     /// Check for Updates runs once the catalog it asked for arrives.
     check_after_catalog: bool,
+    store_after_catalog: Option<String>,
     catalog: Option<Index>,
 }
 
@@ -949,7 +950,9 @@ impl Browser {
 
     pub fn fetch_catalog(&mut self, cx: &mut Context<Self>) {
         if !catalog_configured() || !self.extension_downloads() || self.core.extensions.borrow().busy.is_some() {
-            self.core.extensions.borrow_mut().check_after_catalog = false;
+            let mut ext = self.core.extensions.borrow_mut();
+            ext.check_after_catalog = false;
+            ext.store_after_catalog = None;
             return;
         }
         self.core.extensions.borrow_mut().busy = Some(LOADING_CATALOG.into());
@@ -973,10 +976,15 @@ impl Browser {
                         if b.core.extensions.borrow().check_after_catalog {
                             b.check_extension_updates(cx);
                         }
+                        let store = b.core.extensions.borrow_mut().store_after_catalog.take();
+                        if let Some(id) = store {
+                            b.store_step(id, true, cx);
+                        }
                     }
                     Err(why) => {
                         let mut ext = b.core.extensions.borrow_mut();
                         ext.check_after_catalog = false;
+                        ext.store_after_catalog = None;
                         ext.notices.push(why);
                     }
                 }
@@ -987,6 +995,7 @@ impl Browser {
                 if ext.busy.as_deref() == Some(LOADING_CATALOG) {
                     ext.busy = None;
                     ext.check_after_catalog = false;
+                    ext.store_after_catalog = None;
                 }
                 drop(ext);
                 cx.update(|cx| cx.refresh_windows()).ok();
@@ -1005,6 +1014,33 @@ impl Browser {
         let entry = self.core.extensions.borrow().catalog.as_ref().and_then(|c| c.extensions.iter().find(|e| e.id == id).cloned());
         if let Some(entry) = entry {
             self.install_extension(Install::Official(entry), None, cx);
+        }
+    }
+
+    pub(crate) fn store_link(&mut self, key: TabKey, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let page = self.views.get(&key).and_then(|v| v.url());
+        let profile = self.model.profile_of(&self.core, key).filter(|p| self.current_profile_id() == Some(*p));
+        if !profile.is_some_and(|p| self.core.store_link_allowed(key.private, p, page.as_ref())) {
+            return self.notify_offer(key, install::STORE_REFUSED.to_owned(), None);
+        }
+        self.open_settings_pane(crate::settings::SettingsPane::Extensions, window, cx);
+        self.store_step(id, false, cx);
+    }
+
+    fn store_step(&mut self, id: String, fetched: bool, cx: &mut Context<Self>) {
+        let rows = self.current_profile_id().map(|p| self.core.disk.extensions(p).unwrap_or_default()).unwrap_or_default();
+        let context = StoreContext { allowed: self.extensions_allowed(), configured: catalog_configured(), downloads: self.extension_downloads(), fetched };
+        let catalog = self.core.extensions.borrow().catalog.clone();
+        match install::store_step(&id, context, catalog.as_ref(), now(), &install::revoked(&self.core.disk), &rows) {
+            StoreStep::Install(entry) => self.install_extension(Install::Official(*entry), None, cx),
+            StoreStep::FetchCatalog => {
+                self.core.extensions.borrow_mut().store_after_catalog = Some(id);
+                self.fetch_catalog(cx);
+            }
+            StoreStep::Refuse(why) => {
+                self.core.extensions.borrow_mut().notices.push(why);
+                cx.notify();
+            }
         }
     }
 

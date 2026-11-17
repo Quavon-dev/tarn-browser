@@ -1771,6 +1771,13 @@ impl SettingsWindow {
                         .into_any_element()
                 }));
             }
+            official = official.child(self.link_row(
+                "extension-store",
+                "Browse the store",
+                "Official extensions with screenshots and search; Install in Tarn asks here first.",
+                browser_core::extensions::STORE_URL,
+                cx,
+            ));
             page = page.child(section("Official")).child(official);
             if old {
                 page = page.child(note("This list is more than 30 days old. Show official extensions to get the current one."));

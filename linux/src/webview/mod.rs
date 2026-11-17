@@ -400,6 +400,12 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
         decision.ignore();
         return true;
     };
+    let activated = !action.is_redirect() && (from_shell || (nav_type == NavigationType::LinkClicked && gesture));
+    if activated && let Some(id) = engine::tarn_ext::store_install(&url) {
+        state.emit(engine::tarn_ext::STORE_EVENT, json!({ "id": id }));
+        decision.ignore();
+        return true;
+    }
     let page = state.page.borrow().clone();
     let nav = Navigation {
         url: &url,

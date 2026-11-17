@@ -3,12 +3,13 @@ use std::rc::Rc;
 
 use browser_core::Core;
 use browser_core::prompts::Prompt;
+use browser_core::tabs::TabKey;
 use futures_util::StreamExt;
 use nsh_core::JsonValue;
 use nsh_core::prelude::*;
 use tarn_nsh_shared::controls::{secure_button, secure_surface};
 
-use super::{Ui, WINDOWS, act, read};
+use super::{Panel, Ui, WINDOWS, act, read};
 use crate::controls::{body, card, pill, small};
 use crate::data::Data;
 use crate::extensions::{self, Note, popup};
@@ -182,6 +183,20 @@ impl tarn_nsh_shared::extensions::Host for Installs {
     fn notice(self) -> Option<String> {
         None
     }
+    fn open_link(self, url: &'static str) {
+        self.0.panel.set(Panel::None);
+        act(self.0, |b| {
+            b.new_tab(url);
+        });
+    }
+}
+
+pub(super) fn store_link(ui: Ui, key: TabKey, id: &str) {
+    let allowed = read(ui, |b| b.store_link_allowed(key)).unwrap_or(false);
+    tarn_nsh_shared::extensions::store_link(Installs(ui), id, allowed);
+    ui.ext_pane.set(true);
+    ui.panel.set(Panel::Settings);
+    act(ui, |_| {});
 }
 
 pub(super) fn pane(ui: Ui) -> AnyElement {

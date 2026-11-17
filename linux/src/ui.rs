@@ -297,6 +297,9 @@ fn web_views(ui: Ui) -> View {
                     .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s }))))
                     .prop("active", move || JsonValue::from(item.with(|v| v.active)))
                     .on_native_event(move |event: &NativeEvent| {
+                        if &*event.name == browser_core::extensions::STORE_EVENT {
+                            extensions::store_link(ui, key, event.data["id"].as_str().unwrap_or_default());
+                        }
                         if &*event.name != "pressed" || read(ui, |b| b.in_split(key) && b.model.active != Some(key)) == Some(true) {
                             act_quietly(ui, |b| b.on_event(key, &event.name, &event.data));
                         }

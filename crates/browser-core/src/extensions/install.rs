@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use shield::catalog::{self, Index};
+use shield::catalog::{self, Entry, Index};
 use store::{Id, InstalledExtension, Store};
 
 use super::{Install, Step, Unpacked, badge, fetch_and_unpack, grew, may_use_all_sites, older, pattern_covers};
@@ -18,6 +18,12 @@ pub const MAX_INSTALLS: usize = 32;
 pub const REVOKED_SETTING: &str = "extension_revoked";
 pub const CATALOG_SEEN_SETTING: &str = "extension_catalog_version";
 pub const UNREVIEWED: &str = "Nobody reviewed this extension's code. It can read and change the sites you allow and send what it reads anywhere.";
+pub const STORE_REFUSED: &str = "Extensions are not installed in private spaces, burner tabs or Lockdown.";
+pub const STORE_NO_CATALOG: &str = "The official catalog is not available in this build.";
+pub const STORE_DOWNLOADS_OFF: &str = "Extension downloads are off in Privacy settings.";
+pub const STORE_NO_LIST: &str = "The official catalog could not be loaded.";
+pub const STORE_UNKNOWN: &str = "This extension is not in Tarn's official catalog.";
+pub const STORE_WITHDRAWN: &str = "This extension was withdrawn from the official catalog.";
 pub const NOT_TARN: &str =
     "This is not a Tarn extension. Only extensions whose manifest sets browser_specific_settings.tarn.runtime to 1 run in this version of Tarn.";
 
@@ -346,6 +352,53 @@ pub fn catalog_fetched(store: &Store, index: &Index) {
     merge_revoked(store, index);
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct StoreContext {
+    pub allowed: bool,
+    pub configured: bool,
+    pub downloads: bool,
+    pub fetched: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum StoreStep {
+    Refuse(String),
+    FetchCatalog,
+    Install(Box<Entry>),
+}
+
+pub fn store_step(
+    id: &str,
+    context: StoreContext,
+    index: Option<&Index>,
+    now: u64,
+    revoked: &BTreeSet<(String, String)>,
+    installed: &[InstalledExtension],
+) -> StoreStep {
+    let refuse = |why: &str| StoreStep::Refuse(why.to_owned());
+    if !context.allowed {
+        return refuse(STORE_REFUSED);
+    }
+    if !context.configured {
+        return refuse(STORE_NO_CATALOG);
+    }
+    if !context.downloads {
+        return refuse(STORE_DOWNLOADS_OFF);
+    }
+    let Some(index) = index.filter(|c| !catalog::is_old(c, now)) else {
+        return if context.fetched { refuse(STORE_NO_LIST) } else { StoreStep::FetchCatalog };
+    };
+    let Some(entry) = index.extensions.iter().find(|e| e.id == id) else { return refuse(STORE_UNKNOWN) };
+    let listed = |rid: &str, sha: &str| rid == entry.id && sha == entry.sha256;
+    if revoked.iter().any(|(rid, sha)| listed(rid, sha)) || index.revoked.iter().any(|r| listed(&r.id, &r.sha256)) {
+        return refuse(STORE_WITHDRAWN);
+    }
+    if installed.iter().any(|r| r.source.strip_prefix("official:") == Some(id)) {
+        return StoreStep::Refuse(format!("{} is already installed.", shown(&entry.name)));
+    }
+    StoreStep::Install(Box::new(entry.clone()))
+}
+
 /// The title of the per-site prompt every client shows.
 pub fn access_title(name: &str, badge: &str, host: &str) -> String {
     format!("The extension \u{201C}{}\u{201D} ({}) wants to read and change {}", shown(name), shown(badge), shown(host))
@@ -470,6 +523,51 @@ mod tests {
     #[test]
     fn the_prompt_names_extension_source_and_host() {
         assert_eq!(access_title("Helper", "Official", "shop.test"), "The extension \u{201C}Helper\u{201D} (Official) wants to read and change shop.test");
+    }
+
+    fn store_index(now: u64) -> Index {
+        serde_json::from_value(serde_json::json!({
+            "kind": "tarn-extensions", "version": 3, "created": now,
+            "extensions": [
+                {"id": "helper", "name": "Helper", "description": "", "version": "1.0", "url": "https://x.test/h.zip", "sha256": "a".repeat(64), "size": 1, "permissions": [], "hosts": []},
+                {"id": "gone", "name": "Gone", "description": "", "version": "1.0", "url": "https://x.test/g.zip", "sha256": "b".repeat(64), "size": 1, "permissions": [], "hosts": []},
+                {"id": "pulled", "name": "Pulled", "description": "", "version": "1.0", "url": "https://x.test/p.zip", "sha256": "c".repeat(64), "size": 1, "permissions": [], "hosts": []}
+            ],
+            "revoked": [{"id": "gone", "sha256": "b".repeat(64)}]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_store_link_offers_only_a_fresh_verified_catalog_entry() {
+        let now = 1_900_000_000;
+        let index = store_index(now);
+        let ok = StoreContext { allowed: true, configured: true, downloads: true, fetched: false };
+        let none = BTreeSet::new();
+        let step = |id: &str, context: StoreContext, index: Option<&Index>, revoked: &BTreeSet<(String, String)>, installed: &[InstalledExtension]| {
+            store_step(id, context, index, now, revoked, installed)
+        };
+        let refused = |why: &str| StoreStep::Refuse(why.to_owned());
+        let StoreStep::Install(entry) = step("helper", ok, Some(&index), &none, &[]) else { panic!("no install") };
+        assert_eq!(entry.id, "helper");
+        assert_eq!(step("helper", StoreContext { allowed: false, ..ok }, Some(&index), &none, &[]), refused(STORE_REFUSED));
+        assert_eq!(step("helper", StoreContext { configured: false, ..ok }, Some(&index), &none, &[]), refused(STORE_NO_CATALOG));
+        assert_eq!(step("helper", StoreContext { downloads: false, ..ok }, Some(&index), &none, &[]), refused(STORE_DOWNLOADS_OFF));
+        assert_eq!(step("helper", ok, None, &none, &[]), StoreStep::FetchCatalog);
+        let old = store_index(now - 31 * 24 * 3600);
+        assert_eq!(step("helper", ok, Some(&old), &none, &[]), StoreStep::FetchCatalog, "a list over 30 days old is fetched again");
+        let fetched = StoreContext { fetched: true, ..ok };
+        assert_eq!(step("helper", fetched, None, &none, &[]), refused(STORE_NO_LIST));
+        assert_eq!(step("helper", fetched, Some(&old), &none, &[]), refused(STORE_NO_LIST));
+        assert_eq!(step("missing", ok, Some(&index), &none, &[]), refused(STORE_UNKNOWN));
+        assert_eq!(step("gone", ok, Some(&index), &none, &[]), refused(STORE_WITHDRAWN));
+        let stored: BTreeSet<_> = [("pulled".to_owned(), "c".repeat(64))].into();
+        assert_eq!(step("pulled", ok, Some(&index), &stored, &[]), refused(STORE_WITHDRAWN));
+        let other_build: BTreeSet<_> = [("pulled".to_owned(), "d".repeat(64))].into();
+        assert!(matches!(step("pulled", ok, Some(&index), &other_build, &[]), StoreStep::Install(_)));
+        let installed = [InstalledExtension { source: "official:helper".into(), ..Default::default() }];
+        assert_eq!(step("helper", ok, Some(&index), &none, &installed), refused("Helper is already installed."));
+        assert!(matches!(step("pulled", ok, Some(&index), &none, &installed), StoreStep::Install(_)));
     }
 
     struct NoNet;

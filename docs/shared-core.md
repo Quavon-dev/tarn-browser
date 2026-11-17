@@ -101,6 +101,20 @@ checked installs (`replace`, `insert`, `retain`), the session's grants (`gate`, 
 Every shell reads the "every site" switch with `extensions::every_site_setting`, and installs go
 through `extensions::install` (`slot`, `vet`, `carry_over`, the signed catalog).
 
+Store install link: every implementation cancels a main-frame navigation the user started (a
+shell load that is not a link the shell loads for a page, or a link click with a user gesture)
+whose URL `tarn_ext::store_install` maps to a catalog id (exactly
+`https://extension.tarnbrowser.com/install/<id>`, with or without a final `/`), before any
+request, and reports `Event::StoreInstall(id)`; NSH engines emit `tarn_ext::STORE_EVENT`
+(`storeInstall`, `{id}`). Redirects, subframes and script navigations without a gesture load
+normally. WebKit (macOS, iOS) reads the gesture from the navigation action's private
+`_isUserInitiated` and redirects from `_isRedirect`; without them only shell loads count. The
+shell checks `Core::store_link_allowed` and runs `extensions::install::store_step` with its own
+verified catalog copy: `FetchCatalog` fetches the catalog as Settings › Extensions › Official
+does and asks again with `fetched`, `Install` opens the usual consent for
+`Install::Official(entry)`, `Refuse` shows its notice. Settings › Extensions links
+`extensions::STORE_URL` on every client.
+
 The shim (`tarn_ext_shim.js`) defines `chrome.*` and `browser.*` and talks only through these two
 functions: it sends `{"id": <n or null>, "call": "<api>", "args": [...]}` and receives
 `{"id": <n>, "result": ...}`, `{"id": <n>, "error": "..."}` or an event

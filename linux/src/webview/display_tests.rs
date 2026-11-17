@@ -86,6 +86,30 @@ fn contract_v3_scripts_run_in_the_tarn_world_and_styles_and_zaps_apply() {
 
 #[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    let link = "https://extension.tarnbrowser.com/install/helper";
+    for script in [
+        format!("location.href = '{link}'"),
+        format!("const a = document.createElement('a'); a.href = '{link}/'; document.body.append(a); a.click()"),
+        format!("const f = document.createElement('iframe'); f.src = '{link}'; document.body.append(f)"),
+    ] {
+        state.events.borrow_mut().clear();
+        web.load_html(&format!("<html><body><script>{script}</script></body></html>"), Some("http://page.test/"));
+        spin_until(|| false, 2);
+        assert!(event(&state, "committed").is_some(), "{script}: the page loaded");
+        assert!(event(&state, engine::tarn_ext::STORE_EVENT).is_none(), "{script}: {:?}", state.events.borrow());
+    }
+    *state.shell_url.borrow_mut() = Some(link.to_owned());
+    web.load_uri(link);
+    assert!(spin_until(|| event(&state, engine::tarn_ext::STORE_EVENT).is_some(), 20), "the user's own load asks");
+    assert_eq!(event(&state, engine::tarn_ext::STORE_EVENT).unwrap(), json!({ "id": "helper" }));
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn nothing_runs_or_applies_under_lockdown() {
     gtk::init().expect("a display");
     let state = view(ShieldLevel::Lockdown, "private:display-lockdown");

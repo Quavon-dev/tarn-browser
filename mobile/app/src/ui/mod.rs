@@ -103,6 +103,9 @@ impl Ui {
         if &*e.name == "pressed" && self.read(|s| s.model.active == Some(key)) {
             return;
         }
+        if &*e.name == browser_core::extensions::STORE_EVENT {
+            extensions::store_link(self, key, e.data["id"].as_str().unwrap_or_default());
+        }
         // A picked element is stored, and a pop-up may open in another profile's space.
         self.run(|s| s.event(key, &e.name, &e.data, browser_core::now()), matches!(&*e.name, "picked" | "popup"));
     }

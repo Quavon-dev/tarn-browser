@@ -594,8 +594,16 @@ final class TarnWebView implements NshComponent {
         return true;
     }
 
+    private boolean storeLink(String target) {
+        String id = Native.storeInstall(target);
+        if (id == null) return false;
+        emit("storeInstall", "id", id);
+        return true;
+    }
+
     private void shellLoad(String target, String opener) {
         refusedUrl = null;
+        if (opener == null && storeLink(target)) return;
         if (!passesNavPolicy(target, opener == null ? Native.TYPED : Native.POPUP, opener)) return;
         int site = levelFor(target);
         if (opener != null && isWeb(target) && Native.intoPrivateNetwork(target, opener, false, site)) {
@@ -910,7 +918,9 @@ final class TarnWebView implements NshComponent {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             if (!request.isForMainFrame()) return false;
-            return !pageNavigation(request.getUrl().toString(), request.isRedirect());
+            String target = request.getUrl().toString();
+            if (!request.isRedirect() && request.hasGesture() && storeLink(target)) return true;
+            return !pageNavigation(target, request.isRedirect());
         }
 
         @Override

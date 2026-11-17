@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use browser_core::extensions::install::{self, Fetched, Pending, Slot};
+use browser_core::extensions::install::{self, Fetched, Pending, Slot, StoreContext, StoreStep};
 use browser_core::extensions::{EVERY_SITE_SETTING, Install, badge, every_site_setting, may_use_all_sites};
 use browser_core::github::{Asset, Hop};
 use browser_core::theme_fetch::{self as fetch, shown};
@@ -32,6 +32,7 @@ pub trait Host: Copy + 'static {
     fn changed(self);
     /// A line the client wants shown above the list, such as a missing engine feature.
     fn notice(self) -> Option<String>;
+    fn open_link(self, url: &'static str);
 }
 
 #[derive(Clone, Default)]
@@ -176,6 +177,10 @@ impl<H: Host> Pane<H> {
     }
 
     fn show_official(self) {
+        self.load_catalog(None);
+    }
+
+    fn load_catalog(self, then: Option<String>) {
         if self.state.with_untracked(|s| s.busy) {
             return;
         }
@@ -200,10 +205,24 @@ impl<H: Host> Pane<H> {
                 Ok(index) => {
                     self.host.with_store(|s| install::catalog_fetched(s, &index));
                     self.set(|s| s.catalog = Some(index));
+                    if let Some(id) = then {
+                        self.store_step(&id, true, true);
+                    }
                 }
                 Err(e) => self.say(true, e),
             }
         });
+    }
+
+    fn store_step(self, id: &str, allowed: bool, fetched: bool) {
+        let context = StoreContext { allowed, configured: install::catalog_configured(), downloads: self.host.with_store(fetch::downloads_on), fetched };
+        let (catalog, installed) = (self.state.with_untracked(|s| s.catalog.clone()), self.rows());
+        let revoked = self.host.with_store(install::revoked);
+        match install::store_step(id, context, catalog.as_ref(), now_secs(), &revoked, &installed) {
+            StoreStep::Install(entry) => self.install(Install::Official(*entry), None),
+            StoreStep::FetchCatalog => self.load_catalog(Some(id.to_owned())),
+            StoreStep::Refuse(why) => self.say(true, why),
+        }
     }
 
     fn install_official(self, id: &str) {
@@ -360,6 +379,17 @@ fn official<H: Host>(pane: Pane<H>, rows: &[InstalledExtension]) -> View {
                 )
                 .child(pill("Show Official Extensions", move || pane.show_official())),
         )
+        .child(
+            row()
+                .child(
+                    view()
+                        .flex_col()
+                        .flex_1()
+                        .child(label("Browse the store"))
+                        .child(small("Official extensions with screenshots and search; Install in Tarn asks here first.")),
+                )
+                .child(pill("Open", move || pane.host.open_link(browser_core::extensions::STORE_URL))),
+        )
         .children(listed.into_iter().map(|(id, name, description, version, installed)| {
             row()
                 .child(view().flex_col().flex_1().child(label(name)).child(small(format!("{version} · {description}"))))
@@ -416,11 +446,22 @@ fn body<H: Host>(pane: Pane<H>) -> View {
     .child(official(pane, &rows))
 }
 
-pub fn extensions<H: Host>(host: H) -> AnyElement {
+fn opened<H: Host>(host: H) -> Pane<H> {
     let pane = Pane { host, state: global::<State>(), repo: global::<Repo>() };
     if install::catalog_configured() && pane.state.with_untracked(|s| s.catalog.is_none()) {
         let cached = install::cached_catalog(&host.catalog_dir(), &install::catalog_key());
         pane.set(|s| s.catalog = cached);
     }
+    pane
+}
+
+pub fn extensions<H: Host>(host: H) -> AnyElement {
+    let pane = opened(host);
     dynamic(move || body(pane)).into_element()
+}
+
+pub fn store_link<H: Host>(host: H, id: &str, allowed: bool) {
+    if host.profile().is_some() {
+        opened(host).store_step(id, allowed, false);
+    }
 }

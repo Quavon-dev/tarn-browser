@@ -115,6 +115,12 @@ pub extern "system" fn Java_dev_tarn_android_Native_downloadName(mut env: JNIEnv
     env.new_string(name).map_or(std::ptr::null_mut(), |s| s.into_raw())
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_storeInstall(mut env: JNIEnv, _: JClass, url: JString) -> jstring {
+    let id = string(&mut env, &url).and_then(|u| url::Url::parse(&u).ok()).and_then(|u| engine::tarn_ext::store_install(&u));
+    java_string(&mut env, id)
+}
+
 fn java_string(env: &mut JNIEnv, value: Option<String>) -> jstring {
     value.and_then(|v| env.new_string(v).ok()).map_or(std::ptr::null_mut(), |s| s.into_raw())
 }

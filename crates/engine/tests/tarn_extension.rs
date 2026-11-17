@@ -315,6 +315,26 @@ mod window {
         drop(page);
         drop(views.borrow_mut().drain(..));
         drop((granted, other, ungated, tab, probe, locked, frames, twice));
+        let asked: Rc<RefCell<Vec<String>>> = Rc::default();
+        let store_sink = {
+            let asked = asked.clone();
+            Rc::new(move |e: Event| {
+                if let Event::StoreInstall(id) = e {
+                    asked.borrow_mut().push(id);
+                }
+            })
+        };
+        let store = WebView::new(&host, &data, ShieldLevel::Standard, true, false, site_for.clone(), store_sink);
+        store.set_frame(0., 0., 800., 600.);
+        for page in ["store?click", "store?assign", "store-redirect"] {
+            store.load(&Url::parse(&format!("http://127.0.0.1:{port}/{page}")).unwrap());
+            spin(3.0, &|| false);
+            assert!(asked.borrow().is_empty(), "{page}: a script, a frame or a redirect never asks to install: {:?}", asked.borrow());
+        }
+        store.load(&Url::parse("https://extension.tarnbrowser.com/install/helper/").unwrap());
+        spin(3.0, &|| !asked.borrow().is_empty());
+        assert_eq!(*asked.borrow(), ["helper"], "the user's own load asks");
+        drop(store);
         DataStore::wipe_persistent(uuid);
         FilterLists::remove("tarn-ext.test");
         window.close();

@@ -708,11 +708,18 @@ impl Browser {
         self.outbox.push((key, "answer", prompt.answer(accept, Some(text.to_owned()), Some(user.to_owned()), Some(password.to_owned()))));
     }
 
+    pub fn store_link_allowed(&self, key: TabKey) -> bool {
+        let page = self.pages.get(&key).and_then(|p| Url::parse(&p.url).ok());
+        let current = self.model.current_space().filter(|s| !s.private).map(|s| s.space.profile_id);
+        self.model.profile_of(&self.core, key).filter(|p| current == Some(*p)).is_some_and(|p| self.core.store_link_allowed(key.private, p, page.as_ref()))
+    }
+
     pub fn on_event(&mut self, key: TabKey, name: &str, data: &Value) {
         let text = |k: &str| data[k].as_str().unwrap_or_default().to_owned();
         match name {
             "committed" | "finished" => self.on_page(key, name == "finished", data),
             "started" | "stopped" => self.pages.entry(key).or_default().loading = name == "started",
+            browser_core::extensions::STORE_EVENT => self.pages.entry(key).or_default().loading = false,
             "title" => {
                 if let Some(page) = self.pages.get_mut(&key) {
                     page.title = text("title");
