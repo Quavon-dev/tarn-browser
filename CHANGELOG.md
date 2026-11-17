@@ -11,6 +11,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Bitwarden's privileges (Touch ID unlock through the Bitwarden app, clipboard and passkeys) are
   off until you turn on Settings › Extensions › Bitwarden integration; until then Bitwarden runs
   like any other app extension (macOS).
+- The macOS disk image opens on a window drawn from the Tarn icon's lake, with an arrow from Tarn
+  to the Applications folder and the Tarn volume icon.
 
 ## [0.1.2] - 2026-11-17
 
