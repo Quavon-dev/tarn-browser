@@ -318,18 +318,6 @@ pub fn key_hint(key: &str, does: &str) -> View {
         .child(text(does.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::faint))
 }
 
-pub fn avatar(initial: String, fill: Rgba, size: f32) -> View {
-    view()
-        .w(px(size))
-        .h(px(size))
-        .flex_none()
-        .rounded_full()
-        .items_center()
-        .justify_center()
-        .bg(fill)
-        .child(text(initial).text_size(px((size * 0.5).round())).font_weight(FontWeight::BOLD).text_color(Theme::on_fill(fill)))
-}
-
 pub fn site_tile(icon: Option<String>, host: &str, size: f32) -> View {
     let tile = view().w(px(size)).h(px(size)).flex_none().rounded(px(size * 0.28)).overflow_hidden().items_center().justify_center();
     if let Some(icon) = icon {
@@ -380,18 +368,37 @@ pub fn card() -> View {
     surface(Theme::radius_panel()).flex_col()
 }
 
-/// A toast's pill: its tone's icon and edge, ready for the message and any buttons.
+/// A toast's card: its tone's icon, ready for the message and any buttons.
 pub fn toast(tone: Tone) -> View {
-    let mark = match tone {
-        Tone::Info => None,
-        Tone::Success => Some((crate::icons::CIRCLE_CHECK, Theme::success())),
-        Tone::Warning => Some((crate::icons::TRIANGLE_ALERT, Theme::warning())),
+    let (glyph, color) = match tone {
+        Tone::Info => (crate::icons::INFO, Theme::muted()),
+        Tone::Success => (crate::icons::CIRCLE_CHECK, Theme::success()),
+        Tone::Warning => (crate::icons::TRIANGLE_ALERT, Theme::warning()),
     };
-    let pill = view().flex_row().items_center().gap_2().min_h(px(36.)).pl(px(14.)).py_1().rounded(px(18.)).surface().font_weight(FontWeight::MEDIUM);
-    match mark {
-        Some((glyph, color)) => pill.border_color(color.alpha(0.5)).child(view().text_color(color).child(crate::icons::icon(glyph, 14.))),
-        None => pill,
-    }
+    view()
+        .flex_row()
+        .items_center()
+        .gap(px(10.))
+        .min_h(px(44.))
+        .pl(px(16.))
+        .pr(px(6.))
+        .py_1()
+        .rounded(px(Theme::radius_panel()))
+        .surface()
+        .child(view().flex_none().text_color(color).child(crate::icons::icon(glyph, 16.)))
+}
+
+/// A toast's action: quiet accent text, so the message stays the focus.
+pub fn toast_action(name: impl Into<String>, press: impl Fn() + 'static) -> ButtonElement {
+    let name: String = name.into();
+    pressable(name.clone(), press)
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .min_h(px(metrics().target))
+        .px(px(10.))
+        .rounded(px(Theme::radius_row()))
+        .child(label(name).font_weight(FontWeight::MEDIUM).text_color(Theme::accent))
 }
 
 #[cfg(test)]
