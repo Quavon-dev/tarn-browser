@@ -166,17 +166,6 @@ pub fn table(apple: bool) -> Vec<(&'static str, Vec<(&'static str, String)>)> {
         .collect()
 }
 
-pub fn tab_to_select(action: Action, count: usize, active: Option<usize>) -> Option<usize> {
-    let last = count.checked_sub(1)?;
-    match action {
-        Action::SelectTab(n) => Some(usize::from(n).checked_sub(1)?).filter(|ix| *ix <= last),
-        Action::LastTab => Some(last),
-        Action::NextTab => Some(active.map_or(0, |ix| if ix >= last { 0 } else { ix + 1 })),
-        Action::PreviousTab => Some(active.map_or(last, |ix| if ix == 0 { last } else { ix - 1 })),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,18 +235,5 @@ mod tests {
         assert_eq!(names(window)[names(window).len() - 3..], ["Switch to space 1–9", "Settings", "Close command bar, popover or Settings"]);
         assert_eq!(window[window.len() - 3].1, "Alt+1–9");
         assert_eq!(window[window.len() - 1].1, "Esc");
-    }
-
-    #[test]
-    fn tab_keys_pick_an_index_that_exists() {
-        assert_eq!(tab_to_select(Action::SelectTab(1), 3, Some(2)), Some(0));
-        assert_eq!(tab_to_select(Action::SelectTab(4), 3, Some(0)), None);
-        assert_eq!(tab_to_select(Action::LastTab, 3, Some(0)), Some(2));
-        assert_eq!(tab_to_select(Action::NextTab, 3, Some(2)), Some(0));
-        assert_eq!(tab_to_select(Action::NextTab, 3, None), Some(0));
-        assert_eq!(tab_to_select(Action::PreviousTab, 3, Some(0)), Some(2));
-        assert_eq!(tab_to_select(Action::PreviousTab, 3, Some(2)), Some(1));
-        assert_eq!(tab_to_select(Action::NextTab, 0, None), None);
-        assert_eq!(tab_to_select(Action::Reload, 3, Some(0)), None);
     }
 }

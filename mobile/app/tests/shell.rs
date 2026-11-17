@@ -621,6 +621,24 @@ fn every_copy_link_says_so_and_copies_only_web_links() {
 }
 
 #[test]
+fn closing_a_pinned_tab_or_tile_unloads_it_and_keeps_it() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://example.com/");
+    let pinned = active(&shell);
+    shell.toggle_pin(pinned);
+    shell.new_tab(None);
+    shell.navigate("https://example.org/");
+    let tile = active(&shell);
+    browser_core::sidebar::toggle_tile(&mut shell.model, &shell.core, tile);
+    for key in [pinned, tile] {
+        shell.activate(key);
+        shell.close_tab(key);
+        assert!(shell.model.tab(key).is_some(), "a pinned tab or tile stays in the sidebar");
+        assert!(!shell.model.lifecycle.live().any(|k| k == key), "its page is unloaded");
+    }
+}
+
+#[test]
 fn zoom_steps_from_the_page_and_resets() {
     let (_dir, mut shell) = open();
     shell.navigate("https://example.com/");

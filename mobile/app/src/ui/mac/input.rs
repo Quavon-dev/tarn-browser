@@ -1,4 +1,4 @@
-use browser_core::shortcuts::{self, Action, tab_to_select};
+use browser_core::shortcuts::{self, Action};
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use serde_json::Value;
@@ -8,10 +8,12 @@ use super::super::{Screen, Ui, bars};
 const ALWAYS: KeyOptions = KeyOptions { when: When::Always, repeat: false, pass_through: false };
 
 fn select_tab(ui: Ui, action: Action) {
-    let target = ui.read(|s| {
-        let keys: Vec<_> = s.model.tabs.iter().map(|t| s.model.key(t)).collect();
-        let active = s.model.active.and_then(|a| keys.iter().position(|k| *k == a));
-        tab_to_select(action, keys.len(), active).and_then(|ix| keys.get(ix).copied())
+    let target = ui.read(|s| match action {
+        Action::SelectTab(n) => s.model.slot(usize::from(n)),
+        Action::LastTab => s.model.slot(9),
+        Action::NextTab => s.model.cycled(true),
+        Action::PreviousTab => s.model.cycled(false),
+        _ => None,
     });
     if let Some(key) = target {
         ui.act(|s| {
