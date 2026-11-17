@@ -1,6 +1,6 @@
 use std::cell::Cell;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Mutex, PoisonError};
@@ -23,13 +23,20 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(500);
 thread_local! {
     static SESSIONS: RefCell<HashMap<StoreKey, NetworkSession>> = RefCell::default();
     pub(super) static DOWNLOADS: RefCell<HashMap<String, Download>> = RefCell::default();
+    pub(super) static CANCELLING: RefCell<HashSet<String>> = RefCell::default();
     static NEXT_DOWNLOAD: Cell<u64> = const { Cell::new(0) };
 }
 
 pub fn cancel(id: &str) {
-    if let Some(download) = DOWNLOADS.with_borrow(|d| d.get(id).cloned()) {
+    let Some(download) = DOWNLOADS.with_borrow(|d| d.get(id).cloned()) else { return };
+    if CANCELLING.with_borrow_mut(|c| c.insert(id.to_owned())) {
         download.cancel();
     }
+}
+
+fn settled(id: &str) -> Option<Download> {
+    CANCELLING.with_borrow_mut(|c| c.remove(id));
+    DOWNLOADS.with_borrow_mut(|d| d.remove(id))
 }
 
 pub fn release(key: &StoreKey) {
@@ -140,9 +147,12 @@ pub fn track(download: &Download, sink: &dyn DownloadSink) {
         let dir = downloads_dir();
         if let Err(e) = std::fs::create_dir_all(&dir) {
             report(&named, json!({ "id": id, "state": "failed", "name": suggested, "message": e.to_string() }));
-            DOWNLOADS.with_borrow_mut(|d| d.remove(id));
+            let pending = CANCELLING.with_borrow(|c| c.contains(id));
+            settled(id);
             unplaced.set(true);
-            download.cancel();
+            if !pending {
+                download.cancel();
+            }
             return true;
         }
         let path = destination(&dir, suggested, sort);
@@ -162,19 +172,25 @@ pub fn track(download: &Download, sink: &dyn DownloadSink) {
         let total = download.response().map(|r| r.content_length()).filter(|n| *n > 0);
         report(&progress, json!({ "id": progress_id, "state": "progress", "done": download.received_data_length(), "total": total }));
     });
-    let (finished, finished_id) = (tab.clone(), id.clone());
+    let (finished, finished_id, ended) = (tab.clone(), id.clone(), reported.clone());
     download.connect_finished(move |download| {
-        if DOWNLOADS.with_borrow_mut(|d| d.remove(&finished_id)).is_none() {
+        let cancelled = CANCELLING.with_borrow(|c| c.contains(&finished_id));
+        if settled(&finished_id).is_none() {
             return;
         }
         let Some(path) = download.destination().map(|d| PathBuf::from(d.as_str())) else { return };
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if cancelled {
+            ended.set(true);
+            std::fs::remove_file(&path).ok();
+            return report(&finished, json!({ "id": finished_id, "state": "failed", "name": name, "message": "The download was cancelled." }));
+        }
         let url = download.request().and_then(|r| r.uri()).map(|u| super::policy::without_credentials(&u)).unwrap_or_default();
         let quarantined = mark_origin(&path, &url);
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         report(&finished, json!({ "id": finished_id, "state": "finished", "name": name, "path": path, "url": url, "quarantined": quarantined }));
     });
     download.connect_failed(move |download, error| {
-        DOWNLOADS.with_borrow_mut(|d| d.remove(&id));
+        settled(&id);
         if reported.replace(true) {
             return;
         }

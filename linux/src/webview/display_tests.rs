@@ -215,9 +215,11 @@ fn a_download_outlives_its_view_and_burned_store_and_cancels_by_id() {
     drop((web, state));
     session::release(&StoreKey::parse(burner).unwrap());
     session::cancel("2");
+    session::cancel("2");
     assert!(spin_until(|| states("1").last().is_some_and(|s| s == "finished"), 30), "{:?}", reports.borrow());
     assert!(spin_until(|| states("2").last().is_some_and(|s| s == "failed"), 10), "a cancelled download never reports finished: {:?}", reports.borrow());
     assert!(!states("2").contains(&"finished".to_owned()), "{:?}", reports.borrow());
+    assert_eq!(states("2").iter().filter(|s| *s == "failed").count(), 1, "a cancel reports once: {:?}", reports.borrow());
     let path = |id: &str| reports.borrow().iter().find(|(_, d)| d["id"] == id && d["state"] == "started").map(|(_, d)| d["path"].clone());
     assert_ne!(path("1"), path("2"), "two downloads of one name never share a file");
     assert!(!std::path::Path::new(path("2").unwrap().as_str().unwrap()).exists(), "a cancelled download leaves no file");
@@ -225,6 +227,7 @@ fn a_download_outlives_its_view_and_burned_store_and_cancels_by_id() {
     let done = reports.borrow().iter().rev().find(|(_, d)| d["id"] == "1").map(|(_, d)| d.clone()).unwrap();
     assert_eq!(std::fs::metadata(done["path"].as_str().unwrap()).unwrap().len(), 20 * 1024);
     assert!(session::DOWNLOADS.with_borrow(HashMap::is_empty), "finished and cancelled downloads leave the map");
+    assert!(session::CANCELLING.with_borrow(std::collections::HashSet::is_empty), "a settled cancel is forgotten");
 }
 
 #[test]
