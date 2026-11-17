@@ -480,6 +480,13 @@ fn a_tab_dropped_on_a_grouped_row_joins_its_group_and_other_windows_reload() {
     assert_eq!(b.regrouped_space, None, "a reorder inside the group changes no group");
     b.move_tab_to(c, d);
     assert_eq!((b.model.tab(c).unwrap().group_id, b.regrouped_space), (None, here), "leaving the group reloads too");
+    b.new_folder(None);
+    let folder = b.model.folders[0].id;
+    b.regrouped_space = None;
+    b.move_to_folder(d, folder);
+    assert_eq!(b.regrouped_space, None, "filing an ungrouped tab changes no group");
+    b.move_to_folder(a, folder);
+    assert_eq!((b.model.tab(a).unwrap().group_id, b.regrouped_space), (None, here), "filing a grouped tab takes it out of its group and reloads");
 }
 
 #[test]

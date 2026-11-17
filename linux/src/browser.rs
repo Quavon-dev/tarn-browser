@@ -599,8 +599,11 @@ impl Browser {
     }
 
     pub fn move_to_folder(&mut self, key: TabKey, folder: Id) {
+        let group = self.model.tab(key).map(|t| t.group_id);
         let at = browser_core::sidebar::DropAt::zone(TabKind::Pinned, Some(folder), None);
-        browser_core::sidebar::drop_tab(&mut self.model, &self.core, key, at);
+        if browser_core::sidebar::drop_tab(&mut self.model, &self.core, key, at).is_some() && self.model.tab(key).map(|t| t.group_id) != group {
+            self.regrouped();
+        }
     }
 
     pub fn move_to_space(&mut self, key: TabKey, ix: usize) {
