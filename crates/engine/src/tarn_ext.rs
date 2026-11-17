@@ -18,6 +18,9 @@ pub const WORLD_PREFIX: &str = "tarn-ext-";
 pub const POST: &str = "__tarnExtPost";
 pub const RECEIVE: &str = "__tarnExtReceive";
 pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
+pub const STORE_HOST: &str = "extensions.tarnbrowser.com";
+pub const STORE_URL: &str = "https://extensions.tarnbrowser.com/";
+pub const STORE_EVENT: &str = "storeInstall";
 /// Starts the messages an engine's own setup code sends; the shim only sends JSON objects.
 pub const HELLO: char = '\u{1}';
 pub const DOCUMENT: &str = "__tarnExtDoc";
@@ -144,6 +147,15 @@ pub fn opens_as_tab(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
         && crate::nav_policy::decide(url, crate::nav_policy::Source::Link) == crate::nav_policy::Decision::Allow
         && !shield::rules::is_local(url, true)
+}
+
+pub fn store_install(url: &Url) -> Option<String> {
+    if url.scheme() != "https" || url.host_str() != Some(STORE_HOST) || url.port().is_some() || !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
+    let id = url.path().strip_prefix("/install/")?;
+    let id = id.strip_suffix('/').unwrap_or(id);
+    shield::catalog::valid_id(id).then(|| id.to_owned())
 }
 
 /// The shim that defines `chrome.*` and `browser.*` from `config`, made by the core.
@@ -305,6 +317,41 @@ pub fn reply(doc: Option<&str>, json: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_store_install_address_names_a_catalog_id() {
+        let id = |s: &str| store_install(&Url::parse(s).unwrap());
+        assert_eq!(id("https://extensions.tarnbrowser.com/install/ublock-lite"), Some("ublock-lite".into()));
+        assert_eq!(id("https://extensions.tarnbrowser.com/install/ublock-lite/"), Some("ublock-lite".into()));
+        assert_eq!(id("https://EXTENSIONS.tarnbrowser.com/install/a1?x=1#y"), Some("a1".into()));
+        assert_eq!(id("https://extensions.tarnbrowser.com:443/install/a1"), Some("a1".into()));
+        assert_eq!(id(&format!("https://extensions.tarnbrowser.com/install/{}", "a".repeat(64))), Some("a".repeat(64)));
+        for refused in [
+            "http://extensions.tarnbrowser.com/install/a1",
+            "https://extensions.tarnbrowser.com./install/a1",
+            "https://evil.extensions.tarnbrowser.com/install/a1",
+            "https://tarnbrowser.com/install/a1",
+            "https://extensions.tarnbrowser.com.evil.test/install/a1",
+            "https://extensions.tarnbrowser.com:8443/install/a1",
+            "https://user@extensions.tarnbrowser.com/install/a1",
+            "https://:pw@extensions.tarnbrowser.com/install/a1",
+            "https://extensions.tarnbrowser.com/",
+            "https://extensions.tarnbrowser.com/install/",
+            "https://extensions.tarnbrowser.com/install//",
+            "https://extensions.tarnbrowser.com/install",
+            "https://extensions.tarnbrowser.com/extension/a1",
+            "https://extensions.tarnbrowser.com/install/a1/b",
+            "https://extensions.tarnbrowser.com/install/a1//",
+            "https://extensions.tarnbrowser.com/install/A1",
+            "https://extensions.tarnbrowser.com/install/a_1",
+            "https://extensions.tarnbrowser.com/install/a%2D1",
+            "https://extensions.tarnbrowser.com/x/install/a1",
+            "tarn-extension://extensions.tarnbrowser.com/install/a1",
+        ] {
+            assert_eq!(id(refused), None, "{refused}");
+        }
+        assert_eq!(id(&format!("https://extensions.tarnbrowser.com/install/{}", "a".repeat(65))), None);
+    }
 
     #[test]
     fn worlds_name_one_install() {

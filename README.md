@@ -14,7 +14,7 @@ Written in Rust. No telemetry, no accounts, no Electron.
 
 [Features](#features) · [Screenshots](#screenshots) · [Platforms](#platforms) · [Build](#build-and-run) · [Shortcuts](#shortcuts) · [Development](#development)
 
-<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Tarn demo: the address field switching to an open tab, a command opening Split View, link peek, Reader, the Shield site card, themes and the shortcut sheet" width="100%" /></a>
+<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Tarn demo: the address field switching to an open tab, a command opening Split View, link peek, Reader, the Shield site card, the shortcut sheet and the Ember theme" width="100%" /></a>
 
 <sub>▶ Full-quality video: <a href="docs/media/demo.mp4">docs/media/demo.mp4</a></sub>
 
@@ -102,7 +102,7 @@ the Linux, iOS and Android apps. Pages render in each platform's own engine.
     <td align="center"><sub><b>Split View</b> · <kbd>⌃⌘N</kbd></sub></td>
   </tr>
   <tr>
-    <td><img src="docs/media/site-settings.png" alt="Site settings card with the Shield level, zoom, blocking, pop-ups, dark mode and site CSS" /></td>
+    <td><img src="docs/media/site-settings.png" alt="Site card with the connection, the Shield level, pop-ups, mute, dark mode and zoom for this site" /></td>
     <td><img src="docs/media/reader.png" alt="A Wikipedia article in Reader view" /></td>
   </tr>
   <tr>
@@ -110,14 +110,33 @@ the Linux, iOS and Android apps. Pages render in each platform's own engine.
     <td align="center"><sub><b>Reader</b> · <kbd>⇧⌘R</kbd>, with Read Aloud</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/media/themes.png" alt="Tarn in the Ember theme" /></td>
+    <td><img src="docs/media/themes.png" alt="Appearance settings with the Ember theme applied to Tarn" /></td>
     <td><img src="docs/media/shortcuts.png" alt="The keyboard shortcut sheet" /></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Themes</b> · Ember, one of the built-in themes</sub></td>
+    <td align="center"><sub><b>Themes</b> · Ember, one of the built-in themes, or your own CSS</sub></td>
     <td align="center"><sub><b>Shortcut sheet</b> · <kbd>⌘/</kbd></sub></td>
   </tr>
 </table>
+
+### iPhone, iPad and Android
+
+<table>
+  <tr>
+    <td width="25%"><img src="docs/media/store/ios-phone/02-browse.png" alt="Tarn on iPhone showing a Wikipedia article with the address bar at the bottom" /></td>
+    <td width="25%"><img src="docs/media/store/ios-phone/03-shield-card.png" alt="The Shield card on iPhone counting tracking parameters removed on this device" /></td>
+    <td width="25%"><img src="docs/media/store/android-phone/05-tabs.png" alt="The tab grid on Android" /></td>
+    <td width="25%"><img src="docs/media/store/android-phone/06-themes.png" alt="Tarn on Android in the Ember theme with the theme picker open" /></td>
+  </tr>
+</table>
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/store/ios-tablet/01-split.png" alt="Split View on iPad with the WebKit blog and a Wikipedia article side by side" /></td>
+    <td width="50%"><img src="docs/media/store/android-tablet/01-split.png" alt="Split View on an Android tablet with Hacker News and the WebKit blog side by side" /></td>
+  </tr>
+</table>
+
+<sub>App Store and Google Play sets at their store sizes: <a href="docs/media/store/"><code>docs/media/store/</code></a>.</sub>
 
 ## Platforms
 
@@ -228,8 +247,8 @@ be changed in Settings › Shortcuts; tab and space numbers, Esc, Undo/Redo and 
 | Keys | Action |
 |---|---|
 | ⌘N | New window |
-| ⌘T | New tab: the address field opens in the toolbar over a shown page, otherwise the command card, with the cursor in it |
-| ⌘L | Edit the current tab's address in the toolbar |
+| ⌘T | New tab: the command palette opens over a shown page, otherwise the command card, with the cursor in it |
+| ⌘L | Edit the current tab's address in the command palette |
 | ⌘W | Close tab (pinned tabs and tiles are unloaded, not removed) |
 | ⇧⌘T | Reopen closed tab |
 | ⇧⌘K | Close all tabs |

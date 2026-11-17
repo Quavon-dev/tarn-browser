@@ -1,4 +1,6 @@
 use std::fmt::Write;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use shield::ShieldLevel;
 
@@ -20,6 +22,21 @@ pub struct Card {
 }
 
 const DAY_MS: i64 = 86_400_000;
+
+pub fn export_path(file: &str) -> std::io::Result<PathBuf> {
+    static EXPORTS: AtomicU64 = AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!("tarn-card-{}-{}", std::process::id(), EXPORTS.fetch_add(1, Ordering::Relaxed)));
+    #[cfg(unix)]
+    let builder = {
+        let mut builder = std::fs::DirBuilder::new();
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder
+    };
+    #[cfg(not(unix))]
+    let builder = std::fs::DirBuilder::new();
+    builder.create(&dir)?;
+    Ok(dir.join(file))
+}
 
 pub fn date(ms: i64) -> String {
     let days = ms.div_euclid(DAY_MS) + 719_468;
@@ -57,16 +74,25 @@ pub fn read(store: &store::Store, profile_id: store::Id, private: bool, name: St
     })
 }
 
-pub fn week_rows(week: &[store::ShieldDay]) -> Vec<(&'static str, Vec<i64>)> {
-    const NAMES: [&str; 5] =
-        ["Tracking parameters removed", "Pages upgraded to HTTPS", "Local network visits blocked", "Pages on block lists stopped", "Pop-ups blocked"];
-    NAMES
-        .iter()
-        .enumerate()
-        .map(|(ix, name)| {
-            (*name, week.iter().map(|d| [d.tracking_params, d.https_upgrades, d.local_blocked, d.listed_stopped, d.popups_blocked][ix].max(0)).collect())
+pub fn day_totals(week: &[store::ShieldDay]) -> Vec<(&'static str, i64)> {
+    const DAYS: [&str; 7] = ["M", "T", "W", "T", "F", "S", "S"];
+    week.iter()
+        .map(|d| {
+            let total = [d.tracking_params, d.https_upgrades, d.local_blocked, d.listed_stopped, d.popups_blocked, d.chromium_requests]
+                .iter()
+                .map(|n| (*n).max(0))
+                .sum();
+            (weekday(&d.day).map_or("", |w| DAYS[w]), total)
         })
         .collect()
+}
+
+fn weekday(iso: &str) -> Option<usize> {
+    let mut parts = iso.splitn(3, '-').map(|p| p.parse::<i64>().ok());
+    let (y, m, d) = (parts.next()??, parts.next()??, parts.next()??);
+    let (y, m) = if m <= 2 { (y - 1, m + 12) } else { (y, m) };
+    let days = 365 * y + y / 4 - y / 100 + y / 400 + (153 * (m - 3) + 2) / 5 + d - 307;
+    Some(days.rem_euclid(7) as usize)
 }
 
 pub fn thousands(n: u64) -> String {
@@ -86,12 +112,23 @@ pub fn days_text(days: i64) -> String {
 }
 
 pub const SHORT: [(&str, &str); 3] = [("Parameters", "removed"), ("HTTPS", "upgrades"), ("Local visits", "blocked")];
+pub const NUMBERS: [&str; 3] = ["parameters removed", "HTTPS upgrades", "local visits blocked"];
 
 pub fn motto(level: ShieldLevel) -> (&'static str, &'static str) {
     match level {
         ShieldLevel::Standard => ("Standard", "Trackers blocked, links cleaned"),
         ShieldLevel::Strict => ("Strict", "No cross-site referrers"),
         ShieldLevel::Lockdown => ("Lockdown", "No scripts, nothing kept"),
+    }
+}
+
+pub fn site_level_line(site: Option<ShieldLevel>, profile: ShieldLevel) -> String {
+    match site {
+        Some(level) => format!("{}.", motto(level).1),
+        None => {
+            let (name, meaning) = motto(profile);
+            format!("Follows the profile: {name} — {}.", meaning.to_lowercase())
+        }
     }
 }
 
@@ -128,77 +165,99 @@ impl Draw {
 
 pub struct Scene {
     pub sky: &'static str,
+    pub glow: &'static str,
     pub far: &'static str,
+    pub far_low: &'static str,
     pub snow: &'static str,
     pub band: &'static str,
     pub near: &'static str,
     pub lake: &'static str,
+    pub deep: &'static str,
     pub shallow: &'static str,
     pub ink: &'static str,
     pub dark: bool,
 }
 
-const SCENES: [Scene; 4] = [
-    Scene {
-        sky: "#EAE3DF",
-        far: "#98A0B5",
-        snow: "#CDCFDF",
-        band: "#4C5D75",
-        near: "#B7BCCC",
-        lake: "#1567A3",
-        shallow: "#3E95CB",
-        ink: "#1B2A3D",
-        dark: false,
-    },
-    Scene {
-        sky: "#DCEAF4",
-        far: "#8E9AB2",
-        snow: "#E6EAF2",
-        band: "#45586F",
-        near: "#AEB6C8",
-        lake: "#1567A3",
-        shallow: "#3E95CB",
-        ink: "#14304A",
-        dark: false,
-    },
-    Scene {
-        sky: "#EBD0C4",
-        far: "#9C8DA6",
-        snow: "#DCCBD4",
-        band: "#4E4866",
-        near: "#B9AABD",
-        lake: "#1B5E93",
-        shallow: "#3A86B8",
-        ink: "#33213A",
-        dark: false,
-    },
-    Scene {
-        sky: "#0E1F33",
-        far: "#3B4D6B",
-        snow: "#6E7F9E",
-        band: "#1A2A42",
-        near: "#4A5C7C",
-        lake: "#0F5288",
-        shallow: "#1F75B0",
-        ink: "#E6EEF6",
-        dark: true,
-    },
-];
+const DAWN: Scene = Scene {
+    sky: "#F7E9DD",
+    glow: "#D9CCE0",
+    far: "#7F86A8",
+    far_low: "#A9ADC8",
+    snow: "#FBF6F6",
+    band: "#465272",
+    near: "#BCC0D6",
+    lake: "#2C86C8",
+    deep: "#0E4C82",
+    shallow: "#6DB8E6",
+    ink: "#1E2440",
+    dark: false,
+};
+
+const NIGHT: Scene = Scene {
+    sky: "#06121F",
+    glow: "#143A60",
+    far: "#1D3150",
+    far_low: "#2D4A70",
+    snow: "#93ABCF",
+    band: "#0F2038",
+    near: "#304C74",
+    lake: "#15609B",
+    deep: "#04162A",
+    shallow: "#2E8BCB",
+    ink: "#EAF3FB",
+    dark: true,
+};
+
+pub fn scene(dark: bool) -> &'static Scene {
+    if dark { &NIGHT } else { &DAWN }
+}
 
 const LAKE: u32 = 112;
 pub const RIDGES: (u32, u32) = (88, 48);
 
-pub fn landscape(seed: i64) -> (&'static Scene, String, String) {
+fn sky(s: &Scene, draw: &mut Draw, (px, py): (u32, u32), (lx, ly): (u32, u32)) -> String {
+    let mut out = format!(
+        r##"<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="far" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="lake" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="aurora" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#62E6C4" stop-opacity="0"/><stop offset="1" stop-color="#62E6C4" stop-opacity="0.28"/></linearGradient><linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="black" stop-opacity="0"/><stop offset="1" stop-color="black" stop-opacity="0.28"/></linearGradient></defs><rect width="{W}" height="{H}" fill="url(#sky)"/>"##,
+        s.sky, s.glow, s.far, s.far_low, s.lake, s.deep
+    );
+    if s.dark {
+        for _ in 0..30 {
+            let (x, y) = (8 + draw.below(344), 6 + draw.below(70));
+            let (r, o) = (["0.6", "0.8", "1.1"][draw.below(3) as usize], 35 + draw.below(55));
+            let _ = write!(out, r#"<circle cx="{x}" cy="{y}" r="{r}" fill="white" fill-opacity="0.{o}"/>"#);
+        }
+        let _ =
+            write!(out, r#"<path d="M0 {} Q80 {} 170 {} Q250 {} 360 {} V{} H0 Z" fill="url(#aurora)"/>"#, ly + 4, ly - 36, ly - 14, ly + 6, py - 14, ly + 26);
+        let mx = (lx + px) / 2;
+        let _ = write!(out, r#"<circle cx="{mx}" cy="34" r="10" fill="{}"/><circle cx="{}" cy="30.5" r="9" fill="{}"/>"#, s.ink, mx + 4, s.sky);
+    } else {
+        let (sx, sy) = ((px + 40).min(330), py + 14);
+        let _ = write!(
+            out,
+            r#"<circle cx="{sx}" cy="{sy}" r="30" fill="white" fill-opacity="0.35"/><circle cx="{sx}" cy="{sy}" r="18" fill="white" fill-opacity="0.55"/>"#
+        );
+    }
+    out
+}
+
+pub fn landscape(seed: i64, dark: bool) -> (&'static Scene, String, String) {
+    let (s, sky, far, near) = parts(seed, dark);
+    (s, sky + &far, near)
+}
+
+fn parts(seed: i64, dark: bool) -> (&'static Scene, String, String, String) {
     let mut draw = Draw(seed as u64);
-    let s = &SCENES[draw.below(4) as usize];
+    let s = scene(dark);
     let (px, py) = (214 + draw.below(84), 40 + draw.below(20));
     let (lx, ly) = (96 + draw.below(70), 64 + draw.below(14));
     let (cut, edge, band) = (ly.max(py) + 18 + draw.below(10), 76 + draw.below(14), 92 + draw.below(8));
     let (left, right) = (124 + draw.below(30), 206 + draw.below(30));
     let l = LAKE;
-    let mut far = format!(
-        r#"<path d="M0 {y0} Q{c0} {c0y} {lx} {ly} Q{dip} {cut} {px} {py} Q{c1} {c1y} 360 {edge} V{l} H0 Z" fill="{}"/>"#,
-        s.far,
+    let sky = sky(s, &mut draw, (px, py), (lx, ly));
+    let mut far = String::new();
+    let _ = write!(
+        far,
+        r#"<path d="M0 {y0} Q{c0} {c0y} {lx} {ly} Q{dip} {cut} {px} {py} Q{c1} {c1y} 360 {edge} V{l} H0 Z" fill="url(#far)"/>"#,
         y0 = ly + 22,
         c0 = lx / 2,
         c0y = ly + 8,
@@ -223,8 +282,20 @@ pub fn landscape(seed: i64) -> (&'static Scene, String, String) {
     );
     let _ = write!(far, r#"<path d="M{lx} {ly} Q{} {} {} {} Q{} {} {lx} {ly} Z" fill="{}"/>"#, lx + 18, ly + 10, lx + 34, ly + 22, lx + 14, ly + 18, s.snow);
     let _ = write!(far, r#"<path d="M0 {} Q90 {band} 180 96 Q270 94 360 {l} V{} H0 Z" fill="{}"/>"#, l + 2, l + 10, s.band);
-    let _ = write!(far, r#"<rect y="{l}" width="360" height="{}" fill="{}"/>"#, H - l, s.lake);
-    let _ = write!(far, r#"<path d="M0 {l} H360 V{} Q270 {} 180 {} Q90 {} 0 {} Z" fill="{}"/>"#, l + 9, l + 14, l + 9, l + 5, l + 12, s.shallow);
+    let _ = write!(far, r#"<rect y="{l}" width="360" height="{}" fill="url(#lake)"/>"#, H - l);
+    let _ = write!(
+        far,
+        r#"<path d="M0 {l} H360 V{} Q270 {} 180 {} Q90 {} 0 {} Z" fill="{}" fill-opacity="0.75"/>"#,
+        l + 9,
+        l + 14,
+        l + 9,
+        l + 5,
+        l + 12,
+        s.shallow
+    );
+    for (x, y, w) in [(40, l + 24, 46), (210, l + 22, 60), (120, l + 29, 30), (286, l + 30, 34)] {
+        let _ = write!(far, r#"<path d="M{x} {y} h{w}" stroke="white" stroke-opacity="0.14" stroke-linecap="round"/>"#);
+    }
     let near = format!(
         r#"<path d="M0 94 Q{} 90 {} {} Q{} {} {left} {} Q70 {} 0 {} Z" fill="{fill}"/><path d="M360 90 Q{} 94 {} {} Q{} {} {right} {} Q290 {} 360 {} Z" fill="{fill}"/>"#,
         left / 2,
@@ -245,7 +316,7 @@ pub fn landscape(seed: i64) -> (&'static Scene, String, String) {
         l + 14,
         fill = s.near,
     );
-    (s, far, near)
+    (s, sky, far, near)
 }
 
 fn escape(text: &str) -> String {
@@ -317,22 +388,39 @@ pub fn face(sky: &str, body: &str) -> String {
     )
 }
 
-pub fn front_svg(card: &Card, near: bool) -> String {
-    let (sky, shapes, labels) = front(card, near);
+pub fn front_svg(card: &Card, near: bool, dark: bool) -> String {
+    let (sky, shapes, labels) = front(card, near, dark);
     face(sky, &(shapes + &labels_svg(&labels)))
 }
 
-pub fn back_svg(card: &Card) -> String {
-    let (sky, shapes, labels) = back(card);
+pub fn back_svg(card: &Card, dark: bool) -> String {
+    let (sky, shapes, labels) = back(card, dark);
     face(sky, &(shapes + &labels_svg(&labels)))
 }
 
-pub fn front(card: &Card, near: bool) -> (&'static str, String, Vec<Label>) {
-    let (s, mut out, ridges) = landscape(card.seed);
+const SHIELD: &str = "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z";
+
+fn level_marks(level: ShieldLevel) -> &'static str {
+    match level {
+        ShieldLevel::Standard => "M12 12h.01",
+        ShieldLevel::Strict => "M9 12h6",
+        ShieldLevel::Lockdown => "M9 10h6M9 14h6",
+    }
+}
+
+pub fn front(card: &Card, near: bool, dark: bool) -> (&'static str, String, Vec<Label>) {
+    let (s, mut out, ridges) = landscape(card.seed, dark);
     let mut labels = Vec::new();
     if near {
         out.push_str(&ridges);
     }
+    let _ = write!(
+        out,
+        r#"<rect y="150" width="{W}" height="{}" fill="url(#fade)"/><path d="M20 190 H340" stroke="white" stroke-opacity="0.16"/><g transform="translate(318 18) scale(0.92)" fill="none" stroke="{}" stroke-opacity="0.8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="{SHIELD}"/><path d="{}"/></g>"#,
+        H - 150,
+        s.ink,
+        level_marks(card.level)
+    );
     let mut name: String = card.name.chars().take(22).collect();
     if card.name.chars().count() > 22 {
         name.push('…');
@@ -353,15 +441,15 @@ pub fn front(card: &Card, near: bool) -> (&'static str, String, Vec<Label>) {
     if let (Some(days), Some(since)) = (card.days, &card.since) {
         text(&mut labels, (20, 204), ("start", 11., 400, "white", 0.8), &format!("Protected for {} · since {since}", days_text(days)));
     }
-    text(&mut labels, (340, 204), ("end", 10.5, 700, "white", 0.55), "Tarn Shield");
+    text(&mut labels, (340, 204), ("end", 9., 700, "white", 0.6), "TARN SHIELD");
     (s.sky, out, labels)
 }
 
-pub fn back(card: &Card) -> (&'static str, String, Vec<Label>) {
+pub fn back(card: &Card, dark: bool) -> (&'static str, String, Vec<Label>) {
     let mut labels = Vec::new();
     const TILTS: [i32; 5] = [-9, 6, -4, 10, -7];
-    let (s, far, near) = landscape(card.seed);
-    let mut out = format!(r#"<g transform="translate(0 120) scale(1 0.5)">{far}{near}</g>"#);
+    let (s, sky, far, near) = parts(card.seed, dark);
+    let mut out = format!(r#"{sky}<g transform="translate(0 120) scale(1 0.5)">{far}{near}</g>"#);
     let total: i64 = card.counters.iter().map(|(_, n)| (*n).max(0)).sum();
     let (color, _) = tint(card.level, s.dark);
     text(&mut labels, (20, 36), ("start", 15., 700, s.ink, 1.), "Stamps");
@@ -398,6 +486,22 @@ pub fn back(card: &Card) -> (&'static str, String, Vec<Label>) {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn an_export_lands_in_a_new_directory_only_its_owner_can_open() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = export_path("card.png").unwrap();
+        let dir = path.parent().unwrap();
+        assert_eq!(std::fs::metadata(dir).unwrap().permissions().mode() & 0o777, 0o700);
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[test]
+    fn a_site_line_names_the_level_it_follows() {
+        assert_eq!(site_level_line(None, ShieldLevel::Standard), "Follows the profile: Standard — trackers blocked, links cleaned.");
+        assert_eq!(site_level_line(Some(ShieldLevel::Lockdown), ShieldLevel::Standard), "No scripts, nothing kept.");
+    }
+
     fn card(name: &str) -> Card {
         Card {
             name: name.to_owned(),
@@ -413,21 +517,30 @@ mod tests {
     }
 
     #[test]
-    fn designs_follow_the_seed_through_four_times_of_day() {
-        assert_eq!(landscape(7).1, landscape(7).1);
-        assert_ne!(landscape(7).1, landscape(8).1);
-        let skies: std::collections::HashSet<_> = (0..40).map(|seed| landscape(seed).0.sky).collect();
-        assert_eq!(skies.len(), SCENES.len());
+    fn the_seed_shapes_the_ridges_and_the_theme_picks_dawn_or_night() {
+        assert_eq!(landscape(7, false).1, landscape(7, false).1);
+        assert_ne!(landscape(7, false).1, landscape(8, false).1);
+        assert_ne!(landscape(7, false).2, landscape(8, false).2);
+        let (dawn, night) = (landscape(7, false), landscape(7, true));
+        assert!(!dawn.0.dark && night.0.dark && dawn.0.sky != night.0.sky);
+        let shapes = |svg: &str| svg.split(r#" d=""#).skip(1).map(|d| d.split('"').next().unwrap_or_default().to_owned()).collect::<Vec<_>>();
+        assert!(!shapes(&dawn.2).is_empty() && shapes(&dawn.2) == shapes(&night.2), "dawn and night share the near ridge's shape");
+        assert!(night.1.contains("url(#aurora)") && !dawn.1.contains("url(#aurora)"));
+        let front = front_svg(&card("Personal"), true, true);
+        assert!(front.contains("TARN SHIELD") && front.contains("M9 12h6"));
+        assert!(front_svg(&Card { level: ShieldLevel::Lockdown, ..card("Personal") }, true, true).contains("M9 10h6M9 14h6"));
+        let back = back_svg(&card("Personal"), false);
+        assert!(back.contains("Stamps") && back.matches(r#"fill="url(#sky)""#).count() == 1);
     }
 
     #[test]
     fn the_card_escapes_its_text_and_fits_a_private_profile_and_many_stamps() {
-        let svg = front_svg(&card("<script>&\"x\u{7}"), true);
+        let svg = front_svg(&card("<script>&\"x\u{7}"), true, false);
         assert!(svg.contains("&lt;script&gt;&amp;&quot;x<") && !svg.contains('\u{7}'));
         let private = Card { since: None, days: None, stamps: Vec::new(), ..card("Private") };
-        assert!(!front_svg(&private, true).contains("Protected for") && back_svg(&private).contains("No stamps yet"));
+        assert!(!front_svg(&private, true, false).contains("Protected for") && back_svg(&private, true).contains("No stamps yet"));
         let old = Card { stamps: stamps(Some(2012), 2026, 20_000), counters: [("", 1_234_567), ("", 0), ("", 0)], ..card("A name far too long for the card") };
-        let (front, back) = (front_svg(&old, true), back_svg(&old));
+        let (front, back) = (front_svg(&old, true, true), back_svg(&old, false));
         assert!(front.contains(r#"font-size="16""#) && front.contains("A name far too long fo…"));
         assert_eq!(back.matches("<g transform=\"rotate").count(), 10);
         assert!(back.contains("10K ✓") && !back.contains(">2012<") && back.contains("Every milestone reached"));
@@ -446,9 +559,21 @@ mod tests {
         assert_eq!(date(0), "1970-01-01");
         assert_eq!(date(951_782_400_000), "2000-02-29");
         assert_eq!(date(1_794_441_600_000), "2026-11-12");
-        let rows = week_rows(&card.week);
-        assert_eq!(rows.len(), 5);
-        assert!(rows.iter().all(|(_, days)| days.len() == card.week.len()));
+    }
+
+    #[test]
+    fn the_week_sums_each_day_under_its_initial() {
+        assert_eq!((weekday("2026-11-16"), weekday("2026-11-22"), weekday("2000-02-29"), weekday("bad")), (Some(0), Some(6), Some(1), None));
+        let day = |day: &str, n| store::ShieldDay {
+            day: day.into(),
+            tracking_params: n,
+            https_upgrades: 1,
+            local_blocked: 0,
+            listed_stopped: 2,
+            popups_blocked: -5,
+            chromium_requests: 1,
+        };
+        assert_eq!(day_totals(&[day("2026-11-16", 10), day("2026-11-20", 0)]), [("M", 14), ("F", 4)]);
     }
 
     #[test]

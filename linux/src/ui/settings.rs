@@ -1,19 +1,22 @@
-use browser_core::shield_card::{Card, H, W, back, face, front, thousands};
+use browser_core::shield_card::{Card, H, SHORT, W, back, day_totals, days_text, face, front, front_svg, thousands};
+use nsh_core::file_dialog::{FileFilter, SaveDialog};
 use nsh_core::prelude::*;
-use tarn_nsh_shared::panes::{self, PANES, Pane};
+use shield::ShieldLevel;
+use tarn_nsh_shared::panes::{self, GROUPS, Pane};
 
 use super::panels::{levels, section};
 use super::tools::{line, note};
 use super::{Panel, Ui, act, read};
 use crate::browser::pages::{HISTORY_TEXT, SORT_DOWNLOADS};
 use crate::browser::{Browser, Notice};
-use crate::controls::{accent_pill, group, group_row, label, panel, pill, segmented, small, switch, title};
+use crate::controls::{accent_pill, group, group_row, label, pill, segmented, small, switch, title};
 use crate::shortcuts;
 use crate::theme::Theme;
 use crate::webview;
 use browser_core::command::ENGINES;
 
 const NAV_WIDTH: f32 = 180.;
+const CARD_SCALE: u32 = 3;
 
 fn card_of(b: &Browser) -> Option<(Card, bool)> {
     let space = b.model.current_space()?;
@@ -38,59 +41,140 @@ fn words(labels: &[browser_core::shield_card::Label]) -> Vec<tarn_nsh_shared::ca
         .collect()
 }
 
-fn shield_card(ui: Ui, card: &Card) -> View {
-    let flipped = ui.card_back.get_untracked();
-    let (sky, shapes, labels) = if flipped { back(card) } else { front(card, true) };
-    let counts = card.counters.iter().map(|(name, n)| format!("{name}: {}", thousands((*n).max(0) as u64))).collect::<Vec<_>>().join(", ");
-    let name = if flipped { format!("Shield card, stamps side: {}", card.stamps.join(", ")) } else { format!("Shield card of {}: {counts}", card.name) };
-    let face = crate::controls::pressable(name, move || {
-        ui.card_back.update(|b| *b = !*b);
-        act(ui, |_| {});
-    })
-    .w(px(W as f32))
-    .h(px(H as f32))
-    .rounded(px(Theme::radius_card()))
-    .shadow(Theme::elevation(10., 30.))
-    .child(tarn_nsh_shared::card::picture(&face(sky, &shapes), W as f32, H as f32, &words(&labels), 1.));
-    let buttons = view()
-        .flex_row()
-        .gap_2()
-        .child(pill("Flip", move || {
-            ui.card_back.update(|b| *b = !*b);
-            act(ui, |_| {});
-        }))
-        .child(pill("New Design", move || act(ui, Browser::new_shield_design)));
-    view().flex_col().items_center().gap_3().w_full().child(face).child(buttons)
+fn flip(ui: Ui) {
+    ui.card_back.update(|b| *b = !*b);
+    act(ui, |_| {});
 }
 
-fn week(card: &Card) -> View {
-    let rows: Vec<AnyElement> = browser_core::shield_card::week_rows(&card.week)
-        .into_iter()
-        .map(|(name, days)| {
-            view()
-                .flex_row()
-                .items_end()
-                .gap_3()
-                .child(small(name).flex_1())
-                .child(tarn_nsh_shared::card::week_bars(&days))
-                .child(label(thousands(days.iter().sum::<i64>() as u64)).w(px(44.)).text_right().font_weight(FontWeight::SEMIBOLD))
-                .into_element()
+fn shield_card(ui: Ui, card: Card) -> AnyElement {
+    super::themed(move || {
+        let flipped = ui.card_back.get_untracked();
+        let dark = !Theme::is_light();
+        let (sky, shapes, labels) = if flipped { back(&card, dark) } else { front(&card, true, dark) };
+        let counts = card.counters.iter().map(|(name, n)| format!("{name}: {}", thousands((*n).max(0) as u64))).collect::<Vec<_>>().join(", ");
+        let name = if flipped { format!("Shield card, stamps side: {}", card.stamps.join(", ")) } else { format!("Shield card of {}: {counts}", card.name) };
+        crate::controls::pressable(name, move || flip(ui))
+            .w(px(W as f32))
+            .h(px(H as f32))
+            .flex_none()
+            .rounded(px(Theme::radius_card()))
+            .shadow(Theme::elevation(10., 30.))
+            .child(tarn_nsh_shared::card::picture(&face(sky, &shapes), W as f32, H as f32, &words(&labels), 1.))
+    })
+}
+
+fn save_card(ui: Ui, card: Card) {
+    let svg = front_svg(&card, true, !Theme::is_light());
+    let Some(png) = card_png(&svg) else {
+        return act(ui, |b| b.show_toast("The card could not be drawn as an image", None));
+    };
+    let mut dialog = SaveDialog::new().file_name("Tarn Shield card.png").filter(FileFilter::new("PNG image", ["png"]));
+    if let Some(downloads) = std::env::home_dir().map(|h| h.join("Downloads")) {
+        dialog = dialog.directory(downloads);
+    }
+    ui.root.run(|| {
+        drop(spawn(async move {
+            let Ok(Some(path)) = pick_save_path(dialog).await else { return };
+            let saved = std::fs::write(&path, png);
+            act(ui, |b| b.show_toast(if saved.is_ok() { "Card saved" } else { "The card could not be saved" }, None));
+        }))
+    });
+}
+
+fn card_png(svg: &str) -> Option<Vec<u8>> {
+    use webkit6::prelude::*;
+    use webkit6::{gdk, glib};
+    let size = format!(r#"width="{W}" height="{H}""#);
+    let large = svg.replacen(&size, &format!(r#"width="{}" height="{}""#, W * CARD_SCALE, H * CARD_SCALE), 1);
+    let texture = gdk::Texture::from_bytes(&glib::Bytes::from_owned(large.into_bytes())).ok()?;
+    Some(texture.save_to_png_bytes().to_vec())
+}
+
+fn number(n: i64, name: &str) -> View {
+    view()
+        .flex_col()
+        .flex_1()
+        .child(text(thousands(n.max(0) as u64)).text_size(px(20.)).font_weight(FontWeight::BOLD).text_color(Theme::text()))
+        .child(small(name.to_owned()))
+}
+
+fn hero(ui: Ui, card: Card, level: ShieldLevel, private: bool) -> View {
+    let protected = match (card.days, card.since.as_deref()) {
+        (Some(days), Some(since)) => format!("Protected for {} · since {since}", days_text(days)),
+        _ => "Counting starts with the first page".to_owned(),
+    };
+    let numbers: Vec<AnyElement> = card
+        .counters
+        .iter()
+        .zip(SHORT)
+        .map(|((_, n), (a, b))| {
+            let first = if a.chars().all(|c| c.is_uppercase()) { a.to_owned() } else { a.to_lowercase() };
+            number(*n, &format!("{first} {b}")).into_element()
         })
         .collect();
+    let level_name = if private { "Shield level (private space)" } else { "Shield level" };
+    let shared = card.clone();
+    let actions = view()
+        .flex_row()
+        .flex_wrap()
+        .gap_2()
+        .child(pill("Flip", move || flip(ui)))
+        .child(pill("Change design", move || act(ui, Browser::new_shield_design)))
+        .children((!private).then(|| pill("Share card", move || save_card(ui, shared.clone()))));
+    view().flex_row().flex_wrap().items_start().gap_5().child(shield_card(ui, card.clone())).child(
+        view()
+            .flex_col()
+            .flex_1()
+            .min_w(px(260.))
+            .gap_3()
+            .child(
+                view()
+                    .flex_col()
+                    .child(text(card.name.clone()).text_size(px(22.)).font_weight(FontWeight::BOLD).text_color(Theme::text()))
+                    .child(small(protected)),
+            )
+            .child(view().flex_row().gap_3().children(numbers))
+            .child(
+                view()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(label(level_name).flex_1())
+                    .child(segmented(levels(), level, move |l| act(ui, move |b| b.set_default_level(l)))),
+            )
+            .child(actions),
+    )
+}
+
+fn boxed(name: &str, aside: Option<String>) -> View {
+    let head = view().flex_row().items_baseline().child(label(name.to_owned()).font_weight(FontWeight::SEMIBOLD).flex_1()).children(aside.map(small));
+    group().gap_3().p_4().flex_1().min_w(px(260.)).child(head)
+}
+
+fn week(ui: Ui, card: &Card) -> View {
+    let days = day_totals(&card.week);
+    let total: i64 = days.iter().map(|(_, n)| *n).sum();
+    let chart = boxed("Last 7 days", Some(format!("{} protected", thousands(total.max(0) as u64)))).child(tarn_nsh_shared::card::day_chart(&days));
+    let most = card.sites.iter().map(|(_, n)| *n).max().unwrap_or(0);
     let sites: Vec<AnyElement> = card
         .sites
         .iter()
         .map(|(host, n)| {
-            line(browser_core::command::host_tail(&engine::view_policy::title(host), 40)).child(label(thousands((*n).max(0) as u64))).into_element()
+            view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .min_h(px(24.))
+                .child(super::site_tile(ui, host, 16.))
+                .child(label(browser_core::command::host_tail(&engine::view_policy::title(host), 28)).w(px(130.)).truncate())
+                .child(tarn_nsh_shared::card::share_bar(*n, most).flex_1())
+                .child(small(thousands((*n).max(0) as u64)).w(px(44.)).text_right())
+                .into_element()
         })
         .collect();
-    view()
-        .flex_col()
-        .gap_2()
-        .child(section("Last 7 days"))
-        .children(rows)
-        .children((!sites.is_empty()).then(|| section("Sites protected most")))
-        .children(sites)
+    let empty = sites.is_empty().then(|| note("Sites show here once Shield has stopped something on them."));
+    let sites = boxed("Most protected sites", None).gap_2().children(sites).children(empty);
+    view().flex_row().flex_wrap().gap_3().child(chart).child(sites)
 }
 
 fn shortcut_rows(ui: Ui) -> View {
@@ -208,51 +292,66 @@ fn permissions(ui: Ui) -> View {
 }
 
 fn nav(ui: Ui, current: Pane) -> View {
-    let rows: Vec<AnyElement> = PANES
-        .iter()
-        .map(|(pane, name)| {
-            let pane = *pane;
-            let selected = pane == current && !ui.ext_pane.get_untracked();
-            crate::controls::row(*name, move || {
-                ui.ext_pane.set(false);
-                ui.settings_pane.set(pane);
-                act(ui, |_| {});
-            })
-            .h(px(30.))
-            .px(px(10.))
-            .rounded(px(Theme::radius_row()))
-            .bg(if selected { Theme::selected() } else { rgba(0) })
-            .hover(|s| s.bg(Theme::hover()))
-            .text_color(if selected { Theme::text() } else { Theme::muted() })
-            .child(crate::icons::icon(panes::icon(pane), 14.))
-            .child(label(*name).text_color(if selected { Theme::text() } else { Theme::muted() }))
-            .into_element()
+    let ext_on = ui.ext_pane.get_untracked();
+    let mut out = view().flex_col().gap(px(2.)).w(px(NAV_WIDTH)).flex_none().p_2().rounded(px(Theme::radius_group())).bg(Theme::panel_nav());
+    for (group, members) in GROUPS {
+        out = out.child(view().pt_2().pb_1().px_1().child(tarn_nsh_shared::controls::caps_label(group)));
+        for pane in members.iter().copied() {
+            let selected = pane == current && !ext_on;
+            let name = panes::name(pane);
+            out = out.child(
+                crate::controls::row(name, move || {
+                    ui.ext_pane.set(false);
+                    ui.settings_pane.set(pane);
+                    act(ui, |_| {});
+                })
+                .h(px(30.))
+                .px(px(10.))
+                .rounded(px(Theme::radius_row()))
+                .bg(if selected { Theme::selected() } else { rgba(0) })
+                .hover(|s| s.bg(Theme::hover()))
+                .text_color(if selected { Theme::text() } else { Theme::muted() })
+                .child(crate::icons::icon(panes::icon(pane), 14.))
+                .child(label(name).text_color(if selected { Theme::text() } else { Theme::muted() })),
+            );
+        }
+    }
+    out.child(
+        crate::controls::row("Extensions", move || {
+            ui.ext_pane.set(true);
+            act(ui, |_| {});
         })
-        .collect();
-    let on = ui.ext_pane.get_untracked();
-    let extensions = crate::controls::row("Extensions", move || {
-        ui.ext_pane.set(true);
-        act(ui, |_| {});
-    })
-    .h(px(30.))
-    .px(px(10.))
-    .rounded(px(Theme::radius_row()))
-    .bg(if on { Theme::selected() } else { rgba(0) })
-    .hover(|s| s.bg(Theme::hover()))
-    .text_color(if on { Theme::text() } else { Theme::muted() })
-    .child(crate::icons::icon(crate::icons::SPARKLES, 14.))
-    .child(label("Extensions").text_color(if on { Theme::text() } else { Theme::muted() }));
-    view().flex_col().gap(px(2.)).w(px(NAV_WIDTH)).flex_none().pt_2().children(rows).child(extensions)
+        .h(px(30.))
+        .px(px(10.))
+        .rounded(px(Theme::radius_row()))
+        .bg(if ext_on { Theme::selected() } else { rgba(0) })
+        .hover(|s| s.bg(Theme::hover()))
+        .text_color(if ext_on { Theme::text() } else { Theme::muted() })
+        .child(crate::icons::icon(crate::icons::SPARKLES, 14.))
+        .child(label("Extensions").text_color(if ext_on { Theme::text() } else { Theme::muted() })),
+    )
 }
 
 pub fn settings_panel(ui: Ui) -> AnyElement {
     let pane = ui.settings_pane.get_untracked();
     let body = if ui.ext_pane.get_untracked() {
-        panel().gap_0().child(title("Extensions")).child(view().pt_3().child(super::extensions::pane(ui)))
+        view().flex_col().child(super::panels::heading(ui, title("Extensions"))).child(view().pt_3().child(super::extensions::pane(ui)))
     } else {
-        pane_body(ui, pane).unwrap_or_else(panel)
+        pane_body(ui, pane).unwrap_or_else(|| view().flex_col())
     };
-    view().flex_row().flex_1().gap_4().child(nav(ui, pane)).child(scroll().flex_1().child(body.child(view().h(px(12.))))).into_element()
+    view()
+        .flex_row()
+        .flex_1()
+        .gap_4()
+        .p_4()
+        .rounded(px(Theme::radius_card()))
+        .bg(Theme::panel())
+        .border_1()
+        .border_color(Theme::surface_edge())
+        .shadow(Theme::elevation(18., 48.))
+        .child(nav(ui, pane))
+        .child(scroll().flex_1().child(body.child(view().h(px(12.)))))
+        .into_element()
 }
 
 fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
@@ -262,16 +361,29 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
     let on = |group: &str| lists.iter().any(|l| l == group);
     let toggle = move |setting: &'static str| move || act(ui, move |b| b.toggle_setting(setting));
     let toggle_off = move |setting: &'static str| move || act(ui, move |b| b.toggle_off_setting(setting));
-    let body = panel().gap_0().child(super::panels::heading(ui, title(panes::name(pane))));
+    let body = view().flex_col().child(super::panels::heading(ui, title(panes::name(pane))));
     Some(match pane {
         Pane::Profile => match card {
             Some((card, private)) => {
-                let kept = if private {
-                    "Counts stay in memory and are gone once the private space closes."
-                } else {
-                    "Counted on this computer only and never sent anywhere."
-                };
-                body.child(view().flex_col().gap_2().pt_3().child(shield_card(ui, &card)).child(note(kept)).child(week(&card)))
+                let kept = if private { "Kept in memory only" } else { "Counted on this computer only" };
+                let chip = view()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
+                    .h(px(24.))
+                    .px_2()
+                    .rounded(px(Theme::radius_small()))
+                    .border_1()
+                    .border_color(Theme::hairline())
+                    .text_color(Theme::muted())
+                    .child(crate::icons::icon(crate::icons::LOCK, 11.))
+                    .child(small(kept));
+                view()
+                    .flex_col()
+                    .gap_4()
+                    .child(super::panels::heading(ui, view().flex_row().items_center().flex_1().child(title("Profile")).child(view().flex_1()).child(chip)))
+                    .child(hero(ui, card.clone(), level, private))
+                    .child(week(ui, &card))
             }
             None => body.child(note("No profile is open.")),
         },

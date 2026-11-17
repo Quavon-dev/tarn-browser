@@ -1,4 +1,5 @@
 pub mod extensions;
+pub mod icons;
 pub mod pages;
 mod site;
 pub mod spaces;
@@ -34,6 +35,7 @@ pub const ZOOM_STEPS: [f64; 9] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0]
 #[derive(Clone, Debug, Default)]
 pub struct Page {
     pub url: String,
+    pub link: bool,
     pub title: String,
     pub can_back: bool,
     pub can_forward: bool,
@@ -77,6 +79,7 @@ pub enum ToastAction {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Toast {
     pub text: String,
+    pub tone: browser_core::toast::Tone,
     pub action: Option<ToastAction>,
     pub serial: u64,
 }
@@ -107,6 +110,7 @@ pub struct Browser {
     pub download_owners: HashMap<String, Option<Id>>,
     pub cancelled_downloads: Vec<String>,
     pub text_found: suggest::TextMatches,
+    pub favicons: engine::favicon::Tracker<icons::Profile, std::sync::Arc<str>>,
     pub elsewhere: HashSet<TabKey>,
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
@@ -171,6 +175,7 @@ impl Browser {
             download_owners: HashMap::new(),
             cancelled_downloads: Vec::new(),
             text_found: Default::default(),
+            favicons: Default::default(),
             elsewhere,
             forgotten: Vec::new(),
             themes,
@@ -252,8 +257,12 @@ impl Browser {
     }
 
     pub fn show_toast(&mut self, text: impl Into<String>, action: Option<ToastAction>) {
+        self.show_toast_as(browser_core::toast::Tone::Info, text, action);
+    }
+
+    pub fn show_toast_as(&mut self, tone: browser_core::toast::Tone, text: impl Into<String>, action: Option<ToastAction>) {
         self.toast_serial += 1;
-        self.toast = Some(Toast { text: text.into(), action, serial: self.toast_serial });
+        self.toast = Some(Toast { text: text.into(), tone, action, serial: self.toast_serial });
     }
 
     pub fn expire_toast(&mut self, serial: u64) {
@@ -317,6 +326,7 @@ impl Browser {
         let level = self.level_for(key, url);
         let page = self.pages.entry(key).or_default();
         page.load = Some((url.to_owned(), seq));
+        page.link = false;
         page.loading = true;
         page.level = level;
         page.error = None;
@@ -407,6 +417,7 @@ impl Browser {
         self.counted.remove(&key);
         self.processes.remove(&key);
         self.used.remove(&key);
+        self.withdraw_icons(|k| k == key);
         if self.reader.as_ref().is_some_and(|r| r.key == key) {
             self.close_reader();
         }
@@ -670,6 +681,7 @@ impl Browser {
     pub fn clear_history(&mut self) {
         if let Some((private, id)) = self.profile_of_space() {
             self.core.store(private).clear_history(id).ok();
+            self.favicons.forget(&(private, id));
         }
         self.text_found.clear();
     }
@@ -708,11 +720,18 @@ impl Browser {
         self.outbox.push((key, "answer", prompt.answer(accept, Some(text.to_owned()), Some(user.to_owned()), Some(password.to_owned()))));
     }
 
+    pub fn store_link_allowed(&self, key: TabKey) -> bool {
+        let page = self.pages.get(&key).and_then(|p| Url::parse(&p.url).ok());
+        let current = self.model.current_space().filter(|s| !s.private).map(|s| s.space.profile_id);
+        self.model.profile_of(&self.core, key).filter(|p| current == Some(*p)).is_some_and(|p| self.core.store_link_allowed(key.private, p, page.as_ref()))
+    }
+
     pub fn on_event(&mut self, key: TabKey, name: &str, data: &Value) {
         let text = |k: &str| data[k].as_str().unwrap_or_default().to_owned();
         match name {
             "committed" | "finished" => self.on_page(key, name == "finished", data),
             "started" | "stopped" => self.pages.entry(key).or_default().loading = name == "started",
+            browser_core::extensions::STORE_EVENT => self.pages.entry(key).or_default().loading = false,
             "title" => {
                 if let Some(page) = self.pages.get_mut(&key) {
                     page.title = text("title");
@@ -747,11 +766,16 @@ impl Browser {
             }
             "external" => self.notice = Some(Notice::External { url: text("url"), origin: text("origin") }),
             "popup" => {
-                if !(data["link"].as_bool() == Some(true) && self.open_routed(&text("url"))) {
-                    self.new_tab(&text("url"));
+                let url = text("url");
+                if !(data["link"].as_bool() == Some(true) && self.open_routed(&url)) {
+                    self.new_tab(&url);
+                }
+                if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)).filter(|p| p.load.as_ref().is_some_and(|(u, _)| *u == url)) {
+                    page.link = true;
                 }
             }
             "article" | "pageText" | "textFound" | "picked" => self.on_script_event(key, name, data),
+            "iconLinks" => self.on_icon_event(key, data, None),
             "shielded" => self.on_shielded(key, data),
             "process" => {
                 if let Some(pid) = data["pid"].as_i64().and_then(|p| i32::try_from(p).ok()) {

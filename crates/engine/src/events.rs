@@ -91,6 +91,7 @@ pub enum Event {
         from: Option<Url>,
         background: bool,
     },
+    StoreInstall(String),
     /// A link to another app's scheme; the shell must ask before handing it off. `origin` is the
     /// frame that started it, `None` for the shell's own loads and opaque origins.
     ExternalScheme {

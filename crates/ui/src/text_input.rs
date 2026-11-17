@@ -128,6 +128,8 @@ pub struct TextInput {
     marked_range: Option<Range<usize>>,
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
+    mirror_layout: Option<ShapedLine>,
+    mirror_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
     masked: bool,
     inserted: bool,
@@ -158,6 +160,8 @@ impl TextInput {
             marked_range: None,
             last_layout: None,
             last_bounds: None,
+            mirror_layout: None,
+            mirror_bounds: None,
             is_selecting: false,
             masked: false,
             inserted: false,
@@ -359,6 +363,15 @@ impl TextInput {
         cx.stop_propagation();
         window.focus(&self.focus_handle);
         let at = self.index_for_mouse_position(event.position);
+        self.show_menu(at, window, cx);
+    }
+
+    pub fn mirror_menu(&mut self, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        let at = self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position);
+        self.show_menu(at, window, cx);
+    }
+
+    fn show_menu(&mut self, at: usize, window: &mut Window, cx: &mut Context<Self>) {
         if !(self.selected_range.start..=self.selected_range.end).contains(&at) {
             self.move_to(at, cx);
         }
@@ -446,6 +459,26 @@ impl TextInput {
     }
 
     fn index_for_mouse_position(&self, position: Point<Pixels>) -> usize {
+        self.index_in(self.last_bounds.as_ref(), self.last_layout.as_ref(), position)
+    }
+
+    pub fn mirror_press(&mut self, position: Point<Pixels>, shift: bool, cx: &mut Context<Self>) {
+        self.is_selecting = true;
+        let at = self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position);
+        if shift { self.select_to(at, cx) } else { self.move_to(at, cx) }
+    }
+
+    pub fn mirror_drag(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if self.is_selecting {
+            self.select_to(self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position), cx);
+        }
+    }
+
+    pub fn mirror_release(&mut self) {
+        self.is_selecting = false;
+    }
+
+    fn index_in(&self, bounds: Option<&Bounds<Pixels>>, line: Option<&ShapedLine>, position: Point<Pixels>) -> usize {
         if self.content.is_empty() {
             return 0;
         }
@@ -453,9 +486,12 @@ impl TextInput {
             return self.content.len();
         }
 
-        let (Some(bounds), Some(line)) = (self.last_bounds.as_ref(), self.last_layout.as_ref()) else {
+        let (Some(bounds), Some(line)) = (bounds, line) else {
             return 0;
         };
+        if line.text != self.content {
+            return self.content.len();
+        }
         if position.y < bounds.top() {
             return 0;
         }
@@ -647,6 +683,25 @@ impl EntityInputHandler for TextInput {
 
 struct TextElement {
     input: Entity<TextInput>,
+    mirror: bool,
+}
+
+pub fn mirror(input: Entity<TextInput>) -> impl IntoElement {
+    let (press, menu, drag, release, outside) = (input.clone(), input.clone(), input.clone(), input.clone(), input.clone());
+    div()
+        .w_full()
+        .line_height(px(22.))
+        .text_color(Theme::text())
+        .cursor(CursorStyle::IBeam)
+        .on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, _, cx| press.update(cx, |i, cx| i.mirror_press(e.position, e.modifiers.shift, cx)))
+        .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, window, cx| {
+            cx.stop_propagation();
+            menu.update(cx, |i, cx| i.mirror_menu(e.position, window, cx))
+        })
+        .on_mouse_move(move |e: &MouseMoveEvent, _, cx| drag.update(cx, |i, cx| i.mirror_drag(e.position, cx)))
+        .on_mouse_up(MouseButton::Left, move |_: &MouseUpEvent, _, cx| release.update(cx, |i, _| i.mirror_release()))
+        .on_mouse_up_out(MouseButton::Left, move |_: &MouseUpEvent, _, cx| outside.update(cx, |i, _| i.mirror_release()))
+        .child(TextElement { input, mirror: true })
 }
 
 struct PrepaintState {
@@ -766,7 +821,9 @@ impl Element for TextElement {
         cx: &mut App,
     ) {
         let focus_handle = self.input.read(cx).focus_handle.clone();
-        window.handle_input(&focus_handle, ElementInputHandler::new(bounds, self.input.clone()), cx);
+        if !self.mirror {
+            window.handle_input(&focus_handle, ElementInputHandler::new(bounds, self.input.clone()), cx);
+        }
         if let Some(selection) = prepaint.selection.take() {
             window.paint_quad(selection)
         }
@@ -775,12 +832,18 @@ impl Element for TextElement {
         };
         line.paint(bounds.origin, window.line_height(), window, cx).ok();
 
-        if focus_handle.is_focused(window)
+        if (self.mirror || focus_handle.is_focused(window))
             && let Some(cursor) = prepaint.cursor.take()
         {
             window.paint_quad(cursor);
         }
-
+        if self.mirror {
+            self.input.update(cx, |input, _cx| {
+                input.mirror_layout = Some(line);
+                input.mirror_bounds = Some(bounds);
+            });
+            return;
+        }
         self.input.update(cx, |input, _cx| {
             input.last_layout = Some(line);
             input.last_bounds = Some(bounds);
@@ -830,7 +893,7 @@ impl Render for TextInput {
             .w_full()
             .line_height(px(22.))
             .text_color(Theme::text())
-            .child(TextElement { input: cx.entity() })
+            .child(TextElement { input: cx.entity(), mirror: false })
     }
 }
 

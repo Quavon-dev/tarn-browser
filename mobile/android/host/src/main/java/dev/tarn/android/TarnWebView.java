@@ -29,6 +29,7 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
 import androidx.webkit.ScriptHandler;
+import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
@@ -329,6 +330,14 @@ final class TarnWebView implements NshComponent {
                 int max = args.get("maxChars") instanceof Number n ? n.intValue() : 0;
                 runSync(page == null ? null : Native.pageTextScript(url, max), text -> emit("pageText", "seq", seq, "url", url, "text", text));
             }
+            case "readIconLinks" -> runAsync(page == null ? null : Native.iconLinksScript(url), SCRIPT_WAIT_MS, text -> emit("iconLinks", "seq", seq, "url", url, "text", text));
+            case "fetchIcon" -> {
+                List<String> urls = new ArrayList<>();
+                if (args.get("urls") instanceof List<?> list) for (Object item : list) if (item instanceof String icon) urls.add(icon);
+                String asked = args.get("page") instanceof String requested ? requested : null;
+                String body = page == null || asked == null ? null : Native.fetchIconScript(asked, urls.toArray(new String[0]));
+                runAsync(body, SCRIPT_WAIT_MS, text -> emit("iconData", "seq", seq, "url", url, "text", text));
+            }
             case "findText" -> {
                 String query = Prompts.text(args, "query");
                 Consumer<String> search = text -> FINDER.execute(() -> {
@@ -524,6 +533,9 @@ final class TarnWebView implements NshComponent {
         if (cookies != null) cookies.setAcceptThirdPartyCookies(view, false);
         view.setWebViewClient(new Client());
         view.setWebChromeClient(new Chrome());
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOWNLOAD_FAVICONS_ENABLED)) {
+            WebSettingsCompat.setDownloadFaviconsEnabled(settings, false);
+        }
         view.setDownloadListener(this::download);
         view.setOnTouchListener((touched, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) emit("pressed");
@@ -594,8 +606,16 @@ final class TarnWebView implements NshComponent {
         return true;
     }
 
+    private boolean storeLink(String target) {
+        String id = Native.storeInstall(target);
+        if (id == null) return false;
+        emit("storeInstall", "id", id);
+        return true;
+    }
+
     private void shellLoad(String target, String opener) {
         refusedUrl = null;
+        if (opener == null && storeLink(target)) return;
         if (!passesNavPolicy(target, opener == null ? Native.TYPED : Native.POPUP, opener)) return;
         int site = levelFor(target);
         if (opener != null && isWeb(target) && Native.intoPrivateNetwork(target, opener, false, site)) {
@@ -910,7 +930,9 @@ final class TarnWebView implements NshComponent {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             if (!request.isForMainFrame()) return false;
-            return !pageNavigation(request.getUrl().toString(), request.isRedirect());
+            String target = request.getUrl().toString();
+            if (!request.isRedirect() && request.hasGesture() && storeLink(target)) return true;
+            return !pageNavigation(target, request.isRedirect());
         }
 
         @Override
@@ -1085,7 +1107,7 @@ final class TarnWebView implements NshComponent {
         }
     }
 
-    private final class Chrome extends WebChromeClient {
+    private class Chrome extends WebChromeClient {
         @Override
         public void onReceivedTitle(WebView view, String title) {
             emit("title", "title", title == null ? "" : title);

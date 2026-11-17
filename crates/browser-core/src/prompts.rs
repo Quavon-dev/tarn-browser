@@ -5,6 +5,21 @@ use serde_json::{Value, json};
 /// Permission kinds a profile can remember per origin.
 pub const PERMISSIONS: [&str; 3] = ["camera", "microphone", "location"];
 
+pub fn meaning(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "camera" => "The site sees your camera while this tab uses it.",
+        "microphone" => "The site hears your microphone while this tab uses it.",
+        "camera and microphone" | "camera+microphone" => "The site sees and hears you while this tab uses them.",
+        "location" | "geolocation" => "The site sees where you are while this tab is open.",
+        "notifications" => "The site can show notifications while Tarn runs.",
+        "credentials" => "Your name and password go to this site only.",
+        "extension" => "The extension can read and change pages on this site.",
+        "malicious download" => "The file comes from a site on the malware list.",
+        "external" => "Tarn hands the link to the app that opens it.",
+        _ => return None,
+    })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Prompt {
     pub id: u64,
@@ -18,6 +33,20 @@ pub struct Prompt {
 }
 
 impl Prompt {
+    /// What the site asks, after its origin in bold; a sign-in names its realm, which the server
+    /// sets, bounded.
+    pub fn ask(&self) -> String {
+        match self.kind.as_str() {
+            "alert" | "confirm" | "text" => "says".to_owned(),
+            "credentials" => match self.realm.as_deref().map(crate::text::bounded_title).filter(|r| !r.is_empty()) {
+                Some(realm) => format!("asks you to sign in ({realm})"),
+                None => "asks you to sign in".to_owned(),
+            },
+            "camera+microphone" | "camera and microphone" => "wants to use your camera and microphone".to_owned(),
+            kind => format!("wants to use your {kind}"),
+        }
+    }
+
     pub fn from_event(data: &Value) -> Option<Prompt> {
         let text = |field: &str| data.get(field).and_then(Value::as_str).map(str::to_owned);
         Some(Prompt {
@@ -82,5 +111,24 @@ mod tests {
         let p = prompt(json!({ "id": 7, "kind": "credentials", "origin": "https://a.test" }));
         assert_eq!(p.answer(true, None, Some("u".into()), Some("p".into())), json!({ "id": 7, "accept": true, "user": "u", "password": "p" }));
         assert_eq!(p.answer(false, None, None, None), json!({ "id": 7, "accept": false }));
+    }
+
+    #[test]
+    fn permissions_say_what_allowing_means() {
+        assert!(meaning("location").is_some_and(|m| m.contains("where you are")));
+        assert!(PERMISSIONS.iter().all(|kind| meaning(kind).is_some()));
+        assert_eq!(meaning("alert"), None);
+        assert_eq!(meaning("download"), None, "only a listed download names the malware list");
+    }
+
+    #[test]
+    fn a_prompt_says_what_the_site_asks() {
+        let ask =
+            |kind: &str, realm: Option<&str>| Prompt::from_event(&json!({ "id": 1, "kind": kind, "origin": "https://a.test", "realm": realm })).unwrap().ask();
+        assert_eq!(ask("confirm", None), "says");
+        assert_eq!(ask("camera+microphone", None), "wants to use your camera and microphone");
+        assert_eq!(ask("credentials", Some("")), "asks you to sign in");
+        assert_eq!(ask("credentials", Some("Admin")), "asks you to sign in (Admin)");
+        assert!(ask("credentials", Some(&"r".repeat(5000))).len() < 600);
     }
 }

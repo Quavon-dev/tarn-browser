@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::*;
 
-const PAGE: &str = "<html><body><h1>Title</h1><div id=\"ad\" class=\"ad\">advert</div>\
+const PAGE: &str = "<html><head><link rel=\"icon\" href=\"/i.png\" sizes=\"32x32\"></head><body><h1>Title</h1><div id=\"ad\" class=\"ad\">advert</div>\
     <p id=\"p\">The quick zebrafish swims past the reef while the tide turns slowly over the sand.</p></body></html>";
 
 fn spin_until(done: impl Fn() -> bool, secs: u64) -> bool {
@@ -72,6 +72,12 @@ fn contract_v3_scripts_run_in_the_tarn_world_and_styles_and_zaps_apply() {
     assert!(found["snippets"][0].as_str().unwrap().contains("quick zebrafish swims"), "{found}");
     let text = ask(&state, "readText", json!({ "seq": 5, "maxChars": 30 }), "pageText");
     assert!(!text["text"].as_str().unwrap().is_empty() && text["text"].as_str().unwrap().encode_utf16().count() <= 30, "{text}");
+    let links = ask(&state, "readIconLinks", json!({ "seq": 8 }), "iconLinks");
+    assert!(links["text"].as_str().unwrap().starts_with("http://page.test/i.png\t32x32\n"), "{links}");
+    let icon = ask(&state, "fetchIcon", json!({ "seq": 9, "page": "http://page.test/", "urls": ["http://page.test/i.png"] }), "iconData");
+    assert_eq!((icon["seq"].clone(), icon["text"].clone()), (json!(9), json!("")), "only https icons are fetched");
+    let elsewhere = ask(&state, "fetchIcon", json!({ "seq": 10, "page": "https://elsewhere.test/", "urls": ["https://elsewhere.test/i.png"] }), "iconData");
+    assert_eq!(elsewhere["text"], "", "no fetch once the tab shows another origin");
     let probe = ask(&state, "readArticle", json!({ "seq": 6, "probe": true }), "article");
     assert_eq!(probe["text"], "", "a short page has no article");
     state.events.borrow_mut().clear();
@@ -86,6 +92,52 @@ fn contract_v3_scripts_run_in_the_tarn_world_and_styles_and_zaps_apply() {
 
 #[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    let block: Rc<RefCell<Option<UserContentFilter>>> = Rc::default();
+    let slot = block.clone();
+    let rules = r#"[{"trigger":{"url-filter":"^https://extensions\\.tarnbrowser\\.com/"},"action":{"type":"block"}}]"#;
+    filters::compile_one("store-block.test".into(), rules.into(), move |f| *slot.borrow_mut() = Some(f));
+    assert!(spin_until(|| block.borrow().is_some(), 20), "the test's rule compiled");
+    state.content.borrow().as_ref().unwrap().add_filter(block.borrow().as_ref().unwrap());
+    let link = "https://extensions.tarnbrowser.com/install/helper";
+    let decided = |state: &State| state.events.borrow().iter().any(|(n, d)| n == "decided" && d["url"].as_str().is_some_and(|u| u.starts_with(link)));
+    for script in [
+        format!("location.href = '{link}'"),
+        format!("const a = document.createElement('a'); a.href = '{link}/'; document.body.append(a); a.click()"),
+        format!("const f = document.createElement('iframe'); f.src = '{link}'; document.body.append(f)"),
+    ] {
+        state.events.borrow_mut().clear();
+        web.load_html(&format!("<html><body><script>{script}</script></body></html>"), Some("http://page.test/"));
+        assert!(spin_until(|| decided(&state), 20), "{script}: the navigation reached the policy: {:?}", state.events.borrow());
+        spin_until(|| false, 1);
+        assert!(event(&state, "committed").is_some(), "{script}: the page loaded");
+        assert!(event(&state, engine::tarn_ext::STORE_EVENT).is_none(), "{script}: {:?}", state.events.borrow());
+        if !script.contains("iframe") {
+            let blocked = event(&state, "failed").is_some_and(|d| d["url"].as_str().is_some_and(|u| u.starts_with(link)));
+            assert!(blocked, "{script}: the test's rule stopped the request: {:?}", state.events.borrow());
+        }
+    }
+    state.events.borrow_mut().clear();
+    *state.load.borrow_mut() = Some((link.to_owned(), 1));
+    state.load_link.set(true);
+    load(&state, None);
+    assert!(spin_until(|| decided(&state), 20), "the pop-up's load reached the policy");
+    spin_until(|| false, 1);
+    assert!(event(&state, engine::tarn_ext::STORE_EVENT).is_none(), "a page's pop-up tab never asks: {:?}", state.events.borrow());
+    web.load_html(PAGE, Some("http://page.test/"));
+    assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page loaded");
+    *state.load.borrow_mut() = Some((link.to_owned(), 2));
+    state.load_link.set(false);
+    load(&state, None);
+    assert!(spin_until(|| event(&state, engine::tarn_ext::STORE_EVENT).is_some(), 20), "the user's own load asks");
+    assert_eq!(event(&state, engine::tarn_ext::STORE_EVENT).unwrap(), json!({ "id": "helper" }));
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn nothing_runs_or_applies_under_lockdown() {
     gtk::init().expect("a display");
     let state = view(ShieldLevel::Lockdown, "private:display-lockdown");
@@ -93,6 +145,7 @@ fn nothing_runs_or_applies_under_lockdown() {
     spin_until(|| false, 2);
     let found = ask(&state, "findText", json!({ "seq": 1, "query": "zebrafish" }), "textFound");
     assert_eq!(found["snippets"], json!([]));
+    assert_eq!(ask(&state, "readIconLinks", json!({ "seq": 2 }), "iconLinks")["text"], "");
     assert!(state.zap_filter.borrow().is_none(), "no zap filter under Lockdown");
     let settings = WebViewExt::settings(&web).unwrap();
     assert!(!settings.enables_javascript());
@@ -156,4 +209,68 @@ fn a_download_outlives_its_view_and_burned_store_and_cancels_by_id() {
     let done = reports.borrow().iter().rev().find(|(_, d)| d["id"] == "1").map(|(_, d)| d.clone()).unwrap();
     assert_eq!(std::fs::metadata(done["path"].as_str().unwrap()).unwrap().len(), 20 * 1024);
     assert!(session::DOWNLOADS.with_borrow(HashMap::is_empty), "finished and cancelled downloads leave the map");
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn the_page_joins_the_window_only_once_its_area_has_a_size() {
+    gtk::init().expect("a display");
+    let state = Rc::new(State { container: Some(gtk::Box::new(gtk::Orientation::Vertical, 0)), ..State::default() });
+    let area = gtk::Fixed::new();
+    area.put(state.container(), 0., 0.);
+    let window = gtk::Window::builder().default_width(400).default_height(300).child(&area).build();
+    window.present();
+    assert!(spin_until(|| state.container().is_mapped(), 10), "the empty area is on screen");
+    let wanted = Build { key: StoreKey::parse("private:display-size").unwrap(), level: ShieldLevel::Standard, lists: Vec::new() };
+    *state.built.borrow_mut() = Some(wanted.clone());
+    build(&state, &wanted, &[]);
+    let web = state.web().unwrap();
+    spin_until(|| false, 1);
+    assert!(web.parent().is_none(), "a page mapped at no size never paints");
+    state.container().set_size_request(300, 200);
+    assert!(spin_until(|| web.parent().as_ref() == Some(state.container().upcast_ref()), 10), "the page joins once the area is laid out");
+    state.drop_view();
+    assert!(state.container().first_child().is_none());
+    window.destroy();
+}
+
+fn counting_listener(hold: Duration) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let count = std::sync::Arc::new(AtomicUsize::new(0));
+    let seen = count.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            seen.fetch_add(1, Ordering::SeqCst);
+            std::thread::spawn(move || {
+                std::thread::sleep(hold);
+                drop(stream);
+            });
+        }
+    });
+    (port, count)
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn icon_candidates_stop_once_the_tab_leaves_the_origin() {
+    use std::sync::atomic::Ordering;
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "private:display-icons");
+    let web = state.web().unwrap();
+    web.load_html(PAGE, Some("https://page.test/"));
+    assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page loaded");
+    *state.page.borrow_mut() = Url::parse("https://page.test/").ok();
+    let (first, first_seen) = counting_listener(Duration::from_secs(2));
+    let (second, second_seen) = counting_listener(Duration::ZERO);
+    let urls = json!([format!("https://127.0.0.1:{first}/a.png"), format!("https://127.0.0.1:{second}/b.png")]);
+    state.events.borrow_mut().clear();
+    assert!(scripts::command(&state, "fetchIcon", &json!({ "seq": 3, "page": "https://page.test/", "urls": urls })));
+    assert!(spin_until(|| first_seen.load(Ordering::SeqCst) > 0, 20), "the first candidate was asked");
+    *state.page.borrow_mut() = Url::parse("https://other.test/").ok();
+    assert!(spin_until(|| event(&state, "iconData").is_some(), 30), "fetchIcon answered");
+    spin_until(|| false, 2);
+    assert_eq!(event(&state, "iconData").unwrap()["text"], "");
+    assert_eq!(second_seen.load(Ordering::SeqCst), 0, "no candidate is asked once the tab shows another origin");
 }

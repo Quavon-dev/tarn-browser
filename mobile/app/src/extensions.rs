@@ -78,6 +78,12 @@ impl<D: Platform> Shell<D> {
         self.model.profile().filter(|(private, _)| !private).map(|(_, id)| id)
     }
 
+    pub fn store_link_allowed(&self, key: TabKey) -> bool {
+        let page = self.pages.get(&key).and_then(|p| p.committed.as_deref()).and_then(|u| Url::parse(u).ok());
+        let profile = self.model.profile_of(&self.core, key).filter(|p| self.extension_profile() == Some(*p));
+        profile.is_some_and(|p| self.core.store_link_allowed(key.private, p, page.as_ref()))
+    }
+
     fn policy(&self, profile: Id) -> Policy {
         self.core.extension_policy(profile, every_site_setting(self.core.disk.setting(EVERY_SITE_SETTING).ok().flatten().as_deref()))
     }

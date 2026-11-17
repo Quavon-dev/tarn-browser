@@ -43,7 +43,7 @@ impl<D: Platform> Shell<D> {
         }
         match name {
             "committed" | "finished" => return self.page_event(key, name == "committed", data, now),
-            "started" | "stopped" => {
+            "started" | "stopped" | browser_core::extensions::STORE_EVENT => {
                 if let Some(page) = self.pages.get_mut(&key) {
                     page.loading = name == "started";
                 }
@@ -94,7 +94,7 @@ impl<D: Platform> Shell<D> {
             }
             "prompt" => return self.prompt(key, data),
             crate::extensions::MESSAGE => return self.extension_message(key, data, std::time::Instant::now()),
-            "article" | "pageText" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
+            "article" | "pageText" | "iconLinks" | "iconData" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
             "found" => self.found = data.get("matched").and_then(Value::as_u64),
             "history" => {
                 if let Some(page) = self.pages.get_mut(&key) {

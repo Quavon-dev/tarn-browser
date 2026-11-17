@@ -21,7 +21,7 @@ const QUIET: usize = 3;
 const GAP: f32 = 8.;
 
 pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
-    root.on_action(cx.listener(|b, _: &ShareLink, _, cx| b.share_link(cx))).on_action(cx.listener(|b, _: &ShowQrCode, w, cx| b.show_qr_code(w, cx)))
+    root.on_action(cx.listener(|b, _: &ShareLink, w, cx| b.toggle_share_menu(w, cx))).on_action(cx.listener(|b, _: &ShowQrCode, w, cx| b.show_qr_code(w, cx)))
 }
 
 impl Browser {
@@ -29,21 +29,8 @@ impl Browser {
         self.model.active.and_then(|key| self.tab_url(key)).filter(|u| !u.is_empty())
     }
 
-    /// The system share menu for the active page, below the address field.
-    fn share_link(&mut self, cx: &mut Context<Self>) {
-        let (Some(url), Some(host)) = (self.active_url(), self.host.clone()) else { return };
-        let field = self.address.field.get();
-        let (x, y, w, h) = if field.size.width > px(0.) {
-            (f32::from(field.origin.x), f32::from(field.origin.y), f32::from(field.size.width), f32::from(field.size.height))
-        } else {
-            let slot = self.address.slot.get();
-            (f32::from(slot.origin.x), 0., f32::from(slot.size.width).max(1.), ui::theme::TOOLBAR_HEIGHT)
-        };
-        cx.spawn(async move |_, _| host.share(&url, x.into(), y.into(), w.into(), h.into())).detach();
-    }
-
     /// A card with the active page's QR code below the address field; Esc or a click elsewhere closes it.
-    fn show_qr_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn show_qr_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(handle) = self.qr.take()
             && handle.update(cx, |_, window, _| window.remove_window()).is_ok()
         {

@@ -1,4 +1,5 @@
 use browser_core::tabs::TabKey;
+use browser_core::toast::Tone;
 use serde_json::{Value, json};
 use store::Schedule;
 use tarn_mobile::data::{Memory, Platform};
@@ -76,6 +77,9 @@ fn clean_links_drop_tracking_parameters_and_count_them() {
     let copied = shell.copy_clean_link().unwrap();
     assert_eq!(copied, "https://a.test/p?id=3");
     assert_eq!(shell.notice.as_deref(), Some("Link copied, 2 tracking parameters removed"));
+    assert_eq!(shell.notice_tone(), Tone::Success);
+    shell.notice = Some("something else".into());
+    assert_eq!(shell.notice_tone(), Tone::Info, "a tone belongs to its own notice");
     assert_eq!(counted(&shell), 4, "the copied link of the committed page loses its two");
     visit(&mut shell, "https://a.test/p?id=3", "A");
     shell.copy_clean_link().unwrap();
@@ -269,6 +273,19 @@ fn shield_events_count_once_per_page_and_skip_local_popups() {
 }
 
 #[test]
+fn the_shield_chip_counts_what_shield_stopped_on_the_open_site() {
+    let (_dir, mut shell) = open();
+    assert_eq!(shell.site_shield_total(), 0, "no page, no count");
+    visit(&mut shell, "https://a.test/", "A");
+    let key = active(&shell);
+    shell.event(key, "shielded", &json!({ "kind": "https_upgrade", "url": "https://a.test/" }), 3);
+    shell.event(key, "shielded", &json!({ "kind": "local_network", "url": "https://a.test/" }), 3);
+    assert_eq!(shell.site_shield_total(), 2);
+    visit(&mut shell, "https://b.test/", "B");
+    assert_eq!(shell.site_shield_total(), 0, "another site has its own count");
+}
+
+#[test]
 fn a_burner_tab_has_its_own_store_keeps_no_records_and_is_released_when_burned() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");
@@ -287,7 +304,10 @@ fn a_burner_tab_has_its_own_store_keeps_no_records_and_is_released_when_burned()
     shell.open_burner();
     let second = shell.views()[0].profile.clone();
     assert_ne!(second, burner, "every burner gets a new store");
-    visit(&mut shell, "https://burned.test/", "Burned");
+    let effects = visit(&mut shell, "https://burned.test/", "Burned");
+    assert!(command(&effects, "readIconLinks").is_none(), "a burner asks for no site icon");
+    let burned = shell.model.profile().unwrap();
+    assert!(shell.icons.find(&burned, "burned.test").is_none(), "a burner keeps no site icon, not even in memory");
     shell.event(active(&shell), "download", &json!({ "id": "1", "state": "finished", "name": "x.txt", "path": "/x" }), 3);
     shell.close_tab(active(&shell));
     assert!(!shell.in_burner());
@@ -295,6 +315,7 @@ fn a_burner_tab_has_its_own_store_keeps_no_records_and_is_released_when_burned()
     assert!(shell.history().iter().all(|h| h.url != "https://burned.test/"));
     assert!(shell.downloads().is_empty());
     assert!(shell.spaces().iter().all(|s| !s.burner));
+    assert!(shell.icons.find(&burned, "burned.test").is_none(), "burning forgets the burner's icons");
 }
 
 #[test]
@@ -332,6 +353,19 @@ fn downloads_outlive_their_tab_and_reach_history() {
     let unknown = TabKey { private: false, id: 9_999 };
     shell.event(unknown, "download", &json!({ "id": "2", "state": "failed", "name": "b.zip", "message": "gone" }), 6);
     assert_eq!(shell.downloads().len(), 2, "an event from a view the shell no longer knows is still kept");
+}
+
+#[test]
+fn clearing_the_downloads_list_keeps_running_downloads() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://a.test/", "A");
+    let key = active(&shell);
+    shell.event(key, "download", &json!({ "id": "1", "state": "finished", "name": "a.zip", "path": "/a.zip" }), 3);
+    shell.event(key, "download", &json!({ "id": "2", "state": "started", "name": "b.pdf", "pausable": true }), 3);
+    assert_eq!(shell.downloads().len(), 1);
+    shell.clear_downloads();
+    assert!(shell.downloads().is_empty());
+    assert_eq!(shell.transfers.len(), 1, "a download still saving stays");
 }
 
 #[test]
@@ -385,6 +419,23 @@ fn ruled_hosts_open_link_popups_in_their_space() {
     assert_eq!(shell.model.space_ix, work);
     let load = shell.views().iter().filter_map(|v| v.load.clone()).find(|l| l.url == "https://docs.test/x").unwrap();
     assert_eq!(load.opener, None, "a routed link opens as a fresh tab");
+}
+
+#[test]
+fn a_pop_up_to_a_store_link_keeps_its_opener() {
+    let (_dir, mut shell) = open();
+    shell.new_space("Work");
+    let work = shell.model.space_ix;
+    shell.choose_space(0, 1);
+    visit(&mut shell, "https://extensions.tarnbrowser.com/", "Store");
+    assert!(shell.set_site_rule(Some(work)));
+    shell.new_tab(None);
+    visit(&mut shell, "https://a.test/", "A");
+    let link = "https://extensions.tarnbrowser.com/install/helper";
+    shell.event(active(&shell), "popup", &json!({ "url": link, "link": true }), 3);
+    assert_eq!(shell.model.space_ix, 0, "not routed as a fresh tab");
+    let load = shell.views().iter().filter_map(|v| v.load.clone()).find(|l| l.url == link).unwrap();
+    assert_eq!(load.opener.as_deref(), Some("https://a.test/"), "the page's pop-up, never the user's own load");
 }
 
 #[test]
@@ -456,4 +507,114 @@ fn a_new_tab_reusing_a_closed_tabs_id_gets_its_own_view() {
     assert_eq!(reused, closed, "the store hands the freed id to the next tab");
     let now = shell.views().iter().find(|v| v.key == reused).map(|v| v.born);
     assert!(born.is_some() && now.is_some() && born != now, "a fresh web view, not the closed tab's page");
+}
+
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+fn fetch_icon(shell: &mut TestShell, url: &str, effects: &[Effect], icon: &str) -> Vec<Effect> {
+    let key = active(shell);
+    let links = command(effects, "readIconLinks").expect("asks for the icon links").clone();
+    let fetch = shell.event(key, "iconLinks", &json!({ "seq": seq(&links), "url": url, "text": format!("{url}i.png\t32x32") }), 3);
+    let args = command(&fetch, "fetchIcon").expect("fetches the icon").clone();
+    assert_eq!(args["urls"], json!([format!("{url}i.png"), format!("{url}favicon.ico")]));
+    shell.event(key, "iconData", &json!({ "seq": seq(&args), "url": url, "text": icon }), 4)
+}
+
+#[test]
+fn site_icons_are_fetched_kept_per_profile_and_retried_after_failures() {
+    let (dir, mut shell) = open();
+    let effects = visit(&mut shell, "https://a.test/", "A");
+    fetch_icon(&mut shell, "https://a.test/", &effects, PNG);
+    assert!(shell.site_icon("https://www.a.test/page").is_some_and(|i| i.starts_with("data:image/png;base64,")));
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_none(), "a kept icon is not fetched again");
+    assert!(command(&visit(&mut shell, "http://b.test/", "B"), "readIconLinks").is_none());
+    assert!(command(&visit(&mut shell, "https://b.test:8443/", "B"), "readIconLinks").is_none());
+
+    let effects = visit(&mut shell, "https://c.test/", "C");
+    fetch_icon(&mut shell, "https://c.test/", &effects, "not an image");
+    assert!(shell.site_icon("https://c.test/").is_none());
+    let effects = visit(&mut shell, "https://c.test/", "C");
+    assert!(command(&effects, "readIconLinks").is_some(), "a failed fetch is tried again on the next load");
+
+    shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
+    assert!(command(&visit(&mut shell, "https://c.test/", "C"), "readIconLinks").is_none(), "Lockdown pages fetch no icon");
+
+    let reopened = TestShell::open(dir.path());
+    assert!(reopened.site_icon("https://a.test/").is_some(), "stored icons load at start");
+
+    shell.clear_data();
+    assert!(shell.site_icon("https://a.test/").is_none(), "clearing history forgets the icons");
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some());
+}
+
+#[test]
+fn an_icon_answer_refused_under_lockdown_releases_its_request() {
+    let (_dir, mut shell) = open();
+    let effects = visit(&mut shell, "https://a.test/", "A");
+    let links = command(&effects, "readIconLinks").expect("asks for the icon links").clone();
+    shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
+    let key = active(&shell);
+    let fetch = shell.event(key, "iconLinks", &json!({ "seq": seq(&links), "url": "https://a.test/", "text": "https://a.test/i.png\t32x32" }), 3);
+    assert!(command(&fetch, "fetchIcon").is_none(), "Lockdown refuses the answer");
+    shell.set_site_level(None);
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some(), "the refused request was released");
+}
+
+#[test]
+fn a_tab_closed_after_a_clear_does_not_release_a_newer_icon_request() {
+    let (_dir, mut shell) = open();
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some());
+    let first = active(&shell);
+    shell.clear_data();
+    shell.new_tab(None);
+    let effects = visit(&mut shell, "https://a.test/", "A");
+    assert!(command(&effects, "readIconLinks").is_some(), "a clear starts over");
+    let second = active(&shell);
+    shell.close_tab(first);
+    shell.activate(second);
+    fetch_icon(&mut shell, "https://a.test/", &effects, PNG);
+    assert!(shell.site_icon("https://a.test/").is_some(), "the newer request still keeps its icon");
+}
+
+#[test]
+fn a_closed_tab_does_not_hold_its_sites_icon_request() {
+    let (_dir, mut shell) = open();
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some());
+    let closed = active(&shell);
+    shell.new_tab(None);
+    shell.close_tab(closed);
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some(), "the next tab on the site asks again");
+
+    shell.new_tab(None);
+    let mover = active(&shell);
+    assert!(command(&visit(&mut shell, "https://b.test/", "B"), "readIconLinks").is_some());
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_none(), "the other tab still asks for a.test");
+    shell.close_tab(mover);
+    shell.new_tab(None);
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_none(), "the other tab's request is kept");
+    assert!(command(&visit(&mut shell, "https://b.test/", "B"), "readIconLinks").is_some(), "closing releases the site the tab asked for");
+}
+
+#[test]
+fn page_world_platforms_request_no_site_icons() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut shell = Shell::<PageWorld>::open(dir.path());
+    let key = shell.model.active.unwrap();
+    shell.navigate("https://a.test/");
+    let page = json!({ "url": "https://a.test/", "title": "A", "canGoBack": false, "canGoForward": false });
+    shell.event(key, "committed", &page, 1);
+    assert!(shell.event(key, "finished", &page, 2).is_empty(), "no icon script after a load");
+    assert!(shell.site_icon("https://a.test/").is_none());
+}
+
+#[test]
+fn private_spaces_show_icons_without_storing_them() {
+    let (dir, mut shell) = open();
+    shell.enter_private();
+    let effects = visit(&mut shell, "https://p.test/", "P");
+    fetch_icon(&mut shell, "https://p.test/", &effects, PNG);
+    assert!(shell.site_icon("https://p.test/").is_some());
+    shell.close_private();
+    assert!(shell.site_icon("https://p.test/").is_none());
+    assert!(TestShell::open(dir.path()).site_icon("https://p.test/").is_none());
 }

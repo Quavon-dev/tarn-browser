@@ -15,7 +15,7 @@ use ui::controls::{button, disabled_segment, group, note, radio, row, section, s
 use ui::icon::{Icon, icon};
 use ui::motion::fade_in;
 use ui::text::bounded_title;
-use ui::theme::{ACCENTS, TEXT, TEXT_TITLE, Theme};
+use ui::theme::{ACCENTS, TEXT, TEXT_HEADING, TEXT_SMALL, TEXT_TINY, TEXT_TITLE, Theme};
 
 use crate::browser::Browser;
 
@@ -45,17 +45,18 @@ pub enum SettingsPane {
 
 const PANES: [(SettingsPane, Icon, &str); 11] = [
     (SettingsPane::Profile, Icon::Shield, "Profile"),
+    (SettingsPane::Profiles, Icon::Person, "Profiles"),
     (SettingsPane::General, Icon::Gear, "General"),
     (SettingsPane::Appearance, Icon::Palette, "Appearance"),
     (SettingsPane::Tabs, Icon::AppWindow, "Tabs"),
     (SettingsPane::Search, Icon::Search, "Search"),
     (SettingsPane::Privacy, Icon::Hand, "Privacy"),
     (SettingsPane::Permissions, Icon::Camera, "Permissions"),
-    (SettingsPane::Profiles, Icon::Person, "Profiles"),
     (SettingsPane::Developer, Icon::Code, "Developer"),
     (SettingsPane::Extensions, Icon::Braces, "Extensions"),
     (SettingsPane::Shortcuts, Icon::Keyboard, "Shortcuts"),
 ];
+const YOU: usize = 2;
 
 type Pick = fn(&mut Browser, usize, &mut Context<Browser>);
 
@@ -160,6 +161,10 @@ fn label(text: impl Into<SharedString>) -> gpui::Div {
     div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(text.into())
 }
 
+fn group_label(text: &'static str) -> Div {
+    div().pt_5().pb_1p5().px_1().text_size(px(TEXT_TINY)).font_weight(FontWeight::BOLD).text_color(Theme::accent()).child(text)
+}
+
 /// A section title with a button at its right end.
 fn heading(title: impl Into<SharedString>, action: impl IntoElement) -> Div {
     section(title).flex().items_center().justify_between().gap_3().child(action)
@@ -231,6 +236,7 @@ struct Snapshot {
     extension_busy: Option<String>,
     extension_choice: Vec<String>,
     consent: Option<crate::extensions::Consent>,
+    store_sheet: Option<(crate::extensions::StoreToken, String, Vec<String>)>,
     catalog: (Vec<crate::extensions::CatalogRow>, bool),
     card: Option<Card>,
     /// `None` outside an app bundle, which cannot become the default browser.
@@ -258,12 +264,25 @@ pub struct SettingsWindow {
     appearance: appearance::Pane,
     _observe: Option<Subscription>,
     _activation: Subscription,
+    _release: Subscription,
 }
 
 impl SettingsWindow {
     pub fn open(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, cx: &mut App) -> Option<WindowHandle<SettingsWindow>> {
+        let sheet = size(px(1000.), px(700.));
+        let over = main.update(cx, |_, window, cx| (window.bounds(), window.display(cx).map(|d| d.bounds()))).ok();
+        let bounds = match over {
+            Some((over, Some(screen))) => {
+                let sheet = size(sheet.width.min(screen.size.width), sheet.height.min(screen.size.height));
+                let at = over.center() - point(sheet.width / 2., sheet.height / 2.);
+                let x = at.x.clamp(screen.origin.x, screen.right() - sheet.width);
+                let y = at.y.clamp(screen.origin.y, screen.bottom() - sheet.height);
+                Bounds::new(point(x, y), sheet)
+            }
+            _ => Bounds::centered(None, sheet, cx),
+        };
         let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(860.), px(640.)), cx))),
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(720.), px(480.))),
             titlebar: Some(TitlebarOptions {
                 title: Some("Settings".into()),
@@ -307,6 +326,9 @@ impl SettingsWindow {
                     appearance: appearance::Pane::new(cx),
                     _observe: observe,
                     _activation: activation,
+                    _release: cx.on_release(|this: &mut SettingsWindow, cx| {
+                        this.main.update(cx, |b, _, cx| b.cancel_store_offer(cx)).ok();
+                    }),
                 }
             })
         })
@@ -386,6 +408,7 @@ impl SettingsWindow {
                 .map(|(_, a)| a.iter().map(|a| crate::extensions::shown(&a.name)).collect())
                 .unwrap_or_default(),
             consent: if self.pane == SettingsPane::Extensions { b.core.extensions.borrow().consent() } else { None },
+            store_sheet: if self.pane == SettingsPane::Extensions { b.store_sheet() } else { None },
             catalog: if self.pane == SettingsPane::Extensions { b.catalog_rows() } else { (Vec::new(), false) },
             filters: b.core.filters.borrow().clone(),
             shared_data: self.pane == SettingsPane::Privacy
@@ -422,6 +445,9 @@ impl SettingsWindow {
     }
 
     pub(crate) fn set_pane(&mut self, pane: SettingsPane, cx: &mut Context<Self>) {
+        if self.pane == SettingsPane::Extensions && pane != SettingsPane::Extensions {
+            self.with_browser(cx, |b, _, cx| b.cancel_store_offer(cx));
+        }
         if pane == SettingsPane::Developer {
             self.with_browser(cx, |b, _, cx| b.refresh_local_servers(cx));
         }
@@ -588,7 +614,8 @@ impl SettingsWindow {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let name = engine::downloads::sanitize_filename(&format!("Tarn Shield {}.png", card.name));
-            let png = cx.background_spawn(async move { shield_card::card_png(&card) }).await;
+            let dark = !Theme::is_light();
+            let png = cx.background_spawn(async move { shield_card::card_png(&card, dark) }).await;
             let notice = match png.map(|png| crate::capture::write_download(&name, &png)) {
                 Some(Ok(path)) => format!("Saved to {}.", path.display()),
                 Some(Err(e)) => format!("Could not save the image: {e}."),
@@ -642,11 +669,7 @@ impl Render for SettingsWindow {
         let current = self.pane;
         let snapshot = self.snapshot(cx);
         let reduce = snapshot.as_ref().is_some_and(|s| s.reduce);
-        let profile_name = snapshot.as_ref().and_then(|s| s.profile.as_ref()).map(|p| bounded_title(&p.name));
-        let title = |pane: SettingsPane, text: &'static str| match (pane, &profile_name) {
-            (SettingsPane::Profile, Some(name)) => SharedString::from(name.clone()),
-            _ => SharedString::from(text),
-        };
+        let private = snapshot.as_ref().is_some_and(|s| s.private);
 
         let nav = div()
             .w(px(SIDEBAR_WIDTH))
@@ -661,9 +684,25 @@ impl Render for SettingsWindow {
             .border_r_1()
             .border_color(Theme::separator())
             .window_control_area(gpui::WindowControlArea::Drag)
-            .children(PANES.iter().map(|&(pane, glyph, text)| {
+            .children(PANES.iter().enumerate().flat_map(|(ix, &(pane, glyph, text))| {
                 let selected = pane == current;
-                div()
+                let group = match ix {
+                    0 => Some("YOU"),
+                    YOU => Some("BROWSER"),
+                    _ => None,
+                };
+                let caption = group.map(|g| {
+                    div()
+                        .px_2()
+                        .pt(px(if ix == 0 { 4. } else { 12. }))
+                        .pb_1()
+                        .text_size(px(TEXT_TINY))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(Theme::faint())
+                        .child(g)
+                        .into_any_element()
+                });
+                let item = div()
                     .id(text)
                     .occlude()
                     .h(px(30.))
@@ -678,11 +717,13 @@ impl Render for SettingsWindow {
                         d.text_color(Theme::muted()).hover(|s| s.bg(Theme::hover()).text_color(Theme::text())).active(|s| s.bg(Theme::pressed()))
                     })
                     .child(icon(glyph, 15., if selected { Theme::text() } else { Theme::muted() }))
-                    .child(label(title(pane, text)))
+                    .child(label(text))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         window.focus(&this.focus);
                         this.set_pane(pane, cx);
                     }))
+                    .into_any_element();
+                caption.into_iter().chain([item])
             }));
 
         let body = match (current, snapshot) {
@@ -718,7 +759,26 @@ impl Render for SettingsWindow {
                     .border_color(Theme::separator())
                     .text_size(px(TEXT_TITLE))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().child(title(current, name)))
+                    .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(name))
+                    .when(current == SettingsPane::Profile, |d| {
+                        d.child(
+                            div()
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .gap_1()
+                                .px_2()
+                                .py_0p5()
+                                .rounded_full()
+                                .border_1()
+                                .border_color(Theme::hairline())
+                                .text_size(px(TEXT_SMALL))
+                                .font_weight(FontWeight::NORMAL)
+                                .text_color(Theme::muted())
+                                .child(icon(Icon::Lock, 11., Theme::muted()))
+                                .child(if private { "Kept in memory only".to_owned() } else { format!("Counted on {} only", ui::controls::THIS_DEVICE) }),
+                        )
+                    })
                     .when(cfg!(windows), |d| {
                         d.pr_2().window_control_area(gpui::WindowControlArea::Drag).child(div().flex_1()).children(ui::controls::window_controls())
                     }),
@@ -772,9 +832,9 @@ type CardKey = (u64, i64, Option<Profile>, Option<(bool, Id)>);
 /// The Shield card as it tilts under the pointer and flips on a click.
 #[derive(Default)]
 struct CardMotion {
-    faces: Option<(Card, Arc<shield_card::Faces>)>,
+    faces: Option<((Card, bool), Arc<shield_card::Faces>)>,
     /// The card whose faces are being drawn, or could not be.
-    drawing: Option<Card>,
+    drawing: Option<(Card, bool)>,
     bounds: Rc<Cell<Bounds<Pixels>>>,
     /// Where the pointer is over the card, each axis from -1 to 1.
     aim: (f32, f32),
@@ -795,48 +855,65 @@ fn default_browser() -> Option<bool> {
 const SIDEBAR_WIDTH: f32 = 196.;
 /// Tall enough to clear the traffic lights, which sit 18 pt from the top.
 const HEADER_HEIGHT: f32 = 52.;
-const CONTENT_WIDTH: f32 = 680.;
+const CONTENT_WIDTH: f32 = 760.;
 
-/// The card's counters over the last seven days: one bar per day in a faint track (oldest first,
-/// each row scaled to its own busiest day) and the week's total.
-fn week(card: &Card) -> Div {
-    const HEIGHT: f32 = 16.;
-    let names = card.counters.map(|(name, _)| name).into_iter().chain(["Pages on block lists stopped", "Pop-ups blocked", "Requests blocked in Chromium tabs"]);
-    let rows = names.enumerate().map(|(ix, name)| {
-        let days: Vec<i64> = card
-            .week
-            .iter()
-            .map(|d| [d.tracking_params, d.https_upgrades, d.local_blocked, d.listed_stopped, d.popups_blocked, d.chromium_requests][ix].max(0))
-            .collect();
-        let busiest = days.iter().copied().max().unwrap_or(0).max(1);
-        let bars = days.iter().map(|n| {
-            let fill = if *n == 0 { 0. } else { (HEIGHT * *n as f32 / busiest as f32).max(3.) };
-            div()
-                .w(px(6.))
-                .h(px(HEIGHT))
-                .flex()
-                .flex_col()
-                .justify_end()
-                .rounded(px(Theme::radius_small()))
-                .overflow_hidden()
-                .bg(Theme::raised())
-                .child(div().h(px(fill)).bg(Theme::accent()))
-        });
-        let total = days.iter().sum::<i64>();
-        row(ix == 0)
-            .child(label(name))
-            .child(div().flex().flex_none().gap(px(3.)).children(bars))
-            .child(value(thousands(total as u64)).w(px(56.)).flex_none().text_right().when(total > 0, |d| d.text_color(Theme::text())))
+fn week_chart(card: &Card) -> Div {
+    const BARS: f32 = 92.;
+    let days = browser_core::shield_card::day_totals(&card.week);
+    let busiest = days.iter().map(|(_, n)| *n).max().unwrap_or(0);
+    let bars = days.iter().map(|(day, n)| {
+        let fill = if *n == 0 { 2. } else { (BARS * *n as f32 / busiest.max(1) as f32).max(4.) };
+        let top = *n == busiest && busiest > 0;
+        div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_end()
+            .gap_1()
+            .text_size(px(TEXT_TINY))
+            .text_color(Theme::muted())
+            .child(if *n > 0 { thousands(*n as u64) } else { String::new() })
+            .child(div().w(px(22.)).h(px(fill)).rounded(px(Theme::radius_small())).bg(if top { Theme::space_label() } else { Theme::accent() }))
+            .child(*day)
     });
-    let sites = card
-        .sites
-        .iter()
-        .enumerate()
-        .map(|(ix, (host, n))| row(ix == 0).child(label(crate::toolbar::host_tail(&bounded_title(host), 40))).child(value(thousands((*n).max(0) as u64))));
-    div()
-        .child(section("Last 7 days"))
-        .child(group().children(rows))
-        .when(!card.sites.is_empty(), |d| d.child(section("Most protected sites")).child(group().children(sites)))
+    let total: i64 = days.iter().map(|(_, n)| *n).sum();
+    group()
+        .p_4()
+        .gap_3()
+        .child(
+            div()
+                .flex()
+                .justify_between()
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("Last 7 days"))
+                .child(value(format!("{} protected", thousands(total.max(0) as u64))).text_size(px(TEXT_SMALL))),
+        )
+        .child(div().h(px(BARS + 34.)).flex().items_end().gap_1().children(bars))
+}
+
+fn protected_sites(card: &Card) -> Div {
+    let most = card.sites.iter().map(|(_, n)| *n).max().unwrap_or(0).max(1);
+    let rows = card.sites.iter().map(|(host, n)| {
+        let host = crate::toolbar::host_tail(&bounded_title(host), 40);
+        let share = (*n).max(0) as f32 / most as f32;
+        div()
+            .h(px(28.))
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(ui::controls::favicon(&host, 16.))
+            .child(div().flex_none().w(px(110.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(host))
+            .child(
+                div()
+                    .flex_1()
+                    .h(px(4.))
+                    .rounded_full()
+                    .bg(Theme::separator())
+                    .child(div().h_full().w(gpui::relative(share)).rounded_full().bg(Theme::accent())),
+            )
+            .child(value(thousands((*n).max(0) as u64)).w(px(44.)).flex_none().text_right())
+    });
+    group().p_4().gap_1().child(div().pb_1().font_weight(FontWeight::SEMIBOLD).child("Most protected sites")).children(rows)
 }
 
 /// The installed filter lists, their age and the last update error, in one line.
@@ -857,13 +934,14 @@ impl SettingsWindow {
     fn card_frame(&mut self, card: &Card, reduce: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<Arc<RenderImage>> {
         const RATES: [f32; 5] = [12., 12., 8., 6.5, 25.];
         let m = &mut self.motion;
-        if m.faces.as_ref().is_none_or(|(c, _)| c != card) && m.drawing.as_ref() != Some(card) {
-            m.drawing = Some(card.clone());
-            let card = card.clone();
+        let key = (card.clone(), !Theme::is_light());
+        if m.faces.as_ref().is_none_or(|(k, _)| *k != key) && m.drawing.as_ref() != Some(&key) {
+            m.drawing = Some(key.clone());
+            let card = key;
             cx.spawn(async move |this, cx| {
                 let made = cx.background_spawn({
-                    let card = card.clone();
-                    async move { shield_card::faces(&card) }
+                    let (card, dark) = card.clone();
+                    async move { shield_card::faces(&card, dark) }
                 });
                 let Some(faces) = made.await else { return };
                 this.update(cx, |this, cx| {
@@ -948,35 +1026,11 @@ impl SettingsWindow {
                 this.motion.flipped ^= true;
                 cx.notify();
             }));
-        let saved = card.clone();
-        let mut page = div().child(
-            div()
-                .pt_6()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap_4()
-                .child(face)
-                .child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .child(button("flip-card", "Flip", false).on_click(cx.listener(|this, _, _, cx| {
-                            this.motion.flipped ^= true;
-                            cx.notify();
-                        })))
-                        .child(button("save-card", "Save as Image", false).on_click(cx.listener(move |this, _, _, cx| this.save_card(saved.clone(), cx))))
-                        .child(button("new-design", "New Design", false).on_click(cx.listener(move |this, _, _, cx| {
-                            let Some((private, id)) = target else { return };
-                            this.with_browser(cx, |b, _, cx| {
-                                b.store(private).new_shield_design(id).ok();
-                                shield_card::touch();
-                                cx.notify();
-                            });
-                        }))),
-                )
-                .children(self.card_notice.clone().map(|n| note(n).pt_0())),
-        );
+        let hero = self.hero(&card, face, target, cx);
+        let mut page = div()
+            .child(hero)
+            .children(self.card_notice.clone().map(|n| note(n).pt_2()))
+            .child(div().pt_5().flex().gap_4().child(week_chart(&card).flex_1()).when(!card.sites.is_empty(), |d| d.child(protected_sites(&card).flex_1())));
         if s.default_browser == Some(false) {
             page = page.child(section("Default browser")).child(
                 group().child(
@@ -994,7 +1048,6 @@ impl SettingsWindow {
             n => format!("{n} sites"),
         };
         page = page
-            .child(week(&card))
             .child(note({
                 let kept = if s.private { "Counts stay in memory and are gone once the private space closes.".to_owned() } else { format!("Counted on {} only and never sent anywhere.", ui::controls::THIS_DEVICE) };
                 if cfg!(windows) {
@@ -1006,8 +1059,7 @@ impl SettingsWindow {
             .child(section("Shield"))
             .child(
                 group()
-                    .child(row(true).child(label("Level")).child(value(shield_badge(card.level))).child(to_privacy("shield-change", "Change…")))
-                    .child(row(false).child(label("Site overrides")).child(value(overrides)))
+                    .child(row(true).child(label("Site overrides")).child(value(overrides)).child(to_privacy("shield-change", "Change…")))
                     .child(row(false).child(text_block("Filter lists", filter_state(&s.filters)))),
             );
         let filter_lists = match (filters::configured(), s.filters.updates) {
@@ -1038,6 +1090,115 @@ impl SettingsWindow {
                     ),
             )
             .into_any_element()
+    }
+
+    fn hero(&self, card: &Card, face: impl IntoElement, target: Option<(bool, Id)>, cx: &mut Context<Self>) -> Div {
+        let numbers = card.counters.iter().zip(browser_core::shield_card::NUMBERS).map(|((_, n), caption)| {
+            div()
+                .flex()
+                .flex_col()
+                .child(div().text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).child(thousands((*n).max(0) as u64)))
+                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(caption))
+        });
+        let private = target.is_some_and(|(private, _)| private);
+        let since = match (card.days, &card.since) {
+            (Some(days), Some(since)) => format!("Protected for {} · since {since}", browser_core::shield_card::days_text(days)),
+            _ if private => "Counts stay in memory until the private space closes.".to_owned(),
+            _ => "Counting starts with the first thing Shield stops.".to_owned(),
+        };
+        let levels = ShieldLevel::ALL.into_iter().enumerate().map(|(ix, level)| {
+            tab_stop(segment(("profile-level", ix), shield_badge(level), level == card.level)).on_click(cx.listener(move |this, _, _, cx| {
+                this.with_browser(cx, |b, w, cx| b.set_profile_shield(level, w, cx));
+            }))
+        });
+        let saved = card.clone();
+        let shared = card.clone();
+        let system = cfg!(target_os = "macos");
+        let share = if system { "Share Card" } else { "Save as Image" };
+        let actions = div()
+            .flex()
+            .flex_wrap()
+            .gap_2()
+            .child(tab_stop(button("flip-card", "Flip", false)).child(icon(Icon::Reload, 13., Theme::muted())).on_click(cx.listener(|this, _, _, cx| {
+                this.motion.flipped ^= true;
+                cx.notify();
+            })))
+            .child(tab_stop(button("new-design", "Change Design", false)).child(icon(Icon::Palette, 13., Theme::muted())).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    let Some((private, id)) = target else { return };
+                    this.with_browser(cx, |b, _, cx| {
+                        b.store(private).new_shield_design(id).ok();
+                        shield_card::touch();
+                        cx.notify();
+                    });
+                },
+            )))
+            .when(!private, |d| {
+                d.child(tab_stop(button("share-card", share, false)).child(icon(Icon::Share, 13., Theme::muted())).on_click(cx.listener(
+                    move |this, _, window, cx| {
+                        if system {
+                            this.share_card(shared.clone(), window, cx);
+                        } else {
+                            this.save_card(shared.clone(), cx);
+                        }
+                    },
+                )))
+            })
+            .when(system && !private, |d| {
+                d.child(tab_stop(button("save-card", "Save as Image", false)).on_click(cx.listener(move |this, _, _, cx| this.save_card(saved.clone(), cx))))
+            });
+        div().pt_4().flex().items_start().gap_6().child(face).child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    div()
+                        .child(
+                            div()
+                                .text_size(px(TEXT_HEADING))
+                                .font_weight(FontWeight::BOLD)
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(card.name.clone()),
+                        )
+                        .child(value(since).text_size(px(TEXT_SMALL))),
+                )
+                .child(div().flex().flex_wrap().gap_x_5().gap_y_2().children(numbers))
+                .child(div().flex().items_center().justify_between().gap_2().child(label("Shield level")).child(segmented().children(levels)))
+                .child(actions),
+        )
+    }
+
+    fn share_card(&mut self, card: Card, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(host) = engine::Host::from_window(window) else { return };
+        let at = self.motion.bounds.get();
+        cx.spawn(async move |this, cx| {
+            let name = engine::downloads::sanitize_filename(&format!("Tarn Shield {}.png", card.name));
+            let dark = !Theme::is_light();
+            let written = cx
+                .background_spawn(async move {
+                    let png = shield_card::card_png(&card, dark)?;
+                    let path = browser_core::shield_card::export_path(&name).ok()?;
+                    std::fs::write(&path, png).ok()?;
+                    url::Url::from_file_path(path).ok()
+                })
+                .await;
+            let Some(url) = written else {
+                this.update(cx, |this, cx| {
+                    this.card_notice = Some("Could not draw the image.".into());
+                    cx.notify();
+                })
+                .ok();
+                return;
+            };
+            let (x, y, w, h) = (f32::from(at.origin.x), f32::from(at.origin.y), f32::from(at.size.width), f32::from(at.size.height));
+            host.share(url.as_str(), x.into(), y.into(), w.into(), h.into());
+        })
+        .detach();
     }
 
     fn general(&self, s: &Snapshot, cx: &mut Context<Self>) -> AnyElement {
@@ -1164,21 +1325,23 @@ impl SettingsWindow {
         }));
         let compact = s.prefs.get(Pref::CompactToolbar) as usize;
         div()
-            .child(self.theme_sections(cx))
-            .child(section("Look"))
+            .child(group_label("THEME"))
+            .child(group().children(self.theme_rows(cx)).child(row(false).child(text_block("Accent", "Buttons, selection and focus.")).child(accents)))
+            .child(group_label("MOTION"))
+            .child(
+                group()
+                    .child(self.pref_row(true, Pref::ReduceMotion, "Reduce motion", if cfg!(windows) { "Cards, banners, the sidebar and tab switches appear without animation. Always on while animations are off in Windows settings." } else { "Cards, banners, the sidebar and tab switches appear without animation. Always on while Reduce motion is on in macOS Accessibility settings." }, s.prefs.get(Pref::ReduceMotion), cx))
+                    .child(self.search_effect_row(false, cx)),
+            )
+            .child(group_label("LAYOUT"))
             .child(
                 group()
                     .child(self.choice_row(true, "Toolbar", "Compact puts the address field into a slimmer bar.", &["Classic", "Compact"], compact, |b, ix, cx| {
                         b.set_pref(Pref::CompactToolbar, ix == 1, cx)
                     }, cx))
-                    .child(row(false).child(text_block("Accent colour", "Buttons, selected rows and focus rings.")).child(accents)),
+                    .child(self.pref_row(false, Pref::AutoHideSidebar, "Hide sidebar automatically", format!("With the sidebar hidden ({}), it slides in over the page while the pointer rests at the window's left edge.", crate::shortcuts::shown(&crate::ToggleSidebar, cx)), s.prefs.get(Pref::AutoHideSidebar), cx)),
             )
-            .child(section("Sidebar and motion"))
-            .child(
-                group()
-                    .child(self.pref_row(true, Pref::AutoHideSidebar, "Hide sidebar automatically", format!("With the sidebar hidden ({}), it slides in over the page while the pointer rests at the window's left edge.", crate::shortcuts::shown(&crate::ToggleSidebar, cx)), s.prefs.get(Pref::AutoHideSidebar), cx))
-                    .child(self.pref_row(false, Pref::ReduceMotion, "Reduce motion", if cfg!(windows) { "Cards, banners, the sidebar and tab switches appear without animation. Always on while animations are off in Windows settings." } else { "Cards, banners, the sidebar and tab switches appear without animation. Always on while Reduce motion is on in macOS Accessibility settings." }, s.prefs.get(Pref::ReduceMotion), cx)),
-            )
+            .child(self.theme_sections(cx))
             .into_any_element()
     }
 
@@ -1605,6 +1768,24 @@ impl SettingsWindow {
                 ),
             );
         }
+        if let Some((token, title, lines)) = s.store_sheet {
+            let card = group()
+                .child(row(true).child(text_block(title, "From Tarn's signed official catalog.")))
+                .children(lines.into_iter().map(|l| row(false).child(div().flex_1().child(l))))
+                .child(
+                    row(false)
+                        .child(div().flex_1())
+                        .child(
+                            button("store-cancel", "Cancel", true)
+                                .on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.cancel_store_offer(cx)))),
+                        )
+                        .child(button("store-install", "Install", false).on_click(cx.listener(move |this, _, _, cx| {
+                            let token = token.clone();
+                            this.with_browser(cx, move |b, _, cx| b.confirm_store_offer(&token, cx))
+                        }))),
+                );
+            return page.child(section("Confirm")).child(card).into_any_element();
+        }
         if let Some(c) = s.consent {
             let list = |title: &'static str, items: &[String]| {
                 (!items.is_empty()).then(|| text_block(title, items.iter().map(|i| crate::extensions::shown(i)).collect::<Vec<_>>().join(", ")))
@@ -1771,6 +1952,13 @@ impl SettingsWindow {
                         .into_any_element()
                 }));
             }
+            official = official.child(self.link_row(
+                "extension-store",
+                "Browse the store",
+                "Official extensions with screenshots and search; Install in Tarn asks here first.",
+                browser_core::extensions::STORE_URL,
+                cx,
+            ));
             page = page.child(section("Official")).child(official);
             if old {
                 page = page.child(note("This list is more than 30 days old. Show official extensions to get the current one."));

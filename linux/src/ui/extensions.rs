@@ -3,12 +3,14 @@ use std::rc::Rc;
 
 use browser_core::Core;
 use browser_core::prompts::Prompt;
+use browser_core::tabs::TabKey;
 use futures_util::StreamExt;
 use nsh_core::JsonValue;
 use nsh_core::prelude::*;
 use tarn_nsh_shared::controls::{secure_button, secure_surface};
 
-use super::{Ui, WINDOWS, act, read};
+use super::{Panel, Ui, WINDOWS, act, read};
+use crate::browser::Notice;
 use crate::controls::{body, card, pill, small};
 use crate::data::Data;
 use crate::extensions::{self, Note, popup};
@@ -79,7 +81,7 @@ pub(super) fn buttons(ui: Ui) -> AnyElement {
                 .hover(|s| s.bg(Theme::hover()))
                 .child(match &button.icon {
                     Some(path) => image(path.clone()).w(px(16.)).h(px(16.)).into_element(),
-                    None => super::site_tile(&letter.to_lowercase(), 16.).into_element(),
+                    None => tarn_nsh_shared::controls::site_tile(None, &letter.to_lowercase(), 16.).into_element(),
                 })
                 .children(badge)
                 .into_element()
@@ -181,6 +183,29 @@ impl tarn_nsh_shared::extensions::Host for Installs {
     }
     fn notice(self) -> Option<String> {
         None
+    }
+    fn store_link_allowed(self, tab: TabKey) -> bool {
+        read(self.0, |b| b.store_link_allowed(tab)) == Some(true)
+    }
+    fn open_link(self, url: &'static str) {
+        self.0.panel.set(Panel::None);
+        act(self.0, |b| {
+            b.new_tab(url);
+        });
+    }
+}
+
+pub(super) fn store_link(ui: Ui, key: TabKey, id: &str) {
+    if read(ui, |b| b.core.admit_store_link(std::time::Instant::now())) != Some(true) {
+        return;
+    }
+    match tarn_nsh_shared::extensions::store_link(Installs(ui), key, id) {
+        Ok(()) => {
+            ui.ext_pane.set(true);
+            ui.panel.set(Panel::Settings);
+            act(ui, |_| {});
+        }
+        Err(why) => act(ui, |b| b.notice = Some(Notice::Message(why))),
     }
 }
 

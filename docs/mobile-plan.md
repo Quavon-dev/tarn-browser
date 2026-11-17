@@ -128,7 +128,7 @@ world, so it runs the script in the page world (gap below). Rules for every run:
 
 Android runner: a synchronous body (`find_text_script` is not used there, see `findText`; `page_text_script`)
 runs as `evaluateJavascript("(() => {" + body + "})()")` and the JSON string result is decoded. An async body
-(`reader::script`, `PICKER`) runs as `(async () => {body})().then(r => { window[K] = String(r); })` with a
+(`reader::script`, `PICKER`, and the icon scripts should a shell send them) runs as `(async () => {body})().then(r => { window[K] = String(r); })` with a
 fresh random 128-bit name `K` per run, then the component polls `(() => { const r = window[K]; delete window[K];
 return r; })()` every 100 ms and answers empty after 10 s (the picker waits until `pickCancel`, another `pick`
 or the next commit). The page can read and forge these values; the Rust checks limit that to its own article,
@@ -147,6 +147,10 @@ its own text and a selector hiding part of itself.
 | event | `article` | `{seq, url, text}` | With `probe`: `"1"` when the page has an article, else empty. Without: JSON for `engine::reader::Article::parse`, which refuses anything malformed or too large; the shell draws the article as text and stores nothing of it. Read Aloud speaks the parsed text with the platform's on-device voice |
 | command | `readText` | `{seq, maxChars}` | Full-text history: runs `engine::page_scripts::page_text_script(origin, maxChars)`. The shell asks only after `finished` (never after a same-document change), with `maxChars` = `store::MAX_HISTORY_TEXT`, never for private or burner stores, and only while the setting is on |
 | event | `pageText` | `{seq, url, text}` | The shell keeps `store::clip_history_text(text)` with `Store::set_history_text` for its visit of `url` |
+| command | `readIconLinks` | `{seq}` | Site icons: runs `engine::page_scripts::icon_links_script(origin)`. The shell asks after `finished` only for `engine::favicon::icon_host(url, lockdown)` (https, default port, never Lockdown) when `favicon::Tracker::request` says so (no fresh icon stored, under `favicon::MAX_TRIES` failures this session, none in flight). Not on Android, where scripts run in the page world (see the gap below) |
+| event | `iconLinks` | `{seq, url, text}` | `href<TAB>sizes` lines, an empty line, then the hosts the page loaded from. The shell keeps only `engine::favicon::candidates(url, text)`, while the tab still shows `url`'s origin, and sends them in `fetchIcon`; none withdraws the request |
+| command | `fetchIcon` | `{seq, page, urls}` | Runs `engine::page_scripts::fetch_icon_script(page, urls, favicon::MAX_BYTES)` on at most `favicon::MAX_CANDIDATES` https `urls`, so it fetches nothing once the tab shows another origin than the `page` that asked |
+| event | `iconData` | `{seq, url, text}` | The icon as base64, or empty. The shell keeps only `engine::favicon::normalize(text)` (a 64×64 PNG), stores it with `Store::set_favicon` when `Core::keeps_records` (never for burner profiles; a private profile's only in its in-memory store) and replaces a stale one (older than `favicon::MAX_AGE`) only on success; anything else counts as a failure. Clearing history or closing a private space forgets them |
 | command | `findText` | `{seq, query}` | Find in Tabs: runs `engine::page_scripts::find_text_script(query)` (the query is a JS string literal, at most 200 characters) and cuts the answer with `page_scripts::find_snippets`. Android never sends the query to a page world: it reads the page's text with `page_text_script` and matches it in Rust (see the v3 differences) |
 | event | `textFound` | `{seq, url, snippets, matched?}` | At most `page_scripts::FIND_MATCHES` snippets, each at most 320 characters; `matched` (the page's total) only on Android. The shell lists title and address matches of every tab with `browser_core::find::named` at once and puts text rows above them as they arrive with `browser_core::find::insert_text_rows`; snippets are never stored |
 | event | `shielded` | `{kind, url}` | For the per-profile Shield counters (`Store::count`, shown by `Store::shield_week`): `https_upgrade` (`Counter::HttpsUpgrades`), `local_network` (`LocalBlocked`), `listed` (`ListedStopped`: a page stopped because a domain set names its site) and `popup` (`PopupsBlocked`: a pop-up refused for lacking a gesture; the shell skips it when `shield::rules::local_target(url)`, as macOS does). The shell counts each kind at most once per committed page |
@@ -282,6 +286,16 @@ worlds_supported, frame_event}` in its crate, the `extensionPost` command and `e
 `tarn.webview`, and the `tarn.extpage` component (`mobile/app` reaches the crate as `platform::ext`). All
 decisions come from `browser_core::tarn_ext`.
 
+- **Store install link** (`docs/shared-core.md` §1). iOS cancels it in the navigation delegate
+  (`ios/src/component.rs`, `ios/src/store_link.rs`: a shell load or a main-frame `linkActivated`
+  navigation). iOS uses no private WebKit API and has no public user-gesture or redirect flag, so a page's
+  own script-started link click, or a redirect after a link click, can raise the confirmation built from the
+  held catalog entry; the shell takes at most one store link per 10 s (`Core::admit_store_link`, on every
+  client), and nothing is requested or installed until the user presses Install on it. Android in `shouldOverrideUrlLoading` (main frame, `hasGesture`, not `isRedirect`) and
+  in its shell load (`Native.storeInstall`); both emit `storeInstall`, and the shared shell checks
+  `Shell::store_link_allowed` and opens Settings › Extensions on the confirmation, or shows the notice on
+  the tab (`tarn_nsh_shared::extensions::store_link`). A routed pop-up to the install address keeps its
+  opener, so it never asks. Not yet run in the simulator or the emulator.
 - **Shared shell** (`app/src/extensions.rs`, `app/src/ui/extensions.rs`). For the persistent profile on
   screen it loads each enabled install with `tarn_ext::load`, so the tree is hashed against the stored hash
   before anything runs (a mismatch turns the install off and drops its site answers, as on desktop); a
@@ -414,8 +428,13 @@ v3, with host tests in `app/tests/features.rs` and `site_ui.rs`:
   per counter in faint tracks and the sites protected most (no tilt, NSH has no 3D transform); Cookie banners filter switch (`block_annoyances`), "Search the text of visited
   pages" (`history_text`, History gets a search field), "Sort downloads into folders" (`sort_downloads`);
 - Downloads sheet: running transfers with progress, Pause/Resume/Cancel, Keep/Delete for flagged ones.
-Not on mobile: shortcut rebinding, memory panel, live peek, translation, startup trace,
-favicons (the mobile shell shows none). The background tab memory budget is a gap: neither iOS nor
+Not on mobile: shortcut rebinding, memory panel, live peek, translation, startup trace. Android runs no
+icon script and shows letter tiles for sites: Android WebView offers no isolated world for Tarn's icon
+scripts (a page could notice a Tarn user, `docs/threat-model.md`, page scripts on Android), and its own
+icon download cannot be limited to the hosts S14 allows, so the web view's icon download is switched
+off wherever WebView supports the setting (`WebSettingsCompat.setDownloadFaviconsEnabled`) and the shell
+takes no icon from it. Android implements `readIconLinks` and `fetchIcon` but the shell never sends
+them. The background tab memory budget is a gap: neither iOS nor
 Android lets an app read the memory of the web content or renderer process, and both reclaim it
 themselves under pressure.
 
@@ -688,13 +707,16 @@ Not run in this pass: `Medium_Phone_API_36.1` (the emulator had 344 MB free and 
 - README.
 
 *Status M4:*
-- **CI** (`.github/workflows/ci.yml`): job `mobile` on `macos-15` runs `cargo clippy --all-targets` and
-  `cargo test` in `mobile/`, `cargo clippy --target aarch64-apple-ios-sim --all-targets`, `cargo clippy
-  --target aarch64-linux-android` with the runner's NDK (`$ANDROID_NDK_HOME`, API 28 clang; lib and bin
-  targets only, because `nsh-testing`'s QuickJS bindings do not build for Android) and the debug APK
-  (`android/build.sh` with nsh 0.5.0 from its release archive, SHA-256 checked); job `nsh-shared` on
-  `ubuntu-24.04`. No secrets. Each command was run locally (macOS 27, NDK 28.2; the APK from a fresh nsh
-  install; `nsh-shared` in an `ubuntu:24.04` container). The nsh CLI and its Android runtime
+- **CI** (`.github/workflows/ci.yml`): job `ios` on `macos-15` runs `cargo clippy --all-targets` and
+  `cargo test` in `mobile/`, `cargo clippy --target aarch64-apple-ios-sim --all-targets` and the iOS
+  device build; job `android` on `ubuntu-24.04`, in parallel, runs `cargo clippy --target
+  aarch64-linux-android` with the runner's NDK (`$ANDROID_NDK_HOME`, API 28 clang; lib and bin targets
+  only, because `nsh-testing`'s QuickJS bindings do not build for Android), the arm64-only debug APK
+  (`android/build.sh` with nsh 0.5.0's Linux CLI from its release archive, SHA-256 checked) and the
+  host unit tests (`testDebugUnitTest`); job `nsh-shared` on `ubuntu-24.04`. `release.yml` splits its
+  iOS and Android builds the same way. No secrets. Each command was run locally on macOS (macOS 27,
+  NDK 28.2; the APK from a fresh nsh install; `nsh-shared` in an `ubuntu:24.04` container); the
+  Android build on a Linux host runs only in CI. The nsh CLI and its Android runtime
   (`nsh-android.tar.gz`) are both downloaded with pinned SHA-256 sums. The simulator app itself is not
   packaged in CI (`nsh package --target ios-simulator`), only checked. Engine update pull requests
   run these jobs like any other; `chromium-update.yml` refreshes the `mobile/`, `linux/` and

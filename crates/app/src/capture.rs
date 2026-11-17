@@ -94,7 +94,7 @@ impl Browser {
             self.downloads_popover.changed += 1;
         }
         match result {
-            Ok(path) if screenshot => self.show_toast("Screenshot saved", Some(crate::toast::Action::Reveal(path)), cx),
+            Ok(path) if screenshot => self.show_toast_as(browser_core::toast::Tone::Success, "Screenshot saved", Some(crate::toast::Action::Reveal(path)), cx),
             result => {
                 self.download = Some(DownloadNotice { private, profile_id, result: result.map(|path| (path, true)) });
                 cx.notify();
@@ -107,7 +107,7 @@ impl Browser {
         let title = self.page_title(key);
         let text = if markdown { markdown_link(&title, &self.tab_url(key).unwrap_or_default()) } else { ui::text::bounded_title(&title) };
         cx.write_to_clipboard(ClipboardItem::new_string(text));
-        self.show_toast(if markdown { "Link copied" } else { "Title copied" }, None, cx);
+        self.show_toast_as(browser_core::toast::Tone::Success, if markdown { "Link copied" } else { "Title copied" }, None, cx);
     }
 
     fn picture_in_picture(&mut self, cx: &mut Context<Self>) {

@@ -115,6 +115,12 @@ pub extern "system" fn Java_dev_tarn_android_Native_downloadName(mut env: JNIEnv
     env.new_string(name).map_or(std::ptr::null_mut(), |s| s.into_raw())
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_storeInstall(mut env: JNIEnv, _: JClass, url: JString) -> jstring {
+    let id = string(&mut env, &url).and_then(|u| url::Url::parse(&u).ok()).and_then(|u| engine::tarn_ext::store_install(&u));
+    java_string(&mut env, id)
+}
+
 fn java_string(env: &mut JNIEnv, value: Option<String>) -> jstring {
     value.and_then(|v| env.new_string(v).ok()).map_or(std::ptr::null_mut(), |s| s.into_raw())
 }
@@ -139,6 +145,21 @@ pub extern "system" fn Java_dev_tarn_android_Native_readerScript(mut env: JNIEnv
 pub extern "system" fn Java_dev_tarn_android_Native_pageTextScript(mut env: JNIEnv, _: JClass, page: JString, max_chars: jint) -> jstring {
     let max = usize::try_from(max_chars).unwrap_or(0).min(MAX_PAGE_TEXT);
     let script = string(&mut env, &page).and_then(|p| url::Url::parse(&p).ok()).and_then(|u| engine::page_scripts::page_text_script(&u, max));
+    java_string(&mut env, script)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_iconLinksScript(mut env: JNIEnv, _: JClass, page: JString) -> jstring {
+    let script = string(&mut env, &page).and_then(|p| url::Url::parse(&p).ok()).and_then(|u| engine::page_scripts::icon_links_script(&u));
+    java_string(&mut env, script)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_fetchIconScript(mut env: JNIEnv, _: JClass, page: JString, urls: JObjectArray) -> jstring {
+    let urls = engine::favicon::fetch_urls(string_array(&mut env, &urls).iter().map(String::as_str));
+    let script = string(&mut env, &page)
+        .and_then(|p| url::Url::parse(&p).ok())
+        .and_then(|u| engine::page_scripts::fetch_icon_script(&u, &urls, engine::favicon::MAX_BYTES));
     java_string(&mut env, script)
 }
 

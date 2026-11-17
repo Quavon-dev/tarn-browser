@@ -66,6 +66,8 @@ final class Native {
 
     static native String downloadName(String suggested);
 
+    static native String storeInstall(String url);
+
     static native boolean mayAskCredentials(String challenge, String page, int failures);
 
     static native int popupBurst();
@@ -75,6 +77,10 @@ final class Native {
     static native String readerScript(String page, boolean probe);
 
     static native String pageTextScript(String page, int maxChars);
+
+    static native String iconLinksScript(String page);
+
+    static native String fetchIconScript(String page, String[] urls);
 
     static native String picker();
 

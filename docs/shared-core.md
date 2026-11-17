@@ -18,7 +18,10 @@ Every shell's web view offers the same operations and reports the same events. T
 - frame, visibility, focus and raise: on NSH, layout and focus come from the shell;
 - `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted`;
 - `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`;
-- isolated-world reads for the shell: `icon_links`, `fetch_icon`, `json_text`;
+- isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
+  and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
+  has no isolated world and runs those scripts in the page world, so a shell must not send it
+  `readIconLinks` or `fetchIcon`, and Android shows letter tiles (`docs/mobile-plan.md`);
 - `interaction_state` and `restore_interaction_state`, where the engine has them;
 - `filtered`: whether the view applies Shield's rules.
 
@@ -101,6 +104,30 @@ checked installs (`replace`, `insert`, `retain`), the session's grants (`gate`, 
 Every shell reads the "every site" switch with `extensions::every_site_setting`, and installs go
 through `extensions::install` (`slot`, `vet`, `carry_over`, the signed catalog).
 
+Store install link: every implementation cancels a main-frame navigation the user started
+(`nav_policy::store_link_asks`: a shell load that is not a link or pop-up the shell loads for a
+page, or a link click with a user gesture)
+whose URL `tarn_ext::store_install` maps to a catalog id (exactly
+`https://extensions.tarnbrowser.com/install/<id>`, with or without a final `/`), before any
+request, and reports `Event::StoreInstall(id)`; NSH engines emit `tarn_ext::STORE_EVENT`
+(`storeInstall`, `{id}`). Redirects, subframes and script navigations without a gesture load
+normally. WebKit on macOS reads the gesture from the navigation action's private
+`_isUserInitiated` and redirects from `_isRedirect`; without them only shell loads count. iOS uses
+only public signals: a shell load or a main-frame `linkActivated` navigation, script-started ones
+and redirects after a link click included. The shell takes at most one store link per `install::STORE_LINK_INTERVAL` (10 s,
+`Core::admit_store_link`) and ignores the others without a sheet. It makes no request on the
+link: `extensions::install::store_step` (with `Core::store_link_allowed` for the tab and the
+catalog copy the shell already holds) returns the entry, which the shell keeps in an
+`install::StoreSheet` and Settings › Extensions shows with `store_sheet`, or the notice the shell
+shows on the tab (no fresh catalog: load it in Settings › Extensions). A new store link replaces
+the sheet under a new `StoreToken` (sequence number, id and SHA-256); closing the Extensions pane
+or Settings drops it. The Install button carries the token of the sheet it was drawn for, and
+`StoreSheet::take` hands the offer over only for that token and only `STORE_CONFIRM_DELAY` (700 ms)
+after the sheet appeared (on macOS and Windows also only while `Browser::layout_stable`); then
+`store_confirm` checks everything again (and the same entry), then `Install::Official(entry)`; when the unpacked package's source is that entry
+(`store_confirmed`) the shell confirms it without a second prompt. Settings › Extensions links
+`extensions::STORE_URL` on every client.
+
 The shim (`tarn_ext_shim.js`) defines `chrome.*` and `browser.*` and talks only through these two
 functions: it sends `{"id": <n or null>, "call": "<api>", "args": [...]}` and receives
 `{"id": <n>, "result": ...}`, `{"id": <n>, "error": "..."}` or an event
@@ -119,8 +146,9 @@ when it moved into Lockdown.
 Logic without UI belongs in a shared crate, not in `crates/app`:
 - `store` for data;
 - `shield` for blocking;
-- `engine` for platform-neutral engine logic: `nav_policy`, download names, `cookies` and
-  `content_rules`.
+- `engine` for platform-neutral engine logic: `nav_policy`, download names, `cookies`,
+  `content_rules` and site icons (`favicon`: which URLs to try, decoding, and `favicon::Tracker`, the
+  NSH shells' icons in memory with their fetch, retry and refresh bookkeeping).
 
 Page scripts the shell runs in the web view's isolated world (Find in Tabs, page text, icons, the
 element picker, per-site styles and forced dark mode) are in `engine::page_scripts`, the reader's in

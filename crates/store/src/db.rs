@@ -295,8 +295,8 @@ pub struct Store {
 impl Store {
     pub fn open(dir: &Path) -> Result<Self> {
         let path = dir.join("tarn.db");
-        // Windows: the data folder lives under %LOCALAPPDATA%, whose inherited ACL already admits
-        // only the user, SYSTEM and Administrators.
+        // Windows: the data folder lives under the user's Local AppData, whose inherited ACL
+        // already admits only the user, SYSTEM and Administrators.
         #[cfg(unix)]
         {
             DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
@@ -440,6 +440,11 @@ impl Store {
         let mut stmt = self.conn.prepare("SELECT host, n FROM shield_sites WHERE profile_id = ?1 ORDER BY n DESC, host LIMIT ?2")?;
         let rows = stmt.query_map(params![profile_id, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn shield_site_total(&self, profile_id: Id, host: &str) -> Result<i64> {
+        let n = self.conn.query_row("SELECT n FROM shield_sites WHERE profile_id = ?1 AND host = ?2", params![profile_id, host], |r| r.get(0)).optional()?;
+        Ok(n.unwrap_or(0))
     }
 
     /// The last seven days (local time), oldest first, each with its counts; days without any are zero.
@@ -1948,6 +1953,8 @@ mod tests {
         store.count(p, Counter::TrackingParams, 1, Some("")).unwrap();
         assert_eq!(store.shield_sites(p, 5).unwrap(), [("b.test".to_owned(), 4), ("a.test".to_owned(), 1)]);
         assert_eq!(store.shield_sites(p, 1).unwrap().len(), 1);
+        assert_eq!((store.shield_site_total(p, "b.test").unwrap(), store.shield_site_total(p, "c.test").unwrap()), (4, 0));
+        assert_eq!(store.shield_site_total(p + 1, "b.test").unwrap(), 0, "another profile's sites stay apart");
         for i in 0..MAX_SHIELD_SITES + 5 {
             store.count(p, Counter::HttpsUpgrades, 1, Some(&format!("h{i}.test"))).unwrap();
         }

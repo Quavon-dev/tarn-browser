@@ -39,6 +39,37 @@ fn typed_addresses_load_with_a_new_sequence_and_the_site_level() {
 }
 
 #[test]
+fn store_links_install_only_from_a_profile_tab_outside_lockdown() {
+    let (_dir, mut b) = browser();
+    let key = active(&b);
+    b.on_event(key, "committed", &json!({ "url": "https://example.com/", "title": "" }));
+    assert!(b.store_link_allowed(key));
+    b.set_site_level(Some(ShieldLevel::Lockdown));
+    assert!(!b.store_link_allowed(key), "from a Lockdown site");
+    b.set_site_level(None);
+    assert!(b.store_link_allowed(key));
+    b.navigate("https://extensions.tarnbrowser.com/install/helper");
+    assert!(b.pages[&key].loading);
+    b.on_event(key, browser_core::extensions::STORE_EVENT, &json!({ "id": "helper" }));
+    assert!(!b.pages[&key].loading, "the cancelled load stops");
+    b.on_event(key, "popup", &json!({ "url": "https://extensions.tarnbrowser.com/install/helper" }));
+    let popup = active(&b);
+    assert_ne!(popup, key);
+    assert!(b.pages[&popup].link, "a page's pop-up loads as the page's link, not as the user's own load");
+    let view = crate::snapshot::snapshot(&b, true).views.into_iter().find(|v| v.key == popup).unwrap();
+    assert!(view.link);
+    b.navigate("https://extensions.tarnbrowser.com/install/helper");
+    assert!(!b.pages[&popup].link, "the user's own load in that tab is theirs");
+    b.activate(key);
+    b.private_space();
+    let private = active(&b);
+    assert!(!b.store_link_allowed(private), "never from the private space");
+    assert!(!b.store_link_allowed(key), "only from the space shown");
+    b.open_burner();
+    assert!(!b.store_link_allowed(active(&b)), "never from a burner tab");
+}
+
+#[test]
 fn tabs_close_and_reopen_in_their_space() {
     let (_dir, mut b) = browser();
     let first = active(&b);
