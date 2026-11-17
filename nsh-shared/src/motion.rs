@@ -1,10 +1,31 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use nsh_core::platform::Lifecycle;
 use nsh_core::prelude::*;
 use nsh_core::{LayoutAnimation, LayoutCurve, LayoutTransition};
+
+static REDUCED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Copy, Default)]
+struct Revision;
+
+pub fn set_reduced(on: bool) {
+    if REDUCED.swap(on, Ordering::Relaxed) != on
+        && let Some(revision) = try_global::<Revision>()
+    {
+        Owner::detached().run(|| drop(spawn(async move { revision.set(Revision) })));
+    }
+}
+
+pub fn reduced() -> bool {
+    if let Some(revision) = try_global::<Revision>() {
+        revision.with(|_| ());
+    }
+    reduce_motion() || REDUCED.load(Ordering::Relaxed)
+}
 
 pub fn animates(reduced: bool, lifecycle: Lifecycle) -> bool {
     !reduced && lifecycle == Lifecycle::Active
@@ -16,7 +37,7 @@ pub fn while_active(period: Duration, running: impl Fn() -> bool + 'static, tick
         if let Some(old) = timer.borrow_mut().take() {
             old.cancel();
         }
-        if animates(reduce_motion(), lifecycle()) && running() {
+        if animates(reduced(), lifecycle()) && running() {
             let tick = tick.clone();
             *timer.borrow_mut() = Some(untracked(|| set_interval(period, tick)));
         }
@@ -46,7 +67,7 @@ pub fn layout(duration: Duration) -> LayoutTransition {
 }
 
 pub fn animate_next(moving: Duration) {
-    if !reduce_motion() {
+    if !reduced() {
         animate_layout(LayoutAnimation { create: Some(layout(POP)), update: Some(layout(moving)), delete: Some(layout(EXIT)) });
     }
 }
@@ -70,12 +91,16 @@ fn eased(duration: Duration) -> MotionSpec {
     MotionSpec::new(KeyframeTiming::new(ms(duration)).easing(Easing::EaseOut))
 }
 
+fn entering(spec: MotionSpec) -> Motion {
+    if reduced() { motion() } else { motion().entering(spec) }
+}
+
 pub fn pop_in() -> Motion {
-    motion().entering(eased(POP).values(MotionChannel::Opacity, [0., 1.]).values(MotionChannel::TranslateY, [RISE, 0.]))
+    entering(eased(POP).values(MotionChannel::Opacity, [0., 1.]).values(MotionChannel::TranslateY, [RISE, 0.]))
 }
 
 pub fn pop_out(shown: Motion, from: f32, then: impl FnOnce() + 'static) {
-    if reduce_motion() {
+    if reduced() {
         then();
         return;
     }
@@ -84,19 +109,19 @@ pub fn pop_out(shown: Motion, from: f32, then: impl FnOnce() + 'static) {
 }
 
 pub fn fade_in() -> Motion {
-    motion().entering(eased(FADE).values(MotionChannel::Opacity, [0., 1.]))
+    entering(eased(FADE).values(MotionChannel::Opacity, [0., 1.]))
 }
 
 pub fn slide_up(distance: f32) -> Motion {
-    motion().entering(eased(SLIDE).values(MotionChannel::TranslateY, [distance, 0.]))
+    entering(eased(SLIDE).values(MotionChannel::TranslateY, [distance, 0.]))
 }
 
 pub fn fade_to(opacity: f32) -> Motion {
-    motion().entering(eased(SLIDE).values(MotionChannel::Opacity, [0., opacity]))
+    entering(eased(SLIDE).values(MotionChannel::Opacity, [0., opacity]))
 }
 
 pub fn transition_ms(duration: Duration) -> f32 {
-    if reduce_motion() { 0. } else { ms(duration) }
+    if reduced() { 0. } else { ms(duration) }
 }
 
 #[cfg(test)]

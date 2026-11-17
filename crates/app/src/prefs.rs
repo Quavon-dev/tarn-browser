@@ -467,4 +467,23 @@ mod tests {
         assert!(!browser_core::extensions::every_site_setting(Some("off")));
         assert!(browser_core::extensions::every_site_setting(Some("on")));
     }
+
+    #[test]
+    fn the_shared_switches_and_accent_are_the_settings_every_client_reads() {
+        use browser_core::prefs;
+        for (pref, switch) in [
+            (Pref::Gestures, prefs::GESTURES),
+            (Pref::ReduceMotion, prefs::REDUCE_MOTION),
+            (Pref::NewTabStartPage, prefs::NEW_TAB_START_PAGE),
+            (Pref::ClosePrevious, prefs::CLOSE_SELECTS_PREVIOUS),
+        ] {
+            assert_eq!((pref.key(), pref.default()), (switch.key, switch.default), "{pref:?}");
+        }
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!((Choice::Accent.key(), THEME_ACCENT), (prefs::ACCENT, prefs::THEME_ACCENT));
+        for ix in 0..Choice::Accent.options().len() {
+            store.set_setting(Choice::Accent.key(), Choice::Accent.options()[ix]).unwrap();
+            assert_eq!(prefs::accent_choice(&store), ix);
+        }
+    }
 }

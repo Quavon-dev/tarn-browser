@@ -24,6 +24,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   in Settings › Extensions built only from Tarn's verified catalog, and nothing is downloaded
   until you press Install there; Settings › Extensions links the store (macOS, Windows, Linux,
   iOS, Android).
+- Settings › General › Tabs chooses whether New Tab opens the command card or the start page and
+  which tab becomes active after closing one, and turns touchpad gestures off; Settings ›
+  Appearance picks the accent colour and turns on Reduce motion, as on macOS (Linux).
 
 ### Changed
 

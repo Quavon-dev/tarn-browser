@@ -101,6 +101,7 @@ pub struct Ui {
     typed: Signal<String>,
     completed: Signal<Option<(String, String)>>,
     editing: Signal<bool>,
+    new_tab_card: Signal<bool>,
     command: Signal<String>,
     suggest: Signal<Vec<(String, String)>>,
     finding: Signal<bool>,
@@ -274,8 +275,21 @@ fn act_moving(ui: Ui, f: impl FnOnce(&mut Browser)) {
 }
 
 fn new_tab(ui: Ui) {
-    animate_next(POP);
     ui.panel.set(Panel::None);
+    if !read(ui, |b| b.pref(browser_core::prefs::NEW_TAB_START_PAGE)).unwrap_or(true) {
+        if ui.find_tabs.get_untracked() {
+            tools::close_find_tabs(ui);
+        }
+        open_palette(ui);
+        ui.address.set(String::new());
+        ui.typed.set(String::new());
+        ui.completed.set(None);
+        ui.picked.set(0);
+        ui.suggest.set(Vec::new());
+        ui.new_tab_card.set(true);
+        return;
+    }
+    animate_next(POP);
     act(ui, |b| {
         b.new_tab(START_URL);
     });
@@ -456,7 +470,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
             }))
     });
     let hover = move |on: bool| {
-        if !pinned && !reduce_motion() {
+        if !pinned && !tarn_nsh_shared::motion::reduced() {
             slot.animate_layout(LayoutTransition::new(LayoutCurve::EaseOut, tarn_nsh_shared::motion::FADE.as_secs_f32() * 1000.));
         }
         hovered.set(on);
@@ -485,7 +499,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         .child(dynamic(move || edge().map(|color| view().absolute().left(px(0.)).top(px(7.)).bottom(px(7.)).w(px(3.)).rounded_full().bg(color))))
         .child(when(move || dropping().is_some(), || view().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent())))
         .child({
-            let mark = computed(move || item.with(|r| (r.loading && !reduce_motion(), r.host.clone())));
+            let mark = computed(move || item.with(|r| (r.loading && !tarn_nsh_shared::motion::reduced(), r.host.clone())));
             dynamic(move || match mark.get() {
                 (true, _) => {
                     view().text_color(Theme::space_label()).child(tarn_nsh_shared::motion::spinner(14., icons::icon(icons::RELOAD, 14.))).into_element()
@@ -732,7 +746,7 @@ fn sidebar(ui: Ui) -> View {
         .shadow(Theme::elevation(10., 30.))
         .on_wheel(move |e: &WheelEvent| {
             if let WheelDelta::Points(p) = e.delta {
-                let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swipe.feed(p.x.0, p.y.0, std::time::Instant::now()));
+                let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swiped(p.x.0, p.y.0, std::time::Instant::now()));
                 if let Some(step) = step {
                     animate_next(SLIDE);
                     act(ui, |b| b.swipe_to(step));
@@ -846,10 +860,12 @@ fn go(ui: Ui, text: String) {
         return;
     }
     let text = ui.completed.get_untracked().filter(|(full, _)| *full == text).map_or(text, |(_, url)| url);
+    let new_tab = ui.new_tab_card.get_untracked();
+    ui.new_tab_card.set(false);
     ui.editing.set(false);
     ui.suggest.set(Vec::new());
     ui.address_ref.blur();
-    act(ui, |b| b.navigate(&text));
+    act(ui, |b| b.navigate_in(&text, new_tab));
 }
 
 fn shield_chip(ui: Ui) -> nsh_base::ButtonElement {
@@ -880,6 +896,7 @@ fn shield_chip(ui: Ui) -> nsh_base::ButtonElement {
 }
 
 fn open_palette(ui: Ui) {
+    ui.new_tab_card.set(false);
     if ui.editing.get_untracked() {
         return ui.address_ref.focus();
     }
@@ -898,6 +915,7 @@ fn close_palette(ui: Ui) {
         return tools::close_find_tabs(ui);
     }
     ui.editing.set(false);
+    ui.new_tab_card.set(false);
     ui.suggest.set(Vec::new());
     ui.address_ref.blur();
 }
@@ -1013,7 +1031,7 @@ fn reload_button(ui: Ui) -> AnyElement {
         }
         let press = move || if ui.snap.with_untracked(|s| s.loading) { act(ui, |b| b.stop()) } else { reload() };
         let name = if loading { "Stop Loading" } else { "Reload" };
-        if reduce_motion() {
+        if tarn_nsh_shared::motion::reduced() {
             return controls::icon_button_at(icons::CLOSE, name, Placement::Right, press).into_element();
         }
         tarn_nsh_shared::controls::icon_button(tarn_nsh_shared::motion::spinner(16., icons::icon(icons::RELOAD, 16.)), name, press)
@@ -1818,6 +1836,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         typed: signal(String::new()),
         completed: signal(None),
         editing: signal(false),
+        new_tab_card: signal(false),
         command: signal(String::new()),
         suggest: signal(Vec::new()),
         finding: signal(false),

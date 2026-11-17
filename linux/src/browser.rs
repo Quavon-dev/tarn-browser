@@ -14,6 +14,7 @@ use std::rc::Rc;
 
 use browser_core::closed::{Closed, ClosedTab};
 use browser_core::command::{ENGINES, Input, classify_input, engine_key};
+use browser_core::prefs::{self, Switch};
 use browser_core::prompts::Prompt;
 use browser_core::suggest;
 use browser_core::tabs::{Model, TabKey};
@@ -337,7 +338,13 @@ impl Browser {
     }
 
     pub fn navigate(&mut self, text: &str) {
+        self.navigate_in(text, false);
+    }
+
+    pub fn navigate_in(&mut self, text: &str, new_tab: bool) {
         let Some((private, profile)) = self.profile_of_space() else { return };
+        let blank = self.active_page().is_none_or(|p| p.url.is_empty() || p.url == START_URL);
+        let new_tab = new_tab && !blank;
         let engine = &ENGINES[input::engine_index(self.core.store(private), private, profile)];
         let input = match classify_input(text, engine) {
             Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(Some((private, profile)), url))),
@@ -345,9 +352,9 @@ impl Browser {
         };
         let credit = matches!(input, Some(Input::Navigate(_)));
         match input {
-            Some(Input::Navigate(url)) if self.active_page().is_none_or(|p| p.url.is_empty() || p.url == START_URL) && self.open_routed(url.as_str()) => {}
+            Some(Input::Navigate(url)) if (new_tab || blank) && self.open_routed(url.as_str()) => {}
             Some(Input::Navigate(url) | Input::Search(url)) => {
-                match self.model.active {
+                match self.model.active.filter(|_| !new_tab) {
                     Some(key) => self.load(key, url.as_str()),
                     None => {
                         self.new_tab(url.as_str());
@@ -373,12 +380,13 @@ impl Browser {
         let Some(first) = keys.first().and_then(|k| self.model.tab(*k)).cloned() else { return };
         let burner = self.model.burner_shown();
         let mut next = self.model.active;
+        let previous_first = prefs::CLOSE_SELECTS_PREVIOUS.on(&self.core.disk);
         let mut closed = Vec::new();
         for key in &keys {
             let Some(tab) = self.model.tab(*key).cloned() else { continue };
             if next == Some(*key) {
                 // A split that keeps two panes keeps the focus too.
-                next = self.splits.heir(*key, &keys).or_else(|| self.model.close_neighbour(*key, &keys, false));
+                next = self.splits.heir(*key, &keys).or_else(|| self.model.close_neighbour(*key, &keys, previous_first));
             }
             let url = self.pages.get(key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url.clone());
             let title = self.pages.get(key).map(|p| p.title.clone()).unwrap_or(tab.title.clone());
@@ -667,6 +675,14 @@ impl Browser {
 
     pub fn setting_on(&self, key: &str) -> bool {
         self.core.disk.setting(key).ok().flatten().is_none_or(|v| v != "off")
+    }
+
+    pub fn pref(&self, switch: Switch) -> bool {
+        switch.on(&self.core.disk)
+    }
+
+    pub fn set_pref(&mut self, switch: Switch, on: bool) {
+        switch.set(&self.core.disk, on);
     }
 
     pub fn toggle_setting(&mut self, key: &str) {
