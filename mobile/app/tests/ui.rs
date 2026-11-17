@@ -77,11 +77,14 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.press("label:Menu").unwrap();
     app.wait_for("Spaces and Profiles").unwrap();
     app.press("Spaces and Profiles").unwrap();
-    app.wait_for("id:Name").unwrap();
-    app.type_text("id:Name", "Work").unwrap();
-    app.press("Add Space").unwrap();
+    app.wait_for("New Space").unwrap();
+    app.press("New Space").unwrap();
+    app.wait_for("id:Space Name").unwrap();
+    app.type_text("id:Space Name", " Work").unwrap();
+    app.scroll("Icon", Points(800.)).unwrap();
+    app.press("Create Space").unwrap();
     app.press("label:Tabs 1").unwrap();
-    app.wait_for("Work").unwrap();
+    app.wait_for("Space 2 Work").unwrap();
     app.press("Done").unwrap();
 
     app.press("label:Menu").unwrap();

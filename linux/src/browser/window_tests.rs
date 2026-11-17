@@ -19,7 +19,7 @@ fn windows_share_the_core_and_keep_their_own_tabs_and_space() {
     assert_eq!(a.core.disk.windows().unwrap().len(), 2);
     let key = a.new_tab("https://a.test/").unwrap();
     assert_ne!(b.model.active, Some(key), "a tab opened in one window does not take the other's focus");
-    a.new_space();
+    a.save_space(&a.new_space_draft());
     assert_ne!(a.model.space_ix, b.model.space_ix, "each window keeps its space");
     b.sync_shared();
     assert_eq!(b.model.spaces.len(), a.model.spaces.len(), "a space made in one window shows in the other");

@@ -51,6 +51,7 @@ pub enum Screen {
     Share,
     ReadingList,
     Move(TabKey),
+    SpaceNew,
     SpaceEdit(usize),
     Licences,
     Licence(usize),

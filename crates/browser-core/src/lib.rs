@@ -40,6 +40,7 @@ pub mod shortcuts;
 pub mod sidebar;
 pub mod site;
 pub mod snapshot;
+pub mod space_card;
 pub mod split;
 #[cfg(any(target_os = "macos", windows))]
 pub mod staleness;

@@ -1,6 +1,7 @@
 use super::*;
 use crate::browser::pages::HISTORY_TEXT;
 use crate::browser::spaces::SpaceCommand;
+use browser_core::space_card::SpaceDraft;
 
 fn browser() -> (tempfile::TempDir, Browser) {
     let dir = tempfile::tempdir().unwrap();
@@ -242,7 +243,7 @@ fn ruled_hosts_open_in_their_space_and_spaces_switch_on_schedule() {
     let (_dir, mut b) = browser();
     let home = b.model.space_ix;
     let home_id = b.model.current_space().unwrap().space.id;
-    b.new_space();
+    b.save_space(&b.new_space_draft());
     let work = b.model.space_ix;
     b.switch_space_by_user(home);
     let key = b.model.active.unwrap();
@@ -401,11 +402,45 @@ fn a_dragged_tab_takes_the_place_of_the_row_it_lands_on() {
 }
 
 #[test]
+fn the_space_card_creates_edits_and_adds_a_profile() {
+    let (_dir, mut b) = browser();
+    let home = b.model.space_ix;
+    let mut draft = b.new_space_draft();
+    draft.name = "Work".into();
+    draft.color = "blue".into();
+    draft.icon = "code".into();
+    assert!(b.save_space(&draft));
+    assert!(!b.save_space(&draft), "a taken name is refused");
+    assert_ne!(b.model.space_ix, home, "the new space is shown");
+    let work = b.model.current_space().unwrap().clone();
+    assert_eq!((work.space.name.as_str(), work.space.color.as_str(), work.space.icon.as_str()), ("Work", "blue", "code"));
+    b.switch_space_by_user(home);
+    let mut edit = SpaceDraft::edit(&work);
+    edit.name = "Code".into();
+    edit.schedule.days = 0b011_1110;
+    assert!(b.save_space(&edit));
+    assert_eq!(b.model.space_ix, home, "an edit keeps the shown space");
+    let saved = b.model.spaces.iter().find(|s| s.space.id == work.space.id).unwrap();
+    assert_eq!((saved.space.name.as_str(), saved.space.schedule), ("Code", store::Schedule { days: 0b011_1110, start: 9, end: 17 }));
+    let mut fresh = b.new_space_draft();
+    fresh.profile = None;
+    fresh.profile_name = "Second".into();
+    fresh.profile_color = "green".into();
+    assert!(b.save_space(&fresh));
+    let second = b.core.disk.profiles().unwrap().into_iter().find(|p| p.name == "Second").unwrap();
+    assert_eq!(second.color, "green");
+    assert_eq!(b.model.current_space().unwrap().space.profile_id, second.id, "the new profile's space is shown");
+}
+
+#[test]
 fn spaces_and_folders_are_renamed_and_folders_nest() {
     let (_dir, mut b) = browser();
-    b.rename_space("  Work  ");
+    let mut draft = SpaceDraft::edit(b.model.current_space().unwrap());
+    draft.name = "  Work  ".into();
+    b.save_space(&draft);
     assert_eq!(b.model.current_space().unwrap().space.name, "Work");
-    b.rename_space(" ");
+    draft.name = " ".into();
+    assert!(!b.save_space(&draft));
     assert_eq!(b.model.current_space().unwrap().space.name, "Work", "a blank name is ignored");
     b.new_folder(None);
     let parent = b.model.folders[0].id;

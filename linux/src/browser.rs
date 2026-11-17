@@ -230,16 +230,6 @@ impl Browser {
         }
     }
 
-    pub fn new_space(&mut self) {
-        let Some((private, profile)) = self.profile_of_space() else { return };
-        let n = self.model.spaces.iter().filter(|s| s.private == private && s.space.profile_id == profile).count() + 1;
-        let Ok(space) = self.core.store(private).create_space(profile, &format!("Space {n}"), "") else { return };
-        self.model.reload_spaces(&self.core);
-        if let Some(ix) = self.model.spaces.iter().position(|s| s.private == private && s.space.id == space.id) {
-            self.switch_space(ix);
-        }
-    }
-
     pub fn new_profile(&mut self) {
         let n = self.core.disk.profiles().map(|p| p.len()).unwrap_or(0) + 1;
         let uuid = uuid::Uuid::new_v4().to_string();
@@ -495,13 +485,6 @@ impl Browser {
                 self.model.reload_space(&self.core);
             }
             Err(_) => self.show_toast_as(browser_core::toast::Tone::Warning, "Use one emoji or a listed symbol", None),
-        }
-    }
-
-    pub fn rename_space(&mut self, name: &str) {
-        let Some((private, id)) = self.model.current_space().map(|s| (s.private, s.space.id)) else { return };
-        if !name.trim().is_empty() && self.core.store(private).rename_space(id, name.trim()).is_ok() {
-            self.model.reload_spaces(&self.core);
         }
     }
 

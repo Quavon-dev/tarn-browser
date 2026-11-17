@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use browser_core::shield_card::{Card, H, Label, SHORT, W, back, day_totals, face, front, front_svg, thousands};
+use browser_core::space_card::SpaceDraft;
 use browser_core::tabs::TabKey;
 use engine::reader::Block;
 use nsh_base::button;
@@ -16,12 +17,14 @@ use crate::scripts::{FindRow, Transfer, TransferState};
 use tarn_nsh_shared::controls::glyph_tile;
 use tarn_nsh_shared::icons as glyphs;
 
-use crate::theme::{Secure, TEXT_HEADING, TEXT_TITLE, TOUCH_TARGET, Theme, themed};
+use crate::theme::{ICON, PROFILE_COLORS, Secure, TEXT_HEADING, TEXT_TITLE, TOUCH_TARGET, Theme, themed};
+use tarn_nsh_shared::icons::SPACE_ICONS;
 
 const FILE_TILE: f32 = 28.;
 const CARD_FILE: &str = "Tarn Shield card.svg";
 
 const QR_SIZE: f32 = 240.;
+const SWATCH: f32 = 28.;
 pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -330,24 +333,176 @@ fn hour_name(hour: u8) -> String {
     format!("{hour:02}:00")
 }
 
-pub fn space_edit(ui: Ui, ix: usize) -> impl IntoElement {
-    let schedule = signal(ui.read(|s| s.schedule(ix)));
-    let save = move |next: Schedule| {
-        schedule.set(next);
+fn swatches(chosen: impl Fn() -> String + Copy + 'static, pick: impl Fn(&'static str) + Copy + 'static, none: bool) -> View {
+    let options = none.then_some("").into_iter().chain(PROFILE_COLORS.iter().map(|(name, _)| *name));
+    view().flex_row().flex_wrap().gap_1().children(
+        options
+            .map(|name| {
+                button()
+                    .accessibility_label(if name.is_empty() { "No Color" } else { name })
+                    .w(px(TOUCH_TARGET))
+                    .h(px(TOUCH_TARGET))
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .border_2()
+                    .border_color(move || if chosen() == name { Theme::accent() } else { Theme::clear() })
+                    .selected(move || chosen() == name)
+                    .on_press(move || pick(name))
+                    .child(
+                        view()
+                            .w(px(SWATCH))
+                            .h(px(SWATCH))
+                            .rounded_full()
+                            .border_1()
+                            .border_color(Theme::hairline)
+                            .bg(move || Theme::profile_color(name).unwrap_or_else(Theme::control)),
+                    )
+                    .into_element()
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
+    let draft = signal(ui.read(|s| s.space_draft(editing)));
+    let profiles = ui.read_data(|s| s.profiles());
+    let known = signal(profiles.clone());
+    let ready = move || ui.read_data(|s| known.with(|p| draft.get().ready(&s.model.spaces, p).is_some()));
+    let back = move || ui.show(Screen::Spaces);
+    on_key_with("escape", KeyOptions { when: nsh_core::keymap::When::Always, ..KeyOptions::default() }, move |_| back());
+    let confirm = move || {
+        if !ready() {
+            return;
+        }
+        let d = draft.get_untracked();
+        let saved = std::cell::Cell::new(false);
         ui.act(|s| {
-            s.set_schedule(ix, next);
+            saved.set(s.save_space(&d));
             Vec::new()
         });
+        if saved.get() {
+            ui.show(if d.editing.is_none() { Screen::Browse } else { Screen::Spaces });
+        }
     };
-    let name = ui.read(|s| s.model.spaces.get(ix).map(|s| s.space.name.clone()).unwrap_or_default());
-    let days: Vec<tarn_nsh_shared::controls::Segment> = (0..7u8)
+    let private = draft.get_untracked().private;
+    let new = editing.is_none();
+    let field = move |name: &'static str, value: fn(&SpaceDraft) -> String, set: fn(&mut SpaceDraft, String)| {
+        text_field(name, name)
+            .test_id(name)
+            .value(move || value(&draft.get()))
+            .on_change(move |v: &str| draft.update(|d| set(d, v.to_owned())))
+            .on_submit(move |_: &str| confirm())
+    };
+    let profile_rows = profiles
+        .iter()
+        .map(|p| (Some(p.id), p.name.clone(), Some(p.color.clone())))
+        .chain([(None, "New Profile…".to_owned(), None)])
+        .map(|(id, name, color)| {
+            button()
+                .accessibility_label(SharedString::from(name.clone()))
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .min_h(px(TOUCH_TARGET))
+                .px_3()
+                .border_b_1()
+                .border_color(Theme::separator)
+                .bg(move || if draft.get().profile == id { Theme::selected() } else { Theme::clear() })
+                .selected(move || draft.get().profile == id)
+                .active(|s| s.bg(Theme::pressed))
+                .on_press(move || draft.update(|d| d.profile = id))
+                .child(match color {
+                    Some(color) => view()
+                        .w(px(ICON))
+                        .h(px(ICON))
+                        .items_center()
+                        .justify_center()
+                        .child(view().w(px(10.)).h(px(10.)).rounded_full().bg(move || Theme::profile_color(&color).unwrap_or_else(Theme::muted)))
+                        .into_element(),
+                    None => super::controls::icon(icons::PLUS, Theme::muted).into_element(),
+                })
+                .child(label(name).flex_1())
+                .into_element()
+        })
+        .collect::<Vec<_>>();
+    let icons_grid = SPACE_ICONS
+        .iter()
+        .enumerate()
+        .map(|(ix, (name, source))| {
+            let chosen = move || {
+                let icon = draft.get().icon;
+                icon == *name || (icon.is_empty() && ix == 0)
+            };
+            button()
+                .accessibility_label(*name)
+                .w(px(TOUCH_TARGET))
+                .h(px(TOUCH_TARGET))
+                .items_center()
+                .justify_center()
+                .rounded(px(Theme::radius_row()))
+                .bg(move || if chosen() { Theme::selected() } else { Theme::clear() })
+                .text_color(move || if chosen() { Theme::profile_color(&draft.get().color).unwrap_or_else(Theme::text) } else { Theme::muted() })
+                .selected(chosen)
+                .active(|s| s.bg(Theme::pressed))
+                .on_press(move || draft.update(|d| d.icon = (*name).to_owned()))
+                .child(glyphs::icon(source, ICON))
+                .into_element()
+        })
+        .collect::<Vec<_>>();
+    view()
+        .gap_2()
+        .child(
+            caption(if new {
+                "A space keeps its own tabs, pinned tabs and folders; spaces of one profile share its logins, cookies and history."
+            } else {
+                "Rename the space, give it another colour and icon, or schedule it."
+            })
+            .px_1(),
+        )
+        .child(new.then(|| view().gap_2().child(section("Profile")).child(framed(view().children(profile_rows)))))
+        .child(dynamic(move || {
+            (draft.get().profile.is_none()).then(|| {
+                view()
+                    .gap_2()
+                    .child(caption("Starts empty, with its own logins, cookies, site data, history and bookmarks.").px_1())
+                    .child(section("Profile Name"))
+                    .child(field("Profile Name", |d| d.profile_name.clone(), |d, v| d.profile_name = v))
+                    .child(section("Profile Color"))
+                    .child(swatches(move || draft.get().profile_color, move |c| draft.update(|d| d.profile_color = c.to_owned()), false))
+            })
+        }))
+        .child(section(if new { "Space Name" } else { "Name" }))
+        .child(field(if new { "Space Name" } else { "Name" }, |d| d.name.clone(), |d, v| d.name = v))
+        .child((!private).then(|| {
+            view().gap_2().child(section("Color")).child(swatches(move || draft.get().color, move |c| draft.update(|d| d.color = c.to_owned()), true))
+        }))
+        .child(section("Icon"))
+        .child(view().flex_row().flex_wrap().gap_1().children(icons_grid))
+        .child((!new && !private).then(|| schedule(draft)))
+        .child(
+            view()
+                .flex_row()
+                .justify_end()
+                .gap_2()
+                .pt_2()
+                .child(pill("Cancel", back))
+                .child(accent_pill(if new { "Create Space" } else { "Save" }, confirm).disabled(move || !ready()).disabled_style(|s| s.opacity(0.35))),
+        )
+}
+
+fn schedule(draft: Signal<SpaceDraft>) -> View {
+    let schedule = move || draft.get().schedule;
+    let save = move |next: Schedule| draft.update(|d| d.schedule = next);
+    let days: Vec<tarn_nsh_shared::controls::Segment> = [1u8, 2, 3, 4, 5, 6, 0]
+        .into_iter()
         .map(|day| {
             let bit = 1u8 << day;
             (
                 WEEKDAYS[day as usize].to_owned(),
-                Box::new(move || schedule.get().days & bit != 0) as Box<dyn Fn() -> bool>,
+                Box::new(move || schedule().days & bit != 0) as Box<dyn Fn() -> bool>,
                 Box::new(move || {
-                    let s = schedule.get_untracked();
+                    let s = draft.get_untracked().schedule;
                     save(Schedule { days: s.days ^ bit, ..s });
                 }) as Box<dyn Fn()>,
             )
@@ -355,11 +510,11 @@ pub fn space_edit(ui: Ui, ix: usize) -> impl IntoElement {
         .collect();
     let stepper = move |name: &'static str, start: bool| {
         let value = move || {
-            let s = schedule.get();
+            let s = schedule();
             if start { s.start } else { s.end }
         };
         let step = move |delta: i8| {
-            let s = schedule.get_untracked();
+            let s = draft.get_untracked().schedule;
             let next = |h: u8| (h as i8 + delta).rem_euclid(24) as u8;
             save(if start { Schedule { start: next(s.start), ..s } } else { Schedule { end: next(s.end), ..s } });
         };
@@ -371,40 +526,25 @@ pub fn space_edit(ui: Ui, ix: usize) -> impl IntoElement {
             .child(pill("‹", move || step(-1)).accessibility_label(format!("Earlier {name}")))
             .child(label(move || hour_name(value())).w(px(64.)))
             .child(pill("›", move || step(1)).accessibility_label(format!("Later {name}")))
+            .child(caption(move || if !start && schedule().end <= schedule().start { "next day" } else { "" }))
     };
     view()
         .gap_2()
-        .child(label(format!("Schedule for {name}")).font_weight(FontWeight::SEMIBOLD).px_1())
-        .child(
-            caption(
-                "Tarn switches to this space during these hours, unless you changed space yourself within the last hour. No day selected means no schedule.",
-            )
-            .px_1(),
-        )
+        .child(section("Schedule"))
         .child(segmented(days))
         .child(stepper("From", true))
         .child(stepper("To", false))
-        .child(
-            caption(move || {
-                let s = schedule.get();
-                if s.days == 0 {
-                    "No schedule".to_owned()
-                } else if s.end <= s.start {
-                    format!("{}–{} runs past midnight.", hour_name(s.start), hour_name(s.end))
-                } else {
-                    format!("{}–{}", hour_name(s.start), hour_name(s.end))
-                }
-            })
-            .px_1(),
-        )
+        .child(caption("On these days and hours each window switches to this space, unless you changed space in the last hour. No days, no schedule.").px_1())
 }
 
-pub fn snapshots(ui: Ui, name: Signal<String>) -> impl IntoElement {
+pub fn snapshots(ui: Ui) -> impl IntoElement {
+    let name = signal(String::new());
     let rows = move || ui.read_data(|s| s.snapshots());
     let none = move || rows().is_empty();
     view()
         .gap_2()
         .child(section("Snapshots"))
+        .child(text_field("Snapshot Name", "Snapshot Name").value(move || name.get()).on_change(move |v: &str| name.set(v.to_owned())).test_id("Snapshot Name"))
         .child(pill("Save Snapshot of This Space", move || {
             let n = name.get_untracked();
             let n =
@@ -754,6 +894,7 @@ pub fn heading_for(screen: Screen) -> Option<&'static str> {
         Screen::Qr => "QR Code",
         Screen::ReadingList => "Reading List",
         Screen::Move(_) => "Move Tab",
+        Screen::SpaceNew => "New Space",
         Screen::SpaceEdit(_) => "Edit Space",
         Screen::Licences => "Open-Source Licences",
         Screen::Licence(_) => "Licence",
