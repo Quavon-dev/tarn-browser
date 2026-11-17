@@ -69,10 +69,6 @@ fn host(url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default()
 }
 
-fn tab_title(s: &AppShell, key: TabKey) -> String {
-    s.tab_title(key)
-}
-
 fn asleep(s: &AppShell, key: TabKey) -> bool {
     s.model.active != Some(key) && !s.model.lifecycle.live().any(|k| k == key)
 }
@@ -420,7 +416,7 @@ fn tab_row(bar: Bar, key: TabKey, depth: usize) -> View {
     let closable = move || ui.read(|s| s.model.tab(key).is_some_and(|t| t.kind == TabKind::Ephemeral));
     let under = move || hovered.get() || bar.slid.get() == Some(key);
     let shown = move || closable() && (under() || active());
-    let title = move || SharedString::from(ui.read(|s| tab_title(s, key)));
+    let title = move || SharedString::from(ui.read(|s| s.tab_title(key)));
     let split = move || ui.read(|s| (s.splits.contains(key) && s.model.active != Some(key)).then(|| s.shown_split().is_some_and(|p| p.panes().contains(&key))));
     let close = view()
         .flex_none()
@@ -574,7 +570,7 @@ fn draggable(bar: Bar, key: TabKey, element: View) -> View {
 
 fn rename_field(bar: Bar, key: TabKey) -> AnyElement {
     let ui = bar.ui;
-    let start = ui.read(|s| tab_title(s, key));
+    let start = ui.read(|s| s.tab_title(key));
     let typed = stored(start.clone());
     let start_name = stored(start.clone());
     let done = move |commit: bool| {
@@ -711,7 +707,7 @@ fn tiles(bar: Bar) -> View {
             let active = move || ui.read(|s| s.model.active == Some(key));
             let split = move || ui.read(|s| (s.splits.contains(key), s.shown_split().is_some_and(|p| p.panes().contains(&key))));
             let tile = pressable_view()
-                .label(move || SharedString::from(ui.read(|s| tab_title(s, key))))
+                .label(move || SharedString::from(ui.read(|s| s.tab_title(key))))
                 .on_press(move || press(bar, Target::Tab(key)))
                 .w(move || px(width()))
                 .h(px(side))

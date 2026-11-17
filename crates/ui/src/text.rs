@@ -1,7 +1,5 @@
 pub use browser_core::text::{bounded_origin, bounded_title, bounded_url, is_bidi};
 
-/// A URL shown in full up to `MAX_URL_CHARS`; a longer one keeps its start and its end, where an
-/// app link's risky arguments often sit, with an ellipsis between.
 #[cfg(test)]
 mod tests {
     use super::*;

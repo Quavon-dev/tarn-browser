@@ -199,8 +199,8 @@ pub fn row_address(host: String, rest: String) -> View {
         .flex_row()
         .max_w(px(DETAIL_WIDTH))
         .min_w(px(0.))
-        .child(small(host).flex_none().number_of_lines(1))
-        .child(small(rest).min_w(px(0.)).flex_shrink(1.).number_of_lines(1))
+        .child(small(host).min_w(px(0.)).flex_shrink(1.).number_of_lines(1).text_overflow(nsh_core::EllipsizeMode::Head))
+        .child(small(rest).min_w(px(0.)).flex_shrink(100.).number_of_lines(1))
 }
 
 pub fn row_name(content: impl IntoReactive<SharedString>, color: Rgba) -> Text {

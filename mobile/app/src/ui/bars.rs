@@ -6,7 +6,7 @@ use serde_json::Value;
 use shield::ShieldLevel;
 
 use super::controls::icon;
-use super::{Screen, Ui, accent_pill, caption, detail_row, icon_button, icons, label, pill, small, surface};
+use super::{Screen, Ui, accent_pill, address_caption, detail_row, icon_button, icons, label, pill, small, surface};
 use crate::shell::Page;
 use tarn_nsh_shared::icons as glyphs;
 
@@ -450,9 +450,8 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
             move |h, ix| {
                 let entry = h.get_untracked();
                 let url = entry.url.clone();
-                let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title.clone() };
-                let detail = entry.url.trim_start_matches("https://").trim_end_matches('/').to_owned();
-                detail_row(Some(icons::GLOBE), name, Some(caption(detail).number_of_lines(1)), move || {
+                let name = browser_core::command::display_title("", &entry.title, &url);
+                detail_row(Some(icons::GLOBE), name, Some(address_caption(&url, 1, true)), move || {
                     ui.editing.set(false);
                     dismiss_keyboard();
                     ui.act(|s| s.navigate(&url));

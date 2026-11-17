@@ -29,6 +29,8 @@ pub fn bounded_title(raw: &str) -> String {
     out
 }
 
+/// A URL shown in full up to `MAX_URL_CHARS`; a longer one keeps its start and its end, where an
+/// app link's risky arguments often sit, with an ellipsis between.
 pub fn bounded_url(raw: &str) -> String {
     const MAX_URL_CHARS: usize = 200;
     let clean: Vec<char> = raw.chars().filter(|c| !c.is_control() && !is_bidi(*c)).collect();

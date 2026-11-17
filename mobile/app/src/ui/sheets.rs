@@ -11,7 +11,8 @@ use tarn_nsh_shared::card::{Words, day_chart, day_summary, picture, share_bar};
 use tarn_nsh_shared::controls::{group, icon_pill, pill_grid};
 
 use super::{
-    Screen, Ui, accent_pill, caption, detail_row, framed, icon_button, icons, label, pill, section, segmented, small, surface, switch_row, text_field,
+    Screen, Ui, accent_pill, address_caption, caption, detail_row, framed, icon_button, icons, label, pill, section, segmented, small, surface, switch_row,
+    text_field,
 };
 use crate::scripts::{FindRow, Transfer, TransferState};
 use tarn_nsh_shared::controls::glyph_tile;
@@ -29,7 +30,7 @@ pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 fn row_button(name: String, detail: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
-    detail_row(None, name, detail.map(|d| caption(d).number_of_lines(2)), press)
+    detail_row(None, name, detail.map(|d| caption(d).number_of_lines(2).into_element()), press)
 }
 
 pub fn reader(ui: Ui) -> impl IntoElement {
@@ -189,7 +190,7 @@ pub fn reading_list(ui: Ui) -> impl IntoElement {
                 .flex_row()
                 .items_center()
                 .child(
-                    row_button(b.title.clone(), Some(url.clone()), move || {
+                    detail_row(None, browser_core::command::display_title("", &b.title, &url), Some(address_caption(&url, 2, true)), move || {
                         ui.show(Screen::Browse);
                         ui.act(|s| s.navigate(&url));
                     })

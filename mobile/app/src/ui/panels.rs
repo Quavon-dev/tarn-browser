@@ -10,8 +10,8 @@ use shield::ShieldLevel;
 use super::controls::icon;
 use super::sheets;
 use super::{
-    Screen, Ui, accent_pill, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface, switch_row,
-    text_field,
+    Screen, Ui, accent_pill, address_caption, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface,
+    switch_row, text_field,
 };
 use crate::shell::{FILTER_SWITCHES, SpaceItem};
 use crate::theme::{GAP, SHEET_WIDTH, Secure, TAB_MIN_WIDTH, TAB_PREVIEW_HEIGHT, TEXT_TITLE, TOUCH_TARGET, Theme};
@@ -146,8 +146,7 @@ fn tabs(ui: Ui) -> impl IntoElement {
                 let t = s.model.tab(key)?;
                 let page = s.pages.get(&key);
                 let url = page.map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(t.url.clone());
-                let title = page.map(|p| p.title.clone()).filter(|t| !t.is_empty()).unwrap_or(t.title.clone());
-                Some((key, if title.is_empty() { "New Tab".to_owned() } else { title }, url))
+                Some((key, s.tab_title(key), url))
             };
             keys.iter()
                 .filter_map(|k| s.splits.entry(*k, &keys))
@@ -725,9 +724,8 @@ fn history(ui: Ui) -> impl IntoElement {
             move |h, _| {
                 let entry = h.get_untracked();
                 let url = entry.url.clone();
-                let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title };
-                let host = url::Url::parse(&entry.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or(entry.url);
-                detail_row(Some(icons::GLOBE), name, Some(caption(host).number_of_lines(1)), move || {
+                let name = browser_core::command::display_title("", &entry.title, &url);
+                detail_row(Some(icons::GLOBE), name, Some(address_caption(&url, 1, false)), move || {
                     ui.show(Screen::Browse);
                     ui.act(|s| s.navigate(&url));
                 })
