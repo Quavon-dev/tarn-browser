@@ -85,7 +85,7 @@ async fn check(core: &Core<Data>, dir: &Path, state: &mut State, installed: bool
     let bundle = off_thread(move || cache::write(&write_dir, &manifest, &signature, &bundle).map(|()| bundle).map_err(|e| e.to_string())).await?;
     let categories = on_main(|tx| drop(tx.send(filters::wanted_categories()))).await?;
     let (sets, script, bundle) = off_thread(move || Ok((Sets::from_bundle(&bundle, &categories), youtube::script(&youtube::config(&bundle)), bundle))).await?;
-    on_main(move |tx| filters::install_update(sets, script, move || drop(tx.send(())))).await?;
+    on_main(move |tx| filters::install_update(sets, script, move || tx.send(()).unwrap_or_default())).await?;
     state.version = Some(bundle.version);
     STATUS.with_borrow_mut(|s| s.installed(&bundle));
     let revocations = bundle.of(shield::revocations::CATEGORY, Kind::Config).next().and_then(|l| shield::revocations::parse(&l.data));
