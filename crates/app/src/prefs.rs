@@ -55,7 +55,7 @@ impl Pref {
         Pref::LocalhostFromApps,
     ];
 
-    fn key(self) -> &'static str {
+    pub(crate) fn key(self) -> &'static str {
         match self {
             Pref::CompactToolbar => "compact_toolbar",
             Pref::AutoHideSidebar => "auto_hide_sidebar",

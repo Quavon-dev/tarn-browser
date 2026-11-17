@@ -75,7 +75,7 @@ impl Browser {
 
     pub fn has_reading_list(&self) -> bool {
         let Some((private, id)) = self.model.profile() else { return false };
-        browser_core::closed::top_folder(&self.core.store(private).bookmarks(id).unwrap_or_default(), super::tools::READING_LIST).is_some()
+        browser_core::bookmarks::top_folder(&self.core.store(private).bookmarks(id).unwrap_or_default(), super::tools::READING_LIST).is_some()
     }
 
     pub fn open_url(&mut self, url: &str) {

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use browser_core::closed::top_folder;
+use browser_core::bookmarks::top_folder;
 use browser_core::tabs::TabKey;
 use browser_core::{bookmarks, now};
 use serde_json::{Value, json};

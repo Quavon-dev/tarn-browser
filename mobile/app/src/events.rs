@@ -176,7 +176,7 @@ impl<D: Platform> Shell<D> {
         if self.prompts.iter().filter(|p| p.tab == key).count() >= MAX_QUEUED_PROMPTS {
             return vec![Effect::Command(key, "answer", json!({ "id": id, "accept": false }))];
         }
-        if request.rememberable()
+        if self.remembers(&request)
             && let Some(profile) = self.profile_id()
             && let Ok(Some(decision)) = self.store().permission(profile, &request.origin, &request.kind)
         {
@@ -190,13 +190,19 @@ impl<D: Platform> Shell<D> {
         let Some(at) = self.prompts.iter().position(|p| Some(p.tab) == self.model.active) else { return Vec::new() };
         let prompt = self.prompts.remove(at);
         if answer.remember
-            && prompt.rememberable()
+            && self.remembers(&prompt)
             && let Some(profile) = self.profile_id()
         {
             self.store().set_permission(profile, &prompt.origin, &prompt.kind, if answer.accept { "allow" } else { "deny" }).ok();
         }
         let args = prompt.answer(answer.accept, answer.text, answer.user, answer.password);
         vec![Effect::Command(prompt.tab, "answer", args)]
+    }
+
+    pub fn remembers(&self, prompt: &PromptRequest) -> bool {
+        let profile = self.model.profile_of(&self.core, prompt.tab);
+        let url = Url::parse(&prompt.origin).ok();
+        prompt.remembered_at(profile.and_then(|p| self.core.level(prompt.tab.private, p, url.as_ref())).unwrap_or_default())
     }
 
     fn crashed(&mut self, key: TabKey) -> Vec<Effect> {

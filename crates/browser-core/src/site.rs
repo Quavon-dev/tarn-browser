@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use engine::nav_policy::{PopupRule, Site};
 use engine::request_filter::Shield;
@@ -22,18 +21,11 @@ pub const POPUPS: &str = "popups";
 pub const POPUP_RULES: [(PopupRule, &str); 3] = [(PopupRule::Default, "Default"), (PopupRule::Allow, "Allow"), (PopupRule::Block, "Block")];
 pub const DEFAULT_WEB_ENGINE: &str = "default_web_engine";
 pub use crate::incoming::LOCALHOST_FROM_APPS;
+pub use crate::prompts::{BYPASS_DELAY, stable};
 
 /// The domain-set categories, the setting that switches each and whether it is on by default.
 pub const SET_SWITCHES: [(Category, &str, bool); 3] =
     [(Category::Malware, "block_malware", true), (Category::Adult, "block_adult", false), (Category::Popups, "block_popups", true)];
-
-/// "Visit Anyway", a notice's offer and a permission prompt's Allow ignore clicks this long after
-/// any of them appears or moves, so a page cannot time a click to land on them.
-pub const BYPASS_DELAY: Duration = Duration::from_millis(700);
-
-pub fn stable(since: Instant, now: Instant) -> bool {
-    now.saturating_duration_since(since) >= BYPASS_DELAY
-}
 
 /// The categories whose switch is on, read from settings stored as `on` / `off`.
 pub fn set_categories(setting: impl Fn(&str) -> Option<String>) -> Vec<Category> {
@@ -300,15 +292,6 @@ mod tests {
             _ => None,
         };
         assert_eq!(set_categories(set), [Category::Malware, Category::Adult]);
-    }
-
-    #[test]
-    fn guarded_clicks_wait_for_a_stable_layout() {
-        let since = Instant::now();
-        assert!(!stable(since, since));
-        assert!(!stable(since, since + BYPASS_DELAY - Duration::from_millis(1)));
-        assert!(stable(since, since + BYPASS_DELAY));
-        assert!(!stable(since + BYPASS_DELAY, since), "a change after `now` is not stable");
     }
 
     #[test]
