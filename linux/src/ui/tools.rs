@@ -42,9 +42,16 @@ pub enum Command {
     Key(Action),
     CloseSplit,
     Space(SpaceCommand),
+    DuplicateTab,
+    ToggleMute,
+    RenameTab,
+    ResetTitle,
+    ReturnToPinned,
+    SetPinnedUrl,
+    SleepOthers,
 }
 
-const COMMANDS: [(&str, &str, Command); 23] = [
+const COMMANDS: [(&str, &str, Command); 31] = [
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
     ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
@@ -68,6 +75,14 @@ const COMMANDS: [(&str, &str, Command); 23] = [
     ("Rotate Split Layout", "split view stacked side by side rows columns", Command::Key(Action::RotateSplitLayout)),
     ("Remove Tab from Split View", "split pane leave", Command::Key(Action::RemoveFromSplitView)),
     ("Close Split View", "split panes end separate", Command::CloseSplit),
+    ("Close All Tabs", "clear", Command::Key(Action::CloseAllTabs)),
+    ("Duplicate Tab", "copy", Command::DuplicateTab),
+    ("Mute or Unmute Site", "sound audio silence", Command::ToggleMute),
+    ("Rename Tab", "title name", Command::RenameTab),
+    ("Reset Tab Title", "rename name", Command::ResetTitle),
+    ("Return to Pinned URL", "home back pinned", Command::ReturnToPinned),
+    ("Set Pinned URL to Current Page", "pinned home", Command::SetPinnedUrl),
+    ("Sleep Other Tabs", "hibernate unload memory", Command::SleepOthers),
 ];
 
 /// Whether `query` asks for the command list: every command it names, and nothing else.
@@ -81,7 +96,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
     if query.trim().is_empty() {
         return Vec::new();
     }
-    let Some((spaces, pinned, split, reopenable, duplicates)) = read(ui, |b| {
+    let Some((spaces, pinned, split, reopenable, duplicates, tab)) = read(ui, |b| {
         let active = b.model.active;
         (
             b.space_commands(),
@@ -89,6 +104,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
             active.is_some_and(|k| b.splits.contains(k)),
             b.model.closed_tabs.newest().is_some(),
             !b.duplicate_tabs().is_empty(),
+            ActiveTab::of(b),
         )
     }) else {
         return Vec::new();
@@ -96,6 +112,13 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
     let shown = |command: &Command| match command {
         Command::CloseDuplicates => duplicates,
         Command::Key(Action::ReopenClosedTab) => reopenable,
+        Command::Key(Action::CloseAllTabs) => tab.unpinned,
+        Command::DuplicateTab => tab.open,
+        Command::RenameTab => tab.renamable,
+        Command::ToggleMute => tab.muted.is_some(),
+        Command::ResetTitle => tab.custom,
+        Command::ReturnToPinned | Command::SetPinnedUrl => tab.drifted,
+        Command::SleepOthers => tab.sleep_others,
         Command::CloseSplit
         | Command::Key(Action::FocusNextPane | Action::FocusPreviousPane | Action::SwapPanes | Action::RotateSplitLayout | Action::RemoveFromSplitView) => {
             split
@@ -108,6 +131,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
     let named = |(label, _, command): &(String, &str, Command)| match command {
         Command::Key(Action::TogglePin) => (if pinned { "Unpin Tab" } else { "Pin Tab" }).to_owned(),
         Command::Key(Action::ToggleSplitView) => (if split { "Close Split View" } else { "Open in Split View" }).to_owned(),
+        Command::ToggleMute => (if tab.muted == Some(true) { "Unmute Site" } else { "Mute Site" }).to_owned(),
         _ => label.clone(),
     };
     let room = if listing(query) { rows.len() } else { 4 };
@@ -134,6 +158,43 @@ pub fn run(ui: Ui, command: Command) {
         Command::Key(action) => super::run_action(ui, action),
         Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),
         Command::Space(c) => act(ui, |b| b.run_space_command(c)),
+        Command::DuplicateTab => act(ui, |b| b.model.active.into_iter().for_each(|k| b.duplicate_tab(k))),
+        Command::ToggleMute => act(ui, |b| b.model.active.into_iter().for_each(|k| b.toggle_site_muted(k))),
+        Command::RenameTab => {
+            ui.tab_menu.set(None);
+            show(ui, Panel::Tab);
+        }
+        Command::ResetTitle => act(ui, |b| b.model.active.into_iter().for_each(|k| b.reset_tab_title(k))),
+        Command::ReturnToPinned => act(ui, |b| b.model.active.into_iter().for_each(|k| b.return_to_pinned(k))),
+        Command::SetPinnedUrl => act(ui, |b| b.model.active.into_iter().for_each(|k| b.set_pinned_url(k))),
+        Command::SleepOthers => act(ui, |b| b.model.active.into_iter().for_each(|k| b.sleep_tabs(b.model.other_tabs(k)))),
+    }
+}
+
+#[derive(Default)]
+struct ActiveTab {
+    open: bool,
+    unpinned: bool,
+    renamable: bool,
+    muted: Option<bool>,
+    custom: bool,
+    drifted: bool,
+    sleep_others: bool,
+}
+
+impl ActiveTab {
+    fn of(b: &Browser) -> ActiveTab {
+        let unpinned = !b.model.ephemeral_keys().is_empty();
+        let Some((key, tab)) = b.model.active.and_then(|k| Some((k, b.model.tab(k)?))) else { return ActiveTab { unpinned, ..ActiveTab::default() } };
+        ActiveTab {
+            open: true,
+            unpinned,
+            renamable: tab.kind != TabKind::Tile,
+            muted: b.can_mute(key).then(|| b.tab_muted(key)),
+            custom: !tab.custom_title.is_empty(),
+            drifted: b.pinned_drift(key).is_some(),
+            sleep_others: b.can_sleep_others(key),
+        }
     }
 }
 

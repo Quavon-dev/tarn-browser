@@ -16,7 +16,9 @@ Every shell's web view offers the same operations and reports the same events. T
 - adopt a popup and move to another host (`adopt`, `rehost`);
 - `load`, `back`, `forward`, `reload`, `reload_from_origin`, `stop`;
 - frame, visibility, focus and raise: on NSH, layout and focus come from the shell;
-- `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted`;
+- `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted` (NSH components: the `muted`
+  prop, which the component keeps across a rebuild of its view; Linux has it, iOS and Android not
+  yet);
 - `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`;
 - isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
   and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android

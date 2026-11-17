@@ -3153,7 +3153,7 @@ impl Browser {
         let Some(url) = self.tab_url(key).and_then(|u| Url::parse(&u).ok()) else { return };
         let (Some(profile_id), Some(host)) = (self.profile_of(key), url.host_str()) else { return };
         let muted = !self.tab_muted(key);
-        let save = !muted || self.level_for_tab(key, url.as_str()) != ShieldLevel::Lockdown;
+        let save = browser_core::site::saves_mute(muted, self.level_for_tab(key, url.as_str()));
         self.set_site_muted(key.private, profile_id, Some(host), muted, save);
         let host = crate::toolbar::host_tail(host.trim_start_matches("www."), 40);
         self.show_toast(if muted { format!("Muted {host}") } else { format!("Unmuted {host}") }, None, cx);

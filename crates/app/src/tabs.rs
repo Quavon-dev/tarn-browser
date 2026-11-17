@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use browser_core::staleness::Staleness;
+use browser_core::tabs::custom_title;
 use engine::nav_policy::{self, Decision, Source};
 use futures::StreamExt;
 use futures::channel::mpsc;
@@ -60,11 +61,6 @@ pub fn display_title(tab: &Tab) -> String {
         .unwrap_or_else(|| "New Tab".into())
 }
 
-/// What a rename stores: nothing when the name is the page's own title, so the tab follows the page again.
-fn custom_title(typed: &str, page_title: &str) -> String {
-    if typed == bounded_title(page_title) { String::new() } else { typed.to_owned() }
-}
-
 impl Browser {
     /// Shows this window's burner tab: a throwaway space at Strict whose non-persistent data
     /// store is its own; leaving it, closing its tab or the window burns it.
@@ -104,9 +100,7 @@ impl Browser {
 
     /// The pinned URL of a pinned tab or tile that now shows another page.
     pub fn pinned_drift(&self, key: TabKey) -> Option<Url> {
-        let pinned = self.model.tab(key).filter(|t| t.kind != TabKind::Ephemeral)?.pinned_url.clone()?;
-        let current = self.tab_url(key)?;
-        browser_core::tabs::drifted(&pinned, &current).then(|| Url::parse(&pinned).ok()).flatten()
+        self.model.pinned_drift(key, &self.tab_url(key)?)
     }
 
     pub fn return_to_pinned(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {

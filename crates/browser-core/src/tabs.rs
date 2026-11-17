@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use engine::lifecycle::Lifecycle;
 use shield::ShieldLevel;
-use store::{Folder, Group, Id, SavedWindow, Space, Tab, TabKind, WebEngine};
+use store::{Bookmark, Folder, Group, Id, SavedWindow, Space, Tab, TabKind, WebEngine};
 use url::Url;
 
 use crate::closed::ClosedTabs;
@@ -334,7 +334,23 @@ impl Model {
         moved
     }
 
+    pub fn pinned_drift(&self, key: TabKey, current: &str) -> Option<Url> {
+        let pinned = self.tab(key).filter(|t| t.kind != TabKind::Ephemeral)?.pinned_url.as_deref()?;
+        drifted(pinned, current).then(|| Url::parse(pinned).ok()).flatten()
+    }
+
     /// The tabs inside folder `id` and its subfolders, and the folders themselves.
+    pub fn bookmark_all<D: WebsiteData>(&self, core: &Core<D>, url: impl Fn(&Tab) -> String, at: i64) -> Option<Bookmark> {
+        let space = self.current_space().filter(|_| !self.tabs.is_empty())?;
+        let (store, profile_id) = (core.store(space.private), space.space.profile_id);
+        let folder = store.add_bookmark(profile_id, None, None, &format!("Tabs {}", crate::shield_card::date(at)), at).ok()?;
+        for tab in self.tabs.iter().filter(|t| !t.url.is_empty()) {
+            let url = url(tab);
+            store.add_bookmark(profile_id, Some(folder.id), Some(&url), &crate::text::title_or_host(&tab.title, &url), at).ok();
+        }
+        Some(folder)
+    }
+
     pub fn folder_contents(&self, id: Id) -> (Vec<TabKey>, HashSet<Id>) {
         let tree = folder_tree(&self.folders, id);
         let keys = self.tabs.iter().filter(|t| t.folder_id.is_some_and(|f| tree.contains(&f))).map(|t| self.key(t)).collect();
@@ -444,6 +460,10 @@ pub fn same_page(typed: &Url, open: &str) -> bool {
 /// A pinned page has drifted once the tab shows another host or path; query and fragment do not count.
 pub fn drifted(pinned: &str, current: &str) -> bool {
     Url::parse(pinned).is_ok_and(|pinned| !same_page(&pinned, current))
+}
+
+pub fn custom_title(typed: &str, page_title: &str) -> String {
+    if typed == crate::text::bounded_title(page_title) { String::new() } else { typed.to_owned() }
 }
 
 /// Unpinned tabs showing a page another tab of `tabs` shows too, the fragment ignored. Per page the
@@ -890,6 +910,43 @@ mod tests {
         assert_eq!(sorted(None), [1, 3, 5]);
         assert_eq!(sorted(Some(3)), [1, 2, 5]);
         assert_eq!(duplicates(&tabs, None, |t| if t.id == 2 { "https://c.test/".into() } else { t.url.clone() }).len(), 2);
+    }
+
+    #[test]
+    fn a_pinned_tab_drifts_from_its_pinned_url_and_a_loose_tab_never() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let pinned = core.disk.create_tab(s, TabKind::Pinned, None, "https://mail.test/inbox", "").unwrap();
+        let loose = core.disk.create_tab(s, TabKind::Ephemeral, None, "https://mail.test/inbox", "").unwrap();
+        model.reload_space(&core);
+        let (pinned, loose) = (model.key(model.tab(TabKey { private: false, id: pinned.id }).unwrap()), TabKey { private: false, id: loose.id });
+        assert_eq!(model.pinned_drift(pinned, "https://mail.test/inbox?page=2").map(String::from), None);
+        assert_eq!(model.pinned_drift(pinned, "https://other.test/").map(String::from).as_deref(), Some("https://mail.test/inbox"));
+        assert_eq!(model.pinned_drift(loose, "https://other.test/"), None);
+    }
+
+    #[test]
+    fn bookmarking_all_tabs_files_them_in_a_dated_folder() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        assert!(model.bookmark_all(&core, |t| t.url.clone(), 0).is_none(), "no tabs, no folder");
+        core.disk.create_tab(s, TabKind::Pinned, None, "https://a.test/", "A").unwrap();
+        core.disk.create_tab(s, TabKind::Ephemeral, None, "https://b.test/", "").unwrap();
+        core.disk.create_tab(s, TabKind::Ephemeral, None, "", "").unwrap();
+        model.reload_space(&core);
+        let folder = model.bookmark_all(&core, |t| format!("{}now", t.url), 86_400_000).unwrap().id;
+        let p = model.spaces[0].space.profile_id;
+        let marks = core.disk.bookmarks(p).unwrap();
+        assert_eq!(marks.iter().find(|b| b.id == folder).map(|b| b.title.as_str()), Some("Tabs 1970-01-02"));
+        let mut inside: Vec<_> = marks.iter().filter(|b| b.parent_id == Some(folder)).map(|b| (b.title.clone(), b.url.clone().unwrap_or_default())).collect();
+        inside.sort();
+        assert_eq!(inside, [("A".to_owned(), "https://a.test/now".to_owned()), ("b.test".to_owned(), "https://b.test/now".to_owned())]);
+    }
+
+    #[test]
+    fn a_custom_title_equal_to_the_page_title_is_not_kept() {
+        assert_eq!(custom_title("Inbox", "  Inbox "), "");
+        assert_eq!(custom_title("Mail", "Inbox"), "Mail");
     }
 
     #[test]

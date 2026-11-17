@@ -121,6 +121,10 @@ pub fn shield(profile: &Profile, overrides: &Overrides, rules: &SiteRules, sets:
     Shield { site_for: Box::new(site_for), matcher }
 }
 
+pub fn saves_mute(muted: bool, level: ShieldLevel) -> bool {
+    !muted || level != ShieldLevel::Lockdown
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,6 +133,12 @@ mod tests {
     fn sets() -> RefCell<Sets> {
         let set = |d: &str| DomainSet::from_bytes(&DomainSet::encode([d])).map(Arc::new);
         RefCell::new(Sets { malware: set("evil.example"), adult: set("adult.example"), popups: set("pop.example") })
+    }
+
+    #[test]
+    fn only_a_lockdown_mute_goes_unsaved() {
+        assert!(saves_mute(true, ShieldLevel::Strict) && saves_mute(false, ShieldLevel::Lockdown));
+        assert!(!saves_mute(true, ShieldLevel::Lockdown));
     }
 
     #[test]

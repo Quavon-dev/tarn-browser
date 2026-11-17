@@ -5,6 +5,7 @@ mod site;
 pub mod spaces;
 mod split;
 pub mod swipe;
+mod tab_actions;
 pub mod themes;
 pub mod tools;
 
@@ -50,6 +51,7 @@ pub struct Page {
     /// The address the user last opened in this tab from the address field, until a load of it
     /// commits: that visit counts toward inline completion (`suggest::typed_visit`).
     pub typed: Option<String>,
+    pub muted_host: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -380,6 +382,10 @@ impl Browser {
                 // A split that keeps two panes keeps the focus too.
                 next = self.splits.heir(*key, &keys).or_else(|| self.model.close_neighbour(*key, &keys, false));
             }
+            if tab.kind != TabKind::Ephemeral {
+                self.unload_tab(*key);
+                continue;
+            }
             let url = self.pages.get(key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url.clone());
             let title = self.pages.get(key).map(|p| p.title.clone()).unwrap_or(tab.title.clone());
             closed.push(ClosedTab { url, title, state: None, position: tab.position, group: None, web_engine: None });
@@ -391,7 +397,7 @@ impl Browser {
             self.model.reload_space(&self.core);
             return self.leave_burner();
         }
-        if !burner {
+        if !burner && !closed.is_empty() {
             let count = closed.len();
             let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id: first.space_id, tabs: closed, group: None });
             let text = if count == 1 { "Tab closed".to_owned() } else { format!("{count} tabs closed") };
@@ -432,6 +438,10 @@ impl Browser {
 
     pub fn reopen(&mut self) {
         let Some((ix, closed)) = self.model.closed_tabs.pop(&self.model.spaces) else { return };
+        self.restore_closed(ix, closed);
+    }
+
+    fn restore_closed(&mut self, ix: usize, closed: Closed) {
         let Some(id) = closed.restore(&self.core) else { return };
         if ix != self.model.space_ix {
             self.switch_space(ix);
@@ -812,6 +822,9 @@ impl Browser {
         let mut dropped = Vec::new();
         let page = self.pages.entry(key).or_default();
         let new_url = page.url != url;
+        if !finished && page.muted_host.as_deref() != Url::parse(&url).ok().as_ref().and_then(Url::host_str) {
+            page.muted_host = None;
+        }
         page.url = url.clone();
         if !title.is_empty() || new_url {
             page.title = title.clone();

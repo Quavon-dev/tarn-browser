@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use browser_core::import::{self as data, Error as ImportError, Kinds, Outcome, Report, Source};
 use browser_core::snapshot::{self, LoadError, SpaceSnapshot};
+use browser_core::text::title_or_host;
 use engine::menu::{self, Item as MenuItem};
 use futures::channel::oneshot;
 use gpui::{
@@ -73,11 +74,6 @@ fn download_row(d: &Download, now: i64) -> Entry {
     };
     let detail = tab_host(&d.url).into_iter().chain([state.to_owned(), ago(d.started_at, now)]).collect::<Vec<_>>().join(" · ");
     Entry::Row(Row { item: Item::Download(d.clone()), title: file_name(d), named: None, detail: Some(detail) })
-}
-
-fn title_or_host(title: &str, url: &str) -> String {
-    let title = bounded_title(title);
-    if title.is_empty() { tab_host(url).unwrap_or_else(|| bounded_title(url)) } else { title }
 }
 
 fn detect_sources() -> Vec<Source> {
@@ -202,13 +198,8 @@ impl Browser {
 
     /// Saves every tab into a new dated folder and opens the library on its name field.
     pub fn bookmark_all_tabs(&mut self, cx: &mut Context<Self>) {
-        let Some(space) = self.model.current_space().filter(|_| !self.model.tabs.is_empty()) else { return };
-        let (store, profile_id) = (self.store(space.private), space.space.profile_id);
-        let Ok(folder) = store.add_bookmark(profile_id, None, None, &format!("Tabs {}", date(now())), now()) else { return };
-        for tab in self.model.tabs.iter().filter(|t| !t.url.is_empty()) {
-            let url = self.tab_url(self.model.key(tab)).unwrap_or_else(|| tab.url.clone());
-            store.add_bookmark(profile_id, Some(folder.id), Some(&url), &title_or_host(&tab.title, &url), now()).ok();
-        }
+        let url = |tab: &Tab| self.tab_url(self.model.key(tab)).unwrap_or_else(|| tab.url.clone());
+        let Some(folder) = self.model.bookmark_all(&self.core, url, now()) else { return };
         self.reload_bookmarks(cx);
         if let Some(main) = self.peek.main {
             cx.defer(move |cx| {

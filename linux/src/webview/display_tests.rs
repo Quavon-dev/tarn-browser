@@ -274,3 +274,19 @@ fn icon_candidates_stop_once_the_tab_leaves_the_origin() {
     assert_eq!(event(&state, "iconData").unwrap()["text"], "");
     assert_eq!(second_seen.load(Ordering::SeqCst), 0, "no candidate is asked once the tab shows another origin");
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_muted_view_stays_muted_when_rebuilt_and_unmutes() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdee");
+    assert!(!state.web().unwrap().is_muted());
+    mute(&state, true);
+    assert!(state.web().unwrap().is_muted());
+    let wanted = Build { key: StoreKey::parse("burner:0123456789abcdef0123456789abcdee").unwrap(), level: ShieldLevel::Strict, lists: Vec::new() };
+    state.drop_view();
+    build(&state, &wanted, &[]);
+    assert!(state.web().unwrap().is_muted(), "a rebuilt view keeps the mute");
+    mute(&state, false);
+    assert!(!state.web().unwrap().is_muted());
+}

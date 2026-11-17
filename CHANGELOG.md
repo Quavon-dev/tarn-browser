@@ -25,6 +25,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   until you press Install there; Settings › Extensions links the store (macOS, Windows, Linux,
   iOS, Android).
 
+- Tab actions: Mute Site with the Muted sites list, Rename Tab and Reset Title, Return to Pinned
+  URL and Set Pinned URL, Duplicate Tab, Close All, Other and Below, Sleep Tab, Other and All
+  Inactive Tabs, reopening a chosen recently closed tab, Delete Folder and the sidebar menu; closing
+  a pinned tab unloads it (Linux).
+
 ### Changed
 
 - The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and

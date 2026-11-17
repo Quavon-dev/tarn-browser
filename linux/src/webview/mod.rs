@@ -77,6 +77,7 @@ struct State {
     auth_failures: RefCell<HashMap<String, u32>>,
     find_text: RefCell<String>,
     zoom: Cell<f64>,
+    muted: Cell<bool>,
     content: RefCell<Option<UserContentManager>>,
     style_script: RefCell<Option<webkit6::UserScript>>,
     ext: ext::Ext,
@@ -274,6 +275,7 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
     if state.zoom.get() > 0.0 {
         web.set_zoom_level(state.zoom.get());
     }
+    web.set_is_muted(state.muted.get());
     connect(state, &web);
     state.note_processes();
     attach_when_sized(state, &web);
@@ -635,6 +637,13 @@ fn find(state: &Rc<State>, args: &JsonValue) {
     finder.search(&text, options.bits(), FIND_MAX);
 }
 
+fn mute(state: &State, muted: bool) {
+    state.muted.set(muted);
+    if let Some(web) = state.web() {
+        web.set_is_muted(muted);
+    }
+}
+
 fn media_changed(state: &Weak<State>, web: &WebView) {
     let capturing = |state| state != MediaCaptureState::None;
     let playing = web.is_playing_audio() || capturing(web.camera_capture_state()) || capturing(web.microphone_capture_state());
@@ -867,6 +876,7 @@ impl NativeComponent for TarnWebView {
                 return apply_zaps(state);
             }
             "sortDownloads" => return state.sort_downloads.set(value.as_bool().unwrap_or(false)),
+            "muted" => return mute(state, value.as_bool().unwrap_or(false)),
             "load" => {
                 *state.load.borrow_mut() = value["url"].as_str().zip(value["seq"].as_u64()).map(|(u, s)| (u.to_owned(), s));
                 state.load_link.set(value["link"].as_bool() == Some(true));
