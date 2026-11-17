@@ -6,6 +6,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- The macOS disk image opens on a window drawn from the Tarn icon's lake, with an arrow from Tarn
+  to the Applications folder and the Tarn volume icon.
+
 ## [0.1.2] - 2026-11-17
 
 ### Added
