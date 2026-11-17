@@ -1993,7 +1993,6 @@ fn escape(ui: Ui) {
 
 fn bind_fixed(ui: Ui) {
     on_key("f5", move |_| reload(ui));
-    on_key("f11", move |_| act(ui, Browser::toggle_full_screen));
     on_key(crate::shortcuts::ZOOM_IN_SHIFTED, move |_| run_action(ui, Action::ZoomIn));
     on_key_with("escape", KeyOptions { when: nsh_core::keymap::When::Always, pass_through: true, ..KeyOptions::default() }, move |_| escape(ui));
     for (keys, backwards) in [(crate::shortcuts::FIND_NEXT, false), (crate::shortcuts::FIND_PREVIOUS, true)] {

@@ -49,6 +49,7 @@ pub enum Command {
     Archived,
     ImportBrowserData,
     NewWindow,
+    FullScreen,
     Key(Action),
     CloseSplit,
     Space(SpaceCommand),
@@ -61,7 +62,7 @@ pub enum Command {
     SleepOthers,
 }
 
-const COMMANDS: [(&str, &str, Command); 50] = [
+const COMMANDS: [(&str, &str, Command); 51] = [
     ("Settings", "preferences options", Command::Key(Action::Settings)),
     ("New Space", "workspace profile", Command::Key(Action::NewSpace)),
     ("Edit Space", "workspace rename color icon", Command::EditSpace),
@@ -96,6 +97,7 @@ const COMMANDS: [(&str, &str, Command); 50] = [
     ("Archived Tabs", "unused closed old bookmarks", Command::Archived),
     ("Import Browser Data\u{2026}", "chrome edge brave chromium firefox history bookmarks cookies", Command::ImportBrowserData),
     ("New Window", "open another browser window", Command::NewWindow),
+    ("Enter or Exit Full Screen", "fullscreen window video f11", Command::FullScreen),
     ("Open or Close Split View", "side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
     ("Focus Next Pane", "split view switch", Command::Key(Action::FocusNextPane)),
     ("Focus Previous Pane", "split view switch", Command::Key(Action::FocusPreviousPane)),
@@ -194,6 +196,7 @@ pub fn run(ui: Ui, command: Command) {
         Command::Archived => show(ui, Panel::Archived),
         Command::ImportBrowserData => super::import::open(ui),
         Command::NewWindow => super::new_window(ui),
+        Command::FullScreen => act(ui, Browser::toggle_full_screen),
         Command::Key(action) => super::run_action(ui, action),
         Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),
         Command::Space(c) => act(ui, |b| b.run_space_command(c)),

@@ -351,11 +351,12 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   the find bar, the command palette, Reader or another tab brings the shell back, as on macOS
   (`browser_core::fullscreen`). WebKitGTK puts the window in full screen itself (`enter-fullscreen`)
   and takes it out on `leave-fullscreen`, so the shell then restores the window's mode from before
-  (maximized stays maximized) or keeps a window that was already in full screen there. F11 (fixed;
-  macOS ⌃⌘F, Windows F11) enters or leaves window full screen, and first gives a full-screen page's
+  (maximized stays maximized) or keeps a window that was already in full screen there. F11 is NSH's
+  own window full-screen key (NSH reserves it, as macOS ⌃⌘F and Windows F11 are the system's);
+  "Enter or Exit Full Screen" in the command bar does the same and first gives a full-screen page's
   shell back.
   Limits: WebKitGTK takes the window out of full screen whenever a page leaves element full screen,
-  so a page that leaves it after the shell was given back (F11, a prompt) also ends a window full
+  so a page that leaves it after the shell was given back (the command, a prompt) also ends a window full
   screen the user had chosen; and when the window manager ends full screen during a page's full
   screen, the shell stays hidden until the page leaves it or Esc. A screenshot whose tab closes
   before WebKit returns the image is saved but not listed, and shows no toast.
