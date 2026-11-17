@@ -5,7 +5,7 @@ use tarn_nsh_shared::controls::{Segment, icon_size, switch_row};
 pub use tarn_nsh_shared::controls::{accent_pill, card, group, icon_pill, label, pill, pill_grid, tip};
 
 use crate::icons;
-use crate::theme::{Paint, ROW_HEIGHT, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
+use crate::theme::{ROW_HEIGHT, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 pub fn body(content: impl IntoReactive<SharedString>) -> Text {
     text(content).text_size(px(TEXT))
