@@ -55,7 +55,8 @@ pub fn panel(ui: Ui) -> impl IntoElement {
             Screen::Qr => sheets::qr(ui).into_element(),
             Screen::ReadingList => sheets::reading_list(ui).into_element(),
             Screen::Move(key) => sheets::move_tab(ui, key).into_element(),
-            Screen::SpaceEdit(ix) => sheets::space_edit(ui, ix).into_element(),
+            Screen::SpaceNew => sheets::space_card(ui, None).into_element(),
+            Screen::SpaceEdit(ix) => sheets::space_card(ui, Some(ix)).into_element(),
             Screen::Licences => sheets::licences(ui).into_element(),
             Screen::Licence(ix) => sheets::licence(ix).into_element(),
             Screen::Extensions => super::extensions::pane(ui),
@@ -68,7 +69,7 @@ pub fn panel(ui: Ui) -> impl IntoElement {
 pub(super) fn parent(screen: Screen) -> Option<Screen> {
     match screen {
         Screen::Move(_) => Some(Screen::Tabs),
-        Screen::SpaceEdit(_) => Some(Screen::Spaces),
+        Screen::SpaceNew | Screen::SpaceEdit(_) => Some(Screen::Spaces),
         Screen::Licences => Some(Screen::Settings),
         Screen::Licence(_) => Some(Screen::Licences),
         Screen::History | Screen::Downloads | Screen::Spaces | Screen::Settings | Screen::Qr | Screen::ReadingList | Screen::FindTabs => Some(Screen::Menu),
@@ -746,25 +747,9 @@ fn downloads(ui: Ui) -> impl IntoElement {
 }
 
 fn spaces(ui: Ui) -> impl IntoElement {
-    let name = signal(String::new());
     let rows = move || ui.read_data(|s| s.spaces());
     let current = move || ui.read(|s| s.model.space_ix);
-    let add = move |profile: bool| {
-        let n = name.get_untracked();
-        if n.trim().is_empty() {
-            return;
-        }
-        ui.act(|s| {
-            if profile {
-                s.new_profile(n.trim());
-            } else {
-                s.new_space(n.trim());
-            }
-            Vec::new()
-        });
-        name.set(String::new());
-        ui.show(Screen::Browse);
-    };
+    let private_process = <crate::data::Data as crate::data::Platform>::private_process();
     view()
         .gap_2()
         .child(framed(group().child(each(
@@ -804,14 +789,12 @@ fn spaces(ui: Ui) -> impl IntoElement {
                         move || if item.private { Theme::warning() } else { Theme::space_label() },
                     ))
                     .child(label(name).flex_1())
-                    .child((!item.private).then(|| icon_button(icons::PENCIL, "Edit Schedule", move || ui.show(Screen::SpaceEdit(ix)))))
+                    .child(icon_button(icons::PENCIL, "Edit Space", move || ui.show(Screen::SpaceEdit(ix))))
             },
         ))))
-        .child(section("New"))
-        .child(text_field("Name", "Name").value(move || name.get()).on_change(move |v: &str| name.set(v.to_owned())).test_id("Name"))
-        .child(view().flex_row().gap_2().child(pill("Add Space", move || add(false))).child(pill("Add Profile", move || add(true))))
+        .child((!private_process).then(|| framed(group().child(row(icons::PLUS, "New Space", move || ui.show(Screen::SpaceNew))))))
         .child(caption("A profile keeps its own cookies and website data; its spaces share them.").px_1())
-        .child(dynamic(move || (!ui.read(|s| s.model.private())).then(|| sheets::snapshots(ui, name))))
+        .child(dynamic(move || (!ui.read(|s| s.model.private())).then(|| sheets::snapshots(ui))))
 }
 
 fn find(ui: Ui) -> impl IntoElement {

@@ -83,6 +83,7 @@ pub enum Panel {
     Downloads,
     Tab,
     Space,
+    NewSpace,
     Memory,
     ReadingList,
     Qr,
@@ -145,6 +146,7 @@ pub struct Ui {
     rename: Signal<String>,
     /// What `rename` names, so a panel that changes target starts from the new name.
     rename_for: Signal<String>,
+    space_draft: Signal<Option<browser_core::space_card::SpaceDraft>>,
     /// The emoji field of the folder panel and the folder it belongs to.
     emoji: Signal<String>,
     emoji_for: Signal<String>,
@@ -244,6 +246,7 @@ pub fn show(ui: Ui, panel: Panel) {
     ui.confirm.set(None);
     ui.rename.set(String::new());
     ui.rename_for.set(String::new());
+    ui.space_draft.set(None);
     ui.emoji_for.set(String::new());
     ui.panel.set(next);
     act(ui, |_| {});
@@ -616,7 +619,7 @@ fn space_bar(ui: Ui) -> View {
                 .flex_row()
                 .flex_none()
                 .w(px(2. * SPACE_BUTTON))
-                .child(icon_button(icons::PLUS, "New Space", move || act(ui, |b| b.new_space())))
+                .child(icon_button(icons::PLUS, "New Space", move || show(ui, Panel::NewSpace)))
                 .child(icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings))),
         )
 }
@@ -1349,9 +1352,13 @@ pub(super) fn text_field_multiline(ui: Ui, placeholder: &str) -> nsh_base::Input
 }
 
 pub(super) fn text_field(value: Signal<String>, name: &str, width: f32) -> nsh_base::Input {
+    bound_field(move || value.get(), move |v| value.set(v), name, width)
+}
+
+pub(super) fn bound_field(value: impl Fn() -> String + 'static, change: impl Fn(String) + 'static, name: &str, width: f32) -> nsh_base::Input {
     input()
-        .value(move || value.get())
-        .on_change(move |v: &str| value.set(v.to_owned()))
+        .value(value)
+        .on_change(move |v: &str| change(v.to_owned()))
         .placeholder(name.to_owned())
         .label(name.to_owned())
         .w(px(width))
@@ -1634,7 +1641,7 @@ fn run_action(ui: Ui, action: Action) {
         Action::ShowHistory => show(ui, Panel::History),
         Action::ToggleDownloads => show(ui, Panel::Downloads),
         Action::ToggleSidebar => toggle_sidebar(ui),
-        Action::NewSpace => act(ui, |b| b.new_space()),
+        Action::NewSpace => show(ui, Panel::NewSpace),
         Action::PrivateSpace => act(ui, |b| b.private_space()),
         Action::Settings => show(ui, Panel::Settings),
         Action::NewWindow => new_window(ui),
@@ -1854,6 +1861,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         confirm: signal(None),
         rename: signal(String::new()),
         rename_for: signal(String::new()),
+        space_draft: signal(None),
         emoji: signal(String::new()),
         emoji_for: signal(String::new()),
         area: signal((0., 0.)),
