@@ -477,6 +477,27 @@ fn the_top_pages_own_permission_is_remembered_when_the_component_names_it() {
 }
 
 #[test]
+fn permissions_are_neither_remembered_nor_reused_above_standard() {
+    let (_dir, mut shell) = open();
+    let always = Answer { accept: true, text: None, user: None, password: None, remember: true };
+    let ask = |id: u64| json!({ "id": id, "kind": "camera", "origin": "https://site.test", "topOrigin": "https://site.test" });
+    shell.set_default_level(ShieldLevel::Strict);
+    let key = active(&shell);
+    shell.event(key, "prompt", &ask(1), 1);
+    assert!(!shell.remembers(shell.active_prompt().unwrap()));
+    shell.answer(always.clone());
+    shell.set_default_level(ShieldLevel::Standard);
+    let key = active(&shell);
+    assert_eq!(shell.event(key, "prompt", &ask(2), 2), vec![], "a Strict answer was not stored");
+    assert!(shell.remembers(shell.active_prompt().unwrap()));
+    shell.answer(always);
+    assert_eq!(shell.event(key, "prompt", &ask(3), 3), vec![Effect::Command(key, "answer", json!({ "id": 3, "accept": true }))]);
+    shell.set_default_level(ShieldLevel::Strict);
+    let key = active(&shell);
+    assert_eq!(shell.event(key, "prompt", &ask(4), 4), vec![], "a stored answer is not reused at Strict");
+}
+
+#[test]
 fn clear_data_gives_lockdown_and_private_profiles_a_fresh_store() {
     let (_dir, mut shell) = open();
     shell.set_default_level(ShieldLevel::Lockdown);

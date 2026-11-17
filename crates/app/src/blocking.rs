@@ -57,11 +57,7 @@ pub enum Offer {
 impl AppCore {
     /// Categories whose domain sets the switches ask for.
     pub fn set_categories(&self) -> Vec<Category> {
-        [(Category::Malware, Pref::BlockMalware), (Category::Adult, Pref::BlockAdult), (Category::Popups, Pref::BlockPopups)]
-            .into_iter()
-            .filter(|(_, pref)| self.pref(*pref))
-            .map(|(c, _)| c)
-            .collect()
+        browser_core::site::set_categories(|key| Pref::ALL.into_iter().find(|p| p.key() == key).map(|p| if self.pref(p) { "on" } else { "off" }.to_owned()))
     }
 
     pub fn set_youtube_config(&self, config: &youtube::Config) {

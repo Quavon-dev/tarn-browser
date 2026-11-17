@@ -30,8 +30,13 @@ pub fn move_targets(bookmarks: &[Bookmark], id: Id) -> Vec<&Bookmark> {
     bookmarks.iter().filter(|f| f.url.is_none() && !inside.contains(&f.id)).collect()
 }
 
+/// The top-level bookmark folder named `name`, such as Archived Tabs or the Reading List.
+pub fn top_folder(bookmarks: &[Bookmark], name: &str) -> Option<Id> {
+    bookmarks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == name).map(|b| b.id)
+}
+
 pub fn reading_list(bookmarks: &[Bookmark]) -> Option<Id> {
-    bookmarks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == READING_LIST).map(|b| b.id)
+    top_folder(bookmarks, READING_LIST)
 }
 
 pub fn recent(bookmarks: &[Bookmark], limit: usize) -> Vec<&Bookmark> {

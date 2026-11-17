@@ -1,7 +1,8 @@
 //! Tabs a window closed, which "Reopen Closed Tab" brings back, and the archive of unused tabs.
 
-use store::{Bookmark, Id, Store, Tab, TabKind, WebEngine};
+use store::{Id, Store, Tab, TabKind, WebEngine};
 
+use crate::bookmarks::top_folder;
 use crate::tabs::{Model, SpaceRef, TabKey};
 use crate::{Core, WebsiteData};
 
@@ -255,11 +256,6 @@ impl Model {
         }
         archives
     }
-}
-
-/// The top-level bookmark folder named `name`, such as Archived Tabs or the Reading List.
-pub fn top_folder(bookmarks: &[Bookmark], name: &str) -> Option<Id> {
-    bookmarks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == name).map(|b| b.id)
 }
 
 fn archive_folder(store: &Store, profile_id: Id, now: i64) -> Option<Id> {
