@@ -20,14 +20,17 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
-### Clean Up (2026-11-16)
+### Clean Up (2026-11-16, reworked 2026-11-17)
 
 What it does: the Clean Up button in the New Tab row sorts the space's loose tabs into tab groups by what each page
-is (on this device, from known sites and title words) and archives tabs unused for longer than
-Settings › Tabs allows.
-Shared API: `browser_core::cleanup::{plan, apply, category}`; archiving through
-`Model::archive_unused`.
-macOS reference: `crates/app/src/browser/context.rs` (`clean_up_tabs`), `crates/app/src/sidebar.rs` (`ephemeral`).
+is (on this device: a known site decides, else host labels, path and title words), into the user's own
+group when that group already holds two or more tabs of the same host and no other group does,
+orders category groups and keeps tabs of one host together; Undo Sort in its toast puts the layout
+back. It also archives tabs unused for longer than Settings › Tabs allows.
+Shared API: `browser_core::cleanup::{plan, apply, undo, category}` (one `Store::apply_layout`
+transaction each); archiving through `Model::archive_unused`.
+macOS reference: `crates/app/src/browser/context.rs` (`clean_up_tabs`, `undo_sort`), `crates/app/src/toast.rs`
+(`Action::UndoSort`), `crates/app/src/sidebar.rs` (`ephemeral`).
 
 - [x] Windows — same code in `crates/app`
 - [ ] Linux — `linux/` has no tab groups or archiving yet; both first, then the row in `linux/src/ui.rs`

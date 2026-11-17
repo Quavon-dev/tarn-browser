@@ -588,22 +588,30 @@ impl Browser {
         }
         let archived = self.archive_unused_tabs(cx);
         let Some((private, space_id)) = self.model.current_space().map(|s| (s.private, s.space.id)) else { return };
-        let plan =
+        let sort =
             browser_core::cleanup::plan(&self.model.tabs, &self.model.groups, |t| self.tab_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone()));
-        let sorted = browser_core::cleanup::apply(self.store(private), space_id, plan);
-        if sorted > 0 {
+        let applied = if sort.changed { browser_core::cleanup::apply(self.store(private), space_id, &sort).map(Some) } else { Ok(None) };
+        let text = sort.summary(applied.is_ok(), archived, crate::prefs::archive_after(&self.core.disk).is_some());
+        let tone = if applied.is_ok() { browser_core::toast::Tone::Info } else { browser_core::toast::Tone::Warning };
+        let undo = applied.ok().flatten();
+        if sort.changed {
             self.reload_space();
             Self::sync_other_windows(cx);
         }
-        let text = match (sorted, archived) {
-            (0, 0) if crate::prefs::archive_after(&self.core.disk).is_none() => "Nothing to sort. Settings › Tabs can archive unused tabs too.".to_owned(),
-            (0, 0) => "Already tidy".to_owned(),
-            (s, 0) => format!("Sorted {s} {} into groups", if s == 1 { "tab" } else { "tabs" }),
-            (0, a) => format!("Archived {a} unused {}", if a == 1 { "tab" } else { "tabs" }),
-            (s, a) => format!("Sorted {s} {} into groups, archived {a} unused", if s == 1 { "tab" } else { "tabs" }),
-        };
-        self.show_toast(text, None, cx);
+        self.show_toast_as(tone, text, undo.is_some().then_some(crate::toast::Action::UndoSort), cx);
+        self.toast.sort_undo = undo.map(|undo| (private, undo));
         cx.notify();
+    }
+
+    /// Puts back what the last Clean Up sorted, in whichever space it sorted.
+    pub(crate) fn undo_sort(&mut self, cx: &mut Context<Self>) {
+        let Some((private, undo)) = self.toast.sort_undo.take() else { return };
+        match browser_core::cleanup::undo(self.store(private), &undo) {
+            Ok(dropped) => self.forget_groups(private, &dropped, cx),
+            Err(_) => self.show_toast_as(browser_core::toast::Tone::Warning, "Could not undo the sort", None, cx),
+        }
+        self.reload_space();
+        Self::sync_other_windows(cx);
     }
 
     pub fn close_all_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
