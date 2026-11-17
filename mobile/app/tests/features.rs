@@ -305,9 +305,9 @@ fn a_burner_tab_has_its_own_store_keeps_no_records_and_is_released_when_burned()
     let second = shell.views()[0].profile.clone();
     assert_ne!(second, burner, "every burner gets a new store");
     let effects = visit(&mut shell, "https://burned.test/", "Burned");
-    fetch_icon(&mut shell, "https://burned.test/", &effects, PNG);
+    assert!(command(&effects, "readIconLinks").is_none(), "a burner asks for no site icon");
     let burned = shell.model.profile().unwrap();
-    assert!(shell.icons.find(&burned, "burned.test").is_some());
+    assert!(shell.icons.find(&burned, "burned.test").is_none(), "a burner keeps no site icon, not even in memory");
     shell.event(active(&shell), "download", &json!({ "id": "1", "state": "finished", "name": "x.txt", "path": "/x" }), 3);
     shell.close_tab(active(&shell));
     assert!(!shell.in_burner());
@@ -531,6 +531,19 @@ fn site_icons_are_fetched_kept_per_profile_and_retried_after_failures() {
 }
 
 #[test]
+fn an_icon_answer_refused_under_lockdown_releases_its_request() {
+    let (_dir, mut shell) = open();
+    let effects = visit(&mut shell, "https://a.test/", "A");
+    let links = command(&effects, "readIconLinks").expect("asks for the icon links").clone();
+    shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
+    let key = active(&shell);
+    let fetch = shell.event(key, "iconLinks", &json!({ "seq": seq(&links), "url": "https://a.test/", "text": "https://a.test/i.png\t32x32" }), 3);
+    assert!(command(&fetch, "fetchIcon").is_none(), "Lockdown refuses the answer");
+    shell.set_site_level(None);
+    assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some(), "the refused request was released");
+}
+
+#[test]
 fn a_tab_closed_after_a_clear_does_not_release_a_newer_icon_request() {
     let (_dir, mut shell) = open();
     assert!(command(&visit(&mut shell, "https://a.test/", "A"), "readIconLinks").is_some());
@@ -608,6 +621,20 @@ fn page_world_platforms_keep_the_icon_their_engine_reports_without_a_script() {
     assert!(shell.site_icon("https://p.test/").is_some());
     shell.close_private();
     assert!(Shell::<PageWorld>::open(dir.path()).site_icon("https://p.test/").is_none(), "private icons are not stored");
+}
+
+#[test]
+fn a_burner_keeps_no_icon_its_engine_reports() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut shell = Shell::<PageWorld>::open(dir.path());
+    shell.open_burner();
+    let key = shell.model.active.unwrap();
+    shell.navigate("https://burned.test/");
+    let page = json!({ "url": "https://burned.test/", "title": "B", "canGoBack": false, "canGoForward": false });
+    shell.event(key, "committed", &page, 1);
+    shell.event(key, "finished", &page, 2);
+    shell.event(key, "pageIcon", &json!({ "url": "https://burned.test/", "text": PNG }), 3);
+    assert!(shell.site_icon("https://burned.test/").is_none());
 }
 
 #[test]

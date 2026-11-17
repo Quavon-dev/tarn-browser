@@ -133,10 +133,16 @@ impl<D: Platform> Shell<D> {
     }
 
     fn icon_key(&self, key: TabKey, url: &str) -> Option<((bool, Id), String)> {
+        let (profile, host) = self.asked_icon(key, url)?;
+        let url = Url::parse(url).ok()?;
+        let lockdown = self.core.level(profile.0, profile.1, Some(&url)).is_none_or(|l| l == ShieldLevel::Lockdown);
+        (self.core.keeps_records(profile.0, profile.1) && !lockdown).then_some((profile, host))
+    }
+
+    fn asked_icon(&self, key: TabKey, url: &str) -> Option<((bool, Id), String)> {
         let url = Url::parse(url).ok()?;
         let profile = self.model.profile_of(&self.core, key)?;
-        let lockdown = self.core.level(key.private, profile, Some(&url)).is_none_or(|l| l == ShieldLevel::Lockdown);
-        Some(((key.private, profile), favicon::icon_host(&url, lockdown)?))
+        Some(((key.private, profile), favicon::icon_host(&url, false)?))
     }
 
     pub(crate) fn load_icons(&mut self, (private, profile): (bool, Id)) {
@@ -166,9 +172,10 @@ impl<D: Platform> Shell<D> {
 
     fn icon_answer(&mut self, key: TabKey, data: &Value, script: Script) -> Option<(String, (bool, Id), String, Ticket)> {
         let asked = text(data, "url");
-        let (profile, host) = self.icon_key(key, &asked)?;
+        let (profile, host) = self.asked_icon(key, &asked)?;
         let ticket = *self.icon_asks.get(&key)?.get(&(profile, host.clone()))?;
-        match self.answer_for(key, data, script) {
+        let accepted = self.icon_key(key, &asked).is_some();
+        match self.answer_for(key, data, script).filter(|_| accepted) {
             Some(url) if self.icons.is_requested(&profile, &host, ticket) => Some((url, profile, host, ticket)),
             _ => {
                 self.icon_done(key, &profile, &host);
