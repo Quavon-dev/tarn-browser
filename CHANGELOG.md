@@ -50,7 +50,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   Bookmark All Tabs (the New Tab row and the command rows), and a Bookmarks panel (`Ctrl+Alt+B`)
   with recent bookmarks, folders, search, rename, move, delete and New Folder (Linux).
 - Settings › Search › Suggestions turns history suggestions and the address field's
-  inline completion off, and Settings › General › Tabs chooses how many tabs stay awake and how
+  inline completion off, and Settings › Tabs chooses how many tabs stay awake and how
   long a background tab waits before it sleeps, as on macOS (Linux).
 - Settings › Privacy › Block YouTube ads removes ads from YouTube's player data and hides ad
   slots, and Netflix keeps playing when the window loses focus (Linux).
@@ -58,7 +58,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   URL and Set Pinned URL, Duplicate Tab, Close All, Other and Below, Sleep Tab, Other and All
   Inactive Tabs, reopening a chosen recently closed tab, Delete Folder and the sidebar menu; closing
   a pinned tab unloads it (Linux).
-- Settings › General › Tabs chooses whether New Tab opens the command card or the start page and
+- Settings › Tabs chooses whether New Tab opens the command card or the start page and
   which tab becomes active after closing one, and turns touchpad gestures off; Settings ›
   Appearance picks the accent colour and turns on Reduce motion, as on macOS (Linux).
 - Compact toolbar, auto-hiding sidebar, the tab hover card with its Alt page snapshot, and link

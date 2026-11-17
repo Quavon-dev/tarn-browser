@@ -556,34 +556,6 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             None => body.child(note("No profile is open.")),
         },
         Pane::General => body
-            .child(section("Tabs"))
-            .child(
-                group()
-                    .child(group_row().child(label("New tab opens").flex_1()).child(segmented(
-                        vec![(false, "Command card".to_owned()), (true, "Start page".to_owned())],
-                        start_page,
-                        move |on| act(ui, move |b| b.set_pref(NEW_TAB_START_PAGE, on)),
-                    )))
-                    .child(group_row().child(label("After closing a tab").flex_1()).child(segmented(
-                        vec![(false, "Next".to_owned()), (true, "Previous".to_owned())],
-                        previous,
-                        move |on| act(ui, move |b| b.set_pref(CLOSE_SELECTS_PREVIOUS, on)),
-                    )))
-                    .child(switch(gestures, "Touchpad gestures", move || act(ui, |b| b.set_pref(GESTURES, !b.pref(GESTURES)))))
-                    .child(group_row().child(label("Tabs kept awake").flex_1()).child(segmented(options(&LIVE_TABS), live_tabs, move |ix| set_tab_choice(ui, |b| {
-                        b.set_live_tabs(ix);
-                        false
-                    }))))
-                    .child(
-                        group_row()
-                            .child(label("Sleep background tabs after").flex_1())
-                            .child(segmented(options(&prefs::sleep_after_options()), sleep_after, move |ix| set_tab_choice(ui, |b| b.set_sleep_after(ix)))),
-                    ),
-            )
-            .child(note("Other tabs sleep and reload when you return, unless they are playing video or audio; fewer saves memory."))
-            .child(note("A tab left for this long sleeps and reloads when you return, after a minute while memory is short. Pinned tabs and tabs playing video or audio stay awake."))
-            .child(note("New Tab shows the command card with the search field, or the start page. After closing a tab, the next or previous one in the list becomes active."))
-            .child(note("Touchpad gestures: swipe with two fingers over the sidebar to switch spaces."))
             .child(section("Downloads"))
             .child(group().child(switch(sort, "Sort downloads into folders", toggle_off(SORT_DOWNLOADS))))
             .child(note("New files go into Images, Videos, Audio, Documents, Archives or Installers inside Downloads; other types stay at the top."))
@@ -614,13 +586,36 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             let choices: Vec<(usize, String)> = ARCHIVE_AFTER.iter().enumerate().map(|(ix, (name, _))| (ix, (*name).to_owned())).collect();
             body.child(section("Tabs"))
                 .child(
-                    group().child(
-                        group_row()
-                            .child(label("Close unused tabs after").flex_1())
-                            .child(segmented(choices, archive, move |ix| act(ui, move |b| b.set_archive_after(ix)))),
-                    ),
+                    group()
+                        .child(group_row().child(label("Tabs kept awake").flex_1()).child(segmented(options(&LIVE_TABS), live_tabs, move |ix| {
+                            set_tab_choice(ui, |b| {
+                                b.set_live_tabs(ix);
+                                false
+                            })
+                        })))
+                        .child(
+                            group_row()
+                                .child(label("Sleep background tabs after").flex_1())
+                                .child(segmented(options(&prefs::sleep_after_options()), sleep_after, move |ix| set_tab_choice(ui, |b| b.set_sleep_after(ix)))),
+                        )
+                        .child(group_row().child(label("New tab opens").flex_1()).child(segmented(
+                            vec![(false, "Command card".to_owned()), (true, "Start page".to_owned())],
+                            start_page,
+                            move |on| act(ui, move |b| b.set_pref(NEW_TAB_START_PAGE, on)),
+                        )))
+                        .child(group_row().child(label("After closing a tab").flex_1()).child(segmented(
+                            vec![(false, "Next".to_owned()), (true, "Previous".to_owned())],
+                            previous,
+                            move |on| act(ui, move |b| b.set_pref(CLOSE_SELECTS_PREVIOUS, on)),
+                        )))
+                        .child(group_row().child(label("Close unused tabs after").flex_1()).child(segmented(choices, archive, move |ix| act(ui, move |b| b.set_archive_after(ix)))))
+                        .child(switch(gestures, "Touchpad gestures", move || act(ui, |b| b.set_pref(GESTURES, !b.pref(GESTURES))))),
                 )
+                .child(note("Other tabs sleep and reload when you return, unless they are playing video or audio; fewer saves memory."))
+                .child(note("A tab left for this long sleeps and reloads when you return, after a minute while memory is short. Pinned tabs and tabs playing video or audio stay awake."))
+                .child(note("New Tab shows the command card with the search field, or the start page. After closing a tab, the next or previous one in the list becomes active."))
                 .child(note("Unpinned tabs you have not opened for this long move to History › Archived Tabs."))
+                .child(note("Touchpad gestures: swipe with two fingers over the sidebar to switch spaces."))
         }
         Pane::Search => {
             let engines: Vec<(usize, String)> = ENGINES.iter().enumerate().map(|(ix, e)| (ix, e.name.to_owned())).collect();

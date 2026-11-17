@@ -30,7 +30,7 @@ Shared API: `browser_core::settings::{live_tabs, sleep_after, max_idle, LIVE_TAB
 macOS reference: `crates/app/src/settings.rs` (`tabs`, `search`), `crates/app/src/prefs.rs` (`set_choice`), `crates/app/src/tabs.rs` (`sleep_idle_tabs`).
 
 - [x] Windows — same code in `crates/app`
-- [x] Linux — `linux/src/ui/settings.rs` (General › Tabs, Search › Suggestions), `linux/src/memory.rs`
+- [x] Linux — `linux/src/ui/settings.rs` (Tabs, Search › Suggestions), `linux/src/memory.rs`
 - [ ] iOS — `mobile/app` keeps a fixed `LIVE_TABS` of 6 and always suggests; the Settings sheet needs both choices and the switch
 - [ ] Android — same as iOS
 

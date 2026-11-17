@@ -309,9 +309,9 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   hold more than `engine::lifecycle::BACKGROUND_BUDGET` (split between windows) sleep, heaviest
   first, as on macOS (`Browser::sleep_over_budget` in `linux/src/memory.rs`); a playing tab, one
   used in the last minute (pinned: 30 minutes) or one in the split stays awake. "Tabs kept awake"
-  and "Sleep background tabs after" are in Settings › General › Tabs (NSH's settings panes, shared
-  with mobile, have no Tabs pane), with the macOS options and defaults from
-  `browser_core::settings`; Never stops idle sleeping and the memory budget, short of memory too.
+  and "Sleep background tabs after" are in Settings › Tabs, as on macOS, with the macOS options
+  and defaults from `browser_core::settings`; Never stops idle sleeping and the memory budget,
+  short of memory too.
   Evidence: `linux/evidence/parity-sleeping-tabs.png`.
 - Picture in Picture (macOS command and `⌘⌃P`) has no Linux command. Gap: WebKitGTK has no
   Picture-in-Picture; WebKit's video presentation mode exists only on its Cocoa ports, and the
@@ -327,10 +327,10 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   (nsh-platform-linux `wheel_event` drops GDK's zero-delta scroll-stop event, `gdk::ScrollEvent::is_stop`),
   so a gesture ends after 200 ms without scrolling and the list does not follow the fingers and
   spring back as with macOS `gestures::follow`. The direction follows the content, so it matches
-  the fingers with natural scrolling on. Settings › General › Tabs › Touchpad gestures turns it off
+  the fingers with natural scrolling on. Settings › Tabs › Touchpad gestures turns it off
   (`browser_core::prefs::GESTURES`, on by default as on macOS).
-- Settings › General › Tabs (NSH's settings panes, shared with mobile, have no Tabs pane) also has
-  "New tab opens" and "After closing a tab" from `browser_core::prefs`, with the macOS defaults.
+- Settings › Tabs also has "New tab opens" and "After closing a tab" from `browser_core::prefs`,
+  with the macOS defaults.
   Command card opens the palette for a new tab: Enter opens what was typed in a new tab
   (`Browser::navigate_in`), Esc leaves the page as it was. Start page opens a blank tab with the
   start card at once, where macOS shows the start page and makes the tab on Enter.
@@ -338,8 +338,8 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   stored by name as on macOS and applied over the theme's tokens with `prefs::accented`).
 - A two-finger horizontal swipe over the page goes back or forward, drawn by WebKitGTK
   (`enable-back-forward-navigation-gestures`, as WebKit's own swipe on macOS). As on macOS such a
-  step is the page's, not the user's history step, for the navigation policy. Settings ›
-  General › Tabs › Touchpad gestures does not turn this page swipe off yet; it covers the space swipe.
+  step is the page's, not the user's history step, for the navigation policy. Settings › Tabs ›
+  Touchpad gestures does not turn this page swipe off yet; it covers the space swipe.
 - Take Screenshot (Ctrl+Alt+Shift+S, rebindable, or "Take Screenshot" in the command bar; macOS
   ⌘⌥S, whose Ctrl+Alt+S is Swap split panes on Linux) saves the visible page as a new PNG in
   Downloads under the page's title (`browser_core::capture`), copies it to the clipboard, lists it
