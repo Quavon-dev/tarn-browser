@@ -275,6 +275,7 @@ fn group_rows(b: &Browser, heavy: &HashSet<TabKey>, rows: &mut Vec<Row>) {
             asleep: false,
             loading: false,
             playing: false,
+            muted: false,
             split: None,
             panes,
             color: browser_core::tabs::group_color(group, &tarn_nsh_shared::theme::PROFILE_COLORS),

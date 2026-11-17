@@ -1,5 +1,4 @@
 use browser_core::command::host_tail;
-use browser_core::now;
 use browser_core::tabs::TabKey;
 use engine::nav_policy::{self, Decision, Source};
 use store::{Id, TabKind};
