@@ -319,8 +319,8 @@ fn menu(ui: Ui) -> impl IntoElement {
                     });
                     ui.show(Screen::Browse);
                 }))
-                .child(dynamic(move || {
-                    if private() {
+                .child(
+                    when(private, move || {
                         row(icons::HAND, "Close Private Space", move || {
                             ui.act(|s| {
                                 s.close_private();
@@ -328,8 +328,8 @@ fn menu(ui: Ui) -> impl IntoElement {
                             });
                             ui.show(Screen::Browse);
                         })
-                        .into_element()
-                    } else {
+                    })
+                    .otherwise(move || {
                         row(icons::HAND, "Private Space", move || {
                             ui.act(|s| {
                                 s.enter_private();
@@ -337,11 +337,11 @@ fn menu(ui: Ui) -> impl IntoElement {
                             });
                             ui.show(Screen::Browse);
                         })
-                        .into_element()
-                    }
-                }))
-                .child(dynamic(move || {
-                    (!ui.read(|s| s.in_burner() || <crate::data::Data as crate::data::Platform>::private_process())).then(|| {
+                    }),
+                )
+                .child(when(
+                    move || !ui.read(|s| s.in_burner() || <crate::data::Data as crate::data::Platform>::private_process()),
+                    move || {
                         row(icons::FLAME, "New Burner Tab", move || {
                             ui.act(|s| {
                                 s.open_burner();
@@ -349,10 +349,11 @@ fn menu(ui: Ui) -> impl IntoElement {
                             });
                             ui.show(Screen::Browse);
                         })
-                    })
-                }))
-                .child(dynamic(move || {
-                    ui.read(|s| !s.model.closed_tabs.is_empty()).then(|| {
+                    },
+                ))
+                .child(when(
+                    move || ui.read(|s| !s.model.closed_tabs.is_empty()),
+                    move || {
                         row(icons::UNDO, "Reopen Closed Tab", move || {
                             ui.act(|s| {
                                 if !s.reopen_closed() {
@@ -362,14 +363,14 @@ fn menu(ui: Ui) -> impl IntoElement {
                             });
                             ui.show(Screen::Browse);
                         })
-                    })
-                })),
+                    },
+                )),
         ))
         .child(framed(
             group()
                 .child(row(icons::SEARCH, "Find in Page", move || ui.show(Screen::Find)))
                 .child(row(icons::APP_WINDOW, "Find in Tabs", move || ui.show(Screen::FindTabs)))
-                .child(dynamic(move || ui.read(|s| s.offers_reader()).then(|| row(icons::BOOK_OPEN, "Reader", move || ui.act(|s| s.open_reader())))))
+                .child(when(move || ui.read(|s| s.offers_reader()), move || row(icons::BOOK_OPEN, "Reader", move || ui.act(|s| s.open_reader()))))
                 .child(
                     view()
                         .flex_row()
@@ -386,14 +387,15 @@ fn menu(ui: Ui) -> impl IntoElement {
                         .child(pill("+", move || zoom(0.1)).accessibility_label("Zoom In")),
                 )
                 .child(row(icons::SHIELD, "Shield and Settings for This Site", move || ui.show(Screen::Shield)))
-                .child(dynamic(move || {
-                    ui.read(|s| s.zappable()).then(|| {
+                .child(when(
+                    move || ui.read(|s| s.zappable()),
+                    move || {
                         row(icons::CLOSE, "Zap Element", move || {
                             ui.show(Screen::Browse);
                             ui.act(|s| s.pick());
                         })
-                    })
-                })),
+                    },
+                )),
         ))
         .child(framed(
             group()
@@ -401,7 +403,7 @@ fn menu(ui: Ui) -> impl IntoElement {
                 .child(row(icons::DOWNLOADS, "Downloads", move || ui.show(Screen::Downloads)))
                 .child(row(icons::PERSON, "Spaces and Profiles", move || ui.show(Screen::Spaces)))
                 .child(row(icons::GEAR, "Settings", move || ui.show(Screen::Settings)))
-                .child(dynamic(move || (!ui.read(|s| s.model.private())).then(|| row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions))))),
+                .child(when(move || !private(), move || row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions)))),
         ))
         .child(super::extensions::actions(ui))
         .child(framed(

@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.1.2" date="2026-11-17" type="development">
+      <description>
+        <p>Redesigned interface, Tarn extensions, site icons, nightly builds and licence notices.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-11-16" type="development">
       <description>
         <p>First release.</p>
