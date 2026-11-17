@@ -1,4 +1,5 @@
 mod appearance;
+mod extensions;
 mod library;
 mod panels;
 mod settings;
@@ -118,6 +119,9 @@ pub struct Ui {
     toast_timer: Signal<u64>,
     reloaded: Signal<u64>,
     settings_pane: Signal<tarn_nsh_shared::panes::Pane>,
+    ext_popup: Signal<Option<(store::Id, String, u64)>>,
+    ext_pane: Signal<bool>,
+    remember: Signal<bool>,
     /// The suggestion row the arrow keys chose; 0 is what was typed.
     picked: Signal<usize>,
     /// The address history of the profile it was read for.
@@ -875,7 +879,7 @@ fn toolbar(ui: Ui) -> View {
             show(ui, Panel::Tab);
         });
         let settings = controls::icon_button_at(icons::GEAR, "Settings", Placement::Left, move || show(ui, Panel::Settings));
-        view().flex_row().items_center().gap(px(2.)).child(tab).child(settings)
+        view().flex_row().items_center().gap(px(2.)).child(extensions::buttons(ui)).child(tab).child(settings)
     };
     view().flex_row().items_center().gap_2().h(px(TOOLBAR_HEIGHT)).child(themed(navigation)).child(address(ui)).child(themed(actions))
 }
@@ -1198,6 +1202,9 @@ fn prompt_bar(ui: Ui) -> AnyElement {
         let prompt = shown.get()?;
         let id = prompt.id;
         let reply = move |accept: bool| answer_prompt(ui, id, accept);
+        if prompt.kind == crate::browser::extensions::PROMPT_KIND {
+            return Some(extensions::site_prompt(ui, &prompt));
+        }
         let title = match prompt.kind.as_str() {
             "alert" | "confirm" | "text" => format!("{} says", prompt.origin),
             "credentials" => format!(
@@ -1391,6 +1398,8 @@ fn escape(ui: Ui) {
         answer_prompt(ui, id, false);
     } else if ui.finding.get_untracked() {
         close_find(ui);
+    } else if ui.ext_popup.get_untracked().is_some() {
+        extensions::show_popup(ui, None);
     } else if ui.panel.get_untracked() != Panel::None {
         show(ui, Panel::None);
     } else if ui.snap.with_untracked(|s| s.reader.is_some()) {
@@ -1477,6 +1486,7 @@ fn close_window(ui: Ui, here: &WindowRef) {
     if WINDOWS.with_borrow(|windows| windows.len()) <= 1 {
         return quit();
     }
+    extensions::show_popup(ui, None);
     act(ui, Browser::close_window);
     BROWSERS.with_borrow_mut(|windows| windows.remove(&ui.window));
     WINDOWS.with_borrow_mut(|windows| windows.retain(|w| w.window != ui.window));
@@ -1552,6 +1562,9 @@ fn new_ui(row: SavedWindow) -> Ui {
         toast_timer: signal(0),
         reloaded: signal(0),
         settings_pane: signal(tarn_nsh_shared::panes::Pane::Profile),
+        ext_popup: signal(None),
+        ext_pane: signal(false),
+        remember: signal(false),
         picked: signal(0),
         history: signal(Default::default()),
         tab_menu: signal(None),
@@ -1625,6 +1638,7 @@ fn browser_window(ui: Ui) -> AnyElement {
                 .flex_col()
                 .flex_1()
                 .child(toolbar(ui))
+                .child(themed(move || extensions::popup_panel(ui)))
                 .child(address_suggestions(ui))
                 .child(notice_bar(ui))
                 .child(error_bar(ui))
@@ -1649,6 +1663,7 @@ pub fn App() -> impl IntoElement {
     attributes.close_on_press = Some(false);
     main_window().set(attributes);
     route_downloads();
+    extensions::route(core());
     let mut rows = Browser::saved_windows(&core()).into_iter();
     let ui = new_ui(rows.next().unwrap_or_default());
     if shift_held() {

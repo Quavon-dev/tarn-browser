@@ -203,6 +203,25 @@ wrap_app! {
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
             Some(TarnProcessHandler::new())
         }
+
+        #[cfg(windows)]
+        fn on_register_custom_schemes(&self, registrar: Option<&mut SchemeRegistrar>) {
+            register_tarn_extension(registrar);
+        }
+    }
+}
+
+/// `tarn-extension://` as a standard, secure scheme in every process, so an extension page has an
+/// origin of its own (`tarn_ext::SCHEME`); only extension page views serve it, and as a
+/// display-isolated one no web page can frame or link to it.
+#[cfg(windows)]
+fn register_tarn_extension(registrar: Option<&mut SchemeRegistrar>) {
+    if let Some(registrar) = registrar {
+        let options = SchemeOptions::STANDARD.get_raw()
+            | SchemeOptions::SECURE.get_raw()
+            | SchemeOptions::CORS_ENABLED.get_raw()
+            | SchemeOptions::DISPLAY_ISOLATED.get_raw();
+        registrar.add_custom_scheme(Some(&CefString::from(crate::tarn_ext::SCHEME)), options);
     }
 }
 
@@ -401,6 +420,10 @@ wrap_app! {
     impl App {
         fn render_process_handler(&self) -> Option<RenderProcessHandler> {
             Some(ChildRenderer::new())
+        }
+
+        fn on_register_custom_schemes(&self, registrar: Option<&mut SchemeRegistrar>) {
+            register_tarn_extension(registrar);
         }
     }
 }

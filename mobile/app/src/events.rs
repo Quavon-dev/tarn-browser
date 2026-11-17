@@ -93,6 +93,7 @@ impl<D: Platform> Shell<D> {
                 }
             }
             "prompt" => return self.prompt(key, data),
+            crate::extensions::MESSAGE => return self.extension_message(key, data, std::time::Instant::now()),
             "article" | "pageText" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
             "found" => self.found = data.get("matched").and_then(Value::as_u64),
             "history" => {
@@ -121,6 +122,9 @@ impl<D: Platform> Shell<D> {
                 self.notice = None;
             }
             self.open_offer = None;
+        }
+        if committed {
+            self.extension_navigated(key);
         }
         let Some(page) = self.pages.get_mut(&key) else { return Vec::new() };
         if committed {

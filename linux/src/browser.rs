@@ -1,3 +1,4 @@
+pub mod extensions;
 pub mod pages;
 mod site;
 pub mod spaces;
@@ -110,6 +111,8 @@ pub struct Browser {
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
     pub themes: themes::Themes,
+    pub ext_prompts: HashMap<u64, extensions::ExtPrompt>,
+    ext_prompt_serial: u64,
     /// Every split of this window, for the session only.
     pub splits: browser_core::split::Splits<TabKey>,
     text_rows: usize,
@@ -171,6 +174,8 @@ impl Browser {
             elsewhere,
             forgotten: Vec::new(),
             themes,
+            ext_prompts: HashMap::new(),
+            ext_prompt_serial: 0,
             splits: Default::default(),
             text_rows: 0,
             burner_return: None,
@@ -271,6 +276,7 @@ impl Browser {
         let at = std::time::Instant::now();
         self.used.extend(self.model.active.into_iter().chain([key]).map(|k| (k, at)));
         self.model.active = Some(key);
+        self.ext_activated(key);
         self.model.touch(&self.core, key, now());
         self.forget_silent_views();
         let partners = self.split_partners(key);
@@ -368,6 +374,7 @@ impl Browser {
             let title = self.pages.get(key).map(|p| p.title.clone()).unwrap_or(tab.title.clone());
             closed.push(ClosedTab { url, title, state: None, position: tab.position, group: None, web_engine: None });
             self.core.store(private).delete_tab(key.id).ok();
+            self.ext_tab_closed(*key);
             self.forget_tab(*key);
         }
         if burner && self.model.tabs.len() == keys.len() {
@@ -601,6 +608,9 @@ impl Browser {
                 None => overrides.remove(&host),
             };
         }
+        if !key.private {
+            crate::extensions::levels_changed(profile);
+        }
         let url = self.pages.get(&key).map(|p| p.url.clone()).unwrap_or_default();
         self.load(key, &url);
     }
@@ -617,11 +627,19 @@ impl Browser {
         {
             rt.profile.shield_level = level;
         }
+        if !private {
+            crate::extensions::levels_changed(id);
+        }
         if level == ShieldLevel::Lockdown {
             self.notice =
                 Some(Notice::Message("Lockdown: JavaScript is off for new loads; this profile's stored website data is deleted when Tarn next starts.".into()));
         }
-        if let Some(key) = self.model.active {
+        let reload: Vec<TabKey> = if level == ShieldLevel::Lockdown {
+            self.pages.keys().copied().filter(|k| k.private == private && self.model.profile_of(&self.core, *k) == Some(id)).collect()
+        } else {
+            self.model.active.into_iter().collect()
+        };
+        for key in reload {
             let url = self.pages.get(&key).map(|p| p.url.clone()).unwrap_or_default();
             self.load(key, &url);
         }
@@ -668,11 +686,18 @@ impl Browser {
         self.core.profiles.borrow().get(&(private, id)).map(|rt| rt.data.key.clone())
     }
 
+    fn take_prompt(&mut self, id: u64) -> Option<(TabKey, Prompt)> {
+        let key = self.model.active?;
+        let page = self.pages.get_mut(&key)?;
+        let at = page.prompts.iter().position(|p| p.id == id)?;
+        page.prompts.remove(at).map(|prompt| (key, prompt))
+    }
+
     pub fn answer(&mut self, id: u64, accept: bool, remember: bool, text: &str, user: &str, password: &str) {
-        let Some(key) = self.model.active else { return };
-        let Some(page) = self.pages.get_mut(&key) else { return };
-        let Some(at) = page.prompts.iter().position(|p| p.id == id) else { return };
-        let prompt = page.prompts.remove(at).expect("position is valid");
+        let Some((key, prompt)) = self.take_prompt(id) else { return };
+        if prompt.kind == extensions::PROMPT_KIND {
+            return self.answer_extension(key, &prompt, accept, remember);
+        }
         if remember
             && prompt.rememberable()
             && let Some(profile) = self.model.profile_of(&self.core, key)
@@ -734,6 +759,7 @@ impl Browser {
                 }
             }
             "prompt" => self.on_prompt(key, data),
+            "extensionMessage" => self.on_extension_message(key, data),
             "found" => {
                 if let Some(page) = self.pages.get_mut(&key) {
                     page.found = data["matched"].as_u64();
@@ -759,6 +785,7 @@ impl Browser {
         }
         let title = data["title"].as_str().unwrap_or_default().to_owned();
         let profile = self.model.profile_of(&self.core, key);
+        let mut dropped = Vec::new();
         let page = self.pages.entry(key).or_default();
         let new_url = page.url != url;
         page.url = url.clone();
@@ -776,9 +803,20 @@ impl Browser {
             page.crashed = false;
         } else {
             page.error = None;
-            page.prompts.clear();
+            let host = Url::parse(&url).ok().and_then(|u| u.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase()));
+            page.prompts.retain(|p| {
+                let keep = p.kind == extensions::PROMPT_KIND && host.as_deref() == Some(p.origin.as_str());
+                if !keep && p.kind == extensions::PROMPT_KIND {
+                    dropped.push(p.id);
+                }
+                keep
+            });
         }
         let page_title = page.title.clone();
+        self.ext_prompts_dropped(dropped);
+        if !finished {
+            self.ext_navigated(key);
+        }
         let store = self.core.store(key.private);
         store.update_tab_page(key.id, &url, &page_title).ok();
         let parsed = Url::parse(&url).ok().filter(|u| matches!(u.scheme(), "http" | "https"));

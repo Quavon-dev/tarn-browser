@@ -24,6 +24,7 @@ pub(crate) struct AppCore {
     pub prefs: Cell<Prefs>,
     pub filters: RefCell<crate::filters::Status>,
     pub extensions: RefCell<crate::extensions::Extensions>,
+    pub tarn: RefCell<crate::tarn_ext::Tarn>,
     /// Download events of every profile's data store, whichever window opened it.
     pub downloads: mpsc::UnboundedSender<(bool, Id, Event)>,
     /// `None` when this build names no update feed.
@@ -150,6 +151,7 @@ pub(crate) fn start(cx: &mut App) -> bool {
         prefs,
         filters: RefCell::new(filters),
         extensions: RefCell::default(),
+        tarn: RefCell::default(),
         downloads,
         updater,
         importing: Cell::new(false),
@@ -177,6 +179,25 @@ pub(crate) fn start(cx: &mut App) -> bool {
     .detach();
     #[cfg(any(feature = "chromium", windows))]
     check_chromium(cx);
+    let (tarn, mut tarn_events) = mpsc::unbounded();
+    core.tarn.borrow_mut().set_sender(tarn);
+    cx.spawn(async move |cx| {
+        while let Some(msg) = tarn_events.next().await {
+            if cx.update(|cx| crate::tarn_ext::on_msg(msg, cx)).is_err() {
+                break;
+            }
+        }
+    })
+    .detach();
+    cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor().timer(crate::tarn_ext::TICK).await;
+            if cx.update(crate::tarn_ext::tick).is_err() {
+                break;
+            }
+        }
+    })
+    .detach();
 
     let (tx, rx) = oneshot::channel();
     engine::extensions::discover(move |found| drop(tx.send(found)));

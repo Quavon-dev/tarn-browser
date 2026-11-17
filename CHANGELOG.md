@@ -14,6 +14,12 @@ All notable changes to Tarn are documented in this file. The format is based on
   install them under `/usr/share/licenses/tarn` (the rpm now also ships `LICENSE` there), and on
   iOS and Android Settings › Open-source licences shows the list built into the app, searchable
   and offline.
+- Tarn extensions: a package whose manifest sets `browser_specific_settings.tarn.runtime` to 1
+  runs on Tarn's own runtime with content scripts, static network rules, `runtime`, `storage`,
+  `tabs`, `action`, `i18n` and a background page, the same on every engine, installed from a file,
+  GitHub or the official catalog with per-site grants (macOS, Windows, Linux, iOS, Android). On
+  macOS they run in WebKit and Chromium tabs alike, cross-site frames included, with a toolbar
+  button, badge and popup; on Windows they are the extensions Tarn can run.
 
 ### Changed
 

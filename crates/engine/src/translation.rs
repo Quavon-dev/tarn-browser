@@ -139,6 +139,23 @@ pub fn preferred_languages() -> Vec<String> {
     objc2_foundation::NSLocale::preferredLanguages().iter().map(|l| l.to_string()).collect()
 }
 
+/// The user's preferred display languages, as BCP 47 tags.
+#[cfg(windows)]
+pub fn preferred_languages() -> Vec<String> {
+    use windows_sys::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
+    let (mut count, mut len) = (0u32, 0u32);
+    // SAFETY: a size query with a null buffer, as the API allows.
+    if unsafe { GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, std::ptr::null_mut(), &mut len) } == 0 {
+        return Vec::new();
+    }
+    let mut buffer = vec![0u16; len as usize];
+    // SAFETY: `buffer` holds the `len` UTF-16 units the size query asked for, and `len` says so.
+    if unsafe { GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, buffer.as_mut_ptr(), &mut len) } == 0 {
+        return Vec::new();
+    }
+    buffer.split(|c| *c == 0).filter(|tag| !tag.is_empty()).map(String::from_utf16_lossy).collect()
+}
+
 /// `TranslationSession(installedSource:target:)` exists from macOS 26.
 #[cfg(target_os = "macos")]
 pub fn supported() -> bool {

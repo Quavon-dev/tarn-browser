@@ -8,7 +8,8 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use serde::Deserialize;
 
 /// Set by the maintainer; all zeros hides the Official section.
-pub const EXTENSION_CATALOG_PUBLIC_KEY: [u8; 32] = [0; 32];
+pub const EXTENSION_CATALOG_PUBLIC_KEY: [u8; 32] =
+    [23, 40, 153, 243, 187, 31, 166, 36, 37, 54, 114, 184, 117, 61, 208, 159, 45, 33, 45, 52, 218, 219, 210, 232, 89, 85, 75, 199, 128, 5, 86, 176];
 pub const CATALOG_REPO: &str = "Quavon-dev/tarn-extensions";
 pub const INDEX_URL: &str = "https://github.com/Quavon-dev/tarn-extensions/releases/download/catalog/index.json";
 pub const SIGNATURE_URL: &str = "https://github.com/Quavon-dev/tarn-extensions/releases/download/catalog/index.sig";

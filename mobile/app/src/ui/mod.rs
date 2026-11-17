@@ -1,6 +1,7 @@
 mod appearance;
 mod bars;
 mod controls;
+mod extensions;
 mod panels;
 mod prompt;
 mod sheets;
@@ -49,6 +50,8 @@ pub enum Screen {
     SpaceEdit(usize),
     Licences,
     Licence(usize),
+    Extensions,
+    ExtensionPopup,
 }
 
 thread_local! {
@@ -105,7 +108,13 @@ impl Ui {
     }
 
     fn run(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>, changed: bool) {
-        let effects = SHELL.with(|s| f(s.borrow_mut().as_mut().expect("the shell opens with the app")));
+        let effects = SHELL.with(|s| {
+            let mut shell = s.borrow_mut();
+            let shell = shell.as_mut().expect("the shell opens with the app");
+            let mut effects = f(shell);
+            effects.extend(shell.take_effects());
+            effects
+        });
         self.rev.update(|r| *r += 1);
         if changed {
             self.changes.update(|r| *r += 1);
@@ -117,6 +126,7 @@ impl Ui {
                         view.command(name, args);
                     }
                 }),
+                Effect::PagePost(install_id, kind, json) => extensions::post(install_id, kind, json),
                 Effect::Open(url) => {
                     spawn(async move {
                         let _ = open_url(url).await;
@@ -193,7 +203,12 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
             let shown = ui.pane(key).is_some();
             json!(ui.read(|s| (shown || s.model.active == Some(key)) && s.active_prompt().is_none() && s.external.is_none()))
         })
-        .on_native_event(move |e: &NativeEvent| ui.event(key, e))
+        .on_native_event(move |e: &NativeEvent| {
+            if &*e.name == crate::extensions::FRAME {
+                return crate::platform::ext::frame_event(&e.data);
+            }
+            ui.event(key, e)
+        })
         .flex_1();
     let focused = move || ui.read(|s| s.model.active == Some(key)) || ui.dragging.get().is_some_and(|(_, over)| over == Some(key));
     view()
@@ -438,6 +453,7 @@ pub fn App() -> impl IntoElement {
     };
     follow();
     set_interval(Duration::from_secs(60), follow);
+    extensions::start(ui);
     view()
         .flex_1()
         .pt_safe_area()
@@ -468,4 +484,5 @@ pub fn App() -> impl IntoElement {
                 .child(panels::panel(ui)),
         )
         .child(themed(move || bars::bottom_bar(ui)))
+        .child(extensions::backgrounds(ui))
 }

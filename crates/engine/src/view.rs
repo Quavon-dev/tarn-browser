@@ -237,3 +237,21 @@ impl WebView {
         webkit_only!(self, v => v.restore_interaction_state(bytes), ())
     }
 }
+
+impl crate::tarn_ext::ExtensionView for WebView {
+    fn set_extension_gate(&self, gate: crate::tarn_ext::Gate) {
+        both!(self, v => v.set_extension_gate(gate))
+    }
+
+    fn add_extension_scripts(&self, scripts: Rc<crate::tarn_ext::WorldScripts>) {
+        both!(self, v => v.add_extension_scripts(scripts))
+    }
+
+    fn remove_extension_scripts(&self, world: &crate::tarn_ext::World) {
+        both!(self, v => v.remove_extension_scripts(world))
+    }
+
+    fn post_extension_message(&self, world: &crate::tarn_ext::World, frame: Option<crate::tarn_ext::FrameId>, json: &str) {
+        both!(self, v => v.post_extension_message(world, frame, json))
+    }
+}

@@ -61,7 +61,7 @@ fn navigation_id(navigation: Option<&WKNavigation>) -> usize {
 }
 
 /// `None` for opaque origins (sandboxed frames, data:), which cannot be shown or remembered.
-fn origin_of(frame: &WKFrameInfo) -> Option<String> {
+pub(crate) fn origin_of(frame: &WKFrameInfo) -> Option<String> {
     // SAFETY: main-thread reads of a live frame's security origin.
     let (scheme, host, port) = unsafe {
         let origin = frame.securityOrigin();
@@ -332,6 +332,9 @@ define_class!(
             if !is_main {
                 let allow = url.as_ref().is_some_and(|u| u.scheme() != "tarn");
                 let policy = if allow && !wants_download {
+                    if let Some(u) = &url {
+                        crate::tarn_webkit::gate_frame(web_view, u, false);
+                    }
                     WKNavigationActionPolicy::Allow
                 } else {
                     WKNavigationActionPolicy::Cancel
@@ -428,6 +431,7 @@ define_class!(
                     }
                     // SAFETY: the preferences object is owned by WebKit and mutable until we answer.
                     unsafe { preferences.setAllowsContentJavaScript(javascript) };
+                    crate::tarn_webkit::gate_frame(web_view, &url, true);
                     handler.call((WKNavigationActionPolicy::Allow, prefs));
                 }
             }
@@ -536,6 +540,7 @@ define_class!(
             self.ivars().user_navigation.set(false);
             self.ivars().history_step.take();
             self.run_after_commit();
+            crate::tarn_webkit::committed(web_view);
             // SAFETY: main-thread read of a live web view.
             let committed = to_url(unsafe { web_view.URL() });
             let origin = committed.as_ref().and_then(serialized_origin);
@@ -792,7 +797,7 @@ impl Delegate {
         }
     }
 
-    fn emit(&self, event: Event) {
+    pub(crate) fn emit(&self, event: Event) {
         if let Some(pending) = self.ivars().pending.borrow_mut().as_mut() {
             pending.push(event);
             return;

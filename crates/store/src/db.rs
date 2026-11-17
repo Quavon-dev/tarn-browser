@@ -190,12 +190,19 @@ const MIGRATIONS: &[&str] = &[
          page_css INTEGER NOT NULL DEFAULT 0,
          installed_at INTEGER NOT NULL
      );",
+    "CREATE TABLE extension_storage (
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         install_id TEXT NOT NULL,
+         key TEXT NOT NULL,
+         value TEXT NOT NULL,
+         PRIMARY KEY (profile_id, install_id, key)
+     );",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
 const PROFILE_NEUTRAL: [&str; 3] = ["settings", "themes", "windows"];
 /// Every table holding profile data, with the filter that selects one profile's rows.
-const PROFILE_TABLES: [(&str, &str); 25] = [
+const PROFILE_TABLES: [(&str, &str); 26] = [
     ("profiles", "id = ?1"),
     ("spaces", "profile_id = ?1"),
     ("folders", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
@@ -221,6 +228,7 @@ const PROFILE_TABLES: [(&str, &str); 25] = [
     ("snapshots", "profile_id = ?1"),
     ("space_rules", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
     ("zapped_elements", "profile_id = ?1"),
+    ("extension_storage", "profile_id = ?1"),
 ];
 /// Sites kept per profile for the privacy report's list.
 const MAX_SHIELD_SITES: i64 = 200;
@@ -1376,10 +1384,11 @@ impl Store {
         Ok(())
     }
 
-    /// Deletes the install and every host decision stored for it.
+    /// Deletes the install and every host decision and stored item kept for it.
     pub fn delete_extension(&self, profile_id: Id, install_id: &str) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM extension_permissions WHERE profile_id = ?1 AND install_id = ?2", params![profile_id, install_id])?;
+        tx.execute("DELETE FROM extension_storage WHERE profile_id = ?1 AND install_id = ?2", params![profile_id, install_id])?;
         tx.execute("DELETE FROM extensions WHERE profile_id = ?1 AND install_id = ?2", params![profile_id, install_id])?;
         tx.commit()?;
         Ok(())
@@ -1411,6 +1420,31 @@ impl Store {
                 )?;
             }
         }
+        Ok(())
+    }
+
+    /// `storage.local` of one install: (key, JSON value).
+    pub fn extension_storage(&self, profile_id: Id, install_id: &str) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare("SELECT key, value FROM extension_storage WHERE profile_id = ?1 AND install_id = ?2 ORDER BY key")?;
+        let rows = stmt.query_map(params![profile_id, install_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Writes all `changes` or none; `None` removes the key.
+    pub fn change_extension_storage(&self, profile_id: Id, install_id: &str, changes: &[(String, Option<String>)]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for (key, value) in changes {
+            match value {
+                Some(value) => tx.execute(
+                    "INSERT OR REPLACE INTO extension_storage (profile_id, install_id, key, value) VALUES (?1, ?2, ?3, ?4)",
+                    params![profile_id, install_id, key, value],
+                )?,
+                None => {
+                    tx.execute("DELETE FROM extension_storage WHERE profile_id = ?1 AND install_id = ?2 AND key = ?3", params![profile_id, install_id, key])?
+                }
+            };
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -1862,7 +1896,11 @@ mod tests {
         assert!(store.extension_hosts(p.id, "i1").unwrap().is_empty());
         assert_eq!(store.extensions(p.id).unwrap().len(), 1);
         store.set_extension_host(p.id, "i1", "a.test", true).unwrap();
+        store.change_extension_storage(p.id, "i1", &[("k".into(), Some("1".into())), ("j".into(), Some("[2]".into()))]).unwrap();
+        store.change_extension_storage(p.id, "i1", &[("j".into(), None)]).unwrap();
+        assert_eq!(store.extension_storage(p.id, "i1").unwrap(), [("k".to_owned(), "1".to_owned())]);
         store.delete_extension(p.id, "i1").unwrap();
+        assert!(store.extension_storage(p.id, "i1").unwrap().is_empty());
         assert!(store.extensions(p.id).unwrap().is_empty());
         assert!(store.extension_hosts(p.id, "i1").unwrap().is_empty());
     }

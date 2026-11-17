@@ -5,8 +5,6 @@ pub use browser_core::github::*;
 use ureq::tls::{RootCerts, TlsConfig};
 use url::Url;
 
-use crate::ext_package::MAX_ARCHIVE_BYTES;
-
 /// HTTPS only, no proxy, no credentials or cookies, a fixed `User-Agent`; redirects are followed
 /// by hand and every hop must be on `HOSTS`.
 pub struct Net(ureq::Agent);
@@ -43,10 +41,6 @@ impl Hop for Net {
     }
 }
 
-pub fn download(fetch: &dyn Fetch, url: &str) -> Result<Vec<u8>, String> {
-    fetch.get(url, MAX_ARCHIVE_BYTES).map_err(|e| e.describe())
-}
-
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -62,7 +56,7 @@ pub mod tests {
         let net = Net::new();
         let r = resolve(&net, &parse_github("uBlockOrigin/uBOL-home").unwrap()).unwrap();
         let asset = r.assets.first().expect("a chromium asset");
-        let bytes = download(&net, &asset.url).unwrap();
+        let bytes = browser_core::extensions::download(&net, &asset.url).unwrap();
         let dir = tempfile::tempdir().unwrap();
         crate::ext_package::unpack(&bytes, &dir.path().join("1"), false).unwrap();
         assert!(dir.path().join("1/manifest.json").exists(), "{}", asset.name);

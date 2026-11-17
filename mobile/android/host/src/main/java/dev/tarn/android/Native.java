@@ -91,4 +91,16 @@ final class Native {
     static native String downloadFolder(String name);
 
     static native long burstWindowMs();
+
+    static native void setWorldsSupported(boolean supported);
+
+    static native String[] extensionWorlds(String store);
+
+    static native String extensionLoader();
+
+    static native String extensionPageScript(String host, String bootstrap);
+
+    static native int extensionVerdict(String store, String url, String top, int level, String next, int nextLevel, int kind);
+
+    static native Object[] extensionResource(String store, String url);
 }

@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use block2::{DynBlock, RcBlock};
 use objc2::rc::Retained;
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message};
 use std::ptr::NonNull;
 
 use objc2_foundation::{NSArray, NSDate, NSError, NSProcessInfo, NSSet, NSString, NSUUID};
@@ -31,8 +31,8 @@ pub struct DataStore {
     pub(crate) downloads: Retained<DownloadDelegate>,
     /// `[level][filtered]`.
     controllers: [[Retained<WKUserContentController>; 2]; 3],
-    /// Installed rule lists by group, and whether pausing a site turns the group off.
-    rule_lists: RefCell<HashMap<String, (FilterLists, bool)>>,
+    /// Installed rule lists by group, and the controllers they go into.
+    rule_lists: RefCell<HashMap<String, (FilterLists, Attach)>>,
     page_script: RefCell<Option<String>>,
     /// The user's per-host style sheets as one client-world script (`site_styles_script`).
     site_styles: RefCell<Option<String>>,
@@ -46,7 +46,13 @@ pub struct DataStore {
     passkeys: Cell<bool>,
     /// Per level, whether `tarn.builtin.*` (private network, HTTPS upgrade) is attached.
     builtin: [Builtin; 3],
+    /// Per level, that list once compiled, for Tarn extension pages.
+    builtin_lists: [BuiltinList; 3],
+    /// Tarn extensions' content scripts, in the controllers of every level but Lockdown.
+    tarn: Rc<crate::tarn_webkit::Worlds>,
 }
+
+pub(crate) type BuiltinList = Rc<RefCell<Option<Retained<WKContentRuleList>>>>;
 
 /// Whether a level's built-in rule list is attached; views hold their first load until it is.
 #[derive(Clone, Default)]
@@ -99,6 +105,23 @@ impl Builtin {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Attach {
+    Always,
+    Unpaused,
+    OutsideLockdown,
+}
+
+impl Attach {
+    fn applies(self, level: ShieldLevel, filtered: bool) -> bool {
+        match self {
+            Attach::Always => true,
+            Attach::Unpaused => filtered,
+            Attach::OutsideLockdown => level != ShieldLevel::Lockdown,
+        }
+    }
+}
+
 impl DataStore {
     /// Returns `None` off the main thread or for a malformed UUID string. `extensions` names the
     /// profile's own extension storage, so profiles sharing website data keep theirs apart.
@@ -129,6 +152,8 @@ impl DataStore {
             })
         });
         let downloads = DownloadDelegate::new(mtm, downloads);
+        let extension_levels = ShieldLevel::ALL.into_iter().filter(|l| *l != ShieldLevel::Lockdown);
+        let tarn = crate::tarn_webkit::Worlds::new(mtm, extension_levels.flat_map(|l| controllers[l as usize].iter().cloned()).collect());
         let this = DataStore {
             store,
             downloads,
@@ -144,6 +169,8 @@ impl DataStore {
             extension_level: Cell::new(ShieldLevel::Standard),
             passkeys: Cell::new(false),
             builtin: Default::default(),
+            builtin_lists: Default::default(),
+            tarn,
         };
         this.compile_builtin_rules(mtm);
         this
@@ -158,6 +185,10 @@ impl DataStore {
 
     pub(crate) fn builtin(&self, level: ShieldLevel) -> Builtin {
         self.builtin[level as usize].clone()
+    }
+
+    pub(crate) fn builtin_list(&self, level: ShieldLevel) -> BuiltinList {
+        self.builtin_lists[level as usize].clone()
     }
 
     pub(crate) fn controller(&self, level: ShieldLevel, filtered: bool) -> &WKUserContentController {
@@ -229,6 +260,7 @@ impl DataStore {
         for (level, filtered, controller) in self.each_controller() {
             install_scripts(mtm, controller, level, filtered, page_script.as_deref(), site_styles.as_deref(), self.passkeys.get());
         }
+        self.tarn.reinstalled();
     }
 
     /// Runs `enabled` in this profile's web views created from now on, with storage kept per
@@ -422,8 +454,17 @@ impl DataStore {
     /// this profile pick them up without a reload. A `pausable` group stays off in the controllers
     /// for paused sites.
     pub fn set_rule_lists(&self, group: &str, lists: Option<&FilterLists>, pausable: bool) {
+        self.attach_rule_lists(group, lists, if pausable { Attach::Unpaused } else { Attach::Always });
+    }
+
+    /// `set_rule_lists` for a Tarn extension's network rules, which never act in Lockdown-level views.
+    pub fn set_extension_rule_lists(&self, group: &str, lists: Option<&FilterLists>) {
+        self.attach_rule_lists(group, lists, Attach::OutsideLockdown);
+    }
+
+    fn attach_rule_lists(&self, group: &str, lists: Option<&FilterLists>, attach: Attach) {
         let unchanged = match (lists, self.rule_lists.borrow().get(group)) {
-            (Some(new), Some((old, was_pausable))) => Rc::ptr_eq(&new.0, &old.0) && *was_pausable == pausable,
+            (Some(new), Some((old, was))) => Rc::ptr_eq(&new.0, &old.0) && *was == attach,
             (None, None) => true,
             _ => false,
         };
@@ -431,15 +472,15 @@ impl DataStore {
             return;
         }
         let previous = match lists {
-            Some(lists) => self.rule_lists.borrow_mut().insert(group.to_owned(), (lists.clone(), pausable)),
+            Some(lists) => self.rule_lists.borrow_mut().insert(group.to_owned(), (lists.clone(), attach)),
             None => self.rule_lists.borrow_mut().remove(group),
         };
-        for (_, filtered, controller) in self.each_controller() {
+        for (level, filtered, controller) in self.each_controller() {
             for list in previous.iter().flat_map(|(p, _)| p.0.iter()) {
                 // SAFETY: main thread (the controllers were created there and are not Send).
                 unsafe { controller.removeContentRuleList(list) };
             }
-            for list in lists.into_iter().filter(|_| filtered || !pausable).flat_map(|l| l.0.iter()) {
+            for list in lists.into_iter().filter(|_| attach.applies(level, filtered)).flat_map(|l| l.0.iter()) {
                 // SAFETY: as above.
                 unsafe { controller.addContentRuleList(list) };
             }
@@ -459,10 +500,12 @@ impl DataStore {
             let id = NSString::from_str(&format!("tarn.builtin.{}", level.as_str()));
             let controllers: Vec<_> = self.controllers[level as usize].iter().chain([&self.extension_rules[level as usize]]).cloned().collect();
             let builtin = self.builtin(level);
+            let kept = self.builtin_list(level);
             let done = RcBlock::new(move |list: *mut WKContentRuleList, error: *mut NSError| {
                 // SAFETY: WebKit passes either a valid rule list or null, retained for the call.
                 match unsafe { list.as_ref() } {
                     Some(list) => {
+                        *kept.borrow_mut() = Some(list.retain());
                         for controller in &controllers {
                             // SAFETY: completion runs on the main thread, where the controllers live.
                             unsafe { controller.addContentRuleList(list) };
@@ -714,7 +757,7 @@ fn remove_filter_lists_except(prefix: &str, keep: Option<&str>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{ALWAYS_VISIBLE, Builtin, site_matches};
+    use super::{ALWAYS_VISIBLE, Attach, Builtin, ShieldLevel, site_matches};
 
     /// Runs the script in Node's `vm` against a minimal document per host:
     /// `cargo test -p engine always_visible -- --ignored`.
@@ -747,6 +790,15 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[test]
+    fn extension_rule_lists_stay_out_of_lockdown() {
+        for (level, filtered) in ShieldLevel::ALL.into_iter().flat_map(|l| [(l, false), (l, true)]) {
+            assert!(Attach::Always.applies(level, filtered));
+            assert_eq!(Attach::Unpaused.applies(level, filtered), filtered);
+            assert_eq!(Attach::OutsideLockdown.applies(level, filtered), level != ShieldLevel::Lockdown);
+        }
     }
 
     #[test]

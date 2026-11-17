@@ -204,7 +204,9 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   stream, library search by keyboard, importing history from Edge.
 
 **Open, in order:**
-1. Extensions: a gap until CEF can scope them (§8). Translation stays macOS-only: Windows has no on-device
+1. Classic (Safari or Chrome) extensions: a gap until CEF can scope them (§8); Tarn extensions run
+   (`engine::tarn_ext` over the in-process DevTools channel, pages in `engine::ExtensionPage`).
+   Translation stays macOS-only: Windows has no on-device
    translation. The memory panel and budget measure each tab's main-frame renderer, which reports its own
    process id at each main-frame load (`RENDERER_PID`); Tarn takes it only when that process runs Tarn's own
    executable. A page whose renderer sends no report keeps the last one until the next.
@@ -345,14 +347,21 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
   weaker on Windows than on macOS.
 - **Request filtering cost:** `WebResourceRequested` for every request is slower than compiled
   WebKit rules; a slow matcher would hurt page loads.
-- **Extensions (M8), a gap:** CEF 156 (Chrome style) has no extension API. A spike found that
+- **Classic extensions (M8), a gap; Tarn extensions run.** Packages for Tarn's own runtime
+  (`browser_specific_settings.tarn.runtime`) work on Windows as on macOS: content scripts in an
+  isolated world per install through new-document scripts and a binding of that world only (cross-site
+  frames attached as targets of their own), rules
+  in the request filter, pages from `tarn-extension://` registered per request context, all through
+  the in-process DevTools channel (S22). Their popup is a Chromium view placed under the toolbar
+  button that closes on a second click, not a native popover. For full extensions: CEF 156 (Chrome
+  style) has no extension API. A spike found that
   `--disable-extensions-except` / `--load-extension` load unpacked MV3 extensions, run their
   content scripts and open their popups in a separate browser, but only at Chromium's start and
   for every request context at once: an extension cannot be limited to one profile, kept out of
   private spaces, or asked for per site (CEF has no host-permission callback; Chromium resets
   hand-written permission prefs), and `Extensions.loadUnpacked` needs a remote-debugging pipe,
   which S22 refuses. Shipping that would break S18 (per-profile installs, per-site prompts, none in
-  private or Lockdown), so Settings › Extensions says they are not available on Windows until CEF
+  private or Lockdown), so Settings › Extensions says only Tarn extensions run on Windows until CEF
   offers per-context loading and host permissions.
 - **GPUI Windows maturity:** fewer users than macOS; IME and accessibility (UI Automation) gaps
   may block release.

@@ -75,7 +75,71 @@ All three backends call the same `nav_policy::decide` and `level_action`.
 | **Dialogs and permissions** | `WKUIDelegate` | `WebChromeClient` (`onJsAlert`, `onPermissionRequest`, …) | `script-dialog` and `permission-request` signals |
 | **HTTP sign-in and TLS** | delegate challenge, default trust | `onReceivedHttpAuthRequest`; `onReceivedSslError` always cancels | `authenticate` signal; TLS errors always fail |
 | **Downloads** | `WKDownload` into the app container, shared through the Files app | `DownloadManager` or a stream to app storage | `download-started`; name sanitising and quarantine attribute (`user.xdg.origin.url`) |
-| **Extensions** | `WKWebExtensionController` if available on iOS (to verify); otherwise none | None | None |
+| **Extensions** | `WKWebExtensionController` if available on iOS (to verify); otherwise none | None | Tarn extensions (`browser_core::tarn_ext`, see below); classic WebExtensions are not supported |
+
+### Tarn extensions on Linux
+
+Linux runs Tarn extensions (manifest `browser_specific_settings.tarn.runtime: 1`) on the shared
+runtime in `browser_core::tarn_ext`; the shell only carries out its decisions.
+
+- **Install, consent, enable, every-site, remove:** Settings › Extensions, the shared pane
+  `tarn_nsh_shared::extensions` (file, GitHub repository, official catalog). A changed install
+  reloads the profile's runtime (`linux/src/extensions`).
+- **Content scripts and CSS:** `webkit_user_script_new_for_world` and
+  `webkit_user_style_sheet_new_for_world` in the world `tarn-ext-<install id>`. WebKitGTK user
+  content is pattern based: a view holds each frame's document at its response decision
+  (`decide-policy`, response, the final address after redirects) until the core's gate has
+  answered, and gives each approved script an allow-list of exactly that document's address,
+  query included, which a later answer for the same address takes away again. Nothing the gate
+  did not return is injected, a main-frame load clears the earlier answers and drops the documents
+  still held for the page before (a late answer for them allows nothing), a view that goes while
+  it waits ignores the held document, and a document whose question cannot reach the shell loads
+  with nothing allowed at its address. The site prompt is raised for the main frame only.
+- **Threads:** NSH runs the shell on its `nsh-engine` thread and WebKitGTK on the GTK main
+  thread. The runtime lives on the shell thread (`linux/src/extensions`); it hands owned copies
+  to the GTK thread through the default main context (`glib::MainContext::spawn`): each
+  persistent store's worlds and rule lists, replies, and extension pages to make, post to or
+  close. The views send frame questions and page messages back over a channel the shell thread
+  drains; a tab's messages arrive as the view's `extensionMessage` event. Tested with the runtime
+  on its own thread in `linux/src/webview/ext_display_tests.rs`.
+- **Messages:** a script message handler registered for that world only
+  (`webkit_user_content_manager_register_script_message_handler(name, world)`), so the page's
+  main world cannot post; replies are evaluated in the same world.
+- **Extension pages:** `tarn-extension://` registered on the web context
+  (`webkit_web_context_register_uri_scheme`, secure and display-isolated). The handler serves the
+  core's `Resources` with their CSP only to the extension's own page views; any other requester,
+  web pages included, gets 403. Background pages are hidden views in the profile's network session
+  with its Shield rules, started on demand and stopped after 30 s idle; the popup is shown under
+  the toolbar. Page views may only navigate within their own origin.
+- **Network rules:** each install's rule list compiles through `WebKitUserContentFilterStore`
+  into the tab's content manager, for the hosts it holds a grant for.
+- **Not in private spaces, burner tabs or Lockdown.** Files are hash-checked before every load; a
+  changed install is turned off and its site grants are dropped.
+
+Gaps, with their reason:
+
+- **Messaging from subframes.** WebKitGTK gives the UI process no frame for a script message:
+  in WebKitGTK 2.54.2 (Fedora 43, checked 2026-11-16) and the pinned `webkit6` 0.6.1,
+  `script-message-received` carries only the value and `script-message-with-reply-received` adds
+  only a `WebKitScriptMessageReply` (a return value or an error), and `WebKit-6.0.gir` has no
+  `WebKitFrame`. `WebKitFrame` and per-frame script worlds exist only in
+  `WebKitWebProcessExtension-6.0`, a shared library loaded into the web process, which needs
+  bindings `webkit6` 0.6.1 does not have; `webkit_web_view_evaluate_javascript` reaches only the
+  main frame. A frame named in the message body would make the body the sender's identity,
+  which the contract forbids (`docs/shared-core.md` §1). So the shim's transport is set up only
+  in the top frame: content scripts with `all_frames` run (JS and CSS) in a subframe only when
+  the gate grants that frame's own host, but their `chrome.runtime` and `chrome.storage` calls
+  reject with "The message could not be sent." and `tabs.sendMessage` reaches only the main
+  frame (`linux/src/webview/ext_display_tests.rs`, cross-site frame test). The world's message
+  handler itself is registered for the whole view, so the main frame's transport makes a random
+  token per document, posts it first and prefixes every message with it; the shell takes the
+  first token after each main-frame commit and drops any message without it, so a subframe's
+  world posting through `window.webkit.messageHandlers` is not heard. A page the back/forward
+  cache restores (a commit with no response of its own) keeps the tokens its document drew,
+  remembered under the history item it left from (also one it made with `pushState` or a
+  fragment) while the item is in the list. Messaging from subframes
+  needs a web-process extension.
+- **`document_idle`** runs at document end: WebKitGTK user scripts have only start and end.
 
 ## 5. Platform pieces outside the web view
 
