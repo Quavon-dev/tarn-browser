@@ -1,22 +1,14 @@
 use std::collections::HashSet;
 
 use store::{Bookmark, Id, Store};
-use url::Url;
 
 use crate::command::fuzzy_score;
-use crate::text::bounded_title;
 
 pub const READING_LIST: &str = "Reading List";
 pub const NEW_FOLDER: &str = "New Folder";
 pub const RECENT: usize = 12;
 
-pub fn title_or_host(title: &str, url: &str) -> String {
-    let title = bounded_title(title);
-    if !title.is_empty() {
-        return title;
-    }
-    Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_else(|| bounded_title(url))
-}
+pub use crate::text::title_or_host;
 
 pub fn find<'a>(bookmarks: &'a [Bookmark], url: &str) -> Option<&'a Bookmark> {
     bookmarks.iter().find(|b| b.url.as_deref() == Some(url))

@@ -137,6 +137,10 @@ pub fn shield(profile: &Profile, overrides: &Overrides, rules: &SiteRules, sets:
     Shield { site_for: Box::new(site_for), matcher }
 }
 
+pub fn saves_mute(muted: bool, level: ShieldLevel) -> bool {
+    !muted || level != ShieldLevel::Lockdown
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,6 +168,12 @@ mod tests {
         let site = |u: &str| site(ShieldLevel::Standard, &SiteRules::default(), &RefCell::new(malware.clone()), &Url::parse(u).unwrap());
         let urls = ["https://ok.example/f.zip", "https://evil.example./page"].map(|u| Url::parse(u).ok());
         assert_eq!(engine::downloads::flagged_source(urls, |u| site(u.as_str())).map(|u| u.to_string()), Some("https://evil.example./page".to_owned()));
+    }
+
+    #[test]
+    fn only_a_lockdown_mute_goes_unsaved() {
+        assert!(saves_mute(true, ShieldLevel::Strict) && saves_mute(false, ShieldLevel::Lockdown));
+        assert!(!saves_mute(true, ShieldLevel::Lockdown));
     }
 
     #[test]

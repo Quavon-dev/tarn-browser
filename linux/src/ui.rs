@@ -93,6 +93,7 @@ pub enum Panel {
     Folder(store::Id),
     Bookmarks(Option<store::Id>),
     Group(store::Id),
+    Sidebar,
 }
 
 #[derive(Clone, Copy)]
@@ -343,6 +344,7 @@ fn web_views(ui: Ui) -> View {
                     .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
                     .prop("zaps", move || item.with(|v| v.zaps.clone()))
                     .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
+                    .prop("muted", move || JsonValue::from(item.with(|v| v.muted)))
                     .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link }))))
                     .prop("active", move || JsonValue::from(item.with(|v| v.active)))
                     .on_native_event(move |event: &NativeEvent| {
@@ -549,9 +551,11 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
             })
         }))
         .child(dynamic(move || {
-            let (playing, asleep) = item.with(|r| (r.playing, r.asleep));
+            let (playing, asleep, muted) = item.with(|r| (r.playing, r.asleep, r.muted));
             let state = if closing() || dropping().is_some() {
                 None
+            } else if muted {
+                Some((icons::VOLUME_X, Theme::faint(), "Muted"))
             } else if playing {
                 Some((icons::VOLUME_2, Theme::space_label(), "Playing audio"))
             } else if asleep {
@@ -772,6 +776,7 @@ fn sidebar(ui: Ui) -> View {
         .border_1()
         .border_color(Theme::sidebar_edge())
         .shadow(Theme::elevation(10., 30.))
+        .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Sidebar))
         .on_wheel(move |e: &WheelEvent| {
             if let WheelDelta::Points(p) = e.delta {
                 let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swipe.feed(p.x.0, p.y.0, std::time::Instant::now()));
@@ -1698,6 +1703,7 @@ fn run_action(ui: Ui, action: Action) {
         Action::SwapPanes => act(ui, Browser::swap_panes),
         Action::RotateSplitLayout => act(ui, |b| b.model.active.into_iter().for_each(|k| b.rotate_split(k))),
         Action::RemoveFromSplitView => act(ui, |b| b.model.active.into_iter().for_each(|k| b.leave_split(k))),
+        Action::CloseAllTabs => act_moving(ui, Browser::close_all_tabs),
     }
 }
 

@@ -422,3 +422,19 @@ fn save_pdf_prints_the_page_to_the_chosen_file_and_lists_it_as_a_download() {
     assert!(bytes.starts_with(b"%PDF-"), "a PDF was written");
     assert!(!dir.path().join("relative.pdf").exists() && std::fs::read_dir(dir.path()).unwrap().count() == 1, "a relative path is refused");
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_muted_view_stays_muted_when_rebuilt_and_unmutes() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdee");
+    assert!(!state.web().unwrap().is_muted());
+    mute(&state, true);
+    assert!(state.web().unwrap().is_muted());
+    let wanted = Build { key: StoreKey::parse("burner:0123456789abcdef0123456789abcdee").unwrap(), level: ShieldLevel::Strict, lists: Vec::new() };
+    state.drop_view();
+    build(&state, &wanted, &[]);
+    assert!(state.web().unwrap().is_muted(), "a rebuilt view keeps the mute");
+    mute(&state, false);
+    assert!(!state.web().unwrap().is_muted());
+}

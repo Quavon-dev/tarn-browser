@@ -48,6 +48,15 @@ contract v2 (`docs/mobile-plan.md` §2), which also lists what stays different. 
 
 Same store schema and setting keys as macOS (`block_annoyances`, `history_text`, `sort_downloads`,
 `keymap.tarn::<Action>`):
+- tabs: Mute Site (`muted` prop, WebKitGTK `is-muted`; saved per profile, a Lockdown mute lasts
+  while the tab stays on the host; a speaker mark on the tab row, the site panel's switch and the
+  Muted sites list in Settings › Privacy), Rename Tab and Reset Title, Return to Pinned URL and Set
+  Pinned URL to Current Page, Duplicate Tab, Close All Tabs (`Ctrl+Shift+K`), Close Other Tabs and
+  Close Tabs Below, Sleep Tab, Sleep Other Tabs and Sleep All Inactive Tabs (Memory panel), closing
+  a pinned tab unloads it (Unload Tab), reopening a chosen tab from Recently Closed in the History
+  panel, Delete Folder, and a sidebar menu on a right click of the sidebar (New Tab, Reopen Closed
+  Tab, New Folder, Bookmark All Tabs, Hide Tabs, New Profile, Edit Profile, Close All Tabs, Close
+  Duplicate Tabs);
 - tabs: close duplicate tabs, toasts with Undo, copy link and clean link (tracking parameters counted),
   QR code (`engine::qr`, drawn by `tarn_nsh_shared::qr`), all three in the toolbar's share menu with Save
   Page as PDF (through the save dialog, listed in Downloads) and Print… (Linux has no system share

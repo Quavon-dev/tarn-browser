@@ -334,6 +334,11 @@ impl Model {
         moved
     }
 
+    pub fn pinned_drift(&self, key: TabKey, current: &str) -> Option<Url> {
+        let pinned = self.tab(key).filter(|t| t.kind != TabKind::Ephemeral)?.pinned_url.as_deref()?;
+        drifted(pinned, current).then(|| Url::parse(pinned).ok()).flatten()
+    }
+
     /// The tabs inside folder `id` and its subfolders, and the folders themselves.
     pub fn folder_contents(&self, id: Id) -> (Vec<TabKey>, HashSet<Id>) {
         let tree = folder_tree(&self.folders, id);
@@ -449,6 +454,10 @@ pub fn drifted(pinned: &str, current: &str) -> bool {
 /// A group's colour from the client's `palette` of named colours: its pick, or one fixed by its id.
 pub fn group_color(group: &Group, palette: &[(&str, u32)]) -> u32 {
     palette.iter().find(|(n, _)| *n == group.color).unwrap_or(&palette[group.id.unsigned_abs() as usize % palette.len()]).1
+}
+
+pub fn custom_title(typed: &str, page_title: &str) -> String {
+    if typed == crate::text::bounded_title(page_title) { String::new() } else { typed.to_owned() }
 }
 
 /// Unpinned tabs showing a page another tab of `tabs` shows too, the fragment ignored. Per page the
@@ -895,6 +904,25 @@ mod tests {
         assert_eq!(sorted(None), [1, 3, 5]);
         assert_eq!(sorted(Some(3)), [1, 2, 5]);
         assert_eq!(duplicates(&tabs, None, |t| if t.id == 2 { "https://c.test/".into() } else { t.url.clone() }).len(), 2);
+    }
+
+    #[test]
+    fn a_pinned_tab_drifts_from_its_pinned_url_and_a_loose_tab_never() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let pinned = core.disk.create_tab(s, TabKind::Pinned, None, "https://mail.test/inbox", "").unwrap();
+        let loose = core.disk.create_tab(s, TabKind::Ephemeral, None, "https://mail.test/inbox", "").unwrap();
+        model.reload_space(&core);
+        let (pinned, loose) = (model.key(model.tab(TabKey { private: false, id: pinned.id }).unwrap()), TabKey { private: false, id: loose.id });
+        assert_eq!(model.pinned_drift(pinned, "https://mail.test/inbox?page=2").map(String::from), None);
+        assert_eq!(model.pinned_drift(pinned, "https://other.test/").map(String::from).as_deref(), Some("https://mail.test/inbox"));
+        assert_eq!(model.pinned_drift(loose, "https://other.test/"), None);
+    }
+
+    #[test]
+    fn a_custom_title_equal_to_the_page_title_is_not_kept() {
+        assert_eq!(custom_title("Inbox", "  Inbox "), "");
+        assert_eq!(custom_title("Mail", "Inbox"), "Mail");
     }
 
     #[test]

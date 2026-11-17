@@ -65,6 +65,25 @@ macOS reference: `crates/app/src/library.rs` (`Page::Bookmarks`, `row_menu`), `c
   bookmarks sheet
 - [ ] Android — same as iOS
 
+### Tab actions and Mute Site (2026-11-17)
+
+What it does: Mute Site (saved per profile, a Lockdown mute lasts while the tab stays on the host;
+a mark on the tab and a Muted sites list in Settings › Privacy), Rename Tab and Reset Title,
+Return to Pinned URL and Set Pinned URL to Current Page, Duplicate Tab, Close All, Other and Below,
+Sleep Tab, Other and All Inactive Tabs, reopening a chosen recently closed tab, Delete Folder,
+the sidebar menu, and closing a pinned tab unloads it.
+Shared API: `browser_core::site::saves_mute`, `Store::{muted_sites, set_site_muted}`,
+`browser_core::tabs::{custom_title, Model::pinned_drift, Model::bookmark_all,
+Model::folder_contents}`, `ClosedTabs::{recent, take}`; web view `set_muted` (NSH: `muted` prop).
+macOS reference: `crates/app/src/browser/context.rs` (`tab_menu`, `sidebar_menu`, `folder_menu`),
+`crates/app/src/tabs.rs`; Linux: `linux/src/browser/tab_actions.rs`, `linux/src/ui/panels.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/browser/tab_actions.rs`, the Tab, Sidebar, Folder and History panels
+- [ ] iOS — the `muted` prop in `mobile/ios` (`WKWebView` media muting) and the tab actions in the
+  tab sheet of `mobile/app/src/ui/panels.rs`
+- [ ] Android — the `muted` prop in `TarnWebView` and the same tab actions in `mobile/app`
+
 ### Clean Up (2026-11-16)
 
 What it does: the Clean Up button in the New Tab row sorts the space's loose tabs into tab groups by what each page

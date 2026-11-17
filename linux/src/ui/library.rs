@@ -144,7 +144,10 @@ pub fn memory_panel(ui: Ui) -> AnyElement {
         })
         .collect();
     popover()
-        .child(super::panels::heading(ui, title("Memory")))
+        .child(super::panels::heading(
+            ui,
+            view().flex_row().items_center().flex_1().child(title("Memory")).child(view().flex_1()).child(pill("Sleep All Inactive Tabs", move || act(ui, Browser::sleep_inactive_tabs))),
+        ))
         .child(note("Memory and CPU of each tab's web content process over the last minute, read from /proc. Tabs WebKitGTK runs in one process each show its total; a tab whose process could not be told apart is not measured."))
         .child(view().flex_col().children(items))
         .into_element()

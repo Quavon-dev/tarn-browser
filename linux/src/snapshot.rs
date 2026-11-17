@@ -42,6 +42,7 @@ pub struct Row {
     pub asleep: bool,
     pub loading: bool,
     pub playing: bool,
+    pub muted: bool,
     /// In a split: `Some(true)` for the split on screen.
     pub split: Option<bool>,
     /// A split row's panes, in layout order.
@@ -77,6 +78,7 @@ pub struct ViewItem {
     pub youtube: bool,
     pub load: Option<(String, u64)>,
     pub link: bool,
+    pub muted: bool,
     pub active: bool,
     /// Its place in the split on screen.
     pub pane: Option<usize>,
@@ -195,6 +197,7 @@ fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows
     let mut tabs: Vec<&Tab> =
         b.model.tabs.iter().filter(|t| t.folder_id == zone.folder && t.group_id == zone.group && zone.kind.is_none_or(|k| t.kind == k)).collect();
     tabs.sort_by_key(|t| t.position);
+    let muted = if tabs.is_empty() { Vec::new() } else { b.muted_sites() };
     for tab in tabs {
         let key = b.model.key(tab);
         let url = b.pages.get(&key).map(|p| p.url.as_str()).filter(|u| !u.is_empty()).unwrap_or(&tab.url);
@@ -207,6 +210,7 @@ fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows
             asleep: b.model.active != Some(key) && !b.elsewhere.contains(&key) && !b.model.lifecycle.live().any(|k| k == key),
             loading: b.pages.get(&key).is_some_and(|p| p.loading),
             playing: b.playing.contains(&key),
+            muted: b.muted_with(key, &muted),
             split: b.splits.contains(key).then(|| b.in_split(key)),
             host,
             depth,
@@ -237,6 +241,7 @@ fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: 
             asleep: false,
             loading: false,
             playing: false,
+            muted: false,
             split: None,
             panes: Vec::new(),
             color: 0,
@@ -310,6 +315,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
     let mut keys: Vec<TabKey> = b.model.lifecycle.live().filter(|k| b.model.tab(*k).is_some()).collect();
     keys.sort_by_key(|k| k.id);
     let mut site = HashMap::new();
+    let muted = b.muted_sites();
     keys.into_iter()
         .map(|key| {
             let page = b.pages.get(&key);
@@ -329,6 +335,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 youtube,
                 load: page.and_then(|p| p.load.clone()),
                 link: page.is_some_and(|p| p.link),
+                muted: b.muted_with(key, &muted),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
                 pane: panes.iter().position(|k| *k == key).filter(|_| shown),
             }

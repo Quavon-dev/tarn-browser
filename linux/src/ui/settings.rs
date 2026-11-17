@@ -268,6 +268,21 @@ fn hidden(ui: Ui, private: bool) -> View {
     view().flex_col().children(rows)
 }
 
+fn muted_sites(ui: Ui) -> View {
+    let hosts = read(ui, Browser::muted_sites).unwrap_or_default();
+    if hosts.is_empty() {
+        return view().child(note("No muted sites. Mute Site in a tab's panel or the command bar silences a site in this profile."));
+    }
+    let rows: Vec<AnyElement> = hosts
+        .into_iter()
+        .map(|host| {
+            let shown = browser_core::text::bounded_title(&host);
+            line(shown).child(pill("Unmute", move || act(ui, |b| b.unmute_site(&host)))).into_element()
+        })
+        .collect();
+    view().flex_col().children(rows)
+}
+
 fn permissions(ui: Ui) -> View {
     let rows = read(ui, |b| b.permissions()).unwrap_or_default();
     if rows.is_empty() {
@@ -616,6 +631,8 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 .child(note("A link to this computer (localhost, 127.0.0.1) from a terminal, editor or other app opens like a typed address, and the page it shows may lead elsewhere on your network as a typed one can. Off: Tarn refuses it, since a link in a mail could reach services running here; Open Anyway on the notice still opens it. Links to other addresses on your network are refused; Open Anyway on the notice opens them. Applies to every profile."))
                 .child(section("Site overrides"))
                 .child(overrides(ui))
+                .child(section("Muted sites"))
+                .child(muted_sites(ui))
                 .child(
                     view()
                         .flex_row()

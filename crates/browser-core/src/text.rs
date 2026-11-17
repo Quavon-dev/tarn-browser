@@ -41,9 +41,24 @@ pub fn is_bidi(c: char) -> bool {
     matches!(c, '\u{061C}' | '\u{115F}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{E0000}'..='\u{E007F}')
 }
 
+pub fn title_or_host(title: &str, url: &str) -> String {
+    let title = bounded_title(title);
+    if !title.is_empty() {
+        return title;
+    }
+    url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_else(|| bounded_title(url))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_untitled_page_is_named_by_its_host() {
+        assert_eq!(title_or_host(" Inbox ", "https://mail.test/"), "Inbox");
+        assert_eq!(title_or_host("", "https://Mail.Test/x"), "mail.test");
+        assert_eq!(title_or_host("", "about:blank"), "about:blank");
+    }
 
     #[test]
     fn invisible_and_bidi_characters() {
