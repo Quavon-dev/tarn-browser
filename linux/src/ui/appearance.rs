@@ -4,7 +4,11 @@ use nsh_core::prelude::*;
 use store::{Id, Store};
 use tarn_nsh_shared::appearance::{Host, appearance};
 
+use super::panels::section;
+use super::tools::note;
 use super::{Ui, act, read};
+use crate::browser::COMPACT_TOOLBAR;
+use crate::controls::{group, group_row, label, segmented, switch};
 
 #[derive(Clone, Copy)]
 struct Looks(Ui);
@@ -50,5 +54,27 @@ impl Host for Looks {
 }
 
 pub(super) fn pane(ui: Ui) -> AnyElement {
-    appearance(Looks(ui))
+    view().flex_col().child(appearance(Looks(ui))).child(layout(ui)).into_element()
+}
+
+fn layout(ui: Ui) -> View {
+    let (compact, auto_hide) = read(ui, |b| (b.compact_toolbar(), b.auto_hide_sidebar())).unwrap_or_default();
+    let toolbar = [(false, "Classic".to_owned()), (true, "Compact".to_owned())].to_vec();
+    let shortcut = super::shortcut_of(ui, crate::shortcuts::Action::ToggleSidebar).map(|k| format!(" ({k})")).unwrap_or_default();
+    view()
+        .flex_col()
+        .child(section("Layout"))
+        .child(
+            group()
+                .child(group_row().child(label("Toolbar").flex_1()).child(segmented(toolbar, compact, move |on| {
+                    act(ui, move |b| {
+                        if b.compact_toolbar() != on {
+                            b.toggle_off_setting(COMPACT_TOOLBAR)
+                        }
+                    })
+                })))
+                .child(switch(auto_hide, "Hide sidebar automatically", move || super::set_auto_hide_sidebar(ui))),
+        )
+        .child(note("Compact puts the address field into a slimmer bar."))
+        .child(note(format!("With the sidebar hidden{shortcut}, it slides in over the page while the pointer rests at the window's left edge.")))
 }

@@ -274,3 +274,37 @@ fn icon_candidates_stop_once_the_tab_leaves_the_origin() {
     assert_eq!(event(&state, "iconData").unwrap()["text"], "");
     assert_eq!(second_seen.load(Ordering::SeqCst), 0, "no candidate is asked once the tab shows another origin");
 }
+
+#[test]
+fn a_snapshot_is_scaled_down_to_the_card_width() {
+    let pixels: Vec<u8> = (0..4u8).flat_map(|p| [p, p, p, 255]).collect();
+    let (scaled, w, h) = scale_down(&pixels, 4, 1, 2);
+    assert_eq!((w, h), (2, 1));
+    assert_eq!(scaled, vec![0, 0, 0, 255, 2, 2, 2, 255]);
+    assert_eq!(scale_down(&pixels, 2, 2, 8).1, 2, "never scaled up");
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_snapshot_answers_and_a_scripted_shift_click_does_not_peek() {
+    gtk::init().expect("a display");
+    let window = gtk::Window::new();
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    window.set_child(Some(state.container()));
+    window.set_default_size(800, 600);
+    window.present();
+    let web = open(&state);
+    state.events.borrow_mut().clear();
+    snapshot(&state, &web);
+    assert!(spin_until(|| event(&state, "snapshot").is_some(), 20), "the snapshot answered");
+    let png = event(&state, "snapshot").unwrap()["png"].clone();
+    assert!(png.as_str().is_some_and(|p| p.starts_with("data:image/png;base64,")), "a PNG of the page");
+    state.events.borrow_mut().clear();
+    page_eval(
+        &web,
+        "const a = document.createElement('a'); a.href = 'https://peek.test/'; document.body.append(a); a.dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true })); 1",
+    );
+    spin_until(|| false, 1);
+    assert!(event(&state, "peek").is_none(), "only the user's Shift-click peeks");
+    window.close();
+}

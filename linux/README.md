@@ -76,12 +76,26 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   drag and even out on a double click, drops on a sidebar row's middle, a pane header or a page;
   a click in a pane's page focuses it through `pressed` (a Linux addition the component emits from
   a click it does not claim), as WebKitGTK keeps the page's pointer events from the shell;
+- layout (Settings › Appearance › Layout, keys `compact_toolbar` and `auto_hide_sidebar`): the compact
+  toolbar puts Shield, host and page title into one slim field; with the sidebar hidden, resting the
+  pointer at the window's left edge slides it in over the page (`browser_core::hover::Hover`) and it
+  closes once the pointer has left it;
+- tab hover card: resting on a sidebar row shows title, host and path and "Sleeping"
+  (`browser_core::hover::{Rest, card_lines}`; Linux has no tab mute); holding Alt shows the larger
+  card with a snapshot of an awake tab (`snapshot` command, answered by a `snapshot` event with a PNG
+  `data:` URI at most 752 px wide, kept only while the card shows);
+- link peek: a Shift-click on a link (`peek {url}`, a Linux event for `PeekLink`, under the pop-up
+  rules: user gesture, pop-up rate, `view_policy::popup` with the private-network check) opens the
+  link in a card over the page, in a web view with the opener's profile, data store and Shield
+  rules (S9); Esc, the backdrop or Close closes it, switching tabs too; its dialogs are declined;
+  Open in Tab opens the peeked address in a new tab of the current space when that space has the
+  opener's profile (the tab loads the page again: NSH cannot move a web view between components,
+  so the peek's back history stays behind);
 - memory panel and heavy-tab marks: WebKitGTK gives no process id, so the component reports
   `process {pid}` (a Linux addition) when exactly one new `WebKitWebProcess` below the app appears
   between a load's start and its commit; tabs it cannot tell apart are "Not measured".
 
-Not ported: on-device translation and the startup trace (macOS-only), the live page peek (optional,
-skipped).
+Not ported: on-device translation and the startup trace (macOS-only).
 
 ## Build and test (Docker; no Linux desktop is needed)
 

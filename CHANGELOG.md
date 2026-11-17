@@ -24,6 +24,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   in Settings › Extensions built only from Tarn's verified catalog, and nothing is downloaded
   until you press Install there; Settings › Extensions links the store (macOS, Windows, Linux,
   iOS, Android).
+- Compact toolbar, auto-hiding sidebar, the tab hover card with its Alt page snapshot, and link
+  peek (Shift-click opens a link in a card over the page, in the opener's profile and Shield
+  rules) (Linux).
 
 ### Changed
 
