@@ -279,6 +279,52 @@ fn a_permission_the_component_cannot_place_in_a_frame_is_never_remembered() {
 }
 
 #[test]
+fn a_top_page_permission_is_remembered_at_standard_only() {
+    let (_dir, mut b) = browser();
+    let key = active(&b);
+    let ask = |id: u64| json!({ "id": id, "kind": "camera", "origin": "https://cam.test", "topOrigin": "https://cam.test" });
+    b.on_event(key, "prompt", &ask(1));
+    assert!(b.remembers(&b.pages[&key].prompts[0]));
+    b.answer(1, true, true, "", "", "");
+    b.outbox.clear();
+    b.on_event(key, "prompt", &ask(2));
+    assert!(b.pages[&key].prompts.is_empty(), "not asked again");
+    assert_eq!(b.outbox.last().map(|(_, n, a)| (*n, a.clone())), Some(("answer", json!({ "id": 2, "accept": true }))));
+    assert_eq!(b.permissions().len(), 1, "listed in Settings › Permissions");
+    b.on_event(key, "committed", &json!({ "url": "https://cam.test/", "title": "", "canGoBack": false }));
+    b.set_site_level(Some(ShieldLevel::Strict));
+    b.outbox.clear();
+    b.on_event(key, "prompt", &ask(3));
+    assert_eq!(b.pages[&key].prompts.len(), 1, "asked again under Strict");
+    assert!(!b.remembers(&b.pages[&key].prompts[0]));
+}
+
+#[test]
+fn blocking_a_pages_requests_drops_its_queue() {
+    let (_dir, mut b) = browser();
+    let key = active(&b);
+    for id in 1..=3 {
+        b.on_event(key, "prompt", &json!({ "id": id, "kind": "alert", "origin": "https://loud.test", "message": "hi" }));
+    }
+    b.outbox.clear();
+    b.silence(1);
+    assert!(b.pages[&key].prompts.is_empty());
+    assert_eq!(b.outbox, vec![(key, "answer", json!({ "id": 1, "accept": false, "silence": true }))]);
+}
+
+#[test]
+fn a_popup_names_its_opener_to_its_view() {
+    let (_dir, mut b) = browser();
+    let key = active(&b);
+    b.on_event(key, "popup", &json!({ "url": "https://popup.test/" }));
+    let popup = b.model.active.unwrap();
+    assert_ne!(popup, key);
+    let views = crate::snapshot::snapshot(&b, true).views;
+    let opener = views.iter().find(|v| v.key == popup).map(|v| v.opener.clone());
+    assert_eq!(opener, Some(format!("{}-{}", key.private, key.id)));
+}
+
+#[test]
 fn popups_open_as_new_tabs_and_downloads_are_listed() {
     let (_dir, mut b) = browser();
     let key = active(&b);

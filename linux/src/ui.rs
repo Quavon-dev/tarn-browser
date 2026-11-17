@@ -360,6 +360,7 @@ fn web_views(ui: Ui) -> View {
                     .prop("styles", move || item.with(|v| v.styles.clone()))
                     .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
                     .prop("zaps", move || item.with(|v| v.zaps.clone()))
+                    .prop("burstsOf", move || JsonValue::from(item.with(|v| v.opener.clone())))
                     .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
                     .prop("muted", move || JsonValue::from(item.with(|v| v.muted)))
                     .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link }))))
@@ -1483,13 +1484,27 @@ fn notice_bar(ui: Ui) -> AnyElement {
     })
 }
 
-/// Answers the page's prompt in front without remembering the answer.
-fn answer_prompt(ui: Ui, id: u64, accept: bool) {
-    let (t, u, p) = (ui.answer_text.get_untracked(), ui.answer_user.get_untracked(), ui.answer_password.get_untracked());
+fn take_answers(ui: Ui) -> (String, String, String) {
+    let answers = (ui.answer_text.get_untracked(), ui.answer_user.get_untracked(), ui.answer_password.get_untracked());
     ui.answer_text.set(String::new());
     ui.answer_user.set(String::new());
     ui.answer_password.set(String::new());
+    answers
+}
+
+fn answer_prompt(ui: Ui, id: u64, accept: bool) {
+    let (t, u, p) = take_answers(ui);
     act(ui, |b| b.answer(id, accept, false, &t, &u, &p));
+}
+
+fn always_allow(ui: Ui, id: u64) {
+    take_answers(ui);
+    act(ui, |b| b.answer(id, true, true, "", "", ""));
+}
+
+fn silence_prompt(ui: Ui, id: u64) {
+    take_answers(ui);
+    act(ui, |b| b.silence(id));
 }
 
 /// Enter, not held, accepts an alert or a confirm only while neither a field nor the page has the
@@ -1531,15 +1546,18 @@ fn prompt_bar(ui: Ui) -> AnyElement {
         let (accept, decline) = match prompt.kind.as_str() {
             "alert" => ("OK", None),
             "credentials" => ("Sign In", Some("Cancel")),
-            "camera" | "microphone" | "location" => ("Allow", Some("Deny")),
+            "camera" | "microphone" | "location" => ("Allow Once", Some("Deny")),
             _ => ("OK", Some("Cancel")),
         };
+        let remember = prompt.is_permission() && read(ui, |b| b.remembers(&prompt)).unwrap_or(false);
         let buttons = view()
             .flex_row()
             .items_center()
             .gap_2()
+            .child(tarn_nsh_shared::controls::secure_ghost("Block requests from this page", move || silence_prompt(ui, id)))
             .children(decline.map(|name| tarn_nsh_shared::controls::secure_ghost(name, move || reply(false))))
-            .child(secure_button(accept, move || reply(true), true));
+            .child(secure_button(accept, move || reply(true), !remember))
+            .children(remember.then(|| secure_button("Always Allow", move || always_allow(ui, id), true)));
         let insecure = prompt.insecure.then(|| body("This connection is not secure: the password would be sent unencrypted.").text_color(Secure::warning()));
         let tile = view()
             .w(px(30.))

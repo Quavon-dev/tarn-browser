@@ -25,6 +25,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   the request, with the warning page (Go Back, Visit Anyway for malware), the per-site switch for
   ad, tracker and cookie-banner blocking, pop-up rules, permission rows and Clear site data in the
   site popover, and the Privacy switches and paused-site list (Linux).
+- Permission prompts offer Always Allow, saved per site and listed in Settings › Permissions, and
+  every page prompt offers "Block requests from this page"; popup tabs share their opener's prompt
+  and popup limits (Linux).
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages

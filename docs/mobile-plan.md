@@ -47,9 +47,10 @@ off at Lockdown, TLS errors are never bypassed, and there is no remote debugging
 | prop | `blocking` | `{paused, exceptions, popups, sets}` | The profile's per-site choices for `browser_core::site::site`: paused hosts, malware hosts let through with Visit Anyway (in memory), pop-up rules by origin (`allow` / `block`) and the switched-on domain-set categories (`malware`, `adult`, `popups`), whose sets the component reads from the installed bundle. Linux only so far; iOS and Android still judge every site as `Site::new` |
 | prop | `load` | `{url, seq, opener?}` | A shell load (typed, restored, new tab); a new `seq` loads again even for the same URL. `opener` is the committed URL of the tab that emitted `popup`: the load is then judged as a popup from that page (`nav_policy` source `Popup`, private network checked against the opener, redirects before commit too) |
 | prop | `active` | bool | Foreground tab; background views may be suspended |
+| prop | `burstsOf` | string | The `tab` of the opener a popup tab came from: the view shares that tab's prompt and popup limits (S23). Linux only so far; iOS and Android still need it |
 | command | `back`, `forward`, `reload`, `stop` | none | |
 | command | `find` | `{text, backwards}` | Emits `found` |
-| command | `answer` | `{id, accept, text?, user?, password?}` | Answers a `prompt`; an unanswered prompt is declined when the component is destroyed |
+| command | `answer` | `{id, accept, text?, user?, password?, silence?}` | Answers a `prompt`; an unanswered prompt is declined when the component is destroyed. `silence: true` ("Block requests from this page") declines it and every other pending prompt, and the page's later dialogs and permission requests, until its next navigation (S23). Linux only so far; iOS and Android still need it |
 | command | `zoom` | `{factor}` | 0.5 to 3.0 (`engine::view_policy::zoom_factor`); 1.0 is the page's own size |
 | event | `committed` | `{url, title, canGoBack, canGoForward}` | Main frame committed |
 | event | `finished` | `{url, title, canGoBack, canGoForward}` | Load finished |
@@ -86,10 +87,11 @@ Platform differences left in the contract, and why:
 - `lists`: Linux compiles the groups into `UserContentFilter`s per view; iOS has no filter lists until a
   bundle is published and ignores the prop; Android applies the installed `shield::matcher` to every view
   (no bundle yet either);
-- `prompt.topOrigin`: iOS sets it only for an embedded frame, Android always (the page's origin), Linux
-  always empty because WebKitGTK gives no frame origin; the shells remember a permission only when
-  `topOrigin` is absent or equals `origin` (`browser_core::prompts`), so Linux never remembers one and
-  offers only Allow Once and Deny;
+- `prompt.topOrigin`: iOS sets it only for an embedded frame, Android always (the page's origin); Linux
+  gets no frame origin from WebKitGTK, so it sets the page's origin only when the page has no frames
+  (`window.length` is 0 in the `tarn` world when the request arrives) and an empty one otherwise; the
+  shells remember a permission only when `topOrigin` is absent or equals `origin`
+  (`browser_core::prompts`), so Linux offers Always Allow only on a page without frames;
 - zoom is visible to the page on every platform (computed font sizes; on iOS also the inline
   `-webkit-text-size-adjust` on `<html>`, which replaces a value the page set there itself); iOS
   measures the autosizing boost once per document (capped at 4), so a rotation keeps the first value;

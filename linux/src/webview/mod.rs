@@ -21,7 +21,7 @@ use webkit6::prelude::*;
 use webkit6::{
     AuthenticationRequest, AuthenticationScheme, Credential, CredentialPersistence, Download, FindOptions, GeolocationPermissionRequest, LoadEvent,
     MediaCaptureState, NavigationPolicyDecision, NavigationType, NetworkError, PermissionRequest, PolicyDecisionType, PolicyError, ResponsePolicyDecision,
-    ScriptDialog, ScriptDialogType, UserContentFilter, UserContentManager, UserMediaPermissionRequest, WebProcessTerminationReason, WebView, glib,
+    ScriptDialog, ScriptDialogType, UserContentFilter, UserContentManager, UserMediaPermissionRequest, WebProcessTerminationReason, WebView, gio, glib,
 };
 
 use self::policy::{Burst, Levels, Navigation, Verdict};
@@ -74,10 +74,10 @@ struct State {
     failed: Cell<bool>,
     scheduled: Cell<bool>,
     silenced: Cell<bool>,
+    commits: Cell<u64>,
     prompts: RefCell<HashMap<u64, Pending>>,
     next_prompt: Cell<u64>,
-    prompt_burst: RefCell<Burst>,
-    popup_burst: RefCell<Burst>,
+    bursts: RefCell<Rc<Bursts>>,
     download_burst: RefCell<Burst>,
     auth_failures: RefCell<HashMap<String, u32>>,
     find_text: RefCell<String>,
@@ -97,6 +97,12 @@ struct State {
     process: Cell<Option<i32>>,
     #[cfg(test)]
     events: RefCell<Vec<(String, JsonValue)>>,
+}
+
+#[derive(Default)]
+struct Bursts {
+    prompts: RefCell<Burst>,
+    popups: RefCell<Burst>,
 }
 
 impl State {
@@ -147,8 +153,12 @@ impl State {
         })
     }
 
-    fn admit(&self, burst: &RefCell<Burst>, max: usize) -> bool {
-        burst.borrow_mut().admit(max, Instant::now())
+    fn admit_prompt(&self) -> bool {
+        self.bursts.borrow().prompts.borrow_mut().admit(policy::PROMPT_BURST, Instant::now())
+    }
+
+    fn admit_popup(&self) -> bool {
+        self.bursts.borrow().popups.borrow_mut().admit(policy::POPUP_BURST, Instant::now())
     }
 
     fn site(&self, url: &Url) -> Site {
@@ -443,12 +453,8 @@ fn open_popup(state: &Rc<State>, uri: &str, gesture: bool, link: bool, by_page: 
         Verdict::Allow { .. } if gesture && by_page && !nav_policy::popup_allowed(opener(state, page.as_ref()), Some(state.site(&url))) => {
             state.emit("blocked", json!({ "url": url.as_str(), "reason": "shield", "popup": true }))
         }
-        Verdict::Allow { .. } if gesture && state.admit(&state.popup_burst, policy::POPUP_BURST) => {
-            state.emit("popup", json!({ "url": url.as_str(), "link": link }))
-        }
-        Verdict::External if gesture && state.admit(&state.prompt_burst, policy::PROMPT_BURST) => {
-            state.emit("external", json!({ "url": url.as_str(), "origin": state.origin() }))
-        }
+        Verdict::Allow { .. } if gesture && state.admit_popup() => state.emit("popup", json!({ "url": url.as_str(), "link": link })),
+        Verdict::External if gesture && state.admit_prompt() => state.emit("external", json!({ "url": url.as_str(), "origin": state.origin() })),
         Verdict::Blocked(reason) => state.emit("blocked", json!({ "url": url.as_str(), "reason": reason, "popup": true })),
         Verdict::Allow { .. } if !gesture => state.shielded("popup", url.as_str()),
         _ => {}
@@ -544,7 +550,7 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
         }
         Verdict::Rebuild => state.emit("blocked", json!({ "url": uri, "reason": "rebuild" })),
         Verdict::External => {
-            if from_shell || state.admit(&state.prompt_burst, policy::PROMPT_BURST) {
+            if from_shell || state.admit_prompt() {
                 let origin = if from_shell { String::new() } else { state.origin() };
                 state.emit("external", json!({ "url": uri, "origin": origin }));
             }
@@ -579,7 +585,7 @@ fn may_prompt(state: &Rc<State>) -> bool {
     if state.silenced.get() {
         return false;
     }
-    let admitted = state.admit(&state.prompt_burst, policy::PROMPT_BURST);
+    let admitted = state.admit_prompt();
     if !admitted {
         state.silenced.set(true);
     }
@@ -620,9 +626,20 @@ fn permission(state: &Rc<State>, request: &PermissionRequest) -> bool {
         request.deny();
         return true;
     }
-    let origin = state.origin();
-    let data = json!({ "kind": kind, "origin": origin, "topOrigin": "" });
-    prompt(state, Pending::Permission(request.clone()), data);
+    let Some(web) = state.web() else {
+        request.deny();
+        return true;
+    };
+    let (origin, commit, request) = (state.origin(), state.commits.get(), request.clone());
+    let weak = Rc::downgrade(state);
+    web.call_async_javascript_function("return window.length;", None, Some(scripts::WORLD), None, None::<&gio::Cancellable>, move |frames| {
+        let Some(state) = weak.upgrade().filter(|s| !s.silenced.get() && s.commits.get() == commit) else {
+            return request.deny();
+        };
+        let top = frames.ok().is_some_and(|v| v.is_number() && v.to_int32() == 0);
+        let data = json!({ "kind": kind, "origin": origin, "topOrigin": if top { origin.as_str() } else { "" } });
+        prompt(&state, Pending::Permission(request), data);
+    });
     true
 }
 
@@ -662,6 +679,10 @@ fn authenticate(state: &Rc<State>, web: &WebView, request: &AuthenticationReques
 }
 
 fn answer(state: &Rc<State>, args: &JsonValue) {
+    if args["silence"].as_bool() == Some(true) {
+        state.silenced.set(true);
+        return state.decline_all();
+    }
     let Some(pending) = args["id"].as_u64().and_then(|id| state.prompts.borrow_mut().remove(&id)) else { return };
     if !args["accept"].as_bool().unwrap_or(false) {
         return decline(pending);
@@ -771,6 +792,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
                 let page = web.uri().and_then(|u| Url::parse(&u).ok());
                 s.user_step.set(false);
                 s.decline_all();
+                s.commits.set(s.commits.get() + 1);
                 *s.page.borrow_mut() = page.clone();
                 if let Some(url) = page.as_ref().filter(|u| policy::needs_stricter_view(&s.levels.borrow(), s.level.get(), u)) {
                     web.stop_loading();
@@ -963,6 +985,16 @@ impl NativeComponent for TarnWebView {
         let value = value.unwrap_or(&null);
         match name {
             "tab" => return *state.tab.borrow_mut() = value.as_str().unwrap_or_default().to_owned(),
+            "burstsOf" => {
+                let opener = value.as_str().filter(|tab| !tab.is_empty() && *tab != *state.tab.borrow());
+                let shared = opener.and_then(|tab| {
+                    VIEWS.with_borrow(|views| views.iter().filter_map(Weak::upgrade).find(|s| *s.tab.borrow() == tab).map(|s| s.bursts.borrow().clone()))
+                });
+                if let Some(bursts) = shared {
+                    *state.bursts.borrow_mut() = bursts;
+                }
+                return;
+            }
             "profile" => *state.profile.borrow_mut() = value.as_str().unwrap_or_default().to_owned(),
             "level" => state.level.set(value.as_str().and_then(ShieldLevel::parse).unwrap_or(ShieldLevel::Lockdown)),
             "levels" => {

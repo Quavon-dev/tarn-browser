@@ -81,6 +81,7 @@ pub struct ViewItem {
     pub load: Option<(String, u64)>,
     pub link: bool,
     pub muted: bool,
+    pub opener: String,
     pub active: bool,
     /// Its place in the split on screen.
     pub pane: Option<usize>,
@@ -342,6 +343,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 load: page.and_then(|p| p.load.clone()),
                 link: page.is_some_and(|p| p.link),
                 muted: b.muted_with(key, &muted),
+                opener: page.and_then(|p| p.opener).map(|k| format!("{}-{}", k.private, k.id)).unwrap_or_default(),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
                 pane: panes.iter().position(|k| *k == key).filter(|_| shown),
             }

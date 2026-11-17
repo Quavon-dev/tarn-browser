@@ -545,3 +545,72 @@ fn a_sites_allow_never_covers_the_pop_ups_of_frames_it_embeds() {
     assert_eq!(opener(&state, page("https://b.test/x").as_ref()).popups, PopupRule::Block);
     assert_eq!(opener(&state, None).popups, PopupRule::Default);
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn blocking_a_pages_requests_declines_them_until_the_next_navigation() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    state.events.borrow_mut().clear();
+    page_eval(&web, "setTimeout(() => { alert('one'); window.second = confirm('two'); }, 0); 'ok'");
+    assert!(spin_until(|| event(&state, "prompt").is_some(), 20), "the alert asks");
+    let id = event(&state, "prompt").unwrap()["id"].clone();
+    answer(&state, &json!({ "id": id, "accept": false, "silence": true }));
+    assert!(spin_until(|| page_eval(&web, "String(window.second)") == "false", 20), "the confirm is declined unasked");
+    assert_eq!(state.events.borrow().iter().filter(|(n, _)| n == "prompt").count(), 1, "the page asks no more");
+    open(&state);
+    state.events.borrow_mut().clear();
+    page_eval(&web, "setTimeout(() => alert('three'), 0); 'ok'");
+    assert!(spin_until(|| event(&state, "prompt").is_some(), 20), "the next page may ask again");
+    answer(&state, &json!({ "id": event(&state, "prompt").unwrap()["id"], "accept": false }));
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn only_a_page_without_frames_names_itself_as_the_top_origin() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = state.web().unwrap();
+    state.container().set_size_request(300, 200);
+    let window = gtk::Window::builder().default_width(400).default_height(300).child(state.container()).build();
+    window.present();
+    assert!(spin_until(|| web.is_mapped(), 10), "the page is on screen, where WebKit asks for the location");
+    web.load_html("<p>where</p>", Some("https://geo.test/"));
+    assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page loaded");
+    let locate = "navigator.geolocation.getCurrentPosition(() => {}, () => {}); 'ok'";
+    state.events.borrow_mut().clear();
+    page_eval(&web, locate);
+    assert!(spin_until(|| event(&state, "prompt").is_some(), 20), "the page asks for the location");
+    let asked = event(&state, "prompt").unwrap();
+    assert_eq!((asked["origin"].as_str(), asked["topOrigin"].as_str()), (Some("https://geo.test"), Some("https://geo.test")));
+    answer(&state, &json!({ "id": asked["id"], "accept": false }));
+    state.events.borrow_mut().clear();
+    web.load_html("<p>where</p><iframe></iframe>", Some("https://geo.test/"));
+    assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page with a frame loaded");
+    state.events.borrow_mut().clear();
+    page_eval(&web, locate);
+    assert!(spin_until(|| event(&state, "prompt").is_some(), 20), "the page asks again");
+    let asked = event(&state, "prompt").unwrap();
+    assert_eq!(asked["topOrigin"], "", "a frame could be the one asking");
+    answer(&state, &json!({ "id": asked["id"], "accept": false }));
+    window.destroy();
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_popup_shares_its_openers_prompt_and_popup_limits() {
+    gtk::init().expect("a display");
+    let opener = Rc::new(State::default());
+    *opener.tab.borrow_mut() = "false-1".to_owned();
+    let mut popup = TarnWebView(Rc::new(State::default()));
+    VIEWS.with_borrow_mut(|views| views.extend([Rc::downgrade(&opener), Rc::downgrade(&popup.0)]));
+    popup.set_prop("tab", Some(&json!("false-2")));
+    popup.set_prop("burstsOf", Some(&json!("false-1")));
+    assert!((0..policy::POPUP_BURST).all(|_| opener.admit_popup()));
+    assert!(!popup.0.admit_popup(), "the opener used the popups");
+    assert!((0..policy::PROMPT_BURST).all(|_| popup.0.admit_prompt()));
+    assert!(!opener.admit_prompt(), "the popup used the prompts");
+    let alone = TarnWebView(Rc::new(State::default()));
+    assert!(alone.0.admit_popup());
+}
