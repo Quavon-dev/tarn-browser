@@ -533,3 +533,60 @@ fn the_tab_choices_set_the_live_limit_and_the_sleep_time() {
     b.sleep_idle_tabs(Instant::now() + Duration::from_secs(11 * 60), false);
     assert!(!live(&b, tabs[2]) && live(&b, tabs[4]), "after ten minutes, not the shown tab");
 }
+
+#[test]
+fn background_tabs_over_the_memory_budget_sleep_heaviest_first() {
+    use crate::memory::Usage;
+    use std::time::{Duration, Instant};
+    let (_dir, mut b) = browser();
+    let pinned = b.model.active.unwrap();
+    b.pin_toggle(pinned);
+    let heavy = b.new_tab("https://heavy.test/").unwrap();
+    let recent = b.new_tab("https://recent.test/").unwrap();
+    let playing = b.new_tab("https://play.test/").unwrap();
+    b.on_event(playing, "playing", &json!({ "playing": true }));
+    let pane = b.new_tab("https://pane.test/").unwrap();
+    let shown = b.new_tab("https://shown.test/").unwrap();
+    b.split_with(pane);
+    assert!(b.in_split(pane) && b.in_split(shown));
+    let start = Instant::now();
+    let sizes = [(pinned, 500), (heavy, 600), (recent, 300), (playing, 500), (pane, 5000), (shown, 100)];
+    let usage = sizes.iter().enumerate().map(|(pid, (key, size))| {
+        b.processes.insert(*key, pid as i32 + 100);
+        (pid as i32 + 100, Usage { footprint: *size, cpu_ns: 0 })
+    });
+    let usage = usage.collect();
+    b.samples.record(usage, start);
+    let two_minutes_ago = start - Duration::from_secs(120);
+    b.used.extend([pinned, heavy, playing, pane].map(|k| (k, two_minutes_ago)));
+    b.used.insert(recent, start - Duration::from_secs(30));
+    let live = |b: &Browser, key| b.model.lifecycle.live().any(|k| k == key);
+
+    b.sleep_over_budget(start, 1500);
+    assert!(!live(&b, heavy) && b.pages[&heavy].load.is_none(), "the heaviest idle tab sleeps");
+    assert!([pinned, recent, playing, pane, shown].iter().all(|k| live(&b, *k)), "pinned, recent, playing and shown tabs stay awake");
+
+    b.sleep_over_budget(start + Duration::from_secs(31 * 60), 1000);
+    assert!(!live(&b, pinned), "a pinned tab sleeps after half an hour");
+    assert!(live(&b, recent), "only as many sleep as the budget needs");
+    assert!(live(&b, playing) && live(&b, pane) && live(&b, shown));
+}
+
+#[test]
+fn sleep_after_never_turns_the_memory_budget_off() {
+    use crate::memory::Usage;
+    use std::time::{Duration, Instant};
+    let (_dir, mut b) = browser();
+    let heavy = b.new_tab("https://heavy.test/").unwrap();
+    b.new_tab("https://shown.test/").unwrap();
+    b.processes.insert(heavy, 100);
+    b.samples.record([(100, Usage { footprint: 4 * engine::lifecycle::BACKGROUND_BUDGET, cpu_ns: 0 })].into(), Instant::now());
+    b.used.insert(heavy, Instant::now() - Duration::from_secs(120));
+    let live = |b: &Browser| b.model.lifecycle.live().any(|k| k == heavy);
+    b.set_sleep_after(0);
+    b.idle_tick(1);
+    assert!(live(&b), "Never keeps the budget from sleeping tabs");
+    b.set_sleep_after(2);
+    b.idle_tick(1);
+    assert!(!live(&b), "with a sleep time the budget applies");
+}

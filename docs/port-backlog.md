@@ -61,21 +61,6 @@ macOS reference: `crates/app/src/sidebar.rs` (`tiles`), `crates/app/src/browser/
 - [ ] iOS — the tab sheet in `mobile/app/src/ui/panels.rs` shows every tab as a card and has no pinned tabs or tiles yet; tiles need pinning on mobile first
 - [ ] Android — same as iOS
 
-### Background tab memory budget (2026-11-15)
-
-What it does: once a minute, awake background tabs whose web processes together hold more than
-1 GB (split equally between windows) sleep, the heaviest first; a tab playing media, used in the
-last minute (a pinned tab: 30 minutes), or in the split stays awake. Off when "Sleep background
-tabs after" is Never.
-Shared API: `engine::lifecycle::over_budget`, `engine::lifecycle::BACKGROUND_BUDGET`,
-`engine::lifecycle::budget_idle`.
-macOS reference: `crates/app/src/tabs.rs` (`sleep_idle_tabs`).
-
-- [x] Windows — same code in `crates/app`, with each tab's main-frame renderer as it reports itself (`docs/windows-plan.md`)
-- [ ] Linux — call it from `Browser::sleep_idle_tabs` in `linux/src/memory.rs` with the costs of `Browser::tab_costs`, unless "Sleep background tabs after" is Never
-- [x] iOS — gap: an app cannot read the WebContent process's memory (`docs/mobile-plan.md`)
-- [x] Android — gap: an app cannot read the renderer process's memory (`docs/mobile-plan.md`)
-
 ### YouTube ad script and Netflix visibility script (2026-11-15)
 
 What it does: on YouTube the ad placements are stripped from the page's own data before the

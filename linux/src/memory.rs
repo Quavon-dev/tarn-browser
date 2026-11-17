@@ -195,9 +195,32 @@ impl Browser {
         self.playing.retain(|k| shown.contains(k));
     }
 
-    pub fn idle_tick(&mut self) {
+    pub fn idle_tick(&mut self, windows: usize) {
         let short = std::fs::read_to_string("/proc/meminfo").is_ok_and(|m| pressure(&m));
-        self.sleep_idle_tabs(Instant::now(), short);
+        let now = Instant::now();
+        self.sleep_idle_tabs(now, short);
+        if settings::sleep_after(&self.core.disk).is_some() {
+            self.sleep_over_budget(now, engine::lifecycle::BACKGROUND_BUDGET / windows.max(1) as u64);
+        }
+    }
+
+    pub fn sleep_over_budget(&mut self, now: Instant, budget: u64) {
+        let costs = self.tab_costs();
+        let awake: Vec<_> = self
+            .model
+            .lifecycle
+            .live()
+            .filter(|k| Some(*k) != self.model.active && !self.in_split(*k))
+            .map(|k| {
+                let pinned = self.model.tab(k).is_some_and(|t| t.kind != TabKind::Ephemeral);
+                let idle = self.used.get(&k).map_or(Duration::ZERO, |used| now.saturating_duration_since(*used));
+                let share = costs.get(&k).map_or(0, |c| c.footprint / c.sharing as u64);
+                (k, share, self.playing.contains(&k), engine::lifecycle::budget_idle(idle, pinned))
+            })
+            .collect();
+        for key in engine::lifecycle::over_budget(awake, budget) {
+            self.sleep_tab(key);
+        }
     }
 
     pub fn set_live_tabs(&mut self, ix: usize) {

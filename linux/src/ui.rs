@@ -1905,9 +1905,10 @@ fn browser_window(ui: Ui) -> AnyElement {
     here.on_close_press(move |_| close_window(ui, &closing));
     act(ui, |_| {});
     drop(set_interval(SCHEDULE_TICK, move || {
+        let windows = WINDOWS.with_borrow(|windows| windows.len());
         act_quietly(ui, |b| {
             b.schedule_tick();
-            b.idle_tick();
+            b.idle_tick(windows);
         })
     }));
     drop(set_interval(SAMPLE_TICK, move || {
