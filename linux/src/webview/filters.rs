@@ -43,9 +43,19 @@ pub fn site(level: ShieldLevel, rules: &browser_core::site::SiteRules, url: &Url
 }
 
 pub fn install_sets(incoming: Sets) {
-    let keep = SET_CATEGORIES.with_borrow(|c| c.clone().unwrap_or_default());
+    let keep = wanted_categories();
     SETS.with_borrow_mut(|sets| sets.install(incoming, &keep));
     super::sets_changed();
+}
+
+pub fn wanted_categories() -> Vec<Category> {
+    SET_CATEGORIES.with_borrow(|c| c.clone().unwrap_or_default())
+}
+
+pub fn install_update(sets: Sets, youtube_script: String, done: impl FnOnce()) {
+    YOUTUBE_SCRIPT.set(youtube_script);
+    install_sets(sets);
+    done();
 }
 
 /// Reads the domain sets of `categories` from the installed bundle once they change; the sets of
@@ -141,28 +151,26 @@ pub fn replace(groups: Vec<Group>, done: impl FnOnce(Result<(), String>) + 'stat
 }
 
 async fn replace_groups(groups: Vec<Group>) -> Result<(), String> {
-    let mut first_error = None;
+    let mut ready = Vec::new();
     for group in groups {
         let name = group.name;
-        match compile_group(group).await {
-            Ok(filters) => {
-                let old = GROUPS.with_borrow_mut(|g| match g {
-                    Groups::Ready(compiled) => compiled.insert(name.to_owned(), filters.clone()).unwrap_or_default(),
-                    _ => Vec::new(),
-                });
-                super::swap_group(name, &old, &filters);
-                let kept: Vec<_> = filters.iter().filter_map(UserContentFilter::identifier).collect();
-                let store = STORE.with(Clone::clone);
-                for id in old.iter().filter_map(UserContentFilter::identifier).filter(|id| !kept.contains(id)) {
-                    store.remove_future(&id).await.ok();
-                }
-            }
-            Err(e) => {
-                first_error.get_or_insert(e);
-            }
-        }
+        ready.push((name, compile_group(group).await?));
     }
-    first_error.map_or(Ok(()), Err)
+    let mut stale = Vec::new();
+    for (name, filters) in ready {
+        let old = GROUPS.with_borrow_mut(|g| match g {
+            Groups::Ready(compiled) => compiled.insert(name.to_owned(), filters.clone()).unwrap_or_default(),
+            _ => Vec::new(),
+        });
+        super::swap_group(name, &old, &filters);
+        let kept: Vec<_> = filters.iter().filter_map(UserContentFilter::identifier).collect();
+        stale.extend(old.iter().filter_map(UserContentFilter::identifier).filter(|id| !kept.contains(id)));
+    }
+    let store = STORE.with(Clone::clone);
+    for id in stale {
+        store.remove_future(&id).await.ok();
+    }
+    Ok(())
 }
 
 pub fn when_groups_ready(then: Waiter) {
@@ -222,4 +230,22 @@ pub fn compile_one(identifier: String, source: String, then: impl FnOnce(UserCon
             Err(e) => eprintln!("tarn: content rules did not compile: {e}"),
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set(host: &str) -> Option<Arc<DomainSet>> {
+        DomainSet::from_bytes(&DomainSet::encode([host])).map(Arc::new)
+    }
+
+    #[test]
+    fn an_update_installs_the_sets_of_the_wanted_categories_and_the_youtube_script() {
+        SET_CATEGORIES.set(Some(vec![Category::Malware]));
+        install_update(Sets { malware: set("bad.test"), adult: set("adult.test"), popups: None }, "updated youtube script".into(), || ());
+        assert!(malware().is_some_and(|s| s.contains("bad.test")), "the malware set of the update is live");
+        assert!(SETS.with_borrow(|s| s.adult.is_none()), "a category switched off stays empty");
+        assert_eq!(youtube_script(), "updated youtube script");
+    }
 }
