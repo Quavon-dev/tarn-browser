@@ -485,8 +485,7 @@ fn site_shield(ui: Ui) -> impl IntoElement {
         .child(sheets::site(ui))
 }
 
-pub fn share(ui: Ui) {
-    let Some(url) = ui.read(|s| s.share_url()) else { return };
+pub fn share(ui: Ui, url: String) {
     spawn(async move {
         if !crate::platform::share(url.clone()).await {
             set_clipboard(url);
@@ -827,7 +826,7 @@ fn find(ui: Ui) -> impl IntoElement {
     on_key_with("mod+g", always, move |_| search(false));
     on_key_with("shift+mod+g", always, move |_| search(true));
     let shown = tarn_nsh_shared::motion::pop_in();
-    let close = move || tarn_nsh_shared::motion::pop_out(shown, move || ui.show(Screen::Browse));
+    let close = move || tarn_nsh_shared::motion::pop_out(shown, 1., move || ui.show(Screen::Browse));
     surface(FIND_RADIUS)
         .absolute()
         .top(px(8.))

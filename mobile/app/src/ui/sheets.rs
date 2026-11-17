@@ -6,7 +6,7 @@ use engine::reader::Block;
 use nsh_base::button;
 use nsh_core::prelude::*;
 use store::Schedule;
-use tarn_nsh_shared::card::{Words, day_chart, picture, share_bar};
+use tarn_nsh_shared::card::{Words, day_chart, day_summary, picture, share_bar};
 use tarn_nsh_shared::controls::group;
 
 use super::{
@@ -568,7 +568,7 @@ fn last_week(card: &Card) -> View {
         .p_3()
         .gap_2()
         .accessible(true)
-        .label(format!("Last 7 days: {} protected", thousands(total as u64)))
+        .label(format!("Last 7 days: {} protected. {}", thousands(total as u64), day_summary(&days)))
         .child(
             view()
                 .flex_row()

@@ -74,12 +74,12 @@ pub fn pop_in() -> Motion {
     motion().entering(eased(POP).values(MotionChannel::Opacity, [0., 1.]).values(MotionChannel::TranslateY, [RISE, 0.]))
 }
 
-pub fn pop_out(shown: Motion, then: impl FnOnce() + 'static) {
+pub fn pop_out(shown: Motion, from: f32, then: impl FnOnce() + 'static) {
     if reduce_motion() {
         then();
         return;
     }
-    drop(shown.play(eased(EXIT).values(MotionChannel::Opacity, [1., 0.]).values(MotionChannel::TranslateY, [0., RISE])));
+    drop(shown.play(eased(EXIT).values(MotionChannel::Opacity, [from, 0.]).values(MotionChannel::TranslateY, [0., RISE])));
     drop(set_timeout(EXIT, then));
 }
 
