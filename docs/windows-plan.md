@@ -46,7 +46,12 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   another window), GPUI gets a move just outside it, which clears the hover it would otherwise
   keep. Key presses with Ctrl or Alt (except editing keys) also go to GPUI.
 - **Platform:** AI token in the Credential Manager, memory pressure from `GlobalMemoryStatusEx`,
-  data in `%LOCALAPPDATA%\Tarn` (user-only ACL inherited, no Unix modes).
+  data in `%LOCALAPPDATA%\Tarn`, or the shell's Local AppData known folder (the one the installer
+  and uninstaller use) when the variable is missing (user-only ACL inherited, no Unix modes). The
+  installer needs no administrator rights and always installs into the current
+  `{localappdata}\Programs\Tarn` (`UsePreviousAppDir=no`); at start the installed `tarn.exe`
+  re-points an earlier Make Default registration that names another path, a development build's
+  included.
 - **Window and input:** the toolbar and the settings header are the caption (the hook starts the
   system move; a double click maximizes), with Windows minimize/maximize/close buttons. Pop-ups
   opened without focus (address suggestions, hover cards, peek) stay inactive until clicked,

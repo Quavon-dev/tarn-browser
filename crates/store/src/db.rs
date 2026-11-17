@@ -295,8 +295,8 @@ pub struct Store {
 impl Store {
     pub fn open(dir: &Path) -> Result<Self> {
         let path = dir.join("tarn.db");
-        // Windows: the data folder lives under %LOCALAPPDATA%, whose inherited ACL already admits
-        // only the user, SYSTEM and Administrators.
+        // Windows: the data folder lives under the user's Local AppData, whose inherited ACL
+        // already admits only the user, SYSTEM and Administrators.
         #[cfg(unix)]
         {
             DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
