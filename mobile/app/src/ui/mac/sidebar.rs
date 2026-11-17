@@ -212,8 +212,8 @@ fn run_tab(bar: Bar, ui: Ui, key: TabKey, command: tab_menu::Command) {
         }),
         C::Unload => act(ui, |s| s.unload_tab(key)),
         C::Close => act(ui, |s| s.close_tab(key)),
-        C::CloseOthers => act(ui, |s| close(s, &bar::other_unpinned(&s.model, key))),
-        C::CloseBelow => act(ui, |s| close(s, &bar::tabs_below(&s.model, key))),
+        C::CloseOthers => act(ui, |s| s.close_many(&bar::other_unpinned(&s.model, key))),
+        C::CloseBelow => act(ui, |s| s.close_many(&bar::tabs_below(&s.model, key))),
     }
 }
 
@@ -344,17 +344,6 @@ fn space_items(bar: Bar) -> Vec<AnyElement> {
         item(bar, "Edit Space…", !private, move |ui| ui.show(Screen::SpaceEdit(ix))),
         item(bar, "New Space…", bar.ui.read(|s| s.can_add_space()), |ui| ui.show(Screen::SpaceNew)),
     ]
-}
-
-fn close(s: &mut AppShell, keys: &[TabKey]) {
-    if keys.is_empty() {
-        return;
-    }
-    if s.in_burner() {
-        s.burn();
-    } else {
-        s.close_tabs(keys);
-    }
 }
 
 fn delete_folder(s: &mut AppShell, id: Id) {

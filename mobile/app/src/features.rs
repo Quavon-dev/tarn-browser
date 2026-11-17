@@ -130,11 +130,20 @@ impl<D: Platform> Shell<D> {
         let keys = self.duplicate_tabs();
         match keys.len() {
             0 => self.notice = Some("No duplicate tabs in this space.".into()),
-            n => {
-                if self.close_tabs(&keys).is_some() {
-                    self.toast(if n == 1 { "Tab closed".into() } else { format!("{n} tabs closed") });
-                }
-            }
+            _ => self.close_many(&keys),
+        }
+    }
+
+    pub fn close_many(&mut self, keys: &[TabKey]) {
+        if keys.is_empty() {
+            return;
+        }
+        if self.in_burner() {
+            self.burn();
+            return;
+        }
+        if self.close_tabs(keys).is_some() {
+            self.toast(if keys.len() == 1 { "Tab closed".into() } else { format!("{} tabs closed", keys.len()) });
         }
     }
 

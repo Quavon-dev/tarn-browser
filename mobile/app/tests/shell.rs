@@ -639,6 +639,26 @@ fn closing_a_pinned_tab_or_tile_unloads_it_and_keeps_it() {
 }
 
 #[test]
+fn closing_several_tabs_says_how_many_and_undoes_together() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://a.test/");
+    let keep = active(&shell);
+    for url in ["https://b.test/", "https://c.test/"] {
+        shell.new_tab(None);
+        shell.navigate(url);
+    }
+    let others = browser_core::sidebar::other_unpinned(&shell.model, keep);
+    assert_eq!(others.len(), 2);
+    shell.close_many(&others);
+    assert_eq!(shell.notice.as_deref(), Some("2 tabs closed"));
+    assert!(shell.can_undo());
+    assert!(shell.undo_close());
+    assert_eq!(shell.model.tabs.len(), 3, "Undo brings both back");
+    shell.close_many(&[]);
+    assert_eq!(shell.model.tabs.len(), 3);
+}
+
+#[test]
 fn zoom_steps_from_the_page_and_resets() {
     let (_dir, mut shell) = open();
     shell.navigate("https://example.com/");
