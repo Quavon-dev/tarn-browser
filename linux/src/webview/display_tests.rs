@@ -98,7 +98,7 @@ fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
     let web = open(&state);
     let block: Rc<RefCell<Option<UserContentFilter>>> = Rc::default();
     let slot = block.clone();
-    let rules = r#"[{"trigger":{"url-filter":"^https://extension\\.tarnbrowser\\.com/"},"action":{"type":"block"}}]"#;
+    let rules = r#"[{"trigger":{"url-filter":"^https://extensions\\.tarnbrowser\\.com/"},"action":{"type":"block"}}]"#;
     filters::compile_one("store-block.test".into(), rules.into(), move |f| *slot.borrow_mut() = Some(f));
     assert!(spin_until(|| block.borrow().is_some(), 20), "the test's rule compiled");
     state.content.borrow().as_ref().unwrap().add_filter(block.borrow().as_ref().unwrap());

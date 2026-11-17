@@ -50,7 +50,7 @@ mod window {
         let uuid = "6A1B2C3D-0000-4000-8000-00000000E715";
         let data = DataStore::persistent(uuid, uuid, Rc::new(|_| {})).unwrap();
         let rules = format!(
-            r#"[{{"trigger":{{"url-filter":"^http://127\\.0\\.0\\.1:{port}/blocked\\.js"}},"action":{{"type":"block"}}}},{{"trigger":{{"url-filter":"^https://extension\\.tarnbrowser\\.com/"}},"action":{{"type":"block"}}}}]"#
+            r#"[{{"trigger":{{"url-filter":"^http://127\\.0\\.0\\.1:{port}/blocked\\.js"}},"action":{{"type":"block"}}}},{{"trigger":{{"url-filter":"^https://extensions\\.tarnbrowser\\.com/"}},"action":{{"type":"block"}}}}]"#
         );
         let compiled: Rc<RefCell<Option<FilterLists>>> = Rc::default();
         let slot = compiled.clone();
