@@ -45,7 +45,7 @@ mod tests {
         let b = stage(&staged, "page.html", b"<p>b</p>").unwrap();
         let (a, b) = (a.to_file_path().unwrap(), b.to_file_path().unwrap());
         assert_eq!(std::fs::read(&a).unwrap(), b"<p>a</p>");
-        assert!(a.starts_with(staged.canonicalize().unwrap()) && a.file_name().unwrap() == "evil.html");
+        assert!(a.canonicalize().unwrap().starts_with(staged.canonicalize().unwrap()) && a.file_name().unwrap() == "evil.html");
         assert_ne!(a.parent(), b.parent());
         assert_eq!(engine::nav_policy::file_read_access(&url_for(&b).unwrap()).as_deref(), b.parent());
         clear(&staged);
