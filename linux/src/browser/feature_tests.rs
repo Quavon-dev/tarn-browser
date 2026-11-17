@@ -1145,6 +1145,15 @@ fn a_shift_clicked_link_peeks_in_the_openers_profile_and_moves_into_a_tab() {
     let peek = crate::snapshot::snapshot(&b, true).link_peek.expect("the peek shows");
     assert_eq!((peek.view.key, peek.view.profile.clone(), peek.view.link), (key, b.store_prop(key), true));
     assert_eq!(peek.view.load.as_ref().map(|(u, _)| u.as_str()), Some("https://b.test/page"));
+    let opener = format!("{}-{}", key.private, key.id);
+    assert_eq!(peek.view.opener, opener, "the peek shares its opener's pop-up and prompt limits");
+    assert_ne!(peek.tab, opener, "the peek is a view of its own");
+    assert_eq!(crate::snapshot::tab_key(&peek.tab), Some(key), "its downloads belong to the opener");
+    let tab = crate::snapshot::views(&b, true).into_iter().find(|v| v.key == key).expect("the opener's view");
+    assert_eq!(
+        (&peek.view.blocking, peek.view.filtered, peek.view.youtube, peek.view.inspectable, &peek.view.lists),
+        (&tab.blocking, tab.filtered, tab.youtube, tab.inspectable, &tab.lists)
+    );
     assert!(crate::snapshot::snapshot(&b, false).link_peek.is_none(), "hidden while a panel covers the page");
     b.on_peek_event("committed", &json!({ "url": "https://b.test/next", "title": "Next" }));
     assert_eq!(crate::snapshot::snapshot(&b, true).link_peek.map(|p| (p.host, p.title)), Some(("b.test".into(), "Next".into())));

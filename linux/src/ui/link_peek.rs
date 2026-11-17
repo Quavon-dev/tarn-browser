@@ -72,15 +72,21 @@ fn web_view(ui: Ui, peek: Memo<Option<PeekItem>>) -> impl IntoElement {
     let web = element_ref();
     let prop = move |f: fn(&ViewItem) -> JsonValue| move || peek.with(|p| p.as_ref().map_or(JsonValue::Null, |p| f(&p.view)));
     native(webview::NAME)
-        .prop("tab", prop(|v| JsonValue::from(format!("{}-{}", v.key.private, v.key.id))))
+        .prop("tab", move || peek.with(|p| p.as_ref().map_or(JsonValue::Null, |p| JsonValue::from(p.tab.clone()))))
         .prop("profile", prop(|v| JsonValue::from(v.profile.clone())))
         .prop("level", prop(|v| JsonValue::from(v.level.clone())))
         .prop("levels", prop(|v| v.levels.clone()))
         .prop("lists", prop(|v| JsonValue::from(v.lists.clone())))
+        .prop("youtube", prop(|v| JsonValue::from(v.youtube)))
+        .prop("filtered", prop(|v| JsonValue::from(v.filtered)))
+        .prop("blocking", prop(|v| v.blocking.clone()))
         .prop("styles", prop(|v| v.styles.clone()))
         .prop("themeStyles", prop(|v| v.theme_styles.clone()))
         .prop("zaps", prop(|v| v.zaps.clone()))
+        .prop("burstsOf", prop(|v| JsonValue::from(v.opener.clone())))
         .prop("sortDownloads", prop(|v| JsonValue::from(v.sort_downloads)))
+        .prop("muted", prop(|v| JsonValue::from(v.muted)))
+        .prop("inspectable", prop(|v| JsonValue::from(v.inspectable)))
         .prop("load", prop(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link }))))
         .prop("active", JsonValue::from(true))
         .on_native_event(move |event: &NativeEvent| {

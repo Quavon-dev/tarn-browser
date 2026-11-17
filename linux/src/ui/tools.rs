@@ -308,7 +308,8 @@ pub fn toast_bar(ui: Ui) -> AnyElement {
     dynamic(move || {
         let toast = ui.snap.with(|s| s.toast.clone())?;
         let action = toast.action.map(|action| match action {
-            ToastAction::Undo(_) | ToastAction::UndoSort(_) => tarn_nsh_shared::controls::toast_action("Undo", move || act(ui, Browser::take_toast_action)),
+            ToastAction::Undo(_) => tarn_nsh_shared::controls::toast_action("Undo", move || act(ui, Browser::take_toast_action)),
+            ToastAction::UndoSort(_) => tarn_nsh_shared::controls::toast_action("Undo Sort", move || act(ui, Browser::take_toast_action)),
             ToastAction::Reveal(path) => tarn_nsh_shared::controls::toast_action("Show in Folder", move || drop(reveal_path(std::path::PathBuf::from(&path)))),
         });
         Some(

@@ -93,6 +93,7 @@ pub struct ViewItem {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PeekItem {
     pub view: ViewItem,
+    pub tab: String,
     pub title: String,
     pub host: String,
     pub insecure: bool,
@@ -373,6 +374,13 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
         .collect()
 }
 
+const PEEK_TAB: &str = "-peek";
+
+pub fn tab_key(tab: &str) -> Option<TabKey> {
+    let (private, id) = tab.strip_suffix(PEEK_TAB).unwrap_or(tab).split_once('-')?;
+    Some(TabKey { private: private.parse().ok()?, id: id.parse().ok()? })
+}
+
 fn peek_item(b: &Browser) -> Option<PeekItem> {
     let peek = b.link_peek.as_ref()?;
     let key = peek.opener;
@@ -399,7 +407,8 @@ fn peek_item(b: &Browser) -> Option<PeekItem> {
         active: true,
         pane: None,
     };
-    Some(PeekItem { view, title: browser_core::text::bounded_title(&peek.title), host, insecure })
+    let tab = format!("{}{PEEK_TAB}", view.opener);
+    Some(PeekItem { view, tab, title: browser_core::text::bounded_title(&peek.title), host, insecure })
 }
 
 pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {

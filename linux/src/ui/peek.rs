@@ -190,7 +190,7 @@ fn lines(ui: Ui, b: &crate::browser::Browser, key: TabKey) -> Option<(String, St
     let url = b.pages.get(&key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or_else(|| tab.url.clone());
     let asleep =
         ui.snap.with_untracked(|s| s.rows.iter().chain(s.rows.iter().flat_map(|r| &r.panes)).any(|r| r.kind == crate::snapshot::RowKind::Tab(key) && r.asleep));
-    let (place, state) = browser_core::hover::card_lines(&url, asleep, false);
+    let (place, state) = browser_core::hover::card_lines(&url, asleep, b.tab_muted(key));
     Some((crate::snapshot::tab_label(tab, b, key), place, state))
 }
 
