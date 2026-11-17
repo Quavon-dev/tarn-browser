@@ -212,7 +212,6 @@ pub fn reading_list(ui: Ui) -> impl IntoElement {
 
 pub fn site(ui: Ui) -> impl IntoElement {
     let css = signal(untracked(|| ui.read(|s| s.site_css())));
-    // The field follows the page to another host or profile, so a save never lands on the wrong site.
     let css_site = std::cell::RefCell::new(untracked(|| ui.read(|s| (s.model.profile(), s.active_host()))));
     effect(move || {
         let site = ui.read(|s| (s.model.profile(), s.active_host()));

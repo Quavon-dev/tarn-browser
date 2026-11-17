@@ -265,8 +265,6 @@ pub fn address(url: &Url) -> (String, bool) {
     (host, url.scheme() == "http" || url.as_str().starts_with("blob:http:"))
 }
 
-/// A history row's address: the host, cut at its start so its registrable end stays, and the rest of
-/// the address, bounded and cleaned.
 pub fn history_detail(url: &str) -> (String, String) {
     let Ok(parsed) = Url::parse(url) else { return (String::new(), crate::text::bounded_url(url)) };
     let host = parsed.host_str().map(|h| host_tail(h.trim_start_matches("www."), MAX_HOST)).unwrap_or_default();
@@ -274,7 +272,6 @@ pub fn history_detail(url: &str) -> (String, String) {
     (host, crate::text::bounded_url(rest.trim_end_matches('/')))
 }
 
-/// What a tab row shows: its own name or the page's title, bounded and cleaned, else the page's label.
 pub fn display_title(custom: &str, title: &str, url: &str) -> String {
     [custom, title]
         .into_iter()

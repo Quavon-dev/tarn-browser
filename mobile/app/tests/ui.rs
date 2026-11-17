@@ -2,8 +2,6 @@ use nsh_core::geometry::{Points, Size, point, px};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::{Headless, WAIT};
 
-/// Scrolls the scroll view around `selector` until the view is wholly inside it, as a user scrolls to a
-/// control before tapping it, then presses it.
 fn press_in_view(app: &mut Headless, selector: &str) {
     for _ in 0..40 {
         let screen = app.screen();

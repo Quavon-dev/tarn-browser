@@ -35,7 +35,6 @@ pub fn small(content: impl IntoReactive<SharedString>) -> Text {
     text(content).text_size(px(TEXT_SMALL)).text_color(Theme::muted)
 }
 
-/// A toolbar icon button whose tooltip goes on `side`, away from the page.
 pub fn tool_button(glyph: &str, name: &str, side: Placement, press: impl Fn() + 'static) -> ButtonElement {
     let shown = view().size_full().items_center().justify_center().tooltip(tip(name, side)).child(icons::icon(glyph, TOOL_GLYPH));
     icon_button(shown, name.to_owned(), press)
@@ -45,7 +44,6 @@ pub fn tools() -> View {
     view().flex_row().items_center().gap(px(TOOL_GAP))
 }
 
-/// The address field at rest: a capsule up to `ADDRESS_WIDTH` wide, centred in the toolbar.
 pub fn capsule(open: impl Fn() -> bool + Copy + 'static) -> View {
     view()
         .flex_row()
@@ -62,8 +60,6 @@ pub fn capsule(open: impl Fn() -> bool + Copy + 'static) -> View {
         .text_color(Secure::faint)
 }
 
-/// The capsule's middle: the host, cut at its start so the registrable domain stays, after `Not Secure —` for
-/// plain HTTP; or the placeholder.
 pub fn address_text(name: &'static str, host: impl Fn() -> (String, bool) + Copy + 'static, press: impl Fn() + 'static) -> ButtonElement {
     pressable(name, press).flex_1().min_w(px(0.)).h_full().flex_row().items_center().justify_center().px_2().child(dynamic(move || {
         let (host, insecure) = host();
@@ -84,12 +80,10 @@ pub fn address_text(name: &'static str, host: impl Fn() -> (String, bool) + Copy
     }))
 }
 
-/// The capsule's left slot without a site: a search glyph where the Shield chip goes.
 pub fn search_slot() -> View {
     view().w(px(SEARCH_SLOT)).items_center().child(icons::icon(icons::SEARCH, CHIP_GLYPH))
 }
 
-/// The Shield chip: the level's glyph, its name once raised above Standard, and the count stopped on the site.
 pub fn shield_chip(
     name: impl Fn() -> SharedString + 'static,
     raised: impl Fn() -> Option<String> + Copy + 'static,
@@ -116,7 +110,6 @@ pub fn shield_chip(
         .child(dynamic(move || count().map(|n| small(n).text_color(color()).font_family(SYSTEM_FONT))))
 }
 
-/// A button inside the capsule, shorter than it so its hover fill keeps clear of the edge.
 pub fn chip_button(glyph: &str, name: &str, on: impl Fn() -> bool + 'static, press: impl Fn() + 'static) -> ButtonElement {
     nsh_base::button()
         .accessibility_label(name.to_owned())
@@ -136,7 +129,6 @@ pub fn badge_color(color: Option<[u8; 4]>) -> Rgba {
     color.map_or_else(Theme::accent, |[r, g, b, a]| Rgba { r: f32::from(r) / 255., g: f32::from(g) / 255., b: f32::from(b) / 255., a: f32::from(a) / 255. })
 }
 
-/// An extension's toolbar button: its icon or initial, with its badge in the corner.
 pub fn extension_button(name: String, icon: Option<String>, badge: Option<(String, Rgba)>, press: impl Fn() + 'static) -> ButtonElement {
     let letter = name.chars().next().map(|c| c.to_lowercase().to_string()).unwrap_or_default();
     let badge = badge.map(|(text_, fill)| {
@@ -225,7 +217,6 @@ fn commands_badge() -> View {
         .child(small("Commands").text_color(Theme::space_label))
 }
 
-/// The command palette: a card over a dimmed page with the field, its rows and the key hints.
 pub fn palette(field: impl IntoElement, listing: impl Fn() -> bool + 'static, list: impl IntoElement, close: impl Fn() + 'static) -> View {
     let head = view()
         .flex_row()

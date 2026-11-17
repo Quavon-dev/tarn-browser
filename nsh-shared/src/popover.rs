@@ -29,8 +29,6 @@ pub fn popover(anchor: Anchor, width: f32, close: impl Fn() + Copy + 'static, co
     fitted(anchor, width, close, content, None)
 }
 
-/// The room a card placed as `placed` says may take: what the core told it, less what the software keyboard
-/// covers, and how far a card above its anchor moves up so the keyboard leaves it whole.
 pub fn fit(placed: Option<OverlayPosition>, window: Size<Points>, keyboard: Points) -> (Option<f32>, f32) {
     let Some(p) = placed else { return (None, 0.) };
     let clear = window.height.0 - keyboard.0 - MARGIN;
@@ -45,7 +43,6 @@ pub fn fit(placed: Option<OverlayPosition>, window: Size<Points>, keyboard: Poin
     }
 }
 
-/// A card anchored as `anchor` whose height never passes the room it has: `body` scrolls and `footer` stays.
 pub fn fitted(anchor: Anchor, width: f32, close: impl Fn() + Copy + 'static, body: impl IntoElement, footer: Option<AnyElement>) -> View {
     let placed = signal(None::<OverlayPosition>);
     let fitting = move || fit(placed.get(), window(), keyboard_height());

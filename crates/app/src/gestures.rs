@@ -21,8 +21,6 @@ pub struct Swipe {
     inverted: bool,
 }
 
-/// Scroll deltas follow the content, so with natural scrolling off they point against the fingers;
-/// fingers moving right step to the previous item, like swiping back a page.
 fn step(dx: f32, natural: bool) -> Step {
     if (dx > 0.) == natural { Step::Previous } else { Step::Next }
 }

@@ -624,8 +624,6 @@ impl Store {
         self.move_tab_to(id, kind, folder_id, index, None)
     }
 
-    /// [`Store::move_tab`], also putting an unpinned tab into `group` (`Some(None)`: out of any group), all or
-    /// nothing; refused for a group of another space or one that is gone.
     pub fn move_tab_to(&self, id: Id, kind: TabKind, folder_id: Option<Id>, index: usize, group: Option<Option<Id>>) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         let (space_id, old_kind, old_folder): (Id, String, Option<Id>) =

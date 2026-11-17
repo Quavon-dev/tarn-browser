@@ -273,7 +273,6 @@ pub fn undo_sort<D: WebsiteData>(model: &mut Model, core: &Core<D>, (private, un
     done
 }
 
-/// The unpinned tabs in the order the sidebar shows them: each group's in turn, then the loose ones.
 pub fn unpinned_order(model: &Model) -> Vec<TabKey> {
     let grouped = model.groups.iter().flat_map(|g| sorted(model, |t| t.kind == TabKind::Ephemeral && t.group_id == Some(g.id)));
     let loose = sorted(model, |t| t.kind == TabKind::Ephemeral && t.group_id.is_none());

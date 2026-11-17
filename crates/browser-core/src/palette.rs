@@ -1,6 +1,5 @@
 use crate::command::rank_commands;
 
-/// Command rows the field lists for plain text; a `>` list shows every match.
 pub const PLAIN_ROOM: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -58,7 +57,6 @@ pub const COMMANDS: [(&str, &str, Command); 24] = [
     ("Close Split View", "split panes end separate", Command::CloseSplit),
 ];
 
-/// What the active tab offers, which decides the rows shown and how toggles are named.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pub pinned: bool,
@@ -74,7 +72,6 @@ pub enum Row {
     Extra(usize),
 }
 
-/// Whether `query` asks for the command list: every command it names, and nothing else.
 pub fn listing(query: &str) -> bool {
     query.trim_start().starts_with('>')
 }
@@ -104,8 +101,6 @@ impl State {
     }
 }
 
-/// The rows `query` names, best first: the client's `offered` commands that have something to act
-/// on, then its `extra` `(label, keywords)` rows, named by what a toggle does now.
 pub fn rows(query: &str, state: State, offered: impl Fn(Command) -> bool, extra: &[(String, &str)]) -> Vec<(String, Row)> {
     if query.trim().is_empty() {
         return Vec::new();
