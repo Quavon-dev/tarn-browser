@@ -760,4 +760,6 @@ fn a_filter_update_with_a_group_that_does_not_compile_swaps_no_group() {
     assert_eq!(ads(), ["tarn-ads-aaaaaaaaaaaaaaaa-0"]);
     assert!(replace(vec![group("ads", "c", rule), group("trackers", "d", "not json")]).is_err(), "a list that does not compile fails the update");
     assert_eq!(ads(), ["tarn-ads-aaaaaaaaaaaaaaaa-0"], "no list of a failed update replaces the installed one");
+    assert!(!filters::stored("tarn-ads-cccccccccccccccc-0"), "and the list it compiled is not kept");
+    assert!(filters::stored("tarn-ads-aaaaaaaaaaaaaaaa-0"), "while the installed one stays");
 }

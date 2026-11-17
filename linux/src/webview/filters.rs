@@ -154,7 +154,13 @@ async fn replace_groups(groups: Vec<Group>) -> Result<(), String> {
     let mut ready = Vec::new();
     for group in groups {
         let name = group.name;
-        ready.push((name, compile_group(group).await?));
+        match compile_group(group).await {
+            Ok(filters) => ready.push((name, filters)),
+            Err(e) => {
+                drop_unused(ready.iter().flat_map(|(_, filters)| filters)).await;
+                return Err(e);
+            }
+        }
     }
     let mut stale = Vec::new();
     for (name, filters) in ready {
@@ -171,6 +177,25 @@ async fn replace_groups(groups: Vec<Group>) -> Result<(), String> {
         store.remove_future(&id).await.ok();
     }
     Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn stored(identifier: &str) -> bool {
+    let store = STORE.with(Clone::clone);
+    glib::MainContext::default().block_on(store.load_future(identifier)).is_ok()
+}
+
+/// Removes compiled lists from the store that no live group uses.
+async fn drop_unused<'a>(filters: impl Iterator<Item = &'a UserContentFilter>) {
+    let live: Vec<String> = GROUPS.with_borrow(|g| match g {
+        Groups::Ready(compiled) => compiled.values().flatten().filter_map(UserContentFilter::identifier).map(String::from).collect(),
+        _ => Vec::new(),
+    });
+    let unused: Vec<String> = filters.filter_map(UserContentFilter::identifier).map(String::from).filter(|id| !live.contains(id)).collect();
+    let store = STORE.with(Clone::clone);
+    for id in unused {
+        store.remove_future(&id).await.ok();
+    }
 }
 
 pub fn when_groups_ready(then: Waiter) {
