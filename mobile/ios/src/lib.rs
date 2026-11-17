@@ -15,6 +15,7 @@ mod handler;
 mod page_root;
 #[cfg(target_os = "ios")]
 mod scripts;
+pub mod store_link;
 #[cfg(target_os = "ios")]
 mod stores;
 #[cfg(target_os = "ios")]

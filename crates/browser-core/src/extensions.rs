@@ -12,6 +12,8 @@ use crate::github::{self, Fetch, Resolved};
 
 pub mod install;
 
+pub use engine::tarn_ext::{STORE_EVENT, STORE_URL, store_install};
+
 pub const MAX_ICON_BYTES: u64 = 1 << 20;
 pub const MAX_ICON_SIDE: u32 = 512;
 

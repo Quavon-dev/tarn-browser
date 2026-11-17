@@ -336,6 +336,12 @@ impl Inner {
         }
         let from_shell = self.shell_load.take().is_some_and(|expected| expected == url);
         let opener = self.opener.borrow().clone();
+        if crate::store_link::asks(from_shell && opener.is_none(), kind == WKNavigationType::LinkActivated)
+            && let Some(id) = engine::tarn_ext::store_install(&url)
+        {
+            self.emit(engine::tarn_ext::STORE_EVENT, json!({ "id": id }));
+            return WKNavigationActionPolicy::Cancel;
+        }
         let site = Site::new(self.props.borrow().site(&url));
         let policy = site.level.max(view).policy();
         let user_started = (from_shell && opener.is_none()) || history;

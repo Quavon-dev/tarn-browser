@@ -144,6 +144,7 @@ pub struct Core<D: WebsiteData> {
     judged: Cell<Option<(i64, std::time::Instant)>>,
     /// Profiles of the private store that each hold one window's burner tab.
     pub burners: RefCell<HashSet<Id>>,
+    store_link_at: Cell<Option<std::time::Instant>>,
 }
 
 impl<D: WebsiteData> Core<D> {
@@ -187,6 +188,7 @@ impl<D: WebsiteData> Core<D> {
             #[cfg(any(target_os = "macos", windows))]
             judged: Cell::new(None),
             burners: RefCell::default(),
+            store_link_at: Cell::default(),
         }
     }
 
@@ -206,6 +208,19 @@ impl<D: WebsiteData> Core<D> {
     /// The Shield level for `url` under an opened profile.
     pub fn level(&self, private: bool, profile_id: Id, url: Option<&Url>) -> Option<ShieldLevel> {
         self.profiles.borrow().get(&(private, profile_id)).map(|rt| effective_level(&rt.profile, &rt.overrides, url))
+    }
+
+    pub fn admit_store_link(&self, now: std::time::Instant) -> bool {
+        let admitted = self.store_link_at.get().is_none_or(|at| now.saturating_duration_since(at) >= extensions::install::STORE_LINK_INTERVAL);
+        if admitted {
+            self.store_link_at.set(Some(now));
+        }
+        admitted
+    }
+
+    pub fn store_link_allowed(&self, private: bool, profile_id: Id, page: Option<&Url>) -> bool {
+        let store = Url::parse(engine::tarn_ext::STORE_URL).ok();
+        !private && [None, page, store.as_ref()].into_iter().all(|url| self.level(false, profile_id, url).is_some_and(|l| l != ShieldLevel::Lockdown))
     }
 
     /// An address the user opens (typed, completed or from another app) without the tracking
@@ -462,6 +477,41 @@ mod tests {
         assert!(core.has_override(false, p, "locked.test.") && !core.has_override(false, p, "other.test"));
         assert_eq!(core.web_engine(false, p, Some(WebEngine::Chromium), Some(&url)), Some(WebEngine::WebKit), "Lockdown runs in WebKit");
         assert_eq!(core.web_engine(false, p, None, Url::parse("https://a.test/").ok().as_ref()), Some(WebEngine::Chromium));
+    }
+
+    #[test]
+    fn store_links_install_only_outside_private_spaces_and_lockdown() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = TestCore::open(dir.path(), true);
+        let p = core.disk.profiles().unwrap().remove(0).id;
+        let (page, locked) = (Url::parse("https://a.test/").unwrap(), Url::parse("https://locked.test/").unwrap());
+        assert!(!core.store_link_allowed(false, p, Some(&page)), "not opened yet");
+        core.disk.set_site_override(p, "locked.test", Some(ShieldLevel::Lockdown)).unwrap();
+        core.open_profile(false, p, downloads).unwrap();
+        assert!(core.store_link_allowed(false, p, Some(&page)) && core.store_link_allowed(false, p, None));
+        assert!(!core.store_link_allowed(true, p, Some(&page)), "private spaces and burner tabs");
+        assert!(!core.store_link_allowed(false, p, Some(&locked)), "from a Lockdown site");
+        core.profiles.borrow()[&(false, p)].overrides.borrow_mut().insert(engine::tarn_ext::STORE_HOST.to_owned(), ShieldLevel::Lockdown);
+        assert!(!core.store_link_allowed(false, p, Some(&page)), "the store set to Lockdown");
+        let q = core.disk.create_profile("Q", "uuid-q", false).unwrap().id;
+        core.disk.set_profile_shield_level(q, ShieldLevel::Lockdown).unwrap();
+        core.open_profile(false, q, downloads).unwrap();
+        assert!(!core.store_link_allowed(false, q, Some(&page)), "a Lockdown profile");
+    }
+
+    #[test]
+    fn one_store_link_is_taken_per_interval() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = TestCore::open(dir.path(), true);
+        let start = std::time::Instant::now();
+        let interval = extensions::install::STORE_LINK_INTERVAL;
+        assert!(core.admit_store_link(start));
+        assert!(!core.admit_store_link(start));
+        assert!(!core.admit_store_link(start + interval - std::time::Duration::from_millis(1)), "inside the window it is ignored");
+        assert!(core.admit_store_link(start + interval));
+        assert!(!core.admit_store_link(start + interval + std::time::Duration::from_secs(9)), "an ignored link does not move the window");
+        assert!(core.admit_store_link(start + interval * 2));
+        assert!(!core.admit_store_link(start), "a clock that went back admits nothing");
     }
 
     #[test]
