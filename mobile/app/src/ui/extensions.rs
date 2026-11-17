@@ -83,6 +83,9 @@ impl Host for Exts {
     fn notice(self) -> Option<String> {
         (!ext::worlds_supported()).then(|| NO_WORLDS.to_owned())
     }
+    fn store_link_allowed(self, tab: TabKey) -> bool {
+        self.0.read(|s| s.store_link_allowed(tab))
+    }
     fn open_link(self, url: &'static str) {
         self.0.act(|s| {
             s.new_tab(Some(url));
@@ -96,9 +99,13 @@ pub(super) fn store_link(ui: Ui, key: TabKey, id: &str) {
     if !ui.read(|s| s.core.admit_store_link(Instant::now())) {
         return;
     }
-    let allowed = ui.read(|s| s.store_link_allowed(key));
-    tarn_nsh_shared::extensions::store_link(Exts(ui), id, allowed);
-    ui.show(Screen::Extensions);
+    match tarn_nsh_shared::extensions::store_link(Exts(ui), key, id) {
+        Ok(()) => ui.show(Screen::Extensions),
+        Err(why) => ui.act_on_screen(|s| {
+            s.notice = Some(why);
+            Vec::new()
+        }),
+    }
 }
 
 pub(super) fn pane(ui: Ui) -> AnyElement {

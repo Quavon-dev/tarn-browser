@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 
-use browser_core::extensions::install::{self, Fetched, Pending, Slot, StoreContext, StoreStep};
+use browser_core::extensions::install::{self, Fetched, Pending, Slot, StoreCatalog, StoreContext};
 use browser_core::extensions::{EVERY_SITE_SETTING, Install, badge, every_site_setting, may_use_all_sites};
 use browser_core::github::{Asset, Hop};
+use browser_core::tabs::TabKey;
 use browser_core::theme_fetch::{self as fetch, shown};
 use nsh_base::input;
 use nsh_core::picker::FilePickRequest;
 use nsh_core::prelude::*;
-use shield::catalog::Index;
+use shield::catalog::{Entry, Index};
 use store::{Id, InstalledExtension, Store};
 
 use crate::controls::{accent_pill, group, label, pill, secure_button, switch_row};
@@ -33,6 +34,7 @@ pub trait Host: Copy + 'static {
     /// A line the client wants shown above the list, such as a missing engine feature.
     fn notice(self) -> Option<String>;
     fn open_link(self, url: &'static str);
+    fn store_link_allowed(self, tab: TabKey) -> bool;
 }
 
 #[derive(Clone, Default)]
@@ -43,6 +45,8 @@ struct State {
     choice: Option<(String, Vec<Asset>)>,
     catalog: Option<Index>,
     armed: Option<String>,
+    offer: Option<(TabKey, Entry)>,
+    confirmed: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -90,10 +94,10 @@ impl<H: Host> Pane<H> {
     }
 
     fn install(self, what: Install, update_of: Option<String>) {
-        self.run(what, update_of, None);
+        self.run(what, update_of, None, None);
     }
 
-    fn run(self, what: Install, update_of: Option<String>, temp: Option<PathBuf>) {
+    fn run(self, what: Install, update_of: Option<String>, temp: Option<PathBuf>, confirmed: Option<String>) {
         let drop_temp = move || {
             if let Some(path) = &temp {
                 std::fs::remove_file(path).ok();
@@ -118,6 +122,7 @@ impl<H: Host> Pane<H> {
         let locales = host.ui_locales();
         self.set(|s| {
             s.busy = true;
+            s.confirmed = confirmed;
             s.choice = None;
             s.message = Some((false, if what.needs_network() { "Downloading\u{2026}" } else { "Unpacking\u{2026}" }.to_owned()));
         });
@@ -131,9 +136,11 @@ impl<H: Host> Pane<H> {
 
     fn fetched(self, slot: Slot, result: Result<Fetched, String>) {
         let name = slot.previous.as_ref().map(|p| shown(&p.name));
+        let confirmed = self.state.with_untracked(|s| s.confirmed.clone());
         self.set(|s| {
             s.busy = false;
             s.message = None;
+            s.confirmed = None;
         });
         match result.and_then(|f| match f {
             Fetched::Offer(offer) => install::pending(slot, offer).map(Some),
@@ -143,7 +150,13 @@ impl<H: Host> Pane<H> {
             }
             Fetched::Current => Err(format!("{}: this extension is up to date.", name.unwrap_or_default())),
         }) {
-            Ok(Some(pending)) => self.set(|s| s.pending = Some(pending)),
+            Ok(Some(pending)) => {
+                let agreed = confirmed.is_some_and(|id| install::store_confirmed(&id, &pending.row.source));
+                self.set(|s| s.pending = Some(pending));
+                if agreed {
+                    self.confirm();
+                }
+            }
             Ok(None) => {}
             Err(e) => self.say(true, e),
         }
@@ -172,15 +185,11 @@ impl<H: Host> Pane<H> {
             if let Err(e) = std::fs::write(&path, file.data.bytes()) {
                 return self.say(true, format!("The file could not be read: {e}"));
             }
-            self.run(Install::File(path.clone()), None, Some(path));
+            self.run(Install::File(path.clone()), None, Some(path), None);
         });
     }
 
     fn show_official(self) {
-        self.load_catalog(None);
-    }
-
-    fn load_catalog(self, then: Option<String>) {
         if self.state.with_untracked(|s| s.busy) {
             return;
         }
@@ -205,23 +214,27 @@ impl<H: Host> Pane<H> {
                 Ok(index) => {
                     self.host.with_store(|s| install::catalog_fetched(s, &index));
                     self.set(|s| s.catalog = Some(index));
-                    if let Some(id) = then {
-                        self.store_step(&id, true, true);
-                    }
                 }
                 Err(e) => self.say(true, e),
             }
         });
     }
 
-    fn store_step(self, id: &str, allowed: bool, fetched: bool) {
-        let context = StoreContext { allowed, configured: install::catalog_configured(), downloads: self.host.with_store(fetch::downloads_on), fetched };
+    fn store_check(self, tab: TabKey, busy: bool, step: impl FnOnce(StoreContext, StoreCatalog) -> Result<Box<Entry>, String>) -> Result<Box<Entry>, String> {
+        let allowed = self.host.profile().is_some() && self.host.store_link_allowed(tab);
+        let context = StoreContext { allowed, configured: install::catalog_configured(), downloads: self.host.with_store(fetch::downloads_on), busy };
         let (catalog, installed) = (self.state.with_untracked(|s| s.catalog.clone()), self.rows());
         let revoked = self.host.with_store(install::revoked);
-        match install::store_step(id, context, catalog.as_ref(), now_secs(), &revoked, &installed) {
-            StoreStep::Install(entry) => self.install(Install::Official(*entry), None),
-            StoreStep::FetchCatalog => self.load_catalog(Some(id.to_owned())),
-            StoreStep::Refuse(why) => self.say(true, why),
+        step(context, StoreCatalog { index: catalog.as_ref(), now: now_secs(), revoked: &revoked, installed: &installed })
+    }
+
+    fn confirm_offer(self) {
+        let Some((tab, offered)) = self.state.with_untracked(|s| s.offer.clone()) else { return };
+        self.set(|s| s.offer = None);
+        let busy = self.state.with_untracked(|s| s.busy || s.pending.is_some() || s.choice.is_some());
+        match self.store_check(tab, busy, |context, catalog| install::store_confirm(&offered, context, catalog)) {
+            Ok(entry) => self.run(Install::Official(*entry), None, None, Some(offered.id)),
+            Err(why) => self.say(true, why),
         }
     }
 
@@ -310,6 +323,26 @@ fn consent<H: Host>(pane: Pane<H>) -> Option<View> {
                 .child(view().flex_row().gap_2().child(secure_button(action, move || pane.confirm(), true)).child(secure_button(
                     "Cancel",
                     move || pane.cancel(),
+                    false,
+                ))),
+        ),
+    )
+}
+
+fn store_offer<H: Host>(pane: Pane<H>) -> Option<View> {
+    let (title, lines) = pane.get(|s| s.offer.as_ref().map(|(_, entry)| install::store_sheet(entry)))?;
+    let lines = lines.into_iter().map(|l| text(l).text_size(px(TEXT_SMALL)).text_color(Secure::muted()).into_element());
+    Some(
+        view().pt_3().child(
+            crate::controls::secure_surface(Theme::radius_group())
+                .p_3()
+                .flex_col()
+                .gap_2()
+                .child(text(title).font_weight(FontWeight::SEMIBOLD))
+                .children(lines)
+                .child(view().flex_row().gap_2().child(secure_button("Install", move || pane.confirm_offer(), true)).child(secure_button(
+                    "Cancel",
+                    move || pane.set(|s| s.offer = None),
                     false,
                 ))),
         ),
@@ -411,6 +444,9 @@ fn body<H: Host>(pane: Pane<H>) -> View {
     if let Some((error, message)) = pane.get(|s| s.message.clone()) {
         page = page.child(view().px_1().pt_2().child(note(message, error)));
     }
+    if let Some(card) = store_offer(pane) {
+        page = page.child(card);
+    }
     if let Some(card) = consent(pane) {
         page = page.child(card);
     }
@@ -460,8 +496,10 @@ pub fn extensions<H: Host>(host: H) -> AnyElement {
     dynamic(move || body(pane)).into_element()
 }
 
-pub fn store_link<H: Host>(host: H, id: &str, allowed: bool) {
-    if host.profile().is_some() {
-        opened(host).store_step(id, allowed, false);
-    }
+pub fn store_link<H: Host>(host: H, tab: TabKey, id: &str) -> Result<(), String> {
+    let pane = opened(host);
+    let busy = pane.state.with_untracked(|s| s.busy || s.pending.is_some() || s.choice.is_some() || s.offer.is_some());
+    let entry = pane.store_check(tab, busy, |context, catalog| install::store_step(id, context, catalog))?;
+    pane.set(|s| s.offer = Some((tab, *entry)));
+    Ok(())
 }

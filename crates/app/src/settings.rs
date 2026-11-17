@@ -231,6 +231,7 @@ struct Snapshot {
     extension_busy: Option<String>,
     extension_choice: Vec<String>,
     consent: Option<crate::extensions::Consent>,
+    store_sheet: Option<(String, Vec<String>)>,
     catalog: (Vec<crate::extensions::CatalogRow>, bool),
     card: Option<Card>,
     /// `None` outside an app bundle, which cannot become the default browser.
@@ -386,6 +387,7 @@ impl SettingsWindow {
                 .map(|(_, a)| a.iter().map(|a| crate::extensions::shown(&a.name)).collect())
                 .unwrap_or_default(),
             consent: if self.pane == SettingsPane::Extensions { b.core.extensions.borrow().consent() } else { None },
+            store_sheet: if self.pane == SettingsPane::Extensions { b.store_sheet() } else { None },
             catalog: if self.pane == SettingsPane::Extensions { b.catalog_rows() } else { (Vec::new(), false) },
             filters: b.core.filters.borrow().clone(),
             shared_data: self.pane == SettingsPane::Privacy
@@ -1604,6 +1606,24 @@ impl SettingsWindow {
                     ),
                 ),
             );
+        }
+        if let Some((title, lines)) = s.store_sheet {
+            let card = group()
+                .child(row(true).child(text_block(title, "From Tarn's signed official catalog.")))
+                .children(lines.into_iter().map(|l| row(false).child(div().flex_1().child(l))))
+                .child(
+                    row(false)
+                        .child(div().flex_1())
+                        .child(
+                            button("store-cancel", "Cancel", true)
+                                .on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.cancel_store_offer(cx)))),
+                        )
+                        .child(
+                            button("store-install", "Install", false)
+                                .on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.confirm_store_offer(cx)))),
+                        ),
+                );
+            return page.child(section("Confirm")).child(card).into_any_element();
         }
         if let Some(c) = s.consent {
             let list = |title: &'static str, items: &[String]| {

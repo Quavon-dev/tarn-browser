@@ -101,8 +101,9 @@ checked installs (`replace`, `insert`, `retain`), the session's grants (`gate`, 
 Every shell reads the "every site" switch with `extensions::every_site_setting`, and installs go
 through `extensions::install` (`slot`, `vet`, `carry_over`, the signed catalog).
 
-Store install link: every implementation cancels a main-frame navigation the user started (a
-shell load that is not a link the shell loads for a page, or a link click with a user gesture)
+Store install link: every implementation cancels a main-frame navigation the user started
+(`nav_policy::store_link_asks`: a shell load that is not a link or pop-up the shell loads for a
+page, or a link click with a user gesture)
 whose URL `tarn_ext::store_install` maps to a catalog id (exactly
 `https://extension.tarnbrowser.com/install/<id>`, with or without a final `/`), before any
 request, and reports `Event::StoreInstall(id)`; NSH engines emit `tarn_ext::STORE_EVENT`
@@ -111,10 +112,13 @@ normally. WebKit on macOS reads the gesture from the navigation action's private
 `_isUserInitiated` and redirects from `_isRedirect`; without them only shell loads count. iOS uses
 only public signals: a shell load or a main-frame `linkActivated` navigation, script-started ones
 included. The shell takes at most one store link per `install::STORE_LINK_INTERVAL` (10 s,
-`Core::admit_store_link`) and ignores the others without a sheet, checks `Core::store_link_allowed` and runs `extensions::install::store_step` with its own
-verified catalog copy: `FetchCatalog` fetches the catalog as Settings › Extensions › Official
-does and asks again with `fetched`, `Install` opens the usual consent for
-`Install::Official(entry)`, `Refuse` shows its notice. Settings › Extensions links
+`Core::admit_store_link`) and ignores the others without a sheet. It makes no request on the
+link: `extensions::install::store_step` (with `Core::store_link_allowed` for the tab and the
+catalog copy the shell already holds) returns the entry, which Settings › Extensions shows with
+`store_sheet`, or the notice the shell shows on the tab (no fresh catalog: load it in Settings ›
+Extensions). Install on that sheet runs `store_confirm` (everything again, and the same entry),
+then `Install::Official(entry)`; when the unpacked package's source is that entry
+(`store_confirmed`) the shell confirms it without a second prompt. Settings › Extensions links
 `extensions::STORE_URL` on every client.
 
 The shim (`tarn_ext_shim.js`) defines `chrome.*` and `browser.*` and talks only through these two

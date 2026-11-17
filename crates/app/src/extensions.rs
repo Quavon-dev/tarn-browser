@@ -9,7 +9,7 @@ use gpui::{
     prelude::FluentBuilder, px,
 };
 use shield::ShieldLevel;
-use shield::catalog::{self, Index};
+use shield::catalog::{self, Entry, Index};
 use store::{Id, InstalledExtension};
 use ui::controls::{icon_button, tooltip};
 use ui::icon::Icon;
@@ -22,7 +22,7 @@ use crate::prefs::Pref;
 use crate::shared::AppCore;
 pub use browser_core::extensions::Install;
 pub use browser_core::extensions::install::UNREVIEWED;
-use browser_core::extensions::install::{self, CATALOG_SEEN_SETTING, Slot, StoreContext, StoreStep};
+use browser_core::extensions::install::{self, CATALOG_SEEN_SETTING, Slot, StoreCatalog, StoreContext};
 use browser_core::extensions::{Step, Unpacked, badge, every_site, fetch_and_unpack, grew, may_use_all_sites, png_icon};
 
 pub use browser_core::theme_fetch::DOWNLOADS_SETTING;
@@ -147,7 +147,8 @@ pub struct Extensions {
     repin: HashSet<String>,
     /// Check for Updates runs once the catalog it asked for arrives.
     check_after_catalog: bool,
-    store_after_catalog: Option<String>,
+    store_offer: Option<(TabKey, Entry)>,
+    store_confirmed: Option<(u64, String)>,
     catalog: Option<Index>,
 }
 
@@ -811,7 +812,12 @@ impl Browser {
         let row = u.row(slot.profile_id, &slot.install_id, extension.name(), extension.version(), permissions);
         let mut ext = self.core.extensions.borrow_mut();
         ext.busy = None;
+        let confirmed = ext.store_confirmed.take().is_some_and(|(g, id)| g == generation && install::store_confirmed(&id, &row.source));
         ext.pending = Some(Pending { slot, row, extension });
+        drop(ext);
+        if confirmed {
+            self.confirm_extension_install(cx);
+        }
         cx.notify();
     }
 
@@ -950,9 +956,7 @@ impl Browser {
 
     pub fn fetch_catalog(&mut self, cx: &mut Context<Self>) {
         if !catalog_configured() || !self.extension_downloads() || self.core.extensions.borrow().busy.is_some() {
-            let mut ext = self.core.extensions.borrow_mut();
-            ext.check_after_catalog = false;
-            ext.store_after_catalog = None;
+            self.core.extensions.borrow_mut().check_after_catalog = false;
             return;
         }
         self.core.extensions.borrow_mut().busy = Some(LOADING_CATALOG.into());
@@ -976,15 +980,10 @@ impl Browser {
                         if b.core.extensions.borrow().check_after_catalog {
                             b.check_extension_updates(cx);
                         }
-                        let store = b.core.extensions.borrow_mut().store_after_catalog.take();
-                        if let Some(id) = store {
-                            b.store_step(id, true, cx);
-                        }
                     }
                     Err(why) => {
                         let mut ext = b.core.extensions.borrow_mut();
                         ext.check_after_catalog = false;
-                        ext.store_after_catalog = None;
                         ext.notices.push(why);
                     }
                 }
@@ -995,7 +994,6 @@ impl Browser {
                 if ext.busy.as_deref() == Some(LOADING_CATALOG) {
                     ext.busy = None;
                     ext.check_after_catalog = false;
-                    ext.store_after_catalog = None;
                 }
                 drop(ext);
                 cx.update(|cx| cx.refresh_windows()).ok();
@@ -1021,30 +1019,59 @@ impl Browser {
         if !self.core.admit_store_link(std::time::Instant::now()) {
             return;
         }
-        let page = self.views.get(&key).and_then(|v| v.url());
-        let profile = self.model.profile_of(&self.core, key).filter(|p| self.current_profile_id() == Some(*p));
-        if !profile.is_some_and(|p| self.core.store_link_allowed(key.private, p, page.as_ref())) {
-            return self.notify_offer(key, install::STORE_REFUSED.to_owned(), None);
+        let offer = {
+            let ext = self.core.extensions.borrow();
+            let busy = ext.busy.is_some() || ext.pending.is_some() || ext.choice.is_some() || ext.store_offer.is_some();
+            drop(ext);
+            self.store_check(key, busy, |context, catalog| install::store_step(&id, context, catalog))
+        };
+        match offer {
+            Ok(entry) => {
+                self.core.extensions.borrow_mut().store_offer = Some((key, *entry));
+                self.open_settings_pane(crate::settings::SettingsPane::Extensions, window, cx);
+            }
+            Err(why) => self.notify_offer(key, why, None),
         }
-        self.open_settings_pane(crate::settings::SettingsPane::Extensions, window, cx);
-        self.store_step(id, false, cx);
+        cx.notify();
     }
 
-    fn store_step(&mut self, id: String, fetched: bool, cx: &mut Context<Self>) {
-        let rows = self.current_profile_id().map(|p| self.core.disk.extensions(p).unwrap_or_default()).unwrap_or_default();
-        let context = StoreContext { allowed: self.extensions_allowed(), configured: catalog_configured(), downloads: self.extension_downloads(), fetched };
-        let catalog = self.core.extensions.borrow().catalog.clone();
-        match install::store_step(&id, context, catalog.as_ref(), now(), &install::revoked(&self.core.disk), &rows) {
-            StoreStep::Install(entry) => self.install_extension(Install::Official(*entry), None, cx),
-            StoreStep::FetchCatalog => {
-                self.core.extensions.borrow_mut().store_after_catalog = Some(id);
-                self.fetch_catalog(cx);
+    fn store_check(&self, key: TabKey, busy: bool, step: impl FnOnce(StoreContext, StoreCatalog) -> Result<Box<Entry>, String>) -> Result<Box<Entry>, String> {
+        let page = self.views.get(&key).and_then(|v| v.url());
+        let profile = self.model.profile_of(&self.core, key).filter(|p| self.current_profile_id() == Some(*p));
+        let allowed = self.extensions_allowed() && profile.is_some_and(|p| self.core.store_link_allowed(key.private, p, page.as_ref()));
+        let rows = profile.map(|p| self.core.disk.extensions(p).unwrap_or_default()).unwrap_or_default();
+        let (catalog, revoked) = (self.core.extensions.borrow().catalog.clone(), install::revoked(&self.core.disk));
+        let context = StoreContext { allowed, configured: catalog_configured(), downloads: self.extension_downloads(), busy };
+        step(context, StoreCatalog { index: catalog.as_ref(), now: now(), revoked: &revoked, installed: &rows })
+    }
+
+    pub fn store_sheet(&self) -> Option<(String, Vec<String>)> {
+        self.core.extensions.borrow().store_offer.as_ref().map(|(_, entry)| install::store_sheet(entry))
+    }
+
+    pub fn cancel_store_offer(&mut self, cx: &mut Context<Self>) {
+        self.core.extensions.borrow_mut().store_offer = None;
+        cx.notify();
+    }
+
+    pub fn confirm_store_offer(&mut self, cx: &mut Context<Self>) {
+        let Some((key, offered)) = self.core.extensions.borrow_mut().store_offer.take() else { return };
+        let busy = {
+            let ext = self.core.extensions.borrow();
+            ext.busy.is_some() || ext.pending.is_some() || ext.choice.is_some()
+        };
+        match self.store_check(key, busy, |context, catalog| install::store_confirm(&offered, context, catalog)) {
+            Ok(entry) => {
+                let before = self.core.extensions.borrow().generation;
+                self.install_extension(Install::Official(*entry), None, cx);
+                let mut ext = self.core.extensions.borrow_mut();
+                if ext.generation != before {
+                    ext.store_confirmed = Some((ext.generation, offered.id));
+                }
             }
-            StoreStep::Refuse(why) => {
-                self.core.extensions.borrow_mut().notices.push(why);
-                cx.notify();
-            }
+            Err(why) => self.core.extensions.borrow_mut().notices.push(why),
         }
+        cx.notify();
     }
 
     pub fn choose_extension_asset(&mut self, ix: usize, cx: &mut Context<Self>) {
