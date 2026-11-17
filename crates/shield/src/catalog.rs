@@ -143,7 +143,7 @@ pub fn signed_message(index: &[u8]) -> Vec<u8> {
     EXTENSIONS.signed_message(index)
 }
 
-fn valid_id(id: &str) -> bool {
+pub fn valid_id(id: &str) -> bool {
     (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 

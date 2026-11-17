@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use shield::catalog::{self, Index};
+use shield::catalog::{self, Entry, Index};
 use store::{Id, InstalledExtension, Store};
 
 use super::{Install, Step, Unpacked, badge, fetch_and_unpack, grew, may_use_all_sites, older, pattern_covers};
@@ -18,6 +18,18 @@ pub const MAX_INSTALLS: usize = 32;
 pub const REVOKED_SETTING: &str = "extension_revoked";
 pub const CATALOG_SEEN_SETTING: &str = "extension_catalog_version";
 pub const UNREVIEWED: &str = "Nobody reviewed this extension's code. It can read and change the sites you allow and send what it reads anywhere.";
+pub const STORE_LINK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+pub const STORE_CONFIRM_DELAY: std::time::Duration = std::time::Duration::from_millis(700);
+pub const STORE_REFUSED: &str = "Extensions are not installed in private spaces, burner tabs or Lockdown.";
+pub const STORE_NO_CATALOG: &str = "The official catalog is not available in this build.";
+pub const STORE_DOWNLOADS_OFF: &str = "Extension downloads are off in Privacy settings.";
+pub const STORE_NEEDS_CATALOG: &str =
+    "Tarn has no current official catalog. Load it with Show Official Extensions in Settings › Extensions, then open the link again.";
+pub const STORE_BUSY: &str = "An extension install is already in progress.";
+pub const STORE_CHANGED: &str = "The official catalog changed since you opened the link; open it again.";
+pub const STORE_FETCH_NOTE: &str = "Tarn downloads it from GitHub only when you press Install.";
+pub const STORE_UNKNOWN: &str = "This extension is not in Tarn's official catalog.";
+pub const STORE_WITHDRAWN: &str = "This extension was withdrawn from the official catalog.";
 pub const NOT_TARN: &str =
     "This is not a Tarn extension. Only extensions whose manifest sets browser_specific_settings.tarn.runtime to 1 run in this version of Tarn.";
 
@@ -346,6 +358,123 @@ pub fn catalog_fetched(store: &Store, index: &Index) {
     merge_revoked(store, index);
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct StoreContext {
+    pub allowed: bool,
+    pub configured: bool,
+    pub downloads: bool,
+    pub busy: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct StoreCatalog<'a> {
+    pub index: Option<&'a Index>,
+    pub now: u64,
+    pub revoked: &'a BTreeSet<(String, String)>,
+    pub installed: &'a [InstalledExtension],
+}
+
+pub fn store_step(id: &str, context: StoreContext, catalog: StoreCatalog) -> Result<Box<Entry>, String> {
+    let refuse = |why: &str| Err(why.to_owned());
+    if !context.allowed {
+        return refuse(STORE_REFUSED);
+    }
+    if !context.configured {
+        return refuse(STORE_NO_CATALOG);
+    }
+    if !context.downloads {
+        return refuse(STORE_DOWNLOADS_OFF);
+    }
+    if context.busy {
+        return refuse(STORE_BUSY);
+    }
+    let Some(index) = catalog.index.filter(|c| !catalog::is_old(c, catalog.now)) else { return refuse(STORE_NEEDS_CATALOG) };
+    let Some(entry) = index.extensions.iter().find(|e| e.id == id) else { return refuse(STORE_UNKNOWN) };
+    let listed = |rid: &str, sha: &str| rid == entry.id && sha == entry.sha256;
+    if catalog.revoked.iter().any(|(rid, sha)| listed(rid, sha)) || index.revoked.iter().any(|r| listed(&r.id, &r.sha256)) {
+        return refuse(STORE_WITHDRAWN);
+    }
+    if catalog.installed.iter().any(|r| r.source.strip_prefix("official:") == Some(id)) {
+        return Err(format!("{} is already installed.", shown(&entry.name)));
+    }
+    Ok(Box::new(entry.clone()))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoreToken {
+    seq: u64,
+    id: String,
+    sha256: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StoreOffer {
+    pub tab: crate::tabs::TabKey,
+    pub entry: Entry,
+    pub token: StoreToken,
+    shown: std::time::Instant,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct StoreSheet {
+    seq: u64,
+    offer: Option<StoreOffer>,
+}
+
+impl StoreSheet {
+    pub fn offer(&mut self, tab: crate::tabs::TabKey, id: &str, context: StoreContext, catalog: StoreCatalog, now: std::time::Instant) -> Result<(), String> {
+        let entry = *store_step(id, context, catalog)?;
+        self.seq += 1;
+        let token = StoreToken { seq: self.seq, id: entry.id.clone(), sha256: entry.sha256.clone() };
+        self.offer = Some(StoreOffer { tab, entry, token, shown: now });
+        Ok(())
+    }
+
+    pub fn shown(&self) -> Option<&StoreOffer> {
+        self.offer.as_ref()
+    }
+
+    pub fn clear(&mut self) {
+        self.offer = None;
+    }
+
+    pub fn take(&mut self, token: &StoreToken, now: std::time::Instant) -> Option<StoreOffer> {
+        let ready = self.offer.as_ref().is_some_and(|o| o.token == *token && now.saturating_duration_since(o.shown) >= STORE_CONFIRM_DELAY);
+        if ready { self.offer.take() } else { None }
+    }
+}
+
+pub fn store_confirm(offered: &Entry, context: StoreContext, catalog: StoreCatalog) -> Result<Box<Entry>, String> {
+    let entry = store_step(&offered.id, context, catalog)?;
+    if *entry != *offered {
+        return Err(STORE_CHANGED.to_owned());
+    }
+    Ok(entry)
+}
+
+pub fn store_sheet(entry: &Entry) -> (String, Vec<String>) {
+    let list = |items: &[String]| items.iter().map(|i| shown(i)).collect::<Vec<_>>().join(", ");
+    let mut lines = Vec::new();
+    if !entry.description.is_empty() {
+        lines.push(shown(&entry.description));
+    }
+    lines.push(format!("Source: {}", badge(&format!("official:{}", entry.id))));
+    if !entry.permissions.is_empty() {
+        lines.push(format!("Uses: {}", list(&entry.permissions)));
+    }
+    if !entry.optional_permissions.is_empty() {
+        lines.push(format!("May ask for: {}", list(&entry.optional_permissions)));
+    }
+    lines.push(if entry.hosts.is_empty() { "Asks for no sites.".to_owned() } else { format!("Wants to read and change: {}", list(&entry.hosts)) });
+    lines.push("It asks you on every site before it runs there, unless you let it use every site it lists.".to_owned());
+    lines.push(STORE_FETCH_NOTE.to_owned());
+    (format!("Install \u{201C}{}\u{201D} {}?", shown(&entry.name), shown(&entry.version)), lines)
+}
+
+pub fn store_confirmed(confirmed: &str, source: &str) -> bool {
+    source.strip_prefix("official:") == Some(confirmed)
+}
+
 /// The title of the per-site prompt every client shows.
 pub fn access_title(name: &str, badge: &str, host: &str) -> String {
     format!("The extension \u{201C}{}\u{201D} ({}) wants to read and change {}", shown(name), shown(badge), shown(host))
@@ -470,6 +599,126 @@ mod tests {
     #[test]
     fn the_prompt_names_extension_source_and_host() {
         assert_eq!(access_title("Helper", "Official", "shop.test"), "The extension \u{201C}Helper\u{201D} (Official) wants to read and change shop.test");
+    }
+
+    fn store_index(now: u64) -> Index {
+        serde_json::from_value(serde_json::json!({
+            "kind": "tarn-extensions", "version": 3, "created": now,
+            "extensions": [
+                {"id": "helper", "name": "Helper", "description": "", "version": "1.0", "url": "https://x.test/h.zip", "sha256": "a".repeat(64), "size": 1, "permissions": [], "hosts": []},
+                {"id": "gone", "name": "Gone", "description": "", "version": "1.0", "url": "https://x.test/g.zip", "sha256": "b".repeat(64), "size": 1, "permissions": [], "hosts": []},
+                {"id": "pulled", "name": "Pulled", "description": "", "version": "1.0", "url": "https://x.test/p.zip", "sha256": "c".repeat(64), "size": 1, "permissions": [], "hosts": []}
+            ],
+            "revoked": [{"id": "gone", "sha256": "b".repeat(64)}]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_store_link_offers_only_a_fresh_verified_catalog_entry_and_never_fetches() {
+        let now = 1_900_000_000;
+        let (index, old) = (store_index(now), store_index(now - 31 * 24 * 3600));
+        let ok = StoreContext { allowed: true, configured: true, downloads: true, busy: false };
+        let none = BTreeSet::new();
+        let fresh = StoreCatalog { index: Some(&index), now, revoked: &none, installed: &[] };
+        let refused = |why: &str| Err(why.to_owned());
+        assert_eq!(store_step("helper", ok, fresh).unwrap().id, "helper");
+        assert_eq!(store_step("helper", StoreContext { allowed: false, ..ok }, fresh), refused(STORE_REFUSED));
+        assert_eq!(store_step("helper", StoreContext { configured: false, ..ok }, fresh), refused(STORE_NO_CATALOG));
+        assert_eq!(store_step("helper", StoreContext { downloads: false, ..ok }, fresh), refused(STORE_DOWNLOADS_OFF));
+        assert_eq!(store_step("helper", StoreContext { busy: true, ..ok }, fresh), refused(STORE_BUSY));
+        assert_eq!(store_step("helper", ok, StoreCatalog { index: None, ..fresh }), refused(STORE_NEEDS_CATALOG), "no catalog: a notice, never a fetch");
+        assert_eq!(store_step("helper", ok, StoreCatalog { index: Some(&old), ..fresh }), refused(STORE_NEEDS_CATALOG), "a list over 30 days old is not used");
+        assert_eq!(store_step("missing", ok, fresh), refused(STORE_UNKNOWN));
+        assert_eq!(store_step("gone", ok, fresh), refused(STORE_WITHDRAWN));
+        let stored: BTreeSet<_> = [("pulled".to_owned(), "c".repeat(64))].into();
+        assert_eq!(store_step("pulled", ok, StoreCatalog { revoked: &stored, ..fresh }), refused(STORE_WITHDRAWN));
+        let other_build: BTreeSet<_> = [("pulled".to_owned(), "d".repeat(64))].into();
+        assert!(store_step("pulled", ok, StoreCatalog { revoked: &other_build, ..fresh }).is_ok());
+        let installed = [InstalledExtension { source: "official:helper".into(), ..Default::default() }];
+        assert_eq!(store_step("helper", ok, StoreCatalog { installed: &installed, ..fresh }), refused("Helper is already installed."));
+        assert!(store_step("pulled", ok, StoreCatalog { installed: &installed, ..fresh }).is_ok());
+    }
+
+    #[test]
+    fn the_store_confirmation_checks_everything_again_and_holds_to_the_shown_entry() {
+        let now = 1_900_000_000;
+        let index = store_index(now);
+        let none = BTreeSet::new();
+        let ok = StoreContext { allowed: true, configured: true, downloads: true, busy: false };
+        let fresh = StoreCatalog { index: Some(&index), now, revoked: &none, installed: &[] };
+        let offered = *store_step("helper", ok, fresh).unwrap();
+        assert_eq!(*store_confirm(&offered, ok, fresh).unwrap(), offered);
+        assert_eq!(store_confirm(&offered, StoreContext { allowed: false, ..ok }, fresh), Err(STORE_REFUSED.to_owned()), "a private space or Lockdown by now");
+        assert_eq!(store_confirm(&offered, StoreContext { busy: true, ..ok }, fresh), Err(STORE_BUSY.to_owned()));
+        let stale = StoreCatalog { now: now + 31 * 24 * 3600, ..fresh };
+        assert_eq!(store_confirm(&offered, ok, stale), Err(STORE_NEEDS_CATALOG.to_owned()));
+        let grown = Entry { hosts: vec!["*://*.bank.test/*".into()], ..offered.clone() };
+        assert_eq!(store_confirm(&grown, ok, fresh), Err(STORE_CHANGED.to_owned()), "what was shown is what installs");
+    }
+
+    #[test]
+    fn a_new_store_link_replaces_an_unanswered_confirmation_and_only_a_running_install_blocks() {
+        let now = 1_900_000_000;
+        let index = store_index(now);
+        let none = BTreeSet::new();
+        let ok = StoreContext { allowed: true, configured: true, downloads: true, busy: false };
+        let catalog = StoreCatalog { index: Some(&index), now, revoked: &none, installed: &[] };
+        let (first, second) = (crate::tabs::TabKey { private: false, id: 1 }, crate::tabs::TabKey { private: false, id: 2 });
+        let at = std::time::Instant::now();
+        let mut sheet = StoreSheet::default();
+        sheet.offer(first, "helper", ok, catalog, at).unwrap();
+        sheet.offer(second, "pulled", ok, catalog, at).unwrap();
+        assert_eq!(sheet.shown().map(|o| (o.tab, o.entry.id.as_str())), Some((second, "pulled")), "the unanswered one is replaced");
+        assert_eq!(sheet.offer(first, "helper", StoreContext { busy: true, ..ok }, catalog, at), Err(STORE_BUSY.to_owned()));
+        assert_eq!(sheet.offer(first, "missing", ok, catalog, at), Err(STORE_UNKNOWN.to_owned()));
+        assert_eq!(sheet.shown().map(|o| o.entry.id.as_str()), Some("pulled"), "a refused link leaves the confirmation shown");
+        sheet.clear();
+        assert!(sheet.shown().is_none(), "closing the pane drops it");
+    }
+
+    #[test]
+    fn install_confirms_only_the_sheet_it_was_drawn_for_and_not_at_once() {
+        let now = 1_900_000_000;
+        let index = store_index(now);
+        let none = BTreeSet::new();
+        let ok = StoreContext { allowed: true, configured: true, downloads: true, busy: false };
+        let catalog = StoreCatalog { index: Some(&index), now, revoked: &none, installed: &[] };
+        let tab = crate::tabs::TabKey { private: false, id: 1 };
+        let (at, ms) = (std::time::Instant::now(), std::time::Duration::from_millis);
+        let mut sheet = StoreSheet::default();
+        sheet.offer(tab, "helper", ok, catalog, at).unwrap();
+        let a = sheet.shown().unwrap().token.clone();
+        sheet.offer(tab, "pulled", ok, catalog, at + ms(10_000)).unwrap();
+        let b = sheet.shown().unwrap().token.clone();
+        assert_ne!(a, b);
+        assert!(sheet.take(&a, at + ms(20_000)).is_none(), "a click aimed at the replaced sheet never confirms the new one");
+        assert!(sheet.take(&b, at + ms(10_000) + STORE_CONFIRM_DELAY - ms(1)).is_none(), "too soon after it appeared");
+        assert_eq!(sheet.shown().map(|o| o.entry.id.as_str()), Some("pulled"), "refused clicks leave the sheet");
+        let taken = sheet.take(&b, at + ms(10_000) + STORE_CONFIRM_DELAY).unwrap();
+        assert_eq!(taken.entry.id, "pulled");
+        assert!(sheet.shown().is_none() && sheet.take(&b, at + ms(30_000)).is_none(), "taken once");
+        sheet.offer(tab, "helper", ok, catalog, at + ms(40_000)).unwrap();
+        let again = sheet.shown().unwrap().token.clone();
+        assert!(again != a && sheet.take(&a, at + ms(50_000)).is_none(), "the same entry offered again gets a new token");
+    }
+
+    #[test]
+    fn the_store_sheet_shows_only_the_signed_entry() {
+        let index = store_index(1_900_000_000);
+        let entry = Entry {
+            optional_permissions: vec!["tabs".into()],
+            hosts: vec!["*://*.shop.test/*".into()],
+            permissions: vec!["storage".into()],
+            ..index.extensions[0].clone()
+        };
+        let (title, lines) = store_sheet(&entry);
+        assert_eq!(title, "Install \u{201C}Helper\u{201D} 1.0?");
+        assert!(
+            lines.contains(&"Source: Official".to_owned()) && lines.contains(&"Uses: storage".to_owned()) && lines.contains(&"May ask for: tabs".to_owned())
+        );
+        assert!(lines.contains(&"Wants to read and change: *://*.shop.test/*".to_owned()) && lines.last().map(String::as_str) == Some(STORE_FETCH_NOTE));
+        assert!(store_confirmed("helper", "official:helper") && !store_confirmed("helper", "official:other") && !store_confirmed("helper", "github:1"));
     }
 
     struct NoNet;

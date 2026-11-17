@@ -35,6 +35,7 @@ pub const ZOOM_STEPS: [f64; 9] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0]
 #[derive(Clone, Debug, Default)]
 pub struct Page {
     pub url: String,
+    pub link: bool,
     pub title: String,
     pub can_back: bool,
     pub can_forward: bool,
@@ -325,6 +326,7 @@ impl Browser {
         let level = self.level_for(key, url);
         let page = self.pages.entry(key).or_default();
         page.load = Some((url.to_owned(), seq));
+        page.link = false;
         page.loading = true;
         page.level = level;
         page.error = None;
@@ -718,11 +720,18 @@ impl Browser {
         self.outbox.push((key, "answer", prompt.answer(accept, Some(text.to_owned()), Some(user.to_owned()), Some(password.to_owned()))));
     }
 
+    pub fn store_link_allowed(&self, key: TabKey) -> bool {
+        let page = self.pages.get(&key).and_then(|p| Url::parse(&p.url).ok());
+        let current = self.model.current_space().filter(|s| !s.private).map(|s| s.space.profile_id);
+        self.model.profile_of(&self.core, key).filter(|p| current == Some(*p)).is_some_and(|p| self.core.store_link_allowed(key.private, p, page.as_ref()))
+    }
+
     pub fn on_event(&mut self, key: TabKey, name: &str, data: &Value) {
         let text = |k: &str| data[k].as_str().unwrap_or_default().to_owned();
         match name {
             "committed" | "finished" => self.on_page(key, name == "finished", data),
             "started" | "stopped" => self.pages.entry(key).or_default().loading = name == "started",
+            browser_core::extensions::STORE_EVENT => self.pages.entry(key).or_default().loading = false,
             "title" => {
                 if let Some(page) = self.pages.get_mut(&key) {
                     page.title = text("title");
@@ -757,8 +766,12 @@ impl Browser {
             }
             "external" => self.notice = Some(Notice::External { url: text("url"), origin: text("origin") }),
             "popup" => {
-                if !(data["link"].as_bool() == Some(true) && self.open_routed(&text("url"))) {
-                    self.new_tab(&text("url"));
+                let url = text("url");
+                if !(data["link"].as_bool() == Some(true) && self.open_routed(&url)) {
+                    self.new_tab(&url);
+                }
+                if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)).filter(|p| p.load.as_ref().is_some_and(|(u, _)| *u == url)) {
+                    page.link = true;
                 }
             }
             "article" | "pageText" | "textFound" | "picked" => self.on_script_event(key, name, data),

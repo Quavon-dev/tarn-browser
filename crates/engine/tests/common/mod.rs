@@ -64,6 +64,8 @@ const SUB_WAIT: &str = "<title>SUB</title><script>addEventListener('load', () =>
 
 const SUB_LATE: &str = "<title>SUB</title><script>setTimeout(() => { location.search = '?ok&again'; }, 4000);</script>";
 
+const STORE_LINK: &str = "https://extensions.tarnbrowser.com/install/helper";
+
 /// Serves the test site; `seen` gets `host path` of every request.
 pub fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -95,12 +97,26 @@ pub fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {
                 while path.ends_with("?wait") && !seen.lock().unwrap().iter().any(|s| s == "release") && Instant::now() < until {
                     std::thread::sleep(Duration::from_millis(50));
                 }
+                if route == "/store-redirect" {
+                    write!(stream, "HTTP/1.1 302 Found\r\nLocation: {STORE_LINK}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").ok();
+                    return;
+                }
                 if route == "/nocontent" {
                     std::thread::sleep(Duration::from_millis(1000));
                     write!(stream, "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n").ok();
                     return;
                 }
+                let store = format!(
+                    "<title>STORE</title><a id=l href={STORE_LINK} style='position:fixed;inset:0'>link</a><iframe src={STORE_LINK}></iframe>\
+                     <script>addEventListener('load', () => setTimeout(() => {{ document.title = 'RAN'; {} }}, 300));</script>",
+                    match path.split('?').nth(1) {
+                        Some("click") => "document.getElementById('l').click()".to_owned(),
+                        Some("assign") => format!("location.href = '{STORE_LINK}'"),
+                        _ => String::new(),
+                    }
+                );
                 let (kind, body) = match route {
+                    "/store" => ("text/html", store.as_str()),
                     _ if route.ends_with(".js") => ("text/javascript", "window.blockedRan = 1;"),
                     "/probe" => ("text/html", PROBE),
                     "/frames" => ("text/html", FRAMES),
