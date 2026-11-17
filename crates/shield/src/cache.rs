@@ -45,6 +45,15 @@ pub fn save_state(dir: &Path, state: &State) -> io::Result<()> {
     fs::rename(tmp, dir.join(STATE))
 }
 
+pub fn raise_floor(dir: &Path, version: u64) -> io::Result<()> {
+    let mut state = load_state(dir);
+    if state.version >= Some(version) {
+        return Ok(());
+    }
+    state.version = Some(version);
+    save_state(dir, &state)
+}
+
 pub fn check_age(version: u64, now: u64) -> Result<(), BundleError> {
     if version.saturating_add(MAX_AGE_SECS) < now || version > now.saturating_add(MAX_SKEW_SECS) {
         return Err(BundleError::Stale(version));
@@ -199,6 +208,18 @@ mod tests {
         assert_eq!(load_state(dir.path()), state);
         fs::write(dir.path().join(STATE), b"{").unwrap();
         assert_eq!(load_state(dir.path()), State::default());
+    }
+
+    #[test]
+    fn the_floor_only_rises() {
+        let dir = tempfile::tempdir().unwrap();
+        raise_floor(dir.path(), 5).unwrap();
+        assert_eq!(load_state(dir.path()).version, Some(5));
+        save_state(dir.path(), &State { version: Some(7), checked: 3, ..State::default() }).unwrap();
+        raise_floor(dir.path(), 6).unwrap();
+        assert_eq!(load_state(dir.path()), State { version: Some(7), checked: 3, ..State::default() });
+        raise_floor(dir.path(), 8).unwrap();
+        assert_eq!(load_state(dir.path()), State { version: Some(8), checked: 3, ..State::default() });
     }
 
     #[test]

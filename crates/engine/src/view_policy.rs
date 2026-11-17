@@ -80,6 +80,10 @@ pub enum Verdict {
 
 pub struct Navigation<'a> {
     pub url: &'a Url,
+    /// Ad, tracker and cookie-banner rules apply to `url`'s site, which the user did not pause.
+    pub site_filtered: bool,
+    /// The view was built with those rules.
+    pub filtered: bool,
     pub from_shell: bool,
     pub user_link: bool,
     pub user_step: bool,
@@ -99,7 +103,7 @@ pub fn navigation(levels: &Levels, view: ShieldLevel, nav: &Navigation) -> Verdi
         Decision::Prompt => return Verdict::External,
         Decision::Block => return Verdict::Blocked("nav_policy"),
     }
-    let site = levels.site(url);
+    let site = Site { filtered: nav.site_filtered, ..levels.site(url) };
     let page_level = nav.page.map_or(view, |p| levels.level(p));
     let user_started = nav.from_shell || nav.user_step;
     if nav_policy::into_private_network(url, nav.page, user_started, page_level.policy().block_private_network) {
@@ -112,7 +116,7 @@ pub fn navigation(levels: &Levels, view: ShieldLevel, nav: &Navigation) -> Verdi
         };
     }
     let view_javascript = view.policy().javascript;
-    match nav_policy::level_action(site, view, true, nav.from_shell, url) {
+    match nav_policy::level_action(site, view, nav.filtered, nav.from_shell, url) {
         LevelAction::Rebuild => Verdict::Rebuild,
         LevelAction::BlockInsecure => Verdict::Blocked("https_only"),
         LevelAction::Continue { .. } if nav.user_link && needs_stricter_view(levels, view, url) => Verdict::Rebuild,
@@ -149,6 +153,12 @@ pub fn https(url: &Url) -> Option<Url> {
         upgraded.set_port(None).ok()?;
     }
     Some(upgraded)
+}
+
+/// Whether `host` is the domain `record` or below it.
+pub fn site_matches(host: &str, record: &str) -> bool {
+    let record = record.to_ascii_lowercase();
+    !record.is_empty() && (host == record || host.ends_with(&format!(".{record}")))
 }
 
 pub fn origin(url: &Url) -> Option<String> {
@@ -302,7 +312,17 @@ mod tests {
     }
 
     fn nav(url: &Url) -> Navigation<'_> {
-        Navigation { url, from_shell: false, user_link: false, user_step: false, page: None, upgraded: false, likely_subframe: false }
+        Navigation {
+            url,
+            site_filtered: true,
+            filtered: true,
+            from_shell: false,
+            user_link: false,
+            user_step: false,
+            page: None,
+            upgraded: false,
+            likely_subframe: false,
+        }
     }
 
     fn levels(default: ShieldLevel) -> Levels {
@@ -358,6 +378,18 @@ mod tests {
         );
         let local = u("http://localhost:3000/");
         assert_eq!(popup(&any, ShieldLevel::Standard, &u("http://192.168.1.1/"), Some(&local)), Verdict::Allow { javascript: true });
+    }
+
+    #[test]
+    fn pausing_a_site_rebuilds_only_the_shells_loads() {
+        let any = levels(ShieldLevel::Standard);
+        let site = u("https://paused.test/");
+        let typed = Navigation { from_shell: true, site_filtered: false, ..nav(&site) };
+        assert_eq!(navigation(&any, ShieldLevel::Standard, &typed), Verdict::Rebuild);
+        let built = Navigation { filtered: false, ..typed };
+        assert_eq!(navigation(&any, ShieldLevel::Standard, &built), Verdict::Allow { javascript: true });
+        let link = Navigation { user_link: true, filtered: false, ..nav(&site) };
+        assert_eq!(navigation(&any, ShieldLevel::Standard, &link), Verdict::Allow { javascript: true }, "a page's link keeps the view it has");
     }
 
     #[test]

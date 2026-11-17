@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use browser_core::staleness::Staleness;
+use browser_core::tabs::custom_title;
 use engine::nav_policy::{self, Decision, Source};
 use futures::StreamExt;
 use futures::channel::mpsc;
@@ -10,7 +11,6 @@ use futures::future::{Either, select};
 use gpui::{Context, PromptLevel, Window, actions};
 use shield::ShieldLevel;
 use store::{SavedWindow, Tab, TabKind, WebEngine};
-use ui::text::bounded_title;
 use url::Url;
 
 #[cfg(feature = "chromium")]
@@ -21,7 +21,6 @@ use crate::memory::Cost;
 actions!(tarn, [RenameTab, ResetTabTitle, ReturnToPinnedUrl, SetPinnedUrl, SleepOtherTabs, ReloadInChromium, ReloadInWebKit, CloseDuplicateTabs]);
 
 pub(crate) const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-const PRESSURE_IDLE: std::time::Duration = std::time::Duration::from_secs(60);
 const HEAVY_TABS: usize = 3;
 
 /// Set once the user has read `GOOGLE_NOTICE`.
@@ -53,11 +52,6 @@ pub fn web_engine_name(engine: WebEngine) -> &'static str {
 /// The name a tab shows: the user's own, the page title, the host or scheme, or "New Tab".
 pub fn display_title(tab: &Tab) -> String {
     browser_core::command::display_title(&tab.custom_title, &tab.title, &tab.url)
-}
-
-/// What a rename stores: nothing when the name is the page's own title, so the tab follows the page again.
-fn custom_title(typed: &str, page_title: &str) -> String {
-    if typed == bounded_title(page_title) { String::new() } else { typed.to_owned() }
 }
 
 impl Browser {
@@ -99,9 +93,7 @@ impl Browser {
 
     /// The pinned URL of a pinned tab or tile that now shows another page.
     pub fn pinned_drift(&self, key: TabKey) -> Option<Url> {
-        let pinned = self.model.tab(key).filter(|t| t.kind != TabKind::Ephemeral)?.pinned_url.clone()?;
-        let current = self.tab_url(key)?;
-        browser_core::tabs::drifted(&pinned, &current).then(|| Url::parse(&pinned).ok()).flatten()
+        self.model.pinned_drift(key, &self.tab_url(key)?)
     }
 
     pub fn return_to_pinned(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
@@ -188,7 +180,7 @@ impl Browser {
     /// heaviest first; pinned tabs only for the budget, once unused for `PINNED_IDLE`.
     pub(crate) fn sleep_idle_tabs(&mut self, cx: &mut Context<Self>) {
         // Short of memory, a tab left for a minute sleeps; the web processes are what holds the memory.
-        let max_idle = crate::prefs::sleep_after(&self.core.disk).map(|idle| if platform::memory::pressure() { idle.min(PRESSURE_IDLE) } else { idle });
+        let max_idle = browser_core::settings::max_idle(crate::prefs::sleep_after(&self.core.disk), platform::memory::pressure());
         let (now, keys) = (Instant::now(), self.views.keys().copied().collect::<Vec<_>>());
         self.seen.retain(|k, _| keys.contains(k));
         let mut background = Vec::new();
@@ -530,7 +522,7 @@ mod tests {
         assert_eq!(display_title(&tab("", "", "blob:https://Evil.test/0b1c")), "evil.test");
         assert_eq!(display_title(&tab("", "", "data:text/html,bank.test")), "data:");
         assert_eq!(display_title(&tab("", "", "")), "New Tab");
-        assert_eq!(display_title(&tab("x", "evil\u{202e}name", "https://a.test/")), bounded_title("evil\u{202e}name"));
+        assert_eq!(display_title(&tab("x", "evil\u{202e}name", "https://a.test/")), ui::text::bounded_title("evil\u{202e}name"));
     }
 
     #[test]

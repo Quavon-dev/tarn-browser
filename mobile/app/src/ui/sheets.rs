@@ -612,7 +612,7 @@ pub fn transfers(ui: Ui) -> impl IntoElement {
             let t = t.get_untracked();
             let id = t.id.clone();
             let progress = match (&t.state, t.total) {
-                (TransferState::Flagged(host), _) => format!("From {host}, a site on the malware list. Not saved until you keep it."),
+                (TransferState::Flagged(host), _) => engine::downloads::flagged_note(host),
                 (TransferState::Paused, _) => format!("Paused at {}", megabytes(t.done)),
                 (TransferState::Saving, Some(total)) => format!("{} of {}", megabytes(t.done), megabytes(total)),
                 (TransferState::Saving, None) => megabytes(t.done),

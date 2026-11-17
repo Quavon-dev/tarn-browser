@@ -4,12 +4,14 @@ use shield::ShieldLevel;
 
 use super::tools::{Command, line, note};
 use super::{Panel, Ui, act, confirmed, read, show, site_tile};
+use crate::browser::library::Link;
 use crate::browser::{Browser, ZOOM_STEPS};
 use crate::controls::{body, card, group, icon_button, label, pill, segmented, small, title};
 use crate::icons;
 use crate::shortcuts::{self, Action};
 use crate::theme::Theme;
 use crate::theme::{SYSTEM_FONT, Secure};
+use browser_core::library::LIST_ROWS;
 use browser_core::shield_card::{motto, thousands};
 use store::TabKind;
 use tarn_nsh_shared::controls::{caps_label, glyph_row, glyph_switch};
@@ -119,11 +121,45 @@ fn shield_panel(ui: Ui) -> AnyElement {
         icon_button(icon, name, move || act(ui, move |b| b.zoom(step))).disabled((zoom - limit).abs() < 0.001).disabled_style(|s| s.text_color(Theme::faint()))
     };
     let dark = read(ui, Browser::site_dark).unwrap_or_default();
+    let muted = read(ui, |b| b.model.active.map(|k| b.tab_muted(k))).flatten().unwrap_or_default();
+    let (paused, popups, permissions) = read(ui, |b| (b.site_paused(&host), b.site_popups(), b.site_permissions())).unwrap_or_default();
+    let pause_host = host.clone();
+    let popup_choices = browser_core::site::POPUP_RULES.iter().map(|(rule, name)| (*rule, (*name).to_owned())).collect();
+    let permission_rows: Vec<AnyElement> = permissions.into_iter().map(|row| permission_row(ui, row)).collect();
     let list = group()
+        .child(
+            glyph_switch(
+                icons::SHIELD,
+                "Block ads, trackers and cookie banners",
+                move || !paused,
+                move || {
+                    let host = pause_host.clone();
+                    act(ui, move |b| b.set_site_paused(&host, !paused));
+                },
+            )
+            .border_b_1()
+            .border_color(Theme::separator()),
+        )
+        .child(
+            glyph_row(icons::APP_WINDOW, "Pop-ups")
+                .child(segmented(popup_choices, popups, move |rule| act(ui, move |b| b.set_site_popups(rule))))
+                .border_b_1()
+                .border_color(Theme::separator()),
+        )
         .child(
             glyph_switch(icons::MOON, "Dark mode for this site", move || dark, move || act(ui, Browser::toggle_site_dark))
                 .border_b_1()
                 .border_color(Theme::separator()),
+        )
+        .child(
+            glyph_switch(
+                icons::VOLUME_X,
+                "Mute this site",
+                move || muted,
+                move || act(ui, |b| b.model.active.into_iter().for_each(|k| b.toggle_site_muted(k))),
+            )
+            .border_b_1()
+            .border_color(Theme::separator()),
         )
         .child(
             glyph_row(icons::ZOOM_IN, "Zoom").child(
@@ -136,7 +172,8 @@ fn shield_panel(ui: Ui) -> AnyElement {
                     .child(zoom_button(icons::CHEVRON_RIGHT, "Zoom In", 1, ZOOM_STEPS[ZOOM_STEPS.len() - 1]))
                     .child(pill("Reset", move || act(ui, |b| b.zoom(0)))),
             ),
-        );
+        )
+        .children(permission_rows);
     let more = ui.site_more.get_untracked();
     let toggle = crate::controls::row(if more { "Fewer site settings" } else { "More site settings" }, move || {
         ui.site_more.update(|m| *m = !*m);
@@ -157,9 +194,52 @@ fn shield_panel(ui: Ui) -> AnyElement {
                 .child(small(meaning).px_1()),
         )
         .child(list)
-        .child(view().flex_row().child(toggle))
+        .child(view().flex_row().items_center().child(toggle).child(view().flex_1()).child(clear_site(ui, &host)))
         .children(more.then(|| site_extras(ui, &host)))
         .into_element()
+}
+
+fn permission_row(ui: Ui, row: browser_core::permissions::PermissionRow) -> AnyElement {
+    let glyph = icons::named(browser_core::glyphs::glyph(&row.kind)).unwrap_or(icons::INFO);
+    let choices = browser_core::permissions::DECISIONS.iter().map(|(d, name)| (*d, (*name).to_owned())).collect();
+    let (origin, kind) = (row.origin.clone(), row.kind.clone());
+    let (forget_origin, forget_kind) = (row.origin.clone(), row.kind.clone());
+    let decision = browser_core::permissions::DECISIONS.iter().map(|(d, _)| *d).find(|d| *d == row.decision).unwrap_or("ask");
+    glyph_row(glyph, row.label)
+        .border_t_1()
+        .border_color(Theme::separator())
+        .child(segmented(choices, decision, move |d| {
+            let (origin, kind) = (origin.clone(), kind.clone());
+            act(ui, move |b| b.set_site_permission(&origin, &kind, Some(d)));
+        }))
+        .child(icon_button(icons::CLOSE, "Remove", move || {
+            let (origin, kind) = (forget_origin.clone(), forget_kind.clone());
+            act(ui, move |b| b.set_site_permission(&origin, &kind, None));
+        }))
+        .into_element()
+}
+
+/// "Clear site data…" asks for a second click before it removes anything.
+fn clear_site(ui: Ui, host: &str) -> AnyElement {
+    let id = format!("site:{host}");
+    let armed = ui.confirm.with_untracked(|c| c.as_deref() == Some(id.as_str()));
+    let host = host.to_owned();
+    let name = if armed { "Click again to clear" } else { "Clear site data…" };
+    crate::controls::row(name, move || {
+        if !armed {
+            ui.confirm.set(Some(id.clone()));
+            return act(ui, |_| {});
+        }
+        ui.confirm.set(None);
+        let mut store = None;
+        act(ui, |b| store = b.clear_site(&host));
+        let Some(store) = store else { return };
+        let (cleared, host) = (host.clone(), host.clone());
+        crate::webview::session::clear_site(&store, &host, move |count| act(ui, move |b| b.site_cleared(&cleared, count)));
+    })
+    .px_1()
+    .child(small(name).text_color(Theme::danger()))
+    .into_element()
 }
 
 fn site_extras(ui: Ui, host: &str) -> View {
@@ -219,29 +299,58 @@ fn site_extras(ui: Ui, host: &str) -> View {
     out.children(hidden)
 }
 
+pub(super) fn link_row(ui: Ui, link: Link) -> AnyElement {
+    let host = url::Url::parse(&link.url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+    let (open, new) = (link.url.clone(), link.url.clone());
+    library_row(ui, link.url.clone(), &host, link.name, move || {
+        ui.panel.set(Panel::None);
+        let url = open.clone();
+        act(ui, move |b| b.open_url(&url));
+    })
+    .child(pill("Open in New Tab", move || {
+        ui.panel.set(Panel::None);
+        let url = new.clone();
+        act(ui, move |b| {
+            b.new_tab(&url);
+        });
+    }))
+    .child(copy_link(ui, "Copy Link", link.url))
+    .into_element()
+}
+
+pub(super) fn search_field(ui: Ui) -> nsh_base::Input {
+    super::text_field(ui.library_query, "Search", 220.)
+}
+
+pub(super) fn no_results(query: &str) -> Text {
+    note(format!("No results for “{}”", browser_core::text::bounded_title(query)))
+}
+
 fn history_panel(ui: Ui) -> AnyElement {
-    let entries = read(ui, |b| b.model.profile().map(|(p, id)| b.core.store(p).history(id, 300).unwrap_or_default()).unwrap_or_default()).unwrap_or_default();
-    let count = entries.len();
-    let rows: Vec<AnyElement> = entries
+    let history = std::rc::Rc::new(read(ui, Browser::library_history).unwrap_or_default());
+    let count = history.len();
+    let rows = dynamic(move || {
+        let query = ui.library_query.get();
+        let query = query.trim();
+        let links = Browser::history_links(&history, query, LIST_ROWS);
+        let empty = links.is_empty().then(|| if query.is_empty() { note("No history yet") } else { no_results(query) });
+        Some(view().flex_col().gap(px(1.)).children(empty).children(links.into_iter().map(|link| link_row(ui, link))))
+    });
+    let closed: Vec<AnyElement> = read(ui, Browser::recently_closed)
+        .unwrap_or_default()
         .into_iter()
-        .map(|h| {
-            let url = h.url.clone();
-            let host = url::Url::parse(&h.url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
-            let name = if h.title.is_empty() { h.url.clone() } else { h.title.clone() };
-            let link = url.clone();
-            library_row(ui, h.url.clone(), &host, name, move || {
+        .map(|(serial, name, url)| {
+            let host = url::Url::parse(&url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+            library_row(ui, name.clone(), &host, name, move || {
                 ui.panel.set(Panel::None);
-                let url = url.clone();
-                act(ui, move |b| {
-                    b.new_tab(&url);
-                });
+                act(ui, |b| b.reopen_closed(serial));
             })
-            .child(copy_link(ui, link))
             .into_element()
         })
         .collect();
+    let closed = (!closed.is_empty())
+        .then(|| view().flex_col().gap(px(1.)).child(section("Recently Closed".to_owned())).children(closed).child(section("History".to_owned())));
     let clear = (count > 0).then(|| confirmed(ui, "history".to_owned(), "Clear History", move || super::clear_history(ui)));
-    let empty = (count == 0).then(|| note("No history yet"));
     popover()
         .flex_1()
         .child(heading(
@@ -252,11 +361,14 @@ fn history_panel(ui: Ui) -> AnyElement {
                 .gap_2()
                 .flex_1()
                 .child(counted("History", count))
+                .child(pill("Bookmarks", move || show(ui, Panel::Bookmarks(None))))
                 .child(pill("Reading List", move || show(ui, Panel::ReadingList)))
+                .child(pill("Archived Tabs", move || show(ui, Panel::Archived)))
+                .children(browser_core::import::available().then(|| pill("Import", move || super::import::open(ui))))
                 .children(clear),
         ))
-        .children(empty)
-        .child(scroll().flex_1().child(view().flex_col().gap(px(1.)).children(rows)))
+        .child(search_field(ui))
+        .child(scroll().flex_1().child(view().flex_col().gap(px(1.)).children(closed).child(rows)))
         .into_element()
 }
 
@@ -288,6 +400,23 @@ fn progress(done: u64, total: u64) -> View {
         .child(view().h_full().flex_grow(rest))
 }
 
+pub(super) fn saved_download(ui: Ui, d: store::Download) -> AnyElement {
+    let path = d.path.clone();
+    let file = std::path::Path::new(&d.path);
+    let name = browser_core::library::download_name(&d);
+    let size = std::fs::metadata(file).map(|m| crate::memory::size(m.len())).ok();
+    let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_owned));
+    let note = [size, host].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+    let id = d.id;
+    download_row(name, note, false)
+        .child(icon_button(icons::FOLDER_OPEN, "Show in Folder", move || {
+            drop(reveal_path(std::path::PathBuf::from(&path)));
+        }))
+        .children((!d.url.is_empty()).then(|| copy_link(ui, "Copy Download Link", d.url)))
+        .child(icon_button(icons::TRASH, "Remove from List", move || act(ui, |b| b.remove_download(id))))
+        .into_element()
+}
+
 fn downloads_panel(ui: Ui) -> AnyElement {
     let (session, saved) = read(ui, |b| {
         let saved = b.model.profile().map(|(p, id)| b.core.store(p).downloads(id).unwrap_or_default()).unwrap_or_default();
@@ -305,28 +434,31 @@ fn downloads_panel(ui: Ui) -> AnyElement {
                 (true, None) => crate::memory::size(d.done),
                 _ => capitalised(&d.state),
             };
-            let note = if d.message.is_empty() { state } else { format!("{state} · {}", d.message) };
+            let flagged = d.state == "flagged";
+            let note = match (flagged, d.message.is_empty()) {
+                (true, _) => d.message.clone(),
+                (false, true) => state,
+                (false, false) => format!("{state} · {}", d.message),
+            };
             let id = d.id.clone();
+            let (keep, delete) = (id.clone(), id.clone());
             let row = download_row(d.name.clone(), note, !running)
-                .children(running.then(|| icon_button(icons::CLOSE, "Cancel Download", move || act(ui, |b| b.cancel_download(&id)))));
+                .children(running.then(|| icon_button(icons::CLOSE, "Cancel Download", move || act(ui, |b| b.cancel_download(&id)))))
+                .children(flagged.then(|| pill("Keep", move || act(ui, |b| b.keep_download(&keep, true)))))
+                .children(flagged.then(|| {
+                    pill("Delete", move || {
+                        act(ui, |b| b.keep_download(&delete, false));
+                        for other in super::WINDOWS.with_borrow(Vec::clone).into_iter().filter(|o| o.window != ui.window) {
+                            act(other, |b| b.forget_download(&delete));
+                        }
+                    })
+                }));
             let bar = d.total.filter(|t| running && *t > 0).map(|total| progress(d.done, total));
             view().flex_col().child(row).children(bar).into_element()
         })
         .collect();
     let empty = rows.is_empty() && saved.is_empty();
-    rows.extend(saved.into_iter().map(|d| {
-        let path = d.path.clone();
-        let file = std::path::Path::new(&d.path);
-        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let size = std::fs::metadata(file).map(|m| crate::memory::size(m.len())).ok();
-        let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_owned));
-        let note = [size, host].into_iter().flatten().collect::<Vec<_>>().join(" · ");
-        download_row(name, note, false)
-            .child(icon_button(icons::FOLDER_OPEN, "Show in Folder", move || {
-                drop(reveal_path(std::path::PathBuf::from(&path)));
-            }))
-            .into_element()
-    }));
+    rows.extend(saved.into_iter().map(|d| saved_download(ui, d)));
     let clear = (!empty).then(|| confirmed(ui, "downloads".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads())));
     let header = heading(ui, view().flex_row().items_center().flex_1().child(title("Downloads")).child(view().flex_1()).children(clear));
     let none = empty.then(|| view().h(px(44.)).px_2().justify_center().child(body("No downloads yet").text_color(Theme::faint())));
@@ -346,16 +478,33 @@ pub(super) fn rename_row(ui: Ui, target: String, current: &str, save: impl Fn(St
 }
 
 /// Copies `url` from a library row.
-pub(super) fn copy_link(ui: Ui, url: String) -> nsh_base::ButtonElement {
-    pill("Copy Link", move || {
+pub(super) fn copy_link(ui: Ui, name: &'static str, url: String) -> nsh_base::ButtonElement {
+    pill(name, move || {
         set_clipboard(url.clone());
         act(ui, |b| b.show_toast_as(browser_core::toast::Tone::Success, "Link copied", None));
     })
 }
 
 fn folder_panel(ui: Ui, id: store::Id) -> AnyElement {
-    let Some((name, current)) = read(ui, |b| b.model.folders.iter().find(|f| f.id == id).map(|f| (f.name.clone(), f.icon.clone()))).flatten() else {
+    let Some((name, count, current)) =
+        read(ui, |b| b.model.folders.iter().find(|f| f.id == id).map(|f| (f.name.clone(), b.model.folder_contents(id).0.len(), f.icon.clone()))).flatten()
+    else {
         return view().into_element();
+    };
+    let delete = move || {
+        ui.panel.set(Panel::None);
+        act(ui, |b| b.delete_folder(id));
+    };
+    let delete = if count == 0 {
+        group().child(menu_row("Delete Folder…", None, delete)).into_element()
+    } else {
+        view()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(small(format!("Deletes the {count} tabs in it too")).flex_1())
+            .child(confirmed(ui, format!("folder {id} delete"), "Delete Folder", delete))
+            .into_element()
     };
     let new = menu_row("New Subfolder", None, move || {
         ui.panel.set(Panel::None);
@@ -369,11 +518,12 @@ fn folder_panel(ui: Ui, id: store::Id) -> AnyElement {
             ui.emoji.set(browser_core::icon::emoji(&icon).to_owned());
             act(ui, |b| b.set_folder_icon(id, &icon));
         }))
+        .child(delete)
         .into_element()
 }
 
 /// The symbols to pick from, a field for one emoji and, while one is set, Remove.
-fn icon_choice(ui: Ui, target: String, current: String, set: impl Fn(String) + Copy + 'static) -> View {
+pub(super) fn icon_choice(ui: Ui, target: String, current: String, set: impl Fn(String) + Copy + 'static) -> View {
     if ui.emoji_for.get_untracked() != target {
         ui.emoji_for.set(target);
         ui.emoji.set(browser_core::icon::emoji(&current).to_owned());
@@ -394,10 +544,14 @@ fn icon_choice(ui: Ui, target: String, current: String, set: impl Fn(String) + C
 }
 
 pub(super) fn menu_row(name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
+    named_row(browser_core::command::glyph(name), name, keys, press)
+}
+
+pub(super) fn named_row(glyph: &str, name: &str, keys: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
     crate::controls::row(name.to_owned(), press)
         .px_2()
         .gap(px(10.))
-        .child(view().w(px(16.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::glyph(browser_core::command::glyph(name)), 15.)))
+        .child(view().w(px(16.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::glyph(glyph), 15.)))
         .child(label(name.to_owned()).flex_1())
         .children(keys.map(|k| tarn_nsh_shared::controls::key_caps(&k)))
 }
@@ -406,9 +560,32 @@ fn pills(name: &str, buttons: Vec<AnyElement>) -> Option<View> {
     (!buttons.is_empty()).then(|| view().flex_col().child(section(name.to_owned())).child(view().flex_row().flex_wrap().gap_2().children(buttons)))
 }
 
+struct TabState {
+    custom: bool,
+    drift: Option<String>,
+    muted: Option<bool>,
+    sleepable: bool,
+    sleep_others: bool,
+    others: bool,
+    below: bool,
+}
+
+fn tab_state(b: &Browser, key: browser_core::tabs::TabKey) -> TabState {
+    let unpinned = b.model.ephemeral_keys();
+    TabState {
+        custom: b.model.tab(key).is_some_and(|t| !t.custom_title.is_empty()),
+        drift: b.pinned_drift(key).and_then(|u| u.host_str().map(browser_core::text::bounded_title)),
+        muted: b.can_mute(key).then(|| b.tab_muted(key)),
+        sleepable: b.model.active != Some(key) && !b.sleeping(key),
+        sleep_others: b.can_sleep_others(key),
+        others: unpinned.iter().any(|k| *k != key),
+        below: !b.tabs_below(key).is_empty(),
+    }
+}
+
 fn tab_panel(ui: Ui) -> AnyElement {
     let menu = ui.tab_menu.get_untracked();
-    let Some((key, active, name, kind, targets, duplicates, keymap, split)) = read(ui, |b| {
+    let Some((key, active, name, kind, targets, duplicates, keymap, split, (in_group, groups), state)) = read(ui, |b| {
         let key = menu.filter(|k| b.model.tab(*k).is_some()).or(b.model.active)?;
         let tab = b.model.tab(key)?;
         let keymap = shortcuts::keymap(&shortcuts::stored(&b.core.disk));
@@ -421,6 +598,8 @@ fn tab_panel(ui: Ui) -> AnyElement {
             !b.duplicate_tabs().is_empty(),
             keymap,
             b.splits.menu(b.model.active, key),
+            (tab.group_id, b.model.groups.iter().filter(|g| Some(g.id) != tab.group_id).map(|g| (g.id, g.name.clone())).collect::<Vec<_>>()),
+            tab_state(b, key),
         ))
     })
     .flatten() else {
@@ -448,8 +627,32 @@ fn tab_panel(ui: Ui) -> AnyElement {
         let (pinned, tile) = (kind != TabKind::Ephemeral, kind == TabKind::Tile);
         let pin = menu_row(if pinned { "Unpin" } else { "Pin" }, keys(Action::TogglePin), move || act(ui, |b| b.pin_toggle(key)));
         let tiles = menu_row(if tile { "Remove from Tiles" } else { "Add to Tiles" }, None, move || act(ui, |b| b.tile_toggle(key)));
-        group().child(pin).child(tiles)
+        let reset = state.custom.then(|| menu_row("Reset Title", None, move || act(ui, |b| b.reset_tab_title(key))));
+        let drift = state.drift.clone().map(|host| {
+            let back = menu_row(&format!("Return to {host}"), None, move || {
+                ui.panel.set(Panel::None);
+                act(ui, |b| b.return_to_pinned(key));
+            });
+            [back, menu_row("Set Pinned URL to Current Page", None, move || act(ui, |b| b.set_pinned_url(key)))]
+        });
+        group().child(pin).child(tiles).children(reset).children(drift.into_iter().flatten())
     });
+    let rename =
+        (kind != TabKind::Tile).then(|| rename_row(ui, format!("tab {}-{}", key.private, key.id), &name, move |name| act(ui, |b| b.rename_tab(key, &name))));
+    let duplicate = menu_row("Duplicate Tab", None, move || {
+        ui.panel.set(Panel::None);
+        act(ui, |b| b.duplicate_tab(key));
+    });
+    let group_buttons: Vec<AnyElement> = if kind == TabKind::Ephemeral {
+        groups
+            .into_iter()
+            .map(|(id, name)| pill(name, move || act(ui, |b| b.set_tab_group(key, Some(id)))).into_element())
+            .chain([pill("New Group", move || super::groups::new_group(ui, Some(key))).into_element()])
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let ungroup = in_group.map(|_| group().child(menu_row("Remove from Group", None, move || act(ui, |b| b.set_tab_group(key, None)))));
     let page_rows = active.then(|| {
         let mut rows = vec![
             tool("Copy Link", Command::CopyLink, Some(Action::CopyLink)),
@@ -483,20 +686,128 @@ fn tab_panel(ui: Ui) -> AnyElement {
         split_rows.push(menu_row("Close Split View", keys(Action::ToggleSplitView), in_split(Browser::close_split)));
     }
     let split_rows = (!split_rows.is_empty()).then(|| view().flex_col().child(section("Split View".to_owned())).child(group().children(split_rows)));
-    let close = menu_row("Close Tab", keys(Action::CloseTab), move || {
+    let bookmark = menu_row("Bookmark Tab…", keys(Action::BookmarkTab), move || super::library::bookmark_tab(ui, Some(key)));
+    let mut sound_rows = Vec::new();
+    if let Some(muted) = state.muted {
+        sound_rows.push(menu_row(if muted { "Unmute Site" } else { "Mute Site" }, None, move || act(ui, |b| b.toggle_site_muted(key))));
+    }
+    if state.sleepable {
+        sound_rows.push(menu_row("Sleep Tab", None, move || act(ui, |b| b.sleep_tabs(vec![key]))));
+    }
+    if state.sleep_others {
+        sound_rows.push(menu_row("Sleep Other Tabs", None, move || act(ui, |b| b.sleep_tabs(b.model.other_tabs(key)))));
+    }
+    let sound_rows = (!sound_rows.is_empty()).then(|| group().children(sound_rows));
+    let ephemeral = kind == TabKind::Ephemeral;
+    let close = menu_row(if ephemeral { "Close Tab" } else { "Unload Tab" }, keys(Action::CloseTab), move || {
         ui.panel.set(Panel::None);
         act(ui, |b| b.close_tab(key));
     });
+    let close_others = (ephemeral && state.others).then(|| {
+        menu_row("Close Other Tabs", None, move || {
+            ui.panel.set(Panel::None);
+            act(ui, |b| b.close_others(key));
+        })
+    });
+    let close_below = (ephemeral && state.below).then(|| {
+        menu_row("Close Tabs Below", None, move || {
+            ui.panel.set(Panel::None);
+            act(ui, |b| b.close_below(key));
+        })
+    });
     popover()
         .child(heading(ui, title(name).truncate()))
+        .children(rename)
+        .child(group().child(duplicate))
         .children(burner.then(|| note("Burner tab: nothing is kept after it closes")))
         .children(page_rows)
         .children(split_rows)
         .children(tab_rows)
+        .children(pills("Add to Group", group_buttons))
+        .children(ungroup)
         .children(pills("Move into a folder", folder_buttons))
         .children(pills("Move to another space of this profile", space_buttons))
-        .child(group().child(close))
+        .children(sound_rows)
+        .child(group().child(bookmark).child(close).children(close_others).children(close_below))
         .into_element()
+}
+
+fn sidebar_panel(ui: Ui) -> AnyElement {
+    let Some((reopenable, tabs, unpinned, duplicates, keymap)) = read(ui, |b| {
+        (
+            b.model.closed_tabs.newest().is_some(),
+            !b.model.tabs.is_empty(),
+            !b.model.ephemeral_keys().is_empty(),
+            !b.duplicate_tabs().is_empty(),
+            shortcuts::keymap(&shortcuts::stored(&b.core.disk)),
+        )
+    }) else {
+        return view().into_element();
+    };
+    let keys = |action: Action| keymap.iter().find(|(_, a)| *a == action).map(|(k, _)| shortcuts::display(k));
+    let closing = |name: &str, keys: Option<String>, run: fn(&mut Browser)| {
+        menu_row(name, keys, move || {
+            ui.panel.set(Panel::None);
+            act(ui, run);
+        })
+    };
+    let tab_rows = group()
+        .child(menu_row("New Tab", keys(Action::NewTab), move || super::run_action(ui, Action::NewTab)))
+        .children(reopenable.then(|| closing("Reopen Closed Tab", keys(Action::ReopenClosedTab), Browser::reopen)));
+    let list_rows = group()
+        .child(closing("New Folder", None, |b| b.new_folder(None)))
+        .children(tabs.then(|| {
+            menu_row("Bookmark All Tabs", None, move || {
+                ui.panel.set(Panel::None);
+                super::library::bookmark_all_tabs(ui);
+            })
+        }))
+        .child(menu_row("Hide Tabs", keys(Action::ToggleSidebar), move || {
+            ui.panel.set(Panel::None);
+            super::run_action(ui, Action::ToggleSidebar);
+        }));
+    let profile_rows = group()
+        .child(menu_row("New Profile…", None, move || {
+            ui.panel.set(Panel::None);
+            super::profiles::open_profile_card(ui, None);
+        }))
+        .child(menu_row("Edit Profile", None, move || super::open_settings(ui, tarn_nsh_shared::panes::Pane::Profile)));
+    let close_rows = (unpinned || duplicates).then(|| {
+        group()
+            .children(unpinned.then(|| closing("Close All Tabs", keys(Action::CloseAllTabs), Browser::close_all_tabs)))
+            .children(duplicates.then(|| closing("Close Duplicate Tabs", None, Browser::close_duplicates)))
+    });
+    popover().child(heading(ui, title("Tabs"))).child(tab_rows).child(list_rows).child(profile_rows).children(close_rows).into_element()
+}
+
+fn address_panel(ui: Ui) -> AnyElement {
+    let site = ui.snap.with(|s| !s.host.is_empty());
+    let tool = |name: &'static str, command: Command, action: Action| menu_row(name, super::shortcut_of(ui, action), move || super::tools::run(ui, command));
+    let paste =
+        menu_row("Paste and Go", None, move || super::paste_and_go(ui)).disabled(move || !ui.pasteable.get()).disabled_style(|s| s.text_color(Theme::faint()));
+    popover()
+        .child(
+            group()
+                .child(tool("Copy Link", Command::CopyLink, Action::CopyLink))
+                .child(tool("Copy Clean Link", Command::CopyCleanLink, Action::CopyCleanLink))
+                .child(paste),
+        )
+        .children(site.then(|| group().child(menu_row("Site Settings…", None, move || show(ui, Panel::Shield)))))
+        .into_element()
+}
+
+fn shortcuts_panel(ui: Ui) -> AnyElement {
+    let map = read(ui, |b| shortcuts::keymap(&shortcuts::stored(&b.core.disk))).unwrap_or_default();
+    let columns = shortcuts::SECTIONS.iter().map(|(name, rows)| {
+        let bound = rows.iter().map(|(row_label, action, _)| {
+            let keys = map.iter().find(|(_, a)| a == action).map(|(k, _)| shortcuts::display(k)).unwrap_or_default();
+            line(*row_label).child(tarn_nsh_shared::controls::key_caps(&keys)).into_element()
+        });
+        let fixed =
+            shortcuts::FIXED.iter().filter(|(section, ..)| section == name).map(|(_, row_label, keys)| line(*row_label).child(small(*keys)).into_element());
+        view().flex_col().w(px(250.)).gap_1().child(caps_label(name)).children(bound.chain(fixed).collect::<Vec<_>>()).into_element()
+    });
+    popover().child(heading(ui, title("Keyboard Shortcuts"))).child(view().flex_row().flex_wrap().gap_6().children(columns.collect::<Vec<_>>())).into_element()
 }
 
 pub fn panel_view(ui: Ui) -> AnyElement {
@@ -510,19 +821,32 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::NewSpace => super::library::new_space_panel(ui),
             Panel::Memory => super::library::memory_panel(ui),
             Panel::ReadingList => super::library::reading_list_panel(ui),
+            Panel::Archived => super::library::archived_panel(ui),
             Panel::Qr => super::tools::qr_panel(ui),
             Panel::Share => super::tools::share_panel(ui),
+            Panel::Library => super::library::library_panel(ui),
+            Panel::Address => address_panel(ui),
+            Panel::Shortcuts => shortcuts_panel(ui),
+            Panel::Import => super::import::panel(ui),
             Panel::History => history_panel(ui),
             Panel::Downloads => downloads_panel(ui),
             Panel::Tab => tab_panel(ui),
             Panel::Folder(id) => folder_panel(ui, id),
+            Panel::Bookmarks(folder) => super::library::bookmarks_panel(ui, folder),
+            Panel::Group(id) => super::groups::group_panel(ui, id),
+            Panel::Sidebar => sidebar_panel(ui),
+            Panel::Card(card) => super::profiles::card_panel(ui, card),
+            Panel::SpaceMenu(key) => super::profiles::space_menu(ui, key),
         };
         let panel = ui.panel.get_untracked();
         let (width, side) = match panel {
             Panel::Share => (320., Side::End),
+            Panel::Address => (320., Side::Centre),
+            Panel::Shortcuts => (PANEL_WIDTH + 200., Side::Centre),
             Panel::Shield => (SITE_WIDTH, Side::Centre),
             Panel::NewSpace => (SPACE_CARD_WIDTH, Side::Centre),
             Panel::Downloads => (380., Side::Start),
+            Panel::Sidebar => (320., Side::Start),
             Panel::Settings => (PANEL_WIDTH + 200., Side::Centre),
             _ => (PANEL_WIDTH, Side::Centre),
         };

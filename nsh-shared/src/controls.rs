@@ -63,12 +63,12 @@ fn metrics() -> &'static Metrics {
     }
 }
 
-pub fn icon_size() -> f32 {
-    metrics().icon
-}
-
 pub fn target_size() -> f32 {
     metrics().target
+}
+
+pub fn icon_size() -> f32 {
+    metrics().icon
 }
 
 pub fn label(content: impl IntoReactive<SharedString>) -> Text {

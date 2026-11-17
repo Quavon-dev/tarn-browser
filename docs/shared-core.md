@@ -16,14 +16,32 @@ Every shell's web view offers the same operations and reports the same events. T
 - adopt a popup and move to another host (`adopt`, `rehost`);
 - `load`, `back`, `forward`, `reload`, `reload_from_origin`, `stop`;
 - frame, visibility, focus and raise: on NSH, layout and focus come from the shell;
-- `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted`;
-- `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`;
+- `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted` (NSH components: the `muted`
+  prop, which the component keeps across a rebuild of its view; Linux has it, iOS and Android not
+  yet);
+- `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`; Linux has `print` (the GTK print
+  dialog) and `pdf` with the absolute `path` the user picked in the save dialog, printed there by
+  WebKitGTK and reported on the download route as a finished download; iOS and Android have
+  neither yet (`docs/port-backlog.md`); Linux's `snapshot` command answers with a `snapshot` event carrying a PNG
+  `data:` URI at most 752 px wide (the tab hover card), which iOS and Android do not take yet; NSH components: `screenshot` `{seq, name}`, which saves the visible page as a new PNG
+  under the sanitised `name` in Downloads (`browser_core::capture::save_new`), copies it to the
+  clipboard and answers with the event `screenshot` `{seq, path}` or `{seq, message}` (Linux; iOS
+  and Android do not have it yet);
 - isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
   and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
   has no isolated world and runs those scripts in the page world, so a shell must not send it
   `readIconLinks` or `fetchIcon`, and Android shows letter tiles (`docs/mobile-plan.md`);
 - `interaction_state` and `restore_interaction_state`, where the engine has them;
-- `filtered`: whether the view applies Shield's rules.
+- Web Inspector availability, fixed when the view is created (macOS and Windows: `inspectable`
+  at creation; NSH: the `inspectable` prop, which Linux applies outside Lockdown views only), and
+  `clear_cache` on the profile's data store (NSH: the `clearCache` command on a view of that
+  store). Linux's component implements `reloadFromOrigin`, `clearCache` and `readJson` (answered
+  by `jsonText`); iOS and Android do not have them yet;
+- `filtered`: whether the view applies Shield's rules;
+- start-of-document page-world scripts: `engine::page_scripts::ALWAYS_VISIBLE` in every view but
+  Lockdown's, and `shield::youtube::script` where blocking is not paused and Block YouTube ads is
+  on (macOS `DataStore::set_page_script`; NSH: the `youtube` prop, Linux so far, iOS and Android
+  per `docs/port-backlog.md`).
 
 **Events:**
 - `Committed`, `Finished`, `TitleChanged`, `UrlChanged`, `Failed`;
@@ -31,11 +49,16 @@ Every shell's web view offers the same operations and reports the same events. T
   main-frame load began before it commits, or ended without `Finished` or `Failed` (a stop, a
   cancel, a load that turned into a download);
 - `Blocked`, `PopupBlocked`, `Popup`, `ShieldLevelChanged`;
-- `Prompt`, `PeekLink`, `ExternalScheme`, `ContentProcessTerminated`;
+- `Prompt`, `PeekLink`, `ExternalScheme`, `ContentProcessTerminated`; `PeekLink` is `peek {url}`
+  on Linux, sent only for the user's own Shift-click under the pop-up rules; iOS and Android have
+  no Shift-click and send none;
 - `OpenTab`: Chromium views only, for a link the user opens in a new tab (Ctrl- or middle-click,
   the page menu); WebKit views report it as a `Popup`;
-- `FullScreen`: Chromium views on Windows only, whose element full screen fills the browser's
-  view; WebKit and the other engines open their own full-screen window;
+- `FullScreen`: Chromium views on Windows and WebKitGTK on Linux (`fullscreen`
+  `{on, windowFullScreen}`, the latter whether the window was already in full screen), whose
+  element full screen fills the browser's view or, on WebKitGTK, puts the shell's own window in
+  full screen; the shell hides itself while `browser_core::fullscreen` lets the page fill the
+  window. WebKit on macOS and iOS and Android WebView open their own full-screen window;
 - `DownloadFinished`, `DownloadFailed`, `DownloadsActive`;
 - `pressed`: Linux, iOS and Android, a pointer or touch press on the page, which still reaches the
   page, so a split pane takes the focus. macOS and Windows see the same press through the shell's
@@ -154,7 +177,10 @@ Page scripts the shell runs in the web view's isolated world (Find in Tabs, page
 element picker, per-site styles and forced dark mode) are in `engine::page_scripts`, the reader's in
 `engine::reader`, and a platform-neutral QR encoder in `engine::qr` (contract v3 in
 `docs/mobile-plan.md` §2); clean links are `shield::url_clean::clean_link`, space schedules
-`browser_core::schedule` and Find in Tabs rows `browser_core::find`.
+`browser_core::schedule`, Find in Tabs rows `browser_core::find`, the Suggestions switch and the
+tab sleeping choices (keys, options, defaults, the idle limit under memory pressure)
+`browser_core::settings`, and bookmarks (Bookmark Tab, Bookmark All Tabs, New Folder, Save for
+Later, moves, recent and search) `browser_core::bookmarks`.
 
 The engine choice already follows this: engine resolution is in `store` (`WebEngine::resolve`),
 and `engine::cookies` and `shield::matcher` are in shared crates.
@@ -190,7 +216,8 @@ space's tabs, folders and groups, the open folders, the active tab, the tab life
 reopen stack, with the sidebar's tab order, number-key slots, cycling, the tab a close selects,
 the tab to show when none is active, new tabs, pin, folder, group and move-to-space commands,
 which space a window reopens on and the private space. `browser_core::closed` has the reopen stack
-and the archive of unused tabs; `Core::{level, has_override, web_engine}` resolve per tab. The
+and the archive of unused tabs with its Settings › Tabs choice (`ARCHIVE_AFTER`, `archive_after`,
+`ARCHIVE_INTERVAL`); `browser_core::cleanup` is Clean Up (`plan`, `apply`, `cleanable`, `summary`); `Core::{level, has_override, web_engine}` resolve per tab. The
 GPUI `Browser` keeps the views and what only a shell has (pages, prompts, find, favicons,
 rendering, gestures, menus, text inputs, windows) and calls the model; it passes in what the
 model cannot see, such as whether another window shows a tab and a live view's current URL.
@@ -206,8 +233,11 @@ table in `store`.
 
 **NSH shells:** the Linux, iOS and Android shells share `browser_core::command` (input
 parsing, `engine_key`, the address label: `address`, which the macOS toolbar uses, and its text form `display_host`) and
-`browser_core::prompts` (prompt events, which permission answers are remembered); like macOS they reload
+`browser_core::prompts` (prompt events, which permission answers are remembered and at which Shield level,
+and the `answer` with `silence` that blocks a page's requests until its next navigation, `docs/mobile-plan.md` §2); like macOS they reload
 a crashed page once and then stop until a page finishes loading; their web views share `engine::view_policy`
 (site levels with `"*"`, bursts, the NSH zoom range `MIN_PAGE_ZOOM`..`MAX_PAGE_ZOOM`, 0.5 to 3.0; the macOS app keeps its own `engine::MIN_ZOOM` of 0.3) and the filter-list groups in `shield::groups`.
+The tab, motion and gesture switches and the accent choice are stored under the macOS keys through
+`browser_core::prefs`.
 
 The NSH shells for Linux, iOS and Android (`docs/nsh-plan.md` P2–P4) sit on `browser-core`.

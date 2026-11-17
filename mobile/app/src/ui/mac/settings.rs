@@ -67,7 +67,7 @@ fn nav(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
                     .font_weight(FontWeight::BOLD)
                     .text_color(Theme::faint),
             )
-            .children(members.iter().map(move |p| {
+            .children(members.iter().filter(|p| !matches!(p, Pane::Tabs | Pane::Developer)).map(move |p| {
                 let p = *p;
                 nav_row(panes::name(p), panes::icon(p), shown(p), move || {
                     pane.set(p);

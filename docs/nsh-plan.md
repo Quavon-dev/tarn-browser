@@ -154,9 +154,10 @@ Gaps, with their reason:
 |---|---|---|---|
 | **Secrets** (API token, sync key) | Keychain | Android Keystore | Secret Service (libsecret) |
 | **Data directory** | App container | App-private storage | `$XDG_DATA_HOME/tarn`, mode `0700` |
-| **Default browser** | `com.apple.developer.web-browser` entitlement | `ROLE_BROWSER` via `RoleManager` | `.desktop` file and `xdg-settings` |
+| **Default browser** | `com.apple.developer.web-browser` entitlement | `ROLE_BROWSER` via `RoleManager` | `.desktop` file, set through GIO as the XDG default (`mimeapps.list`) for http, https and HTML; Settings › Profile offers Make Default when the installed `de.quavon.tarn.desktop` is not the default. Gap: not in the Flatpak, whose sandbox keeps its own `mimeapps.list` and no portal sets the default browser |
 | **Updates** | App Store | Play Store, plus a signed APK on GitHub | Distribution packages; engine updates come from the distribution |
 | **Nightly channel** | Gap: the App Store installs only what Apple reviewed; TestFlight is the place for nightlies | Gap: the Play Store decides which build installs; its internal testing track is the place for nightlies | Gap: the package manager installs from the repositories the user added; `linux-repo.yml` publishes releases only |
+| **System share** (share menu More…) | `UIActivityViewController` | `ACTION_SEND` chooser | Gap: Linux desktops have no system share sheet: xdg-desktop-portal has no share portal, and neither GTK 4 nor NSH has a share API, so the share menu leaves More… out |
 | **Claude CLI bridge** | No | No | Unix socket in `$XDG_RUNTIME_DIR`, peer checked with `SO_PEERCRED` (later) |
 | **Sync** (M9) | Encrypted file in iCloud Drive or Files | Storage Access Framework folder | Folder picker |
 
@@ -196,7 +197,8 @@ Each phase ends with an exit check, run on real devices where the platform needs
 check passed there except the camera prompt (no device) and the AT-SPI role of the NSH address
 field (NSH gap, see P0). Not verified: a real Wayland or X11 desktop, HiDPI, a composed IME, a
 screen reader, window position on restore (GTK 4 leaves it to the window manager), and the
-filter-list download (no signing key or feed in this build; a test-signed bundle was used).
+filter-list download against the published feed (the daily update uses `shield::update`, as on macOS;
+tests use a test-signed bundle and no network).
 - **Web view:** `tarn.webview` implements contract v2 for WebKitGTK 6.0, with three Linux additions
   documented in `linux/README.md`: `levels["*"]` carries the profile's level, a `lists` prop, and
   `download` events with `url` and `quarantined`. HTTPS-only is checked at navigation time on any
@@ -259,16 +261,17 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   backdrop instead of the page.
 - The find pill shows the number of matches, not "3 of 17": WebKitGTK's find controller reports a count only.
 - The address field's inline completion (`suggest::edit`) runs only when one character was typed at the end of what was typed before (the first key replaces the address selected on focus), since NSH inputs report the new text but not the caret or the kind of edit, so a paste never completes; Enter on the completed text opens the visited page it completes to.
-- Settings have no Suggestions switch yet, so history rows and the inline completion are always on (macOS gates both on Settings › Suggestions); both are computed locally from history, as on macOS.
 - Motion uses `tarn_nsh_shared::motion` (POP, FADE, EXIT, SLIDE as on macOS): pop-ups, the palette, prompts, the find pill
   and state glyphs pop in; tab rows grow and shrink, the sidebar and space switches move as layout animations; switch
-  knobs slide. All of it lands at once under the desktop's reduced motion. Pop-ups do not animate out (NSH removes a
+  knobs slide. All of it lands at once under the desktop's reduced motion or Settings › Appearance › Reduce motion
+  (`tarn_nsh_shared::motion::reduced`; NSH's own transitions follow only the desktop's). Pop-ups do not animate out (NSH removes a
   view at once) and a space switch does not slide its list sideways; the start-page fog, the tab close button and the reload and tab-row spinners (`tarn_nsh_shared::motion`, turned on the UI thread) move. The fog and spinners stand still while the window is not the active one (`lifecycle()`), as on macOS.
 - Pop-ups (panels, suggestions, popovers, tooltips) are views and NSH overlays inside the main window, and menus are
   GTK popovers of it, so none floats over another app's window when Tarn is behind it (checked with a second GTK
   window over an open panel: `linux/evidence/backlog-popup-*.png`). There is no window level to manage.
-- Prompts have no Remember toggle and no "Block requests from this page" yet, so permission answers
-  are not saved and a page can keep asking.
+- WebKitGTK does not say which frame asks for a permission, so Always Allow is offered, and a saved
+  answer applied, only while the page has no frames; on a page with frames every request asks with
+  Allow Once and Deny (`docs/mobile-plan.md` §2, `topOrigin`).
 - Window controls are the desktop's: the window manager's title bar and buttons (openbox in the
   tests). Without a window manager NSH 0.5.0 drew no title bar of its own under X11.
 - New Window (Ctrl+N, or "New Window" in the command bar) opens another browser window in the same
@@ -284,38 +287,114 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   the first window also keeps its placement (`linux.window_placement`). GTK 4 sets no window
   position, so a new window does not open offset from the front one as on macOS. Evidence:
   `linux/evidence/backlog2-new-window.png`.
-- Tab sleeping follows macOS: a tab sleeps beyond the six-tab live limit, or after 30 minutes off
-  screen (one minute while `MemAvailable` in `/proc/meminfo` is under a tenth of `MemTotal`, the
+- Import Browser Data follows macOS (History panel › Import, Settings › General › Import, the
+  command bar's "Import Browser Data…" in place of the Bookmarks menu): history, bookmarks and
+  cookies from Chrome, Edge, Brave, Chromium and Firefox profiles in the native, Flatpak and
+  (Chromium, Firefox) Snap and XDG folders, plus Firefox profiles that `profiles.ini` names
+  elsewhere, through `browser_core::import` and `crates/import`. Chromium `v10` cookies use the
+  fallback key; `v11` cookies use the browser's Safe Storage secret from the default Secret
+  Service collection (Edge stores Chromium's), read with `oo7`. Without a Secret Service or that
+  item, or when the unlock prompt is dismissed, `v11` cookies are skipped and counted. Cookies are
+  written into the profile's WebKitGTK jar after `cookies::admit_imported`, and each one must
+  round-trip through libsoup with every attribute (`linux/src/webview/session.rs`). Not supported:
+  KWallet without its Secret Service interface, as `oo7` speaks only the Secret Service API; a
+  profile that keeps its key there imports only its `v10` cookies.
+- Tab sleeping follows macOS: a tab sleeps beyond the live-tab limit (six by default), or after
+  30 minutes (by default) off screen (one minute while `MemAvailable` in `/proc/meminfo` is under a tenth of `MemTotal`, the
   counterpart of the macOS kernel pressure level); pinned tabs and tiles skip the idle timer, and a
   tab playing audio or using the camera or microphone stays awake (WebKitGTK `is-playing-audio` and
   capture states). Sleeping rows are greyed (`Theme::asleep`, the site tile dimmed). Gap: WebKitGTK
   has no playback-state query like WebKit's `requestMediaPlaybackState`, so silent or muted video
-  does not keep a tab awake. Settings has no "Sleep after" or live-tab choice yet; the macOS
-  defaults apply. Evidence: `linux/evidence/parity-sleeping-tabs.png`.
+  does not keep a tab awake. Once a minute the awake background tabs whose web processes together
+  hold more than `engine::lifecycle::BACKGROUND_BUDGET` (split between windows) sleep, heaviest
+  first, as on macOS (`Browser::sleep_over_budget` in `linux/src/memory.rs`); a playing tab, one
+  used in the last minute (pinned: 30 minutes) or one in the split stays awake. "Tabs kept awake"
+  and "Sleep background tabs after" are in Settings › Tabs, as on macOS, with the macOS options
+  and defaults from `browser_core::settings`; Never stops idle sleeping and the memory budget,
+  short of memory too.
+  Evidence: `linux/evidence/parity-sleeping-tabs.png`.
+- Picture in Picture (macOS command and `⌘⌃P`) has no Linux command. Gap: WebKitGTK has no
+  Picture-in-Picture; WebKit's video presentation mode exists only on its Cocoa ports, and the
+  pinned `webkit6` 0.6.1 has no API for it.
+- Links from other apps: a launch that reaches the running Tarn before its first window opens is
+  lost. Gap: NSH 0.5's `command-line` handler (nsh-platform-linux `app.rs`) forwards only URLs of
+  the app's own `schemes` while no window is shown and emits no `SecondInstance` for it; Tarn
+  claims no schemes, since NSH would make itself the default browser with `xdg-mime`. Launches
+  after the window opens arrive.
 - A two-finger horizontal swipe over the sidebar switches to the previous or next space, never
   towards one that does not exist (`linux/src/browser/swipe.rs`, through NSH `on_wheel` point
   deltas; mouse wheel lines are ignored). Gap: NSH 0.5's `WheelEvent` has no touch phase
   (nsh-platform-linux `wheel_event` drops GDK's zero-delta scroll-stop event, `gdk::ScrollEvent::is_stop`),
   so a gesture ends after 200 ms without scrolling and the list does not follow the fingers and
   spring back as with macOS `gestures::follow`. The direction follows the content, so it matches
-  the fingers with natural scrolling on.
+  the fingers with natural scrolling on. Settings › Tabs › Touchpad gestures turns it off
+  (`browser_core::prefs::GESTURES`, on by default as on macOS).
+- Settings › Tabs also has "New tab opens" and "After closing a tab" from `browser_core::prefs`,
+  with the macOS defaults.
+  Command card opens the palette for a new tab: Enter opens what was typed in a new tab
+  (`Browser::navigate_in`), Esc leaves the page as it was. Start page opens a blank tab with the
+  start card at once, where macOS shows the start page and makes the tab on Enter.
+- Settings › Appearance has the accent picker (the theme's own accent, then `browser_core::prefs::ACCENTS`,
+  stored by name as on macOS and applied over the theme's tokens with `prefs::accented`).
+- A two-finger horizontal swipe over the page goes back or forward, drawn by WebKitGTK
+  (`enable-back-forward-navigation-gestures`, as WebKit's own swipe on macOS). As on macOS such a
+  step is the page's, not the user's history step, for the navigation policy. Settings › Tabs ›
+  Touchpad gestures does not turn this page swipe off yet; it covers the space swipe.
+- Take Screenshot (Ctrl+Alt+Shift+S, rebindable, or "Take Screenshot" in the command bar; macOS
+  ⌘⌥S, whose Ctrl+Alt+S is Swap split panes on Linux) saves the visible page as a new PNG in
+  Downloads under the page's title (`browser_core::capture`), copies it to the clipboard, lists it
+  in the tab's own profile store (none for a burner, in memory for the private space) and shows
+  "Screenshot saved" with Show in Folder, through the component's `screenshot` command
+  (`webkit_web_view_get_snapshot`, `docs/shared-core.md` §1).
+- A page's element full screen (a video) fills the window alone: the sidebar, toolbar, error bar,
+  toast and window padding hide and a split shows only the active pane; a prompt, notice, panel,
+  the find bar, the command palette, Reader or another tab brings the shell back, as on macOS
+  (`browser_core::fullscreen`). WebKitGTK puts the window in full screen itself (`enter-fullscreen`)
+  and takes it out on `leave-fullscreen`, so the shell then restores the window's mode from before
+  (maximized stays maximized) or keeps a window that was already in full screen there. F11 is NSH's
+  own window full-screen key (NSH reserves it, as macOS ⌃⌘F and Windows F11 are the system's);
+  "Enter or Exit Full Screen" in the command bar does the same and first gives a full-screen page's
+  shell back.
+  Limits: WebKitGTK takes the window out of full screen whenever a page leaves element full screen,
+  so a page that leaves it after the shell was given back (the command, a prompt) also ends a window full
+  screen the user had chosen; and when the window manager ends full screen during a page's full
+  screen, the shell stays hidden until the page leaves it or Esc. A screenshot whose tab closes
+  before WebKit returns the image is saved but not listed, and shows no toast.
+- Gap: no Picture in Picture. WebKitGTK has no Picture-in-Picture API; WebKit's video presentation
+  modes exist only in its Cocoa ports, so Linux has no Picture in Picture command (macOS ⌘⌃P).
+- Not a gap but a design decision: Linux uses only the distribution's WebKitGTK, never a bundled
+  Chromium, so the macOS features of the Chromium engine (a site or tab opened in Chromium, the
+  default web engine choice, Chromium's update gate) do not exist there.
 - A blocked pop-up's notice offers "Open in New Tab" for an http(s) address, as on macOS: the
   button opens it once as the user's own load, in the opener's space; the page alone cannot, nor
   can it replace a notice that already offers an action (`browser::tests`). Evidence:
   `linux/evidence/parity-popup-offer.png`, `parity-popup-opened.png`.
+- Malware, adult and pop-up ad domain sets stop navigations as on macOS (`nav_policy::gate` in the
+  `decide-policy` handler, `browser_core::site` for the warning page, Visit Anyway and the per-site
+  choices; threat model S25). Gaps, both from WebKitGTK's API: a navigation action does not say which
+  frame it targets (no `isMainFrame`), so only the shell's loads, history steps, clicks and redirects of
+  those count as main-frame navigations and get the warning page or the pop-up ad notice; a page's own
+  script navigation to a listed host is cancelled without either. And `create` does not say which frame
+  opened a window, so a site's pop-up rule "Allow" counts as "Default" (macOS lifts it for the main
+  frame only); "Block" works as on macOS. WebKitGTK has no fraudulent-website check to go with the
+  malware switch.
 - Screenshots: `linux/evidence/design-*.png`.
 
 *macOS features:* built on the shared APIs, with `tarn.webview` contract v3 (scripts in the WebKit world `tarn`,
 nothing under Lockdown, answers checked in Rust); details and deviations in `linux/README.md`
 ("Features from the macOS app"). Verified in Docker under Xvfb: host tests, three display tests (v3
 scripts, styles and zaps; nothing under Lockdown; no private or burner data on disk) and screenshots
-`linux/evidence/feature-*.png`. Deviations: no download pause/resume or malware flag, Read Aloud only
+`linux/evidence/feature-*.png`. Deviations: no download pause/resume (gap: WebKitGTK's `WebKitDownload` offers only `cancel`, with no
+resume data and no way to continue the same transfer; fetching the URL again would be a new download,
+not a resume), Read Aloud only
 with `spd-say` (no pause), the Shield card (the Mac's glacier lake from `browser_core::shield_card`, words drawn as native
 text over its SVG landscape since NSH's SVG renderer draws no text) flips and takes a New Design but does not tilt, and Share card saves its front as a PNG through the save dialog (the
 desktop's image loaders draw the SVG); Settings is a sheet with grouped navigation (You: Profile, Profiles; Browser:
-General, Appearance, Search, Privacy, Permissions, Shortcuts) over scrolling panes, without the Mac's cross-fade,
-and the History, Downloads and Reading List panels replace the page, so they neither grow in nor slide; memory per tab only where the web
-process can be told apart; skipped: translation, startup trace, live peek.
+General, Appearance, Tabs, Search, Privacy, Permissions, Shortcuts) over scrolling panes, without the Mac's cross-fade,
+and the History, Downloads, Reading List and Archived Tabs panels replace the page, so they neither grow in nor slide; memory per tab only where the web
+process can be told apart; Open in Tab of a link peek loads the page again in the new tab, since an NSH
+native component cannot hand its WebKit view to another, so the peek's back history stays behind;
+skipped: translation, startup trace.
 
 **P3: iOS app.**
 - Phone and tablet layouts: tab switcher, bottom toolbar, sheets for settings and Shield.

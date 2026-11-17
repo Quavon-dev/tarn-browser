@@ -90,10 +90,6 @@ pub fn sidebar(model: &Model, splits: &Splits<TabKey>) -> Sidebar {
     Sidebar { tiles, pinned, groups, loose }
 }
 
-pub fn cleanable(model: &Model) -> bool {
-    !model.burner_shown() && model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id.is_none()).count() >= 2
-}
-
 fn takes(model: &Model, kind: TabKind) -> bool {
     !model.burner_shown() || kind == TabKind::Ephemeral
 }
@@ -199,10 +195,23 @@ impl DropAt {
 
 pub fn drop_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabKey, at: DropAt) -> Option<Vec<Tab>> {
     let before = at.before.and_then(|k| model.tab(k).filter(|_| k.private == dragged.private));
-    if at.before == Some(dragged) || (at.before.is_some() && before.is_none()) || model.tab(dragged).is_none() || !takes(model, at.kind) {
+    if at.before.is_some() && before.is_none() {
         return None;
     }
     let index = before.map_or_else(|| model.zone_len(at.kind, at.folder), |t| model.drop_index(dragged, t));
+    place(model, core, dragged, at, index)
+}
+
+pub fn land_on<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabKey, target: TabKey) -> Option<Vec<Tab>> {
+    let at = DropAt::before(model, target).filter(|_| target.private == dragged.private)?;
+    let index = model.tab(target).map(|t| model.zone_index(t))?;
+    place(model, core, dragged, at, index)
+}
+
+fn place<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabKey, at: DropAt, index: usize) -> Option<Vec<Tab>> {
+    if at.before == Some(dragged) || model.tab(dragged).is_none() || !takes(model, at.kind) {
+        return None;
+    }
     let group = (at.kind == TabKind::Ephemeral).then_some(at.group);
     core.store(dragged.private).move_tab_to(dragged.id, at.kind, at.folder, index, group).ok()?;
     let old = model.reload_space(core);
@@ -357,6 +366,25 @@ mod tests {
     }
 
     #[test]
+    fn a_tab_landing_on_a_row_takes_its_place_and_its_group_in_one_write() {
+        let (_dir, core, mut model) = opened();
+        let (a, b, c) = (
+            tab(&core, &mut model, TabKind::Ephemeral, None),
+            tab(&core, &mut model, TabKind::Ephemeral, None),
+            tab(&core, &mut model, TabKind::Ephemeral, None),
+        );
+        let group = new_group(&mut model, &core, Some(a)).unwrap();
+        assert!(land_on(&mut model, &core, c, a).is_some());
+        assert_eq!(model.tab(c).unwrap().group_id, Some(group), "the row's group comes with its place");
+        assert_eq!(model.ephemeral_keys(), [c, a, b]);
+        assert!(land_on(&mut model, &core, c, b).is_some());
+        assert_eq!((model.ephemeral_keys(), model.tab(c).unwrap().group_id), (vec![a, b, c], None), "from above it lands after the row");
+        assert!(land_on(&mut model, &core, c, c).is_none());
+        core.store(false).delete_group(group).unwrap();
+        assert!(land_on(&mut model, &core, b, a).is_none(), "a row whose group is gone moves nothing");
+    }
+
+    #[test]
     fn tabs_below_follow_the_sidebar_where_groups_come_before_loose_tabs() {
         let (_dir, core, mut model) = opened();
         let (a, b, c) = (
@@ -419,7 +447,7 @@ mod tests {
             core.disk.create_tab(s, TabKind::Ephemeral, None, url, "").unwrap();
         }
         model.reload_space(&core);
-        assert!(cleanable(&model));
+        assert!(crate::cleanup::cleanable(&model.tabs));
         let sorted = clean_up(&mut model, &core, |t| t.url.clone()).unwrap();
         assert_eq!((sorted.text.as_str(), sorted.tone), ("Sorted 2 tabs into groups", Tone::Info));
         assert_eq!(model.groups.len(), 1);

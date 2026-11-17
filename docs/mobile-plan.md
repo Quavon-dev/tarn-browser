@@ -43,17 +43,20 @@ off at Lockdown, TLS errors are never bypassed, and there is no remote debugging
 | prop | `level` | `standard` / `strict` / `lockdown` | Shield level the view is built at (site overrides come as `levels`) |
 | prop | `levels` | object host→level | Per-site overrides, so the component can apply `level_action` itself; the key `"*"` is the profile's own level, used for hosts without an entry (`level` when it is absent). An unknown level counts as Lockdown |
 | prop | `lists` | array of `ads`, `trackers`, `cosmetic`, `malware` | The switched-on filter-list groups (`shield::groups`) |
+| prop | `filtered` | bool | False when the user paused ad, tracker and cookie-banner blocking on the site of the shell's last load: the view is built without the groups `shield::groups::pausable` names, and a shell load whose site differs gets `blocked` `rebuild` (`nav_policy::level_action`). Linux only so far |
+| prop | `blocking` | `{paused, exceptions, popups, sets}` | The profile's per-site choices for `browser_core::site::site`: paused hosts, malware hosts let through with Visit Anyway (in memory), pop-up rules by origin (`allow` / `block`) and the switched-on domain-set categories (`malware`, `adult`, `popups`), whose sets the component reads from the installed bundle. Linux only so far; iOS and Android still judge every site as `Site::new` |
 | prop | `load` | `{url, seq, opener?}` | A shell load (typed, restored, new tab); a new `seq` loads again even for the same URL. `opener` is the committed URL of the tab that emitted `popup`: the load is then judged as a popup from that page (`nav_policy` source `Popup`, private network checked against the opener, redirects before commit too) |
 | prop | `active` | bool | Foreground tab; background views may be suspended |
+| prop | `burstsOf` | string | The `tab` of the opener a popup tab came from: the view shares that tab's prompt and popup limits (S23). Linux only so far; iOS and Android still need it |
 | command | `back`, `forward`, `reload`, `stop` | none | |
 | command | `find` | `{text, backwards}` | Emits `found` |
-| command | `answer` | `{id, accept, text?, user?, password?}` | Answers a `prompt`; an unanswered prompt is declined when the component is destroyed |
+| command | `answer` | `{id, accept, text?, user?, password?, silence?}` | Answers a `prompt`; an unanswered prompt is declined when the component is destroyed. `silence: true` ("Block requests from this page") declines it and every other pending prompt, and the page's later dialogs and permission requests, until its next navigation (S23). Linux only so far; iOS and Android still need it |
 | command | `zoom` | `{factor}` | 0.5 to 3.0 (`engine::view_policy::zoom_factor`); 1.0 is the page's own size |
 | event | `committed` | `{url, title, canGoBack, canGoForward}` | Main frame committed |
 | event | `finished` | `{url, title, canGoBack, canGoForward}` | Load finished |
 | event | `title` | `{title}` | Title changed (pages often set it after `finished`) |
 | event | `failed` | `{url, message}` | Load failed (not for cancellations) |
-| event | `blocked` | `{url, reason, popup?}` | `nav_policy`, `https_only`, `local_network` (S10 refused a main-frame navigation of this tab into the local network; the only reason that may offer Open Anyway), `shield` (any other Shield block: rules, filter lists, Android subresources) or `rebuild` (the level needs a new view). `popup` is true when the page's pop-up was refused; the opener keeps loading and gets no Open Anyway |
+| event | `blocked` | `{url, reason, popup?}` | `nav_policy`, `https_only`, `local_network` (S10 refused a main-frame navigation of this tab into the local network; the only reason that may offer Open Anyway), `shield` (any other Shield block: rules, filter lists, Android subresources), `rebuild` (the level needs a new view) or `listed` (Linux: `nav_policy::gate` stopped it before the request; adds `category`, `malware` and `adult` get the shell's warning page, `popups` a notice that offers to open it). `popup` is true when the page's pop-up was refused; the opener keeps loading and gets no Open Anyway |
 | event | `external` | `{url, origin}` | Another app's scheme; the shell asks before handing it off. `origin` is the page that asked, empty for the shell's own loads |
 | event | `popup` | `{url, link?}` | A user-gesture popup allowed by `nav_policy`; the shell opens it as a new tab. `link` (v3) is true for a link that opens a new window (iOS: `WKNavigationTypeLinkActivated`; Android: the tap's hit test is an anchor). As on macOS, only a link pop-up goes to the space a rule names, as a fresh tab without an opener; a script's `window.open` opens in the opener's space with `load.opener` |
 | event | `prompt` | `{id, kind, origin, topOrigin?, message?, default?, realm?, insecure?}` | `kind`: alert, confirm, text, camera, microphone, location, credentials |
@@ -84,10 +87,11 @@ Platform differences left in the contract, and why:
 - `lists`: Linux compiles the groups into `UserContentFilter`s per view; iOS has no filter lists until a
   bundle is published and ignores the prop; Android applies the installed `shield::matcher` to every view
   (no bundle yet either);
-- `prompt.topOrigin`: iOS sets it only for an embedded frame, Android always (the page's origin), Linux
-  always empty because WebKitGTK gives no frame origin; the shells remember a permission only when
-  `topOrigin` is absent or equals `origin` (`browser_core::prompts`), so Linux never remembers one and
-  offers only Allow Once and Deny;
+- `prompt.topOrigin`: iOS sets it only for an embedded frame, Android always (the page's origin); Linux
+  gets no frame origin from WebKitGTK, so it sets the page's origin only when the page has no frames
+  (`window.length` is 0 in the `tarn` world when the request arrives) and an empty one otherwise; the
+  shells remember a permission only when `topOrigin` is absent or equals `origin`
+  (`browser_core::prompts`), so Linux offers Always Allow only on a page without frames;
 - zoom is visible to the page on every platform (computed font sizes; on iOS also the inline
   `-webkit-text-size-adjust` on `<html>`, which replaces a value the page set there itself); iOS
   measures the autosizing boost once per document (capped at 4), so a rotation keeps the first value;
@@ -139,6 +143,7 @@ its own text and a selector hiding part of itself.
 | prop | `profile` | string | v2, plus `burner:<32 hex digits>`: a burner tab's store. Each burner id is an ephemeral store of its own, never shared with the private space, Lockdown or another burner, and never written to disk (S8; Android: the Lockdown deviation, see below) |
 | prop | `styles` | object host→CSS | Per-site style sheets, already merged by `engine::page_scripts::site_styles(css, dark)` (the forced-dark sheet `DARK_CSS` first, then the user's CSS from `Store::site_css`, dark hosts from `Store::dark_sites`). Applied to the top frame of exactly that host at document start, as a `<style>` element's text (never markup), never under Lockdown. iOS and Linux add `page_scripts::site_styles_script(styles)` as one user script in the isolated world, main frame only; Android adds one `addDocumentStartJavaScript` per host, allowed origins `https://host` and `http://host`, holding only `site_styles_script(&[(host, css)])`, so a page never sees another host's sheet. A change applies from the next load; the shell reloads that host's open tabs, as macOS restarts them |
 | prop | `zaps` | object host→array of selectors | Hidden elements per host (`Store::zapped_elements`); the shell sends `{}` for private and burner spaces. iOS compiles `shield::lists::compile_zaps` into a `WKContentRuleList` and Linux into a `UserContentFilter` (the same JSON, each rule limited to its exact host); Android appends `shield::lists::zap_css(selectors)` to that host's sheet on the `styles` path. Never under Lockdown |
+| prop | `youtube` | bool | Block YouTube ads (`shield::groups::YOUTUBE_SETTING`, `block_youtube_ads`): the view adds the built-in `youtube_rules` and the page-world `shield::youtube::script` (bundle config) at document start, never under Lockdown; `ALWAYS_VISIBLE` runs in every view but Lockdown's either way (S24). Linux so far; iOS and Android still need it (`docs/port-backlog.md`). Default false |
 | prop | `sortDownloads` | bool | Finished files go into the Downloads subfolder `engine::downloads::folder_for(name)` names (`sorted_dir`, never following a link; other types stay at the top), with the same sanitised unique names. Default false |
 | command | `pick` | `{seq}` | Element picker: runs `engine::page_scripts::PICKER` on the top document; hovering (a tap on touch screens) outlines an element, a click picks it, Escape cancels. A second `pick` ends the first with an empty selector. Emits `picked` |
 | command | `pickCancel` | none | Ends a running picker; it answers an empty selector |
@@ -181,8 +186,12 @@ v3 platform differences:
   its default ports (`https://host`, `http://host`), not `host:8080`;
 - `pausable`: iOS (`WKDownload` resume data) yes; Linux no (WebKitGTK has no pause, only cancel); Android only
   for downloads the component makes itself, `false` for anything handed to the system's download manager;
-- `flagged` needs the malware domain set, which none of the three has until a filter bundle is published;
-  until then no download is flagged. iOS holds a flagged download's destination until `downloadKeep`; Android
+- `flagged` needs the malware domain set. Linux reads it from the installed filter bundle
+  (`browser_core::site::Sets::from_bundle`) and holds the download's destination until
+  `downloadKeep`, then sends `started` again with its `path`; iOS and Android do not download the
+  filter bundle yet, so they flag nothing. On every client the shell ignores Keep until its rows
+  have not moved for `browser_core::prompts::BYPASS_DELAY` (restarted when the downloads list
+  opens). iOS holds a flagged download's destination until `downloadKeep`; Android
   does not emit `flagged` (its transfers check Shield before each request instead);
 - `shielded`: iOS and Android report `https_upgrade` (a main-frame load upgraded at Strict) and
   `local_network` (a page refused by the private-network rule); both report `popup` with the opener's URL

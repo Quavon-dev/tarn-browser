@@ -42,6 +42,105 @@ macOS reference: `crates/app/src/browser/context.rs` (`tab_menu`), `crates/app/s
 - [x] iOS — the tablet Mac layout uses all four
 - [x] Android — same as iOS
 
+### Tab sleeping choices and the Suggestions switch (2026-11-17)
+
+What it does: Settings chooses how many tabs stay awake (3, 6, 10, 16) and how long a background tab
+waits before it sleeps (Never, 10 minutes, 30 minutes, 2 hours); a switch turns history
+suggestions, the inline completion and full-text matches off.
+Shared API: `browser_core::settings::{live_tabs, sleep_after, max_idle, LIVE_TABS, SLEEP_AFTER, SUGGESTIONS}`,
+`engine::lifecycle::Lifecycle::set_max_live`.
+macOS reference: `crates/app/src/settings.rs` (`tabs`, `search`), `crates/app/src/prefs.rs` (`set_choice`), `crates/app/src/tabs.rs` (`sleep_idle_tabs`).
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/ui/settings.rs` (Tabs, Search › Suggestions), `linux/src/memory.rs`
+- [ ] iOS — `mobile/app` keeps a fixed `LIVE_TABS` of 6 and always suggests; the Settings sheet needs both choices and the switch
+- [ ] Android — same as iOS
+
+### Save Page as PDF and Print… in the share menu (2026-11-17)
+
+What it does: the share menu saves the page as a PDF (listed in Downloads) and opens the print
+dialog.
+Shared API: `browser_core::text::capture_name` (the PDF's file name); web view operations `pdf`
+and `print` (`docs/shared-core.md` §1).
+macOS reference: `crates/app/src/share.rs`, `crates/app/src/capture.rs`, `crates/app/src/browser.rs` (`print`).
+
+- [x] Windows
+- [x] Linux
+- [ ] iOS — `print` and `pdf` in `mobile/ios` (`UIPrintInteractionController`, `WKWebView.createPDF`)
+  and the two entries in the share sheet of `mobile/app`
+- [ ] Android — `print` and `pdf` in `TarnWebView` (`PrintManager` with `createPrintDocumentAdapter`)
+  and the two entries in `mobile/app`
+
+### Bookmarks manager (2026-11-17)
+
+What it does: Bookmark Tab… and Bookmark All Tabs, and a manager with recent bookmarks, folders,
+search, rename, move, delete and New Folder.
+Shared API: `browser_core::bookmarks::{bookmark, unbookmark, bookmark_all, new_folder, move_targets, subtree, recent, search,
+save_for_later, reading_list_pages, title_or_host}`;
+`store::Store::{rename_bookmark, move_bookmark, delete_bookmark}`.
+macOS reference: `crates/app/src/library.rs` (`Page::Bookmarks`, `row_menu`), `crates/app/src/menubar.rs` (Bookmarks menu).
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/ui/library.rs` (`bookmarks_panel`), `linux/src/browser/bookmarks.rs`
+- [ ] iOS — `mobile/app` has only the Reading List, with its own copy of Save for Later that saves a page twice
+  (`mobile/app/src/features.rs`); move it onto `bookmarks::save_for_later`, then Bookmark Tab, Bookmark All Tabs and a
+  bookmarks sheet
+- [ ] Android — same as iOS
+
+### Tab actions and Mute Site (2026-11-17)
+
+What it does: Mute Site (saved per profile, a Lockdown mute lasts while the tab stays on the host;
+a mark on the tab and a Muted sites list in Settings › Privacy), Rename Tab and Reset Title,
+Return to Pinned URL and Set Pinned URL to Current Page, Duplicate Tab, Close All, Other and Below,
+Sleep Tab, Other and All Inactive Tabs, reopening a chosen recently closed tab, Delete Folder,
+the sidebar menu, and closing a pinned tab unloads it.
+Shared API: `browser_core::site::saves_mute`, `Store::{muted_sites, set_site_muted}`,
+`browser_core::tabs::{custom_title, Model::pinned_drift, Model::bookmark_all,
+Model::folder_contents}`, `ClosedTabs::{recent, take}`; web view `set_muted` (NSH: `muted` prop).
+macOS reference: `crates/app/src/browser/context.rs` (`tab_menu`, `sidebar_menu`, `folder_menu`),
+`crates/app/src/tabs.rs`; Linux: `linux/src/browser/tab_actions.rs`, `linux/src/ui/panels.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/browser/tab_actions.rs`, the Tab, Sidebar, Folder and History panels
+- [ ] iOS — the `muted` prop in `mobile/ios` (`WKWebView` media muting) and the tab actions in the
+  tab sheet of `mobile/app/src/ui/panels.rs`
+- [ ] Android — the `muted` prop in `TarnWebView` and the same tab actions in `mobile/app`
+
+### Tab, accent and motion settings (2026-11-17)
+
+What it does: "New tab opens" (command card or start page), "After closing a tab" (next or
+previous), Touchpad gestures, the accent colour and Reduce motion, stored under the macOS keys.
+Shared API: `browser_core::prefs` (`NEW_TAB_START_PAGE`, `CLOSE_SELECTS_PREVIOUS`, `GESTURES`,
+`REDUCE_MOTION`, `accent_choice`, `accented`); `tarn_nsh_shared::motion::{set_reduced, reduced}`;
+the Accent and Reduce motion rows in `tarn_nsh_shared::appearance` show where
+`Host::accent_and_motion` is true.
+macOS reference: `crates/app/src/settings.rs` (`appearance`, `tabs`), `crates/app/src/prefs.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/ui/settings.rs`, `linux/src/ui.rs` (`new_tab`, `go`), `linux/src/browser/themes.rs`
+- [ ] iOS — `mobile/app`: `accent_and_motion` in `ui/appearance.rs`, `prefs::accented` and
+  `motion::set_reduced` in `themes.rs`, `motion::reduced` for its own `reduce_motion()` checks
+  (`ui/mod.rs`, `ui/bars.rs`),
+  `CLOSE_SELECTS_PREVIOUS` in `features.rs` (`close_neighbour`); new-tab and gesture rows where they apply
+- [ ] Android — same as iOS
+
+### Profile editor and space card (2026-11-17)
+
+What it does: Create and Edit Profile (name, colour, first space, Shield level, search engine,
+shared data), Delete Profile with its website data retired, the profile switcher with colour dots
+and Manage Profiles, the Settings › Profiles list with the Developer badge, Delete Space…, the
+space context menu (Rename, Edit Space, New Space, Delete), and switching to space 1–9 by key.
+Shared API: `browser_core::profiles::{create, delete, deletable, profile_name, retired_stores,
+set_retired}`; `browser_core::space_card::SpaceDraft` for the New/Edit Space card;
+`Model::can_delete_space`, `Model::space_to_delete`.
+macOS reference: `crates/app/src/profiles.rs`, `crates/app/src/spaces.rs`,
+`crates/app/src/browser/context.rs` (`space_menu`, `delete_space`), `crates/app/src/menubar.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/ui/profiles.rs`, `linux/src/browser/profiles.rs`
+- [ ] iOS — `mobile/app` has the New/Edit Space sheets and creates profiles, but cannot edit or delete profiles and has no Delete Space; the store retirement needs the `WKWebsiteDataStore` removal macOS uses
+- [ ] Android — same as iOS, retiring the profile's WebView data folder
+
 ### Group and folder icons (2026-11-17)
 
 What it does: a tab group or folder can show one of 20 symbols or one emoji in place of its letter
@@ -52,7 +151,7 @@ macOS reference: `crates/app/src/sidebar.rs` (`chosen_icon`, `icon_picker`, `gro
 `crates/app/src/groups.rs` (`begin_icon`, `set_icon`), `crates/app/src/browser/context.rs` (`Cmd::ChangeIcon`).
 
 - [x] Windows — same code in `crates/app`; no Emoji & Symbols button, since GPUI cannot open the Windows emoji panel
-- [ ] Linux — folders done (`linux/src/ui.rs` `folder_icon`, `linux/src/ui/panels.rs` `icon_choice`); group icons come with tab groups
+- [x] Linux — `linux/src/ui.rs` `folder_icon`, `linux/src/ui/panels.rs` `icon_choice`, `linux/src/ui/groups.rs` `badge` and the group panel
 - [ ] iOS — the tablet Mac layout shows folder and group icons and has Change Icon… with the 20 symbols and an
   emoji field (`mobile/app/src/ui/mac/sidebar.rs`, `tarn_nsh_shared::sidebar::{chosen_icon, group_avatar}`); the phone and
   Touch layouts have no folders or tab groups yet
@@ -72,7 +171,7 @@ macOS reference: `crates/app/src/browser/context.rs` (`clean_up_tabs`, `undo_sor
 (`Action::UndoSort`), `crates/app/src/sidebar.rs` (`ephemeral`).
 
 - [x] Windows — same code in `crates/app`
-- [ ] Linux — `linux/` has no tab groups or archiving yet; both first, then the row in `linux/src/ui.rs`
+- [x] Linux — `linux/src/ui.rs` (`new_tab_row`), `linux/src/ui/groups.rs` (group card and panel), `linux/src/browser/groups.rs` (`clean_up_tabs`, `undo_sort`, `ToastAction::UndoSort`), Settings › Tabs in `linux/src/ui/settings.rs`
 - [ ] iOS — the tablet Mac layout sorts by category with Undo Sort in its toast
   (`mobile/app/src/ui/mac/sidebar.rs`, `browser_core::sidebar::{clean_up, undo_sort}`); archiving unused tabs and the
   phone and Touch layouts are still missing
@@ -93,21 +192,6 @@ macOS reference: `crates/app/src/sidebar.rs` (`tiles`), `crates/app/src/browser/
   still shows every tab as a card
 - [ ] Android — same as iOS
 
-### Background tab memory budget (2026-11-15)
-
-What it does: once a minute, awake background tabs whose web processes together hold more than
-1 GB (split equally between windows) sleep, the heaviest first; a tab playing media, used in the
-last minute (a pinned tab: 30 minutes), or in the split stays awake. Off when "Sleep background
-tabs after" is Never.
-Shared API: `engine::lifecycle::over_budget`, `engine::lifecycle::BACKGROUND_BUDGET`,
-`engine::lifecycle::budget_idle`.
-macOS reference: `crates/app/src/tabs.rs` (`sleep_idle_tabs`).
-
-- [x] Windows — same code in `crates/app`, with each tab's main-frame renderer as it reports itself (`docs/windows-plan.md`)
-- [ ] Linux — call it from the sample tick in `linux/src/ui.rs` with the costs of `linux/src/memory.rs`; needs a playing-media signal (`is-playing-audio`) in `linux/src/webview` first, and Linux has no tab sleeping timer yet
-- [x] iOS — gap: an app cannot read the WebContent process's memory (`docs/mobile-plan.md`)
-- [x] Android — gap: an app cannot read the renderer process's memory (`docs/mobile-plan.md`)
-
 ### YouTube ad script and Netflix visibility script (2026-11-15)
 
 What it does: on YouTube the ad placements are stripped from the page's own data before the
@@ -117,9 +201,12 @@ Shared API: `browser_core` `youtube_script` (the script the app builds), `engine
 both run at document start in the page world, the YouTube one only where blocking is not paused
 and never under Lockdown.
 macOS reference: `crates/engine/src/data_store.rs` (`install_scripts`); Windows:
-`crates/engine/src/chromium/view.rs` (`page_script_for`, `rescript`).
+`crates/engine/src/chromium/view.rs` (`page_script_for`, `rescript`); Linux, whose web view loads
+the bundle itself: `linux/src/webview/scripts.rs` (`apply_page_scripts`) with the script from
+`filters::youtube_script` in `linux/src/webview/filters.rs` (`shield::youtube::script` of the
+config `shield::groups::load` returns), switched by the `youtube` view prop.
 
 - [x] Windows — Chromium `Page.addScriptToEvaluateOnNewDocument`
-- [ ] Linux — document-start page-world user script through WebKitGTK's user content manager in `linux/src/webview`
+- [x] Linux — document-start page-world user script through WebKitGTK's user content manager in `linux/src/webview`
 - [ ] iOS — page-world `WKUserScript` in `mobile/ios`
 - [ ] Android — `WebViewCompat.addDocumentStartJavaScript` in `TarnWebView` (page world)

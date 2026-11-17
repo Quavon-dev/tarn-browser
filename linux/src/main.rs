@@ -1,8 +1,10 @@
 mod browser;
 mod controls;
 mod data;
+mod desktop;
 mod extensions;
 mod fetch;
+mod filter_updates;
 mod input;
 mod memory;
 mod shortcuts;
@@ -41,6 +43,7 @@ fn main() -> impl std::process::Termination {
             size: (1280, 800),
             components,
             data_dir: Some(root.join("nsh")),
+            single_instance: std::env::var_os("TARN_DATA_DIR").is_none(),
             ..Default::default()
         },
     );

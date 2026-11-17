@@ -9,7 +9,7 @@ use url::Url;
 use webkit6::prelude::*;
 use webkit6::{UserContentInjectedFrames, UserContentManager, UserScript, UserScriptInjectionTime, gio};
 
-use super::State;
+use super::{State, filters};
 
 pub const WORLD: &str = "tarn";
 const PICK_CANCEL: &str = "if (window.tarnPick) window.tarnPick(); return '';";
@@ -64,6 +64,11 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             let urls = favicon::fetch_urls(args["urls"].as_array().into_iter().flatten().filter_map(|u| u.as_str()));
             let asked = args["page"].as_str().and_then(|p| Url::parse(p).ok());
             fetch_icon(state, seq, asked, &urls);
+        }
+        "readJson" => {
+            let max = args["maxBytes"].as_u64().unwrap_or(0).min(devkit::json_view::MAX_BYTES as u64) as usize;
+            let body = page.as_ref().filter(|_| max > 0).and_then(|p| page_scripts::json_text_script(p, max));
+            run(state, body, move |s, url, text| s.emit("jsonText", json!({ "seq": seq, "url": url, "text": text })));
         }
         "pick" => run(state, Some(PICKER.to_owned()), move |s, url, selector| s.emit("picked", json!({ "seq": seq, "url": url, "selector": selector }))),
         "pickCancel" => run(state, Some(PICK_CANCEL.to_owned()), |_, _, _| {}),
@@ -140,6 +145,21 @@ pub fn apply_styles(state: &State, content: &UserContentManager) {
         content.add_script(&script);
         *state.style_script.borrow_mut() = Some(script);
     }
+}
+
+pub fn apply_page_scripts(state: &State, content: &UserContentManager) {
+    state.page_scripts.take().iter().for_each(|old| content.remove_script(old));
+    let built = state.built.borrow();
+    let Some(built) = built.as_ref().filter(|b| b.level.policy().javascript) else { return };
+    let youtube = built.lists.iter().any(|l| l == shield::groups::YOUTUBE_GROUP).then(filters::youtube_script);
+    let scripts: Vec<UserScript> = [Some(page_scripts::ALWAYS_VISIBLE.to_owned()), youtube]
+        .into_iter()
+        .flatten()
+        .map(|source| page_scripts::outside_lockdown(source, &state.levels.borrow()))
+        .map(|source| UserScript::new(&source, UserContentInjectedFrames::AllFrames, UserScriptInjectionTime::Start, &[], &[]))
+        .collect();
+    scripts.iter().for_each(|s| content.add_script(s));
+    *state.page_scripts.borrow_mut() = scripts;
 }
 
 #[cfg(test)]

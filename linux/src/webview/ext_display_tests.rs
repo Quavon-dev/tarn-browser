@@ -106,7 +106,7 @@ fn tab_view(f: &Fixture, profile: &str, level: ShieldLevel) -> Rc<State> {
     *state.profile.borrow_mut() = profile.to_owned();
     *state.tab.borrow_mut() = format!("false-{}", f.tab);
     VIEWS.with_borrow_mut(|views| views.push(Rc::downgrade(&state)));
-    let wanted = Build { key: StoreKey::parse(profile).unwrap(), level, lists: Vec::new() };
+    let wanted = Build { key: StoreKey::parse(profile).unwrap(), level, lists: Vec::new(), inspectable: false };
     *state.built.borrow_mut() = Some(wanted.clone());
     build(&state, &wanted, &[]);
     state
@@ -427,7 +427,7 @@ fn the_runtime_on_the_shell_thread_drives_views_on_the_gtk_thread_in_a_view() {
     *state.profile.borrow_mut() = uuid.clone();
     *state.tab.borrow_mut() = format!("false-{tab}");
     VIEWS.with_borrow_mut(|views| views.push(Rc::downgrade(&state)));
-    let wanted = Build { key: StoreKey::parse(&uuid).unwrap(), level: ShieldLevel::Standard, lists: Vec::new() };
+    let wanted = Build { key: StoreKey::parse(&uuid).unwrap(), level: ShieldLevel::Standard, lists: Vec::new(), inspectable: false };
     *state.built.borrow_mut() = Some(wanted.clone());
     build(&state, &wanted, &[]);
     assert!(spin_until(|| state.ext.filters.borrow().len() == 1, 10), "the shell handed the view its worlds and the granted rules");

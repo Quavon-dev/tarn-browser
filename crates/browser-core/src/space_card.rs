@@ -78,6 +78,9 @@ impl SpaceDraft {
     }
 
     pub fn ready(&self, spaces: &[SpaceRef], profiles: &[Profile]) -> Option<(String, Option<String>)> {
+        if let Some(id) = self.editing {
+            spaces.iter().find(|s| s.private == self.private && s.space.id == id)?;
+        }
         let name = space_name(&self.name, spaces, self.private, self.profile, self.editing)?;
         let profile_name = match self.profile {
             Some(_) => None,
@@ -102,8 +105,16 @@ impl SpaceDraft {
                 Ok(id)
             }),
             (None, None, Some(profile_name)) => {
-                let profile = NewProfile { name: &profile_name, color: &self.profile_color, level: ShieldLevel::Standard, engine: 0, share: None };
-                crate::profiles::create(disk, &profile, [&name, &self.color, &self.icon]).map(|(_, space)| space)
+                let profile = NewProfile {
+                    name: &profile_name,
+                    color: &self.profile_color,
+                    level: ShieldLevel::Standard,
+                    engine: crate::command::ENGINES[0].name,
+                    share: None,
+                    space: [&name, &self.color, &self.icon],
+                };
+                crate::profiles::create(disk, &profile, &uuid::Uuid::new_v4().to_string())
+                    .and_then(|id| disk.spaces(id)?.first().map(|s| s.id).ok_or(store::Error::Invalid("space")))
             }
             (None, None, None) => return Err(Unsaved::Invalid),
         };
@@ -157,6 +168,7 @@ mod tests {
         assert_eq!((draft.profile, draft.name.as_str(), draft.profile_color.as_str()), (Some(2), "Space 2", DEFAULT_PROFILE_COLOR));
         let draft = SpaceDraft::new(&spaces, spaces.get(3), &profiles);
         assert_eq!((draft.profile, draft.name.as_str()), (Some(1), "Space 4"));
+        assert_eq!(next_space_name(&spaces, Some(3)), "Space 1");
     }
 
     #[test]
@@ -177,10 +189,15 @@ mod tests {
         edit.name = "Home".into();
         assert!(matches!(edit.save(&disk, &disk, &refs(&disk), &profiles), Err(Unsaved::Invalid)));
         edit.name = "Code".into();
+        assert!(matches!(SpaceDraft { editing: Some(999), ..edit.clone() }.save(&disk, &disk, &refs(&disk), &profiles), Err(Unsaved::Invalid)));
+        (edit.color, edit.icon) = (String::new(), "star".into());
         edit.schedule.days = 0b011_1110;
         edit.save(&disk, &disk, &refs(&disk), &profiles).unwrap();
         let saved = refs(&disk).into_iter().find(|s| s.space.id == id).unwrap();
-        assert_eq!((saved.space.name.as_str(), saved.space.schedule), ("Code", Schedule { days: 0b011_1110, start: 9, end: 17 }));
+        assert_eq!(
+            (saved.space.name.as_str(), saved.space.color.as_str(), saved.space.icon.as_str(), saved.space.schedule),
+            ("Code", "", "star", Schedule { days: 0b011_1110, start: 9, end: 17 })
+        );
 
         let mut fresh = SpaceDraft::new(&refs(&disk), None, &profiles);
         fresh.profile = None;

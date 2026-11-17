@@ -129,6 +129,7 @@ pub struct Shell<D: Platform> {
     pub undo: Option<(String, u64)>,
     pub sort_undo: Option<(String, (bool, browser_core::cleanup::Undo))>,
     pub transfers: Vec<crate::scripts::Transfer>,
+    pub transfers_moved: std::time::Instant,
     pub reader: Option<crate::scripts::Reader>,
     pub find_tabs: crate::scripts::FindTabs,
     pub picking: Option<(TabKey, u64)>,
@@ -181,6 +182,7 @@ impl<D: Platform> Shell<D> {
             undo: None,
             sort_undo: None,
             transfers: Vec::new(),
+            transfers_moved: std::time::Instant::now(),
             reader: None,
             find_tabs: crate::scripts::FindTabs::default(),
             picking: None,
@@ -715,15 +717,8 @@ impl<D: Platform> Shell<D> {
 
     pub fn set_site_level(&mut self, level: Option<ShieldLevel>) -> bool {
         let (Some((private, id)), Some(host)) = (self.model.profile(), self.active_host()) else { return false };
-        if self.core.store(private).set_site_override(id, &host, level).is_err() {
+        if self.core.set_site_override(private, id, &host, level).is_err() {
             return false;
-        }
-        if let Some(rt) = self.core.profiles.borrow().get(&(private, id)) {
-            let mut overrides = rt.overrides.borrow_mut();
-            match level {
-                Some(level) => overrides.insert(host, level),
-                None => overrides.remove(&host),
-            };
         }
         if !private {
             self.push_rules(id, std::time::Instant::now());

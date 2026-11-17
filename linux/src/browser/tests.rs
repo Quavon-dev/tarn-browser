@@ -23,11 +23,11 @@ fn a_fresh_window_opens_one_blank_tab() {
 fn typed_addresses_load_with_a_new_sequence_and_the_site_level() {
     let (_dir, mut b) = browser();
     let key = active(&b);
-    b.navigate("example.com");
+    b.navigate_in("example.com", false);
     let first = b.pages[&key].load.clone().unwrap();
     assert_eq!(first.0, "https://example.com/");
     assert!(b.pages[&key].loading, "a load the shell starts shows as loading before it commits");
-    b.navigate("example.com");
+    b.navigate_in("example.com", false);
     assert!(b.pages[&key].load.as_ref().unwrap().1 > first.1, "the same URL loads again");
     b.on_event(key, "committed", &json!({ "url": "https://example.com/", "title": "", "canGoBack": false }));
     b.set_site_level(Some(ShieldLevel::Lockdown));
@@ -48,7 +48,7 @@ fn store_links_install_only_from_a_profile_tab_outside_lockdown() {
     assert!(!b.store_link_allowed(key), "from a Lockdown site");
     b.set_site_level(None);
     assert!(b.store_link_allowed(key));
-    b.navigate("https://extensions.tarnbrowser.com/install/helper");
+    b.navigate_in("https://extensions.tarnbrowser.com/install/helper", false);
     assert!(b.pages[&key].loading);
     b.on_event(key, browser_core::extensions::STORE_EVENT, &json!({ "id": "helper" }));
     assert!(!b.pages[&key].loading, "the cancelled load stops");
@@ -58,7 +58,7 @@ fn store_links_install_only_from_a_profile_tab_outside_lockdown() {
     assert!(b.pages[&popup].link, "a page's pop-up loads as the page's link, not as the user's own load");
     let view = crate::snapshot::snapshot(&b, true).views.into_iter().find(|v| v.key == popup).unwrap();
     assert!(view.link);
-    b.navigate("https://extensions.tarnbrowser.com/install/helper");
+    b.navigate_in("https://extensions.tarnbrowser.com/install/helper", false);
     assert!(!b.pages[&popup].link, "the user's own load in that tab is theirs");
     b.activate(key);
     b.private_space();
@@ -151,8 +151,17 @@ fn open_anyway_loads_a_refused_local_address_as_the_users_own_navigation() {
     let key = active(&b);
     let public = Url::parse("https://evil.test/").unwrap();
     let target = Url::parse("http://192.168.1.1/admin").unwrap();
-    let nav =
-        |from_shell| Navigation { url: &target, from_shell, user_link: false, user_step: false, page: Some(&public), upgraded: false, likely_subframe: false };
+    let nav = |from_shell| Navigation {
+        url: &target,
+        site_filtered: true,
+        filtered: true,
+        from_shell,
+        user_link: false,
+        user_step: false,
+        page: Some(&public),
+        upgraded: false,
+        likely_subframe: false,
+    };
     assert_eq!(navigation(&Levels::default(), ShieldLevel::Standard, &nav(false)), Verdict::Blocked("local_network"));
     b.on_event(key, "committed", &json!({ "url": public.as_str() }));
     b.on_event(key, "blocked", &json!({ "url": target.as_str(), "reason": "local_network" }));
@@ -270,6 +279,52 @@ fn a_permission_the_component_cannot_place_in_a_frame_is_never_remembered() {
 }
 
 #[test]
+fn a_top_page_permission_is_remembered_at_standard_only() {
+    let (_dir, mut b) = browser();
+    let key = active(&b);
+    let ask = |id: u64| json!({ "id": id, "kind": "camera", "origin": "https://cam.test", "topOrigin": "https://cam.test" });
+    b.on_event(key, "prompt", &ask(1));
+    assert!(b.remembers(&b.pages[&key].prompts[0]));
+    b.answer(1, true, true, "", "", "");
+    b.outbox.clear();
+    b.on_event(key, "prompt", &ask(2));
+    assert!(b.pages[&key].prompts.is_empty(), "not asked again");
+    assert_eq!(b.outbox.last().map(|(_, n, a)| (*n, a.clone())), Some(("answer", json!({ "id": 2, "accept": true }))));
+    assert_eq!(b.permissions().len(), 1, "listed in Settings › Permissions");
+    b.on_event(key, "committed", &json!({ "url": "https://cam.test/", "title": "", "canGoBack": false }));
+    b.set_site_level(Some(ShieldLevel::Strict));
+    b.outbox.clear();
+    b.on_event(key, "prompt", &ask(3));
+    assert_eq!(b.pages[&key].prompts.len(), 1, "asked again under Strict");
+    assert!(!b.remembers(&b.pages[&key].prompts[0]));
+}
+
+#[test]
+fn blocking_a_pages_requests_drops_its_queue() {
+    let (_dir, mut b) = browser();
+    let key = active(&b);
+    for id in 1..=3 {
+        b.on_event(key, "prompt", &json!({ "id": id, "kind": "alert", "origin": "https://loud.test", "message": "hi" }));
+    }
+    b.outbox.clear();
+    b.silence(1);
+    assert!(b.pages[&key].prompts.is_empty());
+    assert_eq!(b.outbox, vec![(key, "answer", json!({ "id": 1, "accept": false, "silence": true }))]);
+}
+
+#[test]
+fn a_popup_names_its_opener_to_its_view() {
+    let (_dir, mut b) = browser();
+    let key = active(&b);
+    b.on_event(key, "popup", &json!({ "url": "https://popup.test/" }));
+    let popup = b.model.active.unwrap();
+    assert_ne!(popup, key);
+    let views = crate::snapshot::snapshot(&b, true).views;
+    let opener = views.iter().find(|v| v.key == popup).map(|v| v.opener.clone());
+    assert_eq!(opener, Some(format!("{}-{}", key.private, key.id)));
+}
+
+#[test]
 fn popups_open_as_new_tabs_and_downloads_are_listed() {
     let (_dir, mut b) = browser();
     let key = active(&b);
@@ -319,7 +374,7 @@ fn the_window_reopens_on_its_space_and_tab() {
 fn only_the_most_recent_tabs_stay_live() {
     let (_dir, mut b) = browser();
     let first = active(&b);
-    for n in 0..LIVE_TABS {
+    for n in 0..browser_core::settings::live_tabs(&b.core.disk) {
         b.new_tab(&format!("https://t{n}.test/"));
     }
     assert!(b.model.lifecycle.live().all(|k| k != first));
@@ -404,7 +459,7 @@ fn a_playing_tab_stays_awake_beyond_the_live_tab_limit() {
     let (_dir, mut b) = browser();
     let first = active(&b);
     b.on_event(first, "playing", &json!({ "playing": true }));
-    for n in 0..LIVE_TABS {
+    for n in 0..browser_core::settings::live_tabs(&b.core.disk) {
         b.new_tab(&format!("https://t{n}.test/"));
     }
     assert!(b.model.lifecycle.live().any(|k| k == first));

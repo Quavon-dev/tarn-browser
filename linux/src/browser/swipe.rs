@@ -3,6 +3,11 @@ pub use browser_core::sidebar::{Step, Swipe};
 use super::Browser;
 
 impl Browser {
+    pub fn swiped(&mut self, dx: f32, dy: f32, at: Instant) -> Option<Step> {
+        let step = self.swipe.feed(dx, dy, at)?;
+        self.pref(browser_core::prefs::GESTURES).then_some(step)
+    }
+
     pub fn neighbour_space(&self, step: Step) -> Option<usize> {
         browser_core::sidebar::neighbour_space(&self.model, step, |_| true)
     }
@@ -38,7 +43,7 @@ mod tests {
         let mut b = Browser::open(dir.path());
         let t = Instant::now();
         let swipe = |b: &mut Browser, dx: f32, secs: u64| {
-            if let Some(step) = b.swipe.feed(dx, 0., t + Duration::from_secs(secs)) {
+            if let Some(step) = b.swiped(dx, 0., t + Duration::from_secs(secs)) {
                 b.swipe_to(step);
             }
         };
@@ -52,5 +57,11 @@ mod tests {
         assert_eq!(b.model.space_ix, 1, "no space after the last");
         swipe(&mut b, -80., 3);
         assert_eq!(b.model.space_ix, 0);
+        b.set_pref(browser_core::prefs::GESTURES, false);
+        swipe(&mut b, 80., 4);
+        assert_eq!(b.model.space_ix, 0, "Touchpad gestures is off");
+        b.set_pref(browser_core::prefs::GESTURES, true);
+        swipe(&mut b, 80., 5);
+        assert_eq!(b.model.space_ix, 1);
     }
 }

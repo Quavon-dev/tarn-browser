@@ -21,17 +21,7 @@ pub const TEXT: f32 = 13.;
 pub const TEXT_SMALL: f32 = 11.5;
 pub const TEXT_TITLE: f32 = 15.;
 
-pub const ACCENTS: [(&str, u32); 9] = [
-    ("Tarn", 0x1f75b0),
-    ("Blue", 0x0a7aff),
-    ("Purple", 0xa550a7),
-    ("Pink", 0xf74f9e),
-    ("Red", 0xff5257),
-    ("Orange", 0xf7821b),
-    ("Yellow", 0xd9a400),
-    ("Green", 0x62ba46),
-    ("Graphite", 0x8c8c8c),
-];
+pub use browser_core::prefs::ACCENTS;
 
 pub const PROFILE_COLORS: [(&str, u32); 8] = [
     ("graphite", 0x8e8e93),
@@ -363,7 +353,9 @@ mod tests {
     #[test]
     fn the_palette_matches_the_gpui_theme() {
         let gpui = include_str!("../../crates/ui/src/theme.rs");
-        for (name, hex) in ACCENTS.iter().chain(PROFILE_COLORS.iter()) {
+        let accents = "pub use browser_core::prefs::ACCENTS;";
+        assert!(gpui.contains(accents) && include_str!("theme.rs").split("#[cfg(test)]").next().unwrap().contains(accents), "one accent list for every client");
+        for (name, hex) in PROFILE_COLORS.iter() {
             assert!(gpui.contains(&format!("(\"{name}\", {hex:#08x})")), "{name}");
         }
         let monogram = MONOGRAM.iter().map(|c| format!("{c:#08x}")).collect::<Vec<_>>().join(", ");

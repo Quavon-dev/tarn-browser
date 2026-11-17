@@ -12,13 +12,13 @@ use gpui::{
 use ui::controls::{POPOVER_INSET, open_popup, popover};
 use ui::motion::fade_in;
 use ui::theme::{TEXT, TEXT_SMALL, Theme};
-use url::Url;
+
+use browser_core::hover::Rest;
 
 use crate::browser::{Browser, TabKey};
 use crate::prefs::Pref;
 use crate::sidebar::SIDEBAR_MARGIN;
 
-const DELAY: Duration = Duration::from_millis(600);
 const WIDTH: f32 = 300.;
 /// Segoe UI, the Windows font, sets lines taller than macOS's.
 const HEIGHT: f32 = if cfg!(windows) { 108. } else { 96. };
@@ -34,34 +34,6 @@ const POLL: Duration = Duration::from_millis(150);
 const REFRESH: Duration = Duration::from_secs(1);
 /// Above the pointer, so the card's first line sits level with the hovered row.
 const LIFT: f32 = 20.;
-
-/// Which row the pointer rests on and since when; the card shows once it has rested `DELAY`.
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
-pub struct Rest {
-    on: Option<(TabKey, Instant)>,
-}
-
-impl Rest {
-    pub fn enter(&mut self, key: TabKey, now: Instant) {
-        if self.on.is_none_or(|(k, _)| k != key) {
-            self.on = Some((key, now));
-        }
-    }
-
-    /// Leaving a row the pointer is no longer on, after it entered the next one, changes nothing.
-    pub fn leave(&mut self, key: TabKey) -> bool {
-        let left = self.on.is_some_and(|(k, _)| k == key);
-        if left {
-            self.on = None;
-        }
-        left
-    }
-
-    /// The row to show, or how much longer to wait for it.
-    pub fn due(&self, now: Instant) -> Option<(TabKey, Duration)> {
-        self.on.map(|(key, since)| (key, DELAY.saturating_sub(now - since)))
-    }
-}
 
 #[derive(Default)]
 pub struct HoverCard {
@@ -91,12 +63,8 @@ fn decode(png: &[u8]) -> Option<Arc<RenderImage>> {
 fn lines(b: &Browser, key: TabKey) -> Option<(String, String, String)> {
     let tab = b.model.tab(key)?;
     let url = b.tab_url(key).unwrap_or_else(|| tab.url.clone());
-    let place = Url::parse(&url).ok().and_then(|u| {
-        let host = crate::toolbar::host_tail(u.host_str()?.trim_start_matches("www."), crate::toolbar::MAX_HOST);
-        Some(format!("{host}{}", u.path().trim_end_matches('/')))
-    });
-    let state: Vec<&str> = [(b.sleeping(key), "Sleeping"), (b.tab_muted(key), "Muted")].into_iter().filter(|(on, _)| *on).map(|(_, s)| s).collect();
-    Some((crate::tabs::display_title(tab), ui::text::bounded_title(&place.unwrap_or(url)), state.join(" · ")))
+    let (place, state) = browser_core::hover::card_lines(&url, b.sleeping(key), b.tab_muted(key));
+    Some((crate::tabs::display_title(tab), place, state))
 }
 
 impl Browser {
@@ -305,34 +273,5 @@ impl Render for CardWindow {
             )
             .when(!state.is_empty(), |d| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(SharedString::from(state))));
         fade_in(card, "hover-card", self.reduce)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const A: TabKey = TabKey { private: false, id: 1 };
-    const B: TabKey = TabKey { private: false, id: 2 };
-
-    #[test]
-    fn the_card_waits_for_the_pointer_to_rest() {
-        let (mut rest, t) = (Rest::default(), Instant::now());
-        assert_eq!(rest.due(t), None);
-        rest.enter(A, t);
-        assert_eq!(rest.due(t + Duration::from_millis(200)), Some((A, Duration::from_millis(400))));
-        rest.enter(A, t + Duration::from_millis(300));
-        assert_eq!(rest.due(t + DELAY), Some((A, Duration::ZERO)), "moving within the row keeps the wait");
-    }
-
-    #[test]
-    fn a_new_row_restarts_the_wait_and_a_late_leave_is_ignored() {
-        let (mut rest, t) = (Rest::default(), Instant::now());
-        rest.enter(A, t);
-        rest.enter(B, t + Duration::from_millis(500));
-        assert!(!rest.leave(A));
-        assert_eq!(rest.due(t + Duration::from_millis(600)), Some((B, Duration::from_millis(500))));
-        assert!(rest.leave(B));
-        assert_eq!(rest.due(t + Duration::from_secs(5)), None);
     }
 }

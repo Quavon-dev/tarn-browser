@@ -174,6 +174,12 @@ impl Ui {
                 Vec::new()
             });
         }
+        if screen == Screen::Downloads {
+            self.act(|s| {
+                s.transfers_moved = std::time::Instant::now();
+                Vec::new()
+            });
+        }
         if screen != self.screen.get_untracked() && !untracked(reduce_motion) {
             let fade = LayoutTransition::new(LayoutCurve::EaseOut, tarn_nsh_shared::motion::FADE.as_secs_f32() * 1000.);
             animate_layout(LayoutAnimation { create: Some(fade), ..LayoutAnimation::default() });

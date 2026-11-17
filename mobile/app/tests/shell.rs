@@ -477,6 +477,43 @@ fn the_top_pages_own_permission_is_remembered_when_the_component_names_it() {
 }
 
 #[test]
+fn permissions_are_neither_remembered_nor_reused_above_standard() {
+    let (_dir, mut shell) = open();
+    let always = Answer { accept: true, text: None, user: None, password: None, remember: true };
+    let ask = |id: u64| json!({ "id": id, "kind": "camera", "origin": "https://site.test", "topOrigin": "https://site.test" });
+    shell.set_default_level(ShieldLevel::Strict);
+    let key = active(&shell);
+    shell.event(key, "prompt", &ask(1), 1);
+    assert!(!shell.remembers(shell.active_prompt().unwrap()));
+    shell.answer(always.clone());
+    shell.set_default_level(ShieldLevel::Standard);
+    let key = active(&shell);
+    assert_eq!(shell.event(key, "prompt", &ask(2), 2), vec![], "a Strict answer was not stored");
+    assert!(shell.remembers(shell.active_prompt().unwrap()));
+    shell.answer(always);
+    assert_eq!(shell.event(key, "prompt", &ask(3), 3), vec![Effect::Command(key, "answer", json!({ "id": 3, "accept": true }))]);
+    shell.set_default_level(ShieldLevel::Strict);
+    let key = active(&shell);
+    assert_eq!(shell.event(key, "prompt", &ask(4), 4), vec![], "a stored answer is not reused at Strict");
+}
+
+#[test]
+fn a_remembered_permission_is_reused_only_in_the_profile_that_stored_it() {
+    let (_dir, mut shell) = open();
+    let always = Answer { accept: true, text: None, user: None, password: None, remember: true };
+    let ask = |id: u64| json!({ "id": id, "kind": "camera", "origin": "https://site.test", "topOrigin": "https://site.test" });
+    let personal = active(&shell);
+    assert!(add_profile(&mut shell, "Banking"));
+    let banking = active(&shell);
+    shell.event(banking, "prompt", &ask(1), 1);
+    shell.answer(always);
+    assert_eq!(shell.event(banking, "prompt", &ask(2), 2), vec![Effect::Command(banking, "answer", json!({ "id": 2, "accept": true }))]);
+    shell.switch_space(0);
+    assert_eq!(shell.event(personal, "prompt", &ask(3), 3), vec![], "Banking's answer is not reused in the Personal profile");
+    assert!(shell.remembers(shell.active_prompt().unwrap()), "the prompt itself still offers Always Allow");
+}
+
+#[test]
 fn clear_data_gives_lockdown_and_private_profiles_a_fresh_store() {
     let (_dir, mut shell) = open();
     shell.set_default_level(ShieldLevel::Lockdown);

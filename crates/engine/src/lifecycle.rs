@@ -44,6 +44,23 @@ impl<T: Copy + Eq + Hash> Lifecycle<T> {
         }
     }
 
+    /// Changes how many tabs stay live and returns the least recently used ones beyond it that must
+    /// sleep; tabs that stay live, `awake` ones beyond the limit too, keep their numbers.
+    pub fn set_max_live(&mut self, max_live: usize, awake: impl Fn(T) -> bool) -> Vec<T> {
+        self.max_live = max_live.max(1);
+        let mut evicted = Vec::new();
+        let mut kept = 0;
+        self.live.retain(|(t, _)| {
+            kept += 1;
+            let stays = kept <= self.max_live || awake(*t);
+            if !stays {
+                evicted.push(*t);
+            }
+            stays
+        });
+        evicted
+    }
+
     pub fn remove(&mut self, tab: T) {
         self.live.retain(|(t, _)| *t != tab);
     }
@@ -165,6 +182,21 @@ mod tests {
         }
         assert_eq!(hibernated.len(), 46);
         assert_eq!(lc.live().collect::<Vec<_>>(), [49, 48, 47, 46]);
+    }
+
+    #[test]
+    fn a_lower_limit_sleeps_the_least_recent_and_keeps_numbers() {
+        let mut lc = Lifecycle::new(6);
+        for id in [1, 2, 3, 4] {
+            lc.activate(id);
+        }
+        let numbers = [4, 3, 1].map(|t| lc.born(t));
+        assert_eq!(lc.set_max_live(2, |t| t == 1), [2]);
+        assert_eq!([4, 3, 1].map(|t| lc.born(t)), numbers, "live and awake tabs keep their numbers");
+        assert!(lc.set_max_live(10, |_| false).is_empty());
+        lc.activate(5);
+        lc.activate(6);
+        assert_eq!(lc.live().collect::<Vec<_>>(), [6, 5, 4, 3, 1]);
     }
 
     #[test]

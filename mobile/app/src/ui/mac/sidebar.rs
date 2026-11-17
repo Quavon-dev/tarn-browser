@@ -761,7 +761,7 @@ fn new_tab_row(bar: Bar) -> View {
             })
         }))
         .child(when(
-            move || ui.read(|s| bar::cleanable(&s.model)),
+            move || ui.read(|s| browser_core::cleanup::cleanable(&s.model.tabs) && !s.model.burner_shown()),
             move || {
                 glyph_button(glyphs::BROOM_SPARKLES, "Clean Up: sorts tabs into groups by what each page is. Runs on this device.", Placement::Top, move || {
                     act(ui, |s| s.clean_up())

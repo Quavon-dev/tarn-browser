@@ -1,52 +1,127 @@
 use shield::ShieldLevel;
 use store::{Id, Store};
 
-use crate::command::{ENGINES, engine_key};
+use crate::command::engine_key;
 use crate::{share_store, shared_key};
+
+pub const RETIRED_STORES: &str = "retired_stores";
+
+pub fn profile_name(disk: &Store, raw: &str, editing: Option<Id>) -> Option<String> {
+    let others = disk.profiles().unwrap_or_default().into_iter().filter(|p| Some(p.id) != editing).collect::<Vec<_>>();
+    crate::space_card::valid_name(raw, others.iter().map(|p| p.name.as_str()))
+}
 
 pub struct NewProfile<'a> {
     pub name: &'a str,
     pub color: &'a str,
     pub level: ShieldLevel,
-    pub engine: usize,
+    pub engine: &'a str,
     pub share: Option<Id>,
+    pub space: [&'a str; 3],
 }
 
-/// Writes a profile, its settings and its first space, given as `[name, color, icon]`, all or nothing.
-pub fn create(disk: &Store, profile: &NewProfile, space: [&str; 3]) -> Result<(Id, Id), store::Error> {
-    let engine = ENGINES.get(profile.engine).unwrap_or(&ENGINES[0]).name;
+pub fn create(disk: &Store, new: &NewProfile, uuid: &str) -> Result<Id, store::Error> {
+    let [space, color, icon] = new.space;
     disk.batch(|disk| {
-        let shared = profile.share.and_then(|id| disk.profile(id).ok()).map(|mut p| {
+        let shared = new.share.and_then(|id| disk.profile(id).ok()).map(|mut p| {
             share_store(disk, &mut p);
             p.data_store_uuid
         });
-        let id = disk.create_profile(profile.name, &uuid::Uuid::new_v4().to_string(), false)?.id;
-        disk.set_profile(id, profile.name, profile.color)?;
-        disk.set_profile_shield_level(id, profile.level)?;
+        let id = disk.create_profile(new.name, uuid, false)?.id;
+        disk.set_profile(id, new.name, new.color)?;
+        disk.set_profile_shield_level(id, new.level)?;
         disk.set_setting(&shared_key(id), shared.as_deref().unwrap_or(""))?;
-        disk.set_setting(&engine_key(false, id), engine)?;
-        let space_id = disk.create_space(id, space[0], space[2])?.id;
-        disk.update_space(space_id, space[0], space[1], space[2])?;
-        Ok((id, space_id))
+        disk.set_setting(&engine_key(false, id), new.engine)?;
+        let space_id = disk.create_space(id, space, icon)?.id;
+        disk.update_space(space_id, space, color, icon)?;
+        Ok(id)
     })
+}
+
+pub fn deletable(disk: &Store, id: Id) -> bool {
+    let profiles = disk.profiles().unwrap_or_default();
+    profiles.len() > 1 && profiles.iter().any(|p| p.id == id)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Deleted {
+    pub own_store: String,
+    pub store: String,
+    pub still_used: bool,
+}
+
+pub fn delete(disk: &Store, id: Id) -> Option<Deleted> {
+    let profiles = disk.profiles().ok()?;
+    let mut profile = profiles.iter().find(|p| p.id == id).cloned().filter(|_| profiles.len() > 1)?;
+    let own_store = profile.data_store_uuid.clone();
+    share_store(disk, &mut profile);
+    disk.delete_profile(id).ok()?;
+    for key in [shared_key(id), engine_key(false, id), crate::theme::pages_setting(id)] {
+        disk.delete_setting(&key).ok();
+    }
+    let still_used = profiles.into_iter().filter(|p| p.id != id).any(|mut p| {
+        share_store(disk, &mut p);
+        p.data_store_uuid == profile.data_store_uuid
+    });
+    Some(Deleted { own_store, store: profile.data_store_uuid, still_used })
+}
+
+pub fn retired_stores(disk: &Store) -> Vec<String> {
+    let listed = disk.setting(RETIRED_STORES).ok().flatten().unwrap_or_default();
+    listed.lines().filter(|u| !u.is_empty()).map(str::to_owned).collect()
+}
+
+pub fn set_retired(disk: &Store, uuid: &str, on: bool) {
+    let listed = disk.setting(RETIRED_STORES).ok().flatten().unwrap_or_default();
+    disk.set_setting(RETIRED_STORES, &toggled(&listed, uuid, on)).ok();
+}
+
+fn toggled(stored: &str, entry: &str, on: bool) -> String {
+    let mut entries: Vec<&str> = stored.lines().filter(|p| !p.is_empty() && *p != entry).collect();
+    if on {
+        entries.push(entry);
+    }
+    entries.join("\n")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn profiles_are_created_with_their_first_space_and_deleted_with_their_settings() {
+        let disk = Store::open_in_memory().unwrap();
+        let first = disk.create_profile("Personal", "uuid-a", false).unwrap();
+        assert!(!deletable(&disk, first.id), "the last profile stays");
+        assert_eq!(delete(&disk, first.id), None);
+        let new =
+            NewProfile { name: "Work", color: "blue", level: ShieldLevel::Strict, engine: "Kagi", share: Some(first.id), space: ["Desk", "green", "code"] };
+        let id = create(&disk, &new, "uuid-b").unwrap();
+        let made = disk.profile(id).unwrap();
+        assert_eq!((made.name.as_str(), made.color.as_str(), made.shield_level), ("Work", "blue", ShieldLevel::Strict));
+        assert_eq!(disk.setting(&engine_key(false, id)).unwrap().as_deref(), Some("Kagi"));
+        let spaces = disk.spaces(id).unwrap();
+        assert_eq!(spaces.len(), 1);
+        assert_eq!((spaces[0].name.as_str(), spaces[0].color.as_str(), spaces[0].icon.as_str()), ("Desk", "green", "code"));
+        assert_eq!(profile_name(&disk, " work ", None), None);
+        assert_eq!(profile_name(&disk, "Work", Some(id)), Some("Work".into()));
+        assert!(deletable(&disk, id) && !deletable(&disk, 999));
+        assert_eq!(delete(&disk, id), Some(Deleted { own_store: "uuid-b".into(), store: "uuid-a".into(), still_used: true }));
+        assert!(disk.profile(id).is_err());
+        assert_eq!(disk.setting(&shared_key(id)).unwrap(), None);
+        assert_eq!(disk.setting(&engine_key(false, id)).unwrap(), None);
+        let own = NewProfile { share: None, ..new };
+        let id = create(&disk, &own, "uuid-c").unwrap();
+        assert_eq!(delete(&disk, id), Some(Deleted { own_store: "uuid-c".into(), store: "uuid-c".into(), still_used: false }));
+    }
 
     #[test]
-    fn a_new_profile_gets_its_settings_and_first_space() {
+    fn retired_stores_are_listed_until_removed() {
         let disk = Store::open_in_memory().unwrap();
-        let home = disk.create_profile("Personal", "home-uuid", false).unwrap();
-        let new = NewProfile { name: "Work", color: "green", level: ShieldLevel::Strict, engine: 1, share: Some(home.id) };
-        let (id, space) = create(&disk, &new, ["Desk", "blue", "briefcase"]).unwrap();
-        let mut work = disk.profile(id).unwrap();
-        assert_eq!((work.name.as_str(), work.color.as_str(), work.shield_level), ("Work", "green", ShieldLevel::Strict));
-        share_store(&disk, &mut work);
-        assert_eq!(work.data_store_uuid, "home-uuid");
-        assert_eq!(disk.setting(&engine_key(false, id)).unwrap().as_deref(), Some(ENGINES[1].name));
-        let desk = disk.spaces(id).unwrap();
-        assert_eq!((desk[0].id, desk[0].name.as_str(), desk[0].color.as_str(), desk[0].icon.as_str()), (space, "Desk", "blue", "briefcase"));
+        set_retired(&disk, "a", true);
+        set_retired(&disk, "b", true);
+        set_retired(&disk, "a", true);
+        assert_eq!(retired_stores(&disk), ["b", "a"]);
+        set_retired(&disk, "b", false);
+        assert_eq!(retired_stores(&disk), ["a"]);
     }
 }

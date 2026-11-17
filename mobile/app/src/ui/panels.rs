@@ -606,7 +606,7 @@ pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
         .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1()),
         Pane::Permissions => body.child(permissions(ui)),
         Pane::Profiles => body.child(spaces(ui)),
-        Pane::Shortcuts => return None,
+        Pane::Tabs | Pane::Developer | Pane::Shortcuts => return None,
     })
 }
 
