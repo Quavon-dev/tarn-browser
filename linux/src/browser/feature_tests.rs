@@ -1,6 +1,7 @@
 use super::*;
 use crate::browser::pages::HISTORY_TEXT;
 use crate::browser::spaces::SpaceCommand;
+use browser_core::space_card::SpaceDraft;
 
 fn browser() -> (tempfile::TempDir, Browser) {
     let dir = tempfile::tempdir().unwrap();
@@ -323,7 +324,7 @@ fn ruled_hosts_open_in_their_space_and_spaces_switch_on_schedule() {
     let (_dir, mut b) = browser();
     let home = b.model.space_ix;
     let home_id = b.model.current_space().unwrap().space.id;
-    b.new_space();
+    b.save_space(&b.new_space_draft());
     let work = b.model.space_ix;
     b.switch_space_by_user(home);
     let key = b.model.active.unwrap();
@@ -482,11 +483,45 @@ fn a_dragged_tab_takes_the_place_of_the_row_it_lands_on() {
 }
 
 #[test]
+fn the_space_card_creates_edits_and_adds_a_profile() {
+    let (_dir, mut b) = browser();
+    let home = b.model.space_ix;
+    let mut draft = b.new_space_draft();
+    draft.name = "Work".into();
+    draft.color = "blue".into();
+    draft.icon = "code".into();
+    assert!(b.save_space(&draft));
+    assert!(!b.save_space(&draft), "a taken name is refused");
+    assert_ne!(b.model.space_ix, home, "the new space is shown");
+    let work = b.model.current_space().unwrap().clone();
+    assert_eq!((work.space.name.as_str(), work.space.color.as_str(), work.space.icon.as_str()), ("Work", "blue", "code"));
+    b.switch_space_by_user(home);
+    let mut edit = SpaceDraft::edit(&work);
+    edit.name = "Code".into();
+    edit.schedule.days = 0b011_1110;
+    assert!(b.save_space(&edit));
+    assert_eq!(b.model.space_ix, home, "an edit keeps the shown space");
+    let saved = b.model.spaces.iter().find(|s| s.space.id == work.space.id).unwrap();
+    assert_eq!((saved.space.name.as_str(), saved.space.schedule), ("Code", store::Schedule { days: 0b011_1110, start: 9, end: 17 }));
+    let mut fresh = b.new_space_draft();
+    fresh.profile = None;
+    fresh.profile_name = "Second".into();
+    fresh.profile_color = "green".into();
+    assert!(b.save_space(&fresh));
+    let second = b.core.disk.profiles().unwrap().into_iter().find(|p| p.name == "Second").unwrap();
+    assert_eq!(second.color, "green");
+    assert_eq!(b.model.current_space().unwrap().space.profile_id, second.id, "the new profile's space is shown");
+}
+
+#[test]
 fn spaces_and_folders_are_renamed_and_folders_nest() {
     let (_dir, mut b) = browser();
-    b.rename_space("  Work  ");
+    let mut draft = SpaceDraft::edit(b.model.current_space().unwrap());
+    draft.name = "  Work  ".into();
+    b.save_space(&draft);
     assert_eq!(b.model.current_space().unwrap().space.name, "Work");
-    b.rename_space(" ");
+    draft.name = " ".into();
+    assert!(!b.save_space(&draft));
     assert_eq!(b.model.current_space().unwrap().space.name, "Work", "a blank name is ignored");
     b.new_folder(None);
     let parent = b.model.folders[0].id;
@@ -1180,7 +1215,7 @@ fn open_tabs_are_offered_as_switch_to_tab_rows_across_the_profiles_spaces() {
     assert_eq!(rows[0].detail(), "Switch to Tab");
     assert!(b.tab_suggestions(" ").is_empty());
     let home = b.model.space_ix;
-    b.new_space();
+    b.save_space(&b.new_space_draft());
     let rows = b.tab_suggestions("docs.test/guide");
     assert_eq!(rows.iter().map(|r| (r.key, r.space.is_some())).collect::<Vec<_>>(), [(docs, true)]);
     assert!(rows[0].detail().starts_with("Switch to Tab · "));
@@ -1376,20 +1411,23 @@ fn profiles_are_created_edited_switched_and_deleted_with_their_store_retired() {
 #[test]
 fn spaces_are_edited_deleted_and_switched_by_number() {
     let (_dir, mut b) = browser();
-    let profile = b.current_profile().unwrap();
     let home = b.model.space_ix;
     let home_key = (false, b.model.spaces[home].space.id);
     let before = b.model.spaces.len();
     assert!(!b.model.can_delete_space(home), "a profile's last space stays");
     b.delete_space(home_key);
     assert_eq!(b.model.spaces.len(), before);
-    let form = |editing, name, color, icon| crate::browser::profiles::SpaceForm { editing, profile, name, color, icon };
-    assert!(b.save_space(&form(None, "Work", "red", "briefcase")));
+    let mut draft = b.new_space_draft();
+    (draft.name, draft.color, draft.icon) = ("Work".into(), "red".into(), "briefcase".into());
+    assert!(b.save_space(&draft));
     let work = b.model.space_ix;
     assert_ne!(work, home);
-    assert!(!b.save_space(&form(Some(home_key), " work", "", "")), "taken in this profile");
-    assert!(!b.save_space(&form(Some((false, 999)), "Gone", "", "")), "a space deleted meanwhile");
-    assert!(b.save_space(&form(Some(home_key), "Home", "blue", "star")));
+    let mut edit = SpaceDraft::edit(&b.model.spaces[home]);
+    edit.name = " work".into();
+    assert!(!b.save_space(&edit), "taken in this profile");
+    assert!(!b.save_space(&SpaceDraft { editing: Some(999), name: "Gone".into(), ..edit.clone() }), "a space deleted meanwhile");
+    (edit.name, edit.color, edit.icon) = ("Home".into(), "blue".into(), "star".into());
+    assert!(b.save_space(&edit));
     let edited = &b.model.spaces[home].space;
     assert_eq!((edited.color.as_str(), edited.icon.as_str()), ("blue", "star"));
     assert_eq!(b.model.space_ix, work, "editing does not switch");

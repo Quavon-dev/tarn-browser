@@ -1,18 +1,10 @@
-use browser_core::profiles::{self, NewProfile, SpaceEdit};
+use browser_core::profiles::{self, NewProfile};
 use browser_core::tabs::TabKey;
 use store::{Id, Profile};
 
 use super::Browser;
 
 pub type SpaceKey = (bool, Id);
-
-pub struct SpaceForm<'a> {
-    pub editing: Option<SpaceKey>,
-    pub profile: Id,
-    pub name: &'a str,
-    pub color: &'a str,
-    pub icon: &'a str,
-}
 
 impl Browser {
     pub fn saved_profiles(&self) -> Vec<Profile> {
@@ -23,15 +15,11 @@ impl Browser {
         self.model.current_space().filter(|s| !s.private).map(|s| s.space.profile_id)
     }
 
-    pub fn next_space_name(&self, profile: Option<Id>) -> String {
-        profiles::next_space_name(&self.model.spaces, profile)
-    }
-
     pub fn create_profile(&mut self, new: &NewProfile) -> Result<(), String> {
-        let named = profiles::valid_name(new.name, []).is_some();
+        let named = browser_core::space_card::valid_name(new.name, []).is_some();
         let name =
             profiles::profile_name(&self.core.disk, new.name, None).ok_or(if named { "Choose a name no other profile has." } else { "Name the profile." })?;
-        let space = profiles::space_name(new.space[0], &[], false, None, None).ok_or("Name the profile's first space.")?;
+        let space = browser_core::space_card::valid_name(new.space[0], []).ok_or("Name the profile's first space.")?;
         let new = NewProfile { name: name.as_str(), space: [space.as_str(), new.space[1], new.space[2]], ..*new };
         let id = profiles::create(&self.core.disk, &new, &uuid::Uuid::new_v4().to_string()).map_err(|e| format!("The profile could not be created ({e})."))?;
         self.model.reload_spaces(&self.core);
@@ -88,24 +76,6 @@ impl Browser {
         true
     }
 
-    pub fn save_space(&mut self, form: &SpaceForm) -> bool {
-        let editing = form.editing.filter(|key| self.model.spaces.iter().any(|s| (s.private, s.space.id) == *key));
-        if form.editing.is_some() && editing.is_none() {
-            return false;
-        }
-        let private = editing.is_some_and(|(p, _)| p);
-        let Some(name) = profiles::space_name(form.name, &self.model.spaces, private, Some(form.profile), editing.map(|(_, id)| id)) else { return false };
-        let edit = SpaceEdit { editing: editing.map(|(_, id)| id), profile: form.profile, name: &name, color: form.color, icon: form.icon, schedule: None };
-        let Ok(id) = profiles::save_space(self.core.store(private), &edit) else { return false };
-        self.model.reload_spaces(&self.core);
-        if editing.is_none()
-            && let Some(ix) = self.model.spaces.iter().position(|s| !s.private && s.space.id == id)
-        {
-            self.switch_space_by_user(ix);
-        }
-        true
-    }
-
     pub fn delete_space(&mut self, (private, id): SpaceKey) {
         let Some((ix, keys)) = self.model.space_to_delete(&self.core, private, id) else { return };
         for key in keys {
@@ -131,13 +101,6 @@ impl Browser {
         if let Some(ix) = n.checked_sub(1).filter(|ix| *ix < self.model.spaces.len()) {
             self.switch_space_by_user(ix);
         }
-    }
-
-    #[cfg(test)]
-    pub fn new_space(&mut self) {
-        let Some(profile) = self.current_profile() else { return };
-        let name = self.next_space_name(Some(profile));
-        self.save_space(&SpaceForm { editing: None, profile, name: &name, color: "", icon: "" });
     }
 
     #[cfg(test)]

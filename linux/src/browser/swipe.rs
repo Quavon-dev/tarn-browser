@@ -89,7 +89,7 @@ mod tests {
         };
         swipe(&mut b, -80., 0);
         assert_eq!(b.model.space_ix, 0, "no space before the first");
-        b.new_space();
+        b.save_space(&b.new_space_draft());
         b.switch_space_by_user(0);
         swipe(&mut b, 80., 1);
         assert_eq!(b.model.space_ix, 1);

@@ -108,7 +108,7 @@ fn spaces_switch_and_tabs_move_between_them() {
     let key = b.new_tab("https://moved.test/").unwrap();
     b.on_event(key, "committed", &json!({ "url": "https://moved.test/" }));
     let home = b.model.space_ix;
-    b.new_space();
+    b.save_space(&b.new_space_draft());
     assert_ne!(b.model.space_ix, home);
     b.switch_space(home);
     let target = b.model.move_targets(&b.core, key)[0];
@@ -501,7 +501,7 @@ fn a_tab_whose_view_went_with_its_space_is_no_longer_playing_nor_overdue() {
     let first = active(&b);
     b.on_event(first, "playing", &json!({ "playing": true }));
     let later = b.new_tab("https://later.test/").unwrap();
-    b.new_space();
+    b.save_space(&b.new_space_draft());
     b.sleep_idle_tabs(Instant::now() + Duration::from_secs(40 * 60), false);
     assert!(!b.playing.contains(&first), "its view is gone, so it no longer plays");
     b.switch_space_by_user(0);

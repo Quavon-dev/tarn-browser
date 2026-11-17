@@ -8,6 +8,20 @@ use tarn_mobile::shell::{Effect, Shell};
 
 type TestShell = Shell<Memory>;
 
+fn add_space<D: Platform>(shell: &mut Shell<D>, name: &str) -> bool {
+    let mut draft = shell.space_draft(None);
+    draft.name = name.into();
+    shell.save_space(&draft)
+}
+
+fn add_profile<D: Platform>(shell: &mut Shell<D>, name: &str) -> bool {
+    let mut draft = shell.space_draft(None);
+    draft.profile = None;
+    draft.profile_name = name.into();
+    draft.name = "Home".into();
+    shell.save_space(&draft)
+}
+
 fn open() -> (tempfile::TempDir, TestShell) {
     let dir = tempfile::tempdir().unwrap();
     let shell = TestShell::open(dir.path());
@@ -343,7 +357,7 @@ fn downloads_outlive_their_tab_and_reach_history() {
     assert_eq!(shell.transfers.len(), 1, "closing the tab keeps its download");
     let resume = shell.transfer_command("1", "downloadResume", false);
     assert_eq!(resume, vec![Effect::Command(other, "downloadResume", json!({ "id": "1" }))], "commands go through a view still shown");
-    assert!(shell.new_profile("Other"));
+    assert!(add_profile(&mut shell, "Other"));
     shell.event(key, "download", &json!({ "id": "1", "state": "finished", "name": "a.zip", "path": "/a.zip" }), 4);
     assert!(shell.transfers.is_empty());
     assert!(shell.notice.as_deref().is_some_and(|n| n.contains("a.zip")));
@@ -373,7 +387,7 @@ fn tabs_move_between_spaces_of_one_profile() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");
     let key = active(&shell);
-    shell.new_space("Work");
+    add_space(&mut shell, "Work");
     let work = shell.model.space_ix;
     shell.choose_space(0, 1);
     let targets = shell.move_targets(key);
@@ -386,10 +400,12 @@ fn tabs_move_between_spaces_of_one_profile() {
 #[test]
 fn schedules_switch_spaces_unless_switched_by_hand_within_the_hour() {
     let (_dir, mut shell) = open();
-    shell.new_space("Work");
+    add_space(&mut shell, "Work");
     let work = shell.model.space_ix;
-    assert!(shell.set_schedule(work, Schedule { days: 0b011_1110, start: 9, end: 17 }));
-    assert_eq!(shell.schedule(work).start, 9);
+    let mut draft = shell.space_draft(Some(work));
+    draft.schedule = Schedule { days: 0b011_1110, start: 9, end: 17 };
+    assert!(shell.save_space(&draft));
+    assert_eq!(shell.model.spaces[work].space.schedule.start, 9);
     shell.choose_space(0, 1_000);
     assert!(!shell.follow_schedule(1, 10, 2_000), "held after a manual switch");
     assert!(shell.follow_schedule(1, 10, 1_000 + browser_core::schedule::MANUAL_HOLD));
@@ -403,7 +419,7 @@ fn schedules_switch_spaces_unless_switched_by_hand_within_the_hour() {
 #[test]
 fn ruled_hosts_open_link_popups_in_their_space() {
     let (_dir, mut shell) = open();
-    shell.new_space("Work");
+    add_space(&mut shell, "Work");
     let work = shell.model.space_ix;
     shell.choose_space(0, 1);
     visit(&mut shell, "https://docs.test/", "Docs");
@@ -424,7 +440,7 @@ fn ruled_hosts_open_link_popups_in_their_space() {
 #[test]
 fn a_pop_up_to_a_store_link_keeps_its_opener() {
     let (_dir, mut shell) = open();
-    shell.new_space("Work");
+    add_space(&mut shell, "Work");
     let work = shell.model.space_ix;
     shell.choose_space(0, 1);
     visit(&mut shell, "https://extensions.tarnbrowser.com/", "Store");

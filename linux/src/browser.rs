@@ -576,13 +576,6 @@ impl Browser {
         }
     }
 
-    pub fn rename_space(&mut self, name: &str) {
-        let Some((private, id)) = self.model.current_space().map(|s| (s.private, s.space.id)) else { return };
-        if !name.trim().is_empty() && self.core.store(private).rename_space(id, name.trim()).is_ok() {
-            self.model.reload_spaces(&self.core);
-        }
-    }
-
     /// Moves `key` to `target`'s place in its zone: before it from below, after it from above.
     pub fn move_tab_to(&mut self, key: TabKey, target: TabKey) {
         let Some(tab) = self.model.tab(target).filter(|_| key != target && key.private == target.private) else { return };

@@ -80,6 +80,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The profile button left the sidebar header; profiles stay in Settings › Profile and the menu
   (macOS, Windows, Linux).
 - Appearance has no separate Theme picker; the Themes grid sets the theme.
+- New Space and Edit Space open as one card on every client: pick a profile or start a new one,
+  then name the space and give it a colour and icon; Edit Space also sets the schedule, and changes
+  apply on Save. On macOS and Windows it is a popover above the sidebar's + button, drawn like the
+  Library, and the profile card takes the same look; on Linux a popover like the Library; on iOS and
+  Android a sheet from Spaces (macOS, Windows, Linux, iOS, Android).
 - Bitwarden's privileges (Touch ID unlock through the Bitwarden app, clipboard and passkeys) are
   off until you turn on Settings › Extensions › Bitwarden integration; until then Bitwarden runs
   like any other app extension (macOS).

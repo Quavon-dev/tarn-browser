@@ -419,7 +419,9 @@ v3, with host tests in `app/tests/features.rs` and `site_ui.rs`:
   tabs, Move to Space from a tab card, burner tab (Menu and the tab sheet; flame on the Shield button and
   tab cards; closing its tab or leaving its space burns it and returns to the space it came from; records
   no history or downloads), routing pop-ups of a ruled host into its space, space snapshots (Spaces sheet:
-  save, restore in a new space, delete), schedules (pencil on a space: weekdays and From/To hours; checked
+  save, restore in a new space, delete), New Space and Edit Space cards on `browser_core::space_card`
+  ("New Space" on the Spaces sheet: profile or a new one, name, colour, icon; pencil on a space: name,
+  colour, icon and schedule, applied on Save), schedules (weekdays and From/To hours; checked
   at launch and each minute while browsing, held for an hour after a switch by hand, never from the
   private space);
 - the site sheet (Shield and Settings for This Site): dark mode, Site CSS (64 KiB, line breaks become

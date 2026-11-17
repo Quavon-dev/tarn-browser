@@ -39,7 +39,7 @@ const ROW: f32 = 30.;
 const DETAIL_ROW: f32 = 40.;
 const PAGE_SHIFT: f32 = 14.;
 const LIST_PAD: f32 = 6.;
-const SPACE_ROW: f32 = 40.;
+pub(crate) const SPACE_ROW: f32 = 40.;
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(120);
 const MEMORY_REFRESH: Duration = Duration::from_secs(2);
 

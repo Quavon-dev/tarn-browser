@@ -5,6 +5,7 @@ use std::rc::Rc;
 use browser_core::closed::{Closed, ClosedTab};
 use browser_core::command::{ENGINES, Input, classify_input};
 use browser_core::prompts::Prompt;
+use browser_core::space_card::{SpaceDraft, Unsaved};
 use browser_core::split::Splits;
 use browser_core::suggest;
 use browser_core::tabs::{Model, TabKey};
@@ -12,7 +13,7 @@ use browser_core::{Core, site::site_host};
 use engine::view_policy::{DEFAULT_LEVEL_KEY, zoom_factor};
 use serde_json::{Value, json};
 use shield::ShieldLevel;
-use store::{Download, HistoryEntry, Id, SavedWindow, Store};
+use store::{Download, HistoryEntry, Id, Profile, SavedWindow, Store};
 use url::Url;
 
 use crate::data::Platform;
@@ -552,20 +553,33 @@ impl<D: Platform> Shell<D> {
         }
     }
 
-    pub fn new_space(&mut self, name: &str) -> bool {
-        let Some((private, profile_id)) = self.model.profile() else { return false };
-        let Ok(space) = self.core.store(private).create_space(profile_id, name, "") else { return false };
-        self.show_space(private, space.id)
+    pub fn profiles(&self) -> Vec<Profile> {
+        self.core.disk.profiles().unwrap_or_default()
     }
 
-    pub fn new_profile(&mut self, name: &str) -> bool {
-        if D::private_process() {
+    pub fn space_draft(&self, editing: Option<usize>) -> SpaceDraft {
+        match editing.and_then(|ix| self.model.spaces.get(ix)) {
+            Some(space) => SpaceDraft::edit(space),
+            None => SpaceDraft::new(&self.model.spaces, self.model.current_space(), &self.profiles()),
+        }
+    }
+
+    pub fn save_space(&mut self, draft: &SpaceDraft) -> bool {
+        if D::private_process() && !draft.private {
             return false;
         }
-        let uuid = uuid::Uuid::new_v4().to_string();
-        let Ok(profile) = self.core.disk.create_profile(name, &uuid, false) else { return false };
-        let Ok(space) = self.core.disk.create_space(profile.id, "Home", "") else { return false };
-        self.show_space(false, space.id)
+        match draft.save(&self.core.disk, self.core.store(draft.private), &self.model.spaces, &self.profiles()) {
+            Ok(id) if draft.editing.is_none() => self.show_space(draft.private, id),
+            Ok(_) => {
+                self.model.reload_spaces(&self.core);
+                true
+            }
+            Err(Unsaved::Invalid) => false,
+            Err(Unsaved::Failed(_)) => {
+                self.toast_as(browser_core::toast::Tone::Warning, "The space could not be saved.".into());
+                false
+            }
+        }
     }
 
     fn show_space(&mut self, private: bool, id: Id) -> bool {

@@ -161,7 +161,8 @@ impl Browser {
     /// Popups belong to this browser; they go with it instead of outliving the main window.
     pub(crate) fn close_popups(&mut self, cx: &mut App) {
         self.toast.popup = None;
-        let popups: [Option<AnyWindowHandle>; 9] = [
+        let popups: [Option<AnyWindowHandle>; 10] = [
+            self.space_popover.take().map(|(p, _)| p.into()),
             self.hover_card.window.take().map(Into::into),
             self.site_popover.window.take().map(Into::into),
             self.link_peek.window.take().map(Into::into),

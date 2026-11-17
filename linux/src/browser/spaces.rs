@@ -1,7 +1,8 @@
 use browser_core::now;
 use browser_core::snapshot::{LoadError, SpaceSnapshot};
+use browser_core::space_card::{SpaceDraft, Unsaved};
 use browser_core::tabs::TabKey;
-use store::{Id, Schedule, Snapshot};
+use store::{Id, Snapshot};
 use url::Url;
 
 use super::{Browser, START_URL};
@@ -42,16 +43,27 @@ impl Browser {
         }
     }
 
-    pub fn space_schedule(&self) -> Option<Schedule> {
-        self.model.current_space().filter(|s| !s.private).map(|s| s.space.schedule)
+    pub fn new_space_draft(&self) -> SpaceDraft {
+        SpaceDraft::new(&self.model.spaces, self.model.current_space(), &self.core.disk.profiles().unwrap_or_default())
     }
 
-    pub fn set_space_schedule(&mut self, schedule: Schedule) {
-        let Some(space) = self.model.current_space().filter(|s| !s.private).map(|s| s.space.id) else { return };
-        if self.core.disk.set_space_schedule(space, schedule).is_err() {
-            return self.show_toast_as(browser_core::toast::Tone::Warning, "Tarn could not save this schedule", None);
-        }
+    pub fn save_space(&mut self, draft: &SpaceDraft) -> bool {
+        let profiles = self.core.disk.profiles().unwrap_or_default();
+        let id = match draft.save(&self.core.disk, self.core.store(draft.private), &self.model.spaces, &profiles) {
+            Ok(id) => id,
+            Err(Unsaved::Invalid) => return false,
+            Err(Unsaved::Failed(_)) => {
+                self.show_toast_as(browser_core::toast::Tone::Warning, "Tarn could not save this space", None);
+                return false;
+            }
+        };
         self.model.reload_spaces(&self.core);
+        if draft.editing.is_none()
+            && let Some(ix) = self.model.spaces.iter().position(|s| s.private == draft.private && s.space.id == id)
+        {
+            self.switch_space(ix);
+        }
+        true
     }
 
     pub fn duplicate_tabs(&self) -> Vec<TabKey> {

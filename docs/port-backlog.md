@@ -106,17 +106,17 @@ macOS reference: `crates/app/src/settings.rs` (`appearance`, `tabs`), `crates/ap
 
 What it does: Create and Edit Profile (name, colour, first space, Shield level, search engine,
 shared data), Delete Profile with its website data retired, the profile switcher with colour dots
-and Manage Profiles, the Settings › Profiles list with the Developer badge, the Edit Space card
-(icon, colour, name), Delete Space…, the space context menu, and switching to space 1–9 by key.
-Shared API: `browser_core::profiles::{create, delete, deletable, profile_name, space_name,
-next_space_name, save_space, retired_stores, set_retired}`; `Model::can_delete_space`,
-`Model::space_to_delete`.
+and Manage Profiles, the Settings › Profiles list with the Developer badge, Delete Space…, the
+space context menu (Rename, Edit Space, New Space, Delete), and switching to space 1–9 by key.
+Shared API: `browser_core::profiles::{create, delete, deletable, profile_name, retired_stores,
+set_retired}`; `browser_core::space_card::SpaceDraft` for the New/Edit Space card;
+`Model::can_delete_space`, `Model::space_to_delete`.
 macOS reference: `crates/app/src/profiles.rs`, `crates/app/src/spaces.rs`,
 `crates/app/src/browser/context.rs` (`space_menu`, `delete_space`), `crates/app/src/menubar.rs`.
 
 - [x] Windows — same code in `crates/app`
 - [x] Linux — `linux/src/ui/profiles.rs`, `linux/src/browser/profiles.rs`
-- [ ] iOS — `mobile/app` creates profiles but cannot edit or delete them, has no space card or Delete Space; the store retirement needs the `WKWebsiteDataStore` removal macOS uses
+- [ ] iOS — `mobile/app` has the New/Edit Space sheets and creates profiles, but cannot edit or delete profiles and has no Delete Space; the store retirement needs the `WKWebsiteDataStore` removal macOS uses
 - [ ] Android — same as iOS, retiring the profile's WebView data folder
 
 ### Group and folder icons (2026-11-17)

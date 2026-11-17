@@ -7,11 +7,11 @@ use gpui::{
 use shield::ShieldLevel;
 use store::{Id, Profile};
 use ui::command::ENGINES;
-use ui::controls::{button, caption, field, key_hint, radio, segment, segmented, surface, swatch, switch, text_block};
+use ui::controls::{button, caption, key_hint, segment, segmented, surface, swatch, switch, text_block};
 use ui::icon::{Icon, icon};
 use ui::motion::pop_in;
 use ui::text_input::{TextInput, TextInputEvent};
-use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_HEADING, Theme};
+use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 use crate::browser::Browser;
 use crate::prefs::{Pref, option_index};
@@ -28,6 +28,7 @@ pub fn bind_keys(cx: &mut App) {
     let ctx = Some("ProfileEditor");
     cx.bind_keys([
         KeyBinding::new("enter", ConfirmProfile, ctx),
+        KeyBinding::new("escape", crate::CloseOverlay, ctx),
         KeyBinding::new("tab", NextField, ctx),
         KeyBinding::new("shift-tab", PreviousField, ctx),
         KeyBinding::new("right", NextOption, ctx),
@@ -48,10 +49,11 @@ pub struct ProfileEditor {
     pub(crate) field: usize,
     pub(crate) focus: FocusHandle,
     pub(crate) space: Option<SpaceCard>,
+    pub(crate) floating: bool,
     _subscription: Subscription,
 }
 
-pub use browser_core::profiles::valid_name;
+pub use browser_core::space_card::valid_name;
 
 use browser_core::command::engine_key;
 
@@ -135,14 +137,26 @@ impl Browser {
     }
 
     pub fn open_profile_editor(&mut self, editing: Option<Id>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.in_space_popover(window, cx, move |b, window, cx| b.open_profile_editor(editing, window, cx)) {
+            return;
+        }
+        self.start_editor(editing, false, window, cx);
+    }
+
+    pub(crate) fn start_editor(&mut self, editing: Option<Id>, floating: bool, window: &mut Window, cx: &mut Context<Self>) {
         let profile = editing.and_then(|id| self.core.disk.profile(id).ok());
         if editing.is_some() && profile.is_none() {
             return;
         }
-        self.command_mode = None;
-        self.forget_text_matches();
-        self.overlay_exit = None;
-        self.reader = None;
+        if floating && (self.inline_editing() || self.overlay_exit.is_some() || self.profile_editor.as_ref().is_some_and(|e| !e.floating)) {
+            self.close_command(window, cx);
+        }
+        if !floating {
+            self.command_mode = None;
+            self.forget_text_matches();
+            self.overlay_exit = None;
+            self.reader = None;
+        }
         let name = cx.new(|cx| TextInput::new("Profile Name", cx));
         if let Some(p) = &profile {
             name.update(cx, |input, cx| input.set_text(p.name.clone(), cx));
@@ -150,6 +164,7 @@ impl Browser {
         let subscription = cx.subscribe_in(&name, window, |b, _, event: &TextInputEvent, window, cx| match event {
             TextInputEvent::Submit => b.confirm_profile(window, cx),
             TextInputEvent::Cancel => b.dismiss_overlay(window, cx),
+            TextInputEvent::MenuClosed => b.space_menu_closed(cx),
             _ => cx.notify(),
         });
         let color = profile.and_then(|p| PROFILE_COLORS.iter().position(|(n, _)| *n == p.color)).unwrap_or(DEFAULT_COLOR);
@@ -164,8 +179,12 @@ impl Browser {
             field: 0,
             focus: cx.focus_handle(),
             space: None,
+            floating,
             _subscription: subscription,
         });
+        if floating {
+            return cx.notify();
+        }
         if let Some(view) = self.active_view() {
             view.set_visible(false);
         }
@@ -243,6 +262,9 @@ impl Browser {
     }
 
     pub fn confirm_profile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.in_space_popover(window, cx, |b, window, cx| b.confirm_profile(window, cx)) {
+            return;
+        }
         if self.space_card().is_some() {
             return self.confirm_space(window, cx);
         }
@@ -263,25 +285,36 @@ impl Browser {
                     rt.profile.color = color.into();
                 }
             }
-            None => self.create_profile(&editor, &name, color, ["Home", "", ""], window, cx),
+            None => {
+                self.create_profile(&editor, &name, color, ["Home", "", ""], window, cx);
+            }
         }
     }
 
     /// Writes the profile with its first space, given as `[name, color, icon]`, and switches to it.
-    pub(crate) fn create_profile(&mut self, editor: &ProfileEditor, name: &str, color: &str, space: [&str; 3], window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn create_profile(
+        &mut self,
+        editor: &ProfileEditor,
+        name: &str,
+        color: &str,
+        space: [&str; 3],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let new = browser_core::profiles::NewProfile { name, color, level: editor.level, engine: ENGINES[editor.engine].name, share: editor.share, space };
         let id = match browser_core::profiles::create(&self.core.disk, &new, &uuid::Uuid::new_v4().to_string()) {
             Ok(id) => id,
             Err(e) => {
                 self.warning = Some(format!("The profile could not be created ({e})."));
                 cx.notify();
-                return;
+                return false;
             }
         };
         self.reload_spaces();
         if let Some(ix) = self.model.spaces.iter().position(|s| !s.private && s.space.profile_id == id) {
             self.switch_space(ix, window, cx);
         }
+        true
     }
 
     /// Deletes a saved profile with its spaces, tabs and history; website data goes too unless
@@ -330,20 +363,27 @@ pub(crate) fn focus_ring(d: Div, on: bool) -> Div {
     d.p(px(2.)).rounded(px(Theme::radius_row() + 2.)).border_2().border_color(if on { Theme::accent_soft().into() } else { transparent_black() })
 }
 
+pub(crate) fn input(focused: bool) -> Div {
+    div().h(px(32.)).px_2().flex().flex_col().justify_center().rounded(px(Theme::radius_row())).bg(Theme::raised()).border_1().border_color(if focused {
+        Theme::accent_soft().into()
+    } else {
+        transparent_black()
+    })
+}
+
 pub(crate) fn choice_row(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<Div> {
     div()
         .id(id)
-        .px_3()
-        .py_2()
+        .min_h(px(30.))
+        .px_2()
+        .py_1p5()
         .flex()
         .items_center()
-        .gap_3()
+        .gap_2p5()
         .rounded(px(Theme::radius_row()))
         .cursor_pointer()
-        .when(selected, |d| d.bg(Theme::raised()))
-        .hover(|s| s.bg(Theme::hover()))
-        .active(|s| s.bg(Theme::pressed()))
-        .child(radio(selected))
+        .when(selected, |d| d.bg(Theme::selected()))
+        .when(!selected, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
 }
 
 pub(crate) fn color_row(
@@ -380,7 +420,7 @@ fn details(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut Contex
         .flex_col()
         .gap_2()
         .child(caption("Name"))
-        .child(field(focused).child(editor.name.clone()))
+        .child(input(focused).child(editor.name.clone()))
         .child(div().pt_2().child(caption("Color")))
         .child(color_row("profile-color", Some(editor.color), false, ring(1), cx, |e, ix| e.color = ix.unwrap_or(e.color)))
         .when(!candidates.is_empty(), |d| {
@@ -465,12 +505,26 @@ fn profile_parts(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut 
 }
 
 pub fn render_editor(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Option<AnyElement> {
-    let editor = b.profile_editor.as_ref()?;
+    let editor = b.profile_editor.as_ref().filter(|e| !e.floating)?;
+    let card = editor_card(b, editor, window, cx).w(px(480.)).max_w_full().shadow(Elevation::Modal.shadow());
+    Some(
+        div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .items_center()
+            .pt(relative(0.12))
+            .px_4()
+            .child(pop_in(card, ("profile-editor", editor.protection as usize), b.pref(Pref::ReduceMotion)))
+            .into_any_element(),
+    )
+}
+
+pub(crate) fn editor_card(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut Context<Browser>) -> gpui::Stateful<Div> {
     let (title, subtitle, body, leading, confirm, ready) = match &editor.space {
         Some(card) => crate::spaces::parts(b, editor, card, window, cx),
         None => profile_parts(b, editor, window, cx),
     };
-    let step = editor.protection;
     let footer = div()
         .pt_2()
         .flex()
@@ -484,7 +538,7 @@ pub fn render_editor(b: &Browser, window: &Window, cx: &mut Context<Browser>) ->
                 .when(!ready, |d| d.text_color(Theme::faint()).cursor_default())
                 .when(ready, |d| d.on_click(cx.listener(|b, _, w, cx| b.confirm_profile(w, cx)))),
         );
-    let card = surface(Theme::radius_card())
+    surface(Theme::radius_panel())
         .id("profile-editor")
         .key_context("ProfileEditor")
         .track_focus(&editor.focus)
@@ -493,33 +547,21 @@ pub fn render_editor(b: &Browser, window: &Window, cx: &mut Context<Browser>) ->
         .on_action(cx.listener(|b, _: &PreviousField, w, cx| b.move_field(-1, w, cx)))
         .on_action(cx.listener(|b, _: &NextOption, _, cx| b.move_option(1, cx)))
         .on_action(cx.listener(|b, _: &PreviousOption, _, cx| b.move_option(-1, cx)))
-        .w(px(540.))
-        .max_w_full()
-        .p_6()
+        .on_action(cx.listener(|b, _: &crate::CloseOverlay, w, cx| b.dismiss_overlay(w, cx)))
+        .p_4()
         .flex()
         .flex_col()
         .gap_4()
-        .shadow(Elevation::Modal.shadow())
         .text_size(px(TEXT))
+        .text_color(Theme::text())
         .child(
             div()
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(div().text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).child(title))
-                .child(div().text_color(Theme::muted()).child(subtitle)),
+                .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).child(title))
+                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(subtitle)),
         )
-        .child(body)
-        .child(footer);
-    Some(
-        div()
-            .flex_1()
-            .flex()
-            .flex_col()
-            .items_center()
-            .pt(relative(if editor.space.is_some() { 0.04 } else { 0.12 }))
-            .px_4()
-            .child(pop_in(card, ("profile-editor", step as usize), b.pref(Pref::ReduceMotion)))
-            .into_any_element(),
-    )
+        .child(div().id("profile-editor-body").flex_shrink().min_h_0().overflow_y_scroll().child(body))
+        .child(footer)
 }
