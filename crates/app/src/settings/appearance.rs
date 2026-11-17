@@ -514,28 +514,15 @@ impl SettingsWindow {
                 }))
                 .into_any_element(),
         ];
-        let slots: Vec<(&'static str, &'static str, Option<Scheme>, ThemeRef)> = if match_system {
-            vec![
-                ("theme-dark", "Dark theme", Some(Scheme::Dark), selection.dark.clone()),
-                ("theme-light", "Light theme", Some(Scheme::Light), selection.light.clone()),
-            ]
-        } else {
-            vec![("theme-only", "Theme", None, selection.dark.clone())]
-        };
-        for (id, title, scheme, current) in slots {
-            let detail = match scheme {
-                Some(Scheme::Dark) => "Shown in dark appearance.",
-                Some(Scheme::Light) => "Shown in light appearance.",
-                None => "Shown in light and dark appearance.",
-            };
-            let choices: Vec<(ThemeRef, String)> =
-                cards.iter().filter(|c| scheme.is_none_or(|s| c.scheme == s)).map(|c| (c.id.clone(), bounded_title(&c.name))).collect();
+        let slots = [
+            ("theme-dark", "Dark theme", "Shown in dark appearance.", Scheme::Dark, selection.dark.clone()),
+            ("theme-light", "Light theme", "Shown in light appearance.", Scheme::Light, selection.light.clone()),
+        ];
+        for (id, title, detail, scheme, current) in slots.into_iter().filter(|_| match_system) {
+            let choices: Vec<(ThemeRef, String)> = cards.iter().filter(|c| c.scheme == scheme).map(|c| (c.id.clone(), bounded_title(&c.name))).collect();
             let shown = choices.iter().find(|(c, _)| *c == current).map_or_else(|| "Custom".to_owned(), |(_, name)| name.clone());
-            let menu: Vec<(ThemeRef, String, Scheme)> = cards
-                .iter()
-                .filter(|c| !c.withdrawn && scheme.is_none_or(|s| c.scheme == s))
-                .map(|c| (c.id.clone(), bounded_title(&c.name), c.scheme))
-                .collect();
+            let menu: Vec<(ThemeRef, String, Scheme)> =
+                cards.iter().filter(|c| !c.withdrawn && c.scheme == scheme).map(|c| (c.id.clone(), bounded_title(&c.name), c.scheme)).collect();
             rows.push(
                 row(false)
                     .child(text_block(title, detail))

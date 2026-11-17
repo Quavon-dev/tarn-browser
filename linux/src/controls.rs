@@ -2,7 +2,7 @@ use nsh_core::element::IntoProp;
 use nsh_core::prelude::*;
 pub use tarn_nsh_shared::controls::pressable;
 use tarn_nsh_shared::controls::{Segment, icon_size, switch_row};
-pub use tarn_nsh_shared::controls::{accent_pill, card, group, label, pill};
+pub use tarn_nsh_shared::controls::{accent_pill, card, group, icon_pill, label, pill, pill_grid};
 
 use crate::icons;
 use crate::theme::{Paint, ROW_HEIGHT, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};

@@ -6,10 +6,11 @@ use std::collections::BTreeMap;
 use store::{Group, Id, Store, Tab, TabKind};
 use url::Url;
 
-/// A category: its group name, its colour and the sites and title words that belong to it.
+/// A category: its group name, its colour, its icon and the sites and title words that belong to it.
 struct Category {
     name: &'static str,
     color: &'static str,
+    icon: &'static str,
     hosts: &'static [&'static str],
     words: &'static [&'static str],
 }
@@ -18,6 +19,7 @@ const CATEGORIES: [Category; 11] = [
     Category {
         name: "Development",
         color: "indigo",
+        icon: "code",
         hosts: &[
             "github.com",
             "gitlab.com",
@@ -44,12 +46,14 @@ const CATEGORIES: [Category; 11] = [
     Category {
         name: "AI",
         color: "pink",
+        icon: "sparkles",
         hosts: &["chatgpt.com", "chat.openai.com", "claude.ai", "gemini.google.com", "perplexity.ai", "copilot.microsoft.com", "mistral.ai", "poe.com"],
         words: &["chatgpt", "claude", "gemini", "copilot"],
     },
     Category {
         name: "Mail and Chat",
         color: "blue",
+        icon: "bell",
         hosts: &[
             "mail.google.com",
             "outlook.live.com",
@@ -69,6 +73,7 @@ const CATEGORIES: [Category; 11] = [
     Category {
         name: "Work",
         color: "graphite",
+        icon: "briefcase",
         hosts: &[
             "docs.google.com",
             "drive.google.com",
@@ -93,6 +98,7 @@ const CATEGORIES: [Category; 11] = [
     Category {
         name: "Social",
         color: "orange",
+        icon: "heart",
         hosts: &[
             "x.com",
             "twitter.com",
@@ -112,6 +118,7 @@ const CATEGORIES: [Category; 11] = [
     Category {
         name: "Video and Music",
         color: "red",
+        icon: "play",
         hosts: &[
             "youtube.com",
             "youtu.be",
@@ -131,6 +138,7 @@ const CATEGORIES: [Category; 11] = [
     Category {
         name: "Shopping",
         color: "green",
+        icon: "shopping-cart",
         hosts: &[
             "amazon.com",
             "amazon.de",
@@ -152,6 +160,7 @@ const CATEGORIES: [Category; 11] = [
     Category {
         name: "News",
         color: "vermilion",
+        icon: "globe",
         hosts: &[
             "nytimes.com",
             "bbc.com",
@@ -179,18 +188,21 @@ const CATEGORIES: [Category; 11] = [
     Category {
         name: "Reading",
         color: "graphite",
+        icon: "book-open",
         hosts: &["wikipedia.org", "medium.com", "substack.com", "arxiv.org", "scholar.google.com", "goodreads.com", "dev.to"],
         words: &["wiki", "paper", "guide", "tutorial", "blog"],
     },
     Category {
         name: "Travel",
         color: "blue",
+        icon: "plane",
         hosts: &["booking.com", "airbnb.com", "expedia.com", "maps.google.com", "tripadvisor.com", "bahn.de", "skyscanner.net", "kayak.com"],
         words: &["flight", "hotel", "maps", "route"],
     },
     Category {
         name: "Money",
         color: "green",
+        icon: "wallet",
         hosts: &["paypal.com", "revolut.com", "n26.com", "wise.com", "stripe.com", "coinbase.com", "binance.com", "tradingview.com"],
         words: &["bank", "banking", "konto", "stocks"],
     },
@@ -216,15 +228,15 @@ pub fn category(url: &str, title: &str) -> Option<&'static str> {
     CATEGORIES.iter().find(|c| c.words.iter().any(|w| has(w))).map(|c| c.name)
 }
 
-fn color(name: &str) -> &'static str {
-    CATEGORIES.iter().find(|c| c.name == name).map_or("graphite", |c| c.color)
+fn category_of(name: &str) -> Option<&'static Category> {
+    CATEGORIES.iter().find(|c| c.name == name)
 }
 
 /// Where Clean Up puts tabs: into an existing group of the same name, else a new one.
 #[derive(Debug, PartialEq)]
 pub enum Target {
     Group(Id),
-    New { name: String, color: &'static str },
+    New { name: String, color: &'static str, icon: &'static str },
 }
 
 /// Groups for the space's loose unpinned tabs: each category with at least two tabs gets one; a
@@ -240,7 +252,10 @@ pub fn plan(tabs: &[Tab], groups: &[Group], url: impl Fn(&Tab) -> String) -> Vec
         .into_iter()
         .filter_map(|(name, ids)| match groups.iter().find(|g| g.name.eq_ignore_ascii_case(name)) {
             Some(group) => Some((Target::Group(group.id), ids)),
-            None if ids.len() >= 2 => Some((Target::New { name: name.to_owned(), color: color(name) }, ids)),
+            None if ids.len() >= 2 => {
+                let (color, icon) = category_of(name).map_or(("graphite", ""), |c| (c.color, c.icon));
+                Some((Target::New { name: name.to_owned(), color, icon }, ids))
+            }
             None => None,
         })
         .collect()
@@ -252,9 +267,10 @@ pub fn apply(store: &Store, space_id: Id, plan: Vec<(Target, Vec<Id>)>) -> usize
     for (target, ids) in plan {
         let group = match target {
             Target::Group(id) => id,
-            Target::New { name, color } => match store.create_group(space_id, &name) {
+            Target::New { name, color, icon } => match store.create_group(space_id, &name) {
                 Ok(group) => {
                     store.set_group_color(group.id, color).ok();
+                    crate::icon::set_group(store, group.id, icon).ok();
                     group.id
                 }
                 Err(_) => continue,
@@ -283,6 +299,13 @@ mod tests {
     }
 
     #[test]
+    fn every_category_has_a_symbol_icon() {
+        for c in &CATEGORIES {
+            assert_eq!(crate::icon::parse(c.icon), Some(crate::icon::Icon::Symbol(c.icon)), "{}", c.name);
+        }
+    }
+
+    #[test]
     fn a_plan_groups_pairs_and_fills_existing_groups() {
         let dir = tempfile::tempdir().unwrap();
         let core = crate::TestCore::open(dir.path(), false);
@@ -296,12 +319,13 @@ mod tests {
         let tabs = store.tabs(space).unwrap();
         let groups = store.groups(space).unwrap();
         let plan = plan(&tabs, &groups, |t| t.url.clone());
-        assert_eq!(plan, [(Target::New { name: "Development".into(), color: "indigo" }, vec![a.id, b.id]), (Target::Group(news.id), vec![e.id])]);
+        assert_eq!(plan, [(Target::New { name: "Development".into(), color: "indigo", icon: "code" }, vec![a.id, b.id]), (Target::Group(news.id), vec![e.id])]);
         assert_eq!(apply(store, space, plan), 3);
         let tabs = store.tabs(space).unwrap();
         let group_of = |id: Id| tabs.iter().find(|t| t.id == id).unwrap().group_id;
         assert_eq!(group_of(a.id), group_of(b.id));
         assert!(group_of(a.id).is_some());
+        assert_eq!(store.groups(space).unwrap().iter().find(|g| Some(g.id) == group_of(a.id)).unwrap().icon, "code");
         assert_eq!((group_of(c.id), group_of(d.id), group_of(e.id)), (None, None, Some(news.id)));
     }
 }

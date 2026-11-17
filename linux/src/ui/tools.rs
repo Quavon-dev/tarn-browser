@@ -6,7 +6,7 @@ use nsh_core::prelude::*;
 use super::{Panel, Ui, act, read, show};
 use crate::browser::Browser;
 use crate::browser::spaces::SpaceCommand;
-use crate::controls::{accent_pill, body, icon_button, label, pill, small};
+use crate::controls::{body, icon_button, label, pill, small};
 use crate::icons;
 use crate::shortcuts::Action;
 use crate::speech::{self, SPEEDS};
@@ -184,12 +184,11 @@ pub fn expire_toast(ui: Ui) {
 pub fn toast_bar(ui: Ui) -> AnyElement {
     dynamic(move || {
         let toast = ui.snap.with(|s| s.toast.clone())?;
-        let action = toast.action.map(|_| accent_pill("Undo", move || act(ui, Browser::take_toast_action)));
+        let action = toast.action.map(|_| tarn_nsh_shared::controls::toast_action("Undo", move || act(ui, Browser::take_toast_action)));
         Some(
             view().flex_row().justify_center().child(
                 tarn_nsh_shared::controls::toast(toast.tone)
                     .mt_2()
-                    .pr_1()
                     .max_w(px(560.))
                     .child(label(toast.text).flex_shrink(1.).truncate())
                     .children(action)

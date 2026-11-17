@@ -9,7 +9,8 @@ use super::tools::{line, note};
 use super::{Panel, Ui, act, read};
 use crate::browser::pages::{HISTORY_TEXT, SORT_DOWNLOADS};
 use crate::browser::{Browser, Notice};
-use crate::controls::{accent_pill, group, group_row, label, pill, segmented, small, switch, title};
+use crate::controls::{accent_pill, group, group_row, icon_pill, label, pill, pill_grid, segmented, small, switch, title};
+use crate::icons;
 use crate::shortcuts;
 use crate::theme::Theme;
 use crate::webview;
@@ -114,13 +115,10 @@ fn hero(ui: Ui, card: Card, level: ShieldLevel, private: bool) -> View {
         .collect();
     let level_name = if private { "Shield level (private space)" } else { "Shield level" };
     let shared = card.clone();
-    let actions = view()
-        .flex_row()
-        .flex_wrap()
-        .gap_2()
-        .child(pill("Flip", move || flip(ui)))
-        .child(pill("Change design", move || act(ui, Browser::new_shield_design)))
-        .children((!private).then(|| pill("Share card", move || save_card(ui, shared.clone()))));
+    let mut actions =
+        vec![icon_pill(icons::RELOAD, "Flip", move || flip(ui)), icon_pill(icons::PALETTE, "Change design", move || act(ui, Browser::new_shield_design))];
+    actions.extend((!private).then(|| icon_pill(icons::FILE_IMAGE, "Save as image", move || save_card(ui, shared.clone()))));
+    let actions = pill_grid(actions);
     view().flex_row().flex_wrap().items_start().gap_5().child(shield_card(ui, card.clone())).child(
         view()
             .flex_col()
