@@ -183,7 +183,7 @@ impl Render for Browser {
             .on_action(cx.listener(|b, _: &AboutTarn, w, cx| b.open_settings_pane(settings::SettingsPane::General, w, cx)))
             .on_action(cx.listener(|b, _: &ToggleFullScreen, w, _| {
                 // Out of a page's full screen, the shell's toolbar and origin come back with the window.
-                if b.page_fullscreen.is_some() { b.leave_page_fullscreen(w) } else { w.toggle_fullscreen() }
+                if b.page_fullscreen.is_on() { b.leave_page_fullscreen(w) } else { w.toggle_fullscreen() }
             }))
             .on_action(cx.listener(|b, _: &CloseOverlay, w, cx| {
                 if b.overlay_open() {
@@ -296,10 +296,10 @@ impl Render for Browser {
                 .child(sidebar::render(self, cx))
                 .when(shown < 1., |d| d.w(px((self.sidebar_width + sidebar::SIDEBAR_MARGIN) * shown)).overflow_hidden().opacity(shown))
         });
-        if self.page_fullscreen.is_some() && !self.page_fullscreen_holds() {
+        if self.page_fullscreen.is_on() && !self.page_fullscreen_holds() {
             self.leave_page_fullscreen(window);
         }
-        if let Some(view) = self.page_fullscreen.and_then(|_| self.active_view()) {
+        if let Some(view) = self.active_view().filter(|_| self.page_fullscreen.is_on()) {
             let page = canvas(
                 move |bounds, _, _| {
                     view.set_frame(

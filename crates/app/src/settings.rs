@@ -921,17 +921,6 @@ fn protected_sites(card: &Card) -> Div {
     group().p_4().gap_1().child(div().pb_1().font_weight(FontWeight::SEMIBOLD).child("Most protected sites")).children(rows)
 }
 
-/// The installed filter lists, their age and the last update error, in one line.
-fn filter_state(f: &filters::Status) -> String {
-    if !filters::configured() {
-        return "Not set up in this build".to_owned();
-    }
-    let installed = f.installed.as_deref().map_or("No lists installed yet.".to_owned(), |c| format!("Lists from {} installed.", c.get(..10).unwrap_or(c)));
-    let failed = f.error.as_ref().map(|e| format!(" Last update failed: {e}.")).unwrap_or_default();
-    let stale = if f.out_of_date() { " Blocking lists are out of date." } else { "" };
-    format!("{installed}{stale}{failed}")
-}
-
 impl SettingsWindow {
     /// The card's next frame: draws its faces off the main thread when the card changes, moves
     /// the tilt, glow, flip and press a step towards their goals, and asks for another frame
@@ -1065,7 +1054,7 @@ impl SettingsWindow {
             .child(
                 group()
                     .child(row(true).child(label("Site overrides")).child(value(overrides)).child(to_privacy("shield-change", "Change…")))
-                    .child(row(false).child(text_block("Filter lists", filter_state(&s.filters)))),
+                    .child(row(false).child(text_block("Filter lists", s.filters.summary()))),
             );
         let filter_lists = match (filters::configured(), s.filters.updates) {
             (false, _) => "Not set up",
@@ -1593,7 +1582,7 @@ impl SettingsWindow {
         };
 
         let updates = s.filters.updates;
-        let filter_state = filter_state(&s.filters);
+        let filter_state = s.filters.summary();
         let connection = |first: bool, name: &'static str, detail: String| row(first).child(text_block(name, detail));
         let connections = group()
             .child(

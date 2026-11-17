@@ -105,7 +105,7 @@ fn body(ui: Ui, prompt: PromptRequest) -> AnyElement {
                 .into_element()
         }
         _ => {
-            let remember = prompt.rememberable();
+            let remember = ui.read(|s| s.remembers(&prompt));
             buttons
                 .justify_end()
                 .child(tarn_nsh_shared::controls::secure_ghost("Deny", move || answer(ui, false, false, None, None, None)))

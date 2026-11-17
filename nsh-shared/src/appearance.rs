@@ -3,6 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use browser_core::effects::Effect;
 use browser_core::github::Hop;
+use browser_core::prefs::{self, ACCENTS, REDUCE_MOTION, THEME_ACCENT};
 use browser_core::theme::{self, Origin, Scheme, Selection, Source, ThemeRef};
 use browser_core::theme_fetch::{self as fetch, Pending, Release};
 use browser_core::theme_library::{self as library, Card};
@@ -27,6 +28,9 @@ pub trait Host: Copy + 'static {
     fn system_light(self) -> bool;
     fn themes_dir(self) -> PathBuf;
     fn desktop(self) -> bool;
+    fn accent_and_motion(self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone, Default)]
@@ -436,6 +440,43 @@ fn color_editor<H: Host>(pane: Pane<H>, id: Id) -> Option<View> {
     )
 }
 
+fn saved(ok: bool) -> Result<(), String> {
+    if ok { Ok(()) } else { Err("Tarn could not save this setting.".to_owned()) }
+}
+
+fn accent_row<H: Host>(pane: Pane<H>) -> View {
+    let host = pane.host;
+    let (chosen, theme) = host.with_store(|s| (prefs::accent_choice(s), library::current(s, host.system_light(), host.safe()).parsed.tokens.accent >> 8));
+    let swatches = std::iter::once((THEME_ACCENT, theme)).chain(ACCENTS).enumerate().map(|(ix, (name, color))| {
+        nsh_base::button()
+            .accessibility_label(format!("{name} accent"))
+            .selected(ix == chosen)
+            .on_press(move || pane.quietly(saved(host.with_store(|s| prefs::set_accent_choice(s, ix)))))
+            .w(px(18.))
+            .h(px(18.))
+            .rounded_full()
+            .bg(rgba(color << 8 | 0xff))
+            .border_color(if ix == chosen { Theme::text() } else { Theme::hairline() })
+            .when(ix == chosen, |b| b.border_2())
+            .when(ix != chosen, |b| b.border_1())
+            .into_element()
+    });
+    row()
+        .child(view().flex_col().flex_1().child(label("Accent")).child(small("Buttons, selection and focus.")))
+        .child(view().flex_row().flex_wrap().gap_2().children(swatches))
+}
+
+fn reduce_motion_row<H: Host>(pane: Pane<H>) -> View {
+    let host = pane.host;
+    let on = host.with_store(|s| REDUCE_MOTION.on(s));
+    let system = if host.desktop() { "animations are off in the desktop settings" } else { "Reduce Motion is on in the system settings" };
+    view()
+        .flex_col()
+        .pb_2()
+        .child(switch_row("Reduce motion", move || on, move || pane.quietly(saved(host.with_store(|s| REDUCE_MOTION.set(s, !on))))))
+        .child(view().px_3().child(small(format!("Cards, banners, the sidebar and tab switches appear without animation. Always on while {system}."))))
+}
+
 fn effect_row<H: Host>(pane: Pane<H>) -> View {
     let stored = pane.host.with_store(library::chosen_effect);
     let choices: Vec<Segment> = std::iter::once((None, "Theme"))
@@ -560,6 +601,9 @@ fn body<H: Host>(pane: Pane<H>) -> View {
         } else {
             "Choose a theme to use it."
         })));
+    if host.accent_and_motion() {
+        page = page.child(view().pt_3().child(group().child(accent_row(pane))));
+    }
     if let Some((profile, name)) = host.profile() {
         let on = host.with_store(|s| library::pages_on(s, profile));
         page = page.child(view().pt_3().child(group().child(switch_row(
@@ -572,7 +616,8 @@ fn body<H: Host>(pane: Pane<H>) -> View {
             library::shown(&name)
         ))));
     }
-    page = page.child(view().pt_4().pb_2().child(caps_label("Motion"))).child(group().child(effect_row(pane)));
+    let motion = if host.accent_and_motion() { group().child(reduce_motion_row(pane)) } else { group() };
+    page = page.child(view().pt_4().pb_2().child(caps_label("Motion"))).child(motion.child(effect_row(pane)));
     if host.safe() {
         let how = if host.desktop() { "Shift was held" } else { "safe mode was on" };
         page = page.child(view().pt_2().child(note(format!("Safe mode: Tarn started with its own theme because {how}. Quit and reopen to use yours."), true)));

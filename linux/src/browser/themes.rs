@@ -1,3 +1,4 @@
+use browser_core::prefs;
 use browser_core::tabs::TabKey;
 use browser_core::theme::Active;
 use browser_core::theme_library as library;
@@ -30,8 +31,9 @@ impl Browser {
         let store = &self.core.disk;
         let active = library::current(store, self.themes.light, self.themes.safe);
         let p = &active.parsed;
-        Theme::set_tokens(p.tokens, p.meta.scheme, p.font.clone());
+        Theme::set_tokens(prefs::accented(p.tokens, store), p.meta.scheme, p.font.clone());
         Theme::set_search_effect(library::search_effect(store, &active));
+        tarn_nsh_shared::motion::set_reduced(prefs::REDUCE_MOTION.on(store));
         self.themes.active = active;
     }
 

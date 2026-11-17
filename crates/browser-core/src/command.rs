@@ -112,6 +112,7 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Edit Profile", "person"),
     ("Bookmark", "bookmark"),
     ("Remove Bookmark", "bookmark"),
+    ("Manage Bookmarks", "bookmark"),
     ("Save for Later", "bookmark"),
     ("Reading List", "bookmark"),
     ("Reopen Closed Tab", "undo-2"),

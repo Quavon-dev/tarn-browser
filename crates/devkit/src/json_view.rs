@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde_json::Value;
 
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
@@ -5,6 +7,8 @@ pub const MAX_DEPTH: usize = 64;
 pub const MAX_TEXT: usize = 1024;
 pub const MAX_CHILDREN: usize = 1000;
 pub const MAX_NODES: usize = 100_000;
+pub const MAX_ROWS: usize = 2_000;
+pub const MAX_RAW_BYTES: usize = 256 * 1024;
 
 #[derive(Debug)]
 pub enum Error {
@@ -156,6 +160,94 @@ fn bounded(s: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Row {
+    pub depth: usize,
+    pub path: Vec<usize>,
+    pub label: String,
+    pub value: String,
+    pub kind: Kind,
+    pub open: bool,
+}
+
+impl Row {
+    pub fn expandable(&self) -> bool {
+        matches!(self.kind, Kind::Array | Kind::Object)
+    }
+}
+
+/// A parsed document as the viewer shows it: the rows of its open containers, at most
+/// `MAX_ROWS`, and the pretty text, at most `MAX_RAW_BYTES`; page text is made plain for the shell.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tree {
+    root: Node,
+    pub pretty: String,
+    pub raw: bool,
+    open: HashSet<Vec<usize>>,
+    pub rows: Vec<Row>,
+}
+
+impl Tree {
+    pub fn parse(text: &str) -> Result<Self, Error> {
+        let (root, pretty) = parse_with_pretty(text.as_bytes(), MAX_RAW_BYTES)?;
+        let mut tree = Tree { root, pretty: plain(&pretty, true), raw: false, open: HashSet::from([Vec::new()]), rows: Vec::new() };
+        tree.rows = tree.build_rows();
+        Ok(tree)
+    }
+
+    pub fn toggle(&mut self, path: &[usize]) {
+        if !self.open.remove(path) {
+            self.open.insert(path.to_vec());
+        }
+        self.rows = self.build_rows();
+    }
+
+    pub fn truncated(&self) -> bool {
+        self.rows.len() >= MAX_ROWS
+    }
+
+    fn build_rows(&self) -> Vec<Row> {
+        let mut rows = Vec::new();
+        self.walk(&self.root, 0, &mut Vec::new(), &mut rows);
+        rows
+    }
+
+    fn walk(&self, node: &Node, depth: usize, path: &mut Vec<usize>, rows: &mut Vec<Row>) {
+        if rows.len() >= MAX_ROWS {
+            return;
+        }
+        let open = self.open.contains(path);
+        let label = match &node.key {
+            Key::Root => String::new(),
+            Key::Name(name) => plain(name, false),
+            Key::Index(i) => i.to_string(),
+        };
+        let value = match node.kind {
+            Kind::Array => format!("[{}]", node.child_count),
+            Kind::Object => format!("{{{}}}", node.child_count),
+            Kind::String => format!("\"{}\"", plain(&node.text, false)),
+            _ => node.text.clone(),
+        };
+        rows.push(Row { depth, path: path.clone(), label, value, kind: node.kind, open });
+        if open {
+            for (i, child) in node.children.iter().enumerate() {
+                path.push(i);
+                self.walk(child, depth + 1, path, rows);
+                path.pop();
+            }
+        }
+    }
+}
+
+/// Page-supplied text drawn in the shell: control and bidi formatting characters are replaced.
+pub fn plain(text: &str, keep_newlines: bool) -> String {
+    text.chars().map(|c| if (keep_newlines && c == '\n') || !(c.is_control() || is_bidi(c)) { c } else { '\u{fffd}' }).collect()
+}
+
+fn is_bidi(c: char) -> bool {
+    matches!(c, '\u{061C}' | '\u{115F}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{E0000}'..='\u{E007F}')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,5 +321,40 @@ mod tests {
         let (_, cut) = parse_with_pretty(br#"{"a":[1,2,3,4,5]}"#, 10).unwrap();
         assert!(cut.len() <= 10 + "\n…".len() && cut.ends_with('…'));
         assert!(parse_with_pretty(b"nope", 1024).is_err());
+    }
+
+    #[test]
+    fn rows_follow_open_containers() {
+        let mut tree = Tree::parse(r#"{"a":[1,2],"b":"x"}"#).unwrap();
+        let labels = |t: &Tree| t.rows.iter().map(|r| format!("{}={}", r.label, r.value)).collect::<Vec<_>>();
+        assert_eq!(labels(&tree), ["={2}", "a=[2]", "b=\"x\""]);
+        tree.toggle(&[0]);
+        assert_eq!(labels(&tree), ["={2}", "a=[2]", "0=1", "1=2", "b=\"x\""]);
+        tree.toggle(&[]);
+        assert_eq!(labels(&tree), ["={2}"]);
+        assert!(Tree::parse("{").is_err());
+        let spoof = Tree::parse("{\"a\\u202eb\":\"x\\ny\"}").unwrap();
+        assert_eq!(labels(&spoof), ["={1}", "a\u{fffd}b=\"x\u{fffd}y\""]);
+        assert!(!spoof.truncated() && spoof.rows[0].expandable() && !spoof.rows[1].expandable());
+        assert_eq!(plain("a\u{200b}b\u{2066}c\u{e0041}d\te", false), "a\u{fffd}b\u{fffd}c\u{fffd}d\u{fffd}e");
+        assert_eq!(plain("a\nb", true), "a\nb");
+    }
+
+    #[test]
+    fn cuts_the_pretty_text() {
+        let long = format!("[\"{}\"]", "x".repeat(MAX_RAW_BYTES));
+        let tree = Tree::parse(&long).unwrap();
+        assert!(tree.pretty.len() <= MAX_RAW_BYTES + "\n…".len() && tree.pretty.ends_with('…'));
+        assert_eq!(tree.rows[0].value, "[1]");
+    }
+
+    #[test]
+    fn caps_rows() {
+        let row = format!("[{}]", vec!["0"; MAX_CHILDREN].join(","));
+        let mut tree = Tree::parse(&format!("[{row},{row},{row}]")).unwrap();
+        assert!(!tree.truncated());
+        (0..3).for_each(|i| tree.toggle(&[i]));
+        assert_eq!(tree.rows.len(), MAX_ROWS);
+        assert!(tree.truncated());
     }
 }

@@ -13,6 +13,8 @@ use shield::matcher::Matcher;
 use store::{Id, Profile, Store, WebEngine};
 use url::Url;
 
+pub mod bookmarks;
+pub mod capture;
 pub mod cleanup;
 pub mod closed;
 pub mod command;
@@ -24,16 +26,24 @@ pub mod ext_package;
 pub mod extensions;
 pub mod find;
 pub mod fog;
+pub mod fullscreen;
 pub mod github;
 pub mod glyphs;
+pub mod hover;
 pub mod icon;
 pub mod import;
+pub mod incoming;
+pub mod library;
 pub mod licences;
 pub mod open_file;
 pub mod permissions;
+pub mod prefs;
+pub mod profile_data;
+pub mod profiles;
 pub mod prompts;
 pub mod routing;
 pub mod schedule;
+pub mod settings;
 pub mod shield_card;
 pub mod site;
 pub mod snapshot;
@@ -64,6 +74,11 @@ pub const LICENCE_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/
 pub const PRIVACY_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/PRIVACY.md");
 pub const IMPRINT_URL: &str = "https://tarnbrowser.com/imprint";
 pub const LINUX_LICENCES_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/raw/v", env!("CARGO_PKG_VERSION"), "/packaging/third-party-licenses-linux.txt");
+
+pub const VERSION: &str = match option_env!("TARN_BUILD_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
@@ -204,6 +219,10 @@ impl<D: WebsiteData> Core<D> {
         !(private && self.burners.borrow().contains(&profile_id))
     }
 
+    pub fn keeps_record_since(&self, private: bool, profile_id: Id, started: i64) -> bool {
+        self.keeps_records(private, profile_id) && self.wiped_at.borrow().get(&(private, profile_id)).is_none_or(|wiped| started >= *wiped)
+    }
+
     pub fn site_stopped(&self, private: bool, profile_id: Id, url: &Url) -> i64 {
         command::page_host(url).and_then(|host| self.store(private).shield_site_total(profile_id, host.trim_end_matches('.')).ok()).unwrap_or(0).max(0)
     }
@@ -308,6 +327,19 @@ impl<D: WebsiteData> Core<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn records_started_before_a_wipe_or_in_a_burner_are_not_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = TestCore::open(dir.path(), false);
+        assert!(core.keeps_record_since(false, 1, 10));
+        core.wiped_at.borrow_mut().insert((false, 1), 20);
+        assert!(!core.keeps_record_since(false, 1, 10));
+        assert!(core.keeps_record_since(false, 1, 20));
+        assert!(core.keeps_record_since(true, 1, 10), "the wipe was of the other store");
+        core.burners.borrow_mut().insert(1);
+        assert!(!core.keeps_record_since(true, 1, 30));
+    }
 
     #[test]
     fn shared_store_replaces_the_uuid_only_when_set() {

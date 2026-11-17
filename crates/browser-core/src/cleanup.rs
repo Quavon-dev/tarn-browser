@@ -16,6 +16,9 @@ use url::Url;
 
 use rules::CATEGORIES;
 
+/// What the Clean Up button does, for its tooltip.
+pub const DESCRIPTION: &str = "Clean Up: sorts tabs into groups and archives tabs unused for longer than Settings › Tabs allows. Runs on this device.";
+
 const MAX_LABELS: usize = 10;
 const MAX_SEGMENTS: usize = 8;
 const MAX_TITLE: usize = 1024;
@@ -313,6 +316,11 @@ pub fn undo(store: &Store, undo: &Undo) -> Result<Vec<Id>, store::Error> {
     store.apply_layout(undo.space_id, &layout)?;
     let left: HashSet<Id> = store.groups(undo.space_id)?.into_iter().map(|g| g.id).collect();
     Ok(layout.drop_if_empty.into_iter().filter(|id| !left.contains(id)).collect())
+}
+
+/// Whether Clean Up has at least two loose tabs to sort.
+pub fn cleanable(tabs: &[Tab]) -> bool {
+    tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id.is_none()).count() >= 2
 }
 
 #[cfg(test)]

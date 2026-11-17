@@ -328,6 +328,17 @@ pub fn reload(profile: Id) {
     });
 }
 
+pub fn restart(profile: Id) {
+    if let Some(seed) = with(|rt| rt.uuids.get(&profile).cloned()) {
+        apply(profile, &seed, Vec::new());
+    }
+    reload(profile);
+}
+
+pub fn unload(profile: Id, seed: &str) {
+    apply(profile, seed, Vec::new());
+}
+
 fn icon_file(package: &Package) -> Option<String> {
     let bytes = package.icon_png(ICON_PIXELS)?;
     let dir = crate::data::root().join("extension-icons");

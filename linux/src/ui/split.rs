@@ -34,7 +34,13 @@ pub(super) fn view_rect(ui: Ui, active: bool, pane: Option<usize>) -> Rect {
         Some(ix) => {
             ui.snap.with(|s| s.split.as_ref().and_then(|v| v.layout.get(ix).copied())).map(|share| page_rect(card_rect(share, area))).unwrap_or_default()
         }
-        None if active => (0., 0., area.0, area.1),
+        None if active => match ui.snap.with(|s| s.responsive) {
+            Some(preset) => {
+                let fit = devkit::responsive::fit(&preset, area.0, area.1);
+                (fit.x, fit.y, fit.width, fit.height)
+            }
+            None => (0., 0., area.0, area.1),
+        },
         None => Rect::default(),
     }
 }

@@ -1,7 +1,14 @@
 mod appearance;
+mod blocking;
+mod devtools;
 mod extensions;
+mod groups;
+mod import;
 mod library;
+mod link_peek;
 mod panels;
+mod peek;
+mod profiles;
 mod settings;
 mod split;
 mod tools;
@@ -29,7 +36,7 @@ use crate::icons;
 use crate::shortcuts::Action;
 use crate::snapshot::{self, RowKind, Snapshot};
 use crate::theme::{Paint, SYSTEM_FONT, Secure, TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
-use browser_core::command::{ENGINES, Input, classify_input};
+use browser_core::command::{ENGINES, Input, Section, classify_input};
 use browser_core::{Core, suggest};
 use store::SavedWindow;
 use tarn_nsh_shared::controls::{icon_size, secure_button, secure_surface};
@@ -40,6 +47,8 @@ const SIDEBAR_WIDTH: f32 = 256.;
 const TAB_ROW: f32 = 30.;
 const CARD_WIDTH: f32 = 680.;
 const ADDRESS_WIDTH: f32 = 560.;
+const COMPACT_FIELD: f32 = 28.;
+const COMPACT_TITLE: f32 = 360.;
 const CLOSE_WIDTH: f32 = 28.;
 const CLOSE_GAP: f32 = 10.;
 const TILE_GAP: f32 = 6.;
@@ -56,6 +65,7 @@ use crate::webview;
 const PLACEMENT: &str = "linux.window_placement";
 const SCHEDULE_TICK: std::time::Duration = std::time::Duration::from_secs(60);
 const SAMPLE_TICK: std::time::Duration = std::time::Duration::from_secs(5);
+const RETIRE_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
 const SUGGESTIONS: usize = 6;
 const PALETTE_WIDTH: f32 = 640.;
 const PALETTE_ROW: f32 = 40.;
@@ -70,8 +80,15 @@ thread_local! {
     static BROWSERS: RefCell<HashMap<u64, Browser>> = RefCell::default();
     static WINDOWS: RefCell<Vec<Ui>> = const { RefCell::new(Vec::new()) };
     static NEXT_WINDOW: Cell<u64> = const { Cell::new(0) };
+    /// Saved windows still to open at launch; the launch archive waits for all of them.
+    static LAUNCHING: Cell<usize> = const { Cell::new(0) };
     /// Each window's web views by tab, with the wake number the view was made for.
     static REFS: RefCell<HashMap<(u64, TabKey), (u64, ElementRef)>> = RefCell::default();
+    static WINDOW_REFS: RefCell<HashMap<u64, WindowRef>> = RefCell::default();
+    static FOCUSED: Cell<u64> = const { Cell::new(0) };
+    static INCOMING: RefCell<Vec<std::time::Instant>> = const { RefCell::new(Vec::new()) };
+    static PENDING_LINKS: RefCell<Vec<(Vec<String>, usize)>> = const { RefCell::new(Vec::new()) };
+    static LAUNCH_ARGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -79,6 +96,7 @@ pub enum Panel {
     None,
     Shield,
     Settings,
+    Library,
     History,
     Downloads,
     Tab,
@@ -86,9 +104,18 @@ pub enum Panel {
     NewSpace,
     Memory,
     ReadingList,
+    Archived,
     Qr,
     Share,
+    Address,
+    Shortcuts,
+    Import,
     Folder(store::Id),
+    Bookmarks(Option<store::Id>),
+    Group(store::Id),
+    Sidebar,
+    Card(Option<store::Id>),
+    SpaceMenu(crate::browser::profiles::SpaceKey),
 }
 
 #[derive(Clone, Copy)]
@@ -103,8 +130,11 @@ pub struct Ui {
     typed: Signal<String>,
     completed: Signal<Option<(String, String)>>,
     editing: Signal<bool>,
+    new_tab_card: Signal<bool>,
     command: Signal<String>,
     suggest: Signal<Vec<(String, String)>>,
+    tabs: Signal<Vec<crate::browser::links::TabRow>>,
+    pasteable: Signal<bool>,
     finding: Signal<bool>,
     find: Signal<String>,
     address_ref: ElementRef,
@@ -146,10 +176,13 @@ pub struct Ui {
     rename: Signal<String>,
     /// What `rename` names, so a panel that changes target starts from the new name.
     rename_for: Signal<String>,
-    space_draft: Signal<Option<browser_core::space_card::SpaceDraft>>,
+    mark_query: Signal<String>,
+    mark_edit: Signal<Option<library::MarkEdit>>,
+    library_query: Signal<String>,
     /// The emoji field of the folder panel and the folder it belongs to.
     emoji: Signal<String>,
     emoji_for: Signal<String>,
+    space_draft: Signal<Option<browser_core::space_card::SpaceDraft>>,
     open: Signal<bool>,
     /// The page area's size, which places the panes of a split.
     area: Signal<(f32, f32)>,
@@ -157,6 +190,12 @@ pub struct Ui {
     dragging: Signal<Option<TabKey>>,
     split_drop: Signal<Option<(TabKey, &'static str)>>,
     resizing: Signal<Option<browser_core::split::Divider>>,
+    floating: Signal<peek::Floating>,
+    hover_card: Signal<peek::HoverCard>,
+    form: Signal<profiles::Form>,
+    card_name: Signal<String>,
+    card_space: Signal<String>,
+    import: Signal<import::State>,
     root: Owner,
 }
 
@@ -173,25 +212,46 @@ fn act_quietly(ui: Ui, f: impl FnOnce(&mut Browser)) {
 
 fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
     let shown = ui.panel.get_untracked() == Panel::None && !ui.editing.get_untracked();
+    let overlay = ui.panel.get_untracked() != Panel::None || ui.ext_popup.with_untracked(Option::is_some) || ui.find_tabs.get_untracked();
+    let (address, find) = (ui.editing.get_untracked(), ui.finding.get_untracked());
     let done = BROWSERS.with_borrow_mut(|windows| {
         let elsewhere = live_elsewhere(windows, ui.window);
         let b = windows.get_mut(&ui.window)?;
         b.elsewhere = elsewhere;
         f(b);
+        b.keep_page_fullscreen(overlay, address, find);
         let moved = b.model.active.filter(|k| b.elsewhere.contains(k));
         let forgotten = std::mem::take(&mut b.forgotten);
-        let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key));
-        Some((
+        let groups = std::mem::take(&mut b.forgotten_groups);
+        let regrouped = b.regrouped_space.take();
+        let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key)) && b.active_json().is_none();
+        let snap = snapshot::snapshot(b, shown);
+        if ui.snap.with_untracked(|s| s.notice != snap.notice || s.prompt != snap.prompt || s.error != snap.error) {
+            b.settle_downloads();
+        }
+        let done = (
             ui.icons.with_untracked(|i| b.site_icons(i)),
             std::mem::take(&mut b.outbox),
             std::mem::take(&mut b.released),
+            std::mem::take(&mut b.retired),
             std::mem::take(&mut b.cancelled_downloads),
-            snapshot::snapshot(b, shown),
+            std::mem::take(&mut b.kept_downloads),
+            snap,
             moved,
             forgotten,
-        ))
+            b.window_request.take(),
+        );
+        for (_, other) in windows.iter_mut().filter(|(w, _)| **w != ui.window) {
+            groups.iter().for_each(|(private, id)| other.model.closed_tabs.forget_group(*private, *id));
+        }
+        Some((done, regrouped))
     });
-    let Some((icons, commands, released, cancelled, snap, moved, forgotten)) = done else { return };
+    let Some(((icons, commands, released, retired, cancelled, kept, snap, moved, forgotten, mode), regrouped)) = done else { return };
+    if let Some(mode) = mode
+        && let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned())
+    {
+        here.set_mode(mode);
+    }
     let rebuild = rebuild
         || ui.snap.with_untracked(|s| *s != snap)
         || match ui.panel.get_untracked() {
@@ -203,11 +263,15 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
     if let Some(icons) = icons {
         ui.icons.set(icons);
     }
-    if !(released.is_empty() && cancelled.is_empty()) {
+    if !(released.is_empty() && cancelled.is_empty() && kept.is_empty()) {
         drop(run_on_main_thread(move || {
             released.iter().for_each(webview::session::release);
             cancelled.iter().for_each(|id| webview::session::cancel(id));
+            kept.iter().for_each(|(id, keep)| webview::session::keep(id, *keep));
         }));
+    }
+    if !retired.is_empty() {
+        ui.root.run(|| drop(set_timeout(RETIRE_DELAY, || crate::data::wipe_retired(&crate::data::root(), &core().disk))));
     }
     tools::expire_toast(ui);
     for (key, name, args) in commands {
@@ -224,9 +288,16 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         {
             act_dyn(other, &mut |b| b.give_up(key), true);
         }
-        if read(other, |b| forgotten.iter().any(|k| b.model.tab(*k).is_some() || b.pages.contains_key(k))) == Some(true) {
+        let shows = |b: &Browser| regrouped.is_some() && b.model.current_space().map(|s| (s.private, s.space.id)) == regrouped;
+        if read(other, |b| shows(b) || forgotten.iter().any(|k| b.model.tab(*k).is_some() || b.pages.contains_key(k))) == Some(true) {
             act_dyn(other, &mut Browser::sync_shared, true);
         }
+    }
+}
+
+fn sync_others(ui: Ui) {
+    for other in WINDOWS.with_borrow(Vec::clone).into_iter().filter(|o| o.window != ui.window) {
+        act(other, Browser::sync_shared);
     }
 }
 
@@ -246,10 +317,17 @@ pub fn show(ui: Ui, panel: Panel) {
     ui.confirm.set(None);
     ui.rename.set(String::new());
     ui.rename_for.set(String::new());
-    ui.space_draft.set(None);
+    ui.mark_query.set(String::new());
+    ui.mark_edit.set(None);
+    ui.library_query.set(String::new());
     ui.emoji_for.set(String::new());
+    ui.space_draft.set(None);
     ui.panel.set(next);
-    act(ui, |_| {});
+    act(ui, move |b| {
+        if next == Panel::Downloads {
+            b.settle_downloads();
+        }
+    });
 }
 
 fn tab_menu(ui: Ui, key: TabKey) {
@@ -282,8 +360,21 @@ fn act_moving(ui: Ui, f: impl FnOnce(&mut Browser)) {
 }
 
 fn new_tab(ui: Ui) {
-    animate_next(POP);
     ui.panel.set(Panel::None);
+    if !read(ui, |b| b.pref(browser_core::prefs::NEW_TAB_START_PAGE)).unwrap_or(true) {
+        if ui.find_tabs.get_untracked() {
+            tools::close_find_tabs(ui);
+        }
+        open_palette(ui);
+        ui.address.set(String::new());
+        ui.typed.set(String::new());
+        ui.completed.set(None);
+        ui.picked.set(0);
+        ui.suggest.set(Vec::new());
+        ui.new_tab_card.set(true);
+        return;
+    }
+    animate_next(POP);
     act(ui, |b| {
         b.new_tab(START_URL);
     });
@@ -335,10 +426,16 @@ fn web_views(ui: Ui) -> View {
                     .prop("level", move || JsonValue::from(item.with(|v| v.level.clone())))
                     .prop("levels", move || item.with(|v| v.levels.clone()))
                     .prop("lists", move || JsonValue::from(item.with(|v| v.lists.clone())))
+                    .prop("youtube", move || JsonValue::from(item.with(|v| v.youtube)))
+                    .prop("filtered", move || JsonValue::from(item.with(|v| v.filtered)))
+                    .prop("blocking", move || item.with(|v| v.blocking.clone()))
                     .prop("styles", move || item.with(|v| v.styles.clone()))
                     .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
                     .prop("zaps", move || item.with(|v| v.zaps.clone()))
+                    .prop("burstsOf", move || JsonValue::from(item.with(|v| v.opener.clone())))
                     .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
+                    .prop("muted", move || JsonValue::from(item.with(|v| v.muted)))
+                    .prop("inspectable", move || JsonValue::from(item.with(|v| v.inspectable)))
                     .prop("load", move || {
                         item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link, "file": v.file })))
                     })
@@ -349,6 +446,12 @@ fn web_views(ui: Ui) -> View {
                         }
                         if &*event.name == "iconData" {
                             return icon_data(ui, key, event.data.clone());
+                        }
+                        if &*event.name == "snapshot" {
+                            return peek::shot(ui, key, &event.data["png"]);
+                        }
+                        if &*event.name == "jsonText" {
+                            return devtools::json_text(ui, key, event.data.clone());
                         }
                         if &*event.name != "pressed" || read(ui, |b| b.in_split(key) && b.model.active != Some(key)) == Some(true) {
                             act_quietly(ui, |b| b.on_event(key, &event.name, &event.data));
@@ -362,6 +465,7 @@ fn web_views(ui: Ui) -> View {
                     .h(move || px(rect().3))
             },
         ))
+        .child(link_peek::layer(ui))
 }
 
 pub fn site_tile(ui: Ui, host: &str, size: f32) -> View {
@@ -375,11 +479,6 @@ pub fn site_tile(ui: Ui, host: &str, size: f32) -> View {
 
 fn space_tint(color: &str, alpha: f32) -> Option<Rgba> {
     Theme::profile_color(color).map(|c| Rgba { a: alpha, ..c })
-}
-
-fn tab_key(tab: &str) -> Option<TabKey> {
-    let (private, id) = tab.split_once('-')?;
-    Some(TabKey { private: private.parse().ok()?, id: id.parse().ok()? })
 }
 
 fn host_of(url: &str) -> String {
@@ -423,42 +522,45 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
             ui.snap.with(|s| s.rows.iter().filter(|r| (r.pinned || r.depth > 0 || matches!(r.kind, RowKind::Folder(_))) == pinned).cloned().collect::<Vec<_>>())
         },
         |r| r.id(),
-        move |item, _| {
-            let kind = item.with_untracked(|r| r.kind.clone());
-            let depth = item.with_untracked(|r| r.depth) as f32;
-            let name = move || item.with(|r| r.label.clone());
-            match kind {
-                RowKind::Tab(key) => tab_row(ui, pinned, key, item),
-                RowKind::Split(_) => view()
-                    .flex_row()
-                    .gap(px(2.))
-                    .child(each(
-                        move || item.with(|r| r.panes.clone()),
-                        |r| r.id(),
-                        move |pane, _| {
-                            let RowKind::Tab(key) = pane.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
-                            view().flex_1().min_w_0().child(tab_row(ui, pinned, key, pane)).into_element()
-                        },
-                    ))
-                    .into_element(),
-                RowKind::Folder(id) => view()
-                    .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
-                    .child(
-                        row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
-                            .h(px(TAB_ROW))
-                            .pl(px(8. + depth * 16.))
-                            .child(
-                                view()
-                                    .text_color(Theme::muted())
-                                    .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
-                            )
-                            .child(view().text_color(Theme::space_label()).child(dynamic(move || folder_icon(&item.with(|r| r.icon.clone())))))
-                            .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
-                    )
-                    .into_element(),
-            }
-        },
+        move |item, _| list_row(ui, pinned, item),
     )
+}
+
+fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement {
+    let kind = item.with_untracked(|r| r.kind.clone());
+    let depth = item.with_untracked(|r| r.depth) as f32;
+    let name = move || item.with(|r| r.label.clone());
+    match kind {
+        RowKind::Tab(key) => tab_row(ui, pinned, key, item),
+        RowKind::Group(id) => groups::group_card(ui, id, item),
+        RowKind::Split(_) => view()
+            .flex_row()
+            .gap(px(2.))
+            .child(each(
+                move || item.with(|r| r.panes.clone()),
+                |r| r.id(),
+                move |pane, _| {
+                    let RowKind::Tab(key) = pane.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
+                    view().flex_1().min_w_0().child(tab_row(ui, pinned, key, pane)).into_element()
+                },
+            ))
+            .into_element(),
+        RowKind::Folder(id) => view()
+            .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
+            .child(
+                row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
+                    .h(px(TAB_ROW))
+                    .pl(px(8. + depth * 16.))
+                    .child(
+                        view()
+                            .text_color(Theme::muted())
+                            .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
+                    )
+                    .child(view().text_color(Theme::space_label()).child(dynamic(move || folder_icon(&item.with(|r| r.icon.clone())))))
+                    .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
+            )
+            .into_element(),
+    }
 }
 
 fn folder_icon(stored: &str) -> AnyElement {
@@ -491,7 +593,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
             }))
     });
     let hover = move |on: bool| {
-        if !pinned && !reduce_motion() {
+        if !pinned && !tarn_nsh_shared::motion::reduced() {
             slot.animate_layout(LayoutTransition::new(LayoutCurve::EaseOut, tarn_nsh_shared::motion::FADE.as_secs_f32() * 1000.));
         }
         hovered.set(on);
@@ -520,7 +622,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         .child(dynamic(move || edge().map(|color| view().absolute().left(px(0.)).top(px(7.)).bottom(px(7.)).w(px(3.)).rounded_full().bg(color))))
         .child(when(move || dropping().is_some(), || view().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent())))
         .child({
-            let mark = computed(move || item.with(|r| (r.loading && !reduce_motion(), r.host.clone())));
+            let mark = computed(move || item.with(|r| (r.loading && !tarn_nsh_shared::motion::reduced(), r.host.clone())));
             dynamic(move || match mark.get() {
                 (true, _) => {
                     view().text_color(Theme::space_label()).child(tarn_nsh_shared::motion::spinner(14., icons::icon(icons::RELOAD, 14.))).into_element()
@@ -553,9 +655,11 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
             })
         }))
         .child(dynamic(move || {
-            let (playing, asleep) = item.with(|r| (r.playing, r.asleep));
+            let (playing, asleep, muted) = item.with(|r| (r.playing, r.asleep, r.muted));
             let state = if closing() || dropping().is_some() {
                 None
+            } else if muted {
+                Some((icons::VOLUME_X, Theme::faint(), "Muted"))
             } else if playing {
                 Some((icons::VOLUME_2, Theme::space_label(), "Playing audio"))
             } else if asleep {
@@ -582,9 +686,13 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
     view()
         .relative()
         .on_mouse_up(move |_: &MouseEvent| split::drop_on_row(ui, key))
-        .on_mouse_enter(move |_: &MouseEvent| hover(true))
+        .on_mouse_enter(move |e: &MouseEvent| {
+            hover(true);
+            peek::hover_row(ui, key, true, e.page_position.y.0);
+        })
         .on_mouse_leave(move |_: &MouseEvent| {
             hover(false);
+            peek::hover_row(ui, key, false, 0.);
             split::drop_leave(ui, key);
         })
         .on_mouse_move(move |e: &MouseEvent| split::drop_over(ui, key, browser_core::split::drops_into(e.position.y.0 / TAB_ROW)))
@@ -600,12 +708,12 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
 fn space_bar(ui: Ui) -> View {
     let spaces = each(
         move || ui.snap.with(|s| s.spaces.clone()),
-        |s| s.ix,
+        |s| (s.ix, s.icon.clone(), s.color.clone(), s.label.clone()),
         move |space, _| {
             let (ix, icon, name, private, color) = space.with_untracked(|s| (s.ix, s.icon.clone(), s.label.clone(), s.private, s.color.clone()));
             let source = if private { icons::PERSON } else { icons::space_icon(&icon) };
             let current = move || space.with(|s| s.current);
-            controls::row(name, move || {
+            let button = controls::row(name, move || {
                 animate_next(SLIDE);
                 act(ui, |b| b.switch_space_by_user(ix));
             })
@@ -621,7 +729,14 @@ fn space_bar(ui: Ui) -> View {
                 (true, false) => space_tint(&color, 1.).unwrap_or(Theme::text()),
                 (false, _) => space_tint(&color, 0.45).unwrap_or(Theme::faint()),
             })
-            .child(icons::icon(source, icon_size()))
+            .child(icons::icon(source, icon_size()));
+            view()
+                .on_context_menu(move |_: &ContextMenuEvent| {
+                    if let Some(Some(key)) = read(ui, |b| b.model.spaces.get(ix).map(|s| (s.private, s.space.id))) {
+                        show(ui, Panel::SpaceMenu(key));
+                    }
+                })
+                .child(button)
         },
     );
     view()
@@ -630,7 +745,7 @@ fn space_bar(ui: Ui) -> View {
         .min_h(px(40.))
         .py(px(6.))
         .px_1()
-        .child(view().flex_row().flex_none().w(px(2. * SPACE_BUTTON)).child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::History))))
+        .child(view().flex_row().flex_none().w(px(2. * SPACE_BUTTON)).child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::Library))))
         .child(view().flex_row().flex_wrap().flex_1().items_center().justify_center().gap(px(2.)).child(spaces))
         .child(
             view()
@@ -699,15 +814,25 @@ fn new_tab_row(ui: Ui) -> View {
             view()
                 .w(px(16.))
                 .h(px(16.))
-                .rounded_full()
-                .bg(Theme::accent_soft())
+                .rounded(px(Theme::radius_small()))
+                .bg(Theme::accent())
                 .items_center()
                 .justify_center()
-                .text_color(Theme::space_label())
+                .text_color(Theme::on_fill(Theme::accent()))
                 .child(icons::icon(icons::PLUS, 11.)),
         )
         .child(body("New Tab").text_color(Theme::muted()));
-    view().flex_row().items_center().mb_1().child(new).child(icon_button(icons::FOLDER_PLUS, "New Folder", move || act(ui, |b| b.new_folder(None))))
+    view()
+        .flex_row()
+        .items_center()
+        .mb_1()
+        .child(new)
+        .child(icon_button(icons::GROUP, "New Tab Group", move || groups::new_group(ui, None)))
+        .child(icon_button(icons::FOLDER_PLUS, "New Folder", move || act(ui, |b| b.new_folder(None))))
+        .child(when(
+            move || ui.snap.with(|s| s.cleanable),
+            move || icon_button(icons::BROOM_SPARKLES, browser_core::cleanup::DESCRIPTION, move || act(ui, Browser::clean_up_tabs)),
+        ))
 }
 
 fn sidebar(ui: Ui) -> View {
@@ -731,9 +856,10 @@ fn sidebar(ui: Ui) -> View {
         .border_1()
         .border_color(Theme::sidebar_edge())
         .shadow(Theme::elevation(10., 30.))
+        .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Sidebar))
         .on_wheel(move |e: &WheelEvent| {
             if let WheelDelta::Points(p) = e.delta {
-                let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swipe.feed(p.x.0, p.y.0, std::time::Instant::now()));
+                let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swiped(p.x.0, p.y.0, std::time::Instant::now()));
                 if let Some(step) = step {
                     animate_next(SLIDE);
                     act(ui, |b| b.swipe_to(step));
@@ -757,13 +883,20 @@ fn load_history(ui: Ui) {
     ui.history.set((profile, Rc::new(rows)));
 }
 
+pub(super) fn in_other_windows(ui: Ui, f: impl FnOnce(&mut Browser) + Clone) {
+    for other in WINDOWS.with_borrow(Vec::clone).into_iter().filter(|o| o.window != ui.window) {
+        act_quietly(other, f.clone());
+    }
+}
+
 /// Clears the profile's history, and the cache that would still suggest it.
 fn clear_history(ui: Ui) {
     act(ui, |b| b.clear_history());
     if let Some(Some(profile)) = read(ui, |b| b.model.profile()) {
-        for other in WINDOWS.with_borrow(Vec::clone).into_iter().filter(|o| o.window != ui.window) {
-            act_quietly(other, |b| b.favicons.forget(&profile));
-        }
+        in_other_windows(ui, move |b| {
+            b.favicons.forget(&profile);
+            b.reset_zooms(profile.0, profile.1, None);
+        });
     }
     ui.history.set(Default::default());
 }
@@ -777,9 +910,18 @@ fn history(ui: Ui) -> Rc<Vec<store::HistoryEntry>> {
 }
 
 fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: Signal<String>) {
-    let found = read(ui, |b| b.cached_text_matches(query)).flatten();
-    let shown = crate::input::with_text(rows.clone(), found.as_deref().unwrap_or_default(), SUGGESTIONS);
     ui.picked.set(usize::from(tools::listing(query)));
+    if read(ui, |b| !b.suggestions()).unwrap_or(false) {
+        return clear_suggestions(ui);
+    }
+    let tabs = if tools::listing(query) { Vec::new() } else { read(ui, |b| b.tab_suggestions(query)).unwrap_or_default() };
+    let open_tabs = read(ui, |b| b.model.tabs.iter().map(|t| t.url.clone()).collect::<Vec<_>>()).unwrap_or_default();
+    let open: HashSet<String> = open_tabs.into_iter().chain(tabs.iter().map(|t| t.url.clone())).collect();
+    let without_tabs = move |rows: Vec<(String, String)>| rows.into_iter().filter(|(_, url)| !open.contains(url)).collect::<Vec<_>>();
+    ui.tabs.set(tabs);
+    let rows = without_tabs(rows);
+    let found = read(ui, |b| b.cached_text_matches(query)).flatten();
+    let shown = without_tabs(crate::input::with_text(rows.clone(), found.as_deref().unwrap_or_default(), SUGGESTIONS));
     ui.suggest.set(shown.clone());
     if found.is_some() {
         return;
@@ -791,7 +933,7 @@ fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: S
                 return;
             }
             let found = BROWSERS.with_borrow_mut(|windows| windows.get_mut(&ui.window).map(|b| b.search_text_matches(&query, SUGGESTIONS))).unwrap_or_default();
-            ui.suggest.set(crate::input::with_text(rows, &found, SUGGESTIONS));
+            ui.suggest.set(without_tabs(crate::input::with_text(rows, &found, SUGGESTIONS)));
         }))
     });
 }
@@ -801,7 +943,8 @@ fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: S
 fn step_pick(ui: Ui, query: Signal<String>, key: &str) {
     let query = query.get_untracked();
     let commands = tools::commands(ui, &query).len();
-    let (first, rows) = if tools::listing(&query) { (1, commands) } else { (0, 1 + commands + ui.suggest.with_untracked(Vec::len)) };
+    let listed = ui.tabs.with_untracked(Vec::len) + ui.suggest.with_untracked(Vec::len);
+    let (first, rows) = if tools::listing(&query) { (1, commands) } else { (0, 1 + commands + listed) };
     ui.picked.update(|p| {
         *p = first
             + match key {
@@ -829,8 +972,26 @@ fn submit(ui: Ui, query: Signal<String>, text: String) {
     if let Some((_, command)) = commands.get(picked - 1) {
         return tools::pick(ui, *command);
     }
-    let url = ui.suggest.with_untracked(|s| s.get(picked - 1 - commands.len()).map(|(_, url)| url.clone()));
+    let row = picked - 1 - commands.len();
+    if let Some(key) = ui.tabs.with_untracked(|t| t.get(row).map(|t| t.key)) {
+        return switch_to_tab(ui, key);
+    }
+    let url = ui.suggest.with_untracked(|s| s.get(row - ui.tabs.with_untracked(Vec::len)).map(|(_, url)| url.clone()));
     go(ui, url.unwrap_or(text));
+}
+
+fn clear_suggestions(ui: Ui) {
+    ui.suggest.set(Vec::new());
+    ui.tabs.set(Vec::new());
+}
+
+fn switch_to_tab(ui: Ui, key: TabKey) {
+    ui.picked.set(0);
+    ui.editing.set(false);
+    clear_suggestions(ui);
+    ui.address_ref.blur();
+    ui.command.set(String::new());
+    act(ui, |b| b.switch_to_tab(key));
 }
 
 fn go(ui: Ui, text: String) {
@@ -847,10 +1008,34 @@ fn go(ui: Ui, text: String) {
         return;
     }
     let text = ui.completed.get_untracked().filter(|(full, _)| *full == text).map_or(text, |(_, url)| url);
+    let new_tab = ui.new_tab_card.get_untracked();
+    ui.new_tab_card.set(false);
     ui.editing.set(false);
-    ui.suggest.set(Vec::new());
+    clear_suggestions(ui);
     ui.address_ref.blur();
-    act(ui, |b| b.navigate(&text));
+    act(ui, |b| b.navigate_in(&text, new_tab));
+}
+
+fn address_menu(ui: Ui) {
+    ui.pasteable.set(false);
+    drop(spawn(async move {
+        let has = nsh_core::prelude::clipboard_has_string().await;
+        ui.pasteable.set(has);
+    }));
+    show(ui, Panel::Address);
+}
+
+pub(super) fn paste_and_go(ui: Ui) {
+    drop(spawn(async move {
+        let text = nsh_core::prelude::clipboard_string().await;
+        let line: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        if line.trim().is_empty() {
+            return;
+        }
+        show(ui, Panel::None);
+        ui.completed.set(None);
+        go(ui, line);
+    }));
 }
 
 fn shield_chip(ui: Ui) -> nsh_base::ButtonElement {
@@ -881,6 +1066,7 @@ fn shield_chip(ui: Ui) -> nsh_base::ButtonElement {
 }
 
 fn open_palette(ui: Ui) {
+    ui.new_tab_card.set(false);
     if ui.editing.get_untracked() {
         return ui.address_ref.focus();
     }
@@ -889,7 +1075,7 @@ fn open_palette(ui: Ui) {
     ui.typed.set(String::new());
     ui.completed.set(None);
     ui.picked.set(0);
-    ui.suggest.set(Vec::new());
+    clear_suggestions(ui);
     load_history(ui);
     ui.editing.set(true);
 }
@@ -899,7 +1085,8 @@ fn close_palette(ui: Ui) {
         return tools::close_find_tabs(ui);
     }
     ui.editing.set(false);
-    ui.suggest.set(Vec::new());
+    ui.new_tab_card.set(false);
+    clear_suggestions(ui);
     ui.address_ref.blur();
 }
 
@@ -934,7 +1121,7 @@ fn address(ui: Ui) -> View {
                 shield_chip(ui).into_element()
             }
         }))
-        .child(shown)
+        .child(view().flex_row().flex_1().min_w(px(0.)).h_full().on_context_menu(move |_: &ContextMenuEvent| address_menu(ui)).child(shown))
         .child(themed(move || {
             when(
                 move || ui.snap.with(|s| s.article),
@@ -981,14 +1168,72 @@ fn toolbar(ui: Ui) -> View {
         let tip = shortcut_of(ui, Action::ToggleSplitView).map_or_else(|| name.to_owned(), |keys| format!("{name} ({keys})"));
         let split = controls::icon_button_at(icons::SPLIT_ADD, &tip, Placement::Left, move || act(ui, Browser::toggle_split));
         let share = controls::icon_button_at(icons::SHARE, "Share", Placement::Left, move || show(ui, Panel::Share));
-        view().flex_row().items_center().gap(px(2.)).child(extensions::buttons(ui)).child(split).child(share)
+        view().flex_row().items_center().gap(px(2.)).child(devtools::responsive_button(ui)).child(extensions::buttons(ui)).child(split).child(share)
     };
-    view().flex_row().items_center().gap_2().h(px(TOOLBAR_HEIGHT)).child(themed(navigation)).child(address(ui)).child(themed(actions))
+    let compact = computed(move || ui.snap.with(|s| s.compact));
+    let address = move || if compact.get() { compact_address(ui) } else { address(ui) };
+    view().flex_row().items_center().gap_2().h(px(TOOLBAR_HEIGHT)).child(themed(navigation)).child(dynamic(address)).child(themed(actions))
+}
+
+fn compact_address(ui: Ui) -> View {
+    let host = move || ui.snap.with(|s| if s.url == START_URL || s.url.is_empty() { String::new() } else { crate::input::display_host(&s.url) });
+    let title = move || ui.snap.with(|s| if s.host.is_empty() { String::new() } else { browser_core::text::bounded_title(&s.title) });
+    let field = controls::pressable("Address", move || open_palette(ui))
+        .flex_1()
+        .min_w(px(0.))
+        .h(px(COMPACT_FIELD))
+        .px_2()
+        .gap_2()
+        .items_center()
+        .rounded(px(Theme::radius_row()))
+        .font_family(SYSTEM_FONT)
+        .child(themed(move || (!ui.snap.with(|s| s.host.is_empty())).then(|| shield_chip(ui))))
+        .child(dynamic(move || {
+            let host = host();
+            if host.is_empty() {
+                return body("Search or enter address").text_color(Theme::faint()).truncate();
+            }
+            body(host).text_color(if ui.snap.with(|s| s.secure) { Secure::text() } else { Secure::warning() }).flex_shrink_0().truncate()
+        }))
+        .child(dynamic(move || {
+            let title = title();
+            (!title.is_empty()).then(|| {
+                view()
+                    .flex_row()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .items_center()
+                    .gap_2()
+                    .child(small("—").text_color(Theme::faint()))
+                    .child(small(title).text_color(Theme::muted()).max_w(px(COMPACT_TITLE)).truncate())
+            })
+        }));
+    view().flex_row().flex_1().min_w(px(0.)).items_center().gap_1().child(field).child(themed(move || {
+        when(
+            move || ui.snap.with(|s| s.article),
+            move || {
+                icon_button(icons::BOOK_OPEN, "Reader", move || act(ui, |b| b.toggle_reader()))
+                    .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent() } else { Theme::muted() })
+            },
+        )
+    }))
 }
 
 fn toggle_sidebar(ui: Ui) {
     animate_next(SLIDE);
     ui.sidebar.update(|o| *o = !*o);
+    peek::close(ui);
+    peek::hide(ui);
+}
+
+pub(super) fn set_auto_hide_sidebar(ui: Ui) {
+    act(ui, |b| b.toggle_off_setting(crate::browser::AUTO_HIDE_SIDEBAR));
+    let hidden = read(ui, |b| b.auto_hide_sidebar()).unwrap_or_default();
+    for other in WINDOWS.with_borrow(Vec::clone) {
+        other.sidebar.set(!hidden);
+        peek::close(other);
+        peek::hide(other);
+    }
 }
 
 fn reload(ui: Ui) {
@@ -1014,7 +1259,7 @@ fn reload_button(ui: Ui) -> AnyElement {
         }
         let press = move || if ui.snap.with_untracked(|s| s.loading) { act(ui, |b| b.stop()) } else { reload() };
         let name = if loading { "Stop Loading" } else { "Reload" };
-        if reduce_motion() {
+        if tarn_nsh_shared::motion::reduced() {
             return controls::icon_button_at(icons::CLOSE, name, Placement::Right, press).into_element();
         }
         tarn_nsh_shared::controls::icon_button(tarn_nsh_shared::motion::spinner(16., icons::icon(icons::RELOAD, 16.)), name, press)
@@ -1108,13 +1353,29 @@ fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
         });
     }
     let listed = move || if query.with(|q| tools::listing(q)) { Vec::new() } else { ui.suggest.get() };
+    let tabs = move || if query.with(|q| tools::listing(q)) { Vec::new() } else { ui.tabs.get() };
+    let after_tabs = computed(move || first.get() + ui.tabs.with(Vec::len));
     view()
         .flex_col()
         .gap(px(2.))
         .py(px(6.))
         .child(input_row(ui, query))
         .child(tools::command_rows(ui, query))
-        .child(when(move || !listed().is_empty(), || row_section("Suggestions")))
+        .child(when(move || !tabs().is_empty(), || row_section(Section::Tabs.title())))
+        .child(each(
+            tabs,
+            |row| format!("{}-{}", row.key.private, row.key.id),
+            move |item, ix| {
+                let row = item.get_untracked();
+                let (key, detail_text) = (row.key, row.detail());
+                suggestion_row(row.title.clone(), move || switch_to_tab(ui, key))
+                    .bg(move || picked_fill(ui, first.get() + ix.get()))
+                    .child(view().w(px(28.)).items_center().child(site_tile(ui, &host_of(&row.url), 20.)))
+                    .child(label(row.title.clone()).flex_1().truncate())
+                    .child(detail(detail_text))
+            },
+        ))
+        .child(when(move || !listed().is_empty(), || row_section(Section::History.title())))
         .child(each(
             listed,
             |(_, url)| url.clone(),
@@ -1123,7 +1384,7 @@ fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
                 let host = host_of(&url);
                 let target = url.clone();
                 suggestion_row(url.clone(), move || go(ui, target.clone()))
-                    .bg(move || picked_fill(ui, first.get() + ix.get()))
+                    .bg(move || picked_fill(ui, after_tabs.get() + ix.get()))
                     .child(view().w(px(28.)).items_center().child(site_tile(ui, &host, 20.)))
                     .child(label(if title.is_empty() { url.clone() } else { title }).flex_1().truncate())
                     .child(detail(url.trim_start_matches("https://").trim_end_matches('/').to_owned()))
@@ -1145,7 +1406,7 @@ fn palette(ui: Ui) -> AnyElement {
                     if !ui.find_tabs.get_untracked() {
                         ui.editing.set(false);
                     }
-                    ui.suggest.set(Vec::new());
+                    clear_suggestions(ui);
                 })
                 .on_change(move |value: &str| {
                     if ui.find_tabs.get_untracked() {
@@ -1154,10 +1415,7 @@ fn palette(ui: Ui) -> AnyElement {
                         act(ui, |b| b.find_in_tabs(&query));
                     } else if value != ui.address.get_untracked() {
                         let (history, typed) = (history(ui), ui.typed.get_untracked());
-                        let edit = read(ui, |b| {
-                            let (rows, completion) = suggest::edit(&typed, value, &b.model.tabs, &history, SUGGESTIONS, browser_core::now());
-                            (rows.into_iter().map(|h| (h.title.clone(), h.url.clone())).collect(), completion)
-                        });
+                        let edit = read(ui, |b| b.address_edit(&typed, value, &history, SUGGESTIONS));
                         let Some((rows, completion)) = edit else { return };
                         ui.typed.set(value.to_owned());
                         show_suggestions(ui, rows, value, ui.typed);
@@ -1259,6 +1517,9 @@ fn start_card(ui: Ui) -> AnyElement {
     when(
         move || ui.snap.with(|s| s.blank) && ui.panel.get() == Panel::None && !ui.editing.get(),
         move || {
+            if ui.snap.with_untracked(|s| s.devtools) {
+                devtools::refresh_servers(ui);
+            }
             let field = input()
                 .value(move || ui.command.get())
                 .on_change(move |v: &str| {
@@ -1332,6 +1593,7 @@ fn start_card(ui: Ui) -> AnyElement {
                 .child(view().flex_grow(0.22_f32))
                 .child(icons::mark(64.))
                 .child(view().relative().mt(px(28.)).child(tarn_nsh_shared::search_fx::search_fx(54.)).child(card))
+                .child(view().w(px(CARD_WIDTH)).child(devtools::server_strip(ui)))
                 .child(view().flex_grow(0.78_f32));
             view().flex_col().flex_1().relative().child(fog()).child(column)
         },
@@ -1432,13 +1694,27 @@ fn notice_bar(ui: Ui) -> AnyElement {
     })
 }
 
-/// Answers the page's prompt in front without remembering the answer.
-fn answer_prompt(ui: Ui, id: u64, accept: bool) {
-    let (t, u, p) = (ui.answer_text.get_untracked(), ui.answer_user.get_untracked(), ui.answer_password.get_untracked());
+fn take_answers(ui: Ui) -> (String, String, String) {
+    let answers = (ui.answer_text.get_untracked(), ui.answer_user.get_untracked(), ui.answer_password.get_untracked());
     ui.answer_text.set(String::new());
     ui.answer_user.set(String::new());
     ui.answer_password.set(String::new());
+    answers
+}
+
+fn answer_prompt(ui: Ui, id: u64, accept: bool) {
+    let (t, u, p) = take_answers(ui);
     act(ui, |b| b.answer(id, accept, false, &t, &u, &p));
+}
+
+fn always_allow(ui: Ui, id: u64) {
+    take_answers(ui);
+    act(ui, |b| b.answer(id, true, true, "", "", ""));
+}
+
+fn silence_prompt(ui: Ui, id: u64) {
+    take_answers(ui);
+    act(ui, |b| b.silence(id));
 }
 
 /// Enter, not held, accepts an alert or a confirm only while neither a field nor the page has the
@@ -1480,15 +1756,18 @@ fn prompt_bar(ui: Ui) -> AnyElement {
         let (accept, decline) = match prompt.kind.as_str() {
             "alert" => ("OK", None),
             "credentials" => ("Sign In", Some("Cancel")),
-            "camera" | "microphone" | "location" => ("Allow", Some("Deny")),
+            "camera" | "microphone" | "location" => ("Allow Once", Some("Deny")),
             _ => ("OK", Some("Cancel")),
         };
+        let remember = prompt.is_permission() && read(ui, |b| b.remembers(&prompt)).unwrap_or(false);
         let buttons = view()
             .flex_row()
             .items_center()
             .gap_2()
+            .child(tarn_nsh_shared::controls::secure_ghost("Block requests from this page", move || silence_prompt(ui, id)))
             .children(decline.map(|name| tarn_nsh_shared::controls::secure_ghost(name, move || reply(false))))
-            .child(secure_button(accept, move || reply(true), true));
+            .child(secure_button(accept, move || reply(true), !remember))
+            .children(remember.then(|| secure_button("Always Allow", move || always_allow(ui, id), true)));
         let insecure = prompt.insecure.then(|| body("This connection is not secure: the password would be sent unencrypted.").text_color(Secure::warning()));
         let tile = view()
             .w(px(30.))
@@ -1612,8 +1891,9 @@ fn error_bar(ui: Ui) -> AnyElement {
 }
 
 fn content(ui: Ui) -> View {
-    let covered = move || ui.snap.with(|s| s.blank || s.reader.is_some()) || ui.panel.get() != Panel::None || ui.editing.get();
-    let bare = move || covered() || ui.snap.with(|s| s.split.is_some());
+    let covered =
+        move || ui.snap.with(|s| s.blank || s.reader.is_some() || s.blocked.is_some() || s.json.is_some()) || ui.panel.get() != Panel::None || ui.editing.get();
+    let bare = move || covered() || ui.snap.with(|s| s.split.is_some() || s.fullscreen);
     view()
         .flex_col()
         .flex_1()
@@ -1625,7 +1905,9 @@ fn content(ui: Ui) -> View {
         .child(themed(move || palette(ui)))
         .child(when(move || !ui.editing.get(), move || panels::panel_view(ui)))
         .child(themed(move || tools::reader_view(ui)))
+        .child(themed(move || devtools::json_view(ui)))
         .child(themed(move || start_card(ui)))
+        .child(themed(move || blocking::page(ui)))
         .child(web_views(ui).flex_grow(move || if covered() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
 }
 
@@ -1643,6 +1925,7 @@ fn run_action(ui: Ui, action: Action) {
         Action::PreviousTab => act(ui, |b| b.cycle(false)),
         Action::TogglePin => act(ui, |b| b.model.active.into_iter().for_each(|k| b.pin_toggle(k))),
         Action::BurnerTab => tools::run(ui, tools::Command::BurnerTab),
+        Action::NewGroup => groups::new_group(ui, None),
         Action::Reload => reload(ui),
         Action::Back => act(ui, |b| b.back()),
         Action::Forward => act(ui, |b| b.forward()),
@@ -1656,7 +1939,11 @@ fn run_action(ui: Ui, action: Action) {
         Action::ZoomReset => act(ui, |b| b.zoom(0)),
         Action::CopyLink => tools::copy_link(ui, false),
         Action::CopyCleanLink => tools::copy_link(ui, true),
+        Action::TakeScreenshot => act(ui, Browser::take_screenshot),
         Action::ToggleReader => act(ui, |b| b.toggle_reader()),
+        Action::Print => act(ui, Browser::print),
+        Action::BookmarkTab => library::bookmark_tab(ui, None),
+        Action::ManageBookmarks => show(ui, Panel::Bookmarks(None)),
         Action::ShowHistory => show(ui, Panel::History),
         Action::ToggleDownloads => show(ui, Panel::Downloads),
         Action::ToggleSidebar => toggle_sidebar(ui),
@@ -1670,6 +1957,10 @@ fn run_action(ui: Ui, action: Action) {
         Action::SwapPanes => act(ui, Browser::swap_panes),
         Action::RotateSplitLayout => act(ui, |b| b.model.active.into_iter().for_each(|k| b.rotate_split(k))),
         Action::RemoveFromSplitView => act(ui, |b| b.model.active.into_iter().for_each(|k| b.leave_split(k))),
+        Action::CloseAllTabs => act_moving(ui, Browser::close_all_tabs),
+        Action::LastTab => act(ui, |b| b.slot(9)),
+        Action::CopyMarkdownLink => tools::copy_page(ui, true),
+        Action::ToggleShortcuts => show(ui, Panel::Shortcuts),
     }
 }
 
@@ -1690,6 +1981,8 @@ fn escape(ui: Ui) {
         tools::close_find_tabs(ui);
     } else if ui.editing.get_untracked() {
         close_palette(ui);
+    } else if ui.snap.with_untracked(|s| s.link_peek.is_some()) {
+        link_peek::close(ui);
     } else if ui.panel.get_untracked() == Panel::Settings && ui.shortcut_edit.get_untracked().is_some() {
         ui.shortcut_edit.set(None);
         act(ui, |_| {});
@@ -1724,13 +2017,49 @@ fn bind_fixed(ui: Ui) {
     for (keys, backwards) in [(crate::shortcuts::FIND_NEXT, false), (crate::shortcuts::FIND_PREVIOUS, true)] {
         on_key(keys, move |_| find_again(ui, backwards));
     }
-    for n in 1..=9usize {
+    for n in 1..=8usize {
         on_key(&format!("mod+{n}"), move |_| act(ui, |b| b.slot(n)));
+    }
+    for n in 1..=9usize {
+        on_key(&format!("alt+{n}"), move |_| {
+            animate_next(SLIDE);
+            act(ui, |b| b.space_number(n));
+        });
     }
 }
 
 fn core() -> Rc<Core<Data>> {
-    CORE.with_borrow_mut(|core| core.get_or_insert_with(|| Browser::open_core(&crate::data::root())).clone())
+    CORE.with_borrow_mut(|core| {
+        core.get_or_insert_with(|| {
+            let opened = Browser::open_core(&crate::data::root());
+            crate::data::wipe_retired(&crate::data::root(), &opened.disk);
+            crate::filter_updates::start(opened.clone());
+            opened
+        })
+        .clone()
+    })
+}
+
+pub fn refresh_panels() {
+    for ui in WINDOWS.with_borrow(Vec::clone) {
+        act(ui, |_| {});
+    }
+}
+
+pub fn themes_changed() {
+    for ui in WINDOWS.with_borrow(Vec::clone) {
+        act(ui, Browser::apply_theme);
+    }
+}
+
+fn open_settings(ui: Ui, pane: tarn_nsh_shared::panes::Pane) {
+    ui.settings_pane.set(pane);
+    ui.ext_pane.set(false);
+    if ui.panel.get_untracked() == Panel::Settings {
+        act(ui, |_| {});
+    } else {
+        show(ui, Panel::Settings);
+    }
 }
 
 fn shift_held() -> bool {
@@ -1758,6 +2087,7 @@ fn keep_placement(ui: Ui, here: WindowRef) {
                     b.core.disk.set_setting(PLACEMENT, &json).ok();
                 }
                 b.set_window_size(f64::from(size.width.0), f64::from(size.height.0));
+                b.window_changed(state.mode);
             })
         });
     });
@@ -1789,6 +2119,9 @@ fn close_window(ui: Ui, here: &WindowRef) {
     act(ui, Browser::close_window);
     BROWSERS.with_borrow_mut(|windows| windows.remove(&ui.window));
     WINDOWS.with_borrow_mut(|windows| windows.retain(|w| w.window != ui.window));
+    if !here.is_main() {
+        WINDOW_REFS.with_borrow_mut(|refs| refs.remove(&ui.window));
+    }
     ui.open.set(false);
     if here.is_main() {
         here.hide();
@@ -1809,7 +2142,7 @@ fn route_downloads() {
     let mut downloads = webview::session::route();
     drop(spawn(async move {
         while let Some((tab, data)) = downloads.next().await {
-            let Some(key) = tab_key(&tab) else { continue };
+            let Some(key) = snapshot::tab_key(&tab) else { continue };
             let mut recorded = false;
             for ui in WINDOWS.with_borrow(Vec::clone) {
                 act(ui, |b| recorded |= b.on_download(key, &data, !recorded));
@@ -1830,6 +2163,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         .unwrap_or_else(|| crate::browser::themes::Themes::open(&core.disk, &crate::data::root().join("filters")));
     let mut browser = Browser::new(core, row, elsewhere, themes);
     browser.downloads = BROWSERS.with_borrow(|windows| windows.values().next().map(|b| b.downloads.clone())).unwrap_or_default();
+    let auto_hide = browser.auto_hide_sidebar();
     BROWSERS.with_borrow_mut(|windows| windows.insert(window, browser));
     let ui = Ui {
         window,
@@ -1838,13 +2172,16 @@ fn new_ui(row: SavedWindow) -> Ui {
         icons: signal(Default::default()),
         panel: signal(Panel::None),
         rev: signal(0),
-        sidebar: signal(true),
+        sidebar: signal(!auto_hide),
         address: signal(String::new()),
         typed: signal(String::new()),
         completed: signal(None),
         editing: signal(false),
+        new_tab_card: signal(false),
         command: signal(String::new()),
         suggest: signal(Vec::new()),
+        tabs: signal(Vec::new()),
+        pasteable: signal(false),
         finding: signal(false),
         find: signal(String::new()),
         address_ref: element_ref(),
@@ -1880,13 +2217,22 @@ fn new_ui(row: SavedWindow) -> Ui {
         confirm: signal(None),
         rename: signal(String::new()),
         rename_for: signal(String::new()),
-        space_draft: signal(None),
+        mark_query: signal(String::new()),
+        mark_edit: signal(None),
+        library_query: signal(String::new()),
         emoji: signal(String::new()),
         emoji_for: signal(String::new()),
+        space_draft: signal(None),
         area: signal((0., 0.)),
         dragging: signal(None),
         split_drop: signal(None),
         resizing: signal(None),
+        floating: signal(Default::default()),
+        hover_card: signal(Default::default()),
+        form: signal(profiles::Form::default()),
+        card_name: signal(String::new()),
+        card_space: signal(String::new()),
+        import: signal(import::State::default()),
         root: Owner::current(),
     };
     let editing = std::cell::Cell::new(false);
@@ -1896,11 +2242,26 @@ fn new_ui(row: SavedWindow) -> Ui {
             untracked(|| act(ui, |_| {}));
         }
     });
+    let finding = std::cell::Cell::new(false);
+    effect(move || {
+        let now = ui.finding.get();
+        if finding.replace(now) != now {
+            untracked(|| act_quietly(ui, |_| {}));
+        }
+    });
     let extensions_open = std::cell::Cell::new(false);
     effect(move || {
         let open = ui.panel.get() == Panel::Settings && ui.ext_pane.get();
         if extensions_open.replace(open) && !open {
             untracked(tarn_nsh_shared::extensions::close_store_sheet);
+        }
+    });
+    let fitted = std::cell::Cell::new(None);
+    effect(move || {
+        let area = ui.area.get();
+        let wanted = ui.snap.with(|s| (s.responsive, s.views.iter().find(|v| v.active && v.pane.is_none()).map(|v| v.key), s.url.clone()));
+        if fitted.replace(Some((area, wanted.clone()))) != Some((area, wanted)) {
+            untracked(|| act_quietly(ui, |b| b.fit_responsive(area.0, area.1)));
         }
     });
     let shown_space = std::cell::Cell::new(None);
@@ -1909,7 +2270,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         if shown_space.replace(Some(space)).is_some_and(|before| before != space) {
             untracked(|| {
                 ui.command.set(String::new());
-                ui.suggest.set(Vec::new());
+                clear_suggestions(ui);
                 if ui.editing.get() {
                     ui.editing.set(false);
                     ui.address_ref.blur();
@@ -1918,24 +2279,40 @@ fn new_ui(row: SavedWindow) -> Ui {
         }
     });
     WINDOWS.with_borrow_mut(|windows| windows.push(ui));
+    if LAUNCHING.replace(LAUNCHING.get().saturating_sub(1)) == 1 {
+        for ui in WINDOWS.with_borrow(Vec::clone) {
+            act_quietly(ui, |b| {
+                b.archive_unused_tabs();
+            });
+        }
+    }
     ui
 }
 
 fn browser_window(ui: Ui) -> AnyElement {
     let here = current_window();
     keep_placement(ui, here.clone());
+    WINDOW_REFS.with_borrow_mut(|refs| refs.insert(ui.window, here.clone()));
     here.on_focus_change(move |focused| {
         if focused {
-            act(ui, Browser::sync_shared);
+            FOCUSED.with(|f| f.set(ui.window));
+            act(ui, |b| {
+                b.sync_shared();
+                b.settle_downloads();
+            });
         }
     });
     let closing = here.clone();
     here.on_close_press(move |_| close_window(ui, &closing));
     act(ui, |_| {});
+    if read(ui, Browser::devtools_on) == Some(true) {
+        devtools::refresh_servers(ui);
+    }
     drop(set_interval(SCHEDULE_TICK, move || {
+        let windows = WINDOWS.with_borrow(|windows| windows.len());
         act_quietly(ui, |b| {
             b.schedule_tick();
-            b.idle_tick();
+            b.idle_tick(windows);
         })
     }));
     drop(set_interval(SAMPLE_TICK, move || {
@@ -1944,34 +2321,51 @@ fn browser_window(ui: Ui) -> AnyElement {
         }
         act_quietly(ui, |b| b.sample_processes());
     }));
+    drop(set_interval(browser_core::closed::ARCHIVE_INTERVAL, move || {
+        act_quietly(ui, |b| {
+            b.archive_unused_tabs();
+        })
+    }));
     act(ui, |b| b.schedule_tick());
+    for (urls, dropped) in PENDING_LINKS.take() {
+        deliver_links(ui, &urls, dropped);
+    }
+    let launch = LAUNCH_ARGS.take();
+    if !launch.is_empty() {
+        open_app_links(launch);
+    }
     effect(move || {
         let light = !dark();
         untracked(|| act(ui, |b| b.follow_appearance(light)));
     });
+    let full = computed(move || ui.snap.with(|s| s.fullscreen));
     view()
         .flex_row()
         .size_full()
         .relative()
-        .p_2()
-        .gap_2()
+        .p(move || px(if full.get() { 0. } else { 8. }))
+        .gap(move || px(if full.get() { 0. } else { 8. }))
         .text_color(Theme::text)
         .font_family(Theme::font_family)
         .child(themed(|| view().absolute().inset_0().paint(Theme::backdrop())))
-        .child(when(move || ui.sidebar.get(), move || themed(move || sidebar(ui))))
+        .on_layout(move |b: &Bounds<Points>| peek::window_height(ui, b.size.height.0))
+        .child(when(move || ui.sidebar.get() && !full.get(), move || themed(move || sidebar(ui))))
         .child(
             view()
                 .flex_col()
                 .flex_1()
-                .child(toolbar(ui))
+                .child(when(move || !full.get(), move || toolbar(ui)))
                 .child(themed(move || extensions::popup_panel(ui)))
                 .child(notice_bar(ui))
-                .child(error_bar(ui))
+                .child(when(move || !full.get(), move || error_bar(ui)))
                 .child(prompt_bar(ui))
                 .child(themed(move || find_bar(ui)))
                 .child(content(ui))
-                .child(themed(move || tools::toast_bar(ui))),
+                .child(when(move || !full.get(), move || themed(move || tools::toast_bar(ui)))),
         )
+        .child(peek::edge(ui))
+        .child(peek::floating(ui))
+        .child(peek::card(ui))
         .child(bound_keys(ui))
         .on_mouse_up(move |_: &MouseEvent| split::release(ui))
         .on_mouse_move(move |e: &MouseEvent| {
@@ -1989,11 +2383,87 @@ pub fn App() -> impl IntoElement {
     main_window().set(attributes);
     route_downloads();
     extensions::route(core());
-    let mut rows = Browser::saved_windows(&core()).into_iter();
+    let saved = Browser::saved_windows(&core());
+    LAUNCHING.set(saved.len().max(1));
+    let mut rows = saved.into_iter();
     let ui = new_ui(rows.next().unwrap_or_default());
     if shift_held() {
         act(ui, Browser::enter_safe_mode);
     }
     rows.for_each(open_browser_window);
+    LAUNCH_ARGS.set(std::env::args().skip(1).collect());
+    drop(spawn(async move {
+        loop {
+            let launch = next_second_instance().await;
+            open_app_links(launch.args);
+        }
+    }));
     view().size_full().child(when(move || ui.open.get(), move || browser_window(ui)))
+}
+
+fn open_app_links(args: Vec<String>) {
+    let windows = WINDOWS.with_borrow(Vec::clone);
+    hide_closed_main(&windows);
+    let now = std::time::Instant::now();
+    let (urls, dropped) = if args.is_empty() {
+        if INCOMING.with_borrow_mut(|seen| browser_core::incoming::admit(seen, now, 1)) == 0 {
+            return;
+        }
+        (Vec::new(), 0)
+    } else {
+        let (urls, dropped) = INCOMING.with_borrow_mut(|seen| browser_core::incoming::admit_links(seen, now, args));
+        if urls.is_empty() {
+            return;
+        }
+        (urls, dropped)
+    };
+    let usable: Vec<u64> =
+        windows.iter().filter(|ui| ui.open.get_untracked() && read(**ui, |b| !b.model.burner_shown()) == Some(true)).map(|ui| ui.window).collect();
+    let target = link_window(&usable, FOCUSED.with(Cell::get)).and_then(|id| windows.iter().find(|w| w.window == id).copied());
+    match target {
+        Some(ui) => deliver_links(ui, &urls, dropped),
+        None if urls.is_empty() => windows.first().into_iter().for_each(|ui| deliver_links(*ui, &[], 0)),
+        None => {
+            PENDING_LINKS.with_borrow_mut(|pending| pending.push((urls, dropped)));
+            open_browser_window(Browser::window_row(&core(), SavedWindow::default()));
+        }
+    }
+}
+
+fn link_window(usable: &[u64], focused: u64) -> Option<u64> {
+    usable.contains(&focused).then_some(focused).or_else(|| usable.first().copied())
+}
+
+fn deliver_links(ui: Ui, urls: &[String], dropped: usize) {
+    if !urls.is_empty() {
+        if ui.editing.get_untracked() {
+            close_palette(ui);
+        }
+        act(ui, |b| {
+            b.open_app_links(urls);
+            if dropped > 0 {
+                b.show_toast(browser_core::incoming::dropped_notice(dropped), None);
+            }
+        });
+    }
+    if let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned()) {
+        here.show();
+        here.focus();
+    }
+}
+
+fn hide_closed_main(windows: &[Ui]) {
+    let open: HashSet<u64> = windows.iter().map(|w| w.window).collect();
+    let closed = WINDOW_REFS.with_borrow(|refs| refs.iter().filter(|(id, r)| r.is_main() && !open.contains(id)).map(|(_, r)| r.clone()).collect::<Vec<_>>());
+    closed.iter().for_each(WindowRef::hide);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn links_go_to_the_focused_usable_window_else_the_first() {
+        assert_eq!(super::link_window(&[1, 2, 3], 2), Some(2));
+        assert_eq!(super::link_window(&[1, 3], 2), Some(1), "the focused window shows a burner tab or is closed");
+        assert_eq!(super::link_window(&[], 2), None);
+    }
 }

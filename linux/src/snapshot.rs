@@ -4,7 +4,7 @@ use browser_core::prompts::Prompt;
 use browser_core::split::{Divider, Share};
 use browser_core::tabs::TabKey;
 use serde_json::Value;
-use store::{Folder, Id, Tab, TabKind};
+use store::{Folder, Group, Id, Tab, TabKind};
 
 use crate::browser::{Browser, Notice};
 
@@ -24,6 +24,8 @@ pub enum RowKind {
     Folder(Id),
     /// A split's panes side by side, at the place of the first of them in the list.
     Split(TabKey),
+    /// A tab group's card: its header and, in `panes`, its tabs; only the active one while collapsed.
+    Group(Id),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,10 +44,13 @@ pub struct Row {
     pub asleep: bool,
     pub loading: bool,
     pub playing: bool,
+    pub muted: bool,
     /// In a split: `Some(true)` for the split on screen.
     pub split: Option<bool>,
     /// A split row's panes, in layout order.
     pub panes: Vec<Row>,
+    /// A group's colour as `0xRRGGBB`.
+    pub color: u32,
 }
 
 impl Row {
@@ -54,6 +59,7 @@ impl Row {
             RowKind::Tab(k) => format!("t{}-{}", k.private, k.id),
             RowKind::Folder(id) => format!("f{id}"),
             RowKind::Split(k) => format!("s{}-{}", k.private, k.id),
+            RowKind::Group(id) => format!("g{id}"),
         }
     }
 }
@@ -67,16 +73,31 @@ pub struct ViewItem {
     pub level: String,
     pub levels: Value,
     pub lists: Vec<String>,
+    pub filtered: bool,
+    pub blocking: Value,
     pub styles: Value,
     pub theme_styles: Value,
     pub zaps: Value,
     pub sort_downloads: bool,
+    pub youtube: bool,
+    pub inspectable: bool,
     pub load: Option<(String, u64)>,
     pub link: bool,
     pub file: bool,
+    pub muted: bool,
+    pub opener: String,
     pub active: bool,
     /// Its place in the split on screen.
     pub pane: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PeekItem {
+    pub view: ViewItem,
+    pub tab: String,
+    pub title: String,
+    pub host: String,
+    pub insecure: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -124,6 +145,7 @@ pub struct Snapshot {
     pub zoom: f64,
     pub found: Option<u64>,
     pub error: Option<String>,
+    pub blocked: Option<crate::browser::blocking::BlockedPage>,
     pub prompt: Option<Prompt>,
     pub notice: Option<Notice>,
     pub folders: Vec<(Id, String)>,
@@ -133,6 +155,15 @@ pub struct Snapshot {
     pub burner: bool,
     pub find_rows: Vec<crate::browser::FindRow>,
     pub downloading: Option<f32>,
+    /// Whether Clean Up has loose tabs to sort.
+    pub cleanable: bool,
+    pub compact: bool,
+    pub link_peek: Option<PeekItem>,
+    pub fullscreen: bool,
+    pub devtools: bool,
+    pub responsive: Option<devkit::responsive::Preset>,
+    pub json: Option<std::rc::Rc<devkit::json_view::Tree>>,
+    pub local_servers: Option<Vec<u16>>,
 }
 
 pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
@@ -154,9 +185,23 @@ fn space_label(b: &Browser, ix: usize) -> String {
     format!("{} · {}", profile, s.space.name)
 }
 
-fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Option<TabKind>, depth: usize, rows: &mut Vec<Row>) {
+/// Which tabs a list shows: those in `folder` and `group`, of `kind` when given.
+#[derive(Clone, Copy)]
+struct Zone {
+    folder: Option<Id>,
+    group: Option<Id>,
+    kind: Option<TabKind>,
+}
+
+impl Zone {
+    fn of(kind: TabKind) -> Zone {
+        Zone { folder: None, group: None, kind: Some(kind) }
+    }
+}
+
+fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows: &mut Vec<Row>) {
     let mut list = Vec::new();
-    tab_list(b, heavy, folder, kind, depth, &mut list);
+    tab_list(b, heavy, zone, depth, &mut list);
     let keys: Vec<TabKey> = list.iter().filter_map(|r| if let RowKind::Tab(k) = r.kind { Some(k) } else { None }).collect();
     let pane = |key| list.iter().find(|r| r.kind == RowKind::Tab(key)).cloned();
     for (row, &key) in list.iter().zip(&keys) {
@@ -172,9 +217,11 @@ fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Opti
     }
 }
 
-fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Option<TabKind>, depth: usize, rows: &mut Vec<Row>) {
-    let mut tabs: Vec<&Tab> = b.model.tabs.iter().filter(|t| t.folder_id == folder && kind.is_none_or(|k| t.kind == k)).collect();
+fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows: &mut Vec<Row>) {
+    let mut tabs: Vec<&Tab> =
+        b.model.tabs.iter().filter(|t| t.folder_id == zone.folder && t.group_id == zone.group && zone.kind.is_none_or(|k| t.kind == k)).collect();
     tabs.sort_by_key(|t| t.position);
+    let muted = if tabs.is_empty() { Vec::new() } else { b.muted_sites() };
     for tab in tabs {
         let key = b.model.key(tab);
         let url = b.pages.get(&key).map(|p| p.url.as_str()).filter(|u| !u.is_empty()).unwrap_or(&tab.url);
@@ -188,6 +235,7 @@ fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Opti
             asleep: b.model.active != Some(key) && !b.elsewhere.contains(&key) && !b.model.lifecycle.live().any(|k| k == key),
             loading: b.pages.get(&key).is_some_and(|p| p.loading),
             playing: b.playing.contains(&key),
+            muted: b.muted_with(key, &muted),
             split: b.splits.contains(key).then(|| b.in_split(key)),
             host,
             depth,
@@ -195,6 +243,7 @@ fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, folder: Option<Id>, kind: Opti
             pinned: tab.kind == TabKind::Pinned,
             open: false,
             panes: Vec::new(),
+            color: 0,
         });
     }
 }
@@ -218,13 +267,46 @@ fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: 
             asleep: false,
             loading: false,
             playing: false,
+            muted: false,
             split: None,
             panes: Vec::new(),
+            color: 0,
         });
         if open {
             folder_rows(b, heavy, Some(folder.id), depth + 1, rows);
-            tab_rows(b, heavy, Some(folder.id), None, depth + 1, rows);
+            tab_rows(b, heavy, Zone { folder: Some(folder.id), group: None, kind: None }, depth + 1, rows);
         }
+    }
+}
+
+fn group_rows(b: &Browser, heavy: &HashSet<TabKey>, rows: &mut Vec<Row>) {
+    let mut groups: Vec<&Group> = b.model.groups.iter().collect();
+    groups.sort_by_key(|g| g.position);
+    for group in groups {
+        let mut panes = Vec::new();
+        tab_rows(b, heavy, Zone { group: Some(group.id), ..Zone::of(TabKind::Ephemeral) }, 0, &mut panes);
+        if group.collapsed {
+            panes.retain(|r| r.active);
+        }
+        rows.push(Row {
+            kind: RowKind::Group(group.id),
+            label: group.name.clone(),
+            host: String::new(),
+            depth: 0,
+            active: false,
+            pinned: false,
+            open: !group.collapsed,
+            burner: false,
+            heavy: false,
+            asleep: false,
+            loading: false,
+            playing: false,
+            muted: false,
+            split: None,
+            panes,
+            color: browser_core::tabs::group_color(group, &tarn_nsh_shared::theme::PROFILE_COLORS),
+            icon: group.icon.clone(),
+        });
     }
 }
 
@@ -235,9 +317,10 @@ pub fn rows(b: &Browser) -> Vec<Row> {
 
 fn rows_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
     let mut rows = Vec::new();
-    tab_rows(b, heavy, None, Some(TabKind::Pinned), 0, &mut rows);
+    tab_rows(b, heavy, Zone::of(TabKind::Pinned), 0, &mut rows);
     folder_rows(b, heavy, None, 0, &mut rows);
-    tab_rows(b, heavy, None, Some(TabKind::Ephemeral), 0, &mut rows);
+    group_rows(b, heavy, &mut rows);
+    tab_rows(b, heavy, Zone::of(TabKind::Ephemeral), 0, &mut rows);
     rows
 }
 
@@ -248,17 +331,20 @@ pub fn tiles(b: &Browser) -> Vec<Row> {
 
 fn tiles_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
     let mut tiles = Vec::new();
-    tab_list(b, heavy, None, Some(TabKind::Tile), 0, &mut tiles);
+    tab_list(b, heavy, Zone::of(TabKind::Tile), 0, &mut tiles);
     tiles
 }
 
 pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
-    let panes = b.shown_split().map(|s| s.panes().to_vec()).unwrap_or_default();
+    let panes = b.shown_split().filter(|_| !b.page_fullscreen.is_on()).map(|s| s.panes().to_vec()).unwrap_or_default();
     let lists = b.lists();
     let sort_downloads = !b.setting_off(crate::browser::pages::SORT_DOWNLOADS);
+    let youtube = b.setting_on(shield::groups::YOUTUBE_SETTING);
+    let developer = b.developer();
     let mut keys: Vec<TabKey> = b.model.lifecycle.live().filter(|k| b.model.tab(*k).is_some()).collect();
     keys.sort_by_key(|k| k.id);
     let mut site = HashMap::new();
+    let muted = b.muted_sites();
     keys.into_iter()
         .map(|key| {
             let page = b.pages.get(&key);
@@ -271,18 +357,62 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 level: page.map(|p| p.level).unwrap_or_default().as_str().to_owned(),
                 levels: b.levels(key),
                 lists: lists.clone(),
+                filtered: !page.is_some_and(|p| p.paused),
+                blocking: b.blocking(key),
                 styles,
                 theme_styles,
                 zaps,
                 sort_downloads,
+                youtube,
+                inspectable: developer || b.is_dev_tab(key),
                 load: page.and_then(|p| p.load.clone()),
                 link: page.is_some_and(|p| p.link),
                 file: page.is_some_and(|p| p.file),
+                muted: b.muted_with(key, &muted),
+                opener: page.and_then(|p| p.opener).map(|k| format!("{}-{}", k.private, k.id)).unwrap_or_default(),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
                 pane: panes.iter().position(|k| *k == key).filter(|_| shown),
             }
         })
         .collect()
+}
+
+const PEEK_TAB: &str = "-peek";
+
+pub fn tab_key(tab: &str) -> Option<TabKey> {
+    let (private, id) = tab.strip_suffix(PEEK_TAB).unwrap_or(tab).split_once('-')?;
+    Some(TabKey { private: private.parse().ok()?, id: id.parse().ok()? })
+}
+
+fn peek_item(b: &Browser) -> Option<PeekItem> {
+    let peek = b.link_peek.as_ref()?;
+    let key = peek.opener;
+    let (host, insecure) = url::Url::parse(&peek.url).ok().map(|u| browser_core::command::address(&u)).unwrap_or_default();
+    let view = ViewItem {
+        key,
+        born: 0,
+        profile: b.store_prop(key),
+        level: peek.level.as_str().to_owned(),
+        levels: b.levels(key),
+        lists: b.lists(),
+        filtered: !b.pages.get(&key).is_some_and(|p| p.paused),
+        blocking: b.blocking(key),
+        styles: b.styles(key),
+        theme_styles: b.theme_styles(key),
+        zaps: b.zaps(key),
+        sort_downloads: !b.setting_off(crate::browser::pages::SORT_DOWNLOADS),
+        youtube: b.setting_on(shield::groups::YOUTUBE_SETTING),
+        inspectable: b.developer() || b.is_dev_tab(key),
+        load: Some(peek.load.clone()),
+        link: true,
+        file: false,
+        muted: false,
+        opener: format!("{}-{}", key.private, key.id),
+        active: true,
+        pane: None,
+    };
+    let tab = format!("{}{PEEK_TAB}", view.opener);
+    Some(PeekItem { view, tab, title: browser_core::text::bounded_title(&peek.title), host, insecure })
 }
 
 pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
@@ -294,7 +424,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
     let private = b.model.private();
     let profile_row = b.model.current_space().filter(|s| !s.private).and_then(|s| b.core.disk.profile(s.space.profile_id).ok());
     let overridden = profile_id.is_some_and(|p| b.core.has_override(private, p, &host));
-    let split = b.shown_split();
+    let split = b.shown_split().filter(|_| !b.page_fullscreen.is_on());
     let blank = key.is_some() && split.is_none() && (page.url.is_empty() || page.url == crate::browser::START_URL) && page.error.is_none();
     Snapshot {
         spaces: (0..b.model.spaces.len())
@@ -334,6 +464,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         zoom: if page.zoom > 0.0 { page.zoom } else { 1.0 },
         found: page.found,
         error: page.error.clone(),
+        blocked: page.blocked.clone(),
         prompt: page.prompts.front().cloned(),
         notice: b.notice.clone(),
         folders: b.model.folders.iter().map(|f| (f.id, f.name.clone())).collect(),
@@ -343,6 +474,14 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         burner: b.model.burner_shown(),
         find_rows: b.find_rows.clone(),
         downloading: downloading(b),
+        cleanable: browser_core::cleanup::cleanable(&b.model.tabs) && !b.model.burner_shown(),
+        compact: b.compact_toolbar(),
+        link_peek: peek_item(b).filter(|_| web_shown),
+        fullscreen: b.page_fullscreen.is_on(),
+        devtools: b.devtools_on(),
+        responsive: b.responsive_preset(),
+        json: b.active_json(),
+        local_servers: b.local_servers.clone(),
     }
 }
 
@@ -399,6 +538,10 @@ mod tests {
         assert!(snapshot(&b, false).views.iter().all(|v| !v.active));
         assert_eq!(snap.views.len(), 3);
         assert!(snap.views.iter().all(|v| v.levels["*"] == "standard" && v.lists.len() == shield::groups::SETTINGS.len()));
+        assert!(snap.views.iter().all(|v| v.youtube), "Block YouTube ads defaults on");
+        b.toggle_setting(shield::groups::YOUTUBE_SETTING);
+        assert!(snapshot(&b, true).views.iter().all(|v| !v.youtube));
+        b.toggle_setting(shield::groups::YOUTUBE_SETTING);
         assert_eq!(snap.space_name, "Home");
         assert!(!snap.blank && snap.secure, "the active tab shows https://loose.test/");
     }

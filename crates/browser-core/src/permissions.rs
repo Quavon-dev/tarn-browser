@@ -64,9 +64,64 @@ pub fn set(store: &Store, profile_id: Id, origin: &str, kind: &str, allow: Optio
     }
 }
 
+/// The answers a site's permission row offers, as stored and as labelled.
+pub const DECISIONS: [(&str, &str); 3] = [("allow", "Allow"), ("ask", "Ask"), ("deny", "Deny")];
+
+/// A remembered permission for the page's origin or for a frame embedded in it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PermissionRow {
+    pub origin: String,
+    pub kind: String,
+    pub label: String,
+    pub decision: String,
+}
+
+/// The rows stored for `page` itself, then those of frames embedded in it, named by their host.
+pub fn permission_rows(stored: Vec<(String, String, String)>, page: &str) -> Vec<PermissionRow> {
+    let embedded = format!(" in {page}");
+    let mut rows: Vec<(bool, PermissionRow)> = stored
+        .into_iter()
+        .filter_map(|(origin, kind, decision)| {
+            let frame = match origin.strip_suffix(&embedded) {
+                Some(frame) => Some(frame.to_owned()),
+                None if origin == page => None,
+                None => return None,
+            };
+            let label = match &frame {
+                Some(frame) => format!("{} — {}", kind_label(&kind), Url::parse(frame).ok()?.host_str()?),
+                None => kind_label(&kind),
+            };
+            Some((frame.is_some(), PermissionRow { origin, kind, label: crate::text::bounded_title(&label), decision }))
+        })
+        .collect();
+    rows.sort_by_key(|(embedded, _)| *embedded);
+    rows.into_iter().map(|(_, row)| row).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn stored(origin: &str, kind: &str, decision: &str) -> (String, String, String) {
+        (origin.into(), kind.into(), decision.into())
+    }
+
+    #[test]
+    fn rows_belong_to_the_page_and_its_frames() {
+        let rows = permission_rows(
+            vec![
+                stored("https://meet.test in https://a.test", "camera", "allow"),
+                stored("https://a.test", "microphone", "deny"),
+                stored("https://other.test", "camera", "allow"),
+                stored("https://a.test in https://other.test", "camera", "allow"),
+                stored("https://a.test", "camera+microphone", "ask"),
+            ],
+            "https://a.test",
+        );
+        let labels: Vec<(&str, &str)> = rows.iter().map(|r| (r.label.as_str(), r.decision.as_str())).collect();
+        assert_eq!(labels, [("Microphone", "deny"), ("Camera and Microphone", "ask"), ("Camera — meet.test", "allow")]);
+        assert_eq!(rows[2].origin, "https://meet.test in https://a.test");
+    }
 
     #[test]
     fn permissions_are_listed_by_site_with_readable_names() {

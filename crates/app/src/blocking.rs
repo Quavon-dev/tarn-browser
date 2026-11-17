@@ -1,7 +1,7 @@
 //! Ad, tracker, cookie-banner, malware, adult-content and pop-up blocking: the switches, the per-site
 //! choices and the verdict the navigation gate asks for on every navigation.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use engine::nav_policy::PopupRule;
 use engine::{DataStore, FilterLists};
@@ -16,15 +16,7 @@ use url::Url;
 use crate::browser::{Browser, TabKey};
 use crate::prefs::Pref;
 use crate::shared::AppCore;
-pub(crate) use browser_core::site::{POPUPS, Sets, SiteRules, popup_origin, site_host};
-
-/// "Visit Anyway", a notice's offer, "Open" in another app and a permission prompt's Allow ignore
-/// clicks this long after any of them appears or moves, so a page cannot time a click to land on them.
-pub(crate) const BYPASS_DELAY: Duration = Duration::from_millis(700);
-
-pub(crate) fn stable(since: Instant, now: Instant) -> bool {
-    now.saturating_duration_since(since) >= BYPASS_DELAY
-}
+pub(crate) use browser_core::site::{POPUPS, Sets, SiteRules, popup_origin, site_host, stable};
 
 /// Rule-list groups: the switch that turns each on, and whether pausing a site turns it off.
 pub const GROUPS: [(&str, Pref, bool); 6] = [
@@ -65,11 +57,7 @@ pub enum Offer {
 impl AppCore {
     /// Categories whose domain sets the switches ask for.
     pub fn set_categories(&self) -> Vec<Category> {
-        [(Category::Malware, Pref::BlockMalware), (Category::Adult, Pref::BlockAdult), (Category::Popups, Pref::BlockPopups)]
-            .into_iter()
-            .filter(|(_, pref)| self.pref(*pref))
-            .map(|(c, _)| c)
-            .collect()
+        browser_core::site::set_categories(|key| Pref::ALL.into_iter().find(|p| p.key() == key).map(|p| if self.pref(p) { "on" } else { "off" }.to_owned()))
     }
 
     pub fn set_youtube_config(&self, config: &youtube::Config) {
@@ -134,20 +122,7 @@ impl AppCore {
     /// off nor remove one a later read installed.
     fn set_sets(&self, incoming: Sets) {
         let keep = self.set_categories();
-        {
-            let mut guard = self.sets.borrow_mut();
-            let sets = &mut *guard;
-            let Sets { malware, adult, popups } = incoming;
-            for (category, current, new) in
-                [(Category::Malware, &mut sets.malware, malware), (Category::Adult, &mut sets.adult, adult), (Category::Popups, &mut sets.popups, popups)]
-            {
-                if !keep.contains(&category) {
-                    *current = None;
-                } else if new.is_some() {
-                    *current = new;
-                }
-            }
-        }
+        self.sets.borrow_mut().install(incoming, &keep);
         self.sync_shield();
     }
 }
@@ -177,12 +152,6 @@ impl Browser {
     }
 
     /// Forgets the profile's in-memory choices after its stored data was deleted.
-    pub(crate) fn clear_site_rules(rules: &SiteRules) {
-        rules.paused.borrow_mut().clear();
-        rules.popups.borrow_mut().clear();
-        rules.exceptions.borrow_mut().clear();
-    }
-
     fn excepted(&self, key: TabKey, url: &Url) -> bool {
         let rules = self.profile_of(key).and_then(|p| self.loaded(key.private, p).map(|rt| rt.rules.clone()));
         rules.zip(site_host(url)).is_some_and(|(r, h)| r.exceptions.borrow().contains(h))
@@ -354,27 +323,6 @@ impl Browser {
     }
 }
 
-fn reason(category: Category) -> &'static str {
-    match category {
-        Category::Malware if cfg!(windows) => {
-            "This site is on a list of sites that spread malware, phishing or scams. Visiting it may put your passwords, payments or PC at risk."
-        }
-        Category::Malware => {
-            "This site is on a list of sites that spread malware, phishing or scams. Visiting it may put your passwords, payments or Mac at risk."
-        }
-        Category::Adult => "This site is on a list of adult websites, and adult content blocking is on. Turn it off in Settings › Privacy to visit such sites.",
-        _ => "This site is blocked.",
-    }
-}
-
-fn heading(category: Category) -> &'static str {
-    match category {
-        Category::Malware => "Dangerous site blocked",
-        Category::Adult => "Adult site blocked",
-        _ => "Site blocked",
-    }
-}
-
 /// The warning page, drawn by the shell in place of the web view; nothing of the site is loaded.
 pub fn render_blocked(page: &BlockedPage, cx: &mut Context<Browser>) -> gpui::AnyElement {
     let host = ui::text::bounded_origin(&page.url.origin().ascii_serialization());
@@ -395,16 +343,11 @@ pub fn render_blocked(page: &BlockedPage, cx: &mut Context<Browser>) -> gpui::An
                 .items_center()
                 .gap_2()
                 .child(icon(Icon::Shield, ICON_LARGE, color))
-                .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).child(heading(page.category))),
+                .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).child(browser_core::site::warning_heading(page.category))),
         )
         .child(div().font_weight(FontWeight::SEMIBOLD).overflow_hidden().whitespace_nowrap().text_ellipsis().child(host))
-        .child(div().text_color(Secure::muted()).child(reason(page.category)))
-        .child(
-            div()
-                .text_size(px(TEXT_SMALL))
-                .text_color(Secure::faint())
-                .child(format!("Listed in Tarn's {} list. Lists are updated daily.", page.category.as_str())),
-        )
+        .child(div().text_color(Secure::muted()).child(browser_core::site::warning_reason(page.category, if cfg!(windows) { "PC" } else { "Mac" })))
+        .child(div().text_size(px(TEXT_SMALL)).text_color(Secure::faint()).child(browser_core::site::warning_source(page.category)))
         .child(
             div()
                 .pt_2()
@@ -415,13 +358,4 @@ pub fn render_blocked(page: &BlockedPage, cx: &mut Context<Browser>) -> gpui::An
                 .when(malware, |d| d.child(secure_button("blocked-visit", "Visit Anyway", false).on_click(cx.listener(|b, _, w, cx| b.visit_anyway(w, cx))))),
         );
     div().flex_1().flex().flex_col().items_center().pt(gpui::relative(0.18)).px_4().child(card).into_any_element()
-}
-
-#[test]
-fn guarded_clicks_wait_for_a_stable_layout() {
-    let since = Instant::now();
-    assert!(!stable(since, since));
-    assert!(!stable(since, since + BYPASS_DELAY - Duration::from_millis(1)));
-    assert!(stable(since, since + BYPASS_DELAY));
-    assert!(!stable(since + BYPASS_DELAY, since), "a change after `now` is not stable");
 }

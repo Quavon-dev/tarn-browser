@@ -1,15 +1,20 @@
 //! The rule-list groups built from a filter-list bundle, shared by every shell.
 
-use std::path::Path;
-
 use crate::bundle::{FILTER_BUNDLE_PUBLIC_KEY, Kind, VerifiedBundle};
-use crate::{Category, cache, lists, rules};
+use crate::{Category, lists, rules};
 
 /// Groups built from the bundle, in install order.
 pub const GROUPS: [&str; 5] = ["ads", "trackers", "cosmetic", "malware", "annoyances"];
 /// The setting that switches each group; cosmetic filtering follows the ads switch.
 pub const SETTINGS: [(&str, &str); 5] =
     [("ads", "block_ads"), ("cosmetic", "block_ads"), ("trackers", "block_trackers"), ("malware", "block_malware"), ("annoyances", "block_annoyances")];
+pub const YOUTUBE_GROUP: &str = "youtube";
+pub const YOUTUBE_SETTING: &str = "block_youtube_ads";
+
+/// Whether pausing a site lifts the group: every group but the malware rules (S25).
+pub fn pausable(group: &str) -> bool {
+    group != "malware"
+}
 
 /// The bundle signing key. Debug builds take `TARN_TEST_FILTER_KEY` (64 hex digits) instead, so
 /// tests can install bundles they signed themselves; release builds never read it.
@@ -91,11 +96,10 @@ pub struct Group {
     pub chunks: Vec<String>,
 }
 
-/// Every group of the bundle cached in `dir`, converted.
-pub fn load(dir: &Path, key: &[u8; 32]) -> Result<Vec<Group>, String> {
-    let bundle = cache::read(dir, key).map_err(|e| format!("{e:?}"))?;
-    let inputs = Inputs::new(&bundle);
-    Ok(GROUPS.into_iter().map(|name| Group { name, key: inputs.key(name), chunks: inputs.convert(name) }).collect())
+/// Every group of `bundle`, converted.
+pub fn of(bundle: &VerifiedBundle) -> Vec<Group> {
+    let inputs = Inputs::new(bundle);
+    GROUPS.into_iter().map(|name| Group { name, key: inputs.key(name), chunks: inputs.convert(name) }).collect()
 }
 
 /// The groups whose switch is on; every switch defaults to on.
@@ -107,6 +111,7 @@ pub fn switched_on(setting: impl Fn(&str) -> Option<String>) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::bundle::VerifiedList;
+    use crate::cache;
 
     fn list(category: &str, kind: Kind, data: &[u8]) -> VerifiedList {
         VerifiedList { name: format!("{category}.x"), category: category.into(), kind, count: 2, data: data.to_vec() }
@@ -149,12 +154,13 @@ mod tests {
         assert_eq!(switched_on(|_| None), ["ads", "cosmetic", "trackers", "malware", "annoyances"]);
         let off = |k: &str| (k == "block_ads").then(|| "off".to_owned());
         assert_eq!(switched_on(off), ["trackers", "malware", "annoyances"]);
+        assert_eq!(GROUPS.into_iter().filter(|g| !pausable(g)).collect::<Vec<_>>(), ["malware"]);
     }
 
     #[test]
     fn no_bundle_without_a_signing_key() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(load(dir.path(), &[0; 32]).is_err());
+        assert!(cache::read(dir.path(), &[0; 32]).is_err());
         assert_eq!(parse_key(&"ab".repeat(32)), Some([0xab; 32]));
         assert_eq!(parse_key("abc"), None);
     }

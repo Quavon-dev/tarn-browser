@@ -176,9 +176,9 @@ impl<D: Platform> Shell<D> {
         if self.prompts.iter().filter(|p| p.tab == key).count() >= MAX_QUEUED_PROMPTS {
             return vec![Effect::Command(key, "answer", json!({ "id": id, "accept": false }))];
         }
-        if request.rememberable()
-            && let Some(profile) = self.profile_id()
-            && let Ok(Some(decision)) = self.store().permission(profile, &request.origin, &request.kind)
+        if self.remembers(&request)
+            && let Some(profile) = self.model.profile_of(&self.core, key)
+            && let Ok(Some(decision)) = self.core.store(key.private).permission(profile, &request.origin, &request.kind)
         {
             return vec![Effect::Command(key, "answer", json!({ "id": id, "accept": decision == "allow" }))];
         }
@@ -190,13 +190,17 @@ impl<D: Platform> Shell<D> {
         let Some(at) = self.prompts.iter().position(|p| Some(p.tab) == self.model.active) else { return Vec::new() };
         let prompt = self.prompts.remove(at);
         if answer.remember
-            && prompt.rememberable()
-            && let Some(profile) = self.profile_id()
+            && self.remembers(&prompt)
+            && let Some(profile) = self.model.profile_of(&self.core, prompt.tab)
         {
-            self.store().set_permission(profile, &prompt.origin, &prompt.kind, if answer.accept { "allow" } else { "deny" }).ok();
+            self.core.store(prompt.tab.private).set_permission(profile, &prompt.origin, &prompt.kind, if answer.accept { "allow" } else { "deny" }).ok();
         }
         let args = prompt.answer(answer.accept, answer.text, answer.user, answer.password);
         vec![Effect::Command(prompt.tab, "answer", args)]
+    }
+
+    pub fn remembers(&self, prompt: &PromptRequest) -> bool {
+        prompt.remembered_at(self.model.level_for(&self.core, prompt.tab, &prompt.origin))
     }
 
     fn crashed(&mut self, key: TabKey) -> Vec<Effect> {

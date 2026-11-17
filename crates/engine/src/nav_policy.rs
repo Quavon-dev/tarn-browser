@@ -253,6 +253,17 @@ pub fn open_anyway_notice(url: &Url) -> Option<String> {
     (shown.chars().count() <= 70).then(|| format!("{}: {shown}", LOCAL_NETWORK_BLOCKED.trim_end_matches('.')))
 }
 
+/// What a notice says about a navigation a domain set stopped.
+pub fn blocked_message(category: Category, url: &Url) -> String {
+    let host = url.host_str().unwrap_or_default();
+    match category {
+        Category::Malware => format!("{host} is listed as malicious."),
+        Category::Adult => format!("{host} is listed as adult content."),
+        Category::Popups => format!("Stopped a redirect to {host}, a known pop-up ad site."),
+        Category::Ads | Category::Trackers | Category::Annoyances => format!("{host} is blocked."),
+    }
+}
+
 pub fn popup_blocked_notice(url: Option<&Url>) -> String {
     match url.and_then(Url::host_str) {
         Some(host) => format!("Blocked a pop-up window to {host}."),
