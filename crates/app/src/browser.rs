@@ -97,6 +97,8 @@ pub struct PageState {
     /// The address the user last opened in this tab from the address field or a bookmark, until a
     /// load of it commits: that visit counts toward inline completion (`suggest::typed_visit`).
     pub typed: Option<String>,
+    /// The file this tab opened with Open File: a slept, rebuilt or moved view shows it again (S6).
+    pub opened_file: Option<Url>,
 }
 
 /// A request to hand a URL to another app; `tab` is `None` when the user typed it, `origin` is the
@@ -600,6 +602,32 @@ impl Browser {
         }
     }
 
+    /// Asks for a local file and shows it in a new tab (Open File).
+    pub(crate) fn choose_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Open".into()) });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else { return };
+            let Some(path) = paths.into_iter().next() else { return };
+            this.update_in(cx, |b, window, cx| b.open_file(&path, window, cx)).ok();
+        })
+        .detach();
+    }
+
+    /// Shows a file the user picked in a new tab; only Open File reaches `file:` URLs (S6).
+    pub(crate) fn open_file(&mut self, path: &std::path::Path, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(url) = browser_core::open_file::url_for(path) else { return };
+        if self.command_mode.is_some() {
+            self.close_command(window, cx);
+        }
+        let before = self.model.active;
+        self.new_tab(&url, window, cx);
+        let Some(key) = self.model.active.filter(|k| Some(*k) != before || self.model.burner_shown()) else { return };
+        self.pages.entry(key).or_default().opened_file = Some(url.clone());
+        if let Some(view) = self.active_view() {
+            view.load_file(&url);
+        }
+    }
+
     /// Another non-private space whose rule claims new tabs of `url`; none from a private space.
     pub(crate) fn routed_space(&self, url: &Url) -> Option<usize> {
         let from_private = self.model.current_space().is_none_or(|s| s.private);
@@ -1069,10 +1097,10 @@ impl Browser {
             match saved.as_deref().filter(|state| restorable && !view.is_chromium() && ours(state)) {
                 Some(state) => view.restore_interaction_state(state),
                 None => {
-                    if let Ok(url) = Url::parse(&tab.url)
-                        && nav_policy::decide(&url, Source::Sync) == Decision::Allow
-                    {
+                    if let Ok(url) = Url::parse(&tab.url) {
                         match &as_link {
+                            _ if self.pages.get(&key).and_then(|p| p.opened_file.as_ref()) == Some(&url) => view.load_file(&url),
+                            _ if nav_policy::decide(&url, Source::Sync) != Decision::Allow => {}
                             Some(from) => view.load_link(&url, from.as_ref()),
                             None => view.load(&url),
                         }
@@ -2114,6 +2142,7 @@ impl Browser {
                     view.hand_over(storage);
                 }
                 match &link {
+                    _ if self.pages.get(&key).and_then(|p| p.opened_file.as_ref()) == Some(url) => view.load_file(url),
                     Some(opener) => view.load_link(url, opener.as_ref()),
                     None => view.load(url),
                 }

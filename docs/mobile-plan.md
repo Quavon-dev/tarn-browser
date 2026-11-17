@@ -241,6 +241,16 @@ decisions come from `browser_core::tarn_ext`.
   main-world document-start script can be limited only by origin rules, not by the gate's match patterns,
   `exclude_matches` and grants per frame, so it would style frames the core did not allow. Network rules,
   the action entry, popup, background page and storage still work there.
+- **Open File.** The `load` prop's `file: true` marks the shell's Open File load (`load_file`, S6). The
+  system picker hands over the file's bytes, not its folder, so `browser_core::open_file::stage` copies it
+  into a folder of its own under the data folder's `Opened` (a private space's under `Opened/private`,
+  deleted when it closes; all of it at launch). iOS loads it with `loadFileURL:allowingReadAccessToURL:`
+  for that folder; Android turns file access on for that load only and refuses `file:` requests outside
+  the folder in `shouldInterceptRequest`.
+- **Gap: an opened page's neighbours.** The picker gives one file without its folder, so an HTML file's
+  relative images and styles do not load on iOS or Android; desktop clients read the file's own folder.
+- **Gap: PDF on Android.** Android System WebView has no PDF viewer, so an opened PDF shows nothing; iOS
+  WebKit shows it.
 - **Network rules.** `set_rule_lists` parses each list with `engine::content_rules`; the component applies
   them per request in `shouldInterceptRequest` and in the main-frame checks of `shellLoad`, link navigations
   and history steps, never at Lockdown (the view's or the site's level). As with Shield on Android, an

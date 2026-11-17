@@ -86,6 +86,9 @@ pub struct Navigation<'a> {
     pub page: Option<&'a Url>,
     pub upgraded: bool,
     pub likely_subframe: bool,
+    /// The shell vouches for a `file:` URL: its Open File load (`load_file`), or with `user_step`
+    /// the user's Back, Forward or Reload onto a file this view opened that way.
+    pub file_open: bool,
 }
 
 pub fn navigation(levels: &Levels, view: ShieldLevel, nav: &Navigation) -> Verdict {
@@ -93,7 +96,13 @@ pub fn navigation(levels: &Levels, view: ShieldLevel, nav: &Navigation) -> Verdi
     if nav.likely_subframe && matches!(url.scheme(), "data" | "about") {
         return Verdict::Allow { javascript: view.policy().javascript };
     }
-    let source = if nav.from_shell { Source::Typed } else { Source::Link };
+    let source = if nav_policy::file_open(url, nav.file_open && (nav.from_shell || nav.user_step)) {
+        Source::FileOpen
+    } else if nav.from_shell {
+        Source::Typed
+    } else {
+        Source::Link
+    };
     match nav_policy::decide(url, source) {
         Decision::Allow => {}
         Decision::Prompt => return Verdict::External,
@@ -302,7 +311,7 @@ mod tests {
     }
 
     fn nav(url: &Url) -> Navigation<'_> {
-        Navigation { url, from_shell: false, user_link: false, user_step: false, page: None, upgraded: false, likely_subframe: false }
+        Navigation { url, from_shell: false, user_link: false, user_step: false, page: None, upgraded: false, likely_subframe: false, file_open: false }
     }
 
     fn levels(default: ShieldLevel) -> Levels {
@@ -348,6 +357,27 @@ mod tests {
         assert_eq!(navigation(&any, ShieldLevel::Standard, &Navigation { likely_subframe: true, ..nav(&data) }), Verdict::Allow { javascript: true });
         assert_eq!(navigation(&any, ShieldLevel::Standard, &nav(&u("mailto:a@example.com"))), Verdict::External);
         assert_eq!(navigation(&any, ShieldLevel::Standard, &nav(&u("file:///etc/passwd"))), Verdict::Blocked("nav_policy"));
+        let file = u("file:///Users/u/page.html");
+        assert_eq!(navigation(&any, ShieldLevel::Standard, &Navigation { from_shell: true, ..nav(&file) }), Verdict::Blocked("nav_policy"), "a typed file URL");
+        assert_eq!(
+            navigation(&any, ShieldLevel::Standard, &Navigation { file_open: true, ..nav(&file) }),
+            Verdict::Blocked("nav_policy"),
+            "only the shell's load"
+        );
+        assert_eq!(
+            navigation(&any, ShieldLevel::Standard, &Navigation { from_shell: true, file_open: true, ..nav(&file) }),
+            Verdict::Allow { javascript: true }
+        );
+        assert_eq!(
+            navigation(&any, ShieldLevel::Standard, &Navigation { user_step: true, ..nav(&file) }),
+            Verdict::Blocked("nav_policy"),
+            "a file this view did not open"
+        );
+        assert_eq!(
+            navigation(&any, ShieldLevel::Standard, &Navigation { user_step: true, file_open: true, ..nav(&file) }),
+            Verdict::Allow { javascript: true },
+            "Reload"
+        );
         let public = u("https://public.test/");
         assert_eq!(popup(&any, ShieldLevel::Standard, &u("https://a.test/"), Some(&public)), Verdict::Allow { javascript: true });
         assert_eq!(popup(&any, ShieldLevel::Standard, &u("javascript:1"), Some(&public)), Verdict::Blocked("nav_policy"));

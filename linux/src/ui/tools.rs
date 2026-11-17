@@ -44,8 +44,9 @@ pub enum Command {
     Space(SpaceCommand),
 }
 
-const COMMANDS: [(&str, &str, Command); 23] = [
+const COMMANDS: [(&str, &str, Command); 24] = [
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
+    ("Open File…", "local disk html pdf image document", Command::Key(Action::OpenFile)),
     ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
     ("Zap Element", "hide remove element block", Command::ZapElement),

@@ -8,6 +8,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Open File… shows a local file in a new tab: web pages with their images and styles, PDFs,
+  images, text, SVG and video. ⌘O on macOS, Ctrl+O on Windows and Linux, and the menu on iOS and
+  Android; the address bar shows the file's name (macOS, Windows, Linux, iOS, Android; no PDFs on
+  Android, and on iOS and Android a page's images and styles from its folder do not load).
 - Tab groups and folders can show an icon: one of twenty symbols or a single emoji, set with
   Change Icon… in their menu (macOS, Windows; folders on Linux). Clean Up gives each group it
   makes the icon of its kind.

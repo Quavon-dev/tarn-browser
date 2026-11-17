@@ -20,7 +20,7 @@ pub const VERDICT_ALLOW: i32 = 0;
 pub const VERDICT_BLOCK: i32 = 1;
 pub const VERDICT_MAKE_HTTPS: i32 = 2;
 
-const SOURCES: [Source; 3] = [Source::Typed, Source::Link, Source::Popup];
+const SOURCES: [Source; 4] = [Source::Typed, Source::Link, Source::Popup, Source::FileOpen];
 
 const KINDS: [(ResourceKind, &str); 11] = [
     (ResourceKind::Document, "main_frame"),
@@ -165,6 +165,10 @@ mod tests {
         assert_eq!(decide("intent://x#Intent;end", 2), PROMPT);
         assert_eq!(decide("not a url", 1), BLOCK);
         assert_eq!(decide("https://example.com/", 99), ALLOW);
+        assert_eq!(decide("file:///data/opened/0/a.html", 3), ALLOW);
+        for source in [0, 1, 2, 99] {
+            assert_eq!(decide("file:///data/opened/0/a.html", source), BLOCK);
+        }
     }
 
     #[test]

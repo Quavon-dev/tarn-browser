@@ -60,8 +60,11 @@ struct State {
     load: RefCell<Option<(String, u64)>>,
     loaded_seq: Cell<Option<u64>>,
     shell_url: RefCell<Option<String>>,
+    shell_file: Cell<bool>,
+    opened_files: RefCell<Vec<String>>,
     link_url: RefCell<Option<String>>,
     load_link: Cell<bool>,
+    load_file: Cell<bool>,
     upgraded: RefCell<Option<(String, bool, bool)>>,
     user_step: Cell<bool>,
     posted: RefCell<Option<Url>>,
@@ -321,13 +324,16 @@ fn apply_zaps(state: &Rc<State>) {
 fn load(state: &Rc<State>, current: Option<String>) {
     let Some(web) = state.web() else { return };
     let wanted = state.load.borrow().clone();
-    let target = match wanted {
+    let (target, file) = match wanted {
         Some((url, seq)) if state.loaded_seq.get() != Some(seq) => {
             state.loaded_seq.set(Some(seq));
             *state.link_url.borrow_mut() = state.load_link.get().then(|| url.clone());
-            Some(url)
+            (Some(url), state.load_file.get())
         }
-        _ => current,
+        _ => {
+            let opened = current.as_ref().is_some_and(|c| state.opened_files.borrow().contains(c));
+            (current, opened)
+        }
     };
     let Some(target) = target else { return };
     let Ok(url) = Url::parse(&target) else {
@@ -335,6 +341,10 @@ fn load(state: &Rc<State>, current: Option<String>) {
     };
     state.silenced.set(false);
     *state.shell_url.borrow_mut() = Some(url.to_string());
+    state.shell_file.set(file);
+    if file && url.scheme() == "file" {
+        state.opened_files.borrow_mut().push(url.to_string());
+    }
     web.load_uri(url.as_str());
 }
 
@@ -416,8 +426,10 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
         return true;
     }
     let from_shell = state.shell_url.borrow_mut().take_if(|s| *s == uri).is_some();
+    let shell_file = from_shell && state.shell_file.take();
     let upgraded = state.upgraded.borrow_mut().take_if(|(s, _, _)| *s == uri);
     let step = matches!(nav_type, NavigationType::BackForward | NavigationType::Reload) && state.user_step.take();
+    let file_open = shell_file || (step && state.opened_files.borrow().contains(&uri));
     let Ok(url) = Url::parse(&uri) else {
         decision.ignore();
         return true;
@@ -445,6 +457,7 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
         page: page.as_ref(),
         upgraded: upgraded.is_some(),
         likely_subframe: !from_shell && !gesture && nav_type == NavigationType::Other,
+        file_open,
     };
     let verdict = policy::navigation(&state.levels.borrow(), state.level.get(), &nav);
     match verdict {
@@ -870,6 +883,7 @@ impl NativeComponent for TarnWebView {
             "load" => {
                 *state.load.borrow_mut() = value["url"].as_str().zip(value["seq"].as_u64()).map(|(u, s)| (u.to_owned(), s));
                 state.load_link.set(value["link"].as_bool() == Some(true));
+                state.load_file.set(value["file"].as_bool() == Some(true));
             }
             "active" => {
                 let active = value.as_bool().unwrap_or(false);

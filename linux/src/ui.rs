@@ -291,6 +291,22 @@ fn new_tab(ui: Ui) {
     ui.command_ref.focus();
 }
 
+fn open_file(ui: Ui) {
+    let dialog = nsh_core::file_dialog::OpenDialog::files().button_label("Open");
+    ui.root.run(|| {
+        drop(spawn(async move {
+            let path = match pick_paths(dialog).await {
+                Ok(paths) => paths.and_then(|p| p.into_iter().next()),
+                Err(_) => return act(ui, |b| b.show_toast("The file dialog could not open", None)),
+            };
+            let Some(url) = path.as_deref().and_then(browser_core::open_file::url_for) else { return };
+            animate_next(POP);
+            ui.panel.set(Panel::None);
+            act(ui, |b| b.open_file(&url));
+        }))
+    });
+}
+
 fn web_views(ui: Ui) -> View {
     view()
         .relative()
@@ -323,7 +339,9 @@ fn web_views(ui: Ui) -> View {
                     .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
                     .prop("zaps", move || item.with(|v| v.zaps.clone()))
                     .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
-                    .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link }))))
+                    .prop("load", move || {
+                        item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link, "file": v.file })))
+                    })
                     .prop("active", move || JsonValue::from(item.with(|v| v.active)))
                     .on_native_event(move |event: &NativeEvent| {
                         if &*event.name == browser_core::extensions::STORE_EVENT {
@@ -1615,6 +1633,7 @@ fn run_action(ui: Ui, action: Action) {
     match action {
         Action::NewTab => new_tab(ui),
         Action::OpenLocation => open_palette(ui),
+        Action::OpenFile => open_file(ui),
         Action::CloseTab => act_moving(ui, |b| b.model.active.into_iter().for_each(|k| b.close_tab(k))),
         Action::ReopenClosedTab => {
             animate_next(POP);

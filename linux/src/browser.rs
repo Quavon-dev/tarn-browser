@@ -36,6 +36,7 @@ pub const ZOOM_STEPS: [f64; 9] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0]
 pub struct Page {
     pub url: String,
     pub link: bool,
+    pub file: bool,
     pub title: String,
     pub can_back: bool,
     pub can_forward: bool,
@@ -90,6 +91,9 @@ pub struct Browser {
     pub core: Rc<Core<Data>>,
     pub model: Model,
     pub pages: HashMap<TabKey, Page>,
+    /// Files the user opened with Open File this session: a slept or rebuilt tab loads them again
+    /// as Open File (S6).
+    opened_files: HashSet<String>,
     pub outbox: Vec<(TabKey, &'static str, Value)>,
     pub notice: Option<Notice>,
     pub downloads: Vec<DownloadItem>,
@@ -155,6 +159,7 @@ impl Browser {
             core,
             model,
             pages: HashMap::new(),
+            opened_files: HashSet::new(),
             outbox: Vec::new(),
             notice: None,
             downloads: Vec::new(),
@@ -305,6 +310,12 @@ impl Browser {
         Some(key)
     }
 
+    /// Shows a file the user picked in a new tab; only Open File reaches `file:` URLs (S6).
+    pub fn open_file(&mut self, url: &Url) {
+        self.opened_files.insert(url.to_string());
+        self.new_tab(url.as_str());
+    }
+
     pub fn level_for(&self, key: TabKey, url: &str) -> ShieldLevel {
         let profile = self.model.profile_of(&self.core, key);
         let url = Url::parse(url).ok();
@@ -317,6 +328,7 @@ impl Browser {
         let page = self.pages.entry(key).or_default();
         page.load = Some((url.to_owned(), seq));
         page.link = false;
+        page.file = self.opened_files.contains(url);
         page.loading = true;
         page.level = level;
         page.error = None;

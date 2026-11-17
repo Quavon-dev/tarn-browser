@@ -37,6 +37,8 @@ import com.longbridge.nsh.NshComponent;
 import com.longbridge.nsh.NshComponentContext;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -93,6 +95,8 @@ final class TarnWebView implements NshComponent {
     private String builtStore;
     private String loadUrl;
     private String loadOpener;
+    private boolean loadFile;
+    private volatile String fileFolder;
     private Object loadSeq;
     private Object appliedSeq;
     private boolean active = true;
@@ -153,6 +157,7 @@ final class TarnWebView implements NshComponent {
                     loadUrl = url;
                     loadSeq = load.get("seq");
                     loadOpener = load.get("opener") instanceof String opener ? opener : null;
+                    loadFile = Boolean.TRUE.equals(load.get("file"));
                 }
             }
             default -> {
@@ -460,7 +465,7 @@ final class TarnWebView implements NshComponent {
         extensions.apply();
         if (loadUrl != null && !Objects.equals(loadSeq, appliedSeq)) {
             appliedSeq = loadSeq;
-            shellLoad(loadUrl, loadOpener);
+            shellLoad(loadUrl, loadOpener, loadFile);
         }
     }
 
@@ -613,10 +618,11 @@ final class TarnWebView implements NshComponent {
         return true;
     }
 
-    private void shellLoad(String target, String opener) {
+    private void shellLoad(String target, String opener, boolean file) {
         refusedUrl = null;
         if (opener == null && storeLink(target)) return;
-        if (!passesNavPolicy(target, opener == null ? Native.TYPED : Native.POPUP, opener)) return;
+        boolean fileLoad = file && opener == null && isFile(target);
+        if (!passesNavPolicy(target, fileLoad ? Native.FILE_OPEN : opener == null ? Native.TYPED : Native.POPUP, opener)) return;
         int site = levelFor(target);
         if (opener != null && isWeb(target) && Native.intoPrivateNetwork(target, opener, false, site)) {
             blockLocal(target);
@@ -636,7 +642,38 @@ final class TarnWebView implements NshComponent {
         }
         setJavaScript(action);
         startNavigation(allowed, site, opener == null, opener);
+        fileAccess(fileLoad ? allowed : null);
         web.loadUrl(allowed);
+    }
+
+    private void fileAccess(String fileUrl) {
+        fileFolder = fileUrl == null ? null : folder(fileUrl);
+        web.getSettings().setAllowFileAccess(fileFolder != null);
+    }
+
+    private static String folder(String url) {
+        String path = Uri.parse(url).getPath();
+        File parent = path == null ? null : new File(path).getParentFile();
+        try {
+            return parent == null ? null : parent.getCanonicalPath() + File.separator;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private boolean inFileFolder(String url) {
+        String folder = fileFolder;
+        String path = Uri.parse(url).getPath();
+        if (folder == null || path == null) return false;
+        try {
+            return new File(path).getCanonicalPath().startsWith(folder);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static boolean isFile(String url) {
+        return "file".equals(Uri.parse(url).getScheme());
     }
 
     private void startNavigation(String url, int site, boolean userStarted, String from) {
@@ -718,6 +755,7 @@ final class TarnWebView implements NshComponent {
         String allowed = documentVerdict(target, pageLevel);
         if (allowed == null) return false;
         setJavaScript(leavesJavaScriptOff(action) ? Native.CONTINUE_NO_JS : action);
+        fileAccess(null);
         viewLevel = pageLevel;
         if (!allowed.equals(target)) {
             startNavigation(allowed, pageLevel, userStarted, from);
@@ -752,11 +790,13 @@ final class TarnWebView implements NshComponent {
             if (!rebuildKeeping(site)) return;
             setJavaScript(action);
             startNavigation(url, site, true, null);
+            fileAccess(isFile(url) ? url : null);
             web.loadUrl(url);
             return;
         }
         setJavaScript(action);
         startNavigation(url, site, true, current == null ? null : current.url());
+        fileAccess(isFile(url) ? url : null);
         web.goBackOrForward(offset);
     }
 
@@ -774,6 +814,7 @@ final class TarnWebView implements NshComponent {
         }
         Page current = top;
         startNavigation(url, current == null ? levelFor(url) : current.level(), true, url);
+        fileAccess(isFile(url) ? url : null);
         web.reload();
     }
 
@@ -938,6 +979,7 @@ final class TarnWebView implements NshComponent {
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             String target = request.getUrl().toString();
+            if (isFile(target)) return inFileFolder(target) ? null : refused();
             if (!isWeb(target)) return null;
             int kind = kind(request);
             if (kind == Native.MAIN_FRAME) {

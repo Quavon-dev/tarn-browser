@@ -9,6 +9,7 @@ pub const PREFIX: &str = "keymap.";
 pub enum Action {
     NewTab,
     OpenLocation,
+    OpenFile,
     CloseTab,
     ReopenClosedTab,
     NextTab,
@@ -49,6 +50,7 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
         &[
             ("New tab", Action::NewTab, "ctrl+t"),
             ("Open location", Action::OpenLocation, "ctrl+l"),
+            ("Open file", Action::OpenFile, "ctrl+o"),
             ("Close tab", Action::CloseTab, "ctrl+w"),
             ("Reopen closed tab", Action::ReopenClosedTab, "ctrl+shift+t"),
             ("Next tab", Action::NextTab, "ctrl+tab"),

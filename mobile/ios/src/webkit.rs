@@ -32,6 +32,8 @@ impl WebView {
         pub fn set_back_forward_gestures(&self, allow: bool);
         #[unsafe(method(loadRequest:))]
         pub fn load_request(&self, request: &NSURLRequest) -> Option<Retained<WKNavigation>>;
+        #[unsafe(method(loadFileURL:allowingReadAccessToURL:))]
+        pub fn load_file_url(&self, url: &NSURL, read_access: &NSURL) -> Option<Retained<WKNavigation>>;
         #[unsafe(method(goBack))]
         pub fn go_back(&self) -> Option<Retained<WKNavigation>>;
         #[unsafe(method(goForward))]
