@@ -318,9 +318,12 @@ fn web_views(ui: Ui) -> View {
                     .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
                     .prop("zaps", move || item.with(|v| v.zaps.clone()))
                     .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
-                    .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s }))))
+                    .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link }))))
                     .prop("active", move || JsonValue::from(item.with(|v| v.active)))
                     .on_native_event(move |event: &NativeEvent| {
+                        if &*event.name == browser_core::extensions::STORE_EVENT {
+                            extensions::store_link(ui, key, event.data["id"].as_str().unwrap_or_default());
+                        }
                         if &*event.name == "iconData" {
                             return icon_data(ui, key, event.data.clone());
                         }
@@ -1871,6 +1874,13 @@ fn new_ui(row: SavedWindow) -> Ui {
         let now = ui.editing.get();
         if editing.replace(now) != now {
             untracked(|| act(ui, |_| {}));
+        }
+    });
+    let extensions_open = std::cell::Cell::new(false);
+    effect(move || {
+        let open = ui.panel.get() == Panel::Settings && ui.ext_pane.get();
+        if extensions_open.replace(open) && !open {
+            untracked(tarn_nsh_shared::extensions::close_store_sheet);
         }
     });
     let shown_space = std::cell::Cell::new(None);

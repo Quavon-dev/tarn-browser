@@ -1,14 +1,16 @@
+use std::path::PathBuf;
+
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use url::Url;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, CreateRoundRectRgn, ScreenToClient, SetWindowRgn};
-use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegGetValueW, RegSetKeyValueW};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetKeyState, SetFocus, VK_MENU, VK_SHIFT};
 use windows_sys::Win32::UI::Shell::{
-    DefSubclassProc, ILCreateFromPathW, ILFree, RemoveWindowSubclass, SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify, SHOpenFolderAndSelectItems,
-    SetWindowSubclass, ShellExecuteW,
+    DefSubclassProc, FOLDERID_LocalAppData, ILCreateFromPathW, ILFree, RemoveWindowSubclass, SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify,
+    SHGetKnownFolderPath, SHOpenFolderAndSelectItems, SetWindowSubclass, ShellExecuteW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWLP_HWNDPARENT, GetClientRect, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId, HTTRANSPARENT, HWND_TOP, MB_ICONWARNING, MB_OK, MessageBoxW,
@@ -245,7 +247,7 @@ fn set_value(key: &str, name: Option<&str>, value: &str) -> bool {
 
 fn value(key: &str, name: &str) -> Option<String> {
     let (key, name) = (wide(key), wide(name));
-    let mut buffer = [0u16; 256];
+    let mut buffer = [0u16; 2048];
     let mut size = u32::try_from(size_of_val(&buffer)).unwrap_or(0);
     // SAFETY: NUL-terminated strings; `buffer` holds `size` bytes, and RRF_RT_REG_SZ ends it with NUL.
     let status =
@@ -263,9 +265,45 @@ pub fn is_default_browser() -> bool {
 /// `is_default_browser`.
 pub fn make_default_browser() {
     let Some(exe) = std::env::current_exe().ok().and_then(|p| p.to_str().map(str::to_owned)) else { return };
-    // Chromium, which parses this command line first, takes everything after the marker as one
-    // URL, so a link cannot add switches.
-    let command = format!("\"{exe}\" {SINGLE_ARGUMENT} %1");
+    if !register_browser(&exe) {
+        return;
+    }
+    let (verb, target) = (wide("open"), wide("ms-settings:defaultapps?registeredAppUser=Tarn"));
+    // SAFETY: NUL-terminated strings that outlive the call.
+    unsafe { ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), target.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL) };
+}
+
+/// Points an earlier Make Default at the installed `tarn.exe` once the install folder moved, as it
+/// does when the user profile moves to another drive. Development builds leave it alone.
+pub fn refresh_browser_registration() {
+    let Some(installed) = local_app_data().map(|d| d.join(r"Programs\Tarn\tarn.exe")) else { return };
+    let running = std::env::current_exe().and_then(std::fs::canonicalize).ok();
+    let (Some(exe), true) = (installed.to_str(), running.is_some() && running == std::fs::canonicalize(&installed).ok()) else { return };
+    let found = [
+        value(&format!(r"Software\Classes\{PROG_ID}\shell\open\command"), ""),
+        value(&format!(r"{CLIENT}\shell\open\command"), ""),
+        value(r"Software\RegisteredApplications", "Tarn"),
+    ];
+    if registration_stale(exe, &found) {
+        register_browser(exe);
+    }
+}
+
+/// Whether an earlier registration, also one a failed write left unfinished, names another
+/// executable than `exe`.
+fn registration_stale(exe: &str, found: &[Option<String>; 3]) -> bool {
+    let current = [open_command(exe), format!("\"{exe}\""), format!(r"{CLIENT}\Capabilities")];
+    found.iter().any(Option::is_some) && found.iter().zip(&current).any(|(found, current)| !found.as_ref().is_some_and(|f| f.eq_ignore_ascii_case(current)))
+}
+
+/// Chromium, which parses this command line first, takes everything after the marker as one URL,
+/// so a link cannot add switches.
+fn open_command(exe: &str) -> String {
+    format!("\"{exe}\" {SINGLE_ARGUMENT} %1")
+}
+
+fn register_browser(exe: &str) -> bool {
+    let command = open_command(exe);
     let classes = format!(r"Software\Classes\{PROG_ID}");
     let registered = set_value(&classes, None, "Tarn URL")
         && set_value(&format!(r"{classes}\DefaultIcon"), None, &format!("{exe},0"))
@@ -276,14 +314,28 @@ pub fn make_default_browser() {
         && set_value(&format!(r"{CLIENT}\Capabilities"), Some("ApplicationDescription"), "A private web browser.")
         && ["http", "https"].iter().all(|scheme| set_value(&format!(r"{CLIENT}\Capabilities\URLAssociations"), Some(scheme), PROG_ID))
         && set_value(r"Software\RegisteredApplications", Some("Tarn"), &format!(r"{CLIENT}\Capabilities"));
-    if !registered {
-        return;
+    if registered {
+        // SAFETY: tells the shell file associations changed; no item arguments.
+        unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED as i32, SHCNF_IDLIST, std::ptr::null(), std::ptr::null()) };
     }
-    // SAFETY: tells the shell file associations changed; no item arguments.
-    unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED as i32, SHCNF_IDLIST, std::ptr::null(), std::ptr::null()) };
-    let (verb, target) = (wide("open"), wide("ms-settings:defaultapps?registeredAppUser=Tarn"));
-    // SAFETY: NUL-terminated strings that outlive the call.
-    unsafe { ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), target.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL) };
+    registered
+}
+
+/// The user's Local AppData folder as the shell resolves it, the folder the installer uses too;
+/// for when `LOCALAPPDATA` is missing from the environment.
+pub fn local_app_data() -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    let mut path: windows_sys::core::PWSTR = std::ptr::null_mut();
+    // SAFETY: `path` receives a NUL-terminated string the shell allocates, freed below.
+    let status = unsafe { SHGetKnownFolderPath(&FOLDERID_LocalAppData, 0, std::ptr::null_mut(), &mut path) };
+    let dir = (status >= 0 && !path.is_null()).then(|| {
+        // SAFETY: `path` is a valid NUL-terminated wide string until it is freed below.
+        let units = unsafe { std::slice::from_raw_parts(path, (0..).take_while(|&i| *path.add(i) != 0).count()) };
+        PathBuf::from(std::ffi::OsString::from_wide(units))
+    });
+    // SAFETY: frees the shell's allocation; null is allowed.
+    unsafe { CoTaskMemFree(path.cast()) };
+    dir.filter(|d| d.is_absolute())
 }
 
 /// A modal alert for when no window can show the message; returns once the user dismisses it.
@@ -364,5 +416,19 @@ mod tests {
         for allowed in ["mailto:a@example.com", "zoommtg://join", "tel:+491234"] {
             assert!(super::external_allowed(&Url::parse(allowed).unwrap()), "{allowed}");
         }
+    }
+
+    #[test]
+    fn a_moved_or_unfinished_registration_is_stale() {
+        let exe = r"D:\Users\a\AppData\Local\Programs\Tarn\tarn.exe";
+        let old = r"C:\Users\a\AppData\Local\Programs\Tarn\tarn.exe";
+        let of = |exe: &str| [Some(super::open_command(exe)), Some(format!("\"{exe}\"")), Some(format!(r"{}\Capabilities", super::CLIENT))];
+        assert!(!super::registration_stale(exe, &[None, None, None]), "never registered");
+        assert!(!super::registration_stale(exe, &of(exe)));
+        assert!(!super::registration_stale(exe, &of(&exe.to_uppercase())), "case differs only");
+        assert!(super::registration_stale(exe, &of(old)), "install folder moved");
+        let [command, _, listed] = of(exe);
+        assert!(super::registration_stale(exe, &[command.clone(), None, listed]), "a write failed after the link command");
+        assert!(super::registration_stale(exe, &[command, Some(format!("\"{exe}\"")), None]), "never listed in Default Apps");
     }
 }

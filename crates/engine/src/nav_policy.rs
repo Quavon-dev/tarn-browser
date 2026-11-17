@@ -144,6 +144,22 @@ pub fn user_started(shell_load: bool, link: bool, history_step: bool, redirect: 
     (shell_load && !link) || history_step || (redirect && pending_user_load)
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StoreNav {
+    pub redirect: bool,
+    pub shell_load: bool,
+    pub page_link: bool,
+    pub clicked: bool,
+}
+
+pub fn store_link_asks(nav: StoreNav) -> bool {
+    !nav.redirect && !nav.page_link && (nav.shell_load || nav.clicked)
+}
+
+pub fn chromium_store_link(redirect: bool, shell_load: bool, link_load: bool, user_gesture: bool) -> bool {
+    store_link_asks(StoreNav { redirect, shell_load, page_link: link_load, clicked: user_gesture })
+}
+
 /// Whether a main-frame navigation away from the page `from` into a local address is refused (a
 /// router's admin page, a local service): a script may not take a tab from the public web onto the
 /// local network; the user may, by navigations the caller judges as theirs (typed, history steps the shell started; in Chromium also a click with a user gesture), also through redirects. A `blob:`
@@ -244,6 +260,22 @@ pub fn chromium_external(url: &Url, source: Source) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_the_users_own_navigation_asks_for_a_store_install() {
+        use super::{StoreNav, chromium_store_link, store_link_asks};
+        let asks = |redirect, shell_load, page_link, clicked| store_link_asks(StoreNav { redirect, shell_load, page_link, clicked });
+        assert!(asks(false, true, false, false), "typed");
+        assert!(asks(false, false, false, true), "a click the engine credits to the user");
+        assert!(!asks(false, false, false, false), "a script's navigation without a gesture");
+        assert!(!asks(true, true, false, false) && !asks(true, false, false, true), "a redirect never");
+        assert!(!asks(false, true, true, false), "a link the shell loads for a page (peek, pop-up tab)");
+        assert!(chromium_store_link(false, false, false, true), "Chromium: a click with a gesture");
+        assert!(chromium_store_link(false, true, false, true), "Chromium: the shell's own load, which CEF reports as a gesture");
+        assert!(!chromium_store_link(true, false, false, true), "Chromium: the redirect of a gesture's navigation");
+        assert!(!chromium_store_link(false, true, true, true), "Chromium: a peek or pop-up the shell loads for the page");
+        assert!(!chromium_store_link(false, false, false, false), "Chromium: a script navigation without a gesture");
+    }
+
     #[test]
     fn chromium_hands_off_only_app_schemes() {
         use super::Source::*;

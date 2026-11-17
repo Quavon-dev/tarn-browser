@@ -822,3 +822,27 @@ fn waking_a_sleeping_pane_keeps_the_live_panes_views() {
     assert_eq!(shell.model.lifecycle.born(a), before, "waking b does not renumber a's view");
     assert!(shell.model.lifecycle.born(b).is_some());
 }
+
+#[test]
+fn store_links_install_only_from_a_profile_tab_outside_lockdown() {
+    let (_dir, mut shell) = open();
+    finish(&mut shell, "https://example.com/", "E");
+    let key = active(&shell);
+    assert!(shell.store_link_allowed(key));
+    assert!(shell.set_site_level(Some(ShieldLevel::Lockdown)));
+    assert!(!shell.store_link_allowed(key), "from a Lockdown site");
+    assert!(shell.set_site_level(None));
+    assert!(shell.store_link_allowed(key));
+    shell.navigate("https://extensions.tarnbrowser.com/install/helper");
+    shell.event(key, browser_core::extensions::STORE_EVENT, &json!({ "id": "helper" }), 3);
+    assert!(!shell.pages[&key].loading, "the cancelled load stops");
+    shell.enter_private();
+    assert!(!shell.store_link_allowed(active(&shell)), "never from the private space");
+    assert!(!shell.store_link_allowed(key), "only from the space shown");
+    shell.close_private();
+    shell.open_burner();
+    assert!(!shell.store_link_allowed(active(&shell)), "never from a burner tab");
+    shell.burn();
+    assert!(shell.set_default_level(ShieldLevel::Lockdown));
+    assert!(!shell.store_link_allowed(active(&shell)), "never in a Lockdown profile");
+}

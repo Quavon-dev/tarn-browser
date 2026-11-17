@@ -6,6 +6,18 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- New Space and Edit Space open as one card on every client: pick a profile or start a new one,
+  then name the space and give it a colour and icon; Edit Space also sets the schedule, and changes
+  apply on Save. On macOS and Windows it is a popover above the sidebar's + button, drawn like the
+  Library, and the profile card takes the same look; on Linux a popover like the Library; on iOS and
+  Android a sheet from Spaces (macOS, Windows, Linux, iOS, Android).
+- The macOS disk image opens on a window drawn from the Tarn icon's lake, with an arrow from Tarn
+  to the Applications folder and the Tarn volume icon.
+
+## [0.1.2] - 2026-11-17
+
 ### Added
 
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
@@ -20,66 +32,13 @@ All notable changes to Tarn are documented in this file. The format is based on
   GitHub or the official catalog with per-site grants (macOS, Windows, Linux, iOS, Android). On
   macOS they run in WebKit and Chromium tabs alike, cross-site frames included, with a toolbar
   button, badge and popup; on Windows they are the extensions Tarn can run.
-
-### Changed
-
-- New Space and Edit Space open as one card on every client: pick a profile or start a new one,
-  then name the space and give it a colour and icon; Edit Space also sets the schedule, and changes
-  apply on Save. On macOS and Windows it is a popover above the sidebar's + button, drawn like the
-  Library, and the profile card takes the same look; on Linux a popover like the Library; on iOS and
-  Android a sheet from Spaces (macOS, Windows, Linux, iOS, Android).
-- The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and
-  your rights, and states per client what it describes.
-
-### Security
-
-- On Android, Tarn's own requests and file downloads refuse a server whose verified certificate
-  path, root included, holds an RSA key under 2048 bits or an elliptic-curve key under 224 bits.
-
-### Added
-
+- Extension store: an "Install in Tarn" link on extensions.tarnbrowser.com opens a confirmation
+  in Settings › Extensions built only from Tarn's verified catalog, and nothing is downloaded
+  until you press Install there; Settings › Extensions links the store (macOS, Windows, Linux,
+  iOS, Android).
 - Site icons in tiles, tab rows, split panes, history, bookmarks, suggestions and the site and share
   popovers on Linux, and on tab cards and the share sheet on iOS, kept per profile as on macOS.
   Android shows letter tiles and makes no icon request of its own.
-
-### Changed
-
-- Toasts are centred pills sized to their message on every client. A copied link or a saved page
-  shows a green check, and a failure such as a Reading List save that did not work shows an amber
-  warning.
-- The Shield card follows the theme: dawn with the sun behind the peak in light themes, night
-  with stars, a crescent and an aurora in dark ones; New Design still reshapes the ridges (macOS,
-  Windows, Linux, iOS, Android).
-- The sidebar opens with a space switcher, downloads and the profile's avatar; the selected tab is
-  an outlined row with its close button, pinned and sleeping tabs show a glyph, and Library, the
-  spaces, New Space and Settings sit at the bottom (macOS, Windows, Linux); Clean Up is a button
-  beside New Tab Group and New Folder (macOS, Windows).
-- The address field starts with a Shield chip that shows how much Shield stopped on the site and
-  opens Site Settings; Split View and Share sit beside it, and Settings moved to the sidebar
-  (macOS, Windows, Linux). On phones the address and the Shield chip sit in the bottom bar above
-  Back, Forward, New Tab, Tabs and Menu (iOS, Android).
-- Typing an address or `>` opens a centred palette over the page with sections, a glyph per row,
-  shortcuts as key caps and key hints (macOS, Windows, Linux).
-- Site Settings shows what Shield stopped on the site, the site's Shield switch, what the chosen
-  level does and the site's options in one grouped list; rarer ones sit behind More site settings
-  (macOS, Windows, Linux).
-- Share opens a menu with Copy Link, Copy Clean Link, Show QR Code and, where the system offers
-  them, More…, Save Page as PDF and Print… (macOS, Windows, Linux); on phones a share sheet slides
-  up (iOS, Android).
-- Permission prompts lead with a glyph, the site in bold and a line on what allowing means; the
-  find bar is a pill at the page's top right; downloads show a file-type tile, the size and a
-  progress bar (macOS, Windows, Linux, iOS, Android).
-- Settings groups its panes under You and Browser; the Profile pane shows the card beside its
-  numbers and Shield level with Flip, Change Design and Share Card, one chart of the week and the
-  most protected sites; Appearance is a grouped list (macOS, Windows, Linux, iOS, Android).
-- Menus Tarn builds show a glyph beside each entry (macOS, Windows, Linux). Popovers, sheets and
-  prompts pop in and out, switches slide, tab rows grow and shrink, all with the shared timings
-  and none under Reduce Motion (macOS, Windows, Linux, iOS, Android).
-
-## [0.1.1] - 2026-11-16
-
-### Added
-
 - Every release carries a CycloneDX SBOM for each client (macOS, Windows, Linux, iOS, Android),
   and `SECURITY.md` explains how to verify a download's checksum, attestation and signature.
 - Nightly builds: Settings › General › Nightly builds updates Tarn every day to a signed build of
@@ -178,12 +137,55 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and
+  your rights, and states per client what it describes.
+- Toasts are centred pills sized to their message on every client. A copied link or a saved page
+  shows a green check, and a failure such as a Reading List save that did not work shows an amber
+  warning.
+- The Shield card follows the theme: dawn with the sun behind the peak in light themes, night
+  with stars, a crescent and an aurora in dark ones; New Design still reshapes the ridges (macOS,
+  Windows, Linux, iOS, Android).
+- The sidebar opens with a space switcher, downloads and the profile's avatar; the selected tab is
+  an outlined row with its close button, pinned and sleeping tabs show a glyph, and Library, the
+  spaces, New Space and Settings sit at the bottom (macOS, Windows, Linux); Clean Up is a button
+  beside New Tab Group and New Folder (macOS, Windows).
+- The address field starts with a Shield chip that shows how much Shield stopped on the site and
+  opens Site Settings; Split View and Share sit beside it, and Settings moved to the sidebar
+  (macOS, Windows, Linux). On phones the address and the Shield chip sit in the bottom bar above
+  Back, Forward, New Tab, Tabs and Menu (iOS, Android).
+- Typing an address or `>` opens a centred palette over the page with sections, a glyph per row,
+  shortcuts as key caps and key hints (macOS, Windows, Linux).
+- Site Settings shows what Shield stopped on the site, the site's Shield switch, what the chosen
+  level does and the site's options in one grouped list; rarer ones sit behind More site settings
+  (macOS, Windows, Linux).
+- Share opens a menu with Copy Link, Copy Clean Link, Show QR Code and, where the system offers
+  them, More…, Save Page as PDF and Print… (macOS, Windows, Linux); on phones a share sheet slides
+  up (iOS, Android).
+- Permission prompts lead with a glyph, the site in bold and a line on what allowing means; the
+  find bar is a pill at the page's top right; downloads show a file-type tile, the size and a
+  progress bar (macOS, Windows, Linux, iOS, Android).
+- Settings groups its panes under You and Browser; the Profile pane shows the card beside its
+  numbers and Shield level with Flip, Change Design and Share Card, one chart of the week and the
+  most protected sites; Appearance is a grouped list (macOS, Windows, Linux, iOS, Android).
+- Menus Tarn builds show a glyph beside each entry (macOS, Windows, Linux). Popovers, sheets and
+  prompts pop in and out, switches slide, tab rows grow and shrink, all with the shared timings
+  and none under Reduce Motion (macOS, Windows, Linux, iOS, Android).
 - A split's tabs show side by side in one row of the sidebar, and in one card of the tab grid on
   iPad and Android tablets (macOS, Windows, Linux, iOS, Android).
 - The app identifier is `de.quavon.tarn` (was `dev.tarn.browser`) on macOS, iOS and Android. On
   macOS the first start moves the website data over; Tarn has to be made the default browser again,
   camera and microphone permissions are asked again, and a saved Anthropic API token has to be
   entered again.
+- Pop-ups share one look and motion on macOS and Windows: toasts, the QR code card, the tab hover
+  card and tooltips cast the same shadow as Site Settings and Downloads, the QR card fades out,
+  the shortcuts sheet and reader rise in, and shadows follow one elevation scale. Menus opened from
+  a button (the Windows menu button, "Always open in") drop from the button instead of the pointer.
+  The find bar uses icon buttons with their shortcuts in tooltips. Dragging a tab over another
+  shows a line where it will land. The start page's fog and search effect animate only in the
+  front window.
+- Tarn is now licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`).
+  Only Quavon UG (haftungsbeschränkt) may distribute it through app stores
+  (`LICENSE-APP-STORE.md`), and the Tarn name, logo and app icon are trademarks (`TRADEMARKS.md`).
 
 ### Fixed
 
@@ -276,22 +278,15 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The menu bar shows a changed shortcut at once, while Settings is still in front.
 - A closed private tab's row no longer flashes in the matching normal space, and reopening a tab
   right after closing it no longer drops its collapsing row early.
-
-### Changed
-
-- Pop-ups share one look and motion on macOS and Windows: toasts, the QR code card, the tab hover
-  card and tooltips cast the same shadow as Site Settings and Downloads, the QR card fades out,
-  the shortcuts sheet and reader rise in, and shadows follow one elevation scale. Menus opened from
-  a button (the Windows menu button, "Always open in") drop from the button instead of the pointer.
-  The find bar uses icon buttons with their shortcuts in tooltips. Dragging a tab over another
-  shows a line where it will land. The start page's fog and search effect animate only in the
-  front window.
-- Tarn is now licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`).
-  Only Quavon UG (haftungsbeschränkt) may distribute it through app stores
-  (`LICENSE-APP-STORE.md`), and the Tarn name, logo and app icon are trademarks (`TRADEMARKS.md`).
+- Windows: the installer always installs into the current user's `AppData\Local\Programs\Tarn`,
+  also after the user profile moved to another drive, and a link set up with Make Default follows
+  the install to its new folder. Without `LOCALAPPDATA` in its environment, Tarn keeps its data in
+  the Local AppData folder Windows reports instead of the folder it was started from.
 
 ### Security
 
+- On Android, Tarn's own requests and file downloads refuse a server whose verified certificate
+  path, root included, holds an RSA key under 2048 bits or an elliptic-curve key under 224 bits.
 - The cookie bridge between WebKit and Chromium no longer gives Chromium a less restricted copy of
   a cookie set without `SameSite` (macOS): WebKit reports such cookies as `SameSite=None`, and the
   bridge now reads them as `Lax`, as Chromium does. Sign-ins made in WebKit reach Chromium tabs
@@ -311,6 +306,6 @@ All notable changes to Tarn are documented in this file. The format is based on
 - One address field for URLs, search, open tabs and app actions, with configurable shortcuts.
 - Split View, link peek, tab groups, pinned tabs that remember their page and sleeping tabs.
 
-[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.0...v0.1.1
+[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/Quavon-dev/tarn-browser/releases/tag/v0.1.0

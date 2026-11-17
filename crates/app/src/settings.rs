@@ -236,6 +236,7 @@ struct Snapshot {
     extension_busy: Option<String>,
     extension_choice: Vec<String>,
     consent: Option<crate::extensions::Consent>,
+    store_sheet: Option<(crate::extensions::StoreToken, String, Vec<String>)>,
     catalog: (Vec<crate::extensions::CatalogRow>, bool),
     card: Option<Card>,
     /// `None` outside an app bundle, which cannot become the default browser.
@@ -263,6 +264,7 @@ pub struct SettingsWindow {
     appearance: appearance::Pane,
     _observe: Option<Subscription>,
     _activation: Subscription,
+    _release: Subscription,
 }
 
 impl SettingsWindow {
@@ -324,6 +326,9 @@ impl SettingsWindow {
                     appearance: appearance::Pane::new(cx),
                     _observe: observe,
                     _activation: activation,
+                    _release: cx.on_release(|this: &mut SettingsWindow, cx| {
+                        this.main.update(cx, |b, _, cx| b.cancel_store_offer(cx)).ok();
+                    }),
                 }
             })
         })
@@ -403,6 +408,7 @@ impl SettingsWindow {
                 .map(|(_, a)| a.iter().map(|a| crate::extensions::shown(&a.name)).collect())
                 .unwrap_or_default(),
             consent: if self.pane == SettingsPane::Extensions { b.core.extensions.borrow().consent() } else { None },
+            store_sheet: if self.pane == SettingsPane::Extensions { b.store_sheet() } else { None },
             catalog: if self.pane == SettingsPane::Extensions { b.catalog_rows() } else { (Vec::new(), false) },
             filters: b.core.filters.borrow().clone(),
             shared_data: self.pane == SettingsPane::Privacy
@@ -439,6 +445,9 @@ impl SettingsWindow {
     }
 
     pub(crate) fn set_pane(&mut self, pane: SettingsPane, cx: &mut Context<Self>) {
+        if self.pane == SettingsPane::Extensions && pane != SettingsPane::Extensions {
+            self.with_browser(cx, |b, _, cx| b.cancel_store_offer(cx));
+        }
         if pane == SettingsPane::Developer {
             self.with_browser(cx, |b, _, cx| b.refresh_local_servers(cx));
         }
@@ -1759,6 +1768,24 @@ impl SettingsWindow {
                 ),
             );
         }
+        if let Some((token, title, lines)) = s.store_sheet {
+            let card = group()
+                .child(row(true).child(text_block(title, "From Tarn's signed official catalog.")))
+                .children(lines.into_iter().map(|l| row(false).child(div().flex_1().child(l))))
+                .child(
+                    row(false)
+                        .child(div().flex_1())
+                        .child(
+                            button("store-cancel", "Cancel", true)
+                                .on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.cancel_store_offer(cx)))),
+                        )
+                        .child(button("store-install", "Install", false).on_click(cx.listener(move |this, _, _, cx| {
+                            let token = token.clone();
+                            this.with_browser(cx, move |b, _, cx| b.confirm_store_offer(&token, cx))
+                        }))),
+                );
+            return page.child(section("Confirm")).child(card).into_any_element();
+        }
         if let Some(c) = s.consent {
             let list = |title: &'static str, items: &[String]| {
                 (!items.is_empty()).then(|| text_block(title, items.iter().map(|i| crate::extensions::shown(i)).collect::<Vec<_>>().join(", ")))
@@ -1925,6 +1952,13 @@ impl SettingsWindow {
                         .into_any_element()
                 }));
             }
+            official = official.child(self.link_row(
+                "extension-store",
+                "Browse the store",
+                "Official extensions with screenshots and search; Install in Tarn asks here first.",
+                browser_core::extensions::STORE_URL,
+                cx,
+            ));
             page = page.child(section("Official")).child(official);
             if old {
                 page = page.child(note("This list is more than 30 days old. Show official extensions to get the current one."));

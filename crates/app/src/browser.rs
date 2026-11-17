@@ -137,7 +137,10 @@ pub(crate) type Core = browser_core::Core<DataStore>;
 pub(crate) type ProfileRuntime = browser_core::ProfileRuntime<DataStore>;
 
 pub(crate) fn data_dir() -> PathBuf {
-    browser_core::data_dir(None).unwrap_or_default()
+    let dir = browser_core::data_dir(None);
+    #[cfg(windows)]
+    let dir = dir.or_else(|| Some(engine::local_app_data()?.join("Tarn")));
+    dir.unwrap_or_default()
 }
 
 /// Purges Chromium's data when its owner is gone or a purge is pending; before CEF starts or once it is gone.
@@ -1812,6 +1815,7 @@ impl Browser {
                     None => self.notify_offer(key, message, None),
                 }
             }
+            Event::StoreInstall(id) => self.store_link(key, id, window, cx),
             Event::PopupBlocked(url) => {
                 let message = nav_policy::popup_blocked_notice(url.as_ref());
                 let offer = url.filter(|u| nav_policy::decide(u, Source::Typed) == Decision::Allow).map(Offer::NewTab);

@@ -43,7 +43,7 @@ impl<D: Platform> Shell<D> {
         }
         match name {
             "committed" | "finished" => return self.page_event(key, name == "committed", data, now),
-            "started" | "stopped" => {
+            "started" | "stopped" | browser_core::extensions::STORE_EVENT => {
                 if let Some(page) = self.pages.get_mut(&key) {
                     page.loading = name == "started";
                 }

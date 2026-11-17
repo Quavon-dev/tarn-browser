@@ -225,6 +225,13 @@ pub(crate) fn page_title(view: &WKWebView) -> String {
     bounded(&title)
 }
 
+fn store_link_activated(action: &WKNavigationAction, shell_load: bool, page_link: bool, redirect: bool) -> bool {
+    let known = action.respondsToSelector(sel!(_isRedirect)) && action.respondsToSelector(sel!(_isUserInitiated));
+    // SAFETY: main-thread reads of the live action; the private selector exists (checked first) and returns a BOOL.
+    let clicked = known && unsafe { action.navigationType() == WKNavigationType::LinkActivated && msg_send![action, _isUserInitiated] };
+    nav_policy::store_link_asks(nav_policy::StoreNav { redirect, shell_load, page_link, clicked })
+}
+
 pub(crate) fn to_url(url: Option<Retained<NSURL>>) -> Option<Url> {
     let s = url?.absoluteString()?.to_string();
     Url::parse(&s).ok()
@@ -346,6 +353,13 @@ define_class!(
                 handler.call((WKNavigationActionPolicy::Cancel, prefs));
                 return;
             };
+            if store_link_activated(action, from_shell, link, redirect)
+                && let Some(id) = crate::tarn_ext::store_install(&url)
+            {
+                self.emit(Event::StoreInstall(id));
+                handler.call((WKNavigationActionPolicy::Cancel, prefs));
+                return;
+            }
             match nav_policy::decide(&url, Source::Link) {
                 Decision::Allow => {}
                 Decision::Prompt => {

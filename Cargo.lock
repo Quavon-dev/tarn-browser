@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "ai"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "platform",
  "pulldown-cmark",
@@ -176,7 +176,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "app"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "browser-core",
  "devkit",
@@ -201,7 +201,7 @@ dependencies = [
 
 [[package]]
 name = "app-dll"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "app",
  "engine",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "browser-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cssparser",
  "engine",
@@ -1066,7 +1066,7 @@ dependencies = [
 
 [[package]]
 name = "chromium-helper"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cef",
 ]
@@ -1146,7 +1146,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "cli-bridge"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1727,7 +1727,7 @@ dependencies = [
 
 [[package]]
 name = "devkit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde_json",
 ]
@@ -1993,7 +1993,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "engine"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -2221,7 +2221,7 @@ dependencies = [
 
 [[package]]
 name = "filter-bundle"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -3332,7 +3332,7 @@ checksum = "6e44b0a4eaa4c82f441d50a963f2d5f05a787240aeee097597033e72accfd22f"
 
 [[package]]
 name = "import"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes",
  "cbc",
@@ -4699,7 +4699,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "platform"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -5866,7 +5866,7 @@ dependencies = [
 
 [[package]]
 name = "shield"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "adblock",
  "ed25519-dalek",
@@ -6093,7 +6093,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -6306,7 +6306,7 @@ dependencies = [
 
 [[package]]
 name = "sync"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -6856,7 +6856,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "browser-core",
  "engine",

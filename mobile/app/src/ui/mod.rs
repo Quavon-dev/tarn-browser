@@ -106,6 +106,9 @@ impl Ui {
         if &*e.name == "pressed" && self.read(|s| s.model.active == Some(key)) {
             return;
         }
+        if &*e.name == browser_core::extensions::STORE_EVENT {
+            extensions::store_link(self, key, e.data["id"].as_str().unwrap_or_default());
+        }
         if &*e.name == "iconData" {
             let (name, data) = (e.name.to_string(), e.data.clone());
             let encoded = data.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned();
@@ -443,6 +446,13 @@ pub fn App() -> impl IntoElement {
         field: element_ref(),
         fresh: signal(None),
     };
+    let extensions_open = std::cell::Cell::new(false);
+    effect(move || {
+        let open = ui.screen.get() == Screen::Extensions;
+        if extensions_open.replace(open) && !open {
+            untracked(tarn_nsh_shared::extensions::close_store_sheet);
+        }
+    });
     effect(move || {
         let light = !dark();
         untracked(|| {
