@@ -34,6 +34,7 @@ android {
 dependencies {
     implementation(files("../build/tarn/nsh-classes.jar"))
     implementation("androidx.webkit:webkit:1.18.0")
+    testImplementation("junit:junit:4.13.2")
 }
 
 // The release workflow writes the SBOM with -Psbom after the APK is uploaded, so the plugin never runs in its build.

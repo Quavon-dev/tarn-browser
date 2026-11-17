@@ -48,6 +48,8 @@ pub enum Screen {
     ReadingList,
     Move(TabKey),
     SpaceEdit(usize),
+    Licences,
+    Licence(usize),
     Extensions,
     ExtensionPopup,
 }

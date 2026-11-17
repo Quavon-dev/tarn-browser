@@ -8,12 +8,28 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
+  Linux, iOS, Android).
+- Linux, iOS and Android builds come with their third-party licence notices; Linux packages
+  install them under `/usr/share/licenses/tarn` (the rpm now also ships `LICENSE` there), and on
+  iOS and Android Settings › Open-source licences shows the list built into the app, searchable
+  and offline.
 - Tarn extensions: a package whose manifest sets `browser_specific_settings.tarn.runtime` to 1
   runs on Tarn's own runtime with content scripts, static network rules, `runtime`, `storage`,
   `tabs`, `action`, `i18n` and a background page, the same on every engine, installed from a file,
   GitHub or the official catalog with per-site grants (macOS, Windows, Linux, iOS, Android). On
   macOS they run in WebKit and Chromium tabs alike, cross-site frames included, with a toolbar
   button, badge and popup; on Windows they are the extensions Tarn can run.
+
+### Changed
+
+- The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and
+  your rights, and states per client what it describes.
+
+### Security
+
+- On Android, Tarn's own requests and file downloads refuse a server whose verified certificate
+  path, root included, holds an RSA key under 2048 bits or an elliptic-curve key under 224 bits.
 
 ## [0.1.1] - 2026-11-16
 

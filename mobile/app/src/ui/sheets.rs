@@ -606,6 +606,48 @@ pub fn picking_banner(ui: Ui) -> impl IntoElement {
     })
 }
 
+#[cfg(target_os = "android")]
+const LICENCES_TEXT: &str = include_str!("../../../../packaging/third-party-licenses-android.txt");
+#[cfg(not(target_os = "android"))]
+const LICENCES_TEXT: &str = include_str!("../../../../packaging/third-party-licenses-ios.txt");
+
+fn licence_sections() -> &'static [browser_core::licences::Section] {
+    static SECTIONS: std::sync::LazyLock<Vec<browser_core::licences::Section>> = std::sync::LazyLock::new(|| browser_core::licences::sections(LICENCES_TEXT));
+    &SECTIONS
+}
+
+pub fn licences(ui: Ui) -> impl IntoElement {
+    let query = signal(String::new());
+    let rows = move || browser_core::licences::matching(licence_sections(), &query.get()).into_iter().map(|(ix, _)| ix).collect::<Vec<_>>();
+    view()
+        .gap_2()
+        .child(caption("The software Tarn is built from and its licences, as shipped with this version.").px_1())
+        .child(
+            text_field("Search licences", "Search licences")
+                .value(move || query.get())
+                .on_change(move |v: &str| query.set(v.to_owned()))
+                .auto_capitalize(AutoCapitalize::None),
+        )
+        .child(framed(view().child(each(
+            rows,
+            |ix: &usize| *ix,
+            move |ix, _| {
+                let ix = ix.get_untracked();
+                row_button(licence_sections()[ix].title.clone(), None, move || ui.show(Screen::Licence(ix)))
+            },
+        ))))
+}
+
+pub fn licence(ix: usize) -> impl IntoElement {
+    let section = licence_sections().get(ix);
+    view().gap_3().px_1().children(section.map(|s| {
+        view()
+            .gap_3()
+            .child(text(s.title.clone()).text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).text_color(Theme::text))
+            .child(text(s.body.clone()).text_color(Theme::text).selectable(true))
+    }))
+}
+
 pub fn heading_for(screen: Screen) -> Option<&'static str> {
     Some(match screen {
         Screen::Reader => "Reader",
@@ -614,6 +656,8 @@ pub fn heading_for(screen: Screen) -> Option<&'static str> {
         Screen::ReadingList => "Reading List",
         Screen::Move(_) => "Move Tab",
         Screen::SpaceEdit(_) => "Edit Space",
+        Screen::Licences => "Open-Source Licences",
+        Screen::Licence(_) => "Licence",
         _ => return None,
     })
 }

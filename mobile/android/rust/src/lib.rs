@@ -41,6 +41,12 @@ pub extern "system" fn Java_dev_tarn_android_Native_warm(_: JNIEnv, _: JClass) -
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_strongKey(_: JNIEnv, _: JClass, kind: jint, bits: jint) -> jboolean {
+    let kind = browser_core::tls::KeyKind::from_code(kind);
+    u8::from(u32::try_from(bits).is_ok_and(|bits| browser_core::tls::strong_key(kind, bits)))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_tarn_android_Native_decide(mut env: JNIEnv, _: JClass, url: JString, source: jint) -> jint {
     string(&mut env, &url).map_or(policy::BLOCK, |url| policy::decide(&url, source))
 }

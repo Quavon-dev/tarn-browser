@@ -41,14 +41,14 @@ feeds ("Signing in CI") and publishes a GitHub release with:
 - `SHA256SUMS` for every file.
 
 Nothing is published until a maintainer approves the run's `release-signing` deployment. Every build
-job first runs `scripts/check-version.sh <tag>` (the macOS build skips it for engine updates), so a
-release tag needs the same version in the root, `linux/` and `mobile/` manifests,
-`mobile/app/nsh.json`, the Android Gradle file, the RPM spec and the PKGBUILD. Engine updates from
-`chromium-update.yml` build the macOS bundle alone, so a failing Windows, Linux or mobile build
-never holds back a Chromium security fix; the `fuzz` and `deny` gates still apply to them. A manual
-run, `gh workflow run release.yml --ref v1.2.3`, does the same for a macOS-only release. It fails
-unless started on a `v*` tag whose `release.yml` has the `workflow_dispatch` trigger (older tags
-cannot use it), and it publishes nothing while a release for that tag exists.
+job first runs `scripts/check-version.sh <tag>` (the macOS build skips it for engine updates, every
+job for nightly builds), so a release tag needs the same version in the root, `linux/` and `mobile/`
+manifests, `mobile/app/nsh.json`, the Android Gradle file, the RPM spec and the PKGBUILD. Engine
+updates from `chromium-update.yml` build the macOS bundle alone, so a failing Windows, Linux or
+mobile build never holds back a Chromium security fix; the `fuzz` and `deny` gates still apply to
+them. A manual run, `gh workflow run release.yml --ref v1.2.3`, does the same for a macOS-only
+release. It fails unless started on a `v*` tag whose `release.yml` has the `workflow_dispatch`
+trigger (older tags cannot use it), and it publishes nothing while a release for that tag exists.
 
 The build jobs hold no `id-token` permission. The macOS `build` job installs nothing unpinned (Ninja
 for the Chromium build comes from `scripts/fetch-ninja.sh`, a release download checked against the
@@ -423,7 +423,7 @@ CI job runs it with `--check`, so a dependency change must regenerate it.
 - Renovate (`renovate.json`) opens grouped pull requests for Cargo and GitHub Actions updates
   weekly; actions stay pinned by commit SHA. A Cargo update fails the `check` job until
   `scripts/third-party-licenses.sh` is run on its branch and the regenerated
-  `packaging/third-party-licenses.txt` and `packaging/third-party-licenses-windows.txt` are pushed.
+  `packaging/third-party-licenses*.txt` files (macOS, Windows, Linux, iOS, Android) are pushed.
 - `.github/workflows/audit.yml` runs `cargo deny check advisories` nightly, and the `deny` job of
   `ci.yml` checks advisories with bans, licences and sources on every pull request, engine updates
   included, and `release.yml`'s `deny` job again before signing: a new advisory holds back an

@@ -132,6 +132,7 @@ final class Downloads {
             for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
                 target = checked(target, request);
                 HttpURLConnection connection = (HttpURLConnection) new URL(target).openConnection();
+                StrongKeys.apply(connection);
                 try {
                     connection.setInstanceFollowRedirects(false);
                     connection.setConnectTimeout(TIMEOUT_MS);
