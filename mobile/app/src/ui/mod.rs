@@ -356,6 +356,16 @@ fn notice(ui: Ui) -> impl IntoElement {
                     )
                 }))
                 .child(dynamic(move || {
+                    ui.read(|s| s.can_undo_sort()).then(|| {
+                        tarn_nsh_shared::controls::toast_action("Undo Sort", move || {
+                            ui.act(|s| {
+                                s.undo_sort();
+                                Vec::new()
+                            })
+                        })
+                    })
+                }))
+                .child(dynamic(move || {
                     ui.read(|s| s.can_undo()).then(|| {
                         tarn_nsh_shared::controls::toast_action("Undo", move || {
                             ui.act(|s| {

@@ -27,6 +27,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Bitwarden's privileges (Touch ID unlock through the Bitwarden app, clipboard and passkeys) are
   off until you turn on Settings › Extensions › Bitwarden integration; until then Bitwarden runs
   like any other app extension (macOS).
+- Clean Up sorts by what each page is: a known site decides, other pages by their address and
+  title (Money and Mail and Chat take known sites only); a loose tab joins your own group that
+  already holds two or more tabs of its site (a known site goes to its category's group when
+  there is one), new category groups (now also Learning, Games and Food) come in a fixed order,
+  tabs of one site sit together, and Undo Sort puts everything back (macOS, Windows).
 - The macOS disk image opens on a window drawn from the Tarn icon's lake, with an arrow from Tarn
   to the Applications folder and the Tarn volume icon.
 - Settings › General lists every profile and marks the one the window uses.

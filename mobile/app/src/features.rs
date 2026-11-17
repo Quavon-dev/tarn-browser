@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use browser_core::snapshot::{self, SpaceSnapshot};
 use browser_core::split::{Share, Split};
@@ -31,6 +31,28 @@ impl<D: Platform> Shell<D> {
 
     pub fn notice_tone(&self) -> browser_core::toast::Tone {
         self.tone.as_ref().filter(|(text, _)| self.notice.as_ref() == Some(text)).map_or_else(Default::default, |(_, tone)| *tone)
+    }
+
+    pub fn clean_up(&mut self) {
+        let private = self.model.private();
+        let urls: HashMap<store::Id, String> = self.model.tabs.iter().map(|t| (t.id, self.tab_url(TabKey { private, id: t.id }))).collect();
+        let Some(sorted) = browser_core::sidebar::clean_up(&mut self.model, &self.core, |t| urls.get(&t.id).cloned().unwrap_or_else(|| t.url.clone())) else {
+            return;
+        };
+        self.toast_as(sorted.tone, sorted.text.clone());
+        self.sort_undo = sorted.undo.map(|undo| (sorted.text, undo));
+    }
+
+    pub fn can_undo_sort(&self) -> bool {
+        self.sort_undo.as_ref().is_some_and(|(text, _)| self.notice.as_ref() == Some(text))
+    }
+
+    pub fn undo_sort(&mut self) {
+        let Some((_, undo)) = self.sort_undo.take() else { return };
+        self.notice = None;
+        if !browser_core::sidebar::undo_sort(&mut self.model, &self.core, &undo) {
+            self.toast_as(browser_core::toast::Tone::Warning, "Could not undo the sort".to_owned());
+        }
     }
 
     pub fn can_undo(&self) -> bool {

@@ -5,6 +5,7 @@ use store::{Folder, Id, Tab, TabKind};
 use crate::closed::ClosedGroup;
 use crate::split::Splits;
 use crate::tabs::{Model, TabKey, folder_tree};
+use crate::toast::Tone;
 use crate::{Core, WebsiteData};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -218,22 +219,38 @@ pub fn saved_share(transfers: impl IntoIterator<Item = (u64, Option<u64>)>) -> O
     (total > 0).then(|| (done as f64 / total as f64) as f32)
 }
 
-pub fn clean_up<D: WebsiteData>(model: &mut Model, core: &Core<D>, url: impl Fn(&Tab) -> String) -> usize {
-    let Some(space_id) = model.current_space().filter(|_| !model.burner_shown()).map(|s| s.space.id) else { return 0 };
-    let plan = crate::cleanup::plan(&model.tabs, &model.groups, url);
-    let sorted = crate::cleanup::apply(core.store(model.private()), space_id, plan);
-    if sorted > 0 {
-        model.reload_space(core);
-    }
-    sorted
+pub struct CleanUp {
+    pub text: String,
+    pub tone: Tone,
+    pub undo: Option<(bool, crate::cleanup::Undo)>,
 }
 
-pub fn clean_up_text(sorted: usize) -> String {
-    match sorted {
-        0 => "Already tidy".to_owned(),
-        1 => "Sorted 1 tab into groups".to_owned(),
-        n => format!("Sorted {n} tabs into groups"),
+pub fn clean_up<D: WebsiteData>(model: &mut Model, core: &Core<D>, url: impl Fn(&Tab) -> String) -> Option<CleanUp> {
+    let (private, space_id) = model.current_space().filter(|_| !model.burner_shown()).map(|s| (s.private, s.space.id))?;
+    let store = core.store(private);
+    let (Ok(tabs), Ok(groups)) = (store.tabs(space_id), store.groups(space_id)) else {
+        return Some(CleanUp { text: "Could not sort the tabs".to_owned(), tone: Tone::Warning, undo: None });
+    };
+    let sort = crate::cleanup::plan(&tabs, &groups, url);
+    let applied = if sort.changed { crate::cleanup::apply(store, space_id, &sort).map(Some) } else { Ok(None) };
+    let text = sort.summary(applied.is_ok(), 0, false);
+    let tone = if applied.is_ok() { Tone::Info } else { Tone::Warning };
+    if sort.changed {
+        model.reload_space(core);
     }
+    Some(CleanUp { text, tone, undo: applied.ok().flatten().map(|undo| (private, undo)) })
+}
+
+pub fn undo_sort<D: WebsiteData>(model: &mut Model, core: &Core<D>, (private, undo): &(bool, crate::cleanup::Undo)) -> bool {
+    let done = match crate::cleanup::undo(core.store(*private), undo) {
+        Ok(dropped) => {
+            dropped.iter().for_each(|id| model.closed_tabs.forget_group(*private, *id));
+            true
+        }
+        Err(_) => false,
+    };
+    model.reload_space(core);
+    done
 }
 
 pub fn tabs_below(model: &Model, key: TabKey) -> Vec<TabKey> {
@@ -360,10 +377,14 @@ mod tests {
         }
         model.reload_space(&core);
         assert!(cleanable(&model));
-        assert_eq!(clean_up(&mut model, &core, |t| t.url.clone()), 2);
+        let sorted = clean_up(&mut model, &core, |t| t.url.clone()).unwrap();
+        assert_eq!((sorted.text.as_str(), sorted.tone), ("Sorted 2 tabs into groups", Tone::Info));
         assert_eq!(model.groups.len(), 1);
-        assert_eq!(clean_up_text(2), "Sorted 2 tabs into groups");
-        assert_eq!(clean_up_text(0), "Already tidy");
+        assert_eq!(model.groups[0].icon, "code", "a new group shows its category's icon");
+        let again = clean_up(&mut model, &core, |t| t.url.clone()).unwrap();
+        assert!(again.undo.is_none(), "a second run changes nothing");
+        assert!(undo_sort(&mut model, &core, &sorted.undo.unwrap()));
+        assert!(model.groups.is_empty(), "Undo Sort removes the group it made");
     }
 
     #[test]

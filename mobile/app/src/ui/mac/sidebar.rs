@@ -673,13 +673,7 @@ fn new_tab_row(bar: Bar) -> View {
             move || ui.read(|s| bar::cleanable(&s.model)),
             move || {
                 glyph_button(glyphs::BROOM_SPARKLES, "Clean Up: sorts tabs into groups by what each page is. Runs on this device.", Placement::Top, move || {
-                    act(ui, |s| {
-                        let private = s.model.private();
-                        let urls: std::collections::HashMap<Id, String> =
-                            s.model.tabs.iter().map(|t| (t.id, s.tab_url(TabKey { private, id: t.id }))).collect();
-                        let sorted = bar::clean_up(&mut s.model, &s.core, |t| urls.get(&t.id).cloned().unwrap_or_else(|| t.url.clone()));
-                        s.toast(bar::clean_up_text(sorted));
-                    })
+                    act(ui, |s| s.clean_up())
                 })
                 .accessibility_label("Clean Up")
             },
