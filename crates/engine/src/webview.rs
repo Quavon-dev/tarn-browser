@@ -30,7 +30,7 @@ use crate::page_scripts::{
 };
 use crate::{DataStore, Event};
 
-use crate::nav_policy::SiteFor;
+use crate::nav_policy::{self, SiteFor};
 
 /// A popup WebKit asked for. Dropping it discards the popup.
 pub struct Popup {
@@ -219,12 +219,33 @@ impl WebView {
         self
     }
 
-    /// Loads a URL that the caller has already passed through `nav_policy`.
+    /// Loads a URL that the caller has already passed through `nav_policy`; never a `file:` URL.
     pub fn load(&self, url: &Url) {
+        if url.scheme() == "file" {
+            return self._delegate.emit(Event::Blocked { url: url.clone(), message: nav_policy::FILE_NOT_OPENED.to_owned(), category: None });
+        }
         let url = url.clone();
         self.when_protected(Some(url.clone()), move |view, delegate| {
             delegate.mark_shell_load(&url);
             delegate.set_user_load(load_url(view, &url));
+        });
+    }
+
+    /// Shows a file the user picked with Open File (`nav_policy::Source::FileOpen`); the page may
+    /// read its own folder.
+    pub fn load_file(&self, url: &Url) {
+        let Some(folder) = nav_policy::file_read_access(url) else { return };
+        let url = url.clone();
+        self.when_protected(Some(url.clone()), move |view, delegate| {
+            let (Some(file), Some(folder)) =
+                (NSURL::URLWithString(&NSString::from_str(url.as_str())), folder.to_str().map(|f| NSURL::fileURLWithPath(&NSString::from_str(f))))
+            else {
+                return;
+            };
+            delegate.mark_shell_load(&url);
+            objc2::DefinedClass::ivars(delegate).opened_files.borrow_mut().insert(url.clone());
+            // SAFETY: main-thread call with valid file URLs.
+            delegate.set_user_load(unsafe { view.loadFileURL_allowingReadAccessToURL(&file, &folder) });
         });
     }
 
@@ -593,10 +614,14 @@ impl WebView {
     }
 
     /// Reloads a page whose content process ended; not the user's navigation, as a page can end
-    /// its own process.
+    /// its own process. An opened file loads again with its read grant.
     pub fn recover(&self) {
-        // SAFETY: main-thread call on a live web view.
-        unsafe { self.view.reload() };
+        let opened = self.url().filter(|u| objc2::DefinedClass::ivars(&*self._delegate).opened_files.borrow().contains(u));
+        match opened {
+            Some(url) => self.load_file(&url),
+            // SAFETY: main-thread call on a live web view.
+            None => drop(unsafe { self.view.reload() }),
+        }
     }
 
     pub fn stop(&self) {

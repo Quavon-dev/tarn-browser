@@ -93,6 +93,8 @@ pub(crate) struct DelegateState {
     /// without turning page-initiated navigations into browser-initiated ones.
     /// The second field marks a link the page chose (a peek), which is not the user's navigation.
     pub shell_load: RefCell<Option<(Url, bool)>>,
+    /// Files this view showed through `load_file`; only they get Open File's credit (S6).
+    pub opened_files: RefCell<std::collections::HashSet<Url>>,
     /// Whether the main-frame navigation in flight was started by the main frame or the shell;
     /// a download response for one started by an iframe is cancelled.
     pub main_initiated: Cell<bool>,
@@ -142,6 +144,7 @@ impl DelegateState {
             filtered,
             downloads,
             shell_load: RefCell::default(),
+            opened_files: RefCell::default(),
             main_initiated: Cell::new(true),
             user_navigation: Cell::new(false),
             history_step: RefCell::default(),
@@ -337,7 +340,8 @@ define_class!(
                 }
             }
             if !is_main {
-                let allow = url.as_ref().is_some_and(|u| u.scheme() != "tarn");
+                let top = state.committed_url.borrow().clone();
+                let allow = url.as_ref().is_some_and(|u| u.scheme() != "tarn" && nav_policy::file_subresource_allowed(u, top.as_ref()));
                 let policy = if allow && !wants_download {
                     if let Some(u) = &url {
                         crate::tarn_webkit::gate_frame(web_view, u, false);
@@ -360,7 +364,15 @@ define_class!(
                 handler.call((WKNavigationActionPolicy::Cancel, prefs));
                 return;
             }
-            match nav_policy::decide(&url, Source::Link) {
+            // SAFETY: plain property reads on the live action.
+            let (kind, modifiers) = unsafe { (action.navigationType(), action.modifierFlags()) };
+            // WebKit reports a script's `a.click()`, `form.submit()`, `history.back()` or
+            // `location.reload()` with the same types as the user's, so only the shell's own loads
+            // and history steps count as the user's.
+            let history_step = matches!(kind, WKNavigationType::BackForward | WKNavigationType::Reload) && history_step.contains(&url);
+            let opened = state.opened_files.borrow().contains(&url);
+            let source = if nav_policy::file_open(&url, opened && ((from_shell && !link) || history_step)) { Source::FileOpen } else { Source::Link };
+            match nav_policy::decide(&url, source) {
                 Decision::Allow => {}
                 Decision::Prompt => {
                     let origin = if from_shell || self.ivars().provisional.get().is_some() {
@@ -380,8 +392,6 @@ define_class!(
                     return;
                 }
             }
-            // SAFETY: plain property reads on the live action.
-            let (kind, modifiers) = unsafe { (action.navigationType(), action.modifierFlags()) };
             // A page without a committed origin (a new popup, about:blank, data:) is judged by the
             // frame that started the navigation, its opener's for a popup; opaque counts as public.
             // SAFETY: main-thread read of the live action; the frame comes back retained or nil.
@@ -404,10 +414,6 @@ define_class!(
                 handler.call((WKNavigationActionPolicy::Cancel, prefs));
                 return;
             }
-            // WebKit reports a script's `a.click()`, `form.submit()`, `history.back()` or
-            // `location.reload()` with the same types as the user's, so only the shell's own loads
-            // and history steps count as the user's.
-            let history_step = matches!(kind, WKNavigationType::BackForward | WKNavigationType::Reload) && history_step.contains(&url);
             // A navigation the old document starts while the user's load is pending is the page's own
             // (S5, S10): only hops of the navigation the shell itself started are credited to it.
             let pending_user_load = state.provisional.get().is_some_and(|id| id != 0 && id == navigation_id(state.user_load.borrow().as_deref()));

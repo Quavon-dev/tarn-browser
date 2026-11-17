@@ -163,6 +163,9 @@ wrap_resource_request_handler! {
             };
             let first_party = parse(&request.first_party_for_cookies());
             let top = browser.and_then(|b| b.main_frame()).and_then(|f| parse(&f.url())).or_else(|| first_party.clone());
+            if kind != "main_frame" && !crate::nav_policy::file_subresource_allowed(&url, top.as_ref()) {
+                return ReturnValue::CANCEL;
+            }
             let referrer = parse(&request.referrer_url());
             let decided = request_filter::decide(&shield, &url, kind, top.as_ref(), first_party.as_ref(), referrer.as_ref(), self.lockdown_view);
             let extensions_act = !self.lockdown_view && matches!(url.scheme(), "http" | "https" | "ws" | "wss");

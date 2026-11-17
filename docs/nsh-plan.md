@@ -146,6 +146,13 @@ Gaps, with their reason:
   remembered under the history item it left from (also one it made with `pushState` or a
   fragment) while the item is in the list. Messaging from subframes
   needs a web-process extension.
+- **An opened file's subresources.** macOS WebKit, Chromium, iOS and Android let a page opened with
+  Open File load `file:` subresources only from its own folder (`nav_policy::file_subresource_allowed`,
+  WebKit's read-access grant). WebKitGTK's UI process sees only navigations, not subresource
+  requests (`send-request` exists only in `WebKitWebProcessExtension-6.0`, which the pinned
+  `webkit6` 0.6.1 cannot load), so on Linux such a page may load other local files the web
+  process's sandbox lets it read as images or styles. Scripts still cannot read them (file pages
+  have no file access from file URLs), and a page's own navigation to a `file:` URL is blocked.
 - **`document_idle`** runs at document end: WebKitGTK user scripts have only start and end.
 
 ## 5. Platform pieces outside the web view

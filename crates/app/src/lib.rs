@@ -57,6 +57,7 @@ actions!(
         Quit,
         NewTab,
         OpenLocation,
+        OpenFile,
         CloseTab,
         Reload,
         Back,
@@ -96,6 +97,7 @@ actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab
 /// Actions the command bar offers: label, search keywords, action.
 pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
     ("Settings", "preferences options", &Settings),
+    ("Open File…", "local html pdf image text document view", &OpenFile),
     ("New Tab Group", "group", &NewGroup),
     ("Bookmark Tab…", "favorite save", &BookmarkTab),
     ("Bookmark All Tabs", "favorite save", &BookmarkAllTabs),
@@ -198,6 +200,7 @@ impl Render for Browser {
             .on_action(cx.listener(|b, _: &profiles::NewProfile, w, cx| b.open_profile_editor(None, w, cx)))
             .on_action(cx.listener(|b, _: &profiles::EditProfile, w, cx| b.edit_current_profile(w, cx)))
             .on_action(cx.listener(|b, _: &OpenLocation, w, cx| b.open_command(CommandMode::Current, w, cx)))
+            .on_action(cx.listener(|b, _: &OpenFile, w, cx| b.choose_file(w, cx)))
             .on_action(cx.listener(|b, _: &CloseTab, w, cx| {
                 if b.overlay_open() {
                     b.dismiss_overlay(w, cx);
@@ -392,6 +395,7 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
                     MenuItem::action("Private Space", PrivateSpace),
                     MenuItem::separator(),
                     MenuItem::action("Open Location…", OpenLocation),
+                    MenuItem::action("Open File…", OpenFile),
                     MenuItem::action("Reopen Closed Tab", ReopenClosedTab),
                     MenuItem::separator(),
                     MenuItem::action("New Tab Group", NewGroup),

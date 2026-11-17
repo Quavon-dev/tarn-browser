@@ -285,7 +285,10 @@ impl<D: Platform> Shell<D> {
     pub fn tab_title(&self, key: TabKey) -> String {
         let page = self.pages.get(&key).map(|p| p.title.clone()).filter(|t| !t.is_empty());
         let title = page.or_else(|| self.model.tab(key).map(|t| t.title.clone()).filter(|t| !t.is_empty()));
-        title.unwrap_or_else(|| self.tab_url(key))
+        title.unwrap_or_else(|| {
+            let url = self.tab_url(key);
+            Url::parse(&url).ok().and_then(|u| browser_core::command::file_name(&u)).unwrap_or(url)
+        })
     }
 
     pub fn find_in_tabs(&mut self, query: &str) -> Vec<Effect> {

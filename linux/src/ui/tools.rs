@@ -62,12 +62,13 @@ pub enum Command {
     SleepOthers,
 }
 
-const COMMANDS: [(&str, &str, Command); 51] = [
+const COMMANDS: [(&str, &str, Command); 52] = [
     ("Settings", "preferences options", Command::Key(Action::Settings)),
     ("New Space", "workspace profile", Command::Key(Action::NewSpace)),
     ("Edit Space", "workspace rename color icon", Command::EditSpace),
     ("Private Space", "incognito", Command::Key(Action::PrivateSpace)),
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
+    ("Open File…", "local disk html pdf image document", Command::Key(Action::OpenFile)),
     ("Toggle Sidebar", "show hide", Command::Key(Action::ToggleSidebar)),
     ("Show Downloads", "files", Command::Key(Action::ToggleDownloads)),
     ("Show History", "visited", Command::Key(Action::ShowHistory)),

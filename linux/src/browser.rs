@@ -50,6 +50,9 @@ pub const ZOOM_STEPS: [f64; 9] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0]
 pub struct Page {
     pub url: String,
     pub link: bool,
+    pub file: bool,
+    /// The file this tab opened with Open File: a slept tab loads it again as Open File (S6).
+    pub opened_file: Option<String>,
     pub title: String,
     pub can_back: bool,
     pub can_forward: bool,
@@ -361,6 +364,14 @@ impl Browser {
         Some(key)
     }
 
+    /// Shows a file the user picked in a new tab; only Open File reaches `file:` URLs (S6).
+    pub fn open_file(&mut self, url: &Url) {
+        let Some(key) = self.new_tab(url.as_str()) else { return };
+        let page = self.pages.entry(key).or_default();
+        page.opened_file = Some(url.to_string());
+        page.file = true;
+    }
+
     pub fn level_for(&self, key: TabKey, url: &str) -> ShieldLevel {
         self.model.level_for(&self.core, key, url)
     }
@@ -372,6 +383,7 @@ impl Browser {
         let page = self.pages.entry(key).or_default();
         page.load = Some((url.to_owned(), seq));
         page.link = false;
+        page.file = page.opened_file.as_deref() == Some(url);
         page.loading = true;
         page.level = level;
         page.paused = paused;
