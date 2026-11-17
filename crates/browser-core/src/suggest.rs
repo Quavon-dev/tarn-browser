@@ -228,6 +228,20 @@ pub fn edit<'a>(typed: &str, value: &str, tabs: &[Tab], history: &'a [HistoryEnt
     (rows, prefill_edit(typed, value, &pages, now))
 }
 
+pub const MAX_TAB_ROWS: usize = 5;
+
+pub fn rank_rows(query: &str, pages: &[Page], tabs: usize, listed: impl Fn(usize) -> bool, now: i64) -> Vec<usize> {
+    let mut shown_tabs = 0;
+    rank_pages(query, pages, now)
+        .into_iter()
+        .filter(|&ix| !listed(ix))
+        .filter(|&ix| {
+            shown_tabs += usize::from(ix < tabs);
+            ix >= tabs || shown_tabs <= MAX_TAB_ROWS
+        })
+        .collect()
+}
+
 pub const TEXT_SEARCH_DELAY: std::time::Duration = std::time::Duration::from_millis(120);
 pub const TEXT_SEARCH_MIN_CHARS: usize = 3;
 
@@ -492,6 +506,19 @@ mod tests {
         });
         assert_eq!(rank_history("a", &history, 5, NOW).len(), 1);
         assert!(rank_history(" ", &history, 5, NOW).is_empty());
+    }
+
+    #[test]
+    fn suggestion_rows_keep_five_tabs_and_skip_listed_rows() {
+        let tab = |url: &'static str| Page { open: true, ..page(url, "Alpha", 1, 0) };
+        let tabs = ["https://a1.test/", "https://a2.test/", "https://a3.test/", "https://a4.test/", "https://a5.test/", "https://a6.test/"].map(tab);
+        let pages: Vec<Page> = tabs.iter().copied().chain([page("https://alpha.test/", "Alpha", 3, 0)]).collect();
+        let rows = rank_rows("alpha", &pages, tabs.len(), |_| false, NOW);
+        assert_eq!(rows.iter().filter(|&&ix| ix < tabs.len()).count(), MAX_TAB_ROWS);
+        assert!(rows.contains(&6), "history still follows the tabs");
+        let rows = rank_rows("alpha", &pages, tabs.len(), |ix| ix == 0 || ix == 6, NOW);
+        assert!(!rows.contains(&0) && !rows.contains(&6));
+        assert_eq!(rows.len(), MAX_TAB_ROWS, "a listed tab leaves room for the sixth");
     }
 
     #[test]

@@ -1,4 +1,7 @@
+use std::collections::HashSet;
+
 use browser_core::now;
+use browser_core::tabs::TabKey;
 use store::{Bookmark, Counter, Id};
 use url::Url;
 
@@ -36,6 +39,33 @@ impl Browser {
         }
         self.show_toast_as(browser_core::toast::Tone::Success, copied(removed), None);
         Some(link)
+    }
+
+    pub fn copy_page(&mut self, markdown: bool) -> Option<String> {
+        let key = self.model.active?;
+        let page = self.pages.get(&key).map(|p| p.title.clone()).filter(|t| !t.is_empty());
+        let title = page.or_else(|| self.model.tab(key).map(|t| t.title.clone())).unwrap_or_default();
+        let text = if markdown { browser_core::text::markdown_link(&title, &self.active_url()?) } else { browser_core::text::bounded_title(&title) };
+        self.show_toast_as(browser_core::toast::Tone::Success, if markdown { "Link copied" } else { "Title copied" }, None);
+        Some(text)
+    }
+
+    pub fn close_all_tabs(&mut self) {
+        let keys = self.model.ephemeral_keys();
+        self.close_tabs(keys);
+    }
+
+    pub fn duplicate_tab(&mut self) {
+        if let Some(url) = self.active_url() {
+            self.new_tab(&url);
+        }
+    }
+
+    pub fn sleep_other_tabs(&mut self) {
+        let Some(active) = self.model.active else { return };
+        let live: HashSet<TabKey> = self.model.lifecycle.live().collect();
+        let others: Vec<TabKey> = self.model.other_tabs(active).into_iter().filter(|k| live.contains(k) && !self.splits.contains(*k)).collect();
+        others.into_iter().for_each(|k| self.sleep_tab(k));
     }
 
     pub fn qr_code(&mut self) -> Option<(Vec<Vec<bool>>, String)> {

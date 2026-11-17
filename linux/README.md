@@ -66,7 +66,23 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
 - downloads: `id`, progress (percentage next to the downloads button, sizes in the panel), cancel,
   sorting into Downloads subfolders; no pause or resume (WebKitGTK cannot) and no malware flag (no
   malware domain set on Linux yet);
-- keyboard shortcuts rebound in Settings (typed as `Ctrl+Shift+Y`; Linux has its own action list);
+- keyboard shortcuts rebound in Settings (typed as `Ctrl+Shift+Y`; Linux has its own action list),
+  with the macOS rows Close all tabs (`Ctrl+Shift+K`), Select last tab (`Ctrl+9`), Copy link as
+  Markdown (`Ctrl+Alt+C`) and Keyboard shortcuts (`Ctrl+/`, a sheet of every key, also a command);
+  `Alt+1`…`Alt+9` switch to space 1–9 (macOS `⌃1`…`⌃9`);
+- links from other apps (`browser_core::incoming`, as macOS `open_urls`): the URLs `tarn` is started
+  with, and those of a later launch once the window is open (`docs/nsh-plan.md` has the gap), which NSH's single instance hands the running Tarn over D-Bus
+  (GApplication `command-line`; not while `TARN_DATA_DIR` is set, so a throwaway profile never
+  hands its links to the running Tarn), open as new tabs in the focused window that shows no burner tab;
+  only what `nav_policy` allows from another app, at most 10 in 10 s, each loaded as a page's link
+  (S10) unless it is a loopback link and Settings › Privacy › Open localhost links from other apps
+  is on (the default). A desktop launch cannot be told from a terminal one, so every argument counts
+  as another app's link;
+- address field: open tabs as "Switch to Tab" rows under a Tabs header (also tabs of the profile's
+  other spaces that show the typed page), then History; a right click on the address opens Copy
+  Link, Copy Clean Link, Paste and Go and Site Settings…; the command list adds Settings, New Space,
+  Edit Space, Private Space, Toggle Sidebar, Close All Tabs, Show Downloads, Duplicate Tab, Show
+  History, Sleep Other Tabs, Site Settings, Copy Link as Markdown, Copy Title and Keyboard Shortcuts;
 - desktop input: Up and Down pick a suggestion row of the address field or the start card and Enter
   runs it; a right click (or Shift+F10) on a tab or tile opens the Tab panel for that tab; `Ctrl+G` and
   `Ctrl+Shift+G` step through the find bar's matches (fixed keys); icon buttons have tooltips, placed

@@ -1,5 +1,6 @@
 pub mod extensions;
 pub mod icons;
+pub mod links;
 pub mod pages;
 mod site;
 pub mod spaces;

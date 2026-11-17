@@ -14,6 +14,7 @@ use crate::shortcuts;
 use crate::theme::Theme;
 use crate::webview;
 use browser_core::command::ENGINES;
+use browser_core::incoming::LOCALHOST_FROM_APPS;
 
 const NAV_WIDTH: f32 = 180.;
 const CARD_SCALE: u32 = 3;
@@ -355,8 +356,17 @@ pub fn settings_panel(ui: Ui) -> AnyElement {
 }
 
 fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
-    let (level, engine, lists, private, card, history_text, sort) = read(ui, |b| {
-        (b.default_level(), b.search_engine(), b.lists(), b.model.private(), card_of(b), !b.setting_off(HISTORY_TEXT), !b.setting_off(SORT_DOWNLOADS))
+    let (level, engine, lists, private, card, history_text, sort, localhost) = read(ui, |b| {
+        (
+            b.default_level(),
+            b.search_engine(),
+            b.lists(),
+            b.model.private(),
+            card_of(b),
+            !b.setting_off(HISTORY_TEXT),
+            !b.setting_off(SORT_DOWNLOADS),
+            b.setting_on(LOCALHOST_FROM_APPS),
+        )
     })?;
     let on = |group: &str| lists.iter().any(|l| l == group);
     let toggle = move |setting: &'static str| move || act(ui, move |b| b.toggle_setting(setting));
@@ -434,6 +444,9 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 )
                 .child(note("EasyList Cookie and uBlock Cookie Notices hide consent pop-ups and stop the scripts that show them. Nothing is accepted or refused for you."))
                 .child(note("Filter lists apply to pages loaded after a change; they need the signed list bundle."))
+                .child(section("Links from other apps"))
+                .child(group().child(switch(localhost, "Open localhost links from other apps", toggle(LOCALHOST_FROM_APPS))))
+                .child(note("A link to this computer (localhost, 127.0.0.1) from a terminal, editor or other app opens like a typed address, and the page it shows may lead elsewhere on your network as a typed one can. Off: Tarn refuses it, since a link in a mail could reach services running here; Open Anyway on the notice still opens it. Links to other addresses on your network are refused; Open Anyway on the notice opens them. Applies to every profile."))
                 .child(section("Hidden elements"))
                 .child(hidden(ui, private))
                 .child(section("Clear data"))

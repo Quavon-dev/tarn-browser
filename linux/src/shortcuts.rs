@@ -39,6 +39,10 @@ pub enum Action {
     SwapPanes,
     RotateSplitLayout,
     RemoveFromSplitView,
+    CloseAllTabs,
+    LastTab,
+    CopyMarkdownLink,
+    ToggleShortcuts,
 }
 
 pub type Binding = (&'static str, Action, &'static str);
@@ -51,6 +55,8 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
             ("Open location", Action::OpenLocation, "ctrl+l"),
             ("Close tab", Action::CloseTab, "ctrl+w"),
             ("Reopen closed tab", Action::ReopenClosedTab, "ctrl+shift+t"),
+            ("Close all tabs", Action::CloseAllTabs, "ctrl+shift+k"),
+            ("Select last tab", Action::LastTab, "ctrl+9"),
             ("Next tab", Action::NextTab, "ctrl+tab"),
             ("Previous tab", Action::PreviousTab, "ctrl+shift+tab"),
             ("Pin or unpin tab", Action::TogglePin, "ctrl+d"),
@@ -81,6 +87,7 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
             ("Actual size", Action::ZoomReset, "ctrl+0"),
             ("Copy link", Action::CopyLink, "ctrl+shift+c"),
             ("Copy clean link", Action::CopyCleanLink, "ctrl+alt+shift+c"),
+            ("Copy link as Markdown", Action::CopyMarkdownLink, "ctrl+alt+c"),
             ("Reader", Action::ToggleReader, "ctrl+shift+r"),
         ],
     ),
@@ -93,6 +100,7 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
             ("New space", Action::NewSpace, "ctrl+shift+s"),
             ("Private space", Action::PrivateSpace, "ctrl+shift+n"),
             ("Settings", Action::Settings, "ctrl+,"),
+            ("Keyboard shortcuts", Action::ToggleShortcuts, "ctrl+/"),
         ],
     ),
 ];
@@ -101,7 +109,18 @@ pub const ZOOM_IN_SHIFTED: &str = "ctrl+shift+=";
 pub const FIND_NEXT: &str = "ctrl+g";
 pub const FIND_PREVIOUS: &str = "ctrl+shift+g";
 
-const RESERVED: [&str; 19] = [
+pub const FIXED: [(&str, &str, &str); 8] = [
+    ("Tabs", "Select tab 1–8", "Ctrl+1 … Ctrl+8"),
+    ("Page", "Find next", "Ctrl+G"),
+    ("Page", "Find previous", "Ctrl+Shift+G"),
+    ("Window", "Switch to space 1–9", "Alt+1 … Alt+9"),
+    ("Window", "Enter or exit full screen", "F11"),
+    ("Window", "Close command bar, panel or pop-up", "Esc"),
+    ("Window", "Undo / Redo", "Ctrl+Z  Ctrl+Shift+Z"),
+    ("Window", "Quit", "Ctrl+Q"),
+];
+
+const RESERVED: [&str; 18] = [
     "ctrl+1",
     "ctrl+2",
     "ctrl+3",
@@ -110,7 +129,6 @@ const RESERVED: [&str; 19] = [
     "ctrl+6",
     "ctrl+7",
     "ctrl+8",
-    "ctrl+9",
     "ctrl+z",
     "ctrl+shift+z",
     "ctrl+x",
@@ -263,6 +281,18 @@ mod tests {
         assert_eq!(conflict(FIND_PREVIOUS, Action::NewTab, &map), Some("a fixed shortcut"));
         assert_eq!(display("ctrl+shift+t"), "Ctrl+Shift+T");
         assert_eq!(display("alt+left"), "Alt+Left");
+    }
+
+    #[test]
+    fn rows_ported_from_macos_have_their_keys_and_fixed_rows_name_a_section() {
+        let map = keymap(&HashMap::new());
+        let of = |a: Action| map.iter().find(|(_, x)| *x == a).unwrap().0.clone();
+        assert_eq!(of(Action::CloseAllTabs), "ctrl+shift+k");
+        assert_eq!(of(Action::LastTab), "ctrl+9");
+        assert_eq!(of(Action::CopyMarkdownLink), "ctrl+alt+c");
+        assert_eq!(of(Action::ToggleShortcuts), "ctrl+/");
+        assert_eq!(conflict("ctrl+9", Action::NewTab, &map), Some("Select last tab"));
+        assert!(FIXED.iter().all(|(section, ..)| SECTIONS.iter().any(|(name, _)| name == section)));
     }
 
     #[test]

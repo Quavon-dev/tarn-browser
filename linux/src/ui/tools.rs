@@ -33,6 +33,12 @@ pub enum Command {
     FindInTabs,
     CopyLink,
     CopyCleanLink,
+    CopyMarkdownLink,
+    CopyTitle,
+    DuplicateTab,
+    SleepOtherTabs,
+    SiteSettings,
+    EditSpace,
     ShowQrCode,
     SaveSnapshot,
     Snapshots,
@@ -44,8 +50,19 @@ pub enum Command {
     Space(SpaceCommand),
 }
 
-const COMMANDS: [(&str, &str, Command); 23] = [
+const COMMANDS: [(&str, &str, Command); 37] = [
+    ("Settings", "preferences options", Command::Key(Action::Settings)),
+    ("New Space", "workspace profile", Command::Key(Action::NewSpace)),
+    ("Edit Space", "workspace rename color icon", Command::EditSpace),
+    ("Private Space", "incognito", Command::Key(Action::PrivateSpace)),
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
+    ("Toggle Sidebar", "show hide", Command::Key(Action::ToggleSidebar)),
+    ("Close All Tabs", "clear", Command::Key(Action::CloseAllTabs)),
+    ("Show Downloads", "files", Command::Key(Action::ToggleDownloads)),
+    ("Duplicate Tab", "copy", Command::DuplicateTab),
+    ("Show History", "visited", Command::Key(Action::ShowHistory)),
+    ("Sleep Other Tabs", "hibernate unload memory", Command::SleepOtherTabs),
+    ("Site Settings", "shield permissions zoom mute clear data", Command::SiteSettings),
     ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
     ("Zap Element", "hide remove element block", Command::ZapElement),
@@ -55,6 +72,8 @@ const COMMANDS: [(&str, &str, Command); 23] = [
     ("Find in Tabs", "search text all pages", Command::FindInTabs),
     ("Copy Link", "url address", Command::CopyLink),
     ("Copy Clean Link", "url tracking parameters utm strip", Command::CopyCleanLink),
+    ("Copy Link as Markdown", "url markdown", Command::CopyMarkdownLink),
+    ("Copy Title", "page name", Command::CopyTitle),
     ("Show QR Code", "phone scan link", Command::ShowQrCode),
     ("Save Space as Snapshot", "session tabs save", Command::SaveSnapshot),
     ("Restore Snapshot…", "session tabs open", Command::Snapshots),
@@ -68,6 +87,7 @@ const COMMANDS: [(&str, &str, Command); 23] = [
     ("Rotate Split Layout", "split view stacked side by side rows columns", Command::Key(Action::RotateSplitLayout)),
     ("Remove Tab from Split View", "split pane leave", Command::Key(Action::RemoveFromSplitView)),
     ("Close Split View", "split panes end separate", Command::CloseSplit),
+    ("Keyboard Shortcuts", "help keys cheat sheet", Command::Key(Action::ToggleShortcuts)),
 ];
 
 /// Whether `query` asks for the command list: every command it names, and nothing else.
@@ -125,6 +145,12 @@ pub fn run(ui: Ui, command: Command) {
         Command::FindInTabs => open_find_tabs(ui),
         Command::CopyLink => copy_link(ui, false),
         Command::CopyCleanLink => copy_link(ui, true),
+        Command::CopyMarkdownLink => copy_page(ui, true),
+        Command::CopyTitle => copy_page(ui, false),
+        Command::DuplicateTab => act(ui, Browser::duplicate_tab),
+        Command::SleepOtherTabs => act(ui, Browser::sleep_other_tabs),
+        Command::SiteSettings => show(ui, Panel::Shield),
+        Command::EditSpace => show(ui, Panel::Space),
         Command::ShowQrCode => show_qr(ui),
         Command::SaveSnapshot => act(ui, Browser::save_snapshot),
         Command::Snapshots => show(ui, Panel::Space),
@@ -150,6 +176,14 @@ pub fn copy_link(ui: Ui, clean: bool) {
     act(ui, |b| link = b.copy_link(clean));
     if let Some(link) = link {
         set_clipboard(link);
+    }
+}
+
+pub fn copy_page(ui: Ui, markdown: bool) {
+    let mut text = None;
+    act(ui, |b| text = b.copy_page(markdown));
+    if let Some(text) = text {
+        set_clipboard(text);
     }
 }
 
@@ -204,6 +238,7 @@ fn action(command: Command) -> Option<Action> {
         Command::Key(action) => Some(action),
         Command::CopyLink => Some(Action::CopyLink),
         Command::CopyCleanLink => Some(Action::CopyCleanLink),
+        Command::CopyMarkdownLink => Some(Action::CopyMarkdownLink),
         Command::Reader => Some(Action::ToggleReader),
         Command::BurnerTab => Some(Action::BurnerTab),
         Command::FindInTabs => Some(Action::FindInTabs),

@@ -24,11 +24,21 @@ All notable changes to Tarn are documented in this file. The format is based on
   in Settings › Extensions built only from Tarn's verified catalog, and nothing is downloaded
   until you press Install there; Settings › Extensions links the store (macOS, Windows, Linux,
   iOS, Android).
+- Linux: "Switch to Tab" rows for open tabs in address suggestions, an address field menu (Copy
+  Link, Copy Clean Link, Paste and Go, Site Settings), Copy Link as Markdown and Copy Title, the
+  Keyboard Shortcuts sheet (`Ctrl+/`), the macOS commands and shortcuts it was missing, switching
+  to space 1–9 with `Alt+1`…`Alt+9`, and Settings › Privacy › Open localhost links from other apps.
 
 ### Changed
 
 - The privacy notice names Quavon UG (haftungsbeschränkt) as controller, gives the legal basis and
   your rights, and states per client what it describes.
+
+### Fixed
+
+- Linux: links from other apps open in Tarn. The desktop entry made Tarn a browser for http and
+  https links, but the URLs it was started with were ignored; now they, and those of a later
+  launch, open as new tabs in the running Tarn, under the same rules as on macOS.
 
 ### Security
 

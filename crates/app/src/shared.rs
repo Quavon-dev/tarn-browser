@@ -385,9 +385,6 @@ thread_local! {
     static INCOMING: RefCell<Vec<std::time::Instant>> = const { RefCell::new(Vec::new()) };
 }
 
-const MAX_INCOMING: usize = 10;
-const INCOMING_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
-
 fn frame(bounds: Bounds<Pixels>) -> Frame {
     [bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height].map(f64::from)
 }
@@ -483,23 +480,13 @@ pub(crate) fn live_elsewhere(key: crate::browser::TabKey, cx: &mut gpui::Context
     found
 }
 
-/// How many of `n` links arriving `now` may open: at most `MAX_INCOMING` per `INCOMING_WINDOW`.
-fn admit(seen: &mut Vec<std::time::Instant>, now: std::time::Instant, n: usize) -> usize {
-    seen.retain(|at| now.duration_since(*at) < INCOMING_WINDOW);
-    let admitted = n.min(MAX_INCOMING.saturating_sub(seen.len()));
-    seen.extend(std::iter::repeat_n(now, admitted));
-    admitted
-}
-
 /// Links from another app open as new tabs in the frontmost browser window that does not show a
 /// burner tab, a new window when every one does, or the windows restored when none is open; a
 /// flood beyond `admit` is dropped with a toast saying so.
-pub(crate) fn open_urls(mut urls: Vec<String>, cx: &mut App) {
-    let admitted = INCOMING.with_borrow_mut(|seen| admit(seen, std::time::Instant::now(), urls.len()));
-    let dropped = urls.len() - admitted;
-    urls.truncate(admitted);
+pub(crate) fn open_urls(urls: Vec<String>, cx: &mut App) {
+    let (urls, dropped) = INCOMING.with_borrow_mut(|seen| browser_core::incoming::admit_links(seen, std::time::Instant::now(), urls));
     // A flood must not keep restoring windows or stealing focus.
-    if admitted == 0 {
+    if urls.is_empty() {
         return;
     }
     let browsers: Vec<_> = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().filter_map(|w| w.downcast::<Browser>()).collect();
@@ -517,7 +504,7 @@ pub(crate) fn open_urls(mut urls: Vec<String>, cx: &mut App) {
         .update(cx, |b, window, cx| {
             b.open_urls(urls, true, window, cx);
             if dropped > 0 {
-                b.show_toast(format!("{dropped} more {} from another app not opened", if dropped == 1 { "link" } else { "links" }), None, cx);
+                b.show_toast(browser_core::incoming::dropped_notice(dropped), None, cx);
             }
             window.activate_window();
         })
@@ -529,7 +516,7 @@ pub(crate) fn open_urls(mut urls: Vec<String>, cx: &mut App) {
 #[cfg(windows)]
 pub(crate) fn bring_forward(cx: &mut App) {
     // Counted with links, so a flood of empty launches cannot keep stealing focus.
-    if INCOMING.with_borrow_mut(|seen| admit(seen, std::time::Instant::now(), 1)) == 0 {
+    if INCOMING.with_borrow_mut(|seen| browser_core::incoming::admit(seen, std::time::Instant::now(), 1)) == 0 {
         return;
     }
     let browsers: Vec<_> = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().filter_map(|w| w.downcast::<Browser>()).collect();
@@ -550,19 +537,5 @@ pub(crate) fn window_closed(core: &AppCore, id: Id, cx: &mut App) {
         for profile in core.store(true).profiles().unwrap_or_default() {
             core.store(true).delete_profile(profile.id).ok();
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::{Duration, Instant};
-
-    #[test]
-    fn a_flood_of_links_is_capped_per_window_of_time() {
-        let (mut seen, now) = (Vec::new(), Instant::now());
-        assert_eq!(super::admit(&mut seen, now, 4), 4);
-        assert_eq!(super::admit(&mut seen, now, 20), 6);
-        assert_eq!(super::admit(&mut seen, now + Duration::from_secs(5), 1), 0);
-        assert_eq!(super::admit(&mut seen, now + Duration::from_secs(11), 3), 3);
     }
 }

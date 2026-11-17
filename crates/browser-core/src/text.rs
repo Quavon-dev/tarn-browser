@@ -34,6 +34,19 @@ pub fn is_bidi(c: char) -> bool {
     matches!(c, '\u{061C}' | '\u{115F}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{E0000}'..='\u{E007F}')
 }
 
+pub fn markdown_link(title: &str, url: &str) -> String {
+    let title = bounded_title(title);
+    let text = if title.is_empty() { url } else { &title };
+    let mut escaped = String::new();
+    for c in text.chars() {
+        if matches!(c, '\\' | '[' | ']') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    format!("[{escaped}]({})", url.replace('(', "%28").replace(')', "%29").replace(' ', "%20"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,5 +66,13 @@ mod tests {
         assert!(shown.starts_with('…') && shown.ends_with(".evil.test"));
         assert_eq!(shown.chars().count(), MAX_ORIGIN_CHARS);
         assert_eq!(bounded_origin("https://a.test"), "https://a.test");
+    }
+
+    #[test]
+    fn markdown_links_escape_brackets_and_parentheses() {
+        assert_eq!(markdown_link("Rust [book]", "https://a.test/x"), r"[Rust \[book\]](https://a.test/x)");
+        assert_eq!(markdown_link(r"a\]b", "https://a.test/f(1)"), r"[a\\\]b](https://a.test/f%281%29)");
+        assert_eq!(markdown_link("", "https://a.test/"), "[https://a.test/](https://a.test/)");
+        assert_eq!(markdown_link("Line\nbreak", "https://a.test/"), "[Line break](https://a.test/)");
     }
 }
