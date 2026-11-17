@@ -60,6 +60,7 @@ pub const COMMANDS: [(&str, &str, Command); 23] = [
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pub pinned: bool,
+    pub pin_blocked: bool,
     pub split: bool,
     pub reopenable: bool,
     pub duplicates: bool,
@@ -81,6 +82,7 @@ impl State {
         match command {
             Command::CloseDuplicates => self.duplicates,
             Command::ReopenClosedTab => self.reopenable,
+            Command::TogglePin => !self.pin_blocked,
             Command::CloseSplit
             | Command::FocusNextPane
             | Command::FocusPreviousPane
@@ -138,6 +140,7 @@ mod tests {
     fn toggles_are_named_by_what_they_do_now() {
         assert_eq!(names("pin tab", State::default()), ["Pin Tab"]);
         assert_eq!(names("pin tab", State { pinned: true, ..State::default() }), ["Unpin Tab"]);
+        assert!(names("pin tab", State { pin_blocked: true, ..State::default() }).is_empty(), "a tile or a burner tab cannot be pinned");
         assert!(names("split view", State::default()).contains(&"Open in Split View".to_owned()));
         assert!(names("split view", State { split: true, ..State::default() }).contains(&"Close Split View".to_owned()));
     }

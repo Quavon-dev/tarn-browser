@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+pub use browser_core::layout::sidebar_open;
 use engine::lifecycle::Lifecycle;
 use gpui::{Context, Window};
 use store::Store;
@@ -126,7 +127,6 @@ pub const SLEEP_AFTER: [(&str, Option<Duration>); 4] = [
 pub const ARCHIVE_AFTER: [(&str, Option<i64>); 4] =
     [("Never", None), ("12 hours", Some(12 * HOUR)), ("1 day", Some(24 * HOUR)), ("7 days", Some(7 * 24 * HOUR))];
 const HOUR: i64 = 3_600_000;
-const SIDEBAR_SETTING: &str = "sidebar_open";
 const SIDEBAR_WIDTH_SETTING: &str = "sidebar_width";
 pub const SIDEBAR_MIN_WIDTH: f32 = 200.;
 pub const SIDEBAR_MAX_WIDTH: f32 = 420.;
@@ -147,10 +147,6 @@ pub fn sleep_after(store: &Store) -> Option<Duration> {
 /// How long an unused tab stays open, in milliseconds; `None` keeps tabs open.
 pub fn archive_after(store: &Store) -> Option<i64> {
     ARCHIVE_AFTER[Choice::ArchiveAfter.load(store)].1
-}
-
-pub fn sidebar_open(store: &Store) -> bool {
-    store.setting(SIDEBAR_SETTING).ok().flatten().as_deref() != Some("off")
 }
 
 impl Choice {
@@ -319,7 +315,7 @@ impl Browser {
             self.sidebar_toggled = Some(std::time::Instant::now());
         }
         self.sidebar_open = open;
-        self.core.disk.set_setting(SIDEBAR_SETTING, if open { "on" } else { "off" }).ok();
+        browser_core::layout::save_sidebar(&self.core.disk, open).ok();
         self.close_peek(cx);
         self.hide_hover_card(cx);
         cx.notify();
@@ -402,6 +398,7 @@ fn prefs_default_and_roundtrip() {
 
 #[test]
 fn sidebar_state_persists() {
+    use browser_core::layout::SIDEBAR_SETTING;
     let store = Store::open_in_memory().unwrap();
     assert!(sidebar_open(&store));
     store.set_setting(SIDEBAR_SETTING, "off").unwrap();

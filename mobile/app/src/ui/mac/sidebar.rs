@@ -4,6 +4,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use browser_core::sidebar::{self as bar, DropAt, Row, RowKind, Swipe};
+use browser_core::tab_menu;
 use browser_core::tabs::TabKey;
 use nsh_base::{PopoverEvent, button, input, popover};
 use nsh_core::keymap::When;
@@ -135,120 +136,90 @@ fn menu_items(bar: Bar, target: Target) -> View {
 
 fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
     let ui = bar.ui;
-    let Some((kind, group, custom)) = ui.read(|s| s.model.tab(key).map(|t| (t.kind, t.group_id, !t.custom_title.is_empty()))) else { return Vec::new() };
-    let url = ui.read(|s| s.tab_url(key));
-    let (active, burner, split, in_split, spaces, groups, others, below) = ui.read(|s| {
-        let groups: Vec<(Id, String)> = s.model.groups.iter().filter(|g| Some(g.id) != group).map(|g| (g.id, g.name.clone())).collect();
-        (
-            s.model.active == Some(key),
-            s.model.burner_shown(),
-            s.splits.menu(s.model.active, key),
-            s.splits.contains(key),
-            if s.in_burner() { Vec::new() } else { s.move_targets(key) },
-            groups,
-            !bar::other_unpinned(&s.model, key).is_empty(),
-            !bar::tabs_below(&s.model, key).is_empty(),
-        )
-    });
-    let ephemeral = kind == TabKind::Ephemeral;
-    let mut items = vec![if active {
-        item(bar, "Reload", true, |ui| ui.act(|s| s.active_command("reload", serde_json::Value::Null)))
-    } else {
-        item(bar, "Open", true, move |ui| activate(ui, key))
-    }];
-    let link = url.clone();
-    let clean = url.clone();
-    items.extend([
-        item(bar, "Duplicate", !url.is_empty(), move |ui| {
+    let Some(tab) = ui.read(|s| {
+        let t = s.model.tab(key)?;
+        Some(tab_menu::Tab {
+            kind: t.kind,
+            active: s.model.active == Some(key),
+            has_link: !s.tab_url(key).is_empty(),
+            split: s.splits.menu(s.model.active, key),
+            split_view: ui.wide(),
+            burner: s.model.burner_shown(),
+            custom_title: !t.custom_title.is_empty(),
+            grouped: t.group_id.is_some(),
+            others: !bar::other_unpinned(&s.model, key).is_empty(),
+            below: !bar::tabs_below(&s.model, key).is_empty(),
+            spaces: if s.in_burner() { Vec::new() } else { s.move_targets(key) },
+            groups: s.model.groups.iter().filter(|g| Some(g.id) != t.group_id).map(|g| (g.id, g.name.clone())).collect(),
+        })
+    }) else {
+        return Vec::new();
+    };
+    tab_menu::items(&tab)
+        .into_iter()
+        .map(|entry| match entry {
+            tab_menu::Item::Command(command, label, enabled) => item(bar, label, enabled, move |ui| run_tab(bar, ui, key, command)),
+            tab_menu::Item::Heading(name) => menu_heading(name).into_element(),
+            tab_menu::Item::Separator => menu_separator().into_element(),
+        })
+        .collect()
+}
+
+fn run_tab(bar: Bar, ui: Ui, key: TabKey, command: tab_menu::Command) {
+    use tab_menu::Command as C;
+    match command {
+        C::Reload => ui.act(|s| s.active_command("reload", serde_json::Value::Null)),
+        C::Open => activate(ui, key),
+        C::Duplicate => {
             act(ui, |s| {
+                let url = s.tab_url(key);
                 s.new_tab(Some(&url));
             });
             ui.show(Screen::Browse);
-        }),
-        menu_separator().into_element(),
-        item(bar, "Copy Link", !link.is_empty(), move |ui| {
-            set_clipboard(link.clone());
+        }
+        C::CopyLink => {
+            let url = ui.read(|s| s.tab_url(key));
+            set_clipboard(url);
             act(ui, |s| s.toast_as(browser_core::toast::Tone::Success, "Link copied".to_owned()));
-        }),
-        item(bar, "Copy Clean Link", !clean.is_empty(), move |ui| {
+        }
+        C::CopyCleanLink => {
             let mut link = None;
             act(ui, |s| link = s.copy_clean_link_of(key));
             if let Some(link) = link {
                 set_clipboard(link);
             }
-        }),
-    ]);
-    if ui.wide() {
-        items.push(menu_separator().into_element());
-        items.push(item(bar, split.entry.label(), split.enabled, move |ui| {
+        }
+        C::Split => {
             act(ui, |s| s.split_with(key));
             ui.show(Screen::Browse);
-        }));
-        if in_split {
-            items.push(item(bar, "Remove from Split View", true, move |ui| act(ui, |s| s.leave_split(key))));
         }
-    }
-    items.extend([
-        menu_separator().into_element(),
-        item(bar, if kind == TabKind::Pinned { "Unpin Tab" } else { "Pin Tab" }, !burner && kind != TabKind::Tile, move |ui| act(ui, |s| s.toggle_pin(key))),
-        item(bar, if kind == TabKind::Tile { "Remove from Tiles" } else { "Add to Tiles" }, !burner, move |ui| {
-            act(ui, |s| {
-                bar::toggle_tile(&mut s.model, &s.core, key);
-            })
+        C::LeaveSplit => act(ui, |s| s.leave_split(key)),
+        C::TogglePin => act(ui, |s| s.toggle_pin(key)),
+        C::ToggleTile => act(ui, |s| {
+            bar::toggle_tile(&mut s.model, &s.core, key);
         }),
-        item(bar, "Rename", kind != TabKind::Tile, move |_| bar.renaming.set(Some(key))),
-    ]);
-    if custom {
-        items.push(item(bar, "Reset Title", true, move |ui| {
-            act(ui, |s| {
-                s.core.store(key.private).set_tab_custom_title(key.id, "").ok();
-                s.model.reload_space(&s.core);
-            })
-        }));
+        C::Rename => bar.renaming.set(Some(key)),
+        C::ResetTitle => act(ui, |s| {
+            s.core.store(key.private).set_tab_custom_title(key.id, "").ok();
+            s.model.reload_space(&s.core);
+        }),
+        C::MoveToSpace(ix) => act(ui, |s| {
+            s.move_tab(key, ix);
+        }),
+        C::AddToGroup(id) => act(ui, |s| {
+            bar::set_group(&mut s.model, &s.core, key, Some(id));
+        }),
+        C::NewGroup => act(ui, |s| {
+            bar::new_group(&mut s.model, &s.core, Some(key));
+        }),
+        C::RemoveFromGroup => act(ui, |s| {
+            bar::set_group(&mut s.model, &s.core, key, None);
+        }),
+        C::Unload => act(ui, |s| s.unload_tab(key)),
+        C::Close => act(ui, |s| s.close_tab(key)),
+        C::CloseOthers => act(ui, |s| close(s, &bar::other_unpinned(&s.model, key))),
+        C::CloseBelow => act(ui, |s| close(s, &bar::tabs_below(&s.model, key))),
     }
-    if !spaces.is_empty() {
-        items.push(menu_separator().into_element());
-        items.push(menu_heading("Move to Space").into_element());
-        items.extend(spaces.into_iter().map(|(ix, name)| {
-            item(bar, name, true, move |ui| {
-                act(ui, |s| {
-                    s.move_tab(key, ix);
-                })
-            })
-        }));
-    }
-    if ephemeral {
-        items.push(menu_separator().into_element());
-        items.push(menu_heading("Add to Group").into_element());
-        items.extend(groups.into_iter().map(|(id, name)| {
-            item(bar, name, true, move |ui| {
-                act(ui, |s| {
-                    bar::set_group(&mut s.model, &s.core, key, Some(id));
-                })
-            })
-        }));
-        items.push(item(bar, "New Group", true, move |ui| {
-            act(ui, |s| {
-                bar::new_group(&mut s.model, &s.core, Some(key));
-            })
-        }));
-        if group.is_some() {
-            items.push(item(bar, "Remove from Group", true, move |ui| {
-                act(ui, |s| {
-                    bar::set_group(&mut s.model, &s.core, key, None);
-                })
-            }));
-        }
-    }
-    items.push(menu_separator().into_element());
-    if !ephemeral {
-        items.push(item(bar, "Unload Tab", true, move |ui| act(ui, |s| s.unload_tab(key))));
-        return items;
-    }
-    items.push(item(bar, "Close Tab", true, move |ui| act(ui, |s| s.close_tab(key))));
-    items.push(item(bar, "Close Other Tabs", others, move |ui| act(ui, |s| close(s, &bar::other_unpinned(&s.model, key)))));
-    items.push(item(bar, "Close Tabs Below", below, move |ui| act(ui, |s| close(s, &bar::tabs_below(&s.model, key)))));
-    items
 }
 
 fn folder_items(bar: Bar, id: Id) -> Vec<AnyElement> {
@@ -393,7 +364,7 @@ fn tab_row(bar: Bar, key: TabKey, depth: usize) -> View {
         .test_id("tab")
         .label(title)
         .on_press(move |e: &PressEvent| {
-            activate(ui, key);
+            press(bar, Target::Tab(key));
             if e.clicks == 2 && renamable(ui, key) {
                 bar.renaming.set(Some(key));
             }
@@ -575,7 +546,7 @@ fn folder_row(bar: Bar, id: Id, depth: usize) -> View {
     let open = move || ui.read(|s| s.model.expanded.contains(&id));
     let header = pressable_view()
         .label(move || SharedString::from(name()))
-        .on_press(move || act(ui, |s| s.model.toggle_folder(id)))
+        .on_press(move || press(bar, Target::Folder(id)))
         .flex_row()
         .items_center()
         .h(px(TAB_ROW))
@@ -642,7 +613,7 @@ fn tiles(bar: Bar) -> View {
             let split = move || ui.read(|s| (s.splits.contains(key), s.shown_split().is_some_and(|p| p.panes().contains(&key))));
             let tile = pressable_view()
                 .label(move || SharedString::from(ui.read(|s| tab_title(s, key))))
-                .on_press(move || activate(ui, key))
+                .on_press(move || press(bar, Target::Tab(key)))
                 .w(px(side))
                 .h(px(side))
                 .items_center()
@@ -721,11 +692,7 @@ fn group_card(bar: Bar, id: Id) -> View {
     let name = move || group().0;
     let header = pressable_view()
         .label(move || SharedString::from(name()))
-        .on_press(move || {
-            act(ui, |s| {
-                s.model.toggle_group(&s.core, id);
-            })
-        })
+        .on_press(move || press(bar, Target::Group(id)))
         .flex_row()
         .items_center()
         .h(px(TAB_ROW - 2.))

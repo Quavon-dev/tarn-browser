@@ -27,7 +27,7 @@ fn the_mac_settings_window_shows_one_pane_at_a_time() {
 
     app.press("label:Shortcuts").unwrap();
     app.wait_for("Open location").unwrap();
-    for row in ["Pin or unpin tab", "Toggle sidebar", "Select tab 1–8", "Switch to space 1–9", "Close Settings or a popover"] {
+    for row in ["Pin or unpin tab", "Toggle sidebar", "Select tab 1–8", "Switch to space 1–9", "Close command bar, popover or Settings"] {
         app.wait_for(row).unwrap();
     }
     assert!(app.screen().shows("⌘D") || app.screen().shows("Ctrl+D"), "rows show the shared table's keys");

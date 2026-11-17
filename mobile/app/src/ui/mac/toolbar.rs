@@ -94,8 +94,9 @@ fn history_button(ui: Ui, glyph: &'static str, name: &'static str, command: &'st
 }
 
 fn sidebar_toggle(ui: Ui) -> impl IntoElement {
+    let open = computed(move || ui.read_data(|s| s.sidebar_open));
     dynamic(move || {
-        let name = if ui.read_data(|s| s.sidebar_open) { "Hide Sidebar" } else { "Show Sidebar" };
+        let name = if open.get() { "Hide Sidebar" } else { "Show Sidebar" };
         tool_button(glyphs::SIDEBAR, name, Placement::Right, move || {
             ui.act(|s| {
                 s.toggle_sidebar();
@@ -107,8 +108,9 @@ fn sidebar_toggle(ui: Ui) -> impl IntoElement {
 }
 
 fn private_mark(ui: Ui) -> impl IntoElement {
+    let state = computed(move || ui.read(|s| (s.model.current_space().is_some_and(|c| c.private), s.model.burner_shown(), s.sidebar_open)));
     dynamic(move || {
-        let (private, burner, open) = ui.read(|s| (s.model.current_space().is_some_and(|c| c.private), s.model.burner_shown(), s.sidebar_open));
+        let (private, burner, open) = state.get();
         (private && !open).then(|| {
             let (glyph, name) =
                 if burner { (glyphs::FLAME, "Burner tab: nothing is kept after it closes") } else { (glyphs::HAND, "Private space: kept in memory only") };
@@ -257,6 +259,7 @@ fn close_palette(ui: Ui) {
 fn state(ui: Ui) -> State {
     ui.read(|s| State {
         pinned: s.model.active.and_then(|k| s.model.tab(k)).is_some_and(|t| t.kind == store::TabKind::Pinned),
+        pin_blocked: !s.model.active.and_then(|k| s.model.tab(k)).is_some_and(|t| browser_core::tab_menu::pinnable(t.kind, s.model.burner_shown())),
         split: s.model.active.is_some_and(|k| s.splits.contains(k)),
         reopenable: !s.model.closed_tabs.is_empty(),
         duplicates: !s.duplicate_tabs().is_empty(),

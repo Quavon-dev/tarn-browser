@@ -149,13 +149,19 @@ pub fn table(apple: bool) -> Vec<(&'static str, Vec<(&'static str, String)>)> {
     SECTIONS
         .iter()
         .map(|(name, rows)| {
-            let mut rows: Vec<(&'static str, String)> = rows.iter().map(|(does, _, keys)| (*does, shown(keys, apple))).collect();
-            match *name {
-                "Tabs" => rows.push((label(Action::SelectTab(1)), range("mod+1", &format!("mod+{SELECTABLE_TABS}")))),
-                "Window" => rows.push((label(Action::SwitchSpace(1)), range(&format!("{space}+1"), &format!("{space}+{SWITCHABLE_SPACES}")))),
-                _ => {}
+            let mut shown_rows = Vec::new();
+            for (does, action, keys) in rows.iter() {
+                match action {
+                    Action::LastTab => shown_rows.push((label(Action::SelectTab(1)), range("mod+1", &format!("mod+{SELECTABLE_TABS}")))),
+                    Action::Settings => shown_rows.push((label(Action::SwitchSpace(1)), range(&format!("{space}+1"), &format!("{space}+{SWITCHABLE_SPACES}")))),
+                    _ => {}
+                }
+                shown_rows.push((*does, shown(keys, apple)));
             }
-            (*name, rows)
+            if *name == "Window" {
+                shown_rows.push(("Close command bar, popover or Settings", shown("escape", apple)));
+            }
+            (*name, shown_rows)
         })
         .collect()
 }
@@ -228,13 +234,18 @@ mod tests {
             let table = table(apple);
             assert_eq!(table.iter().map(|(n, _)| *n).collect::<Vec<_>>(), SECTIONS.map(|(n, _)| n));
             let rows: Vec<_> = table.iter().flat_map(|(_, r)| r.iter()).collect();
-            assert_eq!(rows.len(), SECTIONS.iter().map(|(_, r)| r.len()).sum::<usize>() + 2);
+            assert_eq!(rows.len(), SECTIONS.iter().map(|(_, r)| r.len()).sum::<usize>() + 3);
             assert!(rows.iter().all(|(does, keys)| !does.is_empty() && !keys.is_empty()));
         }
+        let names = |rows: &[(&'static str, String)]| rows.iter().map(|(d, _)| *d).collect::<Vec<_>>();
         let tabs = &table(true)[0].1;
-        assert_eq!(tabs.last().map(|(d, k)| (*d, k.as_str())), Some(("Select tab 1–8", "⌘1–8")));
+        let at = names(tabs).iter().position(|d| *d == "Select tab 1–8").unwrap();
+        assert_eq!(tabs[at].1, "⌘1–8");
+        assert_eq!(tabs[at + 1].0, "Select last tab", "the range sits where the macOS pane lists it");
         let window = &table(false)[3].1;
-        assert_eq!(window.last().map(|(d, k)| (*d, k.as_str())), Some(("Switch to space 1–9", "Alt+1–9")));
+        assert_eq!(names(window)[names(window).len() - 3..], ["Switch to space 1–9", "Settings", "Close command bar, popover or Settings"]);
+        assert_eq!(window[window.len() - 3].1, "Alt+1–9");
+        assert_eq!(window[window.len() - 1].1, "Esc");
     }
 
     #[test]

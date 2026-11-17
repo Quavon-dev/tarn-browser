@@ -4,9 +4,10 @@ use shield::ShieldLevel;
 use tarn_nsh_shared::controls::{caps_label, empty_state, glyph_row, glyph_switch, group, icon_button, label, segmented, site_tile};
 use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::popover::{self as pop, Anchor};
+use tarn_nsh_shared::toolbar::small;
 
 use super::super::{Screen, Ui, panels, sheets};
-use crate::theme::{Secure, TEXT_SMALL, Theme};
+use crate::theme::{Secure, Theme};
 
 const SITE_HEADER: f32 = 60.;
 const FOOTER: f32 = 40.;
@@ -32,14 +33,16 @@ pub(in crate::ui) fn owns(screen: Screen) -> bool {
 }
 
 pub(super) fn popovers(ui: Ui) -> impl IntoElement {
+    let sidebar = computed(move || ui.read_data(|s| s.sidebar_open));
     dynamic(move || {
         let screen = ui.screen.get();
+        let open = (screen == Screen::Downloads).then(|| sidebar.get());
         untracked(|| {
             let (anchor, width, body) = match screen {
                 Screen::Shield => (Anchor::Below(ui.popovers.shield, Align::Center), pop::SITE_WIDTH, site_popover(ui).into_element()),
                 Screen::Share => (Anchor::Below(ui.popovers.share, Align::End), pop::SHARE_WIDTH, share_menu(ui).into_element()),
                 Screen::Qr => (Anchor::Below(ui.popovers.share, Align::End), pop::QR_WIDTH, qr(ui).into_element()),
-                Screen::Downloads => (downloads_anchor(ui), pop::DOWNLOADS_WIDTH, downloads(ui).into_element()),
+                Screen::Downloads => (downloads_anchor(ui, open == Some(true)), pop::DOWNLOADS_WIDTH, downloads(ui).into_element()),
                 _ => return None,
             };
             Some(pop::popover(anchor, width, move || ui.show(Screen::Browse), body))
@@ -47,12 +50,8 @@ pub(super) fn popovers(ui: Ui) -> impl IntoElement {
     })
 }
 
-fn downloads_anchor(ui: Ui) -> Anchor {
-    if ui.read_data(|s| s.sidebar_open) { Anchor::Below(ui.popovers.downloads, Align::Center) } else { Anchor::Below(ui.popovers.toggle, Align::Start) }
-}
-
-fn small(content: impl IntoReactive<SharedString>) -> Text {
-    text(content).text_size(px(TEXT_SMALL)).text_color(Theme::muted)
+fn downloads_anchor(ui: Ui, sidebar: bool) -> Anchor {
+    if sidebar { Anchor::Below(ui.popovers.downloads, Align::Center) } else { Anchor::Below(ui.popovers.toggle, Align::Start) }
 }
 
 fn site_header(ui: Ui, host: Option<String>, secure: bool) -> View {

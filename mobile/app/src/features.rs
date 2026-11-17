@@ -450,7 +450,7 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn toggle_pin(&mut self, key: TabKey) {
-        if !self.model.burner_shown() && self.model.tab(key).is_some_and(|t| t.kind != store::TabKind::Tile) {
+        if self.model.tab(key).is_some_and(|t| browser_core::tab_menu::pinnable(t.kind, self.model.burner_shown())) {
             browser_core::sidebar::toggle_pin(&mut self.model, &self.core, key);
         }
     }
