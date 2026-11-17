@@ -274,3 +274,26 @@ fn icon_candidates_stop_once_the_tab_leaves_the_origin() {
     assert_eq!(event(&state, "iconData").unwrap()["text"], "");
     assert_eq!(second_seen.load(Ordering::SeqCst), 0, "no candidate is asked once the tab shows another origin");
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_snapshot_saves_a_new_png_under_the_given_name_only() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "private:display-snapshot");
+    let window = gtk::Window::builder().default_width(400).default_height(300).child(state.container()).build();
+    window.present();
+    let web = open(&state);
+    assert!(WebViewExt::settings(&web).unwrap().enables_back_forward_navigation_gestures(), "touchpad swipes step through history");
+    state.events.borrow_mut().clear();
+    snapshot(&state, &web, &json!({ "seq": 3, "name": "../tarn-display-snapshot.png" }));
+    assert!(spin_until(|| event(&state, "snapshot").is_some(), 20), "the snapshot answered");
+    let answer = event(&state, "snapshot").unwrap();
+    assert_eq!(answer["seq"], 3, "{answer}");
+    let path = std::path::PathBuf::from(answer["path"].as_str().unwrap_or_default());
+    assert_eq!(path.parent(), Some(session::downloads_dir().as_path()), "{answer}");
+    assert!(path.file_name().unwrap().to_string_lossy().starts_with("tarn-display-snapshot"), "{answer}");
+    let png = std::fs::read(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert!(png.starts_with(b"\x89PNG\r\n\x1a\n") && png.len() > 100);
+    window.destroy();
+}

@@ -71,6 +71,7 @@ thread_local! {
     static NEXT_WINDOW: Cell<u64> = const { Cell::new(0) };
     /// Each window's web views by tab, with the wake number the view was made for.
     static REFS: RefCell<HashMap<(u64, TabKey), (u64, ElementRef)>> = RefCell::default();
+    static PLACES: RefCell<HashMap<u64, WindowRef>> = RefCell::default();
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -167,11 +168,14 @@ fn act_quietly(ui: Ui, f: impl FnOnce(&mut Browser)) {
 
 fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
     let shown = ui.panel.get_untracked() == Panel::None && !ui.editing.get_untracked();
+    let overlay = ui.panel.get_untracked() != Panel::None || ui.ext_popup.with_untracked(Option::is_some) || ui.find_tabs.get_untracked();
+    let (address, find) = (ui.editing.get_untracked(), ui.finding.get_untracked());
     let done = BROWSERS.with_borrow_mut(|windows| {
         let elsewhere = live_elsewhere(windows, ui.window);
         let b = windows.get_mut(&ui.window)?;
         b.elsewhere = elsewhere;
         f(b);
+        b.keep_page_fullscreen(overlay, address, find);
         let moved = b.model.active.filter(|k| b.elsewhere.contains(k));
         let forgotten = std::mem::take(&mut b.forgotten);
         let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key));
@@ -183,9 +187,15 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
             snapshot::snapshot(b, shown),
             moved,
             forgotten,
+            b.window_request.take(),
         ))
     });
-    let Some((icons, commands, released, cancelled, snap, moved, forgotten)) = done else { return };
+    let Some((icons, commands, released, cancelled, snap, moved, forgotten, mode)) = done else { return };
+    if let Some(mode) = mode
+        && let Some(here) = PLACES.with_borrow(|places| places.get(&ui.window).cloned())
+    {
+        here.set_mode(mode);
+    }
     let rebuild = rebuild
         || ui.snap.with_untracked(|s| *s != snap)
         || match ui.panel.get_untracked() {
@@ -1589,7 +1599,7 @@ fn error_bar(ui: Ui) -> AnyElement {
 
 fn content(ui: Ui) -> View {
     let covered = move || ui.snap.with(|s| s.blank || s.reader.is_some()) || ui.panel.get() != Panel::None || ui.editing.get();
-    let bare = move || covered() || ui.snap.with(|s| s.split.is_some());
+    let bare = move || covered() || ui.snap.with(|s| s.split.is_some() || s.fullscreen);
     view()
         .flex_col()
         .flex_1()
@@ -1631,6 +1641,7 @@ fn run_action(ui: Ui, action: Action) {
         Action::ZoomReset => act(ui, |b| b.zoom(0)),
         Action::CopyLink => tools::copy_link(ui, false),
         Action::CopyCleanLink => tools::copy_link(ui, true),
+        Action::TakeScreenshot => act(ui, Browser::take_screenshot),
         Action::ToggleReader => act(ui, |b| b.toggle_reader()),
         Action::ShowHistory => show(ui, Panel::History),
         Action::ToggleDownloads => show(ui, Panel::Downloads),
@@ -1694,6 +1705,7 @@ fn escape(ui: Ui) {
 
 fn bind_fixed(ui: Ui) {
     on_key("f5", move |_| reload(ui));
+    on_key("f11", move |_| act(ui, Browser::toggle_full_screen));
     on_key(crate::shortcuts::ZOOM_IN_SHIFTED, move |_| run_action(ui, Action::ZoomIn));
     on_key_with("escape", KeyOptions { when: nsh_core::keymap::When::Always, pass_through: true, ..KeyOptions::default() }, move |_| escape(ui));
     for (keys, backwards) in [(crate::shortcuts::FIND_NEXT, false), (crate::shortcuts::FIND_PREVIOUS, true)] {
@@ -1733,6 +1745,7 @@ fn keep_placement(ui: Ui, here: WindowRef) {
                     b.core.disk.set_setting(PLACEMENT, &json).ok();
                 }
                 b.set_window_size(f64::from(size.width.0), f64::from(size.height.0));
+                b.window_changed(state.mode);
             })
         });
     });
@@ -1764,6 +1777,7 @@ fn close_window(ui: Ui, here: &WindowRef) {
     act(ui, Browser::close_window);
     BROWSERS.with_borrow_mut(|windows| windows.remove(&ui.window));
     WINDOWS.with_borrow_mut(|windows| windows.retain(|w| w.window != ui.window));
+    PLACES.with_borrow_mut(|places| places.remove(&ui.window));
     ui.open.set(false);
     if here.is_main() {
         here.hide();
@@ -1868,6 +1882,13 @@ fn new_ui(row: SavedWindow) -> Ui {
             untracked(|| act(ui, |_| {}));
         }
     });
+    let finding = std::cell::Cell::new(false);
+    effect(move || {
+        let now = ui.finding.get();
+        if finding.replace(now) != now {
+            untracked(|| act_quietly(ui, |_| {}));
+        }
+    });
     let extensions_open = std::cell::Cell::new(false);
     effect(move || {
         let open = ui.panel.get() == Panel::Settings && ui.ext_pane.get();
@@ -1895,6 +1916,7 @@ fn new_ui(row: SavedWindow) -> Ui {
 
 fn browser_window(ui: Ui) -> AnyElement {
     let here = current_window();
+    PLACES.with_borrow_mut(|places| places.insert(ui.window, here.clone()));
     keep_placement(ui, here.clone());
     here.on_focus_change(move |focused| {
         if focused {
@@ -1921,28 +1943,29 @@ fn browser_window(ui: Ui) -> AnyElement {
         let light = !dark();
         untracked(|| act(ui, |b| b.follow_appearance(light)));
     });
+    let full = computed(move || ui.snap.with(|s| s.fullscreen));
     view()
         .flex_row()
         .size_full()
         .relative()
-        .p_2()
-        .gap_2()
+        .p(move || px(if full.get() { 0. } else { 8. }))
+        .gap(move || px(if full.get() { 0. } else { 8. }))
         .text_color(Theme::text)
         .font_family(Theme::font_family)
         .child(themed(|| view().absolute().inset_0().paint(Theme::backdrop())))
-        .child(when(move || ui.sidebar.get(), move || themed(move || sidebar(ui))))
+        .child(when(move || ui.sidebar.get() && !full.get(), move || themed(move || sidebar(ui))))
         .child(
             view()
                 .flex_col()
                 .flex_1()
-                .child(toolbar(ui))
+                .child(when(move || !full.get(), move || toolbar(ui)))
                 .child(themed(move || extensions::popup_panel(ui)))
                 .child(notice_bar(ui))
-                .child(error_bar(ui))
+                .child(when(move || !full.get(), move || error_bar(ui)))
                 .child(prompt_bar(ui))
                 .child(themed(move || find_bar(ui)))
                 .child(content(ui))
-                .child(themed(move || tools::toast_bar(ui))),
+                .child(when(move || !full.get(), move || themed(move || tools::toast_bar(ui)))),
         )
         .child(bound_keys(ui))
         .on_mouse_up(move |_: &MouseEvent| split::release(ui))

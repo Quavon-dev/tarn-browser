@@ -17,7 +17,10 @@ Every shell's web view offers the same operations and reports the same events. T
 - `load`, `back`, `forward`, `reload`, `reload_from_origin`, `stop`;
 - frame, visibility, focus and raise: on NSH, layout and focus come from the shell;
 - `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted`;
-- `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`;
+- `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`; NSH components: `snapshot`
+  `{seq, name}`, which saves the visible page as a new PNG under the sanitised `name` in Downloads
+  (`browser_core::capture::save_new`), copies it to the clipboard and answers with the event
+  `snapshot` `{seq, path}` or `{seq, message}` (Linux; iOS and Android do not have it yet);
 - isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
   and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
   has no isolated world and runs those scripts in the page world, so a shell must not send it
@@ -34,8 +37,11 @@ Every shell's web view offers the same operations and reports the same events. T
 - `Prompt`, `PeekLink`, `ExternalScheme`, `ContentProcessTerminated`;
 - `OpenTab`: Chromium views only, for a link the user opens in a new tab (Ctrl- or middle-click,
   the page menu); WebKit views report it as a `Popup`;
-- `FullScreen`: Chromium views on Windows only, whose element full screen fills the browser's
-  view; WebKit and the other engines open their own full-screen window;
+- `FullScreen`: Chromium views on Windows and WebKitGTK on Linux (`fullscreen`
+  `{on, windowFullScreen}`, the latter whether the window was already in full screen), whose
+  element full screen fills the browser's view or, on WebKitGTK, puts the shell's own window in
+  full screen; the shell hides itself while `browser_core::fullscreen` lets the page fill the
+  window. WebKit on macOS and iOS and Android WebView open their own full-screen window;
 - `DownloadFinished`, `DownloadFailed`, `DownloadsActive`;
 - `pressed`: Linux, iOS and Android, a pointer or touch press on the page, which still reaches the
   page, so a split pane takes the focus. macOS and Windows see the same press through the shell's

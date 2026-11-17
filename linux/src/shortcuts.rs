@@ -25,6 +25,7 @@ pub enum Action {
     ZoomReset,
     CopyLink,
     CopyCleanLink,
+    TakeScreenshot,
     ToggleReader,
     ShowHistory,
     ToggleDownloads,
@@ -81,6 +82,7 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
             ("Actual size", Action::ZoomReset, "ctrl+0"),
             ("Copy link", Action::CopyLink, "ctrl+shift+c"),
             ("Copy clean link", Action::CopyCleanLink, "ctrl+alt+shift+c"),
+            ("Take screenshot", Action::TakeScreenshot, "ctrl+alt+shift+s"),
             ("Reader", Action::ToggleReader, "ctrl+shift+r"),
         ],
     ),
@@ -247,6 +249,7 @@ mod tests {
         for (_, _, keys) in SECTIONS.iter().find(|(name, _)| *name == "Split View").unwrap().1 {
             assert_eq!(parse_keys(keys).as_deref(), Ok(default(keys).as_str()), "{keys} can be typed back in");
         }
+        assert_eq!(parse_keys("ctrl+alt+shift+s").as_deref(), Ok(default("ctrl+alt+shift+s").as_str()), "Take screenshot can be typed back in");
         assert_eq!(Action::NewTab.setting_key(), "keymap.tarn::NewTab");
         let stored = HashMap::from([
             (Action::NewTab.setting_key(), "ctrl+shift+y".to_owned()),

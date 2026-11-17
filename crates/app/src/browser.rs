@@ -169,7 +169,7 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
                 .unwrap_or_default();
             let started = started.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
             let state = if quarantined { "finished" } else { "finished-unquarantined" };
-            if core.keeps_records(private, profile_id) && core.wiped_at.borrow().get(&(private, profile_id)).is_none_or(|wiped| started >= *wiped) {
+            if core.keeps_record_since(private, profile_id, started) {
                 core.store(private).add_download(profile_id, &url, &path.to_string_lossy(), state, started).ok();
             }
             (Some(id), Ok((path, quarantined)))
@@ -266,7 +266,7 @@ pub struct Browser {
     pub privacy_notice: Option<((bool, Id), String)>,
     pub developer: bool,
     /// A page shows an element full screen, and whether that put the window into full screen.
-    pub(crate) page_fullscreen: Option<bool>,
+    pub(crate) page_fullscreen: browser_core::fullscreen::PageFullScreen,
     pub responsive: Option<usize>,
     zoom_before_responsive: HashMap<TabKey, f64>,
     clear_site_armed: Option<(TabKey, String)>,
@@ -443,7 +443,7 @@ impl Browser {
             next_generation: 0,
             privacy_notice: None,
             developer: false,
-            page_fullscreen: None,
+            page_fullscreen: Default::default(),
             responsive: None,
             zoom_before_responsive: HashMap::new(),
             clear_site_armed: None,
@@ -2015,16 +2015,12 @@ impl Browser {
         if !on {
             return self.leave_page_fullscreen(window);
         }
+        let Some(view) = self.views.get(&key).cloned() else { return };
         // Nothing the shell must show may be hidden: a pending prompt keeps the toolbar and its origin.
-        if self.active_prompt().is_some() {
-            return;
-        }
-        let Some(view) = self.views.get(&key).filter(|_| self.page_fullscreen.is_none()).cloned() else { return };
-        let entered = !window.is_fullscreen();
+        let Some(entered) = self.page_fullscreen.enter(self.active_prompt().is_some(), window.is_fullscreen()) else { return };
         if entered {
             window.toggle_fullscreen();
         }
-        self.page_fullscreen = Some(entered);
         view.set_corner_radius(0.);
         view.raise();
         self.layout_changed();
@@ -2033,19 +2029,22 @@ impl Browser {
     /// Whether the window may show the full-screen page alone: no prompt, overlay, address field,
     /// find bar or notice of the shell waits to be seen, and the page is still the active one.
     pub(crate) fn page_fullscreen_holds(&self) -> bool {
-        self.active_view().is_some()
-            && self.active_prompt().is_none()
-            && !self.overlay_open()
-            && self.command_mode.is_none()
-            && !self.find_open
-            && self.model.active.and_then(|k| self.pages.get(&k)).is_none_or(|p| p.notice.is_none() && p.blocked.is_none())
+        browser_core::fullscreen::Shell {
+            page: self.active_view().is_some(),
+            prompt: self.active_prompt().is_some(),
+            overlay: self.overlay_open(),
+            address: self.command_mode.is_some(),
+            find: self.find_open,
+            notice: self.model.active.and_then(|k| self.pages.get(&k)).is_some_and(|p| p.notice.is_some() || p.blocked.is_some()),
+        }
+        .lets_page_fill_window()
     }
 
     /// Gives the window back its sidebar, toolbar and size: when the page leaves full screen, and
     /// when a prompt, another tab or a crash needs the shell. The page itself may stay full screen
     /// inside the tab until it is put away.
     pub(crate) fn leave_page_fullscreen(&mut self, window: &mut Window) {
-        let Some(entered) = self.page_fullscreen.take() else { return };
+        let Some(entered) = self.page_fullscreen.leave() else { return };
         if entered && window.is_fullscreen() {
             window.toggle_fullscreen();
         }

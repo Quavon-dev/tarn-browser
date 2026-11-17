@@ -4,8 +4,8 @@ use browser_core::command::rank_commands;
 use nsh_core::prelude::*;
 
 use super::{Panel, Ui, act, read, show};
-use crate::browser::Browser;
 use crate::browser::spaces::SpaceCommand;
+use crate::browser::{Browser, ToastAction};
 use crate::controls::{accent_pill, body, icon_button, label, pill, small};
 use crate::icons;
 use crate::shortcuts::Action;
@@ -44,7 +44,7 @@ pub enum Command {
     Space(SpaceCommand),
 }
 
-const COMMANDS: [(&str, &str, Command); 23] = [
+const COMMANDS: [(&str, &str, Command); 24] = [
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
     ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
@@ -55,6 +55,7 @@ const COMMANDS: [(&str, &str, Command); 23] = [
     ("Find in Tabs", "search text all pages", Command::FindInTabs),
     ("Copy Link", "url address", Command::CopyLink),
     ("Copy Clean Link", "url tracking parameters utm strip", Command::CopyCleanLink),
+    ("Take Screenshot", "capture image png", Command::Key(Action::TakeScreenshot)),
     ("Show QR Code", "phone scan link", Command::ShowQrCode),
     ("Save Space as Snapshot", "session tabs save", Command::SaveSnapshot),
     ("Restore Snapshot…", "session tabs open", Command::Snapshots),
@@ -184,7 +185,10 @@ pub fn expire_toast(ui: Ui) {
 pub fn toast_bar(ui: Ui) -> AnyElement {
     dynamic(move || {
         let toast = ui.snap.with(|s| s.toast.clone())?;
-        let action = toast.action.map(|_| accent_pill("Undo", move || act(ui, Browser::take_toast_action)));
+        let action = toast.action.map(|action| match action {
+            ToastAction::Undo(_) => accent_pill("Undo", move || act(ui, Browser::take_toast_action)),
+            ToastAction::Reveal(path) => accent_pill("Show in Folder", move || drop(reveal_path(std::path::PathBuf::from(&path)))),
+        });
         Some(
             view().flex_row().justify_center().child(
                 tarn_nsh_shared::controls::toast(toast.tone)

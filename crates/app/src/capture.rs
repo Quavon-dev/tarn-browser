@@ -1,7 +1,7 @@
-use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use browser_core::capture::file_name;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{ClipboardItem, Context, Div, Image, ImageFormat, InteractiveElement, actions};
@@ -17,13 +17,6 @@ pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
         .on_action(cx.listener(|b, _: &CopyMarkdownLink, _, cx| b.copy_page(true, cx)))
         .on_action(cx.listener(|b, _: &CopyTitle, _, cx| b.copy_page(false, cx)))
         .on_action(cx.listener(|b, _: &PictureInPicture, _, cx| b.picture_in_picture(cx)))
-}
-
-/// A file name for a capture of the page: its title, else its host, as one safe path component.
-pub fn file_name(title: &str, url: Option<&Url>, ext: &str) -> String {
-    let title = ui::text::bounded_title(title);
-    let base = if title.is_empty() { url.and_then(Url::host_str).unwrap_or("Page") } else { &title };
-    format!("{}.{ext}", engine::downloads::sanitize_filename(&base.replace(['/', '\\'], "-")))
 }
 
 pub fn markdown_link(title: &str, url: &str) -> String {
@@ -87,8 +80,7 @@ impl Browser {
                 write_download(&name, &bytes).map_err(|e| e.to_string())
             });
         if let Ok(path) = &result
-            && self.core.keeps_records(private, profile_id)
-            && self.core.wiped_at.borrow().get(&(private, profile_id)).is_none_or(|wiped| started >= *wiped)
+            && self.core.keeps_record_since(private, profile_id, started)
         {
             self.store(private).add_download(profile_id, &url, &path.to_string_lossy(), "finished", now()).ok();
             self.downloads_popover.changed += 1;
@@ -134,25 +126,12 @@ impl Browser {
 
 pub(crate) fn write_download(name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
     let dir = std::env::home_dir().ok_or(std::io::ErrorKind::NotFound)?.join("Downloads");
-    let path = engine::downloads::unique_path(&dir, name, |p| p.symlink_metadata().is_ok());
-    std::fs::OpenOptions::new().write(true).create_new(true).open(&path)?.write_all(bytes)?;
-    Ok(path)
+    browser_core::capture::save_new(&dir, name, bytes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn capture_names_are_one_safe_component() {
-        let url = Url::parse("https://news.example/a").ok();
-        assert_eq!(file_name("Q3 / Q4 report", url.as_ref(), "pdf"), "Q3 - Q4 report.pdf");
-        assert_eq!(file_name("  \u{202E}", url.as_ref(), "png"), "news.example.png");
-        assert_eq!(file_name("", None, "png"), "Page.png");
-        assert_eq!(file_name("../../etc", None, "pdf"), "-..-etc.pdf");
-        assert_eq!(file_name("..", None, "pdf"), "download.pdf");
-        assert_eq!(file_name("a:b\nc", None, "png"), "a_b c.png");
-    }
 
     #[test]
     fn markdown_links_escape_brackets_and_parentheses() {

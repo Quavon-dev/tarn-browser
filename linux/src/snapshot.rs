@@ -131,6 +131,7 @@ pub struct Snapshot {
     pub burner: bool,
     pub find_rows: Vec<crate::browser::FindRow>,
     pub downloading: Option<f32>,
+    pub fullscreen: bool,
 }
 
 pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
@@ -248,7 +249,7 @@ fn tiles_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
 }
 
 pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
-    let panes = b.shown_split().map(|s| s.panes().to_vec()).unwrap_or_default();
+    let panes = b.shown_split().filter(|_| !b.page_fullscreen.is_on()).map(|s| s.panes().to_vec()).unwrap_or_default();
     let lists = b.lists();
     let sort_downloads = !b.setting_off(crate::browser::pages::SORT_DOWNLOADS);
     let mut keys: Vec<TabKey> = b.model.lifecycle.live().filter(|k| b.model.tab(*k).is_some()).collect();
@@ -288,7 +289,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
     let private = b.model.private();
     let profile_row = b.model.current_space().filter(|s| !s.private).and_then(|s| b.core.disk.profile(s.space.profile_id).ok());
     let overridden = profile_id.is_some_and(|p| b.core.has_override(private, p, &host));
-    let split = b.shown_split();
+    let split = b.shown_split().filter(|_| !b.page_fullscreen.is_on());
     let blank = key.is_some() && split.is_none() && (page.url.is_empty() || page.url == crate::browser::START_URL) && page.error.is_none();
     Snapshot {
         spaces: (0..b.model.spaces.len())
@@ -338,6 +339,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         burner: b.model.burner_shown(),
         find_rows: b.find_rows.clone(),
         downloading: downloading(b),
+        fullscreen: b.page_fullscreen.is_on(),
     }
 }
 

@@ -8,6 +8,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Take Screenshot, a video's full screen that hides the toolbar and sidebar, full screen on F11
+  and back and forward by a two-finger swipe over the page (Linux).
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages
