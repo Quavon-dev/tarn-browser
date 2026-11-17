@@ -12,8 +12,8 @@ use shield::ShieldLevel;
 use tarn_nsh_shared::controls::key_caps;
 use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::toolbar::{
-    address_text, badge_color, capsule, chip_button, extension_button, picked_fill, row, row_detail, row_glyph, row_name, row_section, row_site, rows,
-    search_slot, shield_chip, tool_button, tools,
+    address_text, badge_color, capsule, chip_button, extension_button, picked_fill, row, row_address, row_detail, row_glyph, row_name, row_section, row_site,
+    rows, search_slot, shield_chip, tool_button, tools,
 };
 use url::Url;
 
@@ -447,8 +447,11 @@ fn suggestion_rows(ui: Ui) -> impl IntoElement {
             row(url.clone(), move || go(ui, target.clone()))
                 .bg(move || picked_fill(picked(ui, first.get() + ix.get())))
                 .child(row_site(None, &site))
-                .child(row_name(if entry.title.is_empty() { url.clone() } else { entry.title.clone() }, Theme::text()))
-                .child(row_detail(url.trim_start_matches("https://").trim_end_matches('/').to_owned()))
+                .child(row_name(browser_core::text::bounded_title(if entry.title.is_empty() { &url } else { &entry.title }), Theme::text()))
+                .child({
+                    let (host, rest) = browser_core::command::history_detail(&url);
+                    row_address(host, rest)
+                })
         },
     ))
 }

@@ -194,6 +194,15 @@ pub fn row_detail(content: impl IntoReactive<SharedString>) -> Text {
     small(content).max_w(px(DETAIL_WIDTH)).number_of_lines(1)
 }
 
+pub fn row_address(host: String, rest: String) -> View {
+    view()
+        .flex_row()
+        .max_w(px(DETAIL_WIDTH))
+        .min_w(px(0.))
+        .child(small(host).flex_none().number_of_lines(1))
+        .child(small(rest).min_w(px(0.)).flex_shrink(1.).number_of_lines(1))
+}
+
 pub fn row_name(content: impl IntoReactive<SharedString>, color: Rgba) -> Text {
     text(content).text_size(px(TEXT)).text_color(color).flex_1().number_of_lines(1)
 }

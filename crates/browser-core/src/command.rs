@@ -260,6 +260,15 @@ pub fn address(url: &Url) -> (String, bool) {
     (host, url.scheme() == "http" || url.as_str().starts_with("blob:http:"))
 }
 
+/// A history row's address: the host, cut at its start so its registrable end stays, and the rest of
+/// the address, bounded and cleaned.
+pub fn history_detail(url: &str) -> (String, String) {
+    let Ok(parsed) = Url::parse(url) else { return (String::new(), crate::text::bounded_url(url)) };
+    let host = parsed.host_str().map(|h| host_tail(h.trim_start_matches("www."), MAX_HOST)).unwrap_or_default();
+    let rest = &parsed[url::Position::AfterHost..];
+    (host, crate::text::bounded_url(rest.trim_end_matches('/')))
+}
+
 /// What a tab row shows: its own name or the page's title, bounded and cleaned, else the page's label.
 pub fn display_title(custom: &str, title: &str, url: &str) -> String {
     [custom, title]
@@ -412,6 +421,19 @@ mod tests {
         assert_eq!(u.as_str(), "https://duckduckgo.com/?q=a%26b%3Dc+d");
         let Some(Input::Search(u)) = classify_input("a b", &ENGINES[1]) else { panic!() };
         assert_eq!(u.as_str(), "https://www.startpage.com/sp/search?query=a+b");
+    }
+
+    #[test]
+    fn a_history_detail_keeps_the_registrable_end_of_its_host() {
+        let host = format!("bank.com.{}evil.test", "a.".repeat(30));
+        let (shown, rest) = history_detail(&format!("https://{host}/log\u{202e}in?x=1"));
+        assert!(shown.starts_with('…') && shown.ends_with("evil.test"), "{shown}");
+        assert!(!rest.contains('\u{202e}') && rest.starts_with("/log") && rest.ends_with("in?x=1"), "{rest}");
+        assert_eq!(history_detail("https://example.com/"), ("example.com".to_owned(), String::new()));
+        assert_eq!(history_detail("http://example.com:8080/a/"), ("example.com".to_owned(), ":8080/a".to_owned()));
+        let (_, long) = history_detail(&format!("https://example.com/{}", "p".repeat(900)));
+        assert!(long.chars().count() <= 200);
+        assert_eq!(history_detail("not a url").0, "");
     }
 
     #[test]

@@ -29,6 +29,16 @@ pub fn bounded_title(raw: &str) -> String {
     out
 }
 
+pub fn bounded_url(raw: &str) -> String {
+    const MAX_URL_CHARS: usize = 200;
+    let clean: Vec<char> = raw.chars().filter(|c| !c.is_control() && !is_bidi(*c)).collect();
+    if clean.len() <= MAX_URL_CHARS {
+        return clean.into_iter().collect();
+    }
+    let half = (MAX_URL_CHARS - 1) / 2;
+    clean[..half].iter().chain(std::iter::once(&'…')).chain(&clean[clean.len() - half..]).collect()
+}
+
 pub fn is_bidi(c: char) -> bool {
     // Kept in sync with engine::downloads and ai::page_context, which cannot depend on `browser-core`.
     matches!(c, '\u{061C}' | '\u{115F}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{E0000}'..='\u{E007F}')
@@ -37,6 +47,15 @@ pub fn is_bidi(c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_urls_keep_their_start_and_end() {
+        let url = format!("ms-officecmd:{}&tail=run", "a".repeat(400));
+        let shown = bounded_url(&url);
+        assert!(shown.starts_with("ms-officecmd:") && shown.ends_with("&tail=run") && shown.contains('…'));
+        assert!(shown.chars().count() <= 200);
+        assert_eq!(bounded_url("zoommtg://x\u{202E}y"), "zoommtg://xy");
+    }
 
     #[test]
     fn invisible_and_bidi_characters() {
