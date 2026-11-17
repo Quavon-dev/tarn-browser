@@ -463,11 +463,6 @@ fn space_tint(color: &str, alpha: f32) -> Option<Rgba> {
     Theme::profile_color(color).map(|c| Rgba { a: alpha, ..c })
 }
 
-fn tab_key(tab: &str) -> Option<TabKey> {
-    let (private, id) = tab.split_once('-')?;
-    Some(TabKey { private: private.parse().ok()?, id: id.parse().ok()? })
-}
-
 fn host_of(url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default()
 }
@@ -2129,7 +2124,7 @@ fn route_downloads() {
     let mut downloads = webview::session::route();
     drop(spawn(async move {
         while let Some((tab, data)) = downloads.next().await {
-            let Some(key) = tab_key(&tab) else { continue };
+            let Some(key) = snapshot::tab_key(&tab) else { continue };
             let mut recorded = false;
             for ui in WINDOWS.with_borrow(Vec::clone) {
                 act(ui, |b| recorded |= b.on_download(key, &data, !recorded));
