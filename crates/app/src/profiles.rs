@@ -7,11 +7,11 @@ use gpui::{
 use shield::ShieldLevel;
 use store::{Id, Profile};
 use ui::command::ENGINES;
-use ui::controls::{button, caption, field, key_hint, radio, segment, segmented, surface, swatch, switch, text_block};
+use ui::controls::{button, caption, key_hint, segment, segmented, surface, swatch, switch, text_block};
 use ui::icon::{Icon, icon};
 use ui::motion::pop_in;
 use ui::text_input::{TextInput, TextInputEvent};
-use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_HEADING, Theme};
+use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 use browser_core::{share_store, shared_key};
 
@@ -31,6 +31,7 @@ pub fn bind_keys(cx: &mut App) {
     let ctx = Some("ProfileEditor");
     cx.bind_keys([
         KeyBinding::new("enter", ConfirmProfile, ctx),
+        KeyBinding::new("escape", crate::CloseOverlay, ctx),
         KeyBinding::new("tab", NextField, ctx),
         KeyBinding::new("shift-tab", PreviousField, ctx),
         KeyBinding::new("right", NextOption, ctx),
@@ -51,6 +52,8 @@ pub struct ProfileEditor {
     pub(crate) field: usize,
     pub(crate) focus: FocusHandle,
     pub(crate) space: Option<SpaceCard>,
+    /// Shown in the space popover above the sidebar instead of over the page.
+    pub(crate) floating: bool,
     _subscription: Subscription,
 }
 
@@ -157,14 +160,25 @@ impl Browser {
     }
 
     pub fn open_profile_editor(&mut self, editing: Option<Id>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.in_space_popover(window, cx, move |b, window, cx| b.open_profile_editor(editing, window, cx)) {
+            return;
+        }
+        self.start_editor(editing, false, window, cx);
+    }
+
+    /// Opens the editor over the page, or with `floating` for the space popover, which leaves the
+    /// page, the reader and the command card as they are.
+    pub(crate) fn start_editor(&mut self, editing: Option<Id>, floating: bool, window: &mut Window, cx: &mut Context<Self>) {
         let profile = editing.and_then(|id| self.core.disk.profile(id).ok());
         if editing.is_some() && profile.is_none() {
             return;
         }
-        self.command_mode = None;
-        self.forget_text_matches();
-        self.overlay_exit = None;
-        self.reader = None;
+        if !floating {
+            self.command_mode = None;
+            self.forget_text_matches();
+            self.overlay_exit = None;
+            self.reader = None;
+        }
         let name = cx.new(|cx| TextInput::new("Profile Name", cx));
         if let Some(p) = &profile {
             name.update(cx, |input, cx| input.set_text(p.name.clone(), cx));
@@ -186,8 +200,12 @@ impl Browser {
             field: 0,
             focus: cx.focus_handle(),
             space: None,
+            floating,
             _subscription: subscription,
         });
+        if floating {
+            return cx.notify();
+        }
         if let Some(view) = self.active_view() {
             view.set_visible(false);
         }
@@ -265,6 +283,9 @@ impl Browser {
     }
 
     pub fn confirm_profile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.in_space_popover(window, cx, |b, window, cx| b.confirm_profile(window, cx)) {
+            return;
+        }
         if self.space_card().is_some() {
             return self.confirm_space(window, cx);
         }
@@ -382,20 +403,30 @@ pub(crate) fn focus_ring(d: Div, on: bool) -> Div {
     d.p(px(2.)).rounded(px(Theme::radius_row() + 2.)).border_2().border_color(if on { Theme::accent_soft().into() } else { transparent_black() })
 }
 
+/// A text field drawn like the Library's search field: a raised fill without an edge, which
+/// turns accent when focused.
+pub(crate) fn input(focused: bool) -> Div {
+    div().h(px(32.)).px_2().flex().flex_col().justify_center().rounded(px(Theme::radius_row())).bg(Theme::raised()).border_1().border_color(if focused {
+        Theme::accent_soft().into()
+    } else {
+        transparent_black()
+    })
+}
+
+/// A list row drawn like the Library's rows: the chosen one carries the accent tint.
 pub(crate) fn choice_row(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<Div> {
     div()
         .id(id)
-        .px_3()
-        .py_2()
+        .min_h(px(30.))
+        .px_2()
+        .py_1p5()
         .flex()
         .items_center()
-        .gap_3()
+        .gap_2p5()
         .rounded(px(Theme::radius_row()))
         .cursor_pointer()
-        .when(selected, |d| d.bg(Theme::raised()))
-        .hover(|s| s.bg(Theme::hover()))
-        .active(|s| s.bg(Theme::pressed()))
-        .child(radio(selected))
+        .when(selected, |d| d.bg(Theme::selected()))
+        .when(!selected, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
 }
 
 pub(crate) fn color_row(
@@ -432,7 +463,7 @@ fn details(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut Contex
         .flex_col()
         .gap_2()
         .child(caption("Name"))
-        .child(field(focused).child(editor.name.clone()))
+        .child(input(focused).child(editor.name.clone()))
         .child(div().pt_2().child(caption("Color")))
         .child(color_row("profile-color", Some(editor.color), false, ring(1), cx, |e, ix| e.color = ix.unwrap_or(e.color)))
         .when(!candidates.is_empty(), |d| {
@@ -517,12 +548,27 @@ fn profile_parts(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut 
 }
 
 pub fn render_editor(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Option<AnyElement> {
-    let editor = b.profile_editor.as_ref()?;
+    let editor = b.profile_editor.as_ref().filter(|e| !e.floating)?;
+    let card = editor_card(b, editor, window, cx).w(px(480.)).max_w_full().shadow(Elevation::Modal.shadow());
+    Some(
+        div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .items_center()
+            .pt(relative(0.12))
+            .px_4()
+            .child(pop_in(card, ("profile-editor", editor.protection as usize), b.pref(Pref::ReduceMotion)))
+            .into_any_element(),
+    )
+}
+
+/// The editor's card, without its width and placement.
+pub(crate) fn editor_card(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut Context<Browser>) -> gpui::Stateful<Div> {
     let (title, subtitle, body, leading, confirm, ready) = match &editor.space {
         Some(card) => crate::spaces::parts(b, editor, card, window, cx),
         None => profile_parts(b, editor, window, cx),
     };
-    let step = editor.protection;
     let footer = div()
         .pt_2()
         .flex()
@@ -536,7 +582,7 @@ pub fn render_editor(b: &Browser, window: &Window, cx: &mut Context<Browser>) ->
                 .when(!ready, |d| d.text_color(Theme::faint()).cursor_default())
                 .when(ready, |d| d.on_click(cx.listener(|b, _, w, cx| b.confirm_profile(w, cx)))),
         );
-    let card = surface(Theme::radius_card())
+    surface(Theme::radius_panel())
         .id("profile-editor")
         .key_context("ProfileEditor")
         .track_focus(&editor.focus)
@@ -545,35 +591,23 @@ pub fn render_editor(b: &Browser, window: &Window, cx: &mut Context<Browser>) ->
         .on_action(cx.listener(|b, _: &PreviousField, w, cx| b.move_field(-1, w, cx)))
         .on_action(cx.listener(|b, _: &NextOption, _, cx| b.move_option(1, cx)))
         .on_action(cx.listener(|b, _: &PreviousOption, _, cx| b.move_option(-1, cx)))
-        .w(px(540.))
-        .max_w_full()
-        .p_6()
+        .on_action(cx.listener(|b, _: &crate::CloseOverlay, w, cx| b.dismiss_overlay(w, cx)))
+        .p_4()
         .flex()
         .flex_col()
         .gap_4()
-        .shadow(Elevation::Modal.shadow())
         .text_size(px(TEXT))
+        .text_color(Theme::text())
         .child(
             div()
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(div().text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).child(title))
-                .child(div().text_color(Theme::muted()).child(subtitle)),
+                .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).child(title))
+                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(subtitle)),
         )
         .child(body)
-        .child(footer);
-    Some(
-        div()
-            .flex_1()
-            .flex()
-            .flex_col()
-            .items_center()
-            .pt(relative(if editor.space.is_some() { 0.04 } else { 0.12 }))
-            .px_4()
-            .child(pop_in(card, ("profile-editor", step as usize), b.pref(Pref::ReduceMotion)))
-            .into_any_element(),
-    )
+        .child(footer)
 }
 
 #[cfg(test)]

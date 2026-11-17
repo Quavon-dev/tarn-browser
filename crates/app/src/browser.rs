@@ -286,6 +286,9 @@ pub struct Browser {
     pub peek: crate::peek::Peek,
     pub library: Option<WindowHandle<crate::library::LibraryWindow>>,
     pub(crate) library_closed: Option<std::time::Instant>,
+    /// The popover that shows the space card, and the main window it belongs to.
+    pub(crate) space_popover: Option<(WindowHandle<crate::spaces::SpacePopover>, WindowHandle<Browser>)>,
+    pub(crate) space_closed: Option<std::time::Instant>,
     pub(crate) samples: crate::memory::Samples,
     pub(crate) new_tab_group: Option<Id>,
     pub(crate) launcher_from: Option<TabKey>,
@@ -462,6 +465,8 @@ impl Browser {
             peek: Default::default(),
             library: None,
             library_closed: None,
+            space_popover: None,
+            space_closed: None,
             samples: Default::default(),
             new_tab_group: None,
             launcher_from: None,
@@ -1361,7 +1366,7 @@ impl Browser {
     /// them; the address field opened in the toolbar leaves it visible.
     pub fn overlay_open(&self) -> bool {
         (self.command_mode.is_some() && !self.inline_editing())
-            || self.profile_editor.is_some()
+            || self.profile_editor.as_ref().is_some_and(|e| !e.floating)
             || self.shortcuts_open
             || self.reader.as_ref().is_some_and(|r| self.model.active == Some(r.key))
     }
