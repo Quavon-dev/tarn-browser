@@ -492,12 +492,7 @@ impl Browser {
     pub fn move_tab_to(&mut self, key: TabKey, target: TabKey) {
         let Some(tab) = self.model.tab(target).filter(|_| key != target && key.private == target.private) else { return };
         let (kind, folder, index) = (tab.kind, tab.folder_id, self.model.zone_index(tab));
-        if self.model.burner_shown() && kind != TabKind::Ephemeral {
-            return;
-        }
-        if self.core.store(key.private).move_tab(key.id, kind, folder, index).is_ok() {
-            self.model.reload_space(&self.core);
-        }
+        browser_core::sidebar::move_tab(&mut self.model, &self.core, key, kind, folder, index);
     }
 
     pub fn toggle_folder(&mut self, id: Id) {
@@ -505,11 +500,8 @@ impl Browser {
     }
 
     pub fn move_to_folder(&mut self, key: TabKey, folder: Id) {
-        let index = self.model.zone_len(TabKind::Pinned, Some(folder));
-        if self.core.store(key.private).move_tab(key.id, TabKind::Pinned, Some(folder), index).is_ok() {
-            self.model.expanded.insert(folder);
-        }
-        self.model.reload_space(&self.core);
+        let at = browser_core::sidebar::DropAt::zone(TabKind::Pinned, Some(folder), None);
+        browser_core::sidebar::drop_tab(&mut self.model, &self.core, key, at);
     }
 
     pub fn move_to_space(&mut self, key: TabKey, ix: usize) {

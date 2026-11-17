@@ -761,7 +761,7 @@ impl Browser {
 
     /// Catches the shell up with the current space's lists: its profile's site icons, the tabs
     /// that fade in and its bookmarks.
-    fn space_shown(&mut self, old: &[Tab]) {
+    pub(crate) fn space_shown(&mut self, old: &[Tab]) {
         self.note_new_tabs(old);
         let profile = self.model.profile();
         if let Some((private, profile_id)) = profile {

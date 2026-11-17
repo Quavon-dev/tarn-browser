@@ -94,8 +94,12 @@ pub fn cleanable(model: &Model) -> bool {
     !model.burner_shown() && model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id.is_none()).count() >= 2
 }
 
+fn takes(model: &Model, kind: TabKind) -> bool {
+    !model.burner_shown() || kind == TabKind::Ephemeral
+}
+
 pub fn move_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, key: TabKey, kind: TabKind, folder: Option<Id>, index: usize) -> bool {
-    if model.burner_shown() && kind != TabKind::Ephemeral {
+    if !takes(model, kind) {
         return false;
     }
     let moved = core.store(key.private).move_tab(key.id, kind, folder, index).is_ok();
@@ -193,22 +197,17 @@ impl DropAt {
     }
 }
 
-pub fn drop_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabKey, at: DropAt) -> bool {
+pub fn drop_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabKey, at: DropAt) -> Option<Vec<Tab>> {
     let before = at.before.and_then(|k| model.tab(k).filter(|_| k.private == dragged.private));
-    if at.before == Some(dragged) || (at.before.is_some() && before.is_none()) || model.tab(dragged).is_none() {
-        return false;
-    }
-    if model.burner_shown() && at.kind != TabKind::Ephemeral {
-        return false;
+    if at.before == Some(dragged) || (at.before.is_some() && before.is_none()) || model.tab(dragged).is_none() || !takes(model, at.kind) {
+        return None;
     }
     let index = before.map_or_else(|| model.zone_len(at.kind, at.folder), |t| model.drop_index(dragged, t));
     let group = (at.kind == TabKind::Ephemeral).then_some(at.group);
-    if core.store(dragged.private).move_tab_to(dragged.id, at.kind, at.folder, index, group).is_err() {
-        return false;
-    }
-    model.reload_space(core);
+    core.store(dragged.private).move_tab_to(dragged.id, at.kind, at.folder, index, group).ok()?;
+    let old = model.reload_space(core);
     model.expanded.extend(at.folder);
-    true
+    Some(old)
 }
 
 pub fn slides_under(sidebar: &Sidebar, closed: TabKey) -> Option<TabKey> {
@@ -353,7 +352,7 @@ mod tests {
         let (_dir, core, mut model) = opened();
         let pinned = tab(&core, &mut model, TabKind::Pinned, None);
         let gone = DropAt::zone(TabKind::Ephemeral, None, Some(9_999));
-        assert!(!drop_tab(&mut model, &core, pinned, gone), "the drop reports its failure");
+        assert!(drop_tab(&mut model, &core, pinned, gone).is_none(), "the drop reports its failure");
         assert_eq!(model.tab(pinned).unwrap().kind, TabKind::Pinned, "the tab keeps its place");
     }
 
@@ -504,32 +503,32 @@ mod tests {
             tab(&core, &mut model, TabKind::Ephemeral, None),
         );
         let at = DropAt::before(&model, a).unwrap();
-        assert!(drop_tab(&mut model, &core, c, at));
+        assert!(drop_tab(&mut model, &core, c, at).is_some());
         assert_eq!(model.ephemeral_keys(), [c, a, b], "from below it goes before the row");
         let at = DropAt::before(&model, b).unwrap();
-        assert!(drop_tab(&mut model, &core, c, at));
+        assert!(drop_tab(&mut model, &core, c, at).is_some());
         assert_eq!(model.ephemeral_keys(), [a, c, b], "from above it goes after the row");
         let at = DropAt::before(&model, a).unwrap();
-        assert!(!drop_tab(&mut model, &core, a, at));
+        assert!(drop_tab(&mut model, &core, a, at).is_none());
 
-        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, None, None)));
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, None, None)).is_some());
         assert_eq!(model.tab(a).unwrap().kind, TabKind::Pinned);
         let at = DropAt::before(&model, a).unwrap();
-        assert!(drop_tab(&mut model, &core, b, at));
+        assert!(drop_tab(&mut model, &core, b, at).is_some());
         assert_eq!(model.tab(b).unwrap().kind, TabKind::Pinned, "a row of another zone takes the tab into it");
-        assert!(drop_tab(&mut model, &core, b, DropAt::zone(TabKind::Tile, None, None)));
+        assert!(drop_tab(&mut model, &core, b, DropAt::zone(TabKind::Tile, None, None)).is_some());
         assert_eq!(model.tab(b).unwrap().kind, TabKind::Tile);
 
         let folder = new_folder(&mut model, &core, None).unwrap();
         model.toggle_folder(folder);
-        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, Some(folder), None)));
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, Some(folder), None)).is_some());
         assert_eq!(model.tab(a).unwrap().folder_id, Some(folder));
         assert!(model.expanded.contains(&folder), "the folder opens to show it");
 
         let group = new_group(&mut model, &core, None).unwrap();
-        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Ephemeral, None, Some(group))));
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Ephemeral, None, Some(group))).is_some());
         assert_eq!((model.tab(a).unwrap().kind, model.tab(a).unwrap().group_id), (TabKind::Ephemeral, Some(group)));
-        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Ephemeral, None, None)));
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Ephemeral, None, None)).is_some());
         assert_eq!(model.tab(a).unwrap().group_id, None, "the loose tabs take it out of its group");
     }
 
