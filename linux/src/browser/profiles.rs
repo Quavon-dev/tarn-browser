@@ -21,7 +21,8 @@ impl Browser {
             profiles::profile_name(&self.core.disk, new.name, None).ok_or(if named { "Choose a name no other profile has." } else { "Name the profile." })?;
         let space = browser_core::space_card::valid_name(new.space[0], []).ok_or("Name the profile's first space.")?;
         let new = NewProfile { name: name.as_str(), space: [space.as_str(), new.space[1], new.space[2]], ..*new };
-        let id = profiles::create(&self.core.disk, &new, &uuid::Uuid::new_v4().to_string()).map_err(|e| format!("The profile could not be created ({e})."))?;
+        let (id, _) =
+            profiles::create(&self.core.disk, &new, &uuid::Uuid::new_v4().to_string()).map_err(|e| format!("The profile could not be created ({e})."))?;
         self.model.reload_spaces(&self.core);
         if let Some(ix) = self.model.spaces.iter().position(|s| !s.private && s.space.profile_id == id) {
             self.switch_space_by_user(ix);

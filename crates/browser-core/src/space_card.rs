@@ -113,8 +113,7 @@ impl SpaceDraft {
                     share: None,
                     space: [&name, &self.color, &self.icon],
                 };
-                crate::profiles::create(disk, &profile, &uuid::Uuid::new_v4().to_string())
-                    .and_then(|id| disk.spaces(id)?.first().map(|s| s.id).ok_or(store::Error::Invalid("space")))
+                crate::profiles::create(disk, &profile, &uuid::Uuid::new_v4().to_string()).map(|(_, space)| space)
             }
             (None, None, None) => return Err(Unsaved::Invalid),
         };

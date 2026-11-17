@@ -414,6 +414,23 @@ fn a_move_into_a_group_is_all_or_nothing() {
 }
 
 #[test]
+fn a_failed_step_in_a_batch_leaves_no_profile_or_space() {
+    let store = Store::open_in_memory().unwrap();
+    let failed = store.batch(|s| {
+        let profile = s.create_profile("Work", "uuid-w", false)?;
+        s.set_profile(profile.id, "Work", "blue")?;
+        s.set_setting(&format!("profile.{}.engine", profile.id), "Kagi")?;
+        let space = s.create_space(profile.id, "Desk", "code")?;
+        s.update_space(space.id, "Desk", "green", "code")?;
+        s.set_space_schedule(space.id, store::Schedule { days: 0, start: 24, end: 0 })
+    });
+    assert!(failed.is_err(), "an invalid schedule fails the last step");
+    assert!(store.profiles().unwrap().is_empty(), "no profile row is left");
+    assert!(store.setting("profile.1.engine").unwrap().is_none(), "nor its settings");
+    assert!(store.spaces(1).unwrap().is_empty(), "nor its space");
+}
+
+#[test]
 fn ungroup_keeps_the_tabs() {
     let (store, space) = seeded();
     let group = store.create_group(space, "Group 1").unwrap();

@@ -20,7 +20,7 @@ pub struct NewProfile<'a> {
     pub space: [&'a str; 3],
 }
 
-pub fn create(disk: &Store, new: &NewProfile, uuid: &str) -> Result<Id, store::Error> {
+pub fn create(disk: &Store, new: &NewProfile, uuid: &str) -> Result<(Id, Id), store::Error> {
     let [space, color, icon] = new.space;
     disk.batch(|disk| {
         let shared = new.share.and_then(|id| disk.profile(id).ok()).map(|mut p| {
@@ -34,7 +34,7 @@ pub fn create(disk: &Store, new: &NewProfile, uuid: &str) -> Result<Id, store::E
         disk.set_setting(&engine_key(false, id), new.engine)?;
         let space_id = disk.create_space(id, space, icon)?.id;
         disk.update_space(space_id, space, color, icon)?;
-        Ok(id)
+        Ok((id, space_id))
     })
 }
 
@@ -95,7 +95,7 @@ mod tests {
         assert_eq!(delete(&disk, first.id), None);
         let new =
             NewProfile { name: "Work", color: "blue", level: ShieldLevel::Strict, engine: "Kagi", share: Some(first.id), space: ["Desk", "green", "code"] };
-        let id = create(&disk, &new, "uuid-b").unwrap();
+        let (id, _) = create(&disk, &new, "uuid-b").unwrap();
         let made = disk.profile(id).unwrap();
         assert_eq!((made.name.as_str(), made.color.as_str(), made.shield_level), ("Work", "blue", ShieldLevel::Strict));
         assert_eq!(disk.setting(&engine_key(false, id)).unwrap().as_deref(), Some("Kagi"));
@@ -110,7 +110,7 @@ mod tests {
         assert_eq!(disk.setting(&shared_key(id)).unwrap(), None);
         assert_eq!(disk.setting(&engine_key(false, id)).unwrap(), None);
         let own = NewProfile { share: None, ..new };
-        let id = create(&disk, &own, "uuid-c").unwrap();
+        let (id, _) = create(&disk, &own, "uuid-c").unwrap();
         assert_eq!(delete(&disk, id), Some(Deleted { own_store: "uuid-c".into(), store: "uuid-c".into(), still_used: false }));
     }
 
