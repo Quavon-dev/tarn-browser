@@ -1,8 +1,17 @@
-use nsh_core::geometry::{Points, Size};
+use nsh_core::geometry::{Bounds, Points, Size};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
 
 const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn bounds(app: &Headless, id: &str) -> Bounds<Points> {
+    app.screen().layout_nodes().into_iter().find(|n| n.test_id.as_deref() == Some(id) && !n.hidden).map(|n| n.bounds).unwrap()
+}
+
+fn bounds_of(app: &Headless, selector: &str) -> Bounds<Points> {
+    let node = app.screen().press_target(selector).unwrap().unwrap();
+    app.screen().layout_nodes().into_iter().find(|n| n.id == node).map(|n| n.bounds).unwrap()
+}
 
 #[test]
 fn the_mac_toolbar_opens_a_command_palette() {
@@ -23,6 +32,12 @@ fn the_mac_toolbar_opens_a_command_palette() {
 
     for name in ["label:Back", "label:Forward", "label:Reload", "label:Open Split View", "label:Share"] {
         app.wait_for(name).unwrap();
+    }
+    for viewport in [Size::new(Points(1032.), Points(1376.)), Size::new(Points(1376.), Points(1032.))] {
+        app.set_viewport(viewport).unwrap();
+        app.wait_for("label:Reload").unwrap();
+        let (reload, field) = (bounds_of(&app, "label:Reload"), bounds(&app, "capsule"));
+        assert!(reload.origin.x.0 + reload.size.width.0 <= field.origin.x.0, "Reload stays left of the address: {reload:?} {field:?}");
     }
     assert!(!app.screen().matches("label:Menu").unwrap(), "the Mac toolbar has no touch menu button");
 

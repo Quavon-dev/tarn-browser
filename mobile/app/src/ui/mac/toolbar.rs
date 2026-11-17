@@ -149,6 +149,7 @@ fn shield(ui: Ui) -> impl IntoElement {
 fn address_field(ui: Ui) -> impl IntoElement {
     let open = move || ui.editing.get() || ui.screen.get() == Screen::Shield;
     let capsule = capsule(open)
+        .test_id("capsule")
         .relative()
         .child(themed(move || {
             dynamic(move || {
@@ -213,7 +214,7 @@ fn page_actions(ui: Ui) -> View {
 }
 
 pub(super) fn toolbar(ui: Ui) -> impl IntoElement {
-    let side = || view().flex_row().items_center().flex_1().min_w(px(0.));
+    let side = || view().flex_row().items_center().flex_1().min_w(nsh_core::geometry::auto());
     view()
         .flex_row()
         .items_center()
