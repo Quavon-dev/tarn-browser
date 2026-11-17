@@ -47,7 +47,7 @@ pub const COMMANDS: [(&str, &str, Command); 23] = [
     ("Memory", "process cpu ram usage sleep", Command::Memory),
     ("Reading List", "read later saved pages", Command::ReadingList),
     ("New Window", "open another browser window", Command::NewWindow),
-    ("Open or Close Split View", "side by side tabs grid four", Command::ToggleSplitView),
+    ("Open in Split View", "open close side by side tabs grid four", Command::ToggleSplitView),
     ("Focus Next Pane", "split view switch", Command::FocusNextPane),
     ("Focus Previous Pane", "split view switch", Command::FocusPreviousPane),
     ("Swap Split Panes", "split view exchange move", Command::SwapPanes),
@@ -97,7 +97,6 @@ impl State {
     fn name(self, label: &str, command: Command) -> String {
         match command {
             Command::TogglePin => (if self.pinned { "Unpin Tab" } else { "Pin Tab" }).to_owned(),
-            Command::ToggleSplitView => "Open in Split View".to_owned(),
             _ => label.to_owned(),
         }
     }
@@ -135,6 +134,12 @@ mod tests {
     fn plain_text_lists_at_most_four_commands() {
         assert!(names("split", State { split: true, ..State::default() }).len() <= PLAIN_ROOM);
         assert!(names(">", State { split: true, ..State::default() }).len() > PLAIN_ROOM);
+    }
+
+    #[test]
+    fn the_split_command_is_found_by_the_name_it_shows() {
+        assert_eq!(names("open in split view", State::default()), ["Open in Split View"]);
+        assert!(names("close split", State::default()).contains(&"Open in Split View".to_owned()), "the old wording still finds it");
     }
 
     #[test]
