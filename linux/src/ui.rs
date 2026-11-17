@@ -1,4 +1,5 @@
 mod appearance;
+mod blocking;
 mod extensions;
 mod groups;
 mod library;
@@ -354,6 +355,8 @@ fn web_views(ui: Ui) -> View {
                     .prop("levels", move || item.with(|v| v.levels.clone()))
                     .prop("lists", move || JsonValue::from(item.with(|v| v.lists.clone())))
                     .prop("youtube", move || JsonValue::from(item.with(|v| v.youtube)))
+                    .prop("filtered", move || JsonValue::from(item.with(|v| v.filtered)))
+                    .prop("blocking", move || item.with(|v| v.blocking.clone()))
                     .prop("styles", move || item.with(|v| v.styles.clone()))
                     .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
                     .prop("zaps", move || item.with(|v| v.zaps.clone()))
@@ -1660,7 +1663,7 @@ fn error_bar(ui: Ui) -> AnyElement {
 }
 
 fn content(ui: Ui) -> View {
-    let covered = move || ui.snap.with(|s| s.blank || s.reader.is_some()) || ui.panel.get() != Panel::None || ui.editing.get();
+    let covered = move || ui.snap.with(|s| s.blank || s.reader.is_some() || s.blocked.is_some()) || ui.panel.get() != Panel::None || ui.editing.get();
     let bare = move || covered() || ui.snap.with(|s| s.split.is_some());
     view()
         .flex_col()
@@ -1674,6 +1677,7 @@ fn content(ui: Ui) -> View {
         .child(when(move || !ui.editing.get(), move || panels::panel_view(ui)))
         .child(themed(move || tools::reader_view(ui)))
         .child(themed(move || start_card(ui)))
+        .child(themed(move || blocking::page(ui)))
         .child(web_views(ui).flex_grow(move || if covered() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
 }
 

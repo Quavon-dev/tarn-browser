@@ -4,10 +4,12 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use browser_core::site::Sets;
+use engine::nav_policy::Site;
 use shield::domains::DomainSet;
 use shield::rules::{builtin_rules, youtube_rules};
 use shield::youtube;
 use shield::{Category, ShieldLevel};
+use url::Url;
 use webkit6::{UserContentFilter, UserContentFilterStore, gio, glib};
 
 use shield::groups as bundle;
@@ -24,12 +26,45 @@ thread_local! {
     static STORE: UserContentFilterStore = UserContentFilterStore::new(&crate::data::root().join("webkit-filters").to_string_lossy());
     static BUILTIN: RefCell<HashMap<ShieldLevel, UserContentFilter>> = RefCell::default();
     static GROUPS: RefCell<Groups> = const { RefCell::new(Groups::Idle) };
-    pub(super) static MALWARE: RefCell<Option<Arc<DomainSet>>> = const { RefCell::new(None) };
     static YOUTUBE_SCRIPT: RefCell<String> = RefCell::new(youtube::script(&youtube::Config::default()));
+    static SETS: RefCell<Sets> = RefCell::default();
+    static SET_CATEGORIES: RefCell<Option<Vec<Category>>> = const { RefCell::new(None) };
 }
 
 pub fn youtube_script() -> String {
     YOUTUBE_SCRIPT.with_borrow(Clone::clone)
+}
+
+pub fn site(level: ShieldLevel, rules: &browser_core::site::SiteRules, url: &Url) -> Site {
+    SETS.with(|sets| browser_core::site::site(level, rules, sets, url))
+}
+
+pub fn install_sets(incoming: Sets) {
+    let keep = SET_CATEGORIES.with_borrow(|c| c.clone().unwrap_or_default());
+    SETS.with_borrow_mut(|sets| sets.install(incoming, &keep));
+    super::sets_changed();
+}
+
+/// Reads the domain sets of `categories` from the installed bundle once they change; the sets of
+/// categories switched off are dropped at once and never read.
+pub fn want_sets(categories: Vec<Category>) {
+    if SET_CATEGORIES.with_borrow(|c| c.as_ref() == Some(&categories)) {
+        return;
+    }
+    SET_CATEGORIES.set(Some(categories.clone()));
+    install_sets(Sets::default());
+    if categories.is_empty() {
+        return;
+    }
+    let dir = crate::data::root().join("filters");
+    glib::MainContext::default().spawn_local(async move {
+        let key = bundle::public_key();
+        let read = gio::spawn_blocking(move || shield::cache::read(&dir, &key).map(|b| Sets::from_bundle(&b, &categories)).map_err(|e| format!("{e:?}"))).await;
+        match read.unwrap_or_else(|_| Err("reader panicked".into())) {
+            Ok(sets) => install_sets(sets),
+            Err(e) => eprintln!("tarn: no domain sets installed ({e})"),
+        }
+    });
 }
 
 async fn compile(identifier: String, source: String) -> Result<UserContentFilter, String> {
@@ -43,7 +78,7 @@ fn ready_groups() {
         let key = bundle::public_key();
         let loaded = gio::spawn_blocking(move || {
             let cached = shield::cache::read(&dir, &key).map_err(|e| format!("{e:?}"))?;
-            Ok((bundle::of(&cached), Sets::from_bundle(&cached, &[Category::Malware]).malware, youtube::config(&cached)))
+            Ok((bundle::of(&cached), youtube::config(&cached)))
         })
         .await
         .unwrap_or_else(|_| Err(String::from("converter panicked")));
@@ -54,8 +89,7 @@ fn ready_groups() {
             compiled.insert(bundle::YOUTUBE_GROUP.to_owned(), vec![filter]);
         }
         match loaded {
-            Ok((groups, malware, config)) => {
-                MALWARE.with_borrow_mut(|m| *m = malware);
+            Ok((groups, config)) => {
                 YOUTUBE_SCRIPT.with_borrow_mut(|s| *s = youtube::script(&config));
                 for group in groups {
                     let mut filters = Vec::new();
@@ -99,7 +133,7 @@ fn when_groups_ready(then: Waiter) {
 }
 
 pub fn malware() -> Option<Arc<DomainSet>> {
-    MALWARE.with_borrow(Clone::clone)
+    SETS.with_borrow(|sets| sets.malware.clone())
 }
 
 pub fn with_filters(level: ShieldLevel, groups: Vec<String>, then: impl FnOnce(Result<Vec<UserContentFilter>, String>) + 'static) {

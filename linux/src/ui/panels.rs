@@ -122,7 +122,30 @@ fn shield_panel(ui: Ui) -> AnyElement {
     };
     let dark = read(ui, Browser::site_dark).unwrap_or_default();
     let muted = read(ui, |b| b.model.active.map(|k| b.tab_muted(k))).flatten().unwrap_or_default();
+    let (paused, popups, permissions) = read(ui, |b| (b.site_paused(&host), b.site_popups(), b.site_permissions())).unwrap_or_default();
+    let pause_host = host.clone();
+    let popup_choices = browser_core::site::POPUP_RULES.iter().map(|(rule, name)| (*rule, (*name).to_owned())).collect();
+    let permission_rows: Vec<AnyElement> = permissions.into_iter().map(|row| permission_row(ui, row)).collect();
     let list = group()
+        .child(
+            glyph_switch(
+                icons::SHIELD,
+                "Block ads, trackers and cookie banners",
+                move || !paused,
+                move || {
+                    let host = pause_host.clone();
+                    act(ui, move |b| b.set_site_paused(&host, !paused));
+                },
+            )
+            .border_b_1()
+            .border_color(Theme::separator()),
+        )
+        .child(
+            glyph_row(icons::APP_WINDOW, "Pop-ups")
+                .child(segmented(popup_choices, popups, move |rule| act(ui, move |b| b.set_site_popups(rule))))
+                .border_b_1()
+                .border_color(Theme::separator()),
+        )
         .child(
             glyph_switch(icons::MOON, "Dark mode for this site", move || dark, move || act(ui, Browser::toggle_site_dark))
                 .border_b_1()
@@ -149,7 +172,8 @@ fn shield_panel(ui: Ui) -> AnyElement {
                     .child(zoom_button(icons::CHEVRON_RIGHT, "Zoom In", 1, ZOOM_STEPS[ZOOM_STEPS.len() - 1]))
                     .child(pill("Reset", move || act(ui, |b| b.zoom(0)))),
             ),
-        );
+        )
+        .children(permission_rows);
     let more = ui.site_more.get_untracked();
     let toggle = crate::controls::row(if more { "Fewer site settings" } else { "More site settings" }, move || {
         ui.site_more.update(|m| *m = !*m);
@@ -170,9 +194,52 @@ fn shield_panel(ui: Ui) -> AnyElement {
                 .child(small(meaning).px_1()),
         )
         .child(list)
-        .child(view().flex_row().child(toggle))
+        .child(view().flex_row().items_center().child(toggle).child(view().flex_1()).child(clear_site(ui, &host)))
         .children(more.then(|| site_extras(ui, &host)))
         .into_element()
+}
+
+fn permission_row(ui: Ui, row: browser_core::permissions::PermissionRow) -> AnyElement {
+    let glyph = icons::named(browser_core::glyphs::glyph(&row.kind)).unwrap_or(icons::INFO);
+    let choices = browser_core::permissions::DECISIONS.iter().map(|(d, name)| (*d, (*name).to_owned())).collect();
+    let (origin, kind) = (row.origin.clone(), row.kind.clone());
+    let (forget_origin, forget_kind) = (row.origin.clone(), row.kind.clone());
+    let decision = browser_core::permissions::DECISIONS.iter().map(|(d, _)| *d).find(|d| *d == row.decision).unwrap_or("ask");
+    glyph_row(glyph, row.label)
+        .border_t_1()
+        .border_color(Theme::separator())
+        .child(segmented(choices, decision, move |d| {
+            let (origin, kind) = (origin.clone(), kind.clone());
+            act(ui, move |b| b.set_site_permission(&origin, &kind, Some(d)));
+        }))
+        .child(icon_button(icons::CLOSE, "Remove", move || {
+            let (origin, kind) = (forget_origin.clone(), forget_kind.clone());
+            act(ui, move |b| b.set_site_permission(&origin, &kind, None));
+        }))
+        .into_element()
+}
+
+/// "Clear site data…" asks for a second click before it removes anything.
+fn clear_site(ui: Ui, host: &str) -> AnyElement {
+    let id = format!("site:{host}");
+    let armed = ui.confirm.with_untracked(|c| c.as_deref() == Some(id.as_str()));
+    let host = host.to_owned();
+    let name = if armed { "Click again to clear" } else { "Clear site data…" };
+    crate::controls::row(name, move || {
+        if !armed {
+            ui.confirm.set(Some(id.clone()));
+            return act(ui, |_| {});
+        }
+        ui.confirm.set(None);
+        let mut store = None;
+        act(ui, |b| store = b.clear_site(&host));
+        let Some(store) = store else { return };
+        let (cleared, host) = (host.clone(), host.clone());
+        crate::webview::session::clear_site(&store, &host, move |count| act(ui, move |b| b.site_cleared(&cleared, count)));
+    })
+    .px_1()
+    .child(small(name).text_color(Theme::danger()))
+    .into_element()
 }
 
 fn site_extras(ui: Ui, host: &str) -> View {

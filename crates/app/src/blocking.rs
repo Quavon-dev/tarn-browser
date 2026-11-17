@@ -16,9 +16,7 @@ use url::Url;
 use crate::browser::{Browser, TabKey};
 use crate::prefs::Pref;
 use crate::shared::AppCore;
-pub(crate) use browser_core::site::{POPUPS, Sets, SiteRules, popup_origin, site_host};
-
-pub(crate) use browser_core::prompts::stable;
+pub(crate) use browser_core::site::{POPUPS, Sets, SiteRules, popup_origin, site_host, stable};
 
 /// Rule-list groups: the switch that turns each on, and whether pausing a site turns it off.
 pub const GROUPS: [(&str, Pref, bool); 6] = [
@@ -128,20 +126,7 @@ impl AppCore {
     /// off nor remove one a later read installed.
     fn set_sets(&self, incoming: Sets) {
         let keep = self.set_categories();
-        {
-            let mut guard = self.sets.borrow_mut();
-            let sets = &mut *guard;
-            let Sets { malware, adult, popups } = incoming;
-            for (category, current, new) in
-                [(Category::Malware, &mut sets.malware, malware), (Category::Adult, &mut sets.adult, adult), (Category::Popups, &mut sets.popups, popups)]
-            {
-                if !keep.contains(&category) {
-                    *current = None;
-                } else if new.is_some() {
-                    *current = new;
-                }
-            }
-        }
+        self.sets.borrow_mut().install(incoming, &keep);
         self.sync_shield();
     }
 }
@@ -342,27 +327,6 @@ impl Browser {
     }
 }
 
-fn reason(category: Category) -> &'static str {
-    match category {
-        Category::Malware if cfg!(windows) => {
-            "This site is on a list of sites that spread malware, phishing or scams. Visiting it may put your passwords, payments or PC at risk."
-        }
-        Category::Malware => {
-            "This site is on a list of sites that spread malware, phishing or scams. Visiting it may put your passwords, payments or Mac at risk."
-        }
-        Category::Adult => "This site is on a list of adult websites, and adult content blocking is on. Turn it off in Settings › Privacy to visit such sites.",
-        _ => "This site is blocked.",
-    }
-}
-
-fn heading(category: Category) -> &'static str {
-    match category {
-        Category::Malware => "Dangerous site blocked",
-        Category::Adult => "Adult site blocked",
-        _ => "Site blocked",
-    }
-}
-
 /// The warning page, drawn by the shell in place of the web view; nothing of the site is loaded.
 pub fn render_blocked(page: &BlockedPage, cx: &mut Context<Browser>) -> gpui::AnyElement {
     let host = ui::text::bounded_origin(&page.url.origin().ascii_serialization());
@@ -383,16 +347,11 @@ pub fn render_blocked(page: &BlockedPage, cx: &mut Context<Browser>) -> gpui::An
                 .items_center()
                 .gap_2()
                 .child(icon(Icon::Shield, ICON_LARGE, color))
-                .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).child(heading(page.category))),
+                .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).child(browser_core::site::warning_heading(page.category))),
         )
         .child(div().font_weight(FontWeight::SEMIBOLD).overflow_hidden().whitespace_nowrap().text_ellipsis().child(host))
-        .child(div().text_color(Secure::muted()).child(reason(page.category)))
-        .child(
-            div()
-                .text_size(px(TEXT_SMALL))
-                .text_color(Secure::faint())
-                .child(format!("Listed in Tarn's {} list. Lists are updated daily.", page.category.as_str())),
-        )
+        .child(div().text_color(Secure::muted()).child(browser_core::site::warning_reason(page.category, if cfg!(windows) { "PC" } else { "Mac" })))
+        .child(div().text_size(px(TEXT_SMALL)).text_color(Secure::faint()).child(browser_core::site::warning_source(page.category)))
         .child(
             div()
                 .pt_2()

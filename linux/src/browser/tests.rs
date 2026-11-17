@@ -151,8 +151,17 @@ fn open_anyway_loads_a_refused_local_address_as_the_users_own_navigation() {
     let key = active(&b);
     let public = Url::parse("https://evil.test/").unwrap();
     let target = Url::parse("http://192.168.1.1/admin").unwrap();
-    let nav =
-        |from_shell| Navigation { url: &target, from_shell, user_link: false, user_step: false, page: Some(&public), upgraded: false, likely_subframe: false };
+    let nav = |from_shell| Navigation {
+        url: &target,
+        site_filtered: true,
+        filtered: true,
+        from_shell,
+        user_link: false,
+        user_step: false,
+        page: Some(&public),
+        upgraded: false,
+        likely_subframe: false,
+    };
     assert_eq!(navigation(&Levels::default(), ShieldLevel::Standard, &nav(false)), Verdict::Blocked("local_network"));
     b.on_event(key, "committed", &json!({ "url": public.as_str() }));
     b.on_event(key, "blocked", &json!({ "url": target.as_str(), "reason": "local_network" }));

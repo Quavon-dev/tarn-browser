@@ -11,6 +11,11 @@ pub const SETTINGS: [(&str, &str); 5] =
 pub const YOUTUBE_GROUP: &str = "youtube";
 pub const YOUTUBE_SETTING: &str = "block_youtube_ads";
 
+/// Whether pausing a site lifts the group: every group but the malware rules (S25).
+pub fn pausable(group: &str) -> bool {
+    group != "malware"
+}
+
 /// The bundle signing key. Debug builds take `TARN_TEST_FILTER_KEY` (64 hex digits) instead, so
 /// tests can install bundles they signed themselves; release builds never read it.
 pub fn public_key() -> [u8; 32] {
@@ -149,6 +154,7 @@ mod tests {
         assert_eq!(switched_on(|_| None), ["ads", "cosmetic", "trackers", "malware", "annoyances"]);
         let off = |k: &str| (k == "block_ads").then(|| "off".to_owned());
         assert_eq!(switched_on(off), ["trackers", "malware", "annoyances"]);
+        assert_eq!(GROUPS.into_iter().filter(|g| !pausable(g)).collect::<Vec<_>>(), ["malware"]);
     }
 
     #[test]

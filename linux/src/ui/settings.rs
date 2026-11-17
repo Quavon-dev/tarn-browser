@@ -1,7 +1,7 @@
 use browser_core::shield_card::{Card, H, SHORT, W, back, day_totals, days_text, face, front, front_svg, thousands};
 use nsh_core::file_dialog::{FileFilter, SaveDialog};
 use nsh_core::prelude::*;
-use shield::ShieldLevel;
+use shield::{Category, ShieldLevel};
 use tarn_nsh_shared::panes::{self, GROUPS, Pane};
 
 use super::panels::{capitalised, levels, section};
@@ -269,16 +269,15 @@ fn hidden(ui: Ui, private: bool) -> View {
     view().flex_col().children(rows)
 }
 
-fn muted_sites(ui: Ui) -> View {
-    let hosts = read(ui, Browser::muted_sites).unwrap_or_default();
+fn site_list(ui: Ui, hosts: Vec<String>, empty: &'static str, button: &'static str, run: fn(&mut Browser, &str)) -> View {
     if hosts.is_empty() {
-        return view().child(note("No muted sites. Mute Site in a tab's panel or the command bar silences a site in this profile."));
+        return view().child(note(empty));
     }
     let rows: Vec<AnyElement> = hosts
         .into_iter()
         .map(|host| {
             let shown = browser_core::text::bounded_title(&host);
-            line(shown).child(pill("Unmute", move || act(ui, |b| b.unmute_site(&host)))).into_element()
+            line(shown).child(pill(button, move || act(ui, move |b| run(b, &host)))).into_element()
         })
         .collect();
     view().flex_col().children(rows)
@@ -517,9 +516,11 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
         )
     })?;
     let (start_page, previous, gestures) = read(ui, |b| (b.pref(NEW_TAB_START_PAGE), b.pref(CLOSE_SELECTS_PREVIOUS), b.pref(GESTURES)))?;
+    let (sets, paused, muted) = read(ui, |b| (b.set_categories(), b.paused_sites(), b.muted_sites()))?;
     let on = |group: &str| lists.iter().any(|l| l == group);
     let toggle = move |setting: &'static str| move || act(ui, move |b| b.toggle_setting(setting));
     let toggle_off = move |setting: &'static str| move || act(ui, move |b| b.toggle_off_setting(setting));
+    let toggle_set = move |category: Category| move || act(ui, move |b| b.toggle_set(category));
     let body = view().flex_col().child(super::panels::heading(ui, title(panes::name(pane))));
     Some(match pane {
         Pane::Profile => match card {
@@ -636,10 +637,13 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                         .child(switch(on("trackers"), "Block trackers", toggle("block_trackers")))
                         .child(switch(on("annoyances"), "Block cookie banners", toggle("block_annoyances")))
                         .child(switch(youtube, "Block YouTube ads", toggle(shield::groups::YOUTUBE_SETTING)))
-                        .child(switch(on("malware"), "Block malware sites", toggle("block_malware"))),
+                        .child(switch(sets.contains(&Category::Popups), "Block pop-ups and ad redirects", toggle_set(Category::Popups)))
+                        .child(switch(sets.contains(&Category::Malware), "Block dangerous sites", toggle_set(Category::Malware)))
+                        .child(switch(sets.contains(&Category::Adult), "Block adult content", toggle_set(Category::Adult))),
                 )
                 .child(note("EasyList Cookie and uBlock Cookie Notices hide consent pop-ups and stop the scripts that show them. Nothing is accepted or refused for you."))
                 .child(note("Block YouTube ads removes ads from YouTube's player data before the player sees them and hides ad slots. YouTube changes often; if videos stop playing, turn this off."))
+                .child(note("Pages open windows only when you click, never to known pop-up ad sites, and cannot send you to one. Malware, phishing and scam lists stop dangerous sites with a warning page; adult sites get one with no way past it."))
                 .child(note("Filter lists apply to pages loaded after a change; they need the signed list bundle."))
                 .child(section("Links from other apps"))
                 .child(group().child(switch(localhost, "Open localhost links from other apps", toggle(LOCALHOST_FROM_APPS))))
@@ -647,7 +651,9 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 .child(section("Site overrides"))
                 .child(overrides(ui))
                 .child(section("Muted sites"))
-                .child(muted_sites(ui))
+                .child(site_list(ui, muted, "No muted sites. Mute Site in a tab's panel or the command bar silences a site in this profile.", "Unmute", |b, host| b.unmute_site(host)))
+                .child(section("Sites without ad, tracker and cookie-banner blocking"))
+                .child(site_list(ui, paused, "Blocking runs on every site. Turn it off for one site with the Shield button in the address bar.", "Turn On", |b, host| b.set_site_paused(host, false)))
                 .child(
                     view()
                         .flex_row()

@@ -14,6 +14,7 @@ its own Cargo workspace, so NSH stays out of the root workspace and `Cargo.lock`
 | `src/ui.rs`, `src/ui/panels.rs` | The NSH desktop layout |
 | `src/controls.rs` | The desktop's text styles, rows and panels over `tarn_nsh_shared::controls` (desktop density); theme and icons are `tarn_nsh_shared::{theme, icons}` (`../nsh-shared`) |
 | `src/input.rs` | The search-engine setting and history suggestions (with full-text matches); parsing is `browser_core::command` |
+| `src/browser/blocking.rs` | Warning page, Visit Anyway, paused sites, pop-up rules, site permissions and Clear site data |
 | `src/browser/{pages,site,spaces,tools}.rs` | Reader, page text, Find in Tabs, Shield counters, downloads; site CSS, dark mode, zaps; schedules, burner tab, routing, snapshots, space commands; copy link, QR code, Reading List |
 | `src/shortcuts.rs`, `src/memory.rs`, `src/speech.rs` | Rebindable shortcuts (`keymap.tarn::<Action>` settings, NSH keystroke text); per-tab memory and CPU from `/proc`; read aloud through `spd-say` |
 | `src/ui/{tools,library,settings}.rs` | Toasts, reader, command rows, QR code; space, memory and Reading List panels; Settings |
@@ -86,6 +87,13 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
 - site icons (`readIconLinks`, `fetchIcon`): fetched inside the tab after each https load, kept per profile
   by `engine::favicon::Tracker`, stored with `Store::set_favicon` and drawn wherever a site's letter
   tile was (tiles, tab rows, split panes, history, bookmarks, suggestions, site and share popovers);
+- blocking (threat model S25): the malware, adult and pop-up ad domain sets of the installed bundle stop
+  navigations in the component (`blocking` prop, `blocked` `listed`), with the warning page (Go Back,
+  Visit Anyway for malware after 700 ms, remembered until quit), Privacy switches and the list of sites
+  without ad, tracker and cookie-banner blocking; the site panel adds that per-site switch (`filtered`
+  prop), the pop-up rule, the site's permission rows (Allow, Ask, Deny, Remove) and Clear site data
+  (click twice; WebKitGTK's `WebsiteDataManager` records of the host and below). Gaps in
+  `docs/nsh-plan.md` (no main-frame flag on WebKitGTK navigation actions);
 - Shield: cookie-banner lists switch, Block YouTube ads (the YouTube page script and ad-slot rules,
   `youtube` prop), the Netflix visibility script in every view but Lockdown's, the Shield card (front and stamps side, no 3D tilt in NSH)
   with the last seven days and the sites protected most; counters from `shielded` events;
@@ -143,6 +151,9 @@ Moved out of this crate, with the macOS app using the same code where it had a c
 - `engine::view_policy`: site levels, navigation and popup verdicts, bursts, the zoom range
   (`engine::delegates` uses its bursts and title cut);
 - `shield::groups`: the bundle-to-rule-list conversion and the debug signing key (`crates/app` uses it);
+- `browser_core::site`: domain sets from the bundle and their install, the set switches, the warning
+  page's words and its click guard; `browser_core::permissions::permission_rows` for the site panel
+  (`crates/app` uses them);
 - `browser_core::command`: input parsing, `engine_key`, the address label (`display_host`, the text of
   the macOS label `address`); `browser_core::prompts`: the prompt model and what may be remembered (the mobile shell
   uses both). A crashed page reloads once and stays until a page finishes loading, as on macOS.

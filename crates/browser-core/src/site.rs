@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use engine::nav_policy::{PopupRule, Site};
 use engine::request_filter::Shield;
@@ -17,8 +18,52 @@ pub type Hosts = Rc<RefCell<HashSet<String>>>;
 /// Pop-up rules by page origin, as stored in the `permissions` table under kind `popups`.
 pub type PopupRules = Rc<RefCell<HashMap<String, PopupRule>>>;
 pub const POPUPS: &str = "popups";
+/// A site's pop-up choices, as labelled.
+pub const POPUP_RULES: [(PopupRule, &str); 3] = [(PopupRule::Default, "Default"), (PopupRule::Allow, "Allow"), (PopupRule::Block, "Block")];
 pub const DEFAULT_WEB_ENGINE: &str = "default_web_engine";
 pub const LOCALHOST_FROM_APPS: &str = "localhost_from_apps";
+
+/// The domain-set categories, the setting that switches each and whether it is on by default.
+pub const SET_SWITCHES: [(Category, &str, bool); 3] =
+    [(Category::Malware, "block_malware", true), (Category::Adult, "block_adult", false), (Category::Popups, "block_popups", true)];
+
+/// "Visit Anyway", a notice's offer and a permission prompt's Allow ignore clicks this long after
+/// any of them appears or moves, so a page cannot time a click to land on them.
+pub const BYPASS_DELAY: Duration = Duration::from_millis(700);
+
+pub fn stable(since: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(since) >= BYPASS_DELAY
+}
+
+/// The categories whose switch is on, read from settings stored as `on` / `off`.
+pub fn set_categories(setting: impl Fn(&str) -> Option<String>) -> Vec<Category> {
+    SET_SWITCHES.iter().filter(|(_, key, default)| setting(key).map_or(*default, |v| v != "off")).map(|(c, ..)| *c).collect()
+}
+
+pub fn warning_heading(category: Category) -> &'static str {
+    match category {
+        Category::Malware => "Dangerous site blocked",
+        Category::Adult => "Adult site blocked",
+        _ => "Site blocked",
+    }
+}
+
+/// Why the warning page stopped the site; `computer` names the device at risk.
+pub fn warning_reason(category: Category, computer: &str) -> String {
+    match category {
+        Category::Malware => format!(
+            "This site is on a list of sites that spread malware, phishing or scams. Visiting it may put your passwords, payments or {computer} at risk."
+        ),
+        Category::Adult => {
+            "This site is on a list of adult websites, and adult content blocking is on. Turn it off in Settings › Privacy to visit such sites.".into()
+        }
+        _ => "This site is blocked.".into(),
+    }
+}
+
+pub fn warning_source(category: Category) -> String {
+    format!("Listed in Tarn's {} list. Lists are updated daily.", category.as_str())
+}
 
 /// Domain sets of the switched-on categories; `None` while off or not installed.
 #[derive(Default, Clone)]
@@ -45,6 +90,22 @@ impl Sets {
             .filter(|(c, _)| !(excepted && *c == Category::Malware))
             .find(|(_, set)| set.as_ref().is_some_and(|s| s.contains(host)))
             .map(|(c, _)| c)
+    }
+
+    /// Installs the sets that arrived for categories in `keep` and drops the others. Sets read
+    /// before a switch changed can therefore neither bring back one the user turned off nor remove
+    /// one a later read installed.
+    pub fn install(&mut self, incoming: Sets, keep: &[Category]) {
+        let Sets { malware, adult, popups } = incoming;
+        for (category, current, new) in
+            [(Category::Malware, &mut self.malware, malware), (Category::Adult, &mut self.adult, adult), (Category::Popups, &mut self.popups, popups)]
+        {
+            if !keep.contains(&category) {
+                *current = None;
+            } else if new.is_some() {
+                *current = new;
+            }
+        }
     }
 }
 
@@ -205,6 +266,49 @@ mod tests {
         assert_eq!(s("https://evil.example/").blocked, Some(Category::Malware));
         assert_eq!(s("https://adult.example/").blocked, Some(Category::Adult));
         assert_eq!(s("https://fine.example/").level, ShieldLevel::Strict);
+    }
+
+    #[test]
+    fn sets_load_switched_on_categories_and_install_only_those_still_on() {
+        use shield::bundle::VerifiedList;
+        let list = |category: &str, data: Vec<u8>| VerifiedList { name: format!("{category}.set"), category: category.into(), kind: Kind::Set, count: 1, data };
+        let bundle = VerifiedBundle {
+            version: 1,
+            created: String::new(),
+            lists: vec![
+                list("malware", DomainSet::encode(["evil.example"])),
+                list("adult", DomainSet::encode(["adult.example"])),
+                list("popups", vec![1, 2, 3]),
+            ],
+        };
+        let loaded = Sets::from_bundle(&bundle, &[Category::Malware, Category::Popups]);
+        assert!(loaded.malware.is_some() && loaded.adult.is_none(), "a category switched off is not loaded");
+        assert!(loaded.popups.is_none(), "a set that fails its checks is left out");
+        let mut sets = Sets { adult: Sets::from_bundle(&bundle, &[Category::Adult]).adult, ..Sets::default() };
+        sets.install(loaded.clone(), &[Category::Malware, Category::Adult]);
+        assert!(sets.malware.is_some() && sets.adult.is_some(), "a read without the adult set keeps the installed one");
+        sets.install(loaded, &[Category::Adult]);
+        assert!(sets.malware.is_none(), "a set read before its switch went off is dropped");
+    }
+
+    #[test]
+    fn set_switches_default_malware_and_popups_on() {
+        assert_eq!(set_categories(|_| None), [Category::Malware, Category::Popups]);
+        let set = |k: &str| match k {
+            "block_adult" => Some("on".to_owned()),
+            "block_popups" => Some("off".to_owned()),
+            _ => None,
+        };
+        assert_eq!(set_categories(set), [Category::Malware, Category::Adult]);
+    }
+
+    #[test]
+    fn guarded_clicks_wait_for_a_stable_layout() {
+        let since = Instant::now();
+        assert!(!stable(since, since));
+        assert!(!stable(since, since + BYPASS_DELAY - Duration::from_millis(1)));
+        assert!(stable(since, since + BYPASS_DELAY));
+        assert!(!stable(since + BYPASS_DELAY, since), "a change after `now` is not stable");
     }
 
     #[test]

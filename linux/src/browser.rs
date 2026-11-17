@@ -1,3 +1,4 @@
+pub mod blocking;
 pub mod bookmarks;
 pub mod extensions;
 mod groups;
@@ -46,6 +47,9 @@ pub struct Page {
     pub loading: bool,
     pub load: Option<(String, u64)>,
     pub level: ShieldLevel,
+    /// The user paused ad, tracker and cookie-banner blocking on the site of the shell's last load.
+    pub paused: bool,
+    pub blocked: Option<blocking::BlockedPage>,
     pub zoom: f64,
     pub found: Option<u64>,
     pub error: Option<String>,
@@ -130,6 +134,8 @@ pub struct Browser {
     ext_prompt_serial: u64,
     /// Every split of this window, for the session only.
     pub splits: browser_core::split::Splits<TabKey>,
+    /// When the page area last changed under the pointer; guarded buttons wait `BYPASS_DELAY`.
+    pub guard_since: std::time::Instant,
     text_rows: usize,
     burner_return: Option<(bool, Id)>,
     window: SavedWindow,
@@ -197,6 +203,7 @@ impl Browser {
             ext_prompts: HashMap::new(),
             ext_prompt_serial: 0,
             splits: Default::default(),
+            guard_since: std::time::Instant::now(),
             text_rows: 0,
             burner_return: None,
             window,
@@ -298,6 +305,7 @@ impl Browser {
             self.close_reader();
         }
         let at = std::time::Instant::now();
+        self.guard_since = at;
         self.used.extend(self.model.active.into_iter().chain([key]).map(|k| (k, at)));
         self.model.active = Some(key);
         self.ext_activated(key);
@@ -339,11 +347,14 @@ impl Browser {
     pub fn load(&mut self, key: TabKey, url: &str) {
         let seq = self.next_seq();
         let level = self.level_for(key, url);
+        let paused = !self.filtered(key, url);
         let page = self.pages.entry(key).or_default();
         page.load = Some((url.to_owned(), seq));
         page.link = false;
         page.loading = true;
         page.level = level;
+        page.paused = paused;
+        page.blocked = None;
         page.error = None;
         page.found = None;
         if page.url.is_empty() {
@@ -789,6 +800,12 @@ impl Browser {
                     });
                 }
             }
+            "blocked" if text("reason") == "listed" => {
+                let page = self.pages.entry(key).or_default();
+                page.loading = false;
+                suggest::typed_visit(&mut page.typed, &text("url"));
+                self.on_listed(key, &text("url"), &text("category"));
+            }
             "blocked" => {
                 // A rebuild reloads the same address, which keeps its typed credit.
                 if text("reason") != "rebuild" {
@@ -939,6 +956,7 @@ impl Browser {
         if prompt.rememberable()
             && let Some(profile) = self.model.profile_of(&self.core, key)
             && let Some(decision) = self.core.store(key.private).permission(profile, &prompt.origin, &prompt.kind).ok().flatten()
+            && decision != "ask"
         {
             let accept = decision == "allow";
             self.outbox.push((key, "answer", json!({ "id": prompt.id, "accept": accept })));
