@@ -32,6 +32,8 @@ pub enum RowKind {
 pub struct Row {
     pub kind: RowKind,
     pub label: String,
+    /// A folder's chosen icon (`browser_core::icon`), empty for a tab.
+    pub icon: String,
     pub host: String,
     pub depth: usize,
     pub active: bool,
@@ -117,7 +119,6 @@ pub struct Snapshot {
     pub spaces: Vec<SpaceItem>,
     pub profile: String,
     pub profile_color: String,
-    pub profile_name: String,
     pub space_name: String,
     pub space_icon: String,
     /// The current space, private or not; the start card's text belongs to it.
@@ -225,6 +226,7 @@ fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows
         rows.push(Row {
             kind: RowKind::Tab(key),
             label: tab_label(tab, b, key),
+            icon: String::new(),
             burner: b.model.burner_shown(),
             heavy: heavy.contains(&key),
             asleep: b.model.active != Some(key) && !b.elsewhere.contains(&key) && !b.model.lifecycle.live().any(|k| k == key),
@@ -251,6 +253,7 @@ fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: 
         rows.push(Row {
             kind: RowKind::Folder(folder.id),
             label: folder.name.clone(),
+            icon: folder.icon.clone(),
             host: String::new(),
             depth,
             active: false,
@@ -299,6 +302,7 @@ fn group_rows(b: &Browser, heavy: &HashSet<TabKey>, rows: &mut Vec<Row>) {
             split: None,
             panes,
             color: browser_core::tabs::group_color(group, &tarn_nsh_shared::theme::PROFILE_COLORS),
+            icon: group.icon.clone(),
         });
     }
 }
@@ -424,8 +428,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
             })
             .collect(),
         profile: b.model.current_space().map(|_| space_label(b, b.model.space_ix)).unwrap_or_default(),
-        profile_color: profile_row.as_ref().map(|p| p.color.clone()).unwrap_or_default(),
-        profile_name: profile_row.map(|p| p.name).unwrap_or_default(),
+        profile_color: profile_row.map(|p| p.color).unwrap_or_default(),
         space_name: b.model.current_space().map(|s| if s.private { space_label(b, b.model.space_ix) } else { s.space.name.clone() }).unwrap_or_default(),
         space_icon: b.model.current_space().map(|s| s.space.icon.clone()).unwrap_or_default(),
         space: b.model.current_space().map(|s| (s.private, s.space.id)),
@@ -542,6 +545,5 @@ mod tests {
         let snap = snapshot(&b, true);
         assert_eq!((snap.host.as_str(), snap.site_total), ("c.test", 1));
         assert!(snap.rows.iter().any(|r| r.kind == RowKind::Tab(key) && r.playing));
-        assert!(!snap.profile_name.is_empty());
     }
 }

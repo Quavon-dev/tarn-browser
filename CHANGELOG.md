@@ -68,17 +68,46 @@ All notable changes to Tarn are documented in this file. The format is based on
   Link, Copy Clean Link, Paste and Go, Site Settings), Copy Link as Markdown and Copy Title, the
   Keyboard Shortcuts sheet (`Ctrl+/`), the macOS commands and shortcuts it was missing, switching
   to space 1–9 with `Alt+1`…`Alt+9`, and Settings › Privacy › Open localhost links from other apps.
+- Tab groups and folders can show an icon: one of twenty symbols or a single emoji, set with
+  Change Icon… in their menu (macOS, Windows; folders on Linux). Clean Up gives each group it
+  makes the icon of its kind.
 
 ### Changed
 
+- Toasts have a calmer design: a tone icon, the message and a quiet text action such as Undo
+  (macOS, Windows, Linux, iOS, Android).
+- Tiles stretch to fill their row, so two tiles share the sidebar's width (macOS, Windows, Linux).
+- The profile button left the sidebar header; profiles stay in Settings › Profile and the menu
+  (macOS, Windows, Linux).
+- Appearance has no separate Theme picker; the Themes grid sets the theme.
 - Bitwarden's privileges (Touch ID unlock through the Bitwarden app, clipboard and passkeys) are
   off until you turn on Settings › Extensions › Bitwarden integration; until then Bitwarden runs
   like any other app extension (macOS).
 - The macOS disk image opens on a window drawn from the Tarn icon's lake, with an arrow from Tarn
   to the Applications folder and the Tarn volume icon.
+- Settings › General lists every profile and marks the one the window uses.
+- The space name in the sidebar header has no chevron, and the space icons in the sidebar's bottom
+  bar sit in its centre (macOS, Windows, Linux).
+- The compact toolbar's address field keeps the same inset around the shield and the trailing
+  buttons, which now sit inside it.
 
 ### Fixed
 
+- Settings text no longer runs under the controls beside it, and text fields clip their
+  placeholder.
+- The settings window's close, minimise and zoom buttons respond on their whole area.
+- In a split, an unfocused pane's header uses its full width for the address.
+- After closing a tab, the tab that moves under the pointer shows its close button at once.
+- Library rows show their edit and delete buttons side by side inside the row on hover.
+- The Shield card's actions in Settings › Profile sit in an even grid of buttons with icons
+  (macOS, Windows, Linux, iOS, Android).
+- The start page's space and Shield pills open the space menu and a Shield level menu (macOS,
+  Windows, Linux), and the start card keeps its suggestions inside the window, scrolling when the
+  window is short.
+- The reload arrow turns smoothly while a page loads: about 30 even steps a second on macOS and
+  Windows, the toolkit's own animation on Linux, iOS and Android.
+- Dark mode for a site leaves pages that are already dark as they are instead of inverting them to
+  light (macOS, Windows, Linux, iOS, Android).
 - Linux: links from other apps open in Tarn. The desktop entry made Tarn a browser for http and
   https links, but the URLs it was started with were ignored; now they, and those of a later
   launch, open as new tabs in the running Tarn, under the same rules as on macOS.

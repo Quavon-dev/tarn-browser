@@ -64,7 +64,9 @@ impl Browser {
     }
 
     pub fn close_group(&mut self, id: Id) {
-        let Some(group) = self.model.groups.iter().find(|g| g.id == id).map(|g| ClosedGroup { name: g.name.clone(), color: g.color.clone() }) else {
+        let Some(group) =
+            self.model.groups.iter().find(|g| g.id == id).map(|g| ClosedGroup { name: g.name.clone(), color: g.color.clone(), icon: g.icon.clone() })
+        else {
             return;
         };
         let private = self.model.private();

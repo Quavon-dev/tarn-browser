@@ -744,6 +744,24 @@ fn pane_keys(row: &crate::snapshot::Row) -> Vec<crate::snapshot::RowKind> {
 }
 
 #[test]
+fn a_group_takes_a_listed_symbol_or_one_emoji_as_its_icon_and_keeps_it_when_reopened() {
+    let (_dir, mut b) = browser();
+    let a = b.new_tab("https://a.test/").unwrap();
+    let id = b.new_group(Some(a)).unwrap();
+    b.set_group_icon(id, "briefcase");
+    assert_eq!(group_row(&b, id).icon, "briefcase");
+    b.set_group_icon(id, "not a symbol");
+    assert_eq!(group_row(&b, id).icon, "briefcase", "anything else changes nothing");
+    assert!(b.toast.is_some(), "and says why");
+    b.set_group_icon(id, "🚀");
+    assert_eq!(group_row(&b, id).icon, "🚀");
+    b.close_group(id);
+    b.reopen();
+    let reopened = b.model.groups.iter().find(|g| g.name == b.model.groups[0].name).map(|g| g.icon.clone());
+    assert_eq!(reopened.as_deref(), Some("🚀"), "a reopened group keeps its icon");
+}
+
+#[test]
 fn groups_hold_tabs_collapse_to_the_active_one_and_reopen_as_a_group() {
     let (_dir, mut b) = browser();
     let first = b.model.active.unwrap();

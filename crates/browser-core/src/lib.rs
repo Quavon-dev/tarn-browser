@@ -30,6 +30,7 @@ pub mod fullscreen;
 pub mod github;
 pub mod glyphs;
 pub mod hover;
+pub mod icon;
 pub mod import;
 pub mod incoming;
 pub mod library;

@@ -1,7 +1,6 @@
 use browser_core::tabs::TabKey;
 use nsh_core::prelude::*;
 use store::Id;
-use tarn_nsh_shared::controls::avatar;
 use tarn_nsh_shared::theme::PROFILE_COLORS;
 
 use super::panels::{capitalised, heading, menu_row, popover, rename_row};
@@ -35,6 +34,18 @@ fn new_tab_in(ui: Ui, id: Id) {
     });
 }
 
+/// The group's chosen symbol or emoji on its colour, else its initial, as on macOS.
+fn badge(icon: &str, label: &str, fill: Rgba) -> View {
+    let inside = match browser_core::icon::parse(icon) {
+        Some(browser_core::icon::Icon::Symbol(name)) => {
+            view().text_color(Theme::on_fill(fill)).child(icons::icon(icons::named(name).unwrap_or(icons::FOLDER), 11.)).into_element()
+        }
+        Some(browser_core::icon::Icon::Emoji(emoji)) => text(emoji.to_owned()).text_size(px(10.)).into_element(),
+        None => text(initial(label)).text_size(px(9.)).font_weight(FontWeight::BOLD).text_color(Theme::on_fill(fill)).into_element(),
+    };
+    view().w(px(18.)).h(px(18.)).flex_none().rounded_full().items_center().justify_center().bg(fill).child(inside)
+}
+
 fn initial(name: &str) -> String {
     name.trim().chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default()
 }
@@ -55,8 +66,8 @@ pub(super) fn group_card(ui: Ui, id: Id, item: ReadSignal<Row>) -> AnyElement {
         .pl(px(6.))
         .pr(px(2.))
         .child(dynamic(move || {
-            let (label, color) = item.with(|r| (r.label.clone(), r.color));
-            avatar(initial(&label), rgb(color), 18.)
+            let (label, color, icon) = item.with(|r| (r.label.clone(), r.color, r.icon.clone()));
+            badge(&icon, &label, rgb(color))
         }))
         .child(label(name).font_weight(FontWeight::MEDIUM).truncate())
         .child(
@@ -104,7 +115,9 @@ fn swatch(ui: Ui, id: Id, name: &'static str, rgb_hex: u32, current: bool) -> An
 }
 
 pub(super) fn group_panel(ui: Ui, id: Id) -> AnyElement {
-    let Some((name, color)) = read(ui, |b| b.model.groups.iter().find(|g| g.id == id).map(|g| (g.name.clone(), g.color.clone()))).flatten() else {
+    let Some((name, color, current)) =
+        read(ui, |b| b.model.groups.iter().find(|g| g.id == id).map(|g| (g.name.clone(), g.color.clone(), g.icon.clone()))).flatten()
+    else {
         return view().into_element();
     };
     let swatches: Vec<AnyElement> = PROFILE_COLORS.iter().map(|(n, hex)| swatch(ui, id, n, *hex, color == *n)).collect();
@@ -122,6 +135,10 @@ pub(super) fn group_panel(ui: Ui, id: Id) -> AnyElement {
         .child(heading(ui, title(format!("Group “{name}”")).truncate()))
         .child(rename_row(ui, format!("group {id}"), &name, move |name| act(ui, |b| b.rename_group(id, &name))))
         .child(view().flex_col().gap_2().child(small("Color".to_owned())).child(view().flex_row().flex_wrap().gap_2().children(swatches)))
+        .child(super::panels::icon_choice(ui, format!("group {id}"), current, move |icon| {
+            ui.emoji.set(browser_core::icon::emoji(&icon).to_owned());
+            act(ui, |b| b.set_group_icon(id, &icon));
+        }))
         .child(rows)
         .into_element()
 }

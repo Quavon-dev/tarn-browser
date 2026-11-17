@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use browser_core::closed::ClosedGroup;
 use engine::menu::Item;
 use gpui::{AppContext, Context, Entity, Focusable, Subscription, Window};
 use store::Id;
@@ -28,6 +29,8 @@ pub(crate) fn capitalized(name: &str) -> String {
 
 pub struct Rename {
     pub target: RenameTarget,
+    /// Edits the icon of a group or folder, shown in its picker, instead of the name.
+    pub icon: bool,
     pub input: Entity<TextInput>,
     _subscriptions: [Subscription; 3],
 }
@@ -80,7 +83,11 @@ impl Browser {
         if self.in_main(window, cx, move |b, window, cx| b.close_group(id, window, cx)) {
             return;
         }
-        let Some(group) = self.model.groups.iter().find(|g| g.id == id).map(|g| (g.name.clone(), g.color.clone())) else { return };
+        let Some(group) =
+            self.model.groups.iter().find(|g| g.id == id).map(|g| ClosedGroup { name: g.name.clone(), color: g.color.clone(), icon: g.icon.clone() })
+        else {
+            return;
+        };
         let keys = self.model.tabs.iter().filter(|t| t.group_id == Some(id)).map(|t| self.model.key(t)).collect();
         // Closing may switch space (leaving a burner), so the group's store is chosen first.
         let private = self.model.private();
@@ -122,23 +129,36 @@ impl Browser {
 
     /// Shows an inline name field with the current name selected; Enter or blur saves, Esc keeps the name.
     pub fn begin_rename(&mut self, target: RenameTarget, window: &mut Window, cx: &mut Context<Self>) {
+        self.begin_edit(target, false, window, cx);
+    }
+
+    /// Shows the icon picker of a group or folder: symbols to click and a field for one emoji.
+    pub fn begin_icon(&mut self, target: RenameTarget, window: &mut Window, cx: &mut Context<Self>) {
+        self.begin_edit(target, true, window, cx);
+    }
+
+    fn begin_edit(&mut self, target: RenameTarget, icon: bool, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(peek) = self.peek.window.filter(|_| !self.peek.is_window(window)) {
             let browser = cx.entity();
             cx.defer(move |cx| {
-                peek.update(cx, |_, window, cx| browser.update(cx, |b, cx| b.begin_rename(target, window, cx))).ok();
+                peek.update(cx, |_, window, cx| browser.update(cx, |b, cx| b.begin_edit(target, icon, window, cx))).ok();
             });
             return;
         }
-        let name = match target {
-            RenameTarget::Folder(id) => self.model.folders.iter().find(|f| f.id == id).map(|f| f.name.clone()),
-            RenameTarget::Group(id) => self.model.groups.iter().find(|g| g.id == id).map(|g| g.name.clone()),
-            RenameTarget::Space(id) => self.model.current_space().filter(|s| s.space.id == id).map(|s| s.space.name.clone()),
-            RenameTarget::Tab(id) => self.model.tabs.iter().find(|t| t.id == id).map(crate::tabs::display_title),
+        let emoji = |stored: &str| browser_core::icon::emoji(stored).to_owned();
+        let text = match (target, icon) {
+            (RenameTarget::Folder(id), true) => self.model.folders.iter().find(|f| f.id == id).map(|f| emoji(&f.icon)),
+            (RenameTarget::Group(id), true) => self.model.groups.iter().find(|g| g.id == id).map(|g| emoji(&g.icon)),
+            (_, true) => None,
+            (RenameTarget::Folder(id), false) => self.model.folders.iter().find(|f| f.id == id).map(|f| f.name.clone()),
+            (RenameTarget::Group(id), false) => self.model.groups.iter().find(|g| g.id == id).map(|g| g.name.clone()),
+            (RenameTarget::Space(id), false) => self.model.current_space().filter(|s| s.space.id == id).map(|s| s.space.name.clone()),
+            (RenameTarget::Tab(id), false) => self.model.tabs.iter().find(|t| t.id == id).map(crate::tabs::display_title),
         };
-        let Some(name) = name else { return };
+        let Some(name) = text else { return };
         self.commit_rename(cx);
         let input = cx.new(|cx| {
-            let mut input = TextInput::new("Name", cx);
+            let mut input = TextInput::new(if icon { "Emoji" } else { "Name" }, cx);
             input.set_text(name, cx);
             input
         });
@@ -149,7 +169,11 @@ impl Browser {
             _ => {}
         });
         let focus = input.focus_handle(cx);
-        let blur = cx.on_blur(&focus, window, |b, window, cx| b.end_rename(true, window, cx));
+        let blur = cx.on_blur(&focus, window, move |b, window, cx| {
+            if !icon || window.focused(cx).is_some() {
+                b.end_rename(true, window, cx);
+            }
+        });
         let menu_input = input.clone();
         let deactivate = cx.observe_window_activation(window, move |b, window, cx| {
             if !window.is_window_active() && !menu_input.read(cx).menu_open() {
@@ -166,7 +190,7 @@ impl Browser {
         if !self.sidebar_open && !self.peek.is_window(window) {
             self.sidebar_open = true;
         }
-        self.renaming = Some(Rename { target, input, _subscriptions: [events, blur, deactivate] });
+        self.renaming = Some(Rename { target, icon, input, _subscriptions: [events, blur, deactivate] });
         cx.notify();
     }
 
@@ -189,7 +213,11 @@ impl Browser {
     fn finish_rename(&mut self, commit: bool, cx: &mut Context<Self>) {
         let Some(rename) = self.renaming.take() else { return };
         let name = rename.input.read(cx).text().trim().to_owned();
-        if commit && !name.is_empty() {
+        if rename.icon {
+            if commit && !name.is_empty() {
+                self.set_icon(rename.target, &name, cx);
+            }
+        } else if commit && !name.is_empty() {
             let store = self.store(self.model.private());
             match rename.target {
                 RenameTarget::Folder(id) => store.rename_folder(id, &name).ok(),
@@ -206,6 +234,26 @@ impl Browser {
     }
 
     pub fn rename_input(&self, target: RenameTarget) -> Option<Entity<TextInput>> {
-        self.renaming.as_ref().filter(|r| r.target == target).map(|r| r.input.clone())
+        self.renaming.as_ref().filter(|r| r.target == target && !r.icon).map(|r| r.input.clone())
+    }
+
+    pub fn icon_input(&self, target: RenameTarget) -> Option<Entity<TextInput>> {
+        self.renaming.as_ref().filter(|r| r.target == target && r.icon).map(|r| r.input.clone())
+    }
+
+    /// Sets the icon of a group or folder from a symbol name or an emoji; empty clears it, and
+    /// text that is neither changes nothing.
+    pub fn set_icon(&mut self, target: RenameTarget, text: &str, cx: &mut Context<Self>) {
+        let store = self.store(self.model.private());
+        let saved = match target {
+            RenameTarget::Folder(id) => browser_core::icon::set_folder(store, id, text),
+            RenameTarget::Group(id) => browser_core::icon::set_group(store, id, text),
+            RenameTarget::Space(_) | RenameTarget::Tab(_) => return,
+        };
+        match saved {
+            Ok(()) => self.reload_space(),
+            Err(_) => self.show_toast_as(browser_core::toast::Tone::Warning, "Use one emoji or a listed symbol", None, cx),
+        }
+        cx.notify();
     }
 }

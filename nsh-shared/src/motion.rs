@@ -52,7 +52,6 @@ pub const RISE: f32 = 5.;
 pub const SCRIM: f32 = 0.45;
 pub const SPIN_TURN: Duration = Duration::from_millis(900);
 pub const RELOAD_SPIN: Duration = Duration::from_millis(600);
-const SPIN_FRAME: Duration = Duration::from_millis(33);
 
 pub fn fading<E: Element>(element: E) -> E {
     element.bind_motion(&fade_in())
@@ -76,15 +75,20 @@ pub fn ms(duration: Duration) -> f32 {
     duration.as_secs_f32() * 1000.
 }
 
-pub fn spin_angle(elapsed: Duration) -> f32 {
-    (elapsed.as_secs_f32() / SPIN_TURN.as_secs_f32()).fract() * std::f32::consts::TAU
+pub fn spin() -> MotionSpec {
+    MotionSpec::new(KeyframeTiming::new(ms(SPIN_TURN)).easing(Easing::Linear).infinite()).values(MotionChannel::Rotate, [0., 360.])
 }
 
 pub fn spinner(size: f32, glyph: impl IntoElement) -> View {
-    let start = std::time::Instant::now();
-    let angle = signal(0f32);
-    while_active(SPIN_FRAME, || true, move || angle.set(spin_angle(start.elapsed())));
-    view().w(px(size)).h(px(size)).items_center().justify_center().rotate(move || Radians(angle.get())).child(glyph)
+    let turn = motion();
+    effect(move || {
+        if animates(reduce_motion(), lifecycle()) {
+            drop(untracked(|| turn.play(spin())));
+        } else {
+            turn.stop();
+        }
+    });
+    view().w(px(size)).h(px(size)).items_center().justify_center().bind_motion(&turn).child(glyph)
 }
 
 fn eased(duration: Duration) -> MotionSpec {
@@ -147,8 +151,9 @@ mod tests {
 
     #[test]
     fn the_spinner_turns_once_per_turn_time() {
-        assert_eq!(spin_angle(Duration::ZERO), 0.);
-        assert!((spin_angle(SPIN_TURN / 4) - std::f32::consts::FRAC_PI_2).abs() < 1e-4);
-        assert!(spin_angle(SPIN_TURN * 3) < 1e-3);
+        let spin = spin();
+        assert_eq!((spin.timing.duration_ms, spin.timing.iterations, spin.timing.easing), (900., None, Easing::Linear));
+        let [(MotionChannel::Rotate, frames)] = spin.tracks.as_slice() else { panic!("{spin:?}") };
+        assert_eq!(nsh_core::animation::keyframe_ends(frames, &spin.timing), Some((0., 360.)));
     }
 }

@@ -553,6 +553,26 @@ impl Browser {
         }
     }
 
+    /// Sets a folder's icon from a symbol name or one emoji; empty clears it, anything else changes nothing.
+    pub fn set_folder_icon(&mut self, id: Id, icon: &str) {
+        match browser_core::icon::set_folder(self.core.store(self.model.private()), id, icon) {
+            Ok(()) => {
+                self.model.reload_space(&self.core);
+            }
+            Err(_) => self.show_toast_as(browser_core::toast::Tone::Warning, "Use one emoji or a listed symbol", None),
+        }
+    }
+
+    /// Sets a group's icon from a symbol name or one emoji; empty clears it, anything else changes nothing.
+    pub fn set_group_icon(&mut self, id: Id, icon: &str) {
+        match browser_core::icon::set_group(self.core.store(self.model.private()), id, icon) {
+            Ok(()) => {
+                self.model.reload_space(&self.core);
+            }
+            Err(_) => self.show_toast_as(browser_core::toast::Tone::Warning, "Use one emoji or a listed symbol", None),
+        }
+    }
+
     pub fn rename_space(&mut self, name: &str) {
         let Some((private, id)) = self.model.current_space().map(|s| (s.private, s.space.id)) else { return };
         if !name.trim().is_empty() && self.core.store(private).rename_space(id, name.trim()).is_ok() {

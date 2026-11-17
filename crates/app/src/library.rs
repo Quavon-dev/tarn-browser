@@ -1214,6 +1214,8 @@ impl LibraryWindow {
                 };
                 d.child(
                     div()
+                        .flex()
+                        .flex_none()
                         .invisible()
                         .group_hover("library-row", |s| s.visible())
                         .child(icon_button(("rename", id), Icon::Pencil, true).on_click(cx.listener(move |this, _, window, cx| {

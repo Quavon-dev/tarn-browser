@@ -37,6 +37,7 @@ pub enum Cmd {
     CompactToolbar(bool),
     Settings,
     Rename(RenameTarget),
+    ChangeIcon(RenameTarget),
     EditSpace(usize),
     NewGroup(Option<TabKey>),
     SetGroup(TabKey, Option<Id>),
@@ -60,6 +61,7 @@ pub enum Cmd {
     RotateSplit(TabKey),
     CloseSplit(TabKey),
     SwitchWebEngine(TabKey, WebEngine),
+    ProfileShield(shield::ShieldLevel),
 }
 
 impl Browser {
@@ -168,6 +170,7 @@ impl Browser {
     pub fn folder_menu(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
         let items = vec![
             Item::action("Rename", Cmd::Rename(RenameTarget::Folder(id))),
+            Item::action("Change Icon…", Cmd::ChangeIcon(RenameTarget::Folder(id))),
             Item::action("New Subfolder", Cmd::NewFolder(Some(id))),
             Item::Separator,
             Item::action("Delete Folder…", Cmd::DeleteFolder(id)),
@@ -178,6 +181,7 @@ impl Browser {
     pub fn group_menu(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
         let items = vec![
             Item::action("Rename", Cmd::Rename(RenameTarget::Group(id))),
+            Item::action("Change Icon…", Cmd::ChangeIcon(RenameTarget::Group(id))),
             Item::action("New Tab in Group", Cmd::NewTabInGroup(id)),
             self.group_color_menu(id, Cmd::Group),
             Item::Separator,
@@ -240,6 +244,15 @@ impl Browser {
         self.show_menu(items, window, cx);
     }
 
+    pub fn shield_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.current_loaded().map(|rt| rt.profile.shield_level).unwrap_or_default();
+        let items = shield::ShieldLevel::ALL
+            .into_iter()
+            .map(|level| Item::action(crate::toolbar::shield_badge(level), Cmd::ProfileShield(level)).checked(level == current))
+            .collect();
+        self.show_menu(items, window, cx);
+    }
+
     pub fn toolbar_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let compact = self.pref(Pref::CompactToolbar);
         let mut items = vec![
@@ -279,6 +292,14 @@ impl Browser {
 
     /// The menu runs AppKit's modal tracking loop, so it opens from a task, outside this update.
     /// Commands run in the main window, also when the menu opened over the floating sidebar.
+    /// A start card pill's `tab_stop` blurs on press; while the command field is typing, give it the
+    /// keyboard back so typing continues after the menu.
+    pub(crate) fn keep_command_focus(&mut self, typing: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if typing {
+            window.focus(&gpui::Focusable::focus_handle(self.command.read(cx), cx));
+        }
+    }
+
     fn show_menu(&mut self, items: Vec<Item<Cmd>>, window: &mut Window, cx: &mut Context<Self>) {
         cx.stop_propagation();
         let Some(host) = self.host.clone() else { return };
@@ -393,6 +414,7 @@ impl Browser {
             Cmd::CompactToolbar(on) => self.set_pref(Pref::CompactToolbar, on, cx),
             Cmd::Settings => self.open_settings_pane(SettingsPane::Appearance, window, cx),
             Cmd::Rename(target) => self.begin_rename(target, window, cx),
+            Cmd::ChangeIcon(target) => self.begin_icon(target, window, cx),
             Cmd::EditSpace(ix) => self.open_space_card(Some(ix), window, cx),
             Cmd::NewGroup(tab) => self.new_group(tab, window, cx),
             Cmd::SetGroup(key, group) => self.set_tab_group(key, group, cx),
@@ -414,6 +436,11 @@ impl Browser {
             Cmd::SetPinnedUrl(key) => self.set_pinned_url(key, cx),
             Cmd::Sleep(keys) => self.sleep_tabs(keys, cx),
             Cmd::SiteSettings => self.toggle_site_settings(window, cx),
+            Cmd::ProfileShield(level) => {
+                if self.current_loaded().is_some_and(|rt| rt.profile.shield_level != level) {
+                    self.set_profile_shield(level, window, cx);
+                }
+            }
             Cmd::PasteAndGo => {
                 self.open_command(super::CommandMode::Current, window, cx);
                 self.command.update(cx, |input, cx| input.paste_and_go(window, cx));
@@ -519,7 +546,7 @@ impl Browser {
 
     /// Closes the tabs as one entry of the reopen stack and offers to undo it. The space reloads
     /// once, and the next active tab is the nearest one that stays open.
-    pub(crate) fn close_batch(&mut self, keys: Vec<TabKey>, group: Option<(String, String)>, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn close_batch(&mut self, keys: Vec<TabKey>, group: Option<ClosedGroup>, window: &mut Window, cx: &mut Context<Self>) {
         let Some((private, profile_id, space_id)) = self.model.current_space().map(|s| (s.private, s.space.profile_id, s.space.id)) else { return };
         // Closing the burner's tab leaves the burner, so whether it was shown is read first.
         let burner = self.model.burner_shown();
@@ -547,7 +574,6 @@ impl Browser {
             return;
         }
         let text = browser_core::toast::closed(group.is_some(), tabs.len());
-        let group = group.map(|(name, color)| ClosedGroup { name, color });
         let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs, group });
         self.show_toast(text, Some(crate::toast::Action::Undo(serial)), cx);
     }

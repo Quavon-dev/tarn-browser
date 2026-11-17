@@ -3,11 +3,11 @@ use std::time::Duration;
 
 use browser_core::toast::Tone;
 use gpui::{
-    Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Render, Rgba, SharedString, Styled, Subscription, WeakEntity,
-    Window, WindowHandle, div, point, prelude::FluentBuilder, px, size,
+    Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, WeakEntity, Window, WindowHandle, div, point, prelude::FluentBuilder, px, size,
 };
-use ui::controls::{POPOVER_INSET, button, open_popup, popover};
-use ui::icon::{ICON, Icon, icon};
+use ui::controls::{POPOVER_INSET, open_popup, popover};
+use ui::icon::{ICON_MEDIUM, Icon, icon};
 use ui::motion::{EXIT, animate, fade_in};
 use ui::theme::{TEXT, Theme};
 
@@ -20,13 +20,14 @@ const TOAST_TIME: Duration = Duration::from_secs(5);
 const ACTION_TIME: Duration = Duration::from_secs(10);
 /// The widest a toast grows before its message is cut short.
 const MAX_WIDTH: f32 = 440.;
-const HEIGHT: f32 = 36.;
-const PAD: f32 = 14.;
-const GAP: f32 = 8.;
+const HEIGHT: f32 = 44.;
+const PAD: f32 = 16.;
+const GAP: f32 = 10.;
+/// The action's padding beside its label; the card's inset after it keeps the label `PAD` from the edge.
+const BUTTON_PAD: f32 = 10.;
+const BUTTON_HEIGHT: f32 = 28.;
 /// The card's left and right border, and a pixel so rounding never cuts the message.
 const EDGES: f32 = 3.;
-/// A pill button's padding and border beside its label, and the inset after it.
-const BUTTON: f32 = 26. + 5.;
 /// Between the toast and the window's bottom edge.
 const MARGIN: f32 = 24.;
 
@@ -172,7 +173,8 @@ impl Browser {
         let browser = cx.entity().downgrade();
         self.toast.opening = true;
         cx.defer(move |cx| {
-            let (handle, popup) = open_popup(cx, bounds, display, false, [POPOVER_INSET; 4], HEIGHT / 2., |_, cx| ToastWindow::new(browser.clone(), main, cx));
+            let (handle, popup) =
+                open_popup(cx, bounds, display, false, [POPOVER_INSET; 4], Theme::radius_panel(), |_, cx| ToastWindow::new(browser.clone(), main, cx));
             let kept = browser.update(cx, |b, cx| {
                 b.toast.opening = false;
                 let live = b.toast.live(b.model.closed_tabs.newest()).is_some();
@@ -201,11 +203,11 @@ impl Browser {
     }
 }
 
-fn tone_icon(tone: Tone) -> Option<(Icon, Rgba)> {
+fn tone_icon(tone: Tone) -> (Icon, Rgba) {
     match tone {
-        Tone::Info => None,
-        Tone::Success => Some((Icon::CircleCheck, Theme::success())),
-        Tone::Warning => Some((Icon::TriangleAlert, Theme::warning())),
+        Tone::Info => (Icon::Info, Theme::muted()),
+        Tone::Success => (Icon::CircleCheck, Theme::success()),
+        Tone::Warning => (Icon::TriangleAlert, Theme::warning()),
     }
 }
 
@@ -218,9 +220,8 @@ fn toast_width(toast: &Toast, window: &Window) -> f32 {
         let run = style.to_run(text.len());
         f32::from(window.text_system().shape_line(text, px(TEXT), &[run], None).width)
     };
-    let icon = if tone_icon(toast.tone).is_some() { ICON + GAP } else { 0. };
-    let action = toast.action.as_ref().map_or(PAD, |a| GAP + measure(a.label().into(), FontWeight::MEDIUM) + BUTTON);
-    (PAD + icon + measure(toast.text.clone(), FontWeight::MEDIUM) + action + EDGES).ceil().min(MAX_WIDTH)
+    let action = toast.action.as_ref().map_or(PAD, |a| GAP + BUTTON_PAD + measure(a.label().into(), FontWeight::MEDIUM) + PAD);
+    (PAD + ICON_MEDIUM + GAP + measure(toast.text.clone(), FontWeight::NORMAL) + action + EDGES).ceil().min(MAX_WIDTH)
 }
 
 /// The toast's card. It never takes keyboard focus; its button acts on mouse-down.
@@ -244,22 +245,37 @@ impl Render for ToastWindow {
         let Some(toast) = b.toast.live(b.model.closed_tabs.newest()) else { return div().into_any_element() };
         let main = self.main;
         let label = toast.action.as_ref().map(Action::label);
-        let tone = tone_icon(toast.tone);
-        let card = popover(HEIGHT / 2., POPOVER_INSET)
+        let (glyph, color) = tone_icon(toast.tone);
+        let card = popover(Theme::radius_panel(), POPOVER_INSET)
             .pl(px(PAD))
-            .pr(px(if label.is_some() { 5. } else { PAD }))
+            .pr(px(if label.is_some() { PAD - BUTTON_PAD } else { PAD }))
             .flex()
             .items_center()
             .gap(px(GAP))
             .text_size(px(TEXT))
-            .font_weight(FontWeight::MEDIUM)
             .text_color(Theme::text())
-            .when_some(tone, |d, (glyph, color)| d.border_color(Rgba { a: 0.5, ..color }).child(icon(glyph, ICON, color)))
+            .child(icon(glyph, ICON_MEDIUM, color))
             .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(toast.text.clone()))
             .when_some(label, |d, label| {
-                d.child(button("toast-action", label, true).on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    main.update(cx, |b, window, cx| b.take_toast_action(window, cx)).ok();
-                }))
+                d.child(
+                    div()
+                        .id("toast-action")
+                        .flex_none()
+                        .h(px(BUTTON_HEIGHT))
+                        .px(px(BUTTON_PAD))
+                        .flex()
+                        .items_center()
+                        .rounded(px(Theme::radius_row()))
+                        .cursor_pointer()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(Theme::accent())
+                        .hover(|s| s.bg(Theme::hover()))
+                        .active(|s| s.bg(Theme::pressed()))
+                        .child(label)
+                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                            main.update(cx, |b, window, cx| b.take_toast_action(window, cx)).ok();
+                        }),
+                )
             });
         let (reduce, id) = (b.pref(Pref::ReduceMotion), toast.serial as usize);
         if toast.closing {

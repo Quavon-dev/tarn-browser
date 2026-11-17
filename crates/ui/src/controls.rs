@@ -12,27 +12,35 @@ use crate::icon::{Icon, icon};
 use crate::theme::{Elevation, ROW_HEIGHT, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, Theme};
 
 pub fn button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
+    themed_button(id, None, text, primary)
+}
+
+pub fn icon_text_button(id: impl Into<ElementId>, glyph: Icon, text: impl Into<SharedString>) -> Stateful<Div> {
+    themed_button(id, Some(glyph), text, false)
+}
+
+fn themed_button(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
     let colors = if primary { (Theme::accent(), Theme::surface_edge()) } else { (Theme::control(), Theme::hairline()) };
     let label = if primary { Theme::on_fill(Theme::accent()) } else { Theme::text() };
-    pill(id, text, primary, colors, label).when(!primary, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
+    pill(id, glyph, text, primary, colors, label).when(!primary, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
 }
 
 /// A button on a security surface (prompts, banners, blocking pages), in colours no theme sets.
 pub fn secure_button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
     let colors = if primary { (Secure::accent(), Secure::surface_edge()) } else { (Secure::control(), Secure::hairline()) };
-    pill(id, text, primary, colors, if primary { Theme::on_accent() } else { Secure::text() })
+    pill(id, None, text, primary, colors, if primary { Theme::on_accent() } else { Secure::text() })
         .font_family(SYSTEM_FONT)
         .when(!primary, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
 }
 
 pub fn secure_ghost_button(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
-    pill(id, text, false, (Secure::surface(), Secure::surface()), Secure::text())
+    pill(id, None, text, false, (Secure::surface(), Secure::surface()), Secure::text())
         .font_family(SYSTEM_FONT)
         .hover(|s| s.bg(Secure::hover()))
         .active(|s| s.bg(Secure::pressed()))
 }
 
-fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
+fn pill(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
     div()
         .id(id)
         .flex_none()
@@ -50,6 +58,7 @@ fn pill(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool, 
         .when(primary, |d| d.font_weight(FontWeight::MEDIUM))
         .text_color(color)
         .when(primary, |d| d.hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7)))
+        .children(glyph.map(|g| icon(g, 13., Theme::muted())))
         .child(text.into())
 }
 
@@ -343,9 +352,10 @@ pub fn icon_button(id: impl Into<ElementId>, glyph: Icon, enabled: bool) -> Stat
     icon_frame(id, enabled).child(icon(glyph, 16., if enabled { Theme::muted() } else { Theme::faint() }))
 }
 
-/// How often a loading page's spinner steps. The window redraws at this rate while a page loads,
-/// instead of at the display's refresh rate.
-pub const SPIN_FPS: u32 = 12;
+/// The least time between two spinner frames: just under 1/30 s, so that 60, 120 and 144 Hz
+/// displays all draw the spinner about 30 times a second, every few display frames. Each step
+/// redraws the whole window, so the display's full rate would cost several times the CPU.
+pub const SPIN_STEP: Duration = Duration::from_millis(30);
 
 const TURN: Duration = Duration::from_millis(900);
 
@@ -358,7 +368,7 @@ fn spin_turn(elapsed: Duration) -> f32 {
 }
 
 /// The reload arrow where its turn is now, for a page that is loading; the caller redraws it
-/// `SPIN_FPS` times a second.
+/// every `SPIN_STEP`.
 pub fn spinner(size: f32, color: Rgba) -> Svg {
     icon(Icon::Reload, size, color).with_transformation(Transformation::rotate(percentage(spin_turn(SPIN_EPOCH.elapsed()))))
 }
@@ -561,28 +571,22 @@ pub fn list_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
         .map(|d| if selected { d.bg(Theme::selected()) } else { d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())) })
 }
 
+/// The text column of a row: shrinks and wraps beside the row's control. `flex_1`'s relative
+/// zero basis lets a block parent lay the text out at its unwrapped width, which GPUI then paints
+/// over the control.
+fn text_column() -> Div {
+    div().flex_1().flex_basis(px(0.)).min_w_0()
+}
+
 /// A title over a muted detail; the detail wraps.
 pub fn text_block(title: impl Into<SharedString>, detail: impl Into<SharedString>) -> Div {
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap_0p5()
-        .child(title.into())
-        .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
+    text_column().flex().flex_col().gap_0p5().child(title.into()).child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
 }
 
 /// `text_block` kept to one line each, cut with an ellipsis, for list rows.
 pub fn text_lines(title: impl Into<SharedString>, detail: impl Into<SharedString>) -> Div {
     let line = || div().overflow_hidden().whitespace_nowrap().text_ellipsis();
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .child(line().child(title.into()))
-        .child(line().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
+    text_column().flex().flex_col().child(line().child(title.into())).child(line().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
 }
 
 /// The heading of a group of rows in a pop-up or list, smaller and quieter than `section`.

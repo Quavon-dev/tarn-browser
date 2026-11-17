@@ -11,7 +11,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::{Id, Profile, WebEngine};
 use ui::command::ENGINES;
-use ui::controls::{button, disabled_segment, group, note, radio, row, section, segment, segmented, swatch, switch, switch_row, tab_stop, text_block};
+use ui::controls::{
+    button, disabled_segment, group, icon_text_button, note, radio, row, section, segment, segmented, swatch, switch, switch_row, tab_stop, text_block,
+};
 use ui::icon::{Icon, icon};
 use ui::motion::fade_in;
 use ui::text::bounded_title;
@@ -287,7 +289,8 @@ impl SettingsWindow {
             titlebar: Some(TitlebarOptions {
                 title: Some("Settings".into()),
                 appears_transparent: true,
-                traffic_light_position: Some(point(px(18.), px(18.))),
+                // AppKit only hit-tests the buttons inside its titlebar strip, so they stay within it.
+                traffic_light_position: Some(point(px(18.), px(10.))),
             }),
             window_background: WindowBackgroundAppearance::Opaque,
             is_minimizable: false,
@@ -481,7 +484,8 @@ impl SettingsWindow {
                         } else {
                             "Click a shortcut and press the new keys, with ⌘ or ⌃; Esc cancels."
                         })
-                        .flex_1()
+                        .flex_grow()
+                        .flex_basis(px(0.))
                         .pt_0(),
                     )
                     .when(!changed.is_empty(), |d| {
@@ -1104,37 +1108,34 @@ impl SettingsWindow {
         let shared = card.clone();
         let system = cfg!(target_os = "macos");
         let share = if system { "Share Card" } else { "Save as Image" };
+        let action = |id: &'static str, glyph, text: &'static str| tab_stop(icon_text_button(id, glyph, text)).justify_center();
         let actions = div()
-            .flex()
-            .flex_wrap()
+            .grid()
+            .grid_cols(2)
             .gap_2()
-            .child(tab_stop(button("flip-card", "Flip", false)).child(icon(Icon::Reload, 13., Theme::muted())).on_click(cx.listener(|this, _, _, cx| {
+            .child(action("flip-card", Icon::Reload, "Flip").on_click(cx.listener(|this, _, _, cx| {
                 this.motion.flipped ^= true;
                 cx.notify();
             })))
-            .child(tab_stop(button("new-design", "Change Design", false)).child(icon(Icon::Palette, 13., Theme::muted())).on_click(cx.listener(
-                move |this, _, _, cx| {
-                    let Some((private, id)) = target else { return };
-                    this.with_browser(cx, |b, _, cx| {
-                        b.store(private).new_shield_design(id).ok();
-                        shield_card::touch();
-                        cx.notify();
-                    });
-                },
-            )))
+            .child(action("new-design", Icon::Palette, "Change Design").on_click(cx.listener(move |this, _, _, cx| {
+                let Some((private, id)) = target else { return };
+                this.with_browser(cx, |b, _, cx| {
+                    b.store(private).new_shield_design(id).ok();
+                    shield_card::touch();
+                    cx.notify();
+                });
+            })))
             .when(!private, |d| {
-                d.child(tab_stop(button("share-card", share, false)).child(icon(Icon::Share, 13., Theme::muted())).on_click(cx.listener(
-                    move |this, _, window, cx| {
-                        if system {
-                            this.share_card(shared.clone(), window, cx);
-                        } else {
-                            this.save_card(shared.clone(), cx);
-                        }
-                    },
-                )))
+                d.child(action("share-card", if system { Icon::Share } else { Icon::FileImage }, share).on_click(cx.listener(move |this, _, window, cx| {
+                    if system {
+                        this.share_card(shared.clone(), window, cx);
+                    } else {
+                        this.save_card(shared.clone(), cx);
+                    }
+                })))
             })
             .when(system && !private, |d| {
-                d.child(tab_stop(button("save-card", "Save as Image", false)).on_click(cx.listener(move |this, _, _, cx| this.save_card(saved.clone(), cx))))
+                d.child(action("save-card", Icon::FileImage, "Save as Image").on_click(cx.listener(move |this, _, _, cx| this.save_card(saved.clone(), cx))))
             });
         div().pt_4().flex().items_start().gap_6().child(face).child(
             div()
@@ -1191,16 +1192,9 @@ impl SettingsWindow {
     }
 
     fn general(&self, s: &Snapshot, cx: &mut Context<Self>) -> AnyElement {
-        let name = s.profile.as_ref().map(|p| bounded_title(&p.name)).unwrap_or_default();
-        let color = s.profile.as_ref().map(|p| p.color.clone()).unwrap_or_default();
         div()
-            .child(section("Profile"))
-            .child(group().child(row(true).child(profile_dot(&color, 12.)).child(label(name)).when(!s.private, |d| {
-                d.child(
-                    button("edit-current-profile", "Edit…", false)
-                        .on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, w, cx| b.edit_current_profile(w, cx)))),
-                )
-            })))
+            .child(section("Profiles"))
+            .child(s.profiles.iter().enumerate().fold(group(), |list, (ix, p)| list.child(self.profile_row(s, ix, p, false, cx))))
             .child(section("Updates"))
             .child(if s.updater {
                 group()
@@ -1968,39 +1962,36 @@ impl SettingsWindow {
             .into_any_element()
     }
 
+    fn profile_row(&self, s: &Snapshot, ix: usize, p: &Profile, deletable: bool, cx: &mut Context<Self>) -> gpui::Div {
+        let id = p.id;
+        let armed = self.armed == Some(("delete-profile", false, id));
+        let current = s.profile.as_ref().is_some_and(|c| c.id == id && c.is_private == p.is_private);
+        row(ix == 0)
+            .child(if p.is_private { icon(Icon::Person, 14., Theme::warning()).into_any_element() } else { profile_dot(&p.color, 12.).into_any_element() })
+            .child(label(bounded_title(&p.name)))
+            .when(current, |d| d.child(value("This window")))
+            .when(p.is_private, |d| d.child(value("Private, not saved")))
+            .when(p.is_dev, |d| d.child(value("Developer")))
+            .child(value(shield_badge(p.shield_level)))
+            .when(!p.is_private, |d| {
+                d.child(
+                    button(("edit-profile", ix), "Edit…", false)
+                        .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.open_profile_editor(Some(id), w, cx)))),
+                )
+            })
+            .when(!p.is_private && deletable, |d| {
+                d.child(danger(("delete-profile", ix), "Delete…", "Confirm Delete", armed).on_click(cx.listener(move |this, _, _, cx| {
+                    if confirm_twice(&mut this.armed, ("delete-profile", false, id)) {
+                        this.with_browser(cx, |b, w, cx| b.delete_profile(id, w, cx));
+                    }
+                    cx.notify();
+                })))
+            })
+    }
+
     fn profiles(&self, s: &Snapshot, cx: &mut Context<Self>) -> AnyElement {
         let deletable = s.profiles.iter().filter(|p| !p.is_private).count() > 1;
-        let mut list = group();
-        for (ix, p) in s.profiles.iter().enumerate() {
-            let id = p.id;
-            let armed = self.armed == Some(("delete-profile", false, id));
-            list = list.child(
-                row(ix == 0)
-                    .child(if p.is_private {
-                        icon(Icon::Person, 14., Theme::warning()).into_any_element()
-                    } else {
-                        profile_dot(&p.color, 12.).into_any_element()
-                    })
-                    .child(label(bounded_title(&p.name)))
-                    .when(p.is_private, |d| d.child(value("Private, not saved")))
-                    .when(p.is_dev, |d| d.child(value("Developer")))
-                    .child(value(shield_badge(p.shield_level)))
-                    .when(!p.is_private, |d| {
-                        d.child(
-                            button(("edit-profile", ix), "Edit…", false)
-                                .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.open_profile_editor(Some(id), w, cx)))),
-                        )
-                    })
-                    .when(!p.is_private && deletable, |d| {
-                        d.child(danger(("delete-profile", ix), "Delete…", "Confirm Delete", armed).on_click(cx.listener(move |this, _, _, cx| {
-                            if confirm_twice(&mut this.armed, ("delete-profile", false, id)) {
-                                this.with_browser(cx, |b, w, cx| b.delete_profile(id, w, cx));
-                            }
-                            cx.notify();
-                        })))
-                    }),
-            );
-        }
+        let list = s.profiles.iter().enumerate().fold(group(), |list, (ix, p)| list.child(self.profile_row(s, ix, p, deletable, cx)));
         let rules = if s.space_rules.is_empty() {
             note("No rules. \u{201c}Always open in\u{201d} in a site's settings opens its new tabs in the space you pick.")
         } else {

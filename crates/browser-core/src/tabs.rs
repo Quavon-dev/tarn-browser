@@ -505,7 +505,12 @@ pub fn duplicates(tabs: &[Tab], active: Option<Id>, url: impl Fn(&Tab) -> String
 pub const TILE_MIN_WIDTH: f32 = 46.;
 
 pub fn tile_grid(width: f32, gap: f32) -> (usize, f32) {
-    let columns = (((width + gap) / (TILE_MIN_WIDTH + gap)).floor() as usize).max(1);
+    tile_row(width, gap, usize::MAX)
+}
+
+/// Columns and tile width for `count` tiles: fewer tiles than fit a row share its whole width.
+pub fn tile_row(width: f32, gap: f32, count: usize) -> (usize, f32) {
+    let columns = (((width + gap) / (TILE_MIN_WIDTH + gap)).floor() as usize).min(count).max(1);
     (columns, ((width - (columns - 1) as f32 * gap) / columns as f32).floor().max(0.))
 }
 
@@ -781,6 +786,16 @@ mod tests {
         assert_eq!(tile_grid(400., 8.), (7, 50.), "a wide sidebar fits more tiles a row");
         assert_eq!(tile_grid(250., 8.), (4, 56.), "the side is whole points so a full row fits");
         assert_eq!(tile_grid(10., 8.), (1, 10.), "a sidebar narrower than one tile stacks them");
+    }
+
+    #[test]
+    fn fewer_tiles_than_fit_share_the_row() {
+        use super::tile_row;
+        assert_eq!(tile_row(244., 8., 2), (2, 118.));
+        assert_eq!(tile_row(244., 8., 3), (3, 76.));
+        assert_eq!(tile_row(244., 8., 4), (4, 55.));
+        assert_eq!(tile_row(244., 8., 9), (4, 55.), "more tiles than fit keep the grid's columns");
+        assert_eq!(tile_row(244., 8., 0), (1, 244.));
     }
 
     #[test]

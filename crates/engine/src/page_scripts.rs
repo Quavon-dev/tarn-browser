@@ -277,6 +277,11 @@ pub const REMOVE_SITE_STYLES: &str = "globalThis.tarnSiteStyle = null; document.
 /// CSS is never parsed as markup or script. A pattern is a host, `*.host` (it and its subdomains) or
 /// `*` (every host), several joined by `,`. The element moves to the end of the root once parsed, after `<body>`, so it
 /// wins ties against the page's own sheets.
+///
+/// `DARK_CSS` gets its own element ahead of the rest, enabled only while the page looks light: the
+/// first opaque background of `<body>` or `<html>`, else the page's colour scheme, else white. It
+/// is decided again on `DOMContentLoaded`, `load` and, 100 ms after the last one, changes to the
+/// theme attributes of `<html>` and `<body>`, to `<html>`'s children or to the system's appearance.
 pub fn site_styles_script(styles: &[(String, String)]) -> Option<String> {
     if styles.is_empty() {
         return None;
@@ -285,13 +290,26 @@ pub fn site_styles_script(styles: &[(String, String)]) -> Option<String> {
     Some(format!(
         "(() => {{ if (window.top !== window || !/^https?:$/.test(location.protocol)) return; {REMOVE_SITE_STYLES} \
         const h = location.hostname.replace(/\\.$/, '').toLowerCase(); if (!h) return; \
-        const css = [{}].filter(([m]) => m.split(',').some(p => p === '*' || p === h || (p.startsWith('*.') && (h === p.slice(2) || h.endsWith(p.slice(1)))))) \
-        .map(e => e[1]).filter(Boolean).join('\\n'); if (!css) return; \
-        const s = document.createElement('style'); s.dataset.tarnSite = ''; s.textContent = css; globalThis.tarnSiteStyle = s; \
-        const add = () => {{ if (globalThis.tarnSiteStyle !== s) return true; const r = document.documentElement; if (r) r.append(s); return !!r; }}; \
+        const all = [{}].filter(([m]) => m.split(',').some(p => p === '*' || p === h || (p.startsWith('*.') && (h === p.slice(2) || h.endsWith(p.slice(1)))))) \
+        .map(e => e[1]).filter(Boolean).join('\\n'); if (!all) return; \
+        const D = {}, css = all.split(D).join(''); \
+        const sheet = text => {{ const e = document.createElement('style'); e.dataset.tarnSite = ''; e.textContent = text; return e; }}; \
+        const s = sheet(css), d = css !== all && sheet(D); globalThis.tarnSiteStyle = s; let t; \
+        const bg = e => {{ const c = e ? getComputedStyle(e).backgroundColor : ''; const v = c.startsWith('rgb') ? c.match(/[\\d.]+/g).map(Number) : []; \
+        return v.length > 2 && v[3] !== 0 ? 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2] > 128 : null; }}; \
+        const light = () => {{ const b = bg(document.body); if (b !== null) return b; d.media = 'not all'; const r = bg(document.documentElement); if (r !== null) return r; \
+        const m = document.querySelector('meta[name=color-scheme]'); const cs = getComputedStyle(document.documentElement).colorScheme + ' ' + (m ? m.content : ''); \
+        return !cs.includes('dark') || (cs.includes('light') && !matchMedia('(prefers-color-scheme: dark)').matches); }}; \
+        const check = () => {{ if (globalThis.tarnSiteStyle !== s) return o.disconnect(); if (!document.documentElement) return; \
+        const want = light() ? '' : 'not all'; if (d.media !== want) d.media = want; \
+        if (document.body) o.observe(document.body, {{ attributes: true, attributeFilter: ['class', 'style', 'bgcolor'] }}); }}; \
+        const o = d && new MutationObserver(() => {{ clearTimeout(t); t = setTimeout(check, 100); }}); \
+        const add = () => {{ if (globalThis.tarnSiteStyle !== s) return true; const r = document.documentElement; if (!r) return false; \
+        if (d) {{ r.append(d); o.observe(r, {{ attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-color-mode'], childList: true }}); check(); }} if (css) r.append(s); return true; }}; \
         if (!add()) new MutationObserver((_, o) => {{ if (add()) o.disconnect(); }}).observe(document, {{ childList: true }}); \
-        document.addEventListener('DOMContentLoaded', add, {{ once: true }}); }})();",
-        entries.join(",")
+        document.addEventListener('DOMContentLoaded', add, {{ once: true }}); if (d) {{ addEventListener('load', check, {{ once: true }}); matchMedia('(prefers-color-scheme: dark)').addEventListener('change', check); }} }})();",
+        entries.join(","),
+        handover::js_string(DARK_CSS)
     ))
 }
 
@@ -571,6 +589,52 @@ mod javascript_core_tests {
         assert_eq!(count("a.b axb", "a.b"), "1", "the query is literal text");
         assert_eq!(count(&"x".repeat(FIND_COUNT_MAX + 50), "x"), FIND_COUNT_MAX.to_string());
         assert_eq!(count(&"y".repeat(500), &"y".repeat(FIND_QUERY_MAX + 1)), "0", "a query past the limit counts none");
+    }
+
+    /// Runs `site_styles_script` in JavaScriptCore on a page whose `<body>` and `<html>` have the
+    /// given computed backgrounds, then sets the body's to `later`, if any, and reports the
+    /// root's style elements in order: `dark`, `off` (dark, disabled) or `css`.
+    fn dark_sheets(dark: bool, body: &str, html: &str, scheme: &str, meta: Option<&str>, prefers_dark: bool, later: Option<&str>) -> String {
+        let script = site_styles_script(&site_styles(vec![("a.test".into(), "p{}".into())], if dark { vec!["a.test".into()] } else { vec![] })).unwrap();
+        let js = |s: &str| handover::js_string(s);
+        let state = format!(
+            "const D = {dark_css}; const body = {{ bg: {body} }}, root = {{ bg: {html}, kids: [], append(e) {{ this.kids = this.kids.filter(k => k !== e).concat(e); }} }};
+            const report = () => root.kids.map(k => k.textContent !== D ? 'css' : k.media === 'not all' ? 'off' : 'dark').join(',');
+            const window = {{}}; window.top = window; const location = {{ protocol: 'https:', hostname: 'a.test' }}; const observers = [];
+            const document = {{ documentElement: root, body, createElement: () => ({{ dataset: {{}}, media: '' }}), querySelectorAll: () => [],
+                querySelector: () => {meta}, addEventListener() {{}} }};
+            const getComputedStyle = e => ({{ backgroundColor: e.bg, colorScheme: {scheme} }}); const matchMedia = () => ({{ matches: {prefers_dark}, addEventListener() {{}} }});
+            class MutationObserver {{ constructor(f) {{ this.f = f; observers.push(this); }} observe() {{}} disconnect() {{}} }}
+            const setTimeout = f => f(), clearTimeout = () => {{}}; let loaded; const addEventListener = (_, f) => {{ loaded = f; }};",
+            dark_css = js(DARK_CSS),
+            body = js(body),
+            html = js(html),
+            scheme = js(scheme),
+            meta = meta.map_or("null".to_owned(), |m| format!("({{ content: {} }})", js(m))),
+        );
+        let change = later.map_or(String::new(), |bg| format!("body.bg = {}; observers[0].f([{{ type: 'attributes' }}]);", js(bg)));
+        let out = std::process::Command::new("osascript").args(["-l", "JavaScript", "-e", &format!("{state}\n{script}\n{change}\nreport()")]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn forced_dark_leaves_dark_pages_alone() {
+        const NONE: &str = "rgba(0, 0, 0, 0)";
+        let page = |body, html| dark_sheets(true, body, html, "normal", None, false, None);
+        assert_eq!(page("rgb(255, 255, 255)", NONE), "dark,css");
+        assert_eq!(page("rgb(13, 17, 23)", "rgb(255, 255, 255)"), "off,css", "the body's background decides first");
+        assert_eq!(page(NONE, "rgb(13, 17, 23)"), "off,css");
+        assert_eq!(page(NONE, NONE), "dark,css", "a page without a background is white");
+        assert_eq!(page("color(srgb 0 0 0)", NONE), "dark,css", "an unreadable colour does not count");
+        let scheme = |scheme, meta, prefers_dark| dark_sheets(true, NONE, NONE, scheme, meta, prefers_dark, None);
+        assert_eq!(scheme("dark", None, false), "off,css");
+        assert_eq!(scheme("light dark", None, true), "off,css");
+        assert_eq!(scheme("light dark", None, false), "dark,css");
+        assert_eq!(scheme("normal", Some("dark"), false), "off,css");
+        assert_eq!(dark_sheets(true, "rgb(250, 250, 250)", NONE, "normal", None, false, Some("rgb(13, 17, 23)")), "off,css", "a theme switch");
+        assert_eq!(dark_sheets(true, "rgb(13, 17, 23)", NONE, "normal", None, false, Some("rgb(255, 255, 255)")), "dark,css");
+        assert_eq!(dark_sheets(false, "rgb(255, 255, 255)", NONE, "normal", None, false, None), "css");
     }
 
     #[test]

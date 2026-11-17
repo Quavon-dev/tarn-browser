@@ -119,6 +119,20 @@ macOS reference: `crates/app/src/profiles.rs`, `crates/app/src/spaces.rs`,
 - [ ] iOS — `mobile/app` creates profiles but cannot edit or delete them, has no space card or Delete Space; the store retirement needs the `WKWebsiteDataStore` removal macOS uses
 - [ ] Android — same as iOS, retiring the profile's WebView data folder
 
+### Group and folder icons (2026-11-17)
+
+What it does: a tab group or folder can show one of 20 symbols or one emoji in place of its letter
+or folder glyph ("Change Icon…" in its menu); Clean Up gives each group it makes its category's icon.
+Shared API: `browser_core::icon::{SYMBOLS, parse, set_group, set_folder}`, `Group::icon`,
+`Folder::icon`; Clean Up through `browser_core::cleanup::apply`.
+macOS reference: `crates/app/src/sidebar.rs` (`chosen_icon`, `icon_picker`, `group_avatar`),
+`crates/app/src/groups.rs` (`begin_icon`, `set_icon`), `crates/app/src/browser/context.rs` (`Cmd::ChangeIcon`).
+
+- [x] Windows — same code in `crates/app`; no Emoji & Symbols button, since GPUI cannot open the Windows emoji panel
+- [x] Linux — `linux/src/ui.rs` `folder_icon`, `linux/src/ui/panels.rs` `icon_choice`, `linux/src/ui/groups.rs` `badge` and the group panel
+- [ ] iOS — `mobile/app` has no folders or tab groups yet; both first
+- [ ] Android — same as iOS
+
 ### Clean Up (2026-11-16)
 
 What it does: the Clean Up button in the New Tab row sorts the space's loose tabs into tab groups by what each page
