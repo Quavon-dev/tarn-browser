@@ -117,6 +117,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Two downloads of the same name at once each get their own file, instead of the second failing
+  or replacing the first (Linux, iOS, Android).
 - Settings text no longer runs under the controls beside it, and text fields clip their
   placeholder.
 - The settings window's close, minimise and zoom buttons respond on their whole area.

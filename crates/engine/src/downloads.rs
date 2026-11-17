@@ -160,6 +160,12 @@ fn truncate_keeping_extension(name: &str) -> String {
     if ext.is_empty() { name[..stem_end].to_owned() } else { format!("{}.{ext}", &name[..stem_end]) }
 }
 
+/// First path for `name` in `dir` that is neither on disk (a link counts, even a dangling one) nor
+/// `in_use` by a download still being saved, which may not have created its file yet.
+pub fn free_path(dir: &Path, name: &str, in_use: impl Fn(&Path) -> bool) -> PathBuf {
+    unique_path(dir, name, |p| p.symlink_metadata().is_ok() || in_use(p))
+}
+
 /// True when opening the file could run code, including disguised names like `photo.jpg.app`.
 pub fn is_dangerous(name: &str) -> bool {
     name.rsplit_once('.').is_some_and(|(_, ext)| DANGEROUS.contains(&ext.to_ascii_lowercase().as_str()))
@@ -321,6 +327,19 @@ mod tests {
         assert_eq!(unique_path(Path::new("/d"), "a.pdf", exists), Path::new("/d/a (3).pdf"));
         assert_eq!(unique_path(Path::new("/d"), "b.pdf", exists), Path::new("/d/b.pdf"));
         assert_eq!(unique_path(Path::new("/d"), "noext", exists), Path::new("/d/noext (2)"));
+    }
+
+    #[test]
+    fn free_path_skips_files_links_and_downloads_in_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.zip"), b"x").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("a (2).zip")).unwrap();
+        #[cfg(not(unix))]
+        std::fs::write(dir.path().join("a (2).zip"), b"x").unwrap();
+        let saving = dir.path().join("a (3).zip");
+        assert_eq!(free_path(dir.path(), "a.zip", |p| p == saving), dir.path().join("a (4).zip"));
+        assert_eq!(free_path(dir.path(), "b.zip", |_| false), dir.path().join("b.zip"));
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::rc::{Rc, Weak};
 use std::time::Instant;
 
 use block2::{DynBlock, RcBlock};
-use engine::downloads::{flagged_source, folder_for, sanitize_filename, sorted_dir, unique_path};
+use engine::downloads::{flagged_source, folder_for, free_path, sanitize_filename, sorted_dir};
 use engine::nav_policy::Site;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
@@ -39,6 +39,7 @@ pub enum State {
     Pausing,
     Paused,
     Flagged,
+    Cancelling,
     Ended,
 }
 
@@ -78,7 +79,9 @@ define_class!(
 
         #[unsafe(method(download:didFailWithError:resumeData:))]
         fn failed(&self, download: &WKDownload, error: &NSError, _resume: Option<&NSData>) {
-            failed(download, error.localizedDescription().to_string());
+            let domain = error.domain().to_string();
+            let cancelled = crate::handler::CANCELLED.iter().any(|(d, c)| *d == domain && *c == error.code());
+            failed(download, error.localizedDescription().to_string(), cancelled);
         }
     }
 );
@@ -214,7 +217,7 @@ fn destination(download: &WKDownload, suggested: &str, handler: &DestinationHand
         refuse(download, origin, &name, "Too many downloads at once.");
         return handler.call((std::ptr::null_mut(),));
     }
-    let Some(path) = downloads_dir().filter(|dir| std::fs::create_dir_all(dir).is_ok()).map(|dir| unique_path(&dir, &name, |p| p.exists())) else {
+    let Some(path) = downloads_dir().filter(|dir| std::fs::create_dir_all(dir).is_ok()).map(|dir| free_path(&dir, &name, saving)) else {
         refuse(download, origin, &name, "The Downloads folder could not be created.");
         return handler.call((std::ptr::null_mut(),));
     };
@@ -254,22 +257,36 @@ fn destination(download: &WKDownload, suggested: &str, handler: &DestinationHand
     }
 }
 
+fn saving(path: &Path) -> bool {
+    TRANSFERS.with_borrow(|t| t.iter().any(|t| t.state != State::Ended && Path::new(&t.path) == path))
+}
+
+fn cancelling(download: &WKDownload) -> bool {
+    TRANSFERS.with_borrow(|t| t.iter().any(|t| same(&t.download, download) && t.state == State::Cancelling))
+}
+
 fn finished(download: &WKDownload) {
     let url = download_url(download);
-    let Some(t) = take(download) else { return };
+    if cancelling(download) {
+        return;
+    }
+    let Some(t) = take(download).filter(|t| t.state != State::Ended) else { return };
     let path = if t.props.sort_downloads { sort(Path::new(&t.path), &t.name) } else { PathBuf::from(&t.path) };
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(t.name);
     emit(&t.origin, json!({ "id": t.id, "state": "finished", "name": name, "path": path.to_string_lossy(), "url": url, "quarantined": false }));
 }
 
-fn failed(download: &WKDownload, message: String) {
+fn failed(download: &WKDownload, message: String, cancelled: bool) {
     let pausing = TRANSFERS.with(|t| t.borrow().iter().any(|t| same(&t.download, download) && t.state == State::Pausing));
-    if pausing {
+    if pausing || cancelling(download) {
         return;
     }
     match take(download) {
         Some(t) if t.state == State::Ended => {}
         Some(t) => emit(&t.origin, json!({ "id": t.id, "state": "failed", "name": t.name, "message": message })),
+        None if cancelled => {
+            origin_of(download);
+        }
         None => emit(&origin_of(download), json!({ "id": next_id(), "state": "failed", "name": "", "message": message })),
     }
 }
@@ -331,12 +348,8 @@ fn pause(id: &str) {
         // SAFETY: WebKit passes the resume data or null for the duration of the call.
         let data = unsafe { Retained::retain(data) };
         let paused = data.is_some();
-        if let Some(path) = with(&id, |t| (t.state == State::Ended).then(|| t.path.clone())).flatten() {
-            remove(&id);
-            if !path.is_empty() {
-                std::fs::remove_file(path).ok();
-            }
-            return;
+        if let Some(path) = with(&id, |t| (t.state == State::Cancelling).then(|| t.path.clone())).flatten() {
+            return ended(&id, &path);
         }
         let Some((origin, name)) = with(&id, |t| {
             t.resume = data;
@@ -359,9 +372,10 @@ fn pause(id: &str) {
 }
 
 fn resume(id: &str, mtm: MainThreadMarker) {
-    let Some((data, url, origin, props)) =
-        with(id, |t| (t.state == State::Paused).then(|| t.resume.clone().map(|d| (d, t.url.clone(), t.origin.clone(), t.props.clone()))).flatten()).flatten()
-    else {
+    let Some((data, url, origin, props)) = with(id, |t| {
+        (t.state == State::Paused && t.resumer.is_none()).then(|| t.resume.clone().map(|d| (d, t.url.clone(), t.origin.clone(), t.props.clone()))).flatten()
+    })
+    .flatten() else {
         return;
     };
     let page = live(&origin).and_then(|v| v.web()).and_then(|w| w.current_url());
@@ -399,6 +413,12 @@ fn resume_now(id: &str, data: &NSData, mtm: MainThreadMarker) {
     let done = RcBlock::new(move |download: NonNull<WKDownload>| {
         // SAFETY: WebKit passes the resumed download, live on the main thread, for the duration of the call.
         let download = unsafe { download.as_ref() };
+        match with(&id, |t| (t.state == State::Cancelling).then(|| t.path.clone())) {
+            Some(None) => {}
+            Some(Some(path)) => return stop(download, id.clone(), path),
+            // SAFETY: main thread; the transfer is gone, so its resumed download stops too.
+            None => return unsafe { download.cancel(None) },
+        }
         let delegate = delegate(mtm);
         // SAFETY: main thread; the delegate lives for the app's run.
         unsafe { download.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
@@ -417,21 +437,49 @@ fn resume_now(id: &str, data: &NSData, mtm: MainThreadMarker) {
 }
 
 fn cancel(id: &str) {
-    let Some((download, path, hold)) = with(id, |t| {
-        t.state = State::Ended;
+    let Some((download, path, hold, resuming)) = with(id, |t| {
+        if t.state == State::Cancelling {
+            return None;
+        }
+        let resuming = t.download.is_none() && t.resumer.is_some();
+        t.state = if (t.download.is_some() && t.hold.is_none()) || resuming { State::Cancelling } else { State::Ended };
         t.resume = None;
-        t.resumer = None;
-        (t.download.clone(), t.path.clone(), t.hold.take())
-    }) else {
+        if !resuming {
+            t.resumer = None;
+        }
+        Some((t.download.clone(), t.path.clone(), t.hold.take(), resuming))
+    })
+    .flatten() else {
         return;
     };
+    let held = hold.is_some();
     if let Some(hold) = hold {
         hold.call((std::ptr::null_mut(),));
     }
-    if let Some(download) = download {
-        // SAFETY: main thread; cancelling without a handler discards the resume data.
-        unsafe { download.cancel(None) };
+    match download {
+        Some(download) if !held => stop(&download, id.to_owned(), path),
+        None if resuming => {}
+        download => {
+            if let Some(download) = download {
+                // SAFETY: main thread; a held download never received its destination, so nothing was written.
+                unsafe { download.cancel(None) };
+            }
+            ended(id, &path);
+        }
     }
+}
+
+fn stop(download: &WKDownload, id: String, path: String) {
+    let done = RcBlock::new(move |_: *mut NSData| {
+        if with(&id, |t| t.state == State::Cancelling) == Some(true) {
+            ended(&id, &path);
+        }
+    });
+    // SAFETY: main thread; WebKit copies the block and calls it once the download has stopped.
+    unsafe { download.cancel(Some(&done)) };
+}
+
+fn ended(id: &str, path: &str) {
     remove(id);
     if !path.is_empty() {
         std::fs::remove_file(path).ok();
@@ -463,7 +511,7 @@ fn sort(path: &Path, name: &str) -> PathBuf {
     let (Some(folder), Some(dir)) = (folder_for(name), path.parent()) else { return path.to_path_buf() };
     let Some(target) = sorted_dir(dir, folder) else { return path.to_path_buf() };
     let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let moved = unique_path(&target, &file, |p| p.exists());
+    let moved = free_path(&target, &file, |_| false);
     match std::fs::rename(path, &moved) {
         Ok(()) => moved,
         Err(_) => path.to_path_buf(),

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use browser_core::site::{Sets, SiteRules};
 use engine::cookies::{Cookie, SameSite};
-use engine::downloads::{flagged_source, folder_for, sanitize_filename, sorted_dir, unique_path};
+use engine::downloads::{flagged_source, folder_for, free_path, sanitize_filename, sorted_dir};
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures_channel::oneshot;
 use serde_json::json;
@@ -37,6 +37,7 @@ thread_local! {
 pub(super) struct Tracked {
     download: Download,
     reported: Rc<Cell<bool>>,
+    cancelling: Cell<bool>,
     held: Option<Held>,
 }
 
@@ -47,8 +48,8 @@ struct Held {
 }
 
 pub fn cancel(id: &str) {
-    if let Some(tracked) = DOWNLOADS.with_borrow_mut(|d| d.remove(id)) {
-        tracked.download.cancel();
+    if let Some(download) = DOWNLOADS.with_borrow(|d| d.get(id).filter(|t| !t.cancelling.replace(true)).map(|t| t.download.clone())) {
+        download.cancel();
     }
 }
 
@@ -57,9 +58,10 @@ pub fn keep(id: &str, keep: bool) {
         let tracked = d.get_mut(id)?;
         if !keep {
             tracked.reported.set(true);
-            return d.remove(id).map(|t| (t.download, None));
+            let again = tracked.cancelling.replace(true);
+            return d.remove(id).filter(|_| !again).map(|t| (t.download, None));
         }
-        tracked.held.take().map(|h| (tracked.download.clone(), Some(h)))
+        tracked.held.take().filter(|_| !tracked.cancelling.get()).map(|h| (tracked.download.clone(), Some(h)))
     });
     match held {
         Some((download, Some(held))) => place(&download, id, &held.tab, &held.suggested, held.sort),
@@ -280,7 +282,8 @@ pub fn downloads_dir() -> PathBuf {
 pub fn destination(dir: &Path, suggested: &str, sort: bool) -> PathBuf {
     let name = sanitize_filename(suggested);
     let dir = folder_for(&name).filter(|_| sort).and_then(|folder| sorted_dir(dir, folder)).unwrap_or_else(|| dir.to_owned());
-    unique_path(&dir, &name, |p| p.exists())
+    let saving: Vec<PathBuf> = DOWNLOADS.with_borrow(|d| d.values().filter_map(|t| t.download.destination()).map(|d| PathBuf::from(d.as_str())).collect());
+    free_path(&dir, &name, |p| saving.iter().any(|s| s == p))
 }
 
 pub fn mark_origin(path: &Path, url: &str) -> bool {
@@ -299,10 +302,13 @@ fn place(download: &Download, id: &str, tab: &str, suggested: &str, sort: bool) 
     let dir = downloads_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
         report(tab, json!({ "id": id, "state": "failed", "name": suggested, "message": e.to_string() }));
-        if let Some(tracked) = DOWNLOADS.with_borrow_mut(|d| d.remove(id)) {
-            tracked.reported.set(true);
+        let pending = DOWNLOADS.with_borrow_mut(|d| d.remove(id)).map(|t| {
+            t.reported.set(true);
+            t.cancelling.get()
+        });
+        if pending != Some(true) {
+            download.cancel();
         }
-        download.cancel();
         return;
     }
     let path = destination(&dir, suggested, sort);
@@ -349,7 +355,8 @@ pub fn track(download: &Download, sink: &dyn DownloadSink) {
     download.set_allow_overwrite(false);
     let id = next_id();
     let reported = Rc::new(Cell::new(false));
-    DOWNLOADS.with_borrow_mut(|d| d.insert(id.clone(), Tracked { download: download.clone(), reported: reported.clone(), held: None }));
+    DOWNLOADS
+        .with_borrow_mut(|d| d.insert(id.clone(), Tracked { download: download.clone(), reported: reported.clone(), cancelling: Cell::default(), held: None }));
     let tab: Rc<str> = sink.tab().into();
     let sort = sink.sort_downloads();
     let (page, malware) = (sink.page(), sink.malware());
@@ -382,13 +389,16 @@ pub fn track(download: &Download, sink: &dyn DownloadSink) {
     });
     let (finished, finished_id) = (tab.clone(), id.clone());
     download.connect_finished(move |download| {
-        if DOWNLOADS.with_borrow_mut(|d| d.remove(&finished_id)).is_none() {
-            return;
-        }
+        let Some(tracked) = DOWNLOADS.with_borrow_mut(|d| d.remove(&finished_id)) else { return };
         let Some(path) = download.destination().map(|d| PathBuf::from(d.as_str())) else { return };
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if tracked.cancelling.get() {
+            tracked.reported.set(true);
+            std::fs::remove_file(&path).ok();
+            return report(&finished, json!({ "id": finished_id, "state": "failed", "name": name, "message": "The download was cancelled." }));
+        }
         let url = download.request().and_then(|r| r.uri()).map(|u| super::policy::without_credentials(&u)).unwrap_or_default();
         let quarantined = mark_origin(&path, &url);
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         report(&finished, json!({ "id": finished_id, "state": "finished", "name": name, "path": path, "url": url, "quarantined": quarantined }));
     });
     download.connect_failed(move |download, error| {

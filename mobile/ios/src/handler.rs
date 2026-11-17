@@ -31,7 +31,7 @@ type ResponseHandler = DynBlock<dyn Fn(WKNavigationResponsePolicy)>;
 type AuthHandler = DynBlock<dyn Fn(NSInteger, *mut NSURLCredential)>;
 
 const DISPOSITION_DEFAULT: NSInteger = 1;
-const CANCELLED: [(&str, isize); 2] = [("NSURLErrorDomain", -999), ("WebKitErrorDomain", 102)];
+pub(crate) const CANCELLED: [(&str, isize); 2] = [("NSURLErrorDomain", -999), ("WebKitErrorDomain", 102)];
 const PASSWORD_METHODS: [&str; 3] = ["NSURLAuthenticationMethodHTTPBasic", "NSURLAuthenticationMethodHTTPDigest", "NSURLAuthenticationMethodNTLM"];
 
 fn ns_url(url: Option<Retained<NSURL>>) -> Option<Url> {
