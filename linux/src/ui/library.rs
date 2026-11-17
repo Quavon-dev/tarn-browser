@@ -7,10 +7,12 @@ use super::panels::{popover, section};
 use super::tools::{line, note};
 use super::{Panel, Ui, act, read, site_tile};
 use crate::browser::Browser;
+use crate::browser::tools::READING_LIST;
 use crate::controls::{accent_pill, label, pill, small, title};
 use crate::icons;
 use crate::memory;
 use crate::theme::Theme;
+use browser_core::closed::ARCHIVE_FOLDER;
 
 const MAX_FOUND: usize = 200;
 const DAYS: [(&str, u8); 7] = [("Mon", 1), ("Tue", 2), ("Wed", 3), ("Thu", 4), ("Fri", 5), ("Sat", 6), ("Sun", 0)];
@@ -149,7 +151,16 @@ pub fn memory_panel(ui: Ui) -> AnyElement {
 }
 
 pub fn reading_list_panel(ui: Ui) -> AnyElement {
-    let items: Vec<AnyElement> = read(ui, Browser::reading_list)
+    folder_panel(ui, READING_LIST, "Nothing saved yet. Save for Later files the page here.", ("Archived Tabs", Panel::Archived))
+}
+
+pub fn archived_panel(ui: Ui) -> AnyElement {
+    folder_panel(ui, ARCHIVE_FOLDER, "Nothing archived. Settings › Tabs can close tabs you have not opened for a while.", ("Reading List", Panel::ReadingList))
+}
+
+/// The pages in the bookmark folder `name`, to open or remove; `other` names the sibling panel.
+fn folder_panel(ui: Ui, name: &'static str, empty: &'static str, other: (&'static str, Panel)) -> AnyElement {
+    let items: Vec<AnyElement> = read(ui, |b| b.folder_pages(name))
         .unwrap_or_default()
         .into_iter()
         .map(|b| {
@@ -165,12 +176,12 @@ pub fn reading_list_panel(ui: Ui) -> AnyElement {
                 });
             })
             .child(super::panels::copy_link(ui, url))
-            .child(crate::controls::icon_button(icons::TRASH, "Remove", move || act(ui, |br| br.remove_from_reading_list(b.id))))
+            .child(crate::controls::icon_button(icons::TRASH, "Remove", move || act(ui, |br| br.remove_bookmark(b.id))))
             .into_element()
         })
         .collect();
     let count = items.len();
-    let empty = items.is_empty().then(|| note("Nothing saved yet. Save for Later files the page here."));
+    let empty = items.is_empty().then(|| note(empty));
     popover()
         .child(super::panels::heading(
             ui,
@@ -179,7 +190,8 @@ pub fn reading_list_panel(ui: Ui) -> AnyElement {
                 .items_center()
                 .gap_2()
                 .flex_1()
-                .child(super::panels::counted("Reading List", count))
+                .child(super::panels::counted(name, count))
+                .child(pill(other.0, move || super::show(ui, other.1)))
                 .child(pill("Bookmarks", move || super::show(ui, Panel::Bookmarks(None))))
                 .child(pill("History", move || super::show(ui, Panel::History))),
         ))

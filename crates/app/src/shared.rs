@@ -14,7 +14,6 @@ use store::{Id, SavedWindow};
 use crate::browser::{Browser, data_dir};
 use crate::prefs::Prefs;
 
-const ARCHIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(600);
 const MINUTE: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// `crate::browser::Core` with what only the GPUI shell knows: the switches, the filter-list status
@@ -226,7 +225,7 @@ pub(crate) fn start(cx: &mut App) -> bool {
     crate::filters::spawn(data_dir().join("filters"), core, cx).detach();
     cx.spawn(async move |cx| {
         loop {
-            cx.background_executor().timer(ARCHIVE_INTERVAL).await;
+            cx.background_executor().timer(browser_core::closed::ARCHIVE_INTERVAL).await;
             let archived = cx.update(|cx| {
                 each(cx, |b, _, cx| {
                     b.archive_unused_tabs(cx);

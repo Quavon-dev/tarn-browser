@@ -344,11 +344,11 @@ fn clean_links_drop_tracking_parameters_and_pages_go_to_the_reading_list() {
     assert!(b.qr_code().is_some_and(|(code, host)| !code.is_empty() && host == "shop.test"));
     b.save_for_later();
     b.save_for_later();
-    assert_eq!(b.reading_list().len(), 1);
+    assert_eq!(b.folder_pages(crate::browser::tools::READING_LIST).len(), 1);
     assert_eq!(b.toast.as_ref().unwrap().text, "Saved to Reading List");
-    let id = b.reading_list()[0].id;
-    b.remove_from_reading_list(id);
-    assert!(b.reading_list().is_empty());
+    let id = b.folder_pages(crate::browser::tools::READING_LIST)[0].id;
+    b.remove_bookmark(id);
+    assert!(b.folder_pages(crate::browser::tools::READING_LIST).is_empty());
 }
 
 #[test]
@@ -689,4 +689,93 @@ fn tabs_are_bookmarked_once_filed_into_folders_and_reopened_from_them() {
     assert_eq!(b.active_page().and_then(|p| p.typed.as_deref()), Some("https://c.test/"));
     b.delete_bookmark(folder);
     assert!(b.bookmarks().is_empty(), "a folder goes with everything in it");
+}
+
+fn group_row(b: &Browser, id: Id) -> crate::snapshot::Row {
+    crate::snapshot::rows(b).into_iter().find(|r| r.kind == crate::snapshot::RowKind::Group(id)).unwrap()
+}
+
+fn pane_keys(row: &crate::snapshot::Row) -> Vec<crate::snapshot::RowKind> {
+    row.panes.iter().map(|r| r.kind.clone()).collect()
+}
+
+#[test]
+fn groups_hold_tabs_collapse_to_the_active_one_and_reopen_as_a_group() {
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    let a = b.new_tab("https://a.test/").unwrap();
+    let c = b.new_tab("https://c.test/").unwrap();
+    let id = b.new_group(Some(a)).unwrap();
+    b.set_tab_group(c, Some(id));
+    assert_eq!(pane_keys(&group_row(&b, id)), [a, c].map(crate::snapshot::RowKind::Tab));
+    let loose: Vec<_> = crate::snapshot::rows(&b).into_iter().filter(|r| matches!(r.kind, crate::snapshot::RowKind::Tab(_))).map(|r| r.kind).collect();
+    assert_eq!(loose, [crate::snapshot::RowKind::Tab(first)], "grouped tabs show only in their card");
+    b.toggle_group(id);
+    let row = group_row(&b, id);
+    assert!(!row.open);
+    assert_eq!(pane_keys(&row), [crate::snapshot::RowKind::Tab(c)], "a collapsed group shows its active tab");
+    b.rename_group(id, " Work ");
+    b.set_group_color(id, "green");
+    let row = group_row(&b, id);
+    assert_eq!((row.label.as_str(), row.color), ("Work", 0x30d158));
+    b.close_group(id);
+    assert!(b.model.groups.is_empty() && b.model.tab(a).is_none() && b.model.tab(c).is_none());
+    assert_eq!(b.toast.as_ref().unwrap().text, "Group closed");
+    b.reopen();
+    let group = b.model.groups[0].clone();
+    assert_eq!((group.name.as_str(), group.color.as_str()), ("Work", "green"));
+    assert_eq!(b.model.tabs.iter().filter(|t| t.group_id == Some(group.id)).count(), 2);
+    let grouped = b.model.tabs.iter().find(|t| t.group_id == Some(group.id)).map(|t| b.model.key(t)).unwrap();
+    b.close_tab(grouped);
+    b.reopen();
+    assert_eq!(b.model.tab(b.model.active.unwrap()).unwrap().group_id, Some(group.id), "a closed tab reopens in its group");
+    b.regrouped_space = None;
+    b.ungroup(group.id);
+    assert!(b.model.groups.is_empty());
+    assert!(b.model.tabs.iter().all(|t| t.group_id.is_none()));
+    assert_eq!(b.regrouped_space, b.model.current_space().map(|s| (s.private, s.space.id)), "other windows on this space reload it");
+    assert_eq!(b.forgotten_groups.last(), Some(&(false, group.id)), "and drop the group from their reopen stacks");
+}
+
+#[test]
+fn a_dropped_tab_joins_the_group_it_lands_in() {
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    let a = b.new_tab("https://a.test/").unwrap();
+    let id = b.new_group(Some(a)).unwrap();
+    b.move_tab_to(first, a);
+    assert_eq!(b.model.tab(first).unwrap().group_id, Some(id), "dropped on a grouped tab");
+    b.set_tab_group(first, None);
+    b.pin_toggle(first);
+    b.move_to_group(first, id);
+    let tab = b.model.tab(first).unwrap();
+    assert_eq!((tab.kind, tab.group_id), (TabKind::Ephemeral, Some(id)), "dropped on the group's header");
+}
+
+#[test]
+fn clean_up_sorts_loose_tabs_into_groups_and_archives_unused_ones() {
+    let (_dir, mut b) = browser();
+    assert!(!crate::snapshot::snapshot(&b, true).cleanable);
+    b.new_tab("https://github.com/tarn").unwrap();
+    b.new_tab("https://gitlab.com/tarn").unwrap();
+    assert!(crate::snapshot::snapshot(&b, true).cleanable);
+    b.clean_up_tabs();
+    assert_eq!(b.toast.as_ref().unwrap().text, "Sorted 2 tabs into groups");
+    let group = b.model.groups[0].clone();
+    assert_eq!((group.name.as_str(), group.color.as_str()), ("Development", "indigo"));
+    assert!(!crate::snapshot::snapshot(&b, true).cleanable);
+    b.clean_up_tabs();
+    assert_eq!(b.toast.as_ref().unwrap().text, "Nothing to sort. Settings › Tabs can archive unused tabs too.");
+
+    let old = b.new_tab("https://old.test/").unwrap();
+    b.new_tab("https://new.test/").unwrap();
+    b.core.disk.touch_tab(old.id, 1).unwrap();
+    assert_eq!(b.archive_unused_tabs(), 0, "archiving is off by default");
+    b.set_archive_after(2);
+    assert_eq!(b.archive_after_index(), 2);
+    assert!(b.model.tab(old).is_none(), "choosing a time archives right away");
+    let archived = b.folder_pages(browser_core::closed::ARCHIVE_FOLDER);
+    assert_eq!(archived.iter().map(|m| m.url.as_deref()).collect::<Vec<_>>(), [Some("https://old.test/")]);
+    b.clean_up_tabs();
+    assert_eq!(b.toast.as_ref().unwrap().text, "Already tidy");
 }

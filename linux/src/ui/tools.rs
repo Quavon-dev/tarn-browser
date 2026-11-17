@@ -42,15 +42,17 @@ pub enum Command {
     Snapshots,
     Memory,
     ReadingList,
+    Archived,
     NewWindow,
     Key(Action),
     CloseSplit,
     Space(SpaceCommand),
 }
 
-const COMMANDS: [(&str, &str, Command); 27] = [
+const COMMANDS: [(&str, &str, Command); 29] = [
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
     ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
+    ("New Tab Group", "group", Command::Key(Action::NewGroup)),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
     ("Zap Element", "hide remove element block", Command::ZapElement),
     ("Reader", "article reading view text", Command::Reader),
@@ -68,6 +70,7 @@ const COMMANDS: [(&str, &str, Command); 27] = [
     ("Restore Snapshot…", "session tabs open", Command::Snapshots),
     ("Memory", "process cpu ram usage sleep", Command::Memory),
     ("Reading List", "read later saved pages", Command::ReadingList),
+    ("Archived Tabs", "unused closed old bookmarks", Command::Archived),
     ("New Window", "open another browser window", Command::NewWindow),
     ("Open or Close Split View", "side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
     ("Focus Next Pane", "split view switch", Command::Key(Action::FocusNextPane)),
@@ -141,6 +144,7 @@ pub fn run(ui: Ui, command: Command) {
         Command::Snapshots => show(ui, Panel::Space),
         Command::Memory => show(ui, Panel::Memory),
         Command::ReadingList => show(ui, Panel::ReadingList),
+        Command::Archived => show(ui, Panel::Archived),
         Command::NewWindow => super::new_window(ui),
         Command::Key(action) => super::run_action(ui, action),
         Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),

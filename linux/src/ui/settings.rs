@@ -13,6 +13,7 @@ use crate::controls::{accent_pill, group, group_row, label, pill, segmented, sma
 use crate::shortcuts;
 use crate::theme::Theme;
 use crate::webview;
+use browser_core::closed::ARCHIVE_AFTER;
 use browser_core::command::ENGINES;
 use browser_core::settings::{self as prefs, LIVE_TABS, LIVE_TABS_KEY, SLEEP_AFTER_DEFAULT, SLEEP_AFTER_KEY, SUGGESTIONS};
 
@@ -356,8 +357,17 @@ pub fn settings_panel(ui: Ui) -> AnyElement {
 }
 
 fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
-    let (level, engine, lists, private, card, history_text, sort) = read(ui, |b| {
-        (b.default_level(), b.search_engine(), b.lists(), b.model.private(), card_of(b), !b.setting_off(HISTORY_TEXT), !b.setting_off(SORT_DOWNLOADS))
+    let (level, engine, lists, private, card, history_text, sort, archive) = read(ui, |b| {
+        (
+            b.default_level(),
+            b.search_engine(),
+            b.lists(),
+            b.model.private(),
+            card_of(b),
+            !b.setting_off(HISTORY_TEXT),
+            !b.setting_off(SORT_DOWNLOADS),
+            b.archive_after_index(),
+        )
     })?;
     let (suggestions, live_tabs, sleep_after) = read(ui, |b| {
         let disk = &b.core.disk;
@@ -429,6 +439,18 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                     .child(link_pill(ui, "Open-source licences", browser_core::LINUX_LICENCES_URL)),
             ),
         Pane::Appearance => body.child(view().pt_3().child(super::appearance::pane(ui))),
+        Pane::Tabs => {
+            let choices: Vec<(usize, String)> = ARCHIVE_AFTER.iter().enumerate().map(|(ix, (name, _))| (ix, (*name).to_owned())).collect();
+            body.child(section("Tabs"))
+                .child(
+                    group().child(
+                        group_row()
+                            .child(label("Close unused tabs after").flex_1())
+                            .child(segmented(choices, archive, move |ix| act(ui, move |b| b.set_archive_after(ix)))),
+                    ),
+                )
+                .child(note("Unpinned tabs you have not opened for this long move to History › Archived Tabs."))
+        }
         Pane::Search => {
             let engines: Vec<(usize, String)> = ENGINES.iter().enumerate().map(|(ix, e)| (ix, e.name.to_owned())).collect();
             body.child(section("Search engine"))

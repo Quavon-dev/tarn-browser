@@ -75,7 +75,7 @@ Shared API: `browser_core::cleanup::{plan, apply, category}`; archiving through
 macOS reference: `crates/app/src/browser/context.rs` (`clean_up_tabs`), `crates/app/src/sidebar.rs` (`ephemeral`).
 
 - [x] Windows — same code in `crates/app`
-- [ ] Linux — `linux/` has no tab groups or archiving yet; both first, then the row in `linux/src/ui.rs`
+- [x] Linux — `linux/src/ui.rs` (`new_tab_row`), `linux/src/ui/groups.rs` (group card and panel), `linux/src/browser/groups.rs`, Settings › Tabs in `linux/src/ui/settings.rs`
 - [ ] iOS — `mobile/app` has no tab groups or archiving yet
 - [ ] Android — same as iOS
 

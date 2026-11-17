@@ -446,6 +446,11 @@ pub fn drifted(pinned: &str, current: &str) -> bool {
     Url::parse(pinned).is_ok_and(|pinned| !same_page(&pinned, current))
 }
 
+/// A group's colour from the client's `palette` of named colours: its pick, or one fixed by its id.
+pub fn group_color(group: &Group, palette: &[(&str, u32)]) -> u32 {
+    palette.iter().find(|(n, _)| *n == group.color).unwrap_or(&palette[group.id.unsigned_abs() as usize % palette.len()]).1
+}
+
 /// Unpinned tabs showing a page another tab of `tabs` shows too, the fragment ignored. Per page the
 /// most recently used tab stays, a pinned tab or tile and then the active tab before any other;
 /// pinned tabs and tiles are never picked. `url` is a tab's current page.

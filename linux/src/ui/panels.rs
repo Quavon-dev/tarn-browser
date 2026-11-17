@@ -256,6 +256,7 @@ fn history_panel(ui: Ui) -> AnyElement {
                 .child(counted("History", count))
                 .child(pill("Bookmarks", move || show(ui, Panel::Bookmarks(None))))
                 .child(pill("Reading List", move || show(ui, Panel::ReadingList)))
+                .child(pill("Archived Tabs", move || show(ui, Panel::Archived)))
                 .children(clear),
         ))
         .children(empty)
@@ -401,7 +402,7 @@ fn pills(name: &str, buttons: Vec<AnyElement>) -> Option<View> {
 
 fn tab_panel(ui: Ui) -> AnyElement {
     let menu = ui.tab_menu.get_untracked();
-    let Some((key, active, name, kind, targets, duplicates, keymap, split)) = read(ui, |b| {
+    let Some((key, active, name, kind, targets, duplicates, keymap, split, (in_group, groups))) = read(ui, |b| {
         let key = menu.filter(|k| b.model.tab(*k).is_some()).or(b.model.active)?;
         let tab = b.model.tab(key)?;
         let keymap = shortcuts::keymap(&shortcuts::stored(&b.core.disk));
@@ -414,6 +415,7 @@ fn tab_panel(ui: Ui) -> AnyElement {
             !b.duplicate_tabs().is_empty(),
             keymap,
             b.splits.menu(b.model.active, key),
+            (tab.group_id, b.model.groups.iter().filter(|g| Some(g.id) != tab.group_id).map(|g| (g.id, g.name.clone())).collect::<Vec<_>>()),
         ))
     })
     .flatten() else {
@@ -443,6 +445,16 @@ fn tab_panel(ui: Ui) -> AnyElement {
         let tiles = menu_row(if tile { "Remove from Tiles" } else { "Add to Tiles" }, None, move || act(ui, |b| b.tile_toggle(key)));
         group().child(pin).child(tiles)
     });
+    let group_buttons: Vec<AnyElement> = if kind == TabKind::Ephemeral {
+        groups
+            .into_iter()
+            .map(|(id, name)| pill(name, move || act(ui, |b| b.set_tab_group(key, Some(id)))).into_element())
+            .chain([pill("New Group", move || super::groups::new_group(ui, Some(key))).into_element()])
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let ungroup = in_group.map(|_| group().child(menu_row("Remove from Group", None, move || act(ui, |b| b.set_tab_group(key, None)))));
     let page_rows = active.then(|| {
         let mut rows = vec![
             tool("Copy Link", Command::CopyLink, Some(Action::CopyLink)),
@@ -487,6 +499,8 @@ fn tab_panel(ui: Ui) -> AnyElement {
         .children(page_rows)
         .children(split_rows)
         .children(tab_rows)
+        .children(pills("Add to Group", group_buttons))
+        .children(ungroup)
         .children(pills("Move into a folder", folder_buttons))
         .children(pills("Move to another space of this profile", space_buttons))
         .child(group().child(bookmark).child(close))
@@ -503,6 +517,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Space => super::library::space_panel(ui),
             Panel::Memory => super::library::memory_panel(ui),
             Panel::ReadingList => super::library::reading_list_panel(ui),
+            Panel::Archived => super::library::archived_panel(ui),
             Panel::Qr => super::tools::qr_panel(ui),
             Panel::Share => super::tools::share_panel(ui),
             Panel::History => history_panel(ui),
@@ -510,6 +525,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Tab => tab_panel(ui),
             Panel::Folder(id) => folder_panel(ui, id),
             Panel::Bookmarks(folder) => super::library::bookmarks_panel(ui, folder),
+            Panel::Group(id) => super::groups::group_panel(ui, id),
         };
         let panel = ui.panel.get_untracked();
         let (width, side) = match panel {

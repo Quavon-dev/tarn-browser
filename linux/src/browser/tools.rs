@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use browser_core::closed::top_folder;
 use browser_core::tabs::TabKey;
 use browser_core::{bookmarks, now};
 use serde_json::{Value, json};
@@ -8,6 +9,7 @@ use url::Url;
 
 use super::{Browser, START_URL};
 
+pub use browser_core::bookmarks::READING_LIST;
 pub const QUIET: usize = 3;
 
 pub fn copied(removed: i64) -> String {
@@ -73,8 +75,13 @@ impl Browser {
         }
     }
 
-    pub fn reading_list(&self) -> Vec<Bookmark> {
-        bookmarks::reading_list_pages(self.bookmarks())
+    /// The pages in the profile's top-level bookmark folder `name`, such as the Reading List or
+    /// Archived Tabs.
+    pub fn folder_pages(&self, name: &str) -> Vec<Bookmark> {
+        let Some((private, profile)) = self.model.profile() else { return Vec::new() };
+        let bookmarks = self.core.store(private).bookmarks(profile).unwrap_or_default();
+        let folder = top_folder(&bookmarks, name);
+        bookmarks.into_iter().filter(|b| folder.is_some() && b.parent_id == folder && b.url.is_some()).collect()
     }
 
     pub fn save_for_later(&mut self) {
@@ -85,7 +92,7 @@ impl Browser {
         self.show_toast_as(tone, text, None);
     }
 
-    pub fn remove_from_reading_list(&mut self, id: Id) {
+    pub fn remove_bookmark(&mut self, id: Id) {
         if let Some((private, _)) = self.model.profile() {
             self.core.store(private).delete_bookmark(id).ok();
         }

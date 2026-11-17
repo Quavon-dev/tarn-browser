@@ -59,6 +59,12 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   from History and the Reading List) lists recent bookmarks and the folder tree, searches titles and
   addresses, and renames, moves, deletes and adds folders, in place of the macOS Bookmarks menu and
   Library › Bookmarks;
+- tab groups: a card per group with its colour, collapse and close, New Tab Group in the New Tab row
+  (`Ctrl+Alt+G`), Add to Group and Remove from Group in the tab panel, rename, colour, Ungroup and
+  Close Group in the group's panel, a dropped tab joins the group it lands in; Clean Up in the New
+  Tab row (`browser_core::cleanup`); Settings › Tabs closes unused tabs into the `Archived Tabs`
+  bookmark folder (`Model::archive_unused`, every 10 minutes and on launch), listed in the
+  Archived Tabs panel next to the Reading List and as a folder in the Bookmarks panel;
 - spaces: schedules by weekday and hour with the one-hour manual hold, snapshots (save, restore in a
   new or this space, delete), "Always open in" rules, switch to and move tabs between spaces from
   the command rows of the address field;
