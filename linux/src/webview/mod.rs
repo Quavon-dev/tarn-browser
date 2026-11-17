@@ -365,6 +365,9 @@ fn load(state: &Rc<State>, current: Option<String>) {
     let Ok(url) = Url::parse(&target) else {
         return state.emit("blocked", json!({ "url": target, "reason": "nav_policy" }));
     };
+    if let GateAction::Warn(category) | GateAction::Notice(category) = nav_policy::gate(state.site(&url).blocked, true, true, false) {
+        return state.listed(url.as_str(), category);
+    }
     state.silenced.set(false);
     *state.shell_url.borrow_mut() = Some(url.to_string());
     web.load_uri(url.as_str());

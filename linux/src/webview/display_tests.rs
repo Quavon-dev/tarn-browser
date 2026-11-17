@@ -317,18 +317,23 @@ fn the_gate_stops_a_listed_host_in_every_frame_and_redirect_before_any_request()
         assert!(spin_until(|| listed(&state).is_some(), 20), "{level:?}: the typed load is stopped: {:?}", state.events.borrow());
         assert_eq!(listed(&state).unwrap(), json!({ "url": target, "reason": "listed", "category": "malware" }));
         assert_eq!(web.uri().as_deref(), Some("http://page.test/"), "{level:?}: the tab keeps its page");
+        spin_until(|| false, 1);
+        assert_eq!(seen.load(Ordering::SeqCst), 0, "{level:?}: the typed load never connects to the listed host");
         state.events.borrow_mut().clear();
         web.load_html(&format!("<html><body><iframe src=\"{target}\"></iframe></body></html>"), Some("http://page.test/"));
         let decided = |state: &State| state.events.borrow().iter().any(|(n, d)| n == "decided" && d["url"] == target.as_str());
         assert!(spin_until(|| decided(&state), 20), "{level:?}: the frame reached the gate: {:?}", state.events.borrow());
         spin_until(|| false, 1);
         assert!(listed(&state).is_none(), "{level:?}: a frame is stopped without a warning page: {:?}", state.events.borrow());
+        assert_eq!(seen.load(Ordering::SeqCst), 0, "{level:?}: the frame never connects to the listed host");
         if level == ShieldLevel::Standard {
             state.events.borrow_mut().clear();
             let redirect = format!("http://localhost:{}/go", redirect_server(target.clone()));
             *state.load.borrow_mut() = Some((redirect, 2));
             load(&state, None);
             assert!(spin_until(|| listed(&state).is_some(), 20), "the redirect hop is stopped: {:?}", state.events.borrow());
+            spin_until(|| false, 1);
+            assert_eq!(seen.load(Ordering::SeqCst), 0, "the redirect hop never connects to the listed host");
         }
         state.drop_view();
     }
