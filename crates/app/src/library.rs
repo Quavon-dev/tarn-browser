@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use browser_core::bookmarks::{self, title_or_host};
-use browser_core::import::{self as data, Error as ImportError, Kinds, Outcome, Report, Source};
+use browser_core::import::{self as data, Kinds, Source};
 use browser_core::library::{self, HISTORY_LOAD, LIST_ROWS as MAX_LIST, SECTION_ROWS as MAX_ROWS};
 use browser_core::snapshot::{self, LoadError, SpaceSnapshot};
 use engine::menu::{self, Item as MenuItem};
@@ -70,30 +70,6 @@ fn download_row(d: &Download, now: i64) -> Entry {
 
 fn detect_sources() -> Vec<Source> {
     std::env::home_dir().map(|home| data::sources(&home)).unwrap_or_default()
-}
-
-fn import_line(kind: &str, browser: &str, result: &Option<Result<Outcome, ImportError>>) -> Option<String> {
-    Some(match result.as_ref()? {
-        Ok(o) if o.skipped + o.failed == 0 => format!("{kind}: {} imported.", thousands(o.imported as u64)),
-        Ok(o) => format!("{kind}: {} imported, {} skipped.", thousands(o.imported as u64), thousands((o.skipped + o.failed) as u64)),
-        Err(ImportError::KeychainDenied) => format!("{kind}: macOS did not give Tarn {browser}’s Safe Storage key, so none were imported."),
-        Err(ImportError::DiskAccess) if cfg!(windows) => format!("{kind}: Windows did not let Tarn read {browser}’s files. Quit {browser} and try again."),
-        Err(ImportError::DiskAccess) => format!(
-            "{kind}: macOS did not let Tarn read {browser}’s files. Allow Tarn in System Settings › Privacy & Security › Full Disk Access, then try again."
-        ),
-        Err(ImportError::NotFound) => format!("{kind}: none found in this profile."),
-        Err(e) => format!("{kind}: could not be imported ({e})."),
-    })
-}
-
-/// The result alert's text, one line per kind that was asked for.
-fn import_summary(browser: &str, report: Option<&Report>) -> String {
-    let Some(r) = report else { return "The import did not finish. History and bookmarks may have been added; cookies may be incomplete.".into() };
-    [("Cookies", &r.cookies), ("History", &r.history), ("Bookmarks", &r.bookmarks)]
-        .into_iter()
-        .filter_map(|(kind, result)| import_line(kind, browser, result))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn snapshot_error(e: LoadError) -> &'static str {
@@ -986,17 +962,8 @@ impl LibraryWindow {
         }
         let name = source.browser.name();
         let profile = core.disk.profile(profile_id).map(|p| p.name).unwrap_or_default();
-        let message = format!("Import from {name} ({}) into “{}”?", bounded_title(&source.label), bounded_title(&profile));
-        let sealed = cfg!(windows) && source.browser != data::Browser::Firefox;
-        let keychain = match source.browser {
-            _ if sealed => format!(" Tarn cannot read {name}’s cookies on Windows, so only history and bookmarks are copied."),
-            data::Browser::Firefox => String::new(),
-            _ => format!(" To read the cookies, macOS asks once whether Tarn may use {name}’s Safe Storage key."),
-        };
-        let detail = format!(
-            "Cookies keep you signed in to sites; history and bookmarks join the library. Everything is copied on {} and sent nowhere.{keychain}",
-            ui::controls::THIS_DEVICE
-        );
+        let data::Confirm { message, detail, cookies } = data::confirm(&source, &profile, ui::controls::THIS_DEVICE);
+        let sealed = !cookies;
         let buttons: &[&str] = if sealed { &["Import", "Cancel"] } else { &["Import All", "History and Bookmarks Only", "Cancel"] };
         let answer = window.prompt(PromptLevel::Info, &message, Some(&detail), buttons, cx);
         self.holding = true;
@@ -1022,8 +989,8 @@ impl LibraryWindow {
             let summary = match core.import(profile_id, browser_kind, read, move |r| drop(tx.send(r))) {
                 // The engine answers each cookie write; a store closed meanwhile may never answer.
                 Ok(()) => match futures::future::select(rx, cx.background_executor().timer(IMPORT_TIMEOUT)).await {
-                    futures::future::Either::Left((report, _)) => import_summary(name, report.ok().as_ref()),
-                    futures::future::Either::Right(_) => import_summary(name, None),
+                    futures::future::Either::Left((report, _)) => data::summary(name, report.ok().as_ref()),
+                    futures::future::Either::Right(_) => data::summary(name, None),
                 },
                 Err(_) => "Nothing was imported: this profile can no longer take imported data.".into(),
             };
@@ -1463,21 +1430,5 @@ mod tests {
         assert_eq!(ago(0, 2 * 1440 * min), "2 d ago");
         assert_eq!(ago(0, 7 * 1440 * min), "1970-01-01");
         assert_eq!(ago(10 * min, 0), "Just now");
-    }
-
-    #[test]
-    fn the_import_summary_names_each_kind_and_why_one_failed() {
-        let report = Report {
-            cookies: Some(Err(ImportError::KeychainDenied)),
-            history: Some(Ok(Outcome { imported: 1234, skipped: 0, failed: 0 })),
-            bookmarks: Some(Ok(Outcome { imported: 5, skipped: 2, failed: 1 })),
-        };
-        assert_eq!(
-            import_summary("Arc", Some(&report)),
-            "Cookies: macOS did not give Tarn Arc’s Safe Storage key, so none were imported.\nHistory: 1,234 imported.\nBookmarks: 5 imported, 3 skipped."
-        );
-        let disk = Report { history: Some(Err(ImportError::DiskAccess)), ..Report::default() };
-        assert!(import_summary("Firefox", Some(&disk)).contains(if cfg!(windows) { "Quit Firefox" } else { "Full Disk Access" }));
-        assert!(import_summary("Arc", None).starts_with("The import did not finish."));
     }
 }

@@ -1453,3 +1453,35 @@ fn responsive_sizes_zoom_the_page_and_give_its_zoom_back() {
     assert!(b.responsive_preset().is_none());
     assert_eq!(b.outbox.last().map(|(k, n, a)| (*k, *n, a.clone())), Some((key, "zoom", json!({ "factor": 1.25 }))));
 }
+
+#[test]
+fn browser_data_imports_into_the_current_profile_and_never_into_a_private_space() {
+    use browser_core::import::{self as imports, Kinds, Outcome};
+    let (_dir, mut b) = browser();
+    let profile = b.model.profile().unwrap().1;
+    let source_dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        source_dir.path().join("Bookmarks"),
+        r#"{"roots":{"bookmark_bar":{"type":"folder","name":"Bookmarks Bar","children":[{"type":"url","name":"A","url":"https://a.test/"},{"type":"url","name":"J","url":"javascript:x"}]}}}"#,
+    )
+    .unwrap();
+    let source = imports::Source { browser: imports::Browser::Chromium, label: "Default".into(), dir: source_dir.path().into() };
+    let confirm = imports::confirm(&source, "Personal", "this computer");
+    assert!(confirm.cookies && confirm.detail.contains("keyring"), "{}", confirm.detail);
+    assert_eq!(b.core.import_target(false, profile), Ok(()));
+    let read = imports::read(&source, Kinds { cookies: false, history: true, bookmarks: true });
+    let report = Rc::new(std::cell::RefCell::new(None));
+    let slot = report.clone();
+    b.core.import(profile, source.browser, read, move |r| *slot.borrow_mut() = Some(r)).unwrap();
+    let report = report.take().unwrap();
+    assert_eq!(report.bookmarks, Some(Ok(Outcome { imported: 1, skipped: 1, failed: 0 })));
+    assert_eq!(report.history, Some(Err(imports::Error::NotFound)));
+    assert_eq!(imports::summary("Chromium", Some(&report)), "History: none found in this profile.\nBookmarks: 1 imported, 1 skipped.");
+    let marks = b.core.disk.bookmarks(profile).unwrap();
+    assert!(marks.iter().any(|m| m.parent_id.is_none() && m.title == "Imported from Chromium"));
+    assert!(marks.iter().any(|m| m.url.as_deref() == Some("https://a.test/")));
+    b.private_space();
+    let space = b.model.current_space().unwrap();
+    assert!(space.private);
+    assert!(b.core.import_target(true, space.space.profile_id).is_err(), "a private space keeps nothing, so it takes no import");
+}

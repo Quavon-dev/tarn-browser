@@ -678,3 +678,55 @@ fn a_screenshot_saves_a_new_png_under_the_given_name_only() {
     assert!(png.starts_with(b"\x89PNG\r\n\x1a\n") && png.len() > 100);
     window.destroy();
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn imported_cookies_land_in_the_profile_jar_with_every_attribute() {
+    use engine::cookies::{Cookie, SameSite};
+    gtk::init().expect("a display");
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let cookie = |name: &str, domain: &str, host_only: bool, expires: Option<i64>| Cookie {
+        name: name.into(),
+        value: format!("{name}-value"),
+        domain: domain.into(),
+        host_only,
+        path: "/".into(),
+        secure: true,
+        http_only: true,
+        same_site: SameSite::Strict,
+        expires,
+        partitioned: false,
+    };
+    let key = StoreKey::parse("import-display-test").unwrap();
+    let run = |cookies: Vec<Cookie>| {
+        let rx = RefCell::new(session::import_cookies(&key, cookies, now));
+        let answer = Rc::new(Cell::new(None));
+        let slot = answer.clone();
+        assert!(
+            spin_until(
+                || {
+                    if let Ok(Some(a)) = rx.borrow_mut().try_recv() {
+                        slot.set(Some(a));
+                    }
+                    slot.get().is_some()
+                },
+                20
+            ),
+            "the jar answered"
+        );
+        answer.get().unwrap()
+    };
+    let host = cookie("host", "a.test", true, Some(now + 3600));
+    let domain = cookie("dom", "a.test", false, Some(now + 3600));
+    let expired = cookie("old", "a.test", true, Some(now - 10));
+    assert_eq!(run(vec![host.clone(), domain.clone(), expired]), (2, 1), "the expired cookie is refused and counted");
+    let manager = session::acquire(&key).and_then(|s| s.cookie_manager()).unwrap();
+    let jar = Rc::new(RefCell::new(None));
+    let slot = jar.clone();
+    manager.all_cookies(None::<&webkit6::gio::Cancellable>, move |r| *slot.borrow_mut() = Some(r.unwrap()));
+    assert!(spin_until(|| jar.borrow().is_some(), 20), "the jar was read");
+    let mut stored: Vec<Cookie> = jar.take().unwrap().into_iter().filter_map(|mut c| session::from_soup(&mut c)).collect();
+    stored.sort_by(|a, b| a.name.cmp(&b.name));
+    assert_eq!(stored, [domain.clone(), host.clone()], "both kept every attribute");
+    assert_eq!(run(vec![Cookie { value: "replaced".into(), ..host }]), (0, 1), "an import never replaces a cookie the jar holds");
+}

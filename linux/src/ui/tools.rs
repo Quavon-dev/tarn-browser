@@ -47,6 +47,7 @@ pub enum Command {
     Memory,
     ReadingList,
     Archived,
+    ImportBrowserData,
     NewWindow,
     Key(Action),
     CloseSplit,
@@ -60,7 +61,7 @@ pub enum Command {
     SleepOthers,
 }
 
-const COMMANDS: [(&str, &str, Command); 49] = [
+const COMMANDS: [(&str, &str, Command); 50] = [
     ("Settings", "preferences options", Command::Key(Action::Settings)),
     ("New Space", "workspace profile", Command::Key(Action::NewSpace)),
     ("Edit Space", "workspace rename color icon", Command::EditSpace),
@@ -93,6 +94,7 @@ const COMMANDS: [(&str, &str, Command); 49] = [
     ("Memory", "process cpu ram usage sleep", Command::Memory),
     ("Reading List", "read later saved pages", Command::ReadingList),
     ("Archived Tabs", "unused closed old bookmarks", Command::Archived),
+    ("Import Browser Data\u{2026}", "chrome edge brave chromium firefox history bookmarks cookies", Command::ImportBrowserData),
     ("New Window", "open another browser window", Command::NewWindow),
     ("Open or Close Split View", "side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
     ("Focus Next Pane", "split view switch", Command::Key(Action::FocusNextPane)),
@@ -138,6 +140,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
     };
     let shown = |command: &Command| match command {
         Command::CloseDuplicates => duplicates,
+        Command::ImportBrowserData => browser_core::import::available(),
         Command::Key(Action::ReopenClosedTab) => reopenable,
         Command::Key(Action::CloseAllTabs) => tab.unpinned,
         Command::DuplicateTab => tab.open,
@@ -189,6 +192,7 @@ pub fn run(ui: Ui, command: Command) {
         Command::Memory => show(ui, Panel::Memory),
         Command::ReadingList => show(ui, Panel::ReadingList),
         Command::Archived => show(ui, Panel::Archived),
+        Command::ImportBrowserData => super::import::open(ui),
         Command::NewWindow => super::new_window(ui),
         Command::Key(action) => super::run_action(ui, action),
         Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),

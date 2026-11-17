@@ -367,6 +367,7 @@ fn history_panel(ui: Ui) -> AnyElement {
                 .child(pill("Bookmarks", move || show(ui, Panel::Bookmarks(None))))
                 .child(pill("Reading List", move || show(ui, Panel::ReadingList)))
                 .child(pill("Archived Tabs", move || show(ui, Panel::Archived)))
+                .children(browser_core::import::available().then(|| pill("Import", move || super::import::open(ui))))
                 .children(clear),
         ))
         .child(scroll().flex_1().child(view().flex_col().gap(px(1.)).children(closed).child(rows)))
@@ -798,6 +799,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Library => super::library::library_panel(ui),
             Panel::Address => address_panel(ui),
             Panel::Shortcuts => shortcuts_panel(ui),
+            Panel::Import => super::import::panel(ui),
             Panel::History => history_panel(ui),
             Panel::Downloads => downloads_panel(ui),
             Panel::Tab => tab_panel(ui),

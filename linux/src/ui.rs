@@ -3,6 +3,7 @@ mod blocking;
 mod devtools;
 mod extensions;
 mod groups;
+mod import;
 mod library;
 mod link_peek;
 mod panels;
@@ -106,6 +107,7 @@ pub enum Panel {
     Share,
     Address,
     Shortcuts,
+    Import,
     Folder(store::Id),
     Bookmarks(Option<store::Id>),
     Group(store::Id),
@@ -187,6 +189,7 @@ pub struct Ui {
     form: Signal<profiles::Form>,
     card_name: Signal<String>,
     card_space: Signal<String>,
+    import: Signal<import::State>,
     root: Owner,
 }
 
@@ -2185,6 +2188,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         form: signal(profiles::Form::default()),
         card_name: signal(String::new()),
         card_space: signal(String::new()),
+        import: signal(import::State::default()),
         root: Owner::current(),
     };
     let editing = std::cell::Cell::new(false);
