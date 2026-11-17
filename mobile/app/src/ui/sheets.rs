@@ -206,9 +206,9 @@ pub fn reading_list(ui: Ui) -> impl IntoElement {
 }
 
 pub fn site(ui: Ui) -> impl IntoElement {
-    let css = signal(ui.read(|s| s.site_css()));
+    let css = signal(untracked(|| ui.read(|s| s.site_css())));
     // The field follows the page to another host, so a save never lands on the wrong site.
-    let css_host = std::cell::RefCell::new(ui.read(|s| s.active_host()));
+    let css_host = std::cell::RefCell::new(untracked(|| ui.read(|s| s.active_host())));
     effect(move || {
         let host = ui.read(|s| s.active_host());
         if host.is_some() && *css_host.borrow() != host {
@@ -217,93 +217,91 @@ pub fn site(ui: Ui) -> impl IntoElement {
         }
     });
     let has_site = move || ui.read(|s| s.active_host().is_some());
-    view().gap_2().child(dynamic(move || {
-        has_site().then(|| {
-            view()
-                .gap_2()
-                .child(section("Appearance"))
-                .child(framed(view().child(switch_row(
-                    "Dark mode for this site",
-                    move || ui.read(|s| s.site_dark()),
-                    move || {
-                        ui.act(|s| {
-                            s.set_site_dark(!s.site_dark());
-                            Vec::new()
-                        })
-                    },
-                ))))
-                .child(caption("Inverts the page's colours for sites without a dark mode of their own. Off under Lockdown.").px_1())
-                .child(section("Site CSS"))
-                .child(
-                    text_field("Site CSS", "Site CSS")
-                        .value(move || css.get())
-                        .on_change(move |v: &str| css.set(v.to_owned()))
-                        .auto_capitalize(AutoCapitalize::None)
-                        .test_id("Site CSS"),
-                )
-                .child(view().flex_row().gap_2().child(pill("Save CSS", move || {
-                    let value = css.get_untracked();
+    view().gap_2().child(when(has_site, move || {
+        view()
+            .gap_2()
+            .child(section("Appearance"))
+            .child(framed(view().child(switch_row(
+                "Dark mode for this site",
+                move || ui.read(|s| s.site_dark()),
+                move || {
                     ui.act(|s| {
-                        if s.set_site_css(&value) {
-                            s.toast_as(browser_core::toast::Tone::Success, "Site CSS saved".into());
-                        }
+                        s.set_site_dark(!s.site_dark());
                         Vec::new()
                     })
-                })))
-                .child(section("Hidden elements"))
-                .child(label(move || match ui.read(|s| s.site_zaps()) {
-                    0 => "No hidden elements on this site.".to_owned(),
-                    1 => "1 element hidden on this site.".to_owned(),
-                    n => format!("{n} elements hidden on this site."),
-                }))
-                .child(
-                    view()
-                        .flex_row()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(pill("Zap Element", move || {
-                            ui.show(Screen::Browse);
-                            ui.act(|s| s.pick());
-                        }))
-                        .child(dynamic(move || {
-                            (ui.read(|s| s.site_zaps()) > 0).then(|| {
-                                pill("Show All", move || {
-                                    ui.act(|s| {
-                                        s.clear_site_zaps();
-                                        Vec::new()
-                                    })
-                                })
-                            })
-                        })),
-                )
-                .child(dynamic(move || {
-                    ui.read(|s| s.site_rule()).map(|rule| {
-                        let mut options: Vec<tarn_nsh_shared::controls::Segment> = vec![(
-                            "Any space".to_owned(),
-                            Box::new(move || ui.read(|s| s.site_rule().and_then(|r| r.space).is_none())),
-                            Box::new(move || {
+                },
+            ))))
+            .child(caption("Inverts the page's colours for sites without a dark mode of their own. Off under Lockdown.").px_1())
+            .child(section("Site CSS"))
+            .child(
+                text_field("Site CSS", "Site CSS")
+                    .value(move || css.get())
+                    .on_change(move |v: &str| css.set(v.to_owned()))
+                    .auto_capitalize(AutoCapitalize::None)
+                    .test_id("Site CSS"),
+            )
+            .child(view().flex_row().gap_2().child(pill("Save CSS", move || {
+                let value = css.get_untracked();
+                ui.act(|s| {
+                    if s.set_site_css(&value) {
+                        s.toast_as(browser_core::toast::Tone::Success, "Site CSS saved".into());
+                    }
+                    Vec::new()
+                })
+            })))
+            .child(section("Hidden elements"))
+            .child(label(move || match ui.read(|s| s.site_zaps()) {
+                0 => "No hidden elements on this site.".to_owned(),
+                1 => "1 element hidden on this site.".to_owned(),
+                n => format!("{n} elements hidden on this site."),
+            }))
+            .child(
+                view()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(pill("Zap Element", move || {
+                        ui.show(Screen::Browse);
+                        ui.act(|s| s.pick());
+                    }))
+                    .child(dynamic(move || {
+                        (ui.read(|s| s.site_zaps()) > 0).then(|| {
+                            pill("Show All", move || {
                                 ui.act(|s| {
-                                    s.set_site_rule(None);
+                                    s.clear_site_zaps();
                                     Vec::new()
                                 })
-                            }),
-                        )];
-                        options.extend(rule.choices.into_iter().map(|(ix, name)| {
-                            (
-                                name,
-                                Box::new(move || ui.read(|s| s.site_rule().and_then(|r| r.space) == Some(ix))) as Box<dyn Fn() -> bool>,
-                                Box::new(move || {
-                                    ui.act(|s| {
-                                        s.set_site_rule(Some(ix));
-                                        Vec::new()
-                                    })
-                                }) as Box<dyn Fn()>,
-                            )
-                        }));
-                        view().gap_2().child(section("Open new tabs of this site in")).child(segmented(options))
-                    })
-                }))
-        })
+                            })
+                        })
+                    })),
+            )
+            .child(dynamic(move || {
+                ui.read(|s| s.site_rule()).map(|rule| {
+                    let mut options: Vec<tarn_nsh_shared::controls::Segment> = vec![(
+                        "Any space".to_owned(),
+                        Box::new(move || ui.read(|s| s.site_rule().and_then(|r| r.space).is_none())),
+                        Box::new(move || {
+                            ui.act(|s| {
+                                s.set_site_rule(None);
+                                Vec::new()
+                            })
+                        }),
+                    )];
+                    options.extend(rule.choices.into_iter().map(|(ix, name)| {
+                        (
+                            name,
+                            Box::new(move || ui.read(|s| s.site_rule().and_then(|r| r.space) == Some(ix))) as Box<dyn Fn() -> bool>,
+                            Box::new(move || {
+                                ui.act(|s| {
+                                    s.set_site_rule(Some(ix));
+                                    Vec::new()
+                                })
+                            }) as Box<dyn Fn()>,
+                        )
+                    }));
+                    view().gap_2().child(section("Open new tabs of this site in")).child(segmented(options))
+                })
+            }))
     }))
 }
 
