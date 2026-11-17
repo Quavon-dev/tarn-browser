@@ -268,6 +268,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The menu bar shows a changed shortcut at once, while Settings is still in front.
 - A closed private tab's row no longer flashes in the matching normal space, and reopening a tab
   right after closing it no longer drops its collapsing row early.
+- Windows: the installer always installs into the current user's `AppData\Local\Programs\Tarn`,
+  also after the user profile moved to another drive, and a link set up with Make Default follows
+  the install to its new folder. Without `LOCALAPPDATA` in its environment, Tarn keeps its data in
+  the Local AppData folder Windows reports instead of the folder it was started from.
 
 ### Security
 
