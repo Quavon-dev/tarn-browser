@@ -49,7 +49,7 @@ impl Browser {
     pub fn set_space_schedule(&mut self, schedule: Schedule) {
         let Some(space) = self.model.current_space().filter(|s| !s.private).map(|s| s.space.id) else { return };
         if self.core.disk.set_space_schedule(space, schedule).is_err() {
-            return self.show_toast("Tarn could not save this schedule", None);
+            return self.show_toast_as(browser_core::toast::Tone::Warning, "Tarn could not save this schedule", None);
         }
         self.model.reload_spaces(&self.core);
     }
@@ -92,6 +92,9 @@ impl Browser {
         }
         for key in keys {
             self.forget_tab(key);
+        }
+        if let Some(p) = profile {
+            self.favicons.forget(&(true, p));
         }
         self.model.burn(&self.core);
     }
@@ -136,7 +139,7 @@ impl Browser {
     pub fn route_site(&mut self, host: &str, space_id: Option<Id>) {
         let disk = &self.core.disk;
         match space_id {
-            Some(id) if disk.set_space_rule(host, id).is_err() => self.show_toast("Tarn could not save this rule", None),
+            Some(id) if disk.set_space_rule(host, id).is_err() => self.show_toast_as(browser_core::toast::Tone::Warning, "Tarn could not save this rule", None),
             Some(_) => {}
             None => {
                 for rule in disk.space_rules().unwrap_or_default().into_iter().filter(|r| r.host_pattern == host) {
@@ -154,7 +157,7 @@ impl Browser {
         let Some(space) = self.model.current_space().cloned() else { return };
         let name = format!("{} {}", space.space.name, date(now()));
         match browser_core::snapshot::save(self.core.store(space.private), &space, &name, now()) {
-            Some(_) => self.show_toast(format!("Saved “{}”", engine::view_policy::title(&name)), None),
+            Some(_) => self.show_toast_as(browser_core::toast::Tone::Success, format!("Saved “{}”", engine::view_policy::title(&name)), None),
             None => self.show_toast("This space has no tabs to save", None),
         }
     }
@@ -169,7 +172,7 @@ impl Browser {
 
     pub fn restore_snapshot(&mut self, saved: &Snapshot, new_space: bool) {
         if let Err(message) = self.try_restore(saved, new_space) {
-            self.show_toast(message, None);
+            self.show_toast_as(browser_core::toast::Tone::Warning, message, None);
         }
     }
 

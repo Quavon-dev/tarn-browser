@@ -1,12 +1,12 @@
 use gpui::{
-    AnyElement, Context, Div, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, SharedString, Stateful, StatefulInteractiveElement,
-    Styled, div, prelude::FluentBuilder, px,
+    AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
 use shield::ShieldLevel;
 use std::time::Duration;
 use store::WebEngine;
-use ui::controls::{field, icon_button, icon_frame, spinner, tooltip};
-use ui::icon::{ICON_SMALL, Icon, icon};
+use ui::controls::{icon_button, icon_frame, spinner, tooltip};
+use ui::icon::{ICON, Icon, icon};
 use ui::text::bounded_title;
 use ui::theme::{SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
 use url::Url;
@@ -38,6 +38,7 @@ pub fn render(b: &Browser, cx: &mut Context<Browser>) -> AnyElement {
         .on_scroll_wheel(cx.listener(|b, e, w, cx| b.toolbar_swipe(e, false, w, cx)))
         .relative()
         .child(measure(b.address.bar.clone()))
+        .when(b.inline_editing(), |d| d.child(hidden_field(b, cx)))
         .window_control_area(gpui::WindowControlArea::Drag)
         .children(ui::controls::window_controls())
         .into_any_element()
@@ -115,11 +116,26 @@ fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
         .children(private_mark(b))
 }
 
-fn settings(cx: &mut Context<Browser>) -> Stateful<Div> {
-    icon_button("settings", Icon::Gear, true)
+fn page_actions(b: &Browser) -> Div {
+    let page = b.model.active.is_some();
+    let split = if b.model.active.is_some_and(|a| b.splits.contains(a)) { "Close Split View" } else { "Open Split View" };
+    div()
         .occlude()
-        .tooltip(crate::shortcuts::tip("Settings", &crate::Settings))
-        .on_click(cx.listener(|b, _, w, cx| b.open_settings(w, cx)))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(2.))
+        .child(
+            icon_button("split-view", Icon::SplitAdd, page)
+                .tooltip(crate::shortcuts::tip(split, &crate::split::ToggleSplitView))
+                .on_click(|_, w, cx| w.dispatch_action(Box::new(crate::split::ToggleSplitView), cx)),
+        )
+        .child(
+            icon_button("share", Icon::Share, page)
+                .child(measure(b.share_menu.anchor.clone()))
+                .tooltip(crate::shortcuts::tip("Share", &crate::qr::ShareLink))
+                .on_click(|_, w, cx| w.dispatch_action(Box::new(crate::qr::ShareLink), cx)),
+        )
 }
 
 /// Windows has no menu bar; this button opens the same menus.
@@ -138,22 +154,18 @@ fn app_menu_button(b: &Browser, cx: &mut Context<Browser>) -> Option<Stateful<Di
 /// all the width between them.
 fn render_classic(b: &Browser, inset: f32, cx: &mut Context<Browser>) -> Div {
     let page = b.model.active.map(|k| b.page(k)).unwrap_or_default();
-    let open = b.address_open();
-    let side = || div().flex().items_center().when(open.is_none(), |d| d.flex_1());
+    let side = || div().flex().items_center().flex_1();
     div()
         .gap_2()
         .child(side().child(div().flex_none().w(px(inset - 8.))).child(navigation(b, &page, cx)))
-        .child(match open {
-            Some((t, editing)) => open_field(b, t, editing, true, cx),
-            None => div().w(px(560.)).min_w_0().flex().child(origin_chip(b, cx)),
-        })
+        .child(div().w(px(560.)).min_w_0().relative().flex().child(measure(b.address.slot.clone())).child(origin_chip(b, cx)))
         .child(
             side()
                 .justify_end()
                 .gap_2()
                 .when(b.devtools_on(), |d| d.child(devtools(b, cx)))
                 .child(crate::extensions::buttons(b, cx))
-                .child(settings(cx))
+                .child(page_actions(b))
                 .children(app_menu_button(b, cx)),
         )
 }
@@ -185,22 +197,37 @@ fn address_text(site: &Site) -> (String, gpui::Rgba) {
     }
 }
 
+fn site_count(b: &Browser, site: &Site) -> Option<i64> {
+    Some(b.site_stopped(b.model.active?, site.url.as_ref()?)).filter(|n| *n > 0)
+}
+
 fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl IntoElement {
     let level = site.url.as_ref().map(|u| b.level_for(u.as_str())).unwrap_or_default();
     let overridden = site.host.as_deref().is_some_and(|h| b.has_override(h));
     let shield_color = if level == ShieldLevel::Standard { Secure::muted() } else { Secure::shield_raised() };
-    chip_frame("shield", b.site_popover.window.is_none())
+    let open = b.site_popover.window.is_some();
+    let count = site_count(b, site);
+    div()
+        .id("shield")
         .occlude()
+        .h(px(CHIP))
+        .px_1p5()
+        .flex()
+        .flex_none()
+        .items_center()
         .gap_1()
+        .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
+        .bg(if open || overridden { Secure::pressed() } else { Secure::control() })
+        .when(!open, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
+        .cursor_pointer()
         .text_size(px(TEXT_SMALL))
-        .when(overridden, |d| d.bg(Secure::pressed()))
         .text_color(shield_color)
         .relative()
         .child(measure(b.site_popover.anchor.clone()))
-        .when(b.site_popover.window.is_some(), |d| d.bg(Secure::pressed()))
-        .when(b.site_popover.window.is_none(), |d| d.tooltip(tooltip(format!("Shield: {} — Site Settings", shield_badge(level)), None)))
+        .when(!open, |d| d.tooltip(tooltip(format!("Shield: {} — Site Settings", shield_badge(level)), None)))
         .child(icon(if level == ShieldLevel::Standard { Icon::Shield } else { Icon::ShieldCheck }, 14., shield_color))
-        .when(level != ShieldLevel::Standard || overridden, |d| d.child(shield_badge(level)))
+        .when(level != ShieldLevel::Standard, |d| d.child(div().font_weight(FontWeight::MEDIUM).child(shield_badge(level))))
+        .when_some(count, |d, n| d.child(browser_core::shield_card::thousands(n.unsigned_abs())))
         .on_click(cx.listener(|b, _, window, cx| {
             cx.stop_propagation();
             b.toggle_site_settings(window, cx);
@@ -211,12 +238,12 @@ fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl In
 fn chip_frame(id: &'static str, enabled: bool) -> Stateful<Div> {
     div()
         .id(id)
-        .h(px(22.))
+        .h(px(CHIP))
         .px_1p5()
         .flex()
         .flex_none()
         .items_center()
-        .rounded(px(Theme::radius_small()))
+        .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
         .when(enabled, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())).cursor_pointer())
 }
 
@@ -266,6 +293,10 @@ fn engine_badge(b: &Browser) -> Option<Div> {
         .then(|| div().px_1p5().text_size(px(TEXT_SMALL)).text_color(Secure::muted()).child(crate::tabs::web_engine_name(engine)))
 }
 
+const FIELD: f32 = 30.;
+const CHIP_INSET: f32 = 3.;
+const CHIP: f32 = FIELD - 2. - 2. * CHIP_INSET;
+
 fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let site = site(b);
     let (text, color) = address_text(&site);
@@ -275,8 +306,8 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .group("origin")
         .w_full()
         .max_w(px(560.))
-        .h(px(30.))
-        .px_1()
+        .h(px(FIELD))
+        .px(px(CHIP_INSET))
         .flex()
         .items_center()
         .rounded(px(Theme::radius_row()))
@@ -287,13 +318,17 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .cursor_pointer()
         .hover(|s| s.bg(Secure::hover()))
         .active(|s| s.bg(Secure::pressed()))
-        .on_click(cx.listener(|b, _, window, cx| b.open_command(CommandMode::Current, window, cx)))
+        .when(b.inline_editing(), |d| d.bg(Secure::pressed()))
+        .on_click(cx.listener(|b, _, window, cx| open_address(b, window, cx)))
         .on_mouse_down(MouseButton::Right, cx.listener(|b, _, w, cx| b.address_menu(w, cx)))
         .on_scroll_wheel(cx.listener(|b, e, w, cx| b.toolbar_swipe(e, true, w, cx)))
         .relative()
         .child(measure(b.address.field.clone()))
         // Both sides share the spare room equally, so the host stays centred in the chip.
-        .child(div().flex_1().flex().child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, ICON_SMALL, Secure::faint()))))
+        .child(div().flex_1().flex().items_center().map(|d| match site.controls {
+            true => d.child(shield_button(b, &site, cx)),
+            false => d.child(div().w(px(28.)).flex().justify_center().child(icon(Icon::Search, ICON, Secure::faint()))),
+        }))
         .child(tail_first(div(), text, color))
         .child(
             div()
@@ -305,7 +340,7 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .children(reader_button(b, cx))
                 .children(mute_button(b, cx))
                 .children(engine_badge(b))
-                .when(site.controls, |d| d.child(shield_button(b, &site, cx)).child(bookmark_button(b, &site, cx))),
+                .when(site.controls, |d| d.child(bookmark_button(b, &site, cx))),
         )
 }
 
@@ -314,13 +349,11 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
     let site = site(b);
     let (text, color) = address_text(&site);
     let title = b.model.active_tab().map(|t| bounded_title(&t.title)).filter(|t| !t.is_empty() && site.controls);
-    let open = b.address_open();
     div()
         .gap(px(2.))
         .child(navigation(b, &page, cx))
-        .when_some(open, |d, (t, editing)| d.child(open_field(b, t, editing, false, cx)))
-        .when(open.is_none(), |d| {
-            d.child(
+        .child(
+            div().flex_1().min_w_0().relative().flex().child(measure(b.address.slot.clone())).child(
                 div()
                     .id("address")
                     .occlude()
@@ -337,66 +370,48 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
                     .cursor_pointer()
                     .hover(|s| s.bg(Theme::hover()))
                     .active(|s| s.bg(Theme::pressed()))
-                    .on_click(cx.listener(|b, _, window, cx| b.open_command(CommandMode::Current, window, cx)))
+                    .on_click(cx.listener(|b, _, window, cx| open_address(b, window, cx)))
                     .on_mouse_down(MouseButton::Right, cx.listener(|b, _, w, cx| b.address_menu(w, cx)))
                     .on_scroll_wheel(cx.listener(|b, e, w, cx| b.toolbar_swipe(e, true, w, cx)))
                     .relative()
                     .child(measure(b.address.field.clone()))
+                    .when(site.controls, |d| d.child(shield_button(b, &site, cx)))
                     .child(tail_first(div().flex_shrink_0().max_w_full(), text, color))
                     .when_some(title, |d, title| {
                         d.child(div().flex_none().text_color(Theme::faint()).child("—")).child(
                             div().min_w_0().max_w(px(360.)).overflow_hidden().text_ellipsis().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(title),
                         )
                     }),
-            )
-        })
-        .when(open.is_none(), |d| {
-            d.children(reader_button(b, cx))
-                .children(mute_button(b, cx))
-                .children(engine_badge(b))
-                .when(site.controls, |d| d.child(shield_button(b, &site, cx)).child(bookmark_button(b, &site, cx)))
-        })
+            ),
+        )
+        .children(reader_button(b, cx))
+        .children(mute_button(b, cx))
+        .children(engine_badge(b))
+        .when(site.controls, |d| d.child(bookmark_button(b, &site, cx)))
         .when(b.devtools_on(), |d| d.child(devtools(b, cx)))
         .child(crate::extensions::buttons(b, cx))
-        .child(settings(cx))
+        .child(page_actions(b))
         .children(app_menu_button(b, cx))
 }
 
-/// The address field opened in place, or folding back: it grows from its resting place and width
-/// over the whole slot. While editing it shows what the user types; folding back, the host again.
-fn open_field(b: &Browser, t: f32, editing: bool, centered: bool, cx: &mut Context<Browser>) -> Div {
-    let content = if editing {
-        b.command.clone().into_any_element()
-    } else {
-        let (text, color) = address_text(&site(b));
-        tail_first(div(), text, color).into_any_element()
-    };
-    let offset = b.address_offset(t);
+fn open_address(b: &mut Browser, window: &mut gpui::Window, cx: &mut Context<Browser>) {
+    if !b.inline_editing() {
+        b.open_command(CommandMode::Current, window, cx);
+    }
+}
+
+fn hidden_field(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
+    let bar = b.address.bar.get().origin;
+    let at = b.palette_field().map(|f| (f.origin.x - bar.x, f.origin.y - bar.y, f.size.width));
     div()
-        .flex_1()
-        .min_w_0()
-        .h(px(30.))
-        .relative()
-        .flex()
-        .items_center()
-        .when_some(offset, |d, x| d.pl(px(x)))
-        .when(offset.is_none() && centered, |d| d.justify_center())
-        .when(!centered, |d| d.mx_1())
-        .child(measure(b.address.slot.clone()))
-        .child(
-            field(editing)
-                .occlude()
-                .flex_none()
-                .w(px(b.address_width(t)))
-                .h(px(30.))
-                .flex()
-                .items_center()
-                .gap_2()
-                .on_key_down(cx.listener(|b, e: &KeyDownEvent, _, cx| b.suggestion_key(e, cx)))
-                .child(icon(Icon::Search, ICON_SMALL, Theme::faint()))
-                .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(content))
-                .child(measure(b.address.field.clone())),
-        )
+        .absolute()
+        .map(|d| match at {
+            Some((x, y, w)) => d.left(x).top(y).w(w).h(px(22.)).line_height(px(22.)),
+            None => d.top_0().left_0().size_0(),
+        })
+        .overflow_hidden()
+        .on_key_down(cx.listener(|b, e: &KeyDownEvent, _, cx| b.suggestion_key(e, cx)))
+        .child(b.command.clone())
 }
 
 /// Clips the host from the left, so a host wider than its box still shows its registrable domain.

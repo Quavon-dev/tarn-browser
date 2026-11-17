@@ -12,30 +12,34 @@ use gpui::{
 use shield::ShieldLevel;
 use store::Id;
 use ui::controls::field;
-use ui::controls::{POPOVER_INSET, button, caption, icon_button, open_popup, popover, segment, segmented, switch_row, tab_stop, tooltip};
+use ui::controls::{
+    POPOVER_INSET, button, caption, group, icon_button, open_popup, popover, row, segment, segmented, sliding_switch, switch_row, tab_stop, tooltip,
+};
 use ui::icon::{Icon, icon};
 use ui::motion::{REOPEN_GUARD, popover_motion};
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
-use ui::theme::{TEXT, TEXT_SMALL, Theme};
+use ui::theme::{Secure, TEXT, TEXT_HEADING, TEXT_SMALL, TEXT_TINY, Theme};
 use url::Url;
 
 use crate::address::measure;
 use crate::browser::{Browser, TabKey};
 use crate::peek::remove_after_exit;
 use crate::prefs::Pref;
-use crate::toolbar::{host_tail, shield_badge};
+use crate::toolbar::host_tail;
 use crate::{ZoomIn, ZoomOut, ZoomReset};
 
 actions!(tarn, [SiteSettings]);
 
-const WIDTH: f32 = 320.;
-const HEADER: f32 = 58.;
+const WIDTH: f32 = 340.;
+const HEADER: f32 = 60.;
+const SUMMARY: f32 = 68.;
 const ROW: f32 = 40.;
-const SECTION: f32 = 28.;
-const SHIELD: f32 = 64.;
+const SHIELD: f32 = 92.;
+const FOOTER: f32 = 40.;
 const PAD: f32 = 8.;
 const GAP: f32 = 4.;
+const POPUPS: [(PopupRule, &str); 3] = [(PopupRule::Default, "Default"), (PopupRule::Allow, "Allow"), (PopupRule::Block, "Block")];
 const DECISIONS: [(&str, &str); 3] = [("allow", "Allow"), ("ask", "Ask"), ("deny", "Deny")];
 /// Hands the profile's style sheets to its data store, which never applies them under Lockdown:
 /// the theme's first, then each host's forced dark mode and the user's own CSS, which may adjust
@@ -54,6 +58,8 @@ pub struct SitePopover {
     /// The shield button, as last painted.
     pub(crate) anchor: Rc<Cell<Bounds<Pixels>>>,
     closed: Option<Instant>,
+    more: bool,
+    draft: Option<(String, String)>,
 }
 
 /// A remembered permission for the page's origin or for a frame embedded in it.
@@ -87,11 +93,14 @@ pub fn permission_rows(stored: Vec<(String, String, String)>, page: &str) -> Vec
     rows.into_iter().map(|(_, row)| row).collect()
 }
 
-/// `zaps` counts the host's hidden elements, one row each under the CSS row.
-fn card_height(permissions: usize, routable: bool, zaps: usize) -> f32 {
-    let permissions = if permissions == 0 { 0. } else { SECTION + ROW * permissions as f32 };
-    let route = if routable { ROW } else { 0. };
-    HEADER + SHIELD + 6. * ROW + route + ROW * zaps as f32 + permissions + ROW + PAD
+fn card_height(permissions: usize, more: Option<(bool, usize)>) -> f32 {
+    let list = ROW * (4 + permissions) as f32 + 2.;
+    let more = more.map_or(0., |(routable, zaps)| GAP + ROW * (1 + usize::from(routable) + zaps) as f32);
+    HEADER + SUMMARY + SHIELD + list + more + FOOTER + PAD
+}
+
+fn setting_id(name: &'static str, scope: String) -> gpui::ElementId {
+    gpui::ElementId::NamedChild(Box::new(name.into()), SharedString::from(scope))
 }
 
 impl Browser {
@@ -223,7 +232,9 @@ impl Browser {
     pub fn route_site(&mut self, host: &str, space_id: Option<Id>, cx: &mut Context<Self>) {
         let disk = &self.core.disk;
         match space_id {
-            Some(id) if disk.set_space_rule(host, id).is_err() => return self.show_toast("Tarn could not save this rule", None, cx),
+            Some(id) if disk.set_space_rule(host, id).is_err() => {
+                return self.show_toast_as(browser_core::toast::Tone::Warning, "Tarn could not save this rule", None, cx);
+            }
             Some(_) => {}
             None => {
                 for rule in disk.space_rules().unwrap_or_default().into_iter().filter(|r| r.host_pattern == host) {
@@ -247,17 +258,29 @@ impl Browser {
             }
             // The click that took focus from the popover already closed it; it must not reopen it.
             None if self.site_popover.closed.is_some_and(|t| t.elapsed() < REOPEN_GUARD) => {}
-            None => self.show_site_settings(window, cx),
+            None => self.show_site_settings(false, window, cx),
         }
     }
 
-    /// Opens the popover under the shield button, or under the toolbar's centre when it is hidden.
-    fn show_site_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn site_stopped(&self, key: TabKey, url: &Url) -> i64 {
+        let Some(profile_id) = self.profile_of(key) else { return 0 };
+        let id = (crate::shield_card::changes(), key.private, profile_id, url.as_str().to_owned());
+        if let Some((seen, n)) = self.site_stopped_memo.borrow().as_ref()
+            && *seen == id
+        {
+            return *n;
+        }
+        let n = self.core.site_stopped(key.private, profile_id, url);
+        *self.site_stopped_memo.borrow_mut() = Some((id, n));
+        n
+    }
+
+    fn show_site_settings(&mut self, again: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(main) = window.window_handle().downcast::<Browser>() else { return };
         let Some((key, url)) = self.site() else { return };
         self.commit_rename(cx);
         let rows = self.site_permissions(key, &url).len();
-        let zaps = self.zapped(url.host_str()).len();
+        let more = self.site_popover.more.then(|| (!self.model.private(), self.zapped(url.host_str()).len()));
         let anchor = self.site_popover.anchor.get();
         let origin = window.bounds();
         let center = if anchor.size.width > px(0.) { anchor.center().x } else { origin.size.width / 2. };
@@ -267,15 +290,16 @@ impl Browser {
         let room = (origin.size.height - top - px(GAP)).max(px(200.));
         let bounds = Bounds::new(
             point(origin.origin.x + x, origin.origin.y + top),
-            size(px(WIDTH + 2. * POPOVER_INSET), px(card_height(rows, !self.model.private(), zaps) + POPOVER_INSET).min(room)),
+            size(px(WIDTH + 2. * POPOVER_INSET), px(card_height(rows, more) + POPOVER_INSET).min(room)),
         );
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
         // The new window renders from the browser at once, so it must open after this update ends.
         cx.defer(move |cx| {
             let inset = [0., POPOVER_INSET, POPOVER_INSET, POPOVER_INSET];
-            let (handle, _) =
-                open_popup(cx, bounds, display, true, inset, Theme::radius_panel(), |window, cx| SiteSettingsWindow::new(browser.clone(), main, window, cx));
+            let (handle, _) = open_popup(cx, bounds, display, true, inset, Theme::radius_panel(), |window, cx| {
+                SiteSettingsWindow::new(browser.clone(), main, again, window, cx)
+            });
             browser
                 .update(cx, |b, cx| {
                     b.site_popover.window = handle;
@@ -299,13 +323,14 @@ pub struct SiteSettingsWindow {
     css_error: Option<String>,
     /// A native menu is open; it takes activation from the card without closing it.
     holding: bool,
-    /// The "Always open in" button, as last painted, so its menu drops from it.
+    again: bool,
     route_anchor: Rc<Cell<Bounds<Pixels>>>,
+    popups_anchor: Rc<Cell<Bounds<Pixels>>>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl SiteSettingsWindow {
-    fn new(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, again: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let mut subscriptions = vec![cx.observe_window_activation(window, |this, window, cx| {
@@ -320,7 +345,11 @@ impl SiteSettingsWindow {
             })
         }));
         let host = browser.upgrade().and_then(|b| b.read(cx).site()).and_then(|(_, url)| url.host_str().map(str::to_owned));
-        let current = browser.upgrade().zip(host.as_ref()).map(|(b, host)| b.read(cx).site_css(host)).unwrap_or_default();
+        let draft = browser.upgrade().and_then(|b| b.update(cx, |b, _| b.site_popover.draft.take()));
+        let current = match draft {
+            Some((drafted, text)) if again && host.as_ref() == Some(&drafted) => text,
+            _ => browser.upgrade().zip(host.as_ref()).map(|(b, host)| b.read(cx).site_css(host)).unwrap_or_default(),
+        };
         let css = cx.new(|cx| {
             let mut input = TextInput::new("body { font-size: 18px }", cx);
             input.set_text(current, cx);
@@ -343,7 +372,9 @@ impl SiteSettingsWindow {
             css_host: host,
             css_error: None,
             holding: false,
+            again,
             route_anchor: Default::default(),
+            popups_anchor: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -409,25 +440,78 @@ impl SiteSettingsWindow {
         cx.defer(move |cx| drop(main.update(cx, f)));
     }
 
-    fn header(url: &Url, host: &str) -> impl IntoElement {
-        let secure = url.scheme() == "https";
-        let (glyph, color, text) = if secure {
-            (Icon::ShieldCheck, Theme::success(), "Connection is secure")
+    fn toggle_more(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.closing = true;
+        let draft = self.css_host.clone().map(|host| (host, self.css.read(cx).text().to_owned()));
+        window.remove_window();
+        self.on_main(cx, move |b, w, cx| {
+            b.site_popover.window = None;
+            b.site_popover.draft = draft;
+            b.site_popover.more = !b.site_popover.more;
+            b.show_site_settings(true, w, cx);
+        });
+    }
+
+    fn header(
+        &self,
+        favicon: gpui::AnyElement,
+        url: &Url,
+        host: &str,
+        (paused, pause_host): (bool, String),
+        profile: String,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let (glyph, color, text) = if url.scheme() == "https" {
+            (Icon::Lock, Secure::success(), "Connection is secure")
         } else {
-            (Icon::Shield, Theme::warning(), "Not Secure — this page is not encrypted")
+            (Icon::TriangleAlert, Secure::warning(), "Not secure — this page is not encrypted")
         };
+        let block = tab_stop(
+            div()
+                .id("block-site")
+                .flex_none()
+                .rounded_full()
+                .cursor_pointer()
+                .child(sliding_switch(setting_id("block-site-switch", format!("{profile}/{pause_host}")), !paused)),
+        )
+        .tooltip(tooltip("Block ads, trackers and cookie banners", None))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            let host = pause_host.clone();
+            this.on_main(cx, move |b, w, cx| b.set_site_paused(&host, !paused, w, cx));
+        }));
         div()
             .h(px(HEADER))
             .flex_none()
             .px_3()
             .flex()
-            .flex_col()
-            .justify_center()
-            .gap_0p5()
-            .border_b_1()
-            .border_color(Theme::hairline())
-            .child(div().font_weight(FontWeight::SEMIBOLD).overflow_hidden().whitespace_nowrap().child(SharedString::from(host.to_owned())))
-            .child(div().flex().items_center().gap_1p5().text_size(px(TEXT_SMALL)).text_color(color).child(icon(glyph, 12., color)).child(text))
+            .items_center()
+            .gap_2p5()
+            .child(favicon)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap_0p5()
+                    .child(div().font_weight(FontWeight::BOLD).overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(host.to_owned())))
+                    .child(div().flex().items_center().gap_1().text_size(px(TEXT_SMALL)).text_color(color).child(icon(glyph, 11., color)).child(text)),
+            )
+            .child(block)
+    }
+
+    fn summary(stopped: i64) -> gpui::Div {
+        let caption = if stopped == 1 { "thing Shield stopped on this site" } else { "things Shield stopped on this site" };
+        div().h(px(SUMMARY)).flex_none().px_3().pb_2().child(
+            group().h_full().px_3().justify_center().gap_0p5().child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).child(browser_core::shield_card::thousands(stopped.max(0) as u64)))
+                    .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(caption)),
+            ),
+        )
     }
 
     fn shield(&self, host: &str, site: Option<ShieldLevel>, default: ShieldLevel, cx: &mut Context<Self>) -> gpui::Div {
@@ -450,19 +534,32 @@ impl SiteSettingsWindow {
             .px_3()
             .flex()
             .flex_col()
-            .justify_center()
             .gap_1p5()
-            .child(
-                div()
-                    .text_size(px(TEXT_SMALL))
-                    .text_color(Theme::muted())
-                    .child(SharedString::from(format!("Shield for this site · profile default {}", shield_badge(default)))),
-            )
+            .child(caption("SHIELD FOR THIS SITE").text_size(px(TEXT_TINY)).font_weight(FontWeight::BOLD).text_color(Theme::faint()))
             .child(segmented().children(segments))
+            .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(browser_core::shield_card::site_level_line(site, default)))
     }
 
-    fn switch_row(id: &'static str, label: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
-        switch_row(id, true, div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label), on).h(px(ROW)).py_0().rounded_none()
+    fn item(first: bool, glyph: Icon, label: impl Into<SharedString>) -> gpui::Div {
+        row(first)
+            .h(px(ROW))
+            .flex_none()
+            .py_0()
+            .gap_2p5()
+            .child(icon(glyph, 15., Theme::muted()))
+            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label.into()))
+    }
+
+    fn switch_item(id: gpui::ElementId, glyph: Icon, label: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
+        let body = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap_2p5()
+            .child(icon(glyph, 15., Theme::muted()))
+            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label));
+        switch_row(id, false, body, on).h(px(ROW)).py_0()
     }
 
     fn row(label: impl Into<SharedString>) -> gpui::Div {
@@ -478,51 +575,55 @@ impl SiteSettingsWindow {
 
     fn zoom(&self, percent: f64, cx: &mut Context<Self>) -> gpui::Div {
         let zoom = |id: &'static str, glyph: Icon, tip: &'static str, action: &dyn gpui::Action, factor: Option<f64>| {
-            tab_stop(icon_button(id, glyph, true))
+            tab_stop(icon_button(id, glyph, true).w(px(24.)).h(px(22.)))
                 .tooltip(tooltip(tip, Some(crate::shortcuts::shown(action, cx).into())))
                 .on_click(cx.listener(move |this, _, _, cx| this.on_main(cx, move |b, _, cx| b.zoom(factor, cx))))
         };
-        Self::row("Zoom")
+        let stepper = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .rounded(px(Theme::radius_row()))
+            .bg(Theme::control())
+            .border_1()
+            .border_color(Theme::hairline())
             .child(zoom("zoom-out", Icon::ChevronLeft, "Zoom Out", &crate::ZoomOut, Some(1. / 1.1)))
-            .child(div().w(px(44.)).flex().justify_center().text_color(Theme::muted()).child(SharedString::from(format!("{percent}%"))))
-            .child(zoom("zoom-in", Icon::ChevronRight, "Zoom In", &crate::ZoomIn, Some(1.1)))
+            .child(div().w(px(44.)).flex().justify_center().text_size(px(TEXT_SMALL)).child(SharedString::from(format!("{percent}%"))))
+            .child(zoom("zoom-in", Icon::ChevronRight, "Zoom In", &crate::ZoomIn, Some(1.1)));
+        Self::item(false, Icon::ZoomIn, "Zoom")
+            .child(stepper)
             .child(tab_stop(button("zoom-reset", "Reset", false)).on_click(cx.listener(|this, _, _, cx| this.on_main(cx, |b, _, cx| b.zoom(None, cx)))))
     }
 
-    fn popups(&self, origin: &str, rule: PopupRule, cx: &mut Context<Self>) -> gpui::Div {
-        let choices = [(PopupRule::Default, "Default"), (PopupRule::Allow, "Allow"), (PopupRule::Block, "Block")];
-        let segments = choices.into_iter().enumerate().map(|(ix, (choice, text))| {
-            let origin = origin.to_owned();
-            tab_stop(segment(("popups", ix), text, rule == choice)).on_click(cx.listener(move |this, _, _, cx| {
-                this.browser.update(cx, |b, cx| b.set_site_popups(&origin, choice, cx)).ok();
-            }))
-        });
-        Self::row("Pop-ups").child(segmented().children(segments))
-    }
-
-    fn route(&self, host: &str, spaces: Vec<(Id, String)>, current: Option<Id>, cx: &mut Context<Self>) -> gpui::Div {
-        let shown = current.and_then(|id| spaces.iter().find(|(s, _)| *s == id)).map_or("Any Space".to_owned(), |(_, name)| name.clone());
-        let host = host.to_owned();
-        let anchor = self.route_anchor.clone();
-        Self::row("Always open in").child(tab_stop(button("route-site", shown, false)).child(measure(anchor.clone())).on_click(cx.listener(
+    fn select<T: Copy + PartialEq + 'static>(
+        &self,
+        id: &'static str,
+        choices: Vec<(T, String)>,
+        current: T,
+        anchor: Rc<Cell<Bounds<Pixels>>>,
+        chosen: impl Fn(&mut Self, T, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let shown = choices.iter().find(|(c, _)| *c == current).map(|(_, text)| text.clone()).unwrap_or_default();
+        let chosen = Rc::new(chosen);
+        tab_stop(button(id, shown, false)).child(icon(Icon::ChevronsUpDown, 12., Theme::muted())).child(measure(anchor.clone())).on_click(cx.listener(
             move |this, _, window, cx| {
                 let Some(menu_host) = engine::Host::from_window(window) else { return };
                 let at = anchor.get();
                 let at = (at.size.width > px(0.)).then(|| (f32::from(at.origin.x).into(), f32::from(at.bottom()).into()));
-                let mut items = vec![Item::action("Any Space", None).checked(current.is_none())];
-                items.extend(spaces.iter().map(|(id, name)| Item::action(name.clone(), Some(*id)).checked(current == Some(*id))));
-                let host = host.clone();
+                let items = choices.iter().map(|(value, text)| Item::action(text.clone(), *value).checked(*value == current)).collect();
+                let chosen = chosen.clone();
                 this.holding = true;
                 cx.spawn_in(window, async move |this, cx| {
                     let (tx, rx) = oneshot::channel();
-                    menu::show(&menu_host, items, at, move |space| {
-                        tx.send(space).ok();
+                    menu::show(&menu_host, items, at, move |value| {
+                        tx.send(value).ok();
                     });
-                    let chosen = rx.await.ok();
+                    let value = rx.await.ok();
                     this.update_in(cx, |this, window, cx| {
                         this.holding = false;
-                        if let Some(space) = chosen {
-                            this.browser.update(cx, |b, cx| b.route_site(&host, space, cx)).ok();
+                        if let Some(value) = value {
+                            chosen(this, value, cx);
                         }
                         if !window.is_window_active() {
                             this.close(false, window, cx);
@@ -532,7 +633,40 @@ impl SiteSettingsWindow {
                 })
                 .detach();
             },
-        )))
+        ))
+    }
+
+    fn popups(&self, origin: &str, rule: PopupRule, cx: &mut Context<Self>) -> gpui::Div {
+        let origin = origin.to_owned();
+        let choices = POPUPS.iter().map(|(rule, text)| (*rule, (*text).to_owned())).collect();
+        let select = self.select(
+            "popups",
+            choices,
+            rule,
+            self.popups_anchor.clone(),
+            move |this, choice, cx| {
+                this.browser.update(cx, |b, cx| b.set_site_popups(&origin, choice, cx)).ok();
+            },
+            cx,
+        );
+        Self::item(true, Icon::AppWindow, "Pop-ups").child(select)
+    }
+
+    fn route(&self, host: &str, spaces: Vec<(Id, String)>, current: Option<Id>, cx: &mut Context<Self>) -> gpui::Div {
+        let host = host.to_owned();
+        let mut choices = vec![(None, "Any Space".to_owned())];
+        choices.extend(spaces.into_iter().map(|(id, name)| (Some(id), name)));
+        let select = self.select(
+            "route-site",
+            choices,
+            current,
+            self.route_anchor.clone(),
+            move |this, space, cx| {
+                this.browser.update(cx, |b, cx| b.route_site(&host, space, cx)).ok();
+            },
+            cx,
+        );
+        Self::row("Always open in").child(select)
     }
 
     fn permission(&self, key: TabKey, ix: usize, row: &PermissionRow, cx: &mut Context<Self>) -> gpui::Div {
@@ -543,13 +677,44 @@ impl SiteSettingsWindow {
             }))
         });
         let (origin, kind) = (row.origin.clone(), row.kind.clone());
-        Self::row(row.label.clone()).child(segmented().children(segments)).child(
+        let glyph = Icon::named(browser_core::glyphs::glyph(&row.kind)).unwrap_or(Icon::Info);
+        Self::item(false, glyph, row.label.clone()).child(segmented().children(segments)).child(
             tab_stop(icon_button(("permission-remove", ix), Icon::Close, true)).tooltip(tooltip("Remove", None)).on_click(cx.listener(
                 move |this, _, _, cx| {
                     this.browser.update(cx, |b, cx| b.set_site_permission(key, &origin, &kind, None, cx)).ok();
                 },
             )),
         )
+    }
+
+    fn footer(&self, more: bool, armed: bool, key: TabKey, host: String, cx: &mut Context<Self>) -> gpui::Div {
+        let link = |id: &'static str, text: &'static str, color| {
+            tab_stop(div().id(id).flex().items_center().gap_1().px_1().rounded(px(Theme::radius_small())).cursor_pointer().text_color(color))
+                .hover(|s| s.opacity(0.8))
+                .child(text)
+        };
+        div()
+            .h(px(FOOTER))
+            .flex_none()
+            .px_3()
+            .flex()
+            .items_center()
+            .justify_between()
+            .text_size(px(TEXT_SMALL))
+            .child(
+                link("more-site", "More site settings", Theme::accent())
+                    .child(icon(if more { Icon::ChevronDown } else { Icon::ChevronRight }, 12., Theme::accent()))
+                    .on_click(cx.listener(|this, _, window, cx| this.toggle_more(window, cx))),
+            )
+            .child(link("clear-site", if armed { "Click again to clear" } else { "Clear site data…" }, Secure::danger()).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    if crate::settings::confirm_twice(&mut this.armed, host.clone()) {
+                        let host = host.clone();
+                        this.browser.update(cx, |b, cx| b.clear_site(key, host, cx)).ok();
+                    }
+                    cx.notify();
+                },
+            )))
     }
 }
 
@@ -572,12 +737,15 @@ impl Render for SiteSettingsWindow {
         let default = b.current_profile().map(|p| p.shield_level).unwrap_or_default();
         let percent = b.active_view().map_or(100., |v| (v.zoom() * 100.).round());
         let storable = host.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'-'));
-        let route = (!b.model.private() && storable).then(|| b.route_choices(host.trim_end_matches('.')));
-        let zapped = b.zapped(Some(&host));
+        let more = b.site_popover.more;
+        let route = (more && !b.model.private() && storable).then(|| b.route_choices(host.trim_end_matches('.')));
+        let zapped = if more { b.zapped(Some(&host)) } else { Vec::new() };
+        let stopped = b.site_stopped(key, &url);
+        let favicon = crate::sidebar::site_icon(b, url.as_str(), 28.);
+        let profile = format!("{}/{:?}", key.private, b.profile_of(key));
+        let header = self.header(favicon, &url, &shown, (paused, pause_host), profile.clone(), cx);
         let permission_rows: Vec<_> = permissions.iter().enumerate().map(|(ix, row)| self.permission(key, ix, row, cx)).collect();
         let armed = self.armed.as_deref() == Some(host.as_str());
-        let clear_host = host.clone();
-        let css_row = self.css_row(window, cx);
         let zap_rows: Vec<_> = zapped
             .into_iter()
             .enumerate()
@@ -589,6 +757,22 @@ impl Render for SiteSettingsWindow {
             .collect();
         let dark_host = host.clone();
         let typing = self.css.focus_handle(cx).is_focused(window);
+        let list = group()
+            .flex_none()
+            .child(self.popups(&origin, popups, cx))
+            .child(Self::switch_item(setting_id("mute-site", format!("{profile}/{}", key.id)), Icon::VolumeX, "Mute this site", muted).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.browser.update(cx, |b, cx| b.toggle_site_muted(key, cx)).ok();
+                },
+            )))
+            .child(Self::switch_item(setting_id("dark-site", format!("{profile}/{host}")), Icon::Moon, "Dark mode for this site", dark).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    let host = dark_host.clone();
+                    this.on_main(cx, move |b, w, cx| b.set_site_dark(&host, !dark, w, cx));
+                },
+            )))
+            .child(self.zoom(percent, cx))
+            .children(permission_rows);
         let rows = div()
             .id("site-rows")
             .flex_1()
@@ -596,41 +780,18 @@ impl Render for SiteSettingsWindow {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .pb(px(PAD))
+            .child(Self::summary(stopped))
             .child(self.shield(&host, site_level, default, cx))
-            .child(self.zoom(percent, cx))
-            .child(Self::switch_row("mute-site", "Mute this site", muted).on_click(cx.listener(move |this, _, _, cx| {
-                this.browser.update(cx, |b, cx| b.toggle_site_muted(key, cx)).ok();
-            })))
-            .child(Self::switch_row("block-site", "Block ads, trackers and cookie banners", !paused).on_click(cx.listener(move |this, _, _, cx| {
-                let host = pause_host.clone();
-                this.on_main(cx, move |b, w, cx| b.set_site_paused(&host, !paused, w, cx));
-            })))
-            .child(self.popups(&origin, popups, cx))
-            .child(Self::switch_row("dark-site", "Dark mode for this site", dark).on_click(cx.listener(move |this, _, _, cx| {
-                let host = dark_host.clone();
-                this.on_main(cx, move |b, w, cx| b.set_site_dark(&host, !dark, w, cx));
-            })))
-            .child(css_row)
-            .children(zap_rows)
-            .when_some(route, |d, (spaces, current)| d.child(self.route(host.trim_end_matches('.'), spaces, current, cx)))
-            .when(!permissions.is_empty(), |d| d.child(caption("Permissions").h(px(SECTION)).flex_none().px_3().pt_2()).children(permission_rows))
-            .child(
-                Self::row(if armed { "Removes cookies, storage and caches" } else { "Stored data" })
-                    .text_color(if armed { Theme::warning() } else { Theme::text() })
-                    .child(tab_stop(button("clear-site", if armed { "Clear Now" } else { "Clear Site Data…" }, armed)).on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            if crate::settings::confirm_twice(&mut this.armed, clear_host.clone()) {
-                                let host = clear_host.clone();
-                                this.browser.update(cx, |b, cx| b.clear_site(key, host, cx)).ok();
-                            }
-                            cx.notify();
-                        },
-                    ))),
-            );
-        let card = popover(Theme::radius_panel(), 0.).flex().flex_col().child(Self::header(&url, &shown)).child(rows);
+            .child(div().px_3().child(list))
+            .when(more, |d| {
+                d.child(div().h(px(GAP)).flex_none())
+                    .child(self.css_row(window, cx))
+                    .children(zap_rows)
+                    .when_some(route, |d, (spaces, current)| d.child(self.route(host.trim_end_matches('.'), spaces, current, cx)))
+            });
+        let card = popover(Theme::radius_panel(), 0.).flex().flex_col().child(header).child(rows).child(self.footer(more, armed, key, host.clone(), cx));
         let content = div().relative().size_full().text_size(px(TEXT)).text_color(Theme::text()).child(card);
-        let content = popover_motion(content, "site", self.closing, reduce);
+        let content = popover_motion(content, "site", self.closing, reduce || (self.again && !self.closing));
         div()
             .track_focus(&self.focus)
             .key_context("SiteSettings")
@@ -679,10 +840,10 @@ mod tests {
     }
 
     #[test]
-    fn the_card_grows_with_its_permissions() {
-        assert_eq!(card_height(1, false, 0) - card_height(0, false, 0), SECTION + ROW);
-        assert_eq!(card_height(3, false, 0) - card_height(1, false, 0), 2. * ROW);
-        assert_eq!(card_height(0, true, 0) - card_height(0, false, 0), ROW);
-        assert_eq!(card_height(0, false, 2) - card_height(0, false, 0), 2. * ROW);
+    fn the_card_grows_with_its_permissions_and_more_settings() {
+        assert_eq!(card_height(3, None) - card_height(1, None), 2. * ROW);
+        assert_eq!(card_height(0, Some((false, 0))) - card_height(0, None), GAP + ROW);
+        assert_eq!(card_height(0, Some((true, 0))) - card_height(0, Some((false, 0))), ROW);
+        assert_eq!(card_height(0, Some((false, 2))) - card_height(0, Some((false, 0))), 2. * ROW);
     }
 }

@@ -1,4 +1,5 @@
 pub mod extensions;
+pub mod icons;
 pub mod pages;
 mod site;
 pub mod spaces;
@@ -78,6 +79,7 @@ pub enum ToastAction {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Toast {
     pub text: String,
+    pub tone: browser_core::toast::Tone,
     pub action: Option<ToastAction>,
     pub serial: u64,
 }
@@ -108,6 +110,7 @@ pub struct Browser {
     pub download_owners: HashMap<String, Option<Id>>,
     pub cancelled_downloads: Vec<String>,
     pub text_found: suggest::TextMatches,
+    pub favicons: engine::favicon::Tracker<icons::Profile, std::sync::Arc<str>>,
     pub elsewhere: HashSet<TabKey>,
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
@@ -172,6 +175,7 @@ impl Browser {
             download_owners: HashMap::new(),
             cancelled_downloads: Vec::new(),
             text_found: Default::default(),
+            favicons: Default::default(),
             elsewhere,
             forgotten: Vec::new(),
             themes,
@@ -253,8 +257,12 @@ impl Browser {
     }
 
     pub fn show_toast(&mut self, text: impl Into<String>, action: Option<ToastAction>) {
+        self.show_toast_as(browser_core::toast::Tone::Info, text, action);
+    }
+
+    pub fn show_toast_as(&mut self, tone: browser_core::toast::Tone, text: impl Into<String>, action: Option<ToastAction>) {
         self.toast_serial += 1;
-        self.toast = Some(Toast { text: text.into(), action, serial: self.toast_serial });
+        self.toast = Some(Toast { text: text.into(), tone, action, serial: self.toast_serial });
     }
 
     pub fn expire_toast(&mut self, serial: u64) {
@@ -409,6 +417,7 @@ impl Browser {
         self.counted.remove(&key);
         self.processes.remove(&key);
         self.used.remove(&key);
+        self.withdraw_icons(|k| k == key);
         if self.reader.as_ref().is_some_and(|r| r.key == key) {
             self.close_reader();
         }
@@ -672,6 +681,7 @@ impl Browser {
     pub fn clear_history(&mut self) {
         if let Some((private, id)) = self.profile_of_space() {
             self.core.store(private).clear_history(id).ok();
+            self.favicons.forget(&(private, id));
         }
         self.text_found.clear();
     }
@@ -765,6 +775,7 @@ impl Browser {
                 }
             }
             "article" | "pageText" | "textFound" | "picked" => self.on_script_event(key, name, data),
+            "iconLinks" => self.on_icon_event(key, data, None),
             "shielded" => self.on_shielded(key, data),
             "process" => {
                 if let Some(pid) = data["pid"].as_i64().and_then(|p| i32::try_from(p).ok()) {

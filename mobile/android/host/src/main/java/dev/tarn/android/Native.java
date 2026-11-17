@@ -78,6 +78,10 @@ final class Native {
 
     static native String pageTextScript(String page, int maxChars);
 
+    static native String iconLinksScript(String page);
+
+    static native String fetchIconScript(String page, String[] urls);
+
     static native String picker();
 
     static native String findTextScript(String page);

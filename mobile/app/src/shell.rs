@@ -106,6 +106,8 @@ pub struct SpaceItem {
     pub burner: bool,
 }
 
+pub(crate) type IconAsk = ((bool, Id), String);
+
 pub struct Shell<D: Platform> {
     pub core: Core<D>,
     pub model: Model,
@@ -117,6 +119,8 @@ pub struct Shell<D: Platform> {
     pub external: Option<(TabKey, String)>,
     pub external_origin: String,
     pub notice: Option<String>,
+    /// The tone of the notice with this text; any other notice reads as information.
+    pub tone: Option<(String, browser_core::toast::Tone)>,
     pub open_offer: Option<(TabKey, String, String)>,
     pub found: Option<u64>,
     pub undo: Option<(String, u64)>,
@@ -126,6 +130,7 @@ pub struct Shell<D: Platform> {
     pub picking: Option<(TabKey, u64)>,
     pub switched_at: Option<i64>,
     pub(crate) scripts: HashMap<u64, (TabKey, crate::scripts::Script)>,
+    pub(crate) icon_asks: HashMap<TabKey, HashMap<IconAsk, engine::favicon::Ticket>>,
     pub(crate) shielded: HashMap<TabKey, HashSet<String>>,
     pub(crate) burner_from: Option<(bool, Id)>,
     loads: HashMap<TabKey, Load>,
@@ -134,6 +139,7 @@ pub struct Shell<D: Platform> {
     pub(crate) seq: u64,
     pub themes: crate::themes::Themes,
     pub ext: crate::extensions::Runtime,
+    pub icons: engine::favicon::Tracker<(bool, Id), String>,
 }
 
 fn downloads_sink() -> Rc<dyn Fn(engine::Event)> {
@@ -161,6 +167,7 @@ impl<D: Platform> Shell<D> {
             external: None,
             external_origin: String::new(),
             notice: None,
+            tone: None,
             open_offer: None,
             found: None,
             undo: None,
@@ -170,6 +177,7 @@ impl<D: Platform> Shell<D> {
             picking: None,
             switched_at: None,
             scripts: HashMap::new(),
+            icon_asks: HashMap::new(),
             shielded: HashMap::new(),
             burner_from: None,
             loads: HashMap::new(),
@@ -178,12 +186,13 @@ impl<D: Platform> Shell<D> {
             seq: 0,
             themes,
             ext: crate::extensions::Runtime::default(),
+            icons: engine::favicon::Tracker::default(),
         };
         shell.ext.root = dir.join("Extensions");
         shell.switch_space(ix);
         shell.apply_theme();
         if shell.model.current_space().is_none() {
-            shell.notice = Some("The private space could not be opened.".into());
+            shell.toast_as(browser_core::toast::Tone::Warning, "The private space could not be opened.".into());
         }
         shell
     }
@@ -458,6 +467,7 @@ impl<D: Platform> Shell<D> {
     }
 
     fn unmount(&mut self, key: TabKey) {
+        self.drop_scripts(key);
         self.extension_tab_gone(key, false);
         self.model.lifecycle.remove(key);
         self.pages.remove(&key);
@@ -528,6 +538,9 @@ impl<D: Platform> Shell<D> {
             self.unmount(key);
         }
         self.open_current_profile();
+        if let Some(profile) = self.model.profile() {
+            self.load_icons(profile);
+        }
         self.ensure_extensions();
         match self.model.pick(|_| false) {
             Some(key) => self.activate(key),
@@ -563,7 +576,7 @@ impl<D: Platform> Shell<D> {
     pub fn enter_private(&mut self) {
         if let Some(started) = D::open_private_space() {
             if !started {
-                self.notice = Some("The private space could not be opened.".into());
+                self.toast_as(browser_core::toast::Tone::Warning, "The private space could not be opened.".into());
             }
             return;
         }
@@ -575,7 +588,7 @@ impl<D: Platform> Shell<D> {
     pub fn close_private(&mut self) {
         if let Some(closed) = D::close_private_space() {
             if !closed {
-                self.notice = Some("The private space could not be closed.".into());
+                self.toast_as(browser_core::toast::Tone::Warning, "The private space could not be closed.".into());
             }
             return;
         }
@@ -593,9 +606,9 @@ impl<D: Platform> Shell<D> {
         }
         // Private tab ids start again in the next session, so no private pane may outlive this one.
         self.splits.retain(|k| !k.private);
-        let memory = self.core.store(true);
         for (_, profile_id) in &private {
-            memory.delete_profile(*profile_id).ok();
+            self.core.store(true).delete_profile(*profile_id).ok();
+            self.forget_icons((true, *profile_id));
             self.core.profiles.borrow_mut().remove(&(true, *profile_id));
             self.model.closed_tabs.clear_profile(true, *profile_id);
         }
@@ -685,6 +698,7 @@ impl<D: Platform> Shell<D> {
         store.clear_history(id).ok();
         store.clear_downloads(id).ok();
         self.model.closed_tabs.clear_profile(private, id);
+        self.forget_icons((private, id));
         let before = self.store_id(private, id);
         if let Some(rt) = self.core.profiles.borrow_mut().remove(&(private, id)) {
             D::wipe_persistent(&rt.own_store);
@@ -706,6 +720,12 @@ impl<D: Platform> Shell<D> {
 
     pub fn downloads(&self) -> Vec<Download> {
         self.profile_id().and_then(|id| self.store().downloads(id).ok()).unwrap_or_default()
+    }
+
+    pub fn clear_downloads(&mut self) {
+        if let Some(id) = self.profile_id() {
+            self.store().clear_downloads(id).ok();
+        }
     }
 
     /// For an address field edited from `typed` to `value` (`suggest::edit`): the history rows

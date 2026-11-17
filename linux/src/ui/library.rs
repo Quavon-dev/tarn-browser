@@ -132,7 +132,7 @@ pub fn memory_panel(ui: Ui) -> AnyElement {
                 .gap(px(10.))
                 .h(px(44.))
                 .px_2()
-                .child(site_tile(&host, 16.))
+                .child(site_tile(ui, &host, 16.))
                 .child(view().flex_col().flex_1().child(label(name).truncate()).child(small(detail)))
                 .children(sleepable.then(|| pill("Sleep Tab", move || act(ui, |b| b.sleep_tab(key)))))
                 .into_element()
@@ -154,7 +154,7 @@ pub fn reading_list_panel(ui: Ui) -> AnyElement {
             let host = url::Url::parse(&url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
             let open = url.clone();
             let name = if b.title.is_empty() { url.clone() } else { b.title.clone() };
-            super::panels::library_row(Some(SharedString::from(b.title.clone())), &host, name, move || {
+            super::panels::library_row(ui, Some(SharedString::from(b.title.clone())), &host, name, move || {
                 ui.panel.set(Panel::None);
                 let url = open.clone();
                 act(ui, move |br| {
@@ -169,7 +169,16 @@ pub fn reading_list_panel(ui: Ui) -> AnyElement {
     let count = items.len();
     let empty = items.is_empty().then(|| note("Nothing saved yet. Save for Later files the page here."));
     popover()
-        .child(super::panels::heading(ui, super::panels::counted("Reading List", count)))
+        .child(super::panels::heading(
+            ui,
+            view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .flex_1()
+                .child(super::panels::counted("Reading List", count))
+                .child(pill("History", move || super::show(ui, Panel::History))),
+        ))
         .children(empty)
         .child(view().flex_col().gap(px(2.)).children(items))
         .into_element()

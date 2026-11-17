@@ -81,7 +81,7 @@ pub(super) fn buttons(ui: Ui) -> AnyElement {
                 .hover(|s| s.bg(Theme::hover()))
                 .child(match &button.icon {
                     Some(path) => image(path.clone()).w(px(16.)).h(px(16.)).into_element(),
-                    None => super::site_tile(&letter.to_lowercase(), 16.).into_element(),
+                    None => tarn_nsh_shared::controls::site_tile(None, &letter.to_lowercase(), 16.).into_element(),
                 })
                 .children(badge)
                 .into_element()

@@ -73,9 +73,9 @@ pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>
     }
 }
 
-/// An image beside a menu entry: a PNG such as a site icon, an SF Symbol, or a dot in an RGB colour.
 pub enum Image {
     Png(Vec<u8>),
+    Template(Vec<u8>),
     Symbol(&'static str),
     Dot(u32),
 }
@@ -137,6 +137,11 @@ fn image(image: &Image) -> Option<Retained<NSImage>> {
     let symbol = |name| NSImage::imageWithSystemSymbolName_accessibilityDescription(&NSString::from_str(name), None);
     let (image, side) = match image {
         Image::Png(bytes) => (NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(bytes))?, 16.),
+        Image::Template(bytes) => {
+            let glyph = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(bytes))?;
+            glyph.setTemplate(true);
+            (glyph, 16.)
+        }
         Image::Symbol(name) => (symbol(name)?, 16.),
         Image::Dot(rgb) => {
             let channel = |shift: u32| f64::from((rgb >> shift) & 0xff) / 255.;

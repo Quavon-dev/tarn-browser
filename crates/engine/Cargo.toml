@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 shield.workspace = true
+base64 = "=0.22.1"
+image = { version = "=0.25.10", default-features = false, features = ["png", "ico", "jpeg", "gif", "webp"] }
 psl = "=2.1.252"
 qrcode = { version = "=0.14.1", default-features = false }
 regex = "=1.13.1"

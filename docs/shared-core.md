@@ -18,7 +18,10 @@ Every shell's web view offers the same operations and reports the same events. T
 - frame, visibility, focus and raise: on NSH, layout and focus come from the shell;
 - `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted`;
 - `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`;
-- isolated-world reads for the shell: `icon_links`, `fetch_icon`, `json_text`;
+- isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
+  and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
+  has no isolated world and runs those scripts in the page world, so a shell must not send it
+  `readIconLinks` or `fetchIcon`, and Android shows letter tiles (`docs/mobile-plan.md`);
 - `interaction_state` and `restore_interaction_state`, where the engine has them;
 - `filtered`: whether the view applies Shield's rules.
 
@@ -143,8 +146,9 @@ when it moved into Lockdown.
 Logic without UI belongs in a shared crate, not in `crates/app`:
 - `store` for data;
 - `shield` for blocking;
-- `engine` for platform-neutral engine logic: `nav_policy`, download names, `cookies` and
-  `content_rules`.
+- `engine` for platform-neutral engine logic: `nav_policy`, download names, `cookies`,
+  `content_rules` and site icons (`favicon`: which URLs to try, decoding, and `favicon::Tracker`, the
+  NSH shells' icons in memory with their fetch, retry and refresh bookkeeping).
 
 Page scripts the shell runs in the web view's isolated world (Find in Tabs, page text, icons, the
 element picker, per-site styles and forced dark mode) are in `engine::page_scripts`, the reader's in

@@ -12,7 +12,7 @@ use nsh_core::picker::FilePickRequest;
 use nsh_core::prelude::*;
 use store::{Id, Store};
 
-use crate::controls::{Segment, accent_pill, group, label, pill, section, secure_button, segmented, switch_row};
+use crate::controls::{Segment, accent_pill, caps_label, group, label, pill, section, secure_button, segmented, switch_row};
 use crate::theme::{SYSTEM_FONT, Secure, TEXT_SMALL, Theme};
 
 pub trait Host: Copy + 'static {
@@ -547,7 +547,7 @@ fn body<H: Host>(pane: Pane<H>) -> View {
     let system = if host.desktop() { "the desktop" } else { "the system" };
     let mut page = view()
         .flex_col()
-        .child(section("Theme"))
+        .child(view().pt_3().pb_2().child(caps_label("Theme")))
         .child(group().child(switch_row(
             "Match system appearance",
             move || match_system,
@@ -559,8 +559,7 @@ fn body<H: Host>(pane: Pane<H>) -> View {
             "Choose a light theme to use it in light mode, a dark one for dark mode."
         } else {
             "Choose a theme to use it."
-        })))
-        .child(view().pt_3().child(group().child(effect_row(pane))));
+        })));
     if let Some((profile, name)) = host.profile() {
         let on = host.with_store(|s| library::pages_on(s, profile));
         page = page.child(view().pt_3().child(group().child(switch_row(
@@ -573,6 +572,7 @@ fn body<H: Host>(pane: Pane<H>) -> View {
             library::shown(&name)
         ))));
     }
+    page = page.child(view().pt_4().pb_2().child(caps_label("Motion"))).child(group().child(effect_row(pane)));
     if host.safe() {
         let how = if host.desktop() { "Shift was held" } else { "safe mode was on" };
         page = page.child(view().pt_2().child(note(format!("Safe mode: Tarn started with its own theme because {how}. Quit and reopen to use yours."), true)));

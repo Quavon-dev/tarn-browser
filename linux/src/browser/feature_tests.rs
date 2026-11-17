@@ -60,10 +60,12 @@ fn a_burned_tab_keeps_its_download_running_and_records_nothing() {
     b.open_burner();
     let key = b.model.active.unwrap();
     let burner_profile = b.model.profile().unwrap().1;
+    b.favicons.load(&(true, burner_profile), || (vec![("a.test".to_owned(), std::sync::Arc::from("icon"))], Vec::new()));
     b.on_download(key, &json!({ "id": "9", "state": "started", "name": "a.zip", "path": "/d/a.zip" }), true);
     b.close_tab(key);
     assert!(!b.model.burner_shown());
     assert_eq!(b.released.len(), 1);
+    assert!(b.favicons.icons(&(true, burner_profile)).next().is_none(), "burning forgets the burner's icons");
     b.on_download(key, &json!({ "id": "9", "state": "finished", "name": "a.zip", "path": "/d/a.zip", "url": "https://d.test/a.zip" }), true);
     assert_eq!(b.downloads[0].state, "finished");
     assert!(b.core.store(true).downloads(burner_profile).unwrap().is_empty());
@@ -299,6 +301,7 @@ fn clean_links_drop_tracking_parameters_and_pages_go_to_the_reading_list() {
     visit(&mut b, key, "https://shop.test/item?id=4&utm_source=x&utm_medium=y");
     assert_eq!(b.copy_link(true).as_deref(), Some("https://shop.test/item?id=4"));
     assert_eq!(b.toast.as_ref().unwrap().text, "Link copied, 2 tracking parameters removed");
+    assert_eq!(b.toast.as_ref().unwrap().tone, browser_core::toast::Tone::Success);
     let profile = b.model.profile().unwrap().1;
     assert_eq!(b.core.disk.shield_stats(profile).unwrap().tracking_params, 2);
     assert!(b.qr_code().is_some_and(|(code, host)| !code.is_empty() && host == "shop.test"));
@@ -423,4 +426,65 @@ fn a_typed_search_forgets_the_last_count_and_a_step_keeps_it() {
     assert_eq!(b.pages[&key].found, Some(0));
     b.find_typed("xy");
     assert_eq!(b.pages[&key].found, None);
+}
+
+#[test]
+fn site_icons_load_at_start_fetch_inside_the_tab_and_go_with_history() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    let profile = b.model.profile().unwrap().1;
+    b.core.disk.set_favicon(profile, "b.test", b"png").unwrap();
+    let icons = b.site_icons(&Default::default()).unwrap();
+    assert_eq!(icons.find("www.b.test").as_deref(), Some(engine::favicon::data_uri(b"png").as_str()));
+    assert!(b.site_icons(&icons).is_none(), "unchanged");
+    visit(&mut b, key, "https://b.test/");
+    assert!(asked(&b, "readIconLinks").is_empty(), "a fresh stored icon is not fetched again");
+    visit(&mut b, key, "http://a.test/");
+    assert!(asked(&b, "readIconLinks").is_empty(), "only https");
+    for _ in 0..engine::favicon::MAX_TRIES {
+        b.outbox.clear();
+        visit(&mut b, key, "https://a.test/x");
+        let seq = asked(&b, "readIconLinks")[0]["seq"].as_u64().unwrap();
+        b.on_event(key, "iconLinks", &json!({ "seq": seq, "url": "https://a.test/x", "text": "https://a.test/i.png\t32x32\nhttps://evil.test/p.png\t64x64" }));
+        let fetch = asked(&b, "fetchIcon");
+        assert_eq!(fetch[0]["urls"], json!(["https://a.test/i.png", "https://a.test/favicon.ico"]));
+        assert_eq!(fetch[0]["page"], "https://a.test/x");
+        b.on_icon_event(
+            key,
+            &json!({ "seq": fetch[0]["seq"], "url": "https://a.test/x", "text": "bm90IGFuIGltYWdl" }),
+            engine::favicon::normalize("bm90IGFuIGltYWdl"),
+        );
+    }
+    b.outbox.clear();
+    visit(&mut b, key, "https://a.test/x");
+    assert!(asked(&b, "readIconLinks").is_empty(), "gives up after MAX_TRIES failed fetches");
+    assert!(b.core.disk.favicons(profile).unwrap().iter().all(|(h, _)| h == "b.test"));
+    b.clear_history();
+    let cleared = b.site_icons(&icons).unwrap();
+    assert!(cleared.find("b.test").is_none());
+    b.outbox.clear();
+    visit(&mut b, key, "https://a.test/x");
+    assert_eq!(asked(&b, "readIconLinks").len(), 1, "a history clear starts over");
+    b.close_tab(key);
+    let next = b.new_tab("https://a.test/x").unwrap();
+    b.outbox.clear();
+    visit(&mut b, next, "https://a.test/x");
+    assert_eq!(asked(&b, "readIconLinks").len(), 1, "a closed tab's unanswered request does not hold the host");
+}
+
+#[test]
+fn a_burner_tab_neither_fetches_nor_keeps_site_icons() {
+    let (_dir, mut b) = browser();
+    b.open_burner();
+    let key = b.model.active.unwrap();
+    let profile = (true, b.model.profile().unwrap().1);
+    b.outbox.clear();
+    visit(&mut b, key, "https://a.test/x");
+    assert!(asked(&b, "readIconLinks").is_empty(), "a burner tab asks for no icons");
+    let ticket = b.favicons.request(&profile, "a.test").unwrap();
+    b.requests.insert(900, crate::browser::pages::Request::IconData(key, profile, "a.test".to_owned(), ticket));
+    b.on_icon_event(key, &json!({ "seq": 900, "url": "https://a.test/x" }), Some(b"png".to_vec()));
+    assert!(b.favicons.icons(&profile).next().is_none(), "a burner answer never enters memory");
+    assert!(!b.favicons.is_requested(&profile, "a.test", ticket));
+    assert!(b.site_icons(&Default::default()).is_none_or(|icons| icons.find("a.test").is_none()));
 }
