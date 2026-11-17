@@ -934,7 +934,7 @@ fn adult_sites_have_no_way_past_and_go_back_keeps_the_page() {
     assert!(blocked_page(&b).is_none());
     assert_eq!(b.pages[&key].url, "https://news.test/");
     b.on_event(key, "blocked", &json!({ "url": "https://adult.test/", "reason": "listed", "category": "adult" }));
-    b.navigate("https://other.test/");
+    b.navigate_in("https://other.test/", false);
     assert!(blocked_page(&b).is_none(), "a new load leaves the warning page");
     b.on_event(key, "blocked", &json!({ "url": "https://ads.test/", "reason": "listed", "category": "popups" }));
     assert!(blocked_page(&b).is_none());
@@ -945,7 +945,7 @@ fn adult_sites_have_no_way_past_and_go_back_keeps_the_page() {
 fn pausing_a_site_drops_its_ad_rules_and_the_privacy_list_turns_it_on_again() {
     let (_dir, mut b) = browser();
     let key = b.model.active.unwrap();
-    b.navigate("https://news.test/");
+    b.navigate_in("https://news.test/", false);
     visit(&mut b, key, "https://news.test/");
     let view = |b: &Browser| crate::snapshot::views(b, true).into_iter().find(|v| v.key == key).unwrap();
     assert!(view(&b).filtered);

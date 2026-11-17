@@ -283,9 +283,8 @@ fn a_download_outlives_its_view_and_burned_store_and_cancels_by_id() {
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn a_download_from_a_malware_site_waits_unsaved_until_kept() {
     gtk::init().expect("a display");
-    let set = shield::domains::DomainSet::from_bytes(&shield::domains::DomainSet::encode(["page.test"])).map(std::sync::Arc::new);
-    assert!(set.as_ref().is_some_and(|s| s.contains("page.test")));
-    filters::MALWARE.with_borrow_mut(|m| *m = set);
+    list_malware(&["page.test"]);
+    assert!(filters::malware().is_some_and(|s| s.contains("page.test")));
     let route = RefCell::new(session::route());
     let reports: RefCell<Vec<JsonValue>> = RefCell::default();
     let all = || {

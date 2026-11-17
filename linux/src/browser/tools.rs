@@ -52,11 +52,6 @@ impl Browser {
         Some(text)
     }
 
-    pub fn close_all_tabs(&mut self) {
-        let keys = self.model.ephemeral_keys();
-        self.close_tabs(keys);
-    }
-
     pub fn qr_code(&mut self) -> Option<(Vec<Vec<bool>>, String)> {
         let url = self.active_url()?;
         let Some(code) = engine::qr::encode(&url) else {

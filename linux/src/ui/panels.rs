@@ -739,7 +739,10 @@ fn sidebar_panel(ui: Ui) -> AnyElement {
             super::run_action(ui, Action::ToggleSidebar);
         }));
     let profile_rows = group()
-        .child(closing("New Profile…", None, Browser::new_profile))
+        .child(menu_row("New Profile…", None, move || {
+            ui.panel.set(Panel::None);
+            super::profiles::open_profile_card(ui, None);
+        }))
         .child(menu_row("Edit Profile", None, move || super::open_settings(ui, tarn_nsh_shared::panes::Pane::Profile)));
     let close_rows = (unpinned || duplicates).then(|| {
         group()

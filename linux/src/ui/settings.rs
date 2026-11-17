@@ -278,7 +278,12 @@ fn site_list(ui: Ui, hosts: Vec<String>, empty: &'static str, button: &'static s
         .into_iter()
         .map(|host| {
             let shown = browser_core::text::bounded_title(&host);
-            line(shown).child(pill(button, move || act(ui, move |b| run(b, &host)))).into_element()
+            line(shown)
+                .child(pill(button, move || {
+                    let host = host.clone();
+                    act(ui, move |b| run(b, &host))
+                }))
+                .into_element()
         })
         .collect();
     view().flex_col().children(rows)
