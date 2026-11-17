@@ -214,7 +214,9 @@ fn destination(download: &WKDownload, suggested: &str, handler: &DestinationHand
         refuse(download, origin, &name, "Too many downloads at once.");
         return handler.call((std::ptr::null_mut(),));
     }
-    let Some(path) = downloads_dir().filter(|dir| std::fs::create_dir_all(dir).is_ok()).map(|dir| unique_path(&dir, &name, |p| p.exists())) else {
+    let Some(path) =
+        downloads_dir().filter(|dir| std::fs::create_dir_all(dir).is_ok()).map(|dir| unique_path(&dir, &name, |p| p.symlink_metadata().is_ok() || saving(p)))
+    else {
         refuse(download, origin, &name, "The Downloads folder could not be created.");
         return handler.call((std::ptr::null_mut(),));
     };
@@ -254,9 +256,13 @@ fn destination(download: &WKDownload, suggested: &str, handler: &DestinationHand
     }
 }
 
+fn saving(path: &Path) -> bool {
+    TRANSFERS.with_borrow(|t| t.iter().any(|t| (t.state != State::Ended || t.download.is_some()) && Path::new(&t.path) == path))
+}
+
 fn finished(download: &WKDownload) {
     let url = download_url(download);
-    let Some(t) = take(download) else { return };
+    let Some(t) = take(download).filter(|t| t.state != State::Ended) else { return };
     let path = if t.props.sort_downloads { sort(Path::new(&t.path), &t.name) } else { PathBuf::from(&t.path) };
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(t.name);
     emit(&t.origin, json!({ "id": t.id, "state": "finished", "name": name, "path": path.to_string_lossy(), "url": url, "quarantined": false }));
@@ -428,11 +434,11 @@ fn cancel(id: &str) {
     if let Some(hold) = hold {
         hold.call((std::ptr::null_mut(),));
     }
-    if let Some(download) = download {
+    match download {
         // SAFETY: main thread; cancelling without a handler discards the resume data.
-        unsafe { download.cancel(None) };
+        Some(download) => unsafe { download.cancel(None) },
+        None => remove(id),
     }
-    remove(id);
     if !path.is_empty() {
         std::fs::remove_file(path).ok();
     }
@@ -463,7 +469,7 @@ fn sort(path: &Path, name: &str) -> PathBuf {
     let (Some(folder), Some(dir)) = (folder_for(name), path.parent()) else { return path.to_path_buf() };
     let Some(target) = sorted_dir(dir, folder) else { return path.to_path_buf() };
     let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let moved = unique_path(&target, &file, |p| p.exists());
+    let moved = unique_path(&target, &file, |p| p.symlink_metadata().is_ok());
     match std::fs::rename(path, &moved) {
         Ok(()) => moved,
         Err(_) => path.to_path_buf(),

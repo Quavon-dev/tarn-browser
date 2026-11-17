@@ -27,7 +27,7 @@ thread_local! {
 }
 
 pub fn cancel(id: &str) {
-    if let Some(download) = DOWNLOADS.with_borrow_mut(|d| d.remove(id)) {
+    if let Some(download) = DOWNLOADS.with_borrow(|d| d.get(id).cloned()) {
         download.cancel();
     }
 }
@@ -93,7 +93,8 @@ pub fn downloads_dir() -> PathBuf {
 pub fn destination(dir: &Path, suggested: &str, sort: bool) -> PathBuf {
     let name = sanitize_filename(suggested);
     let dir = folder_for(&name).filter(|_| sort).and_then(|folder| sorted_dir(dir, folder)).unwrap_or_else(|| dir.to_owned());
-    unique_path(&dir, &name, |p| p.exists())
+    let saving: Vec<PathBuf> = DOWNLOADS.with_borrow(|d| d.values().filter_map(|d| d.destination()).map(|d| PathBuf::from(d.as_str())).collect());
+    unique_path(&dir, &name, |p| p.symlink_metadata().is_ok() || saving.iter().any(|s| s == p))
 }
 
 pub fn mark_origin(path: &Path, url: &str) -> bool {

@@ -216,14 +216,16 @@ final class Downloads {
         }
 
         private File complete() throws IOException {
-            synchronized (this) {
-                if (cancelled) throw new IOException("Cancelled");
-                File target = sort ? sorted(dir, name) : dir;
-                File file = unique(target, name);
-                Files.move(part.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE);
-                running = false;
-                part = null;
-                return file;
+            synchronized (Downloads.class) {
+                synchronized (this) {
+                    if (cancelled) throw new IOException("Cancelled");
+                    File target = sort ? sorted(dir, name) : dir;
+                    File file = unique(target, name);
+                    Files.move(part.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE);
+                    running = false;
+                    part = null;
+                    return file;
+                }
             }
         }
     }
@@ -302,7 +304,7 @@ final class Downloads {
         int dot = name.lastIndexOf('.');
         String stem = dot > 0 ? name.substring(0, dot) : name;
         String ext = dot > 0 ? name.substring(dot) : "";
-        for (int i = 2; file.exists(); i++) file = new File(dir, stem + " (" + i + ")" + ext);
+        for (int i = 2; Files.exists(file.toPath(), LinkOption.NOFOLLOW_LINKS); i++) file = new File(dir, stem + " (" + i + ")" + ext);
         return file;
     }
 }

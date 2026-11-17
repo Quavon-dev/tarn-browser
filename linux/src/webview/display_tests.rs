@@ -98,10 +98,22 @@ fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
     let web = open(&state);
     let block: Rc<RefCell<Option<UserContentFilter>>> = Rc::default();
     let slot = block.clone();
-    let rules = r#"[{"trigger":{"url-filter":"^https://extensions\\.tarnbrowser\\.com/"},"action":{"type":"block"}}]"#;
+    let rules = r#"[{"trigger":{"url-filter":"^https://extensions\\.tarnbrowser\\.com/"},"action":{"type":"block"}},
+        {"trigger":{"url-filter":"^https://rules-ready\\.invalid/"},"action":{"type":"block"}}]"#;
     filters::compile_one("store-block.test".into(), rules.into(), move |f| *slot.borrow_mut() = Some(f));
     assert!(spin_until(|| block.borrow().is_some(), 20), "the test's rule compiled");
     state.content.borrow().as_ref().unwrap().add_filter(block.borrow().as_ref().unwrap());
+    let blocked = |state: &State, url: &str| {
+        state.events.borrow().iter().any(|(n, d)| {
+            n == "failed" && d["url"].as_str().is_some_and(|u| u.starts_with(url)) && d["message"].as_str().is_some_and(|m| m.contains("content blocker"))
+        })
+    };
+    let ready = (0..10).any(|_| {
+        state.events.borrow_mut().clear();
+        web.load_html("<html><body><script>location.href = 'https://rules-ready.invalid/'</script></body></html>", Some("http://page.test/"));
+        spin_until(|| blocked(&state, "https://rules-ready.invalid/"), 3)
+    });
+    assert!(ready, "the test's rule is in effect: {:?}", state.events.borrow());
     let link = "https://extensions.tarnbrowser.com/install/helper";
     let decided = |state: &State| state.events.borrow().iter().any(|(n, d)| n == "decided" && d["url"].as_str().is_some_and(|u| u.starts_with(link)));
     for script in [
@@ -112,13 +124,12 @@ fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
         state.events.borrow_mut().clear();
         web.load_html(&format!("<html><body><script>{script}</script></body></html>"), Some("http://page.test/"));
         assert!(spin_until(|| decided(&state), 20), "{script}: the navigation reached the policy: {:?}", state.events.borrow());
+        if !script.contains("iframe") {
+            assert!(spin_until(|| blocked(&state, link), 20), "{script}: the test's rule stopped the request: {:?}", state.events.borrow());
+        }
         spin_until(|| false, 1);
         assert!(event(&state, "committed").is_some(), "{script}: the page loaded");
         assert!(event(&state, engine::tarn_ext::STORE_EVENT).is_none(), "{script}: {:?}", state.events.borrow());
-        if !script.contains("iframe") {
-            let blocked = event(&state, "failed").is_some_and(|d| d["url"].as_str().is_some_and(|u| u.starts_with(link)));
-            assert!(blocked, "{script}: the test's rule stopped the request: {:?}", state.events.borrow());
-        }
     }
     state.events.borrow_mut().clear();
     *state.load.borrow_mut() = Some((link.to_owned(), 1));
@@ -203,8 +214,9 @@ fn a_download_outlives_its_view_and_burned_store_and_cancels_by_id() {
     session::release(&StoreKey::parse(burner).unwrap());
     session::cancel("2");
     assert!(spin_until(|| states("1").last().is_some_and(|s| s == "finished"), 30), "{:?}", reports.borrow());
-    spin_until(|| false, 1);
-    assert_eq!(states("2").last().map(String::as_str), Some("failed"), "a cancelled download never reports finished");
+    assert!(spin_until(|| states("2").last().is_some_and(|s| s == "failed"), 10), "a cancelled download never reports finished: {:?}", reports.borrow());
+    let path = |id: &str| reports.borrow().iter().find(|(_, d)| d["id"] == id && d["state"] == "started").map(|(_, d)| d["path"].clone());
+    assert_ne!(path("1"), path("2"), "two downloads of one name never share a file");
     assert!(reports.borrow().iter().all(|(tab, _)| tab == "true-5"));
     let done = reports.borrow().iter().rev().find(|(_, d)| d["id"] == "1").map(|(_, d)| d.clone()).unwrap();
     assert_eq!(std::fs::metadata(done["path"].as_str().unwrap()).unwrap().len(), 20 * 1024);
