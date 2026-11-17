@@ -295,13 +295,13 @@ fn imported_cookies_land_in_the_profile_jar_with_every_attribute() {
     };
     let key = StoreKey::parse("import-display-test").unwrap();
     let run = |cookies: Vec<Cookie>| {
-        let mut rx = session::import_cookies(&key, cookies, now);
+        let rx = RefCell::new(session::import_cookies(&key, cookies, now));
         let answer = Rc::new(Cell::new(None));
         let slot = answer.clone();
         assert!(
             spin_until(
                 || {
-                    if let Ok(Some(a)) = rx.try_recv() {
+                    if let Ok(Some(a)) = rx.borrow_mut().try_recv() {
                         slot.set(Some(a));
                     }
                     slot.get().is_some()

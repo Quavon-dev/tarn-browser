@@ -122,40 +122,52 @@ pub fn to_soup(c: &Cookie) -> Option<soup::Cookie> {
     from_soup(&mut out).filter(|back| back == c).map(|_| out)
 }
 
+struct Tally {
+    pending: usize,
+    written: usize,
+    refused: usize,
+    done: Option<oneshot::Sender<(usize, usize)>>,
+}
+
+impl Tally {
+    fn settle(&mut self, written: Option<bool>) {
+        if let Some(written) = written {
+            self.pending -= 1;
+            if written { self.written += 1 } else { self.refused += 1 }
+        }
+        if self.pending == 0
+            && let Some(done) = self.done.take()
+        {
+            done.send((self.written, self.refused)).ok();
+        }
+    }
+}
+
 pub fn import_cookies(key: &StoreKey, cookies: Vec<Cookie>, now: i64) -> oneshot::Receiver<(usize, usize)> {
     let (tx, rx) = oneshot::channel();
     let total = cookies.len();
     let manager = matches!(key, StoreKey::Persistent(_)).then(|| acquire(key)).flatten().and_then(|s| s.cookie_manager());
     let Some(manager) = manager else {
-        drop(tx.send((0, total)));
+        tx.send((0, total)).ok();
         return rx;
     };
     let jar = manager.clone();
     manager.all_cookies(None::<&gio::Cancellable>, move |existing| {
-        let Ok(existing) = existing else { return drop(tx.send((0, total))) };
+        let Ok(existing) = existing else {
+            tx.send((0, total)).ok();
+            return;
+        };
         let existing: Vec<Cookie> = existing.into_iter().filter_map(|mut c| from_soup(&mut c)).collect();
         let (valid, refused) = engine::cookies::admit_imported(cookies, &existing, now);
-        let tally = Rc::new(RefCell::new((valid.len(), 0, refused, Some(tx))));
-        let settle = move |tally: &RefCell<(usize, usize, usize, Option<oneshot::Sender<(usize, usize)>>)>, written: Option<bool>| {
-            let mut t = tally.borrow_mut();
-            if let Some(written) = written {
-                t.0 -= 1;
-                if written { t.1 += 1 } else { t.2 += 1 }
-            }
-            if t.0 == 0
-                && let Some(tx) = t.3.take()
-            {
-                drop(tx.send((t.1, t.2)));
-            }
-        };
-        settle(&tally, None);
+        let tally = Rc::new(RefCell::new(Tally { pending: valid.len(), written: 0, refused, done: Some(tx) }));
+        tally.borrow_mut().settle(None);
         for cookie in &valid {
             let Some(soup) = to_soup(cookie) else {
-                settle(&tally, Some(false));
+                tally.borrow_mut().settle(Some(false));
                 continue;
             };
             let tally = tally.clone();
-            jar.add_cookie(&soup, None::<&gio::Cancellable>, move |result| settle(&tally, Some(result.is_ok())));
+            jar.add_cookie(&soup, None::<&gio::Cancellable>, move |result| tally.borrow_mut().settle(Some(result.is_ok())));
         }
     });
     rx
