@@ -202,6 +202,8 @@ Moved out of this crate, with the macOS app using the same code where it had a c
 - `browser_core::site`: domain sets from the bundle and their install, the set switches, the warning
   page's words and its click guard; `browser_core::permissions::permission_rows` for the site panel
   (`crates/app` uses them);
+- `shield::update`: the daily filter-list update (when it is due, the download and its checks, the
+  Settings status line); `src/filter_updates.rs` only schedules it and fetches through `src/fetch.rs`;
 - `browser_core::command`: input parsing, `engine_key`, the address label (`display_host`, the text of
   the macOS label `address`); `browser_core::prompts`: the prompt model and what may be remembered (the mobile shell
   uses both). A crashed page reloads once and stays until a page finishes loading, as on macOS.

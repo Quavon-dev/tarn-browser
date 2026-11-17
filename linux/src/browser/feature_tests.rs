@@ -1485,3 +1485,24 @@ fn browser_data_imports_into_the_current_profile_and_never_into_a_private_space(
     assert!(space.private);
     assert!(b.core.import_target(true, space.space.profile_id).is_err(), "a private space keeps nothing, so it takes no import");
 }
+
+#[test]
+fn filter_list_updates_default_on_switch_off_and_show_the_installed_lists() {
+    let (_dir, mut b) = browser();
+    let (switch, summary) = b.filter_updates();
+    assert_eq!(switch, Some(true));
+    assert_eq!(summary, "No lists installed yet.");
+    b.toggle_setting(shield::update::SETTING);
+    assert_eq!(b.filter_updates().0, Some(false));
+    assert_eq!(b.core.disk.setting(shield::update::SETTING).unwrap().as_deref(), Some("off"));
+    let lists =
+        vec![shield::bundle::VerifiedList { name: "ads.txt".into(), category: "ads".into(), kind: shield::bundle::Kind::Filters, count: 3, data: Vec::new() }];
+    let mut status = shield::update::Status::default();
+    status.installed(&shield::bundle::VerifiedBundle { version: shield::update::now(), created: "2026-11-17T08:00:00Z".into(), lists });
+    status.checked(Err("offline".into()));
+    crate::filter_updates::set_status(status);
+    assert_eq!(b.filter_updates().1, "Lists from 2026-11-17 installed. Last update failed: offline.");
+    assert_eq!(crate::filter_updates::status().counts.get("ads"), Some(&3));
+    b.toggle_setting(shield::update::SETTING);
+    assert_eq!(b.filter_updates().0, Some(true));
+}

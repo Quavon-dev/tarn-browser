@@ -361,6 +361,16 @@ fn attach_when_sized(state: &Rc<State>, web: &WebView) {
     });
 }
 
+fn swap_group(name: &str, old: &[UserContentFilter], new: &[UserContentFilter]) {
+    let views: Vec<Rc<State>> = VIEWS.with_borrow(|views| views.iter().filter_map(Weak::upgrade).collect());
+    for state in views {
+        let uses = state.built.borrow().as_ref().is_some_and(|b| b.lists.iter().any(|l| l == name));
+        let Some(content) = state.content.borrow().clone().filter(|_| uses) else { continue };
+        old.iter().filter_map(UserContentFilter::identifier).for_each(|id| content.remove_filter_by_id(&id));
+        new.iter().for_each(|f| content.add_filter(f));
+    }
+}
+
 fn apply_zaps(state: &Rc<State>) {
     let Some(content) = state.content.borrow().clone() else { return };
     let zaps: Vec<(String, String)> = scripts::unlocked(state, &state.zaps.borrow()).cloned().collect();

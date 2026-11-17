@@ -757,6 +757,10 @@ impl Browser {
         shield::groups::switched_on(|k| self.core.disk.setting(k).ok().flatten())
     }
 
+    pub fn filter_updates(&self) -> (Option<bool>, String) {
+        (shield::update::configured().then(|| self.setting_on(shield::update::SETTING)), crate::filter_updates::status().summary())
+    }
+
     pub fn clear_history(&mut self) {
         if let Some((private, id)) = self.profile_of_space() {
             self.core.store(private).clear_history(id).ok();

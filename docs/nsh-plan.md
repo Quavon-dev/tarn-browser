@@ -197,7 +197,8 @@ Each phase ends with an exit check, run on real devices where the platform needs
 check passed there except the camera prompt (no device) and the AT-SPI role of the NSH address
 field (NSH gap, see P0). Not verified: a real Wayland or X11 desktop, HiDPI, a composed IME, a
 screen reader, window position on restore (GTK 4 leaves it to the window manager), and the
-filter-list download (no signing key or feed in this build; a test-signed bundle was used).
+filter-list download against the published feed (the daily update uses `shield::update`, as on macOS;
+tests use a test-signed bundle and no network).
 - **Web view:** `tarn.webview` implements contract v2 for WebKitGTK 6.0, with three Linux additions
   documented in `linux/README.md`: `levels["*"]` carries the profile's level, a `lists` prop, and
   `download` events with `url` and `quarantined`. HTTPS-only is checked at navigation time on any

@@ -4,6 +4,7 @@ mod data;
 mod desktop;
 mod extensions;
 mod fetch;
+mod filter_updates;
 mod input;
 mod memory;
 mod shortcuts;

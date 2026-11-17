@@ -25,9 +25,7 @@ impl Host for Looks {
         f(&super::core().disk)
     }
     fn changed(self) {
-        for ui in super::WINDOWS.with_borrow(Vec::clone) {
-            act(ui, |b| b.apply_theme());
-        }
+        super::themes_changed();
     }
     fn profile(self) -> Option<(Id, String)> {
         read(self.0, |b| {

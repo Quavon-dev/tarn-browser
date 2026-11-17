@@ -2015,10 +2015,23 @@ fn core() -> Rc<Core<Data>> {
         core.get_or_insert_with(|| {
             let opened = Browser::open_core(&crate::data::root());
             crate::data::wipe_retired(&crate::data::root(), &opened.disk);
+            crate::filter_updates::start(opened.clone());
             opened
         })
         .clone()
     })
+}
+
+pub fn refresh_panels() {
+    for ui in WINDOWS.with_borrow(Vec::clone) {
+        act(ui, |_| {});
+    }
+}
+
+pub fn themes_changed() {
+    for ui in WINDOWS.with_borrow(Vec::clone) {
+        act(ui, Browser::apply_theme);
+    }
 }
 
 fn shift_held() -> bool {

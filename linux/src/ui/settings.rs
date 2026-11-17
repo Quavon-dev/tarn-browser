@@ -642,6 +642,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                     act(ui, |b| b.notice = Some(Notice::Message("Website data of this profile was cleared.".into())));
                 }
             };
+            let (filter_updates, filter_status) = read(ui, Browser::filter_updates).unwrap_or_default();
             body.child(section("Shield"))
                 .child(
                     group()
@@ -671,6 +672,9 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 .child(site_list(ui, muted, "No muted sites. Mute Site in a tab's panel or the command bar silences a site in this profile.", "Unmute", |b, host| b.unmute_site(host)))
                 .child(section("Sites without ad, tracker and cookie-banner blocking"))
                 .child(site_list(ui, paused, "Blocking runs on every site. Turn it off for one site with the Shield button in the address bar.", "Turn On", |b, host| b.set_site_paused(host, false)))
+                .child(section("Filter-list updates"))
+                .children(filter_updates.map(|on| group().child(switch(on, "Download filter-list updates", toggle(shield::update::SETTING)))))
+                .child(note(format!("GitHub, once a day. {filter_status}")))
                 .child(
                     view()
                         .flex_row()
