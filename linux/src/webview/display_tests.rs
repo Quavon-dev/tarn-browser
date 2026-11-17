@@ -102,8 +102,17 @@ fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
         assert!(event(&state, "committed").is_some(), "{script}: the page loaded");
         assert!(event(&state, engine::tarn_ext::STORE_EVENT).is_none(), "{script}: {:?}", state.events.borrow());
     }
-    *state.shell_url.borrow_mut() = Some(link.to_owned());
-    web.load_uri(link);
+    state.events.borrow_mut().clear();
+    *state.load.borrow_mut() = Some((link.to_owned(), 1));
+    state.load_link.set(true);
+    load(&state, None);
+    assert!(spin_until(|| event(&state, "started").is_some() || event(&state, "failed").is_some(), 20), "the pop-up's load ran");
+    assert!(event(&state, engine::tarn_ext::STORE_EVENT).is_none(), "a page's pop-up tab never asks: {:?}", state.events.borrow());
+    web.load_html(PAGE, Some("http://page.test/"));
+    assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page loaded");
+    *state.load.borrow_mut() = Some((link.to_owned(), 2));
+    state.load_link.set(false);
+    load(&state, None);
     assert!(spin_until(|| event(&state, engine::tarn_ext::STORE_EVENT).is_some(), 20), "the user's own load asks");
     assert_eq!(event(&state, engine::tarn_ext::STORE_EVENT).unwrap(), json!({ "id": "helper" }));
 }

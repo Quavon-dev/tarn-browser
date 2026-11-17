@@ -34,6 +34,7 @@ pub const ZOOM_STEPS: [f64; 9] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0]
 #[derive(Clone, Debug, Default)]
 pub struct Page {
     pub url: String,
+    pub link: bool,
     pub title: String,
     pub can_back: bool,
     pub can_forward: bool,
@@ -317,6 +318,7 @@ impl Browser {
         let level = self.level_for(key, url);
         let page = self.pages.entry(key).or_default();
         page.load = Some((url.to_owned(), seq));
+        page.link = false;
         page.loading = true;
         page.level = level;
         page.error = None;
@@ -754,8 +756,12 @@ impl Browser {
             }
             "external" => self.notice = Some(Notice::External { url: text("url"), origin: text("origin") }),
             "popup" => {
-                if !(data["link"].as_bool() == Some(true) && self.open_routed(&text("url"))) {
-                    self.new_tab(&text("url"));
+                let url = text("url");
+                if !(data["link"].as_bool() == Some(true) && self.open_routed(&url)) {
+                    self.new_tab(&url);
+                }
+                if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)).filter(|p| p.load.as_ref().is_some_and(|(u, _)| *u == url)) {
+                    page.link = true;
                 }
             }
             "article" | "pageText" | "textFound" | "picked" => self.on_script_event(key, name, data),

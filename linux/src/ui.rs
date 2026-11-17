@@ -294,7 +294,7 @@ fn web_views(ui: Ui) -> View {
                     .prop("themeStyles", move || item.with(|v| v.theme_styles.clone()))
                     .prop("zaps", move || item.with(|v| v.zaps.clone()))
                     .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
-                    .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s }))))
+                    .prop("load", move || item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link }))))
                     .prop("active", move || JsonValue::from(item.with(|v| v.active)))
                     .on_native_event(move |event: &NativeEvent| {
                         if &*event.name == browser_core::extensions::STORE_EVENT {

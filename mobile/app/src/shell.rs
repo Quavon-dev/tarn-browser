@@ -754,7 +754,8 @@ impl<D: Platform> Shell<D> {
             self.notice = Some("A burner tab does not open pop-ups.".into());
             return;
         }
-        if let Some(ix) = Url::parse(url).ok().filter(|_| link).and_then(|u| self.routed_space(&u)) {
+        let fresh = Url::parse(url).ok().filter(|u| link && browser_core::extensions::store_install(u).is_none());
+        if let Some(ix) = fresh.and_then(|u| self.routed_space(&u)) {
             self.switch_space(ix);
             self.new_tab(Some(url));
             return;

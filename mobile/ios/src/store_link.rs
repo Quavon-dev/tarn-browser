@@ -1,5 +1,7 @@
+use engine::nav_policy::{StoreNav, store_link_asks};
+
 pub fn asks(shell_load: bool, link_activated: bool) -> bool {
-    shell_load || link_activated
+    store_link_asks(StoreNav { shell_load, clicked: link_activated, ..StoreNav::default() })
 }
 
 #[cfg(test)]

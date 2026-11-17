@@ -24,6 +24,8 @@ mod window {
 
     use super::common::{INSTALL, ORIGIN, View, fixture, serve, spin, window};
 
+    const BLOCKED_BY_CONTENT_RULE: isize = 104;
+
     pub fn run() {
         let mtm = MainThreadMarker::new().expect("main thread");
         let window = window(mtm);
@@ -47,7 +49,9 @@ mod window {
 
         let uuid = "6A1B2C3D-0000-4000-8000-00000000E715";
         let data = DataStore::persistent(uuid, uuid, Rc::new(|_| {})).unwrap();
-        let rules = format!(r#"[{{"trigger":{{"url-filter":"^http://127\\.0\\.0\\.1:{port}/blocked\\.js"}},"action":{{"type":"block"}}}}]"#);
+        let rules = format!(
+            r#"[{{"trigger":{{"url-filter":"^http://127\\.0\\.0\\.1:{port}/blocked\\.js"}},"action":{{"type":"block"}}}},{{"trigger":{{"url-filter":"^https://extension\\.tarnbrowser\\.com/"}},"action":{{"type":"block"}}}}]"#
+        );
         let compiled: Rc<RefCell<Option<FilterLists>>> = Rc::default();
         let slot = compiled.clone();
         FilterLists::compile("tarn-ext.test", "1", vec![rules], move |r| *slot.borrow_mut() = Some(r.expect("rules compile")));
@@ -316,22 +320,32 @@ mod window {
         drop(views.borrow_mut().drain(..));
         drop((granted, other, ungated, tab, probe, locked, frames, twice));
         let asked: Rc<RefCell<Vec<String>>> = Rc::default();
+        let failed: Rc<RefCell<Vec<isize>>> = Rc::default();
         let store_sink = {
-            let asked = asked.clone();
-            Rc::new(move |e: Event| {
-                if let Event::StoreInstall(id) = e {
-                    asked.borrow_mut().push(id);
-                }
+            let (asked, failed) = (asked.clone(), failed.clone());
+            Rc::new(move |e: Event| match e {
+                Event::StoreInstall(id) => asked.borrow_mut().push(id),
+                Event::Failed { code, .. } => failed.borrow_mut().push(code),
+                _ => {}
             })
         };
+        let link = "https://extension.tarnbrowser.com/install/helper";
         let store = WebView::new(&host, &data, ShieldLevel::Standard, true, false, site_for.clone(), store_sink);
         store.set_frame(0., 0., 800., 600.);
         for page in ["store?click", "store?assign", "store-redirect"] {
+            failed.borrow_mut().clear();
             store.load(&Url::parse(&format!("http://127.0.0.1:{port}/{page}")).unwrap());
-            spin(3.0, &|| false);
+            let reached = || failed.borrow().contains(&BLOCKED_BY_CONTENT_RULE);
+            spin(10.0, &reached);
+            assert!(reached(), "{page}: the navigation to the store link was let through (and blocked by the test's rule): {:?}", failed.borrow());
+            if page != "store-redirect" {
+                assert_eq!(store.title(), "RAN", "{page}: the page's script ran");
+            } else {
+                assert_eq!(requested(&format!("127.0.0.1:{port} /store-redirect")), 1, "the redirect was served");
+            }
             assert!(asked.borrow().is_empty(), "{page}: a script, a frame or a redirect never asks to install: {:?}", asked.borrow());
         }
-        store.load(&Url::parse("https://extension.tarnbrowser.com/install/helper/").unwrap());
+        store.load(&Url::parse(&format!("{link}/")).unwrap());
         spin(3.0, &|| !asked.borrow().is_empty());
         assert_eq!(*asked.borrow(), ["helper"], "the user's own load asks");
         drop(store);

@@ -60,6 +60,8 @@ struct State {
     load: RefCell<Option<(String, u64)>>,
     loaded_seq: Cell<Option<u64>>,
     shell_url: RefCell<Option<String>>,
+    link_url: RefCell<Option<String>>,
+    load_link: Cell<bool>,
     upgraded: RefCell<Option<(String, bool, bool)>>,
     user_step: Cell<bool>,
     posted: RefCell<Option<Url>>,
@@ -305,6 +307,7 @@ fn load(state: &Rc<State>, current: Option<String>) {
     let target = match wanted {
         Some((url, seq)) if state.loaded_seq.get() != Some(seq) => {
             state.loaded_seq.set(Some(seq));
+            *state.link_url.borrow_mut() = state.load_link.get().then(|| url.clone());
             Some(url)
         }
         _ => current,
@@ -400,8 +403,16 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
         decision.ignore();
         return true;
     };
-    let activated = !action.is_redirect() && (from_shell || (nav_type == NavigationType::LinkClicked && gesture));
-    if activated && let Some(id) = engine::tarn_ext::store_install(&url) {
+    let page_link = state.link_url.borrow_mut().take_if(|s| *s == uri).is_some();
+    let store = engine::nav_policy::StoreNav {
+        redirect: action.is_redirect(),
+        shell_load: from_shell,
+        page_link,
+        clicked: nav_type == NavigationType::LinkClicked && gesture,
+    };
+    if engine::nav_policy::store_link_asks(store)
+        && let Some(id) = engine::tarn_ext::store_install(&url)
+    {
         state.emit(engine::tarn_ext::STORE_EVENT, json!({ "id": id }));
         decision.ignore();
         return true;
@@ -839,6 +850,7 @@ impl NativeComponent for TarnWebView {
             "sortDownloads" => return state.sort_downloads.set(value.as_bool().unwrap_or(false)),
             "load" => {
                 *state.load.borrow_mut() = value["url"].as_str().zip(value["seq"].as_u64()).map(|(u, s)| (u.to_owned(), s));
+                state.load_link.set(value["link"].as_bool() == Some(true));
             }
             "active" => {
                 let active = value.as_bool().unwrap_or(false);

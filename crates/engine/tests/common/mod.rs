@@ -108,7 +108,7 @@ pub fn serve(seen: Arc<Mutex<Vec<String>>>) -> u16 {
                 }
                 let store = format!(
                     "<title>STORE</title><a id=l href={STORE_LINK} style='position:fixed;inset:0'>link</a><iframe src={STORE_LINK}></iframe>\
-                     <script>addEventListener('load', () => setTimeout(() => {{ {} }}, 300));</script>",
+                     <script>addEventListener('load', () => setTimeout(() => {{ document.title = 'RAN'; {} }}, 300));</script>",
                     match path.split('?').nth(1) {
                         Some("click") => "document.getElementById('l').click()".to_owned(),
                         Some("assign") => format!("location.href = '{STORE_LINK}'"),

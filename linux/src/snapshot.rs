@@ -69,6 +69,7 @@ pub struct ViewItem {
     pub zaps: Value,
     pub sort_downloads: bool,
     pub load: Option<(String, u64)>,
+    pub link: bool,
     pub active: bool,
     /// Its place in the split on screen.
     pub pane: Option<usize>,
@@ -265,6 +266,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 zaps,
                 sort_downloads,
                 load: page.and_then(|p| p.load.clone()),
+                link: page.is_some_and(|p| p.link),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
                 pane: panes.iter().position(|k| *k == key).filter(|_| shown),
             }
