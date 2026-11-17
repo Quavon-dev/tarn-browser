@@ -327,8 +327,10 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
         settings.set_enable_javascript(wanted.level.policy().javascript);
         settings.set_javascript_can_open_windows_automatically(false);
         settings.set_enable_developer_extras(false);
-        settings.set_enable_back_forward_navigation_gestures(true);
     }
+    let swipes = |web: &WebView, on: bool| WebViewExt::settings(web).into_iter().for_each(|s| s.set_enable_back_forward_navigation_gestures(on));
+    web.connect_map(move |web| swipes(web, true));
+    web.connect_unmap(move |web| swipes(web, false));
     web.set_hexpand(true);
     web.set_vexpand(true);
     if state.zoom.get() > 0.0 {
