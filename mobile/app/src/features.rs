@@ -222,6 +222,7 @@ impl<D: Platform> Shell<D> {
             self.forget(key);
         }
         self.burner_from = None;
+        browser_core::open_file::clear(&self.opened.join("burner"));
         self.model.burn(&self.core);
         self.model.reload_space(&self.core);
     }

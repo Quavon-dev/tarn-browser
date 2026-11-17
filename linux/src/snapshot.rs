@@ -83,6 +83,7 @@ pub struct ViewItem {
     pub inspectable: bool,
     pub load: Option<(String, u64)>,
     pub link: bool,
+    pub file: bool,
     pub muted: bool,
     pub opener: String,
     pub active: bool,
@@ -171,7 +172,8 @@ pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
     let custom = (!tab.custom_title.is_empty()).then_some(tab.custom_title.as_str());
     let url = page.map(|p| p.url.as_str()).filter(|u| !u.is_empty()).unwrap_or(&tab.url);
     let url = if url.is_empty() || url == crate::browser::START_URL { "New Tab" } else { url };
-    custom.or((!title.is_empty()).then_some(title)).unwrap_or(url).to_owned()
+    let untitled = || url::Url::parse(url).ok().and_then(|u| browser_core::command::file_name(&u)).unwrap_or_else(|| url.to_owned());
+    custom.or((!title.is_empty()).then_some(title)).map_or_else(untitled, str::to_owned)
 }
 
 fn space_label(b: &Browser, ix: usize) -> String {
@@ -365,6 +367,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 inspectable: developer || b.is_dev_tab(key),
                 load: page.and_then(|p| p.load.clone()),
                 link: page.is_some_and(|p| p.link),
+                file: page.is_some_and(|p| p.file),
                 muted: b.muted_with(key, &muted),
                 opener: page.and_then(|p| p.opener).map(|k| format!("{}-{}", k.private, k.id)).unwrap_or_default(),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
@@ -402,6 +405,7 @@ fn peek_item(b: &Browser) -> Option<PeekItem> {
         inspectable: b.developer() || b.is_dev_tab(key),
         load: Some(peek.load.clone()),
         link: true,
+        file: false,
         muted: false,
         opener: format!("{}-{}", key.private, key.id),
         active: true,

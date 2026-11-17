@@ -8,6 +8,7 @@ final class Native {
     static final int TYPED = 0;
     static final int LINK = 1;
     static final int POPUP = 2;
+    static final int FILE_OPEN = 3;
 
     static final int ALLOW = 0;
     static final int PROMPT = 1;

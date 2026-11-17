@@ -49,7 +49,8 @@ pub fn web_engine_name(engine: WebEngine) -> &'static str {
     }
 }
 
-/// The name a tab shows: the user's own, the page title, the host or scheme, or "New Tab".
+/// The name a tab shows: the user's own, the page title, an opened file's name, the host or
+/// scheme, or "New Tab".
 pub fn display_title(tab: &Tab) -> String {
     browser_core::command::display_title(&tab.custom_title, &tab.title, &tab.url)
 }
@@ -522,6 +523,8 @@ mod tests {
         assert_eq!(display_title(&tab("", "", "blob:https://Evil.test/0b1c")), "evil.test");
         assert_eq!(display_title(&tab("", "", "data:text/html,bank.test")), "data:");
         assert_eq!(display_title(&tab("", "", "")), "New Tab");
+        let file = if cfg!(windows) { "file:///C:/d/doc.pdf" } else { "file:///tmp/doc.pdf" };
+        assert_eq!(display_title(&tab("", "", file)), "doc.pdf", "an opened file without a title");
         assert_eq!(display_title(&tab("x", "evil\u{202e}name", "https://a.test/")), ui::text::bounded_title("evil\u{202e}name"));
     }
 

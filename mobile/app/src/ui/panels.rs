@@ -314,6 +314,7 @@ fn menu(ui: Ui) -> impl IntoElement {
                     });
                     ui.show(Screen::Browse);
                 }))
+                .child(row(icons::FOLDER_OPEN, "Open File…", move || open_file(ui)))
                 .child(
                     when(private, move || {
                         row(icons::HAND, "Close Private Space", move || {
@@ -488,6 +489,21 @@ fn site_shield(ui: Ui) -> impl IntoElement {
         .child(caption(move || format!("Profile default: {}", ui.read_data(|s| s.default_level().as_str()))))
         .child(caption("Standard blocks trackers and private-network requests. Strict adds HTTPS-only. Lockdown also turns JavaScript off and keeps website data in memory."))
         .child(sheets::site(ui))
+}
+
+fn open_file(ui: Ui) {
+    ui.show(Screen::Browse);
+    spawn(async move {
+        let Some(file) = pick_files(nsh_core::picker::FilePickRequest::new(false, 1)).await.into_iter().next() else { return };
+        let staged = browser_core::open_file::stage(&ui.read(|s| s.opened_dir()), &file.name, file.data.bytes());
+        ui.act(|s| {
+            match staged {
+                Ok(url) => s.open_file(&url),
+                Err(e) => s.notice = Some(format!("The file could not be opened: {e}")),
+            }
+            Vec::new()
+        });
+    });
 }
 
 pub fn share(ui: Ui, url: String) {

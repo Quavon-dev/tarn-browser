@@ -509,6 +509,10 @@ impl Browser {
     pub fn duplicate_tab(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(url) = self.tab_url(key).and_then(|u| Url::parse(&u).ok()) {
             let engine = self.model.tab(key).and_then(|t| t.web_engine);
+            // A copy of a file the user opened shows that file too.
+            if self.page(key).opened_file.as_ref() == Some(&url) && !self.model.burner_shown() {
+                return self.new_file_tab(&url, engine, window, cx);
+            }
             self.new_tab_in(&url, engine, window, cx);
         }
     }

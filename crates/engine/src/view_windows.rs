@@ -44,6 +44,10 @@ impl WebView {
         self.view.load(url);
     }
 
+    pub fn load_file(&self, url: &Url) {
+        self.view.load_file(url);
+    }
+
     pub fn load_link(&self, url: &Url, opener: Option<&Url>) {
         self.view.load_link_from(url, opener);
     }

@@ -64,6 +64,79 @@ fn the_address_bar_loads_urls_and_searches_with_a_new_seq_each_time() {
 }
 
 #[test]
+fn only_open_file_marks_its_load_as_a_file() {
+    let (_dir, mut shell) = open();
+    shell.navigate("example.com");
+    let url = browser_core::open_file::stage(&shell.opened_dir(), "page.html", b"<p>hi</p>").unwrap();
+    shell.open_file(&url);
+    let views = shell.views();
+    let load = |key| views.iter().find(|v| v.key == key).and_then(|v| v.load.clone()).unwrap();
+    let opened = load(active(&shell));
+    assert_eq!((opened.url.as_str(), opened.file), (url.as_str(), true));
+    assert_eq!(shell.tab_title(active(&shell)), "page.html", "a file without a title shows its name");
+    assert!(views.iter().filter(|v| v.key != active(&shell)).all(|v| v.load.as_ref().is_none_or(|l| !l.file)));
+    shell.navigate(url.as_str());
+    let typed = shell.views().into_iter().find(|v| v.key == active(&shell)).and_then(|v| v.load).unwrap();
+    assert!(typed.seq == opened.seq || !typed.file, "a typed file: address is not an Open File");
+}
+
+#[test]
+fn closing_the_private_space_deletes_its_opened_files() {
+    let (dir, mut shell) = open();
+    let kept = browser_core::open_file::stage(&shell.opened_dir(), "a.html", b"a").unwrap().to_file_path().unwrap();
+    shell.enter_private();
+    assert!(shell.model.private());
+    let private = browser_core::open_file::stage(&shell.opened_dir(), "b.html", b"b").unwrap().to_file_path().unwrap();
+    shell.close_private();
+    assert!(kept.exists() && !private.exists());
+    drop(shell);
+    TestShell::open(dir.path());
+    assert!(!kept.exists(), "a launch clears every staged copy");
+}
+
+#[test]
+fn a_slept_file_tab_wakes_as_open_file() {
+    let (_dir, mut shell) = open();
+    let url = browser_core::open_file::stage(&shell.opened_dir(), "page.html", b"<p>hi</p>").unwrap();
+    shell.open_file(&url);
+    let file = active(&shell);
+    finish(&mut shell, url.as_str(), "page.html");
+    for n in 0..tarn_mobile::shell::LIVE_TABS {
+        shell.new_tab(Some(&format!("https://t{n}.test/")));
+    }
+    assert!(shell.views().iter().all(|v| v.key != file), "the file tab sleeps");
+    shell.activate(file);
+    let load = shell.views().into_iter().find(|v| v.key == file).and_then(|v| v.load).unwrap();
+    assert_eq!((load.url.as_str(), load.file), (url.as_str(), true));
+}
+
+#[test]
+fn a_burner_shows_a_second_file_in_a_fresh_view() {
+    let (_dir, mut shell) = open();
+    shell.open_burner();
+    let key = active(&shell);
+    let first = browser_core::open_file::stage(&shell.opened_dir(), "a.html", b"a").unwrap();
+    shell.open_file(&first);
+    let born = shell.model.lifecycle.born(key);
+    let second = browser_core::open_file::stage(&shell.opened_dir(), "b.html", b"b").unwrap();
+    shell.open_file(&second);
+    assert_eq!(active(&shell), key);
+    assert!(shell.model.lifecycle.born(key).is_some() && shell.model.lifecycle.born(key) != born);
+    let load = shell.views().into_iter().find(|v| v.key == key).and_then(|v| v.load).unwrap();
+    assert_eq!((load.url.as_str(), load.file), (second.as_str(), true));
+}
+
+#[test]
+fn burning_deletes_the_burners_opened_files() {
+    let (_dir, mut shell) = open();
+    shell.open_burner();
+    assert!(shell.in_burner());
+    let burned = browser_core::open_file::stage(&shell.opened_dir(), "c.pdf", b"c").unwrap().to_file_path().unwrap();
+    shell.burn();
+    assert!(!burned.exists());
+}
+
+#[test]
 fn rejected_and_external_input_never_loads() {
     let (_dir, mut shell) = open();
     shell.navigate("javascript:alert(1)");

@@ -36,6 +36,7 @@ pub mod icons {
     pub const CHECK: ImageAsset = asset!("icons/check.svg");
     pub const APP_WINDOW: ImageAsset = asset!("icons/app-window.svg");
     pub const SMARTPHONE: ImageAsset = asset!("icons/smartphone.svg");
+    pub const FOLDER_OPEN: ImageAsset = asset!("icons/folder-open.svg");
     pub const MARK: ImageAsset = asset!("brand/mark.svg");
 }
 

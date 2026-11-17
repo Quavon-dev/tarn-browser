@@ -67,6 +67,11 @@ impl WebView {
         both!(self, v => v.load(url))
     }
 
+    /// Shows a file the user picked with Open File; `load` refuses `file:` URLs.
+    pub fn load_file(&self, url: &Url) {
+        both!(self, v => v.load_file(url))
+    }
+
     /// A load the page, not the user, is credited with, so S10 applies to it in both engines.
     pub fn load_link(&self, url: &Url, opener: Option<&Url>) {
         match self {

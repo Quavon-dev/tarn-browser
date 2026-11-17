@@ -161,6 +161,7 @@ fn open_anyway_loads_a_refused_local_address_as_the_users_own_navigation() {
         page: Some(&public),
         upgraded: false,
         likely_subframe: false,
+        file_open: false,
     };
     assert_eq!(navigation(&Levels::default(), ShieldLevel::Standard, &nav(false)), Verdict::Blocked("local_network"));
     b.on_event(key, "committed", &json!({ "url": public.as_str() }));
@@ -188,6 +189,47 @@ fn open_anyway_loads_a_refused_local_address_as_the_users_own_navigation() {
     assert!(matches!(b.notice, Some(Notice::Message(_))), "only an address on the local network");
     b.on_event(key, "blocked", &json!({ "url": "https://tracker.example/pixel", "reason": "shield" }));
     assert!(matches!(b.notice, Some(Notice::Message(_))));
+}
+
+#[test]
+fn only_open_file_loads_a_file_url_from_the_shell() {
+    use engine::view_policy::{Levels, Navigation, Verdict, navigation};
+    let (dir, mut b) = browser();
+    let path = dir.path().join("page.html");
+    std::fs::write(&path, "<p>local</p>").unwrap();
+    let url = browser_core::open_file::url_for(&path).unwrap();
+    b.open_file(&url);
+    let key = active(&b);
+    let view = crate::snapshot::snapshot(&b, true).views.into_iter().find(|v| v.key == key).unwrap();
+    assert_eq!((view.load.unwrap().0, view.file, view.link), (url.to_string(), true, false));
+    let tab = b.model.tab(key).cloned().unwrap();
+    assert_eq!(crate::snapshot::tab_label(&tab, &b, key), "page.html", "a file without a title shows its name");
+    b.duplicate_tab(key);
+    let copy = active(&b);
+    assert!(copy != key && b.pages[&copy].file, "a copy of an opened file is an Open File too");
+    b.close_tab(copy);
+    let nav = |from_shell, file_open| Navigation {
+        url: &url,
+        site_filtered: true,
+        filtered: true,
+        from_shell,
+        user_link: false,
+        user_step: false,
+        page: None,
+        upgraded: false,
+        likely_subframe: false,
+        file_open,
+    };
+    let verdict = |from_shell, file_open| navigation(&Levels::default(), ShieldLevel::Standard, &nav(from_shell, file_open));
+    assert_eq!(verdict(true, true), Verdict::Allow { javascript: true }, "the shell's Open File load");
+    assert_eq!(verdict(true, false), Verdict::Blocked("nav_policy"), "a plain shell load");
+    assert_eq!(verdict(false, true), Verdict::Blocked("nav_policy"), "a page's link");
+    assert_eq!(verdict(false, false), Verdict::Blocked("nav_policy"));
+    b.unload(key);
+    b.load(key, url.as_str());
+    assert!(b.pages[&key].file, "a slept tab loads its opened file again as Open File");
+    b.load(key, "https://a.test/");
+    assert!(!b.pages[&key].file, "any other load of the tab is a plain one");
 }
 
 #[test]

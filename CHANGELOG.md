@@ -14,6 +14,10 @@ All notable changes to Tarn are documented in this file. The format is based on
   buttons, New Space and Edit Space above the sidebar's + button, Clean Up with Undo Sort, group and
   folder icons, a Settings window, and the macOS keyboard shortcuts with a hardware keyboard (iOS,
   Android).
+- Open File… shows a local file in a new tab: web pages with their images and styles, PDFs,
+  images, text, SVG and video. ⌘O on macOS, Ctrl+O on Windows and Linux, and the menu on iOS and
+  Android; the address bar shows the file's name (macOS, Windows, Linux, iOS, Android; no PDFs on
+  Android, and on iOS and Android a page's images and styles from its folder do not load).
 - Background tabs sleep, the heaviest first, once their web processes together hold more than
   1 GB, split between windows (Linux).
 - The share menu has Save Page as PDF, through the save dialog and listed in Downloads (also a

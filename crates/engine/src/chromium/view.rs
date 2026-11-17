@@ -48,6 +48,8 @@ struct Tab {
     loading: Cell<bool>,
     found: RefCell<Option<Found>>,
     shell_load: RefCell<Option<Url>>,
+    /// Files this view showed through `load_file`; only they get Open File's credit (S6).
+    opened_files: RefCell<std::collections::HashSet<Url>>,
     /// The main-frame navigation under way started in the shell, so its redirects may reach a
     /// private address (S10).
     shell_chain: Cell<bool>,
@@ -708,7 +710,8 @@ wrap_request_handler! {
                 return i32::from(!allowed);
             }
             if frame.is_main() != 1 {
-                let refused = !nav_policy::chromium_subframe_allowed(&url) || (!self.lockdown_view && lockdown(&self.profile, &url));
+                let own_file = url.scheme() == "file" && nav_policy::file_subresource_allowed(&url, page_url(browser.as_deref()).as_ref());
+                let refused = !(nav_policy::chromium_subframe_allowed(&url) || own_file) || (!self.lockdown_view && lockdown(&self.profile, &url));
                 if !refused {
                     tarn::before_browse(&tab, &url, page_url(browser.as_deref()).as_ref(), false);
                 }
@@ -718,13 +721,13 @@ wrap_request_handler! {
                 emit(&tab, Event::WebEngineOutdated);
                 return 1;
             }
-            let (shell, user_started, link) = if is_redirect == 1 {
-                (false, tab.user_started.get(), false)
+            let (shell, user_started, link, step) = if is_redirect == 1 {
+                (false, tab.user_started.get(), false, false)
             } else {
                 let (shell, step) = (tab.shell_load.take().is_some_and(|u| u == url), tab.history_step.take().contains(&url));
                 // CEF reports the shell's own LoadURL as a gesture; a link the shell loads for a page stays the page's.
                 let link = tab.link_load.take();
-                (shell, !link && (shell || user_gesture == 1 || step), link)
+                (shell, !link && (shell || user_gesture == 1 || step), link, step)
             };
             tab.user_started.set(user_started);
             if nav_policy::chromium_store_link(is_redirect == 1, shell, link, user_gesture == 1)
@@ -733,8 +736,16 @@ wrap_request_handler! {
                 emit(&tab, Event::StoreInstall(id));
                 return 1;
             }
-            let source = if shell { Source::Typed } else { Source::Link };
-            match nav_policy::decide_chromium(&url, source) {
+            let opened = tab.opened_files.borrow().contains(&url);
+            let source = if nav_policy::file_open(&url, opened && (shell || step)) {
+                Source::FileOpen
+            } else if shell {
+                Source::Typed
+            } else {
+                Source::Link
+            };
+            let decision = if source == Source::FileOpen { nav_policy::decide(&url, source) } else { nav_policy::decide_chromium(&url, source) };
+            match decision {
                 #[cfg(target_os = "macos")]
                 Decision::Allow if lockdown(&self.profile, &url) => {
                     if crate::page::within_burst(&tab.recent_popups, crate::page::POPUP_BURST) {
@@ -1838,6 +1849,7 @@ impl WebView {
             loading: Cell::new(false),
             found: RefCell::new(None),
             shell_load: RefCell::new(None),
+            opened_files: RefCell::default(),
             shell_chain: Cell::new(false),
             last_find: RefCell::new(String::new()),
             inspectable: Cell::new(false),
@@ -2265,8 +2277,20 @@ impl WebView {
         self
     }
 
+    /// Loads a URL that the caller has already passed through `nav_policy`; never a `file:` URL.
     pub fn load(&self, url: &Url) {
+        if url.scheme() == "file" {
+            return emit(&self.0.tab, Event::Blocked { url: url.clone(), message: nav_policy::FILE_NOT_OPENED.to_owned(), category: None });
+        }
         self.start(url, false);
+    }
+
+    /// Shows a file the user picked with Open File (`nav_policy::Source::FileOpen`).
+    pub fn load_file(&self, url: &Url) {
+        if url.scheme() == "file" {
+            self.0.tab.opened_files.borrow_mut().insert(url.clone());
+            self.start(url, false);
+        }
     }
 
     /// Makes this view one of an install's own pages (`tarn_ext::PageKind`): it loads only that
@@ -2574,8 +2598,13 @@ impl WebView {
 
     /// Reloads a page whose renderer ended; not the user's navigation, as a page can end its own renderer.
     pub fn recover(&self) {
-        if let Some(b) = self.browser() {
-            b.reload();
+        match self.url().filter(|u| self.0.tab.opened_files.borrow().contains(u)) {
+            Some(url) => self.load_file(&url),
+            None => {
+                if let Some(b) = self.browser() {
+                    b.reload();
+                }
+            }
         }
     }
 
