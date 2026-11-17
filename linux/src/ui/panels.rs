@@ -802,6 +802,8 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Bookmarks(folder) => super::library::bookmarks_panel(ui, folder),
             Panel::Group(id) => super::groups::group_panel(ui, id),
             Panel::Sidebar => sidebar_panel(ui),
+            Panel::Card(card) => super::profiles::card_panel(ui, card),
+            Panel::SpaceMenu(key) => super::profiles::space_menu(ui, key),
         };
         let panel = ui.panel.get_untracked();
         let (width, side) = match panel {

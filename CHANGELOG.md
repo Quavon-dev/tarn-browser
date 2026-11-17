@@ -33,6 +33,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   snapshots can be renamed, and a download can be removed from the list or its link copied (Linux).
 - Take Screenshot, a video's full screen that hides the toolbar and sidebar, full screen on F11
   and back and forward by a two-finger swipe over the page (Linux).
+- Profiles and spaces on Linux: Create and Edit Profile (name, colour, first space), Delete Profile
+  with its website data retired as on macOS, the profile switcher with colour dots and Manage
+  Profiles, the Settings › Profiles list with the Developer badge, the Edit Space card (icon,
+  colour, name), Delete Space…, the space context menu, and Alt+1 … Alt+9 to switch to space 1–9
+  (Linux).
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages

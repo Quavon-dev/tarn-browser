@@ -6,6 +6,7 @@ mod library;
 mod link_peek;
 mod panels;
 mod peek;
+mod profiles;
 mod settings;
 mod split;
 mod tools;
@@ -61,6 +62,7 @@ use crate::webview;
 const PLACEMENT: &str = "linux.window_placement";
 const SCHEDULE_TICK: std::time::Duration = std::time::Duration::from_secs(60);
 const SAMPLE_TICK: std::time::Duration = std::time::Duration::from_secs(5);
+const RETIRE_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
 const SUGGESTIONS: usize = 6;
 const PALETTE_WIDTH: f32 = 640.;
 const PALETTE_ROW: f32 = 40.;
@@ -107,6 +109,8 @@ pub enum Panel {
     Bookmarks(Option<store::Id>),
     Group(store::Id),
     Sidebar,
+    Card(profiles::Card),
+    SpaceMenu(crate::browser::profiles::SpaceKey),
 }
 
 #[derive(Clone, Copy)]
@@ -179,6 +183,9 @@ pub struct Ui {
     resizing: Signal<Option<browser_core::split::Divider>>,
     floating: Signal<peek::Floating>,
     hover_card: Signal<peek::HoverCard>,
+    form: Signal<profiles::Form>,
+    card_name: Signal<String>,
+    card_space: Signal<String>,
     root: Owner,
 }
 
@@ -216,6 +223,7 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
             ui.icons.with_untracked(|i| b.site_icons(i)),
             std::mem::take(&mut b.outbox),
             std::mem::take(&mut b.released),
+            std::mem::take(&mut b.retired),
             std::mem::take(&mut b.cancelled_downloads),
             std::mem::take(&mut b.kept_downloads),
             snap,
@@ -228,7 +236,7 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         }
         Some((done, regrouped))
     });
-    let Some(((icons, commands, released, cancelled, kept, snap, moved, forgotten, mode), regrouped)) = done else { return };
+    let Some(((icons, commands, released, retired, cancelled, kept, snap, moved, forgotten, mode), regrouped)) = done else { return };
     if let Some(mode) = mode
         && let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned())
     {
@@ -252,6 +260,9 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
             kept.iter().for_each(|(id, keep)| webview::session::keep(id, *keep));
         }));
     }
+    if !retired.is_empty() {
+        ui.root.run(|| drop(set_timeout(RETIRE_DELAY, || crate::data::wipe_retired(&crate::data::root(), &core().disk))));
+    }
     tools::expire_toast(ui);
     for (key, name, args) in commands {
         if let Some(r) = REFS.with_borrow(|refs| refs.get(&(ui.window, key)).map(|(_, r)| *r)) {
@@ -271,6 +282,12 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         if read(other, |b| shows(b) || forgotten.iter().any(|k| b.model.tab(*k).is_some() || b.pages.contains_key(k))) == Some(true) {
             act_dyn(other, &mut Browser::sync_shared, true);
         }
+    }
+}
+
+fn sync_others(ui: Ui) {
+    for other in WINDOWS.with_borrow(Vec::clone).into_iter().filter(|o| o.window != ui.window) {
+        act(other, Browser::sync_shared);
     }
 }
 
@@ -653,12 +670,12 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
 fn space_bar(ui: Ui) -> View {
     let spaces = each(
         move || ui.snap.with(|s| s.spaces.clone()),
-        |s| s.ix,
+        |s| (s.ix, s.icon.clone(), s.color.clone(), s.label.clone()),
         move |space, _| {
             let (ix, icon, name, private, color) = space.with_untracked(|s| (s.ix, s.icon.clone(), s.label.clone(), s.private, s.color.clone()));
             let source = if private { icons::PERSON } else { icons::space_icon(&icon) };
             let current = move || space.with(|s| s.current);
-            controls::row(name, move || {
+            let button = controls::row(name, move || {
                 animate_next(SLIDE);
                 act(ui, |b| b.switch_space_by_user(ix));
             })
@@ -674,7 +691,14 @@ fn space_bar(ui: Ui) -> View {
                 (true, false) => space_tint(&color, 1.).unwrap_or(Theme::text()),
                 (false, _) => space_tint(&color, 0.45).unwrap_or(Theme::faint()),
             })
-            .child(icons::icon(source, icon_size()))
+            .child(icons::icon(source, icon_size()));
+            view()
+                .on_context_menu(move |_: &ContextMenuEvent| {
+                    if let Some(Some(key)) = read(ui, |b| b.model.spaces.get(ix).map(|s| (s.private, s.space.id))) {
+                        show(ui, Panel::SpaceMenu(key));
+                    }
+                })
+                .child(button)
         },
     );
     view()
@@ -685,7 +709,7 @@ fn space_bar(ui: Ui) -> View {
         .px_1()
         .child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::Library)))
         .child(view().flex_row().flex_wrap().flex_1().items_center().justify_center().gap(px(2.)).child(spaces))
-        .child(icon_button(icons::PLUS, "New Space", move || act(ui, |b| b.new_space())))
+        .child(icon_button(icons::PLUS, "New Space", move || profiles::open_space_card(ui, None)))
         .child(icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings)))
 }
 
@@ -1890,7 +1914,7 @@ fn run_action(ui: Ui, action: Action) {
         Action::ShowHistory => show(ui, Panel::History),
         Action::ToggleDownloads => show(ui, Panel::Downloads),
         Action::ToggleSidebar => toggle_sidebar(ui),
-        Action::NewSpace => act(ui, |b| b.new_space()),
+        Action::NewSpace => profiles::open_space_card(ui, None),
         Action::PrivateSpace => act(ui, |b| b.private_space()),
         Action::Settings => show(ui, Panel::Settings),
         Action::NewWindow => new_window(ui),
@@ -1966,17 +1990,21 @@ fn bind_fixed(ui: Ui) {
     }
     for n in 1..=9usize {
         on_key(&format!("alt+{n}"), move |_| {
-            act(ui, |b| {
-                if n <= b.model.spaces.len() {
-                    b.switch_space_by_user(n - 1);
-                }
-            })
+            animate_next(SLIDE);
+            act(ui, |b| b.space_number(n));
         });
     }
 }
 
 fn core() -> Rc<Core<Data>> {
-    CORE.with_borrow_mut(|core| core.get_or_insert_with(|| Browser::open_core(&crate::data::root())).clone())
+    CORE.with_borrow_mut(|core| {
+        core.get_or_insert_with(|| {
+            let opened = Browser::open_core(&crate::data::root());
+            crate::data::wipe_retired(&crate::data::root(), &opened.disk);
+            opened
+        })
+        .clone()
+    })
 }
 
 fn shift_held() -> bool {
@@ -2143,6 +2171,9 @@ fn new_ui(row: SavedWindow) -> Ui {
         resizing: signal(None),
         floating: signal(Default::default()),
         hover_card: signal(Default::default()),
+        form: signal(profiles::Form::default()),
+        card_name: signal(String::new()),
+        card_space: signal(String::new()),
         root: Owner::current(),
     };
     let editing = std::cell::Cell::new(false);

@@ -228,6 +228,7 @@ fn shortcut_rows(ui: Ui) -> View {
         }
         out = out.child(small(name).pt_2()).child(grp);
     }
+    out = out.child(note("Fixed: Ctrl+1 … Ctrl+9 pick a tab, Ctrl+9 the last; Alt+1 … Alt+9 switch to space 1–9."));
     if !stored.is_empty() {
         out = out.child(view().flex_row().justify_end().child(pill("Reset All", move || {
             let result = read(ui, |b| shortcuts::reset(&b.core.disk, None)).unwrap_or(Ok(()));
@@ -681,18 +682,14 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 ))
         }
         Pane::Profiles => body
-            .child(
-                view()
-                    .flex_row()
-                    .gap_2()
-                    .pt_3()
-                    .child(pill("New Profile", move || act(ui, |b| b.new_profile())))
-                    .child(pill("Memory", move || super::show(ui, Panel::Memory)))
-                    .child(accent_pill("Open Private Space", move || {
-                        ui.panel.set(Panel::None);
-                        act(ui, |b| b.private_space());
-                    })),
-            )
+            .child(view().flex_row().gap_2().pt_3().child(pill("Memory", move || super::show(ui, Panel::Memory))).child(accent_pill(
+                "Open Private Space",
+                move || {
+                    ui.panel.set(Panel::None);
+                    act(ui, |b| b.private_space());
+                },
+            )))
+            .child(super::profiles::profiles_pane(ui))
             .child(section("Space Rules"))
             .child(rules(ui)),
         Pane::Permissions => body
