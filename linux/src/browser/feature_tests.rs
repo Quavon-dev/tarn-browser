@@ -488,3 +488,27 @@ fn a_burner_tab_neither_fetches_nor_keeps_site_icons() {
     assert!(!b.favicons.is_requested(&profile, "a.test", ticket));
     assert!(b.site_icons(&Default::default()).is_none_or(|icons| icons.find("a.test").is_none()));
 }
+
+#[test]
+fn save_pdf_names_the_file_after_the_page_and_print_asks_the_active_tab() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    b.outbox.clear();
+    b.print();
+    assert!(b.pdf_name().is_none() && asked(&b, "print").is_empty(), "the start page has nothing to print");
+    b.on_event(key, "committed", &json!({ "url": "https://news.example/a", "title": "Q3 / Q4 report" }));
+    b.on_event(key, "finished", &json!({ "url": "https://news.example/a", "title": "Q3 / Q4 report" }));
+    let url = "https://news.example/a".to_owned();
+    assert_eq!(b.pdf_name(), Some((key, url.clone(), "Q3 - Q4 report.pdf".to_owned())));
+    b.print();
+    assert_eq!(asked(&b, "print").len(), 1);
+    b.save_pdf(key, &url, std::path::Path::new("/d/Q3 - Q4 report.pdf"));
+    assert_eq!(asked(&b, "pdf"), [json!({ "path": "/d/Q3 - Q4 report.pdf" })]);
+    b.outbox.clear();
+    visit(&mut b, key, "https://news.example/b");
+    b.save_pdf(key, &url, std::path::Path::new("/d/x.pdf"));
+    assert!(asked(&b, "pdf").is_empty(), "a tab that moved on is not saved under the old page's name");
+    b.close_tab(key);
+    b.save_pdf(key, "https://news.example/b", std::path::Path::new("/d/x.pdf"));
+    assert!(asked(&b, "pdf").is_empty(), "a closed tab gets no command");
+}

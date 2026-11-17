@@ -20,6 +20,21 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
+### Save Page as PDF and Print… in the share menu (2026-11-17)
+
+What it does: the share menu saves the page as a PDF (listed in Downloads) and opens the print
+dialog.
+Shared API: `browser_core::text::capture_name` (the PDF's file name); web view operations `pdf`
+and `print` (`docs/shared-core.md` §1).
+macOS reference: `crates/app/src/share.rs`, `crates/app/src/capture.rs`, `crates/app/src/browser.rs` (`print`).
+
+- [x] Windows
+- [x] Linux
+- [ ] iOS — `print` and `pdf` in `mobile/ios` (`UIPrintInteractionController`, `WKWebView.createPDF`)
+  and the two entries in the share sheet of `mobile/app`
+- [ ] Android — `print` and `pdf` in `TarnWebView` (`PrintManager` with `createPrintDocumentAdapter`)
+  and the two entries in `mobile/app`
+
 ### Clean Up (2026-11-16)
 
 What it does: the Clean Up button in the New Tab row sorts the space's loose tabs into tab groups by what each page

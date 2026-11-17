@@ -17,7 +17,10 @@ Every shell's web view offers the same operations and reports the same events. T
 - `load`, `back`, `forward`, `reload`, `reload_from_origin`, `stop`;
 - frame, visibility, focus and raise: on NSH, layout and focus come from the shell;
 - `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted`;
-- `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`;
+- `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`; Linux has `print` (the GTK print
+  dialog) and `pdf` with the absolute `path` the user picked in the save dialog, printed there by
+  WebKitGTK and reported on the download route as a finished download; iOS and Android have
+  neither yet (`docs/port-backlog.md`);
 - isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
   and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
   has no isolated world and runs those scripts in the page world, so a shell must not send it

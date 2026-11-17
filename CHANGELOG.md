@@ -8,6 +8,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- The share menu has Save Page as PDF, through the save dialog and listed in Downloads (also a
+  command row), and Print… (Ctrl+P) (Linux). Linux desktops have no system share sheet, so it has
+  no More….
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages

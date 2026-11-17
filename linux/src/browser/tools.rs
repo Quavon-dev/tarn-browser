@@ -1,4 +1,8 @@
+use std::path::Path;
+
 use browser_core::now;
+use browser_core::tabs::TabKey;
+use serde_json::{Value, json};
 use store::{Bookmark, Counter, Id};
 use url::Url;
 
@@ -49,6 +53,25 @@ impl Browser {
             .and_then(|u| u.host_str().map(|h| browser_core::command::host_tail(h.trim_start_matches("www."), 40)))
             .unwrap_or_else(|| engine::view_policy::title(&url));
         Some((code, label))
+    }
+
+    pub fn pdf_name(&self) -> Option<(TabKey, String, String)> {
+        let (key, url) = (self.model.active?, self.active_url()?);
+        let title = self.active_page().map(|p| p.title.as_str()).unwrap_or_default();
+        let name = browser_core::text::capture_name(title, Url::parse(&url).ok().as_ref(), "pdf");
+        Some((key, url, name))
+    }
+
+    pub fn save_pdf(&mut self, key: TabKey, url: &str, path: &Path) {
+        if self.model.tab(key).is_some() && self.pages.get(&key).is_some_and(|p| p.url == url) {
+            self.outbox.push((key, "pdf", json!({ "path": path })));
+        }
+    }
+
+    pub fn print(&mut self) {
+        if self.active_url().is_some() {
+            self.command("print", Value::Null);
+        }
     }
 
     fn reading_list_folder(&self, bookmarks: &[Bookmark]) -> Option<Id> {

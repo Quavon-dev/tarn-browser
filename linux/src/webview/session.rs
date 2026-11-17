@@ -118,16 +118,31 @@ fn report(tab: &str, data: serde_json::Value) {
     }
 }
 
+fn next_id() -> String {
+    NEXT_DOWNLOAD.with(|n| {
+        n.set(n.get() + 1);
+        n.get().to_string()
+    })
+}
+
+pub fn report_saved(tab: &str, url: &str, path: &Path, saved: Result<(), String>) {
+    let (id, name) = (next_id(), path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+    report(
+        tab,
+        match saved {
+            Ok(()) => json!({ "id": id, "state": "finished", "name": name, "path": path, "url": url }),
+            Err(message) => json!({ "id": id, "state": "failed", "name": name, "message": message }),
+        },
+    );
+}
+
 pub fn track(download: &Download, sink: &dyn DownloadSink) {
     if !sink.admit_download(Instant::now()) {
         download.cancel();
         return;
     }
     download.set_allow_overwrite(false);
-    let id = NEXT_DOWNLOAD.with(|n| {
-        n.set(n.get() + 1);
-        n.get().to_string()
-    });
+    let id = next_id();
     DOWNLOADS.with_borrow_mut(|d| d.insert(id.clone(), download.clone()));
     let tab: Rc<str> = sink.tab().into();
     let sort = sink.sort_downloads();
