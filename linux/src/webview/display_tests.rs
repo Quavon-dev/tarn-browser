@@ -283,8 +283,6 @@ fn a_download_outlives_its_view_and_burned_store_and_cancels_by_id() {
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn a_download_from_a_malware_site_waits_unsaved_until_kept() {
     gtk::init().expect("a display");
-    list_malware(&["page.test"]);
-    assert!(filters::malware().is_some_and(|s| s.contains("page.test")));
     let route = RefCell::new(session::route());
     let reports: RefCell<Vec<JsonValue>> = RefCell::default();
     let all = || {
@@ -300,6 +298,8 @@ fn a_download_from_a_malware_site_waits_unsaved_until_kept() {
     *state.tab.borrow_mut() = "true-6".to_owned();
     VIEWS.with_borrow_mut(|views| views.push(Rc::downgrade(&state)));
     let web = open(&state);
+    list_malware(&["page.test"]);
+    assert!(filters::malware().is_some_and(|s| s.contains("page.test")));
     let url = slow_server(5);
     web.download_uri(&url);
     web.download_uri(&url);
