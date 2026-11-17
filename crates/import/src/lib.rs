@@ -285,8 +285,7 @@ fn keys((service, account): (&str, &str)) -> Result<crypto::Keys> {
 
 #[cfg(target_os = "linux")]
 fn keys((label, _): (&str, &str)) -> Result<crypto::Keys> {
-    let v11 = keyring::password(label).map(|secret| crypto::derive(&secret, crypto::LINUX_ROUNDS));
-    Ok(crypto::Keys { v10: crypto::derive(crypto::LINUX_V10_PASSWORD, crypto::LINUX_ROUNDS), v11 })
+    Ok(crypto::linux_keys(keyring::password(label)?.as_deref().map(Vec::as_slice)))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]

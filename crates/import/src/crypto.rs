@@ -26,6 +26,11 @@ pub(crate) fn derive(password: &[u8], rounds: u32) -> Key {
     key
 }
 
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn linux_keys(secret: Option<&[u8]>) -> Keys {
+    Keys { v10: derive(LINUX_V10_PASSWORD, LINUX_ROUNDS), v11: secret.map(|secret| derive(secret, LINUX_ROUNDS)) }
+}
+
 /// Decrypts a `v10` or `v11` value (AES-128-CBC, an IV of sixteen spaces, PKCS#7) with its tag's
 /// key. With `hashed`, the plaintext must start with the SHA-256 of `host`, which binds it to that
 /// host and is stripped. `None` for any other tag, a tag without a key, bad padding, a host
@@ -83,6 +88,16 @@ mod tests {
         // Python's hashlib.pbkdf2_hmac("sha1", b"peanuts", b"saltysalt", 1, 16).
         let expected = [0xfd, 0x62, 0x1f, 0xe5, 0xa2, 0xb4, 0x02, 0x53, 0x9d, 0xfa, 0x14, 0x7c, 0xa9, 0x27, 0x27, 0x78];
         assert_eq!(*derive(LINUX_V10_PASSWORD, LINUX_ROUNDS), expected);
+    }
+
+    #[test]
+    fn an_empty_keyring_secret_still_gives_a_v11_key() {
+        // Python's hashlib.pbkdf2_hmac("sha1", b"", b"saltysalt", 1, 16).
+        let expected = [0xd0, 0xd0, 0xec, 0x9c, 0x7d, 0x77, 0xd4, 0x3a, 0xc5, 0x41, 0x87, 0xfa, 0x48, 0x18, 0xd1, 0x7f];
+        let keys = linux_keys(Some(b""));
+        assert_eq!(keys.v11.as_deref(), Some(&expected));
+        assert_eq!(*keys.v10, *derive(LINUX_V10_PASSWORD, LINUX_ROUNDS));
+        assert!(linux_keys(None).v11.is_none(), "no keyring item, no v11 key");
     }
 
     #[test]
