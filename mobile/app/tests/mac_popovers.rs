@@ -48,7 +48,7 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
     let levels = bounds(&app, "site-levels");
     assert!((levels.size.width.0 - (card.size.width.0 - 26.)).abs() < 1., "the Shield levels span the card like the rows below: {levels:?} {card:?}");
     let last = bounds_of(&app, "label:Lockdown");
-    assert!(levels.origin.x.0 + levels.size.width.0 - (last.origin.x.0 + last.size.width.0) < 3., "the segments fill their track: {levels:?} {last:?}");
+    assert!((levels.origin.x.0 + levels.size.width.0 - (last.origin.x.0 + last.size.width.0)).abs() < 3., "the segments fill their track: {levels:?} {last:?}");
     assert!((card.origin.y.0 - (chip.origin.y.0 + chip.size.height.0 + 4.)).abs() < 0.5, "4 pt under the chip: {chip:?} {card:?}");
     let centre = |b: Bounds<Points>| b.origin.x.0 + b.size.width.0 / 2.;
     assert!((centre(card) - centre(chip)).abs() < 0.5 || card.origin.x.0 <= 8.5, "centred under the chip: {chip:?} {card:?}");
