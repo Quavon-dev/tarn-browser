@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use engine::nav_policy::{PopupRule, Site};
 use engine::request_filter::Shield;
+use shield::bundle::{Kind, VerifiedBundle};
 use shield::domains::DomainSet;
 use shield::matcher::Matcher;
 use shield::{Category, ShieldLevel};
@@ -27,6 +28,14 @@ pub struct Sets {
 }
 
 impl Sets {
+    /// Domain sets of `categories`; a set that fails its own checks is left out.
+    pub fn from_bundle(bundle: &VerifiedBundle, categories: &[Category]) -> Self {
+        let load = |c: Category| {
+            categories.contains(&c).then(|| bundle.of(c.as_str(), Kind::Set).next().and_then(|l| DomainSet::from_bytes(&l.data)).map(Arc::new)).flatten()
+        };
+        Sets { malware: load(Category::Malware), adult: load(Category::Adult), popups: load(Category::Popups) }
+    }
+
     /// The most severe category naming `host`; `excepted` skips only the malware set, so a malware
     /// exception never lifts an adult or pop-up block.
     pub fn lookup(&self, host: &str, excepted: bool) -> Option<Category> {
@@ -129,6 +138,25 @@ mod tests {
     fn sets() -> RefCell<Sets> {
         let set = |d: &str| DomainSet::from_bytes(&DomainSet::encode([d])).map(Arc::new);
         RefCell::new(Sets { malware: set("evil.example"), adult: set("adult.example"), popups: set("pop.example") })
+    }
+
+    #[test]
+    fn only_switched_on_sets_load_from_a_bundle() {
+        use shield::bundle::VerifiedList;
+        let list = |category: &str, data: Vec<u8>| VerifiedList { name: format!("{category}.x"), category: category.into(), kind: Kind::Set, count: 1, data };
+        let set = DomainSet::encode(["evil.example"]);
+        let bundle = VerifiedBundle {
+            version: 1,
+            created: String::new(),
+            lists: vec![list("malware", set.clone()), list("adult", set), list("popups", b"not a set".to_vec())],
+        };
+        let malware = Sets::from_bundle(&bundle, &[Category::Malware]);
+        assert!(malware.malware.as_ref().is_some_and(|s| s.contains("evil.example")) && malware.adult.is_none() && malware.popups.is_none());
+        let all = Sets::from_bundle(&bundle, &[Category::Malware, Category::Adult, Category::Popups]);
+        assert!(all.adult.is_some() && all.popups.is_none(), "a set that fails its checks is left out");
+        let site = |u: &str| site(ShieldLevel::Standard, &SiteRules::default(), &RefCell::new(malware.clone()), &Url::parse(u).unwrap());
+        let urls = ["https://ok.example/f.zip", "https://evil.example./page"].map(|u| Url::parse(u).ok());
+        assert_eq!(engine::downloads::flagged_source(urls, |u| site(u.as_str())).map(|u| u.to_string()), Some("https://evil.example./page".to_owned()));
     }
 
     #[test]

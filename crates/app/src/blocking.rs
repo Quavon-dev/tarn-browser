@@ -1,7 +1,7 @@
 //! Ad, tracker, cookie-banner, malware, adult-content and pop-up blocking: the switches, the per-site
 //! choices and the verdict the navigation gate asks for on every navigation.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use engine::nav_policy::PopupRule;
 use engine::{DataStore, FilterLists};
@@ -18,13 +18,7 @@ use crate::prefs::Pref;
 use crate::shared::AppCore;
 pub(crate) use browser_core::site::{POPUPS, Sets, SiteRules, popup_origin, site_host};
 
-/// "Visit Anyway", a notice's offer, "Open" in another app and a permission prompt's Allow ignore
-/// clicks this long after any of them appears or moves, so a page cannot time a click to land on them.
-pub(crate) const BYPASS_DELAY: Duration = Duration::from_millis(700);
-
-pub(crate) fn stable(since: Instant, now: Instant) -> bool {
-    now.saturating_duration_since(since) >= BYPASS_DELAY
-}
+pub(crate) use browser_core::prompts::stable;
 
 /// Rule-list groups: the switch that turns each on, and whether pausing a site turns it off.
 pub const GROUPS: [(&str, Pref, bool); 6] = [
@@ -415,13 +409,4 @@ pub fn render_blocked(page: &BlockedPage, cx: &mut Context<Browser>) -> gpui::An
                 .when(malware, |d| d.child(secure_button("blocked-visit", "Visit Anyway", false).on_click(cx.listener(|b, _, w, cx| b.visit_anyway(w, cx))))),
         );
     div().flex_1().flex().flex_col().items_center().pt(gpui::relative(0.18)).px_4().child(card).into_any_element()
-}
-
-#[test]
-fn guarded_clicks_wait_for_a_stable_layout() {
-    let since = Instant::now();
-    assert!(!stable(since, since));
-    assert!(!stable(since, since + BYPASS_DELAY - Duration::from_millis(1)));
-    assert!(stable(since, since + BYPASS_DELAY));
-    assert!(!stable(since + BYPASS_DELAY, since), "a change after `now` is not stable");
 }

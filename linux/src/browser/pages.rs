@@ -254,9 +254,17 @@ impl Browser {
         if state == "progress" {
             if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
                 item.done = data["done"].as_u64().unwrap_or(item.done);
+                if item.total.is_none() && data["total"].as_u64().is_some() {
+                    self.downloads_moved = std::time::Instant::now();
+                }
                 item.total = data["total"].as_u64().or(item.total);
             }
             return known;
+        }
+        self.settle_downloads();
+        let state_is_flagged = state == "flagged";
+        if state_is_flagged && known {
+            self.show_toast_as(browser_core::toast::Tone::Warning, engine::downloads::flagged_notice(&text("name"), &text("host")), None);
         }
         let previous = self.downloads.iter().position(|d| !id.is_empty() && d.id == id);
         let old = previous.map(|ix| self.downloads.remove(ix));
@@ -265,7 +273,7 @@ impl Browser {
             name: Some(text("name")).filter(|n| !n.is_empty()).or_else(|| old.as_ref().map(|o| o.name.clone())).unwrap_or_default(),
             path: Some(text("path")).filter(|p| !p.is_empty()).or_else(|| old.as_ref().map(|o| o.path.clone())).unwrap_or_default(),
             state,
-            message: text("message"),
+            message: if state_is_flagged { engine::downloads::flagged_note(&text("host")) } else { text("message") },
             done: old.as_ref().map_or(0, |o| o.done),
             total: old.as_ref().and_then(|o| o.total),
         };
@@ -282,5 +290,30 @@ impl Browser {
 
     pub fn cancel_download(&mut self, id: &str) {
         self.cancelled_downloads.push(id.to_owned());
+    }
+
+    pub fn keep_download(&mut self, id: &str, keep: bool) {
+        if keep && !browser_core::prompts::stable(self.downloads_moved, std::time::Instant::now()) {
+            return;
+        }
+        self.kept_downloads.push((id.to_owned(), keep));
+        match self.downloads.iter_mut().find(|d| d.id == id) {
+            Some(item) if keep => {
+                item.state = "started".to_owned();
+                item.message.clear();
+                self.settle_downloads();
+            }
+            _ => self.forget_download(id),
+        }
+    }
+
+    pub fn settle_downloads(&mut self) {
+        self.downloads_moved = std::time::Instant::now();
+    }
+
+    pub fn forget_download(&mut self, id: &str) {
+        self.settle_downloads();
+        self.downloads.retain(|d| d.id != id);
+        self.download_owners.remove(id);
     }
 }

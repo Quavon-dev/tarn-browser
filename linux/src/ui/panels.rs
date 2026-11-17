@@ -307,10 +307,25 @@ fn downloads_panel(ui: Ui) -> AnyElement {
                 (true, None) => crate::memory::size(d.done),
                 _ => capitalised(&d.state),
             };
-            let note = if d.message.is_empty() { state } else { format!("{state} · {}", d.message) };
+            let flagged = d.state == "flagged";
+            let note = match (flagged, d.message.is_empty()) {
+                (true, _) => d.message.clone(),
+                (false, true) => state,
+                (false, false) => format!("{state} · {}", d.message),
+            };
             let id = d.id.clone();
+            let (keep, delete) = (id.clone(), id.clone());
             let row = download_row(d.name.clone(), note, !running)
-                .children(running.then(|| icon_button(icons::CLOSE, "Cancel Download", move || act(ui, |b| b.cancel_download(&id)))));
+                .children(running.then(|| icon_button(icons::CLOSE, "Cancel Download", move || act(ui, |b| b.cancel_download(&id)))))
+                .children(flagged.then(|| pill("Keep", move || act(ui, |b| b.keep_download(&keep, true)))))
+                .children(flagged.then(|| {
+                    pill("Delete", move || {
+                        act(ui, |b| b.keep_download(&delete, false));
+                        for other in super::WINDOWS.with_borrow(Vec::clone).into_iter().filter(|o| o.window != ui.window) {
+                            act(other, |b| b.forget_download(&delete));
+                        }
+                    })
+                }));
             let bar = d.total.filter(|t| running && *t > 0).map(|total| progress(d.done, total));
             view().flex_col().child(row).children(bar).into_element()
         })

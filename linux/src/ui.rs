@@ -175,17 +175,22 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         let moved = b.model.active.filter(|k| b.elsewhere.contains(k));
         let forgotten = std::mem::take(&mut b.forgotten);
         let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key));
+        let snap = snapshot::snapshot(b, shown);
+        if ui.snap.with_untracked(|s| s.notice != snap.notice || s.prompt != snap.prompt || s.error != snap.error) {
+            b.settle_downloads();
+        }
         Some((
             ui.icons.with_untracked(|i| b.site_icons(i)),
             std::mem::take(&mut b.outbox),
             std::mem::take(&mut b.released),
             std::mem::take(&mut b.cancelled_downloads),
-            snapshot::snapshot(b, shown),
+            std::mem::take(&mut b.kept_downloads),
+            snap,
             moved,
             forgotten,
         ))
     });
-    let Some((icons, commands, released, cancelled, snap, moved, forgotten)) = done else { return };
+    let Some((icons, commands, released, cancelled, kept, snap, moved, forgotten)) = done else { return };
     let rebuild = rebuild
         || ui.snap.with_untracked(|s| *s != snap)
         || match ui.panel.get_untracked() {
@@ -197,10 +202,11 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
     if let Some(icons) = icons {
         ui.icons.set(icons);
     }
-    if !(released.is_empty() && cancelled.is_empty()) {
+    if !(released.is_empty() && cancelled.is_empty() && kept.is_empty()) {
         drop(run_on_main_thread(move || {
             released.iter().for_each(webview::session::release);
             cancelled.iter().for_each(|id| webview::session::cancel(id));
+            kept.iter().for_each(|(id, keep)| webview::session::keep(id, *keep));
         }));
     }
     tools::expire_toast(ui);
@@ -241,7 +247,11 @@ pub fn show(ui: Ui, panel: Panel) {
     ui.rename.set(String::new());
     ui.rename_for.set(String::new());
     ui.panel.set(next);
-    act(ui, |_| {});
+    act(ui, move |b| {
+        if next == Panel::Downloads {
+            b.settle_downloads();
+        }
+    });
 }
 
 fn tab_menu(ui: Ui, key: TabKey) {
@@ -1898,7 +1908,10 @@ fn browser_window(ui: Ui) -> AnyElement {
     keep_placement(ui, here.clone());
     here.on_focus_change(move |focused| {
         if focused {
-            act(ui, Browser::sync_shared);
+            act(ui, |b| {
+                b.sync_shared();
+                b.settle_downloads();
+            });
         }
     });
     let closing = here.clone();

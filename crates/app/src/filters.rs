@@ -12,9 +12,8 @@ use futures::channel::oneshot;
 use gpui::{App, AsyncApp, Task};
 use shield::bundle::{self, BundleError, FILTER_BUNDLE_URL, Kind, MANIFEST, MAX_MANIFEST_BYTES, Manifest, SIGNATURE, VerifiedBundle};
 use shield::cache::{self, State, Stored};
-use shield::domains::DomainSet;
 use shield::groups::{GROUPS, Inputs, hex, public_key};
-use shield::{Category, lists, rules, youtube};
+use shield::{lists, rules, youtube};
 use ureq::tls::{RootCerts, TlsConfig};
 
 use crate::blocking::Sets;
@@ -116,14 +115,6 @@ fn download(base: &str, public_key: &[u8; 32], last: Option<u64>, now: u64) -> R
     Ok(Some(Update { manifest, signature, bundle }))
 }
 
-/// Domain sets of `categories`; a set that fails its own checks is left out.
-fn sets(bundle: &VerifiedBundle, categories: &[Category]) -> Sets {
-    let load = |c: Category| {
-        categories.contains(&c).then(|| bundle.of(c.as_str(), Kind::Set).next().and_then(|l| DomainSet::from_bytes(&l.data)).map(Arc::new)).flatten()
-    };
-    Sets { malware: load(Category::Malware), adult: load(Category::Adult), popups: load(Category::Popups) }
-}
-
 fn counts(bundle: &VerifiedBundle) -> BTreeMap<String, u64> {
     let mut counts = BTreeMap::new();
     for list in bundle.lists.iter().filter(|l| matches!(l.kind, Kind::Filters | Kind::Set)) {
@@ -176,7 +167,7 @@ async fn install(core: &AppCore, state: &mut State, bundle: VerifiedBundle, cx: 
             let keys: Vec<String> = GROUPS.iter().map(|g| inputs.key(g)).collect();
             let config = bundle.of("youtube", Kind::Config).next().and_then(|l| youtube::parse(&l.data)).unwrap_or_default();
             let revocations = bundle.of(shield::revocations::CATEGORY, Kind::Config).next().and_then(|l| shield::revocations::parse(&l.data));
-            (Arc::new(inputs), keys, sets(&bundle, &categories), config, counts(&bundle), bundle.created, revocations)
+            (Arc::new(inputs), keys, Sets::from_bundle(&bundle, &categories), config, counts(&bundle), bundle.created, revocations)
         })
         .await;
     core.set_youtube_config(&config);
@@ -293,7 +284,7 @@ pub fn reload_sets(core: Rc<AppCore>, cx: &mut App) {
     cx.spawn(async move |cx| {
         let categories = core.set_categories();
         let Ok(bundle) = read_cached(&dir, cx).await else { return };
-        let sets = cx.background_executor().spawn(async move { sets(&bundle, &categories) }).await;
+        let sets = cx.background_executor().spawn(async move { Sets::from_bundle(&bundle, &categories) }).await;
         cx.update(|cx| crate::blocking::set_sets(sets, cx)).ok();
     })
     .detach();
@@ -322,7 +313,9 @@ async fn update(core: &AppCore, dir: &Path, state: &mut State, installed: bool, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shield::Category;
     use shield::bundle::VerifiedList;
+    use shield::domains::DomainSet;
 
     fn list(category: &str, kind: Kind, data: &[u8]) -> VerifiedList {
         VerifiedList { name: format!("{category}.x"), category: category.into(), kind, count: 2, data: data.to_vec() }
@@ -356,7 +349,7 @@ mod tests {
     #[test]
     fn only_switched_on_sets_load_and_counts_add_up() {
         let b = bundle();
-        let loaded = sets(&b, &[Category::Malware]);
+        let loaded = Sets::from_bundle(&b, &[Category::Malware]);
         assert!(loaded.malware.as_ref().is_some_and(|s| s.contains("evil.example")) && loaded.adult.is_none() && loaded.popups.is_none());
         assert_eq!(
             counts(&b),

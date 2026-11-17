@@ -213,6 +213,53 @@ fn a_download_outlives_its_view_and_burned_store_and_cancels_by_id() {
 
 #[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_download_from_a_malware_site_waits_unsaved_until_kept() {
+    gtk::init().expect("a display");
+    let set = shield::domains::DomainSet::from_bytes(&shield::domains::DomainSet::encode(["page.test"])).map(std::sync::Arc::new);
+    assert!(set.as_ref().is_some_and(|s| s.contains("page.test")));
+    filters::MALWARE.with_borrow_mut(|m| *m = set);
+    let route = RefCell::new(session::route());
+    let reports: RefCell<Vec<JsonValue>> = RefCell::default();
+    let all = || {
+        while let Ok((_, data)) = route.borrow_mut().try_recv() {
+            reports.borrow_mut().push(data);
+        }
+        reports.borrow().clone()
+    };
+    let states = |id: &str| all().iter().filter(|d| d["id"] == id).map(|d| d["state"].as_str().unwrap_or_default().to_owned()).collect::<Vec<_>>();
+    let flagged = || all().into_iter().filter(|d| d["state"] == "flagged").collect::<Vec<_>>();
+    let state = view(ShieldLevel::Standard, "private:display-flagged");
+    *state.lists.borrow_mut() = vec!["malware".to_owned()];
+    *state.tab.borrow_mut() = "true-6".to_owned();
+    VIEWS.with_borrow_mut(|views| views.push(Rc::downgrade(&state)));
+    let web = open(&state);
+    let url = slow_server(5);
+    web.download_uri(&url);
+    web.download_uri(&url);
+    assert!(spin_until(|| flagged().len() == 2, 20), "{:?}", reports.borrow());
+    let held = flagged();
+    assert!(held.iter().all(|d| d["host"] == "page.test" && d["name"] == "big.zip"), "{held:?}");
+    let (kept, declined) = (held[0]["id"].as_str().unwrap().to_owned(), held[1]["id"].as_str().unwrap().to_owned());
+    spin_until(|| false, 2);
+    let saved = || std::fs::read_dir(session::downloads_dir()).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(saved(), 0, "nothing is written before the user keeps it");
+    session::keep(&kept, true);
+    session::keep(&declined, false);
+    assert!(spin_until(|| states(&kept).last().is_some_and(|s| s == "finished"), 30), "{:?}", reports.borrow());
+    spin_until(|| false, 1);
+    assert_eq!(states(&declined), ["started", "flagged"], "a declined download ends without a failure");
+    let done = all().into_iter().rev().find(|d| d["id"] == kept.as_str()).unwrap();
+    assert_eq!(std::fs::metadata(done["path"].as_str().unwrap()).unwrap().len(), 5 * 1024);
+    assert_eq!(saved(), 1, "only the kept file is on disk");
+    assert!(session::DOWNLOADS.with_borrow(HashMap::is_empty));
+    state.lists.borrow_mut().clear();
+    web.download_uri(&url);
+    assert!(spin_until(|| all().iter().any(|d| d["state"] == "finished" && d["id"] != kept.as_str()), 30), "{:?}", reports.borrow());
+    assert_eq!(flagged().len(), 2, "with the malware switch off nothing is flagged");
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn the_page_joins_the_window_only_once_its_area_has_a_size() {
     gtk::init().expect("a display");
     let state = Rc::new(State { container: Some(gtk::Box::new(gtk::Orientation::Vertical, 0)), ..State::default() });

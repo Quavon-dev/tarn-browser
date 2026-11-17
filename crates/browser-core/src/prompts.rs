@@ -1,6 +1,17 @@
 //! A web view's `prompt` event and what the shell may remember of its answer.
 
+use std::time::{Duration, Instant};
+
 use serde_json::{Value, json};
+
+/// "Visit Anyway", Keep on a flagged download, a notice's offer, "Open" in another app and a
+/// permission prompt's Allow ignore clicks this long after any of them appears or moves, so a page
+/// cannot time a click to land on them.
+pub const BYPASS_DELAY: Duration = Duration::from_millis(700);
+
+pub fn stable(since: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(since) >= BYPASS_DELAY
+}
 
 /// Permission kinds a profile can remember per origin.
 pub const PERMISSIONS: [&str; 3] = ["camera", "microphone", "location"];
@@ -85,6 +96,15 @@ impl Prompt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guarded_clicks_wait_for_a_stable_layout() {
+        let since = Instant::now();
+        assert!(!stable(since, since));
+        assert!(!stable(since, since + BYPASS_DELAY - Duration::from_millis(1)));
+        assert!(stable(since, since + BYPASS_DELAY));
+        assert!(!stable(since + BYPASS_DELAY, since), "a change after `now` is not stable");
+    }
 
     fn prompt(data: Value) -> Prompt {
         Prompt::from_event(&data).unwrap()

@@ -3,12 +3,16 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use engine::downloads::{folder_for, sanitize_filename, sorted_dir, unique_path};
+use browser_core::site::{Sets, SiteRules};
+use engine::downloads::{flagged_source, folder_for, sanitize_filename, sorted_dir, unique_path};
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use serde_json::json;
+use shield::ShieldLevel;
+use shield::domains::DomainSet;
+use url::Url;
 use webkit6::glib;
 use webkit6::{CookiePersistentStorage, Download, NetworkSession, TLSErrorsPolicy, WebsiteDataTypes, gio};
 
@@ -22,14 +26,47 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(500);
 
 thread_local! {
     static SESSIONS: RefCell<HashMap<StoreKey, NetworkSession>> = RefCell::default();
-    pub(super) static DOWNLOADS: RefCell<HashMap<String, Download>> = RefCell::default();
+    pub(super) static DOWNLOADS: RefCell<HashMap<String, Tracked>> = RefCell::default();
     static NEXT_DOWNLOAD: Cell<u64> = const { Cell::new(0) };
 }
 
+pub(super) struct Tracked {
+    download: Download,
+    reported: Rc<Cell<bool>>,
+    held: Option<Held>,
+}
+
+struct Held {
+    suggested: String,
+    tab: Rc<str>,
+    sort: bool,
+}
+
 pub fn cancel(id: &str) {
-    if let Some(download) = DOWNLOADS.with_borrow_mut(|d| d.remove(id)) {
-        download.cancel();
+    if let Some(tracked) = DOWNLOADS.with_borrow_mut(|d| d.remove(id)) {
+        tracked.download.cancel();
     }
+}
+
+pub fn keep(id: &str, keep: bool) {
+    let held = DOWNLOADS.with_borrow_mut(|d| {
+        let tracked = d.get_mut(id)?;
+        if !keep {
+            tracked.reported.set(true);
+            return d.remove(id).map(|t| (t.download, None));
+        }
+        tracked.held.take().map(|h| (tracked.download.clone(), Some(h)))
+    });
+    match held {
+        Some((download, Some(held))) => place(&download, id, &held.tab, &held.suggested, held.sort),
+        Some((download, None)) => download.cancel(),
+        None => {}
+    }
+}
+
+fn flagged(malware: Option<Arc<DomainSet>>, urls: [Option<Url>; 3]) -> Option<Url> {
+    let sets = RefCell::new(Sets { malware: Some(malware?), ..Sets::default() });
+    flagged_source(urls, |u| browser_core::site::site(ShieldLevel::Standard, &SiteRules::default(), &sets, u))
 }
 
 pub fn release(key: &StoreKey) {
@@ -104,6 +141,24 @@ pub trait DownloadSink {
     fn tab(&self) -> String;
     fn admit_download(&self, now: Instant) -> bool;
     fn sort_downloads(&self) -> bool;
+    fn page(&self) -> Option<Url>;
+    fn malware(&self) -> Option<Arc<DomainSet>>;
+}
+
+fn place(download: &Download, id: &str, tab: &str, suggested: &str, sort: bool) {
+    let dir = downloads_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        report(tab, json!({ "id": id, "state": "failed", "name": suggested, "message": e.to_string() }));
+        if let Some(tracked) = DOWNLOADS.with_borrow_mut(|d| d.remove(id)) {
+            tracked.reported.set(true);
+        }
+        download.cancel();
+        return;
+    }
+    let path = destination(&dir, suggested, sort);
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    download.set_destination(&path.to_string_lossy());
+    report(tab, json!({ "id": id, "state": "started", "name": name, "path": path, "pausable": false }));
 }
 
 pub fn route() -> UnboundedReceiver<(String, serde_json::Value)> {
@@ -128,26 +183,25 @@ pub fn track(download: &Download, sink: &dyn DownloadSink) {
         n.set(n.get() + 1);
         n.get().to_string()
     });
-    DOWNLOADS.with_borrow_mut(|d| d.insert(id.clone(), download.clone()));
+    let reported = Rc::new(Cell::new(false));
+    DOWNLOADS.with_borrow_mut(|d| d.insert(id.clone(), Tracked { download: download.clone(), reported: reported.clone(), held: None }));
     let tab: Rc<str> = sink.tab().into();
     let sort = sink.sort_downloads();
+    let (page, malware) = (sink.page(), sink.malware());
     let (named, named_id) = (tab.clone(), id.clone());
-    let reported = Rc::new(Cell::new(false));
-    let unplaced = reported.clone();
     download.connect_decide_destination(move |download, suggested| {
         let id = &named_id;
-        let dir = downloads_dir();
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            report(&named, json!({ "id": id, "state": "failed", "name": suggested, "message": e.to_string() }));
-            DOWNLOADS.with_borrow_mut(|d| d.remove(id));
-            unplaced.set(true);
-            download.cancel();
+        let uri = |u: Option<glib::GString>| u.and_then(|u| Url::parse(&u).ok());
+        let urls = [uri(download.request().and_then(|r| r.uri())), uri(download.response().and_then(|r| r.uri())), page.clone()];
+        let Some(from) = flagged(malware.clone(), urls) else {
+            place(download, id, &named, suggested, sort);
             return true;
-        }
-        let path = destination(&dir, suggested, sort);
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        download.set_destination(&path.to_string_lossy());
-        report(&named, json!({ "id": id, "state": "started", "name": name, "path": path, "pausable": false }));
+        };
+        let name = sanitize_filename(suggested);
+        let held = Held { suggested: suggested.to_owned(), tab: named.clone(), sort };
+        DOWNLOADS.with_borrow_mut(|d| d.get_mut(id).map(|t| t.held = Some(held)));
+        report(&named, json!({ "id": id, "state": "started", "name": name, "pausable": false }));
+        report(&named, json!({ "id": id, "state": "flagged", "name": name, "host": from.host_str().unwrap_or_default() }));
         true
     });
     let (progress, progress_id) = (tab.clone(), id.clone());

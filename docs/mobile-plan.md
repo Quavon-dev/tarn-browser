@@ -181,8 +181,12 @@ v3 platform differences:
   its default ports (`https://host`, `http://host`), not `host:8080`;
 - `pausable`: iOS (`WKDownload` resume data) yes; Linux no (WebKitGTK has no pause, only cancel); Android only
   for downloads the component makes itself, `false` for anything handed to the system's download manager;
-- `flagged` needs the malware domain set, which none of the three has until a filter bundle is published;
-  until then no download is flagged. iOS holds a flagged download's destination until `downloadKeep`; Android
+- `flagged` needs the malware domain set. Linux reads it from the installed filter bundle
+  (`browser_core::site::Sets::from_bundle`) and holds the download's destination until
+  `downloadKeep`, then sends `started` again with its `path`; iOS and Android do not download the
+  filter bundle yet, so they flag nothing. On every client the shell ignores Keep until its rows
+  have not moved for `browser_core::prompts::BYPASS_DELAY` (restarted when the downloads list
+  opens). iOS holds a flagged download's destination until `downloadKeep`; Android
   does not emit `flagged` (its transfers check Shield before each request instead);
 - `shielded`: iOS and Android report `https_upgrade` (a main-frame load upgraded at Strict) and
   `local_network` (a page refused by the private-network rule); both report `popup` with the opener's URL
