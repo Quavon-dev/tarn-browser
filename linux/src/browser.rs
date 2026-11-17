@@ -37,6 +37,8 @@ pub struct Page {
     pub url: String,
     pub link: bool,
     pub file: bool,
+    /// The file this tab opened with Open File: a slept tab loads it again as Open File (S6).
+    pub opened_file: Option<String>,
     pub title: String,
     pub can_back: bool,
     pub can_forward: bool,
@@ -91,9 +93,6 @@ pub struct Browser {
     pub core: Rc<Core<Data>>,
     pub model: Model,
     pub pages: HashMap<TabKey, Page>,
-    /// Files the user opened with Open File this session: a slept or rebuilt tab loads them again
-    /// as Open File (S6).
-    opened_files: HashSet<String>,
     pub outbox: Vec<(TabKey, &'static str, Value)>,
     pub notice: Option<Notice>,
     pub downloads: Vec<DownloadItem>,
@@ -159,7 +158,6 @@ impl Browser {
             core,
             model,
             pages: HashMap::new(),
-            opened_files: HashSet::new(),
             outbox: Vec::new(),
             notice: None,
             downloads: Vec::new(),
@@ -312,8 +310,10 @@ impl Browser {
 
     /// Shows a file the user picked in a new tab; only Open File reaches `file:` URLs (S6).
     pub fn open_file(&mut self, url: &Url) {
-        self.opened_files.insert(url.to_string());
-        self.new_tab(url.as_str());
+        let Some(key) = self.new_tab(url.as_str()) else { return };
+        let page = self.pages.entry(key).or_default();
+        page.opened_file = Some(url.to_string());
+        page.file = true;
     }
 
     pub fn level_for(&self, key: TabKey, url: &str) -> ShieldLevel {
@@ -328,7 +328,7 @@ impl Browser {
         let page = self.pages.entry(key).or_default();
         page.load = Some((url.to_owned(), seq));
         page.link = false;
-        page.file = self.opened_files.contains(url);
+        page.file = page.opened_file.as_deref() == Some(url);
         page.loading = true;
         page.level = level;
         page.error = None;

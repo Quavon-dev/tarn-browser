@@ -94,7 +94,7 @@ pub(crate) struct DelegateState {
     /// The second field marks a link the page chose (a peek), which is not the user's navigation.
     pub shell_load: RefCell<Option<(Url, bool)>>,
     /// Files this view showed through `load_file`; only they get Open File's credit (S6).
-    pub opened_files: RefCell<Vec<Url>>,
+    pub opened_files: RefCell<std::collections::HashSet<Url>>,
     /// Whether the main-frame navigation in flight was started by the main frame or the shell;
     /// a download response for one started by an iframe is cancelled.
     pub main_initiated: Cell<bool>,

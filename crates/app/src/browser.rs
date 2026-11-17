@@ -619,9 +619,15 @@ impl Browser {
         if self.command_mode.is_some() {
             self.close_command(window, cx);
         }
-        let before = self.model.active;
-        self.new_tab(&url, window, cx);
-        let Some(key) = self.model.active.filter(|k| Some(*k) != before || self.model.burner_shown()) else { return };
+        // A burner keeps its one tab, which shows the file in place of its page.
+        let key = if self.model.burner_shown() {
+            self.model.active
+        } else {
+            let before = self.model.active;
+            self.new_tab(&url, window, cx);
+            self.model.active.filter(|k| Some(*k) != before)
+        };
+        let Some(key) = key else { return };
         self.pages.entry(key).or_default().opened_file = Some(url.clone());
         if let Some(view) = self.active_view() {
             view.load_file(&url);
@@ -1094,12 +1100,15 @@ impl Browser {
             let saved = self.store(key.private).interaction_state(key.id).ok().flatten();
             // Windows saves Tarn's own format; anything else loads the tab's page instead.
             let ours = |state: &&[u8]| !cfg!(windows) || engine::view_policy::SavedHistory::from_bytes(state).is_some();
-            match saved.as_deref().filter(|state| restorable && !view.is_chromium() && ours(state)) {
+            let url = Url::parse(&tab.url).ok();
+            // A restored history is never an Open File (S6), so an opened file loads afresh.
+            let opened = url.is_some() && self.pages.get(&key).and_then(|p| p.opened_file.as_ref()) == url.as_ref();
+            match saved.as_deref().filter(|state| !opened && restorable && !view.is_chromium() && ours(state)) {
                 Some(state) => view.restore_interaction_state(state),
                 None => {
-                    if let Ok(url) = Url::parse(&tab.url) {
+                    if let Some(url) = url {
                         match &as_link {
-                            _ if self.pages.get(&key).and_then(|p| p.opened_file.as_ref()) == Some(&url) => view.load_file(&url),
+                            _ if opened => view.load_file(&url),
                             _ if nav_policy::decide(&url, Source::Sync) != Decision::Allow => {}
                             Some(from) => view.load_link(&url, from.as_ref()),
                             None => view.load(&url),

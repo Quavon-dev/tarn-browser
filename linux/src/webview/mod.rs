@@ -61,7 +61,7 @@ struct State {
     loaded_seq: Cell<Option<u64>>,
     shell_url: RefCell<Option<String>>,
     shell_file: Cell<bool>,
-    opened_files: RefCell<Vec<String>>,
+    opened_files: RefCell<std::collections::HashSet<String>>,
     link_url: RefCell<Option<String>>,
     load_link: Cell<bool>,
     load_file: Cell<bool>,
@@ -343,7 +343,7 @@ fn load(state: &Rc<State>, current: Option<String>) {
     *state.shell_url.borrow_mut() = Some(url.to_string());
     state.shell_file.set(file);
     if file && url.scheme() == "file" {
-        state.opened_files.borrow_mut().push(url.to_string());
+        state.opened_files.borrow_mut().insert(url.to_string());
     }
     web.load_uri(url.as_str());
 }

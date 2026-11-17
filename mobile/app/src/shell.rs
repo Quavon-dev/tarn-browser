@@ -144,8 +144,8 @@ pub struct Shell<D: Platform> {
     pub ext: crate::extensions::Runtime,
     pub icons: engine::favicon::Tracker<(bool, Id), String>,
     pub(crate) opened: PathBuf,
-    /// Files the user opened with Open File this session: a slept tab loads them again as Open File.
-    opened_files: HashSet<String>,
+    /// The file each tab opened with Open File: a slept tab loads it again as Open File.
+    opened_files: HashMap<TabKey, String>,
 }
 
 fn downloads_sink() -> Rc<dyn Fn(engine::Event)> {
@@ -196,7 +196,7 @@ impl<D: Platform> Shell<D> {
             ext: crate::extensions::Runtime::default(),
             icons: engine::favicon::Tracker::default(),
             opened,
-            opened_files: HashSet::new(),
+            opened_files: HashMap::new(),
         };
         shell.ext.root = dir.join("Extensions");
         shell.switch_space(ix);
@@ -356,7 +356,7 @@ impl<D: Platform> Shell<D> {
     pub(crate) fn load_in(&mut self, key: TabKey, url: &str, opener: Option<String>) {
         self.shielded.remove(&key);
         self.seq += 1;
-        let file = self.opened_files.contains(url);
+        let file = self.opened_files.get(&key).is_some_and(|f| f == url);
         self.loads.insert(key, Load { url: url.to_owned(), seq: self.seq, opener, file });
         let page = self.pages.entry(key).or_insert_with(|| Page { zoom: 1.0, ..Page::default() });
         page.url = url.to_owned();
@@ -383,7 +383,7 @@ impl<D: Platform> Shell<D> {
     /// Shows a file the user picked, staged by `browser_core::open_file::stage`, in a new tab.
     pub fn open_file(&mut self, url: &Url) {
         let Some(key) = self.new_tab(None) else { return };
-        self.opened_files.insert(url.to_string());
+        self.opened_files.insert(key, url.to_string());
         self.load_in(key, url.as_str(), None);
     }
 
@@ -509,6 +509,7 @@ impl<D: Platform> Shell<D> {
     }
 
     pub(crate) fn forget(&mut self, key: TabKey) {
+        self.opened_files.remove(&key);
         self.splits.leave(key);
         self.unmount(key);
         self.extension_tab_gone(key, true);
@@ -650,6 +651,7 @@ impl<D: Platform> Shell<D> {
         }
         // Private tab ids start again in the next session, so no private pane may outlive this one.
         self.splits.retain(|k| !k.private);
+        self.opened_files.retain(|k, _| !k.private);
         for (_, profile_id) in &private {
             self.core.store(true).delete_profile(*profile_id).ok();
             self.forget_icons((true, *profile_id));

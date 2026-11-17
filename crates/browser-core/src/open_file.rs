@@ -15,7 +15,7 @@ pub fn url_for(path: &Path) -> Option<Url> {
 /// the engine is granted only that folder, and returns its URL.
 pub fn stage(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<Url> {
     std::fs::create_dir_all(dir)?;
-    let folder = (0u32..)
+    let folder = (0..u32::MAX)
         .map(|n| dir.join(n.to_string()))
         .find_map(|folder| match std::fs::create_dir(&folder) {
             Ok(()) => Some(Ok(folder)),

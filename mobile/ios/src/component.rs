@@ -100,7 +100,7 @@ pub struct Inner {
     compiling: Cell<bool>,
     shell_load: RefCell<Option<Url>>,
     shell_file: Cell<bool>,
-    opened_files: RefCell<Vec<Url>>,
+    opened_files: RefCell<std::collections::HashSet<Url>>,
     opener: RefCell<Option<Url>>,
     shell_history: Cell<bool>,
     find_text: RefCell<String>,
@@ -322,7 +322,7 @@ impl Inner {
         *self.shell_load.borrow_mut() = Some(url.clone());
         self.shell_file.set(file);
         if file {
-            self.opened_files.borrow_mut().push(url.clone());
+            self.opened_files.borrow_mut().insert(url.clone());
         }
         *self.opener.borrow_mut() = opener;
         match read_access {

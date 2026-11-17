@@ -49,7 +49,7 @@ struct Tab {
     found: RefCell<Option<Found>>,
     shell_load: RefCell<Option<Url>>,
     /// Files this view showed through `load_file`; only they get Open File's credit (S6).
-    opened_files: RefCell<Vec<Url>>,
+    opened_files: RefCell<std::collections::HashSet<Url>>,
     /// The main-frame navigation under way started in the shell, so its redirects may reach a
     /// private address (S10).
     shell_chain: Cell<bool>,
@@ -710,7 +710,8 @@ wrap_request_handler! {
                 return i32::from(!allowed);
             }
             if frame.is_main() != 1 {
-                let refused = !nav_policy::chromium_subframe_allowed(&url) || (!self.lockdown_view && lockdown(&self.profile, &url));
+                let own_file = url.scheme() == "file" && nav_policy::file_subresource_allowed(&url, page_url(browser.as_deref()).as_ref());
+                let refused = !(nav_policy::chromium_subframe_allowed(&url) || own_file) || (!self.lockdown_view && lockdown(&self.profile, &url));
                 if !refused {
                     tarn::before_browse(&tab, &url, page_url(browser.as_deref()).as_ref(), false);
                 }
@@ -2278,15 +2279,16 @@ impl WebView {
 
     /// Loads a URL that the caller has already passed through `nav_policy`; never a `file:` URL.
     pub fn load(&self, url: &Url) {
-        if url.scheme() != "file" {
-            self.start(url, false);
+        if url.scheme() == "file" {
+            return emit(&self.0.tab, Event::Blocked { url: url.clone(), message: nav_policy::FILE_NOT_OPENED.to_owned(), category: None });
         }
+        self.start(url, false);
     }
 
     /// Shows a file the user picked with Open File (`nav_policy::Source::FileOpen`).
     pub fn load_file(&self, url: &Url) {
         if url.scheme() == "file" {
-            self.0.tab.opened_files.borrow_mut().push(url.clone());
+            self.0.tab.opened_files.borrow_mut().insert(url.clone());
             self.start(url, false);
         }
     }
@@ -2596,8 +2598,13 @@ impl WebView {
 
     /// Reloads a page whose renderer ended; not the user's navigation, as a page can end its own renderer.
     pub fn recover(&self) {
-        if let Some(b) = self.browser() {
-            b.reload();
+        match self.url().filter(|u| self.0.tab.opened_files.borrow().contains(u)) {
+            Some(url) => self.load_file(&url),
+            None => {
+                if let Some(b) = self.browser() {
+                    b.reload();
+                }
+            }
         }
     }
 

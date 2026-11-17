@@ -145,6 +145,9 @@ pub fn file_open(url: &Url, vouched: bool) -> bool {
     url.scheme() == "file" && vouched
 }
 
+/// What a refused `file:` load says: only Open File shows a local file.
+pub const FILE_NOT_OPENED: &str = "Local files open only with Open File.";
+
 /// Whether a page may load `url` as a subresource: a `file:` one only from what the opened file
 /// it belongs to may read (`file_read_access`), symlinks resolved, for engines whose own sandbox
 /// does not limit it. The path is checked as written before the disk is asked, and a `file:` URL
@@ -171,16 +174,14 @@ pub fn file_read_access(url: &Url) -> Option<std::path::PathBuf> {
 
 /// A filesystem or drive root, or the top of a mounted volume (`/Volumes/USB`, `/media/u/USB`).
 fn volume_root(folder: &std::path::Path) -> bool {
-    let Some(parent) = folder.parent() else { return true };
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(folder).ok().zip(std::fs::metadata(parent).ok()).is_some_and(|(f, p)| f.dev() != p.dev())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = parent;
-        false
+    use std::os::unix::fs::MetadataExt;
+    match folder.parent() {
+        None => true,
+        #[cfg(unix)]
+        Some(parent) => std::fs::metadata(folder).ok().zip(std::fs::metadata(parent).ok()).is_some_and(|(f, p)| f.dev() != p.dev()),
+        #[cfg(not(unix))]
+        Some(_) => false,
     }
 }
 

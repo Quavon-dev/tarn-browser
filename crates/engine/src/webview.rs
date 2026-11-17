@@ -222,7 +222,7 @@ impl WebView {
     /// Loads a URL that the caller has already passed through `nav_policy`; never a `file:` URL.
     pub fn load(&self, url: &Url) {
         if url.scheme() == "file" {
-            return;
+            return self._delegate.emit(Event::Blocked { url: url.clone(), message: nav_policy::FILE_NOT_OPENED.to_owned(), category: None });
         }
         let url = url.clone();
         self.when_protected(Some(url.clone()), move |view, delegate| {
@@ -243,7 +243,7 @@ impl WebView {
                 return;
             };
             delegate.mark_shell_load(&url);
-            objc2::DefinedClass::ivars(delegate).opened_files.borrow_mut().push(url.clone());
+            objc2::DefinedClass::ivars(delegate).opened_files.borrow_mut().insert(url.clone());
             // SAFETY: main-thread call with valid file URLs.
             delegate.set_user_load(unsafe { view.loadFileURL_allowingReadAccessToURL(&file, &folder) });
         });
@@ -614,10 +614,14 @@ impl WebView {
     }
 
     /// Reloads a page whose content process ended; not the user's navigation, as a page can end
-    /// its own process.
+    /// its own process. An opened file loads again with its read grant.
     pub fn recover(&self) {
-        // SAFETY: main-thread call on a live web view.
-        unsafe { self.view.reload() };
+        let opened = self.url().filter(|u| objc2::DefinedClass::ivars(&*self._delegate).opened_files.borrow().contains(u));
+        match opened {
+            Some(url) => self.load_file(&url),
+            // SAFETY: main-thread call on a live web view.
+            None => drop(unsafe { self.view.reload() }),
+        }
     }
 
     pub fn stop(&self) {

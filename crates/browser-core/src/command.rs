@@ -422,8 +422,9 @@ mod tests {
         assert_eq!(display_host("blob:http://evil.test/0b1c"), "Not Secure — evil.test");
         assert_eq!(display_host("about:blank#bank.test"), "about:blank");
         assert_eq!(display_host("data:text/html,bank.test"), "data:");
-        assert_eq!(display_host("file:///Users/u/My%20Notes.html"), "File: My Notes.html");
-        assert_eq!(display_host("file:///Users/u/txt.\u{202E}exe"), "File: txt.exe");
+        let home = if cfg!(windows) { "file:///C:/Users/u" } else { "file:///Users/u" };
+        assert_eq!(display_host(&format!("{home}/My%20Notes.html")), "File: My Notes.html");
+        assert_eq!(display_host(&format!("{home}/txt.\u{202E}exe")), "File: txt.exe");
         assert_eq!(display_host(""), "");
         let long = format!("https://{}.login.attacker.example/", "a".repeat(40));
         let shown = display_host(&long);
