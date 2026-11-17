@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use browser_core::shield_card::{Card, H, Label, SHORT, W, back, day_totals, face, front, front_svg, thousands};
+use browser_core::shield_card::{Card, H, Label, W, back, day_totals, face, front, front_svg, thousands};
 use browser_core::space_card::SpaceDraft;
 use browser_core::tabs::TabKey;
 use engine::reader::Block;
@@ -26,6 +26,8 @@ const CARD_FILE: &str = "Tarn Shield card.svg";
 
 const QR_SIZE: f32 = 240.;
 const SWATCH: f32 = 28.;
+const HERO_GAP: f32 = 24.;
+const HERO_COLUMN: f32 = 240.;
 pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -688,20 +690,25 @@ fn shield_words(labels: &[Label]) -> Vec<Words<'_>> {
 }
 
 fn numbers(card: &Card) -> View {
-    let cells: Vec<AnyElement> = card
-        .counters
-        .iter()
-        .zip(SHORT)
-        .map(|((_, n), (first, second))| {
-            view()
-                .flex_1()
-                .items_center()
-                .child(text(thousands((*n).max(0) as u64)).text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).text_color(Theme::text))
-                .child(small(format!("{first} {second}")).text_center().number_of_lines(2))
-                .into_element()
-        })
-        .collect();
-    group().flex_row().py_3().px_1().children(cells)
+    let cells = card.counters.iter().zip(browser_core::shield_card::NUMBERS).map(|((_, n), caption)| {
+        view()
+            .child(text(thousands((*n).max(0) as u64)).text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).text_color(Theme::text))
+            .child(small(caption))
+            .into_element()
+    });
+    view().flex_row().flex_wrap().gap_x(px(20.)).gap_y(px(8.)).children(cells)
+}
+
+fn since(card: &Card, private: bool) -> String {
+    match (card.days, &card.since) {
+        (Some(days), Some(since)) => format!("Protected for {} · since {since}", browser_core::shield_card::days_text(days)),
+        _ if private => "Counts stay in memory until the private space closes.".to_owned(),
+        _ => "Counting starts with the first thing Shield stops.".to_owned(),
+    }
+}
+
+fn card_room(ui: Ui) -> f32 {
+    if ui.mac.get() { super::mac::pane_width() } else { window().width.0.min(crate::theme::SHEET_WIDTH) - 56. }
 }
 
 fn last_week(card: &Card) -> View {
@@ -773,7 +780,9 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
             let (card, private) = card.get()?;
             let turned = flipped.get();
             let dark = !Theme::is_light();
-            let scale = ((window().width.0.min(crate::theme::SHEET_WIDTH) - 56.) / W as f32).min(1.);
+            let room = card_room(ui);
+            let wide = room >= W as f32 + HERO_GAP + HERO_COLUMN;
+            let scale = (room / W as f32).min(1.);
             let (sky, shapes, labels) = if turned { back(&card, dark) } else { front(&card, true, dark) };
             let counts = card.counters.iter().map(|(name, n)| format!("{name}: {}", thousands((*n).max(0) as u64))).collect::<Vec<_>>().join(", ");
             let name = if turned {
@@ -788,40 +797,48 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
             };
             let flip = move || flipped.update(|b| *b = !*b);
             let shared = card.clone();
+            let face = button()
+                .accessibility_label(SharedString::from(name))
+                .on_press(flip)
+                .flex_none()
+                .rounded(px(Theme::radius_card() * scale))
+                .overflow_hidden()
+                .shadow(Theme::elevation(6., 18.))
+                .active(|s| s.opacity(0.85))
+                .bind_motion(&tarn_nsh_shared::motion::fade_in())
+                .child(picture(&face(sky, &shapes), W as f32, H as f32, &shield_words(&labels), scale));
+            let design = move || {
+                ui.act(|s| {
+                    if let Some((private, id)) = s.model.profile() {
+                        s.core.store(private).new_shield_design(id).ok();
+                    }
+                    Vec::new()
+                })
+            };
+            let actions = view()
+                .gap_2()
+                .child(pill_grid(vec![icon_pill(glyphs::RELOAD, "Flip", flip), icon_pill(glyphs::PALETTE, "Change Design", design)]))
+                .child((!private).then(|| icon_pill(glyphs::SHARE, "Share Card", move || share_card(ui, &shared, dark))));
+            let column = view()
+                .flex_1()
+                .min_w(px(0.))
+                .gap_3()
+                .child(
+                    view()
+                        .child(label(card.name.clone()).text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).number_of_lines(1))
+                        .child(small(since(&card, private))),
+                )
+                .child(numbers(&card))
+                .child(actions);
+            let hero = if wide {
+                view().flex_row().items_start().gap(px(HERO_GAP)).child(face).child(column)
+            } else {
+                view().gap_3().child(view().items_center().child(face)).child(column)
+            };
             Some(
                 view()
                     .gap_3()
-                    .child(
-                        view().items_center().child(
-                            button()
-                                .accessibility_label(SharedString::from(name))
-                                .on_press(flip)
-                                .rounded(px(Theme::radius_card() * scale))
-                                .overflow_hidden()
-                                .shadow(Theme::elevation(6., 18.))
-                                .active(|s| s.opacity(0.85))
-                                .bind_motion(&tarn_nsh_shared::motion::fade_in())
-                                .child(picture(&face(sky, &shapes), W as f32, H as f32, &shield_words(&labels), scale)),
-                        ),
-                    )
-                    .child(numbers(&card))
-                    .child(pill_grid(
-                        [
-                            Some(icon_pill(glyphs::RELOAD, "Flip", flip)),
-                            Some(icon_pill(glyphs::PALETTE, "Change design", move || {
-                                ui.act(|s| {
-                                    if let Some((private, id)) = s.model.profile() {
-                                        s.core.store(private).new_shield_design(id).ok();
-                                    }
-                                    Vec::new()
-                                })
-                            })),
-                            (!private).then(|| icon_pill(glyphs::SHARE, "Share card", move || share_card(ui, &shared, dark))),
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .collect(),
-                    ))
+                    .child(hero.test_id("profile-hero"))
                     .child(caption(kept).number_of_lines(0).px_1())
                     .child(last_week(&card))
                     .child(top_sites(&card))

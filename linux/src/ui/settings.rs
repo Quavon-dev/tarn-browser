@@ -116,8 +116,8 @@ fn hero(ui: Ui, card: Card, level: ShieldLevel, private: bool) -> View {
     let level_name = if private { "Shield level (private space)" } else { "Shield level" };
     let shared = card.clone();
     let mut actions =
-        vec![icon_pill(icons::RELOAD, "Flip", move || flip(ui)), icon_pill(icons::PALETTE, "Change design", move || act(ui, Browser::new_shield_design))];
-    actions.extend((!private).then(|| icon_pill(icons::FILE_IMAGE, "Save as image", move || save_card(ui, shared.clone()))));
+        vec![icon_pill(icons::RELOAD, "Flip", move || flip(ui)), icon_pill(icons::PALETTE, "Change Design", move || act(ui, Browser::new_shield_design))];
+    actions.extend((!private).then(|| icon_pill(icons::FILE_IMAGE, "Save as Image", move || save_card(ui, shared.clone()))));
     let actions = pill_grid(actions);
     view().flex_row().flex_wrap().items_start().gap_5().child(shield_card(ui, card.clone())).child(
         view()

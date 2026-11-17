@@ -14,6 +14,8 @@ const HEIGHT: f32 = 700.;
 const NAV_WIDTH: f32 = 196.;
 const HEADER_HEIGHT: f32 = 52.;
 const CONTENT_WIDTH: f32 = 760.;
+const WINDOW_SHARE: f32 = 0.94;
+const PANE_INSET: f32 = 64.;
 const NAV_ROW: f32 = 30.;
 const NAV_GLYPH: f32 = 15.;
 const CAPTION: f32 = 10.;
@@ -244,6 +246,10 @@ fn body(ui: Ui, pane: Signal<Pane>) -> AnyElement {
     }
 }
 
+pub(super) fn pane_width() -> f32 {
+    ((nsh_core::prelude::window().width.0 * WINDOW_SHARE).min(WIDTH) - NAV_WIDTH).min(CONTENT_WIDTH) - PANE_INSET
+}
+
 fn content(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
     let key = move || format!("{:?}{:?}", ui.screen.get(), pane.get());
     view().flex_1().min_w(px(0.)).h_full().child(header(ui, pane)).child(dynamic(move || {
@@ -263,7 +269,7 @@ pub(super) fn window(ui: Ui) -> impl IntoElement {
                 view()
                     .relative()
                     .w(px(WIDTH))
-                    .max_w(relative(0.94))
+                    .max_w(relative(WINDOW_SHARE))
                     .h(px(HEIGHT))
                     .max_h(relative(0.9))
                     .flex_row()

@@ -12,6 +12,10 @@ pub(super) fn owns(screen: Screen) -> bool {
     settings::owns(screen) || popovers::owns(screen)
 }
 
+pub(super) fn pane_width() -> f32 {
+    settings::pane_width()
+}
+
 pub(super) fn open_palette(ui: Ui) {
     toolbar::open_palette(ui);
 }

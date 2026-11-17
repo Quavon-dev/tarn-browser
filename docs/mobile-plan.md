@@ -834,6 +834,10 @@ well, so the sidebar tells a held trackpad click from a held finger by whether t
 a hovered row opens its tab on a long press, an unhovered one opens the menu. A hovering Apple Pencil
 therefore also opens the tab. The Settings window is a card inside the app's surface, since separate OS
 windows are desktop-only in NSH.
+The Profile pane's Shield card offers Flip, Change Design and Share Card but no Save as Image: NSH
+0.5.0's save dialog answers at once with no path on iOS and Android (`nsh_core::file_dialog`), and the
+mobile workspace has no SVG rasterizer to make the PNG the desktop clients save. Share Card hands the
+card to the system share sheet, whose Save to Files (iOS) or a target app (Android) keeps a copy.
 Sidebar tab rows and tiles drag (to reorder, pin, tile, file into a folder or a group) with a trackpad
 or mouse only: NSH 0.5.0 has pans but no lift-to-drag interaction, a long press already opens the tab's
 menu, and a finger pan on a row would take the list's scrolling; a touch user pins, tiles and groups

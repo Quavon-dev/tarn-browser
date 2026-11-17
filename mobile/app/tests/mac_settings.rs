@@ -1,8 +1,13 @@
-use nsh_core::geometry::{Points, Size};
+use nsh_core::geometry::{Bounds, Points, Size};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
 
 const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn bounds_of(app: &Headless, selector: &str) -> Bounds<Points> {
+    let node = app.screen().press_target(selector).unwrap().unwrap();
+    app.screen().layout_nodes().into_iter().find(|n| n.id == node).map(|n| n.bounds).unwrap()
+}
 
 #[test]
 fn the_mac_settings_window_shows_one_pane_at_a_time() {
@@ -31,6 +36,28 @@ fn the_mac_settings_window_shows_one_pane_at_a_time() {
         app.wait_for(row).unwrap();
     }
     assert!(app.screen().shows("⌘D") || app.screen().shows("Ctrl+D"), "rows show the shared table's keys");
+
+    app.press("label:Profile").unwrap();
+    app.wait_for("label:Change Design").unwrap();
+    for part in ["label:Flip", "label:Share Card", "parameters removed", "HTTPS upgrades", "local visits blocked"] {
+        app.wait_for(part).unwrap();
+    }
+    assert!(!app.screen().shows("Parameters removed"), "the card's numbers show once, beside the card");
+    assert_eq!(app.screen().texts().iter().filter(|t| t.starts_with("Protected for ")).count(), 2, "the card and the column beside it say since when");
+    let (card, flip) = (bounds_of(&app, "label:/^Shield card of/"), bounds_of(&app, "label:Flip"));
+    assert!(card.origin.x.0 + card.size.width.0 <= flip.origin.x.0, "the actions sit beside the card in a wide pane: {card:?} {flip:?}");
+    let design = bounds_of(&app, "label:Change Design");
+    assert!(
+        (design.origin.y.0 - flip.origin.y.0).abs() < 0.5 && (design.size.width.0 - flip.size.width.0).abs() < 0.5,
+        "Flip and Change Design share a row: {flip:?} {design:?}"
+    );
+    app.set_viewport(Size::new(Points(834.), Points(1194.))).unwrap();
+    app.wait_until("the hero stacks in a narrow pane", WAIT, |s| {
+        let found = |sel: &str| s.press_target(sel).ok().flatten().and_then(|id| s.layout_nodes().into_iter().find(|n| n.id == id).map(|n| n.bounds));
+        matches!((found("label:/^Shield card of/"), found("label:Flip")), (Some(c), Some(f)) if f.origin.y.0 >= c.origin.y.0 + c.size.height.0)
+    })
+    .unwrap();
+    app.set_viewport(Size::new(Points(1376.), Points(1032.))).unwrap();
 
     app.press("label:Privacy").unwrap();
     app.wait_for("Clear Browsing Data…").unwrap();
