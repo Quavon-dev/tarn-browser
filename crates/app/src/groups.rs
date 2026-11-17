@@ -169,7 +169,11 @@ impl Browser {
             _ => {}
         });
         let focus = input.focus_handle(cx);
-        let blur = cx.on_blur(&focus, window, |b, window, cx| b.end_rename(true, window, cx));
+        let blur = cx.on_blur(&focus, window, move |b, window, cx| {
+            if !icon || window.focused(cx).is_some() {
+                b.end_rename(true, window, cx);
+            }
+        });
         let menu_input = input.clone();
         let deactivate = cx.observe_window_activation(window, move |b, window, cx| {
             if !window.is_window_active() && !menu_input.read(cx).menu_open() {

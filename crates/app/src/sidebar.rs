@@ -1035,6 +1035,7 @@ fn chosen_icon(stored: &str, size: f32, color: Rgba) -> Option<AnyElement> {
 /// The icon picker under a group's or folder's row while "Change Icon…" is open.
 fn icon_picker(b: &Browser, target: RenameTarget, current: &str, cx: &mut Context<Browser>) -> Option<AnyElement> {
     let input = b.icon_input(target)?;
+    let focus = gpui::Focusable::focus_handle(input.read(cx), cx);
     let symbols = browser_core::icon::SYMBOLS.iter().filter_map(|name| {
         let button =
             icon_button(*name, Icon::named(name)?, true).when(*name == current, |d| d.bg(Theme::selected())).on_click(cx.listener(move |b, _, window, cx| {
@@ -1049,11 +1050,10 @@ fn icon_picker(b: &Browser, target: RenameTarget, current: &str, cx: &mut Contex
         .gap_1()
         .child(field(true).flex_1().min_w_0().child(input))
         .when(cfg!(target_os = "macos"), |d| {
-            d.child(
-                icon_button("emoji-palette", Icon::Keyboard, true)
-                    .tooltip(tooltip("Emoji & Symbols", None))
-                    .on_click(|_, window, _| window.show_character_palette()),
-            )
+            d.child(icon_button("emoji-palette", Icon::Keyboard, true).tooltip(tooltip("Emoji & Symbols", None)).on_click(move |_, window, _| {
+                window.focus(&focus);
+                window.show_character_palette();
+            }))
         })
         .when(!current.is_empty(), |d| {
             d.child(button("remove-icon", "Remove", false).on_click(cx.listener(move |b, _, window, cx| {
