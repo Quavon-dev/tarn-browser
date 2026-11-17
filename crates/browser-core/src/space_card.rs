@@ -85,24 +85,25 @@ impl SpaceDraft {
     pub fn save(&self, disk: &Store, store: &Store, spaces: &[SpaceRef], profiles: &[Profile]) -> Result<Id, Unsaved> {
         let (name, profile_name) = self.ready(spaces, profiles).ok_or(Unsaved::Invalid)?;
         let written = match (self.editing, self.profile, profile_name) {
-            (Some(id), _, _) => store
-                .update_space(id, &name, &self.color, &self.icon)
-                .and_then(|_| if self.private { Ok(()) } else { store.set_space_schedule(id, self.schedule) })
-                .map(|_| id),
-            (None, Some(profile), _) => {
-                store.create_space(profile, &name, &self.icon).and_then(|s| store.update_space(s.id, &name, &self.color, &self.icon).map(|_| s.id))
-            }
-            (None, None, Some(profile_name)) => {
-                let profile = disk.create_profile(&profile_name, &uuid::Uuid::new_v4().to_string(), false).map_err(Unsaved::Failed)?;
-                let written = disk
-                    .set_profile(profile.id, &profile_name, &self.profile_color)
-                    .and_then(|_| disk.create_space(profile.id, &name, &self.icon))
-                    .and_then(|s| disk.update_space(s.id, &name, &self.color, &self.icon).map(|_| s.id));
-                if written.is_err() {
-                    disk.delete_profile(profile.id).ok();
+            (Some(id), _, _) => store.batch(|store| {
+                store.update_space(id, &name, &self.color, &self.icon)?;
+                if !self.private {
+                    store.set_space_schedule(id, self.schedule)?;
                 }
-                written
-            }
+                Ok(id)
+            }),
+            (None, Some(profile), _) => store.batch(|store| {
+                let id = store.create_space(profile, &name, &self.icon)?.id;
+                store.update_space(id, &name, &self.color, &self.icon)?;
+                Ok(id)
+            }),
+            (None, None, Some(profile_name)) => disk.batch(|disk| {
+                let profile = disk.create_profile(&profile_name, &uuid::Uuid::new_v4().to_string(), false)?;
+                disk.set_profile(profile.id, &profile_name, &self.profile_color)?;
+                let id = disk.create_space(profile.id, &name, &self.icon)?.id;
+                disk.update_space(id, &name, &self.color, &self.icon)?;
+                Ok(id)
+            }),
             (None, None, None) => return Err(Unsaved::Invalid),
         };
         written.map_err(Unsaved::Failed)

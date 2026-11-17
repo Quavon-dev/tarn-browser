@@ -48,7 +48,7 @@ fn confirm(ui: Ui) {
     let saved = std::cell::Cell::new(false);
     act(ui, |b| saved.set(b.save_space(&d)));
     if saved.get() {
-        ui.panel.set(Panel::None);
+        super::show(ui, Panel::None);
     }
 }
 
