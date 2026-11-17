@@ -391,6 +391,14 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             .child(section("Downloads"))
             .child(group().child(switch(sort, "Sort downloads into folders", toggle_off(SORT_DOWNLOADS))))
             .child(note("New files go into Images, Videos, Audio, Documents, Archives or Installers inside Downloads; other types stay at the top."))
+            .children(browser_core::import::available().then(|| section("Import")))
+            .children(browser_core::import::available().then(|| {
+                group().child(group_row().child(label("Import browser data").flex_1()).child(pill("Import\u{2026}", move || super::import::open(ui))))
+            }))
+            .children(
+                browser_core::import::available()
+                    .then(|| note("Sign-ins, history and bookmarks from Chrome, Edge, Brave, Chromium or Firefox, into this profile.")),
+            )
             .child(section("About"))
             .child(
                 view()

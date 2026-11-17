@@ -4,6 +4,7 @@ use std::rc::Rc;
 use browser_core::WebsiteData;
 use engine::Event;
 use engine::cookies::Cookie;
+use nsh_core::prelude::{Owner, run_on_main_thread, spawn};
 
 pub const PRIVATE_PREFIX: &str = "private:";
 pub const BURNER_PREFIX: &str = "burner:";
@@ -82,8 +83,18 @@ impl WebsiteData for Data {
         wipe(&root(), uuid);
     }
 
-    fn import_cookies(&self, cookies: Vec<Cookie>, _now: i64, done: Box<dyn FnOnce(usize, usize)>) {
-        done(0, cookies.len());
+    fn import_cookies(&self, cookies: Vec<Cookie>, now: i64, done: Box<dyn FnOnce(usize, usize)>) {
+        let (key, total) = (self.key.clone(), cookies.len());
+        Owner::detached().run(|| {
+            drop(spawn(async move {
+                let answer = match run_on_main_thread(move || crate::webview::session::import_cookies(&key, cookies, now)).await {
+                    Ok(answer) => answer.await.ok(),
+                    Err(_) => None,
+                };
+                let (written, refused) = answer.unwrap_or((0, total));
+                done(written, refused);
+            }))
+        });
     }
 }
 

@@ -255,6 +255,7 @@ fn history_panel(ui: Ui) -> AnyElement {
                 .flex_1()
                 .child(counted("History", count))
                 .child(pill("Reading List", move || show(ui, Panel::ReadingList)))
+                .children(browser_core::import::available().then(|| pill("Import", move || super::import::open(ui))))
                 .children(clear),
         ))
         .children(empty)
@@ -488,6 +489,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::ReadingList => super::library::reading_list_panel(ui),
             Panel::Qr => super::tools::qr_panel(ui),
             Panel::Share => super::tools::share_panel(ui),
+            Panel::Import => super::import::panel(ui),
             Panel::History => history_panel(ui),
             Panel::Downloads => downloads_panel(ui),
             Panel::Tab => tab_panel(ui),

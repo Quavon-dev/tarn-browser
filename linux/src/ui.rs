@@ -1,5 +1,6 @@
 mod appearance;
 mod extensions;
+mod import;
 mod library;
 mod panels;
 mod settings;
@@ -86,6 +87,7 @@ pub enum Panel {
     ReadingList,
     Qr,
     Share,
+    Import,
     Folder(store::Id),
 }
 
@@ -151,6 +153,7 @@ pub struct Ui {
     dragging: Signal<Option<TabKey>>,
     split_drop: Signal<Option<(TabKey, &'static str)>>,
     resizing: Signal<Option<browser_core::split::Divider>>,
+    import: Signal<import::State>,
     root: Owner,
 }
 
@@ -1859,6 +1862,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         dragging: signal(None),
         split_drop: signal(None),
         resizing: signal(None),
+        import: signal(import::State::default()),
         root: Owner::current(),
     };
     let editing = std::cell::Cell::new(false);

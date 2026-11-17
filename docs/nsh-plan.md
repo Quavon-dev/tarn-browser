@@ -284,6 +284,18 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   the first window also keeps its placement (`linux.window_placement`). GTK 4 sets no window
   position, so a new window does not open offset from the front one as on macOS. Evidence:
   `linux/evidence/backlog2-new-window.png`.
+- Import Browser Data follows macOS (History panel › Import, Settings › General › Import, the
+  command bar's "Import Browser Data…" in place of the Bookmarks menu): history, bookmarks and
+  cookies from Chrome, Edge, Brave, Chromium and Firefox profiles in the native, Flatpak and
+  (Chromium, Firefox) Snap and XDG folders, plus Firefox profiles that `profiles.ini` names
+  elsewhere, through `browser_core::import` and `crates/import`. Chromium `v10` cookies use the
+  fallback key; `v11` cookies use the browser's Safe Storage secret from the default Secret
+  Service collection (Edge stores Chromium's), read with `oo7`. Without a Secret Service or that
+  item, or when the unlock prompt is dismissed, `v11` cookies are skipped and counted. Cookies are
+  written into the profile's WebKitGTK jar after `cookies::admit_imported`, and each one must
+  round-trip through libsoup with every attribute (`linux/src/webview/session.rs`). Not supported:
+  KWallet without its Secret Service interface, as `oo7` speaks only the Secret Service API; a
+  profile that keeps its key there imports only its `v10` cookies.
 - Tab sleeping follows macOS: a tab sleeps beyond the six-tab live limit, or after 30 minutes off
   screen (one minute while `MemAvailable` in `/proc/meminfo` is under a tenth of `MemTotal`, the
   counterpart of the macOS kernel pressure level); pinned tabs and tiles skip the idle timer, and a

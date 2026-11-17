@@ -38,13 +38,14 @@ pub enum Command {
     Snapshots,
     Memory,
     ReadingList,
+    ImportBrowserData,
     NewWindow,
     Key(Action),
     CloseSplit,
     Space(SpaceCommand),
 }
 
-const COMMANDS: [(&str, &str, Command); 23] = [
+const COMMANDS: [(&str, &str, Command); 24] = [
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
     ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
     ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
@@ -60,6 +61,7 @@ const COMMANDS: [(&str, &str, Command); 23] = [
     ("Restore Snapshot…", "session tabs open", Command::Snapshots),
     ("Memory", "process cpu ram usage sleep", Command::Memory),
     ("Reading List", "read later saved pages", Command::ReadingList),
+    ("Import Browser Data\u{2026}", "chrome edge brave chromium firefox history bookmarks cookies", Command::ImportBrowserData),
     ("New Window", "open another browser window", Command::NewWindow),
     ("Open or Close Split View", "side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
     ("Focus Next Pane", "split view switch", Command::Key(Action::FocusNextPane)),
@@ -95,6 +97,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
     };
     let shown = |command: &Command| match command {
         Command::CloseDuplicates => duplicates,
+        Command::ImportBrowserData => browser_core::import::available(),
         Command::Key(Action::ReopenClosedTab) => reopenable,
         Command::CloseSplit
         | Command::Key(Action::FocusNextPane | Action::FocusPreviousPane | Action::SwapPanes | Action::RotateSplitLayout | Action::RemoveFromSplitView) => {
@@ -130,6 +133,7 @@ pub fn run(ui: Ui, command: Command) {
         Command::Snapshots => show(ui, Panel::Space),
         Command::Memory => show(ui, Panel::Memory),
         Command::ReadingList => show(ui, Panel::ReadingList),
+        Command::ImportBrowserData => super::import::open(ui),
         Command::NewWindow => super::new_window(ui),
         Command::Key(action) => super::run_action(ui, action),
         Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),
