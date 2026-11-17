@@ -290,8 +290,12 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   tab playing audio or using the camera or microphone stays awake (WebKitGTK `is-playing-audio` and
   capture states). Sleeping rows are greyed (`Theme::asleep`, the site tile dimmed). Gap: WebKitGTK
   has no playback-state query like WebKit's `requestMediaPlaybackState`, so silent or muted video
-  does not keep a tab awake. Settings has no "Sleep after" or live-tab choice yet; the macOS
-  defaults apply. Evidence: `linux/evidence/parity-sleeping-tabs.png`.
+  does not keep a tab awake. Once a minute the awake background tabs whose web processes together
+  hold more than `engine::lifecycle::BACKGROUND_BUDGET` (split between windows) sleep, heaviest
+  first, as on macOS (`Browser::sleep_over_budget` in `linux/src/memory.rs`); a playing tab, one
+  used in the last minute (pinned: 30 minutes) or one in the split stays awake. Settings has no
+  "Sleep after" or live-tab choice yet; the macOS defaults apply. Evidence:
+  `linux/evidence/parity-sleeping-tabs.png`.
 - A two-finger horizontal swipe over the sidebar switches to the previous or next space, never
   towards one that does not exist (`linux/src/browser/swipe.rs`, through NSH `on_wheel` point
   deltas; mouse wheel lines are ignored). Gap: NSH 0.5's `WheelEvent` has no touch phase
