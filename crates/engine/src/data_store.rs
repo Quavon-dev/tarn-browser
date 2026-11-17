@@ -273,15 +273,14 @@ impl DataStore {
         if self.extension_level.replace(level) != level {
             slot.take();
         }
-        if slot.is_none() && enabled.is_empty() {
-            return;
-        }
         let Some(mtm) = MainThreadMarker::new() else { return };
-        let rules = &self.extension_rules[level as usize];
-        slot.get_or_insert_with(|| extensions::Profile::new(mtm, self.id.as_deref(), &self.store, rules)).set_enabled(enabled, blocked);
+        if slot.is_some() || !enabled.is_empty() {
+            let rules = &self.extension_rules[level as usize];
+            slot.get_or_insert_with(|| extensions::Profile::new(mtm, self.id.as_deref(), &self.store, rules)).set_enabled(enabled, blocked);
+        }
+        drop(slot);
         let bitwarden = enabled.iter().any(Enabled::privileged);
         if self.passkeys.replace(bitwarden) != bitwarden {
-            drop(slot);
             self.reinstall_scripts(mtm);
         }
     }
@@ -314,6 +313,9 @@ impl DataStore {
             profile.set_enabled(&[], &[]);
             profile.controller.clone()
         });
+        if self.passkeys.replace(false) {
+            self.reinstall_scripts(mtm);
+        }
         match running.or_else(|| self.id.as_deref().map(|id| extensions::persistent_controller(mtm, id))) {
             Some(controller) => extensions::remove_data(controller, done),
             None => done(),
