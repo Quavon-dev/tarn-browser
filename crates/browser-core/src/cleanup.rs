@@ -3,9 +3,9 @@
 //!
 //! A known site (`rules::CATEGORIES`) is final. Only for other sites do the host's labels, the
 //! path and the title vote, since a page controls all three. A loose tab of a host the user
-//! already keeps at least twice in exactly one of their own groups joins that group instead, unless it is a known
-//! site whose category already has a group. No group is ever named after a site, and only loose
-//! tabs move into groups.
+//! already keeps at least twice in one of their own groups, and in no other group, joins that
+//! group instead, unless it is a known site whose category already has a group; a group named
+//! after a category teaches no host. No group is ever named after a site, and only loose tabs move into groups.
 
 mod rules;
 
@@ -58,7 +58,7 @@ fn classify(url: &str, title: &str) -> Option<Verdict> {
     let url = Url::parse(url).ok()?;
     let host = web_host(&url)?;
     let segments: Vec<String> =
-        url.path_segments().map(|s| s.filter(|s| !s.is_empty()).take(MAX_SEGMENTS).map(str::to_ascii_lowercase).collect()).unwrap_or_default();
+        url.path_segments().map(|s| s.take(MAX_SEGMENTS).filter(|s| !s.is_empty()).map(str::to_ascii_lowercase).collect()).unwrap_or_default();
 
     let mut known: Option<((usize, bool), usize)> = None;
     for (i, c) in CATEGORIES.iter().enumerate() {
@@ -154,22 +154,17 @@ pub fn plan(tabs: &[Tab], groups: &[Group], url: impl Fn(&Tab) -> String) -> Sor
     let urls: HashMap<Id, String> = zone.iter().map(|t| (t.id, url(t))).collect();
     let hosts: HashMap<Id, String> = urls.iter().filter_map(|(&id, url)| Some((id, host_of(url)?))).collect();
 
+    let category_groups: HashSet<Id> = groups.iter().filter(|g| category_of_group(g).is_some()).map(|g| g.id).collect();
     let mut kept: HashMap<&str, HashMap<Id, usize>> = HashMap::new();
     for t in zone.iter().filter(|t| t.group_id.is_some()) {
         if let (Some(host), Some(group)) = (hosts.get(&t.id), t.group_id) {
             *kept.entry(host.as_str()).or_default().entry(group).or_default() += 1;
         }
     }
-    let known_only: HashMap<Id, usize> = groups
-        .iter()
-        .filter_map(|g| Some((g.id, category_of_group(g)?)))
-        .filter(|&(_, c)| CATEGORIES[c].labels.is_empty() && CATEGORIES[c].paths.is_empty() && CATEGORIES[c].words.is_empty())
-        .collect();
-    let learned = |host: &str, verdict: Option<Verdict>| -> Option<Id> {
+    let learned = |host: &str| -> Option<Id> {
         let groups = kept.get(host)?;
         let (&group, &count) = groups.iter().next().filter(|_| groups.len() == 1)?;
-        let allowed = known_only.get(&group).is_none_or(|&c| verdict.is_some_and(|v| v.known && v.category == c));
-        (count >= LEARN_FROM && allowed).then_some(group)
+        (count >= LEARN_FROM && !category_groups.contains(&group)).then_some(group)
     };
     let group_for = |category: usize| groups.iter().find(|g| category_of_group(g) == Some(category)).map(|g| g.id);
 
@@ -178,7 +173,7 @@ pub fn plan(tabs: &[Tab], groups: &[Group], url: impl Fn(&Tab) -> String) -> Sor
     let mut pending: HashMap<usize, Vec<Id>> = HashMap::new();
     for t in zone.iter().filter(|t| t.group_id.is_none()) {
         let verdict = classify(&urls[&t.id], &t.title);
-        let host_group = hosts.get(&t.id).and_then(|h| learned(h, verdict));
+        let host_group = hosts.get(&t.id).and_then(|h| learned(h));
         let category_group = verdict.and_then(|v| group_for(v.category));
         let target = match (host_group, verdict) {
             (Some(_), Some(v)) if v.known && category_group.is_some() => category_group,
@@ -425,6 +420,13 @@ mod tests {
     }
 
     #[test]
+    fn empty_path_segments_count_toward_the_bound() {
+        let url = format!("https://example.test{}cart", "/".repeat(MAX_SEGMENTS + 1));
+        assert_eq!(category(&url, ""), None);
+        assert_eq!(category("https://example.test//cart", ""), Some("Shopping"));
+    }
+
+    #[test]
     fn long_urls_are_bounded() {
         let deep = format!("https://example.test/{}cart", "a/".repeat(MAX_SEGMENTS));
         assert_eq!(category(&deep, ""), None, "only the first path segments are read");
@@ -544,6 +546,15 @@ mod tests {
             assert!(pos(other) < pos(other2));
             let again = s.plan();
             assert!(!again.changed && again.moved == 0, "{again:?}");
+            let carts: Vec<Id> = ["cart", "cart", "Hello"]
+                .iter()
+                .map(|title| s.store.create_tab(s.id, TabKind::Ephemeral, None, "https://mixed.test/", title).unwrap().id)
+                .collect();
+            apply(s.store, s.id, &s.plan()).unwrap();
+            let shopping = s.group_named("Shopping");
+            assert_eq!(carts.iter().map(|&id| s.group_of(id)).collect::<Vec<_>>(), [shopping, shopping, None]);
+            let again = s.plan();
+            assert!(!again.changed && again.moved == 0, "a category group teaches no host: {again:?}");
         });
     }
 

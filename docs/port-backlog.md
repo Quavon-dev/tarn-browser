@@ -27,8 +27,9 @@ is (on this device: a known site decides, else host labels, path and title words
 group when that group already holds two or more tabs of the same host and no other group does,
 orders category groups and keeps tabs of one host together; Undo Sort in its toast puts the layout
 back. It also archives tabs unused for longer than Settings › Tabs allows.
-Shared API: `browser_core::cleanup::{plan, apply, undo, category}` (one `Store::apply_layout`
-transaction each); archiving through `Model::archive_unused`.
+Shared API: `browser_core::cleanup::{plan, apply, undo, category}`. `apply` and `undo` each run one
+`Store::apply_layout` transaction; `plan` and `category` take no `Store`. Archiving goes through
+`Model::archive_unused`.
 macOS reference: `crates/app/src/browser/context.rs` (`clean_up_tabs`, `undo_sort`), `crates/app/src/toast.rs`
 (`Action::UndoSort`), `crates/app/src/sidebar.rs` (`ephemeral`).
 
