@@ -127,6 +127,13 @@ impl Theme {
     pub fn sidebar() -> Gradient {
         get(|t| gradient(t.sidebar.angle, t.sidebar.from, t.sidebar.to))
     }
+    pub fn sidebar_tinted(tint: Rgba) -> Gradient {
+        let mix = |base: u32, t: f32| {
+            let (base, t) = (rgba(base), t * tint.a);
+            Rgba { r: base.r + (tint.r - base.r) * t, g: base.g + (tint.g - base.g) * t, b: base.b + (tint.b - base.b) * t, a: base.a }
+        };
+        get(|t| Gradient { angle: t.sidebar.angle, from: mix(t.sidebar.from, 0.12), to: mix(t.sidebar.to, 0.2) })
+    }
     pub fn sidebar_edge() -> Rgba {
         get(|t| rgba(t.sidebar_edge))
     }

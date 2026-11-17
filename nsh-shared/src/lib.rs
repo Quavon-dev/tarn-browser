@@ -8,4 +8,5 @@ pub mod motion;
 pub mod panes;
 pub mod qr;
 pub mod search_fx;
+pub mod sidebar;
 pub mod theme;
