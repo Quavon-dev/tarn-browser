@@ -154,7 +154,7 @@ Gaps, with their reason:
 |---|---|---|---|
 | **Secrets** (API token, sync key) | Keychain | Android Keystore | Secret Service (libsecret) |
 | **Data directory** | App container | App-private storage | `$XDG_DATA_HOME/tarn`, mode `0700` |
-| **Default browser** | `com.apple.developer.web-browser` entitlement | `ROLE_BROWSER` via `RoleManager` | `.desktop` file and `xdg-settings` |
+| **Default browser** | `com.apple.developer.web-browser` entitlement | `ROLE_BROWSER` via `RoleManager` | `.desktop` file, set through GIO as the XDG default (`mimeapps.list`) for http, https and HTML; Settings › Profile offers Make Default when the installed `de.quavon.tarn.desktop` is not the default. Gap: not in the Flatpak, whose sandbox keeps its own `mimeapps.list` and no portal sets the default browser |
 | **Updates** | App Store | Play Store, plus a signed APK on GitHub | Distribution packages; engine updates come from the distribution |
 | **Nightly channel** | Gap: the App Store installs only what Apple reviewed; TestFlight is the place for nightlies | Gap: the Play Store decides which build installs; its internal testing track is the place for nightlies | Gap: the package manager installs from the repositories the user added; `linux-repo.yml` publishes releases only |
 | **Claude CLI bridge** | No | No | Unix socket in `$XDG_RUNTIME_DIR`, peer checked with `SO_PEERCRED` (later) |

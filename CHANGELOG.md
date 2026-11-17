@@ -8,6 +8,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Settings on Linux list site Shield overrides and saved zoom levels (with Remove and Reset All),
+  switch localhost links from other apps, export the profile as JSON, clear each kind of data or
+  delete everything in the profile, show the Tarn version and offer Make Default when Tarn is not
+  the default browser (Linux).
 - About links the privacy notice, the imprint and the open-source licence list (macOS, Windows,
   Linux, iOS, Android).
 - Linux, iOS and Android builds come with their third-party licence notices; Linux packages

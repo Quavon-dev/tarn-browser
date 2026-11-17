@@ -177,12 +177,6 @@ impl Browser {
     }
 
     /// Forgets the profile's in-memory choices after its stored data was deleted.
-    pub(crate) fn clear_site_rules(rules: &SiteRules) {
-        rules.paused.borrow_mut().clear();
-        rules.popups.borrow_mut().clear();
-        rules.exceptions.borrow_mut().clear();
-    }
-
     fn excepted(&self, key: TabKey, url: &Url) -> bool {
         let rules = self.profile_of(key).and_then(|p| self.loaded(key.private, p).map(|rt| rt.rules.clone()));
         rules.zip(site_host(url)).is_some_and(|(r, h)| r.exceptions.borrow().contains(h))

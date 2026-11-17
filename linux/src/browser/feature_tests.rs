@@ -488,3 +488,74 @@ fn a_burner_tab_neither_fetches_nor_keeps_site_icons() {
     assert!(!b.favicons.is_requested(&profile, "a.test", ticket));
     assert!(b.site_icons(&Default::default()).is_none_or(|icons| icons.find("a.test").is_none()));
 }
+
+#[test]
+fn site_overrides_and_zoom_levels_are_listed_and_removed() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://a.test/");
+    b.set_site_level(Some(ShieldLevel::Strict));
+    b.zoom(1);
+    assert_eq!(b.site_overrides(), [("a.test".to_owned(), ShieldLevel::Strict)]);
+    assert_eq!(b.site_zooms(), [("a.test".to_owned(), 1.1)]);
+    b.outbox.clear();
+    b.remove_site_zoom(None);
+    assert!(b.site_zooms().is_empty());
+    assert_eq!(asked(&b, "zoom"), [json!({ "factor": 1.0 })], "the open page goes back to actual size");
+    b.remove_site_override("a.test");
+    assert!(b.site_overrides().is_empty());
+    assert_eq!(b.level_for(key, "https://a.test/"), b.default_level());
+}
+
+#[test]
+fn delete_everything_empties_the_profile_and_moves_its_store() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    let profile = b.model.profile().unwrap();
+    let old = b.store_prop(key);
+    visit(&mut b, key, "https://a.test/");
+    b.zoom(1);
+    b.set_site_level(Some(ShieldLevel::Strict));
+    b.new_tab("https://b.test/");
+    let (name, json) = b.export_profile().unwrap();
+    assert_eq!(name, "Tarn export Personal.json");
+    assert!(json.contains("https://a.test/"));
+    b.on_download(key, &json!({ "id": "5", "state": "started", "name": "a.zip", "path": "/d/a.zip" }), true);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let wipes = b.delete_profile_data();
+    assert_eq!(wipes, [profile_data::Wipe { key: crate::data::StoreKey::parse(&old).unwrap(), remove: Some(old.clone()) }]);
+    assert!(b.core.disk.history(profile.1, 10).unwrap().is_empty());
+    assert!(b.site_zooms().is_empty() && b.site_overrides().is_empty());
+    assert_eq!(b.model.profile(), Some(profile));
+    assert_eq!(b.model.current_space().unwrap().space.name, "Home");
+    assert_eq!(b.model.tabs.len(), 1);
+    assert_ne!(b.store_prop(b.model.active.unwrap()), old, "the profile moved to a new website data store");
+    b.on_download(key, &json!({ "id": "5", "state": "finished", "name": "a.zip", "path": "/d/a.zip", "url": "https://d.test/a.zip" }), true);
+    assert!(b.core.disk.downloads(profile.1).unwrap().is_empty(), "a download started before the wipe is not recorded");
+}
+
+#[test]
+fn delete_everything_in_the_private_space_clears_its_session() {
+    let (_dir, mut b) = browser();
+    b.private_space();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://a.test/");
+    let prop = b.store_prop(key);
+    let wipes = b.delete_profile_data();
+    assert_eq!(wipes, [profile_data::Wipe { key: crate::data::StoreKey::parse(&prop).unwrap(), remove: None }]);
+    assert!(b.model.current_space().unwrap().private);
+    assert_eq!(b.store_prop(b.model.active.unwrap()), prop, "the private session stays, emptied");
+    assert!(b.export_profile().is_err(), "private data is never exported");
+}
+
+#[test]
+fn only_delete_everything_drops_finished_downloads_from_the_list() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    let (private, profile) = b.model.profile().unwrap();
+    b.on_download(key, &json!({ "id": "6", "state": "finished", "name": "b.zip", "path": "/d/b.zip", "url": "https://d.test/b.zip" }), true);
+    b.forget_profile(private, profile);
+    assert_eq!(b.downloads.len(), 1, "another window keeps its list");
+    b.delete_profile_data();
+    assert!(b.downloads.is_empty());
+}

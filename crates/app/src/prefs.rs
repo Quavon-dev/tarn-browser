@@ -77,7 +77,7 @@ impl Pref {
             Pref::ExtensionsEverySite => "extensions_every_site",
             Pref::HistoryText => "history_text",
             Pref::SortDownloads => "sort_downloads",
-            Pref::LocalhostFromApps => "localhost_from_apps",
+            Pref::LocalhostFromApps => browser_core::site::LOCALHOST_FROM_APPS,
         }
     }
 

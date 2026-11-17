@@ -149,14 +149,8 @@ impl Browser {
         let host = host.trim_end_matches('.');
         let Some(space) = self.model.current_space() else { return };
         let (private, profile_id) = (space.private, space.space.profile_id);
-        if self.store(private).set_site_override(profile_id, host, level).is_err() {
+        if self.core.set_site_override(private, profile_id, host, level).is_err() {
             return;
-        }
-        if let Some(rt) = self.loaded(private, profile_id) {
-            match level {
-                Some(level) => rt.overrides.borrow_mut().insert(host.to_owned(), level),
-                None => rt.overrides.borrow_mut().remove(host),
-            };
         }
         self.core.apply_extensions(private, profile_id);
         if !private {

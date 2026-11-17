@@ -1,6 +1,7 @@
 mod browser;
 mod controls;
 mod data;
+mod desktop;
 mod extensions;
 mod fetch;
 mod input;

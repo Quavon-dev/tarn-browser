@@ -12,6 +12,7 @@ use serde_json::json;
 use webkit6::glib;
 use webkit6::{CookiePersistentStorage, Download, NetworkSession, TLSErrorsPolicy, WebsiteDataTypes, gio};
 
+use crate::browser::profile_data::Wipe;
 use crate::data::{self, StoreKey};
 
 pub const ORIGIN_XATTR: &str = "user.xdg.origin.url";
@@ -46,15 +47,34 @@ pub fn acquire(key: &StoreKey) -> Option<NetworkSession> {
 }
 
 pub fn clear(key: &StoreKey) {
+    clear_then(key, || {});
+}
+
+pub fn wipe(wipe: Wipe) {
+    let Wipe { key, remove } = wipe;
+    let released = key.clone();
+    clear_then(&key, move || {
+        if let Some(uuid) = remove {
+            release(&released);
+            data::wipe(&data::root(), &uuid);
+        }
+    });
+}
+
+fn clear_then(key: &StoreKey, done: impl FnOnce() + Send + 'static) {
     let open = SESSIONS.with_borrow(|sessions| sessions.get(key).cloned());
     match (open.and_then(|s| s.website_data_manager()), key) {
-        (Some(manager), _) => manager.clear(WebsiteDataTypes::all(), glib::TimeSpan::from_seconds(0), None::<&gio::Cancellable>, |result| {
+        (Some(manager), _) => manager.clear(WebsiteDataTypes::all(), glib::TimeSpan::from_seconds(0), None::<&gio::Cancellable>, move |result| {
             if let Err(e) = result {
                 eprintln!("tarn: website data was not cleared: {e}");
             }
+            done();
         }),
-        (None, StoreKey::Persistent(uuid)) => data::wipe(&data::root(), uuid),
-        (None, StoreKey::Ephemeral(_) | StoreKey::Burner(_)) => {}
+        (None, StoreKey::Persistent(uuid)) => {
+            data::wipe(&data::root(), uuid);
+            done();
+        }
+        (None, StoreKey::Ephemeral(_) | StoreKey::Burner(_)) => done(),
     }
 }
 

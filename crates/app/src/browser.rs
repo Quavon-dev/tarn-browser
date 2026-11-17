@@ -2872,7 +2872,7 @@ impl Browser {
         let name = store.profile(profile_id).map_err(|e| e.to_string())?.name;
         let json = store.export_profile(profile_id).map_err(|e| e.to_string())?;
         let dir = std::env::home_dir().ok_or("no home folder")?.join("Downloads");
-        let file = engine::downloads::sanitize_filename(&format!("Tarn export {name}.json"));
+        let file = browser_core::profile_data::export_name(&name);
         let path = engine::downloads::unique_path(&dir, &file, |p| p.exists());
         let mut options = std::fs::OpenOptions::new();
         #[cfg(unix)]
@@ -2894,15 +2894,15 @@ impl Browser {
             .flat_map(|s| self.store(private).folders(s.space.id).unwrap_or_default())
             .map(|f| f.id)
             .collect();
-        let space = match self.store(private).reset_profile(profile_id, if private { "Private" } else { "Home" }) {
-            Ok(space) => space,
+        let reset = match self.core.reset_profile_data(private, profile_id) {
+            Ok(reset) => reset,
             Err(e) => {
                 self.privacy_notice = Some((target, format!("Deleting failed ({e}).")));
                 cx.notify();
                 return;
             }
         };
-        self.core.wiped_at.borrow_mut().insert(target, now());
+        let space = reset.space;
         Self::sync_other_windows(cx);
         crate::shared::others(cx, |b, _, cx| {
             b.forget_history(private, profile_id);
@@ -2928,35 +2928,32 @@ impl Browser {
         self.model.closed_tabs.clear_profile(private, profile_id);
         self.forget_favicons(target);
         self.privacy_notice = Some((target, "Deleting website data…".into()));
-        let own_store = self.store(private).profile(profile_id).map(|p| p.data_store_uuid).unwrap_or_default();
+        let own_store = reset.own_store;
         // WebKit's data removal leaves its tracking-prevention and site-security databases behind,
         // so a profile with a store of its own moves to a new one and the old one goes as a whole.
-        if !private && !self.store_is_shared(profile_id, &own_store) {
-            let fresh = uuid::Uuid::new_v4().to_string();
-            if self.core.disk.set_profile_store(profile_id, &fresh).is_ok() {
-                #[cfg(feature = "chromium")]
-                self.wipe_chromium(&own_store, &fresh);
-                #[cfg(windows)]
-                crate::shared::count_chromium_blocks(&self.core);
-                if let Some(old) = self.core.profiles.borrow_mut().remove(&(false, profile_id)) {
-                    old.data.set_extensions(&[], &[], old.profile.shield_level);
-                    if self.downloads_popover.active.get(&target).is_some_and(|n| *n > 0) {
-                        self.core.retired_stores.borrow_mut().push(old.data);
-                    }
+        if reset.fresh_store.is_some() {
+            #[cfg(feature = "chromium")]
+            self.wipe_chromium(&own_store, reset.fresh_store.as_deref().unwrap_or_default());
+            #[cfg(windows)]
+            crate::shared::count_chromium_blocks(&self.core);
+            if let Some(old) = self.core.profiles.borrow_mut().remove(&(false, profile_id)) {
+                old.data.set_extensions(&[], &[], old.profile.shield_level);
+                if self.downloads_popover.active.get(&target).is_some_and(|n| *n > 0) {
+                    self.core.retired_stores.borrow_mut().push(old.data);
                 }
-                self.core.extensions.borrow_mut().forget_running(false, profile_id);
-                DataStore::wipe_persistent(&own_store);
-                DataStore::wipe_extensions(&own_store);
-                crate::zaps::forget(&own_store);
-                self.retire_store(&own_store, cx);
-                self.runtime(false, profile_id);
-                self.core.sync_shield();
-                self.privacy_notice = Some((target, "All data of this profile was deleted.".into()));
-                self.reload_spaces();
-                let ix = self.model.spaces.iter().position(|s| !s.private && s.space.id == space.id).unwrap_or(0);
-                self.switch_space(ix, window, cx);
-                return;
             }
+            self.core.extensions.borrow_mut().forget_running(false, profile_id);
+            DataStore::wipe_persistent(&own_store);
+            DataStore::wipe_extensions(&own_store);
+            crate::zaps::forget(&own_store);
+            self.retire_store(&own_store, cx);
+            self.runtime(false, profile_id);
+            self.core.sync_shield();
+            self.privacy_notice = Some((target, "All data of this profile was deleted.".into()));
+            self.reload_spaces();
+            let ix = self.model.spaces.iter().position(|s| !s.private && s.space.id == space.id).unwrap_or(0);
+            self.switch_space(ix, window, cx);
+            return;
         }
         #[cfg(feature = "chromium")]
         if !private {
@@ -2973,7 +2970,7 @@ impl Browser {
                     #[cfg(windows)]
                     rt.data.set_hidden_elements(&[]);
                 }
-                Self::clear_site_rules(&rt.rules);
+                rt.rules.clear();
                 if !private && rt.profile.shield_level == ShieldLevel::Lockdown {
                     DataStore::wipe_persistent(&rt.profile.data_store_uuid);
                     DataStore::wipe_extensions(&own_store);

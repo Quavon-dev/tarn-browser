@@ -1,6 +1,7 @@
 pub mod extensions;
 pub mod icons;
 pub mod pages;
+pub mod profile_data;
 mod site;
 pub mod spaces;
 mod split;
@@ -107,7 +108,7 @@ pub struct Browser {
     pub playing: HashSet<TabKey>,
     pub swipe: swipe::Swipe,
     pub released: Vec<crate::data::StoreKey>,
-    pub download_owners: HashMap<String, Option<Id>>,
+    pub download_owners: HashMap<String, (Option<Id>, i64)>,
     pub cancelled_downloads: Vec<String>,
     pub text_found: suggest::TextMatches,
     pub favicons: engine::favicon::Tracker<icons::Profile, std::sync::Arc<str>>,
@@ -609,18 +610,8 @@ impl Browser {
     pub fn set_site_level(&mut self, level: Option<ShieldLevel>) {
         let (Some(key), Some(host)) = (self.model.active, self.site_host()) else { return };
         let Some(profile) = self.model.profile_of(&self.core, key) else { return };
-        if self.core.store(key.private).set_site_override(profile, &host, level).is_err() {
+        if !self.store_site_level(key.private, profile, &host, level) {
             return;
-        }
-        if let Some(rt) = self.core.profiles.borrow().get(&(key.private, profile)) {
-            let mut overrides = rt.overrides.borrow_mut();
-            match level {
-                Some(level) => overrides.insert(host, level),
-                None => overrides.remove(&host),
-            };
-        }
-        if !key.private {
-            crate::extensions::levels_changed(profile);
         }
         let url = self.pages.get(&key).map(|p| p.url.clone()).unwrap_or_default();
         self.load(key, &url);
@@ -682,6 +673,7 @@ impl Browser {
         if let Some((private, id)) = self.profile_of_space() {
             self.core.store(private).clear_history(id).ok();
             self.favicons.forget(&(private, id));
+            self.reset_zooms(private, id, None);
         }
         self.text_found.clear();
     }

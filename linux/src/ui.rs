@@ -756,13 +756,20 @@ fn load_history(ui: Ui) {
     ui.history.set((profile, Rc::new(rows)));
 }
 
+pub(super) fn in_other_windows(ui: Ui, f: impl FnOnce(&mut Browser) + Clone) {
+    for other in WINDOWS.with_borrow(Vec::clone).into_iter().filter(|o| o.window != ui.window) {
+        act_quietly(other, f.clone());
+    }
+}
+
 /// Clears the profile's history, and the cache that would still suggest it.
 fn clear_history(ui: Ui) {
     act(ui, |b| b.clear_history());
     if let Some(Some(profile)) = read(ui, |b| b.model.profile()) {
-        for other in WINDOWS.with_borrow(Vec::clone).into_iter().filter(|o| o.window != ui.window) {
-            act_quietly(other, |b| b.favicons.forget(&profile));
-        }
+        in_other_windows(ui, move |b| {
+            b.favicons.forget(&profile);
+            b.reset_zooms(profile.0, profile.1, None);
+        });
     }
     ui.history.set(Default::default());
 }
