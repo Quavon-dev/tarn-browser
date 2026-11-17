@@ -142,8 +142,11 @@ Application", one without a secure timestamp or without the hardened runtime, an
 fails unless the status is `Accepted`, staples the ticket, runs `stapler validate`, and fails unless
 `spctl -a -vv -t execute` reports `source=Notarized Developer ID`. `scripts/dmg.sh` refuses an app
 `spctl` does not report as notarised, packs it beside an `Applications` link into an HFS+ disk
-image named Tarn, signs, notarises and staples the image, fails unless `spctl -t open` reports it
-notarised, and mounts it to check it holds exactly those two items with the app's signature intact.
+image named Tarn (`scripts/dmg-layout.sh` has Finder lay out the window over
+`packaging/dmg-background.tiff` and adds the volume icon; it refuses while another volume named Tarn
+is mounted), signs, notarises and staples the image, fails unless `spctl -t open` reports it
+notarised, and mounts it to check it holds exactly those two items plus the window layout
+(`.DS_Store`, `.background`, `.VolumeIcon.icns`) with the app's signature intact.
 Sparkle updates use the zip.
 
 ## Updates (Sparkle)

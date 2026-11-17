@@ -28,13 +28,14 @@ pub enum Pref {
     UpdateChecks,
     NightlyUpdates,
     ExtensionsEverySite,
+    ExtensionsBitwarden,
     HistoryText,
     SortDownloads,
     LocalhostFromApps,
 }
 
 impl Pref {
-    pub const ALL: [Pref; 20] = [
+    pub const ALL: [Pref; 21] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
@@ -52,6 +53,7 @@ impl Pref {
         Pref::UpdateChecks,
         Pref::NightlyUpdates,
         Pref::ExtensionsEverySite,
+        Pref::ExtensionsBitwarden,
         Pref::HistoryText,
         Pref::SortDownloads,
         Pref::LocalhostFromApps,
@@ -76,6 +78,7 @@ impl Pref {
             Pref::UpdateChecks => "update_checks",
             Pref::NightlyUpdates => "nightly_updates",
             Pref::ExtensionsEverySite => "extensions_every_site",
+            Pref::ExtensionsBitwarden => "extensions_bitwarden",
             Pref::HistoryText => "history_text",
             Pref::SortDownloads => "sort_downloads",
             Pref::LocalhostFromApps => "localhost_from_apps",
@@ -298,6 +301,12 @@ impl Browser {
                     crate::shared::each(cx, |b, window, cx| profiles.iter().for_each(|id| b.restart_views_here(false, *id, None, false, window, cx)));
                 });
             }
+            if pref == Pref::ExtensionsBitwarden {
+                let profiles: Vec<_> = self.core.profiles.borrow().keys().filter(|(private, _)| !private).map(|(_, id)| *id).collect();
+                for id in profiles {
+                    self.core.apply_extensions(false, id);
+                }
+            }
             cx.refresh_windows();
         }
     }
@@ -390,6 +399,7 @@ fn prefs_default_and_roundtrip() {
     assert!(prefs.get(Pref::Gestures) && !prefs.get(Pref::CompactToolbar));
     assert!(prefs.get(Pref::BlockAds) && prefs.get(Pref::BlockMalware) && prefs.get(Pref::YouTubeAds) && !prefs.get(Pref::BlockAdult));
     assert!(prefs.get(Pref::UpdateChecks) && !prefs.get(Pref::HistoryText) && !prefs.get(Pref::SortDownloads));
+    assert!(!prefs.get(Pref::ExtensionsBitwarden));
     store.set_setting(Pref::Gestures.key(), "off").unwrap();
     store.set_setting(Pref::CompactToolbar.key(), "on").unwrap();
     let prefs = Prefs::load(&store);
