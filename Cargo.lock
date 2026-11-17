@@ -194,11 +194,9 @@ dependencies = [
  "store",
  "tempfile",
  "ui",
- "unicode-normalization",
  "ureq",
  "url",
  "uuid",
- "zip",
 ]
 
 [[package]]
@@ -845,8 +843,10 @@ dependencies = [
  "shield",
  "store",
  "tempfile",
+ "unicode-normalization",
  "url",
  "uuid",
+ "zip",
 ]
 
 [[package]]

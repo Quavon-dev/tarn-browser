@@ -58,6 +58,11 @@ PAGES = {
     " onunload=\"new Image().src='/beacon?ev=unload'\"><h1>UNLOAD-PAGE</h1>"
     "<button onclick=\"new Image().src='/beacon?ev=click'\">beacon</button>"
     "<a href='http://open.test/slow'>slow link</a></body>",
+    "/ext": "<title>Extension page</title><h1>Extension</h1><iframe src='/ext-frame'></iframe>"
+    "<img alt=ad src='http://ads.test/pixel?via=ext'><script src='http://ads.test/ad.js'></script>",
+    "/ext-probe": "<title>probe</title><h1>Probe</h1><script>setTimeout(() => { const d = document.documentElement.dataset; "
+    "document.title = [typeof window.chrome, typeof window.browser, typeof window.__tarnExtPort, typeof window.__tarnExtPost, "
+    "typeof window.__tarnExtReceive, d.tarnFixture, d.tarnFixtureReply].join(','); }, 1500)</script>",
     "/popups": "<title>Popup opener</title><h1>Popups</h1><a href='http://public.test/opened' target='_blank'>open popup</a>"
     "<button onclick=\"for(let i=0;i<5;i++)window.open('/opened?n='+i)\">five popups</button>",
 }

@@ -5,6 +5,7 @@ mod data;
 mod host;
 mod policy;
 pub mod system;
+pub mod tarn_ext;
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JObject, JObjectArray, JString};
@@ -192,13 +193,84 @@ pub extern "system" fn Java_dev_tarn_android_Native_themeStylesScript(mut env: J
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_tarn_android_Native_themeOrigins(mut env: JNIEnv, _: JClass, theme: JString) -> jobjectArray {
     let origins = theme_origins(&theme_sheets(&mut env, &theme));
-    let Ok(array) = env.new_object_array(origins.len() as i32, "java/lang/String", JObject::null()) else { return std::ptr::null_mut() };
-    for (i, origin) in origins.iter().enumerate() {
-        if let Ok(s) = env.new_string(origin) {
+    java_strings(&mut env, &origins)
+}
+
+fn java_strings(env: &mut JNIEnv, values: &[String]) -> jobjectArray {
+    let Ok(array) = env.new_object_array(values.len() as i32, "java/lang/String", JObject::null()) else { return std::ptr::null_mut() };
+    for (i, value) in values.iter().enumerate() {
+        if let Ok(s) = env.new_string(value) {
             env.set_object_array_element(&array, i as i32, s).ok();
         }
     }
     array.into_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_setWorldsSupported(_: JNIEnv, _: JClass, supported: jboolean) {
+    tarn_ext::set_worlds_supported(supported != 0);
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_extensionWorlds(mut env: JNIEnv, _: JClass, store: JString) -> jobjectArray {
+    let worlds = string(&mut env, &store).map(|s| tarn_ext::world_names(&s)).unwrap_or_default();
+    java_strings(&mut env, &worlds)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_extensionLoader(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(tarn_ext::loader()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_extensionPageScript(mut env: JNIEnv, _: JClass, host: JString, bootstrap: JString) -> jstring {
+    let host = string(&mut env, &host);
+    let script = string(&mut env, &bootstrap).zip(host).map(|(b, h)| tarn_ext::page_script(&h, &b));
+    java_string(&mut env, script)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_extensionVerdict(
+    mut env: JNIEnv,
+    _: JClass,
+    store: JString,
+    url: JString,
+    top: JString,
+    level: jint,
+    next: JString,
+    next_level: jint,
+    kind: jint,
+) -> jint {
+    let (top, next) = (string(&mut env, &top), string(&mut env, &next));
+    let mut pages = vec![(top.as_deref(), level)];
+    pages.extend(next.as_deref().map(|n| (Some(n), next_level)));
+    match (string(&mut env, &store), string(&mut env, &url)) {
+        (Some(store), Some(url)) => tarn_ext::verdict(&store, &url, kind, &pages),
+        _ => policy::VERDICT_ALLOW,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_extensionResource(mut env: JNIEnv, _: JClass, store: JString, url: JString) -> jobjectArray {
+    let resource = match (string(&mut env, &store), string(&mut env, &url)) {
+        (Some(store), Some(url)) => tarn_ext::resource(&store, &url),
+        _ => tarn_ext::resource("", ""),
+    };
+    resource_array(&mut env, resource).unwrap_or(std::ptr::null_mut())
+}
+
+fn resource_array(env: &mut JNIEnv, (resource, csp): (engine::tarn_ext::Resource, Option<String>)) -> Option<jobjectArray> {
+    let array = env.new_object_array(4, "java/lang/Object", JObject::null()).ok()?;
+    let texts = [Some(resource.status.to_string()), Some(resource.mime.to_owned()), csp];
+    for (i, text) in texts.into_iter().enumerate() {
+        if let Some(text) = text {
+            let item = env.new_string(text).ok()?;
+            env.set_object_array_element(&array, i as i32, item).ok()?;
+        }
+    }
+    let body = env.byte_array_from_slice(&resource.body).ok()?;
+    env.set_object_array_element(&array, 3, body).ok()?;
+    Some(array.into_raw())
 }
 
 #[unsafe(no_mangle)]

@@ -208,6 +208,146 @@ v3 platform differences:
   process, whose own store is already throwaway;
 - Linux runs the scripts in the world `tarn` and adds `styles` as a `UserScript` in that world.
 
+### Tarn extensions on Android
+
+`tarn_mobile_android::tarn_ext` implements the engine hooks (`set_gate`, `set_scripts`, `set_rule_lists`,
+`serve`, `worlds_supported`, and on Android `frame_event`), `tarn.webview` the `extensionPost` command and the
+`extensionMessage` and `extensionFrame` events, and the `tarn.extpage` component the extension pages. All
+decisions come from `browser_core::tarn_ext`.
+
+- **Isolated worlds.** androidx.webkit 1.18.0 (pinned in `host/build.gradle.kts`) has named execution worlds
+  behind `WebViewFeature.JS_INJECTION_IN_FRAME_AND_WORLD`: `WebViewCompat.getExecutionWorld`,
+  `addJavaScriptOnEvent(..., world)` and `addWebMessageListener(..., world, ...)`. Each install's world
+  `tarn-ext-<install id>` gets a document-start loader and a message port that exist only in that world, in
+  every http and https frame. The loader takes the port off the world's globals and reports the document's
+  URL. NSH runs the shell on its own engine thread, not on the Android main thread of the WebView callbacks,
+  so the component asks with the `extensionFrame` event (`{request, tab, store, world, url, top, main,
+  origin}`, `origin` as WebView reports it for the frame); the shell passes it to `tarn_ext::frame_event`,
+  which refuses a URL outside that origin, asks the gate (`frame_decision`) and hands the scripts back by
+  JNI. The component runs only those, in that frame and world, through the frame's `JavaScriptReplyProxy`
+  (an answer for a document the frame has since left is dropped): the port setup and bootstrap, each
+  script's CSS as a `<style>` element at once, and its JS as classic scripts at `run_at` (`document_end` on
+  `DOMContentLoaded`, `document_idle` a task later). The sender of `extensionMessage` is the world whose listener received it and the frame its
+  reply proxy belongs to (main frame 0, others numbered per view); messages of a frame the gate gave
+  nothing are dropped, and the page's main world has no port at all.
+- **Difference: when the gate is asked.** WebView has no synchronous per-frame hook before commit, so the
+  gate is asked when the frame's loader reports at document start (a round trip through the shell's
+  thread). Scripts and CSS for `document_start` therefore run shortly after the document starts parsing; a
+  page script that runs first can see the page before the extension's CSS applies.
+- **Gap: WebView without isolated worlds.** An Android System WebView that lacks
+  `JS_INJECTION_IN_FRAME_AND_WORLD` (or `WEB_MESSAGE_LISTENER`) runs no content scripts and no content-script
+  CSS; `worlds_supported()` is false and the shell says "Content scripts are not supported by this Android
+  System WebView". Content-script JS and its bridge cannot run in the page's main world, where the page
+  could read and drive them (spec, "Bridge and trust"). CSS alone is not injected there either: a
+  main-world document-start script can be limited only by origin rules, not by the gate's match patterns,
+  `exclude_matches` and grants per frame, so it would style frames the core did not allow. Network rules,
+  the action entry, popup, background page and storage still work there.
+- **Network rules.** `set_rule_lists` parses each list with `engine::content_rules`; the component applies
+  them per request in `shouldInterceptRequest` and in the main-frame checks of `shellLoad`, link navigations
+  and history steps, never at Lockdown (the view's or the site's level). As with Shield on Android, an
+  `upgradeScheme` rule upgrades a main-frame load and blocks a subresource (WebView cannot rewrite a
+  subresource request). WebSocket and service-worker requests are not seen (the WebView gap above). While a
+  navigation is pending WebView cannot say whether a subresource belongs to the page being left or the page
+  coming, so an extension rule acts on it only if it acts for both: an extension never acts on a site it holds
+  no grant for, and the first requests of a granted page reached from another site may go unfiltered.
+- **Extension pages** (`tarn.extpage`): a view of the profile's WebView profile that loads only
+  `tarn-extension://<origin id>/` URLs, answered in `shouldInterceptRequest` from the store's `serve()`
+  handler with its status and MIME type; a `tarn-extension://` request for another origin is refused with
+  403. Top-level navigation elsewhere and new windows are cancelled; JavaScript dialogs, permissions,
+  geolocation and file choosers are refused; http and https subresources get the profile level's Shield and
+  private-network rules (no top page, as for service workers). It does not open at Lockdown or for a
+  non-persistent store.
+- **Difference: custom scheme.** WebView parses `tarn-extension://` as a scheme without a host and gives its
+  documents an opaque origin, which neither `'self'` nor a host source matches. So (1) the
+  `Content-Security-Policy` is the core's with `'self'` replaced by the scheme source `tarn-extension:`;
+  with the 403 above the page still loads scripts only from its own origin, and inline scripts and `eval`
+  stay refused; (2) WebView takes no origin rule for the scheme, so the document-start script and the port are
+  registered for every origin: the script runs the bootstrap only in a top document whose URL is
+  `tarn-extension://<origin id>/`, and the component takes messages only from the main frame while it
+  shows that origin. An http frame inside an extension page gets the port object but nothing it posts is
+  read, and nothing is posted to it.
+
+Checked on the `slideout_3gb` emulator (Android 16, Android System WebView 157.0.8103.38) with a fresh app
+data directory, an Unverified test extension installed from Downloads, and local test servers on
+`127.0.0.1` and `localhost` (HTTP, and HTTPS with a throwaway CA installed as a user certificate; the debug
+build trusts user certificates for the debug test hosts only): consent sheet, the per-site prompt (Allow Once,
+Always Allow, Deny), content script and CSS in the install's world while the page's main world sees no
+`chrome`, `browser` or `__tarnExt*` globals, a message round trip with the background page, storage, the popup
+with its badge, a network rule blocking a subresource only after the grant, "Forget Site Answers" stopping an
+open page's messages and asking again, a cross-site `all_frames` frame that runs and messages only once its
+own origin is allowed, a frame of a Lockdown host inside an allowed page running nothing, a web page unable to
+fetch, embed or frame the extension's files (a top-level link is offered to another app and never loads),
+the popup's frames limited to its own origin, nothing in the private space or a burner tab, and nothing at
+Lockdown for the site or the profile (no scripts, no rules, no popup).
+
+### Tarn extensions: the shared shell and iOS
+
+The engine hooks every mobile engine provides are `tarn_ext::{set_gate, set_scripts, set_rule_lists, serve,
+worlds_supported, frame_event}` in its crate, the `extensionPost` command and `extensionMessage` event of
+`tarn.webview`, and the `tarn.extpage` component (`mobile/app` reaches the crate as `platform::ext`). All
+decisions come from `browser_core::tarn_ext`.
+
+- **Shared shell** (`app/src/extensions.rs`, `app/src/ui/extensions.rs`). For the persistent profile on
+  screen it loads each enabled install with `tarn_ext::load`, so the tree is hashed against the stored hash
+  before anything runs (a mismatch turns the install off and drops its site answers, as on desktop); a
+  popup or background page opens from that checked load, as on desktop and Linux. It hands the engine the worlds, the content rule
+  lists (`rule_list` with the current `Session::scope`, sent again when a grant starts or a Once grant ends)
+  and the profile's `Resolver`. The gate is `frame_decision`; a host it wants answered raises the per-site
+  prompt over the tab (Allow Once for an hour or until the tab closes, Always Allow, Deny, Never), and an
+  allow reloads the tab. Messages go through `router::Router::handle`; its `Out`s become `extensionPost`
+  commands, page posts, background start/stop, new tabs. A 5 s timer runs `Router::tick` (an idle background
+  page stops after 30 s). Closing a tab ends its Once grants and pending replies; a main-frame commit ends an
+  `activeTab` grant. The menu lists each extension with an action, its title and badge; choosing it opens the
+  popup in a sheet or sends `action.onClicked`. Settings › Extensions is `tarn_nsh_shared::extensions`
+  (shared with Linux): install from a file (the system document picker), a GitHub repository or the official
+  catalog (shown only in builds with a catalog key), the consent sheet from `manifest.consent()` with the
+  source's trust label, on/off per profile, "every site it lists" for App and Official installs, forget site
+  answers, check for update, remove. Only Tarn extensions install here; a classic package is refused by name.
+  Install folders are found from the extensions folder, not the stored absolute path, because iOS moves the
+  app's data container on every update. "Forget Site Answers" drops the stored answers and this session's
+  (Allow Once and Deny), so it asks again on every site at once. Nothing runs in a private space, a burner tab
+  or at Lockdown; at profile Lockdown the action entry stays in the menu but opens no page, as on desktop.
+- **iOS engine** (`ios/src/tarn_ext.rs`, `ext_view.rs`, `ext_scripts.rs`, `extpage.rs`). NSH runs the shell on
+  its own thread, so the hooks hand owned copies to the main queue. Each install gets
+  `WKContentWorld worldWithName:` (`tarn-ext-<install id>`, never the page world or Tarn's own client world),
+  `WKUserScript`s in that world and a `WKScriptMessageHandler` added with
+  `addScriptMessageHandler:contentWorld:name:` for that world only. The gate: when the navigation policy
+  allows a frame navigation (main frame and subframes) in a view whose profile has extensions, the decision
+  is held, the view emits `extensionFrame`, `frame_event` asks the gate on the shell thread and the answer
+  records exactly the returned scripts for that frame in the shared `tarn_ext::Decisions` before WebKit
+  continues. The world's scripts are `tarn_ext::injections` with iOS's own setup (`ext_scripts::SETUP`): the
+  gate script looks its document up in the decisions, defines `__tarnExtPost` and runs the bootstrap and the
+  CSS, and every JS file of the world checks the gate's answer first, so nothing runs in a frame the gate did
+  not approve. Subframes are numbered by a per-document token and checked against the origin WebKit reports
+  for the frame, which also goes with each subframe message for the router's grant check. A reply to a subframe runs only
+  where the document's token matches (`engine::tarn_ext::reply`), so it never runs in the frame's next document. Messages over 1 MiB are dropped. Network rules are compiled into
+  `WKContentRuleList`s and added to views of the profile not at Lockdown. `tarn.extpage` serves
+  `tarn-extension://` through a `WKURLSchemeHandler` from the profile's resolver (status, MIME type, the
+  page CSP) for its own origin only, only navigates its main frame inside its own origin, gets the profile level's built-in rules,
+  runs the bootstrap in its main frame's page world on its own origin only and hears only that frame; it
+  does not open at Lockdown or for a non-persistent store.
+- **Differences on iOS.** `WKUserScript` has two injection times, so `document_idle` runs at document end.
+  A frame a redirect ends on that WebKit does not pass through the navigation policy is not approved, so the
+  extension does not run there. A frame the gate did not approve logs "Tarn: not granted here." in Web
+  Inspector (the guard stops the script by throwing). Content-script CSS is a `<style>` element the
+  page can remove.
+
+Checked on the iPhone 18 Pro simulator (iOS 27.0) with a fresh install and a test extension (content
+script and CSS on `example.com`, storage, background page, popup): consent sheet, install from Files, the
+per-site prompt, the content script running after Allow Once with storage and a background reply, the
+badge in the menu, the popup reading storage, a new prompt after relaunch for a Once answer, and nothing
+in the private space for a site allowed with Always Allow in the profile. Evidence:
+`mobile/ios/evidence/extensions/`. Unit tests: `app/src/extensions/tests.rs` (grants, prompt, storage,
+messaging, background start and idle stop, popup and badge, private space, changed files),
+`crates/browser-core/src/extensions/install.rs` (install, consent, classic refusal, a tree changed before consent) and
+`ios/src/ext_scripts.rs` (guards).
+
+Checked again on the same simulator with a fresh install and the local test servers used for Android (HTTPS
+with a throwaway CA added to the simulator's keychain only): everything listed for Android above, including
+the network rule acting only after the grant, cross-site frames, and Lockdown for the site and the profile.
+An open page keeps its message handlers when the shell sends the worlds again (any change in Settings ›
+Extensions); only an install that goes away loses its handler.
+
 ## 3. Data stores (`browser_core::WebsiteData`)
 
 | | iOS | Android |

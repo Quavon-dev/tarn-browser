@@ -108,7 +108,7 @@ pub fn compile_one(identifier: String, source: String, then: impl FnOnce(UserCon
     glib::MainContext::default().spawn_local(async move {
         match compile(identifier, source).await {
             Ok(filter) => then(filter),
-            Err(e) => eprintln!("tarn: hidden elements did not compile: {e}"),
+            Err(e) => eprintln!("tarn: content rules did not compile: {e}"),
         }
     });
 }

@@ -71,7 +71,6 @@ pub(crate) enum Reply {
     #[cfg(target_os = "macos")]
     Credentials(RcBlock<dyn Fn(NSURLSessionAuthChallengeDisposition, *mut NSURLCredential)>),
     /// Whether to allow (`None` dismisses) and whether to remember it.
-    #[cfg(target_os = "macos")]
     Access(Box<dyn FnOnce(Option<bool>, bool)>),
     #[cfg(any(windows, feature = "chromium"))]
     Answer(Answer),
@@ -112,7 +111,6 @@ impl Prompt {
             }
             #[cfg(target_os = "macos")]
             Some(Reply::Permission(done)) => done.call((WKPermissionDecision::Grant,)),
-            #[cfg(target_os = "macos")]
             Some(Reply::Access(done)) => done(Some(true), false),
             #[cfg(target_os = "macos")]
             Some(Reply::Credentials(done)) => match credentials {
@@ -145,11 +143,24 @@ impl Prompt {
         Prompt { origin, top_origin, insecure, message, kind, reply: Some(Reply::Answer(reply)), suppress }
     }
 
+    /// A Tarn extension's request to read and change `host`, raised by the shell; `reply` gets
+    /// whether to allow (`None` when dismissed) and whether to remember it.
+    pub fn extension_access(extension: String, key: String, host: String, reply: impl FnOnce(Option<bool>, bool) + 'static) -> Self {
+        let kind = PromptKind::ExtensionAccess { extension, key };
+        Prompt {
+            origin: host,
+            top_origin: None,
+            insecure: false,
+            message: String::new(),
+            kind,
+            reply: Some(Reply::Access(Box::new(reply))),
+            suppress: Rc::default(),
+        }
+    }
+
     /// Answers an extension's host request for good: Always or Never.
-    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     pub fn remember(mut self, allow: bool) {
         match self.reply.take() {
-            #[cfg(target_os = "macos")]
             Some(Reply::Access(done)) => done(Some(allow), true),
             other => decline(other),
         }
@@ -202,10 +213,29 @@ pub(crate) fn decline(reply: Option<Reply>) {
         Some(Reply::Permission(done)) => done.call((WKPermissionDecision::Deny,)),
         #[cfg(target_os = "macos")]
         Some(Reply::Credentials(done)) => done.call((NSURLSessionAuthChallengeDisposition::CancelAuthenticationChallenge, std::ptr::null_mut())),
-        #[cfg(target_os = "macos")]
         Some(Reply::Access(done)) => done(None, false),
         #[cfg(any(windows, feature = "chromium"))]
         Some(Reply::Answer(done)) => done(None),
         None => {}
+    }
+}
+
+#[cfg(test)]
+mod access_tests {
+    use super::*;
+
+    #[test]
+    fn an_extension_access_prompt_answers_once() {
+        type Answers = Rc<std::cell::RefCell<Vec<(Option<bool>, bool)>>>;
+        let got: Answers = Rc::default();
+        let prompt = |got: &Answers| {
+            let got = got.clone();
+            Prompt::extension_access("Ext".into(), "id".into(), "a.test".into(), move |allow, remember| got.borrow_mut().push((allow, remember)))
+        };
+        drop(prompt(&got));
+        prompt(&got).accept("", None);
+        prompt(&got).remember(false);
+        prompt(&got).decline();
+        assert_eq!(*got.borrow(), [(None, false), (Some(true), false), (Some(false), true), (None, false)]);
     }
 }

@@ -35,6 +35,10 @@ The Android host of the Tarn mobile app (`docs/mobile-plan.md` M3).
   web app's service worker cannot fetch from its own local address. Every built-in rule is understood
   by `engine::content_rules` (tested); a rule with a trigger it does not know is skipped, an exception
   included, so it can only block more. WebSocket requests are not visible to WebView clients.
+- **Tarn extensions:** `tarn_ext` holds what the shell registers (gate, worlds, rule lists,
+  `tarn-extension://` handlers); `Extensions` runs content scripts in each install's WebView execution
+  world and `ExtensionPage` is the `tarn.extpage` component (`docs/mobile-plan.md`, "Tarn extensions on
+  Android"). `rust/tests/fixtures/tarn-ext` is a small extension the tests load.
 - **Downloads** go to `files/Downloads/`; in the private space to `private/<session>/Downloads/`, which
   is deleted with the session.
 - **Level changes** apply from the next navigation. A main-frame request WebView does not announce
@@ -66,6 +70,7 @@ adb reverse tcp:8771 tcp:8771
 adb logcat -s tarn
 ```
 
-The debug build only: cleartext is allowed for `localhost`, `127.0.0.1` and `*.test`, and the
+The debug build only: cleartext is allowed for `localhost`, `127.0.0.1` and `*.test`, which also trust
+user-installed CA certificates (a test CA for HTTPS and Lockdown checks), and the
 `debug-proxy` file sends WebView traffic through `server.py`, so `http://public.test/` pages count as
 public. Release builds allow no cleartext and have no proxy hook or logging.

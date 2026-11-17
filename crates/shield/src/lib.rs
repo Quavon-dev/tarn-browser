@@ -4,6 +4,7 @@ pub mod bundle;
 pub mod cache;
 pub mod catalog;
 mod category;
+pub mod dnr;
 pub mod domains;
 pub mod groups;
 pub mod lists;

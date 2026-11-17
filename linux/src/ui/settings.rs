@@ -292,14 +292,16 @@ fn permissions(ui: Ui) -> View {
 }
 
 fn nav(ui: Ui, current: Pane) -> View {
+    let ext_on = ui.ext_pane.get_untracked();
     let mut out = view().flex_col().gap(px(2.)).w(px(NAV_WIDTH)).flex_none().p_2().rounded(px(Theme::radius_group())).bg(Theme::panel_nav());
     for (group, members) in GROUPS {
         out = out.child(view().pt_2().pb_1().px_1().child(tarn_nsh_shared::controls::caps_label(group)));
         for pane in members.iter().copied() {
-            let selected = pane == current;
+            let selected = pane == current && !ext_on;
             let name = panes::name(pane);
             out = out.child(
                 crate::controls::row(name, move || {
+                    ui.ext_pane.set(false);
                     ui.settings_pane.set(pane);
                     act(ui, |_| {});
                 })
@@ -314,12 +316,29 @@ fn nav(ui: Ui, current: Pane) -> View {
             );
         }
     }
-    out
+    out.child(
+        crate::controls::row("Extensions", move || {
+            ui.ext_pane.set(true);
+            act(ui, |_| {});
+        })
+        .h(px(30.))
+        .px(px(10.))
+        .rounded(px(Theme::radius_row()))
+        .bg(if ext_on { Theme::selected() } else { rgba(0) })
+        .hover(|s| s.bg(Theme::hover()))
+        .text_color(if ext_on { Theme::text() } else { Theme::muted() })
+        .child(crate::icons::icon(crate::icons::SPARKLES, 14.))
+        .child(label("Extensions").text_color(if ext_on { Theme::text() } else { Theme::muted() })),
+    )
 }
 
 pub fn settings_panel(ui: Ui) -> AnyElement {
     let pane = ui.settings_pane.get_untracked();
-    let body = pane_body(ui, pane).unwrap_or_else(|| view().flex_col());
+    let body = if ui.ext_pane.get_untracked() {
+        view().flex_col().child(super::panels::heading(ui, title("Extensions"))).child(view().pt_3().child(super::extensions::pane(ui)))
+    } else {
+        pane_body(ui, pane).unwrap_or_else(|| view().flex_col())
+    };
     view()
         .flex_row()
         .flex_1()

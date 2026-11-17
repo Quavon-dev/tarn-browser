@@ -155,7 +155,8 @@ pub fn prompt_panel(ui: Ui) -> impl IntoElement {
                     .into_element(),
             );
         }
-        let prompt: PromptRequest = first.get()?;
+        let Some(prompt) = first.get() else { return super::extensions::ask(ui).map(IntoElement::into_element) };
+        let prompt: PromptRequest = prompt;
         let simple = matches!(prompt.kind.as_str(), "alert" | "confirm");
         // The address field and the sheets keep their own Esc and Enter.
         if !ui.editing.get() && ui.screen.get() == Screen::Browse {

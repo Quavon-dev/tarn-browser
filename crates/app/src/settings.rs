@@ -1723,13 +1723,13 @@ impl SettingsWindow {
 
 impl SettingsWindow {
     fn extensions(&self, s: Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        if cfg!(windows) {
-            return div().child(section("Extensions")).child(note("Extensions are not available on Windows yet.")).into_any_element();
-        }
         if !s.extensions_allowed {
             return div().child(section("Extensions")).child(note("Extensions are off in private and Lockdown profiles.")).into_any_element();
         }
         let mut page = div();
+        if cfg!(windows) {
+            page = page.child(note("Windows runs Tarn extensions only; Safari and Chrome extensions need their own engine and are not available here."));
+        }
         if s.all_sites_notice {
             page = page.child(
                 group().child(
@@ -1850,6 +1850,12 @@ impl SettingsWindow {
                             this.with_browser(cx, move |b, w, cx| b.set_extension_all_sites(&id, !all, w, cx))
                         },
                     )));
+                }
+                if let Some(id) = e.install_id.clone() {
+                    r = r.child(button(("extension-forget", ix), "Forget Site Answers", false).on_click(cx.listener(move |this, _, _, cx| {
+                        let id = id.clone();
+                        this.with_browser(cx, move |b, w, cx| b.forget_extension_answers(&id, w, cx))
+                    })));
                 }
                 if let Some(id) = e.install_id {
                     r = r.child(button(("extension-remove", ix), "Remove", false).on_click(cx.listener(move |this, _, _, cx| {

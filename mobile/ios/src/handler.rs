@@ -44,7 +44,7 @@ fn frame_origin(frame: &WKFrameInfo) -> Option<Url> {
     security_origin(&origin)
 }
 
-fn security_origin(origin: &WKSecurityOrigin) -> Option<Url> {
+pub(crate) fn security_origin(origin: &WKSecurityOrigin) -> Option<Url> {
     // SAFETY: plain getters of a live origin on the main thread.
     let (scheme, host, port) = unsafe { (origin.protocol().to_string(), origin.host().to_string(), origin.port()) };
     let port = if port > 0 { format!(":{port}") } else { String::new() };
@@ -68,6 +68,8 @@ define_class!(
                     let policy = inner.decide(web, action, preferences, self.ivars().level);
                     if policy != WKNavigationActionPolicy::Allow {
                         inner.end_popup();
+                    } else if inner.defer_frame(web, action, preferences, handler) {
+                        return;
                     }
                     policy
                 }

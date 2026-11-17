@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Android Fixture",
+  "version": "1.0",
+  "browser_specific_settings": { "tarn": { "runtime": 1 } },
+  "permissions": ["storage", "declarativeNetRequest"],
+  "host_permissions": ["*://page.test/*"],
+  "content_scripts": [
+    { "matches": ["*://page.test/*"], "exclude_matches": ["*://page.test/private/*"], "js": ["content.js"], "css": ["content.css"], "run_at": "document_start" },
+    { "matches": ["*://page.test/*"], "js": ["frames.js"], "all_frames": true }
+  ],
+  "declarative_net_request": { "rule_resources": [{ "id": "rules", "enabled": true, "path": "rules.json" }] },
+  "action": { "default_popup": "popup.html", "default_title": "Fixture" },
+  "background": { "service_worker": "background.js" }
+}

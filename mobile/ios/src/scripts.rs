@@ -28,7 +28,7 @@ pub fn host_map(value: Option<&Value>) -> Vec<(String, Value)> {
     value.and_then(Value::as_object).cloned().unwrap_or_default().into_iter().map(|(h, v)| (h.to_ascii_lowercase(), v)).collect()
 }
 
-fn fnv(text: &str) -> u64 {
+pub(crate) fn fnv(text: &str) -> u64 {
     text.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
 }
 
@@ -115,20 +115,17 @@ impl Inner {
             let Some(built) = built.as_mut() else { return };
             // SAFETY: main thread (marker); the script is a start-of-document user script in the shell's
             // isolated world for the main frame only, holding the style sheets as JS string literals.
-            unsafe {
-                built.controller.removeAllUserScripts();
-                if let Some(source) = page_scripts::site_styles_script(&sheets) {
-                    let world = WKContentWorld::defaultClientWorld(self.mtm);
-                    let script = WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
-                        WKUserScript::alloc(self.mtm),
-                        &NSString::from_str(&source),
-                        WKUserScriptInjectionTime::AtDocumentStart,
-                        true,
-                        &world,
-                    );
-                    built.controller.addUserScript(&script);
-                }
-            }
+            built.site_script = page_scripts::site_styles_script(&sheets).map(|source| unsafe {
+                let world = WKContentWorld::defaultClientWorld(self.mtm);
+                WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
+                    WKUserScript::alloc(self.mtm),
+                    &NSString::from_str(&source),
+                    WKUserScriptInjectionTime::AtDocumentStart,
+                    true,
+                    &world,
+                )
+            });
+            crate::ext_view::install_scripts(built, self.mtm);
             built.styles = Some(sheets);
         }
         if let Some(zaps) = zaps {

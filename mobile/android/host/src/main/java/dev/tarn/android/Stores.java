@@ -56,6 +56,10 @@ final class Stores {
         return multiProfile() ? EPHEMERAL_PROFILE + id : null;
     }
 
+    static boolean persistent(String store) {
+        return store != null && UUID.matcher(store).matches();
+    }
+
     static boolean multiProfile() {
         return WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE);
     }

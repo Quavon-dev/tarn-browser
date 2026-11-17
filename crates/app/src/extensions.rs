@@ -9,27 +9,25 @@ use gpui::{
     prelude::FluentBuilder, px,
 };
 use shield::ShieldLevel;
-use shield::catalog::{self, Entry, Index};
+use shield::catalog::{self, Index};
 use store::{Id, InstalledExtension};
 use ui::controls::{icon_button, tooltip};
 use ui::icon::Icon;
 use ui::theme::Theme;
 
 use crate::browser::Browser;
-use crate::ext_package::{self, MAX_ARCHIVE_BYTES};
-use crate::ext_sources::{self, Fetch, Net};
+use crate::ext_package;
+use crate::ext_sources::{self, Net};
 use crate::prefs::Pref;
 use crate::shared::AppCore;
+pub use browser_core::extensions::Install;
+pub use browser_core::extensions::install::UNREVIEWED;
+use browser_core::extensions::install::{self, CATALOG_SEEN_SETTING, Slot};
+use browser_core::extensions::{Step, Unpacked, badge, every_site, fetch_and_unpack, grew, may_use_all_sites, png_icon};
 
 pub use browser_core::theme_fetch::DOWNLOADS_SETTING;
 const NOTICE_SETTING: &str = "extension_all_sites_notice";
-const REVOKED_SETTING: &str = "extension_revoked";
-const CATALOG_SEEN_SETTING: &str = "extension_catalog_version";
 const LOADING_CATALOG: &str = "Loading the official catalog…";
-const MAX_INSTALLS: usize = 32;
-const MAX_ICON_BYTES: u64 = 1 << 20;
-const MAX_ICON_SIDE: u32 = 512;
-pub const UNREVIEWED: &str = "Nobody reviewed this extension's code. It can read and change the sites you allow and send what it reads anywhere.";
 
 pub fn root() -> PathBuf {
     crate::browser::data_dir().join("Extensions")
@@ -51,59 +49,10 @@ pub fn catalog_configured() -> bool {
     catalog_key() != [0; 32]
 }
 
-/// The badge comes from where the extension was installed from, never from its manifest.
-pub fn badge(source: &str) -> String {
-    match source {
-        "appex" => "App".to_owned(),
-        "file" => "Unverified · file".to_owned(),
-        s if s.starts_with("official:") => "Official".to_owned(),
-        s => ext_sources::github_source(s).map_or_else(|| "Unverified".to_owned(), |(_, name)| format!("Unverified · {name}")),
-    }
-}
-
-fn may_use_all_sites(source: &str) -> bool {
-    source == "appex" || source.starts_with("official:")
-}
-
-/// Whether an install gets every site it lists: its own switch or the global one, trusted sources only.
-fn every_site(own: bool, global: bool, source: &str) -> bool {
-    (own || global) && may_use_all_sites(source)
-}
-
 pub use browser_core::theme_fetch::shown;
 
 fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
-/// Dotted numeric versions; anything else compares as zero parts.
-fn version_parts(v: &str) -> Vec<u64> {
-    v.split('.').map(|p| p.trim().parse().unwrap_or(0)).collect()
-}
-
-fn older(new: &str, old: &str) -> bool {
-    let (mut a, mut b) = (version_parts(new), version_parts(old));
-    let n = a.len().max(b.len());
-    a.resize(n, 0);
-    b.resize(n, 0);
-    a < b
-}
-
-/// The PNG an unpacked extension names in its manifest, checked from its header before anything
-/// decodes it: at most 1 MB and 512 × 512, inside the extension's directory.
-fn png_icon(dir: &Path, rel: &str) -> Option<Vec<u8>> {
-    let path = dir.join(rel);
-    let real = path.canonicalize().ok()?;
-    if !real.starts_with(dir.canonicalize().ok()?) || std::fs::metadata(&real).ok()?.len() > MAX_ICON_BYTES {
-        return None;
-    }
-    let bytes = std::fs::read(&real).ok()?;
-    let header = bytes.get(..24)?;
-    if &header[..8] != b"\x89PNG\r\n\x1a\n" || &header[12..16] != b"IHDR" {
-        return None;
-    }
-    let side = |at: usize| u32::from_be_bytes([header[at], header[at + 1], header[at + 2], header[at + 3]]);
-    (side(16) > 0 && side(16) <= MAX_ICON_SIDE && side(20) > 0 && side(20) <= MAX_ICON_SIDE).then_some(bytes)
 }
 
 fn icon_of(extension: &Extension) -> Option<Arc<Image>> {
@@ -127,14 +76,53 @@ pub struct Consent {
     pub changes: Vec<String>,
 }
 
+/// A package awaiting consent: a full extension WebKit runs, or one Tarn's own runtime runs.
+enum Candidate {
+    Classic(Extension),
+    Tarn(Box<browser_core::tarn_ext::Package>),
+}
+
+impl Candidate {
+    fn name(&self) -> String {
+        match self {
+            Candidate::Classic(e) => e.name(),
+            Candidate::Tarn(p) => p.name.clone(),
+        }
+    }
+
+    fn version(&self) -> String {
+        match self {
+            Candidate::Classic(e) => e.version(),
+            Candidate::Tarn(p) => p.manifest.version.clone(),
+        }
+    }
+
+    fn api_permissions(&self) -> (Vec<String>, Vec<String>) {
+        match self {
+            Candidate::Classic(e) => e.api_permissions(),
+            Candidate::Tarn(p) => (p.manifest.consent().0, Vec::new()),
+        }
+    }
+
+    fn host_patterns(&self) -> (Vec<String>, Vec<String>) {
+        match self {
+            Candidate::Classic(e) => e.host_patterns(),
+            Candidate::Tarn(p) => (p.manifest.consent().1, Vec::new()),
+        }
+    }
+
+    fn has_active_tab(&self) -> bool {
+        match self {
+            Candidate::Classic(e) => e.has_active_tab(),
+            Candidate::Tarn(p) => p.manifest.active_tab,
+        }
+    }
+}
+
 struct Pending {
-    profile_id: Id,
+    slot: Slot,
     row: InstalledExtension,
-    tree: String,
-    extension: Extension,
-    /// The install's directory when it is new, removed on cancel; an update removes only its version.
-    new_install: Option<PathBuf>,
-    previous: Option<InstalledExtension>,
+    extension: Candidate,
 }
 
 /// Extensions found at launch and installed per profile, with the ones running in each profile.
@@ -181,6 +169,10 @@ pub struct CatalogRow {
 }
 
 impl Extensions {
+    pub(crate) fn mark_verified(&mut self, path: &str) {
+        self.verified.insert(path.to_owned());
+    }
+
     pub(crate) fn forget_running(&mut self, private: bool, profile_id: Id) {
         self.running.remove(&(private, profile_id));
     }
@@ -189,7 +181,7 @@ impl Extensions {
         let p = self.pending.as_ref()?;
         let ((apis, optional_apis), (hosts, optional_hosts)) = (p.extension.api_permissions(), p.extension.host_patterns());
         let mut changes = Vec::new();
-        if let Some(prev) = &p.previous {
+        if let Some(prev) = &p.slot.previous {
             let before: HashSet<&str> = prev.permissions.lines().collect();
             changes.extend(
                 apis.iter()
@@ -224,27 +216,11 @@ impl Extensions {
 }
 
 fn confirmed(extension: &Extension) -> String {
-    let ((apis, optional_apis), (hosts, optional_hosts)) = (extension.api_permissions(), extension.host_patterns());
+    permission_lines(extension.api_permissions(), extension.host_patterns())
+}
+
+fn permission_lines((apis, optional_apis): (Vec<String>, Vec<String>), (hosts, optional_hosts): (Vec<String>, Vec<String>)) -> String {
     apis.into_iter().chain(optional_apis).chain(hosts).chain(optional_hosts).collect::<Vec<_>>().join("\n")
-}
-
-/// Whether a match pattern covers `host`: `<all_urls>`, `*`, `*.domain` or the exact host.
-fn pattern_covers(pattern: &str, host: &str) -> bool {
-    if pattern == "<all_urls>" {
-        return true;
-    }
-    let Some(rest) = pattern.split_once("://").map(|(_, rest)| rest) else { return false };
-    let pattern_host = rest.split('/').next().unwrap_or_default();
-    match pattern_host.strip_prefix("*.") {
-        _ if pattern_host == "*" => true,
-        Some(domain) => host == domain || host.ends_with(&format!(".{domain}")),
-        None => host == pattern_host,
-    }
-}
-
-fn grew(prev: &InstalledExtension, hosts: &[String], optional: &[String]) -> bool {
-    let before: HashSet<&str> = prev.permissions.lines().collect();
-    hosts.iter().chain(optional).any(|h| !before.contains(h.as_str()))
 }
 
 /// Installs the extensions found at launch, sweeps leftovers and checks every enabled install.
@@ -261,7 +237,7 @@ pub(crate) fn discovered(found: Vec<Extension>, cx: &mut App) {
         extensions.catalog = cached_catalog();
     }
     if let Some(index) = core.extensions.borrow().catalog.as_ref() {
-        merge_revoked(&core, index);
+        install::merge_revoked(&core.disk, index);
     }
     if let Ok(paths) = core.disk.extension_paths() {
         let keep: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
@@ -270,19 +246,8 @@ pub(crate) fn discovered(found: Vec<Extension>, cx: &mut App) {
     verify(cx);
 }
 
-/// The index last fetched, verified again.
 fn cached_catalog() -> Option<Index> {
-    if !catalog_configured() {
-        return None;
-    }
-    let dir = crate::browser::data_dir().join("catalog");
-    let (index, sig) = (std::fs::read(dir.join("index.json")).ok()?, std::fs::read(dir.join("index.sig")).ok()?);
-    catalog::verify(&index, &sig, &catalog_key()).ok()
-}
-
-fn merge_revoked(core: &AppCore, index: &Index) {
-    let stored = core.disk.setting(REVOKED_SETTING).ok().flatten().unwrap_or_default();
-    core.disk.set_setting(REVOKED_SETTING, &catalog::merge_revoked(&stored, index)).ok();
+    install::cached_catalog(&crate::browser::data_dir().join("catalog"), &catalog_key())
 }
 
 /// Opens a web page an app extension asked for with `tabs.create`, in a window showing its profile.
@@ -327,7 +292,7 @@ pub(crate) fn store_host_decisions(core: std::rc::Rc<AppCore>) {
 /// unpacked ones that match; a mismatch or a revoked package turns the install off.
 pub(crate) fn verify(cx: &mut App) {
     let core = crate::shared::core(cx);
-    let revoked = catalog::parse_revoked(&core.disk.setting(REVOKED_SETTING).ok().flatten().unwrap_or_default());
+    let revoked = install::revoked(&core.disk);
     let profiles = core.disk.profiles().unwrap_or_default();
     for profile in profiles.iter().filter(|p| !p.is_private) {
         for row in core.disk.extensions(profile.id).unwrap_or_default().into_iter().filter(|r| r.enabled) {
@@ -357,10 +322,12 @@ pub(crate) fn verify(cx: &mut App) {
     }
 }
 
+pub(crate) fn turn_off_row(core: &AppCore, profile_id: Id, row: &InstalledExtension, why: &str) {
+    turn_off(core, profile_id, row, why);
+}
+
 fn turn_off(core: &AppCore, profile_id: Id, row: &InstalledExtension, why: &str) {
-    let off = InstalledExtension { enabled: false, all_sites: false, ..row.clone() };
-    core.disk.put_extension(&off).ok();
-    core.disk.retain_extension_hosts(profile_id, &row.install_id, |_| false).ok();
+    browser_core::extensions::turn_off(&core.disk, row);
     if let Some(rt) = core.profiles.borrow().get(&(false, profile_id)) {
         let key = if row.source == "appex" { &row.path } else { &row.install_id };
         engine::extensions::forget_session(&rt.own_store.to_uppercase(), Some(key));
@@ -395,6 +362,9 @@ fn checked(profile_id: Id, row: InstalledExtension, hash: Option<String>, cx: &m
                 core.extensions.borrow_mut().verified.insert(row.path.clone());
                 return refresh(profile_id, cx);
             }
+            if browser_core::tarn_ext::is_tarn_dir(Path::new(&row.path)) {
+                return crate::tarn_ext::load(profile_id, row, cx);
+            }
             let path = row.path.clone();
             let async_cx = cx.to_async();
             Extension::unpacked(Path::new(&row.path.clone()), &row.install_id.clone(), move |loaded| {
@@ -422,10 +392,11 @@ fn checked(profile_id: Id, row: InstalledExtension, hash: Option<String>, cx: &m
 
 /// Applies the profile's extensions and restarts its views, in every window, if they changed.
 /// The windows are updated once no `Browser` is leased, since callers may be inside one's update.
-fn refresh(profile_id: Id, cx: &mut App) {
+pub(crate) fn refresh(profile_id: Id, cx: &mut App) {
     let core = crate::shared::core(cx);
     let changed = core.apply_extensions(false, profile_id);
     cx.defer(move |cx| {
+        crate::tarn_ext::reconcile(profile_id, cx);
         crate::shared::each(cx, |b, window, cx| {
             if changed {
                 b.restart_views_here(false, profile_id, None, false, window, cx);
@@ -491,139 +462,6 @@ impl AppCore {
     }
 }
 
-enum Fetched {
-    Github(ext_sources::Resolved),
-    File,
-    Official(Entry),
-}
-
-struct Unpacked {
-    owner_id: i64,
-    asset: String,
-    release_tag: String,
-    dir: PathBuf,
-    archive_sha256: String,
-    tree: String,
-    source: String,
-    official: Option<Entry>,
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    shield::bundle::sha256_hex(bytes)
-}
-
-/// Downloads or reads the package, unpacks it into `dir` and hashes the tree. Runs off the main thread.
-enum Step {
-    Unpacked(Box<Unpacked>),
-    /// The release has several packages; the user picks one.
-    Choose(String, Vec<ext_sources::Asset>),
-    /// The installed release is still the newest.
-    Current,
-}
-
-/// The installed package's asset in a newer release, by name; the first one when the name is gone
-/// and the release has only one, or the source archive when it has none.
-fn update_url(resolved: &ext_sources::Resolved, asset: &str) -> Option<(String, String, bool)> {
-    match resolved.assets.iter().find(|a| a.name == asset) {
-        Some(a) => Some((a.url.clone(), a.name.clone(), false)),
-        None if resolved.assets.len() == 1 => Some((resolved.assets[0].url.clone(), resolved.assets[0].name.clone(), false)),
-        None if resolved.assets.is_empty() => Some((resolved.source_archive(), String::new(), true)),
-        None => None,
-    }
-}
-
-fn fetch_and_unpack(what: Install, dir: PathBuf, revoked: &std::collections::BTreeSet<(String, String)>) -> Result<Step, String> {
-    let net = Net::new();
-    let fetch: &dyn Fetch = &net;
-    let mut asset = String::new();
-    let (bytes, wrapped, fetched) = match what {
-        Install::Github(input) => {
-            let repo = ext_sources::parse_github(&input)?;
-            let resolved = ext_sources::resolve(fetch, &repo)?;
-            if resolved.assets.len() > 1 {
-                return Ok(Step::Choose(input, resolved.assets));
-            }
-            let (url, wrapped) = match resolved.assets.first() {
-                Some(a) => {
-                    asset.clone_from(&a.name);
-                    (a.url.clone(), false)
-                }
-                None => (resolved.source_archive(), true),
-            };
-            (ext_sources::download(fetch, &url)?, wrapped, Fetched::Github(resolved))
-        }
-        Install::GithubAsset(input, url) => {
-            let resolved = ext_sources::resolve(fetch, &ext_sources::parse_github(&input)?)?;
-            // Only an asset of the release just resolved, never an address from elsewhere.
-            let Some(a) = resolved.assets.iter().find(|a| a.url == url) else {
-                return Err("That package is no longer part of the release.".to_owned());
-            };
-            asset.clone_from(&a.name);
-            (ext_sources::download(fetch, &url)?, false, Fetched::Github(resolved))
-        }
-        Install::GithubUpdate { repo_id, tag, asset: installed } => {
-            let resolved = ext_sources::latest(fetch, repo_id)?;
-            if !tag.is_empty() && resolved.tag == tag {
-                return Ok(Step::Current);
-            }
-            let (url, name, wrapped) =
-                update_url(&resolved, &installed).ok_or("The new release no longer has the package you installed; install it again to pick one.")?;
-            asset = name;
-            (ext_sources::download(fetch, &url)?, wrapped, Fetched::Github(resolved))
-        }
-        Install::File(path) => {
-            use std::io::Read;
-            let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
-            let mut bytes = Vec::new();
-            file.take(MAX_ARCHIVE_BYTES + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-            if bytes.len() as u64 > MAX_ARCHIVE_BYTES {
-                return Err("The file is larger than 64 MB.".to_owned());
-            }
-            (bytes, false, Fetched::File)
-        }
-        Install::Official(entry) => {
-            if revoked.contains(&(entry.id.clone(), entry.sha256.clone())) {
-                return Err("This package was withdrawn from the official catalog.".to_owned());
-            }
-            let bytes = ext_sources::download(fetch, &entry.url)?;
-            if bytes.len() as u64 != entry.size || sha256_hex(&bytes) != entry.sha256 {
-                return Err("The package does not match the catalog.".to_owned());
-            }
-            (bytes, false, Fetched::Official(entry))
-        }
-    };
-    let archive_sha256 = sha256_hex(&bytes);
-    ext_package::unpack(&bytes, &dir, wrapped)?;
-    let tree = ext_package::tree_sha256(&dir).map_err(|e| e.to_string())?;
-    let (source, official, owner_id, release_tag) = match fetched {
-        Fetched::Github(r) => (r.source(), None, r.owner_id as i64, r.tag.clone()),
-        Fetched::File => ("file".to_owned(), None, 0, String::new()),
-        Fetched::Official(entry) => (format!("official:{}", entry.id), Some(entry), 0, String::new()),
-    };
-    Ok(Step::Unpacked(Box::new(Unpacked { owner_id, asset, release_tag, dir, archive_sha256, tree, source, official })))
-}
-
-#[derive(Clone)]
-pub enum Install {
-    Github(String),
-    /// A repository and the release asset the user picked.
-    GithubAsset(String, String),
-    /// An installed repository, its release tag and the asset installed from it.
-    GithubUpdate {
-        repo_id: u64,
-        tag: String,
-        asset: String,
-    },
-    File(PathBuf),
-    Official(Entry),
-}
-
-impl Install {
-    fn needs_network(&self) -> bool {
-        !matches!(self, Install::File(_))
-    }
-}
-
 /// The window that started an install is gone: removes what it unpacked, frees the shared busy
 /// state unless a newer install holds it, and lets another window carry on with queued updates.
 fn release_install(core: &crate::shared::AppCore, generation: u64, leftover: Option<PathBuf>, cx: &mut gpui::AsyncApp) {
@@ -669,6 +507,7 @@ impl Browser {
         let Some(id) = self.current_profile_id() else { return Vec::new() };
         let rows = self.core.disk.extensions(id).unwrap_or_default();
         let ext = self.core.extensions.borrow();
+        let tarn = self.core.tarn.borrow();
         let mut out: Vec<Row> = rows
             .iter()
             .map(|r| {
@@ -676,7 +515,12 @@ impl Browser {
                 Row {
                     install_id: Some(r.install_id.clone()),
                     app_path: None,
-                    name: shown(&loaded.map_or_else(|| r.name.clone(), |e| format!("{} {}", e.name(), e.version()))),
+                    name: shown(
+                        &loaded
+                            .map(|e| format!("{} {}", e.name(), e.version()))
+                            .or_else(|| tarn.loaded(id, &r.install_id).map(|(n, v)| format!("{n} {v}")))
+                            .unwrap_or_else(|| r.name.clone()),
+                    ),
                     badge: badge(&r.source),
                     permissions: shown(&r.permissions.lines().collect::<Vec<_>>().join(", ")),
                     enabled: r.enabled,
@@ -760,9 +604,20 @@ impl Browser {
         }
     }
 
+    /// Forgets the install's site answers, stored and of this session: it asks again on every site.
+    pub fn forget_extension_answers(&mut self, install_id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(row) = self.row_of(install_id) else { return };
+        match crate::tarn_ext::forget_answers(&self.core, row.profile_id, install_id) {
+            Ok(()) if row.source != "appex" && browser_core::tarn_ext::is_tarn_dir(Path::new(&row.path)) => {}
+            Ok(()) => self.after_extension_change(row.profile_id, window, cx),
+            Err(e) => eprintln!("tarn: the site answers of extension {install_id} were not forgotten: {e}"),
+        }
+    }
+
     fn after_extension_change(&mut self, profile_id: Id, window: &mut Window, cx: &mut Context<Self>) {
         crate::extensions::verify(cx);
         self.core.apply_extensions(false, profile_id);
+        cx.defer(move |cx| crate::tarn_ext::reconcile(profile_id, cx));
         self.restart_profile_views(false, profile_id, None, false, window, cx);
         cx.notify();
     }
@@ -771,6 +626,7 @@ impl Browser {
     pub fn remove_extension(&mut self, install_id: &str, cx: &mut Context<Self>) {
         let Some(row) = self.row_of(install_id) else { return };
         let key = if row.source == "appex" { row.path.clone() } else { row.install_id.clone() };
+        let tarn = row.source != "appex" && browser_core::tarn_ext::is_tarn_dir(Path::new(&row.path));
         let core = self.core.clone();
         let async_cx = cx.to_async();
         let done = move || {
@@ -785,7 +641,7 @@ impl Browser {
             let profile_id = row.profile_id;
             async_cx.spawn(async move |cx| cx.update(|cx| refresh(profile_id, cx)).ok()).detach();
         };
-        match self.core.profiles.borrow().get(&(false, row.profile_id)) {
+        match self.core.profiles.borrow().get(&(false, row.profile_id)).filter(|_| !tarn) {
             Some(rt) => rt.data.remove_extension(&key, done),
             None => done(),
         }
@@ -799,8 +655,7 @@ impl Browser {
         ext.choice = None;
         ext.updates.clear();
         if let Some(p) = ext.pending.take() {
-            let dir = p.new_install.unwrap_or_else(|| PathBuf::from(&p.row.path));
-            cx.background_executor().spawn(async move { ext_package::remove_tree(&dir) }).detach();
+            cx.background_executor().spawn(async move { p.slot.discard() }).detach();
         }
         cx.notify();
     }
@@ -808,8 +663,6 @@ impl Browser {
     /// One install at a time; the download, unpacking and hashing run off the main thread.
     pub fn install_extension(&mut self, what: Install, update_of: Option<String>, cx: &mut Context<Self>) {
         let Some(profile_id) = self.current_profile_id().filter(|_| self.extensions_allowed()) else { return };
-        let rows = self.core.disk.extensions(profile_id).unwrap_or_default();
-        let previous = update_of.and_then(|id| rows.iter().find(|r| r.install_id == id).cloned());
         let fail = |b: &mut Browser, why: String, cx: &mut Context<Browser>| {
             b.core.extensions.borrow_mut().notices.push(why);
             cx.notify();
@@ -817,9 +670,10 @@ impl Browser {
         if what.needs_network() && !self.extension_downloads() {
             return fail(self, "Extension downloads are off in Privacy settings.".into(), cx);
         }
-        if previous.is_none() && rows.len() >= MAX_INSTALLS {
-            return fail(self, format!("A profile holds at most {MAX_INSTALLS} extensions."), cx);
-        }
+        let slot = match install::slot(&self.core.disk, profile_id, &root(), update_of.as_deref(), || uuid::Uuid::new_v4().simple().to_string()) {
+            Ok(slot) => slot,
+            Err(why) => return fail(self, why, cx),
+        };
         let generation = {
             let mut ext = self.core.extensions.borrow_mut();
             if ext.busy.is_some() || ext.pending.is_some() {
@@ -829,59 +683,43 @@ impl Browser {
             ext.generation += 1;
             ext.generation
         };
-        let install_id = previous.as_ref().map_or_else(|| uuid::Uuid::new_v4().simple().to_string(), |p| p.install_id.clone());
-        let install_dir = root().join(profile_id.to_string()).join(&install_id);
-        let version =
-            std::fs::read_dir(&install_dir).into_iter().flatten().flatten().filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok()).max().unwrap_or(0) + 1;
-        let dir = install_dir.join(version.to_string());
-        let new_install = previous.is_none().then(|| install_dir.clone());
-        let revoked = catalog::parse_revoked(&self.core.disk.setting(REVOKED_SETTING).ok().flatten().unwrap_or_default());
-        let work = cx.background_executor().spawn(async move { fetch_and_unpack(what, dir, &revoked) });
+        let (revoked, dir) = (install::revoked(&self.core.disk), slot.dir.clone());
+        let work = cx.background_executor().spawn(async move { fetch_and_unpack(&Net::new(), what, dir, &revoked) });
         let core = self.core.clone();
         cx.spawn(async move |this, cx| {
             let result = work.await;
             if this.upgrade().is_none() {
                 let leftover = match result {
-                    Ok(Step::Unpacked(u)) => Some(new_install.unwrap_or(u.dir)),
-                    _ => new_install,
+                    Ok(Step::Unpacked(u)) => Some(slot.new_install.unwrap_or(u.dir)),
+                    _ => slot.new_install,
                 };
                 return release_install(&core, generation, leftover, cx);
             }
-            this.update(cx, |b, cx| b.unpacked(profile_id, install_id, generation, result, new_install, previous, cx)).ok();
+            this.update(cx, |b, cx| b.unpacked(slot, generation, result, cx)).ok();
         })
         .detach();
         cx.notify();
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn unpacked(
-        &mut self,
-        profile_id: Id,
-        install_id: String,
-        generation: u64,
-        result: Result<Step, String>,
-        new_install: Option<PathBuf>,
-        previous: Option<InstalledExtension>,
-        cx: &mut Context<Self>,
-    ) {
+    fn unpacked(&mut self, slot: Slot, generation: u64, result: Result<Step, String>, cx: &mut Context<Self>) {
         let current = self.core.extensions.borrow().generation == generation;
         let unpacked = match result {
             Ok(Step::Current) => {
-                if let Some(dir) = new_install {
-                    ext_package::remove_tree(&dir).ok();
+                if let Some(dir) = &slot.new_install {
+                    ext_package::remove_tree(dir).ok();
                 }
                 if current {
                     let mut ext = self.core.extensions.borrow_mut();
                     ext.busy = None;
-                    ext.notices.push(format!("{}: this extension is up to date.", previous.as_ref().map_or_else(String::new, |p| shown(&p.name))));
+                    ext.notices.push(format!("{}: this extension is up to date.", slot.previous.as_ref().map_or_else(String::new, |p| shown(&p.name))));
                     drop(ext);
                     self.next_update(cx);
                 }
                 return cx.notify();
             }
             Ok(Step::Choose(input, assets)) => {
-                if let Some(dir) = new_install {
-                    ext_package::remove_tree(&dir).ok();
+                if let Some(dir) = &slot.new_install {
+                    ext_package::remove_tree(dir).ok();
                 }
                 if current {
                     let mut ext = self.core.extensions.borrow_mut();
@@ -891,13 +729,13 @@ impl Browser {
                 return cx.notify();
             }
             Ok(Step::Unpacked(u)) if current => *u,
-            Ok(Step::Unpacked(u)) => {
-                ext_package::remove_tree(&new_install.unwrap_or(u.dir)).ok();
+            Ok(Step::Unpacked(_)) => {
+                slot.discard();
                 return;
             }
             Err(why) => {
-                if let Some(dir) = new_install {
-                    ext_package::remove_tree(&dir).ok();
+                if let Some(dir) = &slot.new_install {
+                    ext_package::remove_tree(dir).ok();
                 }
                 if current {
                     let mut ext = self.core.extensions.borrow_mut();
@@ -913,34 +751,42 @@ impl Browser {
         let this = cx.entity().downgrade();
         let mut async_cx = cx.to_async();
         let dir = unpacked.dir.clone();
-        let (core, leftover) = (self.core.clone(), new_install.clone().unwrap_or_else(|| dir.clone()));
-        Extension::unpacked(&dir, &install_id.clone(), move |loaded| {
-            let consent =
-                this.update(&mut async_cx, |b, cx| b.loaded_for_consent(profile_id, install_id, generation, unpacked, loaded, new_install, previous, cx));
+        let (core, leftover) = (self.core.clone(), slot.new_install.clone().unwrap_or_else(|| dir.clone()));
+        if browser_core::tarn_ext::is_tarn_dir(&dir) {
+            let seed = self.core.disk.profile(slot.profile_id).map(|p| p.data_store_uuid).unwrap_or_default();
+            let (id, locales) = (slot.install_id.clone(), crate::tarn_ext::ui_locales());
+            let work = cx.background_executor().spawn(async move {
+                browser_core::tarn_ext::load(&dir, None, &id, &seed, &locales).map(Box::new).map_err(|e| match e {
+                    browser_core::tarn_ext::LoadError::Refused(why) => why,
+                    browser_core::tarn_ext::LoadError::Changed => "The extension changed while it was read.".to_owned(),
+                })
+            });
+            cx.spawn(async move |this, cx| {
+                let loaded = work.await.map(Candidate::Tarn);
+                let consent = this.update(cx, |b, cx| b.loaded_for_consent(slot, generation, unpacked, loaded, cx));
+                if consent.is_err() {
+                    release_install(&core, generation, Some(leftover), cx);
+                }
+            })
+            .detach();
+            return;
+        }
+        Extension::unpacked(&dir, &slot.install_id.clone(), move |loaded| {
+            let loaded = loaded.map(Candidate::Classic);
+            let consent = this.update(&mut async_cx, |b, cx| b.loaded_for_consent(slot, generation, unpacked, loaded, cx));
             if consent.is_err() {
                 release_install(&core, generation, Some(leftover), &mut async_cx);
             }
         });
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn loaded_for_consent(
-        &mut self,
-        profile_id: Id,
-        install_id: String,
-        generation: u64,
-        u: Unpacked,
-        loaded: Result<Extension, String>,
-        new_install: Option<PathBuf>,
-        previous: Option<InstalledExtension>,
-        cx: &mut Context<Self>,
-    ) {
+    fn loaded_for_consent(&mut self, slot: Slot, generation: u64, u: Unpacked, loaded: Result<Candidate, String>, cx: &mut Context<Self>) {
         if self.core.extensions.borrow().generation != generation {
-            ext_package::remove_tree(new_install.as_deref().unwrap_or(&u.dir)).ok();
+            slot.discard();
             return;
         }
         let discard = |why: Option<String>, b: &mut Browser, cx: &mut Context<Browser>| {
-            ext_package::remove_tree(new_install.as_deref().unwrap_or(&u.dir)).ok();
+            slot.discard();
             let mut ext = b.core.extensions.borrow_mut();
             ext.busy = None;
             ext.notices.extend(why);
@@ -954,46 +800,17 @@ impl Browser {
                 return cx.notify();
             }
         };
-        if let Some(entry) = &u.official {
-            let ((apis, optional), (hosts, optional_hosts)) = (extension.api_permissions(), extension.host_patterns());
-            let all_hosts: Vec<String> = hosts.into_iter().chain(optional_hosts).collect();
-            if !catalog::covers(entry, &apis, &optional, &all_hosts) {
-                discard(Some("The package asks for more than its catalog entry lists.".into()), self, cx);
-                return cx.notify();
-            }
+        let ((apis, optional), (hosts, optional_hosts)) = (extension.api_permissions(), extension.host_patterns());
+        let all_hosts: Vec<String> = hosts.into_iter().chain(optional_hosts).collect();
+        if let Err(why) = install::vet(&u, slot.previous.as_ref(), &extension.version(), &apis, &optional, &all_hosts) {
+            discard(Some(why), self, cx);
+            return cx.notify();
         }
-        if let Some(prev) = &previous {
-            let refuse = if older(&extension.version(), &prev.version) {
-                Some("The offered version is older than the installed one.")
-            } else if extension.version() == prev.version && u.archive_sha256 == prev.archive_sha256 {
-                Some("This extension is up to date.")
-            } else {
-                None
-            };
-            if let Some(why) = refuse {
-                discard(Some(format!("{}: {why}", shown(&prev.name))), self, cx);
-                return cx.notify();
-            }
-        }
-        let row = InstalledExtension {
-            profile_id,
-            install_id,
-            source: u.source,
-            path: u.dir.to_string_lossy().into_owned(),
-            name: extension.name(),
-            version: extension.version(),
-            sha256: u.tree.clone(),
-            archive_sha256: u.archive_sha256,
-            permissions: confirmed(&extension),
-            enabled: true,
-            all_sites: false,
-            owner_id: u.owner_id,
-            asset: u.asset,
-            release_tag: u.release_tag,
-        };
+        let permissions = permission_lines(extension.api_permissions(), extension.host_patterns());
+        let row = u.row(slot.profile_id, &slot.install_id, extension.name(), extension.version(), permissions);
         let mut ext = self.core.extensions.borrow_mut();
         ext.busy = None;
-        ext.pending = Some(Pending { profile_id, row, tree: u.tree, extension, new_install, previous });
+        ext.pending = Some(Pending { slot, row, extension });
         cx.notify();
     }
 
@@ -1019,39 +836,49 @@ impl Browser {
             ext.pending.take()
         };
         let Some(p) = pending else { return };
-        if hash.as_deref() != Some(p.tree.as_str()) {
-            ext_package::remove_tree(p.new_install.as_deref().unwrap_or(Path::new(&p.row.path))).ok();
+        if hash.as_deref() != Some(p.row.sha256.as_str()) {
+            p.slot.discard();
             self.core.extensions.borrow_mut().notices.push("The extension changed while you were deciding and was not installed.".into());
             self.next_update(cx);
             return cx.notify();
         }
-        let mut row = p.row.clone();
-        let hosts_before = self.core.disk.extension_hosts(p.profile_id, &row.install_id).unwrap_or_default();
-        if let Some(prev) = &p.previous {
-            let (hosts, optional) = p.extension.host_patterns();
-            row.all_sites = prev.all_sites && !grew(prev, &hosts, &optional) && may_use_all_sites(&row.source);
-            row.enabled = prev.enabled;
-            let asked = hosts.iter().chain(&optional).cloned().collect::<Vec<_>>();
-            self.core.disk.retain_extension_hosts(p.profile_id, &row.install_id, |host| asked.iter().any(|pattern| pattern_covers(pattern, host))).ok();
-        }
+        let profile_id = p.slot.profile_id;
+        let hosts_before = self.core.disk.extension_hosts(profile_id, &p.row.install_id).unwrap_or_default();
+        let row = match &p.slot.previous {
+            Some(prev) => {
+                let (hosts, optional) = p.extension.host_patterns();
+                install::carry_over(&self.core.disk, p.row.clone(), prev, &hosts, &optional)
+            }
+            None => p.row.clone(),
+        };
         if self.core.disk.put_extension(&row).is_err() {
-            ext_package::remove_tree(p.new_install.as_deref().unwrap_or(Path::new(&p.row.path))).ok();
+            p.slot.discard();
             self.next_update(cx);
             return cx.notify();
         }
-        {
-            let mut ext = self.core.extensions.borrow_mut();
-            ext.icons.insert(p.extension.key.clone(), icon_of(&p.extension));
-            ext.unpacked.insert(row.path.clone(), p.extension.clone());
-            ext.verified.insert(row.path.clone());
-        }
-        refresh(p.profile_id, cx);
-        let loaded = self.core.extensions.borrow().running.get(&(false, p.profile_id)).is_some_and(|r| r.contains(&row.install_id));
-        if let Some(prev) = p.previous.as_ref().filter(|_| row.enabled && !loaded) {
+        let tarn = match p.extension {
+            Candidate::Classic(extension) => {
+                let mut ext = self.core.extensions.borrow_mut();
+                ext.icons.insert(extension.key.clone(), icon_of(&extension));
+                ext.unpacked.insert(row.path.clone(), extension);
+                ext.verified.insert(row.path.clone());
+                false
+            }
+            Candidate::Tarn(package) => {
+                if row.enabled {
+                    crate::tarn_ext::add(&self.core, row.clone(), *package);
+                }
+                self.core.extensions.borrow_mut().verified.insert(row.path.clone());
+                true
+            }
+        };
+        refresh(profile_id, cx);
+        let loaded = tarn || self.core.extensions.borrow().running.get(&(false, profile_id)).is_some_and(|r| r.contains(&row.install_id));
+        if let Some(prev) = p.slot.previous.as_ref().filter(|_| row.enabled && !loaded) {
             // The new version did not start: the old one runs again and the new files go.
             self.core.disk.put_extension(prev).ok();
             for (host, allow) in &hosts_before {
-                self.core.disk.set_extension_host(p.profile_id, &prev.install_id, host, *allow).ok();
+                self.core.disk.set_extension_host(profile_id, &prev.install_id, host, *allow).ok();
             }
             ext_package::remove_tree(Path::new(&row.path)).ok();
             let mut ext = self.core.extensions.borrow_mut();
@@ -1059,8 +886,8 @@ impl Browser {
             ext.verified.remove(&row.path);
             ext.notices.push(format!("{} could not start after the update; the previous version runs again.", shown(&prev.name)));
             drop(ext);
-            refresh(p.profile_id, cx);
-        } else if let Some(prev) = &p.previous {
+            refresh(profile_id, cx);
+        } else if let Some(prev) = &p.slot.previous {
             self.core.extensions.borrow_mut().unpacked.remove(&prev.path);
             ext_package::remove_tree(Path::new(&prev.path)).ok();
         }
@@ -1081,16 +908,7 @@ impl Browser {
             return self.fetch_catalog(cx);
         }
         let catalog = self.core.extensions.borrow().catalog.clone();
-        let updates: Vec<(Install, String)> = rows
-            .into_iter()
-            .filter_map(|row| {
-                if let Some((repo_id, _)) = ext_sources::github_source(&row.source) {
-                    return Some((Install::GithubUpdate { repo_id, tag: row.release_tag, asset: row.asset }, row.install_id));
-                }
-                let entry = row.source.strip_prefix("official:").and_then(|cid| catalog.as_ref()?.extensions.iter().find(|e| e.id == cid))?;
-                older(&row.version, &entry.version).then(|| (Install::Official(entry.clone()), row.install_id))
-            })
-            .collect();
+        let updates: Vec<(Install, String)> = rows.into_iter().filter_map(|row| Some((install::update_of(&row, catalog.as_ref())?, row.install_id))).collect();
         if updates.is_empty() {
             self.core.extensions.borrow_mut().notices.push("Every extension is up to date.".into());
             return cx.notify();
@@ -1136,17 +954,8 @@ impl Browser {
         }
         self.core.extensions.borrow_mut().busy = Some(LOADING_CATALOG.into());
         let last = self.core.disk.setting(CATALOG_SEEN_SETTING).ok().flatten().and_then(|v| v.parse().ok());
-        let work = cx.background_executor().spawn(async move {
-            let (index, sig) = ext_sources::catalog(&Net::new())?;
-            let parsed = catalog::verify(&index, &sig, &catalog_key()).map_err(|e| e.to_string())?;
-            catalog::check_fetched(&parsed, last, now()).map_err(|e| e.to_string())?;
-            let dir = crate::browser::data_dir().join("catalog");
-            std::fs::create_dir_all(&dir)
-                .and_then(|()| std::fs::write(dir.join("index.json"), &index))
-                .and_then(|()| std::fs::write(dir.join("index.sig"), &sig))
-                .map_err(|e| e.to_string())?;
-            Ok::<_, String>(parsed)
-        });
+        let dir = crate::browser::data_dir().join("catalog");
+        let work = cx.background_executor().spawn(async move { install::fetch_catalog(&Net::new(), &dir, last, now(), &catalog_key()) });
         let core = self.core.clone();
         cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -1158,8 +967,7 @@ impl Browser {
                 drop(ext);
                 match result {
                     Ok(index) => {
-                        b.core.disk.set_setting(CATALOG_SEEN_SETTING, &index.version.to_string()).ok();
-                        merge_revoked(&b.core, &index);
+                        install::catalog_fetched(&b.core.disk, &index);
                         b.core.extensions.borrow_mut().catalog = Some(index);
                         crate::extensions::verify_revoked(b, cx);
                         if b.core.extensions.borrow().check_after_catalog {
@@ -1248,7 +1056,8 @@ pub fn buttons(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         })
         .collect();
     drop(extensions);
-    div().flex().items_center().gap(px(2.)).children(shown_buttons.into_iter().map(|(ix, key, name, icon)| {
+    let tarn = crate::tarn_ext::buttons(b, cx);
+    div().flex().items_center().gap(px(2.)).children(tarn).children(shown_buttons.into_iter().map(|(ix, key, name, icon)| {
         let denied = engine::extensions::denied_request(&seed, &key);
         let seed = seed.clone();
         let name = if denied { format!("{name} \u{2014} a request was denied") } else { name };
@@ -1292,43 +1101,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn badges_follow_the_source() {
-        assert_eq!(badge("appex"), "App");
-        assert_eq!(badge("official:ublock"), "Official");
-        assert_eq!(badge("github:7:a/b"), "Unverified · a/b");
-        assert_eq!(badge("file"), "Unverified · file");
-        assert!(may_use_all_sites("appex") && may_use_all_sites("official:x"));
-        assert!(!may_use_all_sites("github:7:a/b") && !may_use_all_sites("file"));
-        assert!(every_site(false, true, "appex") && every_site(true, false, "official:x") && !every_site(false, false, "appex"));
-        assert!(!every_site(true, true, "github:7:a/b") && !every_site(true, true, "file"));
-    }
-
-    #[test]
-    fn kept_host_grants_follow_the_patterns_still_asked_for() {
-        assert!(pattern_covers("<all_urls>", "a.com"));
-        assert!(pattern_covers("*://*/*", "a.com"));
-        assert!(pattern_covers("https://*.a.com/*", "a.com") && pattern_covers("https://*.a.com/*", "x.a.com"));
-        assert!(!pattern_covers("*://*.nota.com/*", "a.com"));
-        assert!(!pattern_covers("*://b.com/*", "a.com"));
-    }
-
-    #[test]
-    fn an_update_takes_the_build_the_user_installed() {
-        let asset = |name: &str| ext_sources::Asset { name: name.into(), url: format!("https://github.com/a/b/releases/download/v2/{name}") };
-        let release = |assets: Vec<ext_sources::Asset>| ext_sources::Resolved { repo_id: 1, owner_id: 1, full_name: "a/b".into(), tag: "v2".into(), assets };
-        let two = release(vec![asset("x-chromium.zip"), asset("x-safari.zip")]);
-        assert_eq!(update_url(&two, "x-safari.zip").unwrap().1, "x-safari.zip");
-        assert!(update_url(&two, "x-old.zip").is_none(), "an unknown name is not guessed among several");
-        assert_eq!(update_url(&release(vec![asset("y.zip")]), "x.zip").unwrap().1, "y.zip");
-        assert!(update_url(&release(Vec::new()), "").unwrap().2, "no asset means the source archive");
-    }
-
-    #[test]
-    fn versions_compare_numerically() {
-        assert!(older("1.9", "1.10"));
-        assert!(!older("1.10", "1.9"));
-        assert!(!older("2.0", "2"));
-        assert!(older("1.0.0", "1.0.1"));
+    fn a_tarn_package_asks_consent_for_what_its_manifest_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = serde_json::json!({
+            "manifest_version": 3, "name": "Helper", "version": "1.2",
+            "browser_specific_settings": {"tarn": {"runtime": 1}},
+            "permissions": ["storage", "activeTab"],
+            "host_permissions": ["*://*.example.com/*"],
+        });
+        std::fs::write(dir.path().join("manifest.json"), manifest.to_string()).unwrap();
+        assert!(browser_core::tarn_ext::is_tarn_dir(dir.path()));
+        let candidate = Candidate::Tarn(Box::new(browser_core::tarn_ext::load(dir.path(), None, "aa", "SEED", &[]).unwrap()));
+        assert_eq!((candidate.name(), candidate.version(), candidate.has_active_tab()), ("Helper".to_owned(), "1.2".to_owned(), true));
+        assert_eq!(candidate.api_permissions(), (vec!["storage".to_owned(), "activeTab".to_owned()], Vec::new()));
+        assert_eq!(permission_lines(candidate.api_permissions(), candidate.host_patterns()), "storage\nactiveTab\n*://*.example.com/*");
     }
 
     #[test]
@@ -1337,22 +1123,5 @@ mod tests {
         let out = shown(&name);
         assert!(out.chars().count() < 200);
         assert!(!out.chars().any(|c| c.is_control() || ui::text::is_bidi(c)));
-    }
-
-    fn png(w: u32, h: u32) -> Vec<u8> {
-        [b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".as_slice(), &w.to_be_bytes(), &h.to_be_bytes(), &[8, 6, 0, 0, 0]].concat()
-    }
-
-    #[test]
-    fn icons_are_small_pngs_inside_the_extension() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("ok.png"), png(128, 128)).unwrap();
-        std::fs::write(dir.path().join("big.png"), png(20_000, 20_000)).unwrap();
-        std::fs::write(dir.path().join("icon.svg"), b"<svg/>").unwrap();
-        std::fs::write(dir.path().join("icon.tiff"), b"II*\0").unwrap();
-        assert!(png_icon(dir.path(), "ok.png").is_some());
-        for bad in ["big.png", "icon.svg", "icon.tiff", "../ok.png", "missing.png"] {
-            assert!(png_icon(dir.path(), bad).is_none(), "{bad}");
-        }
     }
 }

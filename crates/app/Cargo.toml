@@ -35,9 +35,7 @@ rustls = { version = "=0.23.46", default-features = false, features = ["ring"] }
 ui.workspace = true
 ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
 url.workspace = true
-unicode-normalization = "=0.1.25"
 uuid = { version = "1", features = ["v4"] }
-zip = { version = "=9.5.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [lints]
 workspace = true

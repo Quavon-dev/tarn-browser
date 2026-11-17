@@ -1,6 +1,7 @@
 pub mod appearance;
 pub mod card;
 pub mod controls;
+pub mod extensions;
 pub mod fog;
 pub mod icons;
 pub mod motion;

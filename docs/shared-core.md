@@ -50,6 +50,71 @@ Every shell's web view offers the same operations and reports the same events. T
 - **Additions:** a new operation or event is added to every implementation, or documented as a gap
   for the platforms that lack it.
 
+**Tarn extensions** (`engine::tarn_ext`, runtime in `browser_core::tarn_ext`). Every implementation
+adds:
+- `ExtensionView::set_extension_gate(Gate)`: the engine asks the gate synchronously for each frame
+  navigation (`FrameNav`: frame URL, top URL, main frame or not) which of a world's scripts may run
+  there, and injects nothing else. The shell's gate calls `tarn_ext::frame_decision`. Where the
+  shell runs on its own thread (NSH: Linux, iOS, Android), the engine asks it through a round trip
+  instead and holds each document until the answer arrives; nothing runs before it.
+- `add_extension_scripts(Rc<WorldScripts>)` / `remove_extension_scripts(&World)`: the bootstrap
+  first, then each approved `Script`'s CSS and JS at its `RunAt`, main frame or all frames, in the
+  isolated world `World::name()` (`tarn-ext-<install id>`), never the page's main world. All
+  frames include cross-site frames in another process; an engine that sees one as a target of its
+  own (Chromium) attaches it, with the same scripts, before its first document.
+- `post_extension_message(&World, Option<FrameId>, &str)`: calls `__tarnExtReceive(json)` in that
+  world of one frame, or of every frame where the world runs (`None`).
+- Event `ExtensionMessage { world, frame, origin, json }`: the world called `__tarnExtPost(json)`.
+  The engine defines `__tarnExtPost` only in that world (or in an extension page's main world) and
+  fills `world`, `frame` and, for a subframe, `origin` (the frame document's web origin) from where
+  the call arrived, never from `json`; the router drops a subframe's message without `origin`.
+  Messages over `MAX_MESSAGE_BYTES` may be dropped by the engine.
+- A `tarn-extension://` handler per profile (`Resources`, from `tarn_ext::Resolver::handler`),
+  registered as a standard, secure scheme, serving only what the handler returns, with its MIME
+  type and `Content-Security-Policy` header, and only to the extension page view of that origin.
+  Web pages cannot load the scheme.
+- Extension page views (`PageKind::Background` hidden and owned by the shell, `PageKind::Popup`)
+  that load `tarn-extension://` URLs with `Package::bootstrap(true)` and `__tarnExtPost` in their
+  main world, with the profile's Shield, private-network and HTTPS rules. Their messages arrive as
+  `ExtensionMessage` with the install's world and `FrameId::MAIN`.
+
+Engines that can only register scripts ahead of a document (WebKit's user scripts, Chromium's
+new-document scripts) carry the gate's answers in the scripts themselves: `tarn_ext::Decisions`
+records the answer per frame key (`frame_key`: main frame and URL without fragment, or sub frame with the top page's origin and its URL without fragment) when the
+gate is asked, and `tarn_ext::injections` builds the world's scripts from it, a gate script first
+and then each content script file guarded by it, so a document whose answer is missing runs
+nothing. A view of the profile without a gate shares those scripts, so it records an empty answer
+for each of its documents and holds it until it gets a gate or closes; a tab's answer for the same
+frame key is empty meanwhile. An engine's own setup messages start with `HELLO` and never reach the shell. Extension
+page views are made from a `PageSpec`; on macOS and Windows `engine::ExtensionPage` is that view.
+Android WebView differs in three ways: its gate is asked at document start through a round trip to
+the shell thread (about 40 ms), so `document_start` scripts arrive slightly late; documents of the
+custom scheme get an opaque origin, so extension pages are served with their CSP's `'self'`
+replaced by `tarn-extension:` and requests to any other `tarn-extension://` origin get 403; and
+WebView takes no origin rule for the custom scheme, so the page bridge is registered for every
+origin, only on the dedicated extension page view, which keeps its top-level navigations on its
+own origin and accepts messages only from its top document there.
+
+Shells share the runtime around the router: `tarn_ext::runtime::Runtime` keeps each profile's
+checked installs (`replace`, `insert`, `retain`), the session's grants (`gate`, `answer`,
+`tab_gone`, `tick`, `prompt_dropped` for a prompt the shell drops unshown), the rule lists (`rule_lists`, `update_rules`), the router (`handle`,
+`clicked`) and the shell's page views, and returns `runtime::Effect`s for the shell to carry out.
+Every shell reads the "every site" switch with `extensions::every_site_setting`, and installs go
+through `extensions::install` (`slot`, `vet`, `carry_over`, the signed catalog).
+
+The shim (`tarn_ext_shim.js`) defines `chrome.*` and `browser.*` and talks only through these two
+functions: it sends `{"id": <n or null>, "call": "<api>", "args": [...]}` and receives
+`{"id": <n>, "result": ...}`, `{"id": <n>, "error": "..."}` or an event
+(`{"event": "runtime.onMessage" | "storage.onChanged" | "action.onClicked", ...}`). Every decision
+on a message (who may receive it, grants, quotas, rate, `tabs.*` filtering) is made by
+`tarn_ext::router::Router`; the shell carries out the runtime's `Effect`s. Network rules compile per
+install with `tarn_ext::rule_list` into one content rule list that WebKit engines load and other
+engines evaluate per request with `engine::content_rules` (`ResourceKind::Document` for a main
+frame, `Subdocument` for a sub frame, so `load-context` holds); neither is attached to a
+Lockdown-level view. Shells build the runtime's `Policy` with `Core::extension_policy` and call
+`Runtime::level_changed` after a profile's Shield level changes, which closes its extension pages
+when it moved into Lockdown.
+
 ## 2. Where new logic goes
 
 Logic without UI belongs in a shared crate, not in `crates/app`:

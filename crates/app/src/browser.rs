@@ -662,6 +662,7 @@ impl Browser {
         view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
         self.views.insert(key, view.clone());
         self.pages.insert(key, page);
+        self.attach_tarn(key);
         Some(view)
     }
 
@@ -802,6 +803,9 @@ impl Browser {
             data.set_sort_downloads(self.pref(crate::prefs::Pref::SortDownloads));
             drop(profiles);
             self.core.apply_extensions(private, profile_id);
+            if !private {
+                crate::tarn_ext::opened(&self.core, profile_id);
+            }
             self.apply_site_styles(private, profile_id);
             crate::zaps::apply(&self.core, private, profile_id);
             // Chromium refuses a profile's requests until its Shield choices arrive.
@@ -910,8 +914,11 @@ impl Browser {
             if self.core.chromium_profile.get() != Some(profile_id) {
                 crate::shared::count_chromium_blocks(&self.core);
             }
-            self.core.chromium_profile.set(Some(profile_id));
+            let owner_changed = self.core.chromium_profile.replace(Some(profile_id)) != Some(profile_id);
             self.core.sync_shield();
+            if owner_changed {
+                crate::tarn_ext::chromium_owner_changed(&self.core, profile_id);
+            }
             let ageing = browser_core::staleness::Staleness::Ageing;
             if self.core.chromium_staleness.get() == ageing && self.pages.get(&key).is_none_or(|p| p.notice.is_none()) {
                 self.notify_offer(key, ageing.message().to_owned(), None);
@@ -924,6 +931,7 @@ impl Browser {
         view.set_corner_radius(page_corner());
         view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
         self.views.insert(key, view.clone());
+        self.attach_tarn(key);
         Some(view)
     }
 
@@ -1161,6 +1169,9 @@ impl Browser {
         }
         let closed = self.closed_tab(&tab, key);
         self.tab_leaving(&tab, cx);
+        if !key.private {
+            self.core.tarn.borrow().send(crate::tarn_ext::Msg::TabClosed(key.id as u64));
+        }
         self.take_view(key);
         self.link_loads.remove(&key);
         self.json_pages.remove(&key);
@@ -1743,6 +1754,7 @@ impl Browser {
                     self.link_loads.remove(&key);
                 }
                 self.drop_prompts(key, cx);
+                self.tarn_committed(key, &url, window, cx);
                 self.json_pages.remove(&key);
                 let previous = self.store(key.private).tab(key.id).ok().and_then(|t| tab_host(&t.url));
                 self.page_changed(key, &url, &title, can_go_back, can_go_forward, true);
@@ -1967,6 +1979,11 @@ impl Browser {
                 }
             }
             Event::FullScreen(on) => self.set_page_fullscreen(key, on, window),
+            Event::ExtensionMessage { world, frame, origin, json } => {
+                if let Some(profile) = self.profile_of(key).filter(|_| !key.private) {
+                    self.core.tarn.borrow().send(crate::tarn_ext::Msg::Tab { profile, tab: key.id as u64, world, frame, origin, json });
+                }
+            }
             Event::ContentProcessTerminated => {
                 if self.model.active == Some(key) {
                     self.leave_page_fullscreen(window);
@@ -2115,7 +2132,7 @@ impl Browser {
         self.profile_of(key).and_then(|p| self.core.level(key.private, p, Url::parse(url).ok().as_ref())).unwrap_or(ShieldLevel::Lockdown)
     }
 
-    fn queue_prompt(&mut self, key: TabKey, prompt: Prompt, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn queue_prompt(&mut self, key: TabKey, prompt: Prompt, window: &mut Window, cx: &mut Context<Self>) {
         if !self.views.contains_key(&key) {
             return;
         }
@@ -2374,6 +2391,7 @@ impl Browser {
         view.set_corner_radius(page_corner());
         view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
         self.views.insert(key, Rc::new(view));
+        self.attach_tarn(key);
         self.reload_space();
         self.activate(key, window, cx);
     }
@@ -2701,6 +2719,9 @@ impl Browser {
         };
         if !new_store {
             self.core.apply_extensions(private, profile_id);
+        }
+        if !private {
+            crate::tarn_ext::level_changed(&self.core, profile_id, cx);
         }
         self.restart_profile_views(private, profile_id, None, new_store, window, cx);
         #[cfg(feature = "chromium")]

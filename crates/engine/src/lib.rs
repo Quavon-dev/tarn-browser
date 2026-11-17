@@ -14,6 +14,7 @@ pub mod qr;
 pub mod reader;
 pub mod request_filter;
 pub mod startup;
+pub mod tarn_ext;
 pub mod translation;
 pub mod view_policy;
 
@@ -43,6 +44,8 @@ pub mod share;
 #[cfg(target_os = "macos")]
 pub mod speech;
 #[cfg(target_os = "macos")]
+mod tarn_webkit;
+#[cfg(target_os = "macos")]
 mod view;
 #[cfg(target_os = "macos")]
 mod webview;
@@ -67,6 +70,8 @@ pub mod share;
 #[path = "speech_windows.rs"]
 pub mod speech;
 #[cfg(windows)]
+mod tarn_page_windows;
+#[cfg(windows)]
 mod view_windows;
 
 #[cfg(windows)]
@@ -84,6 +89,10 @@ pub use host_windows::{
 pub use nav_policy::SiteFor;
 #[cfg(any(target_os = "macos", windows))]
 pub use prompts::{Prompt, PromptKind};
+#[cfg(windows)]
+pub use tarn_page_windows::ExtensionPage;
+#[cfg(target_os = "macos")]
+pub use tarn_webkit::ExtensionPage;
 #[cfg(target_os = "macos")]
 pub use view::WebView;
 #[cfg(windows)]

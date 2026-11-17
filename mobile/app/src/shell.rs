@@ -94,6 +94,7 @@ impl std::ops::Deref for PromptRequest {
 pub enum Effect {
     Command(TabKey, &'static str, Value),
     Open(String),
+    PagePost(String, engine::tarn_ext::PageKind, String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -137,6 +138,7 @@ pub struct Shell<D: Platform> {
     pub(crate) crashed: HashSet<TabKey>,
     pub(crate) seq: u64,
     pub themes: crate::themes::Themes,
+    pub ext: crate::extensions::Runtime,
     pub icons: engine::favicon::Tracker<(bool, Id), String>,
 }
 
@@ -183,8 +185,10 @@ impl<D: Platform> Shell<D> {
             crashed: HashSet::new(),
             seq: 0,
             themes,
+            ext: crate::extensions::Runtime::default(),
             icons: engine::favicon::Tracker::default(),
         };
+        shell.ext.root = dir.join("Extensions");
         shell.switch_space(ix);
         shell.apply_theme();
         if shell.model.current_space().is_none() {
@@ -464,6 +468,7 @@ impl<D: Platform> Shell<D> {
 
     fn unmount(&mut self, key: TabKey) {
         self.drop_scripts(key);
+        self.extension_tab_gone(key, false);
         self.model.lifecycle.remove(key);
         self.pages.remove(&key);
         self.loads.remove(&key);
@@ -476,6 +481,7 @@ impl<D: Platform> Shell<D> {
     pub(crate) fn forget(&mut self, key: TabKey) {
         self.splits.leave(key);
         self.unmount(key);
+        self.extension_tab_gone(key, true);
         self.shielded.remove(&key);
         if self.reader.as_ref().is_some_and(|r| r.key == key) {
             self.reader = None;
@@ -535,6 +541,7 @@ impl<D: Platform> Shell<D> {
         if let Some(profile) = self.model.profile() {
             self.load_icons(profile);
         }
+        self.ensure_extensions();
         match self.model.pick(|_| false) {
             Some(key) => self.activate(key),
             None => {
@@ -635,6 +642,9 @@ impl<D: Platform> Shell<D> {
                 None => overrides.remove(&host),
             };
         }
+        if !private {
+            self.push_rules(id, std::time::Instant::now());
+        }
         true
     }
 
@@ -650,6 +660,10 @@ impl<D: Platform> Shell<D> {
         }
         self.core.profiles.borrow_mut().remove(&(private, id));
         self.open_current_profile();
+        if !private {
+            self.load_extensions(id);
+            self.extension_level_changed(id);
+        }
         true
     }
 
@@ -690,6 +704,9 @@ impl<D: Platform> Shell<D> {
             D::wipe_persistent(&rt.own_store);
         }
         self.open_current_profile();
+        if !private {
+            self.load_extensions(id);
+        }
         if before.is_some() && before == self.store_id(private, id) && before.as_deref().is_some_and(|s| s.starts_with("private:")) {
             self.notice = Some("History cleared. Website data goes when the private space closes.".into());
             return;

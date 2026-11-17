@@ -66,7 +66,9 @@ fn entry_path(name: &str, wrapped: Option<&mut Option<String>>) -> Result<Option
             || *part == "."
             || *part == ".."
             || part.len() > MAX_COMPONENT
-            || part.chars().any(|c| c.is_control() || c == '\\' || c == '\0' || c == ':');
+            || part.chars().any(|c| c.is_control() || c == '\\' || c == '\0' || c == ':')
+            || part.ends_with(['.', ' '])
+            || windows_reserved(part);
         if bad {
             return refuse("the archive holds an unsafe file name");
         }
@@ -76,6 +78,17 @@ fn entry_path(name: &str, wrapped: Option<&mut Option<String>>) -> Result<Option
         return refuse("the archive holds an unsafe file name");
     }
     Ok(Some(path))
+}
+
+fn windows_reserved(part: &str) -> bool {
+    let stem = part.split('.').next().unwrap_or_default().trim_end_matches(' ').to_ascii_uppercase();
+    match stem.as_str() {
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$" => true,
+        s => s
+            .strip_prefix("COM")
+            .or_else(|| s.strip_prefix("LPT"))
+            .is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "\u{b9}" | "\u{b2}" | "\u{b3}")),
+    }
 }
 
 /// How the file system may see a name: case and Unicode form do not tell entries apart on APFS.
@@ -191,7 +204,7 @@ fn seal(dir: &Path) -> std::io::Result<()> {
 }
 
 /// Windows keeps only a read-only flag, which it honours on files.
-fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
+pub(crate) fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
     #[cfg(unix)]
     return fs::set_permissions(path, fs::Permissions::from_mode(mode));
     #[cfg(not(unix))]
@@ -333,6 +346,14 @@ mod tests {
         refused(&[MANIFEST, ("a\u{1}b.js", b"")]);
         refused(&[MANIFEST, (&"x".repeat(256), b"")]);
         refused(&[MANIFEST, ("d/".repeat(17).trim_end_matches('/'), b"")]);
+        for name in ["CON", "nul.js", "a/Com1.txt", "lpt9", "aux.tar.gz", "a./b.js", "b.js.", "c.js "] {
+            refused(&[MANIFEST, (name, b"")]);
+        }
+        for name in ["CONIN$", "conout$.txt", "a/Com\u{b9}.js", "lpt\u{b2}", "COM\u{b3}.tar.gz"] {
+            refused(&[MANIFEST, (name, b"")]);
+        }
+        let (_, ok) = try_unpack(&archive(&[MANIFEST, ("console.js", b""), ("com10.js", b""), ("lpt0.js", b"")]), false);
+        ok.unwrap();
     }
 
     #[test]

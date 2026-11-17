@@ -41,7 +41,7 @@ mod tests {
     }
 
     #[test]
-    fn a_checkout_with_windows_line_endings_splits_the_same() {
+    fn crlf_checkouts_split_the_same() {
         assert_eq!(sections(&FILE.replace('\n', "\r\n")), sections(FILE));
     }
 

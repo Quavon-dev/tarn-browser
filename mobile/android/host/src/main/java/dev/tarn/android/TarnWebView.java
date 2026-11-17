@@ -114,6 +114,8 @@ final class TarnWebView implements NshComponent {
     private Consumer<String> pickDone;
     private PageText findCache;
     private long findUsed;
+    private Extensions extensions;
+    private volatile String ruleStore;
 
     private volatile int level = Native.STANDARD;
     private volatile Map<String, Integer> levels = Map.of();
@@ -173,6 +175,12 @@ final class TarnWebView implements NshComponent {
             return;
         }
         if (transferCommand(name, map) || scriptCommand(name, map)) return;
+        if ("extensionPost".equals(name)) {
+            if (extensions != null) {
+                extensions.post(Prompts.text(map, "world"), map.get("frame") instanceof Number n ? n.longValue() : null, Prompts.text(map, "json"));
+            }
+            return;
+        }
         if (web == null) {
             if ("reload".equals(name) && loadUrl != null) {
                 appliedSeq = null;
@@ -451,6 +459,7 @@ final class TarnWebView implements NshComponent {
             web.onPause();
         }
         applyContent();
+        extensions.apply();
         if (loadUrl != null && !Objects.equals(loadSeq, appliedSeq)) {
             appliedSeq = loadSeq;
             shellLoad(loadUrl, loadOpener);
@@ -472,6 +481,33 @@ final class TarnWebView implements NshComponent {
         web = view;
         profileName = name;
         builtStore = store;
+        ruleStore = store;
+        extensions = new Extensions(view, new Extensions.Owner() {
+            @Override
+            public String tab() {
+                return tab;
+            }
+
+            @Override
+            public String store() {
+                return builtStore;
+            }
+
+            @Override
+            public boolean runs() {
+                return level != Native.LOCKDOWN && viewLevel != Native.LOCKDOWN && javaScriptOn;
+            }
+
+            @Override
+            public void frame(Map<String, Object> request) {
+                emitMap("extensionFrame", request);
+            }
+
+            @Override
+            public void message(String world, long frame, String origin, String json) {
+                emit("extensionMessage", "world", world, "frame", frame, "origin", origin, "json", json);
+            }
+        });
         viewLevel = level;
         appliedSeq = null;
         Hooks.log("tab " + tab + " web view on store " + (name.isEmpty() ? "process default" : name));
@@ -518,6 +554,9 @@ final class TarnWebView implements NshComponent {
         contentScripts.clear();
         appliedContent = null;
         findCache = null;
+        if (extensions != null) extensions.clear();
+        extensions = null;
+        ruleStore = null;
         if (web == null) return;
         PageView old = web;
         web = null;
@@ -563,6 +602,7 @@ final class TarnWebView implements NshComponent {
         Object seq = appliedSeq;
         if (!build()) return false;
         applyContent();
+        extensions.apply();
         appliedSeq = seq;
         viewLevel = keptLevel;
         if (active) {
@@ -634,7 +674,8 @@ final class TarnWebView implements NshComponent {
 
     private String documentVerdict(String target, int site) {
         if (!isWeb(target)) return target;
-        int verdict = Native.verdict(target, target, Native.MAIN_FRAME, site);
+        int verdict = Native.stricter(Native.verdict(target, target, Native.MAIN_FRAME, site),
+                extensionVerdict(target, target, site, Native.MAIN_FRAME));
         if (verdict == Native.VERDICT_BLOCK) {
             block(target, "shield");
             return null;
@@ -697,7 +738,8 @@ final class TarnWebView implements NshComponent {
         }
         int site = levelFor(url);
         if (isWeb(url)) {
-            int verdict = Native.verdict(url, url, Native.MAIN_FRAME, site);
+            int verdict = Native.stricter(Native.verdict(url, url, Native.MAIN_FRAME, site),
+                    extensionVerdict(url, url, site, Native.MAIN_FRAME));
             if (verdict != Native.VERDICT_ALLOW) {
                 block(url, verdict == Native.VERDICT_BLOCK ? "shield" : "https_only");
                 return;
@@ -781,6 +823,22 @@ final class TarnWebView implements NshComponent {
         });
     }
 
+    static void extensionScriptsChanged(String store) {
+        for (TarnWebView view : LIVE) {
+            if (view.extensions != null && Objects.equals(view.builtStore, store)) view.extensions.apply();
+        }
+    }
+
+    private int extensionVerdict(String url, String top, int pageLevel, int kind) {
+        return extensionVerdict(url, top, pageLevel, null, kind);
+    }
+
+    private int extensionVerdict(String url, String top, int pageLevel, Page next, int kind) {
+        String rules = ruleStore;
+        return rules == null ? Native.VERDICT_ALLOW : Native.extensionVerdict(rules, url, top, Math.max(pageLevel, viewLevel),
+                next == null ? null : next.url(), next == null ? 0 : Math.max(next.level(), viewLevel), kind);
+    }
+
     private static void deliver(TarnWebView from, Map<String, Object> data) {
         TarnWebView target = from.destroyed ? LIVE.stream().findFirst().orElse(null) : from;
         if (target == null) {
@@ -850,7 +908,7 @@ final class TarnWebView implements NshComponent {
         emitMap("prompt", event);
     }
 
-    private int kind(WebResourceRequest request) {
+    static int kind(WebResourceRequest request) {
         if (request.isForMainFrame()) return Native.MAIN_FRAME;
         String accept = request.getRequestHeaders().getOrDefault("Accept", "");
         String path = request.getUrl().getPath() == null ? "" : request.getUrl().getPath();
@@ -890,9 +948,9 @@ final class TarnWebView implements NshComponent {
             Page judge = current != null ? current : next;
             int verdict = Native.verdict(target, judge == null ? null : judge.url(), kind,
                     judge == null ? level : judge.level());
-            if (next != null && current != null && !next.url().equals(current.url())) {
-                verdict = Native.stricter(verdict, Native.verdict(target, next.url(), kind, next.level()));
-            }
+            Page coming = next != null && current != null && !next.url().equals(current.url()) ? next : null;
+            if (coming != null) verdict = Native.stricter(verdict, Native.verdict(target, coming.url(), kind, coming.level()));
+            if (judge != null) verdict = Native.stricter(verdict, extensionVerdict(target, judge.url(), judge.level(), coming, kind));
             Hooks.log("verdict=" + verdict + " us=" + (System.nanoTime() - start) / 1000 + " kind=" + kind
                     + " url=" + target + " top=" + (current == null ? null : current.url())
                     + " pending=" + (next == null ? null : next.url()));
@@ -907,7 +965,8 @@ final class TarnWebView implements NshComponent {
             boolean expected = next != null && target.equals(next.url());
             int site = levelFor(target);
             int pageLevel = expected ? next.level() : Math.max(site, viewLevel);
-            int verdict = Native.verdict(target, target, Native.MAIN_FRAME, pageLevel);
+            int verdict = Native.stricter(Native.verdict(target, target, Native.MAIN_FRAME, pageLevel),
+                    extensionVerdict(target, target, pageLevel, Native.MAIN_FRAME));
             boolean userStarted = expected && shellNavigation;
             String from = expected ? next.from() : origin();
             if (verdict != Native.VERDICT_BLOCK && Native.intoPrivateNetwork(target, from, userStarted, pageLevel)) {

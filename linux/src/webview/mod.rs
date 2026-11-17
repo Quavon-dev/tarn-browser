@@ -1,3 +1,4 @@
+pub mod ext;
 pub mod filters;
 pub use engine::view_policy as policy;
 mod scripts;
@@ -75,6 +76,8 @@ struct State {
     find_text: RefCell<String>,
     zoom: Cell<f64>,
     content: RefCell<Option<UserContentManager>>,
+    style_script: RefCell<Option<webkit6::UserScript>>,
+    ext: ext::Ext,
     styles: RefCell<Vec<(String, String)>>,
     theme_styles: RefCell<Vec<(String, String)>>,
     zaps: RefCell<Vec<(String, String)>>,
@@ -150,6 +153,8 @@ impl State {
 
     fn drop_view(&self) {
         self.decline_all();
+        ext::detach(self);
+        self.style_script.replace(None);
         self.content.replace(None);
         if let Some(old) = self.view.replace(None) {
             old.stop_loading();
@@ -255,6 +260,7 @@ fn build(state: &Rc<State>, wanted: &Build, filters: &[UserContentFilter]) {
     *state.content.borrow_mut() = Some(content.clone());
     *state.zap_filter.borrow_mut() = None;
     apply_zaps(state);
+    ext::attach(state);
     let web = WebView::builder().network_session(&session).user_content_manager(&content).build();
     if let Some(settings) = WebViewExt::settings(&web) {
         settings.set_enable_javascript(wanted.level.policy().javascript);
@@ -345,12 +351,12 @@ fn decide(state: &Rc<State>, web: &WebView, decision: &webkit6::PolicyDecision, 
             decision.ignore();
             true
         }
-        PolicyDecisionType::Response => decide_response(decision),
+        PolicyDecisionType::Response => decide_response(state, decision),
         _ => false,
     }
 }
 
-fn decide_response(decision: &webkit6::PolicyDecision) -> bool {
+fn decide_response(state: &State, decision: &webkit6::PolicyDecision) -> bool {
     let Some(response) = decision.downcast_ref::<ResponsePolicyDecision>() else { return false };
     let attachment = response
         .response()
@@ -358,7 +364,7 @@ fn decide_response(decision: &webkit6::PolicyDecision) -> bool {
         .and_then(|h| h.one("Content-Disposition"))
         .is_some_and(|v| v.trim_start().to_ascii_lowercase().starts_with("attachment"));
     match (attachment || !response.is_mime_type_supported(), response.is_main_frame_main_resource()) {
-        (false, _) => false,
+        (false, _) => ext::hold(state, response),
         (true, true) => {
             decision.download();
             true
@@ -626,12 +632,14 @@ fn connect(state: &Rc<State>, web: &WebView) {
     web.connect_load_changed(move |web, event| {
         let Some(s) = w.upgrade() else { return };
         match event {
-            LoadEvent::Started => {
+            LoadEvent::Started | LoadEvent::Redirected => {
                 s.failed.set(false);
                 s.note_processes();
+                ext::started(&s);
                 s.emit("started", json!({}));
             }
             LoadEvent::Committed => {
+                ext::committed(&s, web);
                 let page = web.uri().and_then(|u| Url::parse(&u).ok());
                 s.user_step.set(false);
                 s.decline_all();
@@ -676,6 +684,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
     let w = weak.clone();
     web.connect_uri_notify(move |web| {
         let Some(s) = w.upgrade().filter(|_| !web.is_loading() && web.uri().is_some_and(|u| !u.is_empty())) else { return };
+        ext::moved(&s, web);
         s.user_step.set(false);
         *s.page.borrow_mut() = web.uri().and_then(|u| Url::parse(&u).ok());
         s.emit("finished", s.page_state(web));
@@ -755,6 +764,8 @@ fn connect(state: &Rc<State>, web: &WebView) {
 
 #[cfg(test)]
 mod display_tests;
+#[cfg(test)]
+mod ext_display_tests;
 
 pub struct TarnWebView(Rc<State>);
 
