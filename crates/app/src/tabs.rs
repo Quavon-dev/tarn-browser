@@ -513,6 +513,15 @@ mod tests {
     }
 
     #[test]
+    fn the_split_command_is_found_by_the_name_it_shows() {
+        let first = |query: &str| ui::command::rank_commands(query, crate::COMMANDS.iter().map(|c| (c.0, c.1))).first().map(|ix| crate::COMMANDS[*ix].2);
+        for query in ["open in split view", "close split"] {
+            assert!(first(query).is_some_and(|a| a.partial_eq(&crate::split::ToggleSplitView) || a.partial_eq(&crate::split::CloseSplitView)), "{query}");
+        }
+        assert!(first("open in split view").is_some_and(|a| a.partial_eq(&crate::split::ToggleSplitView)));
+    }
+
+    #[test]
     fn a_custom_title_wins_until_cleared() {
         assert_eq!(display_title(&tab("Inbox (3)", "Mail", "https://mail.test/")), "Mail");
         assert_eq!(display_title(&tab("Inbox (3)", "", "https://mail.test/")), "Inbox (3)");

@@ -61,7 +61,7 @@ const COMMANDS: [(&str, &str, Command); 23] = [
     ("Memory", "process cpu ram usage sleep", Command::Memory),
     ("Reading List", "read later saved pages", Command::ReadingList),
     ("New Window", "open another browser window", Command::NewWindow),
-    ("Open or Close Split View", "side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
+    ("Open in Split View", "open close side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
     ("Focus Next Pane", "split view switch", Command::Key(Action::FocusNextPane)),
     ("Focus Previous Pane", "split view switch", Command::Key(Action::FocusPreviousPane)),
     ("Swap Split Panes", "split view exchange move", Command::Key(Action::SwapPanes)),

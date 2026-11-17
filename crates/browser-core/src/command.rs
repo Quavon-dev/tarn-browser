@@ -146,7 +146,6 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Show Memory Use", "gauge"),
     ("Memory", "gauge"),
     ("Zap Element", "zap"),
-    ("Open or Close Split View", "columns-2"),
     ("Focus Next Pane", "chevron-right"),
     ("Focus Previous Pane", "chevron-left"),
     ("Swap Split Panes", "arrow-left-right"),
