@@ -29,6 +29,7 @@ const SWATCH: f32 = 28.;
 const HERO_GAP: f32 = 24.;
 const HERO_COLUMN: f32 = 240.;
 const NUMBER_WIDTH: f32 = 72.;
+const STATS_WIDTH: f32 = 280.;
 pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -733,8 +734,8 @@ fn last_week(card: &Card) -> View {
         .child(day_chart(&days))
 }
 
-fn top_sites(card: &Card) -> Option<View> {
-    let most = card.sites.iter().map(|(_, n)| *n).max()?;
+fn top_sites(card: &Card) -> View {
+    let most = card.sites.iter().map(|(_, n)| *n).max().unwrap_or(0);
     let rows: Vec<AnyElement> = card
         .sites
         .iter()
@@ -750,7 +751,8 @@ fn top_sites(card: &Card) -> Option<View> {
                 .into_element()
         })
         .collect();
-    Some(group().p_3().gap_1().child(label("Most protected sites").font_weight(FontWeight::SEMIBOLD)).children(rows))
+    let empty = rows.is_empty().then(|| caption("Sites show here once Shield has stopped something on them.").number_of_lines(0));
+    group().p_3().gap_1().child(label("Most protected sites").font_weight(FontWeight::SEMIBOLD)).children(rows).children(empty)
 }
 
 fn share_card(ui: Ui, card: &Card, dark: bool) {
@@ -854,8 +856,16 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
                     .gap_3()
                     .child(hero.test_id("profile-hero"))
                     .child((!ui.mac.get()).then(|| caption(kept).number_of_lines(0).px_1()))
-                    .child(last_week(&card))
-                    .child(top_sites(&card))
+                    .child(if ui.mac.get() {
+                        view()
+                            .flex_row()
+                            .flex_wrap()
+                            .gap_3()
+                            .child(last_week(&card).flex_1().min_w(px(STATS_WIDTH)).test_id("profile-week"))
+                            .child(top_sites(&card).flex_1().min_w(px(STATS_WIDTH)).test_id("profile-sites"))
+                    } else {
+                        view().gap_3().child(last_week(&card)).children((!card.sites.is_empty()).then(|| top_sites(&card)))
+                    })
                     .into_element(),
             )
         })

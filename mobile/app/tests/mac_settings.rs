@@ -64,11 +64,25 @@ fn the_mac_settings_window_shows_one_pane_at_a_time() {
     app.press("label:Strict").unwrap();
     app.wait_until("Strict is the profile's level", WAIT, |s| s.selected("label:Strict").unwrap_or(false)).unwrap();
     app.press("label:Standard").unwrap();
+    app.wait_for("Most protected sites").unwrap();
+    app.wait_for("Sites show here once Shield has stopped something on them.").unwrap();
+    let stats = |s: &nsh_testing::Screen, id: &str| s.layout_nodes().into_iter().find(|n| n.test_id.as_deref() == Some(id) && !n.hidden).map(|n| n.bounds);
+    let (week, sites) = (stats(app.screen(), "profile-week").unwrap(), stats(app.screen(), "profile-sites").unwrap());
+    assert!(
+        sites.origin.x.0 >= week.origin.x.0 + week.size.width.0 && (sites.origin.y.0 - week.origin.y.0).abs() < 0.5,
+        "Most protected sites sits beside Last 7 days: {week:?} {sites:?}"
+    );
     app.set_viewport(Size::new(Points(834.), Points(1194.))).unwrap();
     app.wait_until("the hero stacks in a narrow pane", WAIT, |s| {
         let found = |sel: &str| s.press_target(sel).ok().flatten().and_then(|id| s.layout_nodes().into_iter().find(|n| n.id == id).map(|n| n.bounds));
         matches!((found("label:/^Shield card of/"), found("label:Flip")), (Some(c), Some(f)) if f.origin.y.0 >= c.origin.y.0 + c.size.height.0)
     })
+    .unwrap();
+    app.wait_until(
+        "the two cards stack in a narrow pane",
+        WAIT,
+        |s| matches!((stats(s, "profile-week"), stats(s, "profile-sites")), (Some(w), Some(t)) if t.origin.y.0 >= w.origin.y.0 + w.size.height.0),
+    )
     .unwrap();
     app.set_viewport(Size::new(Points(1376.), Points(1032.))).unwrap();
 
