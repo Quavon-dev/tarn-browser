@@ -837,13 +837,18 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
                 .child(numbers(&card))
                 .child(
                     view()
-                        .flex_row()
-                        .flex_wrap()
-                        .items_center()
-                        .justify_between()
-                        .gap_2()
-                        .child(label("Shield level"))
-                        .child(super::panels::default_levels(ui).flex_none().test_id("profile-levels")),
+                        .gap_1()
+                        .child(
+                            view()
+                                .flex_row()
+                                .flex_wrap()
+                                .items_center()
+                                .justify_between()
+                                .gap_2()
+                                .child(label("Shield level"))
+                                .child(super::panels::default_levels(ui).flex_none().test_id("profile-levels")),
+                        )
+                        .child(small(browser_core::shield_card::motto(card.level).1)),
                 )
                 .child(actions);
             let hero = if wide {

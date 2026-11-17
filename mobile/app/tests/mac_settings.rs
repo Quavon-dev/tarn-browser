@@ -60,6 +60,8 @@ fn the_mac_settings_window_shows_one_pane_at_a_time() {
     assert!(levels.origin.x.0 >= card.origin.x.0 + card.size.width.0, "the Shield level sits in the column beside the card: {card:?} {levels:?}");
     assert!(levels.origin.y.0 >= below && levels.origin.y.0 + levels.size.height.0 <= flip.origin.y.0, "under the numbers, above the actions: {levels:?}");
     assert_eq!(app.screen().texts().iter().filter(|t| **t == "Shield level").count(), 1, "no second Shield level section");
+    let motto = |s: &nsh_testing::Screen| s.texts().iter().filter(|t| **t == "Trackers blocked, links cleaned").count() == 2;
+    assert!(motto(app.screen()), "the level's meaning shows under it as well as on the card");
     assert!(!app.screen().shows("Counted on this device only and never sent anywhere."), "the header badge already says it");
     app.press("label:Strict").unwrap();
     app.wait_until("Strict is the profile's level", WAIT, |s| s.selected("label:Strict").unwrap_or(false)).unwrap();
@@ -115,5 +117,6 @@ fn the_mac_settings_window_shows_one_pane_at_a_time() {
     app.press("label:Touch").unwrap();
     app.wait_for("label:Tabs 1").unwrap();
     assert!(!app.screen().matches("label:Close Settings").unwrap(), "Touch goes back to the settings sheet");
+    app.wait_until("the touch Profile shows the level's meaning under it", WAIT, motto).unwrap();
     app.wait_for("Search the text of visited pages").unwrap();
 }
