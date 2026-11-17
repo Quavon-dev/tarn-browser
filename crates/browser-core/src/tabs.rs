@@ -384,6 +384,12 @@ impl Model {
     }
 
     /// The profile of the space holding `key`, which need not be the current one.
+    /// The Shield level that applies to `url` in the tab's own profile; Standard when unknown.
+    pub fn level_for<D: WebsiteData>(&self, core: &Core<D>, key: TabKey, url: &str) -> shield::ShieldLevel {
+        let url = Url::parse(url).ok();
+        self.profile_of(core, key).and_then(|p| core.level(key.private, p, url.as_ref())).unwrap_or_default()
+    }
+
     pub fn profile_of<D: WebsiteData>(&self, core: &Core<D>, key: TabKey) -> Option<Id> {
         let space_id = match self.tab(key) {
             Some(t) => t.space_id,

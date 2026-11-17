@@ -498,6 +498,20 @@ fn permissions_are_neither_remembered_nor_reused_above_standard() {
 }
 
 #[test]
+fn a_remembered_permission_is_reused_only_in_the_profile_that_stored_it() {
+    let (_dir, mut shell) = open();
+    let always = Answer { accept: true, text: None, user: None, password: None, remember: true };
+    let ask = |id: u64| json!({ "id": id, "kind": "camera", "origin": "https://site.test", "topOrigin": "https://site.test" });
+    let personal = active(&shell);
+    assert!(add_profile(&mut shell, "Banking"));
+    let banking = active(&shell);
+    shell.event(banking, "prompt", &ask(1), 1);
+    shell.answer(always);
+    assert_eq!(shell.event(banking, "prompt", &ask(2), 2), vec![Effect::Command(banking, "answer", json!({ "id": 2, "accept": true }))]);
+    assert_eq!(shell.event(personal, "prompt", &ask(3), 3), vec![], "another profile's tab is asked, not answered from the profile on screen");
+}
+
+#[test]
 fn clear_data_gives_lockdown_and_private_profiles_a_fresh_store() {
     let (_dir, mut shell) = open();
     shell.set_default_level(ShieldLevel::Lockdown);

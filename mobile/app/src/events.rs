@@ -177,8 +177,8 @@ impl<D: Platform> Shell<D> {
             return vec![Effect::Command(key, "answer", json!({ "id": id, "accept": false }))];
         }
         if self.remembers(&request)
-            && let Some(profile) = self.profile_id()
-            && let Ok(Some(decision)) = self.store().permission(profile, &request.origin, &request.kind)
+            && let Some(profile) = self.model.profile_of(&self.core, key)
+            && let Ok(Some(decision)) = self.core.store(key.private).permission(profile, &request.origin, &request.kind)
         {
             return vec![Effect::Command(key, "answer", json!({ "id": id, "accept": decision == "allow" }))];
         }
@@ -191,18 +191,16 @@ impl<D: Platform> Shell<D> {
         let prompt = self.prompts.remove(at);
         if answer.remember
             && self.remembers(&prompt)
-            && let Some(profile) = self.profile_id()
+            && let Some(profile) = self.model.profile_of(&self.core, prompt.tab)
         {
-            self.store().set_permission(profile, &prompt.origin, &prompt.kind, if answer.accept { "allow" } else { "deny" }).ok();
+            self.core.store(prompt.tab.private).set_permission(profile, &prompt.origin, &prompt.kind, if answer.accept { "allow" } else { "deny" }).ok();
         }
         let args = prompt.answer(answer.accept, answer.text, answer.user, answer.password);
         vec![Effect::Command(prompt.tab, "answer", args)]
     }
 
     pub fn remembers(&self, prompt: &PromptRequest) -> bool {
-        let profile = self.model.profile_of(&self.core, prompt.tab);
-        let url = Url::parse(&prompt.origin).ok();
-        prompt.remembered_at(profile.and_then(|p| self.core.level(prompt.tab.private, p, url.as_ref())).unwrap_or_default())
+        prompt.remembered_at(self.model.level_for(&self.core, prompt.tab, &prompt.origin))
     }
 
     fn crashed(&mut self, key: TabKey) -> Vec<Effect> {

@@ -362,9 +362,7 @@ impl Browser {
     }
 
     pub fn level_for(&self, key: TabKey, url: &str) -> ShieldLevel {
-        let profile = self.model.profile_of(&self.core, key);
-        let url = Url::parse(url).ok();
-        profile.and_then(|p| self.core.level(key.private, p, url.as_ref())).unwrap_or_default()
+        self.model.level_for(&self.core, key, url)
     }
 
     pub fn load(&mut self, key: TabKey, url: &str) {
