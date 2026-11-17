@@ -55,8 +55,10 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.press("label:Unload Tab").unwrap();
     app.wait_for("label:Close Tab").unwrap();
 
-    app.type_text("id:address", "example.com").unwrap();
-    app.submit("id:address").unwrap();
+    app.press("label:Search or enter address").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    app.type_text("id:palette-field", "example.com").unwrap();
+    app.submit("id:palette-field").unwrap();
     app.wait_for("label:https://example.com/").unwrap();
     let mut touch = None;
     app.set_environment("pointer", |e| {
@@ -95,8 +97,12 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.press("label:Close Group and Its Tabs").unwrap();
     app.wait_for_gone("label:Close Group and Its Tabs", WAIT).unwrap();
     app.wait_for("Group closed").unwrap();
-    app.press("label:Menu").unwrap();
-    app.press("Reopen Closed Tab").unwrap();
+    app.press("label:Search or enter address").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    app.clear("id:palette-field").unwrap();
+    app.type_text("id:palette-field", "> reopen").unwrap();
+    app.wait_for("label:Reopen Closed Tab").unwrap();
+    app.submit("id:palette-field").unwrap();
     app.wait_for("label:Close Group and Its Tabs").unwrap();
     app.wait_for("label:Group 1").unwrap();
 

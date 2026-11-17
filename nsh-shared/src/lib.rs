@@ -10,3 +10,4 @@ pub mod qr;
 pub mod search_fx;
 pub mod sidebar;
 pub mod theme;
+pub mod toolbar;

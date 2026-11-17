@@ -26,10 +26,12 @@ pub(super) fn frame<T: IntoElements, B: IntoElements>(
             view().flex_1().flex_row().child(when(mac, move || sidebar::sidebar(ui))).child(
                 view()
                     .flex_1()
+                    .relative()
                     .child(when(move || !mac(), touch_top))
                     .child(when(mac, move || toolbar::toolbar(ui)))
                     .child(content)
-                    .child(when(move || !mac(), touch_bottom)),
+                    .child(when(move || !mac(), touch_bottom))
+                    .child(when(mac, move || toolbar::palette(ui))),
             ),
         )
         .child(when(mac, move || popovers::popovers(ui)))

@@ -29,6 +29,7 @@ pub mod glyphs;
 pub mod import;
 pub mod layout;
 pub mod licences;
+pub mod palette;
 pub mod permissions;
 pub mod prompts;
 pub mod routing;
