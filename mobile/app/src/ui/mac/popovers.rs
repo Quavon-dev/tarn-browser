@@ -54,7 +54,7 @@ pub(in crate::ui) fn start_pills(ui: Ui) -> impl IntoElement {
                                 ui.show(Screen::SpaceEdit(ui.read(|s| s.model.space_ix)));
                             })
                             .into_element(),
-                            menu_item("New Space…", true, move || {
+                            menu_item("New Space…", ui.read(|s| s.can_add_space()), move || {
                                 open.set(None);
                                 ui.show(Screen::SpaceNew);
                             })

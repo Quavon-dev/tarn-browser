@@ -350,7 +350,10 @@ fn group_items(bar: Bar, id: Id) -> Vec<AnyElement> {
 
 fn space_items(bar: Bar) -> Vec<AnyElement> {
     let (ix, private) = bar.ui.read(|s| (s.model.space_ix, s.model.current_space().is_none_or(|c| c.private)));
-    vec![item(bar, "Edit Space…", !private, move |ui| ui.show(Screen::SpaceEdit(ix))), item(bar, "New Space…", true, |ui| ui.show(Screen::SpaceNew))]
+    vec![
+        item(bar, "Edit Space…", !private, move |ui| ui.show(Screen::SpaceEdit(ix))),
+        item(bar, "New Space…", bar.ui.read(|s| s.can_add_space()), |ui| ui.show(Screen::SpaceNew)),
+    ]
 }
 
 fn close(s: &mut AppShell, keys: &[TabKey]) {
@@ -1015,11 +1018,14 @@ fn footer(ui: Ui) -> View {
         .child(
             side()
                 .justify_end()
-                .child(
-                    glyph_button(glyphs::PLUS, "New Space", Placement::Top, move || ui.toggle(Screen::SpaceNew))
-                        .element_ref(&ui.popovers.new_space)
-                        .bg(move || if ui.screen.get() == Screen::SpaceNew { Theme::selected() } else { Theme::clear() }),
-                )
+                .child(when(
+                    move || ui.read_data(|s| s.can_add_space()),
+                    move || {
+                        glyph_button(glyphs::PLUS, "New Space", Placement::Top, move || ui.toggle(Screen::SpaceNew))
+                            .element_ref(&ui.popovers.new_space)
+                            .bg(move || if ui.screen.get() == Screen::SpaceNew { Theme::selected() } else { Theme::clear() })
+                    },
+                ))
                 .child(glyph_button(glyphs::GEAR, "Settings", Placement::Top, move || ui.toggle(Screen::Settings))),
         )
 }
@@ -1074,7 +1080,7 @@ pub(super) fn sidebar(ui: Ui) -> impl IntoElement {
                     swipe.set(state);
                     if let Some(step) = step {
                         act(ui, |s| {
-                            if let Some(ix) = bar::neighbour_space(&s.model, step) {
+                            if let Some(ix) = s.neighbour_space(step) {
                                 s.choose_space(ix, browser_core::now());
                             }
                         });

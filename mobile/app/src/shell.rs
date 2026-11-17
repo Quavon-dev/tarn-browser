@@ -569,7 +569,22 @@ impl<D: Platform> Shell<D> {
             .collect()
     }
 
+    fn shows(space: &browser_core::tabs::SpaceRef) -> bool {
+        space.private || !D::private_process()
+    }
+
+    pub fn neighbour_space(&self, step: browser_core::sidebar::Step) -> Option<usize> {
+        browser_core::sidebar::neighbour_space(&self.model, step, Self::shows)
+    }
+
+    pub fn can_add_space(&self) -> bool {
+        !D::private_process()
+    }
+
     pub fn switch_space(&mut self, ix: usize) {
+        if !self.model.spaces.get(ix).is_some_and(Self::shows) {
+            return;
+        }
         let leaving_burner = self.in_burner() && ix != self.model.space_ix;
         if self.model.switch_space(&self.core, ix).is_none() {
             return;

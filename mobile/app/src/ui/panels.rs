@@ -800,7 +800,6 @@ fn downloads(ui: Ui) -> impl IntoElement {
 fn spaces(ui: Ui) -> impl IntoElement {
     let rows = move || ui.read_data(|s| s.spaces());
     let current = move || ui.read(|s| s.model.space_ix);
-    let private_process = <crate::data::Data as crate::data::Platform>::private_process();
     view()
         .gap_2()
         .child(framed(group().child(each(
@@ -843,7 +842,7 @@ fn spaces(ui: Ui) -> impl IntoElement {
                     .child(icon_button(icons::PENCIL, "Edit Space", move || ui.show(Screen::SpaceEdit(ix))))
             },
         ))))
-        .child((!private_process).then(|| framed(group().child(row(icons::PLUS, "New Space", move || ui.show(Screen::SpaceNew))))))
+        .child(ui.read(|s| s.can_add_space()).then(|| framed(group().child(row(icons::PLUS, "New Space", move || ui.show(Screen::SpaceNew))))))
         .child(caption("A profile keeps its own cookies and website data; its spaces share them.").px_1())
         .child(dynamic(move || (!ui.read(|s| s.model.private())).then(|| sheets::snapshots(ui))))
 }

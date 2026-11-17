@@ -584,6 +584,24 @@ fn the_private_process_shows_only_the_private_space_and_closes_through_the_platf
 }
 
 #[test]
+fn the_private_process_reaches_no_other_space_and_offers_no_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut shell = Shell::<PrivateProcess>::open(dir.path());
+    let here = shell.model.space_ix;
+    let others: Vec<usize> = (0..shell.model.spaces.len()).filter(|&ix| !shell.model.spaces[ix].private).collect();
+    assert!(!others.is_empty(), "the model still lists the normal spaces");
+    for ix in others {
+        shell.choose_space(ix, 1);
+        assert_eq!(shell.model.space_ix, here, "space {ix} is not reachable from the private process");
+    }
+    for step in [browser_core::sidebar::Step::Next, browser_core::sidebar::Step::Previous] {
+        assert_eq!(shell.neighbour_space(step), None);
+    }
+    assert!(!shell.can_add_space());
+    assert!(Shell::<MainProcess>::open(tempfile::tempdir().unwrap().path()).can_add_space());
+}
+
+#[test]
 fn a_finished_load_that_never_committed_leaves_the_tab_where_it_was() {
     let (_dir, mut shell) = open();
     shell.navigate("https://public.test/redirect");

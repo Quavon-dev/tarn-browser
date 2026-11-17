@@ -4,7 +4,7 @@ use store::{Folder, Id, Tab, TabKind};
 
 use crate::closed::ClosedGroup;
 use crate::split::Splits;
-use crate::tabs::{Model, TabKey, folder_tree};
+use crate::tabs::{Model, SpaceRef, TabKey, folder_tree};
 use crate::toast::Tone;
 use crate::{Core, WebsiteData};
 
@@ -310,12 +310,17 @@ impl Swipe {
     }
 }
 
-pub fn neighbour_space(model: &Model, step: Step) -> Option<usize> {
-    match step {
-        Step::Next => Some(model.space_ix + 1),
-        Step::Previous => model.space_ix.checked_sub(1),
+pub fn neighbour_space(model: &Model, step: Step, allowed: impl Fn(&SpaceRef) -> bool) -> Option<usize> {
+    let mut ix = model.space_ix;
+    loop {
+        ix = match step {
+            Step::Next => ix.checked_add(1)?,
+            Step::Previous => ix.checked_sub(1)?,
+        };
+        if allowed(model.spaces.get(ix)?) {
+            return Some(ix);
+        }
     }
-    .filter(|ix| *ix < model.spaces.len())
 }
 
 #[cfg(test)]
@@ -520,11 +525,16 @@ mod tests {
     #[test]
     fn a_swipe_reaches_only_spaces_that_exist() {
         let (_dir, core, mut model) = opened();
-        assert_eq!(neighbour_space(&model, Step::Previous), None);
-        assert_eq!(neighbour_space(&model, Step::Next), None);
+        let any = |_: &SpaceRef| true;
+        assert_eq!(neighbour_space(&model, Step::Previous, any), None);
+        assert_eq!(neighbour_space(&model, Step::Next, any), None);
         let profile = model.spaces[0].space.profile_id;
         core.disk.create_space(profile, "Work", "").unwrap();
+        core.disk.create_space(profile, "Play", "").unwrap();
         model.reload_spaces(&core);
-        assert_eq!(neighbour_space(&model, Step::Next), Some(1));
+        assert_eq!(neighbour_space(&model, Step::Next, any), Some(1));
+        let not_work = |s: &SpaceRef| s.space.name != "Work";
+        assert_eq!(neighbour_space(&model, Step::Next, not_work), Some(2), "a space the process may not show is stepped over");
+        assert_eq!(neighbour_space(&model, Step::Next, |_| false), None);
     }
 }
