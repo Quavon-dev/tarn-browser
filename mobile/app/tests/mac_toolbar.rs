@@ -120,4 +120,16 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
     app.wait_for("label:duckduckgo.com").unwrap();
     assert!(!app.screen().shows("Reading List"), "a click on the input row searches, though a command was picked with the keys");
+
+    app.press_key("mod+l").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    app.clear("id:palette-field").unwrap();
+    app.type_text("id:palette-field", "> pin").unwrap();
+    app.wait_for("label:Pin Tab").unwrap();
+    app.press_key("mod+d").unwrap();
+    app.wait_for("label:Unpin Tab").unwrap();
+    app.wait_for_gone("Drag tabs here to pin them", WAIT).unwrap();
+    app.submit("id:palette-field").unwrap();
+    app.wait_for_gone("id:palette-field", WAIT).unwrap();
+    app.wait_for("Drag tabs here to pin them").unwrap();
 }

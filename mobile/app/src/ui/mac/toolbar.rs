@@ -422,9 +422,9 @@ fn input_row(ui: Ui) -> impl IntoElement {
 }
 
 fn command_rows(ui: Ui) -> impl IntoElement {
+    let listed = computed(move || commands(ui, &ui.address.get()));
     dynamic(move || {
-        let query = ui.address.get();
-        let found = untracked(|| commands(ui, &query));
+        let found = listed.get();
         let shown = !found.is_empty();
         let items = found.into_iter().enumerate().map(move |(ix, (name, command))| {
             row(name.clone(), move || pick(ui, command))
