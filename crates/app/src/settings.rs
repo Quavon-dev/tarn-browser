@@ -1186,7 +1186,7 @@ impl SettingsWindow {
     fn hero(&self, card: &Card, face: impl IntoElement, target: Option<(bool, Id)>, cx: &mut Context<Self>) -> Div {
         let private = target.is_some_and(|(private, _)| private);
         let since = match (card.days, &card.since) {
-            (Some(days), Some(since)) => format!("Protected for {} · since {since}", browser_core::shield_card::days_text(days)),
+            (Some(days), Some(since)) => browser_core::shield_card::protected_text(days, since),
             _ if private => "Counts stay in memory until the private space closes.".to_owned(),
             _ => "Counting starts with the first thing Shield stops.".to_owned(),
         };
