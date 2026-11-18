@@ -238,6 +238,19 @@ fn decline(pending: Pending) {
     }
 }
 
+/// `set_dark` (`docs/shared-core.md` §1). WebKitGTK takes `prefers-color-scheme` from GTK's
+/// settings, which NSH sets from the app's colour scheme, so it is set for every view at once.
+/// While the theme follows the system the system's scheme is the theme's, and stays followed so
+/// NSH keeps reporting the system's appearance.
+pub fn set_dark(follows_system: bool, dark: bool) {
+    use nsh_core::platform::Appearance;
+    nsh_core::prelude::set_color_scheme(match (follows_system, dark) {
+        (true, _) => Appearance::System,
+        (false, true) => Appearance::Dark,
+        (false, false) => Appearance::Light,
+    });
+}
+
 pub fn adopt_download(download: &Download) {
     let owner = download.web_view();
     let state = VIEWS.with_borrow(|views| views.iter().filter_map(Weak::upgrade).find(|s| owner.is_some() && s.web() == owner));
@@ -773,8 +786,7 @@ fn find(state: &Rc<State>, args: &JsonValue) {
     let Some(finder) = web.find_controller() else { return };
     let text = args["text"].as_str().unwrap_or_default().to_owned();
     if text.is_empty() {
-        finder.search_finish();
-        state.find_text.borrow_mut().clear();
+        clear_find(state);
         return state.emit("found", json!({ "matched": 0 }));
     }
     let backwards = args["backwards"].as_bool().unwrap_or(false);
@@ -794,6 +806,14 @@ fn find(state: &Rc<State>, args: &JsonValue) {
     *state.find_text.borrow_mut() = text.clone();
     finder.count_matches(&text, options.bits(), FIND_MAX);
     finder.search(&text, options.bits(), FIND_MAX);
+}
+
+/// `clear_find`: removes the highlight a `find` left.
+fn clear_find(state: &State) {
+    if let Some(finder) = state.web().and_then(|web| web.find_controller()) {
+        finder.search_finish();
+    }
+    state.find_text.borrow_mut().clear();
 }
 
 fn mute(state: &State, muted: bool) {
@@ -1174,6 +1194,7 @@ impl NativeComponent for TarnWebView {
         match name {
             "answer" => return answer(state, args),
             "find" => return find(state, args),
+            "clearFind" => return clear_find(state),
             "downloadCancel" => return session::cancel(args["id"].as_str().unwrap_or_default()),
             "downloadKeep" => return session::keep(args["id"].as_str().unwrap_or_default(), args["keep"].as_bool() == Some(true)),
             "downloadPause" | "downloadResume" => return,

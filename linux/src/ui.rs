@@ -1839,7 +1839,7 @@ fn prompt_bar(ui: Ui) -> AnyElement {
 fn close_find(ui: Ui) {
     ui.finding.set(false);
     ui.find.set(String::new());
-    act(ui, |b| b.find_typed(""));
+    act(ui, Browser::clear_find);
 }
 
 fn find_again(ui: Ui, backwards: bool) {
@@ -1850,12 +1850,7 @@ fn find_again(ui: Ui, backwards: bool) {
 }
 
 fn find_bar(ui: Ui) -> AnyElement {
-    let matches = move || match ui.snap.with(|s| s.found).filter(|_| !ui.find.with(String::is_empty)) {
-        None => String::new(),
-        Some(0) => "No matches".to_owned(),
-        Some(1) => "1 match".to_owned(),
-        Some(n) => format!("{n} matches"),
-    };
+    let matches = move || browser_core::find::count_label(ui.snap.with(|s| s.found).map(|n| n as usize).filter(|_| !ui.find.with(String::is_empty)), None);
     when(
         move || ui.finding.get(),
         move || {
@@ -1864,7 +1859,14 @@ fn find_bar(ui: Ui) -> AnyElement {
                 .on_change(move |v: &str| {
                     ui.find.set(v.to_owned());
                     let text = v.to_owned();
-                    act(ui, |b| b.find_typed(&text));
+                    if text.is_empty() {
+                        return act(ui, Browser::clear_find);
+                    }
+                    peek::later(ui, browser_core::find::TYPING_DELAY, move || {
+                        if ui.finding.get_untracked() && ui.find.with_untracked(|t| *t == text) {
+                            act(ui, |b| b.find_typed(&text));
+                        }
+                    });
                 })
                 .on_submit(move |_: &str| find_again(ui, false))
                 .placeholder("Find in page")
@@ -2359,6 +2361,11 @@ fn browser_window(ui: Ui) -> AnyElement {
     effect(move || {
         let light = !dark();
         untracked(|| act(ui, |b| b.follow_appearance(light)));
+    });
+    effect(move || {
+        let light = Theme::is_light();
+        let follows = untracked(|| read(ui, |b| browser_core::theme::Selection::load(&b.core.disk).match_system)).unwrap_or(true);
+        crate::webview::set_dark(follows, !light);
     });
     let full = computed(move || ui.snap.with(|s| s.fullscreen));
     view()

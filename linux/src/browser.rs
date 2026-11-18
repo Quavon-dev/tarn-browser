@@ -671,6 +671,14 @@ impl Browser {
         self.find(text, false);
     }
 
+    /// Removes the highlight of the last search, when the find bar closes or its text is emptied.
+    pub fn clear_find(&mut self) {
+        if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)) {
+            page.found = None;
+        }
+        self.command("clearFind", Value::Null);
+    }
+
     pub fn zoom(&mut self, step: i32) {
         if self.responsive_preset().is_some() {
             return;
