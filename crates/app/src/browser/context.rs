@@ -511,9 +511,15 @@ impl Browser {
             let engine = self.model.tab(key).and_then(|t| t.web_engine);
             // A copy of a file the user opened shows that file too.
             if self.page(key).opened_file.as_ref() == Some(&url) && !self.model.burner_shown() {
-                return self.new_file_tab(&url, engine, window, cx);
+                self.new_file_tab(&url, engine, window, cx);
+            } else {
+                self.new_tab_in(&url, engine, window, cx);
             }
-            self.new_tab_in(&url, engine, window, cx);
+            if let Some(copy) = self.model.active.filter(|k| *k != key) {
+                self.model.place_copy(&self.core, copy, key);
+                self.reload_space();
+                cx.notify();
+            }
         }
     }
 

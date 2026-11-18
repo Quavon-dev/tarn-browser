@@ -321,6 +321,16 @@ impl Model {
         Some(TabKey { private: space.private, id: tab.id })
     }
 
+    /// Moves `copy`, a new tab at the end of the unpinned tabs, just below the unpinned tab `of`
+    /// and into its group.
+    pub fn place_copy<D: WebsiteData>(&self, core: &Core<D>, copy: TabKey, of: TabKey) {
+        let Some(of) = self.tab(of).filter(|t| t.kind == TabKind::Ephemeral && t.id != copy.id) else { return };
+        let store = core.store(copy.private);
+        if store.move_tab(copy.id, TabKind::Ephemeral, None, self.zone_index(of) + 1).is_ok() && of.group_id.is_some() {
+            store.set_tab_group(copy.id, of.group_id).ok();
+        }
+    }
+
     pub fn touch<D: WebsiteData>(&mut self, core: &Core<D>, key: TabKey, now: i64) {
         core.store(key.private).touch_tab(key.id, now).ok();
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == key.id) {
@@ -768,6 +778,26 @@ mod tests {
         };
         assert_eq!(drop(&mut model, a, c), [b, a, c], "dragged down");
         assert_eq!(drop(&mut model, c, b), [c, b, a], "dragged up");
+    }
+
+    #[test]
+    fn a_copy_lands_below_its_tab_in_the_same_group() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let tab = || core.disk.create_tab(s, TabKind::Ephemeral, None, "https://a.test/", "").unwrap().id;
+        let (a, b, c) = (tab(), tab(), tab());
+        let group = core.disk.create_group(s, "G").unwrap().id;
+        core.disk.set_tab_group(b, Some(group)).unwrap();
+        let copy = tab();
+        model.reload_space(&core);
+        let key = |id| TabKey { private: false, id };
+        model.place_copy(&core, key(copy), key(b));
+        model.reload_space(&core);
+        assert_eq!(model.tabs.iter().map(|t| t.id).collect::<Vec<_>>(), [a, b, copy, c]);
+        assert_eq!(model.tab(key(copy)).unwrap().group_id, Some(group));
+        model.place_copy(&core, key(copy), key(copy));
+        model.reload_space(&core);
+        assert_eq!(model.tabs.iter().map(|t| t.id).collect::<Vec<_>>(), [a, b, copy, c], "a tab is no copy of itself");
     }
 
     #[test]
