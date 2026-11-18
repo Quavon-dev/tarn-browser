@@ -217,7 +217,7 @@ impl Browser {
             if commit && !name.is_empty() {
                 self.set_icon(rename.target, &name, cx);
             }
-        } else if commit && !name.is_empty() {
+        } else if commit && (!name.is_empty() || matches!(rename.target, RenameTarget::Tab(_))) {
             let store = self.store(self.model.private());
             match rename.target {
                 RenameTarget::Folder(id) => store.rename_folder(id, &name).ok(),
