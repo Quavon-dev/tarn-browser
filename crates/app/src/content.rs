@@ -308,7 +308,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     let body: AnyElement = if let Some(editor) = crate::profiles::render_editor(b, window, cx) {
         leaving(editor)
     } else if b.shortcuts_open {
-        leaving(pop_in(div().flex_1().flex().flex_col().child(crate::shortcuts::render(&b.shortcuts_scroll, cx)), "shortcuts", reduce))
+        leaving(pop_in(div().flex_1().min_h_0().flex().flex_col().child(crate::shortcuts::render(&b.shortcuts_scroll, cx)), "shortcuts", reduce))
     } else if let Some(reader) = crate::reader::render(b, cx) {
         leaving(pop_in(div().flex_1().min_h_0().flex().flex_col().child(reader), "reader", reduce))
     } else if (b.command_mode.is_some() && !b.inline_editing()) || b.model.active.is_none() {

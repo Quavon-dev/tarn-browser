@@ -14,6 +14,15 @@ pub const MAX_TITLE_CHARS: usize = 120;
 /// Page titles are attacker-controlled: drop control and bidi characters, collapse whitespace
 /// and cap the length before the shell renders them (S14).
 pub fn bounded_title(raw: &str) -> String {
+    let mut out = clean_title(raw);
+    if out.chars().count() > MAX_TITLE_CHARS {
+        out = out.chars().take(MAX_TITLE_CHARS - 1).collect::<String>() + "…";
+    }
+    out
+}
+
+/// A title as stored: `bounded_title` without the display cut, kept to the engine's title limit.
+pub fn clean_title(raw: &str) -> String {
     let mut out = String::new();
     for word in
         raw.split(|c: char| c.is_whitespace() || c.is_control()).map(|w| w.chars().filter(|c| !is_bidi(*c)).collect::<String>()).filter(|w| !w.is_empty())
@@ -23,10 +32,10 @@ pub fn bounded_title(raw: &str) -> String {
         }
         out.push_str(&word);
     }
-    if out.chars().count() > MAX_TITLE_CHARS {
-        out = out.chars().take(MAX_TITLE_CHARS - 1).collect::<String>() + "…";
+    match out.char_indices().nth(engine::view_policy::MAX_TITLE) {
+        Some((end, _)) => out[..end].to_string(),
+        None => out,
     }
-    out
 }
 
 /// A file name for a capture of the page: its title, else its host, as one safe path component.
@@ -42,11 +51,16 @@ pub fn is_bidi(c: char) -> bool {
 }
 
 pub fn title_or_host(title: &str, url: &str) -> String {
-    let title = bounded_title(title);
+    bounded_title(&stored_title_or_host(title, url))
+}
+
+/// The name a saved page keeps: its full clean title, else its host.
+pub fn stored_title_or_host(title: &str, url: &str) -> String {
+    let title = clean_title(title);
     if !title.is_empty() {
         return title;
     }
-    url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_else(|| bounded_title(url))
+    url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_else(|| clean_title(url))
 }
 
 pub fn markdown_link(title: &str, url: &str) -> String {
@@ -71,6 +85,16 @@ mod tests {
         assert_eq!(title_or_host(" Inbox ", "https://mail.test/"), "Inbox");
         assert_eq!(title_or_host("", "https://Mail.Test/x"), "mail.test");
         assert_eq!(title_or_host("", "about:blank"), "about:blank");
+    }
+
+    #[test]
+    fn saved_titles_keep_their_full_text_and_display_shortens_them() {
+        let long = format!("{}end", "word ".repeat(60));
+        let stored = stored_title_or_host(&long, "https://a.test/");
+        assert_eq!(stored, long);
+        assert_eq!(title_or_host(&long, "https://a.test/").chars().count(), MAX_TITLE_CHARS);
+        assert_eq!(clean_title(&"x".repeat(5000)).chars().count(), engine::view_policy::MAX_TITLE);
+        assert_eq!(clean_title("a\u{202E}b \n c"), "ab c");
     }
 
     #[test]

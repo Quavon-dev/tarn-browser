@@ -119,7 +119,10 @@ impl Host {
         panel.setHidesOnDeactivate(true);
         let rect = self.view.convertRect_toView(self.rect(x, y, width, height), None);
         panel.setFrame_display(window.convertRectToScreen(rect), true);
-        if let Ok(panel) = panel.downcast::<NSPanel>() {
+        // A key panel that resized away from the pointer would hand key status to the window under it.
+        if let Ok(panel) = panel.downcast::<NSPanel>()
+            && !panel.isKeyWindow()
+        {
             panel.setBecomesKeyOnlyIfNeeded(true);
         }
     }
