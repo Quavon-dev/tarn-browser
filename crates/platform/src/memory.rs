@@ -8,6 +8,7 @@ unsafe extern "C" {
     fn sysctlbyname(name: *const c_char, old: *mut c_void, old_len: *mut usize, new: *const c_void, new_len: usize) -> c_int;
     fn proc_pid_rusage(pid: c_int, flavor: c_int, buffer: *mut c_void) -> c_int;
     fn mach_timebase_info(info: *mut [u32; 2]) -> c_int;
+    fn malloc_zone_pressure_relief(zone: *mut c_void, goal: usize) -> usize;
 }
 
 #[cfg(target_os = "macos")]
@@ -85,6 +86,18 @@ pub fn pressure() -> bool {
     let read = unsafe { sysctlbyname(c"kern.memorystatus_vm_pressure_level".as_ptr(), (&raw mut level).cast(), &raw mut len, std::ptr::null(), 0) };
     read == 0 && level > 1
 }
+
+/// Hands memory freed inside the process back to the system, after a burst such as compiling the
+/// filter lists or closing a window.
+#[cfg(target_os = "macos")]
+pub fn release_free() {
+    // SAFETY: a null zone means every malloc zone, and a goal of 0 asks for all free pages.
+    unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) };
+}
+
+/// The Windows heap decommits free pages itself.
+#[cfg(windows)]
+pub fn release_free() {}
 
 /// Windows names no pressure level; nine tenths of physical memory in use counts as one.
 #[cfg(windows)]
