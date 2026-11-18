@@ -166,6 +166,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Arrow, Home, End, Page and forward-delete keys from Universal Control or some keyboards no
+  longer type a box character into the text field of a page (macOS).
 - The Library opened from the sidebar that slides in over the page stays in front of it, and sits
   above the space row (macOS, Windows).
 - Renaming a space shows the name as you type instead of an empty field (macOS, Windows).

@@ -167,6 +167,7 @@ impl WebView {
     /// `filtered` picks the profile's rule set with ad, tracker and cookie-banner blocking, off for paused sites.
     pub fn new(host: &Host, data: &DataStore, level: ShieldLevel, filtered: bool, inspectable: bool, site_for: SiteFor, sink: Rc<dyn Fn(Event)>) -> Self {
         let mtm = host.view.mtm();
+        crate::menu::keep_caret_keys_standard();
         // SAFETY: all calls below configure freshly created objects on the main thread. The
         // configuration gets no script message handler, so page scripts cannot reach the shell.
         unsafe {
