@@ -163,8 +163,8 @@ issue. Run the **Issues** workflow by hand to count right away.
 ## Pull requests
 
 Every pull request to `main` needs every CI check green, every review conversation resolved
-(CodeRabbit's included) and the approval of a member of `@Quavon-dev/tarn-maintainer` who did
-not author it; only `@Quavon-dev/maintainers` can merge. The ruleset with these requirements has
+(CodeRabbit's included) and the approval of a Code Owner who did not author it:
+`@Quavon-dev/tarn-maintainer`, and `@Quavon-dev/maintainers` for the protected paths; only `@Quavon-dev/maintainers` can merge. The ruleset with these requirements has
 no bypass, for people or automation: the update app's Chromium update pull requests also wait
 for a maintainer's review (`docs/release.md`, "Automatic engine updates").
 

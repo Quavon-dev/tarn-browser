@@ -27,8 +27,8 @@ for their contribution and its licence terms.
 
 **Maintainer** (write access or above, member of `@Quavon-dev/maintainers`):
 - votes on issues (`CONTRIBUTING.md`, "Voting") and reviews pull requests; a pull request needs
-  the approval of a `@Quavon-dev/tarn-maintainer` member who did not write it, and Code Owner
-  review for protected paths; only maintainers merge into `main`;
+  the approval of a Code Owner who did not write it (`@Quavon-dev/tarn-maintainer`, and for
+  protected paths `@Quavon-dev/maintainers`); only maintainers merge into `main`;
 - keeps `main` releasable: CI green, advisories and code scanning alerts handled within the
   thresholds in [`SECURITY.md`](SECURITY.md);
 - triages security reports sent through GitHub private vulnerability reporting, coordinates the fix
@@ -40,11 +40,11 @@ for their contribution and its licence terms.
 **Tarn maintainer** (write access through `@Quavon-dev/tarn-maintainer`):
 - pushes branches and opens pull requests;
 - reviews pull requests, and their approval counts as the non-author approval `main` requires
-  (not as Code Owner review);
+  (as Code Owner review only outside the protected paths);
 - labels, assigns, closes and reopens issues and pull requests, and votes on issues (the Issues
   workflow counts every account with write access, `CONTRIBUTING.md`, "Voting");
-- gives the approval every pull request needs before it can merge (required reviewer on `main`);
-  a member's own pull request needs another member's;
+- gives the Code Owner approval a pull request needs before it can merge, except for protected
+  paths, which need a maintainer's; a member's own pull request needs another member's;
 - cannot merge into `main` (only `@Quavon-dev/maintainers` may update it, ruleset "main
   merges"), create `v*` tags, approve a `release-signing` deployment, read secrets or change
   settings. GitHub's write role on this plan also lets them start workflows and edit GitHub

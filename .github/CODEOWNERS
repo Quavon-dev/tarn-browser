@@ -1,3 +1,4 @@
+* @Quavon-dev/tarn-maintainer
 /.github/CODEOWNERS @Quavon-dev/maintainers
 /.github/workflows/ @Quavon-dev/maintainers
 /scripts/ @Quavon-dev/maintainers

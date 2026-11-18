@@ -288,7 +288,6 @@ format.
 Applied by hand in the repository and organisation settings; no workflow changes them. Check them again after any change to the workflows or runners.
 
 - [ ] Ruleset on `main`: require a pull request (one approval, review from Code Owners,
-      an approval from `@Quavon-dev/tarn-maintainer` as required reviewer for every file,
       dismiss stale approvals when new commits are pushed, every review conversation resolved,
       CodeRabbit's included), require the status checks `check`, `macos`, `windows`, `nsh-shared`,
       `ios`, `android`, `linux`, `flatpak`, `deny`, `coverage` and `dco` from GitHub Actions (all
@@ -300,8 +299,12 @@ Applied by hand in the repository and organisation settings; no workflow changes
       token on every branch acts as GitHub Actions.
 - [ ] General: "Require contributors to sign off on web-based commits" on, so commits made in the
       web editor pass the `dco` check.
-- [ ] `.github/CODEOWNERS`: its team `@Quavon-dev/maintainers` must exist and have write
-      access; it covers itself,
+- [ ] `.github/CODEOWNERS`: its teams `@Quavon-dev/tarn-maintainer` and `@Quavon-dev/maintainers`
+      must exist and have write access. The first line gives every file to
+      `@Quavon-dev/tarn-maintainer`, so every pull request needs that team's approval; the later
+      lines give the protected paths to `@Quavon-dev/maintainers` alone. A ruleset's "required
+      reviewers" would do the same but hides the "Review required" status of a pull request.
+      `@Quavon-dev/maintainers` covers the file itself,
       `.github/workflows/`, `scripts/`, `packaging/`, `deny.toml`, `.cargo/`, `Cargo.toml`,
       `Cargo.lock`, `renovate.json`, build scripts, the updater, XPC, Chromium runtime and helper
       sources, the staleness gate, the filter-bundle signer, the files that instruct or configure
