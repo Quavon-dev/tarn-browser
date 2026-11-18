@@ -44,8 +44,8 @@ directory.
 
 ## Checks
 
-CI (`.github/workflows/ci.yml`) runs all of them on every pull request, and a maintainer merges
-once they pass. Run the ones for the workspaces you touched and can build, and say in the pull request
+CI (`.github/workflows/ci.yml`) runs all of them on every pull request, and `main` accepts
+the merge only once every one of them has passed. Run the ones for the workspaces you touched and can build, and say in the pull request
 which you did not run.
 
 | Where | Command |
@@ -162,9 +162,10 @@ issue. Run the **Issues** workflow by hand to count right away.
 
 ## Pull requests
 
-Every pull request to `main` needs the required checks and the approval of a maintainer who did
-not author it; the ruleset has no bypass, for people or automation: the update app's
-Chromium update pull requests also wait for a maintainer's review (`docs/release.md`, "Automatic engine updates").
+Every pull request to `main` needs every CI check green, every review conversation resolved
+(CodeRabbit's included) and the approval of a maintainer who did not author it; the ruleset has
+no bypass, for people or automation: the update app's Chromium update pull requests also wait
+for a maintainer's review (`docs/release.md`, "Automatic engine updates").
 
 A change to `Cargo.lock` needs `scripts/third-party-licenses.sh` run and its output committed; CI
 checks it.

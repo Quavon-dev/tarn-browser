@@ -288,8 +288,11 @@ format.
 Applied by hand in the repository and organisation settings; no workflow changes them. Check them again after any change to the workflows or runners.
 
 - [ ] Ruleset on `main`: require a pull request (one approval, review from Code Owners,
-      dismiss stale approvals when new commits are pushed), require the status checks
-      `check`, `macos`, `deny` and `dco` from GitHub Actions, require
+      dismiss stale approvals when new commits are pushed, every review conversation resolved,
+      CodeRabbit's included), require the status checks `check`, `macos`, `windows`, `nsh-shared`,
+      `ios`, `android`, `linux`, `flatpak`, `deny`, `coverage` and `dco` from GitHub Actions (all
+      jobs of `ci.yml`, which runs on every pull request; a job the change does not touch is
+      skipped and counts as passed), require
       code scanning results from CodeQL (security alerts high or higher, alerts errors), block force
       pushes, restrict deletions. No bypass, for people or apps: the update app's pull requests
       run CI and wait for review like any other. Never add GitHub Actions itself: every workflow
