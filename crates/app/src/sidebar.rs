@@ -10,6 +10,7 @@ use store::{Folder, Group, Id, Tab, TabKind};
 use ui::controls::{button, favicon, field, focus_ring, icon_button, spinner, tooltip};
 use ui::icon::{ICON, ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, FADE, POP, SLIDE, animate, fade_in, progress};
+use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_SMALL, TEXT_TINY, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
 
@@ -162,11 +163,8 @@ fn drag_chip(title: SharedString) -> Div {
         .text_color(Theme::text())
         .text_size(px(TEXT))
         .max_w(px(220.))
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .text_ellipsis()
         .shadow(Elevation::Popover.shadow())
-        .child(title)
+        .one_line(title)
 }
 
 use crate::tabs::display_title as label;
@@ -585,7 +583,7 @@ fn name(b: &Browser, target: RenameTarget, name: &str, cx: &mut Context<Browser>
             .on_mouse_down_out(cx.listener(|b, _, window, cx| b.end_rename(true, window, cx)))
             .child(input)
             .into_any_element(),
-        None => div().min_w_0().line_clamp(1).text_ellipsis().child(SharedString::from(bounded_title(name))).into_any_element(),
+        None => div().one_line(SharedString::from(bounded_title(name))).into_any_element(),
     }
 }
 
@@ -722,8 +720,6 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
                 .flex_1()
                 .min_w_0()
                 .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
                 .text_color(if asleep && !active { Theme::asleep() } else { Theme::text() })
                 .when(active, |d| d.font_weight(FontWeight::MEDIUM))
                 .child(name(b, RenameTarget::Tab(t.id), &title, cx)),
@@ -853,7 +849,7 @@ fn leaving_row(b: &Browser, t: &Tab) -> AnyElement {
         .gap_2p5()
         .text_color(Theme::muted())
         .child(site_icon(b, &t.url, 16.))
-        .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(label(t))));
+        .child(div().flex_1().one_line(SharedString::from(label(t))));
     animate(row, ("tab-out", t.id as u64), EXIT, false, |el, p| el.h(px(TAB_ROW * (1. - p))).opacity(1. - p))
 }
 

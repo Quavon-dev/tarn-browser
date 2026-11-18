@@ -14,9 +14,11 @@ use store::{Id, Profile, WebEngine};
 use ui::command::ENGINES;
 use ui::controls::{
     button, disabled_segment, field, group, icon_text_button, note, radio, row, section, segment, segmented, swatch, switch, switch_row, tab_stop, text_block,
+    wide_row,
 };
 use ui::icon::{Icon, icon};
 use ui::motion::fade_in;
+use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{ACCENTS, TEXT, TEXT_HEADING, TEXT_SMALL, TEXT_TINY, TEXT_TITLE, Theme};
@@ -191,7 +193,7 @@ fn value(text: impl Into<SharedString>) -> gpui::Div {
 }
 
 fn label(text: impl Into<SharedString>) -> gpui::Div {
-    div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(text.into())
+    div().flex_1().one_line(text.into())
 }
 
 /// A section title with a button at its right end.
@@ -479,10 +481,14 @@ impl SettingsWindow {
         pick: Pick,
         cx: &mut Context<Self>,
     ) -> Div {
-        row(first).child(text_block(title, detail)).child(segmented().children(options.iter().enumerate().map(|(ix, option)| {
-            tab_stop(segment((title, ix), *option, ix == selected))
-                .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| pick(b, ix, cx))))
-        })))
+        wide_row(
+            first,
+            text_block(title, detail),
+            segmented().children(options.iter().enumerate().map(|(ix, option)| {
+                tab_stop(segment((title, ix), *option, ix == selected))
+                    .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| pick(b, ix, cx))))
+            })),
+        )
     }
 
     pub(crate) fn set_pane(&mut self, pane: SettingsPane, cx: &mut Context<Self>) {
@@ -869,7 +875,7 @@ impl Render for SettingsWindow {
                     .border_color(Theme::separator())
                     .text_size(px(TEXT_TITLE))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(name))
+                    .child(div().flex_1().one_line(name))
                     .when(cfg!(windows), |d| {
                         d.pr_2().window_control_area(gpui::WindowControlArea::Drag).child(div().flex_1()).children(ui::controls::window_controls())
                     }),
@@ -1000,7 +1006,7 @@ fn protected_sites(card: &Card) -> Div {
             .items_center()
             .gap_2()
             .child(ui::controls::favicon(&host, 16.))
-            .child(div().flex_none().w(px(110.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(host))
+            .child(div().flex_none().w(px(110.)).one_line(host))
             .child(
                 div()
                     .flex_1()
@@ -1186,7 +1192,7 @@ impl SettingsWindow {
     fn hero(&self, card: &Card, face: impl IntoElement, target: Option<(bool, Id)>, cx: &mut Context<Self>) -> Div {
         let private = target.is_some_and(|(private, _)| private);
         let since = match (card.days, &card.since) {
-            (Some(days), Some(since)) => format!("Protected for {} · since {since}", browser_core::shield_card::days_text(days)),
+            (Some(days), Some(since)) => browser_core::shield_card::protected_text(days, since),
             _ if private => "Counts stay in memory until the private space closes.".to_owned(),
             _ => "Counting starts with the first thing Shield stops.".to_owned(),
         };
@@ -1223,24 +1229,16 @@ impl SettingsWindow {
             .when(system && !private, |d| {
                 d.child(action("save-card", Icon::FileImage, "Save as Image").on_click(cx.listener(move |this, _, _, cx| this.save_card(saved.clone(), cx))))
             });
-        div().pt_4().flex().items_start().gap_6().child(face).child(
+        div().pt_4().flex().flex_wrap().items_start().gap_6().child(face).child(
             div()
                 .flex_1()
-                .min_w_0()
+                .min_w(px(300.))
                 .flex()
                 .flex_col()
                 .gap_3()
                 .child(
                     div()
-                        .child(
-                            div()
-                                .text_size(px(TEXT_HEADING))
-                                .font_weight(FontWeight::BOLD)
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .text_ellipsis()
-                                .child(card.name.clone()),
-                        )
+                        .child(div().text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).one_line(card.name.clone()))
                         .child(value(since).text_size(px(TEXT_SMALL))),
                 )
                 .child(actions),
@@ -1378,7 +1376,7 @@ impl SettingsWindow {
             tab_stop(segment(("web-engine", ix), name, selected))
                 .when(available, |d| d.on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.set_default_web_engine(engine, w, cx)))))
         });
-        row(true).child(text_block("Default web engine", detail)).child(segmented().children(options))
+        wide_row(true, text_block("Default web engine", detail), segmented().children(options))
     }
 
     fn appearance(&self, s: &Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -2016,7 +2014,7 @@ impl SettingsWindow {
                             .flex()
                             .flex_col()
                             .gap_1p5()
-                            .child(text_block(format!("{} \u{00B7} {}", e.name, e.badge), e.permissions))
+                            .child(text_block(format!("{} \u{00B7} {}", e.name, e.badge), e.permissions).flex_initial())
                             .child(actions),
                     )
                     .child(tab_stop(div().id(("extension-switch", ix))).cursor_pointer().child(switch(on)).on_click(cx.listener(move |this, _, _, cx| {

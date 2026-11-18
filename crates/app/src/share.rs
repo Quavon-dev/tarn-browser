@@ -9,6 +9,7 @@ use gpui::{
 use ui::controls::{POPOVER_INSET, list_row, open_popup, popover};
 use ui::icon::{Icon, icon};
 use ui::motion::{REOPEN_GUARD, fade_in, popover_motion};
+use ui::text::OneLine;
 use ui::theme::{TEXT, TEXT_SMALL, Theme};
 
 use crate::browser::Browser;
@@ -238,22 +239,21 @@ impl ShareMenuWindow {
             .px_2()
             .child(glyph)
             .when(!self.enabled(entry), |d| d.text_color(Theme::faint()))
-            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
+            .child(div().flex_1().one_line(label))
             .when(!keys.is_empty(), |d| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(keys)))
             .on_click(cx.listener(move |this, _, window, cx| this.choose(entry, window, cx)))
             .into_any_element()
     }
 
     fn header(&self, favicon: AnyElement) -> gpui::Div {
-        let line = || div().overflow_hidden().whitespace_nowrap().text_ellipsis();
         div().h(px(HEADER)).flex_none().px_3().flex().items_center().gap_2p5().border_b_1().border_color(Theme::separator()).child(favicon).child(
             div()
                 .flex_1()
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .child(line().font_weight(FontWeight::SEMIBOLD).child(self.title.clone()))
-                .child(line().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(display_url(&self.url))),
+                .child(div().font_weight(FontWeight::SEMIBOLD).one_line(self.title.clone()))
+                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).one_line(display_url(&self.url))),
         )
     }
 }

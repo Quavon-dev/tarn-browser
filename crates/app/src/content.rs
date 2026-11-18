@@ -7,6 +7,7 @@ use gpui::{
 use ui::controls::{button, field, icon_button, list_row, secure_button, secure_ghost_button, secure_surface, surface, tab_stop, tooltip};
 use ui::icon::{ICON_MEDIUM, ICON_SMALL, Icon, MARK, icon};
 use ui::motion::{EXIT, FADE, SLIDE, pop_in, pop_out, progress};
+use ui::text::OneLine;
 use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 use engine::PromptKind;
@@ -531,27 +532,10 @@ fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div>
         .px_1p5()
         .gap_3()
         .child(suggestion_tile(b, s, selected))
-        .child(
-            div()
-                .flex_1()
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .text_color(if rejected { Theme::danger() } else { Theme::text() })
-                .child(s.label.clone()),
-        )
+        .child(div().flex_1().text_color(if rejected { Theme::danger() } else { Theme::text() }).one_line(s.label.clone()))
         .map(|d| match command {
             true => d.child(div().flex().flex_none().gap_1().children(ui::controls::key_caps(&s.detail).into_iter().map(ui::controls::key_cap))),
-            false => d.child(
-                div()
-                    .max_w(px(260.))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(px(TEXT_SMALL))
-                    .text_color(Theme::muted())
-                    .child(s.detail.clone()),
-            ),
+            false => d.child(div().max_w(px(260.)).text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(s.detail.clone())),
         })
 }
 

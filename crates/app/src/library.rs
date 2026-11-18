@@ -18,6 +18,7 @@ use store::{Bookmark, Download, HistoryEntry, Id, Snapshot, Tab};
 use ui::controls::{button, caption, empty, icon_button, key_hint, surface, tooltip};
 use ui::icon::{ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, POP, animate};
+use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
@@ -1234,18 +1235,10 @@ impl LibraryWindow {
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(r.title.clone())))
-                .child(
-                    div()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_size(px(TEXT_SMALL))
-                        .text_color(Theme::muted())
-                        .child(SharedString::from(detail.clone())),
-                )
+                .child(div().one_line(SharedString::from(r.title.clone())))
+                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(detail.clone())))
                 .into_any_element(),
-            (None, None) => div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(r.title.clone())).into_any_element(),
+            (None, None) => div().flex_1().one_line(SharedString::from(r.title.clone())).into_any_element(),
         };
         let item = r.item.clone();
         let menu_item = r.item.clone();
@@ -1411,7 +1404,7 @@ impl Render for LibraryWindow {
                     .font_weight(FontWeight::SEMIBOLD)
                     .hover(|s| s.bg(Theme::hover()))
                     .child(icon(Icon::ChevronLeft, 14., Theme::muted()))
-                    .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(title)))
+                    .child(div().flex_1().one_line(SharedString::from(title)))
                     .children(
                         listed_tally(listed, capped)
                             .map(|n| div().flex_none().px_1().text_size(px(TEXT_SMALL)).font_weight(FontWeight::NORMAL).text_color(Theme::muted()).child(n)),
@@ -1427,7 +1420,7 @@ impl Render for LibraryWindow {
                     .on_click(cx.listener(|this, _, window, cx| this.back(window, cx)))
                     .into_any_element(),
                 Entry::Divider => div().mx_2().my_1p5().h(px(1.)).flex_none().bg(Theme::hairline()).into_any_element(),
-                Entry::Empty(text) => empty(text).h(px(EMPTY_ROW)).px_2().overflow_hidden().whitespace_nowrap().text_ellipsis().into_any_element(),
+                Entry::Empty(text) => empty(text).h(px(EMPTY_ROW)).px_2().into_any_element(),
                 Entry::Row(r) => {
                     ix += 1;
                     self.render_row(ix - 1, r, leading.unwrap_or_else(|| div().into_any_element()), cx)
