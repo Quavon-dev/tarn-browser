@@ -39,6 +39,8 @@ pub enum Action {
     UndoSort(Box<(bool, browser_core::cleanup::Undo)>),
     Reveal(PathBuf),
     RestartToUpdate,
+    /// Puts back the download list Clear removed from the private or normal store's profile.
+    RestoreDownloads(Box<(bool, store::Id, Vec<store::Download>)>),
 }
 
 impl Action {
@@ -48,6 +50,7 @@ impl Action {
             Action::UndoSort(_) => "Undo Sort",
             Action::Reveal(_) => ui::controls::REVEAL,
             Action::RestartToUpdate => "Restart to Update",
+            Action::RestoreDownloads(_) => "Undo",
         }
     }
 }
@@ -142,6 +145,13 @@ impl Browser {
             Some(Action::UndoSort(record)) => self.undo_sort(*record, cx),
             Some(Action::Reveal(path)) => engine::reveal_in_finder(&path),
             Some(Action::RestartToUpdate) => crate::shared::restart_to_update(cx),
+            Some(Action::RestoreDownloads(cleared)) => {
+                let (private, profile_id, list) = *cleared;
+                for d in list.iter().rev().filter(|d| self.core.keeps_record_since(private, profile_id, d.started_at)) {
+                    self.store(private).add_download(profile_id, &d.url, &d.path, &d.state, d.started_at).ok();
+                }
+                self.downloads_popover.changed += 1;
+            }
             _ => {}
         }
         cx.notify();

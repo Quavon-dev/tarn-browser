@@ -54,11 +54,14 @@ pub(crate) struct Transfer {
     pub done: u64,
     pub total: Option<u64>,
     pub paused: bool,
+    /// When Tarn first heard of it, kept across progress reports.
+    pub started: i64,
 }
 
 fn subtitle(d: &Download, size: Option<u64>) -> (String, bool) {
     match d.state.as_str() {
         "failed" => ("Failed".into(), true),
+        "cancelled" => ("Cancelled".into(), false),
         "finished-unquarantined" => ("Not marked as downloaded · open only if you trust it".into(), true),
         _ => {
             let what = size
@@ -138,7 +141,11 @@ impl Browser {
 
     pub(crate) fn set_transfer(&mut self, key: (bool, Id, u64), transfer: Option<Transfer>, cx: &mut Context<Self>) {
         let started_or_ended = match transfer {
-            Some(t) => self.downloads_popover.transfers.insert(key, t).is_none(),
+            Some(mut t) => {
+                let earlier = self.downloads_popover.transfers.get(&key).map(|old| old.started);
+                t.started = earlier.unwrap_or(t.started);
+                self.downloads_popover.transfers.insert(key, t).is_none()
+            }
             None => self.downloads_popover.transfers.remove(&key).is_some(),
         };
         if started_or_ended {
@@ -161,6 +168,13 @@ impl Browser {
             rt.data.resume_download(id);
         } else {
             rt.data.pause_download(id);
+        }
+    }
+
+    fn cancel_download(&self, id: u64) {
+        let Some(s) = self.model.current_space() else { return };
+        if let Some(rt) = self.loaded(s.private, s.space.profile_id) {
+            rt.data.cancel_download(id);
         }
     }
 
@@ -199,8 +213,10 @@ impl Browser {
         } else {
             SIDEBAR_MARGIN + self.sidebar_width - TILE_GAP - 14.
         };
+        let left = (button - CARET_AT - POPOVER_INSET).clamp(0., (f32::from(anchor.size.width) - WIDTH - 2. * POPOVER_INSET).max(0.));
+        let caret = caret.then(|| (button - left - POPOVER_INSET).clamp(2. * CARET, WIDTH - 2. * CARET));
         let bounds = Bounds::new(
-            point(anchor.origin.x + px(button - CARET_AT - POPOVER_INSET), anchor.origin.y + px(top)),
+            point(anchor.origin.x + px(left), anchor.origin.y + px(top)),
             size(px(WIDTH + 2. * POPOVER_INSET), px(CARET + card_height(rows) + POPOVER_INSET)),
         );
         let display = window.display(cx).map(|d| d.id());
@@ -244,12 +260,13 @@ pub struct DownloadsWindow {
     rows: Vec<(Download, Option<u64>)>,
     seen: Option<u64>,
     closing: bool,
-    caret: bool,
+    /// The caret's centre from the card's left edge, if it points at a button.
+    caret: Option<f32>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl DownloadsWindow {
-    fn new(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, caret: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, caret: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let mut subscriptions = vec![cx.observe_window_activation(window, |this, window, cx| {
@@ -282,7 +299,14 @@ impl DownloadsWindow {
     }
 
     fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.browser.update(cx, |b, _| b.remove_download(None)).ok();
+        self.browser
+            .update(cx, |b, cx| {
+                let Some(s) = b.model.current_space() else { return };
+                let cleared = Box::new((s.private, s.space.profile_id, b.downloads()));
+                b.remove_download(None);
+                b.show_toast("Downloads cleared", Some(crate::toast::Action::RestoreDownloads(cleared)), cx);
+            })
+            .ok();
         self.close(true, window, cx);
     }
 
@@ -357,6 +381,9 @@ impl DownloadsWindow {
             .child(tab_stop(icon_button(("transfer", id), glyph, true)).tooltip(tooltip(label, None)).on_click(cx.listener(move |this, _, _, cx| {
                 this.browser.update(cx, |b, _| b.pause_or_resume(id, paused)).ok();
             })))
+            .child(tab_stop(icon_button(("cancel", id), Icon::Close, true)).tooltip(tooltip("Cancel", None)).on_click(cx.listener(move |this, _, _, cx| {
+                this.browser.update(cx, |b, _| b.cancel_download(id)).ok();
+            })))
     }
 }
 
@@ -427,11 +454,11 @@ impl Render for DownloadsWindow {
             .path(Icon::Caret.path())
             .absolute()
             .top_0()
-            .left(px(POPOVER_INSET + CARET_AT - CARET))
+            .left(px(POPOVER_INSET + self.caret.unwrap_or(CARET_AT) - CARET))
             .w(px(2. * CARET))
             .h(px(CARET + 1.))
             .text_color(Theme::surface());
-        let content = div().relative().size_full().text_size(px(TEXT)).text_color(Theme::text()).child(card).when(self.caret, |d| d.child(caret));
+        let content = div().relative().size_full().text_size(px(TEXT)).text_color(Theme::text()).child(card).when(self.caret.is_some(), |d| d.child(caret));
         let content = popover_motion(content, "downloads", self.closing, reduce);
         div()
             .track_focus(&self.focus)
@@ -466,7 +493,8 @@ mod tests {
         let d = Download { id: 1, url: "https://tarn.example/a.zip".into(), path: "/d/a.zip".into(), state: "finished".into(), started_at: 0 };
         assert_eq!(subtitle(&d, Some(1_200_000)), ("1.2 MB · tarn.example".into(), false));
         assert!(subtitle(&Download { state: "failed".into(), ..d.clone() }, None).1);
-        assert!(subtitle(&Download { state: "finished-unquarantined".into(), ..d }, Some(1)).1);
+        assert!(subtitle(&Download { state: "finished-unquarantined".into(), ..d.clone() }, Some(1)).1);
+        assert_eq!(subtitle(&Download { state: "cancelled".into(), ..d }, None), ("Cancelled".into(), false));
     }
 
     #[test]
@@ -478,7 +506,7 @@ mod tests {
 
     #[test]
     fn transfers_show_size_pause_and_saved_share() {
-        let t = |done, total, paused| Transfer { path: PathBuf::from("/d/a.zip"), done, total, paused };
+        let t = |done, total, paused| Transfer { path: PathBuf::from("/d/a.zip"), done, total, paused, started: 0 };
         assert_eq!(transfer_subtitle(&t(512, None, false)), "512 bytes");
         assert_eq!(transfer_subtitle(&t(1_500_000, Some(40_000_000), false)), "1.5 MB of 40.0 MB");
         assert_eq!(transfer_subtitle(&t(2_000, Some(3_000_000_000), true)), "Paused · 2 KB of 3.00 GB");

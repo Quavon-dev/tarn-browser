@@ -170,7 +170,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                     .text_color(color)
                     .child(secure_button("dl-show", ui::controls::REVEAL, true).on_click(move |_, _, _| engine::reveal_in_finder(&reveal)))
                     .child(secure_button("dl-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| {
-                        b.download = None;
+                        b.dismiss_download();
                         cx.notify();
                     }))),
             );
@@ -182,7 +182,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 text.clone(),
                 Theme::danger(),
                 banner(text).text_color(Theme::danger()).child(secure_button("dl-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| {
-                    b.download = None;
+                    b.dismiss_download();
                     cx.notify();
                 }))),
             );

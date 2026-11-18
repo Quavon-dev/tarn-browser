@@ -129,6 +129,16 @@ pub struct DownloadNotice {
     pub result: Result<(std::path::PathBuf, bool), String>,
 }
 
+impl DownloadNotice {
+    /// A failure, a file that is not quarantined or one that can run code.
+    pub fn warns(&self) -> bool {
+        match &self.result {
+            Ok((path, quarantined)) => !quarantined || path.file_name().is_some_and(|n| engine::downloads::is_dangerous(&n.to_string_lossy())),
+            Err(_) => true,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CommandMode {
     NewTab,
@@ -194,11 +204,22 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
             }
             (Some(id), Ok((path, quarantined)))
         }
-        Event::DownloadFailed { id, message } => (id, Err(message)),
-        Event::DownloadCancelled(id) => return crate::shared::each(cx, |b, _, cx| b.set_transfer((private, profile_id, id), None, cx)),
+        Event::DownloadFailed { id, message } => {
+            if let Some(id) = id {
+                record_ended(&core, private, profile_id, id, "failed", cx);
+            }
+            (id, Err(message))
+        }
+        Event::DownloadCancelled(id) => {
+            record_ended(&core, private, profile_id, id, "cancelled", cx);
+            return crate::shared::each(cx, |b, _, cx| {
+                b.set_transfer((private, profile_id, id), None, cx);
+                b.downloads_popover.changed += 1;
+            });
+        }
         Event::DownloadsActive(count) => return crate::shared::each(cx, |b, _, cx| b.set_active_downloads(private, profile_id, count, cx)),
         Event::DownloadProgress { id, path, done, total, paused } => {
-            let transfer = crate::downloads::Transfer { path, done, total, paused };
+            let transfer = crate::downloads::Transfer { path, done, total, paused, started: now() };
             return crate::shared::each(cx, |b, _, cx| b.set_transfer((private, profile_id, id), Some(transfer.clone()), cx));
         }
         _ => return,
@@ -207,10 +228,24 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
         if let Some(id) = id {
             b.set_transfer((private, profile_id, id), None, cx);
         }
-        b.download = Some(DownloadNotice { private, profile_id, result: result.clone() });
+        b.push_download_notice(DownloadNotice { private, profile_id, result: result.clone() });
         b.downloads_popover.changed += 1;
         cx.notify();
     });
+}
+
+/// Lists a download that stopped before it finished under the file it was saving to.
+fn record_ended(core: &crate::shared::AppCore, private: bool, profile_id: Id, id: u64, state: &str, cx: &App) {
+    let path = cx
+        .windows()
+        .into_iter()
+        .filter_map(|w| w.downcast::<Browser>())
+        .find_map(|h| h.read(cx).ok().and_then(|b| b.downloads_popover.transfers.get(&(private, profile_id, id)).map(|t| (t.path.clone(), t.started))));
+    if let Some((path, started)) = path
+        && core.keeps_record_since(private, profile_id, started)
+    {
+        core.store(private).add_download(profile_id, "", &path.to_string_lossy(), state, now()).ok();
+    }
 }
 
 /// (private, profile id, host): site icons belong to a profile like the rest of its data.
@@ -252,7 +287,7 @@ pub struct Browser {
     /// rebuild them without completing the field again.
     suggested: Option<(String, Option<suggest::Completion>)>,
     pub pending_external: Option<PendingExternal>,
-    pub download: Option<DownloadNotice>,
+    pub download: Vec<DownloadNotice>,
     pub downloads_popover: crate::downloads::Downloads,
     pub prompts: HashMap<TabKey, VecDeque<Prompt>>,
     pub prompt_input: Entity<TextInput>,
@@ -442,7 +477,7 @@ impl Browser {
             history_text_search: None,
             suggested: None,
             pending_external: None,
-            download: None,
+            download: Vec::new(),
             downloads_popover: Default::default(),
             prompts: HashMap::new(),
             prompt_input,
@@ -1017,9 +1052,23 @@ impl Browser {
         cx.notify();
     }
 
-    pub fn current_download(&self) -> Option<&DownloadNotice> {
+    fn current_download_ix(&self) -> Option<usize> {
         let space = self.model.current_space()?;
-        self.download.as_ref().filter(|d| d.private == space.private && d.profile_id == space.space.profile_id)
+        self.download.iter().position(|d| d.private == space.private && d.profile_id == space.space.profile_id)
+    }
+
+    pub fn current_download(&self) -> Option<&DownloadNotice> {
+        self.current_download_ix().map(|ix| &self.download[ix])
+    }
+
+    pub(crate) fn push_download_notice(&mut self, notice: DownloadNotice) {
+        browser_core::toast::push_notice(&mut self.download, notice, DownloadNotice::warns);
+    }
+
+    pub(crate) fn dismiss_download(&mut self) {
+        if let Some(ix) = self.current_download_ix() {
+            self.download.remove(ix);
+        }
     }
 
     pub fn active_view(&self) -> Option<Rc<WebView>> {
@@ -2935,18 +2984,14 @@ impl Browser {
         Self::sync_other_windows(cx);
         crate::shared::others(cx, |b, _, cx| {
             b.forget_history(private, profile_id);
-            if b.download.as_ref().is_some_and(|d| (d.private, d.profile_id) == target) {
-                b.download = None;
-            }
+            b.download.retain(|d| (d.private, d.profile_id) != target);
             cx.notify();
         });
         for key in keys {
             self.hibernate(key, cx);
         }
         self.model.forget_folders(private, &folders);
-        if self.download.as_ref().is_some_and(|d| (d.private, d.profile_id) == target) {
-            self.download = None;
-        }
+        self.download.retain(|d| (d.private, d.profile_id) != target);
         self.pending_external = None;
         self.refocus |= std::mem::take(&mut self.find_open);
         self.suggestions.clear();

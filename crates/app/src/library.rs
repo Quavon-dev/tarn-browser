@@ -61,6 +61,7 @@ fn ago(ms: i64, now: i64) -> String {
 fn download_row(d: &Download, now: i64) -> Entry {
     let state = match d.state.as_str() {
         "failed" => "Failed",
+        "cancelled" => "Cancelled",
         s if s.starts_with("finished") => "Finished",
         _ => "In Progress",
     };

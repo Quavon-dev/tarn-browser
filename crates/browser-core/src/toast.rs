@@ -21,9 +21,30 @@ pub fn closed(group: bool, count: usize) -> String {
     }
 }
 
+/// Adds a notice to those waiting, the first of which shows: a warning waits until dismissed,
+/// while a harmless notice gives way to the next one.
+pub fn push_notice<T>(queue: &mut Vec<T>, notice: T, warns: impl Fn(&T) -> bool) {
+    queue.retain(&warns);
+    queue.push(notice);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_harmless_notice_never_replaces_a_warning() {
+        let mut queue = Vec::new();
+        let warns = |n: &&str| n.starts_with('!');
+        push_notice(&mut queue, "saved a", warns);
+        push_notice(&mut queue, "saved b", warns);
+        assert_eq!(queue, ["saved b"]);
+        push_notice(&mut queue, "!unquarantined", warns);
+        push_notice(&mut queue, "saved c", warns);
+        assert_eq!(queue, ["!unquarantined", "saved c"]);
+        push_notice(&mut queue, "!failed", warns);
+        assert_eq!(queue, ["!unquarantined", "!failed"]);
+    }
 
     #[test]
     fn closing_names_the_group_or_counts_the_tabs() {
