@@ -403,7 +403,18 @@ pub(crate) fn open_windows(cx: &mut App) {
     if engine::shift_held() {
         crate::themes::enter_safe_mode(&core(cx), cx);
     }
-    first.update(cx, |b, window, cx| b.open_args(window, cx)).ok();
+    let links = !crate::browser::launch_urls(std::env::args().skip(1)).is_empty();
+    let target = if links { link_window(cx).unwrap_or(first) } else { first };
+    target.update(cx, |b, window, cx| b.open_args(window, cx)).ok();
+}
+
+fn usable_window(cx: &App) -> Option<gpui::WindowHandle<Browser>> {
+    let browsers = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().filter_map(|w| w.downcast::<Browser>());
+    browsers.into_iter().find(|h| h.read(cx).is_ok_and(|b| !b.model.burner_shown() && b.model.confined.is_none()))
+}
+
+fn link_window(cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
+    usable_window(cx).or_else(|| open_window(new_window_row(cx), None, None, cx))
 }
 
 /// A saved row for a new, centred window.
@@ -518,16 +529,10 @@ pub(crate) fn open_urls(urls: Vec<String>, cx: &mut App) {
     if urls.is_empty() {
         return;
     }
-    let usable = |cx: &App| {
-        let browsers = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().filter_map(|w| w.downcast::<Browser>());
-        browsers.into_iter().find(|h| h.read(cx).is_ok_and(|b| !b.model.burner_shown() && b.model.confined.is_none()))
-    };
-    let mut handle = usable(cx);
-    if handle.is_none() && browser_windows(cx) == 0 {
+    if usable_window(cx).is_none() && browser_windows(cx) == 0 {
         restore_windows(cx);
-        handle = usable(cx);
     }
-    let Some(handle) = handle.or_else(|| open_window(new_window_row(cx), None, None, cx)) else { return };
+    let Some(handle) = link_window(cx) else { return };
     handle
         .update(cx, |b, window, cx| {
             b.open_urls(urls, true, window, cx);
