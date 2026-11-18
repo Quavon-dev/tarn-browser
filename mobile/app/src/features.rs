@@ -44,9 +44,7 @@ impl<D: Platform> Shell<D> {
     pub fn restore_downloads(&mut self) {
         let Some((_, (private, id), list)) = self.cleared_downloads.take() else { return };
         self.notice = None;
-        for d in list.iter().rev().filter(|d| self.core.keeps_record_since(private, id, d.started_at)) {
-            self.core.store(private).add_download(id, &d.url, &d.path, &d.state, d.started_at).ok();
-        }
+        self.core.restore_downloads(private, id, &list);
     }
 
     pub(crate) fn download_notice(&mut self, text: String, warns: bool) {

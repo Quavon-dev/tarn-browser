@@ -1136,6 +1136,16 @@ impl Store {
         self.checkpoint()
     }
 
+    /// Drops the site icon and the Shield site count kept for `host`.
+    pub fn forget_site_records(&self, profile_id: Id, host: &str) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for table in ["favicons", "shield_sites"] {
+            tx.execute(&format!("DELETE FROM {table} WHERE profile_id = ?1 AND host = ?2"), params![profile_id, host])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn delete_history_url(&self, profile_id: Id, url: &str) -> Result<()> {
         self.conn.execute("DELETE FROM history WHERE profile_id = ?1 AND url = ?2", params![profile_id, url])?;
         self.checkpoint()
@@ -1154,6 +1164,11 @@ impl Store {
 
     fn settings_changed(&self) {
         self.settings_rev.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The local calendar date of `at` (ms), as YYYY-MM-DD.
+    pub fn local_date(&self, at: i64) -> Result<String> {
+        Ok(self.conn.query_row("SELECT strftime('%Y-%m-%d', ?1 / 1000, 'unixepoch', 'localtime')", [at], |r| r.get(0))?)
     }
 
     pub fn favicons(&self, profile_id: Id) -> Result<Vec<(String, Vec<u8>)>> {
@@ -2101,6 +2116,9 @@ mod tests {
         let day = store.local_day_start(1_000_000_000_000).unwrap();
         assert!(day <= 1_000_000_000_000 && 1_000_000_000_000 - day < 86_400_000);
         assert_eq!(store.local_day_start(day).unwrap(), day);
+        let noon = day + 12 * 3_600_000;
+        assert_eq!(store.local_date(day).unwrap(), store.local_date(noon).unwrap(), "local midnight and noon share a date");
+        assert_ne!(store.local_date(day - 1).unwrap(), store.local_date(day).unwrap());
     }
 
     #[test]

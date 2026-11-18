@@ -219,26 +219,22 @@ fn permission_row(ui: Ui, row: browser_core::permissions::PermissionRow) -> AnyE
         .into_element()
 }
 
-/// "Clear site data…" asks for a second click before it removes anything.
+/// "Clear site data…" asks before it removes anything.
 fn clear_site(ui: Ui, host: &str) -> AnyElement {
-    let id = format!("site:{host}");
-    let armed = ui.confirm.with_untracked(|c| c.as_deref() == Some(id.as_str()));
     let host = host.to_owned();
-    let name = if armed { "Click again to clear" } else { "Clear site data…" };
-    crate::controls::row(name, move || {
-        if !armed {
-            ui.confirm.set(Some(id.clone()));
-            return act(ui, |_| {});
-        }
-        ui.confirm.set(None);
-        let mut store = None;
-        act(ui, |b| store = b.clear_site(&host));
-        let Some(store) = store else { return };
-        let (cleared, host) = (host.clone(), host.clone());
-        crate::webview::session::clear_site(&store, &host, move |count| act(ui, move |b| b.site_cleared(&cleared, count)));
+    let question = format!("Clear the data of {}?", browser_core::text::bounded_origin(&host));
+    crate::controls::row("Clear site data…", move || {
+        let host = host.clone();
+        tarn_nsh_shared::controls::confirm(question.clone(), "Its cookies and stored data are deleted.", "Clear", move || {
+            let mut store = None;
+            act(ui, |b| store = b.clear_site(&host));
+            let Some(store) = store else { return };
+            let (cleared, host) = (host.clone(), host.clone());
+            crate::webview::session::clear_site(&store, &host, move |count| act(ui, move |b| b.site_cleared(&cleared, count)));
+        });
     })
     .px_1()
-    .child(small(name).text_color(Theme::danger()))
+    .child(small("Clear site data…").text_color(Theme::danger()))
     .into_element()
 }
 
@@ -326,6 +322,7 @@ pub(super) fn no_results(query: &str) -> Text {
 }
 
 fn history_panel(ui: Ui) -> AnyElement {
+    super::library::bind_row_keys(ui, ui.library_query);
     let history = std::rc::Rc::new(read(ui, Browser::library_history).unwrap_or_default());
     let count = history.len();
     let starts = read(ui, Browser::history_day_starts).unwrap_or_default();
@@ -346,8 +343,12 @@ fn history_panel(ui: Ui) -> AnyElement {
             }
             let url = visit.url.clone();
             list = list.child(
-                link_row(ui, Link::new(&visit.title, &visit.url))
-                    .child(small(browser_core::library::ago(visit.visited_at, now)).flex_none().text_color(Theme::faint()))
+                super::library::focus_row(ui, link_row(ui, Link::new(&visit.title, &visit.url)), super::library::Focused::Visit(url.clone()))
+                    .child(
+                        small(read(ui, |b| browser_core::library::ago(b.core.store(b.model.private()), visit.visited_at, now)).unwrap_or_default())
+                            .flex_none()
+                            .text_color(Theme::faint()),
+                    )
                     .child(icon_button(icons::CLOSE, "Remove from History", move || super::remove_history(ui, url.clone()))),
             );
         }

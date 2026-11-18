@@ -49,19 +49,19 @@ actions!(library, [SaveSnapshot, RestoreSnapshot]);
 
 pub(crate) use browser_core::shield_card::date;
 
-fn download_row(d: &Download, now: i64) -> Entry {
+fn download_row(store: &store::Store, d: &Download, now: i64) -> Entry {
     let state = match d.state.as_str() {
         "failed" => "Failed",
         "cancelled" => "Cancelled",
         s if s.starts_with("finished") => "Finished",
         _ => "In Progress",
     };
-    let detail = tab_host(&d.url).into_iter().chain([state.to_owned(), ago(d.started_at, now)]).collect::<Vec<_>>().join(" · ");
+    let detail = tab_host(&d.url).into_iter().chain([state.to_owned(), ago(store, d.started_at, now)]).collect::<Vec<_>>().join(" · ");
     Entry::Row(Row { item: Item::Download(d.clone()), title: library::download_name(d), named: None, detail: Some(detail) })
 }
 
-fn visit_row(h: &HistoryEntry, now: i64) -> Entry {
-    Entry::Row(Row { item: Item::Url(h.url.clone()), title: title_or_host(&h.title, &h.url), named: None, detail: Some(ago(h.visited_at, now)) })
+fn visit_row(store: &store::Store, h: &HistoryEntry, now: i64) -> Entry {
+    Entry::Row(Row { item: Item::Url(h.url.clone()), title: title_or_host(&h.title, &h.url), named: None, detail: Some(ago(store, h.visited_at, now)) })
 }
 
 fn visit(r: &Row) -> Option<&str> {
@@ -412,13 +412,14 @@ fn bookmark_row(bm: &Bookmark) -> Entry {
 
 fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], downloads: &[Download], snapshots: &[Snapshot], sources: &[Source]) -> Vec<Entry> {
     let matches = |title: &str, url: &str| library::matches(query, title, url);
+    let store = b.store(b.model.private());
     let bookmarks = &b.bookmarks;
     let found = |limit| library::bookmarks(bookmarks, query).take(limit).map(bookmark_row);
     let visits = history;
     let history = |limit| visits.iter().take(limit).map(|h| row(Item::Url(h.url.clone()), title_or_host(&h.title, &h.url), None));
     let downloads = |limit| {
         let now = now();
-        library::downloads(downloads, query).take(limit).map(move |d| download_row(d, now))
+        library::downloads(downloads, query).take(limit).map(move |d| download_row(store, d, now))
     };
     let mut out = Vec::new();
     match page {
@@ -459,16 +460,15 @@ fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], down
         }
         Page::History => {
             out.push(Entry::Back("History".into()));
-            let (now, store) = (now(), b.store(b.model.private()));
-            let today = store.local_day_start(now).unwrap_or(now);
-            let starts = (today, store.local_day_start(today - 1).unwrap_or(today - 86_400_000));
+            let now = now();
+            let starts = library::day_starts(store, now);
             let mut last = None;
             for h in visits.iter().take(MAX_LIST) {
                 let day = library::history_day(h.visited_at, starts);
                 if last.replace(day) != Some(day) {
                     out.push(Entry::Header(day, None));
                 }
-                out.push(visit_row(h, now));
+                out.push(visit_row(store, h, now));
             }
         }
         Page::Bookmarks(folder) => {
@@ -495,7 +495,7 @@ fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], down
             }
             let now = now();
             out.extend(snapshots.iter().filter(|s| matches(&s.name, "")).map(|s| {
-                let detail = Some(ago(s.created_at, now));
+                let detail = Some(ago(store, s.created_at, now));
                 Entry::Row(Row { item: Item::Snapshot(s.clone()), title: bounded_title(&s.name), named: Some(Named::Snapshot(s.id)), detail })
             }));
         }
@@ -1515,10 +1515,11 @@ mod tests {
             state: "finished-unquarantined".into(),
             started_at: 0,
         };
-        let Entry::Row(r) = download_row(&d, 3 * 3_600_000) else { panic!() };
+        let store = store::Store::open_in_memory().unwrap();
+        let Entry::Row(r) = download_row(&store, &d, 3 * 3_600_000) else { panic!() };
         assert_eq!((r.title.as_str(), r.detail.as_deref()), ("a.zip", Some("files.test · Finished · 3 h ago")));
         let blob = Download { url: String::new(), state: "failed".into(), ..d };
-        let Entry::Row(r) = download_row(&blob, 0) else { panic!() };
+        let Entry::Row(r) = download_row(&store, &blob, 0) else { panic!() };
         assert_eq!(r.detail.as_deref(), Some("Failed · Just now"));
     }
 }

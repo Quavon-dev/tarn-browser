@@ -705,10 +705,8 @@ impl<D: Platform> Shell<D> {
 
     pub fn shield_wipes_data(&self, level: ShieldLevel) -> Option<String> {
         let (private, id) = self.model.profile()?;
-        if level != ShieldLevel::Lockdown || private || self.default_level() == ShieldLevel::Lockdown {
-            return None;
-        }
-        Some(self.core.store(private).profile(id).map(|p| browser_core::text::bounded_title(&p.name)).unwrap_or_default())
+        browser_core::profiles::shield_wipes_data(level, private, self.default_level())
+            .then(|| self.core.store(private).profile(id).map(|p| browser_core::text::bounded_title(&p.name)).unwrap_or_default())
     }
 
     pub fn set_default_level(&mut self, level: ShieldLevel) -> bool {
@@ -793,8 +791,7 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn day_starts(&self, now: i64) -> (i64, i64) {
-        let today = self.core.disk.local_day_start(now).unwrap_or(now);
-        (today, self.core.disk.local_day_start(today - 1).unwrap_or(today - 86_400_000))
+        browser_core::library::day_starts(self.store(), now)
     }
 
     pub fn history(&self) -> Vec<HistoryEntry> {

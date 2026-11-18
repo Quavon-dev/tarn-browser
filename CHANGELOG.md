@@ -12,11 +12,14 @@ All notable changes to Tarn are documented in this file. The format is based on
   from History (row menu, the row's trash button, or ⌘⌫ on macOS and Delete on Windows) removes a
   page, and Clear browsing history in Settings › Privacy asks whether to clear the last hour, today
   or everything (macOS, Windows, Linux). On iOS and Android the History sheet groups pages by day,
-  removes one with its trash button and offers Clear History… with the same ranges, without the
-  visit time.
-- A search field in Settings finds the pane that holds a setting (macOS, Windows).
+  shows when each was last visited, removes one with its trash button and offers Clear History…
+  with the same ranges.
+- A search field in Settings finds the pane that holds a setting (macOS, Windows, Linux, iOS,
+  Android).
 - In the Library, F2 renames, ⌘⌫ (Delete on Windows) deletes and Shift+F10 opens the menu of the
-  selected row, whose buttons stay visible; icon buttons have tooltips (macOS, Windows).
+  selected row, whose buttons stay visible; icon buttons have tooltips (macOS, Windows). On Linux, F2
+  renames the focused bookmark and Delete deletes it (asking first) or removes the focused History
+  row; its rows have no menu, their buttons sit on the row.
 - Open File… shows a local file in a new tab: web pages with their images and styles, PDFs,
   images, text, SVG and video. ⌘O on macOS, Ctrl+O on Windows and Linux, and the menu on iOS and
   Android; the address bar shows the file's name (macOS, Windows, Linux, iOS, Android; no PDFs on
@@ -103,6 +106,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   in a dialog that names what goes, instead of a second click on the same button (macOS, Windows;
   on Linux Lockdown and a single bookmark delete ask in place, the others already asked once more).
   On iOS and Android, choosing Lockdown and removing a page from the Reading List ask the same way.
+  Removing a theme or an extension asks in a dialog on Linux, iOS and Android too, as does Clear
+  site data in the Linux site popover.
 - Filter-list updates, extension downloads and developer tools are switches; the search engine is
   picked from a segmented control as in the profile card; an extension's Every site switch, Forget
   Site Answers and Remove sit on a line under its name; Appearance has one Theme heading, theme
@@ -147,7 +152,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Fixed
 
 - Closing the find bar removes WebKit's match marker from the page, and the bar no longer stays as
-  an empty strip after Esc (macOS).
+  an empty strip after Esc (macOS). On iOS closing find also hides the marker, and on Linux it no
+  longer leaves the last match selected.
 - Settings and Library questions (Lockdown, clearing history, deleting a profile, a bookmark or a
   theme) open inside their window in the app's theme, and closing the window drops the question
   instead of leaving a stray dialog behind (macOS, Windows).
@@ -157,7 +163,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   under their description, and an installed extension's permissions wrap (macOS, Windows).
 - The Shield card's mountains and waves stay clear of its text, and on its first day the card says
   "Protected since today" (all clients).
-- View › Reload is greyed when no page is shown (macOS, Windows).
+- View › Reload is greyed when no page is shown (macOS, Windows); on Linux, iOS and Android the
+  Reload button is greyed then, and on Linux F5, Ctrl+R and Reload Without Cache do nothing.
 - The tab preview card follows the pointer to the next row instead of staying on the previous tab,
   and Close Tabs Below closes the tabs shown below, leaving collapsed groups alone (macOS, Windows,
   Linux).
@@ -169,7 +176,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   it without collapsing it, and title matches in Find in Tabs switch to the tab (macOS, Windows; on Linux the
   pinned-tab neighbour, Sleep Tab and Find in Tabs parts).
 - Sidebar rows can be reached with the keyboard: Up and Down move, Return opens, Shift+F10 opens
-  the tab menu (macOS, Windows).
+  the tab menu (macOS, Windows, Linux).
 - Stars on the night Shield card no longer sit on the profile name or the level (all clients).
 - Text fields scroll to keep the caret in view, undo and redo with ⌘Z and ⇧⌘Z (Ctrl on Windows),
   select a word on a double click and everything on a triple click, place the caret where a
@@ -218,8 +225,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   (Chromium, Android), and clears its highlight when the bar closes (macOS, Windows, Linux, iOS,
   Android).
 - A toast stays while the pointer is over it, wraps a long message onto a second line, and its
-  button is also a command row, so it can be reached from the keyboard (macOS, Windows; on Linux
-  the button is a tab stop).
+  button is also a command row, so it can be reached from the keyboard (macOS, Windows, Linux; on
+  Linux the button is also a tab stop).
 - Translating a page shows Translating… while it works and then Show Original, which reloads the
   page in its own language (macOS).
 - The Reader button shows when Reader is on and then reads Exit Reader, and the Shield button's

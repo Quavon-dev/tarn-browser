@@ -223,6 +223,14 @@ impl<D: WebsiteData> Core<D> {
         self.keeps_records(private, profile_id) && self.wiped_at.borrow().get(&(private, profile_id)).is_none_or(|wiped| started >= *wiped)
     }
 
+    /// Puts back the download rows a Clear removed (newest first, as listed), leaving out those a
+    /// data wipe since then covers.
+    pub fn restore_downloads(&self, private: bool, profile_id: Id, cleared: &[store::Download]) {
+        for d in cleared.iter().rev().filter(|d| self.keeps_record_since(private, profile_id, d.started_at)) {
+            self.store(private).add_download(profile_id, &d.url, &d.path, &d.state, d.started_at).ok();
+        }
+    }
+
     pub fn site_stopped(&self, private: bool, profile_id: Id, url: &Url) -> i64 {
         command::page_host(url).and_then(|host| self.store(private).shield_site_total(profile_id, host.trim_end_matches('.')).ok()).unwrap_or(0).max(0)
     }
@@ -339,6 +347,19 @@ mod tests {
         assert!(core.keeps_record_since(true, 1, 10), "the wipe was of the other store");
         core.burners.borrow_mut().insert(1);
         assert!(!core.keeps_record_since(true, 1, 30));
+    }
+
+    #[test]
+    fn restored_downloads_leave_out_rows_a_wipe_covers() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = TestCore::open(dir.path(), false);
+        let profile = core.disk.profiles().unwrap()[0].id;
+        let row = |at: i64| store::Download { id: 0, url: format!("https://d.test/{at}"), path: String::new(), state: "finished".into(), started_at: at };
+        core.wiped_at.borrow_mut().insert((false, profile), 20);
+        core.restore_downloads(false, profile, &[row(30), row(25), row(10)]);
+        let urls: Vec<String> = core.disk.downloads(profile).unwrap().into_iter().map(|d| d.url).collect();
+        assert_eq!(urls.len(), 2);
+        assert!(urls.iter().all(|u| !u.ends_with("/10")), "started before the wipe");
     }
 
     #[test]

@@ -74,16 +74,10 @@ const PANES: [(SettingsPane, Icon, &str, &str); 11] = [
 ];
 
 fn pane_matches(query: &str, name: &str, words: &str) -> bool {
-    let text = format!("{name} {words}").to_lowercase();
-    query.to_lowercase().split_whitespace().all(|q| text.split_whitespace().any(|w| w.starts_with(q)))
+    browser_core::settings::words_match(query, &format!("{name} {words}"))
 }
 
-pub(crate) const LOCKDOWN_WIPE: &str =
-    "Lockdown deletes the cookies and site data this profile has stored, except data it shares with another profile. Open pages reload.";
-
-pub(crate) fn lockdown_question(profile: &str) -> String {
-    format!("Use Lockdown for the profile \u{201C}{profile}\u{201D}?")
-}
+pub(crate) use browser_core::profiles::{LOCKDOWN_WIPE, lockdown_question};
 
 const YOU: usize = 2;
 

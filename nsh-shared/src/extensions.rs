@@ -11,7 +11,7 @@ use nsh_core::prelude::*;
 use shield::catalog::Index;
 use store::{Id, InstalledExtension, Store};
 
-use crate::controls::{accent_pill, group, label, pill, secure_button, switch_row};
+use crate::controls::{accent_pill, confirm, group, label, pill, secure_button, switch_row};
 use crate::theme::{Secure, TEXT_SMALL, Theme};
 
 /// What a client gives the Extensions pane.
@@ -44,7 +44,6 @@ struct State {
     pending: Option<Pending>,
     choice: Option<(String, Vec<Asset>)>,
     catalog: Option<Index>,
-    armed: Option<String>,
     sheet: install::StoreSheet,
     confirmed: Option<String>,
 }
@@ -258,11 +257,6 @@ impl<H: Host> Pane<H> {
     }
 
     fn remove(self, row: &InstalledExtension) {
-        if self.state.with_untracked(|s| s.armed.as_deref() != Some(row.install_id.as_str())) {
-            let id = row.install_id.clone();
-            return self.set(|s| s.armed = Some(id));
-        }
-        self.set(|s| s.armed = None);
         let root = self.host.root();
         self.report(self.host.with_store(|s| install::remove(s, &root, row)), "Removed.");
     }
@@ -296,7 +290,6 @@ fn installed<H: Host>(pane: Pane<H>, r: InstalledExtension) -> View {
         let r = r.clone();
         out = out.child(switch_row("Every site it lists", move || every, move || pane.report(host.with_store(|s| install::set_all_sites(s, &r, !every)), "")));
     }
-    let armed = pane.get(|s| s.armed.as_deref() == Some(r.install_id.as_str()));
     let (forget, update, remove) = (r.clone(), r.clone(), r.clone());
     let mut buttons = row().child(pill("Forget Site Answers", move || {
         let cleared = host.forget_answers(forget.profile_id, &forget.install_id);
@@ -305,7 +298,11 @@ fn installed<H: Host>(pane: Pane<H>, r: InstalledExtension) -> View {
     if r.source != "file" {
         buttons = buttons.child(pill("Check for Update", move || pane.update(&update)));
     }
-    buttons = buttons.child(pill(if armed { "Press Again to Remove" } else { "Remove" }, move || pane.remove(&remove)));
+    let question = format!("Remove the extension \u{201C}{}\u{201D}?", browser_core::text::bounded_title(&r.name));
+    buttons = buttons.child(pill("Remove\u{2026}", move || {
+        let remove = remove.clone();
+        confirm(question.clone(), "Its files and the data it stored are deleted.", "Remove", move || pane.remove(&remove));
+    }));
     out.child(buttons)
 }
 

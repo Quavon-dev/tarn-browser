@@ -2868,7 +2868,7 @@ impl Browser {
     }
 
     pub(crate) fn shield_wipes_data(&self, level: ShieldLevel) -> bool {
-        level == ShieldLevel::Lockdown && !self.model.private() && self.current_loaded().is_some_and(|rt| rt.profile.shield_level != ShieldLevel::Lockdown)
+        self.current_loaded().is_some_and(|rt| browser_core::profiles::shield_wipes_data(level, self.model.private(), rt.profile.shield_level))
     }
 
     pub(crate) fn shield_target(&self) -> Option<(bool, Id)> {

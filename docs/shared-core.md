@@ -30,10 +30,12 @@ Every shell's web view offers the same operations and reports the same events. T
   view is made with; Linux: the app's NSH colour scheme, which WebKitGTK takes from GTK's settings
   for every view at once, left on the system's while the theme follows the system);
 - `clear_find`: removes the highlight a `find` left, when the find bar closes or its text is
-  emptied (WebKit drops the selection from the isolated world, not under Lockdown; Chromium stops
-  finding); `find` reports the match count and, where the engine says (Chromium), the highlighted
-  match (NSH components: the `clearFind` command, WebKitGTK `search_finish` on Linux, and `current`
-  in `found` on Android);
+  emptied (WebKit drops the selection from the isolated world, not under Lockdown, and on macOS
+  and iOS also hides its match marker with WKWebView's private `_hideFindUI`, called only where the
+  view responds to it; Chromium stops finding); `find` reports the match count and, where the
+  engine says (Chromium), the highlighted match (NSH components: the `clearFind` command,
+  WebKitGTK `search_finish` plus the same selection drop on Linux, and `current` in `found` on
+  Android);
 - `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`; Linux has `print` (the GTK print
   dialog) and `pdf` with the absolute `path` the user picked in the save dialog, printed there by
   WebKitGTK and reported on the download route as a finished download; iOS and Android have

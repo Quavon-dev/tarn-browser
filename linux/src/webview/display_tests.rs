@@ -810,3 +810,18 @@ fn a_filter_update_with_a_group_that_does_not_compile_swaps_no_group() {
     assert!(replace(vec![split]).is_err());
     assert!(!filters::stored("tarn-trackers-eeeeeeeeeeeeeeee-0"), "nor the chunks of a list that failed partway");
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn closing_find_leaves_no_match_selected() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    state.events.borrow_mut().clear();
+    find(&state, &json!({ "text": "zebrafish" }));
+    assert!(spin_until(|| event(&state, "found").is_some(), 20), "find counted");
+    assert_eq!(event(&state, "found").unwrap()["matched"], 1);
+    spin_until(|| page_eval(&web, "String(getSelection())") == "zebrafish", 5);
+    clear_find(&state);
+    assert!(spin_until(|| page_eval(&web, "String(getSelection())").is_empty(), 10), "the match stays selected");
+}

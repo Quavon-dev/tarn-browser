@@ -102,6 +102,16 @@ pub enum ToastAction {
     RestoreDownloads(Box<(bool, Id, Vec<store::Download>)>),
 }
 
+impl ToastAction {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ToastAction::Undo(_) | ToastAction::RestoreDownloads(_) => "Undo",
+            ToastAction::UndoSort(_) => "Undo Sort",
+            ToastAction::Reveal(_) => "Show in Folder",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Toast {
     pub text: String,
@@ -345,9 +355,7 @@ impl Browser {
             Some(ToastAction::UndoSort(sort)) => self.undo_sort(*sort),
             Some(ToastAction::RestoreDownloads(cleared)) => {
                 let (private, profile, rows) = *cleared;
-                for d in rows.iter().rev() {
-                    self.core.store(private).add_download(profile, &d.url, &d.path, &d.state, d.started_at).ok();
-                }
+                self.core.restore_downloads(private, profile, &rows);
             }
             Some(ToastAction::Reveal(_)) | None => {}
         }
@@ -397,11 +405,12 @@ impl Browser {
     }
 
     /// Shows a file the user picked in a new tab; only Open File reaches `file:` URLs (S6).
-    pub fn open_file(&mut self, url: &Url) {
-        let Some(key) = self.new_tab(url.as_str()) else { return };
+    pub fn open_file(&mut self, url: &Url) -> Option<TabKey> {
+        let key = self.new_tab(url.as_str())?;
         let page = self.pages.entry(key).or_default();
         page.opened_file = Some(url.to_string());
         page.file = true;
+        Some(key)
     }
 
     pub fn level_for(&self, key: TabKey, url: &str) -> ShieldLevel {
@@ -763,7 +772,7 @@ impl Browser {
     /// Whether choosing `level` for the profile deletes its stored website data: Lockdown entered
     /// in a profile that keeps data.
     pub fn shield_wipes_data(&self, level: ShieldLevel) -> bool {
-        level == ShieldLevel::Lockdown && !self.model.private() && self.default_level() != ShieldLevel::Lockdown
+        browser_core::profiles::shield_wipes_data(level, self.model.private(), self.default_level())
     }
 
     pub fn default_level(&self) -> ShieldLevel {
@@ -859,9 +868,7 @@ impl Browser {
 
     /// Where today and yesterday start, for `library::history_day`.
     pub fn history_day_starts(&self) -> (i64, i64) {
-        let (now, store) = (now(), self.core.store(self.model.private()));
-        let today = store.local_day_start(now).unwrap_or(now);
-        (today, store.local_day_start(today - 1).unwrap_or(today - 86_400_000))
+        browser_core::library::day_starts(self.core.store(self.model.private()), now())
     }
 
     pub fn clear_downloads(&mut self) {

@@ -21,8 +21,6 @@ use tarn_nsh_shared::panes::{self, Pane};
 const FIND_RADIUS: f32 = 12.;
 const TAB_ICON: f32 = 20.;
 const FIND_WIDTH: f32 = 420.;
-const LOCKDOWN_WIPE: &str =
-    "Lockdown deletes the cookies and site data this profile has stored, except data it shares with another profile. Open pages reload.";
 
 fn title(screen: Screen) -> &'static str {
     match screen {
@@ -526,41 +524,110 @@ fn pane_heading(pane: Pane) -> impl IntoElement {
     label(panes::name(pane)).text_size(px(TEXT_TITLE)).font_weight(FontWeight::BOLD).px_1().pt_4()
 }
 
+type Part = (fn(&str) -> bool, fn(Ui) -> AnyElement);
+
 fn settings(ui: Ui) -> impl IntoElement {
+    let parts: [Part; 8] = [
+        (|q| panes::matches(Pane::Profile, q), protection_settings),
+        (|q| panes::matches(Pane::General, q), general_settings),
+        (|q| panes::matches(Pane::Appearance, q), appearance_settings),
+        (|q| panes::matches(Pane::Search, q), search_settings),
+        (|q| panes::matches(Pane::Privacy, q), privacy_settings),
+        (|q| panes::matches(Pane::Permissions, q), permission_settings),
+        (|q| browser_core::settings::words_match(q, &format!("{} {}", panes::EXTENSIONS.0, panes::EXTENSIONS.1)), extension_settings),
+        (|q| panes::matches(Pane::Privacy, q), data_settings),
+    ];
+    let shown: Vec<Signal<bool>> = parts.iter().map(|_| signal(true)).collect();
+    let marks = shown.clone();
+    let search = move |q: &str| {
+        for ((matches, _), on) in parts.iter().zip(&marks) {
+            if on.get_untracked() != matches(q) {
+                on.set(matches(q));
+            }
+        }
+    };
+    let blocks: Vec<AnyElement> = parts
+        .iter()
+        .zip(&shown)
+        .map(|((_, build), on)| {
+            let (on, build) = (*on, *build);
+            dynamic(move || on.get().then(|| build(ui))).into_element()
+        })
+        .collect();
+    view()
+        .gap_2()
+        .child(text_field("Search settings", "Search settings").on_change(search).auto_capitalize(AutoCapitalize::None))
+        .child(dynamic(move || shown.iter().all(|on| !on.get()).then(|| empty_state("No settings match."))))
+        .child(blocks)
+}
+
+fn protection_settings(ui: Ui) -> AnyElement {
     view()
         .gap_2()
         .child(pane_heading(Pane::Profile))
         .child(sheets::shield_card(ui))
         .child(section("Shield level"))
-        .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
-            let Some(level) = level else { return };
-            let set = move || {
-                ui.act(|s| {
-                    s.set_default_level(level);
-                    Vec::new()
-                })
-            };
-            match ui.read(|s| s.shield_wipes_data(level)) {
-                Some(profile) => confirm(format!("Use Lockdown for the profile \u{201C}{profile}\u{201D}?"), LOCKDOWN_WIPE, "Use Lockdown", set),
-                None => set(),
-            }
-        }, false))
+        .child(levels(
+            move || Some(ui.read_data(|s| s.default_level())),
+            move |level| {
+                let Some(level) = level else { return };
+                let set = move || {
+                    ui.act(|s| {
+                        s.set_default_level(level);
+                        Vec::new()
+                    })
+                };
+                match ui.read(|s| s.shield_wipes_data(level)) {
+                    Some(profile) => confirm(browser_core::profiles::lockdown_question(&profile), browser_core::profiles::LOCKDOWN_WIPE, "Use Lockdown", set),
+                    None => set(),
+                }
+            },
+            false,
+        ))
         .child(dynamic(move || {
             let level = ui.read_data(|s| s.default_level());
             Some(caption(browser_core::shield_card::motto(level).1).px_1())
         }))
+        .into_element()
+}
+
+fn general_settings(ui: Ui) -> AnyElement {
+    view()
+        .gap_2()
         .child(pane_heading(Pane::General))
         .child(section("Downloads"))
-        .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
-            ui.act(|s| {
-                let on = s.setting_on(crate::scripts::SORT_DOWNLOADS);
-                s.set_setting_on(crate::scripts::SORT_DOWNLOADS, !on)
-            })
-        }))))
+        .child(framed(group().child(switch_row(
+            "Sort downloads into folders",
+            move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)),
+            move || {
+                ui.act(|s| {
+                    let on = s.setting_on(crate::scripts::SORT_DOWNLOADS);
+                    s.set_setting_on(crate::scripts::SORT_DOWNLOADS, !on)
+                })
+            },
+        ))))
         .child(section("About"))
-        .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)).child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL)).child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)).child(pill("Open-source licences", move || ui.show(Screen::Licences))))
-        .child(pane_heading(Pane::Appearance))
-        .child(super::appearance::pane(ui))
+        .child(
+            view()
+                .flex_row()
+                .flex_wrap()
+                .gap_2()
+                .child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL))
+                .child(link_pill(ui, "Source code", browser_core::SOURCE_URL))
+                .child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL))
+                .child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL))
+                .child(pill("Open-source licences", move || ui.show(Screen::Licences))),
+        )
+        .into_element()
+}
+
+fn appearance_settings(ui: Ui) -> AnyElement {
+    view().gap_2().child(pane_heading(Pane::Appearance)).child(super::appearance::pane(ui)).into_element()
+}
+
+fn search_settings(ui: Ui) -> AnyElement {
+    view()
+        .gap_2()
         .child(pane_heading(Pane::Search))
         .child(section("Search engine"))
         .child(segmented(
@@ -587,6 +654,12 @@ fn settings(ui: Ui) -> impl IntoElement {
             })
         }))))
         .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1())
+        .into_element()
+}
+
+fn privacy_settings(ui: Ui) -> AnyElement {
+    view()
+        .gap_2()
         .child(pane_heading(Pane::Privacy))
         .child(section("Filter lists"))
         .child(framed(group().child(FILTER_SWITCHES.iter().map(|(key, name, _)| {
@@ -600,10 +673,24 @@ fn settings(ui: Ui) -> impl IntoElement {
             .border_color(Theme::separator)
         }).collect::<Vec<_>>())))
         .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1())
-        .child(pane_heading(Pane::Permissions))
-        .child(permissions(ui))
+        .into_element()
+}
+
+fn permission_settings(ui: Ui) -> AnyElement {
+    view().gap_2().child(pane_heading(Pane::Permissions)).child(permissions(ui)).into_element()
+}
+
+fn extension_settings(ui: Ui) -> AnyElement {
+    view()
+        .gap_2()
         .child(section("Extensions"))
         .child(framed(group().child(row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions)))))
+        .into_element()
+}
+
+fn data_settings(ui: Ui) -> AnyElement {
+    view()
+        .gap_2()
         .child(section("Your data"))
         .child(framed(group().child(row(icons::TRASH, "Clear Browsing Data…", move || {
             confirm("Clear browsing data?", "History, downloads list, closed tabs and this profile's website data are removed.", "Clear", move || {
@@ -613,17 +700,10 @@ fn settings(ui: Ui) -> impl IntoElement {
                 })
             })
         }))))
+        .into_element()
 }
 
-/// Asks before a destructive action, which runs only on `action`.
-pub(super) fn confirm(title: impl Into<SharedString>, description: &'static str, action: &'static str, then: impl FnOnce() + 'static) {
-    let answer = alert_dialog().title(title).description(description).cancel("cancel", "Cancel").destructive("confirm", action).show();
-    spawn(async move {
-        if answer.await.is_ok_and(|a| a.action.as_deref() == Some("confirm")) {
-            then();
-        }
-    });
-}
+pub(super) use tarn_nsh_shared::controls::confirm;
 
 /// The profile's remembered site permissions, each with Allow, Block and Forget.
 fn permissions(ui: Ui) -> impl IntoElement {
@@ -710,7 +790,8 @@ fn history(ui: Ui) -> impl IntoElement {
             })
         }))
         .child(dynamic(move || {
-            let starts = ui.read(|s| s.day_starts(browser_core::now()));
+            let now = browser_core::now();
+            let starts = ui.read(|s| s.day_starts(now));
             let mut days: Vec<(&'static str, Vec<store::HistoryEntry>)> = Vec::new();
             for h in rows() {
                 let day = browser_core::library::history_day(h.visited_at, starts);
@@ -733,6 +814,7 @@ fn history(ui: Ui) -> impl IntoElement {
                 view().gap_1().child(section(day)).child(framed(group().children(list.into_iter().map(|entry| {
                     let url = entry.url.clone();
                     let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title };
+                    let when = ui.read(|s| browser_core::library::ago(s.store(), entry.visited_at, now));
                     let host =
                         url::Url::parse(&entry.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or(entry.url);
                     let open = url.clone();
@@ -740,7 +822,7 @@ fn history(ui: Ui) -> impl IntoElement {
                         .flex_row()
                         .items_center()
                         .child(
-                            detail_row(Some(icons::GLOBE), name, Some(caption(host).number_of_lines(1)), move || {
+                            detail_row(Some(icons::GLOBE), name, Some(caption(format!("{host} · {when}")).number_of_lines(1)), move || {
                                 ui.show(Screen::Browse);
                                 ui.act(|s| s.navigate(&open));
                             })
