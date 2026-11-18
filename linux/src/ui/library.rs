@@ -17,6 +17,58 @@ use crate::memory;
 use crate::theme::Theme;
 use browser_core::closed::ARCHIVE_FOLDER;
 
+thread_local! {
+    /// The Library row that holds each window's keyboard focus.
+    static FOCUSED_ROW: std::cell::RefCell<std::collections::HashMap<u64, Focused>> = std::cell::RefCell::default();
+}
+
+#[derive(Clone, PartialEq)]
+pub(super) enum Focused {
+    Mark(Id),
+    Visit(String),
+}
+
+/// Remembers while `row` or a button in it has the keyboard focus, for `bind_row_keys`.
+pub(super) fn focus_row(ui: Ui, row: nsh_base::ButtonElement, what: Focused) -> nsh_base::ButtonElement {
+    let r = element_ref();
+    let (into, out) = (what.clone(), what);
+    r.on_focus_in(move || drop(FOCUSED_ROW.with_borrow_mut(|f| f.insert(ui.window, into.clone()))));
+    r.on_focus_out(move || {
+        FOCUSED_ROW.with_borrow_mut(|f| {
+            if f.get(&ui.window) == Some(&out) {
+                f.remove(&ui.window);
+            }
+        })
+    });
+    row.element_ref(&r)
+}
+
+/// F2 renames the focused bookmark row; Delete deletes it (asking first) or removes the focused
+/// History row, only while `query` is empty, as the macOS Library does.
+pub(super) fn bind_row_keys(ui: Ui, query: Signal<String>) {
+    let keys = KeyOptions { when: nsh_core::keymap::When::NotEditing, pass_through: true, ..KeyOptions::default() };
+    let focused = move || FOCUSED_ROW.with_borrow(|f| f.get(&ui.window).cloned());
+    on_key_with("f2", keys, move |_| {
+        if let Some(Focused::Mark(id)) = focused() {
+            ui.mark_edit.set(Some(MarkEdit::Rename(id)));
+            act(ui, |_| {});
+        }
+    });
+    on_key_with("delete", keys, move |_| {
+        if !query.with_untracked(|q| q.trim().is_empty()) {
+            return;
+        }
+        match focused() {
+            Some(Focused::Mark(id)) => {
+                ui.confirm.set(Some(format!("bookmark {id}")));
+                act(ui, |_| {});
+            }
+            Some(Focused::Visit(url)) => super::remove_history(ui, url),
+            None => {}
+        }
+    });
+}
+
 const MAX_FOUND: usize = 200;
 const FIELD_WIDTH: f32 = 388.;
 const DAYS: [(&str, u8); 7] = [("Mon", 1), ("Tue", 2), ("Wed", 3), ("Thu", 4), ("Fri", 5), ("Sat", 6), ("Sun", 0)];
@@ -520,6 +572,7 @@ fn mark_row(ui: Ui, marks: &[Bookmark], mark: &Bookmark, edit: Option<MarkEdit>,
             .child(view().w(px(16.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::FOLDER, 15.)))
             .child(label(name.clone()).flex_1().truncate()),
     };
+    let row = focus_row(ui, row, Focused::Mark(id));
     if !actions {
         let actions_width = 3. * tarn_nsh_shared::controls::target_size() + 2. * 8.;
         return row.child(view().w(px(actions_width)).flex_none()).into_element();
@@ -631,6 +684,9 @@ pub fn bookmarks_panel(ui: Ui, folder: Option<store::Id>) -> AnyElement {
                 .child(pill("History", move || super::show(ui, Panel::History))),
         ))
         .child(super::text_field(ui.mark_query, "Search Bookmarks", 260.))
-        .child(mark_list(ui, folder))
+        .child({
+            bind_row_keys(ui, ui.mark_query);
+            mark_list(ui, folder)
+        })
         .into_element()
 }

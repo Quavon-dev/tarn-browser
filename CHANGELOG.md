@@ -17,7 +17,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - A search field in Settings finds the pane that holds a setting (macOS, Windows, Linux, iOS,
   Android).
 - In the Library, F2 renames, ⌘⌫ (Delete on Windows) deletes and Shift+F10 opens the menu of the
-  selected row, whose buttons stay visible; icon buttons have tooltips (macOS, Windows).
+  selected row, whose buttons stay visible; icon buttons have tooltips (macOS, Windows). On Linux, F2
+  renames the focused bookmark and Delete deletes it (asking first) or removes the focused History
+  row; its rows have no menu, their buttons sit on the row.
 - Open File… shows a local file in a new tab: web pages with their images and styles, PDFs,
   images, text, SVG and video. ⌘O on macOS, Ctrl+O on Windows and Linux, and the menu on iOS and
   Android; the address bar shows the file's name (macOS, Windows, Linux, iOS, Android; no PDFs on

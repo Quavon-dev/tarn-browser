@@ -322,6 +322,7 @@ pub(super) fn no_results(query: &str) -> Text {
 }
 
 fn history_panel(ui: Ui) -> AnyElement {
+    super::library::bind_row_keys(ui, ui.library_query);
     let history = std::rc::Rc::new(read(ui, Browser::library_history).unwrap_or_default());
     let count = history.len();
     let starts = read(ui, Browser::history_day_starts).unwrap_or_default();
@@ -342,7 +343,7 @@ fn history_panel(ui: Ui) -> AnyElement {
             }
             let url = visit.url.clone();
             list = list.child(
-                link_row(ui, Link::new(&visit.title, &visit.url))
+                super::library::focus_row(ui, link_row(ui, Link::new(&visit.title, &visit.url)), super::library::Focused::Visit(url.clone()))
                     .child(
                         small(read(ui, |b| browser_core::library::ago(b.core.store(b.model.private()), visit.visited_at, now)).unwrap_or_default())
                             .flex_none()
