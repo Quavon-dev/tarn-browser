@@ -1001,7 +1001,7 @@ impl LibraryWindow {
         cx: &mut Context<Self>,
         then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
     ) {
-        let answer = window.prompt(PromptLevel::Warning, message, detail, &[action, "Cancel"], cx);
+        let answer = crate::dialog::ask(PromptLevel::Warning, message, detail, &[action, "Cancel"], window, cx);
         self.holding = true;
         cx.spawn_in(window, async move |this, cx| {
             let yes = answer.await == Ok(0);
@@ -1018,7 +1018,7 @@ impl LibraryWindow {
     }
 
     fn alert(&mut self, message: &str, detail: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        let answer = window.prompt(PromptLevel::Info, message, detail, &["OK"], cx);
+        let answer = crate::dialog::ask(PromptLevel::Info, message, detail, &["OK"], window, cx);
         self.holding = true;
         cx.spawn_in(window, async move |this, cx| {
             answer.await.ok();
@@ -1050,7 +1050,7 @@ impl LibraryWindow {
         let data::Confirm { message, detail, cookies } = data::confirm(&source, &profile, ui::controls::THIS_DEVICE);
         let sealed = !cookies;
         let buttons: &[&str] = if sealed { &["Import", "Cancel"] } else { &["Import All", "History and Bookmarks Only", "Cancel"] };
-        let answer = window.prompt(PromptLevel::Info, &message, Some(&detail), buttons, cx);
+        let answer = crate::dialog::ask(PromptLevel::Info, &message, Some(&detail), buttons, window, cx);
         self.holding = true;
         let (weak_browser, main) = (self.browser.clone(), self.main);
         cx.spawn_in(window, async move |this, cx| {

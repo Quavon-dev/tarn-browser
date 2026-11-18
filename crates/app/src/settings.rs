@@ -544,7 +544,7 @@ impl SettingsWindow {
     ) {
         let count = answers.len();
         let buttons: Vec<&str> = answers.iter().copied().chain(["Cancel"]).collect();
-        let answer = window.prompt(PromptLevel::Warning, message, detail, &buttons, cx);
+        let answer = crate::dialog::ask(PromptLevel::Warning, message, detail, &buttons, window, cx);
         cx.spawn(async move |this, cx| {
             if let Ok(ix) = answer.await
                 && ix < count

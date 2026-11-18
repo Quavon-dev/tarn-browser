@@ -6,6 +6,7 @@ mod browser;
 mod capture;
 mod content;
 mod devtools;
+mod dialog;
 mod downloads;
 use browser_core::ext_package;
 mod ext_sources;
