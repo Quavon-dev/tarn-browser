@@ -12,7 +12,14 @@ pub fn text(raw: &str) -> Option<String> {
     let url = url::Url::parse(raw).ok()?;
     match url.scheme() {
         "javascript" => return Some(bounded_url(&url.as_str().replace("%20", " "))),
-        "blob" => return Some(text(&url.as_str()["blob:".len()..]).map_or_else(|| bounded_url(url.as_str()), |inner| format!("blob:{inner}"))),
+        "blob" => {
+            let inner = &url.as_str()["blob:".len()..];
+            return match text(inner) {
+                Some(inner) => Some(format!("blob:{inner}")),
+                None if inner.contains("://") => None,
+                None => Some(bounded_url(url.as_str())),
+            };
+        }
         _ => {}
     }
     let host = match url.host() {
@@ -26,7 +33,11 @@ pub fn text(raw: &str) -> Option<String> {
 pub fn split(text: &str) -> (&str, &str) {
     let scheme = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c));
     let Some(start) = text.find("://").filter(|at| scheme(text[..*at].trim_start_matches("blob:"))).map(|at| at + 3) else { return ("", text) };
-    let end = text[start..].find(['/', '?', '#']).map_or(text.len(), |at| start + at);
+    let host = &text[start..];
+    let end = match host.strip_prefix('[') {
+        Some(ip) => ip.find(']').map_or(text.len(), |at| start + at + 2),
+        None => host.find([':', '/', '?', '#']).map_or(text.len(), |at| start + at),
+    };
     text.split_at(end)
 }
 
@@ -74,7 +85,8 @@ mod tests {
         assert_eq!(text("blob:https://bank.example.com@evil.test/x").as_deref(), Some("blob:https://evil.test/x"));
         assert_eq!(text("http://[1111:2222:3333:4444:5555:6666:7777:8888]/").as_deref(), Some("http://[1111:2222:3333:4444:5555:6666:7777:8888]/"));
         assert!(text(&format!("blob:https://bank.example.com.{}.evil.test/id", "a".repeat(200))).unwrap().contains(".evil.test/id"));
-        assert_eq!(split("https://evil.test:8080/a?b"), ("https://evil.test:8080", "/a?b"));
+        assert_eq!(split("https://evil.test:8080/a?b"), ("https://evil.test", ":8080/a?b"));
+        assert_eq!(split("http://[::1]:8080/"), ("http://[::1]", ":8080/"));
         assert_eq!(split("javascript:void(0)"), ("", "javascript:void(0)"));
         assert_eq!(split("data:text/html,https://x.test/"), ("", "data:text/html,https://x.test/"));
         assert_eq!(split("javascript:location='https://x.test'"), ("", "javascript:location='https://x.test'"));
@@ -89,6 +101,7 @@ mod tests {
         assert_eq!(text(&cut(format!("https://{}.bank.test@evil.test/", "a".repeat(4078)))), None);
         assert_eq!(text(&format!("https://{}.bank.test@evil.test/", "a".repeat(4078))), None);
         assert_eq!(text(&cut(format!("blob:https://{}.bank.test@evil.test/", "a".repeat(4078)))), None);
+        assert_eq!(text(&format!("blob:https://{}.bank.test@evil.test/path", "é".repeat(1600))), None);
         assert!(text(&cut(format!("https://evil.test/{}", "p".repeat(5000)))).is_some_and(|t| t.starts_with("https://evil.test/")));
         let long = format!("https://bank.example.com.{}.evil.test/{}", "a".repeat(200), "p".repeat(300));
         let shown = text(&long).unwrap();
