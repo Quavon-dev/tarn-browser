@@ -166,7 +166,7 @@ impl Browser {
             || is(&crate::CloseAllTabs) && self.model.ephemeral_keys().is_empty()
             || is(&ToggleMute) && self.model.active.and_then(|k| self.tab_url(k)).and_then(|u| crate::browser::tab_host(&u)).is_none()
             || is(&crate::CloseTab) && no_tab && !self.overlay_open()
-            || no_tab && (is(&crate::BookmarkTab) || is(&crate::Print) || is(&crate::ReloadFromOrigin))
+            || no_tab && (is(&crate::BookmarkTab) || is(&crate::Print) || is(&crate::Reload) || is(&crate::ReloadFromOrigin))
     }
 
     /// Rebuilds the menu bar when what it lists has changed since the last render. GPUI keeps every

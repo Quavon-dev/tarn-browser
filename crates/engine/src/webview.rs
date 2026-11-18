@@ -379,9 +379,14 @@ impl WebView {
         }
     }
 
-    /// Removes the highlight a find left: WebKit selects the match and keeps it selected. Under
-    /// Lockdown, where no script of Tarn's runs, the selection stays until the page is clicked.
+    /// Removes the highlight a find left: WebKit marks the match and selects it, and keeps both.
+    /// Under Lockdown, where no script of Tarn's runs, the selection stays until the page is clicked.
     pub fn clear_find(&self) {
+        // WebKit has no public way to hide the match's marker; its private `_hideFindUI` does where it exists.
+        if self.view.respondsToSelector(sel!(_hideFindUI)) {
+            // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.
+            let _: () = unsafe { msg_send![&*self.view, _hideFindUI] };
+        }
         if self._delegate.level() != ShieldLevel::Lockdown {
             self.run_isolated("getSelection()?.removeAllRanges(); return '';", |_| {});
         }
