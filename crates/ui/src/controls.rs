@@ -16,12 +16,6 @@ pub fn button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: 
     themed_button(id, None, text, primary, true)
 }
 
-/// A button that cannot be pressed: dimmed, with no hover or pressed state and no tab stop. The
-/// caller adds no click handler.
-pub fn disabled_button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
-    themed_button(id, None, text, primary, false)
-}
-
 pub fn icon_text_button(id: impl Into<ElementId>, glyph: Icon, text: impl Into<SharedString>) -> Stateful<Div> {
     themed_button(id, Some(glyph), text, false, true)
 }

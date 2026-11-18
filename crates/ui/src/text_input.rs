@@ -799,7 +799,7 @@ impl EntityInputHandler for TextInput {
         if last_layout.text != self.content {
             return None;
         }
-        let utf8_index = last_layout.index_for_x(point.x - line_point.x + self.scroll)?;
+        let utf8_index = last_layout.index_for_x(line_point.x + self.scroll)?;
         Some(self.offset_to_utf16(utf8_index))
     }
 }
