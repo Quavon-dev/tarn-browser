@@ -896,8 +896,9 @@ fn space_bar(ui: Ui) -> View {
         },
     );
     let strip_ref = element_ref();
+    let shown = computed(move || (strip.get(), ui.snap.with(|s| s.spaces.iter().position(|x| x.current))));
     let reveal = move |animated| {
-        if let Some(x) = strip.get().scroll {
+        if let Some(x) = shown.get().0.scroll {
             strip_ref.scroll_to(nsh_core::Point::new(Points(x), Points(0.)), animated);
         }
     };
@@ -1017,17 +1018,22 @@ fn sidebar(ui: Ui) -> View {
         .border_color(Theme::sidebar_edge())
         .shadow(Theme::elevation(10., 30.))
         .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Sidebar))
-        .on_wheel(move |e: &WheelEvent| {
-            if let WheelDelta::Points(p) = e.delta {
-                let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swiped(p.x.0, p.y.0, std::time::Instant::now()));
-                if let Some(step) = step {
-                    animate_next(SLIDE);
-                    act(ui, |b| b.swipe_to(step));
-                }
-            }
-        })
         .child(header)
-        .child(scroll().flex_1().child(list))
+        .child(
+            view()
+                .flex_1()
+                .min_h(px(0.))
+                .on_wheel(move |e: &WheelEvent| {
+                    if let WheelDelta::Points(p) = e.delta {
+                        let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swiped(p.x.0, p.y.0, std::time::Instant::now()));
+                        if let Some(step) = step {
+                            animate_next(SLIDE);
+                            act(ui, |b| b.swipe_to(step));
+                        }
+                    }
+                })
+                .child(scroll().flex_1().child(list)),
+        )
         .child(space_bar(ui))
 }
 

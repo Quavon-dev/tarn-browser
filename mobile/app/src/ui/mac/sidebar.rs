@@ -997,8 +997,9 @@ fn space_buttons(ui: Ui, strip: Memo<bar::SpaceStrip>) -> AnyElement {
 fn footer(ui: Ui) -> View {
     let strip = space_strip(ui);
     let strip_ref = element_ref();
+    let shown = computed(move || (strip.get(), ui.read_data(|s| s.model.space_ix)));
     let reveal = move |animated| {
-        if let Some(x) = strip.get().scroll {
+        if let Some(x) = shown.get().0.scroll {
             strip_ref.scroll_to(Point::new(Points(x), Points(0.)), animated);
         }
     };

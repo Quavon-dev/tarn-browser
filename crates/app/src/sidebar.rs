@@ -458,11 +458,19 @@ fn content(b: &mut Browser, inset: f32, cx: &mut Context<Browser>) -> Div {
         .flex()
         .flex_col()
         .on_mouse_down(MouseButton::Right, cx.listener(|b, _, w, cx| b.sidebar_menu(w, cx)))
-        .on_scroll_wheel(cx.listener(|b, e, w, cx| b.sidebar_swipe(e, w, cx)))
         .text_color(Theme::text())
         .text_size(px(TEXT))
         .child(header)
-        .child(div().flex_1().min_h_0().relative().overflow_hidden().child(list(b, cx).left(px(offset))).children(other_list.into_iter().flatten()))
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .relative()
+                .overflow_hidden()
+                .on_scroll_wheel(cx.listener(|b, e, w, cx| b.sidebar_swipe(e, w, cx)))
+                .child(list(b, cx).left(px(offset)))
+                .children(other_list.into_iter().flatten()),
+        )
         .child(space_dots(b, cx))
 }
 
@@ -1198,10 +1206,10 @@ fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let bar = browser_core::sidebar::SpaceBar { width: b.sidebar_width - 18. - 2. * 30., icon: 28., gap: 2. };
     let strip = bar.strip(b.model.spaces.len(), b.model.space_ix);
     let shown = (b.model.space_ix, b.model.spaces.len(), b.sidebar_width.round() as i32);
-    if let Some(x) = strip.scroll
-        && b.space_strip_shown.replace(Some(shown)) != Some(shown)
-    {
-        b.space_strip_scroll.set_offset(gpui::point(px(-x), px(0.)));
+    match strip.scroll {
+        Some(x) if b.space_strip_shown.replace(Some(shown)) != Some(shown) => b.space_strip_scroll.set_offset(gpui::point(px(-x), px(0.))),
+        Some(_) => {}
+        None => b.space_strip_shown.set(None),
     }
     let dots = b.model.spaces.iter().enumerate().map(|(ix, s)| {
         let current = ix == b.model.space_ix;
