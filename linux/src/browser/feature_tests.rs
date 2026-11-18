@@ -1219,6 +1219,15 @@ fn links_from_other_apps_open_in_new_tabs_and_load_as_a_pages_link() {
 }
 
 #[test]
+fn only_a_web_page_has_a_qr_code() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "file:///home/me/a.html");
+    assert!(b.qr_code().is_none());
+    assert_eq!(b.toast.as_ref().unwrap().text, "Only web pages have a QR code");
+}
+
+#[test]
 fn open_tabs_are_offered_as_switch_to_tab_rows_across_the_profiles_spaces() {
     let (_dir, mut b) = browser();
     let docs = b.new_tab("https://docs.test/guide").unwrap();
