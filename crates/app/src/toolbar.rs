@@ -224,7 +224,10 @@ fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl In
         .text_color(shield_color)
         .relative()
         .child(measure(b.site_popover.anchor.clone()))
-        .when(!open, |d| d.tooltip(tooltip(format!("Shield: {} — Site Settings", shield_badge(level)), None)))
+        .when(!open, |d| {
+            let stopped = count.map(|n| format!(" · {} stopped on this site", browser_core::shield_card::thousands(n.unsigned_abs()))).unwrap_or_default();
+            d.tooltip(tooltip(format!("Shield: {}{stopped} — Site Settings", shield_badge(level)), None))
+        })
         .child(icon(if level == ShieldLevel::Standard { Icon::Shield } else { Icon::ShieldCheck }, 14., shield_color))
         .when(level != ShieldLevel::Standard, |d| d.child(div().font_weight(FontWeight::MEDIUM).child(shield_badge(level))))
         .when_some(count, |d, n| d.child(browser_core::shield_card::thousands(n.unsigned_abs())))
@@ -269,13 +272,13 @@ fn bookmark_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl 
 }
 
 fn reader_button(b: &Browser, cx: &mut Context<Browser>) -> Option<impl IntoElement> {
-    b.model.active.filter(|k| b.pages.get(k).is_some_and(|p| p.article))?;
-    Some(chip_button("reader", Icon::BookOpen, true).tooltip(crate::shortcuts::tip("Reader", &crate::reader::ToggleReader)).on_click(cx.listener(
-        |b, _, window, cx| {
-            cx.stop_propagation();
-            b.toggle_reader(window, cx);
-        },
-    )))
+    let key = b.model.active.filter(|k| b.pages.get(k).is_some_and(|p| p.article))?;
+    let on = b.reader.as_ref().is_some_and(|r| r.key == key);
+    let tip = crate::shortcuts::tip(if on { "Exit Reader" } else { "Reader" }, &crate::reader::ToggleReader);
+    Some(chip_button("reader", Icon::BookOpen, true).when(on, |d| d.bg(Secure::pressed())).tooltip(tip).on_click(cx.listener(|b, _, window, cx| {
+        cx.stop_propagation();
+        b.toggle_reader(window, cx);
+    })))
 }
 
 fn mute_button(b: &Browser, cx: &mut Context<Browser>) -> Option<impl IntoElement> {
