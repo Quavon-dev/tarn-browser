@@ -116,6 +116,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- The space bar at the bottom of the sidebar keeps every space in view: once their icons no longer
+  fit, the current space keeps its icon and the others become dots, and past that the bar scrolls to
+  the current space. Settings moved to the sidebar's top row next to Downloads, and New Space is a
+  quieter button at the bar's end (macOS, Windows, Linux, iPad and Android tablets).
 - ⇧⌘R reloads the page without the cache and Reader moves to ⌥⌘R (macOS, Windows as Ctrl+Shift+R and
   Ctrl+Alt+R, iOS and Android with a keyboard); on Linux Ctrl+Shift+R reloads without the cache and
   Reader is Ctrl+Alt+E.

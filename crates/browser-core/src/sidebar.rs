@@ -334,6 +334,37 @@ pub fn neighbour_space(model: &Model, step: Step, allowed: impl Fn(&SpaceRef) ->
     }
 }
 
+pub const SPACE_DOT: f32 = 14.;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpaceBar {
+    pub width: f32,
+    pub icon: f32,
+    pub gap: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpaceStrip {
+    pub compact: bool,
+    pub scroll: Option<f32>,
+}
+
+impl SpaceBar {
+    pub fn strip(&self, count: usize, current: usize) -> SpaceStrip {
+        let gaps = count.saturating_sub(1) as f32 * self.gap;
+        let compact = count as f32 * self.icon + gaps > self.width;
+        if !compact {
+            return SpaceStrip { compact, scroll: None };
+        }
+        let content = self.icon + count.saturating_sub(1) as f32 * SPACE_DOT + gaps;
+        let scroll = (content > self.width).then(|| {
+            let middle = current.min(count.saturating_sub(1)) as f32 * (SPACE_DOT + self.gap) + self.icon / 2.;
+            (middle - self.width / 2.).clamp(0., content - self.width)
+        });
+        SpaceStrip { compact, scroll }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -609,5 +640,19 @@ mod tests {
         let not_work = |s: &SpaceRef| s.space.name != "Work";
         assert_eq!(neighbour_space(&model, Step::Next, not_work), Some(2), "a space the process may not show is stepped over");
         assert_eq!(neighbour_space(&model, Step::Next, |_| false), None);
+    }
+
+    #[test]
+    fn the_space_bar_shrinks_to_dots_and_then_scrolls() {
+        let bar = SpaceBar { width: 150., icon: 28., gap: 2. };
+        let plain = SpaceStrip { compact: false, scroll: None };
+        assert_eq!(bar.strip(0, 0), plain);
+        assert_eq!(bar.strip(5, 0), plain, "five icons with their gaps fill it exactly");
+        assert_eq!(bar.strip(6, 0), SpaceStrip { compact: true, scroll: None });
+        assert_eq!(bar.strip(8, 0), SpaceStrip { compact: true, scroll: None }, "one icon and seven dots with gaps fit");
+        assert_eq!(bar.strip(9, 0), SpaceStrip { compact: true, scroll: Some(0.) }, "the dots' gaps count");
+        assert_eq!(bar.strip(20, 10), SpaceStrip { compact: true, scroll: Some(99.) }, "a middle space is centred");
+        assert_eq!(bar.strip(20, 19), SpaceStrip { compact: true, scroll: Some(182.) }, "the last space ends the strip");
+        assert_eq!(bar.strip(20, 25), bar.strip(20, 19), "an index past the end is the last space");
     }
 }
