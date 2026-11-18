@@ -146,6 +146,18 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Closing the find bar removes WebKit's match marker from the page, and the bar no longer stays as
+  an empty strip after Esc (macOS).
+- Settings and Library questions (Lockdown, clearing history, deleting a profile, a bookmark or a
+  theme) open inside their window in the app's theme, and closing the window drops the question
+  instead of leaving a stray dialog behind (macOS, Windows).
+- One-line labels that do not fit end in an ellipsis instead of being cut mid-letter: tab rows,
+  split headers, History rows, command card rows and theme cards (macOS, Windows).
+- In a narrow Settings window the Shield card's buttons sit under the card, segmented choices move
+  under their description, and an installed extension's permissions wrap (macOS, Windows).
+- The Shield card's mountains and waves stay clear of its text, and on its first day the card says
+  "Protected since today" (all clients).
+- View › Reload is greyed when no page is shown (macOS, Windows).
 - The tab preview card follows the pointer to the next row instead of staying on the previous tab,
   and Close Tabs Below closes the tabs shown below, leaving collapsed groups alone (macOS, Windows,
   Linux).
