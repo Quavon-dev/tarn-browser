@@ -564,7 +564,14 @@ pub(crate) static MARK_IMAGE: LazyLock<Option<Arc<RenderImage>>> = LazyLock::new
     let pixmap = crate::shield_card::rasterize(std::str::from_utf8(&svg).ok()?, 192, false)?;
     let (width, height) = (pixmap.width(), pixmap.height());
     let mut bgra = pixmap.take();
-    bgra.as_chunks_mut::<4>().0.iter_mut().for_each(|p| p.swap(0, 2));
+    for p in bgra.as_chunks_mut::<4>().0 {
+        if let a @ 1..=254 = p[3] {
+            for c in &mut p[..3] {
+                *c = (u16::from(*c) * 255 / u16::from(a)).min(255) as u8;
+            }
+        }
+        p.swap(0, 2);
+    }
     Some(Arc::new(RenderImage::new([image::Frame::new(image::RgbaImage::from_raw(width, height, bgra)?)])))
 });
 
