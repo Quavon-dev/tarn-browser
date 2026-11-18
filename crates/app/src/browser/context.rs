@@ -147,11 +147,11 @@ impl Browser {
             }
         }
         let rest = self.model.other_tabs(key);
-        let sleepers = rest.iter().any(|k| !self.sleeping(*k) && self.model.active != Some(*k));
+        let sleepers = rest.iter().any(|k| !self.sleeping(*k) && self.model.active != Some(*k) && !self.in_split(*k));
         items.extend([
             Item::Separator,
             self.mute_item(key),
-            Item::action("Sleep Tab", Cmd::Sleep(vec![key])).enabled(!active && !self.sleeping(key)),
+            Item::action("Sleep Tab", Cmd::Sleep(vec![key])).enabled(!active && !self.sleeping(key) && !self.in_split(key)),
             Item::action("Sleep Other Tabs", Cmd::Sleep(rest)).enabled(sleepers),
             Item::Separator,
             Item::action(if ephemeral { "Close Tab" } else { "Unload Tab" }, Cmd::Close(key)).key(if active {
