@@ -117,6 +117,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Translating a page shows Translating… while it works and then Show Original, which reloads the
+  page in its own language (macOS).
 - The Reader button shows when Reader is on and then reads Exit Reader, and the Shield button's
   tooltip says how many requests it stopped on the site (macOS, Windows).
 - The address field keeps Reader open behind it and shows a sleeping tab's address; its

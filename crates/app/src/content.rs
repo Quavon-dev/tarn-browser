@@ -200,6 +200,8 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
             crate::blocking::Offer::Reload => "Turn On",
             #[cfg(feature = "translation")]
             crate::blocking::Offer::Translate(..) => "Translate",
+            #[cfg(feature = "translation")]
+            crate::blocking::Offer::ShowOriginal => "Show Original",
         });
         push(
             "banner-notice",

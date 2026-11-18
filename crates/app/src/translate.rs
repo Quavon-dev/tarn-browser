@@ -58,6 +58,9 @@ impl Browser {
     pub(crate) fn translate_page(&mut self, key: TabKey, source: String, page: Url, cx: &mut Context<Self>) {
         let preferred = translation::preferred_languages();
         let (Some(view), Some(target)) = (self.views.get(&key).filter(|_| self.shows(key, None, &page)).cloned(), preferred.first().cloned()) else { return };
+        let language = translation::language_name(&source);
+        self.notify_offer(key, format!("Translating from {language}…"), None);
+        cx.notify();
         let (tx, mut rx) = mpsc::unbounded();
         view.translation_step(&Step::Read, move |json| drop(tx.unbounded_send(json)));
         cx.spawn(async move |this, cx| {
@@ -75,19 +78,28 @@ impl Browser {
                         view.translation_step(&Step::Write { start, texts }, |_| {});
                         continue;
                     }
-                    Err(TranslateError::NotInstalled) => format!(
-                        "Translating from {} needs its language pack. Add it in System Settings › General › Language & Region › Translation Languages.",
-                        translation::language_name(&source)
+                    Err(TranslateError::NotInstalled) => (
+                        format!(
+                            "Translating from {language} needs its language pack. Add it in System Settings › General › Language & Region › Translation Languages."
+                        ),
+                        None,
                     ),
-                    Err(TranslateError::Failed) if start > 0 => "Part of this page could not be translated.".to_owned(),
-                    Err(TranslateError::Failed) => "This page could not be translated.".to_owned(),
+                    Err(TranslateError::Failed) if start > 0 => ("Part of this page could not be translated.".to_owned(), Some(Offer::ShowOriginal)),
+                    Err(TranslateError::Failed) => ("This page could not be translated.".to_owned(), None),
                 };
                 this.update(cx, |b, cx| {
-                    b.notify_offer(key, notice, None);
+                    b.notify_offer(key, notice.0, notice.1);
                     cx.notify();
                 })
                 .ok();
                 return;
+            }
+            if still_shown(&this, cx) {
+                this.update(cx, |b, cx| {
+                    b.notify_offer(key, format!("Translated from {language}"), Some(Offer::ShowOriginal));
+                    cx.notify();
+                })
+                .ok();
             }
         })
         .detach();
