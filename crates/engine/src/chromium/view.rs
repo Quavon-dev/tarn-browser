@@ -672,7 +672,7 @@ wrap_display_handler! {
 
         fn on_status_message(&self, _browser: Option<&mut Browser>, value: Option<&CefString>) {
             if let Some(tab) = tab(self.id) {
-                let value = string(value);
+                let value: String = string(value).chars().take(crate::view_policy::MAX_HOVERED_LINK).collect();
                 emit(&tab, Event::LinkHovered((!value.is_empty()).then_some(value)));
             }
         }

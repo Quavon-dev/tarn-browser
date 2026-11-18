@@ -474,7 +474,12 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         notice: b.notice.clone(),
         folders: b.model.folders.iter().map(|f| (f.id, f.name.clone())).collect(),
         toast: b.toast.clone(),
-        link: b.hovered_link.get().map(|(key, text)| (key, text.to_owned())),
+        // A blocked page or JSON view covers the web view, which then reports no pointer leaving.
+        link: b
+            .hovered_link
+            .get()
+            .filter(|(key, _)| !b.pages.get(key).is_some_and(|p| p.blocked.is_some()) && !b.json_pages.contains_key(key))
+            .map(|(key, text)| (key, text.to_owned())),
         reader: b.reader.clone().filter(|r| Some(r.key) == key),
         article: key.is_some_and(|k| b.articles.contains(&k)),
         burner: b.model.burner_shown(),

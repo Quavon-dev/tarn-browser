@@ -34,8 +34,6 @@ use crate::webview::Popup;
 use crate::{Event, Protection};
 
 pub(crate) use crate::page::{DOWNLOAD_BURST, POPUP_BURST, PROMPT_BURST, blocked_message, bounded, serialized_origin, within_burst};
-/// UTF-16 units of a hovered link passed on; the status bubble shows far fewer.
-const MAX_HOVERED_LINK: usize = 4096;
 const MAX_AUTH_ATTEMPTS: isize = crate::view_policy::MAX_AUTH_ATTEMPTS as isize;
 
 // WebKit hands over a forwarding proxy (WKNSURLAuthenticationChallenge) whose methods objc2's
@@ -294,7 +292,7 @@ define_class!(
             // SAFETY: `_WKHitTestResult` answers `absoluteLinkURL` (checked above) with a nullable NSURL.
             let link: Option<Retained<NSURL>> = hit.and_then(|h| unsafe { msg_send![h, absoluteLinkURL] });
             // Sent on every pointer move: a huge `data:` link is cut before it is copied (S14).
-            let link = link.and_then(|u| u.absoluteString()).map(|s| if s.length() > MAX_HOVERED_LINK { s.substringToIndex(MAX_HOVERED_LINK) } else { s });
+            let link = link.and_then(|u| u.absoluteString()).map(|s| if s.length() > crate::view_policy::MAX_HOVERED_LINK { s.substringToIndex(crate::view_policy::MAX_HOVERED_LINK) } else { s });
             self.emit(Event::LinkHovered(link.map(|s| s.to_string())));
         }
 

@@ -533,16 +533,18 @@ fn web_views(ui: Ui) -> View {
 /// The link under the pointer, at the bottom-left of the page it is over; the pointer passes through.
 fn link_bubble(ui: Ui) -> AnyElement {
     dynamic(move || {
-        let (key, link) = ui.snap.with(|s| s.link.clone().filter(|_| s.blocked.is_none() && s.json.is_none()))?;
+        let (key, link) = ui.snap.with(|s| s.link.clone())?;
         let (active, pane) = ui.snap.with(|s| s.views.iter().find(|v| v.key == key).map(|v| (v.active, v.pane)))?;
         let (x, y, w, h) = split::view_rect(ui, active, pane);
+        let (origin, rest) = browser_core::link_status::split(&link);
+        let (origin, rest) = (origin.to_owned(), rest.to_owned());
         (w > 0. && h > 0.).then(|| {
             view()
                 .absolute()
                 .left(px(x + 4.))
                 .top(px(y + h - 28.))
                 .h(px(24.))
-                .max_w(px(w * 0.6))
+                .max_w(px((w - 8.).max(0.)))
                 .px(px(8.))
                 .flex_row()
                 .items_center()
@@ -551,7 +553,8 @@ fn link_bubble(ui: Ui) -> AnyElement {
                 .border_1()
                 .border_color(Theme::surface_edge())
                 .pointer_events(nsh_core::PointerEvents::None)
-                .child(small(link).truncate())
+                .child(small(origin).flex_shrink(0.))
+                .child(small(rest).flex_shrink(1.).truncate())
         })
     })
 }

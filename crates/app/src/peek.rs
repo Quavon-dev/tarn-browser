@@ -29,6 +29,9 @@ pub struct Peek {
     origin: Option<Origin>,
     timer: Option<Task<()>>,
     pointer: Option<(engine::menu::EventMonitor, Task<()>)>,
+    /// The library and the downloads popover opened from the floating sidebar: they stay above it
+    /// and close with it. One opened from the main window keeps the floating sidebar away instead.
+    pub(crate) owns: [bool; 2],
 }
 
 impl Peek {
@@ -59,7 +62,8 @@ impl Browser {
     }
 
     fn peek_enabled(&self) -> bool {
-        !self.sidebar_open
+        let [library, downloads] = self.peek.owns;
+        !self.sidebar_open && (self.library.is_none() || library) && (!self.downloads_popover.is_open() || downloads)
     }
 
     /// Pointer moves over the main window, including over the page, which GPUI never sees.
@@ -137,7 +141,6 @@ impl Browser {
             let (handle, _) =
                 ui::controls::open_popup(cx, bounds, display, false, inset, ui::theme::Theme::radius_tile(), |_, cx| PeekWindow::new(browser.clone(), cx));
             browser.update(cx, |b, _| b.peek.window = handle).ok();
-            popovers_over_peek(&browser, cx);
         });
     }
 
@@ -151,8 +154,12 @@ impl Browser {
         self.peek.hover.closed();
         self.peek.timer = None;
         if let Some(handle) = self.peek.window.take() {
-            self.close_library(cx);
-            self.close_downloads(cx);
+            if self.peek.owns[0] {
+                self.close_library(cx);
+            }
+            if self.peek.owns[1] {
+                self.close_downloads(cx);
+            }
             let reduce = self.pref(Pref::ReduceMotion);
             cx.defer(move |cx| {
                 handle
@@ -189,12 +196,16 @@ impl Browser {
     }
 }
 
-/// The library and downloads popovers stay above the floating sidebar, whichever window opened
-/// last; they close with it (`close_peek`), since a child window goes with its parent.
+/// A popover opened over the floating sidebar becomes its child window, so it stays in front of
+/// it; it closes with it (`close_peek`), since a child window goes with its parent.
 pub(crate) fn popovers_over_peek(browser: &WeakEntity<Browser>, cx: &mut App) {
     let Some((peek, popovers)) = browser.upgrade().and_then(|b| {
         let b = b.read(cx);
-        Some((b.peek.window?, [b.library.map(AnyWindowHandle::from), b.downloads_popover.window.map(AnyWindowHandle::from)]))
+        let [library, downloads] = b.peek.owns;
+        Some((
+            b.peek.window?,
+            [b.library.filter(|_| library).map(AnyWindowHandle::from), b.downloads_popover.window.filter(|_| downloads).map(AnyWindowHandle::from)],
+        ))
     }) else {
         return;
     };

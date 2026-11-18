@@ -302,6 +302,10 @@ impl Browser {
         }
         let Some(main) = window.window_handle().downcast::<Browser>().or(self.peek.main) else { return };
         let inset = SIDEBAR_MARGIN;
+        self.peek.owns[0] = self.peek.is_window(window);
+        if !self.peek.owns[0] {
+            self.close_peek(cx);
+        }
         let anchor = self.main_bounds(window);
         let room = f32::from(anchor.size.height) - 2. * inset - SPACE_ROW - TOOLBAR_HEIGHT - SEARCH_HEIGHT - 2.;
         let max_list = room.max(ROW * 3.);

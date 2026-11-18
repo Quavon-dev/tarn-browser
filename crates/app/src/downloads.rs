@@ -217,6 +217,10 @@ impl Browser {
         };
         // Under the toolbar there is no button for the caret to point at.
         let caret = self.peek.is_window(window) || self.sidebar_open;
+        self.peek.owns[1] = self.peek.is_window(window);
+        if !self.peek.owns[1] {
+            self.close_peek(cx);
+        }
         let anchor = window.bounds();
         let saving = self.transfers().len();
         let rows = (self.downloads().len() + saving).min(MAX_ROWS) + saving.min(MAX_ROWS);

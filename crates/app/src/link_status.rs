@@ -13,8 +13,6 @@ const HEIGHT: f32 = 24.;
 const PAD: f32 = 8.;
 /// Between the bubble and the page's bottom-left corner.
 const GAP: f32 = 4.;
-/// The bubble's share of the page's width at most.
-const MAX_SHARE: f32 = 0.6;
 
 /// The link under the pointer, at the bottom-left of its page in a pop-up window the pointer
 /// passes through, since GPUI cannot draw over the page.
@@ -69,7 +67,7 @@ impl Browser {
         style.font_family = Theme::font();
         let run = style.to_run(text.len());
         let measured = f32::from(window.text_system().shape_line(text, px(TEXT_SMALL), &[run], None).width);
-        let width = (measured + 2. * PAD + 2.).ceil().min(page_width * MAX_SHARE);
+        let width = (measured + 2. * PAD + 2.).ceil().min(page_width - 2. * GAP);
         let (x, y) = (left + GAP, top + page_height - HEIGHT - GAP);
         let placed = (x, y, width, HEIGHT);
         if self.link_status.window.is_some() {
@@ -136,7 +134,8 @@ impl LinkStatusWindow {
 
 impl Render for LinkStatusWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let text = self.browser.upgrade().and_then(|b| b.read(cx).link_status.link.get().map(|(_, text)| SharedString::from(text.to_owned())));
+        let text = self.browser.upgrade().and_then(|b| b.read(cx).link_status.link.get().map(|(_, text)| text.to_owned())).unwrap_or_default();
+        let (origin, rest) = browser_core::link_status::split(&text);
         surface(Theme::radius_row())
             .size_full()
             .px(px(PAD))
@@ -144,6 +143,7 @@ impl Render for LinkStatusWindow {
             .items_center()
             .text_size(px(TEXT_SMALL))
             .text_color(Theme::muted())
-            .child(div().one_line(text.unwrap_or_default()))
+            .child(div().flex_none().child(SharedString::from(origin.to_owned())))
+            .child(div().one_line(rest.to_owned()))
     }
 }

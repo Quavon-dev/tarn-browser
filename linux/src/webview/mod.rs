@@ -917,7 +917,8 @@ fn connect(state: &Rc<State>, web: &WebView) {
     let w = weak.clone();
     web.connect_mouse_target_changed(move |_, hit, _| {
         if let Some(s) = w.upgrade() {
-            s.emit("hover", json!({ "url": hit.link_uri().map(String::from) }));
+            let link = hit.link_uri().map(|u| u.chars().take(engine::view_policy::MAX_HOVERED_LINK).collect::<String>());
+            s.emit("hover", json!({ "url": link }));
         }
     });
     let w = weak.clone();

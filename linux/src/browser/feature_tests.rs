@@ -1642,4 +1642,8 @@ fn a_hovered_link_shows_until_the_pointer_leaves_or_the_page_changes() {
     b.on_event(key, "hover", &json!({ "url": "https://a.test/again" }));
     b.on_event(key, "crashed", &json!({}));
     assert_eq!(crate::snapshot::snapshot(&b, true).link, None);
+    b.on_event(key, "hover", &json!({ "url": "https://a.test/blocked" }));
+    b.on_event(key, "blocked", &json!({ "url": "https://evil.test/x", "reason": "listed", "category": "malware" }));
+    assert!(blocked_page(&b).is_some());
+    assert_eq!(crate::snapshot::snapshot(&b, true).link, None, "a blocked page covers the view");
 }
