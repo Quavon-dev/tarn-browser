@@ -77,7 +77,18 @@ pub fn row(asset: ImageAsset, text_: impl Into<String>, press: impl Fn() + 'stat
         .child(label(text_).flex_1())
 }
 
-pub fn detail_row(asset: Option<ImageAsset>, name: String, detail: Option<nsh_core::element::Text>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
+pub fn address_caption(url: &str, lines: u32, with_rest: bool) -> AnyElement {
+    let (host, rest) = browser_core::command::history_detail(url);
+    let line = |t: String| caption(t).number_of_lines(lines).min_w(px(0.));
+    view()
+        .flex_row()
+        .min_w(px(0.))
+        .child(line(host).flex_shrink(1.).text_overflow(nsh_core::EllipsizeMode::Head))
+        .children(with_rest.then(|| line(rest).flex_shrink(100.)))
+        .into_element()
+}
+
+pub fn detail_row(asset: Option<ImageAsset>, name: String, detail: Option<AnyElement>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
     button()
         .accessibility_label(SharedString::from(name.clone()))
         .flex_row()

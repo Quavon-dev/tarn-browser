@@ -1,4 +1,5 @@
 use browser_core::command::ENGINES;
+use browser_core::layout::Layout;
 use browser_core::tabs::TabKey;
 use nsh_base::{alert_dialog, button, input};
 use nsh_core::keymap::When;
@@ -9,8 +10,8 @@ use shield::ShieldLevel;
 use super::controls::icon;
 use super::sheets;
 use super::{
-    Screen, Ui, accent_pill, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface, switch_row,
-    text_field,
+    Screen, Ui, accent_pill, address_caption, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface,
+    switch_row, text_field,
 };
 use crate::shell::{FILTER_SWITCHES, SpaceItem};
 use crate::theme::{GAP, SHEET_WIDTH, Secure, TAB_MIN_WIDTH, TAB_PREVIEW_HEIGHT, TEXT_TITLE, TOUCH_TARGET, Theme};
@@ -40,6 +41,9 @@ fn title(screen: Screen) -> &'static str {
 pub fn panel(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         let screen = ui.screen.get();
+        if ui.mac.get() && super::mac::owns(screen) {
+            return None;
+        }
         let body = match screen {
             Screen::Browse | Screen::Share => return None,
             Screen::Find => return Some(find(ui).into_element()),
@@ -142,8 +146,7 @@ fn tabs(ui: Ui) -> impl IntoElement {
                 let t = s.model.tab(key)?;
                 let page = s.pages.get(&key);
                 let url = page.map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(t.url.clone());
-                let title = page.map(|p| p.title.clone()).filter(|t| !t.is_empty()).unwrap_or(t.title.clone());
-                Some((key, if title.is_empty() { "New Tab".to_owned() } else { title }, url))
+                Some((key, s.tab_title(key), url))
             };
             keys.iter()
                 .filter_map(|k| s.splits.entry(*k, &keys))
@@ -297,12 +300,7 @@ fn tab_card(ui: Ui, key: TabKey, title: String, url: String) -> View {
 
 fn menu(ui: Ui) -> impl IntoElement {
     let private = move || ui.read(|s| s.model.private());
-    let zoom = move |delta: f64| {
-        ui.act(|s| {
-            let z = s.active_page().map_or(1.0, |p| p.zoom);
-            s.zoom(if delta == 0.0 { 1.0 } else { z + delta })
-        })
-    };
+    let zoom = move |delta: f64| ui.act(|s| s.zoom_by(delta));
     let level = computed(move || ui.read(|s| (s.active_page().map_or(1.0, |p| p.zoom) * 100.).round() as i64));
     let shareable = computed(move || ui.read(|s| s.share_url().is_some()));
     view()
@@ -317,8 +315,8 @@ fn menu(ui: Ui) -> impl IntoElement {
                     ui.show(Screen::Browse);
                 }))
                 .child(row(icons::FOLDER_OPEN, "Open File…", move || open_file(ui)))
-                .child(dynamic(move || {
-                    if private() {
+                .child(
+                    when(private, move || {
                         row(icons::HAND, "Close Private Space", move || {
                             ui.act(|s| {
                                 s.close_private();
@@ -326,8 +324,8 @@ fn menu(ui: Ui) -> impl IntoElement {
                             });
                             ui.show(Screen::Browse);
                         })
-                        .into_element()
-                    } else {
+                    })
+                    .otherwise(move || {
                         row(icons::HAND, "Private Space", move || {
                             ui.act(|s| {
                                 s.enter_private();
@@ -335,11 +333,11 @@ fn menu(ui: Ui) -> impl IntoElement {
                             });
                             ui.show(Screen::Browse);
                         })
-                        .into_element()
-                    }
-                }))
-                .child(dynamic(move || {
-                    (!ui.read(|s| s.in_burner() || <crate::data::Data as crate::data::Platform>::private_process())).then(|| {
+                    }),
+                )
+                .child(when(
+                    move || !ui.read(|s| s.in_burner() || <crate::data::Data as crate::data::Platform>::private_process()),
+                    move || {
                         row(icons::FLAME, "New Burner Tab", move || {
                             ui.act(|s| {
                                 s.open_burner();
@@ -347,10 +345,11 @@ fn menu(ui: Ui) -> impl IntoElement {
                             });
                             ui.show(Screen::Browse);
                         })
-                    })
-                }))
-                .child(dynamic(move || {
-                    ui.read(|s| !s.model.closed_tabs.is_empty()).then(|| {
+                    },
+                ))
+                .child(when(
+                    move || ui.read(|s| !s.model.closed_tabs.is_empty()),
+                    move || {
                         row(icons::UNDO, "Reopen Closed Tab", move || {
                             ui.act(|s| {
                                 if !s.reopen_closed() {
@@ -360,14 +359,14 @@ fn menu(ui: Ui) -> impl IntoElement {
                             });
                             ui.show(Screen::Browse);
                         })
-                    })
-                })),
+                    },
+                )),
         ))
         .child(framed(
             group()
                 .child(row(icons::SEARCH, "Find in Page", move || ui.show(Screen::Find)))
                 .child(row(icons::APP_WINDOW, "Find in Tabs", move || ui.show(Screen::FindTabs)))
-                .child(dynamic(move || ui.read(|s| s.offers_reader()).then(|| row(icons::BOOK_OPEN, "Reader", move || ui.act(|s| s.open_reader())))))
+                .child(when(move || ui.read(|s| s.offers_reader()), move || row(icons::BOOK_OPEN, "Reader", move || ui.act(|s| s.open_reader()))))
                 .child(
                     view()
                         .flex_row()
@@ -384,14 +383,15 @@ fn menu(ui: Ui) -> impl IntoElement {
                         .child(pill("+", move || zoom(0.1)).accessibility_label("Zoom In")),
                 )
                 .child(row(icons::SHIELD, "Shield and Settings for This Site", move || ui.show(Screen::Shield)))
-                .child(dynamic(move || {
-                    ui.read(|s| s.zappable()).then(|| {
+                .child(when(
+                    move || ui.read(|s| s.zappable()),
+                    move || {
                         row(icons::CLOSE, "Zap Element", move || {
                             ui.show(Screen::Browse);
                             ui.act(|s| s.pick());
                         })
-                    })
-                })),
+                    },
+                )),
         ))
         .child(framed(
             group()
@@ -399,7 +399,7 @@ fn menu(ui: Ui) -> impl IntoElement {
                 .child(row(icons::DOWNLOADS, "Downloads", move || ui.show(Screen::Downloads)))
                 .child(row(icons::PERSON, "Spaces and Profiles", move || ui.show(Screen::Spaces)))
                 .child(row(icons::GEAR, "Settings", move || ui.show(Screen::Settings)))
-                .child(dynamic(move || (!ui.read(|s| s.model.private())).then(|| row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions))))),
+                .child(when(move || !private(), move || row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions)))),
         ))
         .child(super::extensions::actions(ui))
         .child(framed(
@@ -410,14 +410,7 @@ fn menu(ui: Ui) -> impl IntoElement {
                             .child(row(icons::SHARE, "Share…", move || ui.show(Screen::Share)))
                             .child(row(icons::SMARTPHONE, "Show QR Code", move || ui.show(Screen::Qr)))
                             .child(row(icons::CHECK, "Copy Clean Link", move || {
-                                let mut copied = None;
-                                ui.act(|s| {
-                                    copied = s.copy_clean_link();
-                                    Vec::new()
-                                });
-                                if let Some(url) = copied {
-                                    set_clipboard(url);
-                                }
+                                ui.copy_link(None, true);
                                 ui.show(Screen::Browse);
                             }))
                             .child(row(icons::BOOKMARK, "Save to Reading List", move || {
@@ -433,11 +426,22 @@ fn menu(ui: Ui) -> impl IntoElement {
         ))
 }
 
-fn levels(
-    current: impl Fn() -> Option<ShieldLevel> + Copy + 'static,
-    set: impl Fn(Option<ShieldLevel>) + Copy + 'static,
-    with_default: bool,
-) -> impl IntoElement {
+pub(super) fn default_levels(ui: Ui) -> View {
+    levels(
+        move || Some(ui.read_data(|s| s.default_level())),
+        move |level| {
+            ui.act(|s| {
+                if let Some(level) = level {
+                    s.set_default_level(level);
+                }
+                Vec::new()
+            })
+        },
+        false,
+    )
+}
+
+fn levels(current: impl Fn() -> Option<ShieldLevel> + Copy + 'static, set: impl Fn(Option<ShieldLevel>) + Copy + 'static, with_default: bool) -> View {
     let choices: Vec<(&str, Option<ShieldLevel>)> = [
         ("Profile Default", None),
         ("Standard", Some(ShieldLevel::Standard)),
@@ -487,18 +491,20 @@ fn site_shield(ui: Ui) -> impl IntoElement {
         .child(sheets::site(ui))
 }
 
-fn open_file(ui: Ui) {
+pub(super) fn open_file(ui: Ui) {
     ui.show(Screen::Browse);
-    spawn(async move {
-        let Some(file) = pick_files(nsh_core::picker::FilePickRequest::new(false, 1)).await.into_iter().next() else { return };
-        let staged = browser_core::open_file::stage(&ui.read(|s| s.opened_dir()), &file.name, file.data.bytes());
-        ui.act(|s| {
-            match staged {
-                Ok(url) => s.open_file(&url),
-                Err(e) => s.notice = Some(format!("The file could not be opened: {e}")),
-            }
-            Vec::new()
-        });
+    ui.root.run(|| {
+        drop(spawn(async move {
+            let Some(file) = pick_files(nsh_core::picker::FilePickRequest::new(false, 1)).await.into_iter().next() else { return };
+            let staged = browser_core::open_file::stage(&ui.read(|s| s.opened_dir()), &file.name, file.data.bytes());
+            ui.act(|s| {
+                match staged {
+                    Ok(url) => s.open_file(&url),
+                    Err(e) => s.notice = Some(format!("The file could not be opened: {e}")),
+                }
+                Vec::new()
+            });
+        }))
     });
 }
 
@@ -514,30 +520,58 @@ pub fn share(ui: Ui, url: String) {
     });
 }
 
+fn layout_choice(ui: Ui) -> impl IntoElement {
+    when(
+        move || {
+            let size = window();
+            browser_core::layout::offered(size.width.0, size.height.0)
+        },
+        move || {
+            view()
+                .gap_2()
+                .child(section("Layout"))
+                .child(segmented(
+                    Layout::ALL
+                        .into_iter()
+                        .map(|layout| {
+                            (
+                                layout.label().to_owned(),
+                                Box::new(move || ui.read_data(|s| s.layout) == layout) as Box<dyn Fn() -> bool>,
+                                Box::new(move || ui.act(|s| s.set_layout(layout))) as Box<dyn Fn()>,
+                            )
+                        })
+                        .collect(),
+                ))
+                .child(
+                    caption("Mac arranges Tarn like the Mac app, with a sidebar, a toolbar and desktop-sized controls for a pointer and keyboard.")
+                        .number_of_lines(0)
+                        .px_1(),
+                )
+        },
+    )
+}
+
 fn pane_heading(pane: Pane) -> impl IntoElement {
     label(panes::name(pane)).text_size(px(TEXT_TITLE)).font_weight(FontWeight::BOLD).px_1().pt_4()
 }
 
-fn settings(ui: Ui) -> impl IntoElement {
+pub(super) fn settings(ui: Ui) -> impl IntoElement {
     view()
         .gap_2()
-        .child(pane_heading(Pane::Profile))
-        .child(sheets::shield_card(ui))
-        .child(section("Shield level"))
-        .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
-            ui.act(|s| {
-                if let Some(level) = level {
-                    s.set_default_level(level);
-                }
-                Vec::new()
-            })
-        }, false))
-        .child(dynamic(move || {
-            let level = ui.read_data(|s| s.default_level());
-            Some(caption(browser_core::shield_card::motto(level).1).px_1())
-        }))
-        .child(pane_heading(Pane::General))
-        .child(section("Downloads"))
+        .children(TOUCH_PANES.map(|pane| view().gap_2().child(pane_heading(pane)).children(pane_body(ui, pane))))
+        .child(section("Extensions"))
+        .child(framed(group().child(row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions)))))
+        .child(your_data(ui))
+}
+
+const TOUCH_PANES: [Pane; 6] = [Pane::Profile, Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions];
+
+pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
+    let body = view().gap_2();
+    Some(match pane {
+        Pane::Profile => body.child(sheets::shield_card(ui)),
+        Pane::General => body
+            .child(section("Downloads"))
         .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
             ui.act(|s| {
                 let on = s.setting_on(crate::scripts::SORT_DOWNLOADS);
@@ -545,11 +579,12 @@ fn settings(ui: Ui) -> impl IntoElement {
             })
         }))))
         .child(section("About"))
-        .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)).child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL)).child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)).child(pill("Open-source licences", move || ui.show(Screen::Licences))))
-        .child(pane_heading(Pane::Appearance))
-        .child(super::appearance::pane(ui))
-        .child(pane_heading(Pane::Search))
-        .child(section("Search engine"))
+        .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)).child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL)).child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)).child(pill("Open-source licences", move || ui.show(Screen::Licences)))),
+        Pane::Appearance => body
+            .child(layout_choice(ui))
+        .child(super::appearance::pane(ui)),
+        Pane::Search => body
+            .child(section("Search engine"))
         .child(segmented(
             ENGINES
                 .iter()
@@ -573,9 +608,9 @@ fn settings(ui: Ui) -> impl IntoElement {
                 s.set_setting_on(crate::scripts::HISTORY_TEXT, !on)
             })
         }))))
-        .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1())
-        .child(pane_heading(Pane::Privacy))
-        .child(section("Filter lists"))
+        .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1()),
+        Pane::Privacy => body
+            .child(section("Filter lists"))
         .child(framed(group().child(FILTER_SWITCHES.iter().map(|(key, name, _)| {
             switch_row(*name, move || ui.read_data(|s| s.filter_switch(key)), move || {
                 ui.act(|s| {
@@ -586,20 +621,22 @@ fn settings(ui: Ui) -> impl IntoElement {
             .border_b_1()
             .border_color(Theme::separator)
         }).collect::<Vec<_>>())))
-        .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1())
-        .child(pane_heading(Pane::Permissions))
-        .child(permissions(ui))
-        .child(section("Extensions"))
-        .child(framed(group().child(row(icons::APP_WINDOW, "Extensions", move || ui.show(Screen::Extensions)))))
-        .child(section("Your data"))
-        .child(framed(group().child(row(icons::TRASH, "Clear Browsing Data…", move || {
-            confirm("Clear browsing data?", "History, downloads list, closed tabs and this profile's website data are removed.", "Clear", move || {
-                ui.act(|s| {
-                    s.clear_data();
-                    Vec::new()
-                })
+        .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1()),
+        Pane::Permissions => body.child(permissions(ui)),
+        Pane::Profiles => body.child(spaces(ui)),
+        Pane::Tabs | Pane::Developer | Pane::Shortcuts => return None,
+    })
+}
+
+pub(super) fn your_data(ui: Ui) -> View {
+    view().gap_2().child(section("Your data")).child(framed(group().child(row(icons::TRASH, "Clear Browsing Data…", move || {
+        confirm("Clear browsing data?", "History, downloads list, closed tabs and this profile's website data are removed.", "Clear", move || {
+            ui.act(|s| {
+                s.clear_data();
+                Vec::new()
             })
-        }))))
+        })
+    }))))
 }
 
 /// Asks before a destructive action, which runs only on `action`.
@@ -702,9 +739,8 @@ fn history(ui: Ui) -> impl IntoElement {
             move |h, _| {
                 let entry = h.get_untracked();
                 let url = entry.url.clone();
-                let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title };
-                let host = url::Url::parse(&entry.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or(entry.url);
-                detail_row(Some(icons::GLOBE), name, Some(caption(host).number_of_lines(1)), move || {
+                let name = browser_core::command::display_title("", &entry.title, &url);
+                detail_row(Some(icons::GLOBE), name, Some(address_caption(&url, 1, false)), move || {
                     ui.show(Screen::Browse);
                     ui.act(|s| s.navigate(&url));
                 })
@@ -765,7 +801,6 @@ fn downloads(ui: Ui) -> impl IntoElement {
 fn spaces(ui: Ui) -> impl IntoElement {
     let rows = move || ui.read_data(|s| s.spaces());
     let current = move || ui.read(|s| s.model.space_ix);
-    let private_process = <crate::data::Data as crate::data::Platform>::private_process();
     view()
         .gap_2()
         .child(framed(group().child(each(
@@ -808,7 +843,7 @@ fn spaces(ui: Ui) -> impl IntoElement {
                     .child(icon_button(icons::PENCIL, "Edit Space", move || ui.show(Screen::SpaceEdit(ix))))
             },
         ))))
-        .child((!private_process).then(|| framed(group().child(row(icons::PLUS, "New Space", move || ui.show(Screen::SpaceNew))))))
+        .child(ui.read(|s| s.can_add_space()).then(|| framed(group().child(row(icons::PLUS, "New Space", move || ui.show(Screen::SpaceNew))))))
         .child(caption("A profile keeps its own cookies and website data; its spaces share them.").px_1())
         .child(dynamic(move || (!ui.read(|s| s.model.private())).then(|| sheets::snapshots(ui))))
 }

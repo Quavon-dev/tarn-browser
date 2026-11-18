@@ -6,7 +6,7 @@ use serde_json::Value;
 use shield::ShieldLevel;
 
 use super::controls::icon;
-use super::{Screen, Ui, accent_pill, caption, detail_row, icon_button, icons, label, pill, small, surface};
+use super::{Screen, Ui, accent_pill, address_caption, detail_row, icon_button, icons, label, pill, small, surface};
 use crate::shell::Page;
 use tarn_nsh_shared::icons as glyphs;
 
@@ -32,11 +32,11 @@ fn history_button(ui: Ui, asset: ImageAsset, name: &'static str, command: &'stat
         .disabled_style(|s| s.opacity(0.35))
 }
 
-fn back(ui: Ui) -> impl IntoElement {
+pub(super) fn back(ui: Ui) -> impl IntoElement {
     history_button(ui, icons::BACK, "Back", "back", |p| p.back)
 }
 
-fn forward(ui: Ui) -> impl IntoElement {
+pub(super) fn forward(ui: Ui) -> impl IntoElement {
     history_button(ui, icons::FORWARD, "Forward", "forward", |p| p.forward)
 }
 
@@ -65,17 +65,19 @@ fn tabs(ui: Ui) -> impl IntoElement {
 }
 
 fn new_tab(ui: Ui) -> impl IntoElement {
-    icon_button(icons::PLUS, "New Tab", move || {
-        let before = ui.read(|s| s.model.active);
-        let mut opened = None;
-        ui.act(|s| {
-            opened = s.new_tab(None);
-            Vec::new()
-        });
-        ui.show(Screen::Browse);
-        ui.fresh.set(opened.zip(before).filter(|(k, b)| k != b));
-        ui.field.focus();
-    })
+    icon_button(icons::PLUS, "New Tab", move || open_new_tab(ui))
+}
+
+pub(super) fn open_new_tab(ui: Ui) {
+    let before = ui.read(|s| s.model.active);
+    let mut opened = None;
+    ui.act(|s| {
+        opened = s.new_tab(None);
+        Vec::new()
+    });
+    ui.show(Screen::Browse);
+    ui.fresh.set(opened.zip(before).filter(|(k, b)| k != b));
+    ui.edit_address();
 }
 
 pub(super) fn cancel(ui: Ui) {
@@ -128,7 +130,7 @@ fn shield_button(ui: Ui) -> impl IntoElement {
         .child(dynamic(move || named().then(|| small(level_name(level())).text_color(Secure::muted).font_family(SYSTEM_FONT))))
 }
 
-fn reload(ui: Ui) -> impl IntoElement {
+pub(super) fn reload(ui: Ui) -> impl IntoElement {
     let reloaded = signal(0u64);
     let again = move || {
         ui.act(|s| s.active_command("reload", Value::Null));
@@ -209,6 +211,7 @@ fn address_input(ui: Ui) -> nsh_base::Input {
         .keyboard_type(KeyboardType::Url)
         .return_key_type(ReturnKeyType::Go)
         .auto_capitalize(AutoCapitalize::None)
+        .auto_correct(false)
         .placeholder("Search or enter address")
         .placeholder_color(Theme::faint)
         .label("Address")
@@ -224,7 +227,7 @@ fn address_input(ui: Ui) -> nsh_base::Input {
         })
 }
 
-fn cancel_button(ui: Ui) -> impl IntoElement {
+pub(super) fn cancel_button(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         ui.editing.get().then(|| {
             button()
@@ -254,6 +257,7 @@ fn page_actions(ui: Ui) -> impl IntoElement {
                     tarn_nsh_shared::controls::icon_button(view().text_color(Theme::text).child(glyphs::icon(glyphs::SHARE, ICON)), "Share", move || {
                         ui.show(Screen::Share)
                     })
+                    .element_ref(&ui.popovers.share)
                 })
             })
         }))
@@ -347,6 +351,7 @@ fn shield_chip(ui: Ui) -> impl IntoElement {
         .rounded(px(PILL_RADIUS - 1. - CHIP_INSET))
         .bg(Secure::control)
         .active(|s| s.bg(Secure::pressed()))
+        .element_ref(&ui.popovers.shield)
         .on_press(move || ui.show(Screen::Shield))
         .child(dynamic(move || {
             let (glyph, tint): (&'static str, fn() -> Rgba) = match (burner(), level.get()) {
@@ -366,7 +371,7 @@ fn shield_chip(ui: Ui) -> impl IntoElement {
         }))
 }
 
-fn address_pill(ui: Ui) -> impl IntoElement {
+pub(super) fn address_pill(ui: Ui) -> impl IntoElement {
     view()
         .flex_row()
         .items_center()
@@ -410,7 +415,7 @@ pub fn bottom_bar(ui: Ui) -> impl IntoElement {
 /// Up and Page Down jump to the first and last. Elsewhere the keys stay with the page.
 fn suggestion_keys(ui: Ui) -> impl IntoElement {
     dynamic(move || {
-        ui.editing.get().then(|| {
+        (ui.editing.get() && !ui.mac.get()).then(|| {
             bind_suggestion_keys(ui);
             view()
         })
@@ -445,9 +450,8 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
             move |h, ix| {
                 let entry = h.get_untracked();
                 let url = entry.url.clone();
-                let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title.clone() };
-                let detail = entry.url.trim_start_matches("https://").trim_end_matches('/').to_owned();
-                detail_row(Some(icons::GLOBE), name, Some(caption(detail).number_of_lines(1)), move || {
+                let name = browser_core::command::display_title("", &entry.title, &url);
+                detail_row(Some(icons::GLOBE), name, Some(address_caption(&url, 1, true)), move || {
                     ui.editing.set(false);
                     dismiss_keyboard();
                     ui.act(|s| s.navigate(&url));
@@ -458,5 +462,5 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
             },
         )),
     );
-    view().flex_1().style_when(move || !ui.editing.get(), |s| s.hidden()).style_when(move || !ui.wide(), |s| s.justify_end()).child(list)
+    view().flex_1().style_when(move || !ui.editing.get() || ui.mac.get(), |s| s.hidden()).style_when(move || !ui.wide(), |s| s.justify_end()).child(list)
 }

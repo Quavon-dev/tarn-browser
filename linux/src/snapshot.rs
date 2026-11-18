@@ -474,7 +474,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         burner: b.model.burner_shown(),
         find_rows: b.find_rows.clone(),
         downloading: downloading(b),
-        cleanable: browser_core::cleanup::cleanable(&b.model.tabs) && !b.model.burner_shown(),
+        cleanable: browser_core::sidebar::cleanable(&b.model),
         compact: b.compact_toolbar(),
         link_peek: peek_item(b).filter(|_| web_shown),
         fullscreen: b.page_fullscreen.is_on(),

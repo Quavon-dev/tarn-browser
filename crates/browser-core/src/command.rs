@@ -147,7 +147,7 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Show Memory Use", "gauge"),
     ("Memory", "gauge"),
     ("Zap Element", "zap"),
-    ("Open or Close Split View", "columns-2"),
+    ("Open File", "folder-open"),
     ("Focus Next Pane", "chevron-right"),
     ("Focus Previous Pane", "chevron-left"),
     ("Swap Split Panes", "arrow-left-right"),
@@ -263,6 +263,26 @@ pub fn address(url: &Url) -> (String, bool) {
         None => host_tail(page_label(url).trim_start_matches("www."), MAX_HOST),
     };
     (host, url.scheme() == "http" || url.as_str().starts_with("blob:http:"))
+}
+
+pub fn history_detail(url: &str) -> (String, String) {
+    let Ok(parsed) = Url::parse(url) else { return (String::new(), crate::text::bounded_url(url)) };
+    let host = parsed.host_str().map(|h| host_tail(h.trim_start_matches("www."), MAX_HOST)).unwrap_or_default();
+    let rest = &parsed[url::Position::AfterHost..];
+    (host, crate::text::bounded_url(rest.trim_end_matches('/')))
+}
+
+pub fn display_title(custom: &str, title: &str, url: &str) -> String {
+    [custom, title]
+        .into_iter()
+        .map(crate::text::bounded_title)
+        .find(|t| !t.trim().is_empty())
+        .or_else(|| {
+            Url::parse(url)
+                .ok()
+                .map(|u| file_name(&u).map_or_else(|| host_tail(&page_label(&u), crate::text::MAX_TITLE_CHARS), |n| crate::text::bounded_title(&n)))
+        })
+        .unwrap_or_else(|| "New Tab".into())
 }
 
 /// The name of a local file a `file:` URL shows, safe to display; a tab without a page title
@@ -414,6 +434,34 @@ mod tests {
         assert_eq!(u.as_str(), "https://duckduckgo.com/?q=a%26b%3Dc+d");
         let Some(Input::Search(u)) = classify_input("a b", &ENGINES[1]) else { panic!() };
         assert_eq!(u.as_str(), "https://www.startpage.com/sp/search?query=a+b");
+    }
+
+    #[test]
+    fn a_history_detail_keeps_the_registrable_end_of_its_host() {
+        let host = format!("bank.com.{}evil.test", "a.".repeat(30));
+        let (shown, rest) = history_detail(&format!("https://{host}/log\u{202e}in?x=1"));
+        assert!(shown.starts_with('…') && shown.ends_with("evil.test"), "{shown}");
+        assert!(!rest.contains('\u{202e}') && rest.starts_with("/log") && rest.ends_with("in?x=1"), "{rest}");
+        assert_eq!(history_detail("https://example.com/"), ("example.com".to_owned(), String::new()));
+        assert_eq!(history_detail("http://example.com:8080/a/"), ("example.com".to_owned(), ":8080/a".to_owned()));
+        let (_, long) = history_detail(&format!("https://example.com/{}", "p".repeat(900)));
+        assert!(long.chars().count() <= 200);
+        assert_eq!(history_detail("not a url").0, "");
+    }
+
+    #[test]
+    fn a_tab_shows_a_bounded_title_or_its_page_label() {
+        assert_eq!(display_title("", "", ""), "New Tab");
+        assert_eq!(display_title("Mail", "Inbox", "https://mail.test/"), "Mail");
+        assert_eq!(display_title(" ", "In\u{202e}box\n\tnow", "https://mail.test/"), "Inbox now");
+        assert_eq!(display_title("", "", "https://www.example.com/a?b"), "www.example.com");
+        assert_eq!(display_title("", "", "data:text/html,<h1>bank.test</h1>"), "data:");
+        let file = if cfg!(windows) { "file:///C:/d/doc.pdf" } else { "file:///tmp/doc.pdf" };
+        assert_eq!(display_title("", "", file), "doc.pdf", "an opened file without a title shows its name");
+        assert!(display_title("", &"x".repeat(5000), "").chars().count() < 500, "a page cannot make a row unbounded");
+        let host = format!("{}bank.test", "a.".repeat(120));
+        let shown = display_title("", "", &format!("https://{host}/"));
+        assert!(shown.chars().count() <= crate::text::MAX_TITLE_CHARS && shown.ends_with("bank.test"), "a long host keeps its registrable end: {shown}");
     }
 
     #[test]

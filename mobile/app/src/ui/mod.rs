@@ -2,6 +2,7 @@ mod appearance;
 mod bars;
 mod controls;
 mod extensions;
+mod mac;
 mod panels;
 mod prompt;
 mod share;
@@ -17,12 +18,14 @@ use browser_core::tabs::TabKey;
 use nsh_core::prelude::*;
 use nsh_core::{LayoutAnimation, LayoutCurve, LayoutTransition};
 use serde_json::{Value, json};
+use tarn_nsh_shared::controls::Density;
 
 use crate::data::{Data, Platform};
 use crate::shell::{Effect, Shell, ViewProps};
 use crate::theme::{MARK_SIZE, Paint, Secure, Theme, WIDE_LAYOUT, themed};
 pub use controls::{
-    accent_pill, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface, switch_row, text_field,
+    accent_pill, address_caption, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface, switch_row,
+    text_field,
 };
 
 pub type AppShell = Shell<Data>;
@@ -79,6 +82,9 @@ pub struct Ui {
     pub suggest: Signal<Vec<store::HistoryEntry>>,
     pub field: ElementRef,
     pub fresh: Signal<Option<(TabKey, TabKey)>>,
+    pub mac: Signal<bool>,
+    pub popovers: mac::popovers::Anchors,
+    pub root: Owner,
 }
 
 impl Ui {
@@ -186,6 +192,28 @@ impl Ui {
         self.show(if self.screen.get_untracked() == screen { Screen::Browse } else { screen });
     }
 
+    pub fn copy_link(self, key: Option<TabKey>, clean: bool) {
+        let mut link = None;
+        self.act(|s| {
+            link = match key {
+                Some(key) => s.copy_link_of(key, clean),
+                None => s.copy_link(clean),
+            };
+            Vec::new()
+        });
+        if let Some(link) = link {
+            set_clipboard(link);
+        }
+    }
+
+    pub fn edit_address(self) {
+        if self.mac.get_untracked() {
+            mac::open_palette(self);
+        } else {
+            self.field.focus();
+        }
+    }
+
     pub fn wide(self) -> bool {
         window().width.0 >= WIDE_LAYOUT
     }
@@ -196,8 +224,9 @@ impl Ui {
     }
 
     fn browsing(self) -> bool {
-        matches!(self.screen.get(), Screen::Browse | Screen::Find | Screen::Share)
-            && !self.editing.get()
+        let screen = self.screen.get();
+        (matches!(screen, Screen::Browse | Screen::Find | Screen::Share) || self.mac.get() && mac::owns(screen))
+            && (!self.editing.get() || self.mac.get())
             && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
     }
 }
@@ -264,8 +293,9 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
 }
 
 fn pane_header(ui: Ui, key: TabKey) -> impl IntoElement {
-    let title = move || ui.read(|s| Some(s.tab_title(key)).filter(|t| !t.is_empty()).unwrap_or_else(|| "New Tab".to_owned()));
+    let title = move || ui.read(|s| s.tab_title(key));
     split::draggable(ui, key, view())
+        .test_id("pane")
         .flex_row()
         .items_center()
         .h(px(PANE_HEADER))
@@ -292,8 +322,13 @@ fn pane_header(ui: Ui, key: TabKey) -> impl IntoElement {
             })
         }))
         .child(icon_button(icons::CLOSE, "Close Tab", move || {
+            let mac = ui.mac.get_untracked();
             ui.act(|s| {
-                s.close_tab(key);
+                if mac {
+                    s.close_or_unload(key);
+                } else {
+                    s.close_tab(key);
+                }
                 Vec::new()
             })
         }))
@@ -350,6 +385,16 @@ fn notice(ui: Ui) -> impl IntoElement {
                     )
                 }))
                 .child(dynamic(move || {
+                    ui.read(|s| s.can_undo_sort()).then(|| {
+                        tarn_nsh_shared::controls::toast_action("Undo Sort", move || {
+                            ui.act(|s| {
+                                s.undo_sort();
+                                Vec::new()
+                            })
+                        })
+                    })
+                }))
+                .child(dynamic(move || {
                     ui.read(|s| s.can_undo()).then(|| {
                         tarn_nsh_shared::controls::toast_action("Undo", move || {
                             ui.act(|s| {
@@ -394,7 +439,7 @@ fn start(ui: Ui) -> impl IntoElement {
 fn search_card(ui: Ui) -> impl IntoElement {
     let field = nsh_base::button()
         .accessibility_label("Search or enter an address")
-        .on_press(move || ui.field.focus())
+        .on_press(move || ui.edit_address())
         .flex_row()
         .items_center()
         .gap_2()
@@ -410,6 +455,7 @@ fn search_card(ui: Ui) -> impl IntoElement {
         .max_w(px(SEARCH_WIDTH))
         .px(px(browser_core::effects::MAX_SIDE + 8.))
         .child(view().relative().child(tarn_nsh_shared::search_fx::search_fx(SEARCH_ROW)).child(field))
+        .child(when(move || ui.mac.get(), move || mac::popovers::start_pills(ui)))
 }
 
 fn back(ui: Ui) -> bool {
@@ -427,6 +473,10 @@ fn back(ui: Ui) -> bool {
                 ui.act(|s| s.active_command("back", Value::Null));
             }
             can
+        }
+        screen if ui.mac.get_untracked() && mac::owns(screen) => {
+            ui.show(mac::back_from(screen));
+            true
         }
         screen => {
             panels::leave(ui, panels::parent(screen).unwrap_or(Screen::Browse));
@@ -450,6 +500,9 @@ pub fn App() -> impl IntoElement {
         suggest: signal(Vec::new()),
         field: element_ref(),
         fresh: signal(None),
+        mac: signal(false),
+        root: Owner::current(),
+        popovers: mac::popovers::Anchors::default(),
     };
     let extensions_open = std::cell::Cell::new(false);
     effect(move || {
@@ -475,6 +528,18 @@ pub fn App() -> impl IntoElement {
                 Vec::new()
             })
         });
+    });
+    effect(move || {
+        let size = window();
+        let setting = ui.read_data(|s| s.layout);
+        let mac = browser_core::layout::effective(setting, size.width.0, size.height.0) == browser_core::layout::Layout::Mac;
+        if mac != ui.mac.get_untracked() {
+            if ui.editing.get_untracked() {
+                bars::cancel(ui);
+            }
+            tarn_nsh_shared::controls::set_density(if mac { Density::Desktop } else { Density::Touch });
+            ui.mac.set(mac);
+        }
     });
     on_back_press(move || untracked(|| back(ui)));
     let profile = computed(move || ui.read_data(|s| s.profile_props()));
@@ -507,8 +572,9 @@ pub fn App() -> impl IntoElement {
         .text_color(Theme::text)
         .font_family(Theme::font_family)
         .child(themed(|| view().absolute().inset_0().paint(Theme::backdrop())))
-        .child(bars::top_bar(ui))
-        .child(
+        .child(mac::frame(
+            ui,
+            move || bars::top_bar(ui),
             view()
                 .flex_1()
                 .relative()
@@ -527,8 +593,8 @@ pub fn App() -> impl IntoElement {
                 .child(bars::suggestions(ui))
                 .child(prompt::prompt_panel(ui))
                 .child(panels::panel(ui)),
-        )
-        .child(bars::bottom_bar(ui))
+            move || bars::bottom_bar(ui),
+        ))
         .child(share::share_sheet(ui))
         .child(extensions::backgrounds(ui))
 }

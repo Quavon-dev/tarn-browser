@@ -694,6 +694,151 @@ fn the_private_process_shows_only_the_private_space_and_closes_through_the_platf
 }
 
 #[test]
+fn the_private_process_reaches_no_other_space_and_offers_no_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut shell = Shell::<PrivateProcess>::open(dir.path());
+    let here = shell.model.space_ix;
+    let others: Vec<usize> = (0..shell.model.spaces.len()).filter(|&ix| !shell.model.spaces[ix].private).collect();
+    assert!(!others.is_empty(), "the model still lists the normal spaces");
+    for ix in others {
+        shell.choose_space(ix, 1);
+        assert_eq!(shell.model.space_ix, here, "space {ix} is not reachable from the private process");
+    }
+    for step in [browser_core::sidebar::Step::Next, browser_core::sidebar::Step::Previous] {
+        assert_eq!(shell.neighbour_space(step), None);
+    }
+    assert!(!shell.can_add_space());
+    assert!(Shell::<MainProcess>::open(tempfile::tempdir().unwrap().path()).can_add_space());
+}
+
+#[test]
+fn every_copy_link_says_so_and_copies_only_web_links() {
+    let (_dir, mut shell) = open();
+    shell.navigate("data:text/html,hi");
+    let data = active(&shell);
+    assert_eq!(shell.copy_link_of(data, false), None, "a data: page has no link to copy");
+    assert_eq!(shell.copy_link_of(data, true), None);
+    shell.new_tab(None);
+    shell.navigate("https://example.com/?utm_source=x");
+    finish(&mut shell, "https://example.com/?utm_source=x", "Example");
+    let web = active(&shell);
+    shell.notice = None;
+    assert_eq!(shell.copy_link(false).as_deref(), Some("https://example.com/?utm_source=x"));
+    assert_eq!(shell.notice.as_deref(), Some("Link copied"));
+    shell.notice = None;
+    assert_eq!(shell.copy_link_of(web, true).as_deref(), Some("https://example.com/"));
+    assert!(shell.notice.as_deref().is_some_and(|n| n.starts_with("Link copied")));
+}
+
+#[test]
+fn closing_a_pinned_tab_or_tile_unloads_it_and_keeps_it() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://example.com/");
+    let pinned = active(&shell);
+    shell.toggle_pin(pinned);
+    shell.new_tab(None);
+    shell.navigate("https://example.org/");
+    let tile = active(&shell);
+    browser_core::sidebar::toggle_tile(&mut shell.model, &shell.core, tile);
+    for key in [pinned, tile] {
+        shell.activate(key);
+        shell.close_or_unload(key);
+        assert!(shell.model.tab(key).is_some(), "a pinned tab or tile stays in the Mac sidebar");
+        assert!(!shell.model.lifecycle.live().any(|k| k == key), "its page is unloaded");
+    }
+    shell.close_tab(pinned);
+    assert!(shell.model.tab(pinned).is_none(), "the touch layout's Close still removes a pinned tab, which it cannot unpin");
+}
+
+#[test]
+fn closing_several_tabs_says_how_many_and_undoes_together() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://a.test/");
+    let keep = active(&shell);
+    for url in ["https://b.test/", "https://c.test/"] {
+        shell.new_tab(None);
+        shell.navigate(url);
+    }
+    let others = browser_core::sidebar::other_unpinned(&shell.model, keep);
+    assert_eq!(others.len(), 2);
+    shell.close_many(&others);
+    assert_eq!(shell.notice.as_deref(), Some("2 tabs closed"));
+    assert!(shell.can_undo());
+    assert!(shell.undo_close());
+    assert_eq!(shell.model.tabs.len(), 3, "Undo brings both back");
+    shell.close_many(&[]);
+    assert_eq!(shell.model.tabs.len(), 3);
+}
+
+#[test]
+fn a_tab_title_is_the_bounded_shown_title_everywhere() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://www.example.com/a?b");
+    let key = active(&shell);
+    assert_eq!(shell.tab_title(key), "www.example.com", "an untitled page shows its label, not its address");
+    finish(&mut shell, "https://www.example.com/a?b", &format!("Bank\u{202e} {}", "x".repeat(900)));
+    let title = shell.tab_title(key);
+    assert!(title.starts_with("Bank x") && !title.contains('\u{202e}') && title.chars().count() < 500, "{title}");
+}
+
+#[test]
+fn closing_the_private_space_forgets_its_undo_sort() {
+    let (_dir, mut shell) = open();
+    shell.enter_private();
+    assert!(shell.model.private());
+    for url in ["https://github.com/a", "https://gitlab.com/b"] {
+        shell.new_tab(None);
+        shell.navigate(url);
+        finish(&mut shell, url, "");
+    }
+    shell.clean_up();
+    assert!(shell.can_undo_sort(), "the private sort can be undone while the session lasts");
+    shell.close_private();
+    assert!(shell.sort_undo.is_none(), "no record of the private session's groups outlives it");
+}
+
+#[test]
+fn a_burner_never_holds_a_sort_and_burning_one_keeps_the_private_spaces() {
+    let (_dir, mut shell) = open();
+    shell.enter_private();
+    for url in ["https://github.com/a", "https://gitlab.com/b"] {
+        shell.new_tab(None);
+        shell.navigate(url);
+        finish(&mut shell, url, "");
+    }
+    shell.clean_up();
+    let sorted = shell.sort_undo.as_ref().map(|(text, _)| text.clone());
+    assert!(sorted.is_some() && !shell.model.groups.is_empty());
+    shell.open_burner();
+    assert!(shell.in_burner());
+    for url in ["https://github.com/c", "https://gitlab.com/d"] {
+        shell.new_tab(None);
+        shell.navigate(url);
+        finish(&mut shell, url, "");
+    }
+    shell.clean_up();
+    assert!(shell.model.groups.is_empty(), "a burner's tabs are never sorted");
+    assert_eq!(shell.sort_undo.as_ref().map(|(text, _)| text.clone()), sorted, "so the only undo is the private space's");
+    shell.burn();
+    assert!(!shell.in_burner() && shell.model.private(), "back in the private space, which still exists");
+    shell.undo_sort();
+    assert!(shell.model.groups.is_empty(), "its sort can still be undone");
+    assert!(shell.sort_undo.is_none());
+}
+
+#[test]
+fn zoom_steps_from_the_page_and_resets() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://example.com/");
+    let key = active(&shell);
+    shell.zoom_by(0.1);
+    shell.zoom_by(0.1);
+    assert!((shell.pages[&key].zoom - 1.2).abs() < 1e-9);
+    shell.zoom_by(0.0);
+    assert!((shell.pages[&key].zoom - 1.0).abs() < 1e-9);
+}
+
+#[test]
 fn a_finished_load_that_never_committed_leaves_the_tab_where_it_was() {
     let (_dir, mut shell) = open();
     shell.navigate("https://public.test/redirect");

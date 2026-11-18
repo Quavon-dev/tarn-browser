@@ -380,6 +380,80 @@ fn groups_hold_unpinned_tabs_of_their_space_and_close_with_them() {
 }
 
 #[test]
+fn a_move_into_a_group_is_all_or_nothing() {
+    let (store, space) = seeded();
+    let profile = store.profiles().unwrap()[0].id;
+    let other = store.create_space(profile, "Work", "").unwrap();
+    let group = store.create_group(space, "Group 1").unwrap();
+    let foreign = store.create_group(other.id, "Elsewhere").unwrap();
+    let a = store.create_tab(space, TabKind::Ephemeral, None, "https://a.test/", "").unwrap();
+    let b = store.create_tab(space, TabKind::Ephemeral, None, "https://b.test/", "").unwrap();
+    let before = |id| {
+        let t = store.tab(id).unwrap();
+        (t.kind, t.folder_id, t.group_id, t.position)
+    };
+
+    let kept = (before(a.id), before(b.id));
+    assert!(store.move_tab_to(b.id, TabKind::Ephemeral, None, 0, Some(Some(foreign.id))).is_err(), "a group of another space");
+    assert_eq!((before(a.id), before(b.id)), kept, "a refused move leaves every tab where it was");
+    store.delete_group(foreign.id).unwrap();
+    assert!(store.move_tab_to(b.id, TabKind::Ephemeral, None, 0, Some(Some(foreign.id))).is_err(), "a group that is gone");
+    assert_eq!((before(a.id), before(b.id)), kept, "the position change is rolled back with the group");
+    let pinned = store.create_tab(space, TabKind::Pinned, None, "https://p.test/", "").unwrap();
+    assert!(store.move_tab_to(pinned.id, TabKind::Ephemeral, None, 0, Some(Some(foreign.id))).is_err());
+    assert_eq!(before(pinned.id).0, TabKind::Pinned, "the unpin is rolled back when its group is gone");
+    assert_eq!((before(a.id), before(b.id)), kept);
+
+    store.move_tab_to(b.id, TabKind::Ephemeral, None, 0, Some(Some(group.id))).unwrap();
+    assert_eq!((before(b.id).2, before(b.id).3, before(a.id).3), (Some(group.id), 0, 1));
+    store.move_tab_to(b.id, TabKind::Ephemeral, None, 1, Some(None)).unwrap();
+    assert_eq!((before(b.id).2, before(b.id).3, before(a.id).3), (None, 1, 0), "Some(None) takes the tab out of its group");
+    store.set_tab_group(a.id, Some(group.id)).unwrap();
+    store.move_tab_to(a.id, TabKind::Ephemeral, None, 0, None).unwrap();
+    assert_eq!(before(a.id).2, Some(group.id), "None keeps the group");
+}
+
+#[test]
+fn a_profile_whose_last_write_fails_leaves_nothing_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    let home = store.create_profile("Personal", "home-uuid", false).unwrap();
+    let home_space = store.create_space(home.id, "Home", "house").unwrap();
+    let settings_before = (store.setting(&format!("shared_store.{}", home.id)).unwrap(), store.setting(&format!("search_engine.{}", home.id)).unwrap());
+    rusqlite::Connection::open(dir.path().join("tarn.db"))
+        .unwrap()
+        .execute_batch("CREATE TRIGGER refuse_space_update BEFORE UPDATE ON spaces BEGIN SELECT RAISE(ABORT, 'refused'); END;")
+        .unwrap();
+    let failed = store.batch(|s| {
+        let shared = s.setting(&format!("shared_store.{}", home.id))?.filter(|u| !u.is_empty()).unwrap_or(s.profile(home.id)?.data_store_uuid);
+        let id = s.create_profile("Work", "work-uuid", false)?.id;
+        s.set_profile(id, "Work", "green")?;
+        s.set_profile_shield_level(id, ShieldLevel::Strict)?;
+        s.set_setting(&format!("shared_store.{id}"), &shared)?;
+        s.set_setting(&format!("search_engine.{id}"), "Kagi")?;
+        let space = s.create_space(id, "Desk", "briefcase")?.id;
+        s.update_space(space, "Desk", "blue", "briefcase")
+    });
+    assert!(failed.is_err(), "the last write of profiles::create is refused");
+    let profiles = store.profiles().unwrap();
+    assert_eq!(profiles.iter().map(|p| p.id).collect::<Vec<_>>(), [home.id], "no new profile row");
+    let new_id = home.id + 1;
+    assert!(
+        store.setting(&format!("shared_store.{new_id}")).unwrap().is_none() && store.setting(&format!("search_engine.{new_id}")).unwrap().is_none(),
+        "no settings of the new profile"
+    );
+    assert!(store.spaces(new_id).unwrap().is_empty(), "no new space");
+    assert_eq!(store.spaces(home.id).unwrap().iter().map(|s| s.id).collect::<Vec<_>>(), [home_space.id]);
+    let after = store.profile(home.id).unwrap();
+    assert_eq!(
+        (after.name.as_str(), after.data_store_uuid.as_str(), after.shield_level),
+        ("Personal", "home-uuid", home.shield_level),
+        "the shared-from profile is unchanged"
+    );
+    assert_eq!((store.setting(&format!("shared_store.{}", home.id)).unwrap(), store.setting(&format!("search_engine.{}", home.id)).unwrap()), settings_before);
+}
+
+#[test]
 fn ungroup_keeps_the_tabs() {
     let (store, space) = seeded();
     let group = store.create_group(space, "Group 1").unwrap();

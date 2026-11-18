@@ -72,7 +72,7 @@ impl Browser {
         let ephemeral = tab.kind == TabKind::Ephemeral;
         let group = tab.group_id;
         let unpinned = self.model.ephemeral_keys();
-        let below = unpinned.iter().skip_while(|k| **k != key).nth(1).is_some();
+        let below = !browser_core::sidebar::tabs_below(&self.model, key).is_empty();
         let others = unpinned.iter().any(|k| *k != key);
         let spaces: Vec<Item<Cmd>> = self
             .model
@@ -395,7 +395,7 @@ impl Browser {
                 self.close_tabs(keys, window, cx);
             }
             Cmd::CloseBelow(key) => {
-                let keys = self.model.ephemeral_keys().into_iter().skip_while(|k| *k != key).skip(1).collect();
+                let keys = browser_core::sidebar::tabs_below(&self.model, key);
                 self.close_tabs(keys, window, cx);
             }
             Cmd::CloseDuplicates => {

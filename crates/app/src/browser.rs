@@ -808,7 +808,7 @@ impl Browser {
 
     /// Catches the shell up with the current space's lists: its profile's site icons, the tabs
     /// that fade in and its bookmarks.
-    fn space_shown(&mut self, old: &[Tab]) {
+    pub(crate) fn space_shown(&mut self, old: &[Tab]) {
         self.note_new_tabs(old);
         let profile = self.model.profile();
         if let Some((private, profile_id)) = profile {
@@ -3224,7 +3224,7 @@ pub fn tab_host(url: &str) -> Option<String> {
     Url::parse(url).ok()?.host_str().map(|h| h.to_ascii_lowercase())
 }
 
-pub use browser_core::command::{page_host, page_label};
+pub use browser_core::command::page_host;
 
 /// The row to write for a site's zoom: `Some(None)` forgets it, `None` writes nothing.
 fn zoom_to_save(zoom: f64, lockdown: bool) -> Option<Option<f64>> {

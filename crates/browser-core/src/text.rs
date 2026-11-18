@@ -29,6 +29,16 @@ pub fn bounded_title(raw: &str) -> String {
     out
 }
 
+pub fn bounded_url(raw: &str) -> String {
+    const MAX_URL_CHARS: usize = 200;
+    let clean: Vec<char> = raw.chars().filter(|c| !c.is_control() && !is_bidi(*c)).collect();
+    if clean.len() <= MAX_URL_CHARS {
+        return clean.into_iter().collect();
+    }
+    let half = (MAX_URL_CHARS - 1) / 2;
+    clean[..half].iter().chain(std::iter::once(&'…')).chain(&clean[clean.len() - half..]).collect()
+}
+
 /// A file name for a capture of the page: its title, else its host, as one safe path component.
 pub fn capture_name(title: &str, url: Option<&url::Url>, ext: &str) -> String {
     let title = bounded_title(title);
@@ -65,6 +75,15 @@ pub fn markdown_link(title: &str, url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_urls_keep_their_start_and_end() {
+        let url = format!("ms-officecmd:{}&tail=run", "a".repeat(400));
+        let shown = bounded_url(&url);
+        assert!(shown.starts_with("ms-officecmd:") && shown.ends_with("&tail=run") && shown.contains('…'));
+        assert!(shown.chars().count() <= 200);
+        assert_eq!(bounded_url("zoommtg://x\u{202E}y"), "zoommtg://xy");
+    }
 
     #[test]
     fn an_untitled_page_is_named_by_its_host() {

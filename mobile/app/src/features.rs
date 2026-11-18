@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use browser_core::snapshot::{self, SpaceSnapshot};
 use browser_core::split::{Share, Split};
@@ -31,6 +31,28 @@ impl<D: Platform> Shell<D> {
 
     pub fn notice_tone(&self) -> browser_core::toast::Tone {
         self.tone.as_ref().filter(|(text, _)| self.notice.as_ref() == Some(text)).map_or_else(Default::default, |(_, tone)| *tone)
+    }
+
+    pub fn clean_up(&mut self) {
+        let private = self.model.private();
+        let urls: HashMap<store::Id, String> = self.model.tabs.iter().map(|t| (t.id, self.tab_url(TabKey { private, id: t.id }))).collect();
+        let Some(sorted) = browser_core::sidebar::clean_up(&mut self.model, &self.core, |t| urls.get(&t.id).cloned().unwrap_or_else(|| t.url.clone())) else {
+            return;
+        };
+        self.toast_as(sorted.tone, sorted.text.clone());
+        self.sort_undo = sorted.undo.map(|undo| (sorted.text, undo));
+    }
+
+    pub fn can_undo_sort(&self) -> bool {
+        self.sort_undo.as_ref().is_some_and(|(text, _)| self.notice.as_ref() == Some(text))
+    }
+
+    pub fn undo_sort(&mut self) {
+        let Some((_, undo)) = self.sort_undo.take() else { return };
+        self.notice = None;
+        if !browser_core::sidebar::undo_sort(&mut self.model, &self.core, &undo) {
+            self.toast_as(browser_core::toast::Tone::Warning, "Could not undo the sort".to_owned());
+        }
     }
 
     pub fn can_undo(&self) -> bool {
@@ -108,20 +130,44 @@ impl<D: Platform> Shell<D> {
         let keys = self.duplicate_tabs();
         match keys.len() {
             0 => self.notice = Some("No duplicate tabs in this space.".into()),
-            n => {
-                if self.close_tabs(&keys).is_some() {
-                    self.toast(if n == 1 { "Tab closed".into() } else { format!("{n} tabs closed") });
-                }
-            }
+            _ => self.close_many(&keys),
         }
     }
 
-    pub fn copy_clean_link(&mut self) -> Option<String> {
-        let key = self.model.active?;
-        let url = self.tab_url(key);
-        if url.is_empty() {
-            return None;
+    pub fn close_many(&mut self, keys: &[TabKey]) {
+        if keys.is_empty() {
+            return;
         }
+        if self.in_burner() {
+            self.burn();
+            return;
+        }
+        if self.close_tabs(keys).is_some() {
+            self.toast(if keys.len() == 1 { "Tab closed".into() } else { format!("{} tabs closed", keys.len()) });
+        }
+    }
+
+    pub fn web_link_of(&self, key: TabKey) -> Option<String> {
+        let url = self.tab_url(key);
+        Url::parse(&url).ok().filter(|u| matches!(u.scheme(), "http" | "https")).map(|_| url)
+    }
+
+    pub fn copy_link(&mut self, clean: bool) -> Option<String> {
+        let key = self.model.active?;
+        self.copy_link_of(key, clean)
+    }
+
+    pub fn copy_link_of(&mut self, key: TabKey, clean: bool) -> Option<String> {
+        if clean {
+            return self.copy_clean_link_of(key);
+        }
+        let link = self.web_link_of(key)?;
+        self.toast_as(browser_core::toast::Tone::Success, "Link copied".into());
+        Some(link)
+    }
+
+    pub fn copy_clean_link_of(&mut self, key: TabKey) -> Option<String> {
+        let url = self.web_link_of(key)?;
         let (url, removed) = shield::url_clean::clean_link(&url);
         if removed > 0
             && let Some((private, id)) = self.model.profile()
@@ -422,6 +468,27 @@ impl<D: Platform> Shell<D> {
         self.core.disk.set_setting(key, if on { "on" } else { "off" }).ok();
         if key == crate::scripts::HISTORY_TEXT && !on {
             self.core.disk.clear_history_text().ok();
+        }
+        Vec::new()
+    }
+
+    pub fn toggle_sidebar(&mut self) {
+        self.sidebar_open = !self.sidebar_open;
+        if let Err(e) = browser_core::layout::save_sidebar(&self.core.disk, self.sidebar_open) {
+            self.toast_as(browser_core::toast::Tone::Warning, format!("The sidebar setting could not be saved: {e}"));
+        }
+    }
+
+    pub fn toggle_pin(&mut self, key: TabKey) {
+        if self.model.tab(key).is_some_and(|t| browser_core::tab_menu::pinnable(t.kind, self.model.burner_shown())) {
+            browser_core::sidebar::toggle_pin(&mut self.model, &self.core, key);
+        }
+    }
+
+    pub fn set_layout(&mut self, layout: browser_core::layout::Layout) -> Vec<Effect> {
+        self.layout = layout;
+        if let Err(e) = layout.save(&self.core.disk) {
+            self.toast_as(browser_core::toast::Tone::Warning, format!("The layout could not be saved: {e}"));
         }
         Vec::new()
     }

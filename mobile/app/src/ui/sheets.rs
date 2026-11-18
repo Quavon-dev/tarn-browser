@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use browser_core::shield_card::{Card, H, Label, SHORT, W, back, day_totals, face, front, front_svg, thousands};
+use browser_core::shield_card::{Card, H, Label, W, back, day_totals, face, front, front_svg, thousands};
 use browser_core::space_card::SpaceDraft;
 use browser_core::tabs::TabKey;
 use engine::reader::Block;
@@ -11,7 +11,8 @@ use tarn_nsh_shared::card::{Words, day_chart, day_summary, picture, share_bar};
 use tarn_nsh_shared::controls::{group, icon_pill, pill_grid};
 
 use super::{
-    Screen, Ui, accent_pill, caption, detail_row, framed, icon_button, icons, label, pill, section, segmented, small, surface, switch_row, text_field,
+    Screen, Ui, accent_pill, address_caption, caption, detail_row, framed, icon_button, icons, label, pill, section, segmented, small, surface, switch_row,
+    text_field,
 };
 use crate::scripts::{FindRow, Transfer, TransferState};
 use tarn_nsh_shared::controls::glyph_tile;
@@ -25,11 +26,15 @@ const CARD_FILE: &str = "Tarn Shield card.svg";
 
 const QR_SIZE: f32 = 240.;
 const SWATCH: f32 = 28.;
+const HERO_GAP: f32 = 24.;
+const HERO_COLUMN: f32 = 240.;
+const NUMBER_WIDTH: f32 = 72.;
+const STATS_WIDTH: f32 = 280.;
 pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 fn row_button(name: String, detail: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
-    detail_row(None, name, detail.map(|d| caption(d).number_of_lines(2)), press)
+    detail_row(None, name, detail.map(|d| caption(d).number_of_lines(2).into_element()), press)
 }
 
 pub fn reader(ui: Ui) -> impl IntoElement {
@@ -189,7 +194,7 @@ pub fn reading_list(ui: Ui) -> impl IntoElement {
                 .flex_row()
                 .items_center()
                 .child(
-                    row_button(b.title.clone(), Some(url.clone()), move || {
+                    detail_row(None, browser_core::command::display_title("", &b.title, &url), Some(address_caption(&url, 2, true)), move || {
                         ui.show(Screen::Browse);
                         ui.act(|s| s.navigate(&url));
                     })
@@ -206,104 +211,101 @@ pub fn reading_list(ui: Ui) -> impl IntoElement {
 }
 
 pub fn site(ui: Ui) -> impl IntoElement {
-    let css = signal(ui.read(|s| s.site_css()));
-    // The field follows the page to another host, so a save never lands on the wrong site.
-    let css_host = std::cell::RefCell::new(ui.read(|s| s.active_host()));
+    let css = signal(untracked(|| ui.read(|s| s.site_css())));
+    let css_site = std::cell::RefCell::new(untracked(|| ui.read(|s| (s.model.profile(), s.active_host()))));
     effect(move || {
-        let host = ui.read(|s| s.active_host());
-        if host.is_some() && *css_host.borrow() != host {
-            css_host.replace(host);
+        let site = ui.read(|s| (s.model.profile(), s.active_host()));
+        if site.1.is_some() && *css_site.borrow() != site {
+            css_site.replace(site);
             css.set(untracked(|| ui.read(|s| s.site_css())));
         }
     });
     let has_site = move || ui.read(|s| s.active_host().is_some());
-    view().gap_2().child(dynamic(move || {
-        has_site().then(|| {
-            view()
-                .gap_2()
-                .child(section("Appearance"))
-                .child(framed(view().child(switch_row(
-                    "Dark mode for this site",
-                    move || ui.read(|s| s.site_dark()),
-                    move || {
-                        ui.act(|s| {
-                            s.set_site_dark(!s.site_dark());
-                            Vec::new()
-                        })
-                    },
-                ))))
-                .child(caption("Inverts the page's colours for sites without a dark mode of their own. Off under Lockdown.").px_1())
-                .child(section("Site CSS"))
-                .child(
-                    text_field("Site CSS", "Site CSS")
-                        .value(move || css.get())
-                        .on_change(move |v: &str| css.set(v.to_owned()))
-                        .auto_capitalize(AutoCapitalize::None)
-                        .test_id("Site CSS"),
-                )
-                .child(view().flex_row().gap_2().child(pill("Save CSS", move || {
-                    let value = css.get_untracked();
+    view().gap_2().child(when(has_site, move || {
+        view()
+            .gap_2()
+            .child(section("Appearance"))
+            .child(framed(view().child(switch_row(
+                "Dark mode for this site",
+                move || ui.read(|s| s.site_dark()),
+                move || {
                     ui.act(|s| {
-                        if s.set_site_css(&value) {
-                            s.toast_as(browser_core::toast::Tone::Success, "Site CSS saved".into());
-                        }
+                        s.set_site_dark(!s.site_dark());
                         Vec::new()
                     })
-                })))
-                .child(section("Hidden elements"))
-                .child(label(move || match ui.read(|s| s.site_zaps()) {
-                    0 => "No hidden elements on this site.".to_owned(),
-                    1 => "1 element hidden on this site.".to_owned(),
-                    n => format!("{n} elements hidden on this site."),
-                }))
-                .child(
-                    view()
-                        .flex_row()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(pill("Zap Element", move || {
-                            ui.show(Screen::Browse);
-                            ui.act(|s| s.pick());
-                        }))
-                        .child(dynamic(move || {
-                            (ui.read(|s| s.site_zaps()) > 0).then(|| {
-                                pill("Show All", move || {
-                                    ui.act(|s| {
-                                        s.clear_site_zaps();
-                                        Vec::new()
-                                    })
-                                })
-                            })
-                        })),
-                )
-                .child(dynamic(move || {
-                    ui.read(|s| s.site_rule()).map(|rule| {
-                        let mut options: Vec<tarn_nsh_shared::controls::Segment> = vec![(
-                            "Any space".to_owned(),
-                            Box::new(move || ui.read(|s| s.site_rule().and_then(|r| r.space).is_none())),
-                            Box::new(move || {
+                },
+            ))))
+            .child(caption("Inverts the page's colours for sites without a dark mode of their own. Off under Lockdown.").px_1())
+            .child(section("Site CSS"))
+            .child(
+                text_field("Site CSS", "Site CSS")
+                    .value(move || css.get())
+                    .on_change(move |v: &str| css.set(v.to_owned()))
+                    .auto_capitalize(AutoCapitalize::None)
+                    .test_id("Site CSS"),
+            )
+            .child(view().flex_row().gap_2().child(pill("Save CSS", move || {
+                let value = css.get_untracked();
+                ui.act(|s| {
+                    if s.set_site_css(&value) {
+                        s.toast_as(browser_core::toast::Tone::Success, "Site CSS saved".into());
+                    }
+                    Vec::new()
+                })
+            })))
+            .child(section("Hidden elements"))
+            .child(label(move || match ui.read(|s| s.site_zaps()) {
+                0 => "No hidden elements on this site.".to_owned(),
+                1 => "1 element hidden on this site.".to_owned(),
+                n => format!("{n} elements hidden on this site."),
+            }))
+            .child(
+                view()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(pill("Zap Element", move || {
+                        ui.show(Screen::Browse);
+                        ui.act(|s| s.pick());
+                    }))
+                    .child(dynamic(move || {
+                        (ui.read(|s| s.site_zaps()) > 0).then(|| {
+                            pill("Show All", move || {
                                 ui.act(|s| {
-                                    s.set_site_rule(None);
+                                    s.clear_site_zaps();
                                     Vec::new()
                                 })
-                            }),
-                        )];
-                        options.extend(rule.choices.into_iter().map(|(ix, name)| {
-                            (
-                                name,
-                                Box::new(move || ui.read(|s| s.site_rule().and_then(|r| r.space) == Some(ix))) as Box<dyn Fn() -> bool>,
-                                Box::new(move || {
-                                    ui.act(|s| {
-                                        s.set_site_rule(Some(ix));
-                                        Vec::new()
-                                    })
-                                }) as Box<dyn Fn()>,
-                            )
-                        }));
-                        view().gap_2().child(section("Open new tabs of this site in")).child(segmented(options))
-                    })
-                }))
-        })
+                            })
+                        })
+                    })),
+            )
+            .child(dynamic(move || {
+                ui.read(|s| s.site_rule()).map(|rule| {
+                    let mut options: Vec<tarn_nsh_shared::controls::Segment> = vec![(
+                        "Any space".to_owned(),
+                        Box::new(move || ui.read(|s| s.site_rule().and_then(|r| r.space).is_none())),
+                        Box::new(move || {
+                            ui.act(|s| {
+                                s.set_site_rule(None);
+                                Vec::new()
+                            })
+                        }),
+                    )];
+                    options.extend(rule.choices.into_iter().map(|(ix, name)| {
+                        (
+                            name,
+                            Box::new(move || ui.read(|s| s.site_rule().and_then(|r| r.space) == Some(ix))) as Box<dyn Fn() -> bool>,
+                            Box::new(move || {
+                                ui.act(|s| {
+                                    s.set_site_rule(Some(ix));
+                                    Vec::new()
+                                })
+                            }) as Box<dyn Fn()>,
+                        )
+                    }));
+                    view().gap_2().child(section("Open new tabs of this site in")).child(segmented(options))
+                })
+            }))
     }))
 }
 
@@ -367,11 +369,16 @@ fn swatches(chosen: impl Fn() -> String + Copy + 'static, pick: impl Fn(&'static
 }
 
 pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
+    let (body, footer) = space_card_parts(ui, editing);
+    view().gap_2().child(body).child(footer)
+}
+
+pub fn space_card_parts(ui: Ui, editing: Option<usize>) -> (View, View) {
     let draft = signal(ui.read(|s| s.space_draft(editing)));
     let profiles = ui.read_data(|s| s.profiles());
     let known = signal(profiles.clone());
     let ready = move || ui.read_data(|s| known.with(|p| draft.get().ready(&s.model.spaces, p).is_some()));
-    let back = move || ui.show(Screen::Spaces);
+    let back = move || ui.show(if ui.mac.get_untracked() { Screen::Browse } else { Screen::Spaces });
     on_key_with("escape", KeyOptions { when: nsh_core::keymap::When::Always, ..KeyOptions::default() }, move |_| back());
     let confirm = move || {
         if !ready() {
@@ -384,7 +391,7 @@ pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
             Vec::new()
         });
         if saved.get() {
-            ui.show(if d.editing.is_none() { Screen::Browse } else { Screen::Spaces });
+            ui.show(if d.editing.is_none() || ui.mac.get_untracked() { Screen::Browse } else { Screen::Spaces });
         }
     };
     let private = draft.get_untracked().private;
@@ -452,7 +459,7 @@ pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
                 .into_element()
         })
         .collect::<Vec<_>>();
-    view()
+    let body = view()
         .gap_2()
         .child(
             caption(if new {
@@ -481,16 +488,15 @@ pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
         }))
         .child(section("Icon"))
         .child(view().flex_row().flex_wrap().gap_1().children(icons_grid))
-        .child((!new && !private).then(|| schedule(draft)))
-        .child(
-            view()
-                .flex_row()
-                .justify_end()
-                .gap_2()
-                .pt_2()
-                .child(pill("Cancel", back))
-                .child(accent_pill(if new { "Create Space" } else { "Save" }, confirm).disabled(move || !ready()).disabled_style(|s| s.opacity(0.35))),
-        )
+        .child((!new && !private).then(|| schedule(draft)));
+    let footer = view()
+        .flex_row()
+        .justify_end()
+        .gap_2()
+        .pt_2()
+        .child(pill("Cancel", back))
+        .child(accent_pill(if new { "Create Space" } else { "Save" }, confirm).disabled(move || !ready()).disabled_style(|s| s.opacity(0.35)));
+    (body, footer)
 }
 
 fn schedule(draft: Signal<SpaceDraft>) -> View {
@@ -685,20 +691,28 @@ fn shield_words(labels: &[Label]) -> Vec<Words<'_>> {
 }
 
 fn numbers(card: &Card) -> View {
-    let cells: Vec<AnyElement> = card
-        .counters
-        .iter()
-        .zip(SHORT)
-        .map(|((_, n), (first, second))| {
-            view()
-                .flex_1()
-                .items_center()
-                .child(text(thousands((*n).max(0) as u64)).text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).text_color(Theme::text))
-                .child(small(format!("{first} {second}")).text_center().number_of_lines(2))
-                .into_element()
-        })
-        .collect();
-    group().flex_row().py_3().px_1().children(cells)
+    let cells = card.counters.iter().zip(browser_core::shield_card::NUMBERS).map(|((_, n), caption)| {
+        view()
+            .flex_1()
+            .min_w(px(NUMBER_WIDTH))
+            .test_id("profile-number")
+            .child(text(thousands((*n).max(0) as u64)).text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).text_color(Theme::text))
+            .child(small(caption).number_of_lines(2))
+            .into_element()
+    });
+    view().flex_row().flex_wrap().gap_x(px(20.)).gap_y(px(8.)).children(cells)
+}
+
+fn since(card: &Card, private: bool) -> String {
+    match (card.days, &card.since) {
+        (Some(days), Some(since)) => format!("Protected for {} · since {since}", browser_core::shield_card::days_text(days)),
+        _ if private => "Counts stay in memory until the private space closes.".to_owned(),
+        _ => "Counting starts with the first thing Shield stops.".to_owned(),
+    }
+}
+
+fn card_room(ui: Ui) -> f32 {
+    if ui.mac.get() { super::mac::pane_width() } else { window().width.0.min(crate::theme::SHEET_WIDTH) - 56. }
 }
 
 fn last_week(card: &Card) -> View {
@@ -719,8 +733,8 @@ fn last_week(card: &Card) -> View {
         .child(day_chart(&days))
 }
 
-fn top_sites(card: &Card) -> Option<View> {
-    let most = card.sites.iter().map(|(_, n)| *n).max()?;
+fn top_sites(card: &Card) -> View {
+    let most = card.sites.iter().map(|(_, n)| *n).max().unwrap_or(0);
     let rows: Vec<AnyElement> = card
         .sites
         .iter()
@@ -736,7 +750,8 @@ fn top_sites(card: &Card) -> Option<View> {
                 .into_element()
         })
         .collect();
-    Some(group().p_3().gap_1().child(label("Most protected sites").font_weight(FontWeight::SEMIBOLD)).children(rows))
+    let empty = rows.is_empty().then(|| caption("Sites show here once Shield has stopped something on them.").number_of_lines(0));
+    group().p_3().gap_1().child(label("Most protected sites").font_weight(FontWeight::SEMIBOLD)).children(rows).children(empty)
 }
 
 fn share_card(ui: Ui, card: &Card, dark: bool) {
@@ -770,7 +785,9 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
             let (card, private) = card.get()?;
             let turned = flipped.get();
             let dark = !Theme::is_light();
-            let scale = ((window().width.0.min(crate::theme::SHEET_WIDTH) - 56.) / W as f32).min(1.);
+            let room = card_room(ui);
+            let wide = room >= W as f32 + HERO_GAP + HERO_COLUMN;
+            let scale = (room / W as f32).min(1.);
             let (sky, shapes, labels) = if turned { back(&card, dark) } else { front(&card, true, dark) };
             let counts = card.counters.iter().map(|(name, n)| format!("{name}: {}", thousands((*n).max(0) as u64))).collect::<Vec<_>>().join(", ");
             let name = if turned {
@@ -785,43 +802,74 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
             };
             let flip = move || flipped.update(|b| *b = !*b);
             let shared = card.clone();
+            let face = button()
+                .accessibility_label(SharedString::from(name))
+                .on_press(flip)
+                .flex_none()
+                .rounded(px(Theme::radius_card() * scale))
+                .overflow_hidden()
+                .shadow(Theme::elevation(6., 18.))
+                .active(|s| s.opacity(0.85))
+                .bind_motion(&tarn_nsh_shared::motion::fade_in())
+                .child(picture(&face(sky, &shapes), W as f32, H as f32, &shield_words(&labels), scale));
+            let design = move || {
+                ui.act(|s| {
+                    if let Some((private, id)) = s.model.profile() {
+                        s.core.store(private).new_shield_design(id).ok();
+                    }
+                    Vec::new()
+                })
+            };
+            let actions = view()
+                .gap_2()
+                .child(pill_grid(vec![icon_pill(glyphs::RELOAD, "Flip", flip), icon_pill(glyphs::PALETTE, "Change Design", design)]))
+                .child((!private).then(|| icon_pill(glyphs::SHARE, "Share Card", move || share_card(ui, &shared, dark))));
+            let column = view()
+                .flex_1()
+                .min_w(px(0.))
+                .gap_3()
+                .child(
+                    view()
+                        .child(label(card.name.clone()).text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).number_of_lines(1))
+                        .child(small(since(&card, private))),
+                )
+                .child(numbers(&card))
+                .child(
+                    view()
+                        .gap_1()
+                        .child(
+                            view()
+                                .flex_row()
+                                .flex_wrap()
+                                .items_center()
+                                .justify_between()
+                                .gap_2()
+                                .child(label("Shield level"))
+                                .child(super::panels::default_levels(ui).flex_none().test_id("profile-levels")),
+                        )
+                        .child(small(browser_core::shield_card::motto(card.level).1)),
+                )
+                .child(actions);
+            let hero = if wide {
+                view().flex_row().items_start().gap(px(HERO_GAP)).child(face).child(column)
+            } else {
+                view().gap_3().child(view().items_center().child(face)).child(column)
+            };
             Some(
                 view()
                     .gap_3()
-                    .child(
-                        view().items_center().child(
-                            button()
-                                .accessibility_label(SharedString::from(name))
-                                .on_press(flip)
-                                .rounded(px(Theme::radius_card() * scale))
-                                .overflow_hidden()
-                                .shadow(Theme::elevation(6., 18.))
-                                .active(|s| s.opacity(0.85))
-                                .bind_motion(&tarn_nsh_shared::motion::fade_in())
-                                .child(picture(&face(sky, &shapes), W as f32, H as f32, &shield_words(&labels), scale)),
-                        ),
-                    )
-                    .child(numbers(&card))
-                    .child(pill_grid(
-                        [
-                            Some(icon_pill(glyphs::RELOAD, "Flip", flip)),
-                            Some(icon_pill(glyphs::PALETTE, "Change design", move || {
-                                ui.act(|s| {
-                                    if let Some((private, id)) = s.model.profile() {
-                                        s.core.store(private).new_shield_design(id).ok();
-                                    }
-                                    Vec::new()
-                                })
-                            })),
-                            (!private).then(|| icon_pill(glyphs::SHARE, "Share card", move || share_card(ui, &shared, dark))),
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .collect(),
-                    ))
-                    .child(caption(kept).number_of_lines(0).px_1())
-                    .child(last_week(&card))
-                    .child(top_sites(&card))
+                    .child(hero.test_id("profile-hero"))
+                    .child((!ui.mac.get()).then(|| caption(kept).number_of_lines(0).px_1()))
+                    .child(if ui.mac.get() {
+                        view()
+                            .flex_row()
+                            .flex_wrap()
+                            .gap_3()
+                            .child(last_week(&card).flex_1().min_w(px(STATS_WIDTH)).test_id("profile-week"))
+                            .child(top_sites(&card).flex_1().min_w(px(STATS_WIDTH)).test_id("profile-sites"))
+                    } else {
+                        view().gap_3().child(last_week(&card)).children((!card.sites.is_empty()).then(|| top_sites(&card)))
+                    })
                     .into_element(),
             )
         })

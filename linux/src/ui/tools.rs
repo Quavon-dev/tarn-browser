@@ -99,7 +99,7 @@ const COMMANDS: [(&str, &str, Command); 52] = [
     ("Import Browser Data\u{2026}", "chrome edge brave chromium firefox history bookmarks cookies", Command::ImportBrowserData),
     ("New Window", "open another browser window", Command::NewWindow),
     ("Enter or Exit Full Screen", "fullscreen window video f11", Command::FullScreen),
-    ("Open or Close Split View", "side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
+    ("Open in Split View", "open or close side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
     ("Focus Next Pane", "split view switch", Command::Key(Action::FocusNextPane)),
     ("Focus Previous Pane", "split view switch", Command::Key(Action::FocusPreviousPane)),
     ("Swap Split Panes", "split view exchange move", Command::Key(Action::SwapPanes)),

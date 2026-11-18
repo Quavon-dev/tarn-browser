@@ -14,7 +14,7 @@ impl Browser {
     }
 
     /// Other windows showing this space reload its groups.
-    fn regrouped(&mut self) {
+    pub(super) fn regrouped(&mut self) {
         self.regrouped_space = self.model.current_space().map(|s| (s.private, s.space.id));
     }
 
@@ -46,13 +46,10 @@ impl Browser {
 
     /// Moves `key` to the end of the unpinned tabs, into group `id`.
     pub fn move_to_group(&mut self, key: TabKey, id: Id) {
-        let index = self.model.zone_len(TabKind::Ephemeral, None);
-        let store = self.core.store(key.private);
-        if store.move_tab(key.id, TabKind::Ephemeral, None, index).is_ok() {
-            store.set_tab_group(key.id, Some(id)).ok();
+        let at = browser_core::sidebar::DropAt::zone(TabKind::Ephemeral, None, Some(id));
+        if browser_core::sidebar::drop_tab(&mut self.model, &self.core, key, at).is_some() {
             self.regrouped();
         }
-        self.model.reload_space(&self.core);
     }
 
     pub fn ungroup(&mut self, id: Id) {

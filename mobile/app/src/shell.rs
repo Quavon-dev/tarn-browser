@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use browser_core::closed::{Closed, ClosedTab};
+use browser_core::closed::{Closed, ClosedGroup, ClosedTab};
 use browser_core::command::{ENGINES, Input, classify_input};
 use browser_core::prompts::Prompt;
 use browser_core::space_card::{SpaceDraft, Unsaved};
@@ -117,6 +117,8 @@ pub struct Shell<D: Platform> {
     pub splits: Splits<TabKey>,
     /// Whether the layout is wide enough to show a split's panes; a phone shows one tab.
     pub wide: bool,
+    pub layout: browser_core::layout::Layout,
+    pub sidebar_open: bool,
     pub pages: HashMap<TabKey, Page>,
     pub prompts: Vec<PromptRequest>,
     pub external: Option<(TabKey, String)>,
@@ -127,6 +129,7 @@ pub struct Shell<D: Platform> {
     pub open_offer: Option<(TabKey, String, String)>,
     pub found: Option<u64>,
     pub undo: Option<(String, u64)>,
+    pub sort_undo: Option<(String, (bool, browser_core::cleanup::Undo))>,
     pub transfers: Vec<crate::scripts::Transfer>,
     pub transfers_moved: std::time::Instant,
     pub reader: Option<crate::scripts::Reader>,
@@ -164,6 +167,8 @@ impl<D: Platform> Shell<D> {
             model.launch_space(&core, &SavedWindow::default())
         };
         let themes = crate::themes::Themes::open(&core.disk, dir);
+        let layout = browser_core::layout::Layout::load(&core.disk);
+        let sidebar_open = browser_core::layout::sidebar_open(&core.disk);
         let opened = dir.join("Opened");
         browser_core::open_file::clear(&opened);
         let mut shell = Shell {
@@ -171,6 +176,8 @@ impl<D: Platform> Shell<D> {
             model,
             splits: Splits::default(),
             wide: false,
+            layout,
+            sidebar_open,
             pages: HashMap::new(),
             prompts: Vec::new(),
             external: None,
@@ -180,6 +187,7 @@ impl<D: Platform> Shell<D> {
             open_offer: None,
             found: None,
             undo: None,
+            sort_undo: None,
             transfers: Vec::new(),
             transfers_moved: std::time::Instant::now(),
             reader: None,
@@ -440,6 +448,14 @@ impl<D: Platform> Shell<D> {
         }
     }
 
+    pub fn close_or_unload(&mut self, key: TabKey) {
+        if self.model.tab(key).is_some_and(|t| t.kind != store::TabKind::Ephemeral) {
+            self.unload_tab(key);
+        } else {
+            self.close_tab(key);
+        }
+    }
+
     pub fn close_tab(&mut self, key: TabKey) {
         if self.in_burner() {
             self.burn();
@@ -461,6 +477,41 @@ impl<D: Platform> Shell<D> {
     }
 
     pub(crate) fn close_tabs(&mut self, keys: &[TabKey]) -> Option<u64> {
+        self.close_batch(keys, None)
+    }
+
+    pub(crate) fn close_group(&mut self, id: Id) {
+        let keys = browser_core::sidebar::group_tabs(&self.model, id);
+        if self.in_burner() && !keys.is_empty() {
+            self.burn();
+            return;
+        }
+        let group = browser_core::sidebar::closed_group(&self.model, id);
+        let closed = self.close_batch(&keys, group).is_some();
+        browser_core::sidebar::remove_group(&mut self.model, &self.core, id, false);
+        if closed {
+            self.toast("Group closed".into());
+        }
+    }
+
+    pub(crate) fn unload_tab(&mut self, key: TabKey) {
+        if self.model.tab(key).is_none_or(|t| t.kind == store::TabKind::Ephemeral) {
+            return;
+        }
+        self.splits.leave(key);
+        self.unmount(key);
+        if self.model.active == Some(key) {
+            self.model.active = None;
+            match self.model.pick(|k| k == key) {
+                Some(next) => self.activate(next),
+                None => {
+                    self.new_tab(None);
+                }
+            }
+        }
+    }
+
+    fn close_batch(&mut self, keys: &[TabKey], group: Option<ClosedGroup>) -> Option<u64> {
         let (private, profile_id) = self.model.profile()?;
         let tabs: Vec<_> = keys.iter().filter_map(|k| self.model.tab(*k).cloned().map(|t| (*k, t))).collect();
         let space_id = tabs.first()?.1.space_id;
@@ -484,7 +535,7 @@ impl<D: Platform> Shell<D> {
                 web_engine: None,
             })
             .collect();
-        let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs: closed, group: None });
+        let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs: closed, group });
         for (key, _) in &tabs {
             self.forget(*key);
             self.store().delete_tab(key.id).ok();
@@ -562,7 +613,22 @@ impl<D: Platform> Shell<D> {
             .collect()
     }
 
+    fn shows(space: &browser_core::tabs::SpaceRef) -> bool {
+        space.private || !D::private_process()
+    }
+
+    pub fn neighbour_space(&self, step: browser_core::sidebar::Step) -> Option<usize> {
+        browser_core::sidebar::neighbour_space(&self.model, step, Self::shows)
+    }
+
+    pub fn can_add_space(&self) -> bool {
+        !D::private_process()
+    }
+
     pub fn switch_space(&mut self, ix: usize) {
+        if !self.model.spaces.get(ix).is_some_and(Self::shows) {
+            return;
+        }
         let leaving_burner = self.in_burner() && ix != self.model.space_ix;
         if self.model.switch_space(&self.core, ix).is_none() {
             return;
@@ -657,6 +723,9 @@ impl<D: Platform> Shell<D> {
         }
         // Private tab ids start again in the next session, so no private pane may outlive this one.
         self.splits.retain(|k| !k.private);
+        if self.sort_undo.as_ref().is_some_and(|(_, (private, _))| *private) {
+            self.sort_undo = None;
+        }
         self.opened_files.retain(|k, _| !k.private);
         for (_, profile_id) in &private {
             self.core.store(true).delete_profile(*profile_id).ok();
@@ -840,6 +909,11 @@ impl<D: Platform> Shell<D> {
             page.error = None;
         }
         Vec::new()
+    }
+
+    pub fn zoom_by(&mut self, step: f64) -> Vec<Effect> {
+        let now = self.active_page().map_or(1.0, |p| p.zoom);
+        self.zoom(if step == 0.0 { 1.0 } else { now + step })
     }
 
     pub fn zoom(&mut self, factor: f64) -> Vec<Effect> {
