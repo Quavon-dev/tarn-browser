@@ -1,4 +1,4 @@
-use browser_core::shield_card::{Card, H, SHORT, W, back, day_totals, days_text, face, front, front_svg, thousands};
+use browser_core::shield_card::{Card, H, SHORT, W, back, day_totals, face, front, front_svg, thousands};
 use nsh_core::file_dialog::{FileFilter, SaveDialog};
 use nsh_core::prelude::*;
 use shield::{Category, ShieldLevel};
@@ -105,7 +105,7 @@ fn number(n: i64, name: &str) -> View {
 
 fn hero(ui: Ui, card: Card, level: ShieldLevel, private: bool) -> View {
     let protected = match (card.days, card.since.as_deref()) {
-        (Some(days), Some(since)) => format!("Protected for {} · since {since}", days_text(days)),
+        (Some(days), Some(since)) => browser_core::shield_card::protected_text(days, since),
         _ => "Counting starts with the first page".to_owned(),
     };
     let numbers: Vec<AnyElement> = card
