@@ -1403,9 +1403,10 @@ impl Browser {
         self.new_tab_group = None;
         self.overlay_exit = None;
         self.shortcuts_open = false;
-        self.reader = self.reader.take().filter(crate::reader::Reader::speaking);
         let text = match mode {
-            CommandMode::Current => self.active_view().and_then(|v| v.url()).map(String::from).unwrap_or_default(),
+            CommandMode::Current => {
+                self.active_view().and_then(|v| v.url()).map(String::from).or_else(|| self.model.active_tab().map(|t| t.url.clone())).unwrap_or_default()
+            }
             CommandMode::NewTab | CommandMode::FindInTabs => String::new(),
         };
         let placeholder = if mode == CommandMode::FindInTabs { "Find in this space's tabs" } else { "Search or enter address" };
@@ -1435,7 +1436,8 @@ impl Browser {
     }
 
     pub fn close_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let covered = self.command_mode.is_some() || self.shortcuts_open;
+        let field = self.command_mode.is_some();
+        let covered = field || self.shortcuts_open;
         self.launcher_from = None;
         self.close_inline(cx);
         self.overlay_exit = None;
@@ -1443,7 +1445,7 @@ impl Browser {
         self.history_text_search = None;
         self.profile_editor = None;
         self.shortcuts_open = false;
-        self.reader = self.reader.take().filter(|r| crate::reader::keeps_reader(covered, r.speaking()));
+        self.reader = self.reader.take().filter(|r| field || crate::reader::keeps_reader(covered, r.speaking()));
         window.focus(&self.focus);
         for key in self.model.active.and_then(|a| Some(self.splits.of(a)?.others(a))).unwrap_or_default() {
             if let Some(view) = self.views.get(&key) {
@@ -1638,7 +1640,14 @@ impl Browser {
         let typed = out.len();
         let listed: HashSet<TabKey> = out.iter().filter_map(|s| if let Target::Tab(k) = s.target { Some(k) } else { None }).collect();
         let completed = completion.as_ref().map(|c| c.url.as_str());
-        let skip = |ix: usize| if ix < tabs.len() { listed.contains(&TabKey { private, id: tabs[ix].id }) } else { Some(pages[ix].url) == completed };
+        let skip = |ix: usize| {
+            if ix < tabs.len() {
+                let key = TabKey { private, id: tabs[ix].id };
+                listed.contains(&key) || self.model.active == Some(key)
+            } else {
+                Some(pages[ix].url) == completed
+            }
+        };
         let mut ranked: Vec<usize> = suggest::rank_rows(&query, &pages, tabs.len(), skip, now());
         let search_text = !private && suggest::searches_text(&query) && suggest_on && self.pref(crate::prefs::Pref::HistoryText);
         let text_profile = self.model.current_space().filter(|_| search_text).map(|s| s.space.profile_id);
@@ -1676,9 +1685,11 @@ impl Browser {
         out.extend(found.into_iter().filter_map(|h| history_row(&h.url, &h.title)));
         out.truncate(if suggest_on { MAX_SUGGESTIONS } else { typed });
         // Late text matches move rows; the highlight stays on the row the user chose, if it is still listed.
+        // An empty field highlights nothing, so Enter opens nothing until the user picks a row.
         let chosen = self.suggestions.get(self.selected).filter(|_| rebuilt).map(|s| (s.label.clone(), s.detail.clone()));
         self.suggestions = out;
-        self.selected = chosen.and_then(|(label, detail)| self.suggestions.iter().position(|s| s.label == label && s.detail == detail)).unwrap_or(0);
+        let first = if query.is_empty() { usize::MAX } else { 0 };
+        self.selected = chosen.and_then(|(label, detail)| self.suggestions.iter().position(|s| s.label == label && s.detail == detail)).unwrap_or(first);
         self.suggested = Some((query.clone(), completion.clone()));
         self.history_text_search = search_later.map(|profile| self.search_history_text_later(profile, query, cx));
         if let (Some(c), false) = (completion, rebuilt) {
