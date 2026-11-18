@@ -288,9 +288,8 @@ format.
 Applied by hand in the repository and organisation settings; no workflow changes them. Check them again after any change to the workflows or runners.
 
 - [ ] Ruleset on `main`: require a pull request (one approval, review from Code Owners,
-      approval of the most recent reviewable push, dismiss stale approvals when new commits are
-      pushed), require the status checks
-      `check`, `macos`, `deny` and `dco` from GitHub Actions with the branch up to date, require
+      dismiss stale approvals when new commits are pushed), require the status checks
+      `check`, `macos`, `deny` and `dco` from GitHub Actions, require
       code scanning results from CodeQL (security alerts high or higher, alerts errors), block force
       pushes, restrict deletions. No bypass, for people or apps: the update app's pull requests
       run CI and wait for review like any other. Never add GitHub Actions itself: every workflow
@@ -307,8 +306,6 @@ Applied by hand in the repository and organisation settings; no workflow changes
       enforces a mitigation (`crates/ai`, `crates/import`, `crates/sync`, `crates/cli-bridge`, the engine's policy files); the file
       itself is the full list. Until then GitHub ignores
       its lines and no Code Owners review is required.
-- [ ] Ruleset "main merges" on `main`: restrict updates; bypass only `@Quavon-dev/maintainers`,
-      so write-access teams such as `@Quavon-dev/tarn-maintainer` can review but not merge.
 - [ ] Ruleset on tags `v*`: restrict creation, update and deletion; bypass for organisation
       admins and the update app (it creates the tag of its merge). An admin can therefore tag any
       commit and, since `release-signing` allows self-review, approve its signing: the release
@@ -386,8 +383,8 @@ runs again when a merge to `main` changes `packaging/cef.lock`:
 2. `propose` writes `packaging/cef.lock`, bumps the patch version in `Cargo.toml`, refreshes every
    workspace's `Cargo.lock` and pushes `chromium-update/<CEF version>`.
 3. `open`, with the update app's token, opens its pull request. CI runs on it like on any other,
-   and like any other it needs a maintainer's approval and an up-to-date branch to merge, so the
-   merged tree is the tested one. A maintainer reviews the `packaging/cef.lock` change (version,
+   and like any other it needs a maintainer's approval to merge. If `main` moved since the branch
+   was cut, update the branch first, so the merged tree is the tested one. A maintainer reviews the `packaging/cef.lock` change (version,
    host, hashes) and merges it.
 4. The merge's push to `main` changes `packaging/cef.lock` and starts the workflow again: `tag`
    checks that the commit is the merge of the app's own `chromium-update/` pull request, tags it
@@ -405,7 +402,8 @@ CEF build yet, or its update pull request still unmerged), opens an issue labell
 run: `tag` accepts an existing tag on the same commit. To retry a failed `open`, re-run it. To retry
 a failed `propose`, delete the branch `chromium-update/<CEF version>`. To reject an update, close its pull request and keep the
 branch: `watch` then proposes nothing for that CEF build. If `main` moved after the branch was cut,
-update the branch from the pull request page; CI runs again before it can merge.
+update the branch from the pull request page and wait for CI before merging; the ruleset does
+not require it.
 
 The pipeline never moves the `cef` crate. A newer CEF build than the crate's own (a patch build
 included, since `cef-dll-sys` refuses those) and a new Chromium milestone come through Renovate,

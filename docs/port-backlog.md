@@ -1,6 +1,6 @@
 # Port backlog
 
-Features built for macOS only that the other clients still need (`AGENTS.md`, "macOS-only mode").
+Features some clients have and the others still need (`AGENTS.md`, "Partial ports").
 Newest entry first. Delete an entry once every client is ticked.
 
 ## Template
@@ -10,8 +10,9 @@ Newest entry first. Delete an entry once every client is ticked.
 
 What it does: <one or two sentences, from the user's point of view>.
 Shared API: <crate::module::fn / type the clients call>.
-macOS reference: <crates/app/... files>.
+Reference: <files of the clients that have it, e.g. crates/app/...>.
 
+- [ ] macOS — <only if it started on another client>
 - [ ] Windows — <what is missing, e.g. WebView2 hook for X>
 - [ ] Linux — <linux/src/... to change>
 - [ ] iOS — <mobile/app/... or mobile/ios/...>

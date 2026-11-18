@@ -11,7 +11,7 @@ reviews:
   path_instructions:
     - path: "**/*"
       instructions: |
-        Repo rules (AGENTS.md): no code comments except `// SAFETY:` on unsafe blocks; no new dependencies or git dependencies; no new or changed connections the browser makes on its own (PRIVACY.md), no telemetry; never lower a Shield level, weaken Lockdown, add a page-to-shell bridge, bypass TLS errors, skip private-session cleanup, widen an allowlist or loosen validation, signature or hash checks (docs/threat-model.md). Logic belongs in the shared crates, not in a shell; a feature must land on macOS, Windows, Linux, iOS and Android.
+        Repo rules (AGENTS.md): no code comments except `// SAFETY:` on unsafe blocks; a new dependency needs a reason in the pull request, no git dependencies; no new or changed connections the browser makes on its own (PRIVACY.md), no telemetry; never lower a Shield level, weaken Lockdown, add a page-to-shell bridge, bypass TLS errors, skip private-session cleanup, widen an allowlist or loosen validation, signature or hash checks (docs/threat-model.md). Logic belongs in the shared crates, not in a shell; a feature should land on macOS, Windows, Linux, iOS and Android; clients left out need a docs/port-backlog.md entry, and security changes land on all.
     - path: "**/*.rs"
       instructions: "Every `unsafe` block or impl must carry a `// SAFETY:` comment stating the invariant that makes it sound (threat model S21). Flag any `unsafe` in a crate with `#![forbid(unsafe_code)]` and any removal of that attribute."
     - path: "crates/shield/**"

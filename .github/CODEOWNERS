@@ -9,6 +9,7 @@
 /renovate.json @Quavon-dev/maintainers
 /**/build.rs @Quavon-dev/maintainers
 /crates/platform/src/updater.rs @Quavon-dev/maintainers
+/crates/platform/src/updater/ @Quavon-dev/maintainers
 /crates/platform/src/xpc.rs @Quavon-dev/maintainers
 /crates/engine/src/chromium/runtime.rs @Quavon-dev/maintainers
 /crates/browser-core/src/staleness.rs @Quavon-dev/maintainers
@@ -69,6 +70,7 @@ GEMINI.md @Quavon-dev/maintainers
 .vscode/ @Quavon-dev/maintainers
 .devcontainer/ @Quavon-dev/maintainers
 .envrc @Quavon-dev/maintainers
+.coderabbit.yaml @Quavon-dev/maintainers
 /crates/cli-bridge/ @Quavon-dev/maintainers
 /MAINTAINERS.md @Quavon-dev/maintainers
 /fuzz/Cargo.toml @Quavon-dev/maintainers

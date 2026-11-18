@@ -4,9 +4,14 @@ Closes #
 
 ## How it was tested
 
-- [ ] Every check in `CONTRIBUTING.md` passes for the workspaces touched; checks not run, and why:
-- [ ] Linked issue is `status: approved` (features and large changes)
+Checks run, and checks not run (and why):
+
+Clients covered (the others get a `docs/port-backlog.md` entry):
+
+Protected paths (`.github/CODEOWNERS`), dependencies, pins or checks changed, and why:
+
+Anything done differently from the guidelines in `AGENTS.md` or `CONTRIBUTING.md`, and why:
+
+- [ ] I read and understand every line and sign it off as its author (`git commit -s`)
+- [ ] Any AI agent used kept the hard rules in `AGENTS.md`
 - [ ] No secrets, credentials or personal data in the diff
-- [ ] No change to protected paths (`.github/CODEOWNERS`) beyond what a maintainer asked for
-- [ ] I read and understand every line and sign it off as its author
-- [ ] Any AI agent used followed "Rules for AI agents" in `AGENTS.md`

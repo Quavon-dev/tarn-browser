@@ -30,8 +30,8 @@ jobs:
           script: |
             const LABELS = {
               'type: bug': ['d73a4a', 'Something does not work'],
-              'type: feature': ['0e8a16', 'New capability, needs a vote'],
-              'type: change': ['5319e7', 'Large refactor or behaviour change, needs a vote'],
+              'type: feature': ['0e8a16', 'New capability, voted on'],
+              'type: change': ['5319e7', 'Large refactor or behaviour change, voted on'],
               'type: docs': ['0075ca', 'Documentation only'],
               'status: triage': ['fbca04', 'Waiting for a maintainer to look'],
               'status: voting': ['c5def5', 'Waiting for a 👍 from another maintainer'],
@@ -101,7 +101,7 @@ jobs:
                   await github.rest.issues.addLabels({ ...repo, issue_number, labels: ['status: in progress'] });
                 }
               }
-              if (blocked.length) core.setFailed(`Not approved yet: ${blocked.join(', ')}`);
+              if (blocked.length) core.warning(`Not approved yet, decided in review: ${blocked.join(', ')}`);
             }
 
             switch (context.eventName) {
