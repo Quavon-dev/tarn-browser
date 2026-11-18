@@ -68,6 +68,7 @@ impl Browser {
                 v.set_corner_radius(page_corner());
                 v.set_dark(dark);
             });
+            self.link_peek.set_dark(dark);
         }
     }
 }
@@ -248,7 +249,7 @@ fn record_ended(core: &crate::shared::AppCore, private: bool, profile_id: Id, id
     if let Some((path, started)) = path
         && core.keeps_record_since(private, profile_id, started)
     {
-        core.store(private).add_download(profile_id, "", &path.to_string_lossy(), state, now()).ok();
+        core.store(private).add_download(profile_id, "", &path.to_string_lossy(), state, started).ok();
     }
 }
 
@@ -2857,24 +2858,27 @@ impl Browser {
         level == ShieldLevel::Lockdown && !self.model.private() && self.current_loaded().is_some_and(|rt| rt.profile.shield_level != ShieldLevel::Lockdown)
     }
 
+    pub(crate) fn shield_target(&self) -> Option<(bool, Id)> {
+        self.model.current_space().map(|space| (space.private, space.space.profile_id))
+    }
+
     pub fn set_profile_shield(&mut self, level: ShieldLevel, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(target) = self.shield_target() else { return };
         if !self.shield_wipes_data(level) {
-            return self.apply_profile_shield(level, window, cx);
+            return self.apply_profile_shield(target, level, window, cx);
         }
         let name = self.current_profile().map(|p| ui::text::bounded_title(&p.name)).unwrap_or_default();
         let question = crate::settings::lockdown_question(&name);
         let answer = window.prompt(gpui::PromptLevel::Warning, &question, Some(crate::settings::LOCKDOWN_WIPE), &["Use Lockdown", "Cancel"], cx);
         cx.spawn_in(window, async move |this, cx| {
             if answer.await == Ok(0) {
-                this.update_in(cx, |b, window, cx| b.apply_profile_shield(level, window, cx)).ok();
+                this.update_in(cx, |b, window, cx| b.apply_profile_shield(target, level, window, cx)).ok();
             }
         })
         .detach();
     }
 
-    pub(crate) fn apply_profile_shield(&mut self, level: ShieldLevel, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(space) = self.model.current_space() else { return };
-        let (private, profile_id) = (space.private, space.space.profile_id);
+    pub(crate) fn apply_profile_shield(&mut self, (private, profile_id): (bool, Id), level: ShieldLevel, window: &mut Window, cx: &mut Context<Self>) {
         if self.store(private).set_profile_shield_level(profile_id, level).is_err() {
             return;
         }

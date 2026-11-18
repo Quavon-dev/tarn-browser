@@ -57,6 +57,14 @@ fn layout(main: Bounds<Pixels>, left: f32) -> (Bounds<Pixels>, (f64, f64, f64, f
     (bounds, (page.0.into(), page.1.into(), page.2.into(), page.3.into()))
 }
 
+impl LinkPeek {
+    pub(crate) fn set_dark(&self, dark: bool) {
+        if let Some(view) = &self.view {
+            view.set_dark(dark);
+        }
+    }
+}
+
 impl Browser {
     fn sidebar_inset(&self) -> f32 {
         (self.sidebar_width + crate::sidebar::SIDEBAR_MARGIN) * self.sidebar_shown()

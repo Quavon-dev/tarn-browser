@@ -66,6 +66,14 @@ impl Browser {
         cx.spawn(async move |this, cx| {
             let still_shown = |this: &WeakEntity<Browser>, cx: &mut AsyncApp| this.update(cx, |b, _| b.shows(key, Some(&view), &page)).unwrap_or(false);
             let texts: Vec<String> = rx.next().await.and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();
+            if texts.is_empty() {
+                this.update(cx, |b, cx| {
+                    b.notify_offer(key, "This page could not be translated.".to_owned(), None);
+                    cx.notify();
+                })
+                .ok();
+                return;
+            }
             for (start, batch) in translation::batches(texts) {
                 let (tx, rx) = oneshot::channel();
                 translation::translate(&batch, &source, &target, move |result| drop(tx.send(result)));

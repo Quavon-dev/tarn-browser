@@ -556,7 +556,8 @@ impl SettingsWindow {
     }
 
     fn set_level(&mut self, level: ShieldLevel, name: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let apply = move |this: &mut Self, _: usize, cx: &mut Context<Self>| this.with_browser(cx, |b, w, cx| b.apply_profile_shield(level, w, cx));
+        let Some(target) = self.browser.upgrade().and_then(|b| b.read(cx).shield_target()) else { return };
+        let apply = move |this: &mut Self, _: usize, cx: &mut Context<Self>| this.with_browser(cx, |b, w, cx| b.apply_profile_shield(target, level, w, cx));
         if self.browser.upgrade().is_some_and(|b| b.read(cx).shield_wipes_data(level)) {
             self.ask(&lockdown_question(name), Some(LOCKDOWN_WIPE), &["Use Lockdown"], window, cx, apply);
         } else {
@@ -888,6 +889,7 @@ impl Render for SettingsWindow {
             .key_context("Settings")
             .track_focus(&self.focus)
             .on_action(cx.listener(|_, _: &CloseTab, window, _| window.remove_window()))
+            .on_action(cx.listener(|_, _: &crate::CloseWindow, window, _| window.remove_window()))
             .on_action(cx.listener(|_, _: &CloseOverlay, window, _| window.remove_window()))
             .on_action(cx.listener(|this, _: &NewProfile, _, cx| this.with_browser(cx, |b, w, cx| b.open_profile_editor(None, w, cx))))
             .on_action(cx.listener(|this, _: &EditProfile, _, cx| this.with_browser(cx, |b, w, cx| b.edit_current_profile(w, cx))))

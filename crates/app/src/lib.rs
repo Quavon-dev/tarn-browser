@@ -199,10 +199,16 @@ impl Render for Browser {
                 }
             }))
             .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, w, cx| b.prompt_key(e, w, cx)))
-            .on_key_down(|e: &gpui::KeyDownEvent, w, _| {
+            .on_key_down(|e: &gpui::KeyDownEvent, w, cx| {
                 let m = e.keystroke.modifiers;
-                if e.keystroke.key == "tab" && !(m.control || m.platform || m.alt || m.function) {
-                    if m.shift { w.focus_prev() } else { w.focus_next() }
+                let in_field = w.context_stack().iter().any(|c| c.contains("TextInput"));
+                if e.keystroke.key == "tab" && !(m.control || m.platform || m.alt || m.function) && !in_field {
+                    if m.shift {
+                        w.focus_prev()
+                    } else {
+                        w.focus_next()
+                    }
+                    cx.stop_propagation();
                 }
             })
             .on_action(cx.listener(|b, _: &NewTab, w, cx| b.new_tab_page(w, cx)))

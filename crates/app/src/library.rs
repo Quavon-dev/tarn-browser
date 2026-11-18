@@ -966,19 +966,28 @@ impl LibraryWindow {
         if self.renaming.is_some() || self.holding || event.is_held {
             return;
         }
-        let deletes = (key.key == "delete" && !key.modifiers.modified()) || (key.key == "backspace" && key.modifiers.secondary());
         match key.key.as_str() {
-            _ if deletes && self.query.read(cx).text().is_empty() => match (r.named, visit(&r)) {
-                (Some(named), _) => self.delete(named, window, cx),
-                (None, Some(url)) => self.remove_history(url.to_owned(), cx),
-                _ => return,
-            },
             "f2" if !key.modifiers.modified() => match r.named {
                 Some(named) => self.begin_rename(named, r.title.clone(), window, cx),
                 None => return,
             },
             "f10" if key.modifiers.shift => self.row_menu(r.item.clone(), r.named, window, cx),
             _ => return,
+        }
+        cx.stop_propagation();
+    }
+
+    /// Deletes the selected row for Delete or ⌘⌫ while the search field is empty, before the
+    /// field, which holds the focus, takes the key.
+    fn delete_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((_, r)) = self.shown.get(self.selected).cloned() else { return cx.propagate() };
+        if self.renaming.is_some() || self.holding || !self.query.read(cx).text().is_empty() {
+            return cx.propagate();
+        }
+        match (r.named, visit(&r)) {
+            (Some(named), _) => self.delete(named, window, cx),
+            (None, Some(url)) => self.remove_history(url.to_owned(), cx),
+            _ => return cx.propagate(),
         }
         cx.stop_propagation();
     }
@@ -1471,6 +1480,8 @@ impl Render for LibraryWindow {
         div()
             .key_context("Library")
             .capture_key_down(cx.listener(Self::on_key))
+            .capture_action(cx.listener(|this, _: &ui::text_input::Delete, window, cx| this.delete_selected(window, cx)))
+            .capture_action(cx.listener(|this, _: &ui::text_input::DeleteToBeginning, window, cx| this.delete_selected(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleLibrary, window, cx| this.close(true, window, cx)))
             .on_action(cx.listener(|this, _: &crate::menubar::ShowHistory, _, cx| this.go(Page::History, cx)))
             .on_action(cx.listener(|this, _: &crate::menubar::ManageBookmarks, _, cx| this.go(Page::Bookmarks(None), cx)))
