@@ -559,14 +559,16 @@ impl Browser {
         let next =
             active.and_then(|a| self.splits.heir(a, &keys).or_else(|| self.model.close_neighbour(a, &keys, self.pref(crate::prefs::Pref::ClosePrevious))));
         self.hide_hover_card(cx);
-        let mut tabs: Vec<ClosedTab> = keys.into_iter().filter_map(|key| self.close_one(key, cx)).collect();
+        let mut tabs: Vec<ClosedTab> = keys.iter().filter_map(|key| self.close_one(*key, cx)).collect();
         self.reload_space();
         if burner && !tabs.is_empty() {
             self.leave_burner(window, cx);
         } else if active.is_some() && self.model.active.is_none() {
-            match next.filter(|k| self.model.tab(*k).is_some()) {
-                Some(next) if !crate::shared::live_elsewhere(next, cx) => self.activate(next, window, cx),
-                _ => self.pick_active(window, cx),
+            // An unloaded pinned tab stays listed and must not be picked straight back.
+            let next = next.filter(|k| self.model.tab(*k).is_some() && !crate::shared::live_elsewhere(*k, cx));
+            match next.or_else(|| self.model.pick(|k| keys.contains(&k) || crate::shared::live_elsewhere(k, cx))) {
+                Some(next) => self.activate(next, window, cx),
+                None => self.model.active = None,
             }
         }
         // SQLite reuses a deleted tab's id, so no other window may keep a view under it.

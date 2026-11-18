@@ -285,14 +285,15 @@ impl Model {
         self.visible_tab_order().into_iter().skip_while(|k| *k != key).skip(1).filter(unpinned).collect()
     }
 
-    /// The unpinned tab nearest `key` in the sidebar that is not in `closing`, the previous one first
-    /// when `previous_first`.
+    /// The tab nearest `key` in the sidebar that is not in `closing`, the previous one first when
+    /// `previous_first`; an unpinned tab's neighbours are unpinned tabs only.
     pub fn close_neighbour(&self, key: TabKey, closing: &[TabKey], previous_first: bool) -> Option<TabKey> {
+        let loose = self.tab(key).is_some_and(|t| t.kind == TabKind::Ephemeral);
         let order: Vec<Id> = self
             .visible_tab_order()
             .into_iter()
             .filter(|k| *k == key || !closing.contains(k))
-            .filter(|k| self.tab(*k).is_some_and(|t| t.kind == TabKind::Ephemeral))
+            .filter(|k| *k == key || !loose || self.tab(*k).is_some_and(|t| t.kind == TabKind::Ephemeral))
             .map(|k| k.id)
             .collect();
         neighbour(&order, key.id, previous_first).map(|id| TabKey { private: key.private, id })
@@ -827,6 +828,8 @@ mod tests {
         assert_eq!(model.close_neighbour(ids[0], &[ids[0], ids[1]], false), Some(ids[2]), "tabs closing with it are skipped");
         assert_eq!(model.close_neighbour(ids[2], &[ids[1], ids[2]], true), Some(ids[0]));
         assert_eq!(model.close_neighbour(ids[1], &ids, false), None);
+        assert_eq!(model.close_neighbour(pinned, &[pinned], false), Some(ids[0]), "an unloaded pinned tab hands over to the next row");
+        assert_eq!(model.close_neighbour(pinned, &[pinned], true), Some(ids[0]));
         assert_eq!(model.ephemeral_keys(), ids);
         assert_eq!(model.other_tabs(pinned), ids);
         assert_eq!(model.pin_toggle(pinned), Some((TabKind::Ephemeral, 3)));
