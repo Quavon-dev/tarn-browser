@@ -565,6 +565,11 @@ pub fn row(first: bool) -> Div {
         .when(!first, |d| d.child(div().absolute().top_0().left(px(12.)).right_0().h(px(1.)).bg(Theme::separator())))
 }
 
+/// A row with a wide control that moves under its text when the two do not fit side by side.
+pub fn wide_row(first: bool, text: Div, control: impl IntoElement) -> Div {
+    row(first).flex_wrap().child(text.min_w(px(200.))).child(control)
+}
+
 /// A row that toggles its switch: the whole row is the target, with hover and pressed fills, and
 /// a tab stop. `body` is the row's text.
 pub fn switch_row(id: impl Into<ElementId>, first: bool, body: impl IntoElement, on: bool) -> Stateful<Div> {

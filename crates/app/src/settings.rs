@@ -14,6 +14,7 @@ use store::{Id, Profile, WebEngine};
 use ui::command::ENGINES;
 use ui::controls::{
     button, disabled_segment, field, group, icon_text_button, note, radio, row, section, segment, segmented, swatch, switch, switch_row, tab_stop, text_block,
+    wide_row,
 };
 use ui::icon::{Icon, icon};
 use ui::motion::fade_in;
@@ -480,10 +481,14 @@ impl SettingsWindow {
         pick: Pick,
         cx: &mut Context<Self>,
     ) -> Div {
-        row(first).child(text_block(title, detail)).child(segmented().children(options.iter().enumerate().map(|(ix, option)| {
-            tab_stop(segment((title, ix), *option, ix == selected))
-                .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| pick(b, ix, cx))))
-        })))
+        wide_row(
+            first,
+            text_block(title, detail),
+            segmented().children(options.iter().enumerate().map(|(ix, option)| {
+                tab_stop(segment((title, ix), *option, ix == selected))
+                    .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| pick(b, ix, cx))))
+            })),
+        )
     }
 
     pub(crate) fn set_pane(&mut self, pane: SettingsPane, cx: &mut Context<Self>) {
@@ -1371,7 +1376,7 @@ impl SettingsWindow {
             tab_stop(segment(("web-engine", ix), name, selected))
                 .when(available, |d| d.on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.set_default_web_engine(engine, w, cx)))))
         });
-        row(true).child(text_block("Default web engine", detail)).child(segmented().children(options))
+        wide_row(true, text_block("Default web engine", detail), segmented().children(options))
     }
 
     fn appearance(&self, s: &Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
