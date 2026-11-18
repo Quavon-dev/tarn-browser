@@ -792,7 +792,8 @@ fn history(ui: Ui) -> impl IntoElement {
             })
         }))
         .child(dynamic(move || {
-            let starts = ui.read(|s| s.day_starts(browser_core::now()));
+            let now = browser_core::now();
+            let starts = ui.read(|s| s.day_starts(now));
             let mut days: Vec<(&'static str, Vec<store::HistoryEntry>)> = Vec::new();
             for h in rows() {
                 let day = browser_core::library::history_day(h.visited_at, starts);
@@ -815,6 +816,7 @@ fn history(ui: Ui) -> impl IntoElement {
                 view().gap_1().child(section(day)).child(framed(group().children(list.into_iter().map(|entry| {
                     let url = entry.url.clone();
                     let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title };
+                    let when = browser_core::library::ago(entry.visited_at, now);
                     let host =
                         url::Url::parse(&entry.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or(entry.url);
                     let open = url.clone();
@@ -822,7 +824,7 @@ fn history(ui: Ui) -> impl IntoElement {
                         .flex_row()
                         .items_center()
                         .child(
-                            detail_row(Some(icons::GLOBE), name, Some(caption(host).number_of_lines(1)), move || {
+                            detail_row(Some(icons::GLOBE), name, Some(caption(format!("{host} · {when}")).number_of_lines(1)), move || {
                                 ui.show(Screen::Browse);
                                 ui.act(|s| s.navigate(&open));
                             })

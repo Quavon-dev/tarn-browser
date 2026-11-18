@@ -12,8 +12,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   from History (row menu, the row's trash button, or ⌘⌫ on macOS and Delete on Windows) removes a
   page, and Clear browsing history in Settings › Privacy asks whether to clear the last hour, today
   or everything (macOS, Windows, Linux). On iOS and Android the History sheet groups pages by day,
-  removes one with its trash button and offers Clear History… with the same ranges, without the
-  visit time.
+  shows when each was last visited, removes one with its trash button and offers Clear History…
+  with the same ranges.
 - A search field in Settings finds the pane that holds a setting (macOS, Windows, Linux, iOS,
   Android).
 - In the Library, F2 renames, ⌘⌫ (Delete on Windows) deletes and Shift+F10 opens the menu of the
