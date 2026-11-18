@@ -302,8 +302,8 @@ impl SiteSettingsWindow {
             }
         })];
         subscriptions.extend(browser.upgrade().map(|b| {
-            cx.observe(&b, |this, b, cx| {
-                this.follow_site(&b, cx);
+            cx.observe_in(&b, window, |this, b, window, cx| {
+                this.follow_site(&b, window, cx);
                 cx.notify();
             })
         }));
@@ -344,8 +344,10 @@ impl SiteSettingsWindow {
 
     /// The page may move to another host while the card is open; the CSS field follows it, as
     /// the rest of the card does, so a save never lands on the host the card opened for.
-    fn follow_site(&mut self, browser: &gpui::Entity<Browser>, cx: &mut Context<Self>) {
-        let Some(host) = browser.read(cx).site().and_then(|(_, url)| url.host_str().map(str::to_owned)) else { return };
+    fn follow_site(&mut self, browser: &gpui::Entity<Browser>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(host) = browser.read(cx).site().and_then(|(_, url)| url.host_str().map(str::to_owned)) else {
+            return self.close(true, window, cx);
+        };
         if self.css_host.as_deref() == Some(host.as_str()) {
             return;
         }
