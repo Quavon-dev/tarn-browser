@@ -356,11 +356,11 @@ fn card_view<H: Host>(pane: Pane<H>, card: &Card, selection: &Selection, focused
     .rounded(px(Theme::radius_group()))
     .bg(Theme::panel_row())
     .border_1()
-    .border_color(if focused { Theme::accent() } else { Theme::surface_edge() })
+    .border_color(if focused { Theme::accent_text() } else { Theme::surface_edge() })
     .child(view().flex_row().gap_1().children(card.swatches.map(|c| swatch(c).into_element())))
     .child(label(card.name.clone()).truncate())
     .child(badge(card.badge.clone()))
-    .child(small(if tags.is_empty() { if scheme == Scheme::Light { "Light" } else { "Dark" }.to_owned() } else { tags }).text_color(Theme::accent()))
+    .child(small(if tags.is_empty() { if scheme == Scheme::Light { "Light" } else { "Dark" }.to_owned() } else { tags }).text_color(Theme::accent_text()))
     .into_element()
 }
 
@@ -448,7 +448,7 @@ fn accent_row<H: Host>(pane: Pane<H>) -> View {
     let host = pane.host;
     let (chosen, theme) = host.with_store(|s| (prefs::accent_choice(s), library::current(s, host.system_light(), host.safe()).parsed.tokens.accent >> 8));
     let swatches = std::iter::once((THEME_ACCENT, theme)).chain(ACCENTS).enumerate().map(|(ix, (name, color))| {
-        nsh_base::button()
+        crate::controls::tab_stop(nsh_base::button())
             .accessibility_label(format!("{name} accent"))
             .selected(ix == chosen)
             .on_press(move || pane.quietly(saved(host.with_store(|s| prefs::set_accent_choice(s, ix)))))

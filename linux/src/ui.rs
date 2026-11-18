@@ -697,7 +697,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
                 tarn_nsh_shared::motion::popping(view().w(px(16.)).items_center().text_color(tint).accessible(true).label(name).child(icons::icon(glyph, 13.)))
             })
         }))
-        .child(dynamic(move || dropping().map(|does| small(does).text_color(Theme::accent()))))
+        .child(dynamic(move || dropping().map(|does| small(does).text_color(Theme::accent_text()))))
         .children(close);
     // Where the dragged tab lands when dropped here: after this row when it comes from above in the same zone.
     let landing = move || {
@@ -789,9 +789,9 @@ fn downloads_button(ui: Ui) -> AnyElement {
             Some(p) => view()
                 .flex_row()
                 .items_center()
-                .text_color(Theme::accent())
-                .child(button.text_color(Theme::accent()))
-                .child(small(format!("{:.0}%", p * 100.)).text_color(Theme::accent()))
+                .text_color(Theme::accent_text())
+                .child(button.text_color(Theme::accent_text()))
+                .child(small(format!("{:.0}%", p * 100.)).text_color(Theme::accent_text()))
                 .into_element(),
             None => button.into_element(),
         }
@@ -1137,7 +1137,7 @@ fn address(ui: Ui) -> View {
         .rounded(move || px(Theme::radius_row()))
         .bg(Secure::chip())
         .border_1()
-        .border_color(move || if ui.editing.get() { Theme::accent() } else { Secure::hairline() })
+        .border_color(move || if ui.editing.get() { Theme::accent_text() } else { Secure::hairline() })
         .font_family(SYSTEM_FONT)
         .text_color(Theme::faint)
         .child(themed(move || {
@@ -1653,7 +1653,7 @@ pub(super) fn text_field_multiline(ui: Ui, placeholder: &str) -> nsh_base::Input
         .bg(Theme::raised())
         .border_1()
         .border_color(Theme::hairline())
-        .focus(|s| s.border_color(Theme::accent()))
+        .focus(|s| s.border_color(Theme::accent_text()))
         .text_color(Theme::text())
 }
 
@@ -1674,7 +1674,7 @@ pub(super) fn bound_field(value: impl Fn() -> String + 'static, change: impl Fn(
         .bg(Theme::raised())
         .border_1()
         .border_color(Theme::hairline())
-        .focus(|s| s.border_color(Theme::accent()))
+        .focus(|s| s.border_color(Theme::accent_text()))
         .text_color(Theme::text())
 }
 

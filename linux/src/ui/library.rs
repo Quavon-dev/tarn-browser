@@ -153,7 +153,7 @@ fn schedule_rows(ui: Ui, schedule: Schedule) -> View {
                 .rounded(px(Theme::radius_small()))
                 .bg(if on { Theme::accent_soft() } else { Theme::control() })
                 .selected(on)
-                .child(small(*name).text_color(if on { Theme::accent() } else { Theme::muted() }))
+                .child(small(*name).text_color(if on { Theme::accent_text() } else { Theme::muted() }))
                 .into_element()
         })
         .collect();
@@ -336,7 +336,9 @@ fn library_results(ui: Ui, history: &[store::HistoryEntry], query: &str) -> View
             .children(empty)
             .children(tabs)
     });
-    let links = |rows: Vec<crate::browser::library::Link>| -> Vec<AnyElement> { rows.into_iter().map(|link| super::panels::link_row(ui, link).into_element()).collect() };
+    let links = |rows: Vec<crate::browser::library::Link>| -> Vec<AnyElement> {
+        rows.into_iter().map(|link| super::panels::link_row(ui, link).into_element()).collect()
+    };
     let downloads: Vec<AnyElement> = found.downloads.into_iter().map(|d| super::panels::saved_download(ui, d)).collect();
     view()
         .flex_col()

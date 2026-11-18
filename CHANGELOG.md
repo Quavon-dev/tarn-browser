@@ -158,10 +158,10 @@ All notable changes to Tarn are documented in this file. The format is based on
   chip, devtools labels), the caret and keyboard focus rings stay readable with any accent and
   theme; placeholders and secondary text meet 4.5:1 in every built-in theme, red warning text is
   readable in dark mode, sleeping tabs follow the theme's secondary text colour, and site initials
-  and extension badges pick a readable letter colour (macOS, Windows).
+  and extension badges pick a readable letter colour (macOS, Windows, Linux).
 - Every button, segment and colour swatch can be reached with Tab and pressed with Enter or Space
   where a window moves the focus on Tab, and a button that cannot be used looks dimmed (macOS,
-  Windows).
+  Windows, Linux).
 - Menu bar commands with nothing to act on are greyed on macOS, as they were on Windows: Back,
   Forward, Reopen Closed Tab, Close All Tabs, Stop Loading, and Mute Site on a page without a host.
 - File › Close Tab reads Unload Tab on a pinned tab, View › Reader reads Show or Hide Reader,

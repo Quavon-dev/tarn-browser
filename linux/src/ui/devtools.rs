@@ -44,7 +44,7 @@ fn tree_rows(ui: Ui, tree: &Tree) -> View {
                 .w(px(12.))
                 .flex_none()
                 .children(row.expandable().then(|| icons::icon(if row.open { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 10.)));
-            let label = (!row.label.is_empty()).then(|| text(format!("{}:", row.label)).text_color(Theme::accent()));
+            let label = (!row.label.is_empty()).then(|| text(format!("{}:", row.label)).text_color(Theme::accent_text()));
             let value = text(row.value.clone()).text_color(value_color(row.kind)).truncate();
             let line =
                 view().flex_row().items_center().gap_1().h(px(ROW)).pl(px(12. + row.depth as f32 * 16.)).pr_3().child(chevron).children(label).child(value);
@@ -107,7 +107,7 @@ pub(super) fn responsive_button(ui: Ui) -> AnyElement {
             return None;
         }
         let preset = ui.snap.with(|s| s.responsive);
-        let color = if preset.is_some() { Theme::accent() } else { Theme::muted() };
+        let color = if preset.is_some() { Theme::accent_text() } else { Theme::muted() };
         let tip = preset.map_or_else(|| "Responsive Size".to_owned(), |p| format!("Responsive Size: {} {}×{}", p.name, p.width, p.height));
         let button = icon_button(icons::SMARTPHONE, &tip, move || act(ui, |b| b.cycle_responsive())).text_color(color);
         Some(

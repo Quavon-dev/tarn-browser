@@ -76,7 +76,12 @@ pub fn label(content: impl IntoReactive<SharedString>) -> Text {
 }
 
 pub fn pressable<M>(name: impl IntoProp<Option<SharedString>, M>, press: impl Fn() + 'static) -> ButtonElement {
-    button().accessibility_label(name).on_press(press).hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed()))
+    tab_stop(button().accessibility_label(name).on_press(press).hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
+}
+
+/// A button reached with Tab: ringed while the keyboard focus shows on it, dimmed while disabled.
+pub fn tab_stop(button: ButtonElement) -> ButtonElement {
+    button.focus_visible(|s| s.ring(px(2.)).ring_color(Theme::accent_text())).disabled_style(|s| s.opacity(0.45))
 }
 
 pub fn icon_button<M>(icon: impl IntoElement, name: impl IntoProp<Option<SharedString>, M>, press: impl Fn() + 'static) -> ButtonElement {
@@ -92,7 +97,7 @@ pub fn icon_button<M>(icon: impl IntoElement, name: impl IntoProp<Option<SharedS
 fn pill_button(name: String, glyph: Option<&str>, press: impl Fn() + 'static, primary: bool) -> ButtonElement {
     let m = metrics();
     let button = if primary {
-        button().accessibility_label(name.clone()).on_press(press).hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7))
+        tab_stop(button().accessibility_label(name.clone()).on_press(press).hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7)))
     } else {
         pressable(name.clone(), press)
     }
@@ -127,6 +132,7 @@ pub fn secure_button(name: impl Into<String>, press: impl Fn() + 'static, primar
         .bg(fill)
         .hover(move |s| if primary { s.opacity(0.88) } else { s.bg(Secure::hover()) })
         .active(move |s| if primary { s.opacity(0.7) } else { s.bg(Secure::pressed()) });
+    let button = tab_stop(button);
     let text = text(name).text_size(px(m.text)).font_family(SYSTEM_FONT).text_color(if primary { Theme::on_fill(Secure::accent()) } else { Secure::text() });
     match density() {
         Density::Touch => button.min_h(px(m.pill_height)).px_4().rounded_full(),
@@ -138,17 +144,19 @@ pub fn secure_button(name: impl Into<String>, press: impl Fn() + 'static, primar
 pub fn secure_ghost(name: impl Into<String>, press: impl Fn() + 'static) -> ButtonElement {
     let name: String = name.into();
     let m = metrics();
-    button()
-        .accessibility_label(name.clone())
-        .on_press(press)
-        .items_center()
-        .justify_center()
-        .h(px(m.pill_height))
-        .px_3()
-        .rounded(px(m.pill_height / 2.))
-        .hover(|s| s.bg(Secure::hover()))
-        .active(|s| s.bg(Secure::pressed()))
-        .child(text(name).text_size(px(m.text)).font_family(SYSTEM_FONT).font_weight(FontWeight::MEDIUM).text_color(Secure::text()))
+    tab_stop(
+        button()
+            .accessibility_label(name.clone())
+            .on_press(press)
+            .items_center()
+            .justify_center()
+            .h(px(m.pill_height))
+            .px_3()
+            .rounded(px(m.pill_height / 2.))
+            .hover(|s| s.bg(Secure::hover()))
+            .active(|s| s.bg(Secure::pressed())),
+    )
+    .child(text(name).text_size(px(m.text)).font_family(SYSTEM_FONT).font_weight(FontWeight::MEDIUM).text_color(Secure::text()))
 }
 
 pub fn secure_surface(radius: f32) -> View {
@@ -231,7 +239,7 @@ fn switch_with(glyph: Option<&'static str>, name: String, on: impl Fn() -> bool 
     let m = metrics();
     let (width, height) = m.track;
     let spoken = name.clone();
-    button()
+    tab_stop(button())
         .flex_row()
         .items_center()
         .min_h(px(m.switch_row))
@@ -347,7 +355,8 @@ pub fn site_tile(icon: Option<String>, host: &str, size: f32) -> View {
     if letter.is_empty() {
         return tile.bg(Theme::control());
     }
-    tile.bg(Theme::monogram(host)).child(text(letter).text_size(px((size * 0.62).round())).font_weight(FontWeight::BOLD).text_color(Theme::text()))
+    let fill = Theme::monogram(host);
+    tile.bg(fill).child(text(letter).text_size(px((size * 0.62).round())).font_weight(FontWeight::BOLD).text_color(Theme::on_fill(fill)))
 }
 
 pub fn section(name: impl IntoReactive<SharedString>) -> Text {
@@ -418,7 +427,7 @@ pub fn toast_action(name: impl Into<String>, press: impl Fn() + 'static) -> Butt
         .min_h(px(metrics().target))
         .px(px(10.))
         .rounded(px(Theme::radius_row()))
-        .child(label(name).font_weight(FontWeight::MEDIUM).text_color(Theme::accent))
+        .child(label(name).font_weight(FontWeight::MEDIUM).text_color(Theme::accent_text))
 }
 
 #[cfg(test)]

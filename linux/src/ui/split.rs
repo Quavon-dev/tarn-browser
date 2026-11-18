@@ -181,7 +181,7 @@ fn card(ui: Ui, pane: Pane, (x, y, w, h): Rect) -> View {
         .child(site_tile(ui, &host, 14.))
         .child(body(title).text_color(if focused { Theme::text() } else { Theme::muted() }).flex_1().truncate())
         .children(roomy.then(|| small(host.clone()).text_color(Theme::faint()).max_w(px(w * 0.4)).truncate()))
-        .child(dynamic(move || ui.split_drop.with(|d| d.filter(|(k, _)| *k == key).map(|(_, does)| small(does).text_color(Theme::accent())))))
+        .child(dynamic(move || ui.split_drop.with(|d| d.filter(|(k, _)| *k == key).map(|(_, does)| small(does).text_color(Theme::accent_text())))))
         .child(icon_button(icons::ARROW_UP_RIGHT, "Remove from Split View", move || act(ui, |b| b.leave_split(key))))
         .child(icon_button(icons::CLOSE, "Close Tab", move || act(ui, |b| b.close_tab(key))));
     view()
@@ -195,7 +195,7 @@ fn card(ui: Ui, pane: Pane, (x, y, w, h): Rect) -> View {
         .overflow_hidden()
         .bg(Theme::page())
         .border_1()
-        .border_color(move || if focused || dropping() { Theme::accent() } else { Theme::hairline() })
+        .border_color(move || if focused || dropping() { Theme::accent_text() } else { Theme::hairline() })
         .child(header)
 }
 

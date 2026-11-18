@@ -181,8 +181,8 @@ fn shield_panel(ui: Ui) -> AnyElement {
     })
     .px_1()
     .gap_1()
-    .text_color(Theme::accent())
-    .child(small(if more { "Fewer site settings" } else { "More site settings" }).text_color(Theme::accent()))
+    .text_color(Theme::accent_text())
+    .child(small(if more { "Fewer site settings" } else { "More site settings" }).text_color(Theme::accent_text()))
     .child(icons::icon(if more { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.));
     body.child(summary)
         .child(
