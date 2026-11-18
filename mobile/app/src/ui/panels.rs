@@ -705,15 +705,7 @@ fn data_settings(ui: Ui) -> AnyElement {
         .into_element()
 }
 
-/// Asks before a destructive action, which runs only on `action`.
-pub(super) fn confirm(title: impl Into<SharedString>, description: &'static str, action: &'static str, then: impl FnOnce() + 'static) {
-    let answer = alert_dialog().title(title).description(description).cancel("cancel", "Cancel").destructive("confirm", action).show();
-    spawn(async move {
-        if answer.await.is_ok_and(|a| a.action.as_deref() == Some("confirm")) {
-            then();
-        }
-    });
-}
+pub(super) use tarn_nsh_shared::controls::confirm;
 
 /// The profile's remembered site permissions, each with Allow, Block and Forget.
 fn permissions(ui: Ui) -> impl IntoElement {

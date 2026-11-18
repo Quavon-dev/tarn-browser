@@ -104,6 +104,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   in a dialog that names what goes, instead of a second click on the same button (macOS, Windows;
   on Linux Lockdown and a single bookmark delete ask in place, the others already asked once more).
   On iOS and Android, choosing Lockdown and removing a page from the Reading List ask the same way.
+  Removing a theme or an extension asks in a dialog on Linux, iOS and Android too, as does Clear
+  site data in the Linux site popover.
 - Filter-list updates, extension downloads and developer tools are switches; the search engine is
   picked from a segmented control as in the profile card; an extension's Every site switch, Forget
   Site Answers and Remove sit on a line under its name; Appearance has one Theme heading, theme

@@ -368,6 +368,19 @@ pub fn section(name: impl IntoReactive<SharedString>) -> Text {
 }
 
 /// The line a list or panel shows in place of rows it does not have yet.
+/// Asks before a destructive action in the platform's alert; `then` runs only on `action`.
+pub fn confirm(title: impl Into<SharedString>, description: impl Into<SharedString>, action: impl Into<SharedString>, then: impl FnOnce() + 'static) {
+    let answer =
+        nsh_base::alert_dialog().title(title).description(description).cancel("cancel", "Cancel").destructive("confirm", action).close_on_escape(true).show();
+    Owner::detached().run(|| {
+        drop(spawn(async move {
+            if answer.await.is_ok_and(|a| a.action.as_deref() == Some("confirm")) {
+                then();
+            }
+        }))
+    });
+}
+
 pub fn empty_state(content: impl IntoReactive<SharedString>) -> Text {
     label(content).text_color(Theme::muted).text_center().px_4().py_6()
 }
