@@ -175,6 +175,19 @@ pub fn open_popup<V: Render + 'static>(
     radius: f32,
     build: impl FnOnce(&mut Window, &mut Context<V>) -> V,
 ) -> (Option<WindowHandle<V>>, Option<engine::Host>) {
+    hide_tooltip(cx);
+    popup_window(cx, bounds, display, focus, inset, radius, build)
+}
+
+fn popup_window<V: Render + 'static>(
+    cx: &mut App,
+    bounds: Bounds<Pixels>,
+    display: Option<DisplayId>,
+    focus: bool,
+    inset: [f32; 4],
+    radius: f32,
+    build: impl FnOnce(&mut Window, &mut Context<V>) -> V,
+) -> (Option<WindowHandle<V>>, Option<engine::Host>) {
     let mut popup = None;
     let handle = cx
         .open_window(popup_options(bounds, display, focus), |window, cx| {
@@ -439,21 +452,41 @@ enum TooltipPopup {
 struct TooltipAnchor {
     tip: Tooltip,
     popup: Rc<RefCell<TooltipPopup>>,
-    _release: Subscription,
+    _watch: [Subscription; 3],
+}
+
+thread_local! {
+    /// The tooltip on screen; GPUI shows one at a time.
+    static SHOWN: RefCell<Option<Rc<RefCell<TooltipPopup>>>> = const { RefCell::new(None) };
+}
+
+/// Hides `popup` for good: its anchor stays hovered when a pop-up opens over it or its window
+/// moves, and GPUI then keeps the tooltip.
+fn close_tooltip(popup: &RefCell<TooltipPopup>, cx: &mut App) {
+    if let TooltipPopup::Open(handle) = popup.replace(TooltipPopup::Gone) {
+        cx.defer(move |cx| drop(handle.update(cx, |_, window, _| window.remove_window())));
+    }
+}
+
+/// Hides the tooltip on screen, if any.
+fn hide_tooltip(cx: &mut App) {
+    if let Some(popup) = SHOWN.take() {
+        close_tooltip(&popup, cx);
+    }
 }
 
 impl TooltipAnchor {
-    fn new(tip: Tooltip, cx: &mut Context<Self>) -> Self {
+    fn new(tip: Tooltip, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let popup = Rc::new(RefCell::new(TooltipPopup::Closed));
+        hide_tooltip(cx);
+        SHOWN.set(Some(popup.clone()));
         let release = cx.on_release({
             let popup = popup.clone();
-            move |_, cx| {
-                if let TooltipPopup::Open(handle) = popup.replace(TooltipPopup::Gone) {
-                    cx.defer(move |cx| drop(handle.update(cx, |_, window, _| window.remove_window())));
-                }
-            }
+            move |_, cx| close_tooltip(&popup, cx)
         });
-        TooltipAnchor { tip, popup, _release: release }
+        let bounds = cx.observe_window_bounds(window, |this, _, cx| close_tooltip(&this.popup, cx));
+        let activation = cx.observe_window_activation(window, |this, _, cx| close_tooltip(&this.popup, cx));
+        TooltipAnchor { tip, popup, _watch: [release, bounds, activation] }
     }
 }
 
@@ -468,7 +501,7 @@ impl Render for TooltipAnchor {
             let (display, shell) = (window.display(cx).map(|d| d.id()), engine::Host::from_window(window));
             let (tip, popup) = (tip.clone(), popup.clone());
             cx.defer(move |cx| {
-                let (handle, host) = open_popup(cx, bounds, display, false, [POPOVER_INSET; 4], Theme::radius_small(), |_, _| tip);
+                let (handle, host) = popup_window(cx, bounds, display, false, [POPOVER_INSET; 4], Theme::radius_small(), |_, _| tip);
                 if let Some(host) = &host {
                     host.ignore_mouse();
                     if let Some(shell) = &shell {
@@ -490,7 +523,7 @@ impl Render for TooltipAnchor {
 /// A tooltip for `.tooltip(...)`: a label and, optionally, its shortcut in muted text.
 pub fn tooltip(text: impl Into<SharedString>, keys: Option<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     let tip = Tooltip { text: text.into(), keys: keys.filter(|k| !k.is_empty()).map(|k| SharedString::from(self::keys(&k))) };
-    move |_, cx| cx.new(|cx| TooltipAnchor::new(tip.clone(), cx)).into()
+    move |window, cx| cx.new(|cx| TooltipAnchor::new(tip.clone(), window, cx)).into()
 }
 
 /// A borderless pop-up window at `bounds` in screen points, for what must show over the page.
