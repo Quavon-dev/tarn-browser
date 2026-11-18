@@ -69,8 +69,6 @@ actions!(
         TogglePin,
         NewSpace,
         PrivateSpace,
-        Undo,
-        Redo,
         Find,
         FindNext,
         FindPrevious,
@@ -282,8 +280,8 @@ impl Render for Browser {
         {
             use engine::chromium::EditCommand as E;
             root = root
-                .on_action(cx.listener(|b, _: &Undo, w, _| b.edit_page(E::Undo, w)))
-                .on_action(cx.listener(|b, _: &Redo, w, _| b.edit_page(E::Redo, w)))
+                .on_action(cx.listener(|b, _: &text_input::Undo, w, _| b.edit_page(E::Undo, w)))
+                .on_action(cx.listener(|b, _: &text_input::Redo, w, _| b.edit_page(E::Redo, w)))
                 .on_action(cx.listener(|b, _: &text_input::Cut, w, _| b.edit_page(E::Cut, w)))
                 .on_action(cx.listener(|b, _: &text_input::Copy, w, _| b.edit_page(E::Copy, w)))
                 .on_action(cx.listener(|b, _: &text_input::Paste, w, _| b.edit_page(E::Paste, w)))
@@ -369,8 +367,8 @@ pub(crate) fn bind_keys(cx: &mut App, keymap: &[(String, &'static dyn gpui::Acti
         KeyBinding::new("escape", CloseOverlay, Some("Browser")),
         KeyBinding::new("escape", CloseOverlay, Some("Settings")),
         KeyBinding::new(&shortcuts::platform("cmd-q"), Quit, None),
-        KeyBinding::new(&shortcuts::platform("cmd-z"), Undo, None),
-        KeyBinding::new(&shortcuts::platform("cmd-shift-z"), Redo, None),
+        KeyBinding::new(&shortcuts::platform("cmd-z"), text_input::Undo, None),
+        KeyBinding::new(&shortcuts::platform("cmd-shift-z"), text_input::Redo, None),
         KeyBinding::new(&shortcuts::platform("ctrl-1"), Space1, None),
         KeyBinding::new(&shortcuts::platform("ctrl-2"), Space2, None),
         KeyBinding::new(&shortcuts::platform("ctrl-3"), Space3, None),
@@ -455,8 +453,8 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
         Menu {
             name: "Edit".into(),
             items: vec![
-                MenuItem::os_action("Undo", Undo, OsAction::Undo),
-                MenuItem::os_action("Redo", Redo, OsAction::Redo),
+                MenuItem::os_action("Undo", text_input::Undo, OsAction::Undo),
+                MenuItem::os_action("Redo", text_input::Redo, OsAction::Redo),
                 MenuItem::separator(),
                 MenuItem::os_action("Cut", text_input::Cut, OsAction::Cut),
                 MenuItem::os_action("Copy", text_input::Copy, OsAction::Copy),
