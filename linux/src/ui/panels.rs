@@ -343,7 +343,11 @@ fn history_panel(ui: Ui) -> AnyElement {
             let url = visit.url.clone();
             list = list.child(
                 link_row(ui, Link::new(&visit.title, &visit.url))
-                    .child(small(browser_core::library::ago(visit.visited_at, now)).flex_none().text_color(Theme::faint()))
+                    .child(
+                        small(read(ui, |b| browser_core::library::ago(b.core.store(b.model.private()), visit.visited_at, now)).unwrap_or_default())
+                            .flex_none()
+                            .text_color(Theme::faint()),
+                    )
                     .child(icon_button(icons::CLOSE, "Remove from History", move || super::remove_history(ui, url.clone()))),
             );
         }

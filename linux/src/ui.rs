@@ -394,9 +394,7 @@ pub(super) fn lockdown_confirm(ui: Ui) -> AnyElement {
             view()
                 .flex_col()
                 .gap_2()
-                .child(small(
-                    "Lockdown deletes the cookies and site data this profile has stored, except data it shares with another profile. Open pages reload.",
-                ))
+                .child(small(browser_core::profiles::LOCKDOWN_WIPE))
                 .child(view().flex_row().gap_2().child(controls::accent_pill("Use Lockdown", apply)).child(pill("Cancel", move || ui.confirm.set(None))))
         })
     })

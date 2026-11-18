@@ -21,8 +21,6 @@ use tarn_nsh_shared::panes::{self, Pane};
 const FIND_RADIUS: f32 = 12.;
 const TAB_ICON: f32 = 20.;
 const FIND_WIDTH: f32 = 420.;
-const LOCKDOWN_WIPE: &str =
-    "Lockdown deletes the cookies and site data this profile has stored, except data it shares with another profile. Open pages reload.";
 
 fn title(screen: Screen) -> &'static str {
     match screen {
@@ -580,7 +578,7 @@ fn protection_settings(ui: Ui) -> AnyElement {
                     })
                 };
                 match ui.read(|s| s.shield_wipes_data(level)) {
-                    Some(profile) => confirm(format!("Use Lockdown for the profile \u{201C}{profile}\u{201D}?"), LOCKDOWN_WIPE, "Use Lockdown", set),
+                    Some(profile) => confirm(browser_core::profiles::lockdown_question(&profile), browser_core::profiles::LOCKDOWN_WIPE, "Use Lockdown", set),
                     None => set(),
                 }
             },
@@ -816,7 +814,7 @@ fn history(ui: Ui) -> impl IntoElement {
                 view().gap_1().child(section(day)).child(framed(group().children(list.into_iter().map(|entry| {
                     let url = entry.url.clone();
                     let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title };
-                    let when = browser_core::library::ago(entry.visited_at, now);
+                    let when = ui.read(|s| browser_core::library::ago(s.store(), entry.visited_at, now));
                     let host =
                         url::Url::parse(&entry.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or(entry.url);
                     let open = url.clone();

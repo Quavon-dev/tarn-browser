@@ -61,15 +61,21 @@ pub fn clear_history(store: &Store, profile_id: Id, range: HistoryRange, now: i6
     }
 }
 
-/// "5 min ago", "3 h ago", "2 d ago", then the date.
-pub fn ago(ms: i64, now: i64) -> String {
+/// "5 min ago", "3 h ago", "2 d ago", then the local date.
+pub fn ago(store: &Store, ms: i64, now: i64) -> String {
     match (now - ms).max(0) / 60_000 {
         0 => "Just now".into(),
         min @ 1..60 => format!("{min} min ago"),
         min @ 60..1440 => format!("{} h ago", min / 60),
         min @ 1440..10_080 => format!("{} d ago", min / 1440),
-        _ => crate::shield_card::date(ms),
+        _ => store.local_date(ms).unwrap_or_else(|_| crate::shield_card::date(ms)),
     }
+}
+
+/// Where the local today and yesterday start, for `history_day`.
+pub fn day_starts(store: &Store, now: i64) -> (i64, i64) {
+    let today = store.local_day_start(now).unwrap_or(now);
+    (today, store.local_day_start(today - 1).unwrap_or(today - 86_400_000))
 }
 
 pub fn history_day(visited_at: i64, (today, yesterday): (i64, i64)) -> &'static str {
@@ -171,13 +177,25 @@ mod tests {
     }
 
     #[test]
-    fn ages_turn_into_dates_after_a_week() {
-        let min = 60_000;
-        assert_eq!(ago(0, 59_999), "Just now");
-        assert_eq!(ago(0, 5 * min), "5 min ago");
-        assert_eq!(ago(0, 2 * 1440 * min), "2 d ago");
-        assert_eq!(ago(0, 7 * 1440 * min), "1970-01-01");
-        assert_eq!(ago(10 * min, 0), "Just now");
+    fn ages_turn_into_local_dates_after_a_week() {
+        let (store, min) = (Store::open_in_memory().unwrap(), 60_000);
+        assert_eq!(ago(&store, 0, 59_999), "Just now");
+        assert_eq!(ago(&store, 0, 5 * min), "5 min ago");
+        assert_eq!(ago(&store, 0, 2 * 1440 * min), "2 d ago");
+        assert_eq!(ago(&store, 10 * min, 0), "Just now");
+        let midnight = store.local_day_start(30 * 1440 * min).unwrap();
+        assert_eq!(ago(&store, midnight, midnight + 8 * 1440 * min), store.local_date(midnight + 12 * 60 * min).unwrap());
+        assert_ne!(ago(&store, midnight, midnight + 8 * 1440 * min), ago(&store, midnight - 1, midnight + 8 * 1440 * min));
+    }
+
+    #[test]
+    fn day_starts_are_local_midnights_a_day_apart() {
+        let store = Store::open_in_memory().unwrap();
+        let today = store.local_day_start(20 * 86_400_000).unwrap();
+        let (start, yesterday) = day_starts(&store, today + 3_600_000);
+        assert_eq!(start, today);
+        assert_eq!(yesterday, store.local_day_start(today - 1).unwrap());
+        assert!(today - yesterday >= 23 * 3_600_000 && today - yesterday <= 25 * 3_600_000);
     }
 
     #[test]

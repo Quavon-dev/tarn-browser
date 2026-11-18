@@ -1140,6 +1140,11 @@ impl Store {
             .query_row("SELECT CAST(strftime('%s', ?1 / 1000, 'unixepoch', 'localtime', 'start of day', 'utc') AS INTEGER) * 1000", [at], |r| r.get(0))?)
     }
 
+    /// The local calendar date of `at` (ms), as YYYY-MM-DD.
+    pub fn local_date(&self, at: i64) -> Result<String> {
+        Ok(self.conn.query_row("SELECT strftime('%Y-%m-%d', ?1 / 1000, 'unixepoch', 'localtime')", [at], |r| r.get(0))?)
+    }
+
     pub fn changes(&self) -> u64 {
         self.conn.total_changes()
     }
@@ -2085,6 +2090,9 @@ mod tests {
         let day = store.local_day_start(1_000_000_000_000).unwrap();
         assert!(day <= 1_000_000_000_000 && 1_000_000_000_000 - day < 86_400_000);
         assert_eq!(store.local_day_start(day).unwrap(), day);
+        let noon = day + 12 * 3_600_000;
+        assert_eq!(store.local_date(day).unwrap(), store.local_date(noon).unwrap(), "local midnight and noon share a date");
+        assert_ne!(store.local_date(day - 1).unwrap(), store.local_date(day).unwrap());
     }
 
     #[test]
