@@ -53,6 +53,7 @@ fn download_row(store: &store::Store, d: &Download, now: i64) -> Entry {
     let state = match d.state.as_str() {
         "failed" => "Failed",
         "cancelled" => "Cancelled",
+        s if s.starts_with("finished") && !std::path::Path::new(&d.path).exists() => "Missing",
         s if s.starts_with("finished") => "Finished",
         _ => "In Progress",
     };
@@ -1511,6 +1512,10 @@ impl Render for LibraryWindow {
             .on_action(cx.listener(|this, _: &crate::OpenLocation, window, cx| {
                 this.close(true, window, cx);
                 this.main.update(cx, |b, window, cx| b.open_command(CommandMode::Current, window, cx)).ok();
+            }))
+            .on_action(cx.listener(|this, _: &crate::Settings, window, cx| {
+                this.close(false, window, cx);
+                this.main.update(cx, |b, window, cx| b.open_settings(window, cx)).ok();
             }))
             .on_action(cx.listener(|this, _: &crate::menubar::ShowHistory, window, cx| this.go(Page::History, window, cx)))
             .on_action(cx.listener(|this, _: &crate::menubar::ManageBookmarks, window, cx| this.go(Page::Bookmarks(None), window, cx)))
