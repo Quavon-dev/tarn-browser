@@ -145,6 +145,8 @@ pub struct TextInput {
     redo: Vec<Snapshot>,
     /// Where the caret stood after the last typed text, so typing on from there joins its undo step.
     typing_at: Option<usize>,
+    /// Where an inline completion appended by `append_selected` starts.
+    completion: Option<usize>,
 }
 
 /// The text and selection before an edit, for Undo and Redo.
@@ -188,6 +190,7 @@ impl TextInput {
             undo: Vec::new(),
             redo: Vec::new(),
             typing_at: None,
+            completion: None,
         }
     }
 
@@ -245,6 +248,7 @@ impl TextInput {
         self.content = format!("{}{suffix}", self.content).into();
         self.selected_range = start..self.content.len();
         self.selection_reversed = false;
+        self.completion = Some(start);
         cx.notify();
     }
 
@@ -292,12 +296,18 @@ impl TextInput {
     }
 
     /// Keeps the text before an edit for Undo, unless the edit types on where the last one ended.
-    fn record(&mut self, typing: bool, start: usize) {
-        if !(typing && self.typing_at == Some(start)) {
+    /// An inline completion the edit replaces is not part of that text.
+    fn record(&mut self, typing: bool, range: &Range<usize>) {
+        let completion = shown_completion(self.completion.take(), &self.selected_range, range, self.content.len());
+        let (start, snapshot) = match completion {
+            Some(at) => (at, (self.content[..at].to_owned().into(), at..at)),
+            None => (range.start, (self.content.clone(), self.selected_range.clone())),
+        };
+        if !(typing && (range.is_empty() || completion.is_some()) && self.typing_at == Some(start)) {
             if self.undo.len() == MAX_UNDO {
                 self.undo.remove(0);
             }
-            self.undo.push((self.content.clone(), self.selected_range.clone()));
+            self.undo.push(snapshot);
         }
         self.redo.clear();
     }
@@ -646,7 +656,14 @@ impl TextInput {
         self.undo.clear();
         self.redo.clear();
         self.typing_at = None;
+        self.completion = None;
     }
+}
+
+/// Where the inline completion an edit of `range` replaces starts: the completion appended at
+/// `completion` is still the selection, up to the end of the text.
+fn shown_completion(completion: Option<usize>, selected: &Range<usize>, range: &Range<usize>, len: usize) -> Option<usize> {
+    completion.filter(|at| *selected == (*at..len) && range == selected && *at < len)
 }
 
 /// The UTF-8 offset in `text` of the UTF-16 `offset`, clamped to its end.
@@ -743,7 +760,7 @@ impl EntityInputHandler for TextInput {
 
         let typing = !new_text.is_empty();
         if self.marked_range.is_none() {
-            self.record(typing && range.is_empty(), range.start);
+            self.record(typing, &range);
         }
         self.content = (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..]).into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
@@ -769,7 +786,7 @@ impl EntityInputHandler for TextInput {
             range_utf16.as_ref().map(|range_utf16| self.range_from_utf16(range_utf16)).or(self.marked_range.clone()).unwrap_or(self.selected_range.clone());
 
         if self.marked_range.is_none() {
-            self.record(false, range.start);
+            self.record(false, &range);
         }
         self.content = (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..]).into();
         if !new_text.is_empty() {
@@ -1030,7 +1047,7 @@ impl Focusable for TextInput {
 
 #[cfg(test)]
 mod tests {
-    use super::{composing_selection, extend, scroll_to_caret, word_at, word_left, word_right};
+    use super::{composing_selection, extend, scroll_to_caret, shown_completion, word_at, word_left, word_right};
     use gpui::px;
 
     #[test]
@@ -1069,6 +1086,14 @@ mod tests {
     #[test]
     fn delete_to_beginning_takes_a_selected_completion_too() {
         assert_eq!(extend(&(3..11), 0), 0..11);
+    }
+
+    #[test]
+    fn an_edit_over_a_shown_completion_leaves_it_out_of_undo() {
+        assert_eq!(shown_completion(Some(3), &(3..12), &(3..12), 12), Some(3), "typing over the completion");
+        assert_eq!(shown_completion(Some(3), &(12..12), &(12..12), 12), None, "accepted with the caret at the end");
+        assert_eq!(shown_completion(Some(3), &(3..12), &(3..12), 13), None, "the text changed since");
+        assert_eq!(shown_completion(None, &(3..12), &(3..12), 12), None);
     }
 
     #[test]

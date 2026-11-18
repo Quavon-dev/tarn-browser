@@ -69,9 +69,9 @@ actions!(
         TogglePin,
         NewSpace,
         PrivateSpace,
-        Undo,
-        Redo,
         Find,
+        FocusNextRegion,
+        FocusPreviousRegion,
         FindNext,
         FindPrevious,
         Print,
@@ -236,11 +236,13 @@ impl Render for Browser {
             .when(stop, |d| d.on_action(cx.listener(|b, _: &StopLoading, _, cx| b.stop_loading(cx))))
             .when(back, |d| d.on_action(cx.listener(|b, _: &Back, _, _| b.back())))
             .when(forward, |d| d.on_action(cx.listener(|b, _: &Forward, _, _| b.forward())))
-            .on_action(cx.listener(|b, _: &ZoomIn, _, cx| b.zoom(Some(1.1), cx)))
-            .on_action(cx.listener(|b, _: &ZoomOut, _, cx| b.zoom(Some(1.0 / 1.1), cx)))
-            .on_action(cx.listener(|b, _: &ZoomReset, _, cx| b.zoom(None, cx)))
-            .on_action(cx.listener(|b, _: &TogglePin, _, cx| b.toggle_pin(cx)))
-            .on_action(cx.listener(|b, _: &Find, w, cx| b.open_find(w, cx)))
+            .when(!self.idle(&ZoomIn), |d| {
+                d.on_action(cx.listener(|b, _: &ZoomIn, _, cx| b.zoom(Some(1.1), cx)))
+                    .on_action(cx.listener(|b, _: &ZoomOut, _, cx| b.zoom(Some(1.0 / 1.1), cx)))
+                    .on_action(cx.listener(|b, _: &ZoomReset, _, cx| b.zoom(None, cx)))
+            })
+            .when(!self.idle(&TogglePin), |d| d.on_action(cx.listener(|b, _: &TogglePin, _, cx| b.toggle_pin(cx))))
+            .when(!self.idle(&Find), |d| d.on_action(cx.listener(|b, _: &Find, w, cx| b.open_find(w, cx))))
             .on_action(cx.listener(|b, _: &FindNext, _, cx| b.find(false, cx)))
             .on_action(cx.listener(|b, _: &FindPrevious, _, cx| b.find(true, cx)))
             .when(print, |d| d.on_action(cx.listener(|b, _: &Print, _, _| b.print())))
@@ -273,14 +275,15 @@ impl Render for Browser {
         indexed_actions!(cycle_tab: NextTab => true, PreviousTab => false);
         root = menubar::listen(root, self, cx);
         root = tabs::listen(root, cx);
-        root = toast::listen(qr::listen(reader::listen(root, cx), cx), cx);
-        root = find_tabs::listen(capture::listen(split::listen(shortcuts::listen(root, cx), cx), cx), cx);
+        let page = self.model.active.is_some();
+        root = toast::listen(root.when(page, |r| qr::listen(reader::listen(r, cx), cx)), cx);
+        root = find_tabs::listen(shortcuts::listen(root, cx).when(page, |r| capture::listen(split::listen(r, cx), cx)), cx);
         #[cfg(windows)]
         {
             use engine::chromium::EditCommand as E;
             root = root
-                .on_action(cx.listener(|b, _: &Undo, w, _| b.edit_page(E::Undo, w)))
-                .on_action(cx.listener(|b, _: &Redo, w, _| b.edit_page(E::Redo, w)))
+                .on_action(cx.listener(|b, _: &text_input::Undo, w, _| b.edit_page(E::Undo, w)))
+                .on_action(cx.listener(|b, _: &text_input::Redo, w, _| b.edit_page(E::Redo, w)))
                 .on_action(cx.listener(|b, _: &text_input::Cut, w, _| b.edit_page(E::Cut, w)))
                 .on_action(cx.listener(|b, _: &text_input::Copy, w, _| b.edit_page(E::Copy, w)))
                 .on_action(cx.listener(|b, _: &text_input::Paste, w, _| b.edit_page(E::Paste, w)))
@@ -290,23 +293,27 @@ impl Render for Browser {
         root = root
             .when(!self.idle(&ReopenClosedTab), |d| d.on_action(cx.listener(|b, _: &ReopenClosedTab, w, cx| b.reopen_closed_tab(w, cx))))
             .when(!self.idle(&CloseAllTabs), |d| d.on_action(cx.listener(|b, _: &CloseAllTabs, w, cx| b.close_all_tabs(w, cx))))
-            .on_action(cx.listener(|b, _: &DuplicateTab, w, cx| {
-                if let Some(key) = b.model.active {
-                    b.duplicate_tab(key, w, cx);
-                }
-            }))
-            .on_action(cx.listener(|b, _: &CopyLink, _, cx| {
-                if let Some(key) = b.model.active {
-                    b.copy_link(key, false, cx);
-                }
-            }))
-            .on_action(cx.listener(|b, _: &CopyCleanLink, _, cx| {
-                if let Some(key) = b.model.active {
-                    b.copy_link(key, true, cx);
-                }
-            }))
+            .when(!self.idle(&DuplicateTab), |d| {
+                d.on_action(cx.listener(|b, _: &DuplicateTab, w, cx| {
+                    if let Some(key) = b.model.active {
+                        b.duplicate_tab(key, w, cx);
+                    }
+                }))
+                .on_action(cx.listener(|b, _: &CopyLink, _, cx| {
+                    if let Some(key) = b.model.active {
+                        b.copy_link(key, false, cx);
+                    }
+                }))
+                .on_action(cx.listener(|b, _: &CopyCleanLink, _, cx| {
+                    if let Some(key) = b.model.active {
+                        b.copy_link(key, true, cx);
+                    }
+                }))
+            })
             .on_action(cx.listener(|b, _: &ToggleCompactToolbar, _, cx| b.set_pref(prefs::Pref::CompactToolbar, !b.pref(prefs::Pref::CompactToolbar), cx)))
             .on_action(cx.listener(|b, _: &OpenAppMenu, window, cx| b.open_app_menu(window, cx)))
+            .on_action(cx.listener(|b, _: &FocusNextRegion, w, cx| b.cycle_focus(false, w, cx)))
+            .on_action(cx.listener(|b, _: &FocusPreviousRegion, w, cx| b.cycle_focus(true, w, cx)))
             // The mouse's buttons never arrive here, `watch_navigation_buttons` takes them; GPUI reports swipe events as these.
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Back), cx.listener(|b, _, _, _| b.swipe_history(true)))
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Forward), cx.listener(|b, _, _, _| b.swipe_history(false)));
@@ -363,9 +370,11 @@ pub(crate) fn bind_keys(cx: &mut App, keymap: &[(String, &'static dyn gpui::Acti
         KeyBinding::new(&shortcuts::platform("alt-cmd-left"), PreviousTab, None),
         KeyBinding::new("escape", CloseOverlay, Some("Browser")),
         KeyBinding::new("escape", CloseOverlay, Some("Settings")),
+        KeyBinding::new("f6", FocusNextRegion, Some("Browser")),
+        KeyBinding::new("shift-f6", FocusPreviousRegion, Some("Browser")),
         KeyBinding::new(&shortcuts::platform("cmd-q"), Quit, None),
-        KeyBinding::new(&shortcuts::platform("cmd-z"), Undo, None),
-        KeyBinding::new(&shortcuts::platform("cmd-shift-z"), Redo, None),
+        KeyBinding::new(&shortcuts::platform("cmd-z"), text_input::Undo, None),
+        KeyBinding::new(&shortcuts::platform("cmd-shift-z"), text_input::Redo, None),
         KeyBinding::new(&shortcuts::platform("ctrl-1"), Space1, None),
         KeyBinding::new(&shortcuts::platform("ctrl-2"), Space2, None),
         KeyBinding::new(&shortcuts::platform("ctrl-3"), Space3, None),
@@ -450,8 +459,8 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
         Menu {
             name: "Edit".into(),
             items: vec![
-                MenuItem::os_action("Undo", Undo, OsAction::Undo),
-                MenuItem::os_action("Redo", Redo, OsAction::Redo),
+                MenuItem::os_action("Undo", text_input::Undo, OsAction::Undo),
+                MenuItem::os_action("Redo", text_input::Redo, OsAction::Redo),
                 MenuItem::separator(),
                 MenuItem::os_action("Cut", text_input::Cut, OsAction::Cut),
                 MenuItem::os_action("Copy", text_input::Copy, OsAction::Copy),

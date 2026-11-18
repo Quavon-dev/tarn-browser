@@ -307,9 +307,6 @@ pub struct Browser {
     /// Matches the last find counted, and the highlighted one when the engine reports it.
     pub find_count: Option<(usize, Option<usize>)>,
     find_typing: Option<Task<()>>,
-    /// A find ran since the bar opened, so closing it has a highlight to clear and not the
-    /// user's own selection.
-    find_searched: bool,
     /// A tab woken by Find in Tabs, searched once its page has finished loading.
     pub(crate) find_after_load: Option<TabKey>,
     pub(crate) find_tabs: Option<Task<()>>,
@@ -502,7 +499,6 @@ impl Browser {
             find_input,
             find_count: None,
             find_typing: None,
-            find_searched: false,
             find_after_load: None,
             find_tabs: None,
             refocus: false,
@@ -1453,6 +1449,39 @@ impl Browser {
         cx.notify();
     }
 
+    /// F6 and Shift+F6: moves the keyboard between the page, the address field and the sidebar.
+    pub(crate) fn cycle_focus(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) {
+        use browser_core::focus::{Region, next_region};
+        let open = self.command_mode.is_some();
+        let from = if open {
+            Region::Address
+        } else if self.focus.is_focused(window) {
+            Region::Page
+        } else {
+            Region::Sidebar
+        };
+        match next_region(from, back, self.active_view().is_some(), self.sidebar_shown() > 0.) {
+            Region::Address => self.open_command(CommandMode::Current, window, cx),
+            Region::Page if open => self.close_command(window, cx),
+            Region::Page => {
+                window.focus(&self.focus);
+                if let Some(view) = self.active_view() {
+                    view.focus();
+                }
+            }
+            Region::Sidebar => {
+                if open {
+                    self.close_command(window, cx);
+                }
+                if let Some(host) = &self.host {
+                    host.focus();
+                }
+                window.focus(&self.focus);
+                window.focus_next();
+            }
+        }
+    }
+
     pub fn close_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let field = self.command_mode.is_some();
         let covered = field || self.shortcuts_open;
@@ -2047,7 +2076,7 @@ impl Browser {
                 }
             }
             // As a pop-up's tab: never in the burner, and its first load is the page's link, so S10 judges every hop.
-            Event::OpenTab { url, from, background } => {
+            Event::OpenTab { url, from, background, split } => {
                 let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown()) else { return cx.notify() };
                 let engine = opener.web_engine.or(self.saved.web_engine);
                 let routed = self.routed_space(&url);
@@ -2057,7 +2086,9 @@ impl Browser {
                 if let Some(tab) = self.model.new_tab(&self.core, url.as_str(), engine) {
                     self.reload_space();
                     self.link_loads.insert(tab, from.clone());
-                    if !background || routed.is_some() {
+                    if split && routed.is_none() {
+                        self.split_link(key, tab, window, cx);
+                    } else if !background || routed.is_some() {
                         self.activate(tab, window, cx);
                     } else if let Some(view) = self.create_view(tab, url.as_str(), cx) {
                         // Loaded now, as a pop-up is: a tab restored later would load its URL as the user's own.
@@ -2455,9 +2486,7 @@ impl Browser {
         self.find_typing = None;
         window.focus(&self.focus);
         if let Some(view) = self.active_view() {
-            if std::mem::take(&mut self.find_searched) {
-                view.clear_find();
-            }
+            view.clear_find();
             view.focus();
         }
         cx.notify();
@@ -2466,7 +2495,6 @@ impl Browser {
     pub fn find(&mut self, backwards: bool, cx: &mut Context<Self>) {
         let text = self.find_input.read(cx).text().to_owned();
         let Some(view) = self.active_view().filter(|_| !text.is_empty()) else { return };
-        self.find_searched = true;
         let events = self.events.clone();
         view.find(&text, backwards, move |found, current| {
             events.unbounded_send(Msg::Found(found, current)).ok();

@@ -45,6 +45,32 @@ pub struct SwitchToSpace {
     pub ix: usize,
 }
 
+/// Actions on the active tab's page, which do nothing while no tab is open.
+const NEED_A_TAB: [&dyn Action; 22] = [
+    &crate::BookmarkTab,
+    &crate::Print,
+    &crate::Reload,
+    &crate::ReloadFromOrigin,
+    &crate::DuplicateTab,
+    &crate::CopyLink,
+    &crate::CopyCleanLink,
+    &crate::TogglePin,
+    &crate::capture::CopyMarkdownLink,
+    &crate::capture::CopyTitle,
+    &crate::capture::TakeScreenshot,
+    &crate::capture::SavePdf,
+    &crate::capture::PictureInPicture,
+    &crate::qr::ShareLink,
+    &crate::qr::ShowQrCode,
+    &crate::reader::ToggleReader,
+    &crate::reader::SaveForLater,
+    &crate::Find,
+    &crate::ZoomIn,
+    &crate::ZoomOut,
+    &crate::ZoomReset,
+    &crate::split::ToggleSplitView,
+];
+
 pub(crate) const SPACES: [&dyn Action; 9] =
     [&crate::Space1, &crate::Space2, &crate::Space3, &crate::Space4, &crate::Space5, &crate::Space6, &crate::Space7, &crate::Space8, &crate::Space9];
 
@@ -166,7 +192,7 @@ impl Browser {
             || is(&crate::CloseAllTabs) && self.model.ephemeral_keys().is_empty()
             || is(&ToggleMute) && self.model.active.and_then(|k| self.tab_url(k)).and_then(|u| crate::browser::tab_host(&u)).is_none()
             || is(&crate::CloseTab) && no_tab && !self.overlay_open()
-            || no_tab && (is(&crate::BookmarkTab) || is(&crate::Print) || is(&crate::Reload) || is(&crate::ReloadFromOrigin))
+            || no_tab && NEED_A_TAB.iter().any(|a| is(*a))
     }
 
     /// Rebuilds the menu bar when what it lists has changed since the last render. GPUI keeps every

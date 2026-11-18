@@ -160,6 +160,7 @@ pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
             ("Settings", Bound("cmd-,", &crate::Settings)),
             ("Keyboard shortcuts", Bound("cmd-/", &crate::shortcuts::ToggleShortcuts)),
             ("Open the menu", Fixed("F10")),
+            ("Move between page, address field and sidebar", Fixed("F6  ⇧F6")),
             ("Close command bar, overlay, popover or link peek", Fixed("Esc")),
             ("Undo / Redo", Fixed("⌘Z  ⇧⌘Z")),
             ("Quit", Fixed("⌘Q")),
@@ -784,6 +785,10 @@ impl Render for SettingsWindow {
         let found = self.found_panes(cx);
         let searching = found.len() < PANES.len();
         let search_focused = self.search.focus_handle(cx).is_focused(window);
+        // With no focus path, the window's own actions (Close Window, ⌘W, Esc) never reach it.
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus);
+        }
 
         let nav = div()
             .w(px(SIDEBAR_WIDTH))

@@ -504,7 +504,7 @@ define_class!(
             }
             if let Some(url) = url.filter(|u| main && kind == WKNavigationType::LinkActivated && opens_as_tab(u)) {
                 let sink = self.ivars().sink.borrow().clone();
-                sink(Event::OpenTab { url, from: None, background: false });
+                sink(Event::OpenTab { url, from: None, background: false, split: false });
             }
             handler.call((WKNavigationActionPolicy::Cancel,));
         }
@@ -532,7 +532,7 @@ define_class!(
             // SAFETY: main-thread read of the live action.
             if let Some(url) = to_url(unsafe { action.request() }.URL()).filter(opens_as_tab) {
                 let sink = self.ivars().sink.borrow().clone();
-                sink(Event::OpenTab { url, from: None, background: false });
+                sink(Event::OpenTab { url, from: None, background: false, split: false });
             }
             None
         }
