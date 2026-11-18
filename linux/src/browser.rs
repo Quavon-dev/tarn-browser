@@ -345,9 +345,7 @@ impl Browser {
             Some(ToastAction::UndoSort(sort)) => self.undo_sort(*sort),
             Some(ToastAction::RestoreDownloads(cleared)) => {
                 let (private, profile, rows) = *cleared;
-                for d in rows.iter().rev() {
-                    self.core.store(private).add_download(profile, &d.url, &d.path, &d.state, d.started_at).ok();
-                }
+                self.core.restore_downloads(private, profile, &rows);
             }
             Some(ToastAction::Reveal(_)) | None => {}
         }

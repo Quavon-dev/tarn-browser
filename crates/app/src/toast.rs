@@ -168,9 +168,7 @@ impl Browser {
             Some(Action::RestartToUpdate) => crate::shared::restart_to_update(cx),
             Some(Action::RestoreDownloads(cleared)) => {
                 let (private, profile_id, list) = *cleared;
-                for d in list.iter().rev().filter(|d| self.core.keeps_record_since(private, profile_id, d.started_at)) {
-                    self.store(private).add_download(profile_id, &d.url, &d.path, &d.state, d.started_at).ok();
-                }
+                self.core.restore_downloads(private, profile_id, &list);
                 self.downloads_popover.changed += 1;
             }
             _ => {}
