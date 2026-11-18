@@ -524,10 +524,7 @@ impl SettingsWindow {
             switch_row("theme-match-system", true, text_block("Match system", format!("Follow {system}'s light and dark appearance.")), match_system)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let core = crate::shared::core(cx);
-                    let mut selection = Selection::load(&core.disk);
-                    let dark_scheme = this.cards(cx).iter().find(|c| c.id == selection.dark).map_or(Scheme::Dark, |c| c.scheme);
-                    selection.set_match_system(!match_system, dark_scheme);
-                    let saved = selection.save(&core.disk).map_err(|e| e.to_string());
+                    let saved = browser_core::theme_library::set_match_system(&core.disk, !match_system);
                     this.report(saved, "", cx);
                     this.appearance.message = None;
                 }))

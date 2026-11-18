@@ -146,7 +146,7 @@ mod tests {
     fn clear_history_removes_the_chosen_range_only() {
         let store = Store::open_in_memory().unwrap();
         let p = store.create_profile("P", "u", false).unwrap().id;
-        let now = 10 * 86_400_000;
+        let now = store.local_day_start(10 * 86_400_000).unwrap() + 12 * 3_600_000;
         for (url, ago) in [("https://old.test/", 3 * 86_400_000), ("https://hour.test/", 1_800_000), ("https://earlier.test/", 7_200_000)] {
             store.add_history(p, url, "", now - ago, false).unwrap();
         }
@@ -154,7 +154,7 @@ mod tests {
         clear_history(&store, p, HistoryRange::LastHour, now).unwrap();
         assert_eq!(urls(), ["https://earlier.test/", "https://old.test/"]);
         clear_history(&store, p, HistoryRange::Today, now).unwrap();
-        assert!(urls().contains(&"https://old.test/".to_owned()));
+        assert_eq!(urls(), ["https://old.test/"]);
         clear_history(&store, p, HistoryRange::All, now).unwrap();
         assert!(urls().is_empty());
     }

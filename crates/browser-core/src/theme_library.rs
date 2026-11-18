@@ -163,7 +163,10 @@ pub fn select(store: &Store, id: ThemeRef, scheme: Scheme) -> Result<(), String>
 }
 
 pub fn set_match_system(store: &Store, on: bool) -> Result<(), String> {
-    Selection { match_system: on, ..Selection::load(store) }.save(store).map_err(|e| e.to_string())
+    let mut selection = Selection::load(store);
+    let dark_scheme = cards(store).into_iter().find(|c| c.id == selection.dark).map_or(Scheme::Dark, |c| c.scheme);
+    selection.set_match_system(on, dark_scheme);
+    selection.save(store).map_err(|e| e.to_string())
 }
 
 pub fn sha256(bytes: &[u8]) -> String {
@@ -285,6 +288,16 @@ mod tests {
         set_pages(&s, 1, false).unwrap();
         assert!(profile_sheets(&s, &active, false, false, 1).is_empty() && !pages_on(&s, 1) && pages_on(&s, 2));
         assert_eq!(current(&s, true, true).id, ThemeRef::DARK, "safe mode shows the built-in theme");
+    }
+
+    #[test]
+    fn turning_match_system_on_moves_a_light_pick_to_the_light_slot() {
+        let (_d, s) = store();
+        let id = add(&s, MINE, 1).unwrap();
+        assert_eq!(Selection::load(&s).dark, ThemeRef::Stored(id));
+        set_match_system(&s, true).unwrap();
+        let selection = Selection::load(&s);
+        assert_eq!((selection.light, selection.dark, selection.match_system), (ThemeRef::Stored(id), ThemeRef::DARK, true));
     }
 
     #[test]
