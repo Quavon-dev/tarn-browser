@@ -15,6 +15,7 @@ pub enum Pref {
     Suggestions,
     NewTabStartPage,
     ClosePrevious,
+    TearOffTemporary,
     BlockAds,
     BlockTrackers,
     BlockAnnoyances,
@@ -32,7 +33,7 @@ pub enum Pref {
 }
 
 impl Pref {
-    pub const ALL: [Pref; 21] = [
+    pub const ALL: [Pref; 22] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
@@ -40,6 +41,7 @@ impl Pref {
         Pref::Suggestions,
         Pref::NewTabStartPage,
         Pref::ClosePrevious,
+        Pref::TearOffTemporary,
         Pref::BlockAds,
         Pref::BlockTrackers,
         Pref::BlockAnnoyances,
@@ -65,6 +67,7 @@ impl Pref {
             Pref::Suggestions => browser_core::settings::SUGGESTIONS,
             Pref::NewTabStartPage => "new_tab_start_page",
             Pref::ClosePrevious => "close_selects_previous",
+            Pref::TearOffTemporary => "tear_off_temporary",
             Pref::BlockAds => "block_ads",
             Pref::BlockTrackers => "block_trackers",
             Pref::BlockAnnoyances => "block_annoyances",
@@ -88,6 +91,7 @@ impl Pref {
             self,
             Pref::Gestures
                 | Pref::Suggestions
+                | Pref::TearOffTemporary
                 | Pref::BlockAds
                 | Pref::BlockTrackers
                 | Pref::BlockAnnoyances
@@ -455,6 +459,7 @@ mod tests {
             (Pref::ReduceMotion, prefs::REDUCE_MOTION),
             (Pref::NewTabStartPage, prefs::NEW_TAB_START_PAGE),
             (Pref::ClosePrevious, prefs::CLOSE_SELECTS_PREVIOUS),
+            (Pref::TearOffTemporary, prefs::TEAR_OFF_TEMPORARY),
         ] {
             assert_eq!((pref.key(), pref.default()), (switch.key, switch.default), "{pref:?}");
         }

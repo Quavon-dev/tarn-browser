@@ -1,8 +1,8 @@
 use engine::menu::{self, Item};
 use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
-use gpui::{ClipboardItem, Context, PromptLevel, Window, px};
-use store::{Counter, Id, Tab, TabKind, WebEngine};
+use gpui::{ClipboardItem, Context, Pixels, Point, PromptLevel, Window, px};
+use store::{Counter, Id, SavedWindow, Tab, TabKind, WebEngine};
 use url::Url;
 
 use browser_core::closed::{Closed, ClosedGroup, ClosedTab};
@@ -675,6 +675,33 @@ impl Browser {
         if was_active {
             self.pick_active(window, cx);
         }
+        cx.notify();
+    }
+
+    /// Opens `key`, dragged out of this window and let go at `at`, in a window of its own there,
+    /// which takes its live view.
+    pub(crate) fn tear_off(&mut self, key: TabKey, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tab) = self.model.tab(key).cloned() else { return };
+        let url = self.tab_url(key).unwrap_or(tab.url);
+        let Some(torn) = self.model.tear_off(&self.core, key, &url, self.pref(Pref::TearOffTemporary)) else { return };
+        self.reload_space();
+        if torn.confined.is_some() {
+            Self::sync_other_windows(cx);
+        }
+        let [x, y, width, height] = crate::shared::window_frame(window);
+        let (space_id, active_tab_id) = torn.place(&self.core);
+        let row = SavedWindow {
+            web_engine: self.saved.web_engine,
+            x: x + f64::from(at.x) - 120.,
+            y: y + f64::from(at.y) - 20.,
+            width,
+            height,
+            space_id,
+            active_tab_id,
+            ..Default::default()
+        };
+        let (from, display) = (window.window_handle().downcast::<Browser>(), window.display(cx).map(|d| d.id()));
+        cx.defer(move |cx| crate::shared::open_torn(torn, row, display, from, cx));
         cx.notify();
     }
 

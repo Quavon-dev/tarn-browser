@@ -866,7 +866,9 @@ NSH 0.5.0's press events carry no pointer type, and its iOS long-press timer run
 well, so the sidebar tells a held trackpad click from a held finger by whether the pointer hovers the row:
 a hovered row opens its tab on a long press, an unhovered one opens the menu. A hovering Apple Pencil
 therefore also opens the tab. The Settings window is a card inside the app's surface, since separate OS
-windows are desktop-only in NSH.
+windows are desktop-only in NSH. For the same reason a tab dragged out of the window does not open a window
+of its own (a temporary or a full one, Settings › Tabs on the desktop clients), and the mobile Settings have
+no such row.
 The Profile pane's Shield card offers Flip, Change Design and Share Card but no Save as Image: NSH
 0.5.0's save dialog answers at once with no path on iOS and Android (`nsh_core::file_dialog`), and the
 mobile workspace has no SVG rasterizer to make the PNG the desktop clients save. Share Card hands the

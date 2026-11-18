@@ -29,7 +29,7 @@ use browser_core::command::{ENGINES, Input, classify_input, engine_key};
 use browser_core::prefs::{self, Switch};
 use browser_core::prompts::Prompt;
 use browser_core::suggest;
-use browser_core::tabs::{Model, TabKey};
+use browser_core::tabs::{Model, TabKey, Torn};
 use browser_core::{Core, now};
 use engine::nav_policy::{self, Decision, Source};
 use serde_json::{Value, json};
@@ -204,12 +204,13 @@ impl Browser {
         let core = Browser::open_core(dir);
         let row = Browser::saved_windows(&core).remove(0);
         let themes = themes::Themes::open(&core.disk, &dir.join("filters"));
-        let mut browser = Browser::new(core, row, HashSet::new(), themes);
+        let mut browser = Browser::new(core, row, None, HashSet::new(), themes);
         browser.extensions_root = dir.join("extensions");
         browser
     }
 
-    pub fn new(core: Rc<Core<Data>>, window: SavedWindow, elsewhere: HashSet<TabKey>, themes: themes::Themes) -> Browser {
+    /// `torn` is the tab dragged out of another window that this one opens for.
+    pub fn new(core: Rc<Core<Data>>, window: SavedWindow, torn: Option<Torn>, elsewhere: HashSet<TabKey>, themes: themes::Themes) -> Browser {
         let mut model = Model::new(browser_core::settings::live_tabs(&core.disk));
         model.reload_spaces(&core);
         let mut browser = Browser {
@@ -267,7 +268,7 @@ impl Browser {
             seq: 0,
             toast_serial: 0,
         };
-        let ix = browser.model.launch_space(&browser.core, &browser.window);
+        let ix = torn.and_then(|t| browser.model.launch_torn(&browser.core, t)).unwrap_or_else(|| browser.model.launch_space(&browser.core, &browser.window));
         browser.switch_space(ix);
         browser.apply_theme();
         browser
@@ -1167,7 +1168,31 @@ impl Browser {
 
     pub fn close_window(&mut self) {
         self.burn();
+        self.model.release_confined(&self.core);
         self.core.disk.delete_window(self.window.id).ok();
+    }
+
+    /// Takes `key`, dragged out of the window, off it: the saved row of the window that shows it
+    /// next, and what that window opens for; `None` when it stays.
+    pub fn tear_off(&mut self, key: TabKey) -> Option<(SavedWindow, Torn)> {
+        let tab = self.model.tab(key).cloned()?;
+        let url = self.pages.get(&key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url);
+        let torn = self.model.tear_off(&self.core, key, &url, prefs::TEAR_OFF_TEMPORARY.on(&self.core.disk))?;
+        let (space_id, active_tab_id) = torn.place(&self.core);
+        let (width, height) = (self.window.width, self.window.height);
+        let row = Browser::window_row(&self.core, SavedWindow { width, height, space_id, active_tab_id, ..SavedWindow::default() });
+        self.forget_tab(key);
+        self.model.reload_space(&self.core);
+        if self.model.active.is_none_or(|a| a == key) {
+            self.model.active = None;
+            match self.model.pick(|k| k == key || self.elsewhere.contains(&k)) {
+                Some(next) => self.activate(next),
+                None => {
+                    self.new_tab(START_URL);
+                }
+            }
+        }
+        Some((row, torn))
     }
 
     pub fn give_up(&mut self, key: TabKey) {

@@ -17,6 +17,30 @@ pub struct TabKey {
     pub id: Id,
 }
 
+/// How close to a window's edge, in points, a dragged tab shows what leaving the window opens;
+/// narrow enough to stay clear of the sidebar's rows and the toolbar's controls.
+pub const TEAR_OFF_EDGE: f32 = 12.;
+
+/// Whether `(x, y)` lies within `TEAR_OFF_EDGE` of the edge of a `width` by `height` window.
+pub fn near_edge(x: f32, y: f32, width: f32, height: f32) -> bool {
+    x < TEAR_OFF_EDGE || y < TEAR_OFF_EDGE || x > width - TEAR_OFF_EDGE || y > height - TEAR_OFF_EDGE
+}
+
+/// A tab dragged out of a window and the temporary space its new window keeps to, if any.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Torn {
+    pub key: TabKey,
+    pub confined: Option<(bool, Id)>,
+}
+
+impl Torn {
+    /// The space and tab the new window saves as its place.
+    pub fn place<D: WebsiteData>(&self, core: &Core<D>) -> (Option<Id>, Option<Id>) {
+        let space = self.confined.map(|(_, id)| id).or_else(|| core.store(self.key.private).tab(self.key.id).ok().map(|t| t.space_id));
+        crate::windows::saved_place(self.key.private, space, Some(self.key.id))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SpaceRef {
     pub private: bool,
@@ -46,6 +70,9 @@ pub struct Model {
     /// The private-store space of this window's burner tab; other windows' burners stay hidden.
     pub burner: Option<Id>,
     burner_profile: Option<Id>,
+    /// The temporary space this window alone lists, made when a tab was dragged out of a window;
+    /// it goes when the window closes.
+    pub confined: Option<(bool, Id)>,
 }
 
 impl Model {
@@ -66,6 +93,7 @@ impl Model {
             restore_tab: None,
             burner: None,
             burner_profile: None,
+            confined: None,
         }
     }
 
@@ -76,6 +104,9 @@ impl Model {
     /// The index of a new burner space: its own private-store profile at Strict, so its website
     /// data lives in a store of its own that goes with it.
     pub fn open_burner<D: WebsiteData>(&mut self, core: &Core<D>) -> Option<usize> {
+        if self.confined.is_some() {
+            return None;
+        }
         let store = core.store(true);
         let profile = store.create_profile("Burner", &uuid::Uuid::new_v4().to_string(), true).ok()?;
         let space = store.set_profile_shield_level(profile.id, ShieldLevel::Strict).and_then(|_| store.create_space(profile.id, "Burner", ""));
@@ -151,7 +182,14 @@ impl Model {
     /// the end when it is gone, so nothing reads or slides from a stale entry.
     pub fn reload_spaces<D: WebsiteData>(&mut self, core: &Core<D>) {
         let mut spaces = Vec::new();
-        for private in [false, true] {
+        if let Some((private, id)) = self.confined {
+            match core.store(private).temporary_space(id) {
+                Ok(space) => spaces.push(SpaceRef { private, space }),
+                // Its profile was reset or deleted: the window lists every space again.
+                Err(_) => self.confined = None,
+            }
+        }
+        for private in [false, true].into_iter().filter(|_| self.confined.is_none()) {
             let store = core.store(private);
             for profile in store.profiles().unwrap_or_default() {
                 let burner = private && core.burners.borrow().contains(&profile.id);
@@ -197,6 +235,10 @@ impl Model {
 
     /// The space a window opens on: its saved one, else the space whose tab was used last.
     pub fn launch_space<D: WebsiteData>(&mut self, core: &Core<D>, saved: &SavedWindow) -> usize {
+        if let Some(id) = saved.space_id.filter(|id| core.disk.temporary_space(*id).is_ok()) {
+            self.restore_tab = saved.active_tab_id;
+            return self.confine(core, false, id);
+        }
         let (space, tab) = crate::windows::restore(saved, &core.disk);
         self.restore_tab = tab;
         space.and_then(|id| self.spaces.iter().position(|s| !s.private && s.space.id == id)).unwrap_or_else(|| {
@@ -209,8 +251,70 @@ impl Model {
         })
     }
 
+    /// Lists only the temporary space `id` from now on and returns its index.
+    pub fn confine<D: WebsiteData>(&mut self, core: &Core<D>, private: bool, id: Id) -> usize {
+        self.confined = Some((private, id));
+        self.reload_spaces(core);
+        0
+    }
+
+    /// Deletes the confined space with its tabs, as its window closes.
+    pub fn release_confined<D: WebsiteData>(&mut self, core: &Core<D>) {
+        if let Some((private, id)) = self.confined.take() {
+            core.store(private).delete_space(id).ok();
+        }
+    }
+
+    /// What dragging `key` out of the window opens, with the page it shows at `url`: a window
+    /// confined to a new temporary space that the tab moved to, or a full window on the tab's own
+    /// space; `None` for nothing. A pinned tab or a tile never moves into a space that goes with
+    /// its window, and a confined window's tabs only move to another temporary space, since no
+    /// full window lists theirs.
+    pub fn tear_off<D: WebsiteData>(&self, core: &Core<D>, key: TabKey, url: &str, temporary: bool) -> Option<Torn> {
+        if !self.tears_into_temporary(key, temporary)? {
+            return Some(Torn { key, confined: None });
+        }
+        let tab = self.tab(key)?;
+        let store = core.store(key.private);
+        let space = store.create_temporary_space(self.current_space()?.space.profile_id, "Temporary").ok()?;
+        store.update_tab_page(key.id, url, &tab.title).ok();
+        if store.move_tab_to_space(key.id, space.id).is_err() {
+            store.delete_space(space.id).ok();
+            return None;
+        }
+        Some(Torn { key, confined: Some((key.private, space.id)) })
+    }
+
+    /// Whether letting go of `key` outside the window opens a temporary window (`Some(true)`), a
+    /// full one, or nothing (`None`), as `tear_off` decides.
+    pub fn tears_into_temporary(&self, key: TabKey, temporary: bool) -> Option<bool> {
+        let tab = self.tab(key).filter(|_| !self.burner_shown() && (self.confined.is_none() || self.tabs.len() > 1))?;
+        Some(self.confined.is_some() || temporary && tab.kind == TabKind::Ephemeral)
+    }
+
+    /// What the preview of a dragged tab says letting go outside the window opens.
+    pub fn tear_off_label(&self, key: TabKey, temporary: bool) -> Option<&'static str> {
+        self.tears_into_temporary(key, temporary).map(|t| if t { "Opens in a temporary window" } else { "Opens in a new window" })
+    }
+
+    /// The index of the space a window opened for `torn` shows first, with the torn tab to pick.
+    pub fn launch_torn<D: WebsiteData>(&mut self, core: &Core<D>, torn: Torn) -> Option<usize> {
+        let ix = match torn.confined {
+            Some((private, id)) => self.confine(core, private, id),
+            None => {
+                let space = core.store(torn.key.private).tab(torn.key.id).ok()?.space_id;
+                self.spaces.iter().position(|s| s.private == torn.key.private && s.space.id == space)?
+            }
+        };
+        self.restore_tab = Some(torn.key.id);
+        Some(ix)
+    }
+
     /// The index of the private space, creating it and its profile when there is none.
     pub fn private_space<D: WebsiteData>(&mut self, core: &Core<D>) -> Option<usize> {
+        if self.confined.is_some() {
+            return None;
+        }
         if let Some(ix) = self.spaces.iter().position(|s| s.private && Some(s.space.id) != self.burner) {
             return Some(ix);
         }
@@ -436,6 +540,7 @@ impl Model {
     pub fn can_delete_space(&self, ix: usize) -> bool {
         self.spaces
             .get(ix)
+            .filter(|_| self.confined.is_none())
             .filter(|s| !(s.private && Some(s.space.id) == self.burner))
             .is_some_and(|s| s.private || self.spaces.iter().filter(|o| !o.private && o.space.profile_id == s.space.profile_id).count() > 1)
     }
@@ -682,6 +787,67 @@ mod tests {
         model.reload_spaces(&core);
         model.switch_space(&core, 0).unwrap();
         (dir, core, model)
+    }
+
+    #[test]
+    fn a_tab_dragged_out_moves_to_a_space_only_its_window_lists() {
+        let (_dir, core, mut model) = opened();
+        let space = model.current_space().unwrap().space.id;
+        let tab = |kind| core.disk.create_tab(space, kind, None, "https://a.test/", "A").unwrap();
+        let (loose, other, pinned) = (tab(TabKind::Ephemeral), tab(TabKind::Ephemeral), tab(TabKind::Pinned));
+        let key = |t: &Tab| TabKey { private: false, id: t.id };
+        model.reload_space(&core);
+        let full = |t: &Tab| Some(Torn { key: key(t), confined: None });
+        assert_eq!(model.tear_off_label(key(&pinned), true), Some("Opens in a new window"));
+        assert_eq!(model.tear_off_label(key(&loose), true), Some("Opens in a temporary window"));
+        assert_eq!(model.tear_off_label(key(&loose), false), Some("Opens in a new window"));
+        assert!(near_edge(4., 300., 800., 600.) && near_edge(400., 592., 800., 600.) && !near_edge(20., 300., 800., 600.));
+        assert_eq!(model.tear_off(&core, key(&pinned), "https://a.test/", true), full(&pinned), "a pinned tab opens a full window");
+        let in_full = model.tear_off(&core, key(&loose), "https://a.test/", false).unwrap();
+        assert_eq!((Some(in_full), in_full.place(&core)), (full(&loose), (Some(space), Some(loose.id))));
+        let mut beside = Model::new(4);
+        beside.reload_spaces(&core);
+        assert_eq!(beside.launch_torn(&core, in_full), Some(0));
+        beside.switch_space(&core, 0).unwrap();
+        assert_eq!(beside.pick(|k| k != key(&loose)), Some(key(&loose)), "the torn tab is picked first");
+
+        let torn = model.tear_off(&core, key(&loose), "https://b.test/", true).unwrap();
+        let Some((false, temporary)) = torn.confined else { panic!("no temporary space") };
+        assert_eq!(torn.place(&core), (Some(temporary), Some(loose.id)));
+        let moved = core.disk.tab(loose.id).unwrap();
+        assert_eq!((moved.space_id, moved.url.as_str()), (temporary, "https://b.test/"));
+        model.reload_spaces(&core);
+        assert_eq!(model.spaces.len(), 1, "other windows do not list it");
+
+        let mut confined = Model::new(4);
+        let saved = SavedWindow { space_id: Some(temporary), active_tab_id: Some(loose.id), ..Default::default() };
+        assert_eq!(confined.launch_space(&core, &saved), 0, "a saved window reopens confined");
+        confined.switch_space(&core, 0).unwrap();
+        assert_eq!((confined.spaces.len(), confined.tabs.len()), (1, 1));
+        assert_eq!(confined.pick(|_| false), Some(key(&loose)));
+        assert_eq!(confined.tear_off(&core, key(&loose), "https://b.test/", true), None, "a confined window keeps its only tab");
+        assert_eq!(confined.tear_off_label(key(&loose), true), None);
+        assert!(!confined.can_delete_space(0));
+        assert_eq!((confined.private_space(&core), confined.open_burner(&core)), (None, None));
+        assert!(core.memory.profiles().unwrap().is_empty(), "a confined window makes no private profile");
+        core.disk.move_tab_to_space(other.id, temporary).unwrap();
+        confined.reload_space(&core);
+        let again = confined.tear_off(&core, key(&other), "https://a.test/", false).unwrap();
+        assert!(again.confined.is_some_and(|(_, id)| id != temporary), "a confined window only tears into another temporary space");
+        confined.release_confined(&core);
+        assert!(core.disk.tab(loose.id).is_err() && core.disk.temporary_space(temporary).is_err());
+    }
+
+    #[test]
+    fn a_confined_window_whose_space_went_lists_every_space() {
+        let (_dir, core, mut model) = opened();
+        let profile = model.current_space().unwrap().space.profile_id;
+        let temporary = core.disk.create_temporary_space(profile, "Temporary").unwrap().id;
+        model.confine(&core, false, temporary);
+        assert_eq!(model.spaces.len(), 1);
+        core.disk.delete_space(temporary).unwrap();
+        model.reload_spaces(&core);
+        assert!(model.confined.is_none() && model.spaces.len() == 1 && model.spaces[0].space.id != temporary);
     }
 
     #[test]

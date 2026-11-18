@@ -1483,6 +1483,15 @@ impl SettingsWindow {
                     ))
                     .child(self.choice_row(
                         false,
+                        "A tab dragged out of the window opens",
+                        "A temporary window lists only that tab's own temporary space, which goes with the window; a full window lists every space and profile. Pinned tabs and tiles open in a full window, except from a temporary one.",
+                        &["Temporary window", "Full window"],
+                        usize::from(!s.prefs.get(Pref::TearOffTemporary)),
+                        |b, ix, cx| b.set_pref(Pref::TearOffTemporary, ix == 0, cx),
+                        cx,
+                    ))
+                    .child(self.choice_row(
+                        false,
                         "Close unused tabs after",
                         "Unpinned tabs you have not opened for this long move to Library › Bookmarks › Archived Tabs.",
                         &Choice::ArchiveAfter.options(),

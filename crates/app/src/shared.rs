@@ -13,6 +13,7 @@ use store::{Id, SavedWindow};
 
 use crate::browser::{Browser, data_dir};
 use crate::prefs::Prefs;
+use browser_core::tabs::Torn;
 
 const MINUTE: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -428,9 +429,25 @@ fn open_new_window(cx: &mut App) {
         }
         None => (new_window_row(cx), None),
     };
-    if let Some(handle) = open_window(row, display, cx) {
+    if let Some(handle) = open_window(row, display, None, cx) {
         handle.update(cx, |_, window, _| window.activate_window()).ok();
         cx.activate(true);
+    }
+}
+
+/// A window for `torn`, a tab dragged out of `from`, which picks another tab once its own is gone.
+pub(crate) fn open_torn(torn: Torn, row: SavedWindow, display: Option<DisplayId>, from: Option<gpui::WindowHandle<Browser>>, cx: &mut App) {
+    let row = core(cx).disk.create_window(&row).unwrap_or(row);
+    if let Some(handle) = open_window(row, display, Some(torn), cx) {
+        handle.update(cx, |_, window, _| window.activate_window()).ok();
+    }
+    if let Some(from) = from {
+        from.update(cx, |b, window, cx| {
+            if b.model.active.is_none_or(|a| b.model.tab(a).is_none()) {
+                b.pick_active(window, cx);
+            }
+        })
+        .ok();
     }
 }
 
@@ -449,7 +466,7 @@ fn restore_windows(cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
     if saved.is_empty() {
         saved.push(new_window_row(cx));
     }
-    let opened: Vec<_> = saved.into_iter().filter_map(|row| open_window(row, None, cx)).collect();
+    let opened: Vec<_> = saved.into_iter().filter_map(|row| open_window(row, None, None, cx)).collect();
     each(cx, |b, _, cx| {
         b.archive_unused_tabs(cx);
     });
@@ -457,7 +474,7 @@ fn restore_windows(cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
 }
 
 /// `display` is the screen `row`'s frame is relative to; `None` for the primary one.
-pub(crate) fn open_window(row: SavedWindow, display: Option<DisplayId>, cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
+pub(crate) fn open_window(row: SavedWindow, display: Option<DisplayId>, torn: Option<Torn>, cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
     let screen = display.and_then(|id| cx.find_display(id)).or_else(|| cx.primary_display());
     let screens: Vec<Frame> = screen.map(|d| frame(d.bounds())).into_iter().collect();
     let [x, y, width, height] = onto_screen([row.x, row.y, row.width, row.height], &screens).map(|v| v as f32);
@@ -469,7 +486,7 @@ pub(crate) fn open_window(row: SavedWindow, display: Option<DisplayId>, cx: &mut
         window_min_size: Some(size(px(720.), px(480.))),
         ..Default::default()
     };
-    cx.open_window(options, |window, cx| cx.new(|cx| Browser::new(row, window, cx))).inspect_err(|e| eprintln!("tarn: could not open window: {e}")).ok()
+    cx.open_window(options, |window, cx| cx.new(|cx| Browser::new(row, torn, window, cx))).inspect_err(|e| eprintln!("tarn: could not open window: {e}")).ok()
 }
 
 /// Whether another window shows `key` in a live view.
@@ -480,7 +497,7 @@ pub(crate) fn live_elsewhere(key: crate::browser::TabKey, cx: &mut gpui::Context
 }
 
 /// Links from another app open as new tabs in the frontmost browser window that does not show a
-/// burner tab, a new window when every one does, or the windows restored when none is open; a
+/// burner tab or a temporary space, a new window when every one does, or the windows restored when none is open; a
 /// flood beyond `admit` is dropped with a toast saying so.
 pub(crate) fn open_urls(urls: Vec<String>, cx: &mut App) {
     let (urls, dropped) = INCOMING.with_borrow_mut(|seen| browser_core::incoming::admit_links(seen, std::time::Instant::now(), urls));
@@ -489,13 +506,13 @@ pub(crate) fn open_urls(urls: Vec<String>, cx: &mut App) {
         return;
     }
     let browsers: Vec<_> = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().filter_map(|w| w.downcast::<Browser>()).collect();
-    let open = browsers.iter().copied().find(|h| h.read(cx).is_ok_and(|b| !b.model.burner_shown()));
+    let open = browsers.iter().copied().find(|h| h.read(cx).is_ok_and(|b| !b.model.burner_shown() && b.model.confined.is_none()));
     let handle = match open {
         Some(handle) => Some(handle),
         None if browsers.is_empty() => restore_windows(cx),
         None => {
             let row = new_window_row(cx);
-            open_window(row, None, cx)
+            open_window(row, None, None, cx)
         }
     };
     let Some(handle) = handle else { return };
@@ -519,7 +536,11 @@ pub(crate) fn bring_forward(cx: &mut App) {
         return;
     }
     let browsers: Vec<_> = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().filter_map(|w| w.downcast::<Browser>()).collect();
-    let open = browsers.iter().copied().find(|h| h.read(cx).is_ok_and(|b| !b.model.burner_shown())).or_else(|| browsers.first().copied());
+    let open = browsers
+        .iter()
+        .copied()
+        .find(|h| h.read(cx).is_ok_and(|b| !b.model.burner_shown() && b.model.confined.is_none()))
+        .or_else(|| browsers.first().copied());
     if let Some(handle) = open.or_else(|| restore_windows(cx)) {
         handle.update(cx, |_, window, _| window.activate_window()).ok();
         cx.activate(true);

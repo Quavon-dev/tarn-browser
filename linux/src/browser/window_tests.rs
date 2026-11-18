@@ -5,10 +5,10 @@ fn two_windows() -> (tempfile::TempDir, Browser, Browser) {
     let core = Browser::open_core(dir.path());
     let first = Browser::saved_windows(&core).remove(0);
     let themes = themes::Themes::open(&core.disk, &dir.path().join("filters"));
-    let mut a = Browser::new(core.clone(), first, HashSet::new(), themes.clone());
+    let mut a = Browser::new(core.clone(), first, None, HashSet::new(), themes.clone());
     a.new_tab("https://first.test/");
     let row = Browser::window_row(&core, SavedWindow::default());
-    let b = Browser::new(core, row, a.model.lifecycle.live().collect(), themes);
+    let b = Browser::new(core, row, None, a.model.lifecycle.live().collect(), themes);
     (dir, a, b)
 }
 
@@ -23,6 +23,23 @@ fn windows_share_the_core_and_keep_their_own_tabs_and_space() {
     assert_ne!(a.model.space_ix, b.model.space_ix, "each window keeps its space");
     b.sync_shared();
     assert_eq!(b.model.spaces.len(), a.model.spaces.len(), "a space made in one window shows in the other");
+}
+
+#[test]
+fn a_tab_dragged_out_opens_alone_in_a_temporary_window_that_takes_it_along() {
+    let (_dir, mut a, b) = two_windows();
+    let (kept, torn) = (a.new_tab("https://kept.test/").unwrap(), a.new_tab("https://torn.test/").unwrap());
+    let (row, plan) = a.tear_off(torn).unwrap();
+    assert!(plan.confined.is_some(), "temporary is the default");
+    assert_eq!((a.model.tab(torn), a.model.active), (None, Some(kept)), "the window shows another tab");
+    let themes = b.themes.clone();
+    let mut c = Browser::new(a.core.clone(), row, Some(plan), HashSet::new(), themes);
+    assert_eq!((c.model.spaces.len(), c.model.active), (1, Some(torn)));
+    let temporary = plan.confined.map(|(_, id)| id);
+    a.model.reload_spaces(&a.core);
+    assert!(a.model.spaces.iter().all(|s| Some(s.space.id) != temporary), "other windows do not list its space");
+    c.close_window();
+    assert!(a.core.disk.tab(torn.id).is_err(), "its tabs go with the window");
 }
 
 #[test]

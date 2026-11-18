@@ -385,6 +385,11 @@ pub struct Browser {
     /// The row a dragged tab is over, when the drop would split with it what the drop does, and
     /// otherwise whether the tab lands below that row rather than above it.
     pub(crate) split_drop: Option<(TabKey, Option<&'static str>, bool)>,
+    /// The tab being dragged, which a drop outside the window tears off.
+    pub(crate) tab_drag: Option<TabKey>,
+    /// The torn tab this new window takes from another while it picks its first tab.
+    adopting: Option<TabKey>,
+    pub(crate) ghost: crate::tear_off::Ghosting,
     pub shortcuts_open: bool,
     pub(crate) shortcuts_scroll: gpui::ScrollHandle,
     pub reader: Option<crate::reader::Reader>,
@@ -410,7 +415,8 @@ pub(crate) fn launch_urls(args: impl Iterator<Item = String>) -> Vec<String> {
 }
 
 impl Browser {
-    pub fn new(saved: SavedWindow, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    /// `torn` is the tab dragged out of another window that this one opens for.
+    pub fn new(saved: SavedWindow, torn: Option<browser_core::tabs::Torn>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let core = crate::shared::core(cx);
         let disk = &core.disk;
 
@@ -562,6 +568,9 @@ impl Browser {
             splits: Default::default(),
             split_shown: Default::default(),
             split_drop: None,
+            tab_drag: None,
+            adopting: None,
+            ghost: Default::default(),
             shortcuts_open: false,
             shortcuts_scroll: gpui::ScrollHandle::new(),
             reader: None,
@@ -588,12 +597,15 @@ impl Browser {
                 b.close_command(window, cx);
             }
         });
-        let (core, id) = (browser.core.clone(), browser.saved.id);
+        let this = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| {
-            crate::shared::window_closed(&core, id, cx);
+            this.update(cx, |b, cx| b.closing(cx)).ok();
             true
         });
         let release = cx.on_release(|b, cx| {
+            if let Some((ghost, _)) = b.ghost.popup.take() {
+                ghost.update(cx, |_, window, _| window.remove_window()).ok();
+            }
             b.save_all();
             b.model.burn(&b.core);
             b.address.remove_windows(cx);
@@ -607,10 +619,17 @@ impl Browser {
             browser.refresh_local_servers(cx);
         }
         browser.reload_spaces();
-        let restore = browser.model.launch_space(&browser.core, &browser.saved);
-        let restore = browser.scheduled_now().unwrap_or(restore);
+        let restore = match torn.and_then(|t| browser.model.launch_torn(&browser.core, t)) {
+            Some(ix) => ix,
+            None => {
+                let restore = browser.model.launch_space(&browser.core, &browser.saved);
+                browser.scheduled_now().unwrap_or(restore)
+            }
+        };
         window.focus(&browser.focus);
+        browser.adopting = torn.map(|t| t.key);
         browser.switch_space(restore, window, cx);
+        browser.adopting = None;
         browser.space_switched_at = None;
         browser
     }
@@ -700,6 +719,12 @@ impl Browser {
         self.switch_space(ix, window, cx);
         self.new_tab(url, window, cx);
         true
+    }
+
+    /// The user closes the window: its row goes, and its temporary space with the tabs in it.
+    pub(crate) fn closing(&mut self, cx: &mut App) {
+        self.model.release_confined(&self.core);
+        crate::shared::window_closed(&self.core, self.saved.id, cx);
     }
 
     /// Saves the window's frame and what it shows, for the next launch.
@@ -1304,7 +1329,8 @@ impl Browser {
     }
 
     pub(crate) fn pick_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match self.model.pick(|k| crate::shared::live_elsewhere(k, cx)) {
+        let adopting = self.adopting;
+        match self.model.pick(|k| Some(k) != adopting && crate::shared::live_elsewhere(k, cx)) {
             Some(key) => self.activate(key, window, cx),
             None => {
                 self.model.active = None;

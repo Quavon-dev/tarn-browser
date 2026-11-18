@@ -73,6 +73,57 @@ pub(super) fn released(ui: Ui) {
     }
 }
 
+/// While a tab is dragged near the window's edge, names what leaving the window there opens;
+/// `e` is any move with its root position.
+pub(super) fn edge_hint(ui: Ui, e: &MouseEvent) {
+    let (x, y) = (e.page_position.x.0, e.page_position.y.0);
+    let (width, height) = ui.size.get_untracked();
+    let hint = ui
+        .dragging
+        .get_untracked()
+        .filter(|_| browser_core::tabs::near_edge(x, y, width, height))
+        .and_then(|key| read(ui, |b| b.model.tear_off_label(key, b.pref(browser_core::prefs::TEAR_OFF_TEMPORARY))).flatten());
+    if ui.tear_hint.get_untracked() != hint {
+        ui.tear_hint.set(hint);
+    }
+}
+
+/// The accent edge and label of `edge_hint`, which let every pointer event through.
+pub(super) fn edge_layer(ui: Ui) -> AnyElement {
+    dynamic(move || {
+        ui.tear_hint.get().map(|label| {
+            view()
+                .absolute()
+                .inset_0()
+                .pointer_events(PointerEvents::None)
+                .border_1()
+                .border_color(Theme::accent())
+                .rounded(px(Theme::radius_panel()))
+                .items_center()
+                .pt_3()
+                .child(tarn_nsh_shared::motion::popping(
+                    view()
+                        .px_3()
+                        .py_1()
+                        .rounded_full()
+                        .bg(Theme::panel())
+                        .border_1()
+                        .border_color(Theme::accent())
+                        .child(small(label).text_color(Theme::accent_text())),
+                ))
+        })
+    })
+    .into_element()
+}
+
+/// The pointer left the window holding a tab: the tab tears off into a window of its own. A
+/// release outside the window reaches no view here, so leaving it is the drop.
+pub(super) fn dragged_out(ui: Ui) {
+    let Some(key) = ui.dragging.get_untracked() else { return };
+    release(ui);
+    super::tear_off(ui, key);
+}
+
 /// Ends a drag or a divider's resize: the button came up, or moves arrive without it after it
 /// came up over a page, which keeps the release.
 pub(super) fn release(ui: Ui) {
@@ -81,6 +132,9 @@ pub(super) fn release(ui: Ui) {
     }
     if ui.split_drop.with_untracked(Option::is_some) {
         ui.split_drop.set(None);
+    }
+    if ui.tear_hint.with_untracked(Option::is_some) {
+        ui.tear_hint.set(None);
     }
     if ui.resizing.with_untracked(Option::is_some) {
         ui.resizing.set(None);
@@ -124,6 +178,7 @@ pub(super) fn layer(ui: Ui) -> AnyElement {
 /// on the pane below does, and a held divider follows. Over a page the move reaches the page's
 /// element and the area around it, not the layer.
 pub(super) fn pointer_moved(ui: Ui, e: &MouseEvent) {
+    edge_hint(ui, e);
     let (x, y) = (e.position.x.0, e.position.y.0);
     let (width, height) = ui.area.get_untracked();
     if ui.dragging.with_untracked(Option::is_some) {

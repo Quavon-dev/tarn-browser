@@ -303,7 +303,7 @@ fn tab_infos(core: &AppCore, profile: Id, cx: &mut App) -> Vec<TabInfo> {
             current.extend(b.model.tabs.iter().map(|t| t.id));
         }
     });
-    let spaces = core.disk.spaces(profile).unwrap_or_default();
+    let spaces = core.disk.every_space(profile).unwrap_or_default();
     spaces
         .iter()
         .flat_map(|s| core.disk.tabs(s.id).unwrap_or_default())
