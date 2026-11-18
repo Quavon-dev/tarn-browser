@@ -370,6 +370,13 @@ fn history_loses_one_page_or_a_range() {
     }
     shell.remove_history_url("https://a.test/");
     assert_eq!(shell.history().iter().map(|h| h.url.as_str()).collect::<Vec<_>>(), ["https://b.test/"]);
+    let (private, profile) = shell.model.profile().unwrap();
+    for (url, ago) in [("https://old.test/", 2 * 3_600_000), ("https://new.test/", 60_000)] {
+        shell.core.store(private).add_history(profile, url, "", browser_core::now() - ago, false).unwrap();
+    }
+    shell.clear_history(HistoryRange::LastHour);
+    let urls: Vec<String> = shell.history().into_iter().map(|h| h.url).collect();
+    assert!(urls.iter().any(|u| u == "https://old.test/") && !urls.iter().any(|u| u == "https://new.test/"), "only the last hour goes: {urls:?}");
     shell.clear_history(HistoryRange::All);
     assert!(shell.history().is_empty());
     let (today, yesterday) = shell.day_starts(browser_core::now());
