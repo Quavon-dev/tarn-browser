@@ -1229,10 +1229,10 @@ impl SettingsWindow {
             .when(system && !private, |d| {
                 d.child(action("save-card", Icon::FileImage, "Save as Image").on_click(cx.listener(move |this, _, _, cx| this.save_card(saved.clone(), cx))))
             });
-        div().pt_4().flex().items_start().gap_6().child(face).child(
+        div().pt_4().flex().flex_wrap().items_start().gap_6().child(face).child(
             div()
                 .flex_1()
-                .min_w_0()
+                .min_w(px(300.))
                 .flex()
                 .flex_col()
                 .gap_3()
