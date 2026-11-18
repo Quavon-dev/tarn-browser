@@ -72,7 +72,10 @@ Every shell's web view offers the same operations and reports the same events. T
   on Linux, sent only for the user's own Shift-click under the pop-up rules; iOS and Android have
   no Shift-click and send none;
 - `OpenTab`: Chromium views only, for a link the user opens in a new tab (Ctrl- or middle-click,
-  the page menu); WebKit views report it as a `Popup`;
+  the page menu); WebKit views report it as a `Popup`. Open Link in Split View in a link's menu
+  sets `split`, which puts the tab beside its opener (macOS WebKit also as `OpenTab`; NSH
+  components as `popup` with `split: true`: Linux from WebKitGTK's link menu, iOS and Android from
+  the long-press menu while the `splitLinks` prop is set); each takes the pop-up checks;
 - `FullScreen`: Chromium views on Windows and WebKitGTK on Linux (`fullscreen`
   `{on, windowFullScreen}`, the latter whether the window was already in full screen), whose
   element full screen fills the browser's view or, on WebKitGTK, puts the shell's own window in

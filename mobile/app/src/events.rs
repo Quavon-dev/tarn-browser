@@ -89,7 +89,8 @@ impl<D: Platform> Shell<D> {
             }
             "popup" => {
                 if let Some(url) = text(data, "url") {
-                    self.new_popup_tab(key, &url, data.get("link").and_then(Value::as_bool).unwrap_or(false));
+                    let flag = |name: &str| data.get(name).and_then(Value::as_bool).unwrap_or(false);
+                    self.new_popup_tab(key, &url, flag("link"), flag("split"));
                 }
             }
             "prompt" => return self.prompt(key, data),

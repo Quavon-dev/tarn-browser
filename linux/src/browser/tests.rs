@@ -367,6 +367,19 @@ fn a_popup_names_its_opener_to_its_view() {
 }
 
 #[test]
+fn a_link_opened_in_split_view_joins_the_page_it_came_from() {
+    let (_dir, mut b) = browser();
+    let key = active(&b);
+    b.on_event(key, "popup", &json!({ "url": "https://split.test/", "link": true, "split": true }));
+    let popup = b.model.active.unwrap();
+    assert_ne!(popup, key);
+    assert_eq!(b.shown_split().map(|s| s.panes().to_vec()), Some(vec![key, popup]));
+    b.on_event(popup, "popup", &json!({ "url": "https://tab.test/" }));
+    assert_eq!(b.model.tabs.len(), 3);
+    assert!(!b.in_split(b.model.active.unwrap()), "a plain pop-up is a tab of its own");
+}
+
+#[test]
 fn popups_open_as_new_tabs_and_downloads_are_listed() {
     let (_dir, mut b) = browser();
     let key = active(&b);

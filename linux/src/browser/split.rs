@@ -55,7 +55,7 @@ impl Browser {
         }
     }
 
-    fn join_split(&mut self, anchor: TabKey, key: TabKey) {
+    pub(crate) fn join_split(&mut self, anchor: TabKey, key: TabKey) {
         if !self.elsewhere.contains(&key) && self.splits.join(anchor, key) {
             self.activate(key);
         }

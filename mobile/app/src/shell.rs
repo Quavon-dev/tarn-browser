@@ -849,7 +849,8 @@ impl<D: Platform> Shell<D> {
         }
     }
 
-    pub(crate) fn new_popup_tab(&mut self, opener: TabKey, url: &str, link: bool) {
+    /// `split` (Open Link in Split View) puts the tab beside its opener while the layout shows splits.
+    pub(crate) fn new_popup_tab(&mut self, opener: TabKey, url: &str, link: bool, split: bool) {
         let Some(from) = self.pages.get(&opener).and_then(|p| p.committed.clone()) else {
             self.notice = Some("Tarn did not open a popup from a page that is still loading.".into());
             return;
@@ -864,9 +865,13 @@ impl<D: Platform> Shell<D> {
             self.new_tab(Some(url));
             return;
         }
+        let beside = split && self.wide && (self.model.active == Some(opener) || self.shown_split().is_some_and(|s| s.panes().contains(&opener)));
         let Some(key) = self.model.new_tab(&self.core, "", None) else { return };
         self.model.reload_space(&self.core);
         self.load_in(key, url, Some(from));
+        if beside {
+            self.splits.join(opener, key);
+        }
         self.activate(key);
     }
 

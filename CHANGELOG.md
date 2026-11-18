@@ -95,6 +95,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   Windows).
 - F6 and Shift+F6 move the keyboard between the page, the address field and the sidebar (macOS,
   Windows, Linux).
+- A link's menu offers Open Link in New Tab and Open Link in Split View, which opens the link
+  beside the page, with the pop-up checks of any new tab (macOS, Windows, Linux; on iOS and Android
+  in the link's long-press menu, Split View where the layout is wide enough for it).
 
 ### Changed
 

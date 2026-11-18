@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Message;
 import android.os.SystemClock;
+import android.view.ContextMenu;
 import android.view.ContextThemeWrapper;
 import android.view.MotionEvent;
 import android.view.View;
@@ -112,6 +113,7 @@ final class TarnWebView implements NshComponent {
     private Map<String, List<String>> zaps = Map.of();
     private boolean sortDownloads;
     private boolean dark;
+    private boolean splitLinks;
     private boolean builtDark;
     private String appliedContent;
     private final List<ScriptHandler> contentScripts = new ArrayList<>();
@@ -156,6 +158,10 @@ final class TarnWebView implements NshComponent {
             case "zaps" -> zaps = parseZaps(value);
             case "sortDownloads" -> sortDownloads = Boolean.TRUE.equals(value);
             case "dark" -> dark = Boolean.TRUE.equals(value);
+            case "splitLinks" -> {
+                splitLinks = Boolean.TRUE.equals(value);
+                return;
+            }
             case "load" -> {
                 if (value instanceof Map<?, ?> load && load.get("url") instanceof String url) {
                     loadUrl = url;
@@ -555,6 +561,7 @@ final class TarnWebView implements NshComponent {
             WebSettingsCompat.setDownloadFaviconsEnabled(settings, false);
         }
         view.setDownloadListener(this::download);
+        view.setOnCreateContextMenuListener((menu, target, info) -> linkMenu(menu, view));
         view.setOnTouchListener((touched, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) emit("pressed");
             return false;
@@ -600,6 +607,43 @@ final class TarnWebView implements NshComponent {
 
     private boolean admitPopup(long now) {
         return admit(popups, POPUP_BURST, now);
+    }
+
+    /** A pop-up or a link the user opened in a new tab, or beside the page with {@code split}, after the pop-up checks. */
+    private void openPopup(String url, boolean link, boolean split) {
+        Page from = top;
+        if (url == null || destroyed || !passesNavPolicy(url, Native.POPUP, from == null ? null : from.url())) return;
+        if (isWeb(url) && Native.intoPrivateNetwork(url, from == null ? null : from.url(), false,
+                Math.max(levelFor(url), viewLevel))) {
+            refusedUrl = url;
+            emit("blocked", "url", url, "reason", "shield", "popup", true);
+            emit("shielded", "kind", "local_network", "url", url);
+            return;
+        }
+        emit("popup", "url", url, "link", link, "split", split);
+    }
+
+    /** A link's long-press menu: Open Link in New Tab and, where the layout shows splits, Open Link in Split View. */
+    private void linkMenu(ContextMenu menu, WebView view) {
+        int type = view.getHitTestResult().getType();
+        if (profileName == null || (type != WebView.HitTestResult.SRC_ANCHOR_TYPE && type != WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE)) return;
+        // WebView fills the reply with the pressed link before it returns; the main looper handles it only after this.
+        Message reply = Host.MAIN.obtainMessage();
+        view.requestFocusNodeHref(reply);
+        String url = reply.getData().getString("url");
+        if (url == null || url.isEmpty()) return;
+        menu.add("Open Link in New Tab").setOnMenuItemClickListener(item -> openLink(url, false));
+        if (splitLinks) menu.add("Open Link in Split View").setOnMenuItemClickListener(item -> openLink(url, true));
+    }
+
+    private boolean openLink(String url, boolean split) {
+        if (admitPopup(SystemClock.elapsedRealtime())) {
+            openPopup(url, true, split);
+        } else {
+            Page page = top;
+            if (page != null) emit("shielded", "kind", "popup", "url", page.url());
+        }
+        return true;
     }
 
     private static boolean admit(ArrayDeque<Long> recent, int max, long now) {
@@ -1325,16 +1369,7 @@ final class TarnWebView implements NshComponent {
                     catcher.stopLoading();
                     catcher.destroy();
                 });
-                Page from = top;
-                if (url == null || destroyed || !passesNavPolicy(url, Native.POPUP, from == null ? null : from.url())) return;
-                if (isWeb(url) && Native.intoPrivateNetwork(url, from == null ? null : from.url(), false,
-                        Math.max(levelFor(url), viewLevel))) {
-                    refusedUrl = url;
-                    emit("blocked", "url", url, "reason", "shield", "popup", true);
-                    emit("shielded", "kind", "local_network", "url", url);
-                    return;
-                }
-                emit("popup", "url", url, "link", link);
+                openPopup(url, link, false);
             });
         }
 
