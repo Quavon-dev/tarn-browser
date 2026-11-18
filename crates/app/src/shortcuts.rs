@@ -316,12 +316,13 @@ pub fn render(scroll: &ScrollHandle, cx: &mut Context<Browser>) -> AnyElement {
             .gap_1()
             .child(div().pb_1().text_size(px(TEXT_SMALL)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::muted()).child(title.to_uppercase()))
             .children(items.iter().filter(|(_, keys)| listed(keys)).map(|(action, keys)| {
-                div().flex().gap_3().justify_between().child(div().child(*action)).child(
+                div().flex().flex_wrap().gap_x_3().child(div().max_w_full().child(*action)).child(
                     key_hint(match keys {
                         Keys::Bound(_, action) => shown(*action, cx),
                         Keys::Fixed(keys) => (*keys).to_owned(),
                     })
-                    .flex_none(),
+                    .flex_none()
+                    .ml_auto(),
                 )
             }))
     };
