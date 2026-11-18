@@ -71,6 +71,7 @@ impl Host {
         // SAFETY: an AppKit window handle points to a live NSView owned by the window, and we
         // are on the main thread. Retaining it keeps it alive for as long as the Host exists.
         let view = unsafe { Retained::retain(handle.ns_view.as_ptr().cast::<NSView>()) }?;
+        crate::menu::keep_caret_keys_standard();
         Some(Host { view })
     }
 
@@ -167,7 +168,6 @@ impl WebView {
     /// `filtered` picks the profile's rule set with ad, tracker and cookie-banner blocking, off for paused sites.
     pub fn new(host: &Host, data: &DataStore, level: ShieldLevel, filtered: bool, inspectable: bool, site_for: SiteFor, sink: Rc<dyn Fn(Event)>) -> Self {
         let mtm = host.view.mtm();
-        crate::menu::keep_caret_keys_standard();
         // SAFETY: all calls below configure freshly created objects on the main thread. The
         // configuration gets no script message handler, so page scripts cannot reach the shell.
         unsafe {
