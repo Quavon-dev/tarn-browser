@@ -273,6 +273,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - A profile name longer than 48 characters is no longer cut when saved: the name field says "Use
   at most 48 characters." and Continue, Create Profile or Create Space stays off until it fits
   (macOS, Windows, Linux, iOS, Android).
+- A finished download whose file was moved or deleted reads "Missing · moved or deleted" with a
+  warning, and offers no Reveal or Show in Folder, in the Downloads panel and the Library
+  (macOS, Windows, Linux).
 
 ## [0.1.2] - 2026-11-17
 

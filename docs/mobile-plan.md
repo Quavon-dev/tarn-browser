@@ -212,6 +212,10 @@ v3 platform differences:
   cancelled; the main process deletes leftover `download*.part` files at launch (the private space's go
   with its session). iOS resumes a paused download through the view that started it or, once that view is
   gone, an off-screen `WKWebView` of the same store with JavaScript off;
+- Gap: the Downloads list does not mark a download whose file is gone as Missing, as the desktop clients do
+  (`browser_core::library::download_missing`). iOS keeps each file's absolute path, and the app's container
+  path can change with an app update, so the check would call files that are still there missing; the list
+  offers no Reveal or Open that a missing file would break;
 - `burner:` is the shell's mapping of a burner profile's `private:<id>` store (same id, so a platform
   releases both forms when the `Data` drops); `burner:` on iOS is its own `nonPersistentDataStore` per id (v2 shared one per session for every non-UUID
   id; `private:` keeps that); on Linux its own ephemeral `NetworkSession` per id; on Android a throwaway

@@ -425,11 +425,14 @@ pub(super) fn saved_download(ui: Ui, d: store::Download) -> AnyElement {
     let size = std::fs::metadata(file).map(|m| crate::memory::size(m.len())).ok();
     let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_owned));
     let ended = matches!(d.state.as_str(), "failed" | "cancelled").then(|| capitalised(&d.state));
-    let note = [ended, size, host].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+    let missing = browser_core::library::download_missing(&d);
+    let note = if missing { browser_core::library::MISSING.to_owned() } else { [ended, size, host].into_iter().flatten().collect::<Vec<_>>().join(" · ") };
     let id = d.id;
-    download_row(name, note, false)
-        .child(icon_button(icons::FOLDER_OPEN, "Show in Folder", move || {
-            drop(reveal_path(std::path::PathBuf::from(&path)));
+    download_row(name, note, missing)
+        .children((!missing).then(|| {
+            icon_button(icons::FOLDER_OPEN, "Show in Folder", move || {
+                drop(reveal_path(std::path::PathBuf::from(&path)));
+            })
         }))
         .children((!d.url.is_empty()).then(|| copy_link(ui, "Copy Download Link", d.url)))
         .child(icon_button(icons::TRASH, "Remove from List", move || act(ui, |b| b.remove_download(id))))
