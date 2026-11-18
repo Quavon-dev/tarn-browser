@@ -39,8 +39,10 @@ impl Torn {
     /// Puts a tab whose new window could not open back in the space it came from.
     pub fn undo<D: WebsiteData>(&self, core: &Core<D>) {
         if let Some((private, id)) = self.confined {
-            core.store(private).move_tab_to_space(self.key.id, self.from).ok();
-            core.store(private).delete_space(id).ok();
+            let store = core.store(private);
+            if store.move_tab_to_space(self.key.id, self.from).is_ok() && store.tab(self.key.id).is_ok_and(|t| t.space_id == self.from) {
+                store.delete_space(id).ok();
+            }
         }
     }
 }
@@ -273,7 +275,8 @@ impl Model {
         let store = core.store(key.private);
         let space = store.create_temporary_space(self.current_space()?.space.profile_id, "Temporary").ok()?;
         store.update_tab_page(key.id, url, &tab.title).ok();
-        if store.move_tab_to_space(key.id, space.id).is_err() {
+        let moved = store.move_tab_to_space(key.id, space.id).is_ok() && store.tab(key.id).is_ok_and(|t| t.space_id == space.id);
+        if !moved {
             store.delete_space(space.id).ok();
             return None;
         }
@@ -813,6 +816,10 @@ mod tests {
         undone.undo(&core);
         assert_eq!(core.disk.tab(other.id).unwrap().space_id, space, "a tab whose window did not open goes back");
         assert!(core.disk.temporary_space(undone.confined.unwrap().1).is_err());
+        let closed = tab(TabKind::Ephemeral);
+        model.reload_space(&core);
+        core.disk.delete_tab(closed.id).unwrap();
+        assert_eq!(model.tear_off(&core, key(&closed), "https://a.test/", true), None, "a tab another window closed does not tear off");
 
         let mut confined = Model::new(4);
         let saved = SavedWindow { space_id: Some(temporary), active_tab_id: Some(loose.id), ..Default::default() };
