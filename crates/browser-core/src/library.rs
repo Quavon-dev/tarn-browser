@@ -55,10 +55,27 @@ impl HistoryRange {
 
 pub fn clear_history(store: &Store, profile_id: Id, range: HistoryRange, now: i64) -> Result<(), store::Error> {
     match range {
-        HistoryRange::LastHour => store.delete_history_since(profile_id, now - 3_600_000),
-        HistoryRange::Today => store.delete_history_since(profile_id, store.local_day_start(now)?),
-        HistoryRange::All => store.clear_history(profile_id),
+        HistoryRange::LastHour => store.delete_history_since(profile_id, now - 3_600_000)?,
+        HistoryRange::Today => store.delete_history_since(profile_id, store.local_day_start(now)?)?,
+        HistoryRange::All => return store.clear_history(profile_id),
     }
+    forget_unvisited_sites(store, profile_id)
+}
+
+/// Drops the site icons and Shield site counts of hosts the profile's history no longer has.
+fn forget_unvisited_sites(store: &Store, profile_id: Id) -> Result<(), store::Error> {
+    let visited: HashSet<String> = store
+        .history(profile_id, i64::MAX as usize)?
+        .iter()
+        .filter_map(|h| crate::command::page_host(&url::Url::parse(&h.url).ok()?))
+        .map(|h| h.trim_end_matches('.').to_owned())
+        .collect();
+    let icons = store.favicons(profile_id)?.into_iter().map(|(host, _)| host);
+    let sites = store.shield_sites(profile_id, usize::MAX >> 1)?.into_iter().map(|(host, _)| host);
+    for host in icons.chain(sites).filter(|h| !visited.contains(h.trim_end_matches('.'))).collect::<HashSet<_>>() {
+        store.forget_site_records(profile_id, &host)?;
+    }
+    Ok(())
 }
 
 /// "5 min ago", "3 h ago", "2 d ago", then the local date.
@@ -168,8 +185,14 @@ mod tests {
             store.add_history(p, url, "", now - ago, false).unwrap();
         }
         let urls = || store.history(p, 10).unwrap().into_iter().map(|h| h.url).collect::<Vec<_>>();
+        for host in ["hour.test", "old.test"] {
+            store.set_favicon(p, host, b"png").unwrap();
+            store.count(p, store::Counter::HttpsUpgrades, 1, Some(host)).unwrap();
+        }
         clear_history(&store, p, HistoryRange::LastHour, now).unwrap();
         assert_eq!(urls(), ["https://earlier.test/", "https://old.test/"]);
+        assert_eq!(store.favicons(p).unwrap().into_iter().map(|f| f.0).collect::<Vec<_>>(), ["old.test"], "an icon goes with the host's last visit");
+        assert_eq!(store.shield_sites(p, 10).unwrap().into_iter().map(|s| s.0).collect::<Vec<_>>(), ["old.test"]);
         clear_history(&store, p, HistoryRange::Today, now).unwrap();
         assert_eq!(urls(), ["https://old.test/"]);
         clear_history(&store, p, HistoryRange::All, now).unwrap();

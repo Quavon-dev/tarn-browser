@@ -1129,6 +1129,16 @@ impl Store {
         self.checkpoint()
     }
 
+    /// Drops the site icon and the Shield site count kept for `host`.
+    pub fn forget_site_records(&self, profile_id: Id, host: &str) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for table in ["favicons", "shield_sites"] {
+            tx.execute(&format!("DELETE FROM {table} WHERE profile_id = ?1 AND host = ?2"), params![profile_id, host])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn delete_history_url(&self, profile_id: Id, url: &str) -> Result<()> {
         self.conn.execute("DELETE FROM history WHERE profile_id = ?1 AND url = ?2", params![profile_id, url])?;
         self.checkpoint()
