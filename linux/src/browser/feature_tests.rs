@@ -1227,6 +1227,7 @@ fn open_tabs_are_offered_as_switch_to_tab_rows_across_the_profiles_spaces() {
     assert_eq!(rows.iter().map(|r| r.key).collect::<Vec<_>>(), [docs]);
     assert_eq!(rows[0].detail(), "Switch to Tab");
     assert!(b.tab_suggestions(" ").is_empty());
+    assert!(b.tab_suggestions("news").is_empty(), "the current tab is not offered");
     let home = b.model.space_ix;
     b.save_space(&b.new_space_draft());
     let rows = b.tab_suggestions("docs.test/guide");

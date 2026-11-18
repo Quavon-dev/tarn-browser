@@ -206,7 +206,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   tooltip says how many requests it stopped on the site (macOS, Windows).
 - The address field keeps Reader open behind it and shows a sleeping tab's address; its
   suggestions no longer offer the current tab, show one Switch to Tab row for tabs on the same
-  address, and Enter in an empty field opens nothing (macOS, Windows).
+  address, and Enter in an empty field opens nothing (macOS, Windows, Linux).
 - Failed and cancelled downloads stay in the Downloads list, a download in progress has a Cancel
   button, Clear offers Undo, a new download no longer hides a dangerous-file warning, and the
   Downloads panel stays inside the window (macOS, Windows, Linux).
