@@ -93,7 +93,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Settings › Profile is now Protection and holds the only Shield level choice, with each level's
   description; the profile list is only in Profiles. The card's counters and the "Counted on this
   Mac only" label are no longer repeated next to it, and a week with nothing stopped shows one line
-  instead of an empty chart (macOS, Windows).
+  instead of an empty chart (macOS, Windows). The NSH clients (Linux, iOS, Android) name
+  the pane Protection too.
 - Choosing Lockdown (from Settings or the menu), clearing history, deleting a profile or everything
   in it, removing an extension or a theme, resetting zoom levels and deleting a bookmark ask first
   in a dialog that names what goes, instead of a second click on the same button (macOS, Windows).
