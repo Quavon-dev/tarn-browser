@@ -335,6 +335,8 @@ pub struct Browser {
     pub(crate) share_menu: crate::share::ShareMenu,
     /// The Windows menu button, as last painted, so its menu drops from it.
     pub(crate) app_menu_anchor: Rc<Cell<Bounds<Pixels>>>,
+    /// The button the next menu drops from; without one it opens at the pointer.
+    pub(crate) menu_at: Option<Bounds<Pixels>>,
     pub(crate) link_peek: crate::link_peek::LinkPeek,
     pub(crate) splits: browser_core::split::Splits<TabKey>,
     pub(crate) split_shown: crate::split::Shown,
@@ -342,6 +344,7 @@ pub struct Browser {
     /// without one the tab lands before that row.
     pub(crate) split_drop: Option<(TabKey, Option<&'static str>)>,
     pub shortcuts_open: bool,
+    pub(crate) shortcuts_scroll: gpui::ScrollHandle,
     pub reader: Option<crate::reader::Reader>,
     pub reader_layout: crate::reader::Layout,
     /// This window's row; its engine is the window engine.
@@ -511,11 +514,13 @@ impl Browser {
             site_popover: Default::default(),
             share_menu: Default::default(),
             app_menu_anchor: Default::default(),
+            menu_at: None,
             link_peek: Default::default(),
             splits: Default::default(),
             split_shown: Default::default(),
             split_drop: None,
             shortcuts_open: false,
+            shortcuts_scroll: gpui::ScrollHandle::new(),
             reader: None,
             reader_layout: Default::default(),
             saved,
@@ -1413,10 +1418,16 @@ impl Browser {
     /// The command card and profile editor replace the page, so the native web view is hidden under
     /// them; the address field opened in the toolbar leaves it visible.
     pub fn overlay_open(&self) -> bool {
-        (self.command_mode.is_some() && !self.inline_editing())
-            || self.profile_editor.as_ref().is_some_and(|e| !e.floating)
-            || self.shortcuts_open
-            || self.reader.as_ref().is_some_and(|r| self.model.active == Some(r.key))
+        self.card_open() || self.reader_shown()
+    }
+
+    /// An overlay other than the reader.
+    pub(crate) fn card_open(&self) -> bool {
+        (self.command_mode.is_some() && !self.inline_editing()) || self.profile_editor.as_ref().is_some_and(|e| !e.floating) || self.shortcuts_open
+    }
+
+    pub(crate) fn reader_shown(&self) -> bool {
+        self.reader.as_ref().is_some_and(|r| self.model.active == Some(r.key))
     }
 
     pub(crate) fn select_suggestion(&mut self, forward: bool, cx: &mut Context<Self>) {
@@ -2343,9 +2354,13 @@ impl Browser {
         }
     }
 
+    /// In the reader, finds on the page it was made from, which the reader then gives way to.
     pub fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.active_view().is_none() || self.overlay_open() || self.active_json().is_some() {
+        if self.active_view().is_none() || self.card_open() || self.active_json().is_some() {
             return;
+        }
+        if self.reader_shown() {
+            self.toggle_reader(window, cx);
         }
         self.find_open = true;
         self.find_count = None;
@@ -2466,8 +2481,12 @@ impl Browser {
 
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let dev = self.model.active.is_some_and(|k| self.is_dev_tab(k));
+        self.reload_page(dev, cx);
+    }
+
+    pub fn reload_page(&mut self, from_origin: bool, cx: &mut Context<Self>) {
         let (Some(key), Some(v)) = (self.model.active, self.active_view()) else { return };
-        if dev {
+        if from_origin {
             v.reload_from_origin()
         } else {
             v.reload()
@@ -2478,6 +2497,14 @@ impl Browser {
             this.update(cx, |_, cx| cx.notify()).ok();
         })
         .detach();
+        cx.notify();
+    }
+
+    pub fn stop_loading(&mut self, cx: &mut Context<Self>) {
+        self.reload_spin = None;
+        if let Some(view) = self.active_view() {
+            view.stop();
+        }
         cx.notify();
     }
 
@@ -3116,10 +3143,11 @@ impl Browser {
     /// The zoom is kept per host and profile and shared by its open tabs; Lockdown pages keep none.
     pub fn zoom(&mut self, factor: Option<f64>, cx: &mut Context<Self>) {
         if self.responsive_active() {
-            return;
+            return self.show_toast("Zoom is off while Responsive Size is on", None, cx);
         }
         let (Some(key), Some(v)) = (self.model.active, self.active_view()) else { return };
         v.set_zoom(factor.map_or(1.0, |f| v.zoom() * f));
+        self.show_toast(format!("Zoom {}%", (v.zoom() * 100.).round()), None, cx);
         let (Some(profile_id), Some(url)) = (self.profile_of(key), v.url()) else { return };
         let Some(host) = url.host_str() else { return };
         let Some(zoom) = zoom_to_save(v.zoom(), self.level_for_tab(key, url.as_str()) == ShieldLevel::Lockdown) else { return };

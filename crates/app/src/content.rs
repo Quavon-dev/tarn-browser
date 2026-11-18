@@ -304,7 +304,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     let body: AnyElement = if let Some(editor) = crate::profiles::render_editor(b, window, cx) {
         leaving(editor)
     } else if b.shortcuts_open {
-        leaving(pop_in(div().flex_1().flex().flex_col().child(crate::shortcuts::render(cx)), "shortcuts", reduce))
+        leaving(pop_in(div().flex_1().flex().flex_col().child(crate::shortcuts::render(&b.shortcuts_scroll, cx)), "shortcuts", reduce))
     } else if let Some(reader) = crate::reader::render(b, cx) {
         leaving(pop_in(div().flex_1().min_h_0().flex().flex_col().child(reader), "reader", reduce))
     } else if (b.command_mode.is_some() && !b.inline_editing()) || b.model.active.is_none() {
@@ -599,6 +599,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .children(
             suggestion_rows(b).into_iter().enumerate().map(|(ix, row)| row.on_click(cx.listener(move |b, _, window, cx| b.submit_command(ix, window, cx)))),
         );
+    let (space_at, shield_at) = (std::rc::Rc::<std::cell::Cell<_>>::default(), std::rc::Rc::<std::cell::Cell<_>>::default());
     let card = surface(Theme::radius_card())
         .id("start-card")
         .border_color(Theme::accent_soft())
@@ -641,12 +642,15 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
                         .child(profile_dot(&color, 8.))
                         .child(icon(Icon::Folder, 12., Theme::muted()))
                         .child(space)
+                        .child(crate::address::measure(space_at.clone()))
                         .on_click(cx.listener(move |b, _, w, cx| {
+                            b.menu_at = Some(space_at.get());
                             b.space_menu(b.model.space_ix, w, cx);
                             b.keep_command_focus(typing, w, cx);
                         })),
                 )
-                .child(tab_stop(start_shield(level)).on_click(cx.listener(move |b, _, w, cx| {
+                .child(tab_stop(start_shield(level)).child(crate::address::measure(shield_at.clone())).on_click(cx.listener(move |b, _, w, cx| {
+                    b.menu_at = Some(shield_at.get());
                     b.shield_menu(w, cx);
                     b.keep_command_focus(typing, w, cx);
                 }))),

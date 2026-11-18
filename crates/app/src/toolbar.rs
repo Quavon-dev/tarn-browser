@@ -5,7 +5,7 @@ use gpui::{
 use shield::ShieldLevel;
 use std::time::Duration;
 use store::WebEngine;
-use ui::controls::{icon_button, icon_frame, spinner, tooltip};
+use ui::controls::{icon_button, icon_frame, spinner, tab_stop, tooltip};
 use ui::icon::{ICON, Icon, icon};
 use ui::text::bounded_title;
 use ui::theme::{SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
@@ -62,11 +62,7 @@ fn reload_button(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> St
         if !b.model.active.is_some_and(|k| b.loading(k)) {
             return b.reload(cx);
         }
-        b.reload_spin = None;
-        if let Some(view) = b.active_view() {
-            view.stop();
-        }
-        cx.notify();
+        b.stop_loading(cx);
     });
     let tip = if page.loading { "Stop Loading" } else { "Reload" };
     if b.still() {
@@ -93,7 +89,7 @@ fn private_mark(b: &Browser) -> Option<impl IntoElement> {
 }
 
 fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
-    let reload = reload_button(b, page, cx);
+    let reload = tab_stop(reload_button(b, page, cx));
     let sidebar = if b.sidebar_open { "Hide Sidebar" } else { "Show Sidebar" };
     div()
         .occlude()
@@ -102,13 +98,19 @@ fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
         .items_center()
         .gap(px(2.))
         .child(
-            icon_button("toggle-sidebar", Icon::Sidebar, true)
+            tab_stop(icon_button("toggle-sidebar", Icon::Sidebar, true))
                 .tooltip(crate::shortcuts::tip(sidebar, &crate::ToggleSidebar))
                 .on_click(cx.listener(|b, _, _, cx| b.toggle_sidebar(cx))),
         )
-        .child(icon_button("back", Icon::Back, page.can_back).tooltip(crate::shortcuts::tip("Back", &crate::Back)).on_click(cx.listener(|b, _, _, _| b.back())))
+        .child(
+            icon_button("back", Icon::Back, page.can_back)
+                .when(page.can_back, tab_stop)
+                .tooltip(crate::shortcuts::tip("Back", &crate::Back))
+                .on_click(cx.listener(|b, _, _, _| b.back())),
+        )
         .child(
             icon_button("forward", Icon::Forward, page.can_forward)
+                .when(page.can_forward, tab_stop)
                 .tooltip(crate::shortcuts::tip("Forward", &crate::Forward))
                 .on_click(cx.listener(|b, _, _, _| b.forward())),
         )
@@ -127,11 +129,13 @@ fn page_actions(b: &Browser) -> Div {
         .gap(px(2.))
         .child(
             icon_button("split-view", Icon::SplitAdd, page)
+                .when(page, tab_stop)
                 .tooltip(crate::shortcuts::tip(split, &crate::split::ToggleSplitView))
                 .on_click(|_, w, cx| w.dispatch_action(Box::new(crate::split::ToggleSplitView), cx)),
         )
         .child(
             icon_button("share", Icon::Share, page)
+                .when(page, tab_stop)
                 .child(measure(b.share_menu.anchor.clone()))
                 .tooltip(crate::shortcuts::tip("Share", &crate::qr::ShareLink))
                 .on_click(|_, w, cx| w.dispatch_action(Box::new(crate::qr::ShareLink), cx)),
@@ -141,7 +145,7 @@ fn page_actions(b: &Browser) -> Div {
 /// Windows has no menu bar; this button opens the same menus.
 fn app_menu_button(b: &Browser, cx: &mut Context<Browser>) -> Option<Stateful<Div>> {
     cfg!(windows).then(|| {
-        icon_button("app-menu", Icon::Ellipsis, true)
+        tab_stop(icon_button("app-menu", Icon::Ellipsis, true))
             .child(measure(b.app_menu_anchor.clone()))
             .occlude()
             .tooltip(crate::shortcuts::tip("Menu", &crate::OpenAppMenu))
@@ -207,8 +211,7 @@ fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl In
     let shield_color = if level == ShieldLevel::Standard { Secure::muted() } else { Secure::shield_raised() };
     let open = b.site_popover.window.is_some();
     let count = site_count(b, site);
-    div()
-        .id("shield")
+    tab_stop(div().id("shield"))
         .occlude()
         .h(px(CHIP))
         .px_1p5()
@@ -238,6 +241,7 @@ fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl In
 fn chip_frame(id: &'static str, enabled: bool) -> Stateful<Div> {
     div()
         .id(id)
+        .when(enabled, tab_stop)
         .h(px(CHIP))
         .px_1p5()
         .flex()
@@ -300,8 +304,7 @@ const CHIP: f32 = FIELD - 2. - 2. * CHIP_INSET;
 fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let site = site(b);
     let (text, color) = address_text(&site);
-    div()
-        .id("origin")
+    tab_stop(div().id("origin"))
         .occlude()
         .group("origin")
         .w_full()
@@ -354,8 +357,7 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
         .child(navigation(b, &page, cx))
         .child(
             div().flex_1().min_w_0().relative().flex().child(measure(b.address.slot.clone())).child(
-                div()
-                    .id("address")
+                tab_stop(div().id("address"))
                     .occlude()
                     .flex_1()
                     .min_w_0()
@@ -443,8 +445,7 @@ fn devtools(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .items_center()
         .gap(px(2.))
         .child(
-            div()
-                .id("responsive")
+            tab_stop(div().id("responsive"))
                 .h(px(26.))
                 .px_2()
                 .flex()
@@ -463,6 +464,7 @@ fn devtools(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         )
         .child(
             icon_button("clear-site-data", Icon::Trash, has_page)
+                .when(has_page, tab_stop)
                 .tooltip(tooltip("Clear Site Data", None))
                 .on_click(cx.listener(|b, _, _, cx| b.clear_site_data(cx))),
         )

@@ -302,12 +302,13 @@ impl Browser {
 
     fn show_menu(&mut self, items: Vec<Item<Cmd>>, window: &mut Window, cx: &mut Context<Self>) {
         cx.stop_propagation();
+        let at = self.menu_at.take().and_then(below);
         let Some(host) = self.host.clone() else { return };
         let main = self.peek.main.filter(|_| self.peek.is_window(window));
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, crate::menu_glyphs::with_glyphs(items), None, move |cmd| {
+            menu::show(&host, crate::menu_glyphs::with_glyphs(items), at, move |cmd| {
                 tx.send(cmd).ok();
             });
             this.update(cx, |b, _| b.menu_open = false).ok();
@@ -337,15 +338,7 @@ impl Browser {
         let Some(host) = self.host.clone() else { return };
         // This window's menus, not the app-wide ones another window may have set last.
         let (menus, mut marks) = crate::menus(self.dynamic_menus());
-        let (can_back, can_forward) = self.model.active.and_then(|k| self.pages.get(&k)).map_or((false, false), |p| (p.can_back, p.can_forward));
-        let (no_closed, no_tabs, no_active) = (self.model.closed_tabs.is_empty(), self.model.ephemeral_keys().is_empty(), self.model.active.is_none());
-        let idle = move |a: &dyn gpui::Action| {
-            a.partial_eq(&crate::Back) && !can_back
-                || a.partial_eq(&crate::Forward) && !can_forward
-                || a.partial_eq(&crate::ReopenClosedTab) && no_closed
-                || a.partial_eq(&crate::CloseAllTabs) && no_tabs
-                || no_active && (a.partial_eq(&crate::CloseTab) || a.partial_eq(&crate::BookmarkTab) || a.partial_eq(&crate::Print))
-        };
+        let idle = |a: &dyn gpui::Action| self.idle(a);
         let items = menus
             .into_iter()
             .map(|m| {
@@ -358,7 +351,7 @@ impl Browser {
             })
             .collect();
         let button = self.app_menu_anchor.get();
-        let at = (button.size.width > px(0.)).then(|| (f32::from(button.origin.x).into(), f32::from(button.bottom()).into()));
+        let at = below(button);
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
@@ -769,6 +762,11 @@ impl Browser {
             }
         }));
     }
+}
+
+/// The lower left corner of a painted button, where a menu it opens drops from.
+fn below(button: gpui::Bounds<gpui::Pixels>) -> Option<(f64, f64)> {
+    (button.size.width > px(0.)).then(|| (f32::from(button.origin.x).into(), f32::from(button.bottom()).into()))
 }
 
 /// A menu entry's title, check mark and image, as `crate::menus` gives them.
