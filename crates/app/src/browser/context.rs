@@ -147,11 +147,11 @@ impl Browser {
             }
         }
         let rest = self.model.other_tabs(key);
-        let sleepers = rest.iter().any(|k| !self.sleeping(*k) && self.model.active != Some(*k));
+        let sleepers = rest.iter().any(|k| !self.sleeping(*k) && self.model.active != Some(*k) && !self.in_split(*k));
         items.extend([
             Item::Separator,
             self.mute_item(key),
-            Item::action("Sleep Tab", Cmd::Sleep(vec![key])).enabled(!active && !self.sleeping(key)),
+            Item::action("Sleep Tab", Cmd::Sleep(vec![key])).enabled(!active && !self.sleeping(key) && !self.in_split(key)),
             Item::action("Sleep Other Tabs", Cmd::Sleep(rest)).enabled(sleepers),
             Item::Separator,
             Item::action(if ephemeral { "Close Tab" } else { "Unload Tab" }, Cmd::Close(key)).key(if active {
@@ -302,12 +302,13 @@ impl Browser {
 
     fn show_menu(&mut self, items: Vec<Item<Cmd>>, window: &mut Window, cx: &mut Context<Self>) {
         cx.stop_propagation();
+        let at = self.menu_at.take().and_then(below);
         let Some(host) = self.host.clone() else { return };
         let main = self.peek.main.filter(|_| self.peek.is_window(window));
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, crate::menu_glyphs::with_glyphs(items), None, move |cmd| {
+            menu::show(&host, crate::menu_glyphs::with_glyphs(items), at, move |cmd| {
                 tx.send(cmd).ok();
             });
             this.update(cx, |b, _| b.menu_open = false).ok();
@@ -337,15 +338,7 @@ impl Browser {
         let Some(host) = self.host.clone() else { return };
         // This window's menus, not the app-wide ones another window may have set last.
         let (menus, mut marks) = crate::menus(self.dynamic_menus());
-        let (can_back, can_forward) = self.model.active.and_then(|k| self.pages.get(&k)).map_or((false, false), |p| (p.can_back, p.can_forward));
-        let (no_closed, no_tabs, no_active) = (self.model.closed_tabs.is_empty(), self.model.ephemeral_keys().is_empty(), self.model.active.is_none());
-        let idle = move |a: &dyn gpui::Action| {
-            a.partial_eq(&crate::Back) && !can_back
-                || a.partial_eq(&crate::Forward) && !can_forward
-                || a.partial_eq(&crate::ReopenClosedTab) && no_closed
-                || a.partial_eq(&crate::CloseAllTabs) && no_tabs
-                || no_active && (a.partial_eq(&crate::CloseTab) || a.partial_eq(&crate::BookmarkTab) || a.partial_eq(&crate::Print))
-        };
+        let idle = |a: &dyn gpui::Action| self.idle(a);
         let items = menus
             .into_iter()
             .map(|m| {
@@ -358,7 +351,7 @@ impl Browser {
             })
             .collect();
         let button = self.app_menu_anchor.get();
-        let at = (button.size.width > px(0.)).then(|| (f32::from(button.origin.x).into(), f32::from(button.bottom()).into()));
+        let at = below(button);
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
@@ -511,9 +504,15 @@ impl Browser {
             let engine = self.model.tab(key).and_then(|t| t.web_engine);
             // A copy of a file the user opened shows that file too.
             if self.page(key).opened_file.as_ref() == Some(&url) && !self.model.burner_shown() {
-                return self.new_file_tab(&url, engine, window, cx);
+                self.new_file_tab(&url, engine, window, cx);
+            } else {
+                self.new_tab_in(&url, engine, window, cx);
             }
-            self.new_tab_in(&url, engine, window, cx);
+            if let Some(copy) = self.model.active.filter(|k| *k != key) {
+                self.model.place_copy(&self.core, copy, key);
+                self.reload_space();
+                cx.notify();
+            }
         }
     }
 
@@ -559,14 +558,16 @@ impl Browser {
         let next =
             active.and_then(|a| self.splits.heir(a, &keys).or_else(|| self.model.close_neighbour(a, &keys, self.pref(crate::prefs::Pref::ClosePrevious))));
         self.hide_hover_card(cx);
-        let mut tabs: Vec<ClosedTab> = keys.into_iter().filter_map(|key| self.close_one(key, cx)).collect();
+        let mut tabs: Vec<ClosedTab> = keys.iter().filter_map(|key| self.close_one(*key, cx)).collect();
         self.reload_space();
         if burner && !tabs.is_empty() {
             self.leave_burner(window, cx);
         } else if active.is_some() && self.model.active.is_none() {
-            match next.filter(|k| self.model.tab(*k).is_some()) {
-                Some(next) if !crate::shared::live_elsewhere(next, cx) => self.activate(next, window, cx),
-                _ => self.pick_active(window, cx),
+            // An unloaded pinned tab stays listed and must not be picked straight back.
+            let next = next.filter(|k| self.model.tab(*k).is_some() && !crate::shared::live_elsewhere(*k, cx));
+            match next.or_else(|| self.model.pick(|k| keys.contains(&k) || crate::shared::live_elsewhere(k, cx))) {
+                Some(next) => self.activate(next, window, cx),
+                None => self.model.active = None,
             }
         }
         // SQLite reuses a deleted tab's id, so no other window may keep a view under it.
@@ -769,6 +770,11 @@ impl Browser {
             }
         }));
     }
+}
+
+/// The lower left corner of a painted button, where a menu it opens drops from.
+fn below(button: gpui::Bounds<gpui::Pixels>) -> Option<(f64, f64)> {
+    (button.size.width > px(0.)).then(|| (f32::from(button.origin.x).into(), f32::from(button.bottom()).into()))
 }
 
 /// A menu entry's title, check mark and image, as `crate::menus` gives them.

@@ -1,7 +1,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use engine::menu::{Image, Mark};
-use gpui::{Action, App, Context, Div, InteractiveElement, Menu, MenuItem, actions};
+use gpui::{Action, App, Context, Div, InteractiveElement, Menu, MenuItem, actions, prelude::FluentBuilder};
 use store::{Bookmark, Id, TabKind};
 
 use crate::browser::Browser;
@@ -45,6 +45,32 @@ pub struct SwitchToSpace {
     pub ix: usize,
 }
 
+/// Actions on the active tab's page, which do nothing while no tab is open.
+const NEED_A_TAB: [&dyn Action; 22] = [
+    &crate::BookmarkTab,
+    &crate::Print,
+    &crate::Reload,
+    &crate::ReloadFromOrigin,
+    &crate::DuplicateTab,
+    &crate::CopyLink,
+    &crate::CopyCleanLink,
+    &crate::TogglePin,
+    &crate::capture::CopyMarkdownLink,
+    &crate::capture::CopyTitle,
+    &crate::capture::TakeScreenshot,
+    &crate::capture::SavePdf,
+    &crate::capture::PictureInPicture,
+    &crate::qr::ShareLink,
+    &crate::qr::ShowQrCode,
+    &crate::reader::ToggleReader,
+    &crate::reader::SaveForLater,
+    &crate::Find,
+    &crate::ZoomIn,
+    &crate::ZoomOut,
+    &crate::ZoomReset,
+    &crate::split::ToggleSplitView,
+];
+
 pub(crate) const SPACES: [&dyn Action; 9] =
     [&crate::Space1, &crate::Space2, &crate::Space3, &crate::Space4, &crate::Space5, &crate::Space6, &crate::Space7, &crate::Space8, &crate::Space9];
 
@@ -83,6 +109,8 @@ pub struct Dynamic {
     pub tabs: Vec<MenuItem>,
     pub window: Vec<MenuItem>,
     pub view: Vec<MenuItem>,
+    /// File › Close Tab, which unloads a pinned tab.
+    pub close_tab: &'static str,
     pub marks: Vec<(&'static str, Vec<Mark>)>,
 }
 
@@ -117,7 +145,9 @@ fn menu_title(raw: &str) -> String {
     }
 }
 
-pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
+/// `b` leaves out the mute handler on a page without a host, which greys its menu entry.
+pub fn listen(root: Div, b: &Browser, cx: &mut Context<Browser>) -> Div {
+    let mute = !b.idle(&ToggleMute);
     root.on_action(cx.listener(|_, _: &Minimize, w, _| w.minimize_window()))
         .on_action(cx.listener(|_, _: &ZoomWindow, w, _| w.zoom_window()))
         .on_action(cx.listener(|_, _: &BringAllToFront, _, cx| cx.activate(true)))
@@ -126,11 +156,13 @@ pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
         .on_action(cx.listener(|b, _: &ShowMemory, w, cx| b.open_library(Page::Memory, None, w, cx)))
         .on_action(cx.listener(|b, _: &ImportBrowserData, w, cx| b.open_library(Page::Import, None, w, cx)))
         .on_action(cx.listener(|b, _: &ManageProfiles, w, cx| b.open_settings_pane(SettingsPane::Profiles, w, cx)))
-        .on_action(cx.listener(|b, _: &ToggleMute, _, cx| {
-            if let Some(key) = b.model.active {
-                b.toggle_site_muted(key, cx);
-            }
-        }))
+        .when(mute, |d| {
+            d.on_action(cx.listener(|b, _: &ToggleMute, _, cx| {
+                if let Some(key) = b.model.active {
+                    b.toggle_site_muted(key, cx);
+                }
+            }))
+        })
         .on_action(cx.listener(|b, a: &OpenUrl, w, cx| b.open_url(&a.url, w, cx)))
         .on_action(cx.listener(|b, a: &ReopenClosed, w, cx| b.reopen_closed(Some(a.serial), w, cx)))
         .on_action(cx.listener(|b, a: &SwitchProfile, w, cx| {
@@ -147,6 +179,22 @@ pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
 }
 
 impl Browser {
+    /// Whether `action` has nothing to act on now. Its menu entry is greyed: macOS greys an entry
+    /// whose action has no handler, so the window leaves those out, and Windows' menu asks this.
+    pub(crate) fn idle(&self, action: &dyn Action) -> bool {
+        let is = |a: &dyn Action| action.partial_eq(a);
+        let page = self.model.active.and_then(|k| self.pages.get(&k));
+        let no_tab = self.model.active.is_none();
+        is(&crate::Back) && !page.is_some_and(|p| p.can_back)
+            || is(&crate::Forward) && !page.is_some_and(|p| p.can_forward)
+            || is(&crate::StopLoading) && !page.is_some_and(|p| p.loading)
+            || is(&crate::ReopenClosedTab) && self.model.closed_tabs.is_empty()
+            || is(&crate::CloseAllTabs) && self.model.ephemeral_keys().is_empty()
+            || is(&ToggleMute) && self.model.active.and_then(|k| self.tab_url(k)).and_then(|u| crate::browser::tab_host(&u)).is_none()
+            || is(&crate::CloseTab) && no_tab && !self.overlay_open()
+            || no_tab && NEED_A_TAB.iter().any(|a| is(*a))
+    }
+
     /// Rebuilds the menu bar when what it lists has changed since the last render. GPUI keeps every
     /// action of every menu bar it was given, so the signature leaves out what the menus do not
     /// show; each newly visited page still costs one rebuild.
@@ -163,7 +211,7 @@ impl Browser {
         self.model.active.map(|k| self.tab_muted(k)).hash(&mut hash);
         self.model.active_tab().map(|t| t.custom_title.is_empty()).hash(&mut hash);
         self.model.active.and_then(|k| self.pinned_drift(k)).map(|u| u.host_str().map(str::to_owned)).hash(&mut hash);
-        (self.model.active.is_some_and(|a| self.splits.contains(a)), self.site().is_some()).hash(&mut hash);
+        (self.model.active.is_some_and(|a| self.splits.contains(a)), self.site().is_some(), self.reader_shown()).hash(&mut hash);
         (self.sidebar_open, self.pref(crate::prefs::Pref::CompactToolbar), self.pref(crate::prefs::Pref::AutoHideSidebar)).hash(&mut hash);
         let signature = hash.finish();
         if self.menu.signature != signature {
@@ -241,7 +289,7 @@ impl Browser {
             tabs.action("Next Tab", crate::NextTab),
             tabs.action("Previous Tab", crate::PreviousTab),
             MenuItem::separator(),
-            tabs.action("Search Tabs…", crate::ToggleLibrary),
+            tabs.action("Show Library", crate::ToggleLibrary),
             tabs.action(state_label(&crate::TogglePin, pinned).unwrap_or_default(), crate::TogglePin),
             tabs.action("Rename Tab", crate::tabs::RenameTab),
         ];
@@ -291,9 +339,11 @@ impl Browser {
             self.model
                 .spaces
                 .iter()
-                .zip(SPACES)
                 .enumerate()
-                .map(|(ix, (s, action))| tabs.item(&s.space.name, action.boxed_clone(), None, ix == self.model.space_ix))
+                .map(|(ix, s)| {
+                    let action = SPACES.get(ix).map_or_else(|| Box::new(SwitchToSpace { ix }) as Box<dyn Action>, |a| a.boxed_clone());
+                    tabs.item(&s.space.name, action, None, ix == self.model.space_ix)
+                })
                 .collect()
         }));
 
@@ -335,6 +385,8 @@ impl Browser {
             view.item("Auto-Hide Sidebar", Box::new(crate::ToggleAutoHideSidebar), None, auto_hide),
             MenuItem::separator(),
             view.action("Reload", crate::Reload),
+            view.action("Reload Without Cache", crate::ReloadFromOrigin),
+            view.action("Stop Loading", crate::StopLoading),
             MenuItem::separator(),
             view.action("Zoom In", crate::ZoomIn),
             view.action("Zoom Out", crate::ZoomOut),
@@ -346,7 +398,7 @@ impl Browser {
         }
         view_items.extend([
             MenuItem::separator(),
-            view.action("Reader", crate::reader::ToggleReader),
+            view.action(if self.reader_shown() { "Hide Reader" } else { "Show Reader" }, crate::reader::ToggleReader),
             view.action("Picture in Picture", crate::capture::PictureInPicture),
             view.action("Keyboard Shortcuts", crate::shortcuts::ToggleShortcuts),
         ]);
@@ -357,6 +409,7 @@ impl Browser {
             tabs: tab_items,
             window: window_items,
             view: view_items,
+            close_tab: if pinned { "Unload Tab" } else { "Close Tab" },
             marks: vec![("View", view.0), ("Bookmarks", bookmarks.0), ("History", history.0), ("Tabs", tabs.0), ("Window", window.0)],
         }
     }

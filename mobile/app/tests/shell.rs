@@ -361,6 +361,38 @@ fn clear_data_empties_history_and_downloads() {
 }
 
 #[test]
+fn history_loses_one_page_or_a_range() {
+    use browser_core::library::HistoryRange;
+    let (_dir, mut shell) = open();
+    for (url, title) in [("https://a.test/", "A"), ("https://b.test/", "B")] {
+        shell.navigate(url);
+        finish(&mut shell, url, title);
+    }
+    shell.remove_history_url("https://a.test/");
+    assert_eq!(shell.history().iter().map(|h| h.url.as_str()).collect::<Vec<_>>(), ["https://b.test/"]);
+    let (private, profile) = shell.model.profile().unwrap();
+    for (url, ago) in [("https://old.test/", 2 * 3_600_000), ("https://new.test/", 60_000)] {
+        shell.core.store(private).add_history(profile, url, "", browser_core::now() - ago, false).unwrap();
+    }
+    shell.clear_history(HistoryRange::LastHour);
+    let urls: Vec<String> = shell.history().into_iter().map(|h| h.url).collect();
+    assert!(urls.iter().any(|u| u == "https://old.test/") && !urls.iter().any(|u| u == "https://new.test/"), "only the last hour goes: {urls:?}");
+    shell.clear_history(HistoryRange::All);
+    assert!(shell.history().is_empty());
+    let (today, yesterday) = shell.day_starts(browser_core::now());
+    assert!(yesterday < today && today <= browser_core::now());
+}
+
+#[test]
+fn only_choosing_lockdown_asks_before_it_deletes_site_data() {
+    let (_dir, mut shell) = open();
+    assert_eq!(shell.shield_wipes_data(ShieldLevel::Strict), None);
+    assert!(shell.shield_wipes_data(ShieldLevel::Lockdown).is_some());
+    assert!(shell.set_default_level(ShieldLevel::Lockdown));
+    assert_eq!(shell.shield_wipes_data(ShieldLevel::Lockdown), None, "already in Lockdown");
+}
+
+#[test]
 fn prompts_queue_answer_and_remember_permissions() {
     let (_dir, mut shell) = open();
     let key = active(&shell);
@@ -412,7 +444,9 @@ fn popups_open_tabs_and_failures_show() {
     shell.event(pop, "blocked", &json!({ "url": "http://192.168.1.1/", "reason": "local_network" }), 3);
     assert!(shell.notice.as_deref().unwrap().contains("local network"));
     shell.event(pop, "found", &json!({ "matched": 3 }), 4);
-    assert_eq!(shell.found, Some(3));
+    assert_eq!(shell.found, Some((3, None)));
+    shell.event(pop, "found", &json!({ "matched": 3, "current": 2 }), 4);
+    assert_eq!(shell.found, Some((3, Some(2))));
     assert_eq!(shell.zoom(9.0), vec![Effect::Command(pop, "zoom", json!({ "factor": 3.0 }))]);
 }
 
@@ -942,6 +976,21 @@ fn views_carry_the_themes_website_sheets_but_never_in_private() {
     shell.enter_private();
     assert!(shell.model.private());
     assert!(shell.views()[0].theme_styles.is_empty(), "never in a private space");
+}
+
+#[test]
+fn a_link_opened_in_split_view_joins_its_page_on_a_wide_layout() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://opener.test/");
+    finish(&mut shell, "https://opener.test/page", "Opener");
+    let key = active(&shell);
+    shell.event(key, "popup", &json!({ "url": "https://phone.test/", "link": true, "split": true }), 1);
+    assert!(shell.shown_split().is_none(), "a phone opens the link as a tab");
+    shell.activate(key);
+    shell.set_wide(true);
+    shell.event(key, "popup", &json!({ "url": "https://split.test/", "link": true, "split": true }), 2);
+    let pane = active(&shell);
+    assert_eq!(shell.shown_split().map(|s| s.panes().to_vec()), Some(vec![key, pane]));
 }
 
 #[test]

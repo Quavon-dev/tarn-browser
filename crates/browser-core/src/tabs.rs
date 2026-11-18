@@ -250,11 +250,12 @@ impl Model {
         self.tabs.iter().filter(|t| t.kind == tab.kind && t.folder_id == tab.folder_id && t.position < tab.position).count()
     }
 
-    /// The index `Store::move_tab` takes to put `dragged` just before `before`: one less when it
-    /// comes from above in the same zone, since the store takes it out of the list first.
-    pub fn drop_index(&self, dragged: TabKey, before: &Tab) -> usize {
-        let from_above = self.tab(dragged).is_some_and(|t| t.kind == before.kind && t.folder_id == before.folder_id && t.position < before.position);
-        self.zone_index(before) - usize::from(from_above)
+    /// The index `Store::move_tab` takes to put `dragged` just before `target`, or just after it
+    /// when `below`: one less when it comes from above in the same zone, since the store takes it
+    /// out of the list first.
+    pub fn drop_index(&self, dragged: TabKey, target: &Tab, below: bool) -> usize {
+        let from_above = self.tab(dragged).is_some_and(|t| t.kind == target.kind && t.folder_id == target.folder_id && t.position < target.position);
+        self.zone_index(target) + usize::from(below) - usize::from(from_above)
     }
 
     /// Where adding `key` to the tiles or taking it out moves it: to the end of the tiles, or back
@@ -279,14 +280,21 @@ impl Model {
         self.tabs.iter().map(|t| self.key(t)).filter(|k| *k != key).collect()
     }
 
-    /// The unpinned tab nearest `key` in the sidebar that is not in `closing`, the previous one first
-    /// when `previous_first`.
+    /// The unpinned tabs listed below `key` in the sidebar; tabs hidden in a collapsed group are not.
+    pub fn tabs_below(&self, key: TabKey) -> Vec<TabKey> {
+        let unpinned = |k: &TabKey| self.tab(*k).is_some_and(|t| t.kind == TabKind::Ephemeral);
+        self.visible_tab_order().into_iter().skip_while(|k| *k != key).skip(1).filter(unpinned).collect()
+    }
+
+    /// The tab nearest `key` in the sidebar that is not in `closing`, the previous one first when
+    /// `previous_first`; an unpinned tab's neighbours are unpinned tabs only.
     pub fn close_neighbour(&self, key: TabKey, closing: &[TabKey], previous_first: bool) -> Option<TabKey> {
+        let loose = self.tab(key).is_some_and(|t| t.kind == TabKind::Ephemeral);
         let order: Vec<Id> = self
             .visible_tab_order()
             .into_iter()
             .filter(|k| *k == key || !closing.contains(k))
-            .filter(|k| self.tab(*k).is_some_and(|t| t.kind == TabKind::Ephemeral))
+            .filter(|k| *k == key || !loose || self.tab(*k).is_some_and(|t| t.kind == TabKind::Ephemeral))
             .map(|k| k.id)
             .collect();
         neighbour(&order, key.id, previous_first).map(|id| TabKey { private: key.private, id })
@@ -312,6 +320,16 @@ impl Model {
             store.set_tab_web_engine(tab.id, Some(engine)).ok();
         }
         Some(TabKey { private: space.private, id: tab.id })
+    }
+
+    /// Moves `copy`, a new tab at the end of the unpinned tabs, just below the unpinned tab `of`
+    /// and into its group.
+    pub fn place_copy<D: WebsiteData>(&self, core: &Core<D>, copy: TabKey, of: TabKey) {
+        let Some(of) = self.tab(of).filter(|t| t.kind == TabKind::Ephemeral && t.id != copy.id) else { return };
+        let store = core.store(copy.private);
+        if store.move_tab(copy.id, TabKind::Ephemeral, None, self.zone_index(of) + 1).is_ok() && of.group_id.is_some() {
+            store.set_tab_group(copy.id, of.group_id).ok();
+        }
     }
 
     pub fn touch<D: WebsiteData>(&mut self, core: &Core<D>, key: TabKey, now: i64) {
@@ -518,6 +536,11 @@ pub fn tile_grid(width: f32, gap: f32) -> (usize, f32) {
 pub fn tile_row(width: f32, gap: f32, count: usize) -> (usize, f32) {
     let columns = (((width + gap) / (TILE_MIN_WIDTH + gap)).floor() as usize).min(count).max(1);
     (columns, ((width - (columns - 1) as f32 * gap) / columns as f32).floor().max(0.))
+}
+
+/// Whether a tab dropped on a row at `share` of its height (0 at the top) lands below that row.
+pub fn drops_below(share: f32) -> bool {
+    share >= 0.5
 }
 
 /// The tab next to `closed` in `order`, the previous one first when `previous_first` is set.
@@ -746,21 +769,45 @@ mod tests {
     }
 
     #[test]
-    fn a_tab_dropped_before_a_row_lands_just_above_it_from_either_side() {
+    fn a_tab_dropped_on_a_row_lands_just_above_or_below_it_from_either_side() {
         let (_dir, core, mut model) = opened();
         let s = model.spaces[0].space.id;
         let tab = || core.disk.create_tab(s, TabKind::Ephemeral, None, "https://a.test/", "").unwrap().id;
         let (a, b, c) = (tab(), tab(), tab());
         model.reload_space(&core);
-        let drop = |model: &mut Model, dragged: Id, before: Id| {
-            let target = model.tabs.iter().find(|t| t.id == before).unwrap().clone();
-            let index = model.drop_index(TabKey { private: false, id: dragged }, &target);
+        let drop = |model: &mut Model, dragged: Id, on: Id, below: bool| {
+            let target = model.tabs.iter().find(|t| t.id == on).unwrap().clone();
+            let index = model.drop_index(TabKey { private: false, id: dragged }, &target, below);
             core.disk.move_tab(dragged, TabKind::Ephemeral, None, index).unwrap();
             model.reload_space(&core);
             model.tabs.iter().map(|t| t.id).collect::<Vec<_>>()
         };
-        assert_eq!(drop(&mut model, a, c), [b, a, c], "dragged down");
-        assert_eq!(drop(&mut model, c, b), [c, b, a], "dragged up");
+        assert_eq!(drop(&mut model, a, c, false), [b, a, c], "dragged down");
+        assert_eq!(drop(&mut model, c, b, false), [c, b, a], "dragged up");
+        assert_eq!(drop(&mut model, c, b, true), [b, c, a], "dropped below the next row");
+        assert_eq!(drop(&mut model, b, a, true), [c, a, b], "dropped below the last row");
+        assert_eq!(drop(&mut model, b, c, true), [c, b, a], "dragged up below a row");
+        assert!(!drops_below(0.2) && drops_below(0.8));
+    }
+
+    #[test]
+    fn a_copy_lands_below_its_tab_in_the_same_group() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let tab = || core.disk.create_tab(s, TabKind::Ephemeral, None, "https://a.test/", "").unwrap().id;
+        let (a, b, c) = (tab(), tab(), tab());
+        let group = core.disk.create_group(s, "G").unwrap().id;
+        core.disk.set_tab_group(b, Some(group)).unwrap();
+        let copy = tab();
+        model.reload_space(&core);
+        let key = |id| TabKey { private: false, id };
+        model.place_copy(&core, key(copy), key(b));
+        model.reload_space(&core);
+        assert_eq!(model.tabs.iter().map(|t| t.id).collect::<Vec<_>>(), [a, b, copy, c]);
+        assert_eq!(model.tab(key(copy)).unwrap().group_id, Some(group));
+        model.place_copy(&core, key(copy), key(copy));
+        model.reload_space(&core);
+        assert_eq!(model.tabs.iter().map(|t| t.id).collect::<Vec<_>>(), [a, b, copy, c], "a tab is no copy of itself");
     }
 
     #[test]
@@ -821,6 +868,8 @@ mod tests {
         assert_eq!(model.close_neighbour(ids[0], &[ids[0], ids[1]], false), Some(ids[2]), "tabs closing with it are skipped");
         assert_eq!(model.close_neighbour(ids[2], &[ids[1], ids[2]], true), Some(ids[0]));
         assert_eq!(model.close_neighbour(ids[1], &ids, false), None);
+        assert_eq!(model.close_neighbour(pinned, &[pinned], false), Some(ids[0]), "an unloaded pinned tab hands over to the next row");
+        assert_eq!(model.close_neighbour(pinned, &[pinned], true), Some(ids[0]));
         assert_eq!(model.ephemeral_keys(), ids);
         assert_eq!(model.other_tabs(pinned), ids);
         assert_eq!(model.pin_toggle(pinned), Some((TabKind::Ephemeral, 3)));
@@ -863,8 +912,18 @@ mod tests {
         model.new_group(&core, Some(model.key(&pinned))).unwrap();
         model.reload_space(&core);
         assert_eq!(model.tabs.iter().filter(|t| t.group_id.is_some()).map(|t| t.id).collect::<Vec<_>>(), [loose.id]);
+        let tab = || core.disk.create_tab(s, TabKind::Ephemeral, None, "https://c.test/", "").unwrap();
+        let (a, b, g) = (tab(), tab(), tab());
+        core.disk.set_tab_group(g.id, Some(group.id)).unwrap();
+        model.reload_space(&core);
+        let below = |model: &Model, t: &store::Tab| model.tabs_below(model.key(t)).into_iter().map(|k| k.id).collect::<Vec<_>>();
+        assert_eq!(below(&model, &a), [b.id], "a grouped tab is listed above the loose ones");
+        assert_eq!(below(&model, &loose), [g.id, a.id, b.id]);
+        assert_eq!(below(&model, &pinned), [loose.id, g.id, a.id, b.id], "pinned tabs are never below");
         assert!(model.toggle_group(&core, group.id));
         assert!(model.groups[0].collapsed && core.disk.groups(s).unwrap()[0].collapsed);
+        assert_eq!(below(&model, &pinned), [a.id, b.id], "a collapsed group's tabs are hidden");
+        assert!(below(&model, &b).is_empty());
         assert!(!model.toggle_group(&core, 999));
     }
 

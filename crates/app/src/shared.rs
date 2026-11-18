@@ -537,4 +537,5 @@ pub(crate) fn window_closed(core: &AppCore, id: Id, cx: &mut App) {
             core.store(true).delete_profile(profile.id).ok();
         }
     }
+    platform::memory::release_free();
 }

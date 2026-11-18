@@ -13,7 +13,7 @@ use nsh_core::picker::FilePickRequest;
 use nsh_core::prelude::*;
 use store::{Id, Store};
 
-use crate::controls::{Segment, accent_pill, caps_label, group, label, pill, section, secure_button, segmented, switch_row};
+use crate::controls::{Segment, accent_pill, caps_label, confirm, group, label, pill, section, secure_button, segmented, switch_row};
 use crate::theme::{SYSTEM_FONT, Secure, TEXT_SMALL, Theme};
 
 pub trait Host: Copy + 'static {
@@ -38,7 +38,6 @@ struct State {
     message: Option<(bool, String)>,
     focused: Option<ThemeRef>,
     colors: Option<Id>,
-    armed: Option<Id>,
     watch: Option<(Id, PathBuf, Option<SystemTime>)>,
     busy: bool,
     pending: Option<Pending>,
@@ -127,11 +126,7 @@ impl<H: Host> Pane<H> {
     }
 
     fn remove(self, id: Id) {
-        if self.state.with_untracked(|s| s.armed) != Some(id) {
-            return self.set(|s| s.armed = Some(id));
-        }
         self.set(|s| {
-            s.armed = None;
             s.focused = None;
             s.colors = s.colors.filter(|c| *c != id);
             s.watch = s.watch.take().filter(|(w, _, _)| *w != id);
@@ -356,11 +351,11 @@ fn card_view<H: Host>(pane: Pane<H>, card: &Card, selection: &Selection, focused
     .rounded(px(Theme::radius_group()))
     .bg(Theme::panel_row())
     .border_1()
-    .border_color(if focused { Theme::accent() } else { Theme::surface_edge() })
+    .border_color(if focused { Theme::accent_text() } else { Theme::surface_edge() })
     .child(view().flex_row().gap_1().children(card.swatches.map(|c| swatch(c).into_element())))
     .child(label(card.name.clone()).truncate())
     .child(badge(card.badge.clone()))
-    .child(small(if tags.is_empty() { if scheme == Scheme::Light { "Light" } else { "Dark" }.to_owned() } else { tags }).text_color(Theme::accent()))
+    .child(small(if tags.is_empty() { if scheme == Scheme::Light { "Light" } else { "Dark" }.to_owned() } else { tags }).text_color(Theme::accent_text()))
     .into_element()
 }
 
@@ -398,8 +393,8 @@ fn details<H: Host>(pane: Pane<H>, card: &Card) -> View {
         buttons = buttons.child(pill("Check for Updates", move || pane.fetch_github(None, Some((stored, repo_id)))));
     }
     if let Some(stored) = card.stored {
-        let armed = pane.get(|s| s.armed) == Some(stored);
-        buttons = buttons.child(pill(if armed { "Press Again to Remove" } else { "Remove" }, move || pane.remove(stored)));
+        let question = format!("Remove the theme \u{201C}{}\u{201D}?", browser_core::text::bounded_title(&card.name));
+        buttons = buttons.child(pill("Remove\u{2026}", move || confirm(question.clone(), "Its file is deleted.", "Remove", move || pane.remove(stored))));
     }
     out.child(buttons)
 }
@@ -448,7 +443,7 @@ fn accent_row<H: Host>(pane: Pane<H>) -> View {
     let host = pane.host;
     let (chosen, theme) = host.with_store(|s| (prefs::accent_choice(s), library::current(s, host.system_light(), host.safe()).parsed.tokens.accent >> 8));
     let swatches = std::iter::once((THEME_ACCENT, theme)).chain(ACCENTS).enumerate().map(|(ix, (name, color))| {
-        nsh_base::button()
+        crate::controls::tab_stop(nsh_base::button())
             .accessibility_label(format!("{name} accent"))
             .selected(ix == chosen)
             .on_press(move || pane.quietly(saved(host.with_store(|s| prefs::set_accent_choice(s, ix)))))

@@ -130,12 +130,15 @@ async fn install(core: &AppCore, state: &mut State, bundle: VerifiedBundle, cx: 
         core.sync_shield();
     }
     state.created = created;
-    let mut filters = core.filters.borrow_mut();
-    if first_error.is_none() {
-        filters.version = Some(version);
-    } else {
-        filters.version.get_or_insert(version);
+    {
+        let mut filters = core.filters.borrow_mut();
+        if first_error.is_none() {
+            filters.version = Some(version);
+        } else {
+            filters.version.get_or_insert(version);
+        }
     }
+    platform::memory::release_free();
     first_error.map_or(Ok(()), Err)
 }
 

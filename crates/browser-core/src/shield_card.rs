@@ -111,6 +111,10 @@ pub fn days_text(days: i64) -> String {
     format!("{} {}", thousands(days.max(0) as u64), if days == 1 { "day" } else { "days" })
 }
 
+pub fn protected_text(days: i64, since: &str) -> String {
+    if days <= 1 { "Protected since today".to_owned() } else { format!("Protected for {} · since {since}", days_text(days)) }
+}
+
 pub const SHORT: [(&str, &str); 3] = [("Parameters", "removed"), ("HTTPS", "upgrades"), ("Local visits", "blocked")];
 pub const NUMBERS: [&str; 3] = ["parameters removed", "HTTPS upgrades", "local visits blocked"];
 
@@ -215,7 +219,31 @@ pub fn scene(dark: bool) -> &'static Scene {
 const LAKE: u32 = 112;
 pub const RIDGES: (u32, u32) = (88, 48);
 
-fn sky(s: &Scene, draw: &mut Draw, (px, py): (u32, u32), (lx, ly): (u32, u32)) -> String {
+fn behind_labels(x: u32, y: u32) -> bool {
+    x < 300 && (16..72).contains(&y)
+}
+
+/// The name, level and promise sit left of the first value and above the second.
+const LABELS: (u32, u32) = (262, 72);
+
+type Point = (f32, f32);
+
+fn quad((a, c, b): (Point, Point, Point), t: f32) -> Point {
+    let u = 1. - t;
+    (u * u * a.0 + 2. * u * t * c.0 + t * t * b.0, u * u * a.1 + 2. * u * t * c.1 + t * t * b.1)
+}
+
+fn clear_of_labels(curve: (Point, Point, Point)) -> bool {
+    (0..=64).map(|i| quad(curve, i as f32 / 64.)).all(|(x, y)| x >= LABELS.0 as f32 || y >= LABELS.1 as f32)
+}
+
+/// The far ridge from the left edge up to the left peak, and on to the main peak.
+fn ridge((lx, ly): (u32, u32), (px, py): (u32, u32), deep: u32) -> [(Point, Point, Point); 2] {
+    let p = |x: u32, y: u32| (x as f32, y as f32);
+    [(p(0, ly + 22), p(lx / 2, ly + 8), p(lx, ly)), (p(lx, ly), p((lx + px) / 2, ly.max(py) + deep), p(px, py))]
+}
+
+fn sky(s: &Scene, draw: &mut Draw, (px, py): (u32, u32), ly: u32) -> String {
     let mut out = format!(
         r##"<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="far" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="lake" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="aurora" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#62E6C4" stop-opacity="0"/><stop offset="1" stop-color="#62E6C4" stop-opacity="0.28"/></linearGradient><linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="black" stop-opacity="0"/><stop offset="1" stop-color="black" stop-opacity="0.28"/></linearGradient></defs><rect width="{W}" height="{H}" fill="url(#sky)"/>"##,
         s.sky, s.glow, s.far, s.far_low, s.lake, s.deep
@@ -224,11 +252,14 @@ fn sky(s: &Scene, draw: &mut Draw, (px, py): (u32, u32), (lx, ly): (u32, u32)) -
         for _ in 0..30 {
             let (x, y) = (8 + draw.below(344), 6 + draw.below(70));
             let (r, o) = (["0.6", "0.8", "1.1"][draw.below(3) as usize], 35 + draw.below(55));
+            if behind_labels(x, y) {
+                continue;
+            }
             let _ = write!(out, r#"<circle cx="{x}" cy="{y}" r="{r}" fill="white" fill-opacity="0.{o}"/>"#);
         }
         let _ =
             write!(out, r#"<path d="M0 {} Q80 {} 170 {} Q250 {} 360 {} V{} H0 Z" fill="url(#aurora)"/>"#, ly + 4, ly - 36, ly - 14, ly + 6, py - 14, ly + 26);
-        let mx = (lx + px) / 2;
+        let mx = px.clamp(LABELS.0 + 20, 300);
         let _ = write!(out, r#"<circle cx="{mx}" cy="34" r="10" fill="{}"/><circle cx="{}" cy="30.5" r="9" fill="{}"/>"#, s.ink, mx + 4, s.sky);
     } else {
         let (sx, sy) = ((px + 40).min(330), py + 14);
@@ -248,12 +279,19 @@ pub fn landscape(seed: i64, dark: bool) -> (&'static Scene, String, String) {
 fn parts(seed: i64, dark: bool) -> (&'static Scene, String, String, String) {
     let mut draw = Draw(seed as u64);
     let s = scene(dark);
-    let (px, py) = (214 + draw.below(84), 40 + draw.below(20));
-    let (lx, ly) = (96 + draw.below(70), 64 + draw.below(14));
-    let (cut, edge, band) = (ly.max(py) + 18 + draw.below(10), 76 + draw.below(14), 92 + draw.below(8));
+    let (px, mut py) = (LABELS.0 + draw.below(56), 40 + draw.below(20));
+    let (lx, mut ly) = (96 + draw.below(70), 64 + draw.below(14));
+    let (deep, edge, band) = (18 + draw.below(10), 76 + draw.below(14), 92 + draw.below(8));
+    while !clear_of_labels(ridge((lx, ly), (px, py), deep)[0]) {
+        ly += 2;
+    }
+    while !clear_of_labels(ridge((lx, ly), (px, py), deep)[1]) {
+        py += 2;
+    }
+    let cut = ly.max(py) + deep;
     let (left, right) = (124 + draw.below(30), 206 + draw.below(30));
     let l = LAKE;
-    let sky = sky(s, &mut draw, (px, py), (lx, ly));
+    let sky = sky(s, &mut draw, (px, py), ly);
     let mut far = String::new();
     let _ = write!(
         far,
@@ -293,7 +331,7 @@ fn parts(seed: i64, dark: bool) -> (&'static Scene, String, String, String) {
         l + 12,
         s.shallow
     );
-    for (x, y, w) in [(40, l + 24, 46), (210, l + 22, 60), (120, l + 29, 30), (286, l + 30, 34)] {
+    for (x, y, w) in [(40, l + 18, 46), (210, l + 17, 60), (120, l + 20, 30), (286, l + 20, 34)] {
         let _ = write!(far, r#"<path d="M{x} {y} h{w}" stroke="white" stroke-opacity="0.14" stroke-linecap="round"/>"#);
     }
     let near = format!(
@@ -439,7 +477,7 @@ pub fn front(card: &Card, near: bool, dark: bool) -> (&'static str, String, Vec<
         text(&mut labels, (x, 180), ("start", 10.5, 400, "#CFE8F8", 0.85), second);
     }
     if let (Some(days), Some(since)) = (card.days, &card.since) {
-        text(&mut labels, (20, 204), ("start", 11., 400, "white", 0.8), &format!("Protected for {} · since {since}", days_text(days)));
+        text(&mut labels, (20, 204), ("start", 11., 400, "white", 0.8), &protected_text(days, since));
     }
     text(&mut labels, (340, 204), ("end", 9., 700, "white", 0.6), "TARN SHIELD");
     (s.sky, out, labels)
@@ -534,6 +572,44 @@ mod tests {
     }
 
     #[test]
+    fn no_star_sits_behind_the_name_or_the_level() {
+        for seed in 0..64 {
+            let sky = landscape(seed, true).1;
+            for star in sky.split(r#"<circle cx=""#).skip(1).filter(|c| c.contains(r#"fill="white""#)) {
+                let num = |key: &str| star.split(key).nth(1).and_then(|v| v.split('"').next()).and_then(|v| v.parse::<u32>().ok());
+                if let (Some(x), Some(y)) = (star.split('"').next().and_then(|v| v.parse::<u32>().ok()), num(r#"cy=""#)) {
+                    assert!(!behind_labels(x, y), "seed {seed}: star at {x},{y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn no_ridge_sun_moon_or_wave_sits_behind_a_label() {
+        const COUNTERS_TOP: u32 = 136;
+        for seed in 0..512 {
+            for dark in [false, true] {
+                let (_, sky, far, _) = parts(seed, dark);
+                let outline = far.split('"').nth(1).unwrap();
+                let n: Vec<u32> = outline.split(|c: char| !c.is_ascii_digit()).filter_map(|v| v.parse().ok()).collect();
+                let deep = n[7] - n[5].max(n[9]);
+                assert_eq!(&n[..10], &[0, n[5] + 22, n[4] / 2, n[5] + 8, n[4], n[5], (n[4] + n[8]) / 2, n[7], n[8], n[9]]);
+                assert!(ridge((n[4], n[5]), (n[8], n[9]), deep).into_iter().all(clear_of_labels), "seed {seed}: {outline}");
+                for circle in sky.split("<circle ").skip(1) {
+                    let num = |key: &str| circle.split(key).nth(1).and_then(|v| v.split('"').next()).and_then(|v| v.parse::<f32>().ok()).unwrap();
+                    let (x, y, r) = (num(r#"cx=""#), num(r#"cy=""#), num(r#" r=""#));
+                    assert!(r < 5. || x - r >= LABELS.0 as f32 || y - r >= LABELS.1 as f32, "seed {seed}: circle at {x},{y}");
+                }
+                for wave in far.split("<path ").filter(|p| p.contains(r#"stroke-opacity="0.14""#)) {
+                    let y: u32 = wave.split(' ').nth(1).and_then(|v| v.parse().ok()).unwrap();
+                    assert!(y + 1 < COUNTERS_TOP, "wave at {y}");
+                }
+            }
+        }
+        assert!(!clear_of_labels(((0., 90.), (100., 40.), (200., 90.))));
+    }
+
+    #[test]
     fn the_card_escapes_its_text_and_fits_a_private_profile_and_many_stamps() {
         let svg = front_svg(&card("<script>&\"x\u{7}"), true, false);
         assert!(svg.contains("&lt;script&gt;&amp;&quot;x<") && !svg.contains('\u{7}'));
@@ -581,6 +657,8 @@ mod tests {
         assert_eq!(thousands(1_234_567), "1,234,567");
         assert_eq!(days_text(1), "1 day");
         assert_eq!(days_text(1200), "1,200 days");
+        assert_eq!(protected_text(1, "18 Nov 2026"), "Protected since today");
+        assert_eq!(protected_text(2, "17 Nov 2026"), "Protected for 2 days · since 17 Nov 2026");
         assert_eq!(long_date("2025-03-02"), "2 Mar 2025");
         assert_eq!(long_date("bad"), "bad");
         assert_eq!(stamps(Some(2024), 2026, 0), ["2024", "2025", "2026"]);

@@ -4,7 +4,7 @@ use std::time::Duration;
 use browser_core::toast::Tone;
 use gpui::{
     Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, WeakEntity, Window, WindowHandle, div, point, prelude::FluentBuilder, px, size,
+    Subscription, WeakEntity, Window, WindowHandle, actions, div, point, prelude::FluentBuilder, px, size,
 };
 use ui::controls::{POPOVER_INSET, open_popup, popover};
 use ui::icon::{ICON_MEDIUM, Icon, icon};
@@ -15,12 +15,17 @@ use crate::browser::Browser;
 use crate::prefs::Pref;
 use crate::sidebar::SIDEBAR_MARGIN;
 
+actions!(tarn, [ToastAction]);
+
 const TOAST_TIME: Duration = Duration::from_secs(5);
+/// How often a toast under the pointer checks whether the pointer left.
+const HOVER_CHECK: Duration = Duration::from_secs(1);
 /// A toast with a button stays longer, so the action is still there after a glance away.
 const ACTION_TIME: Duration = Duration::from_secs(10);
-/// The widest a toast grows before its message is cut short.
+/// The widest a toast grows before its message wraps to a second line.
 const MAX_WIDTH: f32 = 440.;
 const HEIGHT: f32 = 44.;
+const LINE: f32 = 18.;
 const PAD: f32 = 16.;
 const GAP: f32 = 10.;
 /// The action's padding beside its label; the card's inset after it keeps the label `PAD` from the edge.
@@ -39,15 +44,18 @@ pub enum Action {
     UndoSort(Box<(bool, browser_core::cleanup::Undo)>),
     Reveal(PathBuf),
     RestartToUpdate,
+    /// Puts back the download list Clear removed from the private or normal store's profile.
+    RestoreDownloads(Box<(bool, store::Id, Vec<store::Download>)>),
 }
 
 impl Action {
-    fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Action::Undo(_) => "Undo",
             Action::UndoSort(_) => "Undo Sort",
             Action::Reveal(_) => ui::controls::REVEAL,
             Action::RestartToUpdate => "Restart to Update",
+            Action::RestoreDownloads(_) => "Undo",
         }
     }
 }
@@ -70,8 +78,10 @@ pub struct Toasts {
     pub(crate) window: Option<WindowHandle<ToastWindow>>,
     pub(crate) popup: Option<engine::Host>,
     /// Where the popup sits in the window, so it follows the sidebar and window size.
-    placed: (f32, f32, f32),
+    placed: (f32, f32, f32, f32),
     opening: bool,
+    /// The pointer is over the toast, which then stays.
+    pub(crate) hovered: bool,
 }
 
 impl Toasts {
@@ -82,9 +92,9 @@ impl Toasts {
         self.serial
     }
 
-    /// Starts fading the toast `serial` out, unless a newer one replaced it.
+    /// Starts fading the toast `serial` out, unless a newer one replaced it or the pointer holds it.
     fn fade(&mut self, serial: u64) -> bool {
-        let Some(toast) = self.current.as_mut().filter(|t| t.serial == serial) else { return false };
+        let Some(toast) = self.current.as_mut().filter(|t| t.serial == serial && !self.hovered) else { return false };
         toast.closing = true;
         true
     }
@@ -105,6 +115,10 @@ impl Toasts {
     }
 }
 
+pub fn listen(root: gpui::Div, cx: &mut Context<Browser>) -> gpui::Div {
+    root.on_action(cx.listener(|b, _: &ToastAction, w, cx| b.take_toast_action(w, cx)))
+}
+
 impl Browser {
     pub(crate) fn show_toast(&mut self, text: impl Into<SharedString>, action: Option<Action>, cx: &mut Context<Self>) {
         self.show_toast_as(Tone::Info, text, action, cx);
@@ -116,6 +130,9 @@ impl Browser {
         cx.notify();
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(wait).await;
+            while this.update(cx, |b, _| b.toast.hovered && b.toast.current.as_ref().is_some_and(|t| t.serial == serial)).unwrap_or(false) {
+                cx.background_executor().timer(HOVER_CHECK).await;
+            }
             let fade = this.update(cx, |b, cx| {
                 cx.notify();
                 (b.toast.fade(serial) && !b.pref(Pref::ReduceMotion)).then_some(EXIT)
@@ -135,13 +152,25 @@ impl Browser {
         .detach();
     }
 
+    /// The live toast's button as a command row: its label and the toast's message.
+    pub(crate) fn toast_command(&self) -> Option<String> {
+        let toast = self.toast.live(self.model.closed_tabs.newest())?;
+        Some(format!("{} — {}", toast.action.as_ref()?.label(), toast.text))
+    }
+
     pub fn take_toast_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.toast.hovered = false;
         let Some(toast) = self.toast.current.take() else { return };
         match toast.action {
             Some(Action::Undo(serial)) if self.model.closed_tabs.newest() == Some(serial) => self.reopen_closed_tab(window, cx),
             Some(Action::UndoSort(record)) => self.undo_sort(*record, cx),
             Some(Action::Reveal(path)) => engine::reveal_in_finder(&path),
             Some(Action::RestartToUpdate) => crate::shared::restart_to_update(cx),
+            Some(Action::RestoreDownloads(cleared)) => {
+                let (private, profile_id, list) = *cleared;
+                self.core.restore_downloads(private, profile_id, &list);
+                self.downloads_popover.changed += 1;
+            }
             _ => {}
         }
         cx.notify();
@@ -149,7 +178,8 @@ impl Browser {
 
     /// Opens the toast's popup while a toast is live and closes it once none is.
     pub(crate) fn sync_toast(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(width) = self.toast.live(self.model.closed_tabs.newest()).map(|t| toast_width(t, window)) else {
+        let Some((width, lines)) = self.toast.live(self.model.closed_tabs.newest()).map(|t| toast_size(t, window)) else {
+            self.toast.hovered = false;
             return self.close_toast_window(cx);
         };
         if self.toast.opening {
@@ -158,20 +188,21 @@ impl Browser {
         let frame = window.bounds();
         let left = (self.sidebar_width + SIDEBAR_MARGIN) * self.sidebar_shown();
         let x = (left + (f32::from(frame.size.width) - left - width) / 2.).clamp(0., (f32::from(frame.size.width) - width).max(0.)) - POPOVER_INSET;
-        let y = f32::from(frame.size.height) - HEIGHT - MARGIN - POPOVER_INSET;
-        let (width, height) = (width + 2. * POPOVER_INSET, HEIGHT + 2. * POPOVER_INSET);
+        let card = HEIGHT + LINE * (lines - 1) as f32;
+        let y = f32::from(frame.size.height) - card - MARGIN - POPOVER_INSET;
+        let (width, height) = (width + 2. * POPOVER_INSET, card + 2. * POPOVER_INSET);
         if self.toast.window.is_some() {
             if let (Some(host), Some(popup)) = (self.host.clone(), self.toast.popup.clone())
-                && self.toast.placed != (x, y, width)
+                && self.toast.placed != (x, y, width, height)
             {
-                self.toast.placed = (x, y, width);
+                self.toast.placed = (x, y, width, height);
                 // GPUI handles the resize this causes only outside an update, so the frame is set from a task.
                 cx.spawn(async move |_, _| host.place(&popup, x.into(), y.into(), width.into(), height.into())).detach();
             }
             return;
         }
         let Some(main) = window.window_handle().downcast::<Browser>() else { return };
-        self.toast.placed = (x, y, width);
+        self.toast.placed = (x, y, width, height);
         let bounds = Bounds::new(point(frame.origin.x + px(x), frame.origin.y + px(y)), size(px(width), px(height)));
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
@@ -216,8 +247,8 @@ fn tone_icon(tone: Tone) -> (Icon, Rgba) {
 }
 
 /// The pill's width for its message, icon and button, so the pop-up hugs the pill and covers no
-/// more of the page.
-fn toast_width(toast: &Toast, window: &Window) -> f32 {
+/// more of the page, and its lines: a message too wide for `MAX_WIDTH` wraps once.
+fn toast_size(toast: &Toast, window: &Window) -> (f32, usize) {
     let measure = |text: SharedString, weight: FontWeight| {
         let mut style = window.text_style();
         (style.font_family, style.font_weight) = (Theme::font(), weight);
@@ -225,7 +256,8 @@ fn toast_width(toast: &Toast, window: &Window) -> f32 {
         f32::from(window.text_system().shape_line(text, px(TEXT), &[run], None).width)
     };
     let action = toast.action.as_ref().map_or(PAD, |a| GAP + BUTTON_PAD + measure(a.label().into(), FontWeight::MEDIUM) + PAD);
-    (PAD + ICON_MEDIUM + GAP + measure(toast.text.clone(), FontWeight::NORMAL) + action + EDGES).ceil().min(MAX_WIDTH)
+    let width = (PAD + ICON_MEDIUM + GAP + measure(toast.text.clone(), FontWeight::NORMAL) + action + EDGES).ceil();
+    (width.min(MAX_WIDTH), if width > MAX_WIDTH { 2 } else { 1 })
 }
 
 /// The toast's card. It never takes keyboard focus; its button acts on mouse-down.
@@ -251,6 +283,11 @@ impl Render for ToastWindow {
         let label = toast.action.as_ref().map(Action::label);
         let (glyph, color) = tone_icon(toast.tone);
         let card = popover(Theme::radius_panel(), POPOVER_INSET)
+            .id("toast")
+            .on_hover(move |hovered, _, cx| {
+                let hovered = *hovered;
+                main.update(cx, |b, _, _| b.toast.hovered = hovered).ok();
+            })
             .pl(px(PAD))
             .pr(px(if label.is_some() { PAD - BUTTON_PAD } else { PAD }))
             .flex()
@@ -259,7 +296,7 @@ impl Render for ToastWindow {
             .text_size(px(TEXT))
             .text_color(Theme::text())
             .child(icon(glyph, ICON_MEDIUM, color))
-            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(toast.text.clone()))
+            .child(div().flex_1().min_w_0().overflow_hidden().line_clamp(2).text_ellipsis().child(toast.text.clone()))
             .when_some(label, |d, label| {
                 d.child(
                     div()
@@ -272,7 +309,7 @@ impl Render for ToastWindow {
                         .rounded(px(Theme::radius_row()))
                         .cursor_pointer()
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(Theme::accent())
+                        .text_color(Theme::accent_text())
                         .hover(|s| s.bg(Theme::hover()))
                         .active(|s| s.bg(Theme::pressed()))
                         .child(label)
@@ -305,6 +342,16 @@ mod tests {
         assert!(toasts.live(None).is_some_and(|t| t.closing));
         assert!(toasts.expire(second));
         assert!(toasts.live(None).is_none());
+    }
+
+    #[test]
+    fn a_toast_under_the_pointer_stays() {
+        let mut toasts = Toasts::default();
+        let serial = toasts.show(Tone::Info, "Tab closed".into(), Some(Action::Undo(1)));
+        toasts.hovered = true;
+        assert!(!toasts.fade(serial));
+        toasts.hovered = false;
+        assert!(toasts.fade(serial));
     }
 
     #[test]

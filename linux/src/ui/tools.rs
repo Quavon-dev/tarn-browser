@@ -60,14 +60,17 @@ pub enum Command {
     ReturnToPinned,
     SetPinnedUrl,
     SleepOthers,
+    StopLoading,
+    ToastAction,
 }
 
-const COMMANDS: [(&str, &str, Command); 52] = [
+const COMMANDS: [(&str, &str, Command); 56] = [
     ("Settings", "preferences options", Command::Key(Action::Settings)),
     ("New Space", "workspace profile", Command::Key(Action::NewSpace)),
     ("Edit Space", "workspace rename color icon", Command::EditSpace),
     ("Private Space", "incognito", Command::Key(Action::PrivateSpace)),
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
+    ("Notification Action", "toast undo reveal", Command::ToastAction),
     ("Open File…", "local disk html pdf image document", Command::Key(Action::OpenFile)),
     ("Toggle Sidebar", "show hide", Command::Key(Action::ToggleSidebar)),
     ("Show Downloads", "files", Command::Key(Action::ToggleDownloads)),
@@ -115,6 +118,9 @@ const COMMANDS: [(&str, &str, Command); 52] = [
     ("Set Pinned URL to Current Page", "pinned home", Command::SetPinnedUrl),
     ("Sleep Other Tabs", "hibernate unload memory", Command::SleepOthers),
     ("Keyboard Shortcuts", "help keys cheat sheet", Command::Key(Action::ToggleShortcuts)),
+    ("Stop Loading", "cancel halt", Command::StopLoading),
+    ("Reload Without Cache", "refresh hard force", Command::Key(Action::ReloadFromOrigin)),
+    ("Close Window", "quit", Command::Key(Action::CloseWindow)),
 ];
 
 /// Whether `query` asks for the command list: every command it names, and nothing else.
@@ -128,6 +134,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
     if query.trim().is_empty() {
         return Vec::new();
     }
+    let toast = ui.snap.with_untracked(|s| s.toast.as_ref().and_then(|t| Some(format!("{} \u{2014} {}", t.action.as_ref()?.label(), t.text))));
     let Some((spaces, pinned, split, reopenable, duplicates, tab)) = read(ui, |b| {
         let active = b.model.active;
         (
@@ -152,6 +159,19 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         Command::ResetTitle => tab.custom,
         Command::ReturnToPinned | Command::SetPinnedUrl => tab.drifted,
         Command::SleepOthers => tab.sleep_others,
+        Command::StopLoading => tab.loading,
+        Command::ToastAction => toast.is_some(),
+        Command::Key(Action::ReloadFromOrigin) => tab.open && !ui.snap.with_untracked(super::no_page),
+        Command::Reader
+        | Command::SaveForLater
+        | Command::CopyLink
+        | Command::CopyCleanLink
+        | Command::CopyMarkdownLink
+        | Command::CopyTitle
+        | Command::ShowQrCode
+        | Command::SavePdf
+        | Command::ZapElement
+        | Command::Key(Action::TogglePin | Action::BookmarkTab | Action::TakeScreenshot | Action::ToggleSplitView) => tab.open,
         Command::CloseSplit
         | Command::Key(Action::FocusNextPane | Action::FocusPreviousPane | Action::SwapPanes | Action::RotateSplitLayout | Action::RemoveFromSplitView) => {
             split
@@ -165,6 +185,8 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         Command::Key(Action::TogglePin) => (if pinned { "Unpin Tab" } else { "Pin Tab" }).to_owned(),
         Command::Key(Action::ToggleSplitView) => (if split { "Close Split View" } else { "Open in Split View" }).to_owned(),
         Command::ToggleMute => (if tab.muted == Some(true) { "Unmute Site" } else { "Mute Site" }).to_owned(),
+        Command::Reader => (if tab.reader { "Hide Reader" } else { "Show Reader" }).to_owned(),
+        Command::ToastAction => toast.clone().unwrap_or_default(),
         _ => label.clone(),
     };
     let room = if listing(query) { rows.len() } else { 4 };
@@ -198,6 +220,8 @@ pub fn run(ui: Ui, command: Command) {
         Command::ImportBrowserData => super::import::open(ui),
         Command::NewWindow => super::new_window(ui),
         Command::FullScreen => act(ui, Browser::toggle_full_screen),
+        Command::StopLoading => act(ui, Browser::stop),
+        Command::ToastAction => take_toast_action(ui),
         Command::Key(action) => super::run_action(ui, action),
         Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),
         Command::Space(c) => act(ui, |b| b.run_space_command(c)),
@@ -223,6 +247,8 @@ struct ActiveTab {
     custom: bool,
     drifted: bool,
     sleep_others: bool,
+    loading: bool,
+    reader: bool,
 }
 
 impl ActiveTab {
@@ -237,6 +263,8 @@ impl ActiveTab {
             custom: !tab.custom_title.is_empty(),
             drifted: b.pinned_drift(key).is_some(),
             sleep_others: b.can_sleep_others(key),
+            loading: b.pages.get(&key).is_some_and(|p| p.loading),
+            reader: b.reader.as_ref().is_some_and(|r| r.key == key),
         }
     }
 }
@@ -296,29 +324,47 @@ pub fn open_find_tabs(ui: Ui) {
 }
 
 pub fn expire_toast(ui: Ui) {
-    let Some(serial) = ui.snap.with_untracked(|s| s.toast.as_ref().map(|t| t.serial)) else { return };
-    if ui.toast_timer.get_untracked() == serial {
+    let Some((serial, held, action)) = ui.snap.with_untracked(|s| s.toast.as_ref().map(|t| (t.serial, t.held, t.action.is_some()))) else { return };
+    if ui.toast_timer.get_untracked() == serial || held {
         return;
     }
     ui.toast_timer.set(serial);
-    let time = if ui.snap.with_untracked(|s| s.toast.as_ref().is_some_and(|t| t.action.is_some())) { ACTION_TIME } else { TOAST_TIME };
-    ui.root.run(|| drop(set_timeout(time, move || act(ui, |b| b.expire_toast(serial)))));
+    toast_timer(ui, serial, if action { ACTION_TIME } else { TOAST_TIME });
+}
+
+/// Ends toast `serial` after `time`, or waits again while the pointer is on it.
+fn toast_timer(ui: Ui, serial: u64, time: Duration) {
+    ui.root.run(|| {
+        drop(set_timeout(time, move || {
+            if ui.toast_hovered.get_untracked() {
+                toast_timer(ui, serial, TOAST_TIME);
+            } else {
+                act(ui, |b| b.expire_toast(serial));
+            }
+        }))
+    });
+}
+
+/// The toast's button, from the toast or its command row.
+fn take_toast_action(ui: Ui) {
+    if let Some(ToastAction::Reveal(path)) = ui.snap.with_untracked(|s| s.toast.as_ref().and_then(|t| t.action.clone())) {
+        drop(reveal_path(std::path::PathBuf::from(&path)));
+    }
+    act(ui, Browser::take_toast_action);
 }
 
 pub fn toast_bar(ui: Ui) -> AnyElement {
     dynamic(move || {
         let toast = ui.snap.with(|s| s.toast.clone())?;
-        let action = toast.action.map(|action| match action {
-            ToastAction::Undo(_) => tarn_nsh_shared::controls::toast_action("Undo", move || act(ui, Browser::take_toast_action)),
-            ToastAction::UndoSort(_) => tarn_nsh_shared::controls::toast_action("Undo Sort", move || act(ui, Browser::take_toast_action)),
-            ToastAction::Reveal(path) => tarn_nsh_shared::controls::toast_action("Show in Folder", move || drop(reveal_path(std::path::PathBuf::from(&path)))),
-        });
+        let action = toast.action.map(|action| tarn_nsh_shared::controls::toast_action(action.label(), move || take_toast_action(ui)));
         Some(
             view().flex_row().justify_center().child(
                 tarn_nsh_shared::controls::toast(toast.tone)
                     .mt_2()
                     .max_w(px(560.))
-                    .child(label(toast.text).flex_shrink(1.).truncate())
+                    .on_mouse_enter(move |_: &MouseEvent| ui.toast_hovered.set(true))
+                    .on_mouse_leave(move |_: &MouseEvent| ui.toast_hovered.set(false))
+                    .child(label(toast.text).flex_shrink(1.).number_of_lines(2))
                     .children(action)
                     .child(crate::controls::icon_button_at(icons::CLOSE, "Dismiss", Placement::Left, move || act(ui, |b| b.expire_toast(toast.serial)))),
             ),
@@ -373,24 +419,29 @@ pub fn command_rows(ui: Ui, query: Signal<String>) -> AnyElement {
     })
 }
 
+/// Switches to the tab of `row`, and for a match in its text finds the query on it.
+pub fn open_find_row(ui: Ui, row: &crate::browser::FindRow) {
+    let mut query = String::new();
+    act(ui, |b| query = b.open_find_row(row.key));
+    close_find_tabs(ui);
+    if row.text {
+        ui.find.set(query.clone());
+        ui.finding.set(true);
+        act(ui, |b| b.find_typed(&query));
+    }
+}
+
 pub fn find_rows(ui: Ui) -> View {
     let rows = each(
         move || ui.snap.with(|s| s.find_rows.iter().cloned().enumerate().collect::<Vec<_>>()),
         |(ix, r)| format!("{ix}-{}-{}", r.label, r.key.id),
         move |item, _| {
             let (_, row) = item.get_untracked();
-            let key = row.key;
-            super::suggestion_row(row.label.clone(), move || {
-                let mut query = String::new();
-                act(ui, |b| query = b.open_find_row(key));
-                close_find_tabs(ui);
-                ui.find.set(query.clone());
-                ui.finding.set(true);
-                act(ui, |b| b.find_typed(&query));
-            })
-            .child(tarn_nsh_shared::controls::glyph_tile(icons::SEARCH, 28., Theme::control, Theme::muted))
-            .child(label(row.label.clone()).flex_1().truncate())
-            .child(super::detail(row.detail.clone()))
+            let picked = row.clone();
+            super::suggestion_row(row.label.clone(), move || open_find_row(ui, &picked))
+                .child(tarn_nsh_shared::controls::glyph_tile(icons::SEARCH, 28., Theme::control, Theme::muted))
+                .child(label(row.label.clone()).flex_1().truncate())
+                .child(super::detail(row.detail.clone()))
         },
     );
     let empty = move || ui.snap.with(|s| s.find_rows.is_empty()) && !ui.address.with(|a| a.trim().is_empty());

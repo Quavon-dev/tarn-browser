@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use browser_core::shield_card::{Card, H, Label, W, back, day_totals, face, front, front_svg, thousands};
 use browser_core::space_card::SpaceDraft;
 use browser_core::tabs::TabKey;
@@ -30,7 +28,6 @@ const HERO_GAP: f32 = 24.;
 const HERO_COLUMN: f32 = 240.;
 const NUMBER_WIDTH: f32 = 72.;
 const STATS_WIDTH: f32 = 280.;
-pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 fn row_button(name: String, detail: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
@@ -118,7 +115,7 @@ pub fn find_tabs(ui: Ui) -> impl IntoElement {
                 .on_change(move |v: &str| {
                     let typed = v.to_owned();
                     query.set(typed.clone());
-                    set_timeout(FIND_DELAY, move || {
+                    set_timeout(browser_core::find::TYPING_DELAY, move || {
                         if query.get_untracked() == typed {
                             ui.act(|s| s.find_in_tabs(&typed));
                         }
@@ -190,6 +187,7 @@ pub fn reading_list(ui: Ui) -> impl IntoElement {
         move |b, _| {
             let b = b.get_untracked();
             let (id, url) = (b.id, b.url.clone().unwrap_or_default());
+            let title = browser_core::text::bounded_title(&b.title);
             view()
                 .flex_row()
                 .items_center()
@@ -201,10 +199,17 @@ pub fn reading_list(ui: Ui) -> impl IntoElement {
                     .flex_1(),
                 )
                 .child(icon_button(icons::TRASH, "Remove", move || {
-                    ui.act(|s| {
-                        s.remove_from_reading_list(id);
-                        Vec::new()
-                    })
+                    super::panels::confirm(
+                        format!("Remove \u{201C}{title}\u{201D} from the Reading List?"),
+                        "The page is no longer saved for later.",
+                        "Remove",
+                        move || {
+                            ui.act(|s| {
+                                s.remove_from_reading_list(id);
+                                Vec::new()
+                            })
+                        },
+                    )
                 }))
         },
     ))))
@@ -403,6 +408,7 @@ pub fn space_card_parts(ui: Ui, editing: Option<usize>) -> (View, View) {
             .on_change(move |v: &str| draft.update(|d| set(d, v.to_owned())))
             .on_submit(move |_: &str| confirm())
     };
+    let names: Vec<String> = profiles.iter().map(|p| p.name.clone()).collect();
     let profile_rows = profiles
         .iter()
         .map(|p| (Some(p.id), p.name.clone(), Some(p.color.clone())))
@@ -477,6 +483,13 @@ pub fn space_card_parts(ui: Ui, editing: Option<usize>) -> (View, View) {
                     .child(caption("Starts empty, with its own logins, cookies, site data, history and bookmarks.").px_1())
                     .child(section("Profile Name"))
                     .child(field("Profile Name", |d| d.profile_name.clone(), |d, v| d.profile_name = v))
+                    .child(dynamic({
+                        let names = names.clone();
+                        move || {
+                            browser_core::space_card::profile_name_note(&draft.get().profile_name, names.iter().map(String::as_str))
+                                .map(|note| caption(note).text_color(Secure::warning).px_1())
+                        }
+                    }))
                     .child(section("Profile Color"))
                     .child(swatches(move || draft.get().profile_color, move |c| draft.update(|d| d.profile_color = c.to_owned()), false))
             })

@@ -127,8 +127,10 @@ pub struct Shell<D: Platform> {
     /// The tone of the notice with this text; any other notice reads as information.
     pub tone: Option<(String, browser_core::toast::Tone)>,
     pub open_offer: Option<(TabKey, String, String)>,
-    pub found: Option<u64>,
+    pub found: Option<(usize, Option<usize>)>,
     pub undo: Option<(String, u64)>,
+    pub(crate) download_notices: Vec<(String, bool)>,
+    pub(crate) cleared_downloads: Option<(String, (bool, Id), Vec<Download>)>,
     pub sort_undo: Option<(String, (bool, browser_core::cleanup::Undo))>,
     pub transfers: Vec<crate::scripts::Transfer>,
     pub transfers_moved: std::time::Instant,
@@ -187,6 +189,8 @@ impl<D: Platform> Shell<D> {
             open_offer: None,
             found: None,
             undo: None,
+            download_notices: Vec::new(),
+            cleared_downloads: None,
             sort_undo: None,
             transfers: Vec::new(),
             transfers_moved: std::time::Instant::now(),
@@ -723,6 +727,7 @@ impl<D: Platform> Shell<D> {
         }
         // Private tab ids start again in the next session, so no private pane may outlive this one.
         self.splits.retain(|k| !k.private);
+        self.download_notices.clear();
         if self.sort_undo.as_ref().is_some_and(|(_, (private, _))| *private) {
             self.sort_undo = None;
         }
@@ -765,6 +770,12 @@ impl<D: Platform> Shell<D> {
     pub fn default_level(&self) -> ShieldLevel {
         let Some((private, id)) = self.model.profile() else { return ShieldLevel::Standard };
         self.core.store(private).profile(id).map(|p| p.shield_level).unwrap_or_default()
+    }
+
+    pub fn shield_wipes_data(&self, level: ShieldLevel) -> Option<String> {
+        let (private, id) = self.model.profile()?;
+        browser_core::profiles::shield_wipes_data(level, private, self.default_level())
+            .then(|| self.core.store(private).profile(id).map(|p| browser_core::text::bounded_title(&p.name)).unwrap_or_default())
     }
 
     pub fn set_default_level(&mut self, level: ShieldLevel) -> bool {
@@ -811,6 +822,8 @@ impl<D: Platform> Shell<D> {
         let store = self.core.store(private);
         store.clear_history(id).ok();
         store.clear_downloads(id).ok();
+        self.download_notices.clear();
+        self.cleared_downloads = None;
         self.model.closed_tabs.clear_profile(private, id);
         self.forget_icons((private, id));
         let before = self.store_id(private, id);
@@ -828,6 +841,28 @@ impl<D: Platform> Shell<D> {
         self.notice = Some("Browsing data cleared.".into());
     }
 
+    pub fn clear_history(&mut self, range: browser_core::library::HistoryRange) {
+        let Some((private, id)) = self.model.profile() else { return };
+        if browser_core::library::clear_history(self.core.store(private), id, range, browser_core::now()).is_err() {
+            return;
+        }
+        if range == browser_core::library::HistoryRange::All {
+            self.model.closed_tabs.clear_profile(private, id);
+            self.forget_icons((private, id));
+        }
+        self.notice = Some("History cleared.".into());
+    }
+
+    pub fn remove_history_url(&mut self, url: &str) {
+        if let Some((private, id)) = self.model.profile() {
+            self.core.store(private).delete_history_url(id, url).ok();
+        }
+    }
+
+    pub fn day_starts(&self, now: i64) -> (i64, i64) {
+        browser_core::library::day_starts(self.store(), now)
+    }
+
     pub fn history(&self) -> Vec<HistoryEntry> {
         self.profile_id().and_then(|id| self.store().history(id, 200).ok()).unwrap_or_default()
     }
@@ -837,8 +872,12 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn clear_downloads(&mut self) {
-        if let Some(id) = self.profile_id() {
-            self.store().clear_downloads(id).ok();
+        let Some(profile) = self.model.profile() else { return };
+        let list = self.downloads();
+        if self.core.store(profile.0).clear_downloads(profile.1).is_ok() {
+            let text = "Downloads cleared".to_owned();
+            self.cleared_downloads = Some((text.clone(), profile, list));
+            self.notice = Some(text);
         }
     }
 
@@ -879,7 +918,8 @@ impl<D: Platform> Shell<D> {
         }
     }
 
-    pub(crate) fn new_popup_tab(&mut self, opener: TabKey, url: &str, link: bool) {
+    /// `split` (Open Link in Split View) puts the tab beside its opener while the layout shows splits.
+    pub(crate) fn new_popup_tab(&mut self, opener: TabKey, url: &str, link: bool, split: bool) {
         let Some(from) = self.pages.get(&opener).and_then(|p| p.committed.clone()) else {
             self.notice = Some("Tarn did not open a popup from a page that is still loading.".into());
             return;
@@ -894,9 +934,13 @@ impl<D: Platform> Shell<D> {
             self.new_tab(Some(url));
             return;
         }
+        let beside = split && self.wide && (self.model.active == Some(opener) || self.shown_split().is_some_and(|s| s.panes().contains(&opener)));
         let Some(key) = self.model.new_tab(&self.core, "", None) else { return };
         self.model.reload_space(&self.core);
         self.load_in(key, url, Some(from));
+        if beside {
+            self.splits.join(opener, key);
+        }
         self.activate(key);
     }
 

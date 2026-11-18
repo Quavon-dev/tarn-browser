@@ -11,6 +11,7 @@ use gpui::{
 };
 use ui::controls::{POPOVER_INSET, open_popup, popover};
 use ui::motion::fade_in;
+use ui::text::OneLine;
 use ui::theme::{TEXT, TEXT_SMALL, Theme};
 
 use browser_core::hover::Rest;
@@ -98,7 +99,14 @@ impl Browser {
         let y = origin.y + window.mouse_position().y - px(LIFT);
         let bottom = window.bounds().bottom();
         self.hover_card.anchor = Some((Bounds::new(point(x, y), size(px(WIDTH), px(HEIGHT))), window.display(cx).map(|d| d.id()), bottom));
-        self.hover_card.rest.enter(key, Instant::now());
+        if self.hover_card.rest.enter(key, Instant::now())
+            && let Some(handle) = self.hover_card.window.take()
+        {
+            self.hover_card.shot = None;
+            cx.defer(move |cx| {
+                handle.update(cx, |_, window, _| window.remove_window()).ok();
+            });
+        }
         self.schedule_hover_card(window, cx);
     }
 
@@ -262,15 +270,7 @@ impl Render for CardWindow {
             .text_size(px(TEXT))
             .text_color(Theme::text())
             .child(div().flex_none().font_weight(FontWeight::MEDIUM).line_clamp(2).child(SharedString::from(title)))
-            .child(
-                div()
-                    .text_size(px(TEXT_SMALL))
-                    .text_color(Theme::muted())
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(SharedString::from(place)),
-            )
+            .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(place)))
             .when(!state.is_empty(), |d| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(SharedString::from(state))));
         fade_in(card, "hover-card", self.reduce)
     }

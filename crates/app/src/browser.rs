@@ -59,11 +59,16 @@ fn spin_step(window: &Window, browser: gpui::WeakEntity<Browser>, drawn: Instant
 }
 
 impl Browser {
-    /// Gives open web views the page radius of a theme chosen after they were made.
+    /// Gives open web views the page radius and colour scheme of a theme chosen after they were made.
     pub(crate) fn follow_theme(&mut self) {
         let generation = ui::theme::Theme::generation();
         if std::mem::replace(&mut self.theme_generation, generation) != generation {
-            self.views.values().for_each(|v| v.set_corner_radius(page_corner()));
+            let dark = !ui::theme::Theme::is_light();
+            self.views.values().for_each(|v| {
+                v.set_corner_radius(page_corner());
+                v.set_dark(dark);
+            });
+            self.link_peek.set_dark(dark);
         }
     }
 }
@@ -111,7 +116,7 @@ pub struct PendingExternal {
 
 pub(crate) enum Msg {
     Tab(TabKey, u64, Event),
-    Found(usize),
+    Found(usize, Option<usize>),
     IconLinks(TabKey, IconKey, Url, String),
     IconData(IconKey, String),
     PageText(Id, Id, String, String),
@@ -127,6 +132,16 @@ pub struct DownloadNotice {
     pub private: bool,
     pub profile_id: Id,
     pub result: Result<(std::path::PathBuf, bool), String>,
+}
+
+impl DownloadNotice {
+    /// A failure, a file that is not quarantined or one that can run code.
+    pub fn warns(&self) -> bool {
+        match &self.result {
+            Ok((path, quarantined)) => !quarantined || path.file_name().is_some_and(|n| engine::downloads::is_dangerous(&n.to_string_lossy())),
+            Err(_) => true,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -194,11 +209,22 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
             }
             (Some(id), Ok((path, quarantined)))
         }
-        Event::DownloadFailed { id, message } => (id, Err(message)),
-        Event::DownloadCancelled(id) => return crate::shared::each(cx, |b, _, cx| b.set_transfer((private, profile_id, id), None, cx)),
+        Event::DownloadFailed { id, message } => {
+            if let Some(id) = id {
+                record_ended(&core, private, profile_id, id, "failed", cx);
+            }
+            (id, Err(message))
+        }
+        Event::DownloadCancelled(id) => {
+            record_ended(&core, private, profile_id, id, "cancelled", cx);
+            return crate::shared::each(cx, |b, _, cx| {
+                b.set_transfer((private, profile_id, id), None, cx);
+                b.downloads_popover.changed += 1;
+            });
+        }
         Event::DownloadsActive(count) => return crate::shared::each(cx, |b, _, cx| b.set_active_downloads(private, profile_id, count, cx)),
         Event::DownloadProgress { id, path, done, total, paused } => {
-            let transfer = crate::downloads::Transfer { path, done, total, paused };
+            let transfer = crate::downloads::Transfer { path, done, total, paused, started: now() };
             return crate::shared::each(cx, |b, _, cx| b.set_transfer((private, profile_id, id), Some(transfer.clone()), cx));
         }
         _ => return,
@@ -207,10 +233,24 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
         if let Some(id) = id {
             b.set_transfer((private, profile_id, id), None, cx);
         }
-        b.download = Some(DownloadNotice { private, profile_id, result: result.clone() });
+        b.push_download_notice(DownloadNotice { private, profile_id, result: result.clone() });
         b.downloads_popover.changed += 1;
         cx.notify();
     });
+}
+
+/// Lists a download that stopped before it finished under the file it was saving to.
+fn record_ended(core: &crate::shared::AppCore, private: bool, profile_id: Id, id: u64, state: &str, cx: &App) {
+    let path = cx
+        .windows()
+        .into_iter()
+        .filter_map(|w| w.downcast::<Browser>())
+        .find_map(|h| h.read(cx).ok().and_then(|b| b.downloads_popover.transfers.get(&(private, profile_id, id)).map(|t| (t.path.clone(), t.started))));
+    if let Some((path, started)) = path
+        && core.keeps_record_since(private, profile_id, started)
+    {
+        core.store(private).add_download(profile_id, "", &path.to_string_lossy(), state, started).ok();
+    }
 }
 
 /// (private, profile id, host): site icons belong to a profile like the rest of its data.
@@ -252,7 +292,7 @@ pub struct Browser {
     /// rebuild them without completing the field again.
     suggested: Option<(String, Option<suggest::Completion>)>,
     pub pending_external: Option<PendingExternal>,
-    pub download: Option<DownloadNotice>,
+    pub download: Vec<DownloadNotice>,
     pub downloads_popover: crate::downloads::Downloads,
     pub prompts: HashMap<TabKey, VecDeque<Prompt>>,
     pub prompt_input: Entity<TextInput>,
@@ -264,7 +304,9 @@ pub struct Browser {
     pub layout_stable_since: Instant,
     pub find_open: bool,
     pub find_input: Entity<TextInput>,
-    pub find_count: Option<usize>,
+    /// Matches the last find counted, and the highlighted one when the engine reports it.
+    pub find_count: Option<(usize, Option<usize>)>,
+    find_typing: Option<Task<()>>,
     /// A tab woken by Find in Tabs, searched once its page has finished loading.
     pub(crate) find_after_load: Option<TabKey>,
     pub(crate) find_tabs: Option<Task<()>>,
@@ -335,13 +377,16 @@ pub struct Browser {
     pub(crate) share_menu: crate::share::ShareMenu,
     /// The Windows menu button, as last painted, so its menu drops from it.
     pub(crate) app_menu_anchor: Rc<Cell<Bounds<Pixels>>>,
+    /// The button the next menu drops from; without one it opens at the pointer.
+    pub(crate) menu_at: Option<Bounds<Pixels>>,
     pub(crate) link_peek: crate::link_peek::LinkPeek,
     pub(crate) splits: browser_core::split::Splits<TabKey>,
     pub(crate) split_shown: crate::split::Shown,
-    /// The row a dragged tab is over and, when the drop would split with it, what the drop does;
-    /// without one the tab lands before that row.
-    pub(crate) split_drop: Option<(TabKey, Option<&'static str>)>,
+    /// The row a dragged tab is over, when the drop would split with it what the drop does, and
+    /// otherwise whether the tab lands below that row rather than above it.
+    pub(crate) split_drop: Option<(TabKey, Option<&'static str>, bool)>,
     pub shortcuts_open: bool,
+    pub(crate) shortcuts_scroll: gpui::ScrollHandle,
     pub reader: Option<crate::reader::Reader>,
     pub reader_layout: crate::reader::Layout,
     /// This window's row; its engine is the window engine.
@@ -386,8 +431,8 @@ impl Browser {
                             b.on_event(key, event, window, cx);
                         }
                     }
-                    Msg::Found(count) => {
-                        b.find_count = Some(count);
+                    Msg::Found(count, current) => {
+                        b.find_count = Some((count, current));
                         cx.notify();
                     }
                     Msg::IconLinks(key, icon, page, links) => b.fetch_favicon(key, icon, &page, &links),
@@ -442,7 +487,7 @@ impl Browser {
             history_text_search: None,
             suggested: None,
             pending_external: None,
-            download: None,
+            download: Vec::new(),
             downloads_popover: Default::default(),
             prompts: HashMap::new(),
             prompt_input,
@@ -453,6 +498,7 @@ impl Browser {
             find_open: false,
             find_input,
             find_count: None,
+            find_typing: None,
             find_after_load: None,
             find_tabs: None,
             refocus: false,
@@ -511,11 +557,13 @@ impl Browser {
             site_popover: Default::default(),
             share_menu: Default::default(),
             app_menu_anchor: Default::default(),
+            menu_at: None,
             link_peek: Default::default(),
             splits: Default::default(),
             split_shown: Default::default(),
             split_drop: None,
             shortcuts_open: false,
+            shortcuts_scroll: gpui::ScrollHandle::new(),
             reader: None,
             reader_layout: Default::default(),
             saved,
@@ -977,6 +1025,7 @@ impl Browser {
             None => self.web_view(&host, private, profile_id, url, sink)?,
         });
         view.set_corner_radius(page_corner());
+        view.set_dark(!ui::theme::Theme::is_light());
         view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
         self.views.insert(key, view.clone());
         self.attach_tarn(key);
@@ -1017,9 +1066,23 @@ impl Browser {
         cx.notify();
     }
 
-    pub fn current_download(&self) -> Option<&DownloadNotice> {
+    fn current_download_ix(&self) -> Option<usize> {
         let space = self.model.current_space()?;
-        self.download.as_ref().filter(|d| d.private == space.private && d.profile_id == space.space.profile_id)
+        self.download.iter().position(|d| d.private == space.private && d.profile_id == space.space.profile_id)
+    }
+
+    pub fn current_download(&self) -> Option<&DownloadNotice> {
+        self.current_download_ix().map(|ix| &self.download[ix])
+    }
+
+    pub(crate) fn push_download_notice(&mut self, notice: DownloadNotice) {
+        browser_core::toast::push_notice(&mut self.download, notice, DownloadNotice::warns);
+    }
+
+    pub(crate) fn dismiss_download(&mut self) {
+        if let Some(ix) = self.current_download_ix() {
+            self.download.remove(ix);
+        }
     }
 
     pub fn active_view(&self) -> Option<Rc<WebView>> {
@@ -1354,9 +1417,10 @@ impl Browser {
         self.new_tab_group = None;
         self.overlay_exit = None;
         self.shortcuts_open = false;
-        self.reader = self.reader.take().filter(crate::reader::Reader::speaking);
         let text = match mode {
-            CommandMode::Current => self.active_view().and_then(|v| v.url()).map(String::from).unwrap_or_default(),
+            CommandMode::Current => {
+                self.active_view().and_then(|v| v.url()).map(String::from).or_else(|| self.model.active_tab().map(|t| t.url.clone())).unwrap_or_default()
+            }
             CommandMode::NewTab | CommandMode::FindInTabs => String::new(),
         };
         let placeholder = if mode == CommandMode::FindInTabs { "Find in this space's tabs" } else { "Search or enter address" };
@@ -1385,8 +1449,42 @@ impl Browser {
         cx.notify();
     }
 
+    /// F6 and Shift+F6: moves the keyboard between the page, the address field and the sidebar.
+    pub(crate) fn cycle_focus(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) {
+        use browser_core::focus::{Region, next_region};
+        let open = self.command_mode.is_some();
+        let from = if open {
+            Region::Address
+        } else if self.focus.is_focused(window) {
+            Region::Page
+        } else {
+            Region::Sidebar
+        };
+        match next_region(from, back, self.active_view().is_some(), self.sidebar_shown() > 0.) {
+            Region::Address => self.open_command(CommandMode::Current, window, cx),
+            Region::Page if open => self.close_command(window, cx),
+            Region::Page => {
+                window.focus(&self.focus);
+                if let Some(view) = self.active_view() {
+                    view.focus();
+                }
+            }
+            Region::Sidebar => {
+                if open {
+                    self.close_command(window, cx);
+                }
+                if let Some(host) = &self.host {
+                    host.focus();
+                }
+                window.focus(&self.focus);
+                window.focus_next();
+            }
+        }
+    }
+
     pub fn close_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let covered = self.command_mode.is_some() || self.shortcuts_open;
+        let field = self.command_mode.is_some();
+        let covered = field || self.shortcuts_open;
         self.launcher_from = None;
         self.close_inline(cx);
         self.overlay_exit = None;
@@ -1394,7 +1492,7 @@ impl Browser {
         self.history_text_search = None;
         self.profile_editor = None;
         self.shortcuts_open = false;
-        self.reader = self.reader.take().filter(|r| crate::reader::keeps_reader(covered, r.speaking()));
+        self.reader = self.reader.take().filter(|r| field || crate::reader::keeps_reader(covered, r.speaking()));
         window.focus(&self.focus);
         for key in self.model.active.and_then(|a| Some(self.splits.of(a)?.others(a))).unwrap_or_default() {
             if let Some(view) = self.views.get(&key) {
@@ -1413,10 +1511,16 @@ impl Browser {
     /// The command card and profile editor replace the page, so the native web view is hidden under
     /// them; the address field opened in the toolbar leaves it visible.
     pub fn overlay_open(&self) -> bool {
-        (self.command_mode.is_some() && !self.inline_editing())
-            || self.profile_editor.as_ref().is_some_and(|e| !e.floating)
-            || self.shortcuts_open
-            || self.reader.as_ref().is_some_and(|r| self.model.active == Some(r.key))
+        self.card_open() || self.reader_shown()
+    }
+
+    /// An overlay other than the reader.
+    pub(crate) fn card_open(&self) -> bool {
+        (self.command_mode.is_some() && !self.inline_editing()) || self.profile_editor.as_ref().is_some_and(|e| !e.floating) || self.shortcuts_open
+    }
+
+    pub(crate) fn reader_shown(&self) -> bool {
+        self.reader.as_ref().is_some_and(|r| self.model.active == Some(r.key))
     }
 
     pub(crate) fn select_suggestion(&mut self, forward: bool, cx: &mut Context<Self>) {
@@ -1505,6 +1609,7 @@ impl Browser {
         let pinned = self.model.active_tab().is_some_and(|t| t.kind != store::TabKind::Ephemeral);
         let muted = self.model.active.is_some_and(|k| self.tab_muted(k));
         let reopenable = !self.model.closed_tabs.is_empty();
+        let toast_command = self.toast_command();
         let duplicates = !self.duplicate_tabs().is_empty();
         commands.retain(|ix| {
             let action = crate::COMMANDS[*ix].2;
@@ -1516,6 +1621,7 @@ impl Browser {
                 || !titled && is(&crate::tabs::ResetTabTitle)
                 || !drifted && (is(&crate::tabs::ReturnToPinnedUrl) || is(&crate::tabs::SetPinnedUrl))
                 || !reopenable && is(&crate::ReopenClosedTab)
+                || toast_command.is_none() && is(&crate::toast::ToastAction)
                 || !duplicates && is(&crate::tabs::CloseDuplicateTabs)
                 || !split
                     && (is(&crate::split::FocusNextPane)
@@ -1529,8 +1635,9 @@ impl Browser {
             let (label, _, action) = crate::COMMANDS[ix];
             let is = |a: &dyn gpui::Action| action.partial_eq(a);
             let on = is(&crate::TogglePin) && pinned || is(&crate::menubar::ToggleMute) && muted || is(&crate::split::ToggleSplitView) && split;
-            let label = crate::tabs::state_label(action, on).unwrap_or(label);
-            Suggestion { label: label.to_owned(), detail: crate::shortcuts::shown(action, cx), target: Target::Input(Input::Command(ix)) }
+            let shown = crate::tabs::state_label(action, on).map(str::to_owned);
+            let label = shown.or_else(|| toast_command.clone().filter(|_| is(&crate::toast::ToastAction))).unwrap_or_else(|| label.to_owned());
+            Suggestion { label, detail: crate::shortcuts::shown(action, cx), target: Target::Input(Input::Command(ix)) }
         };
         let space_rows = self.space_commands(&query);
         if query.starts_with('>') {
@@ -1589,7 +1696,14 @@ impl Browser {
         let typed = out.len();
         let listed: HashSet<TabKey> = out.iter().filter_map(|s| if let Target::Tab(k) = s.target { Some(k) } else { None }).collect();
         let completed = completion.as_ref().map(|c| c.url.as_str());
-        let skip = |ix: usize| if ix < tabs.len() { listed.contains(&TabKey { private, id: tabs[ix].id }) } else { Some(pages[ix].url) == completed };
+        let skip = |ix: usize| {
+            if ix < tabs.len() {
+                let key = TabKey { private, id: tabs[ix].id };
+                listed.contains(&key) || self.model.active == Some(key)
+            } else {
+                Some(pages[ix].url) == completed
+            }
+        };
         let mut ranked: Vec<usize> = suggest::rank_rows(&query, &pages, tabs.len(), skip, now());
         let search_text = !private && suggest::searches_text(&query) && suggest_on && self.pref(crate::prefs::Pref::HistoryText);
         let text_profile = self.model.current_space().filter(|_| search_text).map(|s| s.space.profile_id);
@@ -1627,9 +1741,11 @@ impl Browser {
         out.extend(found.into_iter().filter_map(|h| history_row(&h.url, &h.title)));
         out.truncate(if suggest_on { MAX_SUGGESTIONS } else { typed });
         // Late text matches move rows; the highlight stays on the row the user chose, if it is still listed.
+        // An empty field highlights nothing, so Enter opens nothing until the user picks a row.
         let chosen = self.suggestions.get(self.selected).filter(|_| rebuilt).map(|s| (s.label.clone(), s.detail.clone()));
         self.suggestions = out;
-        self.selected = chosen.and_then(|(label, detail)| self.suggestions.iter().position(|s| s.label == label && s.detail == detail)).unwrap_or(0);
+        let first = if query.is_empty() { usize::MAX } else { 0 };
+        self.selected = chosen.and_then(|(label, detail)| self.suggestions.iter().position(|s| s.label == label && s.detail == detail)).unwrap_or(first);
         self.suggested = Some((query.clone(), completion.clone()));
         self.history_text_search = search_later.map(|profile| self.search_history_text_later(profile, query, cx));
         if let (Some(c), false) = (completion, rebuilt) {
@@ -1960,7 +2076,7 @@ impl Browser {
                 }
             }
             // As a pop-up's tab: never in the burner, and its first load is the page's link, so S10 judges every hop.
-            Event::OpenTab { url, from, background } => {
+            Event::OpenTab { url, from, background, split } => {
                 let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown()) else { return cx.notify() };
                 let engine = opener.web_engine.or(self.saved.web_engine);
                 let routed = self.routed_space(&url);
@@ -1970,7 +2086,9 @@ impl Browser {
                 if let Some(tab) = self.model.new_tab(&self.core, url.as_str(), engine) {
                     self.reload_space();
                     self.link_loads.insert(tab, from.clone());
-                    if !background || routed.is_some() {
+                    if split && routed.is_none() {
+                        self.split_link(key, tab, window, cx);
+                    } else if !background || routed.is_some() {
                         self.activate(tab, window, cx);
                     } else if let Some(view) = self.create_view(tab, url.as_str(), cx) {
                         // Loaded now, as a pop-up is: a tab restored later would load its URL as the user's own.
@@ -2343,9 +2461,13 @@ impl Browser {
         }
     }
 
+    /// In the reader, finds on the page it was made from, which the reader then gives way to.
     pub fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.active_view().is_none() || self.overlay_open() || self.active_json().is_some() {
+        if self.active_view().is_none() || self.card_open() || self.active_json().is_some() {
             return;
+        }
+        if self.reader_shown() {
+            self.toggle_reader(window, cx);
         }
         self.find_open = true;
         self.find_count = None;
@@ -2361,8 +2483,10 @@ impl Browser {
 
     pub fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.find_open = false;
+        self.find_typing = None;
         window.focus(&self.focus);
         if let Some(view) = self.active_view() {
+            view.clear_find();
             view.focus();
         }
         cx.notify();
@@ -2372,18 +2496,40 @@ impl Browser {
         let text = self.find_input.read(cx).text().to_owned();
         let Some(view) = self.active_view().filter(|_| !text.is_empty()) else { return };
         let events = self.events.clone();
-        view.find(&text, backwards, move |found| {
-            events.unbounded_send(Msg::Found(found)).ok();
+        view.find(&text, backwards, move |found, current| {
+            events.unbounded_send(Msg::Found(found, current)).ok();
         });
     }
 
     fn on_find_event(&mut self, _: &Entity<TextInput>, event: &TextInputEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
-            TextInputEvent::Submit | TextInputEvent::Down => self.find(false, cx),
-            TextInputEvent::Up => self.find(true, cx),
+            TextInputEvent::Submit | TextInputEvent::Down => {
+                self.find_typing = None;
+                self.find(false, cx)
+            }
+            TextInputEvent::Up => {
+                self.find_typing = None;
+                self.find(true, cx)
+            }
             TextInputEvent::Cancel => self.close_find(window, cx),
             TextInputEvent::Changed => {
                 self.find_count = None;
+                if self.find_input.read(cx).text().is_empty() {
+                    self.find_typing = None;
+                    if let Some(view) = self.active_view() {
+                        view.clear_find();
+                    }
+                } else {
+                    self.find_typing = Some(cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(browser_core::find::TYPING_DELAY).await;
+                        this.update(cx, |b, cx| {
+                            if b.find_open {
+                                b.find(false, cx);
+                            }
+                        })
+                        .ok();
+                    }));
+                }
                 cx.notify();
             }
             TextInputEvent::MenuClosed => {}
@@ -2422,6 +2568,7 @@ impl Browser {
             return;
         };
         view.set_corner_radius(page_corner());
+        view.set_dark(!ui::theme::Theme::is_light());
         view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
         self.views.insert(key, Rc::new(view));
         self.attach_tarn(key);
@@ -2466,8 +2613,12 @@ impl Browser {
 
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let dev = self.model.active.is_some_and(|k| self.is_dev_tab(k));
+        self.reload_page(dev, cx);
+    }
+
+    pub fn reload_page(&mut self, from_origin: bool, cx: &mut Context<Self>) {
         let (Some(key), Some(v)) = (self.model.active, self.active_view()) else { return };
-        if dev {
+        if from_origin {
             v.reload_from_origin()
         } else {
             v.reload()
@@ -2478,6 +2629,14 @@ impl Browser {
             this.update(cx, |_, cx| cx.notify()).ok();
         })
         .detach();
+        cx.notify();
+    }
+
+    pub fn stop_loading(&mut self, cx: &mut Context<Self>) {
+        self.reload_spin = None;
+        if let Some(view) = self.active_view() {
+            view.stop();
+        }
         cx.notify();
     }
 
@@ -2736,9 +2895,31 @@ impl Browser {
             .collect()
     }
 
+    pub(crate) fn shield_wipes_data(&self, level: ShieldLevel) -> bool {
+        self.current_loaded().is_some_and(|rt| browser_core::profiles::shield_wipes_data(level, self.model.private(), rt.profile.shield_level))
+    }
+
+    pub(crate) fn shield_target(&self) -> Option<(bool, Id)> {
+        self.model.current_space().map(|space| (space.private, space.space.profile_id))
+    }
+
     pub fn set_profile_shield(&mut self, level: ShieldLevel, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(space) = self.model.current_space() else { return };
-        let (private, profile_id) = (space.private, space.space.profile_id);
+        let Some(target) = self.shield_target() else { return };
+        if !self.shield_wipes_data(level) {
+            return self.apply_profile_shield(target, level, window, cx);
+        }
+        let name = self.current_profile().map(|p| ui::text::bounded_title(&p.name)).unwrap_or_default();
+        let question = crate::settings::lockdown_question(&name);
+        let answer = window.prompt(gpui::PromptLevel::Warning, &question, Some(crate::settings::LOCKDOWN_WIPE), &["Use Lockdown", "Cancel"], cx);
+        cx.spawn_in(window, async move |this, cx| {
+            if answer.await == Ok(0) {
+                this.update_in(cx, |b, window, cx| b.apply_profile_shield(target, level, window, cx)).ok();
+            }
+        })
+        .detach();
+    }
+
+    pub(crate) fn apply_profile_shield(&mut self, (private, profile_id): (bool, Id), level: ShieldLevel, window: &mut Window, cx: &mut Context<Self>) {
         if self.store(private).set_profile_shield_level(profile_id, level).is_err() {
             return;
         }
@@ -2856,13 +3037,32 @@ impl Browser {
         }
     }
 
-    pub fn clear_history(&mut self, private: bool, profile_id: Id, cx: &mut Context<Self>) {
-        self.store(private).clear_history(profile_id).ok();
-        crate::zaps::apply(&self.core, private, profile_id);
+    pub fn clear_history(&mut self, private: bool, profile_id: Id, range: browser_core::library::HistoryRange, cx: &mut Context<Self>) {
+        browser_core::library::clear_history(self.store(private), profile_id, range, now()).ok();
+        let all = range == browser_core::library::HistoryRange::All;
+        if all {
+            crate::zaps::apply(&self.core, private, profile_id);
+        }
         let forget = move |b: &mut Self, cx: &mut Context<Self>| {
             b.forget_history(private, profile_id);
-            b.reapply_site_zooms(private, profile_id, None);
-            b.set_site_muted(private, profile_id, None, false, false);
+            if all {
+                b.reapply_site_zooms(private, profile_id, None);
+                b.set_site_muted(private, profile_id, None, false, false);
+            }
+            cx.notify();
+        };
+        forget(self, cx);
+        crate::shared::others(cx, |b, _, cx| forget(b, cx));
+    }
+
+    pub fn remove_history_url(&mut self, url: &str, cx: &mut Context<Self>) {
+        let Some((private, profile_id)) = self.model.profile() else { return };
+        self.store(private).delete_history_url(profile_id, url).ok();
+        let forget = move |b: &mut Self, cx: &mut Context<Self>| {
+            b.forget_visits(private, profile_id);
+            b.history_cache.clear();
+            b.forget_text_matches();
+            b.menu.history_cleared();
             cx.notify();
         };
         forget(self, cx);
@@ -2935,18 +3135,14 @@ impl Browser {
         Self::sync_other_windows(cx);
         crate::shared::others(cx, |b, _, cx| {
             b.forget_history(private, profile_id);
-            if b.download.as_ref().is_some_and(|d| (d.private, d.profile_id) == target) {
-                b.download = None;
-            }
+            b.download.retain(|d| (d.private, d.profile_id) != target);
             cx.notify();
         });
         for key in keys {
             self.hibernate(key, cx);
         }
         self.model.forget_folders(private, &folders);
-        if self.download.as_ref().is_some_and(|d| (d.private, d.profile_id) == target) {
-            self.download = None;
-        }
+        self.download.retain(|d| (d.private, d.profile_id) != target);
         self.pending_external = None;
         self.refocus |= std::mem::take(&mut self.find_open);
         self.suggestions.clear();
@@ -3116,10 +3312,11 @@ impl Browser {
     /// The zoom is kept per host and profile and shared by its open tabs; Lockdown pages keep none.
     pub fn zoom(&mut self, factor: Option<f64>, cx: &mut Context<Self>) {
         if self.responsive_active() {
-            return;
+            return self.show_toast("Zoom is off while Responsive Size is on", None, cx);
         }
         let (Some(key), Some(v)) = (self.model.active, self.active_view()) else { return };
         v.set_zoom(factor.map_or(1.0, |f| v.zoom() * f));
+        self.show_toast(format!("Zoom {}%", (v.zoom() * 100.).round()), None, cx);
         let (Some(profile_id), Some(url)) = (self.profile_of(key), v.url()) else { return };
         let Some(host) = url.host_str() else { return };
         let Some(zoom) = zoom_to_save(v.zoom(), self.level_for_tab(key, url.as_str()) == ShieldLevel::Lockdown) else { return };

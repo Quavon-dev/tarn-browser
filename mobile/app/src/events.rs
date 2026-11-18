@@ -89,13 +89,17 @@ impl<D: Platform> Shell<D> {
             }
             "popup" => {
                 if let Some(url) = text(data, "url") {
-                    self.new_popup_tab(key, &url, data.get("link").and_then(Value::as_bool).unwrap_or(false));
+                    let flag = |name: &str| data.get(name).and_then(Value::as_bool).unwrap_or(false);
+                    self.new_popup_tab(key, &url, flag("link"), flag("split"));
                 }
             }
             "prompt" => return self.prompt(key, data),
             crate::extensions::MESSAGE => return self.extension_message(key, data, std::time::Instant::now()),
             "article" | "pageText" | "iconLinks" | "iconData" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
-            "found" => self.found = data.get("matched").and_then(Value::as_u64),
+            "found" => {
+                let number = |field: &str| data.get(field).and_then(Value::as_u64).map(|n| n as usize);
+                self.found = number("matched").map(|n| (n, number("current")));
+            }
             "history" => {
                 if let Some(page) = self.pages.get_mut(&key) {
                     page.back = data.get("canGoBack").and_then(Value::as_bool).unwrap_or(page.back);

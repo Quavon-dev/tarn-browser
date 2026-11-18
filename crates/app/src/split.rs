@@ -11,6 +11,7 @@ use gpui::{
 };
 use ui::controls::{icon_button, tooltip};
 use ui::icon::Icon;
+use ui::text::OneLine;
 use ui::theme::{Elevation, TEXT_SMALL, Theme};
 use url::Url;
 
@@ -119,6 +120,15 @@ impl Browser {
         }
     }
 
+    /// Opens the new tab `key`, a link from `opener`, beside it in split view.
+    pub(crate) fn split_link(&mut self, opener: TabKey, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
+        // A full split takes no more panes; the link still opens, as a tab of its own.
+        if self.model.active == Some(opener) || self.in_split(opener) {
+            self.splits.join(opener, key);
+        }
+        self.activate(key, window, cx);
+    }
+
     /// Puts `key` into `anchor`'s split, or starts one with the two, and focuses `key`.
     fn join_split(&mut self, anchor: TabKey, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
         if self.splits.join(anchor, key) {
@@ -129,6 +139,9 @@ impl Browser {
     /// A tab dropped on a pane, or on the middle of its row: two panes of one split swap, any
     /// other tab joins.
     pub(crate) fn drop_on_pane(&mut self, target: TabKey, dragged: TabKey, window: &mut Window, cx: &mut Context<Self>) {
+        if self.in_main(window, cx, move |b, window, cx| b.drop_on_pane(target, dragged, window, cx)) {
+            return;
+        }
         if !self.swap_panes(dragged, target, cx) {
             self.join_split(target, dragged, window, cx);
         }
@@ -322,7 +335,7 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
         .when(focused, |d| d.bg(Theme::accent_soft()).font_weight(FontWeight::MEDIUM))
         .cursor_pointer()
         .children(tab.map(|t| crate::sidebar::site_icon(b, &t.url, 14.)))
-        .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(title.clone()))
+        .child(div().flex_1().one_line(title.clone()))
         .children(host.map(|host| crate::toolbar::tail_first(div().flex_none().max_w(relative(0.4)).text_size(px(TEXT_SMALL)), host, Theme::faint())))
         .child(
             div()

@@ -6,9 +6,26 @@ use crate::{share_store, shared_key};
 
 pub const RETIRED_STORES: &str = "retired_stores";
 
+pub const LOCKDOWN_WIPE: &str =
+    "Lockdown deletes the cookies and site data this profile has stored, except data it shares with another profile. Open pages reload.";
+
+pub fn lockdown_question(profile: &str) -> String {
+    format!("Use Lockdown for the profile \u{201C}{profile}\u{201D}?")
+}
+
+/// Whether choosing `chosen` for a profile now at `current` deletes its stored website data:
+/// Lockdown entered in a profile that keeps data.
+pub fn shield_wipes_data(chosen: ShieldLevel, private: bool, current: ShieldLevel) -> bool {
+    chosen == ShieldLevel::Lockdown && !private && current != ShieldLevel::Lockdown
+}
+
 pub fn profile_name(disk: &Store, raw: &str, editing: Option<Id>) -> Option<String> {
     let others = disk.profiles().unwrap_or_default().into_iter().filter(|p| Some(p.id) != editing).collect::<Vec<_>>();
     crate::space_card::valid_name(raw, others.iter().map(|p| p.name.as_str()))
+}
+
+pub fn name_taken<'a>(raw: &str, taken: impl IntoIterator<Item = &'a str>) -> bool {
+    crate::space_card::valid_name(raw, []).is_some() && crate::space_card::valid_name(raw, taken).is_none()
 }
 
 pub struct NewProfile<'a> {
@@ -87,6 +104,21 @@ fn toggled(stored: &str, entry: &str, on: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_entering_lockdown_in_a_profile_that_keeps_data_wipes_it() {
+        assert!(shield_wipes_data(ShieldLevel::Lockdown, false, ShieldLevel::Standard));
+        assert!(!shield_wipes_data(ShieldLevel::Strict, false, ShieldLevel::Standard));
+        assert!(!shield_wipes_data(ShieldLevel::Lockdown, false, ShieldLevel::Lockdown), "already in Lockdown");
+        assert!(!shield_wipes_data(ShieldLevel::Lockdown, true, ShieldLevel::Standard), "a private space keeps nothing");
+    }
+
+    #[test]
+    fn a_name_is_taken_only_when_another_profile_has_it() {
+        assert!(name_taken(" work ", ["Home", "Work"]));
+        assert!(!name_taken("Work", ["Home"]));
+        assert!(!name_taken("  ", ["Home"]), "an empty name is missing, not taken");
+    }
     #[test]
     fn profiles_are_created_with_their_first_space_and_deleted_with_their_settings() {
         let disk = Store::open_in_memory().unwrap();

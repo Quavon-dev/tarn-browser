@@ -37,13 +37,13 @@ fn the_mac_settings_window_shows_one_pane_at_a_time() {
     }
     assert!(app.screen().shows("⌘D") || app.screen().shows("Ctrl+D"), "rows show the shared table's keys");
 
-    app.press("label:Profile").unwrap();
+    app.press("label:Protection").unwrap();
     app.wait_for("label:Change Design").unwrap();
     for part in ["label:Flip", "label:Share Card", "parameters removed", "HTTPS upgrades", "local visits blocked"] {
         app.wait_for(part).unwrap();
     }
     assert!(!app.screen().shows("Parameters removed"), "the card's numbers show once, beside the card");
-    assert_eq!(app.screen().texts().iter().filter(|t| t.starts_with("Protected for ")).count(), 2, "the card and the column beside it say since when");
+    assert_eq!(app.screen().texts().iter().filter(|t| t.starts_with("Protected ")).count(), 2, "the card and the column beside it say since when");
     let (card, flip) = (bounds_of(&app, "label:/^Shield card of/"), bounds_of(&app, "label:Flip"));
     assert!(card.origin.x.0 + card.size.width.0 <= flip.origin.x.0, "the actions sit beside the card in a wide pane: {card:?} {flip:?}");
     let design = bounds_of(&app, "label:Change Design");

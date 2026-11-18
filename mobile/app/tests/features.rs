@@ -380,6 +380,29 @@ fn clearing_the_downloads_list_keeps_running_downloads() {
     shell.clear_downloads();
     assert!(shell.downloads().is_empty());
     assert_eq!(shell.transfers.len(), 1, "a download still saving stays");
+    assert!(shell.can_restore_downloads());
+    shell.restore_downloads();
+    assert_eq!(shell.downloads().iter().map(|d| d.url.as_str()).collect::<Vec<_>>(), ["a.zip"], "Undo puts the cleared list back");
+    shell.event(key, "download", &json!({ "id": "2", "state": "progress", "done": 1, "path": "/b.pdf" }), 4);
+    shell.transfer_command("2", "downloadCancel", false);
+    let cancelled = shell.downloads().into_iter().find(|d| d.url == "b.pdf").map(|d| (d.state, d.started_at, d.path));
+    assert_eq!(cancelled, Some(("cancelled".to_owned(), 3, "/b.pdf".to_owned())), "a cancelled download is listed from when it started");
+}
+
+#[test]
+fn a_download_warning_waits_until_dismissed() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://a.test/", "A");
+    let key = active(&shell);
+    shell.event(key, "download", &json!({ "id": "1", "state": "failed", "name": "a.zip", "message": "gone" }), 3);
+    shell.event(key, "download", &json!({ "id": "2", "state": "started", "name": "b.zip" }), 3);
+    assert!(shell.notice.as_deref().is_some_and(|n| n.contains("a.zip")), "a harmless notice does not replace a warning");
+    assert!(shell.notice_held());
+    shell.dismiss_notice();
+    assert!(shell.notice.as_deref().is_some_and(|n| n.contains("b.zip")));
+    assert!(!shell.notice_held());
+    shell.dismiss_notice();
+    assert_eq!(shell.notice, None);
 }
 
 #[test]

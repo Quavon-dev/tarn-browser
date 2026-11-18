@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
+use browser_core::bookmarks;
 use browser_core::snapshot::{self, SpaceSnapshot};
 use browser_core::split::{Share, Split};
 use browser_core::tabs::{TabKey, duplicates};
@@ -9,7 +10,6 @@ use url::Url;
 use crate::data::Platform;
 use crate::shell::{Effect, Shell};
 
-pub const READING_LIST: &str = "Reading List";
 pub const MAX_SITE_CSS: usize = 64 * 1024;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -57,6 +57,32 @@ impl<D: Platform> Shell<D> {
 
     pub fn can_undo(&self) -> bool {
         self.undo.as_ref().is_some_and(|(text, serial)| self.notice.as_ref() == Some(text) && self.model.closed_tabs.newest() == Some(*serial))
+    }
+
+    pub fn can_restore_downloads(&self) -> bool {
+        self.cleared_downloads.as_ref().is_some_and(|(text, ..)| self.notice.as_ref() == Some(text))
+    }
+
+    pub fn restore_downloads(&mut self) {
+        let Some((_, (private, id), list)) = self.cleared_downloads.take() else { return };
+        self.notice = None;
+        self.core.restore_downloads(private, id, &list);
+    }
+
+    pub(crate) fn download_notice(&mut self, text: String, warns: bool) {
+        browser_core::toast::push_notice(&mut self.download_notices, (text, warns), |n| n.1);
+        self.notice = self.download_notices.first().map(|n| n.0.clone());
+    }
+
+    pub fn notice_held(&self) -> bool {
+        self.download_notices.first().is_some_and(|(text, warns)| *warns && self.notice.as_ref() == Some(text))
+    }
+
+    pub fn dismiss_notice(&mut self) {
+        if self.download_notices.first().is_some_and(|(text, _)| self.notice.as_ref() == Some(text)) {
+            self.download_notices.remove(0);
+        }
+        self.notice = self.download_notices.first().map(|n| n.0.clone());
     }
 
     pub fn undo_close(&mut self) -> bool {
@@ -348,22 +374,13 @@ impl<D: Platform> Shell<D> {
         self.core.disk.delete_snapshot(saved.profile_id, saved.id).ok();
     }
 
-    fn reading_folder(&self, bookmarks: &[Bookmark]) -> Option<Id> {
-        bookmarks.iter().find(|b| b.url.is_none() && b.parent_id.is_none() && b.title == READING_LIST).map(|b| b.id)
-    }
-
     pub fn save_for_later(&mut self, now: i64) -> bool {
         let (Some(id), Some(key)) = (self.profile_id(), self.model.active) else { return false };
         let url = self.tab_url(key);
         let title = self.pages.get(&key).map(|p| p.title.clone()).unwrap_or_default();
         let store = self.store();
-        let saved = Url::parse(&url).is_ok_and(|u| matches!(u.scheme(), "http" | "https")) && {
-            let folder = match self.reading_folder(&store.bookmarks(id).unwrap_or_default()) {
-                Some(folder) => Some(folder),
-                None => store.add_bookmark(id, None, None, READING_LIST, now).ok().map(|b| b.id),
-            };
-            folder.is_some_and(|folder| store.add_bookmark(id, Some(folder), Some(&url), if title.is_empty() { &url } else { &title }, now).is_ok())
-        };
+        let saved = Url::parse(&url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"))
+            && bookmarks::save_for_later(store, id, &store.bookmarks(id).unwrap_or_default(), &url, &title, now);
         let (tone, text) = browser_core::toast::reading_list(saved);
         self.toast_as(tone, text.into());
         saved
@@ -371,9 +388,7 @@ impl<D: Platform> Shell<D> {
 
     pub fn reading_list(&self) -> Vec<Bookmark> {
         let Some(id) = self.profile_id() else { return Vec::new() };
-        let bookmarks = self.store().bookmarks(id).unwrap_or_default();
-        let Some(folder) = self.reading_folder(&bookmarks) else { return Vec::new() };
-        bookmarks.into_iter().filter(|b| b.parent_id == Some(folder) && b.url.is_some()).collect()
+        bookmarks::reading_list_pages(self.store().bookmarks(id).unwrap_or_default())
     }
 
     pub fn remove_from_reading_list(&mut self, id: Id) {

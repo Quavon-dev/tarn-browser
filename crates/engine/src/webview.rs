@@ -6,7 +6,8 @@ use objc2::rc::{Retained, Weak};
 use objc2::runtime::NSObjectProtocol;
 use objc2::{MainThreadMarker, MainThreadOnly, msg_send, sel};
 use objc2_app_kit::{
-    NSAlert, NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSPanel, NSPrintInfo, NSView, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSAlert, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSBitmapImageFileType, NSBitmapImageRep, NSImage,
+    NSPanel, NSPrintInfo, NSView, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{
     NSBundle, NSData, NSDictionary, NSError, NSKeyValueObservingOptions, NSNumber, NSObjectNSKeyValueObserverRegistration, NSPoint, NSRect, NSSize, NSString,
@@ -118,7 +119,10 @@ impl Host {
         panel.setHidesOnDeactivate(true);
         let rect = self.view.convertRect_toView(self.rect(x, y, width, height), None);
         panel.setFrame_display(window.convertRectToScreen(rect), true);
-        if let Ok(panel) = panel.downcast::<NSPanel>() {
+        // A key panel that resized away from the pointer would hand key status to the window under it.
+        if let Ok(panel) = panel.downcast::<NSPanel>()
+            && !panel.isKeyWindow()
+        {
             panel.setBecomesKeyOnlyIfNeeded(true);
         }
     }
@@ -299,6 +303,14 @@ impl WebView {
         }
     }
 
+    /// The colour scheme pages see (`prefers-color-scheme`) and form controls take: the shell's
+    /// theme, not the system's.
+    pub fn set_dark(&self, dark: bool) {
+        // SAFETY: constant appearance names exported by AppKit.
+        let name = unsafe { if dark { NSAppearanceNameDarkAqua } else { NSAppearanceNameAqua } };
+        self.view.setAppearance(NSAppearance::appearanceNamed(name).as_deref());
+    }
+
     /// Two-finger swipe back and forward and pinch to zoom.
     pub fn set_gestures(&self, on: bool) {
         // SAFETY: main-thread calls on a live web view.
@@ -341,8 +353,9 @@ impl WebView {
         self._delegate.shown_url(to_url(unsafe { self.view.URL() }))
     }
 
-    /// Highlights the next (or previous) match; `found` receives how many matches the page has.
-    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize) + 'static) {
+    /// Highlights the next (or previous) match; `found` receives how many matches the page has,
+    /// and which one is highlighted when the engine says (WebKit does not).
+    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize, Option<usize>) + 'static) {
         let mtm = self.view.mtm();
         let found = Rc::new(found);
         let view = self.view.clone();
@@ -357,15 +370,24 @@ impl WebView {
             config.setWraps(true);
             let done = RcBlock::new(move |result: std::ptr::NonNull<WKFindResult>| {
                 if !result.as_ref().matchFound() {
-                    return found(0);
+                    return found(0, None);
                 }
                 if lockdown {
-                    return found(1);
+                    return found(1, None);
                 }
                 let found = found.clone();
-                run_isolated(&view, &count, move |answer| found(find_count(true, &answer)));
+                run_isolated(&view, &count, move |answer| found(find_count(true, &answer), None));
             });
             self.view.findString_withConfiguration_completionHandler(&NSString::from_str(text), Some(&config), &done);
+        }
+    }
+
+    /// Hides the marker a find left; the match stays selected, as in Safari.
+    pub fn clear_find(&self) {
+        // WebKit has no public way to hide the match's marker; its private `_hideFindUI` does where it exists.
+        if self.view.respondsToSelector(sel!(_hideFindUI)) {
+            // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.
+            let _: () = unsafe { msg_send![&*self.view, _hideFindUI] };
         }
     }
 

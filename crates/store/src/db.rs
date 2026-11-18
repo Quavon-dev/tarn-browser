@@ -292,6 +292,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct Store {
     conn: Connection,
+    settings_rev: std::sync::atomic::AtomicU64,
 }
 
 impl Store {
@@ -333,7 +334,7 @@ impl Store {
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
         conn.pragma_update(None, "secure_delete", true)?;
-        let mut store = Store { conn };
+        let mut store = Store { conn, settings_rev: Default::default() };
         store.migrate()?;
         Ok(store)
     }
@@ -354,6 +355,7 @@ impl Store {
             "INSERT INTO profiles (name, data_store_uuid, is_private, created_at) VALUES (?1, ?2, ?3, ?4)",
             params![name, data_store_uuid, is_private, now_ms()],
         )?;
+        self.settings_changed();
         self.profile(self.conn.last_insert_rowid())
     }
 
@@ -373,6 +375,7 @@ impl Store {
 
     pub fn set_profile_shield_level(&self, id: Id, level: ShieldLevel) -> Result<()> {
         self.conn.execute("UPDATE profiles SET shield_level = ?2 WHERE id = ?1", params![id, level.as_str()])?;
+        self.settings_changed();
         Ok(())
     }
 
@@ -386,6 +389,7 @@ impl Store {
         tx.execute("INSERT INTO spaces (profile_id, name, icon, position) VALUES (?1, 'Dev', '', 0)", [id])?;
         tx.commit()?;
         let space = self.spaces(id)?.into_iter().next().ok_or(Error::Invalid("space"))?;
+        self.settings_changed();
         Ok((self.profile(id)?, space))
     }
 
@@ -487,6 +491,7 @@ impl Store {
 
     pub fn delete_profile(&self, id: Id) -> Result<()> {
         self.conn.execute("DELETE FROM profiles WHERE id = ?1", [id])?;
+        self.settings_changed();
         self.checkpoint().ok();
         Ok(())
     }
@@ -731,12 +736,14 @@ impl Store {
 
     pub fn set_profile(&self, id: Id, name: &str, color: &str) -> Result<()> {
         self.conn.execute("UPDATE profiles SET name = ?2, color = ?3 WHERE id = ?1", params![id, name, color])?;
+        self.settings_changed();
         Ok(())
     }
 
     /// Points the profile at a new WebKit store, so the old one can be deleted as a whole.
     pub fn set_profile_store(&self, id: Id, data_store_uuid: &str) -> Result<()> {
         self.conn.execute("UPDATE profiles SET data_store_uuid = ?2 WHERE id = ?1", params![id, data_store_uuid])?;
+        self.settings_changed();
         Ok(())
     }
 
@@ -1135,6 +1142,46 @@ impl Store {
         }
         tx.commit()?;
         self.checkpoint()
+    }
+
+    pub fn delete_history_since(&self, profile_id: Id, since: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM history WHERE profile_id = ?1 AND visited_at >= ?2", params![profile_id, since])?;
+        self.checkpoint()
+    }
+
+    /// Drops the site icon and the Shield site count kept for `host`.
+    pub fn forget_site_records(&self, profile_id: Id, host: &str) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for table in ["favicons", "shield_sites"] {
+            tx.execute(&format!("DELETE FROM {table} WHERE profile_id = ?1 AND host = ?2"), params![profile_id, host])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn delete_history_url(&self, profile_id: Id, url: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM history WHERE profile_id = ?1 AND url = ?2", params![profile_id, url])?;
+        self.checkpoint()
+    }
+
+    pub fn local_day_start(&self, at: i64) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("SELECT CAST(strftime('%s', ?1 / 1000, 'unixepoch', 'localtime', 'start of day', 'utc') AS INTEGER) * 1000", [at], |r| r.get(0))?)
+    }
+
+    /// Moves on with every write to the settings or the profiles, for caches of what Settings shows.
+    pub fn settings_changes(&self) -> u64 {
+        self.settings_rev.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn settings_changed(&self) {
+        self.settings_rev.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The local calendar date of `at` (ms), as YYYY-MM-DD.
+    pub fn local_date(&self, at: i64) -> Result<String> {
+        Ok(self.conn.query_row("SELECT strftime('%Y-%m-%d', ?1 / 1000, 'unixepoch', 'localtime')", [at], |r| r.get(0))?)
     }
 
     pub fn favicons(&self, profile_id: Id) -> Result<Vec<(String, Vec<u8>)>> {
@@ -1679,11 +1726,13 @@ impl Store {
 
     pub fn delete_setting(&self, key: &str) -> Result<()> {
         self.conn.execute("DELETE FROM settings WHERE key = ?1", [key])?;
+        self.settings_changed();
         Ok(())
     }
 
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
         self.conn.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = excluded.value", params![key, value])?;
+        self.settings_changed();
         Ok(())
     }
 }
@@ -1833,7 +1882,7 @@ mod tests {
             conn.execute_batch(sql).unwrap();
         }
         conn.pragma_update(None, "user_version", at as i64).unwrap();
-        Store { conn }
+        Store { conn, settings_rev: Default::default() }
     }
 
     #[test]
@@ -2055,6 +2104,34 @@ mod tests {
         store.delete_window(first.id).unwrap();
         assert_eq!(store.windows().unwrap().len(), 1);
         assert!(store.conn.execute("UPDATE windows SET web_engine = 'gecko'", []).is_err());
+    }
+
+    #[test]
+    fn history_is_deleted_by_address_or_since_a_time() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "u1", false).unwrap().id;
+        let other = store.create_profile("Q", "u2", false).unwrap().id;
+        for (url, at) in [("https://a.test/", 10), ("https://b.test/", 20), ("https://a.test/", 30)] {
+            store.add_history(p, url, "", at, false).unwrap();
+        }
+        store.add_history(other, "https://a.test/", "", 40, false).unwrap();
+        let urls = |profile| store.history(profile, 10).unwrap().into_iter().map(|h| h.url).collect::<Vec<_>>();
+        store.delete_history_since(p, 20).unwrap();
+        assert_eq!(urls(p), ["https://a.test/"]);
+        store.delete_history_url(p, "https://a.test/").unwrap();
+        assert!(urls(p).is_empty());
+        assert_eq!(urls(other), ["https://a.test/"], "another profile's history stays");
+        let before = store.settings_changes();
+        store.add_history(p, "https://b.test/", "", 50, false).unwrap();
+        assert_eq!(store.settings_changes(), before, "a visit is not a settings change");
+        store.set_setting("k", "v").unwrap();
+        assert!(store.settings_changes() > before);
+        let day = store.local_day_start(1_000_000_000_000).unwrap();
+        assert!(day <= 1_000_000_000_000 && 1_000_000_000_000 - day < 86_400_000);
+        assert_eq!(store.local_day_start(day).unwrap(), day);
+        let noon = day + 12 * 3_600_000;
+        assert_eq!(store.local_date(day).unwrap(), store.local_date(noon).unwrap(), "local midnight and noon share a date");
+        assert_ne!(store.local_date(day - 1).unwrap(), store.local_date(day).unwrap());
     }
 
     #[test]

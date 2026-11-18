@@ -1,4 +1,4 @@
-use browser_core::shield_card::{Card, H, SHORT, W, back, day_totals, days_text, face, front, front_svg, thousands};
+use browser_core::shield_card::{Card, H, SHORT, W, back, day_totals, face, front, front_svg, thousands};
 use nsh_core::file_dialog::{FileFilter, SaveDialog};
 use nsh_core::prelude::*;
 use shield::{Category, ShieldLevel};
@@ -105,7 +105,7 @@ fn number(n: i64, name: &str) -> View {
 
 fn hero(ui: Ui, card: Card, level: ShieldLevel, private: bool) -> View {
     let protected = match (card.days, card.since.as_deref()) {
-        (Some(days), Some(since)) => format!("Protected for {} · since {since}", days_text(days)),
+        (Some(days), Some(since)) => browser_core::shield_card::protected_text(days, since),
         _ => "Counting starts with the first page".to_owned(),
     };
     let numbers: Vec<AnyElement> = card
@@ -137,13 +137,9 @@ fn hero(ui: Ui, card: Card, level: ShieldLevel, private: bool) -> View {
             )
             .child(view().flex_row().gap_3().children(numbers))
             .child(
-                view()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(label(level_name).flex_1())
-                    .child(segmented(levels(), level, move |l| act(ui, move |b| b.set_default_level(l)))),
+                view().flex_row().items_center().gap_2().child(label(level_name).flex_1()).child(segmented(levels(), level, move |l| super::pick_level(ui, l))),
             )
+            .child(super::lockdown_confirm(ui))
             .child(actions),
     )
 }
@@ -262,7 +258,7 @@ fn hidden(ui: Ui, private: bool) -> View {
         .into_iter()
         .map(|(host, selector)| {
             let (h, s) = (host.clone(), selector.clone());
-            line(format!("{host}: {selector}")).child(pill("Undo", move || act(ui, |b| b.unzap(&h, Some(&s))))).into_element()
+            line(format!("{host}: {selector}")).child(pill("Show Again", move || act(ui, |b| b.unzap(&h, Some(&s))))).into_element()
         })
         .collect();
     view().flex_col().children(rows)
@@ -433,48 +429,67 @@ fn make_default(ui: Ui) {
     });
 }
 
-fn nav(ui: Ui, current: Pane) -> View {
-    let ext_on = ui.ext_pane.get_untracked();
-    let mut out = view().flex_col().gap(px(2.)).w(px(NAV_WIDTH)).flex_none().p_2().rounded(px(Theme::radius_group())).bg(Theme::panel_nav());
-    for (group, members) in GROUPS {
-        out = out.child(view().pt_2().pb_1().px_1().child(tarn_nsh_shared::controls::caps_label(group)));
-        for pane in members.iter().copied() {
-            let selected = pane == current && !ext_on;
-            let name = panes::name(pane);
-            out = out.child(
-                crate::controls::row(name, move || {
-                    ui.ext_pane.set(false);
-                    if pane == Pane::Developer {
-                        super::devtools::refresh_servers(ui);
-                    }
-                    ui.settings_pane.set(pane);
-                    act(ui, |_| {});
-                })
-                .h(px(30.))
-                .px(px(10.))
-                .rounded(px(Theme::radius_row()))
-                .bg(if selected { Theme::selected() } else { rgba(0) })
-                .hover(|s| s.bg(Theme::hover()))
-                .text_color(if selected { Theme::text() } else { Theme::muted() })
-                .child(crate::icons::icon(panes::icon(pane), 14.))
-                .child(label(name).text_color(if selected { Theme::text() } else { Theme::muted() })),
-            );
-        }
-    }
-    out.child(
-        crate::controls::row("Extensions", move || {
-            ui.ext_pane.set(true);
-            act(ui, |_| {});
-        })
+fn nav_row(name: &'static str, glyph: &'static str, selected: bool, open: impl Fn() + 'static) -> nsh_base::ButtonElement {
+    let tint = if selected { Theme::text() } else { Theme::muted() };
+    crate::controls::row(name, open)
         .h(px(30.))
         .px(px(10.))
         .rounded(px(Theme::radius_row()))
-        .bg(if ext_on { Theme::selected() } else { rgba(0) })
+        .bg(if selected { Theme::selected() } else { rgba(0) })
         .hover(|s| s.bg(Theme::hover()))
-        .text_color(if ext_on { Theme::text() } else { Theme::muted() })
-        .child(crate::icons::icon(crate::icons::SPARKLES, 14.))
-        .child(label("Extensions").text_color(if ext_on { Theme::text() } else { Theme::muted() })),
-    )
+        .text_color(tint)
+        .child(crate::icons::icon(glyph, 14.))
+        .child(label(name).text_color(tint))
+}
+
+fn open_pane(ui: Ui, pane: Option<Pane>) {
+    ui.ext_pane.set(pane.is_none());
+    if pane == Some(Pane::Developer) {
+        super::devtools::refresh_servers(ui);
+    }
+    if let Some(pane) = pane {
+        ui.settings_pane.set(pane);
+    }
+    act(ui, |_| {});
+}
+
+/// The panes Settings search shows for `query`; `None` is Extensions.
+fn found(query: &str) -> Vec<Option<Pane>> {
+    let (name, words) = panes::EXTENSIONS;
+    let extensions = browser_core::settings::words_match(query, &format!("{name} {words}")).then_some(None);
+    GROUPS.iter().flat_map(|(_, members)| members.iter().copied()).filter(|p| panes::matches(*p, query)).map(Some).chain(extensions).collect()
+}
+
+fn nav(ui: Ui, current: Pane) -> View {
+    let ext_on = ui.ext_pane.get_untracked();
+    let shown = move |pane: Option<Pane>| if ext_on { pane.is_none() } else { pane == Some(current) };
+    let field = super::text_field(ui.library_query, "Search", NAV_WIDTH - 16.).on_submit(move |q: &str| {
+        let found = found(q);
+        if let Some(pane) = found.iter().find(|p| shown(**p)).or(found.first()) {
+            open_pane(ui, *pane);
+        }
+    });
+    let rows = dynamic(move || {
+        let query = ui.library_query.get();
+        let found = found(&query);
+        let mut out = view().flex_col().gap(px(2.));
+        if found.is_empty() {
+            return Some(out.child(note("No settings match.").px_1()));
+        }
+        for (group, members) in GROUPS {
+            if query.trim().is_empty() {
+                out = out.child(view().pt_2().pb_1().px_1().child(tarn_nsh_shared::controls::caps_label(group)));
+            }
+            for pane in members.iter().copied().filter(|p| found.contains(&Some(*p))) {
+                out = out.child(nav_row(panes::name(pane), panes::icon(pane), shown(Some(pane)), move || open_pane(ui, Some(pane))));
+            }
+        }
+        if found.contains(&None) {
+            out = out.child(nav_row(panes::EXTENSIONS.0, crate::icons::SPARKLES, ext_on, move || open_pane(ui, None)));
+        }
+        Some(out)
+    });
+    view().flex_col().gap(px(2.)).w(px(NAV_WIDTH)).flex_none().p_2().rounded(px(Theme::radius_group())).bg(Theme::panel_nav()).child(field).child(rows)
 }
 
 pub fn settings_panel(ui: Ui) -> AnyElement {
@@ -639,11 +654,6 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             body.child(section("Shield"))
                 .child(
                     group()
-                        .child(
-                            group_row()
-                                .child(label(if private { "Shield level (private space)" } else { "Default Shield level" }).flex_1())
-                                .child(segmented(levels(), level, move |l| act(ui, move |b| b.set_default_level(l)))),
-                        )
                         .child(switch(on("ads"), "Block ads", toggle("block_ads")))
                         .child(switch(on("trackers"), "Block trackers", toggle("block_trackers")))
                         .child(switch(on("annoyances"), "Block cookie banners", toggle("block_annoyances")))
@@ -684,7 +694,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                         .children((!private).then(|| data_row("Export this profile's data as JSON", pill("Export…", move || export_profile(ui)).into_element())))
                         .child(data_row(
                             "Clear browsing history, site icons, zoom levels, protected sites and hidden elements",
-                            confirmed(ui, "history".to_owned(), "Clear", move || super::clear_history(ui)),
+                            super::clear_history_choice(ui, "Clear…"),
                         ))
                         .child(data_row("Clear the download list", confirmed(ui, "download list".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads()))))
                         .child(data_row("Clear cookies and website data", confirmed(ui, "data".to_owned(), "Clear", clear_data)))

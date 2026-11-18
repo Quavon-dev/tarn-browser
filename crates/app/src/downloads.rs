@@ -10,6 +10,7 @@ use store::{Download, Id};
 use ui::controls::{POPOVER_INSET, empty, icon_button, list_row, open_popup, popover, tab_stop, text_lines, tooltip};
 use ui::icon::{Icon, icon};
 use ui::motion::{REOPEN_GUARD, popover_motion};
+use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::theme::{Secure, TEXT, TEXT_SMALL, Theme};
 
@@ -54,11 +55,14 @@ pub(crate) struct Transfer {
     pub done: u64,
     pub total: Option<u64>,
     pub paused: bool,
+    /// When Tarn first heard of it, kept across progress reports.
+    pub started: i64,
 }
 
 fn subtitle(d: &Download, size: Option<u64>) -> (String, bool) {
     match d.state.as_str() {
         "failed" => ("Failed".into(), true),
+        "cancelled" => ("Cancelled".into(), false),
         "finished-unquarantined" => ("Not marked as downloaded · open only if you trust it".into(), true),
         _ => {
             let what = size
@@ -66,6 +70,16 @@ fn subtitle(d: &Download, size: Option<u64>) -> (String, bool) {
             (crate::browser::tab_host(&d.url).into_iter().fold(what, |line, host| format!("{line} · {host}")), false)
         }
     }
+}
+
+/// A finished download whose file was moved or deleted since.
+/// The size of the file at `path`, or `None` when no file is there (moved, deleted or unreadable).
+pub(crate) fn file_size(path: &str) -> Option<u64> {
+    std::fs::metadata(path).ok().filter(|m| m.is_file()).map(|m| m.len())
+}
+
+fn missing(d: &Download, file: Option<Option<u64>>) -> bool {
+    file == Some(None) && d.state.starts_with("finished")
 }
 
 fn tile(name: &str, color: gpui::Rgba) -> gpui::Div {
@@ -138,7 +152,11 @@ impl Browser {
 
     pub(crate) fn set_transfer(&mut self, key: (bool, Id, u64), transfer: Option<Transfer>, cx: &mut Context<Self>) {
         let started_or_ended = match transfer {
-            Some(t) => self.downloads_popover.transfers.insert(key, t).is_none(),
+            Some(mut t) => {
+                let earlier = self.downloads_popover.transfers.get(&key).map(|old| old.started);
+                t.started = earlier.unwrap_or(t.started);
+                self.downloads_popover.transfers.insert(key, t).is_none()
+            }
             None => self.downloads_popover.transfers.remove(&key).is_some(),
         };
         if started_or_ended {
@@ -161,6 +179,13 @@ impl Browser {
             rt.data.resume_download(id);
         } else {
             rt.data.pause_download(id);
+        }
+    }
+
+    fn cancel_download(&self, id: u64) {
+        let Some(s) = self.model.current_space() else { return };
+        if let Some(rt) = self.loaded(s.private, s.space.profile_id) {
+            rt.data.cancel_download(id);
         }
     }
 
@@ -199,8 +224,10 @@ impl Browser {
         } else {
             SIDEBAR_MARGIN + self.sidebar_width - TILE_GAP - 14.
         };
+        let left = (button - CARET_AT - POPOVER_INSET).clamp(0., (f32::from(anchor.size.width) - WIDTH - 2. * POPOVER_INSET).max(0.));
+        let caret = caret.then(|| (button - left - POPOVER_INSET).clamp(2. * CARET, WIDTH - 2. * CARET));
         let bounds = Bounds::new(
-            point(anchor.origin.x + px(button - CARET_AT - POPOVER_INSET), anchor.origin.y + px(top)),
+            point(anchor.origin.x + px(left), anchor.origin.y + px(top)),
             size(px(WIDTH + 2. * POPOVER_INSET), px(CARET + card_height(rows) + POPOVER_INSET)),
         );
         let display = window.display(cx).map(|d| d.id());
@@ -241,15 +268,17 @@ pub struct DownloadsWindow {
     browser: WeakEntity<Browser>,
     main: WindowHandle<Browser>,
     focus: FocusHandle,
-    rows: Vec<(Download, Option<u64>)>,
+    /// Each finished download with its file's size: `None` until checked, `Some(None)` once the file is gone.
+    rows: Vec<(Download, Option<Option<u64>>)>,
     seen: Option<u64>,
     closing: bool,
-    caret: bool,
+    /// The caret's centre from the card's left edge, if it points at a button.
+    caret: Option<f32>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl DownloadsWindow {
-    fn new(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, caret: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, caret: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let mut subscriptions = vec![cx.observe_window_activation(window, |this, window, cx| {
@@ -282,7 +311,14 @@ impl DownloadsWindow {
     }
 
     fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.browser.update(cx, |b, _| b.remove_download(None)).ok();
+        self.browser
+            .update(cx, |b, cx| {
+                let Some(s) = b.model.current_space() else { return };
+                let cleared = Box::new((s.private, s.space.profile_id, b.downloads()));
+                b.remove_download(None);
+                b.show_toast("Downloads cleared", Some(crate::toast::Action::RestoreDownloads(cleared)), cx);
+            })
+            .ok();
         self.close(true, window, cx);
     }
 
@@ -292,13 +328,13 @@ impl DownloadsWindow {
         self.main.update(cx, |b, window, cx| b.open_library(crate::library::Page::Downloads, None, window, cx)).ok();
     }
 
-    fn row(&self, d: &Download, size: Option<u64>) -> impl IntoElement {
+    fn row(&self, d: &Download, file: Option<Option<u64>>) -> impl IntoElement {
         let path = d.path.clone();
         let reveal = move || engine::reveal_in_finder(Path::new(&path));
         let button_reveal = reveal.clone();
         let name = Path::new(&d.path).file_name().map(|n| bounded_title(&n.to_string_lossy())).unwrap_or_default();
-        let (detail, warn) = subtitle(d, size);
-        let line = || div().overflow_hidden().whitespace_nowrap().text_ellipsis();
+        let gone = missing(d, file);
+        let (detail, warn) = if gone { ("Missing · moved or deleted".into(), true) } else { subtitle(d, file.flatten()) };
         let trailing = if warn {
             div().size(px(28.)).flex().flex_none().items_center().justify_center().child(icon(Icon::TriangleAlert, 15., Secure::warning())).into_any_element()
         } else {
@@ -311,7 +347,7 @@ impl DownloadsWindow {
                 .into_any_element()
         };
         tab_stop(list_row(("download", d.id as u64), false).h(px(ROW)).px_2())
-            .on_click(move |_, _, _| reveal())
+            .when(!gone, |d| d.on_click(move |_, _, _| reveal()))
             .child(tile(&name, if warn { Secure::warning() } else { Theme::muted() }))
             .child(
                 div()
@@ -319,8 +355,8 @@ impl DownloadsWindow {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(line().child(name))
-                    .child(line().text_size(px(TEXT_SMALL)).text_color(if warn { Secure::warning() } else { Theme::muted() }).child(detail)),
+                    .child(div().one_line(name))
+                    .child(div().text_size(px(TEXT_SMALL)).text_color(if warn { Secure::warning() } else { Theme::muted() }).one_line(detail)),
             )
             .child(trailing)
     }
@@ -357,6 +393,9 @@ impl DownloadsWindow {
             .child(tab_stop(icon_button(("transfer", id), glyph, true)).tooltip(tooltip(label, None)).on_click(cx.listener(move |this, _, _, cx| {
                 this.browser.update(cx, |b, _| b.pause_or_resume(id, paused)).ok();
             })))
+            .child(tab_stop(icon_button(("cancel", id), Icon::Close, true)).tooltip(tooltip("Cancel", None)).on_click(cx.listener(move |this, _, _, cx| {
+                this.browser.update(cx, |b, _| b.cancel_download(id)).ok();
+            })))
     }
 }
 
@@ -370,13 +409,10 @@ impl Render for DownloadsWindow {
             self.rows = browser.read(cx).downloads().into_iter().take(MAX_ROWS).map(|d| (d, None)).collect();
             let paths: Vec<_> = self.rows.iter().map(|(d, _)| d.path.clone()).collect();
             cx.spawn(async move |this, cx| {
-                let sizes: Vec<Option<u64>> = cx
-                    .background_executor()
-                    .spawn(async move { paths.iter().map(|p| std::fs::metadata(p).ok().filter(|m| m.is_file()).map(|m| m.len())).collect() })
-                    .await;
+                let sizes: Vec<Option<u64>> = cx.background_executor().spawn(async move { paths.iter().map(|p| file_size(p)).collect() }).await;
                 this.update(cx, |w, cx| {
                     if w.seen == Some(changed) {
-                        w.rows.iter_mut().zip(sizes).for_each(|(row, size)| row.1 = size);
+                        w.rows.iter_mut().zip(sizes).for_each(|(row, size)| row.1 = Some(size));
                         cx.notify();
                     }
                 })
@@ -397,9 +433,11 @@ impl Render for DownloadsWindow {
             .child(div().font_weight(FontWeight::BOLD).child("Downloads"))
             .when(!self.rows.is_empty(), |d| {
                 d.child(
-                    tab_stop(div().id("downloads-clear").px_1().rounded(px(Theme::radius_small())).cursor_pointer().text_color(Theme::accent()).child("Clear"))
-                        .hover(|s| s.opacity(0.8))
-                        .on_click(cx.listener(|this, _, window, cx| this.clear(window, cx))),
+                    tab_stop(
+                        div().id("downloads-clear").px_1().rounded(px(Theme::radius_small())).cursor_pointer().text_color(Theme::accent_text()).child("Clear"),
+                    )
+                    .hover(|s| s.opacity(0.8))
+                    .on_click(cx.listener(|this, _, window, cx| this.clear(window, cx))),
                 )
             });
         let saving: Vec<_> = transfers.iter().take(fit).map(|(id, t)| self.transfer_row(*id, t, cx).into_any_element()).collect();
@@ -427,11 +465,11 @@ impl Render for DownloadsWindow {
             .path(Icon::Caret.path())
             .absolute()
             .top_0()
-            .left(px(POPOVER_INSET + CARET_AT - CARET))
+            .left(px(POPOVER_INSET + self.caret.unwrap_or(CARET_AT) - CARET))
             .w(px(2. * CARET))
             .h(px(CARET + 1.))
             .text_color(Theme::surface());
-        let content = div().relative().size_full().text_size(px(TEXT)).text_color(Theme::text()).child(card).when(self.caret, |d| d.child(caret));
+        let content = div().relative().size_full().text_size(px(TEXT)).text_color(Theme::text()).child(card).when(self.caret.is_some(), |d| d.child(caret));
         let content = popover_motion(content, "downloads", self.closing, reduce);
         div()
             .track_focus(&self.focus)
@@ -466,7 +504,17 @@ mod tests {
         let d = Download { id: 1, url: "https://tarn.example/a.zip".into(), path: "/d/a.zip".into(), state: "finished".into(), started_at: 0 };
         assert_eq!(subtitle(&d, Some(1_200_000)), ("1.2 MB · tarn.example".into(), false));
         assert!(subtitle(&Download { state: "failed".into(), ..d.clone() }, None).1);
-        assert!(subtitle(&Download { state: "finished-unquarantined".into(), ..d }, Some(1)).1);
+        assert!(subtitle(&Download { state: "finished-unquarantined".into(), ..d.clone() }, Some(1)).1);
+        assert_eq!(subtitle(&Download { state: "cancelled".into(), ..d }, None), ("Cancelled".into(), false));
+    }
+
+    #[test]
+    fn a_finished_download_without_its_file_is_missing() {
+        let d = Download { id: 1, url: String::new(), path: "/d/a.zip".into(), state: "finished".into(), started_at: 0 };
+        assert!(missing(&d, Some(None)));
+        assert!(!missing(&d, None), "not checked yet");
+        assert!(!missing(&d, Some(Some(3))));
+        assert!(!missing(&Download { state: "failed".into(), ..d }, Some(None)));
     }
 
     #[test]
@@ -478,7 +526,7 @@ mod tests {
 
     #[test]
     fn transfers_show_size_pause_and_saved_share() {
-        let t = |done, total, paused| Transfer { path: PathBuf::from("/d/a.zip"), done, total, paused };
+        let t = |done, total, paused| Transfer { path: PathBuf::from("/d/a.zip"), done, total, paused, started: 0 };
         assert_eq!(transfer_subtitle(&t(512, None, false)), "512 bytes");
         assert_eq!(transfer_subtitle(&t(1_500_000, Some(40_000_000), false)), "1.5 MB of 40.0 MB");
         assert_eq!(transfer_subtitle(&t(2_000, Some(3_000_000_000), true)), "Paused · 2 KB of 3.00 GB");

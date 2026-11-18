@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::path::Path;
 
-use store::{Bookmark, Download, HistoryEntry, Tab};
+use store::{Bookmark, Download, HistoryEntry, Id, Store, Tab};
 
 use crate::command::fuzzy_score;
 use crate::text::bounded_title;
@@ -34,8 +34,87 @@ pub fn history_hits(history: &[HistoryEntry], query: &str) -> Vec<usize> {
     history.iter().enumerate().filter(|(_, h)| matches(query, &h.title, &h.url)).map(|(ix, _)| ix).collect()
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HistoryRange {
+    LastHour,
+    Today,
+    All,
+}
+
+impl HistoryRange {
+    pub const ALL: [HistoryRange; 3] = [HistoryRange::LastHour, HistoryRange::Today, HistoryRange::All];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            HistoryRange::LastHour => "Last Hour",
+            HistoryRange::Today => "Today",
+            HistoryRange::All => "Everything",
+        }
+    }
+}
+
+pub fn clear_history(store: &Store, profile_id: Id, range: HistoryRange, now: i64) -> Result<(), store::Error> {
+    match range {
+        HistoryRange::LastHour => store.delete_history_since(profile_id, now - 3_600_000)?,
+        HistoryRange::Today => store.delete_history_since(profile_id, store.local_day_start(now)?)?,
+        HistoryRange::All => return store.clear_history(profile_id),
+    }
+    forget_unvisited_sites(store, profile_id)
+}
+
+/// Drops the site icons and Shield site counts of hosts the profile's history no longer has.
+fn forget_unvisited_sites(store: &Store, profile_id: Id) -> Result<(), store::Error> {
+    let visited: HashSet<String> = store
+        .history(profile_id, i64::MAX as usize)?
+        .iter()
+        .filter_map(|h| crate::command::page_host(&url::Url::parse(&h.url).ok()?))
+        .map(|h| h.trim_end_matches('.').to_owned())
+        .collect();
+    let icons = store.favicons(profile_id)?.into_iter().map(|(host, _)| host);
+    let sites = store.shield_sites(profile_id, usize::MAX >> 1)?.into_iter().map(|(host, _)| host);
+    for host in icons.chain(sites).filter(|h| !visited.contains(h.trim_end_matches('.'))).collect::<HashSet<_>>() {
+        store.forget_site_records(profile_id, &host)?;
+    }
+    Ok(())
+}
+
+/// "5 min ago", "3 h ago", "2 d ago", then the local date.
+pub fn ago(store: &Store, ms: i64, now: i64) -> String {
+    match (now - ms).max(0) / 60_000 {
+        0 => "Just now".into(),
+        min @ 1..60 => format!("{min} min ago"),
+        min @ 60..1440 => format!("{} h ago", min / 60),
+        min @ 1440..10_080 => format!("{} d ago", min / 1440),
+        _ => store.local_date(ms).unwrap_or_else(|_| crate::shield_card::date(ms)),
+    }
+}
+
+/// Where the local today and yesterday start, for `history_day`.
+pub fn day_starts(store: &Store, now: i64) -> (i64, i64) {
+    let today = store.local_day_start(now).unwrap_or(now);
+    (today, store.local_day_start(today - 1).unwrap_or(today - 86_400_000))
+}
+
+pub fn history_day(visited_at: i64, (today, yesterday): (i64, i64)) -> &'static str {
+    if visited_at >= today {
+        "Today"
+    } else if visited_at >= yesterday {
+        "Yesterday"
+    } else {
+        "Earlier"
+    }
+}
+
 pub fn download_name(download: &Download) -> String {
     bounded_title(&Path::new(&download.path).file_name().map(|n| n.to_string_lossy()).unwrap_or_default())
+}
+
+/// The note of a finished download whose file was moved or deleted since.
+pub const MISSING: &str = "Missing · moved or deleted";
+
+/// Whether `download` finished but its file is gone, so it has nothing to reveal or open.
+pub fn download_missing(download: &Download) -> bool {
+    download.state.starts_with("finished") && !std::fs::metadata(&download.path).is_ok_and(|m| m.is_file())
 }
 
 pub fn downloads<'a>(downloads: &'a [Download], query: &'a str) -> impl Iterator<Item = &'a Download> {
@@ -106,10 +185,77 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_removes_the_chosen_range_only() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "u", false).unwrap().id;
+        let now = store.local_day_start(10 * 86_400_000).unwrap() + 12 * 3_600_000;
+        for (url, ago) in [("https://old.test/", 3 * 86_400_000), ("https://hour.test/", 1_800_000), ("https://earlier.test/", 7_200_000)] {
+            store.add_history(p, url, "", now - ago, false).unwrap();
+        }
+        let urls = || store.history(p, 10).unwrap().into_iter().map(|h| h.url).collect::<Vec<_>>();
+        for host in ["hour.test", "old.test"] {
+            store.set_favicon(p, host, b"png").unwrap();
+            store.count(p, store::Counter::HttpsUpgrades, 1, Some(host)).unwrap();
+        }
+        clear_history(&store, p, HistoryRange::LastHour, now).unwrap();
+        assert_eq!(urls(), ["https://earlier.test/", "https://old.test/"]);
+        assert_eq!(store.favicons(p).unwrap().into_iter().map(|f| f.0).collect::<Vec<_>>(), ["old.test"], "an icon goes with the host's last visit");
+        assert_eq!(store.shield_sites(p, 10).unwrap().into_iter().map(|s| s.0).collect::<Vec<_>>(), ["old.test"]);
+        clear_history(&store, p, HistoryRange::Today, now).unwrap();
+        assert_eq!(urls(), ["https://old.test/"]);
+        clear_history(&store, p, HistoryRange::All, now).unwrap();
+        assert!(urls().is_empty());
+    }
+
+    #[test]
+    fn ages_turn_into_local_dates_after_a_week() {
+        let (store, min) = (Store::open_in_memory().unwrap(), 60_000);
+        assert_eq!(ago(&store, 0, 59_999), "Just now");
+        assert_eq!(ago(&store, 0, 5 * min), "5 min ago");
+        assert_eq!(ago(&store, 0, 2 * 1440 * min), "2 d ago");
+        assert_eq!(ago(&store, 10 * min, 0), "Just now");
+        let midnight = store.local_day_start(30 * 1440 * min).unwrap();
+        assert_eq!(ago(&store, midnight, midnight + 8 * 1440 * min), store.local_date(midnight + 12 * 60 * min).unwrap());
+        assert_ne!(ago(&store, midnight, midnight + 8 * 1440 * min), ago(&store, midnight - 1, midnight + 8 * 1440 * min));
+    }
+
+    #[test]
+    fn day_starts_are_local_midnights_a_day_apart() {
+        let store = Store::open_in_memory().unwrap();
+        let today = store.local_day_start(20 * 86_400_000).unwrap();
+        let (start, yesterday) = day_starts(&store, today + 3_600_000);
+        assert_eq!(start, today);
+        assert_eq!(yesterday, store.local_day_start(today - 1).unwrap());
+        assert!(today - yesterday >= 23 * 3_600_000 && today - yesterday <= 25 * 3_600_000);
+    }
+
+    #[test]
+    fn visits_group_into_today_yesterday_and_earlier() {
+        let starts = (200, 100);
+        assert_eq!(
+            [history_day(250, starts), history_day(200, starts), history_day(150, starts), history_day(99, starts)],
+            ["Today", "Today", "Yesterday", "Earlier"]
+        );
+    }
+
+    #[test]
     fn downloads_match_their_file_name_only() {
         let all = [download(1, "/home/me/Downloads/report.pdf"), download(2, "/home/me/report/photo.jpg")];
         assert_eq!(download_name(&all[0]), "report.pdf");
         assert_eq!(downloads(&all, "report").map(|d| d.id).collect::<Vec<_>>(), [1]);
         assert_eq!(downloads(&all, "").count(), 2);
+    }
+
+    #[test]
+    fn a_finished_download_without_its_file_is_missing() {
+        let dir = std::env::temp_dir().join(format!("tarn-missing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let kept = dir.join("kept.zip");
+        std::fs::write(&kept, b"x").unwrap();
+        let gone = dir.join("gone.zip").to_string_lossy().into_owned();
+        assert!(!download_missing(&download(1, &kept.to_string_lossy())));
+        assert!(download_missing(&download(2, &gone)));
+        assert!(!download_missing(&Download { state: "failed".into(), ..download(3, &gone) }));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -1,11 +1,12 @@
 use std::cell::RefCell;
 use std::cmp::Reverse;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use browser_core::bookmarks::{self, title_or_host};
 use browser_core::import::{self as data, Kinds, Source};
-use browser_core::library::{self, HISTORY_LOAD, LIST_ROWS as MAX_LIST, SECTION_ROWS as MAX_ROWS};
+use browser_core::library::{self, HISTORY_LOAD, LIST_ROWS as MAX_LIST, SECTION_ROWS as MAX_ROWS, ago};
 use browser_core::snapshot::{self, LoadError, SpaceSnapshot};
 use engine::menu::{self, Item as MenuItem};
 use futures::channel::oneshot;
@@ -15,15 +16,16 @@ use gpui::{
     prelude::FluentBuilder, px, size,
 };
 use store::{Bookmark, Download, HistoryEntry, Id, Snapshot, Tab};
-use ui::controls::{button, caption, empty, icon_button, key_hint, surface};
+use ui::controls::{button, caption, empty, icon_button, key_hint, surface, tooltip};
 use ui::icon::{ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, POP, animate};
+use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
 
 use crate::ToggleLibrary;
-use crate::browser::{Browser, TabKey, now, tab_host};
+use crate::browser::{Browser, CommandMode, TabKey, now, tab_host};
 use crate::peek::{popup_options, remove_after_exit};
 use crate::prefs::Pref;
 use crate::settings::thousands;
@@ -42,30 +44,36 @@ const LIST_PAD: f32 = 6.;
 pub(crate) const SPACE_ROW: f32 = 40.;
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(120);
 const MEMORY_REFRESH: Duration = Duration::from_secs(2);
+const DELETE_KEY: &str = if cfg!(windows) { "Delete" } else { "⌘⌫" };
 
 actions!(library, [SaveSnapshot, RestoreSnapshot]);
 
 pub(crate) use browser_core::shield_card::date;
 
-/// "5 min ago", "3 h ago", "2 d ago", then the date.
-fn ago(ms: i64, now: i64) -> String {
-    match (now - ms).max(0) / 60_000 {
-        0 => "Just now".into(),
-        min @ 1..60 => format!("{min} min ago"),
-        min @ 60..1440 => format!("{} h ago", min / 60),
-        min @ 1440..10_080 => format!("{} d ago", min / 1440),
-        _ => date(ms),
-    }
-}
+/// The state a finished download is shown with once its file is gone; never stored.
+const MISSING: &str = "missing";
 
-fn download_row(d: &Download, now: i64) -> Entry {
+fn download_row(store: &store::Store, d: &Download, now: i64) -> Entry {
     let state = match d.state.as_str() {
         "failed" => "Failed",
+        "cancelled" => "Cancelled",
+        MISSING => "Missing",
         s if s.starts_with("finished") => "Finished",
         _ => "In Progress",
     };
-    let detail = tab_host(&d.url).into_iter().chain([state.to_owned(), ago(d.started_at, now)]).collect::<Vec<_>>().join(" · ");
+    let detail = tab_host(&d.url).into_iter().chain([state.to_owned(), ago(store, d.started_at, now)]).collect::<Vec<_>>().join(" · ");
     Entry::Row(Row { item: Item::Download(d.clone()), title: library::download_name(d), named: None, detail: Some(detail) })
+}
+
+fn visit_row(store: &store::Store, h: &HistoryEntry, now: i64) -> Entry {
+    Entry::Row(Row { item: Item::Url(h.url.clone()), title: title_or_host(&h.title, &h.url), named: None, detail: Some(ago(store, h.visited_at, now)) })
+}
+
+fn visit(r: &Row) -> Option<&str> {
+    match (&r.item, r.named) {
+        (Item::Url(url), None) => Some(url),
+        _ => None,
+    }
 }
 
 fn detect_sources() -> Vec<Source> {
@@ -96,7 +104,7 @@ impl Browser {
     fn bookmark_target(&self, key: Option<TabKey>) -> Option<(String, String)> {
         let tab = key.or(self.model.active).and_then(|k| self.model.tab(k))?;
         let url = self.tab_url(self.model.key(tab)).unwrap_or_else(|| tab.url.clone());
-        (!url.is_empty()).then(|| (title_or_host(&tab.title, &url), url))
+        (!url.is_empty()).then(|| (browser_core::text::stored_title_or_host(&tab.title, &url), url))
     }
 
     /// The top-level folder Save for Later files pages into, if it exists.
@@ -287,25 +295,23 @@ impl Browser {
     /// Opens the library on `page`; with `edit`, that row's name field is open.
     pub(crate) fn open_library(&mut self, page: Page, edit: Option<Named>, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(handle) = self.library {
-            cx.defer(move |cx| drop(handle.update(cx, |library, _, cx| library.go(page, cx))));
+            cx.defer(move |cx| drop(handle.update(cx, |library, window, cx| library.go(page, window, cx))));
             return;
         }
         let Some(main) = window.window_handle().downcast::<Browser>().or(self.peek.main) else { return };
         let inset = SIDEBAR_MARGIN;
         let anchor = window.bounds();
         let room = f32::from(anchor.size.height) - 2. * inset - SPACE_ROW - TOOLBAR_HEIGHT - SEARCH_HEIGHT - 2.;
+        let max_list = room.max(ROW * 3.);
         let downloads = self.downloads();
         let snapshots = self.snapshots();
-        // GPUI cannot move a window and resizes it from the top, so the popover keeps the height of
-        // the page it opened on; other pages scroll inside it.
         let sources = if page == Page::Import { detect_sources() } else { Vec::new() };
         let history = self.model.current_space().and_then(|s| self.store(s.private).history(s.space.profile_id, HISTORY_LOAD).ok()).unwrap_or_default();
         let rows: Vec<&HistoryEntry> = history.iter().collect();
-        let height = px(card_height(&entries(self, page, "", &rows, &downloads, &snapshots, &sources), room.max(ROW * 3.)));
-        let bounds = Bounds::new(
-            point(anchor.origin.x + px(inset + 4.), anchor.origin.y + anchor.size.height - px(inset + SPACE_ROW) - height),
-            size(px(CARD_WIDTH), height),
-        );
+        let listed = entries(self, page, "", &rows, &downloads, &snapshots, &sources);
+        let height = px(card_height(&listed, row_boundary(&listed, max_list)));
+        let (x, bottom, width) = (inset + 4., f32::from(anchor.size.height) - inset - SPACE_ROW, CARD_WIDTH.min(self.sidebar_width - 8.));
+        let bounds = Bounds::new(point(anchor.origin.x + px(x), anchor.origin.y + px(bottom) - height), size(px(width), height));
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
         // The new window renders from the browser at once, so it must open after this update ends.
@@ -317,6 +323,7 @@ impl Browser {
                 }
                 cx.new(|cx| LibraryWindow {
                     page,
+                    fit: Some(Fit { x, bottom, width, max_list }),
                     sources: sources.clone(),
                     ..LibraryWindow::new(browser.clone(), main, history, downloads.clone(), edit, window, cx)
                 })
@@ -375,6 +382,7 @@ enum Cmd {
     ToggleBookmark(TabKey),
     CopyLink(String),
     RemoveDownload(Id),
+    RemoveHistory(String),
 }
 
 #[derive(Clone)]
@@ -407,12 +415,14 @@ fn bookmark_row(bm: &Bookmark) -> Entry {
 
 fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], downloads: &[Download], snapshots: &[Snapshot], sources: &[Source]) -> Vec<Entry> {
     let matches = |title: &str, url: &str| library::matches(query, title, url);
+    let store = b.store(b.model.private());
     let bookmarks = &b.bookmarks;
     let found = |limit| library::bookmarks(bookmarks, query).take(limit).map(bookmark_row);
-    let history = |limit| history.iter().take(limit).map(|h| row(Item::Url(h.url.clone()), title_or_host(&h.title, &h.url), None));
+    let visits = history;
+    let history = |limit| visits.iter().take(limit).map(|h| row(Item::Url(h.url.clone()), title_or_host(&h.title, &h.url), None));
     let downloads = |limit| {
         let now = now();
-        library::downloads(downloads, query).take(limit).map(move |d| download_row(d, now))
+        library::downloads(downloads, query).take(limit).map(move |d| download_row(store, d, now))
     };
     let mut out = Vec::new();
     match page {
@@ -453,7 +463,16 @@ fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], down
         }
         Page::History => {
             out.push(Entry::Back("History".into()));
-            out.extend(history(MAX_LIST));
+            let now = now();
+            let starts = library::day_starts(store, now);
+            let mut last = None;
+            for h in visits.iter().take(MAX_LIST) {
+                let day = library::history_day(h.visited_at, starts);
+                if last.replace(day) != Some(day) {
+                    out.push(Entry::Header(day, None));
+                }
+                out.push(visit_row(store, h, now));
+            }
         }
         Page::Bookmarks(folder) => {
             let name = folder.and_then(|id| bookmarks.iter().find(|bm| bm.id == id)).map_or("Bookmarks".into(), |bm| bounded_title(&bm.title));
@@ -479,7 +498,7 @@ fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], down
             }
             let now = now();
             out.extend(snapshots.iter().filter(|s| matches(&s.name, "")).map(|s| {
-                let detail = Some(ago(s.created_at, now));
+                let detail = Some(ago(store, s.created_at, now));
                 Entry::Row(Row { item: Item::Snapshot(s.clone()), title: bounded_title(&s.name), named: Some(Named::Snapshot(s.id)), detail })
             }));
         }
@@ -549,6 +568,23 @@ fn entry_height(entry: &Entry) -> f32 {
     }
 }
 
+/// The tallest list up to `max_list` that ends below a row, so a cut list never shows a heading or
+/// divider without the row under it, or half a row; `max_list` when the whole list fits.
+fn row_boundary(entries: &[Entry], max_list: f32) -> f32 {
+    let mut end = LIST_PAD;
+    let mut fit = None;
+    for (ix, entry) in entries.iter().enumerate() {
+        end += entry_height(entry) + if ix > 0 { 1. } else { 0. };
+        if end > max_list {
+            return fit.unwrap_or(max_list);
+        }
+        if !matches!(entry, Entry::Header(..) | Entry::Divider) {
+            fit = Some(end);
+        }
+    }
+    max_list
+}
+
 /// The card's height for `entries`, with the list capped at `max_list`.
 fn card_height(entries: &[Entry], max_list: f32) -> f32 {
     let list: f32 = entries.iter().map(entry_height).sum::<f32>() + entries.len().saturating_sub(1) as f32 + LIST_PAD;
@@ -567,6 +603,8 @@ pub struct LibraryWindow {
     /// The selectable rows the last render showed, with their child index in the list.
     shown: Vec<(usize, Row)>,
     downloads: Vec<Download>,
+    /// Finished downloads whose file is gone, checked off the main thread when `downloads` is read.
+    missing: HashSet<Id>,
     /// The browser's download change count and profile `downloads` was read for.
     downloads_seen: Option<(u64, Option<(bool, Id)>)>,
     snapshots: Vec<Snapshot>,
@@ -579,7 +617,16 @@ pub struct LibraryWindow {
     closing: bool,
     /// A context menu or alert is up; the popover stays open although it is not the key window.
     holding: bool,
+    fit: Option<Fit>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// Where the popover sits in its browser window, so each page can refit its height to its rows.
+struct Fit {
+    x: f32,
+    bottom: f32,
+    width: f32,
+    max_list: f32,
 }
 
 impl LibraryWindow {
@@ -609,6 +656,7 @@ impl LibraryWindow {
                 if this.downloads_seen != Some(seen) {
                     this.downloads_seen = Some(seen);
                     this.downloads = b.downloads();
+                    this.check_files(cx);
                 }
                 cx.notify();
             })
@@ -631,6 +679,7 @@ impl LibraryWindow {
             history_hits: RefCell::new(None),
             shown: Vec::new(),
             downloads,
+            missing: HashSet::new(),
             downloads_seen: None,
             snapshots: Vec::new(),
             sources: Vec::new(),
@@ -640,21 +689,22 @@ impl LibraryWindow {
             backward: false,
             closing: false,
             holding: false,
+            fit: None,
             _subscriptions: subscriptions,
         };
         library.reload_snapshots(cx);
+        library.check_files(cx);
         let found = match edit {
-            Some(Named::Bookmark(id)) => library
-                .browser
-                .upgrade()
-                .and_then(|b| b.read(cx).bookmarks.iter().find(|b| b.id == id).map(|bm| (Page::Bookmarks(bm.parent_id), bm.title.clone()))),
-            Some(Named::Snapshot(id)) => library.snapshots.iter().find(|s| s.id == id).map(|s| (Page::Snapshots, s.name.clone())),
+            Some(Named::Bookmark(id)) => {
+                library.browser.upgrade().and_then(|b| b.read(cx).bookmarks.iter().find(|b| b.id == id).map(|bm| Page::Bookmarks(bm.parent_id)))
+            }
+            Some(Named::Snapshot(id)) => library.snapshots.iter().any(|s| s.id == id).then_some(Page::Snapshots),
             None => None,
         };
-        if let (Some((page, title)), Some(named)) = (found, edit) {
+        if let (Some(page), Some(named)) = (found, edit) {
             library.page = page;
             library.select(named, cx);
-            library.begin_rename(named, title, window, cx);
+            library.begin_rename(named, window, cx);
         }
         library
     }
@@ -664,7 +714,9 @@ impl LibraryWindow {
         let lists_history = self.page == Page::History || self.page == Page::Home && !query.is_empty();
         let hits = if lists_history { self.history_hits(query) } else { Rc::from([]) };
         let history: Vec<&HistoryEntry> = hits.iter().take(MAX_LIST).map(|&ix| &self.history[ix]).collect();
-        entries(b, self.page, query, &history, &self.downloads, &self.snapshots, &self.sources)
+        let downloads: Vec<Download> =
+            self.downloads.iter().map(|d| if self.missing.contains(&d.id) { Download { state: MISSING.into(), ..d.clone() } } else { d.clone() }).collect();
+        entries(b, self.page, query, &history, &downloads, &self.snapshots, &self.sources)
     }
 
     fn history_hits(&self, query: &str) -> Rc<[usize]> {
@@ -737,7 +789,7 @@ impl LibraryWindow {
         self.browser.update(cx, |b, cx| b.sleep_tabs(keys, cx)).ok();
     }
 
-    fn go(&mut self, page: Page, cx: &mut Context<Self>) {
+    fn go(&mut self, page: Page, window: &Window, cx: &mut Context<Self>) {
         if page == Page::Import {
             self.sources = detect_sources();
         }
@@ -752,15 +804,29 @@ impl LibraryWindow {
         self.query.update(cx, |q, cx| q.set_text("", cx));
         self.shown = self.rows(cx);
         self.scroll.scroll_to_item(0);
+        self.refit(window, cx);
         cx.notify();
+    }
+
+    fn refit(&self, window: &Window, cx: &mut Context<Self>) {
+        let (Some(fit), Some(browser)) = (&self.fit, self.browser.upgrade()) else { return };
+        let listed = self.entries(browser.read(cx), cx);
+        self.place(card_height(&listed, row_boundary(&listed, fit.max_list)), window, cx);
+    }
+
+    fn place(&self, height: f32, window: &Window, cx: &mut Context<Self>) {
+        let (Some(fit), Some(browser)) = (&self.fit, self.browser.upgrade()) else { return };
+        let (Some(main), Some(popup)) = (browser.read(cx).host.clone(), engine::Host::from_window(window)) else { return };
+        let (x, bottom, width) = (fit.x, fit.bottom, fit.width);
+        cx.spawn(async move |_, _| main.place(&popup, x.into(), (bottom - height).into(), width.into(), height.into())).detach();
     }
 
     fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let parent = |id| self.browser.upgrade().and_then(|b| b.read(cx).bookmarks.iter().find(|bm| bm.id == id).and_then(|bm| bm.parent_id));
         match self.page {
             Page::Home => return self.close(true, window, cx),
-            Page::History | Page::Bookmarks(None) | Page::Downloads | Page::Snapshots | Page::Import | Page::Memory => self.go(Page::Home, cx),
-            Page::Bookmarks(Some(id)) => self.go(Page::Bookmarks(parent(id)), cx),
+            Page::History | Page::Bookmarks(None) | Page::Downloads | Page::Snapshots | Page::Import | Page::Memory => self.go(Page::Home, window, cx),
+            Page::Bookmarks(Some(id)) => self.go(Page::Bookmarks(parent(id)), window, cx),
         }
         self.backward = true;
     }
@@ -775,8 +841,8 @@ impl LibraryWindow {
                 self.main.update(cx, |b, window, cx| b.open_url(&url, window, cx)).ok();
                 self.close(true, window, cx);
             }
-            Item::Folder(id) => self.go(Page::Bookmarks(Some(id)), cx),
-            Item::Page(page) => self.go(page, cx),
+            Item::Folder(id) => self.go(Page::Bookmarks(Some(id)), window, cx),
+            Item::Page(page) => self.go(page, window, cx),
             Item::Download(d) => engine::reveal_in_finder(std::path::Path::new(&d.path)),
             Item::Snapshot(saved) => self.restore(saved, true, window, cx),
             Item::Source(ix) => self.start_import(ix, window, cx),
@@ -810,7 +876,26 @@ impl LibraryWindow {
                 b.downloads()
             })
             .unwrap_or_default();
+        self.check_files(cx);
         cx.notify();
+    }
+
+    fn check_files(&mut self, cx: &mut Context<Self>) {
+        let finished: Vec<(Id, String)> = self.downloads.iter().filter(|d| d.state.starts_with("finished")).map(|d| (d.id, d.path.clone())).collect();
+        cx.spawn(async move |this, cx| {
+            let missing: HashSet<Id> = cx
+                .background_executor()
+                .spawn(async move { finished.into_iter().filter(|(_, p)| crate::downloads::file_size(p).is_none()).map(|(id, _)| id).collect() })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.missing != missing {
+                    this.missing = missing;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn close(&mut self, refocus: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -834,10 +919,16 @@ impl LibraryWindow {
         cx.notify();
     }
 
-    fn begin_rename(&mut self, named: Named, title: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn begin_rename(&mut self, named: Named, window: &mut Window, cx: &mut Context<Self>) {
+        let title = match named {
+            Named::Bookmark(id) => self.browser.upgrade().and_then(|b| b.read(cx).bookmarks.iter().find(|bm| bm.id == id).map(|bm| bm.title.clone())),
+            Named::Snapshot(id) => self.snapshots.iter().find(|s| s.id == id).map(|s| s.name.clone()),
+        };
+        let Some(title) = title else { return };
         let input = cx.new(|cx| {
             let mut input = TextInput::new("Name", cx);
             input.set_text(title, cx);
+            input.select_all_from_start(cx);
             input
         });
         let events = cx.subscribe_in(&input, window, |this, _, event, window, cx| match event {
@@ -877,9 +968,9 @@ impl LibraryWindow {
             _ => None,
         };
         let Some(id) = self.browser.update(cx, |b, cx| b.new_bookmark_folder(parent, cx)).ok().flatten() else { return };
-        self.go(Page::Bookmarks(parent), cx);
+        self.go(Page::Bookmarks(parent), window, cx);
         self.select(Named::Bookmark(id), cx);
-        self.begin_rename(Named::Bookmark(id), bookmarks::NEW_FOLDER.into(), window, cx);
+        self.begin_rename(Named::Bookmark(id), window, cx);
     }
 
     fn delete(&mut self, named: Named, window: &mut Window, cx: &mut Context<Self>) {
@@ -897,14 +988,56 @@ impl LibraryWindow {
         let Some(browser) = self.browser.upgrade() else { return };
         let b = browser.read(cx);
         let Some(bm) = b.bookmarks.iter().find(|bm| bm.id == id) else { return };
-        if bookmarks::subtree(&b.bookmarks, id).len() == 1 {
-            browser.update(cx, |b, cx| b.delete_bookmark(id, cx));
-            return;
-        }
-        let message = format!("Delete “{}” and everything in it?", bounded_title(&bm.title));
+        let message = if bookmarks::subtree(&b.bookmarks, id).len() == 1 {
+            format!("Delete the bookmark “{}”?", bounded_title(&bm.title))
+        } else {
+            format!("Delete “{}” and everything in it?", bounded_title(&bm.title))
+        };
         self.confirm(&message, None, "Delete", window, cx, move |this, cx| {
             this.browser.update(cx, |b, cx| b.delete_bookmark(id, cx)).ok();
         });
+    }
+
+    fn remove_history(&mut self, url: String, cx: &mut Context<Self>) {
+        self.browser.update(cx, |b, cx| b.remove_history_url(&url, cx)).ok();
+        self.history.retain(|h| h.url != url);
+        *self.history_hits.borrow_mut() = None;
+        self.shown = self.rows(cx);
+        cx.notify();
+    }
+
+    /// Delete, F2 and Shift+F10 act on the selected row; the delete keys only while the search
+    /// field is empty, so they still edit its text.
+    fn on_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let key = &event.keystroke;
+        let Some((_, r)) = self.shown.get(self.selected).cloned() else { return };
+        if self.renaming.is_some() || self.holding || event.is_held {
+            return;
+        }
+        match key.key.as_str() {
+            "f2" if !key.modifiers.modified() => match r.named {
+                Some(named) => self.begin_rename(named, window, cx),
+                None => return,
+            },
+            "f10" if key.modifiers.shift => self.row_menu(r.item.clone(), r.named, window, cx),
+            _ => return,
+        }
+        cx.stop_propagation();
+    }
+
+    /// Deletes the selected row for Delete or ⌘⌫ while the search field is empty, before the
+    /// field, which holds the focus, takes the key.
+    fn delete_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((_, r)) = self.shown.get(self.selected).cloned() else { return cx.propagate() };
+        if self.renaming.is_some() || self.holding || !self.query.read(cx).text().is_empty() {
+            return cx.propagate();
+        }
+        match (r.named, visit(&r)) {
+            (Some(named), _) => self.delete(named, window, cx),
+            (None, Some(url)) => self.remove_history(url.to_owned(), cx),
+            _ => return cx.propagate(),
+        }
+        cx.stop_propagation();
     }
 
     fn confirm(
@@ -916,12 +1049,11 @@ impl LibraryWindow {
         cx: &mut Context<Self>,
         then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
     ) {
-        let answer = window.prompt(PromptLevel::Warning, message, detail, &[action, "Cancel"], cx);
-        self.holding = true;
+        let answer = self.ask(PromptLevel::Warning, message, detail, &[action, "Cancel"], window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let yes = answer.await == Ok(0);
             this.update_in(cx, |this, window, cx| {
-                this.holding = false;
+                this.answered(window, cx);
                 if yes {
                     then(this, cx);
                 }
@@ -932,13 +1064,34 @@ impl LibraryWindow {
         .detach();
     }
 
-    fn alert(&mut self, message: &str, detail: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        let answer = window.prompt(PromptLevel::Info, message, detail, &["OK"], cx);
+    /// A dialog draws inside the popover, so the popover takes its full height while one is up.
+    fn ask(
+        &mut self,
+        level: PromptLevel,
+        message: &str,
+        detail: Option<&str>,
+        answers: &[&str],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> oneshot::Receiver<usize> {
         self.holding = true;
+        if let Some(fit) = &self.fit {
+            self.place(SEARCH_HEIGHT + 2. + fit.max_list, window, cx);
+        }
+        crate::dialog::ask(level, message, detail, answers, window, cx)
+    }
+
+    fn answered(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.holding = false;
+        self.refit(window, cx);
+    }
+
+    fn alert(&mut self, message: &str, detail: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
+        let answer = self.ask(PromptLevel::Info, message, detail, &["OK"], window, cx);
         cx.spawn_in(window, async move |this, cx| {
             answer.await.ok();
             this.update_in(cx, |this, window, cx| {
-                this.holding = false;
+                this.answered(window, cx);
                 window.focus(&this.query.focus_handle(cx));
             })
             .ok();
@@ -965,18 +1118,17 @@ impl LibraryWindow {
         let data::Confirm { message, detail, cookies } = data::confirm(&source, &profile, ui::controls::THIS_DEVICE);
         let sealed = !cookies;
         let buttons: &[&str] = if sealed { &["Import", "Cancel"] } else { &["Import All", "History and Bookmarks Only", "Cancel"] };
-        let answer = window.prompt(PromptLevel::Info, &message, Some(&detail), buttons, cx);
-        self.holding = true;
+        let answer = self.ask(PromptLevel::Info, &message, Some(&detail), buttons, window, cx);
         let (weak_browser, main) = (self.browser.clone(), self.main);
         cx.spawn_in(window, async move |this, cx| {
             let cookies = match answer.await {
                 Ok(0) => !sealed,
                 Ok(1) if !sealed => false,
-                _ => return drop(this.update(cx, |this, _| this.holding = false)),
+                _ => return drop(this.update_in(cx, |this, window, cx| this.answered(window, cx))),
             };
             if core.importing.replace(true) {
                 this.update_in(cx, |this, window, cx| {
-                    this.holding = false;
+                    this.answered(window, cx);
                     this.alert("An import is already running.", None, window, cx);
                 })
                 .ok();
@@ -1002,7 +1154,7 @@ impl LibraryWindow {
                 })
                 .unwrap_or(false);
             this.update_in(cx, |this, window, cx| {
-                this.holding = false;
+                this.answered(window, cx);
                 if same_profile {
                     this.history = core.disk.history(profile_id, HISTORY_LOAD).unwrap_or_default();
                     this.history_hits.take();
@@ -1034,15 +1186,7 @@ impl LibraryWindow {
                 }
                 self.close(true, window, cx);
             }
-            Cmd::Rename(named) => {
-                let title = match named {
-                    Named::Bookmark(id) => self.browser.upgrade().and_then(|b| b.read(cx).bookmarks.iter().find(|bm| bm.id == id).map(|bm| bm.title.clone())),
-                    Named::Snapshot(id) => self.snapshots.iter().find(|s| s.id == id).map(|s| s.name.clone()),
-                };
-                if let Some(title) = title {
-                    self.begin_rename(named, title, window, cx);
-                }
-            }
+            Cmd::Rename(named) => self.begin_rename(named, window, cx),
             Cmd::Move(id, parent) => {
                 self.browser.update(cx, |b, cx| b.move_bookmark(id, parent, cx)).ok();
             }
@@ -1059,6 +1203,7 @@ impl LibraryWindow {
             }
             Cmd::CopyLink(url) => cx.write_to_clipboard(ClipboardItem::new_string(url)),
             Cmd::RemoveDownload(id) => self.remove_download(Some(id), cx),
+            Cmd::RemoveHistory(url) => self.remove_history(url, cx),
         }
     }
 
@@ -1073,6 +1218,10 @@ impl LibraryWindow {
             _ => None,
         };
         let item_key = item.clone();
+        let history = match &item {
+            Item::Url(url) if named.is_none() => Some(url.clone()),
+            _ => None,
+        };
         let mut items = match &item {
             Item::Download(d) => {
                 let mut items = vec![MenuItem::action(ui::controls::REVEAL, Cmd::Open(item.clone()))];
@@ -1095,6 +1244,9 @@ impl LibraryWindow {
         }
         if let Item::Tab(key) = item_key {
             items.push(MenuItem::action(if bookmarked { "Remove Bookmark" } else { "Bookmark Tab" }, Cmd::ToggleBookmark(key)));
+        }
+        if let Some(url) = history {
+            items.extend([MenuItem::Separator, MenuItem::action("Remove from History", Cmd::RemoveHistory(url))]);
         }
         if let Some(Named::Bookmark(id)) = named {
             let parent = b.bookmarks.iter().find(|bm| bm.id == id).and_then(|bm| bm.parent_id);
@@ -1137,37 +1289,12 @@ impl LibraryWindow {
         let selected = ix == self.selected;
         let drills = matches!(r.item, Item::Folder(_) | Item::Page(_));
         let editing = r.named.zip(self.renaming.as_ref()).filter(|(named, (renamed, _, _))| named == renamed).map(|(_, (_, input, _))| input.clone());
-        let title: AnyElement = match (editing, &r.detail) {
-            (Some(input), _) => div()
-                .flex_1()
-                .min_w_0()
-                .px_1()
-                .rounded(px(Theme::radius_row()))
-                .bg(Theme::raised())
-                .on_mouse_down_out(cx.listener(|this, _, window, cx| this.end_rename(true, window, cx)))
-                .child(input)
-                .into_any_element(),
-            (None, Some(detail)) => div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(r.title.clone())))
-                .child(
-                    div()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_size(px(TEXT_SMALL))
-                        .text_color(Theme::muted())
-                        .child(SharedString::from(detail.clone())),
-                )
-                .into_any_element(),
-            (None, None) => div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(r.title.clone())).into_any_element(),
-        };
+        let editing_now = editing.is_some();
         let item = r.item.clone();
         let menu_item = r.item.clone();
         let named = r.named;
+        let visited = visit(&r).map(str::to_owned);
+        let on_hover = move |d: gpui::Div| if selected { d } else { d.invisible().group_hover("library-row", |s| s.visible()) };
         let browser = self.browser.upgrade();
         let b = browser.as_ref().map(|b| b.read(cx));
         let sleepable = match r.item {
@@ -1189,6 +1316,31 @@ impl LibraryWindow {
             Item::Page(Page::Snapshots) => tally(self.snapshots.len()),
             _ => None,
         };
+        // A row with a detail line shows its host there, so the title keeps the row's width.
+        let (aside, detail) = match (&r.detail, aside) {
+            (Some(detail), Some(host)) if matches!(r.item, Item::Url(_)) => (None, Some(format!("{detail} · {host}"))),
+            (detail, aside) => (aside, detail.clone()),
+        };
+        let title: AnyElement = match (editing, detail) {
+            (Some(input), _) => div()
+                .flex_1()
+                .min_w_0()
+                .px_1()
+                .rounded(px(Theme::radius_row()))
+                .bg(Theme::raised())
+                .on_mouse_down_out(cx.listener(|this, _, window, cx| this.end_rename(true, window, cx)))
+                .child(input)
+                .into_any_element(),
+            (None, Some(detail)) => div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(div().one_line(SharedString::from(r.title.clone())))
+                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(detail)))
+                .into_any_element(),
+            (None, None) => div().flex_1().one_line(SharedString::from(r.title.clone())).into_any_element(),
+        };
         div()
             .id(("library-row", ix))
             .group("library-row")
@@ -1204,37 +1356,44 @@ impl LibraryWindow {
             .when(!selected, |d| d.hover(|s| s.bg(Theme::hover())))
             .child(leading)
             .child(title)
-            .when_some(aside, |d, aside| {
+            .when_some(aside.filter(|_| !editing_now), |d, aside| {
                 d.child(div().flex_none().whitespace_nowrap().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(SharedString::from(aside)))
             })
-            .when_some(r.named, |d, named| {
-                let title = r.title.clone();
+            .when_some(r.named.filter(|_| !editing_now), |d, named| {
                 let id = match named {
                     Named::Bookmark(id) | Named::Snapshot(id) => id as u64,
                 };
                 d.child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .invisible()
-                        .group_hover("library-row", |s| s.visible())
-                        .child(icon_button(("rename", id), Icon::Pencil, true).on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.begin_rename(named, title.clone(), window, cx);
-                        })))
-                        .child(icon_button(("delete", id), Icon::Trash, true).on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.delete(named, window, cx);
-                        }))),
+                    on_hover(div().flex().flex_none())
+                        .child(icon_button(("rename", id), Icon::Pencil, true).tooltip(tooltip("Rename", Some("F2".into()))).on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.begin_rename(named, window, cx);
+                            },
+                        )))
+                        .child(icon_button(("delete", id), Icon::Trash, true).tooltip(tooltip("Delete", Some(DELETE_KEY.into()))).on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.delete(named, window, cx);
+                            },
+                        ))),
                 )
             })
+            .when_some(visited, |d, url| {
+                d.child(on_hover(div().flex().flex_none()).child(
+                    icon_button(("forget-visit", ix), Icon::Trash, true).tooltip(tooltip("Remove from History", Some(DELETE_KEY.into()))).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.remove_history(url.clone(), cx);
+                        }),
+                    ),
+                ))
+            })
             .when_some(sleepable, |d, key| {
-                d.child(button(("library-sleep", ix), "Sleep", false).invisible().group_hover("library-row", |s| s.visible()).on_click(cx.listener(
-                    move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.sleep(vec![key], cx);
-                    },
-                )))
+                d.child(on_hover(div()).child(button(("library-sleep", ix), "Sleep", false).on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.sleep(vec![key], cx);
+                }))))
             })
             .when(drills, |d| d.child(icon(Icon::ChevronRight, ICON_SMALL, Theme::muted())))
             .when(!matches!(r.item, Item::Page(_) | Item::ClearDownloads | Item::SleepInactive | Item::Source(_)), |d| {
@@ -1319,21 +1478,23 @@ impl Render for LibraryWindow {
                     .font_weight(FontWeight::SEMIBOLD)
                     .hover(|s| s.bg(Theme::hover()))
                     .child(icon(Icon::ChevronLeft, 14., Theme::muted()))
-                    .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(title)))
+                    .child(div().flex_1().one_line(SharedString::from(title)))
                     .children(
                         listed_tally(listed, capped)
                             .map(|n| div().flex_none().px_1().text_size(px(TEXT_SMALL)).font_weight(FontWeight::NORMAL).text_color(Theme::muted()).child(n)),
                     )
                     .when(on_bookmarks, |d| {
-                        d.child(icon_button("library-new-folder", Icon::FolderPlus, true).on_click(cx.listener(|this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.new_folder(window, cx);
-                        })))
+                        d.child(icon_button("library-new-folder", Icon::FolderPlus, true).tooltip(tooltip("New Folder", None)).on_click(cx.listener(
+                            |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.new_folder(window, cx);
+                            },
+                        )))
                     })
                     .on_click(cx.listener(|this, _, window, cx| this.back(window, cx)))
                     .into_any_element(),
                 Entry::Divider => div().mx_2().my_1p5().h(px(1.)).flex_none().bg(Theme::hairline()).into_any_element(),
-                Entry::Empty(text) => empty(text).h(px(EMPTY_ROW)).px_2().overflow_hidden().whitespace_nowrap().text_ellipsis().into_any_element(),
+                Entry::Empty(text) => empty(text).h(px(EMPTY_ROW)).px_2().into_any_element(),
                 Entry::Row(r) => {
                     ix += 1;
                     self.render_row(ix - 1, r, leading.unwrap_or_else(|| div().into_any_element()), cx)
@@ -1374,10 +1535,21 @@ impl Render for LibraryWindow {
         };
         div()
             .key_context("Library")
+            .capture_key_down(cx.listener(Self::on_key))
+            .capture_action(cx.listener(|this, _: &ui::text_input::Delete, window, cx| this.delete_selected(window, cx)))
+            .capture_action(cx.listener(|this, _: &ui::text_input::DeleteToBeginning, window, cx| this.delete_selected(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleLibrary, window, cx| this.close(true, window, cx)))
-            .on_action(cx.listener(|this, _: &crate::menubar::ShowHistory, _, cx| this.go(Page::History, cx)))
-            .on_action(cx.listener(|this, _: &crate::menubar::ManageBookmarks, _, cx| this.go(Page::Bookmarks(None), cx)))
-            .on_action(cx.listener(|this, _: &crate::menubar::ShowMemory, _, cx| this.go(Page::Memory, cx)))
+            .on_action(cx.listener(|this, _: &crate::OpenLocation, window, cx| {
+                this.close(true, window, cx);
+                this.main.update(cx, |b, window, cx| b.open_command(CommandMode::Current, window, cx)).ok();
+            }))
+            .on_action(cx.listener(|this, _: &crate::Settings, window, cx| {
+                this.close(false, window, cx);
+                this.main.update(cx, |b, window, cx| b.open_settings(window, cx)).ok();
+            }))
+            .on_action(cx.listener(|this, _: &crate::menubar::ShowHistory, window, cx| this.go(Page::History, window, cx)))
+            .on_action(cx.listener(|this, _: &crate::menubar::ManageBookmarks, window, cx| this.go(Page::Bookmarks(None), window, cx)))
+            .on_action(cx.listener(|this, _: &crate::menubar::ShowMemory, window, cx| this.go(Page::Memory, window, cx)))
             .size_full()
             .child(card)
             .into_any_element()
@@ -1387,6 +1559,14 @@ impl Render for LibraryWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cut_list_ends_below_a_row() {
+        let entries = [row(Item::Page(Page::History), String::new(), None), Entry::Divider, Entry::Header("Open Tabs", Some(0)), Entry::Empty(String::new())];
+        assert_eq!(row_boundary(&entries, 1000.), 1000.);
+        assert_eq!(row_boundary(&entries, LIST_PAD + ROW + 1. + DIVIDER + 1. + HEADER_ROW + 10.), LIST_PAD + ROW);
+        assert_eq!(row_boundary(&entries[1..], 20.), 20., "nothing fits, so the cap stands");
+    }
 
     #[test]
     fn card_fits_its_entries_up_to_the_cap() {
@@ -1417,20 +1597,13 @@ mod tests {
             state: "finished-unquarantined".into(),
             started_at: 0,
         };
-        let Entry::Row(r) = download_row(&d, 3 * 3_600_000) else { panic!() };
+        let store = store::Store::open_in_memory().unwrap();
+        let Entry::Row(r) = download_row(&store, &d, 3 * 3_600_000) else { panic!() };
         assert_eq!((r.title.as_str(), r.detail.as_deref()), ("a.zip", Some("files.test · Finished · 3 h ago")));
         let blob = Download { url: String::new(), state: "failed".into(), ..d };
-        let Entry::Row(r) = download_row(&blob, 0) else { panic!() };
+        let Entry::Row(r) = download_row(&store, &blob, 0) else { panic!() };
         assert_eq!(r.detail.as_deref(), Some("Failed · Just now"));
-    }
-
-    #[test]
-    fn ages_turn_into_dates_after_a_week() {
-        let min = 60_000;
-        assert_eq!(ago(0, 59_999), "Just now");
-        assert_eq!(ago(0, 5 * min), "5 min ago");
-        assert_eq!(ago(0, 2 * 1440 * min), "2 d ago");
-        assert_eq!(ago(0, 7 * 1440 * min), "1970-01-01");
-        assert_eq!(ago(10 * min, 0), "Just now");
+        let Entry::Row(r) = download_row(&store, &Download { state: MISSING.into(), ..blob }, 0) else { panic!() };
+        assert_eq!(r.detail.as_deref(), Some("Missing · Just now"));
     }
 }

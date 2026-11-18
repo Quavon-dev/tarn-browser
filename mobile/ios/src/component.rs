@@ -9,10 +9,10 @@ use engine::nav_policy::{self, Decision, LevelAction, Site, Source};
 use engine::view_policy::{self, Levels};
 use nsh_platform_ios::{ComponentContext, Components, NativeComponent};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool, ProtocolObject};
-use objc2::{MainThreadMarker, MainThreadOnly, Message};
+use objc2::runtime::{AnyObject, Bool, NSObjectProtocol, ProtocolObject};
+use objc2::{MainThreadMarker, MainThreadOnly, Message, msg_send, sel};
 use objc2_foundation::{NSError, NSInteger, NSNumber, NSOperationQueue, NSString, NSURL, NSURLCredential, NSURLCredentialPersistence, NSURLRequest};
-use objc2_ui_kit::{UIView, UIViewAutoresizing};
+use objc2_ui_kit::{UIUserInterfaceStyle, UIView, UIViewAutoresizing};
 use objc2_web_kit::{
     WKContentRuleList, WKContentRuleListStore, WKContentWorld, WKFindConfiguration, WKFindResult, WKNavigationAction, WKNavigationActionPolicy,
     WKNavigationType, WKPermissionDecision, WKUserContentController, WKWebViewConfiguration, WKWebpagePreferences,
@@ -67,6 +67,8 @@ pub(crate) struct Props {
     opener: Option<String>,
     file: bool,
     active: bool,
+    dark: bool,
+    pub(crate) split_links: bool,
 }
 
 impl Props {
@@ -157,6 +159,9 @@ impl Inner {
         self.apply_content();
         let props = self.props.borrow().clone();
         self.apply_active(props.active);
+        if let Some(web) = self.web() {
+            apply_dark(&web, props.dark);
+        }
         let load = props.load.clone().filter(|(_, seq)| *seq != self.loaded_seq.get());
         let target = match &load {
             Some((url, _)) => Some(url.clone()),
@@ -255,6 +260,7 @@ impl Inner {
         let web = WebView::init_with(WebView::alloc(mtm), self.root.bounds(), &configuration);
         web.setAutoresizingMask(UIViewAutoresizing::FlexibleWidth | UIViewAutoresizing::FlexibleHeight);
         web.set_back_forward_gestures(true);
+        apply_dark(&web, self.props.borrow().dark);
         let handler = Handler::new(mtm, Rc::downgrade(self), level);
         web.set_navigation_delegate(Some(ProtocolObject::from_ref(&*handler)));
         web.set_ui_delegate(Some(ProtocolObject::from_ref(&*handler)));
@@ -408,7 +414,7 @@ impl Inner {
         self.opener.borrow_mut().take();
     }
 
-    pub fn popup(&self, web: &WebView, url: Option<Url>, link: bool) {
+    pub fn popup(&self, web: &WebView, url: Option<Url>, link: bool, split: bool) {
         let Some(url) = url else { return };
         if !self.popups.borrow_mut().admit(view_policy::POPUP_BURST, Instant::now()) {
             if let Some(page) = web.current_url() {
@@ -426,7 +432,7 @@ impl Inner {
             self.emit("blocked", json!({ "url": url.as_str(), "reason": "shield", "popup": true }));
             return self.emit("shielded", json!({ "kind": "local_network", "url": url.as_str() }));
         }
-        self.emit("popup", json!({ "url": url.as_str(), "link": link }));
+        self.emit("popup", json!({ "url": url.as_str(), "link": link, "split": split }));
     }
 
     pub fn ask(&self, kind: &str, origin: Option<Url>, fields: Value, pending: Pending, dialog: bool) {
@@ -488,6 +494,14 @@ impl Inner {
                 self.apply_zoom(&web);
             }
             "find" => self.find(&web, args),
+            "clearFind" => {
+                self.find_text.borrow_mut().clear();
+                // WebKit has no public way to hide the match's marker; its private `_hideFindUI` does where it exists.
+                if web.respondsToSelector(sel!(_hideFindUI)) {
+                    // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.
+                    let _: () = unsafe { msg_send![&**web, _hideFindUI] };
+                }
+            }
             _ => {}
         }
     }
@@ -563,6 +577,10 @@ impl Inner {
     }
 }
 
+fn apply_dark(web: &WebView, dark: bool) {
+    web.setOverrideUserInterfaceStyle(if dark { UIUserInterfaceStyle::Dark } else { UIUserInterfaceStyle::Light });
+}
+
 pub fn settle(pending: Pending, accept: bool, args: &Value) {
     let field = |name: &str| args.get(name).and_then(Value::as_str);
     match pending {
@@ -630,6 +648,11 @@ impl NativeComponent for TarnWebView {
                 }
                 "tab" => props.tab = text(),
                 "active" => props.active = value.and_then(Value::as_bool).unwrap_or(false),
+                "dark" => props.dark = value.and_then(Value::as_bool).unwrap_or(false),
+                "splitLinks" => {
+                    props.split_links = value.and_then(Value::as_bool).unwrap_or(false);
+                    return;
+                }
                 "styles" => props.styles = crate::scripts::host_map(value).into_iter().filter_map(|(h, v)| Some((h, v.as_str()?.to_owned()))).collect(),
                 "themeStyles" => props.theme_styles = value.map(engine::page_scripts::theme_sheets).unwrap_or_default(),
                 "zaps" => {

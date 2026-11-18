@@ -85,6 +85,11 @@ thread_local! {
     /// Each window's web views by tab, with the wake number the view was made for.
     static REFS: RefCell<HashMap<(u64, TabKey), (u64, ElementRef)>> = RefCell::default();
     static WINDOW_REFS: RefCell<HashMap<u64, WindowRef>> = RefCell::default();
+    /// Each window's sidebar rows by row id, with the number of the row that registered it.
+    static ROW_REFS: RefCell<HashMap<(u64, String), (u64, ElementRef)>> = RefCell::default();
+    static NEXT_ROW: Cell<u64> = const { Cell::new(0) };
+    /// The sidebar row that holds each window's keyboard focus.
+    static ROW_FOCUS: RefCell<HashMap<u64, String>> = RefCell::default();
     static FOCUSED: Cell<u64> = const { Cell::new(0) };
     static INCOMING: RefCell<Vec<std::time::Instant>> = const { RefCell::new(Vec::new()) };
     static PENDING_LINKS: RefCell<Vec<(Vec<String>, usize)>> = const { RefCell::new(Vec::new()) };
@@ -160,6 +165,7 @@ pub struct Ui {
     reader_speed: Signal<usize>,
     speaking: Signal<bool>,
     toast_timer: Signal<u64>,
+    toast_hovered: Signal<bool>,
     reloaded: Signal<u64>,
     settings_pane: Signal<tarn_nsh_shared::panes::Pane>,
     ext_popup: Signal<Option<(store::Id, String, u64)>>,
@@ -354,6 +360,57 @@ pub(super) fn confirmed(ui: Ui, id: String, name: &'static str, run: impl Fn() +
     })
 }
 
+/// `name`, then once pressed the history ranges to clear, each of which clears at once, and Cancel.
+pub(super) fn clear_history_choice(ui: Ui, name: &'static str) -> AnyElement {
+    use browser_core::library::HistoryRange;
+    dynamic(move || {
+        if ui.confirm.with(|c| c.as_deref() == Some("history")) {
+            let ranges = HistoryRange::ALL.map(|range| {
+                controls::accent_pill(format!("Clear {}", range.label()), move || {
+                    ui.confirm.set(None);
+                    clear_history(ui, range);
+                })
+            });
+            view().flex_row().flex_wrap().items_center().gap_2().children(ranges).child(pill("Cancel", move || ui.confirm.set(None))).into_element()
+        } else {
+            pill(name, move || ui.confirm.set(Some("history".to_owned()))).into_element()
+        }
+    })
+}
+
+/// Sets the profile's Shield level; Lockdown, which deletes the profile's website data, waits for
+/// `lockdown_confirm`.
+pub(super) fn pick_level(ui: Ui, level: shield::ShieldLevel) {
+    if read(ui, |b| b.shield_wipes_data(level)) == Some(true) {
+        ui.confirm.set(Some("lockdown".to_owned()));
+        return act(ui, |_| {});
+    }
+    act(ui, move |b| b.set_default_level(level));
+}
+
+/// The question `pick_level` asks before Lockdown.
+pub(super) fn lockdown_confirm(ui: Ui) -> AnyElement {
+    dynamic(move || {
+        ui.confirm.with(|c| c.as_deref() == Some("lockdown")).then(|| {
+            let apply = move || {
+                ui.confirm.set(None);
+                act(ui, |b| b.set_default_level(shield::ShieldLevel::Lockdown));
+            };
+            view()
+                .flex_col()
+                .gap_2()
+                .child(small(browser_core::profiles::LOCKDOWN_WIPE))
+                .child(view().flex_row().gap_2().child(controls::accent_pill("Use Lockdown", apply)).child(pill("Cancel", move || ui.confirm.set(None))))
+        })
+    })
+}
+
+/// Removes one address from the history and from the cached rows.
+pub(super) fn remove_history(ui: Ui, url: String) {
+    act(ui, |b| b.remove_history_url(&url));
+    ui.history.set(Default::default());
+}
+
 fn act_moving(ui: Ui, f: impl FnOnce(&mut Browser)) {
     animate_next(POP);
     act(ui, f);
@@ -393,7 +450,9 @@ fn open_file(ui: Ui) {
             let Some(url) = path.as_deref().and_then(browser_core::open_file::url_for) else { return };
             animate_next(POP);
             ui.panel.set(Panel::None);
-            act(ui, |b| b.open_file(&url));
+            act(ui, |b| {
+                b.open_file(&url);
+            });
         }))
     });
 }
@@ -504,6 +563,7 @@ fn tiles(ui: Ui) -> View {
                     let host = item.with(|r| r.host.clone());
                     site_tile(ui, &host, 20.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element()
                 }));
+            let tile = keyboard_row(ui, item.with_untracked(snapshot::Row::id), tile);
             view()
                 .w(width)
                 .rounded(px(Theme::radius_tile()))
@@ -516,11 +576,62 @@ fn tiles(ui: Ui) -> View {
     ))
 }
 
+fn in_pinned_section(r: &snapshot::Row) -> bool {
+    r.pinned || r.depth > 0 || matches!(r.kind, RowKind::Folder(_))
+}
+
+/// The sidebar's rows that take the keyboard focus, top to bottom.
+fn keyboard_order(s: &Snapshot) -> Vec<String> {
+    fn push(r: &snapshot::Row, out: &mut Vec<String>) {
+        if !matches!(r.kind, RowKind::Split(_)) {
+            out.push(r.id());
+        }
+        r.panes.iter().for_each(|p| push(p, out));
+    }
+    let mut out: Vec<String> = s.tiles.iter().map(snapshot::Row::id).collect();
+    for pinned in [true, false] {
+        s.rows.iter().filter(|r| in_pinned_section(r) == pinned).for_each(|r| push(r, &mut out));
+    }
+    out
+}
+
+/// Lets Up and Down move the keyboard focus from this sidebar row to its neighbour; Return
+/// presses it and Shift+F10 opens its menu (NSH does both for a focused row).
+fn keyboard_row(ui: Ui, id: String, row: nsh_base::ButtonElement) -> nsh_base::ButtonElement {
+    let (r, token) = (element_ref(), NEXT_ROW.replace(NEXT_ROW.get() + 1));
+    ROW_REFS.with_borrow_mut(|refs| refs.insert((ui.window, id.clone()), (token, r)));
+    let (gone, focused, blurred) = (id.clone(), id.clone(), id);
+    cleanup(move || {
+        ROW_REFS.with_borrow_mut(|refs| {
+            if refs.get(&(ui.window, gone.clone())).is_some_and(|(t, _)| *t == token) {
+                refs.remove(&(ui.window, gone.clone()));
+            }
+        })
+    });
+    r.on_focus_in(move || drop(ROW_FOCUS.with_borrow_mut(|f| f.insert(ui.window, focused.clone()))));
+    r.on_focus_out(move || {
+        ROW_FOCUS.with_borrow_mut(|f| {
+            if f.get(&ui.window) == Some(&blurred) {
+                f.remove(&ui.window);
+            }
+        })
+    });
+    row.element_ref(&r)
+}
+
+fn move_row_focus(ui: Ui, down: bool) {
+    let Some(current) = ROW_FOCUS.with_borrow(|f| f.get(&ui.window).cloned()) else { return };
+    let order = ui.snap.with_untracked(keyboard_order);
+    let Some(ix) = order.iter().position(|id| *id == current) else { return };
+    let next = if down { order.get(ix + 1) } else { ix.checked_sub(1).and_then(|ix| order.get(ix)) };
+    if let Some((_, r)) = next.and_then(|id| ROW_REFS.with_borrow(|refs| refs.get(&(ui.window, id.clone())).cloned())) {
+        r.focus();
+    }
+}
+
 fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
     each(
-        move || {
-            ui.snap.with(|s| s.rows.iter().filter(|r| (r.pinned || r.depth > 0 || matches!(r.kind, RowKind::Folder(_))) == pinned).cloned().collect::<Vec<_>>())
-        },
+        move || ui.snap.with(|s| s.rows.iter().filter(|r| in_pinned_section(r) == pinned).cloned().collect::<Vec<_>>()),
         |r| r.id(),
         move |item, _| list_row(ui, pinned, item),
     )
@@ -534,30 +645,34 @@ fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement
         RowKind::Tab(key) => tab_row(ui, pinned, key, item),
         RowKind::Group(id) => groups::group_card(ui, id, item),
         RowKind::Split(_) => view()
-            .flex_row()
+            .flex_col()
             .gap(px(2.))
             .child(each(
                 move || item.with(|r| r.panes.clone()),
                 |r| r.id(),
                 move |pane, _| {
                     let RowKind::Tab(key) = pane.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
-                    view().flex_1().min_w_0().child(tab_row(ui, pinned, key, pane)).into_element()
+                    tab_row(ui, pinned, key, pane)
                 },
             ))
             .into_element(),
         RowKind::Folder(id) => view()
             .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
             .child(
-                row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
-                    .h(px(TAB_ROW))
-                    .pl(px(8. + depth * 16.))
-                    .child(
-                        view()
-                            .text_color(Theme::muted())
-                            .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
-                    )
-                    .child(view().text_color(Theme::space_label()).child(dynamic(move || folder_icon(&item.with(|r| r.icon.clone())))))
-                    .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
+                keyboard_row(
+                    ui,
+                    item.with_untracked(snapshot::Row::id),
+                    row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id))),
+                )
+                .h(px(TAB_ROW))
+                .pl(px(8. + depth * 16.))
+                .child(
+                    view()
+                        .text_color(Theme::muted())
+                        .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
+                )
+                .child(view().text_color(Theme::space_label()).child(dynamic(move || folder_icon(&item.with(|r| r.icon.clone())))))
+                .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
             )
             .into_element(),
     }
@@ -605,7 +720,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         None => None,
     };
     let closing = move || !pinned && (hovered.get() || active());
-    let tab = row(move || Some(SharedString::from(name())), move || act(ui, |b| b.activate(key)))
+    let tab = keyboard_row(ui, item.with_untracked(snapshot::Row::id), row(move || Some(SharedString::from(name())), move || act(ui, |b| b.activate(key))))
         .on_press_down(move || ui.dragging.set(Some(key)))
         .h(px(TAB_ROW))
         .relative()
@@ -673,19 +788,14 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
                 tarn_nsh_shared::motion::popping(view().w(px(16.)).items_center().text_color(tint).accessible(true).label(name).child(icons::icon(glyph, 13.)))
             })
         }))
-        .child(dynamic(move || dropping().map(|does| small(does).text_color(Theme::accent()))))
+        .child(dynamic(move || dropping().map(|does| small(does).text_color(Theme::accent_text()))))
         .children(close);
-    // Where the dragged tab lands when dropped here: after this row when it comes from above in the same zone.
-    let landing = move || {
-        let dragged = ui.dragging.get().filter(|d| *d != key && hovered.get() && dropping().is_none())?;
-        read(ui, |b| match (b.model.tab(dragged), b.model.tab(key)) {
-            (Some(d), Some(t)) => d.kind == t.kind && d.folder_id == t.folder_id && d.position < t.position,
-            _ => false,
-        })
-    };
+    let below = signal(false);
+    // Where the dragged tab lands when dropped here: below this row over its lower half.
+    let landing = move || ui.dragging.get().filter(|d| *d != key && hovered.get() && dropping().is_none()).map(|_| below.get());
     view()
         .relative()
-        .on_mouse_up(move |_: &MouseEvent| split::drop_on_row(ui, key))
+        .on_mouse_up(move |_: &MouseEvent| split::drop_on_row(ui, key, below.get_untracked()))
         .on_mouse_enter(move |e: &MouseEvent| {
             hover(true);
             peek::hover_row(ui, key, true, e.page_position.y.0);
@@ -695,7 +805,13 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
             peek::hover_row(ui, key, false, 0.);
             split::drop_leave(ui, key);
         })
-        .on_mouse_move(move |e: &MouseEvent| split::drop_over(ui, key, browser_core::split::drops_into(e.position.y.0 / TAB_ROW)))
+        .on_mouse_move(move |e: &MouseEvent| {
+            let share = e.position.y.0 / TAB_ROW;
+            if below.get_untracked() != browser_core::tabs::drops_below(share) {
+                below.set(browser_core::tabs::drops_below(share));
+            }
+            split::drop_over(ui, key, browser_core::split::drops_into(share));
+        })
         .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
         .child(tab)
         .child(dynamic(move || {
@@ -765,9 +881,9 @@ fn downloads_button(ui: Ui) -> AnyElement {
             Some(p) => view()
                 .flex_row()
                 .items_center()
-                .text_color(Theme::accent())
-                .child(button.text_color(Theme::accent()))
-                .child(small(format!("{:.0}%", p * 100.)).text_color(Theme::accent()))
+                .text_color(Theme::accent_text())
+                .child(button.text_color(Theme::accent_text()))
+                .child(small(format!("{:.0}%", p * 100.)).text_color(Theme::accent_text()))
                 .into_element(),
             None => button.into_element(),
         }
@@ -890,9 +1006,11 @@ pub(super) fn in_other_windows(ui: Ui, f: impl FnOnce(&mut Browser) + Clone) {
 }
 
 /// Clears the profile's history, and the cache that would still suggest it.
-fn clear_history(ui: Ui) {
-    act(ui, |b| b.clear_history());
-    if let Some(Some(profile)) = read(ui, |b| b.model.profile()) {
+fn clear_history(ui: Ui, range: browser_core::library::HistoryRange) {
+    act(ui, |b| b.clear_history(range));
+    if range == browser_core::library::HistoryRange::All
+        && let Some(Some(profile)) = read(ui, |b| b.model.profile())
+    {
         in_other_windows(ui, move |b| {
             b.favicons.forget(&profile);
             b.reset_zooms(profile.0, profile.1, None);
@@ -998,12 +1116,7 @@ fn go(ui: Ui, text: String) {
     ui.picked.set(0);
     if ui.find_tabs.get_untracked() {
         if let Some(row) = ui.snap.with_untracked(|s| s.find_rows.first().cloned()) {
-            let mut query = String::new();
-            act(ui, |b| query = b.open_find_row(row.key));
-            tools::close_find_tabs(ui);
-            ui.find.set(query.clone());
-            ui.finding.set(true);
-            act(ui, |b| b.find_typed(&query));
+            tools::open_find_row(ui, &row);
         }
         return;
     }
@@ -1111,7 +1224,7 @@ fn address(ui: Ui) -> View {
         .rounded(move || px(Theme::radius_row()))
         .bg(Secure::chip())
         .border_1()
-        .border_color(move || if ui.editing.get() { Theme::accent() } else { Secure::hairline() })
+        .border_color(move || if ui.editing.get() { Theme::accent_text() } else { Secure::hairline() })
         .font_family(SYSTEM_FONT)
         .text_color(Theme::faint)
         .child(themed(move || {
@@ -1126,10 +1239,14 @@ fn address(ui: Ui) -> View {
             when(
                 move || ui.snap.with(|s| s.article),
                 move || {
-                    icon_button(icons::BOOK_OPEN, "Reader", move || act(ui, |b| b.toggle_reader()))
-                        .h(px(CHIP))
-                        .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
-                        .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent() } else { Theme::muted() })
+                    dynamic(move || {
+                        Some(
+                            icon_button(icons::BOOK_OPEN, reader_label(ui), move || act(ui, |b| b.toggle_reader()))
+                                .h(px(CHIP))
+                                .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
+                                .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent_text() } else { Theme::muted() }),
+                        )
+                    })
                 },
             )
         }));
@@ -1166,8 +1283,13 @@ fn toolbar(ui: Ui) -> View {
     let actions = move || {
         let name = if split_shown.get() { "Close Split View" } else { "Open Split View" };
         let tip = shortcut_of(ui, Action::ToggleSplitView).map_or_else(|| name.to_owned(), |keys| format!("{name} ({keys})"));
-        let split = controls::icon_button_at(icons::SPLIT_ADD, &tip, Placement::Left, move || act(ui, Browser::toggle_split));
-        let share = controls::icon_button_at(icons::SHARE, "Share", Placement::Left, move || show(ui, Panel::Share));
+        let no_tab = move || !ui.snap.with(|s| s.tab);
+        let split = controls::icon_button_at(icons::SPLIT_ADD, &tip, Placement::Left, move || act(ui, Browser::toggle_split))
+            .disabled(no_tab)
+            .disabled_style(|s| s.text_color(Theme::faint()));
+        let share = controls::icon_button_at(icons::SHARE, "Share", Placement::Left, move || show(ui, Panel::Share))
+            .disabled(no_tab)
+            .disabled_style(|s| s.text_color(Theme::faint()));
         view().flex_row().items_center().gap(px(2.)).child(devtools::responsive_button(ui)).child(extensions::buttons(ui)).child(split).child(share)
     };
     let compact = computed(move || ui.snap.with(|s| s.compact));
@@ -1212,8 +1334,12 @@ fn compact_address(ui: Ui) -> View {
         when(
             move || ui.snap.with(|s| s.article),
             move || {
-                icon_button(icons::BOOK_OPEN, "Reader", move || act(ui, |b| b.toggle_reader()))
-                    .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent() } else { Theme::muted() })
+                dynamic(move || {
+                    Some(
+                        icon_button(icons::BOOK_OPEN, reader_label(ui), move || act(ui, |b| b.toggle_reader()))
+                            .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent_text() } else { Theme::muted() }),
+                    )
+                })
             },
         )
     }))
@@ -1236,7 +1362,15 @@ pub(super) fn set_auto_hide_sidebar(ui: Ui) {
     }
 }
 
+/// Whether the window shows no page to reload: no tab, or the start page.
+pub(super) fn no_page(s: &Snapshot) -> bool {
+    s.blank || s.url.is_empty()
+}
+
 fn reload(ui: Ui) {
+    if ui.snap.with_untracked(no_page) {
+        return;
+    }
     act(ui, |b| b.reload());
     ui.reloaded.update(|n| *n += 1);
     let serial = ui.reloaded.get_untracked();
@@ -1255,7 +1389,10 @@ fn reload_button(ui: Ui) -> AnyElement {
     dynamic(move || {
         let (loading, reloaded) = state.get();
         if !loading && !reloaded {
-            return controls::icon_button_at(icons::RELOAD, "Reload", Placement::Right, reload).into_element();
+            return controls::icon_button_at(icons::RELOAD, "Reload", Placement::Right, reload)
+                .disabled(move || ui.snap.with(no_page))
+                .disabled_style(|s| s.text_color(Theme::faint()))
+                .into_element();
         }
         let press = move || if ui.snap.with_untracked(|s| s.loading) { act(ui, |b| b.stop()) } else { reload() };
         let name = if loading { "Stop Loading" } else { "Reload" };
@@ -1627,7 +1764,7 @@ pub(super) fn text_field_multiline(ui: Ui, placeholder: &str) -> nsh_base::Input
         .bg(Theme::raised())
         .border_1()
         .border_color(Theme::hairline())
-        .focus(|s| s.border_color(Theme::accent()))
+        .focus(|s| s.border_color(Theme::accent_text()))
         .text_color(Theme::text())
 }
 
@@ -1648,7 +1785,7 @@ pub(super) fn bound_field(value: impl Fn() -> String + 'static, change: impl Fn(
         .bg(Theme::raised())
         .border_1()
         .border_color(Theme::hairline())
-        .focus(|s| s.border_color(Theme::accent()))
+        .focus(|s| s.border_color(Theme::accent_text()))
         .text_color(Theme::text())
 }
 
@@ -1814,10 +1951,14 @@ fn prompt_bar(ui: Ui) -> AnyElement {
     view().child(enter).child(card).into_element()
 }
 
+fn reader_label(ui: Ui) -> &'static str {
+    if ui.snap.with(|s| s.reader.is_some()) { "Hide Reader" } else { "Show Reader" }
+}
+
 fn close_find(ui: Ui) {
     ui.finding.set(false);
     ui.find.set(String::new());
-    act(ui, |b| b.find_typed(""));
+    act(ui, Browser::clear_find);
 }
 
 fn find_again(ui: Ui, backwards: bool) {
@@ -1828,12 +1969,7 @@ fn find_again(ui: Ui, backwards: bool) {
 }
 
 fn find_bar(ui: Ui) -> AnyElement {
-    let matches = move || match ui.snap.with(|s| s.found).filter(|_| !ui.find.with(String::is_empty)) {
-        None => String::new(),
-        Some(0) => "No matches".to_owned(),
-        Some(1) => "1 match".to_owned(),
-        Some(n) => format!("{n} matches"),
-    };
+    let matches = move || browser_core::find::count_label(ui.snap.with(|s| s.found).map(|n| n as usize).filter(|_| !ui.find.with(String::is_empty)), None);
     when(
         move || ui.finding.get(),
         move || {
@@ -1842,7 +1978,14 @@ fn find_bar(ui: Ui) -> AnyElement {
                 .on_change(move |v: &str| {
                     ui.find.set(v.to_owned());
                     let text = v.to_owned();
-                    act(ui, |b| b.find_typed(&text));
+                    if text.is_empty() {
+                        return act(ui, Browser::clear_find);
+                    }
+                    peek::later(ui, browser_core::find::TYPING_DELAY, move || {
+                        if ui.finding.get_untracked() && ui.find.with_untracked(|t| *t == text) {
+                            act(ui, |b| b.find_typed(&text));
+                        }
+                    });
                 })
                 .on_submit(move |_: &str| find_again(ui, false))
                 .placeholder("Find in page")
@@ -1911,10 +2054,38 @@ fn content(ui: Ui) -> View {
         .child(web_views(ui).flex_grow(move || if covered() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
 }
 
+/// Actions on the active tab's page, which do nothing while no tab is open.
+const NEED_A_TAB: [Action; 16] = [
+    Action::TogglePin,
+    Action::Find,
+    Action::ZoomIn,
+    Action::ZoomOut,
+    Action::ZoomReset,
+    Action::CopyLink,
+    Action::CopyCleanLink,
+    Action::CopyMarkdownLink,
+    Action::TakeScreenshot,
+    Action::ToggleReader,
+    Action::Print,
+    Action::BookmarkTab,
+    Action::ToggleSplitView,
+    Action::FocusNextPane,
+    Action::FocusPreviousPane,
+    Action::SwapPanes,
+];
+
 fn run_action(ui: Ui, action: Action) {
+    if NEED_A_TAB.contains(&action) && !ui.snap.with_untracked(|s| s.tab) {
+        return;
+    }
     match action {
         Action::NewTab => new_tab(ui),
-        Action::OpenLocation => open_palette(ui),
+        Action::OpenLocation => {
+            if ui.panel.get_untracked() != Panel::None {
+                show(ui, Panel::None);
+            }
+            open_palette(ui);
+        }
         Action::OpenFile => open_file(ui),
         Action::CloseTab => act_moving(ui, |b| b.model.active.into_iter().for_each(|k| b.close_tab(k))),
         Action::ReopenClosedTab => {
@@ -1930,6 +2101,9 @@ fn run_action(ui: Ui, action: Action) {
         Action::Back => act(ui, |b| b.back()),
         Action::Forward => act(ui, |b| b.forward()),
         Action::Find => {
+            if ui.snap.with_untracked(|s| s.reader.is_some()) {
+                tools::close_reader(ui);
+            }
             ui.finding.set(true);
             ui.find_ref.focus();
         }
@@ -1961,6 +2135,13 @@ fn run_action(ui: Ui, action: Action) {
         Action::LastTab => act(ui, |b| b.slot(9)),
         Action::CopyMarkdownLink => tools::copy_page(ui, true),
         Action::ToggleShortcuts => show(ui, Panel::Shortcuts),
+        Action::CloseWindow => {
+            if let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned()) {
+                close_window(ui, &here);
+            }
+        }
+        Action::ReloadFromOrigin if !ui.snap.with_untracked(no_page) => act(ui, Browser::reload_from_origin),
+        Action::ReloadFromOrigin => {}
     }
 }
 
@@ -1999,7 +2180,9 @@ fn escape(ui: Ui) {
     } else {
         act(ui, |b| {
             if b.toast.is_some() {
-                b.toast = None;
+                b.dismiss_toast();
+            } else if b.active_page().is_some_and(|p| p.loading) {
+                b.stop();
             }
         });
         if let Some(key) = ui.snap.with_untracked(|s| s.views.iter().find(|v| v.active).map(|v| v.key))
@@ -2010,9 +2193,55 @@ fn escape(ui: Ui) {
     }
 }
 
+/// F6 and Shift+F6: moves the keyboard between the page, the address field and the sidebar.
+fn cycle_focus(ui: Ui, back: bool) {
+    use browser_core::focus::{Region, next_region};
+    let editing = ui.editing.get_untracked();
+    let from = if editing {
+        Region::Address
+    } else if ROW_FOCUS.with_borrow(|f| f.contains_key(&ui.window)) {
+        Region::Sidebar
+    } else {
+        Region::Page
+    };
+    let page = ui.snap.with_untracked(|s| s.views.iter().find(|v| v.active).map(|v| v.key));
+    let page = page.and_then(|key| REFS.with_borrow(|refs| refs.get(&(ui.window, key)).map(|(_, r)| *r)));
+    let sidebar = ui.sidebar.get_untracked() && !ui.snap.with_untracked(|s| s.fullscreen);
+    let to = next_region(from, back, page.is_some(), sidebar);
+    if to != Region::Address && editing {
+        close_palette(ui);
+    }
+    match to {
+        Region::Address => open_palette(ui),
+        Region::Page => page.into_iter().for_each(|r| r.command("focus", JsonValue::Null)),
+        Region::Sidebar => {
+            let target = ui.snap.with_untracked(|s| {
+                let order = keyboard_order(s);
+                active_row(s.tiles.iter().chain(&s.rows)).filter(|id| order.contains(id)).or_else(|| order.into_iter().next())
+            });
+            if let Some((_, r)) = target.and_then(|id| ROW_REFS.with_borrow(|refs| refs.get(&(ui.window, id)).cloned())) {
+                r.focus();
+            }
+        }
+    }
+}
+
+fn active_row<'a>(mut rows: impl Iterator<Item = &'a snapshot::Row>) -> Option<String> {
+    rows.find_map(|r| if r.active && !matches!(r.kind, RowKind::Split(_)) { Some(r.id()) } else { active_row(r.panes.iter()) })
+}
+
 fn bind_fixed(ui: Ui) {
     on_key("f5", move |_| reload(ui));
+    on_key("f6", move |_| cycle_focus(ui, false));
+    on_key("shift+f6", move |_| cycle_focus(ui, true));
+    for (keys, down) in [("down", true), ("up", false)] {
+        on_key_with(keys, KeyOptions { when: nsh_core::keymap::When::NotEditing, pass_through: true, ..KeyOptions::default() }, move |_| {
+            move_row_focus(ui, down)
+        });
+    }
     on_key(crate::shortcuts::ZOOM_IN_SHIFTED, move |_| run_action(ui, Action::ZoomIn));
+    on_key(crate::shortcuts::NEXT_TAB, move |_| run_action(ui, Action::NextTab));
+    on_key(crate::shortcuts::PREVIOUS_TAB, move |_| run_action(ui, Action::PreviousTab));
     on_key_with("escape", KeyOptions { when: nsh_core::keymap::When::Always, pass_through: true, ..KeyOptions::default() }, move |_| escape(ui));
     for (keys, backwards) in [(crate::shortcuts::FIND_NEXT, false), (crate::shortcuts::FIND_PREVIOUS, true)] {
         on_key(keys, move |_| find_again(ui, backwards));
@@ -2050,6 +2279,15 @@ pub fn themes_changed() {
     for ui in WINDOWS.with_borrow(Vec::clone) {
         act(ui, Browser::apply_theme);
     }
+    if let Some(ui) = WINDOWS.with_borrow(|w| w.first().copied()) {
+        apply_color_scheme(ui, Theme::is_light());
+    }
+}
+
+/// Gives every page the app theme's colour scheme, or the system's while the theme follows it.
+fn apply_color_scheme(ui: Ui, light: bool) {
+    let follows = read(ui, |b| browser_core::theme::Selection::load(&b.core.disk).match_system).unwrap_or(true);
+    crate::webview::set_dark(follows, !light);
 }
 
 fn open_settings(ui: Ui, pane: tarn_nsh_shared::panes::Pane) {
@@ -2206,6 +2444,7 @@ fn new_ui(row: SavedWindow) -> Ui {
         reader_speed: signal(0),
         speaking: signal(false),
         toast_timer: signal(0),
+        toast_hovered: signal(false),
         reloaded: signal(0),
         settings_pane: signal(tarn_nsh_shared::panes::Pane::Profile),
         ext_popup: signal(None),
@@ -2338,6 +2577,10 @@ fn browser_window(ui: Ui) -> AnyElement {
         let light = !dark();
         untracked(|| act(ui, |b| b.follow_appearance(light)));
     });
+    effect(move || {
+        let light = Theme::is_light();
+        untracked(|| apply_color_scheme(ui, light));
+    });
     let full = computed(move || ui.snap.with(|s| s.fullscreen));
     view()
         .flex_row()
@@ -2465,5 +2708,20 @@ mod tests {
         assert_eq!(super::link_window(&[1, 2, 3], 2), Some(2));
         assert_eq!(super::link_window(&[1, 3], 2), Some(1), "the focused window shows a burner tab or is closed");
         assert_eq!(super::link_window(&[], 2), None);
+    }
+
+    #[test]
+    fn arrow_keys_walk_the_pinned_section_before_the_other_tabs() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = crate::browser::Browser::open(dir.path());
+        let first = b.model.active.unwrap();
+        b.new_folder(None);
+        let folder = b.model.folders[0].id;
+        let pinned = b.new_tab("https://pinned.test/").unwrap();
+        b.pin_toggle(pinned);
+        let snap = crate::snapshot::snapshot(&b, true);
+        let id = |kind: super::RowKind| snap.rows.iter().find(|r| r.kind == kind).unwrap().id();
+        let order = super::keyboard_order(&snap);
+        assert_eq!(order, [id(super::RowKind::Tab(pinned)), id(super::RowKind::Folder(folder)), id(super::RowKind::Tab(first))]);
     }
 }

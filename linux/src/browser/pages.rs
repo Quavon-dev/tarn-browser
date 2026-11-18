@@ -29,6 +29,8 @@ pub struct FindRow {
     pub key: TabKey,
     pub label: String,
     pub detail: String,
+    /// A match in the page's text, which the find bar then shows; a title or address match only switches to the tab.
+    pub text: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -221,7 +223,7 @@ impl Browser {
         let label = |b: &Browser, key: TabKey, tab: &store::Tab| crate::snapshot::tab_label(tab, b, key);
         self.find_rows = browser_core::find::named(&self.model.tabs, query, |t| label(self, self.model.key(t), t))
             .into_iter()
-            .map(|t| FindRow { key: self.model.key(t), label: label(self, self.model.key(t), t), detail: "Title or address".to_owned() })
+            .map(|t| FindRow { key: self.model.key(t), label: label(self, self.model.key(t), t), detail: "Title or address".to_owned(), text: false })
             .collect();
         self.text_rows = 0;
         if query.is_empty() {
@@ -235,7 +237,7 @@ impl Browser {
 
     fn add_text_rows(&mut self, key: TabKey, snippets: Vec<String>) {
         let Some(title) = self.model.tab(key).map(|t| crate::snapshot::tab_label(t, self, key)) else { return };
-        let rows = snippets.into_iter().map(|s| FindRow { key, label: engine::view_policy::title(&s), detail: title.clone() }).collect();
+        let rows = snippets.into_iter().map(|s| FindRow { key, label: engine::view_policy::title(&s), detail: title.clone(), text: true }).collect();
         let mut selected = 0;
         browser_core::find::insert_text_rows(&mut self.find_rows, &mut selected, &mut self.text_rows, rows);
     }
@@ -288,7 +290,7 @@ impl Browser {
         self.settle_downloads();
         let state_is_flagged = state == "flagged";
         if state_is_flagged && known {
-            self.show_toast_as(browser_core::toast::Tone::Warning, engine::downloads::flagged_notice(&text("name"), &text("host")), None);
+            self.show_warning(engine::downloads::flagged_notice(&text("name"), &text("host")));
         }
         let previous = self.downloads.iter().position(|d| !id.is_empty() && d.id == id);
         let old = previous.map(|ix| self.downloads.remove(ix));
@@ -303,11 +305,13 @@ impl Browser {
         };
         let wiped = |p: Id| self.core.wiped_at.borrow().get(&(key.private, p)).is_some_and(|at| started < *at);
         let keeps = owner.filter(|p| self.core.keeps_records(key.private, *p) && !wiped(*p));
-        if record
-            && item.state == "finished"
-            && let Some(profile) = keeps
-        {
-            self.core.store(key.private).add_download(profile, &text("url"), &item.path, "finished", now()).ok();
+        if record && let Some(profile) = keeps {
+            let ended = if data["cancelled"].as_bool() == Some(true) { "cancelled" } else { "failed" };
+            match item.state.as_str() {
+                "finished" => self.core.store(key.private).add_download(profile, &text("url"), &item.path, "finished", now()).ok(),
+                "failed" if !item.path.is_empty() => self.core.store(key.private).add_download(profile, &text("url"), &item.path, ended, started).ok(),
+                _ => None,
+            };
         }
         self.downloads.push(item);
         known

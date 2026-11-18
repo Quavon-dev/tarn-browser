@@ -1,5 +1,6 @@
 use browser_core::command::ENGINES;
 use browser_core::profiles::NewProfile;
+use browser_core::space_card::name_too_long;
 use nsh_core::prelude::*;
 use shield::ShieldLevel;
 use store::Id;
@@ -85,6 +86,11 @@ fn swatches(ui: Ui, selected: Option<usize>, none: bool, pick: fn(&mut Form, Opt
     view().flex_row().flex_wrap().gap_2().children(all)
 }
 
+/// Says so while the typed profile name is too long or another profile's (`space_card::profile_name_note`).
+pub(super) fn name_note(typed: impl Fn() -> String + 'static, names: Vec<String>) -> AnyElement {
+    dynamic(move || browser_core::space_card::profile_name_note(&typed(), names.iter().map(String::as_str)).map(|text| note(text).text_color(Theme::warning())))
+}
+
 fn field(ui: Ui, name: &str, value: Signal<String>) -> View {
     view().flex_col().gap_1().child(small(name.to_owned())).child(super::text_field(value, name, 320.).on_submit(move |_: &str| confirm(ui)))
 }
@@ -101,6 +107,7 @@ fn profile_card(ui: Ui, editing: Option<Id>) -> View {
         .gap_3()
         .child(note(subtitle))
         .child(field(ui, "Name", ui.card_name))
+        .child(name_note(move || ui.card_name.get(), others.iter().filter(|p| Some(p.id) != editing).map(|p| p.name.clone()).collect()))
         .child(view().flex_col().gap_1().child(small("Color")).child(swatches(ui, Some(form.color), false, |f, ix| f.color = ix.unwrap_or(f.color))));
     if editing.is_none() {
         let engines: Vec<(usize, String)> = ENGINES.iter().enumerate().map(|(ix, e)| (ix, e.name.to_owned())).collect();
@@ -147,20 +154,18 @@ pub(super) fn dot(color: &str) -> View {
 }
 
 fn footer(ui: Ui, confirm_name: &'static str) -> View {
-    view()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .pt_2()
-        .child(view().flex_1())
-        .child(pill("Cancel", move || show(ui, Panel::None)))
-        .child(accent_pill(confirm_name, move || confirm(ui)))
+    view().flex_row().items_center().gap_2().pt_2().child(view().flex_1()).child(pill("Cancel", move || show(ui, Panel::None))).child(
+        accent_pill(confirm_name, move || confirm(ui)).disabled(move || name_too_long(&ui.card_name.get())).disabled_style(|s| s.text_color(Theme::faint())),
+    )
 }
 
 fn confirm(ui: Ui) {
     let Panel::Card(editing) = ui.panel.get_untracked() else { return };
     let form = ui.form.get_untracked();
     let (name, space) = (ui.card_name.get_untracked(), ui.card_space.get_untracked());
+    if name_too_long(&name) {
+        return;
+    }
     let mut result: Result<(), String> = Ok(());
     act(ui, |b| {
         result = match editing {

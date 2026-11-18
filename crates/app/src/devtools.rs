@@ -87,7 +87,7 @@ pub fn render_json(key: TabKey, page: &JsonPage, cx: &mut Context<Browser>) -> A
                             .flex_none()
                             .when(expandable, |d| d.child(icon(if row.open { Icon::ChevronDown } else { Icon::ChevronRight }, 10., Theme::muted()))),
                     )
-                    .when(!row.label.is_empty(), |d| d.child(div().text_color(Theme::accent()).child(SharedString::from(format!("{}:", row.label)))))
+                    .when(!row.label.is_empty(), |d| d.child(div().text_color(Theme::accent_text()).child(SharedString::from(format!("{}:", row.label)))))
                     .child(div().text_color(value_color(row.kind)).text_ellipsis().child(SharedString::from(row.value.clone())))
             }))
             .when(truncated, |d| d.child(div().px_3().text_color(Theme::muted()).child("Only the first 2,000 rows are shown.")))

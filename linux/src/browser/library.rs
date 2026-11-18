@@ -12,7 +12,7 @@ pub struct Link {
 }
 
 impl Link {
-    fn new(title: &str, url: &str) -> Self {
+    pub fn new(title: &str, url: &str) -> Self {
         let name = bounded_title(title);
         Link { name: if name.is_empty() { bounded_title(url) } else { name }, url: url.to_owned() }
     }

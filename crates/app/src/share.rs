@@ -9,6 +9,7 @@ use gpui::{
 use ui::controls::{POPOVER_INSET, list_row, open_popup, popover};
 use ui::icon::{Icon, icon};
 use ui::motion::{REOPEN_GUARD, fade_in, popover_motion};
+use ui::text::OneLine;
 use ui::theme::{TEXT, TEXT_SMALL, Theme};
 
 use crate::browser::Browser;
@@ -163,7 +164,15 @@ impl ShareMenuWindow {
         }
     }
 
+    /// The QR code and the system share sheet send the address to another device or app.
+    fn enabled(&self, entry: Entry) -> bool {
+        !matches!(entry, Entry::QrCode | Entry::More) || crate::qr::web_link(&self.url)
+    }
+
     fn choose(&mut self, entry: Entry, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.enabled(entry) {
+            return;
+        }
         match entry {
             Entry::CopyLink | Entry::CopyCleanLink => {
                 let clean = entry == Entry::CopyCleanLink;
@@ -221,7 +230,7 @@ impl ShareMenuWindow {
         let glyph = if entry == Entry::More { Icon::Ellipsis } else { Icon::named(browser_core::command::glyph(label)).unwrap_or(Icon::Command) };
         let glyph = match self.copied {
             Some(copied) if copied == entry => fade_in(icon(Icon::Check, 15., Theme::accent()), ("copied", ix), reduce),
-            _ => icon(glyph, 15., Theme::muted()).into_any_element(),
+            _ => icon(glyph, 15., if self.enabled(entry) { Theme::muted() } else { Theme::faint() }).into_any_element(),
         };
         let keys = Self::shortcut(entry, cx);
         list_row(("share", ix), self.selected == Some(ix))
@@ -229,22 +238,22 @@ impl ShareMenuWindow {
             .mx(px(PAD))
             .px_2()
             .child(glyph)
-            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
+            .when(!self.enabled(entry), |d| d.text_color(Theme::faint()))
+            .child(div().flex_1().one_line(label))
             .when(!keys.is_empty(), |d| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(keys)))
             .on_click(cx.listener(move |this, _, window, cx| this.choose(entry, window, cx)))
             .into_any_element()
     }
 
     fn header(&self, favicon: AnyElement) -> gpui::Div {
-        let line = || div().overflow_hidden().whitespace_nowrap().text_ellipsis();
         div().h(px(HEADER)).flex_none().px_3().flex().items_center().gap_2p5().border_b_1().border_color(Theme::separator()).child(favicon).child(
             div()
                 .flex_1()
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .child(line().font_weight(FontWeight::SEMIBOLD).child(self.title.clone()))
-                .child(line().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(display_url(&self.url))),
+                .child(div().font_weight(FontWeight::SEMIBOLD).one_line(self.title.clone()))
+                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).one_line(display_url(&self.url))),
         )
     }
 }

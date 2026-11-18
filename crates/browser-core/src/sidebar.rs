@@ -185,15 +185,17 @@ pub struct DropAt {
     pub folder: Option<Id>,
     pub group: Option<Id>,
     pub before: Option<TabKey>,
+    /// Lands after `before` instead of in its place (a drop on the lower half of its row).
+    pub below: bool,
 }
 
 impl DropAt {
     pub fn zone(kind: TabKind, folder: Option<Id>, group: Option<Id>) -> Self {
-        DropAt { kind, folder, group, before: None }
+        DropAt { kind, folder, group, before: None, below: false }
     }
 
     pub fn before(model: &Model, key: TabKey) -> Option<Self> {
-        model.tab(key).map(|t| DropAt { kind: t.kind, folder: t.folder_id, group: t.group_id, before: Some(key) })
+        model.tab(key).map(|t| DropAt { kind: t.kind, folder: t.folder_id, group: t.group_id, before: Some(key), below: false })
     }
 }
 
@@ -202,7 +204,7 @@ pub fn drop_tab<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabK
     if at.before.is_some() && before.is_none() {
         return None;
     }
-    let index = before.map_or_else(|| model.zone_len(at.kind, at.folder), |t| model.drop_index(dragged, t));
+    let index = before.map_or_else(|| model.zone_len(at.kind, at.folder), |t| model.drop_index(dragged, t, at.below));
     place(model, core, dragged, at, index)
 }
 
@@ -273,14 +275,8 @@ pub fn undo_sort<D: WebsiteData>(model: &mut Model, core: &Core<D>, (private, un
     done
 }
 
-pub fn unpinned_order(model: &Model) -> Vec<TabKey> {
-    let grouped = model.groups.iter().flat_map(|g| sorted(model, |t| t.kind == TabKind::Ephemeral && t.group_id == Some(g.id)));
-    let loose = sorted(model, |t| t.kind == TabKind::Ephemeral && t.group_id.is_none());
-    grouped.chain(loose).map(|t| model.key(t)).collect()
-}
-
 pub fn tabs_below(model: &Model, key: TabKey) -> Vec<TabKey> {
-    unpinned_order(model).into_iter().skip_while(|k| *k != key).skip(1).collect()
+    model.tabs_below(key)
 }
 
 pub fn other_unpinned(model: &Model, key: TabKey) -> Vec<TabKey> {

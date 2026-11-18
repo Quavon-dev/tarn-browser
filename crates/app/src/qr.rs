@@ -4,6 +4,7 @@ use gpui::{
 };
 use ui::controls::{POPOVER_INSET, open_popup, popover};
 use ui::motion::popover_motion;
+use ui::text::OneLine;
 use ui::theme::{TEXT_SMALL, Theme};
 use url::Url;
 
@@ -20,13 +21,18 @@ const CODE: f32 = 204.;
 const QUIET: usize = 3;
 const GAP: f32 = 8.;
 
+/// Only a web address means something on another device.
+pub(crate) fn web_link(url: &str) -> bool {
+    Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"))
+}
+
 pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
     root.on_action(cx.listener(|b, _: &ShareLink, w, cx| b.toggle_share_menu(w, cx))).on_action(cx.listener(|b, _: &ShowQrCode, w, cx| b.show_qr_code(w, cx)))
 }
 
 impl Browser {
     fn active_url(&self) -> Option<String> {
-        self.model.active.and_then(|key| self.tab_url(key)).filter(|u| !u.is_empty())
+        self.model.active.and_then(|key| self.tab_url(key)).filter(|u| web_link(u))
     }
 
     /// A card with the active page's QR code below the address field; Esc or a click elsewhere closes it.
@@ -36,7 +42,9 @@ impl Browser {
         {
             return;
         }
-        let Some(url) = self.active_url() else { return };
+        let Some(url) = self.active_url() else {
+            return self.show_toast("Only web pages have a QR code", None, cx);
+        };
         let Some(code) = engine::share::qr_code(&url) else {
             return self.show_toast("No QR code for this link", None, cx);
         };
@@ -121,16 +129,7 @@ impl Render for QrWindow {
             .justify_center()
             .gap_2()
             .child(div().size(px(CODE)).rounded(px(Theme::radius_small())).bg(gpui::white()).flex().items_center().justify_center().child(modules))
-            .child(
-                div()
-                    .max_w(px(CODE))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(px(TEXT_SMALL))
-                    .text_color(Theme::muted())
-                    .child(self.label.clone()),
-            );
+            .child(div().max_w(px(CODE)).text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(self.label.clone()));
         div()
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &ShowQrCode, window, cx| this.close(true, window, cx)))

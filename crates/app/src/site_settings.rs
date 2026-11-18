@@ -17,6 +17,7 @@ use ui::controls::{
 };
 use ui::icon::{Icon, icon};
 use ui::motion::{REOPEN_GUARD, popover_motion};
+use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{Secure, TEXT, TEXT_HEADING, TEXT_SMALL, TEXT_TINY, Theme};
@@ -302,8 +303,8 @@ impl SiteSettingsWindow {
             }
         })];
         subscriptions.extend(browser.upgrade().map(|b| {
-            cx.observe(&b, |this, b, cx| {
-                this.follow_site(&b, cx);
+            cx.observe_in(&b, window, |this, b, window, cx| {
+                this.follow_site(&b, window, cx);
                 cx.notify();
             })
         }));
@@ -344,8 +345,10 @@ impl SiteSettingsWindow {
 
     /// The page may move to another host while the card is open; the CSS field follows it, as
     /// the rest of the card does, so a save never lands on the host the card opened for.
-    fn follow_site(&mut self, browser: &gpui::Entity<Browser>, cx: &mut Context<Self>) {
-        let Some(host) = browser.read(cx).site().and_then(|(_, url)| url.host_str().map(str::to_owned)) else { return };
+    fn follow_site(&mut self, browser: &gpui::Entity<Browser>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(host) = browser.read(cx).site().and_then(|(_, url)| url.host_str().map(str::to_owned)) else {
+            return self.close(true, window, cx);
+        };
         if self.css_host.as_deref() == Some(host.as_str()) {
             return;
         }
@@ -457,7 +460,7 @@ impl SiteSettingsWindow {
                     .flex()
                     .flex_col()
                     .gap_0p5()
-                    .child(div().font_weight(FontWeight::BOLD).overflow_hidden().whitespace_nowrap().text_ellipsis().child(SharedString::from(host.to_owned())))
+                    .child(div().font_weight(FontWeight::BOLD).one_line(SharedString::from(host.to_owned())))
                     .child(div().flex().items_center().gap_1().text_size(px(TEXT_SMALL)).text_color(color).child(icon(glyph, 11., color)).child(text)),
             )
             .child(block)
@@ -504,36 +507,16 @@ impl SiteSettingsWindow {
     }
 
     fn item(first: bool, glyph: Icon, label: impl Into<SharedString>) -> gpui::Div {
-        row(first)
-            .h(px(ROW))
-            .flex_none()
-            .py_0()
-            .gap_2p5()
-            .child(icon(glyph, 15., Theme::muted()))
-            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label.into()))
+        row(first).h(px(ROW)).flex_none().py_0().gap_2p5().child(icon(glyph, 15., Theme::muted())).child(div().flex_1().one_line(label.into()))
     }
 
     fn switch_item(id: gpui::ElementId, glyph: Icon, label: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
-        let body = div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .items_center()
-            .gap_2p5()
-            .child(icon(glyph, 15., Theme::muted()))
-            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label));
+        let body = div().flex_1().min_w_0().flex().items_center().gap_2p5().child(icon(glyph, 15., Theme::muted())).child(div().flex_1().one_line(label));
         switch_row(id, false, body, on).h(px(ROW)).py_0()
     }
 
     fn row(label: impl Into<SharedString>) -> gpui::Div {
-        div()
-            .h(px(ROW))
-            .flex_none()
-            .px_3()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label.into()))
+        div().h(px(ROW)).flex_none().px_3().flex().items_center().gap_2().child(div().flex_1().one_line(label.into()))
     }
 
     fn zoom(&self, percent: f64, cx: &mut Context<Self>) -> gpui::Div {

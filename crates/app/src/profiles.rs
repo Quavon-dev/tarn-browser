@@ -53,6 +53,7 @@ pub struct ProfileEditor {
     _subscription: Subscription,
 }
 
+use browser_core::space_card::name_too_long;
 pub use browser_core::space_card::valid_name;
 
 use browser_core::command::engine_key;
@@ -133,7 +134,8 @@ impl Browser {
     pub(crate) fn editor_name(&self, cx: &App) -> Option<String> {
         let editor = self.profile_editor.as_ref()?;
         let others = self.other_profiles(editor.editing);
-        valid_name(editor.name.read(cx).text(), others.iter().map(|p| p.name.as_str()))
+        let typed = editor.name.read(cx).text();
+        valid_name(typed, others.iter().map(|p| p.name.as_str())).filter(|_| !name_too_long(typed))
     }
 
     pub fn open_profile_editor(&mut self, editing: Option<Id>, window: &mut Window, cx: &mut Context<Self>) {
@@ -421,6 +423,11 @@ fn details(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut Contex
         .gap_2()
         .child(caption("Name"))
         .child(input(focused).child(editor.name.clone()))
+        .when(b.editor_name(cx).is_none(), |d| {
+            let others = b.other_profiles(editor.editing);
+            let message = browser_core::space_card::profile_name_note(editor.name.read(cx).text(), others.iter().map(|p| p.name.as_str()));
+            d.when_some(message, |d, message| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::warning()).child(message)))
+        })
         .child(div().pt_2().child(caption("Color")))
         .child(color_row("profile-color", Some(editor.color), false, ring(1), cx, |e, ix| e.color = ix.unwrap_or(e.color)))
         .when(!candidates.is_empty(), |d| {

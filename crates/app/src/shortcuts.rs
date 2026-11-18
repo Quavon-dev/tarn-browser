@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use gpui::{
-    Action, AnyElement, AnyView, App, Context, Div, FontWeight, InteractiveElement, IntoElement, KeyBinding, Keystroke, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, actions, div, px,
+    Action, AnyElement, AnyView, App, Context, Div, Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, Keystroke, ParentElement,
+    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, actions, div, point, px,
 };
 use ui::controls::{key_hint, surface};
 use ui::theme::{Elevation, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
@@ -20,7 +20,7 @@ pub(crate) enum Keys {
 }
 
 /// Keys no rebindable action may take: the fixed rows' bindings, text fields' own and ⌘⇥.
-pub(crate) const RESERVED: [&str; 35] = [
+pub(crate) const RESERVED: [&str; 40] = [
     "cmd-1",
     "cmd-2",
     "cmd-3",
@@ -56,6 +56,11 @@ pub(crate) const RESERVED: [&str; 35] = [
     "ctrl-k",
     "cmd-tab",
     "cmd-q",
+    "cmd-+",
+    "cmd-}",
+    "cmd-{",
+    "alt-cmd-right",
+    "alt-cmd-left",
 ];
 
 const PREFIX: &str = "keymap.";
@@ -233,11 +238,12 @@ pub(crate) fn display(keys: &str) -> String {
     mods + &key
 }
 
-/// The keys bound to `action` now, such as `cmd-shift-t`, or empty.
+/// The keys bound to `action` now, such as `cmd-shift-t`, or empty: the first ones, which GPUI's
+/// menu bar shows too and which are the rebindable ones.
 pub(crate) fn keys(action: &dyn Action, cx: &App) -> String {
     let bindings = cx.key_bindings();
     let keymap = bindings.borrow();
-    keymap.bindings_for_action(action).last().and_then(|b| b.keystrokes().first()).map_or(String::new(), |k| canonical(&k.inner().unparse()))
+    keymap.bindings_for_action(action).next().and_then(|b| b.keystrokes().first()).map_or(String::new(), |k| canonical(&k.inner().unparse()))
 }
 
 /// The keys bound to `action` now, as shown, or empty.
@@ -253,7 +259,29 @@ pub(crate) fn tip(text: impl Into<SharedString>, action: &'static dyn Action) ->
 }
 
 pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
-    root.on_action(cx.listener(|b, _: &ToggleShortcuts, w, cx| b.toggle_shortcuts(w, cx)))
+    root.on_action(cx.listener(|b, _: &ToggleShortcuts, w, cx| b.toggle_shortcuts(w, cx))).on_key_down(cx.listener(|b, e: &KeyDownEvent, _, cx| {
+        if b.shortcuts_open && scroll_sheet(&b.shortcuts_scroll, &e.keystroke.key) {
+            cx.stop_propagation();
+            cx.notify();
+        }
+    }))
+}
+
+/// Scrolls the sheet for an arrow, page or Home and End key; false for any other key.
+fn scroll_sheet(scroll: &ScrollHandle, key: &str) -> bool {
+    const LINE: f32 = 40.;
+    let (y, page, end) = (f32::from(scroll.offset().y), f32::from(scroll.bounds().size.height) - LINE, f32::from(scroll.max_offset().height));
+    let y = match key {
+        "down" => y - LINE,
+        "up" => y + LINE,
+        "pagedown" | "space" => y - page,
+        "pageup" => y + page,
+        "home" => 0.,
+        "end" => -end,
+        _ => return false,
+    };
+    scroll.set_offset(point(px(0.), px(y.clamp(-end, 0.))));
+    true
 }
 
 impl Browser {
@@ -267,17 +295,19 @@ impl Browser {
             return;
         }
         self.shortcuts_open = true;
+        self.shortcuts_scroll.set_offset(point(px(0.), px(0.)));
         if let Some(view) = self.active_view() {
             view.set_visible(false);
         }
         if let Some(host) = &self.host {
             host.focus();
         }
+        window.focus(&self.focus_handle(cx));
         cx.notify();
     }
 }
 
-pub fn render(cx: &mut Context<Browser>) -> AnyElement {
+pub fn render(scroll: &ScrollHandle, cx: &mut Context<Browser>) -> AnyElement {
     let column = |(title, items): &(&'static str, &'static [(&'static str, Keys)])| {
         div()
             .w(px(250.))
@@ -286,17 +316,19 @@ pub fn render(cx: &mut Context<Browser>) -> AnyElement {
             .gap_1()
             .child(div().pb_1().text_size(px(TEXT_SMALL)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::muted()).child(title.to_uppercase()))
             .children(items.iter().filter(|(_, keys)| listed(keys)).map(|(action, keys)| {
-                div().flex().gap_3().justify_between().child(div().child(*action)).child(
+                div().flex().flex_wrap().gap_x_3().child(div().max_w_full().child(*action)).child(
                     key_hint(match keys {
                         Keys::Bound(_, action) => shown(*action, cx),
                         Keys::Fixed(keys) => (*keys).to_owned(),
                     })
-                    .flex_none(),
+                    .flex_none()
+                    .ml_auto(),
                 )
             }))
     };
     let card = surface(Theme::radius_card())
         .id("shortcuts")
+        .track_scroll(scroll)
         .w(px(1100.))
         .max_w_full()
         .max_h_full()

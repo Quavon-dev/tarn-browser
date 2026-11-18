@@ -17,6 +17,58 @@ use crate::memory;
 use crate::theme::Theme;
 use browser_core::closed::ARCHIVE_FOLDER;
 
+thread_local! {
+    /// The Library row that holds each window's keyboard focus.
+    static FOCUSED_ROW: std::cell::RefCell<std::collections::HashMap<u64, Focused>> = std::cell::RefCell::default();
+}
+
+#[derive(Clone, PartialEq)]
+pub(super) enum Focused {
+    Mark(Id),
+    Visit(String),
+}
+
+/// Remembers while `row` or a button in it has the keyboard focus, for `bind_row_keys`.
+pub(super) fn focus_row(ui: Ui, row: nsh_base::ButtonElement, what: Focused) -> nsh_base::ButtonElement {
+    let r = element_ref();
+    let (into, out) = (what.clone(), what);
+    r.on_focus_in(move || drop(FOCUSED_ROW.with_borrow_mut(|f| f.insert(ui.window, into.clone()))));
+    r.on_focus_out(move || {
+        FOCUSED_ROW.with_borrow_mut(|f| {
+            if f.get(&ui.window) == Some(&out) {
+                f.remove(&ui.window);
+            }
+        })
+    });
+    row.element_ref(&r)
+}
+
+/// F2 renames the focused bookmark row; Delete deletes it (asking first) or removes the focused
+/// History row, only while `query` is empty, as the macOS Library does.
+pub(super) fn bind_row_keys(ui: Ui, query: Signal<String>) {
+    let keys = KeyOptions { when: nsh_core::keymap::When::NotEditing, pass_through: true, ..KeyOptions::default() };
+    let focused = move || FOCUSED_ROW.with_borrow(|f| f.get(&ui.window).cloned());
+    on_key_with("f2", keys, move |_| {
+        if let Some(Focused::Mark(id)) = focused() {
+            ui.mark_edit.set(Some(MarkEdit::Rename(id)));
+            act(ui, |_| {});
+        }
+    });
+    on_key_with("delete", keys, move |_| {
+        if !query.with_untracked(|q| q.trim().is_empty()) {
+            return;
+        }
+        match focused() {
+            Some(Focused::Mark(id)) => {
+                ui.confirm.set(Some(format!("bookmark {id}")));
+                act(ui, |_| {});
+            }
+            Some(Focused::Visit(url)) => super::remove_history(ui, url),
+            None => {}
+        }
+    });
+}
+
 const MAX_FOUND: usize = 200;
 const FIELD_WIDTH: f32 = 388.;
 const DAYS: [(&str, u8); 7] = [("Mon", 1), ("Tue", 2), ("Wed", 3), ("Thu", 4), ("Fri", 5), ("Sat", 6), ("Sun", 0)];
@@ -153,7 +205,7 @@ fn schedule_rows(ui: Ui, schedule: Schedule) -> View {
                 .rounded(px(Theme::radius_small()))
                 .bg(if on { Theme::accent_soft() } else { Theme::control() })
                 .selected(on)
-                .child(small(*name).text_color(if on { Theme::accent() } else { Theme::muted() }))
+                .child(small(*name).text_color(if on { Theme::accent_text() } else { Theme::muted() }))
                 .into_element()
         })
         .collect();
@@ -181,6 +233,7 @@ pub fn new_space_panel(ui: Ui) -> AnyElement {
         ui.space_draft.set(read(ui, Browser::new_space_draft));
     }
     let profiles = read(ui, |b| b.core.disk.profiles().unwrap_or_default()).unwrap_or_default();
+    let names: Vec<String> = profiles.iter().map(|p| p.name.clone()).collect();
     let new_profile = move || {
         view()
             .flex_col()
@@ -188,6 +241,7 @@ pub fn new_space_panel(ui: Ui) -> AnyElement {
             .child(note("Starts empty, with its own logins, cookies, site data, history and bookmarks."))
             .child(section("Profile Name"))
             .child(field(ui, "Profile Name", |d| d.profile_name.clone(), |d, v| d.profile_name = v))
+            .child(super::profiles::name_note(move || draft(ui, |d| d.profile_name.clone()).unwrap_or_default(), names.clone()))
             .child(section("Profile Color"))
             .child(dynamic(move || draft(ui, |d| swatches(ui, &d.profile_color, false, |d, c| d.profile_color = c))))
     };
@@ -336,7 +390,9 @@ fn library_results(ui: Ui, history: &[store::HistoryEntry], query: &str) -> View
             .children(empty)
             .children(tabs)
     });
-    let links = |rows: Vec<crate::browser::library::Link>| -> Vec<AnyElement> { rows.into_iter().map(|link| super::panels::link_row(ui, link)).collect() };
+    let links = |rows: Vec<crate::browser::library::Link>| -> Vec<AnyElement> {
+        rows.into_iter().map(|link| super::panels::link_row(ui, link, None).into_element()).collect()
+    };
     let downloads: Vec<AnyElement> = found.downloads.into_iter().map(|d| super::panels::saved_download(ui, d)).collect();
     view()
         .flex_col()
@@ -379,7 +435,7 @@ pub fn memory_panel(ui: Ui) -> AnyElement {
                     crate::snapshot::tab_label(t, b, key),
                     host,
                     memory::detail(costs.get(&key).copied(), !live.contains(&key)),
-                    live.contains(&key) && b.model.active != Some(key),
+                    live.contains(&key) && b.model.active != Some(key) && !b.in_split(key),
                 )
             })
             .collect::<Vec<_>>()
@@ -516,24 +572,22 @@ fn mark_row(ui: Ui, marks: &[Bookmark], mark: &Bookmark, edit: Option<MarkEdit>,
             .child(view().w(px(16.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::FOLDER, 15.)))
             .child(label(name.clone()).flex_1().truncate()),
     };
+    let row = focus_row(ui, row, Focused::Mark(id));
     if !actions {
         let actions_width = 3. * tarn_nsh_shared::controls::target_size() + 2. * 8.;
         return row.child(view().w(px(actions_width)).flex_none()).into_element();
     }
     let alone = mark.url.is_some() || !marks.iter().any(|m| m.parent_id == Some(id));
-    let deletion = crate::controls::icon_button(icons::TRASH, "Delete", move || match alone {
-        true => act(ui, |b| b.delete_bookmark(id)),
-        false => {
-            ui.confirm.set(Some(format!("bookmark {id}")));
-            act(ui, |_| {});
-        }
+    let deletion = crate::controls::icon_button(icons::TRASH, "Delete", move || {
+        ui.confirm.set(Some(format!("bookmark {id}")));
+        act(ui, |_| {});
     });
-    let asked = (!alone && ui.confirm.with_untracked(|c| c.as_deref() == Some(format!("bookmark {id}").as_str()))).then(|| {
+    let asked = ui.confirm.with_untracked(|c| c.as_deref() == Some(format!("bookmark {id}").as_str())).then(|| {
         view()
             .flex_row()
             .items_center()
             .gap_2()
-            .child(note(format!("Delete “{name}” and everything in it?")))
+            .child(note(if alone { format!("Delete “{name}”?") } else { format!("Delete “{name}” and everything in it?") }))
             .child(crate::controls::accent_pill("Delete", move || {
                 ui.confirm.set(None);
                 act(ui, |b| b.delete_bookmark(id));
@@ -548,11 +602,11 @@ fn mark_row(ui: Ui, marks: &[Bookmark], mark: &Bookmark, edit: Option<MarkEdit>,
         .child(edit_button(icons::FOLDER_OPEN, "Move to Folder", MarkEdit::Move(id)))
         .child(deletion);
     let editor = match edit {
-        Some(MarkEdit::Rename(e)) if e == id => Some(super::panels::rename_row(ui, format!("bookmark {id}"), &bounded_title(&mark.title), move |title| {
+        Some(MarkEdit::Rename(e)) if e == id => Some(super::panels::rename_row(ui, format!("bookmark {id}"), &mark.title, move |title| {
             ui.mark_edit.set(None);
             act(ui, |b| {
-                let shown = b.bookmarks().into_iter().find(|m| m.id == id).map(|m| bounded_title(&m.title));
-                if shown.as_deref() != Some(title.trim()) {
+                let stored = b.bookmarks().into_iter().find(|m| m.id == id).map(|m| m.title);
+                if stored.as_deref() != Some(title.trim()) {
                     b.rename_bookmark(id, &title);
                 }
             });
@@ -630,6 +684,9 @@ pub fn bookmarks_panel(ui: Ui, folder: Option<store::Id>) -> AnyElement {
                 .child(pill("History", move || super::show(ui, Panel::History))),
         ))
         .child(super::text_field(ui.mark_query, "Search Bookmarks", 260.))
-        .child(mark_list(ui, folder))
+        .child({
+            bind_row_keys(ui, ui.mark_query);
+            mark_list(ui, folder)
+        })
         .into_element()
 }

@@ -213,6 +213,11 @@ impl DataStore {
         self.downloads.resume(id, &self.store);
     }
 
+    /// Stops download `id`, saving or paused, and removes its part; `Event::DownloadCancelled` follows.
+    pub fn cancel_download(&self, id: u64) {
+        self.downloads.cancel(id);
+    }
+
     /// For quit: quarantines the parts of saving downloads and removes the others with theirs.
     pub fn quit_downloads(&self) {
         self.downloads.quit();

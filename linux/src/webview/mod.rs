@@ -238,6 +238,19 @@ fn decline(pending: Pending) {
     }
 }
 
+/// `set_dark` (`docs/shared-core.md` §1). WebKitGTK takes `prefers-color-scheme` from GTK's
+/// settings, which NSH sets from the app's colour scheme, so it is set for every view at once.
+/// While the theme follows the system the system's scheme is the theme's, and stays followed so
+/// NSH keeps reporting the system's appearance.
+pub fn set_dark(follows_system: bool, dark: bool) {
+    use nsh_core::platform::Appearance;
+    nsh_core::prelude::set_color_scheme(match (follows_system, dark) {
+        (true, _) => Appearance::System,
+        (false, true) => Appearance::Dark,
+        (false, false) => Appearance::Light,
+    });
+}
+
 pub fn adopt_download(download: &Download) {
     let owner = download.web_view();
     let state = VIEWS.with_borrow(|views| views.iter().filter_map(Weak::upgrade).find(|s| owner.is_some() && s.web() == owner));
@@ -438,7 +451,7 @@ fn decide(state: &Rc<State>, web: &WebView, decision: &webkit6::PolicyDecision, 
         PolicyDecisionType::NavigationAction => decide_navigation(state, web, decision),
         PolicyDecisionType::NewWindowAction => {
             if let Some((action, uri)) = navigation_uri(decision) {
-                open_popup(state, &uri, action.is_user_gesture(), is_link(&action), true, is_peek(&action));
+                open_popup(state, &uri, action.is_user_gesture(), is_link(&action), true, is_peek(&action), false);
             }
             decision.ignore();
             true
@@ -476,9 +489,29 @@ fn is_peek(action: &webkit6::NavigationAction) -> bool {
     is_link(action) && action.mouse_button() != 2 && action.modifiers() & SHIFT_MASK != 0 && action.modifiers() & CONTROL_MASK == 0
 }
 
+/// WebKit's Open Link in New Window opens a tab, so it says so, and Open Link in Split View
+/// follows it, through the same pop-up checks.
+fn link_menu(state: &std::rc::Weak<State>, menu: &webkit6::ContextMenu, hit: &webkit6::HitTestResult) {
+    use webkit6::{ContextMenuAction, ContextMenuItem};
+    let Some(link) = hit.link_uri().filter(|_| hit.context_is_link()).map(|u| u.to_string()) else { return };
+    let items = menu.items();
+    let Some(at) = items.iter().position(|item| item.stock_action() == ContextMenuAction::OpenLinkInNewWindow) else { return };
+    menu.remove(&items[at]);
+    menu.insert(&ContextMenuItem::from_stock_action_with_label(ContextMenuAction::OpenLinkInNewWindow, "Open Link in New Tab"), at as i32);
+    let split = gio::SimpleAction::new("open-link-in-split-view", None);
+    let state = state.clone();
+    split.connect_activate(move |_, _| {
+        if let Some(s) = state.upgrade() {
+            open_popup(&s, &link, true, true, true, false, true);
+        }
+    });
+    menu.insert(&ContextMenuItem::from_gaction(&split, "Open Link in Split View", None), at as i32 + 1);
+}
+
 /// `by_page`: a window the page opens, which its site's pop-up rule and the domain sets judge; a
-/// link the user opens in a new tab is judged when that tab loads it.
-fn open_popup(state: &Rc<State>, uri: &str, gesture: bool, link: bool, by_page: bool, peek: bool) {
+/// link the user opens in a new tab is judged when that tab loads it. `split` puts the tab beside
+/// the page in split view.
+fn open_popup(state: &Rc<State>, uri: &str, gesture: bool, link: bool, by_page: bool, peek: bool, split: bool) {
     let Ok(url) = Url::parse(uri) else { return };
     let page = state.page.borrow().clone();
     let verdict = policy::popup(&state.levels.borrow(), state.level.get(), &url, page.as_ref());
@@ -487,7 +520,7 @@ fn open_popup(state: &Rc<State>, uri: &str, gesture: bool, link: bool, by_page: 
             state.emit("blocked", json!({ "url": url.as_str(), "reason": "shield", "popup": true }))
         }
         Verdict::Allow { .. } if gesture && state.admit_popup() => {
-            state.emit(if peek { "peek" } else { "popup" }, json!({ "url": url.as_str(), "link": link }))
+            state.emit(if peek { "peek" } else { "popup" }, json!({ "url": url.as_str(), "link": link, "split": split }))
         }
         Verdict::External if gesture && state.admit_prompt() => state.emit("external", json!({ "url": url.as_str(), "origin": state.origin() })),
         Verdict::Blocked(reason) => state.emit("blocked", json!({ "url": url.as_str(), "reason": reason, "popup": true })),
@@ -515,7 +548,7 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
     let link = matches!(nav_type, NavigationType::LinkClicked | NavigationType::FormSubmitted);
     let peek = gesture && is_peek(&action);
     if link && gesture && (peek || action.mouse_button() == 2 || action.modifiers() & CONTROL_MASK != 0) {
-        open_popup(state, &uri, true, nav_type == NavigationType::LinkClicked, false, peek);
+        open_popup(state, &uri, true, nav_type == NavigationType::LinkClicked, false, peek, false);
         decision.ignore();
         return true;
     }
@@ -773,8 +806,7 @@ fn find(state: &Rc<State>, args: &JsonValue) {
     let Some(finder) = web.find_controller() else { return };
     let text = args["text"].as_str().unwrap_or_default().to_owned();
     if text.is_empty() {
-        finder.search_finish();
-        state.find_text.borrow_mut().clear();
+        clear_find(state);
         return state.emit("found", json!({ "matched": 0 }));
     }
     let backwards = args["backwards"].as_bool().unwrap_or(false);
@@ -794,6 +826,14 @@ fn find(state: &Rc<State>, args: &JsonValue) {
     *state.find_text.borrow_mut() = text.clone();
     finder.count_matches(&text, options.bits(), FIND_MAX);
     finder.search(&text, options.bits(), FIND_MAX);
+}
+
+/// `clear_find`: unmarks the matches a `find` left; the last one stays selected, as in Safari.
+fn clear_find(state: &State) {
+    if let Some(finder) = state.web().and_then(|web| web.find_controller()) {
+        finder.search_finish();
+    }
+    state.find_text.borrow_mut().clear();
 }
 
 fn mute(state: &State, muted: bool) {
@@ -1009,9 +1049,14 @@ fn connect(state: &Rc<State>, web: &WebView) {
         let action = action.clone();
         let uri = action.request().and_then(|r| r.uri()).map(|u| u.to_string());
         if let (Some(s), Some(uri)) = (w.upgrade(), uri) {
-            open_popup(&s, &uri, action.is_user_gesture(), is_link(&action), true, is_peek(&action));
+            open_popup(&s, &uri, action.is_user_gesture(), is_link(&action), true, is_peek(&action), false);
         }
         None
+    });
+    let w = weak.clone();
+    web.connect_context_menu(move |_, menu, hit| {
+        link_menu(&w, menu, hit);
+        false
     });
     if let Some(finder) = web.find_controller() {
         let w = weak.clone();
@@ -1174,6 +1219,7 @@ impl NativeComponent for TarnWebView {
         match name {
             "answer" => return answer(state, args),
             "find" => return find(state, args),
+            "clearFind" => return clear_find(state),
             "downloadCancel" => return session::cancel(args["id"].as_str().unwrap_or_default()),
             "downloadKeep" => return session::keep(args["id"].as_str().unwrap_or_default(), args["keep"].as_bool() == Some(true)),
             "downloadPause" | "downloadResume" => return,
@@ -1201,6 +1247,9 @@ impl NativeComponent for TarnWebView {
             "back" | "forward" | "reload" | "reloadFromOrigin" => {}
             "clearCache" => session::clear_cache(&web),
             "stop" => web.stop_loading(),
+            "focus" => {
+                web.grab_focus();
+            }
             "print" => {
                 glib::idle_add_local_once(move || {
                     webkit6::PrintOperation::new(&web).run_dialog(web.root().and_downcast::<gtk::Window>().as_ref());

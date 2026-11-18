@@ -7,6 +7,7 @@ use gpui::{
 use ui::controls::{button, field, icon_button, list_row, secure_button, secure_ghost_button, secure_surface, surface, tab_stop, tooltip};
 use ui::icon::{ICON_MEDIUM, ICON_SMALL, Icon, MARK, icon};
 use ui::motion::{EXIT, FADE, SLIDE, pop_in, pop_out, progress};
+use ui::text::OneLine;
 use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 use engine::PromptKind;
@@ -96,7 +97,7 @@ impl Browser {
         }
         let running = |at: Option<Instant>, d| at.is_some_and(|at: Instant| at.elapsed() < d);
         let sidebar = running(self.sidebar_toggled, SLIDE) && !self.pref(Pref::ReduceMotion);
-        if self.settle_slide() || sidebar || self.page_fade.is_some() || running(self.overlay_exit, EXIT) || !self.floating.leaving.is_empty() {
+        if self.settle_slide() || sidebar || self.page_fade.is_some() || running(self.overlay_exit, EXIT) {
             window.request_animation_frame();
         }
     }
@@ -170,7 +171,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                     .text_color(color)
                     .child(secure_button("dl-show", ui::controls::REVEAL, true).on_click(move |_, _, _| engine::reveal_in_finder(&reveal)))
                     .child(secure_button("dl-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| {
-                        b.download = None;
+                        b.dismiss_download();
                         cx.notify();
                     }))),
             );
@@ -182,7 +183,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 text.clone(),
                 Theme::danger(),
                 banner(text).text_color(Theme::danger()).child(secure_button("dl-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| {
-                    b.download = None;
+                    b.dismiss_download();
                     cx.notify();
                 }))),
             );
@@ -200,6 +201,8 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
             crate::blocking::Offer::Reload => "Turn On",
             #[cfg(feature = "translation")]
             crate::blocking::Offer::Translate(..) => "Translate",
+            #[cfg(feature = "translation")]
+            crate::blocking::Offer::ShowOriginal => "Show Original",
         });
         push(
             "banner-notice",
@@ -237,45 +240,43 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 "find-bar",
                 String::new(),
                 Theme::text(),
-                div().mb_2().flex_none().flex().justify_end().child(
-                    surface(12.)
-                        .w(px(400.))
-                        .flex_none()
-                        .shadow(Elevation::Floating.shadow())
-                        .when(focused, |d| d.border_color(Theme::accent()))
-                        .text_size(px(TEXT))
-                        .h(px(40.))
-                        .pl_3()
-                        .pr_1()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(icon(Icon::Search, 14., Theme::muted()))
-                        .child(div().flex_1().min_w_0().overflow_hidden().child(b.find_input.clone()))
-                        .child(
-                            div()
-                                .flex_none()
-                                .text_size(px(TEXT_SMALL))
-                                .text_color(if b.find_count == Some(0) { Theme::danger() } else { Theme::faint() })
-                                .child(browser_core::find::count_label(b.find_count)),
-                        )
-                        .child(div().w(px(1.)).h(px(18.)).flex_none().bg(Theme::separator()))
-                        .child(
-                            icon_button("find-prev", Icon::ChevronUp, true)
-                                .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
-                                .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
-                        )
-                        .child(
-                            icon_button("find-next", Icon::ChevronDown, true)
-                                .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
-                                .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
-                        )
-                        .child(
-                            icon_button("find-close", Icon::Close, true)
-                                .tooltip(tooltip("Done", Some("Esc".into())))
-                                .on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
-                        ),
-                ),
+                surface(Theme::radius_panel())
+                    .mb_2()
+                    .flex_none()
+                    .shadow(Elevation::Floating.shadow())
+                    .when(focused, |d| d.border_color(Theme::accent()))
+                    .text_size(px(TEXT))
+                    .h(px(40.))
+                    .pl_3()
+                    .pr_1()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(icon(Icon::Search, 14., Theme::muted()))
+                    .child(div().flex_1().min_w_0().overflow_hidden().child(b.find_input.clone()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(TEXT_SMALL))
+                            .text_color(if matches!(b.find_count, Some((0, _))) { Theme::danger() } else { Theme::faint() })
+                            .child(browser_core::find::count_label(b.find_count.map(|c| c.0), b.find_count.and_then(|c| c.1))),
+                    )
+                    .child(div().w(px(1.)).h(px(18.)).flex_none().bg(Theme::separator()))
+                    .child(
+                        icon_button("find-prev", Icon::ChevronUp, true)
+                            .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
+                            .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
+                    )
+                    .child(
+                        icon_button("find-next", Icon::ChevronDown, true)
+                            .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
+                            .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
+                    )
+                    .child(
+                        icon_button("find-close", Icon::Close, true)
+                            .tooltip(tooltip("Done", Some("Esc".into())))
+                            .on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
+                    ),
             );
         }
     }
@@ -285,6 +286,9 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         b.layout_changed();
     }
     b.floating.update(present, !reduce);
+    if !b.floating.leaving.is_empty() {
+        window.request_animation_frame();
+    }
     let mut cards: Vec<AnyElement> = items.into_iter().map(|((id, ..), card)| pop_in(card, id, reduce)).collect();
     for (ix, (_, text, color), at) in &b.floating.leaving {
         let t = progress(*at, EXIT);
@@ -304,7 +308,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     let body: AnyElement = if let Some(editor) = crate::profiles::render_editor(b, window, cx) {
         leaving(editor)
     } else if b.shortcuts_open {
-        leaving(pop_in(div().flex_1().flex().flex_col().child(crate::shortcuts::render(cx)), "shortcuts", reduce))
+        leaving(pop_in(div().flex_1().min_h_0().flex().flex_col().child(crate::shortcuts::render(&b.shortcuts_scroll, cx)), "shortcuts", reduce))
     } else if let Some(reader) = crate::reader::render(b, cx) {
         leaving(pop_in(div().flex_1().min_h_0().flex().flex_col().child(reader), "reader", reduce))
     } else if (b.command_mode.is_some() && !b.inline_editing()) || b.model.active.is_none() {
@@ -528,27 +532,10 @@ fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div>
         .px_1p5()
         .gap_3()
         .child(suggestion_tile(b, s, selected))
-        .child(
-            div()
-                .flex_1()
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .text_color(if rejected { Theme::danger() } else { Theme::text() })
-                .child(s.label.clone()),
-        )
+        .child(div().flex_1().text_color(if rejected { Theme::danger() } else { Theme::text() }).one_line(s.label.clone()))
         .map(|d| match command {
             true => d.child(div().flex().flex_none().gap_1().children(ui::controls::key_caps(&s.detail).into_iter().map(ui::controls::key_cap))),
-            false => d.child(
-                div()
-                    .max_w(px(260.))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(px(TEXT_SMALL))
-                    .text_color(Theme::muted())
-                    .child(s.detail.clone()),
-            ),
+            false => d.child(div().max_w(px(260.)).text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(s.detail.clone())),
         })
 }
 
@@ -599,6 +586,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .children(
             suggestion_rows(b).into_iter().enumerate().map(|(ix, row)| row.on_click(cx.listener(move |b, _, window, cx| b.submit_command(ix, window, cx)))),
         );
+    let (space_at, shield_at) = (std::rc::Rc::<std::cell::Cell<_>>::default(), std::rc::Rc::<std::cell::Cell<_>>::default());
     let card = surface(Theme::radius_card())
         .id("start-card")
         .border_color(Theme::accent_soft())
@@ -641,12 +629,15 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
                         .child(profile_dot(&color, 8.))
                         .child(icon(Icon::Folder, 12., Theme::muted()))
                         .child(space)
+                        .child(crate::address::measure(space_at.clone()))
                         .on_click(cx.listener(move |b, _, w, cx| {
+                            b.menu_at = Some(space_at.get());
                             b.space_menu(b.model.space_ix, w, cx);
                             b.keep_command_focus(typing, w, cx);
                         })),
                 )
-                .child(tab_stop(start_shield(level)).on_click(cx.listener(move |b, _, w, cx| {
+                .child(tab_stop(start_shield(level)).child(crate::address::measure(shield_at.clone())).on_click(cx.listener(move |b, _, w, cx| {
+                    b.menu_at = Some(shield_at.get());
                     b.shield_menu(w, cx);
                     b.keep_command_focus(typing, w, cx);
                 }))),

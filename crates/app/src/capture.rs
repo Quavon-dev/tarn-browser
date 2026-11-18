@@ -72,9 +72,11 @@ impl Browser {
             self.downloads_popover.changed += 1;
         }
         match result {
-            Ok(path) if screenshot => self.show_toast_as(browser_core::toast::Tone::Success, "Screenshot saved", Some(crate::toast::Action::Reveal(path)), cx),
+            Ok(path) if screenshot => {
+                self.show_toast_as(browser_core::toast::Tone::Success, "Screenshot saved and copied", Some(crate::toast::Action::Reveal(path)), cx)
+            }
             result => {
-                self.download = Some(DownloadNotice { private, profile_id, result: result.map(|path| (path, true)) });
+                self.push_download_notice(DownloadNotice { private, profile_id, result: result.map(|path| (path, true)) });
                 cx.notify();
             }
         }

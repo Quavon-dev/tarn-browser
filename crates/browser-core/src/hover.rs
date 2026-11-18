@@ -78,10 +78,14 @@ pub struct Rest {
 }
 
 impl Rest {
-    pub fn enter(&mut self, key: TabKey, now: Instant) {
-        if self.on.is_none_or(|(k, _)| k != key) {
+    /// Returns whether the pointer came from another row, whose card must close now: that row's
+    /// leave arrives after this enter and is ignored.
+    pub fn enter(&mut self, key: TabKey, now: Instant) -> bool {
+        let from = self.on.map(|(k, _)| k);
+        if from != Some(key) {
             self.on = Some((key, now));
         }
+        from.is_some_and(|k| k != key)
     }
 
     /// Leaving a row the pointer is no longer on, after it entered the next one, changes nothing.
@@ -183,9 +187,10 @@ mod tests {
     #[test]
     fn a_new_row_restarts_the_wait_and_a_late_leave_is_ignored() {
         let (mut rest, t) = (Rest::default(), Instant::now());
-        rest.enter(A, t);
-        rest.enter(B, t + Duration::from_millis(500));
+        assert!(!rest.enter(A, t));
+        assert!(rest.enter(B, t + Duration::from_millis(500)), "the card of the row left behind closes");
         assert!(!rest.leave(A));
+        assert!(!rest.enter(B, t + Duration::from_millis(550)));
         assert_eq!(rest.due(t + Duration::from_millis(600)), Some((B, Duration::from_millis(500))));
         assert!(rest.leave(B));
         assert_eq!(rest.due(t + Duration::from_secs(5)), None);

@@ -21,7 +21,7 @@ use crate::nav_policy::{self, Decision, GateAction, Source};
 use crate::tarn_ext::{ExtensionView, FrameId, Gate, PageSpec, World, WorldScripts};
 use crate::{Event, Host, Protection};
 
-type Found = Box<dyn Fn(usize)>;
+type Found = Box<dyn Fn(usize, Option<usize>)>;
 type Reply = Box<dyn FnOnce(Option<Value>)>;
 #[cfg(windows)]
 type CreatedHook = Box<dyn FnOnce(Browser)>;
@@ -523,7 +523,7 @@ wrap_client! {
         }
 
         fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
-            Some(TarnContextMenu::new(self.id))
+            Some(TarnContextMenu::new(self.id, self.profile.clone()))
         }
 
         fn jsdialog_handler(&self) -> Option<JsdialogHandler> {
@@ -705,7 +705,7 @@ wrap_request_handler! {
             let Ok(url) = Url::parse(&CefString::from(&request.url()).to_string()) else { return 1 };
             if let Some(allowed) = tarn::page_allows(&tab, &url, frame.is_main() == 1) {
                 if !allowed && frame.is_main() == 1 && user_gesture == 1 && crate::tarn_ext::opens_as_tab(&url) {
-                    emit(&tab, Event::OpenTab { url, from: None, background: false });
+                    emit(&tab, Event::OpenTab { url, from: None, background: false, split: false });
                 }
                 return i32::from(!allowed);
             }
@@ -882,7 +882,7 @@ wrap_request_handler! {
             let tab_disposition = [WindowOpenDisposition::NEW_FOREGROUND_TAB, WindowOpenDisposition::NEW_BACKGROUND_TAB];
             if user_gesture == 1 && (target_disposition == WindowOpenDisposition::NEW_WINDOW || tab_disposition.contains(&target_disposition)) {
                 let background = (target_disposition != WindowOpenDisposition::NEW_WINDOW).then_some(target_disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB);
-                peek(self.id, &self.profile, target_url, page_url(browser.as_deref()), background);
+                peek(self.id, &self.profile, target_url, page_url(browser.as_deref()), background, false);
             } else {
                 offer_popup(self.id, frame, target_url, user_gesture);
             }
@@ -1295,7 +1295,7 @@ fn page_url(browser: Option<&Browser>) -> Option<Url> {
 
 /// A peek, or a tab opened by a click (`background` set), is a window the page could open with a
 /// synthetic click: it gets the pop-up rules, their rate limit and the S10 check.
-fn peek(id: u64, profile: &str, target_url: Option<&CefString>, page: Option<Url>, background: Option<bool>) {
+fn peek(id: u64, profile: &str, target_url: Option<&CefString>, page: Option<Url>, background: Option<bool>, split: bool) {
     let (Some(tab), Ok(url)) = (tab(id), Url::parse(&string(target_url))) else { return };
     #[cfg(windows)]
     let page = with_opener(&tab, page);
@@ -1309,7 +1309,7 @@ fn peek(id: u64, profile: &str, target_url: Option<&CefString>, page: Option<Url
         emit(
             &tab,
             match background {
-                Some(background) => Event::OpenTab { url, from: page, background },
+                Some(background) => Event::OpenTab { url, from: page, background, split },
                 None => Event::PeekLink(url, page),
             },
         );
@@ -1505,9 +1505,13 @@ fn kept_item(id: i32, inspectable: bool) -> bool {
         || (inspectable && id == sys::IDC_CONTENT_CONTEXT_INSPECTELEMENT)
 }
 
+/// The context-menu command Tarn adds after Open Link in New Tab.
+const OPEN_LINK_IN_SPLIT_VIEW: i32 = sys::cef_menu_id_t::MENU_ID_USER_FIRST as i32;
+
 wrap_context_menu_handler! {
     struct TarnContextMenu {
         id: u64,
+        profile: String,
     }
 
     impl ContextMenuHandler {
@@ -1527,6 +1531,20 @@ wrap_context_menu_handler! {
             if model.count() > 0 && model.type_at(0) == MenuItemType::SEPARATOR {
                 model.remove_at(0);
             }
+            if let Ok(at) = usize::try_from(model.index_of(sys::IDC_CONTENT_CONTEXT_OPENLINKNEWTAB)) {
+                model.insert_item_at(at + 1, OPEN_LINK_IN_SPLIT_VIEW, Some(&CefString::from("Open Link in Split View")));
+            }
+        }
+
+        fn on_context_menu_command(&self, browser: Option<&mut Browser>, _frame: Option<&mut Frame>, params: Option<&mut ContextMenuParams>, command_id: i32, _event_flags: EventFlags) -> i32 {
+            if command_id != OPEN_LINK_IN_SPLIT_VIEW {
+                return 0;
+            }
+            if let Some(params) = params {
+                let link = CefString::from(&params.link_url());
+                peek(self.id, &self.profile, Some(&link), page_url(browser.as_deref()), Some(false), true);
+            }
+            1
         }
     }
 }
@@ -1537,10 +1555,11 @@ wrap_find_handler! {
     }
 
     impl FindHandler {
-        fn on_find_result(&self, browser: Option<&mut Browser>, _identifier: i32, count: i32, _selection_rect: Option<&Rect>, _active_match_ordinal: i32, final_update: i32) {
+        fn on_find_result(&self, browser: Option<&mut Browser>, _identifier: i32, count: i32, _selection_rect: Option<&Rect>, active_match_ordinal: i32, final_update: i32) {
             let Some(tab) = tab(self.id) else { return };
             if final_update == 1 && let Some(found) = tab.found.borrow().as_ref() {
-                found(usize::try_from(count).unwrap_or(0).min(crate::page_scripts::FIND_COUNT_MAX));
+                let count = usize::try_from(count).unwrap_or(0).min(crate::page_scripts::FIND_COUNT_MAX);
+                found(count, usize::try_from(active_match_ordinal).ok().filter(|at| (1..=count).contains(at)));
             }
         }
     }
@@ -1606,6 +1625,10 @@ fn to_shell(event: &NSEvent) -> bool {
 fn forwarded(modifiers: u32, key: i32) -> bool {
     use sys::cef_event_flags_t as F;
     let has = |flag: F| u64::from(modifiers) & flag.0 as u64 != 0;
+    // F6 moves the keyboard out of the page.
+    if key == 0x75 {
+        return true;
+    }
     // Backspace, Enter, Shift, Ctrl, Alt, the caret keys and Delete, the Windows keys.
     const PAGE_KEYS: [i32; 16] = [0x08, 0x0d, 0x10, 0x11, 0x12, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2e, 0x5b, 0x5c];
     // Select all, copy, paste, cut, undo, redo (Ctrl+Y on Windows); with Shift only paste as text and redo.
@@ -1719,6 +1742,8 @@ struct Inner {
     clip: Cell<Option<(isize, i32, i32, i32)>>,
     visible: Cell<bool>,
     muted: Cell<bool>,
+    /// The colour scheme asked for, applied once the browser exists.
+    dark: Cell<Option<bool>>,
     first_load: RefCell<Option<Url>>,
     /// The waiting first load is a page's link (`load_link`), not the user's.
     first_link: Cell<bool>,
@@ -1905,6 +1930,7 @@ impl WebView {
             clip: Cell::new(None),
             visible: Cell::new(false),
             muted: Cell::new(false),
+            dark: Cell::new(None),
             first_load: RefCell::new(None),
             first_link: Cell::new(false),
             handover: RefCell::new(None),
@@ -1994,6 +2020,9 @@ impl WebView {
         }
         if self.0.muted.get() {
             self.set_muted(true);
+        }
+        if let Some(dark) = self.0.dark.get() {
+            self.set_dark(dark);
         }
         self.load_first();
     }
@@ -2478,11 +2507,29 @@ impl WebView {
         self.0.tab.title.borrow().clone()
     }
 
-    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize) + 'static) {
-        let Some(host) = self.browser_host() else { return found(0) };
+    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize, Option<usize>) + 'static) {
+        let Some(host) = self.browser_host() else { return found(0, None) };
         *self.0.tab.found.borrow_mut() = Some(Box::new(found));
         let next = self.0.tab.last_find.replace(text.to_owned()) == text;
         host.find(Some(&CefString::from(text)), i32::from(!backwards), 0, i32::from(next));
+    }
+
+    /// The colour scheme pages see (`prefers-color-scheme`): the shell's theme, not the system's.
+    pub fn set_dark(&self, dark: bool) {
+        self.0.dark.set(Some(dark));
+        if let Some(host) = self.browser_host() {
+            let scheme = if dark { "dark" } else { "light" };
+            let params = format!("{{\"features\":[{{\"name\":\"prefers-color-scheme\",\"value\":\"{scheme}\"}}]}}");
+            call(&self.0.tab, &host, "Emulation.setEmulatedMedia", &params, |_| {});
+        }
+    }
+
+    /// Ends the find and clears its highlight, keeping the page's selection; the next find starts afresh.
+    pub fn clear_find(&self) {
+        self.0.tab.last_find.replace(String::new());
+        if let Some(host) = self.browser_host() {
+            host.stop_finding(0);
+        }
     }
 
     pub fn is_muted(&self) -> bool {

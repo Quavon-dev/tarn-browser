@@ -25,7 +25,7 @@ use shield::ShieldLevel;
 use store::{Id, InstalledExtension};
 use ui::controls::{icon_button, tooltip};
 use ui::icon::Icon;
-use ui::theme::Theme;
+use ui::theme::{TEXT_TINY, Theme};
 use url::Url;
 
 use crate::browser::{Browser, TabKey};
@@ -615,8 +615,8 @@ pub(crate) fn buttons(b: &Browser, cx: &mut gpui::Context<Browser>) -> Vec<gpui:
                             .px(px(2.))
                             .rounded(px(3.))
                             .bg(color)
-                            .text_color(Theme::on_accent())
-                            .text_size(px(9.))
+                            .text_color(Theme::on_fill(color))
+                            .text_size(px(TEXT_TINY))
                             .child(badge),
                     )
                 })

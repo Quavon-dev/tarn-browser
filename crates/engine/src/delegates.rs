@@ -11,7 +11,9 @@ use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyObject, Bool, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::sel;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
-use objc2_app_kit::{NSEventModifierFlags, NSModalResponse, NSModalResponseOK, NSOpenPanel};
+use objc2_app_kit::{
+    NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem, NSModalResponse, NSModalResponseOK, NSOpenPanel, NSUserInterfaceItemIdentification,
+};
 use objc2_foundation::{
     NSArray, NSData, NSDictionary, NSError, NSHTTPURLResponse, NSObject, NSProgressReporting, NSRect, NSString, NSTimer, NSURL, NSURLAuthenticationChallenge,
     NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLCredential, NSURLProtectionSpace, NSURLQuarantinePropertiesKey,
@@ -125,6 +127,9 @@ pub(crate) struct DelegateState {
     pub web_origin: RefCell<Option<String>>,
     pub last_title: RefCell<String>,
     pub after_commit: RefCell<Option<Box<dyn FnOnce()>>>,
+    /// When the user chose Open Link in Split View: the window WebKit asks for within moments opens
+    /// beside the page, and a later one does not.
+    pub split_link: Cell<Option<std::time::Instant>>,
 }
 
 impl DelegateState {
@@ -159,6 +164,7 @@ impl DelegateState {
             web_origin: RefCell::default(),
             last_title: RefCell::default(),
             after_commit: RefCell::default(),
+            split_link: Cell::new(None),
         }
     }
 }
@@ -250,6 +256,44 @@ define_class!(
     unsafe impl NSObjectProtocol for Delegate {}
 
     impl Delegate {
+        // WebKit's link menu opens a new window, which Tarn shows as a tab: the entry says so, and
+        // Open Link in Split View takes the same path, with its pop-up checks, in `create_web_view`.
+        #[unsafe(method_id(_webView:contextMenu:forElement:))]
+        fn context_menu(&self, _web_view: &WKWebView, menu: &NSMenu, _element: &AnyObject) -> Retained<NSMenu> {
+            self.ivars().split_link.set(None);
+            let new_window = NSString::from_str("WKMenuItemIdentifierOpenLinkInNewWindow");
+            let items = menu.itemArray();
+            if let Some(at) = items.iter().position(|item| item.identifier().is_some_and(|id| *id == *new_window)) {
+                let item = items.objectAtIndex(at as _);
+                item.setTitle(&NSString::from_str("Open Link in New Tab"));
+                let mtm = self.mtm();
+                // SAFETY: `openLinkInSplitView:` is implemented below with the `(id)sender` signature AppKit sends;
+                // the menu holds its target weakly, and WebKit keeps this delegate for as long as the view shows a menu.
+                let split = unsafe {
+                    let split = NSMenuItem::initWithTitle_action_keyEquivalent(
+                        NSMenuItem::alloc(mtm),
+                        &NSString::from_str("Open Link in Split View"),
+                        Some(sel!(openLinkInSplitView:)),
+                        &NSString::new(),
+                    );
+                    split.setTarget(Some(self));
+                    split.setRepresentedObject(Some(&item));
+                    split
+                };
+                menu.insertItem_atIndex(&split, at as isize + 1);
+            }
+            menu.retain()
+        }
+
+        #[unsafe(method(openLinkInSplitView:))]
+        fn open_link_in_split_view(&self, sender: &NSMenuItem) {
+            let Some(item) = sender.representedObject().and_then(|o| o.downcast::<NSMenuItem>().ok()) else { return };
+            let (Some(action), Some(target)) = (item.action(), item.target()) else { return };
+            self.ivars().split_link.set(Some(std::time::Instant::now()));
+            // SAFETY: sends WebKit's own action for its Open Link in New Window entry, with that entry as sender, as AppKit would.
+            unsafe { NSApplication::sharedApplication(self.mtm()).sendAction_to_from(action, Some(&target), Some(&item)) };
+        }
+
         #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
         fn observe_value(
             &self,
@@ -668,6 +712,7 @@ define_class!(
             action: &WKNavigationAction,
             _features: &WKWindowFeatures,
         ) -> *mut WKWebView {
+            let split = self.ivars().split_link.take().is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(2));
             // SAFETY: the action's request is a valid NSURLRequest.
             let url = to_url(unsafe { action.request() }.URL());
             let decision = url.as_ref().map_or(Decision::Allow, |u| nav_policy::decide(u, Source::Popup));
@@ -704,6 +749,12 @@ define_class!(
             if opener_public && url.as_ref().is_some_and(shield::rules::local_target) {
                 self.emit(Event::Protected(Protection::LocalNetwork, None));
                 self.emit(Event::PopupBlocked(url));
+                return std::ptr::null_mut();
+            }
+            if split {
+                if let Some(url) = url {
+                    self.emit(Event::OpenTab { url, from: shown, background: false, split: true });
+                }
                 return std::ptr::null_mut();
             }
             // The popup must use WebKit's configuration so it keeps its opener context
@@ -1131,6 +1182,16 @@ impl DownloadDelegate {
         unsafe { download.setDelegate(Some(ProtocolObject::from_ref(self))) };
         a.transfer = Transfer::Saving(download.retain());
         a.view = Some(view);
+    }
+
+    /// The user's cancel: a saving download reports its failure, which removes it as declined.
+    pub(crate) fn cancel(&self, id: u64) {
+        let saving = self.ivars().active.borrow().iter().find(|a| a.id == id && a.transfer.running()).and_then(|a| a.transfer.handle().cloned());
+        self.decline(id);
+        if let Some(download) = saving {
+            // SAFETY: cancelling a live download; its failure report removes it.
+            unsafe { download.cancel(None) };
+        }
     }
 
     fn mark_asked(&self, download: &WKDownload) {

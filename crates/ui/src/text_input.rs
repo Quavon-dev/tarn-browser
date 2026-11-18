@@ -45,6 +45,8 @@ actions!(
         Cancel,
         Up,
         Down,
+        Undo,
+        Redo,
     ]
 );
 
@@ -82,6 +84,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Cancel, ctx),
         KeyBinding::new("up", Up, ctx),
         KeyBinding::new("down", Down, ctx),
+        KeyBinding::new("secondary-z", Undo, ctx),
+        KeyBinding::new("secondary-shift-z", Redo, ctx),
     ]);
     cx.bind_keys(editing_keys(ctx));
 }
@@ -135,7 +139,21 @@ pub struct TextInput {
     inserted: bool,
     paste_and_go: bool,
     menu_open: bool,
+    scroll: Pixels,
+    mirror_scroll: Pixels,
+    undo: Vec<Snapshot>,
+    redo: Vec<Snapshot>,
+    /// Where the caret stood after the last typed text, so typing on from there joins its undo step.
+    typing_at: Option<usize>,
+    /// Where an inline completion appended by `append_selected` starts.
+    completion: Option<usize>,
 }
+
+/// The text and selection before an edit, for Undo and Redo.
+type Snapshot = (SharedString, Range<usize>);
+
+const MAX_UNDO: usize = 100;
+const BULLET: char = '•';
 
 /// An entry of a field's context menu.
 #[derive(Clone, Copy)]
@@ -167,6 +185,12 @@ impl TextInput {
             inserted: false,
             paste_and_go: false,
             menu_open: false,
+            scroll: Pixels::ZERO,
+            mirror_scroll: Pixels::ZERO,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            typing_at: None,
+            completion: None,
         }
     }
 
@@ -208,6 +232,13 @@ impl TextInput {
         cx.notify();
     }
 
+    /// Selects all of the content with the caret at its start, so a long text shows from its beginning.
+    pub fn select_all_from_start(&mut self, cx: &mut Context<Self>) {
+        self.selected_range = 0..self.content.len();
+        self.selection_reversed = true;
+        cx.notify();
+    }
+
     /// Whether the last edit typed text rather than removing or pasting it.
     pub fn inserted(&self) -> bool {
         self.inserted
@@ -224,6 +255,7 @@ impl TextInput {
         self.content = format!("{}{suffix}", self.content).into();
         self.selected_range = start..self.content.len();
         self.selection_reversed = false;
+        self.completion = Some(start);
         cx.notify();
     }
 
@@ -241,6 +273,52 @@ impl TextInput {
 
     fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(TextInputEvent::Down);
+    }
+
+    fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(snapshot) = self.undo.pop() {
+            let current = self.restore(snapshot, cx);
+            self.redo.push(current);
+        }
+    }
+
+    fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(snapshot) = self.redo.pop() {
+            let current = self.restore(snapshot, cx);
+            self.undo.push(current);
+        }
+    }
+
+    /// Puts back `snapshot`'s text and selection and returns what it replaced.
+    fn restore(&mut self, (content, selection): Snapshot, cx: &mut Context<Self>) -> Snapshot {
+        let current = (std::mem::replace(&mut self.content, content), self.selected_range.clone());
+        self.selected_range = selection;
+        self.selection_reversed = false;
+        self.marked_range = None;
+        self.typing_at = None;
+        self.inserted = false;
+        cx.emit(TextInputEvent::Changed);
+        cx.notify();
+        current
+    }
+
+    /// Keeps the text before an edit for Undo, unless the edit types on where the last one ended.
+    /// An inline completion the edit replaces is not part of that text, so deleting only the
+    /// completion leaves the text as it was and keeps no step.
+    fn record(&mut self, typing: bool, range: &Range<usize>) {
+        let completion = shown_completion(self.completion.take(), &self.selected_range, range, self.content.len());
+        let (start, snapshot) = match completion {
+            Some(at) => (at, (self.content[..at].to_owned().into(), at..at)),
+            None => (range.start, (self.content.clone(), self.selected_range.clone())),
+        };
+        let merges = typing && (range.is_empty() || completion.is_some()) && self.typing_at == Some(start);
+        if !merges && !(completion.is_some() && !typing) {
+            if self.undo.len() == MAX_UNDO {
+                self.undo.remove(0);
+            }
+            self.undo.push(snapshot);
+        }
+        self.redo.clear();
     }
 
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
@@ -348,13 +426,26 @@ impl TextInput {
     }
 
     fn on_mouse_down(&mut self, event: &MouseDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        self.is_selecting = true;
+        let at = self.index_for_mouse_position(event.position);
+        self.press(at, event.modifiers.shift, event.click_count, cx);
+    }
 
-        if event.modifiers.shift {
-            self.select_to(self.index_for_mouse_position(event.position), cx);
-        } else {
-            self.move_to(self.index_for_mouse_position(event.position), cx)
-        }
+    /// A press at `at`: moves the caret, extends the selection with Shift, selects the word on a
+    /// double click and everything on a triple click or a double click in a masked field.
+    fn press(&mut self, at: usize, shift: bool, clicks: usize, cx: &mut Context<Self>) {
+        self.is_selecting = clicks < 2;
+        let (from, to) = match clicks {
+            _ if shift => return self.select_to(at, cx),
+            0 | 1 => (at, at),
+            2 if !self.masked => {
+                let word = word_at(&self.content, at);
+                (word.start, word.end)
+            }
+            _ => (0, self.content.len()),
+        };
+        self.selection_reversed = false;
+        self.selected_range = from..to;
+        cx.notify();
     }
 
     /// Cut, Copy, Paste and Select All, by mouse. The menu runs the system's modal tracking
@@ -367,7 +458,7 @@ impl TextInput {
     }
 
     pub fn mirror_menu(&mut self, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        let at = self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position);
+        let at = self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), self.mirror_scroll, position);
         self.show_menu(at, window, cx);
     }
 
@@ -432,7 +523,9 @@ impl TextInput {
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             let line: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+            self.typing_at = None;
             self.replace_text_in_range(None, &line, window, cx);
+            self.typing_at = None;
             self.inserted = false;
         }
     }
@@ -459,18 +552,17 @@ impl TextInput {
     }
 
     fn index_for_mouse_position(&self, position: Point<Pixels>) -> usize {
-        self.index_in(self.last_bounds.as_ref(), self.last_layout.as_ref(), position)
+        self.index_in(self.last_bounds.as_ref(), self.last_layout.as_ref(), self.scroll, position)
     }
 
-    pub fn mirror_press(&mut self, position: Point<Pixels>, shift: bool, cx: &mut Context<Self>) {
-        self.is_selecting = true;
-        let at = self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position);
-        if shift { self.select_to(at, cx) } else { self.move_to(at, cx) }
+    pub fn mirror_press(&mut self, position: Point<Pixels>, shift: bool, clicks: usize, cx: &mut Context<Self>) {
+        let at = self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), self.mirror_scroll, position);
+        self.press(at, shift, clicks, cx);
     }
 
     pub fn mirror_drag(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         if self.is_selecting {
-            self.select_to(self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), position), cx);
+            self.select_to(self.index_in(self.mirror_bounds.as_ref(), self.mirror_layout.as_ref(), self.mirror_scroll, position), cx);
         }
     }
 
@@ -478,18 +570,14 @@ impl TextInput {
         self.is_selecting = false;
     }
 
-    fn index_in(&self, bounds: Option<&Bounds<Pixels>>, line: Option<&ShapedLine>, position: Point<Pixels>) -> usize {
+    fn index_in(&self, bounds: Option<&Bounds<Pixels>>, line: Option<&ShapedLine>, scroll: Pixels, position: Point<Pixels>) -> usize {
         if self.content.is_empty() {
             return 0;
         }
-        if self.masked {
-            return self.content.len();
-        }
-
         let (Some(bounds), Some(line)) = (bounds, line) else {
             return 0;
         };
-        if line.text != self.content {
+        if line.text != self.display_text() {
             return self.content.len();
         }
         if position.y < bounds.top() {
@@ -498,7 +586,21 @@ impl TextInput {
         if position.y > bounds.bottom() {
             return self.content.len();
         }
-        line.closest_index_for_x(position.x - bounds.left())
+        let shown = line.closest_index_for_x(position.x - bounds.left() + scroll);
+        if !self.masked {
+            return shown;
+        }
+        self.content.char_indices().nth(shown / BULLET.len_utf8()).map_or(self.content.len(), |(ix, _)| ix)
+    }
+
+    /// The text as drawn: the content, or a bullet per character when masked.
+    fn display_text(&self) -> SharedString {
+        if self.masked { BULLET.to_string().repeat(self.content.chars().count()).into() } else { self.content.clone() }
+    }
+
+    /// `offset` in the content as an offset in `display_text`.
+    fn display_offset(&self, offset: usize) -> usize {
+        if self.masked { self.content[..offset].chars().count() * BULLET.len_utf8() } else { offset }
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
@@ -515,18 +617,7 @@ impl TextInput {
     }
 
     fn offset_from_utf16(&self, offset: usize) -> usize {
-        let mut utf8_offset = 0;
-        let mut utf16_count = 0;
-
-        for ch in self.content.chars() {
-            if utf16_count >= offset {
-                break;
-            }
-            utf16_count += ch.len_utf16();
-            utf8_offset += ch.len_utf8();
-        }
-
-        utf8_offset
+        from_utf16(&self.content, offset)
     }
 
     fn offset_to_utf16(&self, offset: usize) -> usize {
@@ -569,7 +660,60 @@ impl TextInput {
         self.last_bounds = None;
         self.is_selecting = false;
         self.inserted = false;
+        self.scroll = Pixels::ZERO;
+        self.mirror_scroll = Pixels::ZERO;
+        self.undo.clear();
+        self.redo.clear();
+        self.typing_at = None;
+        self.completion = None;
     }
+}
+
+/// Where the inline completion an edit of `range` replaces starts: the completion appended at
+/// `completion` is still the selection, up to the end of the text.
+fn shown_completion(completion: Option<usize>, selected: &Range<usize>, range: &Range<usize>, len: usize) -> Option<usize> {
+    completion.filter(|at| *selected == (*at..len) && range == selected && *at < len)
+}
+
+/// The UTF-8 offset in `text` of the UTF-16 `offset`, clamped to its end.
+fn from_utf16(text: &str, offset: usize) -> usize {
+    let mut utf8_offset = 0;
+    let mut utf16_count = 0;
+    for ch in text.chars() {
+        if utf16_count >= offset {
+            break;
+        }
+        utf16_count += ch.len_utf16();
+        utf8_offset += ch.len_utf8();
+    }
+    utf8_offset
+}
+
+/// The selection an IME asks for while composing: `selected_utf16` counts in `new_text`, which
+/// now starts at `start`.
+fn composing_selection(start: usize, new_text: &str, selected_utf16: &Range<usize>) -> Range<usize> {
+    start + from_utf16(new_text, selected_utf16.start)..start + from_utf16(new_text, selected_utf16.end)
+}
+
+/// The word, run of spaces or punctuation mark at `offset`, for a double click; at the end, the
+/// last one.
+fn word_at(text: &str, offset: usize) -> Range<usize> {
+    let mut segments = text.split_word_bound_indices().map(|(ix, segment)| ix..ix + segment.len());
+    segments.clone().find(|range| range.contains(&offset)).or_else(|| segments.next_back()).unwrap_or(0..0)
+}
+
+/// The scroll that keeps the caret at `caret` (from the line's start) inside `width`, moving no
+/// further than needed from `scroll` and leaving no blank space after the line's end.
+fn scroll_to_caret(scroll: Pixels, caret: Pixels, line_width: Pixels, width: Pixels) -> Pixels {
+    let caret_width = px(2.);
+    let scroll = if caret < scroll {
+        caret
+    } else if caret + caret_width > scroll + width {
+        caret + caret_width - width
+    } else {
+        scroll
+    };
+    scroll.min((line_width + caret_width - width).max(Pixels::ZERO)).max(Pixels::ZERO)
 }
 
 /// `range` grown to reach `offset`, so an inline completion is removed along with the typed text.
@@ -623,10 +767,15 @@ impl EntityInputHandler for TextInput {
         let range =
             range_utf16.as_ref().map(|range_utf16| self.range_from_utf16(range_utf16)).or(self.marked_range.clone()).unwrap_or(self.selected_range.clone());
 
+        let typing = !new_text.is_empty();
+        if self.marked_range.is_none() {
+            self.record(typing, &range);
+        }
         self.content = (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..]).into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.marked_range.take();
-        self.inserted = !new_text.is_empty();
+        self.inserted = typing;
+        self.typing_at = typing.then_some(self.selected_range.end);
         cx.emit(TextInputEvent::Changed);
         cx.notify();
     }
@@ -645,6 +794,9 @@ impl EntityInputHandler for TextInput {
         let range =
             range_utf16.as_ref().map(|range_utf16| self.range_from_utf16(range_utf16)).or(self.marked_range.clone()).unwrap_or(self.selected_range.clone());
 
+        if self.marked_range.is_none() {
+            self.record(false, &range);
+        }
         self.content = (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..]).into();
         if !new_text.is_empty() {
             self.marked_range = Some(range.start..range.start + new_text.len());
@@ -653,8 +805,7 @@ impl EntityInputHandler for TextInput {
         }
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.end)
+            .map(|selected| composing_selection(range.start, new_text, selected))
             .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
 
         cx.notify();
@@ -663,10 +814,8 @@ impl EntityInputHandler for TextInput {
     fn bounds_for_range(&mut self, range_utf16: Range<usize>, bounds: Bounds<Pixels>, _window: &mut Window, _cx: &mut Context<Self>) -> Option<Bounds<Pixels>> {
         let last_layout = self.last_layout.as_ref()?;
         let range = self.range_from_utf16(&range_utf16);
-        Some(Bounds::from_corners(
-            point(bounds.left() + last_layout.x_for_index(range.start), bounds.top()),
-            point(bounds.left() + last_layout.x_for_index(range.end), bounds.bottom()),
-        ))
+        let x = |offset: usize| bounds.left() + last_layout.x_for_index(self.display_offset(offset)) - self.scroll;
+        Some(Bounds::from_corners(point(x(range.start), bounds.top()), point(x(range.end), bounds.bottom())))
     }
 
     fn character_index_for_point(&mut self, point: gpui::Point<Pixels>, _window: &mut Window, _cx: &mut Context<Self>) -> Option<usize> {
@@ -676,7 +825,7 @@ impl EntityInputHandler for TextInput {
         if last_layout.text != self.content {
             return None;
         }
-        let utf8_index = last_layout.index_for_x(point.x - line_point.x)?;
+        let utf8_index = last_layout.index_for_x(line_point.x + self.scroll)?;
         Some(self.offset_to_utf16(utf8_index))
     }
 }
@@ -690,10 +839,13 @@ pub fn mirror(input: Entity<TextInput>) -> impl IntoElement {
     let (press, menu, drag, release, outside) = (input.clone(), input.clone(), input.clone(), input.clone(), input.clone());
     div()
         .w_full()
+        .overflow_hidden()
         .line_height(px(22.))
         .text_color(Theme::text())
         .cursor(CursorStyle::IBeam)
-        .on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, _, cx| press.update(cx, |i, cx| i.mirror_press(e.position, e.modifiers.shift, cx)))
+        .on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, _, cx| {
+            press.update(cx, |i, cx| i.mirror_press(e.position, e.modifiers.shift, e.click_count, cx))
+        })
         .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
             menu.update(cx, |i, cx| i.mirror_menu(e.position, window, cx))
@@ -708,6 +860,7 @@ struct PrepaintState {
     line: Option<ShapedLine>,
     cursor: Option<PaintQuad>,
     selection: Option<PaintQuad>,
+    scroll: Pixels,
 }
 
 impl IntoElement for TextElement {
@@ -753,23 +906,14 @@ impl Element for TextElement {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let input = self.input.read(cx);
-        let content = input.content.clone();
-        let selected_range = input.selected_range.clone();
-        let cursor = input.cursor_offset();
         let style = window.text_style();
         let masked = input.masked;
-        let to_display = |offset: usize| {
-            if masked { content[..offset].chars().count() * '•'.len_utf8() } else { offset }
-        };
-        let (cursor, selected_range) = (to_display(cursor), to_display(selected_range.start)..to_display(selected_range.end));
+        let active = self.mirror || input.focus_handle.is_focused(window);
+        let (cursor, selected_range) =
+            (input.display_offset(input.cursor_offset()), input.display_offset(input.selected_range.start)..input.display_offset(input.selected_range.end));
 
-        let (display_text, text_color) = if content.is_empty() {
-            (input.placeholder.clone(), Theme::faint().into())
-        } else if masked {
-            ("•".repeat(content.chars().count()).into(), style.color)
-        } else {
-            (content.clone(), style.color)
-        };
+        let (display_text, text_color) =
+            if input.content.is_empty() { (input.placeholder.clone(), Theme::faint().into()) } else { (input.display_text(), style.color) };
 
         let run = TextRun { len: display_text.len(), font: style.font(), color: text_color, background_color: None, underline: None, strikethrough: None };
         let runs = if let Some(marked_range) = input.marked_range.as_ref().filter(|_| !masked) {
@@ -793,21 +937,22 @@ impl Element for TextElement {
         let line = window.text_system().shape_line(display_text, font_size, &runs, None);
 
         let cursor_pos = line.x_for_index(cursor);
-        let (selection, cursor) = if selected_range.is_empty() {
-            (None, Some(fill(Bounds::new(point(bounds.left() + cursor_pos, bounds.top()), size(px(2.), bounds.bottom() - bounds.top())), Theme::accent())))
+        let scroll = if !active {
+            Pixels::ZERO
         } else {
-            (
-                Some(fill(
-                    Bounds::from_corners(
-                        point(bounds.left() + line.x_for_index(selected_range.start), bounds.top()),
-                        point(bounds.left() + line.x_for_index(selected_range.end), bounds.bottom()),
-                    ),
-                    Theme::accent_soft(),
-                )),
-                None,
-            )
+            scroll_to_caret(if self.mirror { input.mirror_scroll } else { input.scroll }, cursor_pos, line.width, bounds.size.width)
         };
-        PrepaintState { line: Some(line), cursor, selection }
+        let left = bounds.left() - scroll;
+        let (selection, cursor) = if selected_range.is_empty() {
+            (None, Some(fill(Bounds::new(point(left + cursor_pos, bounds.top()), size(px(2.), bounds.bottom() - bounds.top())), Theme::accent_text())))
+        } else {
+            let selection = Bounds::from_corners(
+                point(left + line.x_for_index(selected_range.start), bounds.top()),
+                point(left + line.x_for_index(selected_range.end), bounds.bottom()),
+            );
+            (active.then(|| fill(selection, Theme::accent_soft())), None)
+        };
+        PrepaintState { line: Some(line), cursor, selection, scroll }
     }
 
     fn paint(
@@ -830,7 +975,8 @@ impl Element for TextElement {
         let Some(line) = prepaint.line.take() else {
             return;
         };
-        line.paint(bounds.origin, window.line_height(), window, cx).ok();
+        let scroll = prepaint.scroll;
+        line.paint(point(bounds.left() - scroll, bounds.top()), window.line_height(), window, cx).ok();
 
         if (self.mirror || focus_handle.is_focused(window))
             && let Some(cursor) = prepaint.cursor.take()
@@ -841,12 +987,14 @@ impl Element for TextElement {
             self.input.update(cx, |input, _cx| {
                 input.mirror_layout = Some(line);
                 input.mirror_bounds = Some(bounds);
+                input.mirror_scroll = scroll;
             });
             return;
         }
         self.input.update(cx, |input, _cx| {
             input.last_layout = Some(line);
             input.last_bounds = Some(bounds);
+            input.scroll = scroll;
         });
     }
 }
@@ -885,6 +1033,8 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(Self::up))
             .on_action(cx.listener(Self::down))
+            .on_action(cx.listener(Self::undo))
+            .on_action(cx.listener(Self::redo))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -906,7 +1056,36 @@ impl Focusable for TextInput {
 
 #[cfg(test)]
 mod tests {
-    use super::{extend, word_left, word_right};
+    use super::{composing_selection, extend, scroll_to_caret, shown_completion, word_at, word_left, word_right};
+    use gpui::px;
+
+    #[test]
+    fn a_composing_selection_counts_from_the_start_of_the_new_text() {
+        let text = "日本😀";
+        assert_eq!(composing_selection(5, text, &(2..2)), 11..11, "two UTF-16 units into the text, past 日本");
+        assert_eq!(composing_selection(5, text, &(0..4)), 5..5 + text.len(), "the emoji is two UTF-16 units");
+        assert_eq!(composing_selection(0, "ab", &(9..9)), 2..2, "a selection past the text stays inside it");
+    }
+
+    #[test]
+    fn a_double_click_takes_the_word_under_it() {
+        let text = "find gpui-docs";
+        assert_eq!(word_at(text, 1), 0..4);
+        assert_eq!(word_at(text, 4), 4..5, "a space selects the space");
+        assert_eq!(word_at(text, 6), 5..9);
+        assert_eq!(word_at(text, text.len()), 10..14, "past the end, the last word");
+        assert_eq!(word_at("", 0), 0..0);
+    }
+
+    #[test]
+    fn the_scroll_keeps_the_caret_in_view() {
+        let (line, width) = (px(300.), px(100.));
+        assert_eq!(scroll_to_caret(px(0.), px(50.), line, width), px(0.), "a caret in view moves nothing");
+        assert_eq!(scroll_to_caret(px(0.), px(250.), line, width), px(152.), "a caret past the right edge pulls the text left");
+        assert_eq!(scroll_to_caret(px(152.), px(20.), line, width), px(20.), "a caret before the left edge pulls it back");
+        assert_eq!(scroll_to_caret(px(200.), px(200.), px(120.), width), px(22.), "no blank space after a line that shrank");
+        assert_eq!(scroll_to_caret(px(30.), px(10.), px(60.), width), px(0.), "a line that fits is not scrolled");
+    }
 
     #[test]
     fn delete_to_beginning_takes_everything_before_the_caret() {
@@ -916,6 +1095,14 @@ mod tests {
     #[test]
     fn delete_to_beginning_takes_a_selected_completion_too() {
         assert_eq!(extend(&(3..11), 0), 0..11);
+    }
+
+    #[test]
+    fn an_edit_over_a_shown_completion_leaves_it_out_of_undo() {
+        assert_eq!(shown_completion(Some(3), &(3..12), &(3..12), 12), Some(3), "typing over the completion");
+        assert_eq!(shown_completion(Some(3), &(12..12), &(12..12), 12), None, "accepted with the caret at the end");
+        assert_eq!(shown_completion(Some(3), &(3..12), &(3..12), 13), None, "the text changed since");
+        assert_eq!(shown_completion(None, &(3..12), &(3..12), 12), None);
     }
 
     #[test]

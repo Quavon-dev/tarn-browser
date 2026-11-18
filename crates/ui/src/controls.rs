@@ -9,38 +9,47 @@ use gpui::{
 };
 
 use crate::icon::{Icon, icon};
+use crate::text::OneLine;
 use crate::theme::{Elevation, ROW_HEIGHT, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, Theme};
 
 pub fn button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
-    themed_button(id, None, text, primary)
+    themed_button(id, None, text, primary, true)
 }
 
 pub fn icon_text_button(id: impl Into<ElementId>, glyph: Icon, text: impl Into<SharedString>) -> Stateful<Div> {
-    themed_button(id, Some(glyph), text, false)
+    themed_button(id, Some(glyph), text, false, true)
 }
 
-fn themed_button(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
+fn themed_button(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedString>, primary: bool, enabled: bool) -> Stateful<Div> {
     let colors = if primary { (Theme::accent(), Theme::surface_edge()) } else { (Theme::control(), Theme::hairline()) };
     let label = if primary { Theme::on_fill(Theme::accent()) } else { Theme::text() };
-    pill(id, glyph, text, primary, colors, label).when(!primary, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
+    pill(id, glyph, text, primary, enabled, colors, label).when(enabled && !primary, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
 }
 
 /// A button on a security surface (prompts, banners, blocking pages), in colours no theme sets.
 pub fn secure_button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
     let colors = if primary { (Secure::accent(), Secure::surface_edge()) } else { (Secure::control(), Secure::hairline()) };
-    pill(id, None, text, primary, colors, if primary { Theme::on_accent() } else { Secure::text() })
+    pill(id, None, text, primary, true, colors, if primary { Theme::on_accent() } else { Secure::text() })
         .font_family(SYSTEM_FONT)
         .when(!primary, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
 }
 
 pub fn secure_ghost_button(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
-    pill(id, None, text, false, (Secure::surface(), Secure::surface()), Secure::text())
+    pill(id, None, text, false, true, (Secure::surface(), Secure::surface()), Secure::text())
         .font_family(SYSTEM_FONT)
         .hover(|s| s.bg(Secure::hover()))
         .active(|s| s.bg(Secure::pressed()))
 }
 
-fn pill(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
+fn pill(
+    id: impl Into<ElementId>,
+    glyph: Option<Icon>,
+    text: impl Into<SharedString>,
+    primary: bool,
+    enabled: bool,
+    (fill, edge): (Rgba, Rgba),
+    color: Rgba,
+) -> Stateful<Div> {
     div()
         .id(id)
         .flex_none()
@@ -50,14 +59,14 @@ fn pill(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedStr
         .items_center()
         .gap_1p5()
         .rounded_full()
-        .cursor_pointer()
         .text_size(px(TEXT))
         .border_1()
         .border_color(edge)
         .bg(fill)
         .when(primary, |d| d.font_weight(FontWeight::MEDIUM))
         .text_color(color)
-        .when(primary, |d| d.hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7)))
+        .map(|d| if enabled { tab_stop(d.cursor_pointer()) } else { d.opacity(0.4) })
+        .when(enabled && primary, |d| d.hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7)))
         .children(glyph.map(|g| icon(g, 13., Theme::muted())))
         .child(text.into())
 }
@@ -166,6 +175,19 @@ pub fn open_popup<V: Render + 'static>(
     radius: f32,
     build: impl FnOnce(&mut Window, &mut Context<V>) -> V,
 ) -> (Option<WindowHandle<V>>, Option<engine::Host>) {
+    hide_tooltip(cx);
+    popup_window(cx, bounds, display, focus, inset, radius, build)
+}
+
+fn popup_window<V: Render + 'static>(
+    cx: &mut App,
+    bounds: Bounds<Pixels>,
+    display: Option<DisplayId>,
+    focus: bool,
+    inset: [f32; 4],
+    radius: f32,
+    build: impl FnOnce(&mut Window, &mut Context<V>) -> V,
+) -> (Option<WindowHandle<V>>, Option<engine::Host>) {
     let mut popup = None;
     let handle = cx
         .open_window(popup_options(bounds, display, focus), |window, cx| {
@@ -213,7 +235,7 @@ pub fn field(focused: bool) -> Div {
         .rounded(px(Theme::radius_row()))
         .bg(Theme::raised())
         .border_1()
-        .border_color(if focused { Theme::accent() } else { Theme::hairline() })
+        .border_color(if focused { Theme::accent_text() } else { Theme::hairline() })
         .when(focused, |d| d.child(ring))
 }
 
@@ -272,8 +294,7 @@ pub fn segmented() -> Div {
 }
 
 pub fn segment(id: impl Into<ElementId>, text: impl Into<SharedString>, selected: bool) -> Stateful<Div> {
-    div()
-        .id(id)
+    tab_stop(div().id(id))
         .h(px(22.))
         .px_2p5()
         .flex()
@@ -294,8 +315,7 @@ pub fn disabled_segment(id: impl Into<ElementId>, text: impl Into<SharedString>)
 
 /// A colour circle; the selected one gets a ring like the macOS accent picker.
 pub fn swatch(id: impl Into<ElementId>, color: Rgba, selected: bool, size: f32) -> Stateful<Div> {
-    div()
-        .id(id)
+    tab_stop(div().id(id))
         .w(px(size))
         .h(px(size))
         .flex()
@@ -384,7 +404,7 @@ pub fn icon_frame(id: impl Into<ElementId>, enabled: bool) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .rounded(px(Theme::radius_row()))
-        .when(enabled, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())).cursor_pointer())
+        .when(enabled, |d| tab_stop(d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())).cursor_pointer()))
 }
 
 #[derive(Clone)]
@@ -432,21 +452,41 @@ enum TooltipPopup {
 struct TooltipAnchor {
     tip: Tooltip,
     popup: Rc<RefCell<TooltipPopup>>,
-    _release: Subscription,
+    _watch: [Subscription; 3],
+}
+
+thread_local! {
+    /// The tooltip on screen; GPUI shows one at a time.
+    static SHOWN: RefCell<Option<Rc<RefCell<TooltipPopup>>>> = const { RefCell::new(None) };
+}
+
+/// Hides `popup` for good: its anchor stays hovered when a pop-up opens over it or its window
+/// moves, and GPUI then keeps the tooltip.
+fn close_tooltip(popup: &RefCell<TooltipPopup>, cx: &mut App) {
+    if let TooltipPopup::Open(handle) = popup.replace(TooltipPopup::Gone) {
+        cx.defer(move |cx| drop(handle.update(cx, |_, window, _| window.remove_window())));
+    }
+}
+
+/// Hides the tooltip on screen, if any.
+fn hide_tooltip(cx: &mut App) {
+    if let Some(popup) = SHOWN.take() {
+        close_tooltip(&popup, cx);
+    }
 }
 
 impl TooltipAnchor {
-    fn new(tip: Tooltip, cx: &mut Context<Self>) -> Self {
+    fn new(tip: Tooltip, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let popup = Rc::new(RefCell::new(TooltipPopup::Closed));
+        hide_tooltip(cx);
+        SHOWN.set(Some(popup.clone()));
         let release = cx.on_release({
             let popup = popup.clone();
-            move |_, cx| {
-                if let TooltipPopup::Open(handle) = popup.replace(TooltipPopup::Gone) {
-                    cx.defer(move |cx| drop(handle.update(cx, |_, window, _| window.remove_window())));
-                }
-            }
+            move |_, cx| close_tooltip(&popup, cx)
         });
-        TooltipAnchor { tip, popup, _release: release }
+        let bounds = cx.observe_window_bounds(window, |this, _, cx| close_tooltip(&this.popup, cx));
+        let activation = cx.observe_window_activation(window, |this, _, cx| close_tooltip(&this.popup, cx));
+        TooltipAnchor { tip, popup, _watch: [release, bounds, activation] }
     }
 }
 
@@ -461,7 +501,7 @@ impl Render for TooltipAnchor {
             let (display, shell) = (window.display(cx).map(|d| d.id()), engine::Host::from_window(window));
             let (tip, popup) = (tip.clone(), popup.clone());
             cx.defer(move |cx| {
-                let (handle, host) = open_popup(cx, bounds, display, false, [POPOVER_INSET; 4], Theme::radius_small(), |_, _| tip);
+                let (handle, host) = popup_window(cx, bounds, display, false, [POPOVER_INSET; 4], Theme::radius_small(), |_, _| tip);
                 if let Some(host) = &host {
                     host.ignore_mouse();
                     if let Some(shell) = &shell {
@@ -483,7 +523,7 @@ impl Render for TooltipAnchor {
 /// A tooltip for `.tooltip(...)`: a label and, optionally, its shortcut in muted text.
 pub fn tooltip(text: impl Into<SharedString>, keys: Option<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     let tip = Tooltip { text: text.into(), keys: keys.filter(|k| !k.is_empty()).map(|k| SharedString::from(self::keys(&k))) };
-    move |_, cx| cx.new(|cx| TooltipAnchor::new(tip.clone(), cx)).into()
+    move |window, cx| cx.new(|cx| TooltipAnchor::new(tip.clone(), window, cx)).into()
 }
 
 /// A borderless pop-up window at `bounds` in screen points, for what must show over the page.
@@ -525,7 +565,12 @@ pub fn favicon(host: &str, size: f32) -> Div {
     let letter = host.trim_start_matches("www.").chars().next().map(|c| c.to_uppercase().to_string());
     let base = div().w(px(size)).h(px(size)).flex().flex_none().items_center().justify_center().rounded(px(size * 0.28));
     match letter {
-        Some(letter) => base.bg(Theme::monogram(host)).text_size(px(size * 0.62)).font_weight(FontWeight::BOLD).text_color(Theme::on_accent()).child(letter),
+        Some(letter) => base
+            .bg(Theme::monogram(host))
+            .text_size(px(size * 0.62))
+            .font_weight(FontWeight::BOLD)
+            .text_color(Theme::on_fill(Theme::monogram(host)))
+            .child(letter),
         None => base.bg(Theme::control()),
     }
 }
@@ -545,6 +590,11 @@ pub fn row(first: bool) -> Div {
         .gap_3()
         .text_size(px(TEXT))
         .when(!first, |d| d.child(div().absolute().top_0().left(px(12.)).right_0().h(px(1.)).bg(Theme::separator())))
+}
+
+/// A row with a wide control that moves under its text when the two do not fit side by side.
+pub fn wide_row(first: bool, text: Div, control: impl IntoElement) -> Div {
+    row(first).flex_wrap().child(text.min_w(px(200.))).child(control)
 }
 
 /// A row that toggles its switch: the whole row is the target, with hover and pressed fills, and
@@ -585,8 +635,7 @@ pub fn text_block(title: impl Into<SharedString>, detail: impl Into<SharedString
 
 /// `text_block` kept to one line each, cut with an ellipsis, for list rows.
 pub fn text_lines(title: impl Into<SharedString>, detail: impl Into<SharedString>) -> Div {
-    let line = || div().overflow_hidden().whitespace_nowrap().text_ellipsis();
-    text_column().flex().flex_col().child(line().child(title.into())).child(line().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
+    text_column().flex().flex_col().child(div().one_line(title)).child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(detail))
 }
 
 /// The heading of a group of rows in a pop-up or list, smaller and quieter than `section`.
@@ -596,23 +645,28 @@ pub fn caption(title: impl Into<SharedString>) -> Div {
 
 /// What a list shows when it has nothing to list.
 pub fn empty(text: impl Into<SharedString>) -> Div {
-    div().h(px(ROW_HEIGHT + 10.)).flex_none().px_3().flex().items_center().justify_center().text_color(Theme::muted()).child(text.into())
+    div().h(px(ROW_HEIGHT + 10.)).flex_none().px_3().flex().items_center().justify_center().text_color(Theme::muted()).child(div().one_line(text))
 }
 
 /// Makes `control` reachable with Tab and rings it while it has the keyboard; Enter and Space
-/// click it. A mouse press leaves the focus where it was, so the ring shows only for the
-/// keyboard. For windows that move the focus on Tab: pop-ups and Settings.
+/// click it. A mouse press takes the focus off the field or control that had it without giving
+/// it to `control`, so the ring shows only for the keyboard. Buttons, segments and swatches are
+/// tab stops already; windows that move the focus on Tab are pop-ups and Settings.
 pub fn tab_stop(control: Stateful<Div>) -> Stateful<Div> {
-    // A click moves no ring onto the control and clears one a Tab left elsewhere.
+    // A click moves no ring onto the control and clears one a Tab left elsewhere, but leaves a
+    // text field focused so a button beside it (find's Next, a field's Clear) keeps its keys.
     control.tab_index(0).focus(|s| s.shadow(focus_ring())).on_mouse_down(MouseButton::Left, |_, window, _| {
-        window.blur();
+        if !window.context_stack().iter().any(|c| c.contains("TextInput")) {
+            window.blur();
+        }
         window.prevent_default();
     })
 }
 
-/// The keyboard focus ring: `field`'s 3 points of `accent_soft` outside the control.
+/// The keyboard focus ring: 2 points of the readable accent outside the control, at least 3:1 on
+/// the theme's backgrounds.
 pub fn focus_ring() -> Vec<BoxShadow> {
-    vec![ring(Theme::accent_soft(), 3., 0.)]
+    vec![ring(Theme::accent_text(), 2., 0.)]
 }
 
 pub fn section(title: impl Into<SharedString>) -> Div {

@@ -182,10 +182,13 @@ impl Theme {
         get(|t| rgba(t.faint))
     }
     pub fn asleep() -> Rgba {
-        rgba(if Theme::is_light() { 0x3c4a5a8c } else { 0xb4c2d08c })
+        Self::muted()
     }
     pub fn accent() -> Rgba {
         get(|t| rgba(t.accent))
+    }
+    pub fn accent_text() -> Rgba {
+        get(|t| rgba(t.accent_text()))
     }
     pub fn accent_soft() -> Rgba {
         get(|t| rgba(t.accent & 0xffffff00 | 0x47))
@@ -318,7 +321,7 @@ impl Secure {
         Self::pick(0x5aaee0, 0x1567a3)
     }
     pub fn danger() -> Rgba {
-        Self::pick(0xff453a, 0xd70015)
+        Self::pick(0xff9a92, 0xd70015)
     }
     pub fn warning() -> Rgba {
         Self::pick(0xffb340, 0xa05a00)
@@ -374,7 +377,8 @@ mod tests {
         };
         assert_eq!(secure(source), secure(gpui), "Secure is the Mac's, line for line");
         for line in [
-            "0x3c4a5a8c } else { 0xb4c2d08c",
+            "pub fn asleep() -> Rgba {\n        Self::muted()",
+            "rgba(t.accent_text())",
             "t.accent & 0xffffff00 | 0x52",
             "t.accent & 0xffffff00 | 0x47",
             "rgb(0xf4f9fd)",
@@ -409,8 +413,9 @@ mod tests {
         assert_eq!(hex(Theme::on_fill(Theme::accent())), Tokens::LIGHT.text, "a pale accent takes a dark label");
         assert_eq!(Theme::on_fill(Secure::accent()), Theme::on_accent(), "the secure accent keeps white");
         for bg in [Secure::chip(), Secure::surface()] {
-            assert!(contrast(hex(Secure::text()), hex(bg)) >= 4.5);
-            assert!(contrast(hex(Secure::warning()), hex(bg)) >= 4.5);
+            for fg in [Secure::text(), Secure::warning(), Secure::danger(), Secure::shield_raised()] {
+                assert!(contrast(hex(fg), hex(bg)) >= 4.5, "{fg:?} on {bg:?}");
+            }
         }
         Theme::set_tokens(Tokens::LIGHT, Scheme::Light, Some("Inter".into()));
         assert_eq!(Theme::font().as_deref(), Some("Inter"));

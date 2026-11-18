@@ -54,6 +54,10 @@ impl Browser {
 
     pub fn qr_code(&mut self) -> Option<(Vec<Vec<bool>>, String)> {
         let url = self.active_url()?;
+        if !Url::parse(&url).is_ok_and(|u| matches!(u.scheme(), "http" | "https")) {
+            self.show_toast("Only web pages have a QR code", None);
+            return None;
+        }
         let Some(code) = engine::qr::encode(&url) else {
             self.show_toast("This link is too long for a QR code", None);
             return None;

@@ -98,6 +98,18 @@ pub enum ToastAction {
     Undo(u64),
     UndoSort(Box<(bool, browser_core::cleanup::Undo)>),
     Reveal(String),
+    /// The download list a Clear removed: (private, profile, its rows).
+    RestoreDownloads(Box<(bool, Id, Vec<store::Download>)>),
+}
+
+impl ToastAction {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ToastAction::Undo(_) | ToastAction::RestoreDownloads(_) => "Undo",
+            ToastAction::UndoSort(_) => "Undo Sort",
+            ToastAction::Reveal(_) => "Show in Folder",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -106,6 +118,8 @@ pub struct Toast {
     pub tone: browser_core::toast::Tone,
     pub action: Option<ToastAction>,
     pub serial: u64,
+    /// A warning that waits until dismissed; a later toast queues behind it.
+    pub held: bool,
 }
 
 pub use pages::{FindRow, ReaderView, Request};
@@ -118,6 +132,7 @@ pub struct Browser {
     pub notice: Option<Notice>,
     pub downloads: Vec<DownloadItem>,
     pub toast: Option<Toast>,
+    toasts_waiting: Vec<Toast>,
     pub reader: Option<ReaderView>,
     pub articles: HashSet<TabKey>,
     pub requests: HashMap<u64, Request>,
@@ -205,6 +220,7 @@ impl Browser {
             notice: None,
             downloads: Vec::new(),
             toast: None,
+            toasts_waiting: Vec::new(),
             reader: None,
             articles: HashSet::new(),
             requests: HashMap::new(),
@@ -303,20 +319,44 @@ impl Browser {
     }
 
     pub fn show_toast_as(&mut self, tone: browser_core::toast::Tone, text: impl Into<String>, action: Option<ToastAction>) {
+        self.push_toast(Toast { text: text.into(), tone, action, serial: 0, held: false });
+    }
+
+    /// A warning that stays until dismissed: a later toast neither replaces nor hides it.
+    pub fn show_warning(&mut self, text: impl Into<String>) {
+        self.push_toast(Toast { text: text.into(), tone: browser_core::toast::Tone::Warning, action: None, serial: 0, held: true });
+    }
+
+    fn push_toast(&mut self, mut toast: Toast) {
         self.toast_serial += 1;
-        self.toast = Some(Toast { text: text.into(), tone, action, serial: self.toast_serial });
+        toast.serial = self.toast_serial;
+        let mut queue: Vec<Toast> = self.toast.take().into_iter().chain(std::mem::take(&mut self.toasts_waiting)).collect();
+        browser_core::toast::push_notice(&mut queue, toast, |t| t.held);
+        self.toasts_waiting = queue.split_off(1.min(queue.len()));
+        self.toast = queue.pop();
     }
 
     pub fn expire_toast(&mut self, serial: u64) {
         if self.toast.as_ref().is_some_and(|t| t.serial == serial) {
-            self.toast = None;
+            self.dismiss_toast();
         }
     }
 
+    /// Takes the toast away and shows the next one waiting.
+    pub fn dismiss_toast(&mut self) {
+        self.toast = (!self.toasts_waiting.is_empty()).then(|| self.toasts_waiting.remove(0));
+    }
+
     pub fn take_toast_action(&mut self) {
-        match self.toast.take().and_then(|t| t.action) {
+        let action = self.toast.as_ref().and_then(|t| t.action.clone());
+        self.dismiss_toast();
+        match action {
             Some(ToastAction::Undo(serial)) => self.undo_close(serial),
             Some(ToastAction::UndoSort(sort)) => self.undo_sort(*sort),
+            Some(ToastAction::RestoreDownloads(cleared)) => {
+                let (private, profile, rows) = *cleared;
+                self.core.restore_downloads(private, profile, &rows);
+            }
             Some(ToastAction::Reveal(_)) | None => {}
         }
     }
@@ -365,11 +405,12 @@ impl Browser {
     }
 
     /// Shows a file the user picked in a new tab; only Open File reaches `file:` URLs (S6).
-    pub fn open_file(&mut self, url: &Url) {
-        let Some(key) = self.new_tab(url.as_str()) else { return };
+    pub fn open_file(&mut self, url: &Url) -> Option<TabKey> {
+        let key = self.new_tab(url.as_str())?;
         let page = self.pages.entry(key).or_default();
         page.opened_file = Some(url.to_string());
         page.file = true;
+        Some(key)
     }
 
     pub fn level_for(&self, key: TabKey, url: &str) -> ShieldLevel {
@@ -586,10 +627,12 @@ impl Browser {
         }
     }
 
-    /// Moves `key` to `target`'s place in its zone: before it from below, after it from above.
-    pub fn move_tab_to(&mut self, key: TabKey, target: TabKey) {
+    /// Moves `key` just above `target` in its zone, or just below it when `below`.
+    pub fn move_tab_to(&mut self, key: TabKey, target: TabKey, below: bool) {
         let group = self.model.tab(key).map(|t| t.group_id);
-        if browser_core::sidebar::land_on(&mut self.model, &self.core, key, target).is_some() && self.model.tab(key).map(|t| t.group_id) != group {
+        let Some(at) = browser_core::sidebar::DropAt::before(&self.model, target).filter(|_| key.private == target.private) else { return };
+        let at = browser_core::sidebar::DropAt { below, ..at };
+        if browser_core::sidebar::drop_tab(&mut self.model, &self.core, key, at).is_some() && self.model.tab(key).map(|t| t.group_id) != group {
             self.regrouped();
         }
     }
@@ -643,6 +686,10 @@ impl Browser {
         self.command(if dev { "reloadFromOrigin" } else { "reload" }, Value::Null);
     }
 
+    pub fn reload_from_origin(&mut self) {
+        self.command("reloadFromOrigin", Value::Null);
+    }
+
     pub fn stop(&mut self) {
         self.command("stop", Value::Null);
         if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)) {
@@ -663,9 +710,17 @@ impl Browser {
         self.find(text, false);
     }
 
+    /// Removes the highlight of the last search, when the find bar closes or its text is emptied.
+    pub fn clear_find(&mut self) {
+        if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)) {
+            page.found = None;
+        }
+        self.command("clearFind", Value::Null);
+    }
+
     pub fn zoom(&mut self, step: i32) {
         if self.responsive_preset().is_some() {
-            return;
+            return self.show_toast("Zoom is off while Responsive Size is on", None);
         }
         let Some(key) = self.model.active else { return };
         let Some(page) = self.pages.get_mut(&key) else { return };
@@ -674,6 +729,7 @@ impl Browser {
         let factor = if step == 0 { 1.0 } else { ZOOM_STEPS[(ix + step).clamp(0, ZOOM_STEPS.len() as i32 - 1) as usize] };
         page.zoom = factor;
         let host = Url::parse(&page.url).ok().and_then(|u| browser_core::site::site_host(&u).map(str::to_owned));
+        self.show_toast(format!("Zoom {}%", (factor * 100.).round()), None);
         if let (Some(host), Some(profile)) = (host, self.model.profile_of(&self.core, key)) {
             let stored = (factor != 1.0).then_some(factor);
             self.core.store(key.private).set_site_zoom(profile, &host, stored).ok();
@@ -705,6 +761,12 @@ impl Browser {
         }
         let url = self.pages.get(&key).map(|p| p.url.clone()).unwrap_or_default();
         self.load(key, &url);
+    }
+
+    /// Whether choosing `level` for the profile deletes its stored website data: Lockdown entered
+    /// in a profile that keeps data.
+    pub fn shield_wipes_data(&self, level: ShieldLevel) -> bool {
+        browser_core::profiles::shield_wipes_data(level, self.model.private(), self.default_level())
     }
 
     pub fn default_level(&self) -> ShieldLevel {
@@ -779,18 +841,36 @@ impl Browser {
         (shield::update::configured().then(|| self.setting_on(shield::update::SETTING)), crate::filter_updates::status().summary())
     }
 
-    pub fn clear_history(&mut self) {
+    /// Clears `range` of the profile's history; Everything also forgets site icons and zoom levels.
+    pub fn clear_history(&mut self, range: browser_core::library::HistoryRange) {
         if let Some((private, id)) = self.profile_of_space() {
-            self.core.store(private).clear_history(id).ok();
-            self.favicons.forget(&(private, id));
-            self.reset_zooms(private, id, None);
+            browser_core::library::clear_history(self.core.store(private), id, range, now()).ok();
+            if range == browser_core::library::HistoryRange::All {
+                self.favicons.forget(&(private, id));
+                self.reset_zooms(private, id, None);
+            }
         }
         self.text_found.clear();
     }
 
+    pub fn remove_history_url(&mut self, url: &str) {
+        if let Some((private, id)) = self.profile_of_space() {
+            self.core.store(private).delete_history_url(id, url).ok();
+        }
+        self.text_found.clear();
+    }
+
+    /// Where today and yesterday start, for `library::history_day`.
+    pub fn history_day_starts(&self) -> (i64, i64) {
+        browser_core::library::day_starts(self.core.store(self.model.private()), now())
+    }
+
     pub fn clear_downloads(&mut self) {
         if let Some((private, id)) = self.profile_of_space() {
-            self.core.store(private).clear_downloads(id).ok();
+            let rows = self.core.store(private).downloads(id).unwrap_or_default();
+            if !rows.is_empty() && self.core.store(private).clear_downloads(id).is_ok() {
+                self.show_toast("Download list cleared", Some(ToastAction::RestoreDownloads(Box::new((private, id, rows)))));
+            }
         }
         self.settle_downloads();
         self.downloads.retain(|d| d.state == "started" || d.state == "flagged");
@@ -887,10 +967,14 @@ impl Browser {
             "external" => self.notice = Some(Notice::External { url: text("url"), origin: text("origin") }),
             "popup" => {
                 let url = text("url");
+                let split = data["split"].as_bool() == Some(true) && (self.model.active == Some(key) || self.in_split(key)) && !self.model.burner_shown();
                 if !(data["link"].as_bool() == Some(true) && self.open_routed(&url))
                     && let Some(popup) = self.new_tab(&url)
                 {
                     self.pages.entry(popup).or_default().opener = Some(key);
+                    if split {
+                        self.join_split(key, popup);
+                    }
                 }
                 if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)).filter(|p| p.load.as_ref().is_some_and(|(u, _)| *u == url)) {
                     page.link = true;

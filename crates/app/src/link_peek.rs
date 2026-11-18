@@ -11,6 +11,7 @@ use store::{Id, TabKind};
 use ui::controls::{button, icon_button, open_popup, surface, tooltip};
 use ui::icon::Icon;
 use ui::motion::pop_in;
+use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::theme::{Secure, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
 use url::Url;
@@ -57,6 +58,14 @@ fn layout(main: Bounds<Pixels>, left: f32) -> (Bounds<Pixels>, (f64, f64, f64, f
     (bounds, (page.0.into(), page.1.into(), page.2.into(), page.3.into()))
 }
 
+impl LinkPeek {
+    pub(crate) fn set_dark(&self, dark: bool) {
+        if let Some(view) = &self.view {
+            view.set_dark(dark);
+        }
+    }
+}
+
 impl Browser {
     fn sidebar_inset(&self) -> f32 {
         (self.sidebar_width + crate::sidebar::SIDEBAR_MARGIN) * self.sidebar_shown()
@@ -101,6 +110,10 @@ impl Browser {
             cx.defer(move |cx| drop(handle.update(cx, |_, window, _| window.remove_window())));
             return;
         };
+        // A second peek asked for before the first one's window opened replaces it.
+        if let Some(old) = self.link_peek.window.take() {
+            cx.defer(move |cx| drop(old.update(cx, |_, window, _| window.remove_window())));
+        }
         let (tx, mut rx) = mpsc::unbounded();
         self.link_peek._escape = popup.on_escape(move || drop(tx.unbounded_send(())));
         cx.spawn(async move |this, cx| {
@@ -125,6 +138,7 @@ impl Browser {
         let (generation, sink) = self.peek_sink();
         let view = self.web_view(popup, private, profile_id, url.as_str(), sink)?;
         view.set_corner_radius(page_corner());
+        view.set_dark(!ui::theme::Theme::is_light());
         view.set_frame(x, y, w, h);
         view.set_visible(true);
         view.load_link(url, self.link_peek.opener.as_ref());
@@ -250,17 +264,7 @@ impl Render for LinkPeekWindow {
             .items_center()
             .gap_2()
             .child(peek_origin(host, insecure))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(px(TEXT_SMALL))
-                    .text_color(Theme::muted())
-                    .child(SharedString::from(title)),
-            )
+            .child(div().flex_1().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(title)))
             .child(button("peek-open", "Open in Tab", true).on_click(cx.listener(|this, _, _, cx| this.with_main(cx, |b, w, cx| b.link_peek_to_tab(w, cx)))))
             .child(icon_button("peek-close", Icon::Close, true).tooltip(tooltip("Close", Some("Esc".into()))).on_click(cx.listener(|this, _, _, cx| {
                 this.browser.update(cx, |b, cx| b.close_link_peek(cx)).ok();

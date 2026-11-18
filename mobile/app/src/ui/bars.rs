@@ -146,7 +146,10 @@ pub(super) fn reload(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         let (loading, again_spinning) = state.get();
         if !loading && !again_spinning {
-            return icon_button(icons::RELOAD, "Reload", again).into_element();
+            return icon_button(icons::RELOAD, "Reload", again)
+                .disabled(move || ui.read(|s| s.active_url().is_empty()))
+                .disabled_style(|s| s.opacity(0.35))
+                .into_element();
         }
         let press = move || {
             if untracked(|| ui.read(|s| s.active_page().is_some_and(|p| p.loading))) {
@@ -236,7 +239,7 @@ pub(super) fn cancel_button(ui: Ui) -> impl IntoElement {
                 .px_2()
                 .justify_center()
                 .on_press(move || cancel(ui))
-                .child(text("Cancel").text_size(px(TEXT_TITLE)).text_color(Theme::accent))
+                .child(text("Cancel").text_size(px(TEXT_TITLE)).text_color(Theme::accent_text))
         })
     })
 }
@@ -284,7 +287,7 @@ pub fn top_bar(ui: Ui) -> impl IntoElement {
                         .rounded(move || px(Theme::radius_group()))
                         .bg(move || if ui.editing.get() { Theme::raised() } else { Secure::chip() })
                         .border_1()
-                        .border_color(move || if ui.editing.get() { Theme::accent() } else { Secure::hairline() })
+                        .border_color(move || if ui.editing.get() { Theme::accent_text() } else { Secure::hairline() })
                         .font_family(SYSTEM_FONT)
                         .child(themed(move || dynamic(move || (!ui.editing.get()).then(|| shield_button(ui)))))
                         .child(address_input(ui))
@@ -381,7 +384,7 @@ pub(super) fn address_pill(ui: Ui) -> impl IntoElement {
         .rounded(px(PILL_RADIUS))
         .bg(move || if ui.editing.get() { Theme::raised() } else { Secure::chip() })
         .border_1()
-        .border_color(move || if ui.editing.get() { Theme::accent() } else { Secure::hairline() })
+        .border_color(move || if ui.editing.get() { Theme::accent_text() } else { Secure::hairline() })
         .font_family(SYSTEM_FONT)
         .child(themed(move || dynamic(move || (!ui.editing.get()).then(|| shield_chip(ui)))))
         .child(address_input(ui))

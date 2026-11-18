@@ -3,12 +3,15 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
 
-use block2::DynBlock;
+use block2::{DynBlock, RcBlock};
 use engine::view_policy;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, NSObjectProtocol};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_foundation::{NSDictionary, NSError, NSHTTPURLResponse, NSInteger, NSObject, NSString, NSURL, NSURLAuthenticationChallenge, NSURLCredential};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
+use objc2_foundation::{
+    NSArray, NSDictionary, NSError, NSHTTPURLResponse, NSInteger, NSObject, NSString, NSURL, NSURLAuthenticationChallenge, NSURLCredential,
+};
+use objc2_ui_kit::{UIAction, UIContextMenuConfiguration, UIMenu, UIMenuElement};
 use objc2_web_kit::{
     WKDownload, WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationResponse,
     WKNavigationResponsePolicy, WKNavigationType, WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebViewConfiguration, WKWebpagePreferences,
@@ -156,9 +159,42 @@ define_class!(
             if let Some(inner) = self.inner() {
                 // SAFETY: WebKit passes a live navigation action on the main thread.
                 let (url, kind) = unsafe { (ns_url(action.request().URL()), action.navigationType()) };
-                inner.popup(web, url, kind == WKNavigationType::LinkActivated);
+                inner.popup(web, url, kind == WKNavigationType::LinkActivated, false);
             }
             std::ptr::null_mut()
+        }
+
+        // A link's menu adds Open Link in New Tab and, where the layout shows splits, Open Link in
+        // Split View before WebKit's own entries; both take the pop-up path and its checks.
+        #[unsafe(method(webView:contextMenuConfigurationForElement:completionHandler:))]
+        fn context_menu(&self, web: &WebView, element: &AnyObject, handler: &DynBlock<dyn Fn(*mut UIContextMenuConfiguration)>) {
+            // SAFETY: WebKit passes a live WKContextMenuElementInfo on the main thread; `linkURL` returns an NSURL or nil.
+            let link = ns_url(unsafe { msg_send![element, linkURL] });
+            let split = self.inner().is_some_and(|inner| inner.props.borrow().split_links);
+            let (inner, web, mtm) = (self.ivars().inner.clone(), web.retain(), self.mtm());
+            let provider = RcBlock::new(move |suggested: NonNull<NSArray<UIMenuElement>>| -> *mut UIMenu {
+                let mut items: Vec<Retained<UIMenuElement>> = Vec::new();
+                for (title, beside) in [("Open Link in New Tab", false), ("Open Link in Split View", true)] {
+                    let Some(url) = link.clone().filter(|_| !beside || split) else { continue };
+                    let (inner, web) = (inner.clone(), web.clone());
+                    let open = RcBlock::new(move |_: NonNull<UIAction>| {
+                        if let Some(inner) = inner.upgrade() {
+                            inner.popup(&web, Some(url.clone()), true, beside);
+                        }
+                    });
+                    // SAFETY: the handler is a valid block, which UIKit copies; no image or identifier.
+                    let action = unsafe { UIAction::actionWithTitle_image_identifier_handler(&NSString::from_str(title), None, None, RcBlock::as_ptr(&open), mtm) };
+                    items.push(Retained::into_super(action));
+                }
+                // SAFETY: UIKit passes WebKit's suggested entries, valid for the duration of the call.
+                items.extend(unsafe { suggested.as_ref() }.iter());
+                Retained::autorelease_return(UIMenu::menuWithChildren(&NSArray::from_retained_slice(&items), mtm))
+            });
+            // SAFETY: no identifier or preview provider (WebKit's preview), and a valid action provider, which UIKit copies.
+            let configuration = unsafe {
+                UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(None, std::ptr::null_mut(), RcBlock::as_ptr(&provider), mtm)
+            };
+            handler.call((Retained::as_ptr(&configuration).cast_mut(),));
         }
 
         #[unsafe(method(webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:))]
