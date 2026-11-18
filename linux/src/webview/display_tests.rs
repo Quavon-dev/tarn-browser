@@ -813,7 +813,7 @@ fn a_filter_update_with_a_group_that_does_not_compile_swaps_no_group() {
 
 #[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
-fn closing_find_leaves_no_match_selected() {
+fn closing_find_keeps_the_last_match_selected() {
     gtk::init().expect("a display");
     let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
     let web = open(&state);
@@ -821,7 +821,8 @@ fn closing_find_leaves_no_match_selected() {
     find(&state, &json!({ "text": "zebrafish" }));
     assert!(spin_until(|| event(&state, "found").is_some(), 20), "find counted");
     assert_eq!(event(&state, "found").unwrap()["matched"], 1);
-    spin_until(|| page_eval(&web, "String(getSelection())") == "zebrafish", 5);
+    assert!(spin_until(|| page_eval(&web, "String(getSelection())") == "zebrafish", 5), "find selected the match");
     clear_find(&state);
-    assert!(spin_until(|| page_eval(&web, "String(getSelection())").is_empty(), 10), "the match stays selected");
+    assert!(!spin_until(|| page_eval(&web, "String(getSelection())") != "zebrafish", 5), "the last match stays selected");
+    assert!(state.find_text.borrow().is_empty(), "the next find starts afresh");
 }

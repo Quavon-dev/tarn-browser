@@ -50,7 +50,7 @@ off at Lockdown, TLS errors are never bypassed, and there is no remote debugging
 | prop | `burstsOf` | string | The `tab` of the opener a popup tab came from: the view shares that tab's prompt and popup limits (S23). Linux only so far; iOS and Android still need it |
 | command | `back`, `forward`, `reload`, `stop` | none | |
 | command | `find` | `{text, backwards}` | Emits `found` |
-| command | `clearFind` | none | Removes the highlight a `find` left, when the find bar closes or its text is emptied: iOS clears the selection from the isolated world (not under Lockdown, where it stays until the page is touched), Android `clearMatches()`. Emits nothing |
+| command | `clearFind` | none | Removes the highlight a `find` left, when the find bar closes or its text is emptied: iOS hides WebKit's match marker (`_hideFindUI`, where the view responds to it) and keeps the last match selected, Android `clearMatches()`, which clears it (gap below). Emits nothing |
 | prop | `dark` | bool | The colour scheme pages see (`prefers-color-scheme`), from the shell's theme, not the system's: iOS the web view's `overrideUserInterfaceStyle`, Android the theme of the context the WebView is made with (see the differences below). Default false |
 | command | `answer` | `{id, accept, text?, user?, password?, silence?}` | Answers a `prompt`; an unanswered prompt is declined when the component is destroyed. `silence: true` ("Block requests from this page") declines it and every other pending prompt, and the page's later dialogs and permission requests, until its next navigation (S23). Linux only so far; iOS and Android still need it |
 | command | `zoom` | `{factor}` | 0.5 to 3.0 (`engine::view_policy::zoom_factor`); 1.0 is the page's own size |
@@ -266,6 +266,9 @@ decisions come from `browser_core::tarn_ext`.
   relative images and styles do not load on iOS or Android; desktop clients read the file's own folder.
 - **Gap: PDF on Android.** Android System WebView has no PDF viewer, so an opened PDF shows nothing; iOS
   WebKit shows it.
+- **Gap: the last match after Find on Android.** `WebView.clearMatches`, the only public way to end a find,
+  stops it with the selection cleared, so closing Find does not leave the last match selected as it does on
+  the other clients.
 - **Network rules.** `set_rule_lists` parses each list with `engine::content_rules`; the component applies
   them per request in `shouldInterceptRequest` and in the main-frame checks of `shellLoad`, link navigations
   and history steps, never at Lockdown (the view's or the site's level). As with Shield on Android, an

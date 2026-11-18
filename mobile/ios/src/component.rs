@@ -500,11 +500,6 @@ impl Inner {
                     // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.
                     let _: () = unsafe { msg_send![&**web, _hideFindUI] };
                 }
-                if self.built.borrow().as_ref().is_some_and(|b| b.level != ShieldLevel::Lockdown) {
-                    // SAFETY: main thread (marker); the script runs in the shell's isolated world and only clears the selection.
-                    let world = unsafe { WKContentWorld::defaultClientWorld(self.mtm) };
-                    web.evaluate(&NSString::from_str(find::RESTART), None, &world, None);
-                }
             }
             _ => {}
         }
