@@ -73,6 +73,11 @@ fn subtitle(d: &Download, size: Option<u64>) -> (String, bool) {
 }
 
 /// A finished download whose file was moved or deleted since.
+/// The size of the file at `path`, or `None` when no file is there (moved, deleted or unreadable).
+pub(crate) fn file_size(path: &str) -> Option<u64> {
+    std::fs::metadata(path).ok().filter(|m| m.is_file()).map(|m| m.len())
+}
+
 fn missing(d: &Download, file: Option<Option<u64>>) -> bool {
     file == Some(None) && d.state.starts_with("finished")
 }
@@ -404,10 +409,7 @@ impl Render for DownloadsWindow {
             self.rows = browser.read(cx).downloads().into_iter().take(MAX_ROWS).map(|d| (d, None)).collect();
             let paths: Vec<_> = self.rows.iter().map(|(d, _)| d.path.clone()).collect();
             cx.spawn(async move |this, cx| {
-                let sizes: Vec<Option<u64>> = cx
-                    .background_executor()
-                    .spawn(async move { paths.iter().map(|p| std::fs::metadata(p).ok().filter(|m| m.is_file()).map(|m| m.len())).collect() })
-                    .await;
+                let sizes: Vec<Option<u64>> = cx.background_executor().spawn(async move { paths.iter().map(|p| file_size(p)).collect() }).await;
                 this.update(cx, |w, cx| {
                     if w.seen == Some(changed) {
                         w.rows.iter_mut().zip(sizes).for_each(|(row, size)| row.1 = Some(size));

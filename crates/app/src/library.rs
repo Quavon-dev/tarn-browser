@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::cmp::Reverse;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -49,11 +50,14 @@ actions!(library, [SaveSnapshot, RestoreSnapshot]);
 
 pub(crate) use browser_core::shield_card::date;
 
+/// The state a finished download is shown with once its file is gone; never stored.
+const MISSING: &str = "missing";
+
 fn download_row(store: &store::Store, d: &Download, now: i64) -> Entry {
     let state = match d.state.as_str() {
         "failed" => "Failed",
         "cancelled" => "Cancelled",
-        s if s.starts_with("finished") && !std::path::Path::new(&d.path).exists() => "Missing",
+        MISSING => "Missing",
         s if s.starts_with("finished") => "Finished",
         _ => "In Progress",
     };
@@ -599,6 +603,8 @@ pub struct LibraryWindow {
     /// The selectable rows the last render showed, with their child index in the list.
     shown: Vec<(usize, Row)>,
     downloads: Vec<Download>,
+    /// Finished downloads whose file is gone, checked off the main thread when `downloads` is read.
+    missing: HashSet<Id>,
     /// The browser's download change count and profile `downloads` was read for.
     downloads_seen: Option<(u64, Option<(bool, Id)>)>,
     snapshots: Vec<Snapshot>,
@@ -650,6 +656,7 @@ impl LibraryWindow {
                 if this.downloads_seen != Some(seen) {
                     this.downloads_seen = Some(seen);
                     this.downloads = b.downloads();
+                    this.check_files(cx);
                 }
                 cx.notify();
             })
@@ -672,6 +679,7 @@ impl LibraryWindow {
             history_hits: RefCell::new(None),
             shown: Vec::new(),
             downloads,
+            missing: HashSet::new(),
             downloads_seen: None,
             snapshots: Vec::new(),
             sources: Vec::new(),
@@ -685,6 +693,7 @@ impl LibraryWindow {
             _subscriptions: subscriptions,
         };
         library.reload_snapshots(cx);
+        library.check_files(cx);
         let found = match edit {
             Some(Named::Bookmark(id)) => {
                 library.browser.upgrade().and_then(|b| b.read(cx).bookmarks.iter().find(|b| b.id == id).map(|bm| Page::Bookmarks(bm.parent_id)))
@@ -705,7 +714,9 @@ impl LibraryWindow {
         let lists_history = self.page == Page::History || self.page == Page::Home && !query.is_empty();
         let hits = if lists_history { self.history_hits(query) } else { Rc::from([]) };
         let history: Vec<&HistoryEntry> = hits.iter().take(MAX_LIST).map(|&ix| &self.history[ix]).collect();
-        entries(b, self.page, query, &history, &self.downloads, &self.snapshots, &self.sources)
+        let downloads: Vec<Download> =
+            self.downloads.iter().map(|d| if self.missing.contains(&d.id) { Download { state: MISSING.into(), ..d.clone() } } else { d.clone() }).collect();
+        entries(b, self.page, query, &history, &downloads, &self.snapshots, &self.sources)
     }
 
     fn history_hits(&self, query: &str) -> Rc<[usize]> {
@@ -865,7 +876,26 @@ impl LibraryWindow {
                 b.downloads()
             })
             .unwrap_or_default();
+        self.check_files(cx);
         cx.notify();
+    }
+
+    fn check_files(&mut self, cx: &mut Context<Self>) {
+        let finished: Vec<(Id, String)> = self.downloads.iter().filter(|d| d.state.starts_with("finished")).map(|d| (d.id, d.path.clone())).collect();
+        cx.spawn(async move |this, cx| {
+            let missing: HashSet<Id> = cx
+                .background_executor()
+                .spawn(async move { finished.into_iter().filter(|(_, p)| crate::downloads::file_size(p).is_none()).map(|(id, _)| id).collect() })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.missing != missing {
+                    this.missing = missing;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn close(&mut self, refocus: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -1573,5 +1603,7 @@ mod tests {
         let blob = Download { url: String::new(), state: "failed".into(), ..d };
         let Entry::Row(r) = download_row(&store, &blob, 0) else { panic!() };
         assert_eq!(r.detail.as_deref(), Some("Failed · Just now"));
+        let Entry::Row(r) = download_row(&store, &Download { state: MISSING.into(), ..blob }, 0) else { panic!() };
+        assert_eq!(r.detail.as_deref(), Some("Missing · Just now"));
     }
 }
