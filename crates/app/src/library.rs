@@ -798,9 +798,13 @@ impl LibraryWindow {
 
     fn refit(&self, window: &Window, cx: &mut Context<Self>) {
         let (Some(fit), Some(browser)) = (&self.fit, self.browser.upgrade()) else { return };
-        let (Some(main), Some(popup)) = (browser.read(cx).host.clone(), engine::Host::from_window(window)) else { return };
         let listed = self.entries(browser.read(cx), cx);
-        let height = card_height(&listed, row_boundary(&listed, fit.max_list));
+        self.place(card_height(&listed, row_boundary(&listed, fit.max_list)), window, cx);
+    }
+
+    fn place(&self, height: f32, window: &Window, cx: &mut Context<Self>) {
+        let (Some(fit), Some(browser)) = (&self.fit, self.browser.upgrade()) else { return };
+        let (Some(main), Some(popup)) = (browser.read(cx).host.clone(), engine::Host::from_window(window)) else { return };
         let (x, bottom, width) = (fit.x, fit.bottom, fit.width);
         cx.spawn(async move |_, _| main.place(&popup, x.into(), (bottom - height).into(), width.into(), height.into())).detach();
     }
@@ -1014,12 +1018,11 @@ impl LibraryWindow {
         cx: &mut Context<Self>,
         then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
     ) {
-        let answer = crate::dialog::ask(PromptLevel::Warning, message, detail, &[action, "Cancel"], window, cx);
-        self.holding = true;
+        let answer = self.ask(PromptLevel::Warning, message, detail, &[action, "Cancel"], window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let yes = answer.await == Ok(0);
             this.update_in(cx, |this, window, cx| {
-                this.holding = false;
+                this.answered(window, cx);
                 if yes {
                     then(this, cx);
                 }
@@ -1030,13 +1033,34 @@ impl LibraryWindow {
         .detach();
     }
 
-    fn alert(&mut self, message: &str, detail: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        let answer = crate::dialog::ask(PromptLevel::Info, message, detail, &["OK"], window, cx);
+    /// A dialog draws inside the popover, so the popover takes its full height while one is up.
+    fn ask(
+        &mut self,
+        level: PromptLevel,
+        message: &str,
+        detail: Option<&str>,
+        answers: &[&str],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> oneshot::Receiver<usize> {
         self.holding = true;
+        if let Some(fit) = &self.fit {
+            self.place(SEARCH_HEIGHT + 2. + fit.max_list, window, cx);
+        }
+        crate::dialog::ask(level, message, detail, answers, window, cx)
+    }
+
+    fn answered(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.holding = false;
+        self.refit(window, cx);
+    }
+
+    fn alert(&mut self, message: &str, detail: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
+        let answer = self.ask(PromptLevel::Info, message, detail, &["OK"], window, cx);
         cx.spawn_in(window, async move |this, cx| {
             answer.await.ok();
             this.update_in(cx, |this, window, cx| {
-                this.holding = false;
+                this.answered(window, cx);
                 window.focus(&this.query.focus_handle(cx));
             })
             .ok();
@@ -1063,18 +1087,17 @@ impl LibraryWindow {
         let data::Confirm { message, detail, cookies } = data::confirm(&source, &profile, ui::controls::THIS_DEVICE);
         let sealed = !cookies;
         let buttons: &[&str] = if sealed { &["Import", "Cancel"] } else { &["Import All", "History and Bookmarks Only", "Cancel"] };
-        let answer = crate::dialog::ask(PromptLevel::Info, &message, Some(&detail), buttons, window, cx);
-        self.holding = true;
+        let answer = self.ask(PromptLevel::Info, &message, Some(&detail), buttons, window, cx);
         let (weak_browser, main) = (self.browser.clone(), self.main);
         cx.spawn_in(window, async move |this, cx| {
             let cookies = match answer.await {
                 Ok(0) => !sealed,
                 Ok(1) if !sealed => false,
-                _ => return drop(this.update(cx, |this, _| this.holding = false)),
+                _ => return drop(this.update_in(cx, |this, window, cx| this.answered(window, cx))),
             };
             if core.importing.replace(true) {
                 this.update_in(cx, |this, window, cx| {
-                    this.holding = false;
+                    this.answered(window, cx);
                     this.alert("An import is already running.", None, window, cx);
                 })
                 .ok();
@@ -1100,7 +1123,7 @@ impl LibraryWindow {
                 })
                 .unwrap_or(false);
             this.update_in(cx, |this, window, cx| {
-                this.holding = false;
+                this.answered(window, cx);
                 if same_profile {
                     this.history = core.disk.history(profile_id, HISTORY_LOAD).unwrap_or_default();
                     this.history_hits.take();
