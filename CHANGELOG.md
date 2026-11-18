@@ -264,6 +264,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Linux: links from other apps open in Tarn. The desktop entry made Tarn a browser for http and
   https links, but the URLs it was started with were ignored; now they, and those of a later
   launch, open as new tabs in the running Tarn, under the same rules as on macOS.
+- Page actions are greyed or left out while no tab is open: reader, copy link and title, duplicate,
+  pin, share, QR code, screenshot, PDF, save for later, bookmark, find, zoom and split view
+  (macOS, Windows, Linux; on iOS and Android Find in Page and Zoom).
 
 ## [0.1.2] - 2026-11-17
 

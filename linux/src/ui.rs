@@ -1283,8 +1283,13 @@ fn toolbar(ui: Ui) -> View {
     let actions = move || {
         let name = if split_shown.get() { "Close Split View" } else { "Open Split View" };
         let tip = shortcut_of(ui, Action::ToggleSplitView).map_or_else(|| name.to_owned(), |keys| format!("{name} ({keys})"));
-        let split = controls::icon_button_at(icons::SPLIT_ADD, &tip, Placement::Left, move || act(ui, Browser::toggle_split));
-        let share = controls::icon_button_at(icons::SHARE, "Share", Placement::Left, move || show(ui, Panel::Share));
+        let no_tab = move || !ui.snap.with(|s| s.tab);
+        let split = controls::icon_button_at(icons::SPLIT_ADD, &tip, Placement::Left, move || act(ui, Browser::toggle_split))
+            .disabled(no_tab)
+            .disabled_style(|s| s.text_color(Theme::faint()));
+        let share = controls::icon_button_at(icons::SHARE, "Share", Placement::Left, move || show(ui, Panel::Share))
+            .disabled(no_tab)
+            .disabled_style(|s| s.text_color(Theme::faint()));
         view().flex_row().items_center().gap(px(2.)).child(devtools::responsive_button(ui)).child(extensions::buttons(ui)).child(split).child(share)
     };
     let compact = computed(move || ui.snap.with(|s| s.compact));
@@ -2049,7 +2054,30 @@ fn content(ui: Ui) -> View {
         .child(web_views(ui).flex_grow(move || if covered() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
 }
 
+/// Actions on the active tab's page, which do nothing while no tab is open.
+const NEED_A_TAB: [Action; 16] = [
+    Action::TogglePin,
+    Action::Find,
+    Action::ZoomIn,
+    Action::ZoomOut,
+    Action::ZoomReset,
+    Action::CopyLink,
+    Action::CopyCleanLink,
+    Action::CopyMarkdownLink,
+    Action::TakeScreenshot,
+    Action::ToggleReader,
+    Action::Print,
+    Action::BookmarkTab,
+    Action::ToggleSplitView,
+    Action::FocusNextPane,
+    Action::FocusPreviousPane,
+    Action::SwapPanes,
+];
+
 fn run_action(ui: Ui, action: Action) {
+    if NEED_A_TAB.contains(&action) && !ui.snap.with_untracked(|s| s.tab) {
+        return;
+    }
     match action {
         Action::NewTab => new_tab(ui),
         Action::OpenLocation => open_palette(ui),

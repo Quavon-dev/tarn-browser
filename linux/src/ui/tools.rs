@@ -162,7 +162,16 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         Command::StopLoading => tab.loading,
         Command::ToastAction => toast.is_some(),
         Command::Key(Action::ReloadFromOrigin) => tab.open && !ui.snap.with_untracked(super::no_page),
-        Command::Reader => tab.open,
+        Command::Reader
+        | Command::SaveForLater
+        | Command::CopyLink
+        | Command::CopyCleanLink
+        | Command::CopyMarkdownLink
+        | Command::CopyTitle
+        | Command::ShowQrCode
+        | Command::SavePdf
+        | Command::ZapElement
+        | Command::Key(Action::TogglePin | Action::BookmarkTab | Action::TakeScreenshot | Action::ToggleSplitView) => tab.open,
         Command::CloseSplit
         | Command::Key(Action::FocusNextPane | Action::FocusPreviousPane | Action::SwapPanes | Action::RotateSplitLayout | Action::RemoveFromSplitView) => {
             split

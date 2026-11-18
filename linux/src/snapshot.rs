@@ -126,6 +126,8 @@ pub struct Snapshot {
     /// The current space, private or not; the start card's text belongs to it.
     pub space: Option<(bool, Id)>,
     pub blank: bool,
+    /// A tab is open, so page actions have a page to act on.
+    pub tab: bool,
     pub secure: bool,
     pub private: bool,
     pub rows: Vec<Row>,
@@ -446,6 +448,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         space_icon: b.model.current_space().map(|s| s.space.icon.clone()).unwrap_or_default(),
         space: b.model.current_space().map(|s| (s.private, s.space.id)),
         blank,
+        tab: key.is_some(),
         secure: !page.url.starts_with("http:"),
         private,
         rows: rows_with(b, &heavy),

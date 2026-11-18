@@ -311,6 +311,7 @@ fn menu(ui: Ui) -> impl IntoElement {
     };
     let level = computed(move || ui.read(|s| (s.active_page().map_or(1.0, |p| p.zoom) * 100.).round() as i64));
     let shareable = computed(move || ui.read(|s| s.share_url().is_some()));
+    let tab = computed(move || ui.read(|s| s.model.active.is_some()));
     view()
         .gap_2()
         .child(framed(
@@ -371,24 +372,26 @@ fn menu(ui: Ui) -> impl IntoElement {
         ))
         .child(framed(
             group()
-                .child(row(icons::SEARCH, "Find in Page", move || ui.show(Screen::Find)))
+                .child(dynamic(move || tab.get().then(|| row(icons::SEARCH, "Find in Page", move || ui.show(Screen::Find)))))
                 .child(row(icons::APP_WINDOW, "Find in Tabs", move || ui.show(Screen::FindTabs)))
                 .child(dynamic(move || ui.read(|s| s.offers_reader()).then(|| row(icons::BOOK_OPEN, "Reader", move || ui.act(|s| s.open_reader())))))
-                .child(
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .px_3()
-                        .min_h(px(TOUCH_TARGET))
-                        .py_1()
-                        .border_b_1()
-                        .border_color(Theme::separator)
-                        .child(label("Zoom").flex_1())
-                        .child(pill("−", move || zoom(-0.1)).accessibility_label("Zoom Out"))
-                        .child(dynamic(move || Some(pill(format!("{}%", level.get()), move || zoom(0.0)).accessibility_label("Actual Size"))))
-                        .child(pill("+", move || zoom(0.1)).accessibility_label("Zoom In")),
-                )
+                .child(dynamic(move || {
+                    tab.get().then(|| {
+                        view()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .px_3()
+                            .min_h(px(TOUCH_TARGET))
+                            .py_1()
+                            .border_b_1()
+                            .border_color(Theme::separator)
+                            .child(label("Zoom").flex_1())
+                            .child(pill("−", move || zoom(-0.1)).accessibility_label("Zoom Out"))
+                            .child(dynamic(move || Some(pill(format!("{}%", level.get()), move || zoom(0.0)).accessibility_label("Actual Size"))))
+                            .child(pill("+", move || zoom(0.1)).accessibility_label("Zoom In"))
+                    })
+                }))
                 .child(row(icons::SHIELD, "Shield and Settings for This Site", move || ui.show(Screen::Shield)))
                 .child(dynamic(move || {
                     ui.read(|s| s.zappable()).then(|| {
