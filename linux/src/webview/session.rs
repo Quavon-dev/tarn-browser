@@ -395,7 +395,10 @@ pub fn track(download: &Download, sink: &dyn DownloadSink) {
         if tracked.cancelling.get() {
             tracked.reported.set(true);
             std::fs::remove_file(&path).ok();
-            return report(&finished, json!({ "id": finished_id, "state": "failed", "name": name, "message": "The download was cancelled." }));
+            return report(
+                &finished,
+                json!({ "id": finished_id, "state": "failed", "cancelled": true, "name": name, "message": "The download was cancelled." }),
+            );
         }
         let url = download.request().and_then(|r| r.uri()).map(|u| super::policy::without_credentials(&u)).unwrap_or_default();
         let quarantined = mark_origin(&path, &url);

@@ -296,13 +296,25 @@ pub fn open_find_tabs(ui: Ui) {
 }
 
 pub fn expire_toast(ui: Ui) {
-    let Some(serial) = ui.snap.with_untracked(|s| s.toast.as_ref().map(|t| t.serial)) else { return };
-    if ui.toast_timer.get_untracked() == serial {
+    let Some((serial, held, action)) = ui.snap.with_untracked(|s| s.toast.as_ref().map(|t| (t.serial, t.held, t.action.is_some()))) else { return };
+    if ui.toast_timer.get_untracked() == serial || held {
         return;
     }
     ui.toast_timer.set(serial);
-    let time = if ui.snap.with_untracked(|s| s.toast.as_ref().is_some_and(|t| t.action.is_some())) { ACTION_TIME } else { TOAST_TIME };
-    ui.root.run(|| drop(set_timeout(time, move || act(ui, |b| b.expire_toast(serial)))));
+    toast_timer(ui, serial, if action { ACTION_TIME } else { TOAST_TIME });
+}
+
+/// Ends toast `serial` after `time`, or waits again while the pointer is on it.
+fn toast_timer(ui: Ui, serial: u64, time: Duration) {
+    ui.root.run(|| {
+        drop(set_timeout(time, move || {
+            if ui.toast_hovered.get_untracked() {
+                toast_timer(ui, serial, TOAST_TIME);
+            } else {
+                act(ui, |b| b.expire_toast(serial));
+            }
+        }))
+    });
 }
 
 pub fn toast_bar(ui: Ui) -> AnyElement {
@@ -311,6 +323,7 @@ pub fn toast_bar(ui: Ui) -> AnyElement {
         let action = toast.action.map(|action| match action {
             ToastAction::Undo(_) => tarn_nsh_shared::controls::toast_action("Undo", move || act(ui, Browser::take_toast_action)),
             ToastAction::UndoSort(_) => tarn_nsh_shared::controls::toast_action("Undo Sort", move || act(ui, Browser::take_toast_action)),
+            ToastAction::RestoreDownloads(_) => tarn_nsh_shared::controls::toast_action("Undo", move || act(ui, Browser::take_toast_action)),
             ToastAction::Reveal(path) => tarn_nsh_shared::controls::toast_action("Show in Folder", move || drop(reveal_path(std::path::PathBuf::from(&path)))),
         });
         Some(
@@ -318,7 +331,9 @@ pub fn toast_bar(ui: Ui) -> AnyElement {
                 tarn_nsh_shared::controls::toast(toast.tone)
                     .mt_2()
                     .max_w(px(560.))
-                    .child(label(toast.text).flex_shrink(1.).truncate())
+                    .on_mouse_enter(move |_: &MouseEvent| ui.toast_hovered.set(true))
+                    .on_mouse_leave(move |_: &MouseEvent| ui.toast_hovered.set(false))
+                    .child(label(toast.text).flex_shrink(1.).number_of_lines(2))
                     .children(action)
                     .child(crate::controls::icon_button_at(icons::CLOSE, "Dismiss", Placement::Left, move || act(ui, |b| b.expire_toast(toast.serial)))),
             ),

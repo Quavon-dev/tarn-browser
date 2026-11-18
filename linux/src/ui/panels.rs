@@ -423,7 +423,8 @@ pub(super) fn saved_download(ui: Ui, d: store::Download) -> AnyElement {
     let name = browser_core::library::download_name(&d);
     let size = std::fs::metadata(file).map(|m| crate::memory::size(m.len())).ok();
     let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_owned));
-    let note = [size, host].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+    let ended = matches!(d.state.as_str(), "failed" | "cancelled").then(|| capitalised(&d.state));
+    let note = [ended, size, host].into_iter().flatten().collect::<Vec<_>>().join(" · ");
     let id = d.id;
     download_row(name, note, false)
         .child(icon_button(icons::FOLDER_OPEN, "Show in Folder", move || {
@@ -443,7 +444,7 @@ fn downloads_panel(ui: Ui) -> AnyElement {
     let mut rows: Vec<AnyElement> = session
         .iter()
         .rev()
-        .filter(|d| d.state != "finished")
+        .filter(|d| d.state != "finished" && !saved.iter().any(|s| !d.path.is_empty() && s.path == d.path))
         .map(|d| {
             let running = d.state == "started";
             let state = match (running, d.total) {
@@ -476,7 +477,7 @@ fn downloads_panel(ui: Ui) -> AnyElement {
         .collect();
     let empty = rows.is_empty() && saved.is_empty();
     rows.extend(saved.into_iter().map(|d| saved_download(ui, d)));
-    let clear = (!empty).then(|| confirmed(ui, "downloads".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads())));
+    let clear = (!empty).then(|| pill("Clear", move || act(ui, |b| b.clear_downloads())));
     let header = heading(ui, view().flex_row().items_center().flex_1().child(title("Downloads")).child(view().flex_1()).children(clear));
     let none = empty.then(|| view().h(px(44.)).px_2().justify_center().child(body("No downloads yet").text_color(Theme::faint())));
     popover().gap_2().child(header).child(view().flex_col().gap(px(2.)).children(rows).children(none)).into_element()

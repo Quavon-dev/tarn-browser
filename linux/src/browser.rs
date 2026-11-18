@@ -98,6 +98,8 @@ pub enum ToastAction {
     Undo(u64),
     UndoSort(Box<(bool, browser_core::cleanup::Undo)>),
     Reveal(String),
+    /// The download list a Clear removed: (private, profile, its rows).
+    RestoreDownloads(Box<(bool, Id, Vec<store::Download>)>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -106,6 +108,8 @@ pub struct Toast {
     pub tone: browser_core::toast::Tone,
     pub action: Option<ToastAction>,
     pub serial: u64,
+    /// A warning that waits until dismissed; a later toast queues behind it.
+    pub held: bool,
 }
 
 pub use pages::{FindRow, ReaderView, Request};
@@ -118,6 +122,7 @@ pub struct Browser {
     pub notice: Option<Notice>,
     pub downloads: Vec<DownloadItem>,
     pub toast: Option<Toast>,
+    toasts_waiting: Vec<Toast>,
     pub reader: Option<ReaderView>,
     pub articles: HashSet<TabKey>,
     pub requests: HashMap<u64, Request>,
@@ -205,6 +210,7 @@ impl Browser {
             notice: None,
             downloads: Vec::new(),
             toast: None,
+            toasts_waiting: Vec::new(),
             reader: None,
             articles: HashSet::new(),
             requests: HashMap::new(),
@@ -303,20 +309,46 @@ impl Browser {
     }
 
     pub fn show_toast_as(&mut self, tone: browser_core::toast::Tone, text: impl Into<String>, action: Option<ToastAction>) {
+        self.push_toast(Toast { text: text.into(), tone, action, serial: 0, held: false });
+    }
+
+    /// A warning that stays until dismissed: a later toast neither replaces nor hides it.
+    pub fn show_warning(&mut self, text: impl Into<String>) {
+        self.push_toast(Toast { text: text.into(), tone: browser_core::toast::Tone::Warning, action: None, serial: 0, held: true });
+    }
+
+    fn push_toast(&mut self, mut toast: Toast) {
         self.toast_serial += 1;
-        self.toast = Some(Toast { text: text.into(), tone, action, serial: self.toast_serial });
+        toast.serial = self.toast_serial;
+        let mut queue: Vec<Toast> = self.toast.take().into_iter().chain(std::mem::take(&mut self.toasts_waiting)).collect();
+        browser_core::toast::push_notice(&mut queue, toast, |t| t.held);
+        self.toasts_waiting = queue.split_off(1.min(queue.len()));
+        self.toast = queue.pop();
     }
 
     pub fn expire_toast(&mut self, serial: u64) {
         if self.toast.as_ref().is_some_and(|t| t.serial == serial) {
-            self.toast = None;
+            self.dismiss_toast();
         }
     }
 
+    /// Takes the toast away and shows the next one waiting.
+    pub fn dismiss_toast(&mut self) {
+        self.toast = (!self.toasts_waiting.is_empty()).then(|| self.toasts_waiting.remove(0));
+    }
+
     pub fn take_toast_action(&mut self) {
-        match self.toast.take().and_then(|t| t.action) {
+        let action = self.toast.as_ref().and_then(|t| t.action.clone());
+        self.dismiss_toast();
+        match action {
             Some(ToastAction::Undo(serial)) => self.undo_close(serial),
             Some(ToastAction::UndoSort(sort)) => self.undo_sort(*sort),
+            Some(ToastAction::RestoreDownloads(cleared)) => {
+                let (private, profile, rows) = *cleared;
+                for d in rows.iter().rev() {
+                    self.core.store(private).add_download(profile, &d.url, &d.path, &d.state, d.started_at).ok();
+                }
+            }
             Some(ToastAction::Reveal(_)) | None => {}
         }
     }
@@ -823,7 +855,10 @@ impl Browser {
 
     pub fn clear_downloads(&mut self) {
         if let Some((private, id)) = self.profile_of_space() {
-            self.core.store(private).clear_downloads(id).ok();
+            let rows = self.core.store(private).downloads(id).unwrap_or_default();
+            if !rows.is_empty() && self.core.store(private).clear_downloads(id).is_ok() {
+                self.show_toast("Download list cleared", Some(ToastAction::RestoreDownloads(Box::new((private, id, rows)))));
+            }
         }
         self.settle_downloads();
         self.downloads.retain(|d| d.state == "started" || d.state == "flagged");

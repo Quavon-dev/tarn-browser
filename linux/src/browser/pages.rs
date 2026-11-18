@@ -290,7 +290,7 @@ impl Browser {
         self.settle_downloads();
         let state_is_flagged = state == "flagged";
         if state_is_flagged && known {
-            self.show_toast_as(browser_core::toast::Tone::Warning, engine::downloads::flagged_notice(&text("name"), &text("host")), None);
+            self.show_warning(engine::downloads::flagged_notice(&text("name"), &text("host")));
         }
         let previous = self.downloads.iter().position(|d| !id.is_empty() && d.id == id);
         let old = previous.map(|ix| self.downloads.remove(ix));
@@ -305,11 +305,13 @@ impl Browser {
         };
         let wiped = |p: Id| self.core.wiped_at.borrow().get(&(key.private, p)).is_some_and(|at| started < *at);
         let keeps = owner.filter(|p| self.core.keeps_records(key.private, *p) && !wiped(*p));
-        if record
-            && item.state == "finished"
-            && let Some(profile) = keeps
-        {
-            self.core.store(key.private).add_download(profile, &text("url"), &item.path, "finished", now()).ok();
+        if record && let Some(profile) = keeps {
+            let ended = if data["cancelled"].as_bool() == Some(true) { "cancelled" } else { "failed" };
+            match item.state.as_str() {
+                "finished" => self.core.store(key.private).add_download(profile, &text("url"), &item.path, "finished", now()).ok(),
+                "failed" if !item.path.is_empty() => self.core.store(key.private).add_download(profile, &text("url"), &item.path, ended, started).ok(),
+                _ => None,
+            };
         }
         self.downloads.push(item);
         known
