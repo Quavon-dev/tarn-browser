@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use browser_core::shield_card::{Card, H, Label, SHORT, W, back, day_totals, face, front, front_svg, thousands};
 use browser_core::space_card::SpaceDraft;
 use browser_core::tabs::TabKey;
@@ -25,7 +23,6 @@ const CARD_FILE: &str = "Tarn Shield card.svg";
 
 const QR_SIZE: f32 = 240.;
 const SWATCH: f32 = 28.;
-pub(super) const FIND_DELAY: Duration = Duration::from_millis(150);
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 fn row_button(name: String, detail: Option<String>, press: impl Fn() + 'static) -> nsh_base::ButtonElement {
@@ -113,7 +110,7 @@ pub fn find_tabs(ui: Ui) -> impl IntoElement {
                 .on_change(move |v: &str| {
                     let typed = v.to_owned();
                     query.set(typed.clone());
-                    set_timeout(FIND_DELAY, move || {
+                    set_timeout(browser_core::find::TYPING_DELAY, move || {
                         if query.get_untracked() == typed {
                             ui.act(|s| s.find_in_tabs(&typed));
                         }

@@ -3,7 +3,7 @@ use browser_core::tabs::TabKey;
 use nsh_base::{alert_dialog, button, input};
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
-use serde_json::json;
+use serde_json::{Value, json};
 use shield::ShieldLevel;
 
 use super::controls::icon;
@@ -821,11 +821,14 @@ fn find(ui: Ui) -> impl IntoElement {
     };
     let count = move || ui.read(|s| s.found).filter(|_| !query.get().is_empty());
     let always = KeyOptions { when: When::Always, ..KeyOptions::default() };
-    on_key_with("escape", always, move |_| ui.show(Screen::Browse));
     on_key_with("mod+g", always, move |_| search(false));
     on_key_with("shift+mod+g", always, move |_| search(true));
     let shown = tarn_nsh_shared::motion::pop_in();
-    let close = move || tarn_nsh_shared::motion::pop_out(shown, 1., move || ui.show(Screen::Browse));
+    let close = move || {
+        ui.act_on_screen(|s| s.active_command("clearFind", Value::Null));
+        tarn_nsh_shared::motion::pop_out(shown, 1., move || ui.show(Screen::Browse));
+    };
+    on_key_with("escape", always, move |_| close());
     surface(FIND_RADIUS)
         .absolute()
         .top(px(8.))
@@ -848,9 +851,9 @@ fn find(ui: Ui) -> impl IntoElement {
                     query.set(typed.clone());
                     ui.act_on_screen(|s| {
                         s.found = None;
-                        Vec::new()
+                        if typed.is_empty() { s.active_command("clearFind", Value::Null) } else { Vec::new() }
                     });
-                    set_timeout(sheets::FIND_DELAY, move || {
+                    set_timeout(browser_core::find::TYPING_DELAY, move || {
                         if query.get_untracked() == typed {
                             search(false);
                         }
@@ -867,13 +870,8 @@ fn find(ui: Ui) -> impl IntoElement {
                 .text_color(Theme::text),
         )
         .child(
-            small(move || match count() {
-                Some(0) => "No matches".to_owned(),
-                Some(1) => "1 match".to_owned(),
-                Some(n) => format!("{n} matches"),
-                None => String::new(),
-            })
-            .text_color(move || if count() == Some(0) { Theme::danger() } else { Theme::faint() }),
+            small(move || count().map_or_else(String::new, |(n, at)| browser_core::find::count_label(Some(n), at)))
+                .text_color(move || if count().is_some_and(|(n, _)| n == 0) { Theme::danger() } else { Theme::faint() }),
         )
         .child(view().w(px(1.)).h(px(20.)).mx_1().bg(Theme::separator))
         .child(tarn_nsh_shared::controls::icon_button(find_glyph(glyphs::CHEVRON_UP), "Previous", move || search(true)))

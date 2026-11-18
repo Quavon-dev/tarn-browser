@@ -95,7 +95,10 @@ impl<D: Platform> Shell<D> {
             "prompt" => return self.prompt(key, data),
             crate::extensions::MESSAGE => return self.extension_message(key, data, std::time::Instant::now()),
             "article" | "pageText" | "iconLinks" | "iconData" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
-            "found" => self.found = data.get("matched").and_then(Value::as_u64),
+            "found" => {
+                let number = |field: &str| data.get(field).and_then(Value::as_u64).map(|n| n as usize);
+                self.found = number("matched").map(|n| (n, number("current")));
+            }
             "history" => {
                 if let Some(page) = self.pages.get_mut(&key) {
                     page.back = data.get("canGoBack").and_then(Value::as_bool).unwrap_or(page.back);

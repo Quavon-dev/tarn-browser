@@ -190,9 +190,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The Library panel stays within a narrow sidebar, and a list taller than the window ends below a
   row instead of cutting off the next heading (macOS, Windows).
 - Pages follow Tarn's light or dark theme (`prefers-color-scheme`) instead of the system's
-  appearance, and switch with it (macOS, Windows).
+  appearance, and switch with it (macOS, Windows, iOS, Android).
 - Find in page searches as you type, shows "1 of 2" where the engine reports the current match
-  (Chromium), and clears its highlight when the bar closes (macOS, Windows).
+  (Chromium, Android), and clears its highlight when the bar closes (macOS, Windows, iOS,
+  Android).
 - A toast stays while the pointer is over it, wraps a long message onto a second line, and its
   button is also a command row, so it can be reached from the keyboard (macOS, Windows).
 - Translating a page shows Translating… while it works and then Show Original, which reloads the

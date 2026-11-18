@@ -125,7 +125,7 @@ pub struct Shell<D: Platform> {
     /// The tone of the notice with this text; any other notice reads as information.
     pub tone: Option<(String, browser_core::toast::Tone)>,
     pub open_offer: Option<(TabKey, String, String)>,
-    pub found: Option<u64>,
+    pub found: Option<(usize, Option<usize>)>,
     pub undo: Option<(String, u64)>,
     pub transfers: Vec<crate::scripts::Transfer>,
     pub transfers_moved: std::time::Instant,

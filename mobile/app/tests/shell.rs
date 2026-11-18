@@ -412,7 +412,9 @@ fn popups_open_tabs_and_failures_show() {
     shell.event(pop, "blocked", &json!({ "url": "http://192.168.1.1/", "reason": "local_network" }), 3);
     assert!(shell.notice.as_deref().unwrap().contains("local network"));
     shell.event(pop, "found", &json!({ "matched": 3 }), 4);
-    assert_eq!(shell.found, Some(3));
+    assert_eq!(shell.found, Some((3, None)));
+    shell.event(pop, "found", &json!({ "matched": 3, "current": 2 }), 4);
+    assert_eq!(shell.found, Some((3, Some(2))));
     assert_eq!(shell.zoom(9.0), vec![Effect::Command(pop, "zoom", json!({ "factor": 3.0 }))]);
 }
 
