@@ -131,6 +131,7 @@ final class TarnWebView implements NshComponent {
     private volatile Page pending;
     private volatile boolean shellNavigation;
     private volatile boolean javaScriptOn;
+    private boolean skipCache;
 
     TarnWebView(NshComponentContext context, boolean noPersonalizedLearning) {
         this.context = context;
@@ -195,7 +196,8 @@ final class TarnWebView implements NshComponent {
             return;
         }
         if (web == null) {
-            if ("reload".equals(name) && loadUrl != null) {
+            if (("reload".equals(name) || "reloadFromOrigin".equals(name)) && loadUrl != null) {
+                skipCache = "reloadFromOrigin".equals(name);
                 appliedSeq = null;
                 apply();
             }
@@ -205,7 +207,12 @@ final class TarnWebView implements NshComponent {
             case "back" -> step(-1);
             case "forward" -> step(1);
             case "reload" -> reload();
+            case "reloadFromOrigin" -> {
+                web.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
+                reload();
+            }
             case "stop" -> {
+                web.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
                 web.stopLoading();
                 endNavigation();
             }
@@ -482,6 +489,8 @@ final class TarnWebView implements NshComponent {
         extensions.apply();
         if (loadUrl != null && !Objects.equals(loadSeq, appliedSeq)) {
             appliedSeq = loadSeq;
+            if (skipCache) web.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
+            skipCache = false;
             shellLoad(loadUrl, loadOpener, loadFile);
         }
     }
@@ -1155,6 +1164,7 @@ final class TarnWebView implements NshComponent {
 
         @Override
         public void onPageFinished(WebView view, String url) {
+            view.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
             if (url != null && url.equals(refusedUrl)) return;
             emitPage("finished", view, url);
         }
@@ -1162,7 +1172,10 @@ final class TarnWebView implements NshComponent {
         @Override
         public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
             String message = String.valueOf(error.getDescription());
-            if (request.isForMainFrame()) endNavigation();
+            if (request.isForMainFrame()) {
+                endNavigation();
+                view.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+            }
             if (request.isForMainFrame() && !message.contains("ERR_ABORTED")) {
                 emit("failed", "url", request.getUrl().toString(), "message", message);
             }

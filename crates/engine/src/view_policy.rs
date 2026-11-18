@@ -12,6 +12,7 @@ pub const POPUP_BURST: usize = 3;
 pub const DOWNLOAD_BURST: usize = 10;
 pub const MAX_AUTH_ATTEMPTS: u32 = 3;
 pub const MAX_TITLE: usize = 1024;
+pub const MAX_HOVERED_LINK: usize = 4096;
 pub const BURST_WINDOW: Duration = Duration::from_secs(10);
 pub const DEFAULT_LEVEL_KEY: &str = "*";
 pub const MAX_PROMPTS: usize = 8;

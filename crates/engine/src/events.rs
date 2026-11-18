@@ -100,6 +100,7 @@ pub enum Event {
         origin: Option<String>,
     },
     ContentProcessTerminated,
+    LinkHovered(Option<String>),
     /// A Chromium page on Windows entered (`true`) or left full screen for an element (a video); the
     /// shell shows the page alone, filling the screen. WebKit opens its own full-screen window.
     FullScreen(bool),

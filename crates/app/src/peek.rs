@@ -29,6 +29,7 @@ pub struct Peek {
     origin: Option<Origin>,
     timer: Option<Task<()>>,
     pointer: Option<(engine::menu::EventMonitor, Task<()>)>,
+    pub(crate) owns: [bool; 2],
 }
 
 impl Peek {
@@ -59,7 +60,8 @@ impl Browser {
     }
 
     fn peek_enabled(&self) -> bool {
-        !self.sidebar_open
+        let [library, downloads] = self.peek.owns;
+        !self.sidebar_open && (self.library.is_none() || library) && (!self.downloads_popover.is_open() || downloads)
     }
 
     /// Pointer moves over the main window, including over the page, which GPUI never sees.
@@ -140,11 +142,21 @@ impl Browser {
         });
     }
 
+    pub(crate) fn main_bounds(&self, window: &Window) -> Bounds<Pixels> {
+        self.peek.origin.filter(|_| self.peek.is_window(window)).map_or_else(|| window.bounds(), |(bounds, _)| bounds)
+    }
+
     pub fn close_peek(&mut self, cx: &mut Context<Self>) {
         self.motion.forget_pointer();
         self.peek.hover.closed();
         self.peek.timer = None;
         if let Some(handle) = self.peek.window.take() {
+            if self.peek.owns[0] {
+                self.close_library(cx);
+            }
+            if self.peek.owns[1] {
+                self.close_downloads(cx);
+            }
             let reduce = self.pref(Pref::ReduceMotion);
             cx.defer(move |cx| {
                 handle
@@ -161,7 +173,8 @@ impl Browser {
     /// Popups belong to this browser; they go with it instead of outliving the main window.
     pub(crate) fn close_popups(&mut self, cx: &mut App) {
         self.toast.popup = None;
-        let popups: [Option<AnyWindowHandle>; 10] = [
+        self.link_status.popup = None;
+        let popups: [Option<AnyWindowHandle>; 11] = [
             self.space_popover.take().map(|(p, _)| p.into()),
             self.hover_card.window.take().map(Into::into),
             self.site_popover.window.take().map(Into::into),
@@ -172,10 +185,29 @@ impl Browser {
             self.settings_window.take().map(Into::into),
             self.qr.take().map(Into::into),
             self.toast.window.take().map(Into::into),
+            self.link_status.window.take().map(Into::into),
         ];
         for handle in popups.into_iter().flatten() {
             handle.update(cx, |_, window, _| window.remove_window()).ok();
         }
+    }
+}
+
+pub(crate) fn popovers_over_peek(browser: &WeakEntity<Browser>, cx: &mut App) {
+    let Some((peek, popovers)) = browser.upgrade().and_then(|b| {
+        let b = b.read(cx);
+        let [library, downloads] = b.peek.owns;
+        Some((
+            b.peek.window?,
+            [b.library.filter(|_| library).map(AnyWindowHandle::from), b.downloads_popover.window.filter(|_| downloads).map(AnyWindowHandle::from)],
+        ))
+    }) else {
+        return;
+    };
+    let host = |handle: AnyWindowHandle, cx: &mut App| handle.update(cx, |_, window, _| engine::Host::from_window(window)).ok().flatten();
+    let Some(peek) = host(peek.into(), cx) else { return };
+    for popover in popovers.into_iter().flatten().filter_map(|p| host(p, cx)) {
+        peek.follow(&popover);
     }
 }
 

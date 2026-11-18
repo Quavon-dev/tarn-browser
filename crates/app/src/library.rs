@@ -269,14 +269,16 @@ impl Browser {
         .ok();
     }
 
+    pub(crate) fn close_library(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.library.take() {
+            cx.defer(move |cx| drop(handle.update(cx, |library, window, cx| library.close(true, window, cx))));
+            cx.notify();
+        }
+    }
+
     pub fn toggle_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match self.library.take() {
-            Some(handle) => {
-                cx.defer(move |cx| {
-                    handle.update(cx, |library, window, cx| library.close(true, window, cx)).ok();
-                });
-                cx.notify();
-            }
+        match self.library {
+            Some(_) => self.close_library(cx),
             // The click that took focus from the library already closed it; it must not reopen it.
             None if self.library_closed.is_some_and(|t| t.elapsed() < ui::motion::REOPEN_GUARD) => {}
             None => self.show_library(None, window, cx),
@@ -300,7 +302,11 @@ impl Browser {
         }
         let Some(main) = window.window_handle().downcast::<Browser>().or(self.peek.main) else { return };
         let inset = SIDEBAR_MARGIN;
-        let anchor = window.bounds();
+        self.peek.owns[0] = self.peek.is_window(window);
+        if !self.peek.owns[0] {
+            self.close_peek(cx);
+        }
+        let anchor = self.main_bounds(window);
         let room = f32::from(anchor.size.height) - 2. * inset - SPACE_ROW - TOOLBAR_HEIGHT - SEARCH_HEIGHT - 2.;
         let max_list = room.max(ROW * 3.);
         let downloads = self.downloads();
@@ -334,6 +340,7 @@ impl Browser {
                     cx.notify();
                 })
                 .ok();
+            crate::peek::popovers_over_peek(&browser, cx);
         });
     }
 }

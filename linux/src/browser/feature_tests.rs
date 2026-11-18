@@ -1626,3 +1626,24 @@ fn filter_list_updates_default_on_switch_off_and_show_the_installed_lists() {
     b.toggle_setting(shield::update::SETTING);
     assert_eq!(b.filter_updates().0, Some(true));
 }
+
+#[test]
+fn a_hovered_link_shows_until_the_pointer_leaves_or_the_page_changes() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://a.test/");
+    b.on_event(key, "hover", &json!({ "url": "javascript:void(0)" }));
+    assert_eq!(crate::snapshot::snapshot(&b, true).link, Some((key, "javascript:void(0)".to_owned())));
+    b.on_event(key, "hover", &json!({ "url": null }));
+    assert_eq!(crate::snapshot::snapshot(&b, true).link, None);
+    b.on_event(key, "hover", &json!({ "url": "https://a.test/next" }));
+    b.on_event(key, "committed", &json!({ "url": "https://a.test/next", "title": "T" }));
+    assert_eq!(crate::snapshot::snapshot(&b, true).link, None);
+    b.on_event(key, "hover", &json!({ "url": "https://a.test/again" }));
+    b.on_event(key, "crashed", &json!({}));
+    assert_eq!(crate::snapshot::snapshot(&b, true).link, None);
+    b.on_event(key, "hover", &json!({ "url": "https://a.test/blocked" }));
+    b.on_event(key, "blocked", &json!({ "url": "https://evil.test/x", "reason": "listed", "category": "malware" }));
+    assert!(blocked_page(&b).is_some());
+    assert_eq!(crate::snapshot::snapshot(&b, true).link, None, "a blocked page covers the view");
+}

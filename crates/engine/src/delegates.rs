@@ -285,6 +285,15 @@ define_class!(
             menu.retain()
         }
 
+        #[unsafe(method(_webView:mouseDidMoveOverElement:withFlags:userInfo:))]
+        fn mouse_over(&self, _web_view: &WKWebView, hit: Option<&NSObject>, _flags: usize, _info: Option<&AnyObject>) {
+            let hit = hit.filter(|h| h.respondsToSelector(sel!(absoluteLinkURL)));
+            // SAFETY: `_WKHitTestResult` answers `absoluteLinkURL` (checked above) with a nullable NSURL.
+            let link: Option<Retained<NSURL>> = hit.and_then(|h| unsafe { msg_send![h, absoluteLinkURL] });
+            let link = link.and_then(|u| u.absoluteString()).map(|s| if s.length() > crate::view_policy::MAX_HOVERED_LINK { s.substringToIndex(crate::view_policy::MAX_HOVERED_LINK) } else { s });
+            self.emit(Event::LinkHovered(link.map(|s| s.to_string())));
+        }
+
         #[unsafe(method(openLinkInSplitView:))]
         fn open_link_in_split_view(&self, sender: &NSMenuItem) {
             let Some(item) = sender.representedObject().and_then(|o| o.downcast::<NSMenuItem>().ok()) else { return };

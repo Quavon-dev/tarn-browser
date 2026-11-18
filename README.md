@@ -107,7 +107,7 @@ the Linux, iOS and Android apps. Pages render in each platform's own engine.
   </tr>
   <tr>
     <td align="center"><sub><b>Site settings</b> · Shield level and permissions per site</sub></td>
-    <td align="center"><sub><b>Reader</b> · <kbd>⇧⌘R</kbd>, with Read Aloud</sub></td>
+    <td align="center"><sub><b>Reader</b> · <kbd>⌥⌘R</kbd>, with Read Aloud</sub></td>
   </tr>
   <tr>
     <td><img src="docs/media/themes.png" alt="Appearance settings with the Ember theme applied to Tarn" /></td>
@@ -226,7 +226,8 @@ Linux packages.
 ## Shortcuts
 
 The macOS defaults (Windows and Linux use <kbd>Ctrl</kbd> where macOS uses <kbd>⌘</kbd>). Most can
-be changed in Settings › Shortcuts; tab and space numbers, Esc, Undo/Redo and ⌘Q stay fixed.
+be changed in Settings › Shortcuts; tab and space numbers, Esc, Undo/Redo and ⌘Q stay fixed. On
+Linux, Reader is <kbd>Ctrl+Alt+E</kbd>, since <kbd>Ctrl+Alt+R</kbd> rotates the split layout.
 
 | | |
 |---|---|
@@ -236,7 +237,7 @@ be changed in Settings › Shortcuts; tab and space numbers, Esc, Undo/Redo and 
 | <kbd>⌃1</kbd> … <kbd>⌃9</kbd> | Switch space |
 | <kbd>⌃⌘N</kbd> | Split View |
 | <kbd>⇧</kbd>-click a link | Link peek |
-| <kbd>⇧⌘R</kbd> | Reader |
+| <kbd>⌥⌘R</kbd> | Reader |
 | <kbd>⌘S</kbd> | Show or hide the sidebar |
 | <kbd>⇧⌘N</kbd> | Private space |
 | <kbd>⌘/</kbd> | All shortcuts |
@@ -270,13 +271,14 @@ be changed in Settings › Shortcuts; tab and space numbers, Esc, Undo/Redo and 
 | ⇧⌘A | Library: open tabs, history and bookmarks |
 | ⇧⌘J | Recent downloads |
 | ⌥⌘B / ⌘Y | Manage bookmarks / show history (open the library) |
-| ⇧⌘R | Reader |
+| ⌥⌘R | Reader |
 | ⌥⇧⌘N | Burner tab |
 | ⌘M | Minimize the window |
 | ⌃⌘F | Enter or exit full screen |
 | ⌘H / ⌥⌘H | Hide Tarn / hide other apps (Show All is in the Tarn menu) |
 | ⌘[ / ⌘] | Back / forward |
 | ⌘R | Reload (the arrow spins while the page loads) |
+| ⇧⌘R | Reload without cache |
 | ⌘F / ⌘G / ⇧⌘G | Find in page / next / previous |
 | ⌘P | Print |
 | ⌘S | Show or hide the sidebar |

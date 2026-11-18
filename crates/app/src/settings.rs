@@ -117,7 +117,7 @@ pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
         "Page",
         &[
             ("Reload", Bound("cmd-r", &crate::Reload)),
-            ("Reload without cache", Bound("alt-cmd-r", &crate::ReloadFromOrigin)),
+            ("Reload without cache", Bound("cmd-shift-r", &crate::ReloadFromOrigin)),
             ("Stop loading", Bound("cmd-.", &crate::StopLoading)),
             ("Back", Bound("cmd-[", &crate::Back)),
             ("Forward", Bound("cmd-]", &crate::Forward)),
@@ -132,7 +132,7 @@ pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
             ("Copy clean link", Bound("ctrl-shift-cmd-c", &crate::CopyCleanLink)),
             ("Copy link as Markdown", Bound("cmd-shift-alt-c", &crate::capture::CopyMarkdownLink)),
             ("Take screenshot", Bound("cmd-alt-s", &crate::capture::TakeScreenshot)),
-            ("Reader", Bound("cmd-shift-r", &crate::reader::ToggleReader)),
+            ("Reader", Bound("alt-cmd-r", &crate::reader::ToggleReader)),
             ("Picture in Picture", Bound("cmd-ctrl-p", &crate::capture::PictureInPicture)),
             ("Print", Bound("cmd-p", &crate::Print)),
             ("Open link in a peek", Fixed("⇧-click")),

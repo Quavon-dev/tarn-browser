@@ -526,7 +526,36 @@ fn web_views(ui: Ui) -> View {
                     .h(move || px(rect().3))
             },
         ))
+        .child(link_bubble(ui))
         .child(link_peek::layer(ui))
+}
+
+fn link_bubble(ui: Ui) -> AnyElement {
+    dynamic(move || {
+        let (key, link) = ui.snap.with(|s| s.link.clone())?;
+        let (active, pane) = ui.snap.with(|s| s.views.iter().find(|v| v.key == key).map(|v| (v.active, v.pane)))?;
+        let (x, y, w, h) = split::view_rect(ui, active, pane);
+        let (origin, rest) = browser_core::link_status::split(&link);
+        let (origin, rest) = (origin.to_owned(), rest.to_owned());
+        (w > 0. && h > 0.).then(|| {
+            view()
+                .absolute()
+                .left(px(x + 4.))
+                .top(px(y + h - 28.))
+                .h(px(24.))
+                .max_w(px((w - 8.).max(0.)))
+                .px(px(8.))
+                .flex_row()
+                .items_center()
+                .rounded(px(Theme::radius_row()))
+                .bg(Theme::surface())
+                .border_1()
+                .border_color(Theme::surface_edge())
+                .pointer_events(nsh_core::PointerEvents::None)
+                .child(view().flex_row().justify_end().overflow_hidden().min_w(px(0.)).flex_shrink(1.).child(small(origin).flex_shrink(0.)))
+                .child(small(rest).flex_shrink(1000.).truncate())
+        })
+    })
 }
 
 pub fn site_tile(ui: Ui, host: &str, size: f32) -> View {

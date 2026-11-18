@@ -274,6 +274,9 @@ decisions come from `browser_core::tarn_ext`.
 - **Gap: the last match after Find on Android.** `WebView.clearMatches`, the only public way to end a find,
   stops it with the selection cleared, so closing Find does not leave the last match selected as it does on
   the other clients.
+- **Gap: the link under the pointer.** Neither WKWebView on iOS nor Android System WebView reports the
+  element under a hovering pointer, so the status bubble the desktop clients show for a hovered link has
+  nothing to show; a touch has no hover, and a long press shows the link in its menu.
 - **Network rules.** `set_rule_lists` parses each list with `engine::content_rules`; the component applies
   them per request in `shouldInterceptRequest` and in the main-frame checks of `shellLoad`, link navigations
   and history steps, never at Lockdown (the view's or the site's level). As with Shield on Android, an

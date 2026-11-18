@@ -55,7 +55,9 @@ Every shell's web view offers the same operations and reports the same events. T
   at creation; NSH: the `inspectable` prop, which Linux applies outside Lockdown views only), and
   `clear_cache` on the profile's data store (NSH: the `clearCache` command on a view of that
   store). Linux's component implements `reloadFromOrigin`, `clearCache` and `readJson` (answered
-  by `jsonText`); iOS and Android do not have them yet;
+  by `jsonText`); iOS (WebKit's `reloadFromOrigin`) and Android (one reload with
+  `WebSettings.LOAD_NO_CACHE`, back to `LOAD_DEFAULT` when the page finishes, fails or stops) have
+  `reloadFromOrigin`; they do not have the others yet;
 - `filtered`: whether the view applies Shield's rules;
 - start-of-document page-world scripts: `engine::page_scripts::ALWAYS_VISIBLE` in every view but
   Lockdown's, and `shield::youtube::script` where blocking is not paused and Block YouTube ads is
@@ -85,6 +87,11 @@ Every shell's web view offers the same operations and reports the same events. T
 - `pressed`: Linux, iOS and Android, a pointer or touch press on the page, which still reaches the
   page, so a split pane takes the focus. macOS and Windows see the same press through the shell's
   mouse monitor (`engine::menu::EventMonitor::on_mouse_down`);
+- `LinkHovered`: the link under the pointer as the page wrote it, `None` once the pointer leaves it,
+  shown through `browser_core::link_status` at the page's bottom-left corner (macOS WebKit:
+  WKUIDelegate's private `_webView:mouseDidMoveOverElement:withFlags:userInfo:`; Chromium:
+  `on_status_message`; Linux: `hover {url}` from WebKitGTK's `mouse-target-changed`). iOS and
+  Android send none (`docs/mobile-plan.md`);
 - `history`: iOS and Android, whether the view can go back and forward after a same-document
   navigation (`pushState`, a fragment), which commits nothing: what `UrlChanged` carries in
   `can_go_back` and `can_go_forward` on macOS and Windows. Linux sends `finished` with

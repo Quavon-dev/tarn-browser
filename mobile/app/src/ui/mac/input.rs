@@ -50,6 +50,7 @@ fn run(ui: Ui, action: Action) {
         }),
         Action::NextTab | Action::PreviousTab | Action::LastTab | Action::SelectTab(_) => select_tab(ui, action),
         Action::Reload => ui.act(|s| s.active_command("reload", Value::Null)),
+        Action::ReloadFromOrigin => ui.act(|s| s.active_command("reloadFromOrigin", Value::Null)),
         Action::Back => ui.act_on_screen(|s| s.active_command("back", Value::Null)),
         Action::Forward => ui.act_on_screen(|s| s.active_command("forward", Value::Null)),
         Action::Find => ui.show(Screen::Find),

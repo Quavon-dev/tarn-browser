@@ -189,14 +189,16 @@ impl Browser {
         }
     }
 
+    pub(crate) fn close_downloads(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.downloads_popover.window.take() {
+            cx.defer(move |cx| drop(handle.update(cx, |popover, window, cx| popover.close(true, window, cx))));
+            cx.notify();
+        }
+    }
+
     pub fn toggle_downloads(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match self.downloads_popover.window.take() {
-            Some(handle) => {
-                cx.defer(move |cx| {
-                    handle.update(cx, |popover, window, cx| popover.close(true, window, cx)).ok();
-                });
-                cx.notify();
-            }
+        match self.downloads_popover.window {
+            Some(_) => self.close_downloads(cx),
             // The click that took focus from the popover already closed it; it must not reopen it.
             None if self.downloads_popover.closed.is_some_and(|t| t.elapsed() < REOPEN_GUARD) => {}
             None => self.show_downloads(window, cx),
@@ -215,6 +217,10 @@ impl Browser {
         };
         // Under the toolbar there is no button for the caret to point at.
         let caret = self.peek.is_window(window) || self.sidebar_open;
+        self.peek.owns[1] = self.peek.is_window(window);
+        if !self.peek.owns[1] {
+            self.close_peek(cx);
+        }
         let anchor = window.bounds();
         let saving = self.transfers().len();
         let rows = (self.downloads().len() + saving).min(MAX_ROWS) + saving.min(MAX_ROWS);
@@ -244,6 +250,7 @@ impl Browser {
                     cx.notify();
                 })
                 .ok();
+            crate::peek::popovers_over_peek(&browser, cx);
         });
     }
 }
