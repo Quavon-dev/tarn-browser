@@ -267,7 +267,7 @@ impl Model {
     }
 
     pub fn tear_off<D: WebsiteData>(&self, core: &Core<D>, key: TabKey, url: &str, temporary: bool) -> Option<Torn> {
-        let tab = self.tab(key)?;
+        let tab = self.tab(key).filter(|_| core.store(key.private).tab(key.id).is_ok())?;
         let from = tab.space_id;
         if !self.tears_into_temporary(key, temporary)? {
             return Some(Torn { key, from, confined: None });
@@ -277,7 +277,9 @@ impl Model {
         store.update_tab_page(key.id, url, &tab.title).ok();
         let moved = store.move_tab_to_space(key.id, space.id).is_ok() && store.tab(key.id).is_ok_and(|t| t.space_id == space.id);
         if !moved {
-            store.delete_space(space.id).ok();
+            if store.tabs(space.id).is_ok_and(|tabs| tabs.is_empty()) {
+                store.delete_space(space.id).ok();
+            }
             return None;
         }
         Some(Torn { key, from, confined: Some((key.private, space.id)) })
@@ -820,6 +822,7 @@ mod tests {
         model.reload_space(&core);
         core.disk.delete_tab(closed.id).unwrap();
         assert_eq!(model.tear_off(&core, key(&closed), "https://a.test/", true), None, "a tab another window closed does not tear off");
+        assert_eq!(model.tear_off(&core, key(&closed), "https://a.test/", false), None, "nor into a full window");
 
         let mut confined = Model::new(4);
         let saved = SavedWindow { space_id: Some(temporary), active_tab_id: Some(loose.id), ..Default::default() };
