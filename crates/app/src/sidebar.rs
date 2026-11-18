@@ -2,12 +2,12 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, AppContext, Background, Bounds, ClickEvent, Context, Div, DragMoveEvent, Empty, FontWeight, InteractiveElement, IntoElement, MouseButton,
-    MouseMoveEvent, ParentElement, Pixels, Point, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, StyledImage, Task, Transformation,
-    Window, canvas, div, img, percentage, prelude::FluentBuilder, px, rgb,
+    AnyElement, AppContext, Background, Bounds, ClickEvent, Context, Div, DragMoveEvent, Empty, FontWeight, InteractiveElement, IntoElement, KeyDownEvent,
+    MouseButton, MouseMoveEvent, ParentElement, Pixels, Point, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, StyledImage, Task,
+    Transformation, Window, canvas, div, img, percentage, prelude::FluentBuilder, px, rgb,
 };
 use store::{Folder, Group, Id, Tab, TabKind};
-use ui::controls::{button, favicon, field, icon_button, spinner, tooltip};
+use ui::controls::{button, favicon, field, focus_ring, icon_button, spinner, tooltip};
 use ui::icon::{ICON, ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, FADE, POP, SLIDE, animate, fade_in, progress};
 use ui::text::bounded_title;
@@ -547,6 +547,28 @@ fn tab_drop(
     }
 }
 
+/// Makes a sidebar row reachable with Tab and the arrow keys; Return and Space click it, and
+/// ⇧F10 or the menu key open its menu. A mouse press leaves the keyboard where it was.
+fn keyboard_row(row: Stateful<Div>, menu: impl Fn(&mut Browser, &mut Window, &mut Context<Browser>) + 'static, cx: &mut Context<Browser>) -> Stateful<Div> {
+    row.tab_index(0).focus(|s| s.shadow(focus_ring())).on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default()).on_key_down(cx.listener(
+        move |b, e: &KeyDownEvent, window, cx| {
+            if b.renaming.is_some() {
+                return;
+            }
+            let shift = e.keystroke.modifiers.shift;
+            match e.keystroke.key.as_str() {
+                "down" => window.focus_next(),
+                "tab" if !shift => window.focus_next(),
+                "up" | "tab" => window.focus_prev(),
+                "f10" if shift => menu(b, window, cx),
+                "menu" => menu(b, window, cx),
+                _ => return,
+            }
+            cx.stop_propagation();
+        },
+    ))
+}
+
 /// The folder or group name, or its inline name field while it is being renamed; a click
 /// anywhere else in the window saves the name.
 fn name(b: &Browser, target: RenameTarget, name: &str, cx: &mut Context<Browser>) -> AnyElement {
@@ -591,8 +613,7 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
             let key = b.model.key(t);
             let active = b.model.active == Some(key);
             let title: SharedString = label(t).into();
-            let tile = div()
-                .id(("tile", t.id as u64))
+            let tile = keyboard_row(div().id(("tile", t.id as u64)), move |b, w, cx| b.tab_menu(key, w, cx), cx)
                 .w_full()
                 .h(px(side))
                 .flex()
@@ -638,8 +659,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
     let engine = b.tab_web_engine(key);
     let burner = b.model.burner_shown();
     let edge = |color| div().absolute().left_0().top(px(9.)).bottom(px(9.)).w(px(3.)).rounded_full().bg(color);
-    let row = div()
-        .id(("tab", t.id as u64))
+    let row = keyboard_row(div().id(("tab", t.id as u64)), move |b, w, cx| b.tab_menu(key, w, cx), cx)
         .group("tab")
         .relative()
         .h(px(TAB_ROW))
@@ -917,8 +937,7 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
     let indent = 16. * depth as f32;
     let open = b.model.expanded.contains(&id);
     let glyph = chosen_icon(&f.icon, ICON, Theme::space_label()).unwrap_or_else(|| icon(Icon::Folder, ICON, Theme::space_label()).into_any_element());
-    let header = div()
-        .id(("folder", id as u64))
+    let header = keyboard_row(div().id(("folder", id as u64)), move |b, w, cx| b.folder_menu(id, w, cx), cx)
         .h(px(TAB_ROW))
         .pl(px(10. + indent))
         .pr_2p5()
@@ -1099,8 +1118,7 @@ fn inner_height(rows: usize) -> f32 {
 fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> AnyElement {
     let id = g.id;
     let name_text: SharedString = bounded_title(&g.name).into();
-    let header = div()
-        .id(("group", id as u64))
+    let header = keyboard_row(div().id(("group", id as u64)), move |b, w, cx| b.group_menu(id, w, cx), cx)
         .h(px(TAB_ROW - 2.))
         .pl_1p5()
         .pr_0p5()

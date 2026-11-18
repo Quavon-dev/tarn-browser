@@ -435,8 +435,19 @@ impl Browser {
 }
 
 pub fn listen(root: gpui::Div, cx: &mut Context<Browser>) -> gpui::Div {
-    use gpui::InteractiveElement;
-    root.on_action(cx.listener(|b, _: &RenameTab, w, cx| {
+    use gpui::{Focusable, InteractiveElement};
+    // With no field or page holding the keyboard, Tab enters the sidebar's rows.
+    root.on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, w, cx| {
+        if e.keystroke.key == "tab" && b.focus_handle(cx).is_focused(w) {
+            if e.keystroke.modifiers.shift {
+                w.focus_prev()
+            } else {
+                w.focus_next()
+            }
+            cx.stop_propagation();
+        }
+    }))
+    .on_action(cx.listener(|b, _: &RenameTab, w, cx| {
         if let Some(key) = b.model.active.filter(|k| b.model.tab(*k).is_some_and(|t| t.kind != TabKind::Tile)) {
             b.begin_rename(crate::groups::RenameTarget::Tab(key.id), w, cx);
         }
