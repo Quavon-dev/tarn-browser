@@ -250,11 +250,12 @@ impl Model {
         self.tabs.iter().filter(|t| t.kind == tab.kind && t.folder_id == tab.folder_id && t.position < tab.position).count()
     }
 
-    /// The index `Store::move_tab` takes to put `dragged` just before `before`: one less when it
-    /// comes from above in the same zone, since the store takes it out of the list first.
-    pub fn drop_index(&self, dragged: TabKey, before: &Tab) -> usize {
-        let from_above = self.tab(dragged).is_some_and(|t| t.kind == before.kind && t.folder_id == before.folder_id && t.position < before.position);
-        self.zone_index(before) - usize::from(from_above)
+    /// The index `Store::move_tab` takes to put `dragged` just before `target`, or just after it
+    /// when `below`: one less when it comes from above in the same zone, since the store takes it
+    /// out of the list first.
+    pub fn drop_index(&self, dragged: TabKey, target: &Tab, below: bool) -> usize {
+        let from_above = self.tab(dragged).is_some_and(|t| t.kind == target.kind && t.folder_id == target.folder_id && t.position < target.position);
+        self.zone_index(target) + usize::from(below) - usize::from(from_above)
     }
 
     /// Where adding `key` to the tiles or taking it out moves it: to the end of the tiles, or back
@@ -537,6 +538,11 @@ pub fn tile_row(width: f32, gap: f32, count: usize) -> (usize, f32) {
     (columns, ((width - (columns - 1) as f32 * gap) / columns as f32).floor().max(0.))
 }
 
+/// Whether a tab dropped on a row at `share` of its height (0 at the top) lands below that row.
+pub fn drops_below(share: f32) -> bool {
+    share >= 0.5
+}
+
 /// The tab next to `closed` in `order`, the previous one first when `previous_first` is set.
 fn neighbour(order: &[Id], closed: Id, previous_first: bool) -> Option<Id> {
     let ix = order.iter().position(|id| *id == closed)?;
@@ -763,21 +769,25 @@ mod tests {
     }
 
     #[test]
-    fn a_tab_dropped_before_a_row_lands_just_above_it_from_either_side() {
+    fn a_tab_dropped_on_a_row_lands_just_above_or_below_it_from_either_side() {
         let (_dir, core, mut model) = opened();
         let s = model.spaces[0].space.id;
         let tab = || core.disk.create_tab(s, TabKind::Ephemeral, None, "https://a.test/", "").unwrap().id;
         let (a, b, c) = (tab(), tab(), tab());
         model.reload_space(&core);
-        let drop = |model: &mut Model, dragged: Id, before: Id| {
-            let target = model.tabs.iter().find(|t| t.id == before).unwrap().clone();
-            let index = model.drop_index(TabKey { private: false, id: dragged }, &target);
+        let drop = |model: &mut Model, dragged: Id, on: Id, below: bool| {
+            let target = model.tabs.iter().find(|t| t.id == on).unwrap().clone();
+            let index = model.drop_index(TabKey { private: false, id: dragged }, &target, below);
             core.disk.move_tab(dragged, TabKind::Ephemeral, None, index).unwrap();
             model.reload_space(&core);
             model.tabs.iter().map(|t| t.id).collect::<Vec<_>>()
         };
-        assert_eq!(drop(&mut model, a, c), [b, a, c], "dragged down");
-        assert_eq!(drop(&mut model, c, b), [c, b, a], "dragged up");
+        assert_eq!(drop(&mut model, a, c, false), [b, a, c], "dragged down");
+        assert_eq!(drop(&mut model, c, b, false), [c, b, a], "dragged up");
+        assert_eq!(drop(&mut model, c, b, true), [b, c, a], "dropped below the next row");
+        assert_eq!(drop(&mut model, b, a, true), [c, a, b], "dropped below the last row");
+        assert_eq!(drop(&mut model, b, c, true), [c, b, a], "dragged up below a row");
+        assert!(!drops_below(0.2) && drops_below(0.8));
     }
 
     #[test]
