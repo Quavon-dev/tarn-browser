@@ -790,6 +790,10 @@ impl Render for SettingsWindow {
         let found = self.found_panes(cx);
         let searching = found.len() < PANES.len();
         let search_focused = self.search.focus_handle(cx).is_focused(window);
+        // With no focus path, the window's own actions (Close Window, ⌘W, Esc) never reach it.
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus);
+        }
 
         let nav = div()
             .w(px(SIDEBAR_WIDTH))
