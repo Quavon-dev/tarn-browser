@@ -936,11 +936,10 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
         .drag_over::<DraggedFolder>(|s, _, _, _| s.bg(Theme::accent_soft()))
         .on_drop(cx.listener(move |b, dragged: &DraggedFolder, _, cx| b.move_folder(dragged.id, Some(id), cx)))
         .on_drag(DraggedFolder { id, name: bounded_title(&f.name).into() }, |d, _, _, cx| cx.new(|_| d.clone()))
-        .on_click(cx.listener(move |b, event: &ClickEvent, window, cx| {
-            b.toggle_folder(id, cx);
-            if event.click_count() == 2 {
-                b.begin_rename(RenameTarget::Folder(id), window, cx);
-            }
+        .on_click(cx.listener(move |b, event: &ClickEvent, window, cx| match event.click_count() {
+            1 => b.toggle_folder(id, cx),
+            2 => b.begin_rename(RenameTarget::Folder(id), window, cx),
+            _ => {}
         }))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.folder_menu(id, w, cx)))
         .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(glyph))
@@ -1114,11 +1113,10 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         .font_weight(FontWeight::MEDIUM)
         .hover(|s| s.bg(Theme::hover()))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.group_menu(id, w, cx)))
-        .on_click(cx.listener(move |b, event: &ClickEvent, window, cx| {
-            b.toggle_group(id, cx);
-            if event.click_count() == 2 {
-                b.begin_rename(RenameTarget::Group(id), window, cx);
-            }
+        .on_click(cx.listener(move |b, event: &ClickEvent, window, cx| match event.click_count() {
+            1 => b.toggle_group(id, cx),
+            2 => b.begin_rename(RenameTarget::Group(id), window, cx),
+            _ => {}
         }))
         .on_drag(DraggedGroup { id, name: name_text }, |d, _, _, cx| cx.new(|_| d.clone()))
         .child(group_avatar(g, 18.))
