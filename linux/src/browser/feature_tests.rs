@@ -471,14 +471,18 @@ fn a_dragged_tab_takes_the_place_of_the_row_it_lands_on() {
     let d = b.new_tab("https://d.test/").unwrap();
     let order = |b: &Browser| b.model.ephemeral_keys();
     assert_eq!(order(&b), [a, c, d]);
-    b.move_tab_to(d, a);
-    assert_eq!(order(&b), [d, a, c], "from below it goes before the row");
-    b.move_tab_to(d, c);
-    assert_eq!(order(&b), [a, c, d], "from above it goes after the row");
+    b.move_tab_to(d, a, false);
+    assert_eq!(order(&b), [d, a, c], "the upper half of a row puts it above");
+    b.move_tab_to(d, c, true);
+    assert_eq!(order(&b), [a, c, d], "the lower half puts it below");
+    b.move_tab_to(d, a, true);
+    assert_eq!(order(&b), [a, d, c], "below a row above it");
+    b.move_tab_to(a, c, false);
+    assert_eq!(order(&b), [d, a, c], "above a row below it");
     b.pin_toggle(a);
-    b.move_tab_to(c, a);
+    b.move_tab_to(c, a, false);
     assert_eq!(b.model.tab(c).unwrap().kind, TabKind::Pinned, "a row of another zone takes the tab into it");
-    b.move_tab_to(d, d);
+    b.move_tab_to(d, d, true);
     assert_eq!(order(&b), [d]);
 }
 
@@ -840,7 +844,7 @@ fn a_dropped_tab_joins_the_group_it_lands_in() {
     let first = b.model.active.unwrap();
     let a = b.new_tab("https://a.test/").unwrap();
     let id = b.new_group(Some(a)).unwrap();
-    b.move_tab_to(first, a);
+    b.move_tab_to(first, a, false);
     assert_eq!(b.model.tab(first).unwrap().group_id, Some(id), "dropped on a grouped tab");
     b.set_tab_group(first, None);
     b.pin_toggle(first);

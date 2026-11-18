@@ -558,14 +558,14 @@ fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement
         RowKind::Tab(key) => tab_row(ui, pinned, key, item),
         RowKind::Group(id) => groups::group_card(ui, id, item),
         RowKind::Split(_) => view()
-            .flex_row()
+            .flex_col()
             .gap(px(2.))
             .child(each(
                 move || item.with(|r| r.panes.clone()),
                 |r| r.id(),
                 move |pane, _| {
                     let RowKind::Tab(key) = pane.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
-                    view().flex_1().min_w_0().child(tab_row(ui, pinned, key, pane)).into_element()
+                    tab_row(ui, pinned, key, pane)
                 },
             ))
             .into_element(),
@@ -699,17 +699,12 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         }))
         .child(dynamic(move || dropping().map(|does| small(does).text_color(Theme::accent_text()))))
         .children(close);
-    // Where the dragged tab lands when dropped here: after this row when it comes from above in the same zone.
-    let landing = move || {
-        let dragged = ui.dragging.get().filter(|d| *d != key && hovered.get() && dropping().is_none())?;
-        read(ui, |b| match (b.model.tab(dragged), b.model.tab(key)) {
-            (Some(d), Some(t)) => d.kind == t.kind && d.folder_id == t.folder_id && d.position < t.position,
-            _ => false,
-        })
-    };
+    let below = signal(false);
+    // Where the dragged tab lands when dropped here: below this row over its lower half.
+    let landing = move || ui.dragging.get().filter(|d| *d != key && hovered.get() && dropping().is_none()).map(|_| below.get());
     view()
         .relative()
-        .on_mouse_up(move |_: &MouseEvent| split::drop_on_row(ui, key))
+        .on_mouse_up(move |_: &MouseEvent| split::drop_on_row(ui, key, below.get_untracked()))
         .on_mouse_enter(move |e: &MouseEvent| {
             hover(true);
             peek::hover_row(ui, key, true, e.page_position.y.0);
@@ -719,7 +714,13 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
             peek::hover_row(ui, key, false, 0.);
             split::drop_leave(ui, key);
         })
-        .on_mouse_move(move |e: &MouseEvent| split::drop_over(ui, key, browser_core::split::drops_into(e.position.y.0 / TAB_ROW)))
+        .on_mouse_move(move |e: &MouseEvent| {
+            let share = e.position.y.0 / TAB_ROW;
+            if below.get_untracked() != browser_core::tabs::drops_below(share) {
+                below.set(browser_core::tabs::drops_below(share));
+            }
+            split::drop_over(ui, key, browser_core::split::drops_into(share));
+        })
         .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
         .child(tab)
         .child(dynamic(move || {
@@ -1024,12 +1025,7 @@ fn go(ui: Ui, text: String) {
     ui.picked.set(0);
     if ui.find_tabs.get_untracked() {
         if let Some(row) = ui.snap.with_untracked(|s| s.find_rows.first().cloned()) {
-            let mut query = String::new();
-            act(ui, |b| query = b.open_find_row(row.key));
-            tools::close_find_tabs(ui);
-            ui.find.set(query.clone());
-            ui.finding.set(true);
-            act(ui, |b| b.find_typed(&query));
+            tools::open_find_row(ui, &row);
         }
         return;
     }

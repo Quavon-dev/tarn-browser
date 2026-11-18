@@ -586,10 +586,10 @@ impl Browser {
         }
     }
 
-    /// Moves `key` to `target`'s place in its zone: before it from below, after it from above.
-    pub fn move_tab_to(&mut self, key: TabKey, target: TabKey) {
+    /// Moves `key` just above `target` in its zone, or just below it when `below`.
+    pub fn move_tab_to(&mut self, key: TabKey, target: TabKey, below: bool) {
         let Some(tab) = self.model.tab(target).filter(|_| key != target && key.private == target.private) else { return };
-        let (kind, folder, index) = (tab.kind, tab.folder_id, self.model.zone_index(tab));
+        let (kind, folder, index) = (tab.kind, tab.folder_id, self.model.drop_index(key, tab, below));
         if self.model.burner_shown() && kind != TabKind::Ephemeral {
             return;
         }

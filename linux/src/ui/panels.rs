@@ -593,10 +593,10 @@ fn tab_state(b: &Browser, key: browser_core::tabs::TabKey) -> TabState {
         custom: b.model.tab(key).is_some_and(|t| !t.custom_title.is_empty()),
         drift: b.pinned_drift(key).and_then(|u| u.host_str().map(browser_core::text::bounded_title)),
         muted: b.can_mute(key).then(|| b.tab_muted(key)),
-        sleepable: b.model.active != Some(key) && !b.sleeping(key),
+        sleepable: b.model.active != Some(key) && !b.sleeping(key) && !b.in_split(key),
         sleep_others: b.can_sleep_others(key),
         others: unpinned.iter().any(|k| *k != key),
-        below: !b.tabs_below(key).is_empty(),
+        below: !b.model.tabs_below(key).is_empty(),
     }
 }
 

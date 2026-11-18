@@ -29,6 +29,8 @@ pub struct FindRow {
     pub key: TabKey,
     pub label: String,
     pub detail: String,
+    /// A match in the page's text, which the find bar then shows; a title or address match only switches to the tab.
+    pub text: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -221,7 +223,7 @@ impl Browser {
         let label = |b: &Browser, key: TabKey, tab: &store::Tab| crate::snapshot::tab_label(tab, b, key);
         self.find_rows = browser_core::find::named(&self.model.tabs, query, |t| label(self, self.model.key(t), t))
             .into_iter()
-            .map(|t| FindRow { key: self.model.key(t), label: label(self, self.model.key(t), t), detail: "Title or address".to_owned() })
+            .map(|t| FindRow { key: self.model.key(t), label: label(self, self.model.key(t), t), detail: "Title or address".to_owned(), text: false })
             .collect();
         self.text_rows = 0;
         if query.is_empty() {
@@ -235,7 +237,7 @@ impl Browser {
 
     fn add_text_rows(&mut self, key: TabKey, snippets: Vec<String>) {
         let Some(title) = self.model.tab(key).map(|t| crate::snapshot::tab_label(t, self, key)) else { return };
-        let rows = snippets.into_iter().map(|s| FindRow { key, label: engine::view_policy::title(&s), detail: title.clone() }).collect();
+        let rows = snippets.into_iter().map(|s| FindRow { key, label: engine::view_policy::title(&s), detail: title.clone(), text: true }).collect();
         let mut selected = 0;
         browser_core::find::insert_text_rows(&mut self.find_rows, &mut selected, &mut self.text_rows, rows);
     }

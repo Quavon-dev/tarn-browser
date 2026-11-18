@@ -373,24 +373,29 @@ pub fn command_rows(ui: Ui, query: Signal<String>) -> AnyElement {
     })
 }
 
+/// Switches to the tab of `row`, and for a match in its text finds the query on it.
+pub fn open_find_row(ui: Ui, row: &crate::browser::FindRow) {
+    let mut query = String::new();
+    act(ui, |b| query = b.open_find_row(row.key));
+    close_find_tabs(ui);
+    if row.text {
+        ui.find.set(query.clone());
+        ui.finding.set(true);
+        act(ui, |b| b.find_typed(&query));
+    }
+}
+
 pub fn find_rows(ui: Ui) -> View {
     let rows = each(
         move || ui.snap.with(|s| s.find_rows.iter().cloned().enumerate().collect::<Vec<_>>()),
         |(ix, r)| format!("{ix}-{}-{}", r.label, r.key.id),
         move |item, _| {
             let (_, row) = item.get_untracked();
-            let key = row.key;
-            super::suggestion_row(row.label.clone(), move || {
-                let mut query = String::new();
-                act(ui, |b| query = b.open_find_row(key));
-                close_find_tabs(ui);
-                ui.find.set(query.clone());
-                ui.finding.set(true);
-                act(ui, |b| b.find_typed(&query));
-            })
-            .child(tarn_nsh_shared::controls::glyph_tile(icons::SEARCH, 28., Theme::control, Theme::muted))
-            .child(label(row.label.clone()).flex_1().truncate())
-            .child(super::detail(row.detail.clone()))
+            let picked = row.clone();
+            super::suggestion_row(row.label.clone(), move || open_find_row(ui, &picked))
+                .child(tarn_nsh_shared::controls::glyph_tile(icons::SEARCH, 28., Theme::control, Theme::muted))
+                .child(label(row.label.clone()).flex_1().truncate())
+                .child(super::detail(row.detail.clone()))
         },
     );
     let empty = move || ui.snap.with(|s| s.find_rows.is_empty()) && !ui.address.with(|a| a.trim().is_empty());

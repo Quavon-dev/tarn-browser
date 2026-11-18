@@ -140,13 +140,15 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Fixed
 
 - The tab preview card follows the pointer to the next row instead of staying on the previous tab,
-  and Close Tabs Below closes the tabs shown below, leaving collapsed groups alone (macOS, Windows).
+  and Close Tabs Below closes the tabs shown below, leaving collapsed groups alone (macOS, Windows,
+  Linux).
 - Dragging a tab onto the lower half of a row drops it below that row, split panes list one per
   row so their titles fit, Duplicate places the copy under the original in its group, and an empty
-  tab name restores the page title (macOS, Windows).
+  tab name restores the page title (macOS, Windows, Linux).
 - Unloading the active pinned tab moves to its neighbour instead of reloading it, Sleep Tab is off
   for panes on screen, Rename Tab skips tiles, a double click on a group or folder header renames
-  it without collapsing it, and title matches in Find in Tabs switch to the tab (macOS, Windows).
+  it without collapsing it, and title matches in Find in Tabs switch to the tab (macOS, Windows; on Linux the
+  pinned-tab neighbour, Sleep Tab and Find in Tabs parts).
 - Sidebar rows can be reached with the keyboard: Up and Down move, Return opens, Shift+F10 opens
   the tab menu (macOS, Windows).
 - Stars on the night Shield card no longer sit on the profile name or the level (all clients).

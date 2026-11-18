@@ -55,12 +55,12 @@ pub(super) fn drop_on(ui: Ui, key: TabKey) {
 }
 
 /// Drops the dragged tab on `key`'s sidebar row: in the row's middle it splits as named, near its
-/// edges it moves the tab to the row's place.
-pub(super) fn drop_on_row(ui: Ui, key: TabKey) {
+/// edges it moves the tab above the row, or below it when `below`.
+pub(super) fn drop_on_row(ui: Ui, key: TabKey, below: bool) {
     match ui.dragging.get_untracked().filter(|d| *d != key && ui.split_drop.with_untracked(|s| s.is_none_or(|(k, _)| k != key))) {
         Some(dragged) => {
             release(ui);
-            act(ui, |b| b.move_tab_to(dragged, key));
+            act(ui, |b| b.move_tab_to(dragged, key, below));
         }
         None => drop_on(ui, key),
     }

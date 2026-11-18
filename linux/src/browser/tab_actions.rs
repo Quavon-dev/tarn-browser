@@ -19,9 +19,16 @@ impl Browser {
     pub fn duplicate_tab(&mut self, key: TabKey) {
         let Some(url) = self.tab_url(key).filter(|u| Url::parse(u).is_ok()) else { return };
         // A copy of a file the user opened shows that file too.
-        match Url::parse(&url).ok().filter(|_| self.pages.get(&key).and_then(|p| p.opened_file.as_deref()) == Some(url.as_str())) {
-            Some(file) => self.open_file(&file),
-            None => drop(self.new_tab(&url)),
+        let copy = match Url::parse(&url).ok().filter(|_| self.pages.get(&key).and_then(|p| p.opened_file.as_deref()) == Some(url.as_str())) {
+            Some(file) => {
+                self.open_file(&file);
+                self.model.active.filter(|a| *a != key)
+            }
+            None => self.new_tab(&url),
+        };
+        if let Some(copy) = copy {
+            self.model.place_copy(&self.core, copy, key);
+            self.model.reload_space(&self.core);
         }
     }
 
@@ -44,7 +51,10 @@ impl Browser {
 
     pub fn rename_tab(&mut self, key: TabKey, typed: &str) {
         let typed = typed.trim();
-        let Some(tab) = self.model.tab(key).filter(|t| !typed.is_empty() && t.kind != TabKind::Tile) else { return };
+        if typed.is_empty() {
+            return self.reset_tab_title(key);
+        }
+        let Some(tab) = self.model.tab(key).filter(|t| t.kind != TabKind::Tile) else { return };
         let title = self.pages.get(&key).map(|p| p.title.clone()).filter(|t| !t.is_empty()).unwrap_or_else(|| tab.title.clone());
         self.core.store(key.private).set_tab_custom_title(key.id, &browser_core::tabs::custom_title(typed, &title)).ok();
         self.model.reload_space(&self.core);
@@ -67,7 +77,7 @@ impl Browser {
     }
 
     pub fn can_sleep_others(&self, key: TabKey) -> bool {
-        self.model.other_tabs(key).into_iter().any(|k| !self.sleeping(k) && !self.elsewhere.contains(&k) && self.model.active != Some(k))
+        self.model.other_tabs(key).into_iter().any(|k| !self.sleeping(k) && !self.elsewhere.contains(&k) && self.model.active != Some(k) && !self.in_split(k))
     }
 
     pub fn sleep_inactive_tabs(&mut self) {
@@ -89,12 +99,8 @@ impl Browser {
         self.close_tabs(keys);
     }
 
-    pub fn tabs_below(&self, key: TabKey) -> Vec<TabKey> {
-        self.model.ephemeral_keys().into_iter().skip_while(|k| *k != key).skip(1).collect()
-    }
-
     pub fn close_below(&mut self, key: TabKey) {
-        let keys = self.tabs_below(key);
+        let keys = self.model.tabs_below(key);
         self.close_tabs(keys);
     }
 
@@ -228,13 +234,23 @@ mod tests {
     }
 
     #[test]
+    fn a_duplicate_lands_below_its_tab() {
+        let (_dir, mut b) = browser();
+        let first = b.model.active.unwrap();
+        let second = b.new_tab("https://2.test/").unwrap();
+        b.duplicate_tab(first);
+        let copy = b.model.active.unwrap();
+        assert_eq!(b.model.ephemeral_keys(), [first, copy, second]);
+    }
+
+    #[test]
     fn close_others_below_and_all_spare_pinned_tabs() {
         let (_dir, mut b) = browser();
         let pinned = b.model.active.unwrap();
         b.pin_toggle(pinned);
         let tab = |b: &mut Browser, n: u8| b.new_tab(&format!("https://{n}.test/")).unwrap();
         let (one, two, three) = (tab(&mut b, 1), tab(&mut b, 2), tab(&mut b, 3));
-        assert_eq!(b.tabs_below(one), [two, three]);
+        assert_eq!(b.model.tabs_below(one), [two, three]);
         b.close_below(two);
         assert!(b.model.tab(three).is_none() && b.model.tab(two).is_some());
         b.close_others(one);
@@ -268,6 +284,9 @@ mod tests {
         assert_eq!(b.model.tab(key).unwrap().custom_title, "Mail");
         b.rename_tab(key, "T");
         assert_eq!(b.model.tab(key).unwrap().custom_title, "", "the page's own title follows the page");
+        b.rename_tab(key, "Mail");
+        b.rename_tab(key, "  ");
+        assert_eq!(b.model.tab(key).unwrap().custom_title, "", "an empty name resets the title");
         b.rename_tab(key, "Mail");
         b.reset_tab_title(key);
         assert_eq!(b.model.tab(key).unwrap().custom_title, "");

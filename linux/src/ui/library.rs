@@ -381,7 +381,7 @@ pub fn memory_panel(ui: Ui) -> AnyElement {
                     crate::snapshot::tab_label(t, b, key),
                     host,
                     memory::detail(costs.get(&key).copied(), !live.contains(&key)),
-                    live.contains(&key) && b.model.active != Some(key),
+                    live.contains(&key) && b.model.active != Some(key) && !b.in_split(key),
                 )
             })
             .collect::<Vec<_>>()
