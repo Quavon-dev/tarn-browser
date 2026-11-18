@@ -99,7 +99,7 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Choosing Lockdown (from Settings or the menu), clearing history, deleting a profile or everything
   in it, removing an extension or a theme, resetting zoom levels and deleting a bookmark ask first
   in a dialog that names what goes, instead of a second click on the same button (macOS, Windows;
-  on Linux Lockdown asks under the level picker, the others already asked once more).
+  on Linux Lockdown and a single bookmark delete ask in place, the others already asked once more).
 - Filter-list updates, extension downloads and developer tools are switches; the search engine is
   picked from a segmented control as in the profile card; an extension's Every site switch, Forget
   Site Answers and Remove sit on a line under its name; Appearance has one Theme heading, theme

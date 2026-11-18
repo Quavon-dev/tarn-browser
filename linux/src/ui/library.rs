@@ -525,19 +525,16 @@ fn mark_row(ui: Ui, marks: &[Bookmark], mark: &Bookmark, edit: Option<MarkEdit>,
         return row.child(view().w(px(actions_width)).flex_none()).into_element();
     }
     let alone = mark.url.is_some() || !marks.iter().any(|m| m.parent_id == Some(id));
-    let deletion = crate::controls::icon_button(icons::TRASH, "Delete", move || match alone {
-        true => act(ui, |b| b.delete_bookmark(id)),
-        false => {
-            ui.confirm.set(Some(format!("bookmark {id}")));
-            act(ui, |_| {});
-        }
+    let deletion = crate::controls::icon_button(icons::TRASH, "Delete", move || {
+        ui.confirm.set(Some(format!("bookmark {id}")));
+        act(ui, |_| {});
     });
-    let asked = (!alone && ui.confirm.with_untracked(|c| c.as_deref() == Some(format!("bookmark {id}").as_str()))).then(|| {
+    let asked = ui.confirm.with_untracked(|c| c.as_deref() == Some(format!("bookmark {id}").as_str())).then(|| {
         view()
             .flex_row()
             .items_center()
             .gap_2()
-            .child(note(format!("Delete “{name}” and everything in it?")))
+            .child(note(if alone { format!("Delete “{name}”?") } else { format!("Delete “{name}” and everything in it?") }))
             .child(crate::controls::accent_pill("Delete", move || {
                 ui.confirm.set(None);
                 act(ui, |b| b.delete_bookmark(id));
