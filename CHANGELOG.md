@@ -117,6 +117,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Text fields scroll to keep the caret in view, undo and redo with ⌘Z and ⇧⌘Z (Ctrl on Windows),
+  select a word on a double click and everything on a triple click, place the caret where a
+  password field is clicked, show a selection only while focused, and no longer crash when an
+  input method selects part of its text (macOS, Windows).
 - Two downloads of the same name at once each get their own file, instead of the second failing
   or replacing the first (Linux, iOS, Android).
 - Settings text no longer runs under the controls beside it, and text fields clip their
