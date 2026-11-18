@@ -41,6 +41,7 @@ static TOKENS: RwLock<Tokens> = RwLock::new(Tokens::DARK);
 static FONT: RwLock<Option<SharedString>> = RwLock::new(None);
 static LIGHT: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU32 = AtomicU32::new(0);
+static ACCENT_TEXT: AtomicU32 = AtomicU32::new(0);
 
 const MONOGRAM: [u32; 10] = [0xff453a, 0xff9f0a, 0xe6b800, 0x30d158, 0x40c8e0, 0x0a84ff, 0x5e5ce6, 0xbf5af2, 0xff375f, 0x8e8e93];
 
@@ -56,6 +57,7 @@ impl Theme {
     /// Makes `tokens` the look of every window; the caller refreshes the windows.
     pub fn set_tokens(tokens: Tokens, scheme: Scheme, font: Option<String>) {
         *TOKENS.write().unwrap_or_else(PoisonError::into_inner) = tokens;
+        ACCENT_TEXT.store(tokens.accent_text(), Ordering::Relaxed);
         *FONT.write().unwrap_or_else(PoisonError::into_inner) = font.map(SharedString::from);
         LIGHT.store(scheme == Scheme::Light, Ordering::Relaxed);
         GENERATION.fetch_add(1, Ordering::Relaxed);
@@ -157,7 +159,10 @@ impl Theme {
     /// The accent as text, a focus ring or a caret, adjusted to stay readable on the theme
     /// (`Tokens::accent_text`).
     pub fn accent_text() -> Rgba {
-        get(|t| rgba(t.accent_text()))
+        match ACCENT_TEXT.load(Ordering::Relaxed) {
+            0 => get(|t| rgba(t.accent_text())),
+            cached => rgba(cached),
+        }
     }
     pub fn accent_soft() -> Rgba {
         get(|t| rgba(t.accent & 0xffffff00 | 0x47))
@@ -175,7 +180,10 @@ impl Theme {
     }
     /// Replaces the theme's accent with `color` (`0xRRGGBB`), the user's pick in Settings.
     pub fn set_accent(color: u32) {
-        TOKENS.write().unwrap_or_else(PoisonError::into_inner).accent = color << 8 | 0xff;
+        let mut tokens = TOKENS.write().unwrap_or_else(PoisonError::into_inner);
+        tokens.accent = color << 8 | 0xff;
+        ACCENT_TEXT.store(tokens.accent_text(), Ordering::Relaxed);
+        drop(tokens);
         GENERATION.fetch_add(1, Ordering::Relaxed);
     }
     /// Colours of `browser_core::fog` shades 1 to 4: faint, mid and peak cloud, and the lit edges

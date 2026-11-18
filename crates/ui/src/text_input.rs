@@ -506,6 +506,7 @@ impl TextInput {
             let line: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
             self.typing_at = None;
             self.replace_text_in_range(None, &line, window, cx);
+            self.typing_at = None;
             self.inserted = false;
         }
     }
@@ -742,7 +743,7 @@ impl EntityInputHandler for TextInput {
 
         let typing = !new_text.is_empty();
         if self.marked_range.is_none() {
-            self.record(typing, range.start);
+            self.record(typing && range.is_empty(), range.start);
         }
         self.content = (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..]).into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();

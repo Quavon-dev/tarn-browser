@@ -621,9 +621,12 @@ pub fn empty(text: impl Into<SharedString>) -> Div {
 /// it to `control`, so the ring shows only for the keyboard. Buttons, segments and swatches are
 /// tab stops already; windows that move the focus on Tab are pop-ups and Settings.
 pub fn tab_stop(control: Stateful<Div>) -> Stateful<Div> {
-    // A click moves no ring onto the control and clears one a Tab left elsewhere.
+    // A click moves no ring onto the control and clears one a Tab left elsewhere, but leaves a
+    // text field focused so a button beside it (find's Next, a field's Clear) keeps its keys.
     control.tab_index(0).focus(|s| s.shadow(focus_ring())).on_mouse_down(MouseButton::Left, |_, window, _| {
-        window.blur();
+        if !window.context_stack().iter().any(|c| c.contains("TextInput")) {
+            window.blur();
+        }
         window.prevent_default();
     })
 }
