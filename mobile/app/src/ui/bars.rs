@@ -144,7 +144,10 @@ fn reload(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         let (loading, again_spinning) = state.get();
         if !loading && !again_spinning {
-            return icon_button(icons::RELOAD, "Reload", again).into_element();
+            return icon_button(icons::RELOAD, "Reload", again)
+                .disabled(move || ui.read(|s| s.active_url().is_empty()))
+                .disabled_style(|s| s.opacity(0.35))
+                .into_element();
         }
         let press = move || {
             if untracked(|| ui.read(|s| s.active_page().is_some_and(|p| p.loading))) {

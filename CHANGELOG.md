@@ -163,7 +163,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   under their description, and an installed extension's permissions wrap (macOS, Windows).
 - The Shield card's mountains and waves stay clear of its text, and on its first day the card says
   "Protected since today" (all clients).
-- View › Reload is greyed when no page is shown (macOS, Windows).
+- View › Reload is greyed when no page is shown (macOS, Windows); on Linux, iOS and Android the
+  Reload button is greyed then, and on Linux F5, Ctrl+R and Reload Without Cache do nothing.
 - The tab preview card follows the pointer to the next row instead of staying on the previous tab,
   and Close Tabs Below closes the tabs shown below, leaving collapsed groups alone (macOS, Windows,
   Linux).

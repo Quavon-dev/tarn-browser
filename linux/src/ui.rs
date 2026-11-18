@@ -1355,7 +1355,15 @@ pub(super) fn set_auto_hide_sidebar(ui: Ui) {
     }
 }
 
+/// Whether the window shows no page to reload: no tab, or the start page.
+pub(super) fn no_page(s: &Snapshot) -> bool {
+    s.blank || s.url.is_empty()
+}
+
 fn reload(ui: Ui) {
+    if ui.snap.with_untracked(no_page) {
+        return;
+    }
     act(ui, |b| b.reload());
     ui.reloaded.update(|n| *n += 1);
     let serial = ui.reloaded.get_untracked();
@@ -1374,7 +1382,10 @@ fn reload_button(ui: Ui) -> AnyElement {
     dynamic(move || {
         let (loading, reloaded) = state.get();
         if !loading && !reloaded {
-            return controls::icon_button_at(icons::RELOAD, "Reload", Placement::Right, reload).into_element();
+            return controls::icon_button_at(icons::RELOAD, "Reload", Placement::Right, reload)
+                .disabled(move || ui.snap.with(no_page))
+                .disabled_style(|s| s.text_color(Theme::faint()))
+                .into_element();
         }
         let press = move || if ui.snap.with_untracked(|s| s.loading) { act(ui, |b| b.stop()) } else { reload() };
         let name = if loading { "Stop Loading" } else { "Reload" };
@@ -2094,7 +2105,8 @@ fn run_action(ui: Ui, action: Action) {
                 close_window(ui, &here);
             }
         }
-        Action::ReloadFromOrigin => act(ui, Browser::reload_from_origin),
+        Action::ReloadFromOrigin if !ui.snap.with_untracked(no_page) => act(ui, Browser::reload_from_origin),
+        Action::ReloadFromOrigin => {}
     }
 }
 
