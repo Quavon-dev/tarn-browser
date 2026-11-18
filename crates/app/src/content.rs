@@ -96,7 +96,7 @@ impl Browser {
         }
         let running = |at: Option<Instant>, d| at.is_some_and(|at: Instant| at.elapsed() < d);
         let sidebar = running(self.sidebar_toggled, SLIDE) && !self.pref(Pref::ReduceMotion);
-        if self.settle_slide() || sidebar || self.page_fade.is_some() || running(self.overlay_exit, EXIT) || !self.floating.leaving.is_empty() {
+        if self.settle_slide() || sidebar || self.page_fade.is_some() || running(self.overlay_exit, EXIT) {
             window.request_animation_frame();
         }
     }
@@ -285,6 +285,9 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         b.layout_changed();
     }
     b.floating.update(present, !reduce);
+    if !b.floating.leaving.is_empty() {
+        window.request_animation_frame();
+    }
     let mut cards: Vec<AnyElement> = items.into_iter().map(|((id, ..), card)| pop_in(card, id, reduce)).collect();
     for (ix, (_, text, color), at) in &b.floating.leaving {
         let t = progress(*at, EXIT);
