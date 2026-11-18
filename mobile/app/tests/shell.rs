@@ -834,6 +834,21 @@ fn views_carry_the_themes_website_sheets_but_never_in_private() {
 }
 
 #[test]
+fn a_link_opened_in_split_view_joins_its_page_on_a_wide_layout() {
+    let (_dir, mut shell) = open();
+    shell.navigate("https://opener.test/");
+    finish(&mut shell, "https://opener.test/page", "Opener");
+    let key = active(&shell);
+    shell.event(key, "popup", &json!({ "url": "https://phone.test/", "link": true, "split": true }), 1);
+    assert!(shell.shown_split().is_none(), "a phone opens the link as a tab");
+    shell.activate(key);
+    shell.set_wide(true);
+    shell.event(key, "popup", &json!({ "url": "https://split.test/", "link": true, "split": true }), 2);
+    let pane = active(&shell);
+    assert_eq!(shell.shown_split().map(|s| s.panes().to_vec()), Some(vec![key, pane]));
+}
+
+#[test]
 fn split_panes_stay_live_and_a_closed_pane_focuses_its_neighbour() {
     let (_dir, mut shell) = open();
     shell.set_wide(true);

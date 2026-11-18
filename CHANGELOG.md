@@ -93,6 +93,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   rows, and Ctrl+Page Down and Ctrl+Page Up for the next and previous tab (Linux).
 - Tab and ⇧Tab move the keyboard through the toolbar's buttons and the address field (macOS,
   Windows).
+- F6 and Shift+F6 move the keyboard between the page, the address field and the sidebar (macOS,
+  Windows, Linux).
+- A link's menu offers Open Link in New Tab and Open Link in Split View, which opens the link
+  beside the page, with the pop-up checks of any new tab (macOS, Windows, Linux; on iOS and Android
+  in the link's long-press menu, Split View where the layout is wide enough for it).
 
 ### Changed
 
@@ -152,8 +157,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Fixed
 
 - Closing the find bar removes WebKit's match marker from the page, and the bar no longer stays as
-  an empty strip after Esc (macOS). On iOS closing find also hides the marker, and on Linux it no
-  longer leaves the last match selected.
+  an empty strip after Esc (macOS). On iOS closing find also hides the marker. The last match
+  stays selected, as in Safari (macOS, Windows, Linux, iOS; not on Android, whose WebView clears it).
 - Settings and Library questions (Lockdown, clearing history, deleting a profile, a bookmark or a
   theme) open inside their window in the app's theme, and closing the window drops the question
   instead of leaving a stray dialog behind (macOS, Windows).
@@ -259,6 +264,21 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Linux: links from other apps open in Tarn. The desktop entry made Tarn a browser for http and
   https links, but the URLs it was started with were ignored; now they, and those of a later
   launch, open as new tabs in the running Tarn, under the same rules as on macOS.
+- Page actions are greyed or left out while no tab is open: reader, copy link and title, duplicate,
+  pin, share, QR code, screenshot, PDF, save for later, bookmark, find, zoom and split view
+  (macOS, Windows, Linux; on iOS and Android Find in Page and Zoom).
+- Bookmark Tab, Bookmark All Tabs and Save for Later keep the page's whole title, cleaned of
+  control and bidi characters, instead of a shortened one, and renaming starts from the saved name
+  (macOS, Windows, Linux; Save for Later on iOS and Android).
+- A profile name longer than 48 characters is no longer cut when saved: the name field says "Use
+  at most 48 characters." and Continue, Create Profile or Create Space stays off until it fits
+  (macOS, Windows, Linux, iOS, Android).
+- A finished download whose file was moved or deleted reads "Missing · moved or deleted" with a
+  warning, and offers no Reveal or Show in Folder, in the Downloads panel and the Library
+  (macOS, Windows, Linux).
+- History rows show when the page was visited and its site on a second line, so the title gets
+  the row's width, and ⌘L (Ctrl+L) from the Library opens the address field (macOS, Windows,
+  Linux; the second line on iOS and Android).
 
 ## [0.1.2] - 2026-11-17
 

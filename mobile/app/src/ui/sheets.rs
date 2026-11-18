@@ -401,6 +401,7 @@ pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
             .on_change(move |v: &str| draft.update(|d| set(d, v.to_owned())))
             .on_submit(move |_: &str| confirm())
     };
+    let names: Vec<String> = profiles.iter().map(|p| p.name.clone()).collect();
     let profile_rows = profiles
         .iter()
         .map(|p| (Some(p.id), p.name.clone(), Some(p.color.clone())))
@@ -475,6 +476,13 @@ pub fn space_card(ui: Ui, editing: Option<usize>) -> impl IntoElement {
                     .child(caption("Starts empty, with its own logins, cookies, site data, history and bookmarks.").px_1())
                     .child(section("Profile Name"))
                     .child(field("Profile Name", |d| d.profile_name.clone(), |d, v| d.profile_name = v))
+                    .child(dynamic({
+                        let names = names.clone();
+                        move || {
+                            browser_core::space_card::profile_name_note(&draft.get().profile_name, names.iter().map(String::as_str))
+                                .map(|note| caption(note).text_color(Secure::warning).px_1())
+                        }
+                    }))
                     .child(section("Profile Color"))
                     .child(swatches(move || draft.get().profile_color, move |c| draft.update(|d| d.profile_color = c.to_owned()), false))
             })

@@ -134,7 +134,7 @@ pub const FIND_PREVIOUS: &str = "ctrl+shift+g";
 pub const NEXT_TAB: &str = "ctrl+pagedown";
 pub const PREVIOUS_TAB: &str = "ctrl+pageup";
 
-pub const FIXED: [(&str, &str, &str); 10] = [
+pub const FIXED: [(&str, &str, &str); 11] = [
     ("Tabs", "Select tab 1–8", "Ctrl+1 … Ctrl+8"),
     ("Tabs", "Next / previous tab", "Ctrl+Page Down  Ctrl+Page Up"),
     ("Page", "Stop loading", "Esc"),
@@ -142,6 +142,7 @@ pub const FIXED: [(&str, &str, &str); 10] = [
     ("Page", "Find previous", "Ctrl+Shift+G"),
     ("Window", "Switch to space 1–9", "Alt+1 … Alt+9"),
     ("Window", "Enter or exit full screen", "F11"),
+    ("Window", "Move between page, address field and sidebar", "F6  Shift+F6"),
     ("Window", "Close command bar, panel or pop-up", "Esc"),
     ("Window", "Undo / Redo", "Ctrl+Z  Ctrl+Shift+Z"),
     ("Window", "Quit", "Ctrl+Q"),

@@ -973,10 +973,14 @@ impl Browser {
             "external" => self.notice = Some(Notice::External { url: text("url"), origin: text("origin") }),
             "popup" => {
                 let url = text("url");
+                let split = data["split"].as_bool() == Some(true) && (self.model.active == Some(key) || self.in_split(key)) && !self.model.burner_shown();
                 if !(data["link"].as_bool() == Some(true) && self.open_routed(&url))
                     && let Some(popup) = self.new_tab(&url)
                 {
                     self.pages.entry(popup).or_default().opener = Some(key);
+                    if split {
+                        self.join_split(key, popup);
+                    }
                 }
                 if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)).filter(|p| p.load.as_ref().is_some_and(|(u, _)| *u == url)) {
                     page.link = true;

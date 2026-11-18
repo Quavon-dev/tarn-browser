@@ -109,6 +109,14 @@ pub fn download_name(download: &Download) -> String {
     bounded_title(&Path::new(&download.path).file_name().map(|n| n.to_string_lossy()).unwrap_or_default())
 }
 
+/// The note of a finished download whose file was moved or deleted since.
+pub const MISSING: &str = "Missing · moved or deleted";
+
+/// Whether `download` finished but its file is gone, so it has nothing to reveal or open.
+pub fn download_missing(download: &Download) -> bool {
+    download.state.starts_with("finished") && !Path::new(&download.path).exists()
+}
+
 pub fn downloads<'a>(downloads: &'a [Download], query: &'a str) -> impl Iterator<Item = &'a Download> {
     downloads.iter().filter(move |d| query.is_empty() || fuzzy_score(query, &download_name(d)).is_some())
 }
@@ -236,5 +244,18 @@ mod tests {
         assert_eq!(download_name(&all[0]), "report.pdf");
         assert_eq!(downloads(&all, "report").map(|d| d.id).collect::<Vec<_>>(), [1]);
         assert_eq!(downloads(&all, "").count(), 2);
+    }
+
+    #[test]
+    fn a_finished_download_without_its_file_is_missing() {
+        let dir = std::env::temp_dir().join(format!("tarn-missing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let kept = dir.join("kept.zip");
+        std::fs::write(&kept, b"x").unwrap();
+        let gone = dir.join("gone.zip").to_string_lossy().into_owned();
+        assert!(!download_missing(&download(1, &kept.to_string_lossy())));
+        assert!(download_missing(&download(2, &gone)));
+        assert!(!download_missing(&Download { state: "failed".into(), ..download(3, &gone) }));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

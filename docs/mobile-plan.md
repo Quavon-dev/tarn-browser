@@ -50,8 +50,9 @@ off at Lockdown, TLS errors are never bypassed, and there is no remote debugging
 | prop | `burstsOf` | string | The `tab` of the opener a popup tab came from: the view shares that tab's prompt and popup limits (S23). Linux only so far; iOS and Android still need it |
 | command | `back`, `forward`, `reload`, `stop` | none | |
 | command | `find` | `{text, backwards}` | Emits `found` |
-| command | `clearFind` | none | Removes the highlight a `find` left, when the find bar closes or its text is emptied: iOS clears the selection from the isolated world (not under Lockdown, where it stays until the page is touched), Android `clearMatches()`. Emits nothing |
+| command | `clearFind` | none | Removes the highlight a `find` left, when the find bar closes or its text is emptied: iOS hides WebKit's match marker (`_hideFindUI`, where the view responds to it) and keeps the last match selected, Android `clearMatches()`, which clears it (gap below). Emits nothing |
 | prop | `dark` | bool | The colour scheme pages see (`prefers-color-scheme`), from the shell's theme, not the system's: iOS the web view's `overrideUserInterfaceStyle`, Android the theme of the context the WebView is made with (see the differences below). Default false |
+| prop | `splitLinks` | bool | Whether a link's long-press menu offers Open Link in Split View next to Open Link in New Tab (both take the pop-up checks of `popup`): true while the layout is wide enough for splits. iOS adds both to WebKit's menu (`webView:contextMenuConfigurationForElement:completionHandler:`), Android shows them as the WebView's context menu. Default false |
 | command | `answer` | `{id, accept, text?, user?, password?, silence?}` | Answers a `prompt`; an unanswered prompt is declined when the component is destroyed. `silence: true` ("Block requests from this page") declines it and every other pending prompt, and the page's later dialogs and permission requests, until its next navigation (S23). Linux only so far; iOS and Android still need it |
 | command | `zoom` | `{factor}` | 0.5 to 3.0 (`engine::view_policy::zoom_factor`); 1.0 is the page's own size |
 | event | `committed` | `{url, title, canGoBack, canGoForward}` | Main frame committed |
@@ -60,7 +61,7 @@ off at Lockdown, TLS errors are never bypassed, and there is no remote debugging
 | event | `failed` | `{url, message}` | Load failed (not for cancellations) |
 | event | `blocked` | `{url, reason, popup?}` | `nav_policy`, `https_only`, `local_network` (S10 refused a main-frame navigation of this tab into the local network; the only reason that may offer Open Anyway), `shield` (any other Shield block: rules, filter lists, Android subresources), `rebuild` (the level needs a new view) or `listed` (Linux: `nav_policy::gate` stopped it before the request; adds `category`, `malware` and `adult` get the shell's warning page, `popups` a notice that offers to open it). `popup` is true when the page's pop-up was refused; the opener keeps loading and gets no Open Anyway |
 | event | `external` | `{url, origin}` | Another app's scheme; the shell asks before handing it off. `origin` is the page that asked, empty for the shell's own loads |
-| event | `popup` | `{url, link?}` | A user-gesture popup allowed by `nav_policy`; the shell opens it as a new tab. `link` (v3) is true for a link that opens a new window (iOS: `WKNavigationTypeLinkActivated`; Android: the tap's hit test is an anchor). As on macOS, only a link pop-up goes to the space a rule names, as a fresh tab without an opener; a script's `window.open` opens in the opener's space with `load.opener` |
+| event | `popup` | `{url, link?, split?}` | A user-gesture popup allowed by `nav_policy`; the shell opens it as a new tab. `split` is true for Open Link in Split View, which puts the tab beside its opener while the layout shows splits. `link` (v3) is true for a link that opens a new window (iOS: `WKNavigationTypeLinkActivated`; Android: the tap's hit test is an anchor). As on macOS, only a link pop-up goes to the space a rule names, as a fresh tab without an opener; a script's `window.open` opens in the opener's space with `load.opener` |
 | event | `prompt` | `{id, kind, origin, topOrigin?, message?, default?, realm?, insecure?}` | `kind`: alert, confirm, text, camera, microphone, location, credentials |
 | event | `download` | `{state, name, path?, message?, url?, quarantined?}` | `state`: started, finished, failed; `finished` carries the download's `url` (without user name and password; empty for `blob:` and `data:` on iOS and Linux, which Android sends unchanged) and whether the file was marked with its origin (`quarantined`). Names are sanitised (`engine::downloads`); downloads are never opened automatically |
 | event | `found` | `{matched, current?}` | The number of matches, 0 for none; `current` (from 1) is the highlighted match, Android only (`browser_core::find::count_label` shows "1 of 2") |
@@ -211,6 +212,10 @@ v3 platform differences:
   cancelled; the main process deletes leftover `download*.part` files at launch (the private space's go
   with its session). iOS resumes a paused download through the view that started it or, once that view is
   gone, an off-screen `WKWebView` of the same store with JavaScript off;
+- Gap: the Downloads list does not mark a download whose file is gone as Missing, as the desktop clients do
+  (`browser_core::library::download_missing`). iOS keeps each file's absolute path, and the app's container
+  path can change with an app update, so the check would call files that are still there missing; the list
+  offers no Reveal or Open that a missing file would break;
 - `burner:` is the shell's mapping of a burner profile's `private:<id>` store (same id, so a platform
   releases both forms when the `Data` drops); `burner:` on iOS is its own `nonPersistentDataStore` per id (v2 shared one per session for every non-UUID
   id; `private:` keeps that); on Linux its own ephemeral `NetworkSession` per id; on Android a throwaway
@@ -266,6 +271,9 @@ decisions come from `browser_core::tarn_ext`.
   relative images and styles do not load on iOS or Android; desktop clients read the file's own folder.
 - **Gap: PDF on Android.** Android System WebView has no PDF viewer, so an opened PDF shows nothing; iOS
   WebKit shows it.
+- **Gap: the last match after Find on Android.** `WebView.clearMatches`, the only public way to end a find,
+  stops it with the selection cleared, so closing Find does not leave the last match selected as it does on
+  the other clients.
 - **Network rules.** `set_rule_lists` parses each list with `engine::content_rules`; the component applies
   them per request in `shouldInterceptRequest` and in the main-frame checks of `shellLoad`, link navigations
   and history steps, never at Lockdown (the view's or the site's level). As with Shield on Android, an

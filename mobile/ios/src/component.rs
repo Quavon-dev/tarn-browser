@@ -68,6 +68,7 @@ pub(crate) struct Props {
     file: bool,
     active: bool,
     dark: bool,
+    pub(crate) split_links: bool,
 }
 
 impl Props {
@@ -413,7 +414,7 @@ impl Inner {
         self.opener.borrow_mut().take();
     }
 
-    pub fn popup(&self, web: &WebView, url: Option<Url>, link: bool) {
+    pub fn popup(&self, web: &WebView, url: Option<Url>, link: bool, split: bool) {
         let Some(url) = url else { return };
         if !self.popups.borrow_mut().admit(view_policy::POPUP_BURST, Instant::now()) {
             if let Some(page) = web.current_url() {
@@ -431,7 +432,7 @@ impl Inner {
             self.emit("blocked", json!({ "url": url.as_str(), "reason": "shield", "popup": true }));
             return self.emit("shielded", json!({ "kind": "local_network", "url": url.as_str() }));
         }
-        self.emit("popup", json!({ "url": url.as_str(), "link": link }));
+        self.emit("popup", json!({ "url": url.as_str(), "link": link, "split": split }));
     }
 
     pub fn ask(&self, kind: &str, origin: Option<Url>, fields: Value, pending: Pending, dialog: bool) {
@@ -499,11 +500,6 @@ impl Inner {
                 if web.respondsToSelector(sel!(_hideFindUI)) {
                     // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.
                     let _: () = unsafe { msg_send![&**web, _hideFindUI] };
-                }
-                if self.built.borrow().as_ref().is_some_and(|b| b.level != ShieldLevel::Lockdown) {
-                    // SAFETY: main thread (marker); the script runs in the shell's isolated world and only clears the selection.
-                    let world = unsafe { WKContentWorld::defaultClientWorld(self.mtm) };
-                    web.evaluate(&NSString::from_str(find::RESTART), None, &world, None);
                 }
             }
             _ => {}
@@ -653,6 +649,10 @@ impl NativeComponent for TarnWebView {
                 "tab" => props.tab = text(),
                 "active" => props.active = value.and_then(Value::as_bool).unwrap_or(false),
                 "dark" => props.dark = value.and_then(Value::as_bool).unwrap_or(false),
+                "splitLinks" => {
+                    props.split_links = value.and_then(Value::as_bool).unwrap_or(false);
+                    return;
+                }
                 "styles" => props.styles = crate::scripts::host_map(value).into_iter().filter_map(|(h, v)| Some((h, v.as_str()?.to_owned()))).collect(),
                 "themeStyles" => props.theme_styles = value.map(engine::page_scripts::theme_sheets).unwrap_or_default(),
                 "zaps" => {

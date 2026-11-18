@@ -241,7 +241,7 @@ pub fn new_space_panel(ui: Ui) -> AnyElement {
             .child(note("Starts empty, with its own logins, cookies, site data, history and bookmarks."))
             .child(section("Profile Name"))
             .child(field(ui, "Profile Name", |d| d.profile_name.clone(), |d, v| d.profile_name = v))
-            .child(super::profiles::taken_note(move || draft(ui, |d| d.profile_name.clone()).unwrap_or_default(), names.clone()))
+            .child(super::profiles::name_note(move || draft(ui, |d| d.profile_name.clone()).unwrap_or_default(), names.clone()))
             .child(section("Profile Color"))
             .child(dynamic(move || draft(ui, |d| swatches(ui, &d.profile_color, false, |d, c| d.profile_color = c))))
     };
@@ -391,7 +391,7 @@ fn library_results(ui: Ui, history: &[store::HistoryEntry], query: &str) -> View
             .children(tabs)
     });
     let links = |rows: Vec<crate::browser::library::Link>| -> Vec<AnyElement> {
-        rows.into_iter().map(|link| super::panels::link_row(ui, link).into_element()).collect()
+        rows.into_iter().map(|link| super::panels::link_row(ui, link, None).into_element()).collect()
     };
     let downloads: Vec<AnyElement> = found.downloads.into_iter().map(|d| super::panels::saved_download(ui, d)).collect();
     view()
@@ -602,11 +602,11 @@ fn mark_row(ui: Ui, marks: &[Bookmark], mark: &Bookmark, edit: Option<MarkEdit>,
         .child(edit_button(icons::FOLDER_OPEN, "Move to Folder", MarkEdit::Move(id)))
         .child(deletion);
     let editor = match edit {
-        Some(MarkEdit::Rename(e)) if e == id => Some(super::panels::rename_row(ui, format!("bookmark {id}"), &bounded_title(&mark.title), move |title| {
+        Some(MarkEdit::Rename(e)) if e == id => Some(super::panels::rename_row(ui, format!("bookmark {id}"), &mark.title, move |title| {
             ui.mark_edit.set(None);
             act(ui, |b| {
-                let shown = b.bookmarks().into_iter().find(|m| m.id == id).map(|m| bounded_title(&m.title));
-                if shown.as_deref() != Some(title.trim()) {
+                let stored = b.bookmarks().into_iter().find(|m| m.id == id).map(|m| m.title);
+                if stored.as_deref() != Some(title.trim()) {
                     b.rename_bookmark(id, &title);
                 }
             });

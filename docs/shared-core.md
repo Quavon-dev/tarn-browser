@@ -19,7 +19,8 @@ Every shell's web view offers the same operations and reports the same events. T
   lets a main-frame `file:` navigation through only for this load or the user's Back, Forward or
   Reload onto a file the view opened this way (`nav_policy::file_open`, `Source::FileOpen`). NSH components take it as the
   `load` prop with `file: true`;
-- frame, visibility, focus and raise: on NSH, layout and focus come from the shell;
+- frame, visibility, focus and raise: on NSH, layout and focus come from the shell; Linux's
+  `focus` command gives the page the keyboard (F6);
 - `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted` (NSH components: the `muted`
   prop, which the component keeps across a rebuild of its view; Linux has it, iOS and Android not
   yet);
@@ -30,11 +31,12 @@ Every shell's web view offers the same operations and reports the same events. T
   view is made with; Linux: the app's NSH colour scheme, which WebKitGTK takes from GTK's settings
   for every view at once, left on the system's while the theme follows the system);
 - `clear_find`: removes the highlight a `find` left, when the find bar closes or its text is
-  emptied (WebKit drops the selection from the isolated world, not under Lockdown, and on macOS
-  and iOS also hides its match marker with WKWebView's private `_hideFindUI`, called only where the
-  view responds to it; Chromium stops finding); `find` reports the match count and, where the
+  emptied, and keeps the last match selected, as in Safari (on macOS and iOS WebKit hides its match
+  marker with WKWebView's private `_hideFindUI`, called only where the view responds to it;
+  Chromium stops finding and keeps the selection; Android's `clearMatches`, the only public way to
+  end a find, drops it, `docs/mobile-plan.md`); `find` reports the match count and, where the
   engine says (Chromium), the highlighted match (NSH components: the `clearFind` command,
-  WebKitGTK `search_finish` plus the same selection drop on Linux, and `current` in `found` on
+  WebKitGTK `search_finish` on Linux, and `current` in `found` on
   Android);
 - `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`; Linux has `print` (the GTK print
   dialog) and `pdf` with the absolute `path` the user picked in the save dialog, printed there by
@@ -70,7 +72,10 @@ Every shell's web view offers the same operations and reports the same events. T
   on Linux, sent only for the user's own Shift-click under the pop-up rules; iOS and Android have
   no Shift-click and send none;
 - `OpenTab`: Chromium views only, for a link the user opens in a new tab (Ctrl- or middle-click,
-  the page menu); WebKit views report it as a `Popup`;
+  the page menu); WebKit views report it as a `Popup`. Open Link in Split View in a link's menu
+  sets `split`, which puts the tab beside its opener (macOS WebKit also as `OpenTab`; NSH
+  components as `popup` with `split: true`: Linux from WebKitGTK's link menu, iOS and Android from
+  the long-press menu while the `splitLinks` prop is set); each takes the pop-up checks;
 - `FullScreen`: Chromium views on Windows and WebKitGTK on Linux (`fullscreen`
   `{on, windowFullScreen}`, the latter whether the window was already in full screen), whose
   element full screen fills the browser's view or, on WebKitGTK, puts the shell's own window in
