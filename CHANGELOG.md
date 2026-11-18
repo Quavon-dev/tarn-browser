@@ -154,6 +154,7 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Renaming a space shows the name as you type instead of an empty field (macOS, Windows).
 - Closing the find bar removes WebKit's match marker from the page, and the bar no longer stays as
   an empty strip after Esc (macOS). On iOS closing find also hides the marker. The last match
   stays selected, as in Safari (macOS, Windows, Linux, iOS; not on Android, whose WebView clears it).

@@ -494,6 +494,7 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         (true, _) => (if b.model.burner_shown() { Icon::Flame } else { ui::icon::space_icon(&s.space.icon) }, Theme::warning()),
         (false, tint) => (ui::icon::space_icon(&s.space.icon), tint.unwrap_or(Theme::space_label())),
     });
+    let renaming = b.rename_input(RenameTarget::Space(space_id)).is_some();
     let at = std::rc::Rc::<std::cell::Cell<_>>::default();
     let menu = move |b: &mut Browser, button: Option<gpui::Bounds<gpui::Pixels>>, w: &mut Window, cx: &mut Context<Browser>| {
         if b.rename_input(RenameTarget::Space(space_id)).is_none() {
@@ -504,6 +505,8 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     div()
         .id("space-switcher")
         .min_w_0()
+        // The name field has no width of its own, so the switcher sized to its content would hide it.
+        .when(renaming, |d| d.flex_1())
         .h(px(28.))
         .pr_1()
         .flex()
