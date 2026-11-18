@@ -85,6 +85,14 @@ fn swatches(ui: Ui, selected: Option<usize>, none: bool, pick: fn(&mut Form, Opt
     view().flex_row().flex_wrap().gap_2().children(all)
 }
 
+/// Says so while the typed profile name is another profile's (`profiles::name_taken`).
+pub(super) fn taken_note(typed: impl Fn() -> String + 'static, names: Vec<String>) -> AnyElement {
+    dynamic(move || {
+        browser_core::profiles::name_taken(&typed(), names.iter().map(String::as_str))
+            .then(|| note("Another profile has this name.").text_color(Theme::warning()))
+    })
+}
+
 fn field(ui: Ui, name: &str, value: Signal<String>) -> View {
     view().flex_col().gap_1().child(small(name.to_owned())).child(super::text_field(value, name, 320.).on_submit(move |_: &str| confirm(ui)))
 }
@@ -101,6 +109,7 @@ fn profile_card(ui: Ui, editing: Option<Id>) -> View {
         .gap_3()
         .child(note(subtitle))
         .child(field(ui, "Name", ui.card_name))
+        .child(taken_note(move || ui.card_name.get(), others.iter().filter(|p| Some(p.id) != editing).map(|p| p.name.clone()).collect()))
         .child(view().flex_col().gap_1().child(small("Color")).child(swatches(ui, Some(form.color), false, |f, ix| f.color = ix.unwrap_or(f.color))));
     if editing.is_none() {
         let engines: Vec<(usize, String)> = ENGINES.iter().enumerate().map(|(ix, e)| (ix, e.name.to_owned())).collect();

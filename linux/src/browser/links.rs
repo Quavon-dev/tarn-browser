@@ -61,7 +61,12 @@ impl Browser {
         let mut rows: Vec<TabRow> = match classify_input(query, &ENGINES[self.search_engine()]) {
             Some(Input::Navigate(url)) => {
                 let url = self.core.clean_user_url(self.model.profile(), url);
-                self.model.tabs_showing(&self.core, &url).into_iter().map(|(key, t, space)| row(key, &t.title, &t.url, space)).collect()
+                self.model
+                    .tabs_showing(&self.core, &url)
+                    .into_iter()
+                    .filter(|(key, ..)| self.model.active != Some(*key))
+                    .map(|(key, t, space)| row(key, &t.title, &t.url, space))
+                    .collect()
             }
             _ => Vec::new(),
         };
@@ -69,7 +74,8 @@ impl Browser {
         let listed: HashSet<TabKey> = rows.iter().map(|r| r.key).collect();
         let key = |ix: usize| TabKey { private, id: tabs[ix].id };
         let pages: Vec<Page> = tabs.iter().map(Page::from).collect();
-        let ranked = suggest::rank_rows(query, &pages, tabs.len(), |ix| listed.contains(&key(ix)), browser_core::now());
+        let shown = |ix: usize| listed.contains(&key(ix)) || self.model.active == Some(key(ix));
+        let ranked = suggest::rank_rows(query, &pages, tabs.len(), shown, browser_core::now());
         rows.extend(ranked.into_iter().map(|ix| row(key(ix), &tabs[ix].title, &tabs[ix].url, None)));
         rows
     }

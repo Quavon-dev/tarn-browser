@@ -471,14 +471,18 @@ fn a_dragged_tab_takes_the_place_of_the_row_it_lands_on() {
     let d = b.new_tab("https://d.test/").unwrap();
     let order = |b: &Browser| b.model.ephemeral_keys();
     assert_eq!(order(&b), [a, c, d]);
-    b.move_tab_to(d, a);
-    assert_eq!(order(&b), [d, a, c], "from below it goes before the row");
-    b.move_tab_to(d, c);
-    assert_eq!(order(&b), [a, c, d], "from above it goes after the row");
+    b.move_tab_to(d, a, false);
+    assert_eq!(order(&b), [d, a, c], "the upper half of a row puts it above");
+    b.move_tab_to(d, c, true);
+    assert_eq!(order(&b), [a, c, d], "the lower half puts it below");
+    b.move_tab_to(d, a, true);
+    assert_eq!(order(&b), [a, d, c], "below a row above it");
+    b.move_tab_to(a, c, false);
+    assert_eq!(order(&b), [d, a, c], "above a row below it");
     b.pin_toggle(a);
-    b.move_tab_to(c, a);
+    b.move_tab_to(c, a, false);
     assert_eq!(b.model.tab(c).unwrap().kind, TabKind::Pinned, "a row of another zone takes the tab into it");
-    b.move_tab_to(d, d);
+    b.move_tab_to(d, d, true);
     assert_eq!(order(&b), [d]);
 }
 
@@ -575,7 +579,7 @@ fn site_icons_load_at_start_fetch_inside_the_tab_and_go_with_history() {
     visit(&mut b, key, "https://a.test/x");
     assert!(asked(&b, "readIconLinks").is_empty(), "gives up after MAX_TRIES failed fetches");
     assert!(b.core.disk.favicons(profile).unwrap().iter().all(|(h, _)| h == "b.test"));
-    b.clear_history();
+    b.clear_history(browser_core::library::HistoryRange::All);
     let cleared = b.site_icons(&icons).unwrap();
     assert!(cleared.find("b.test").is_none());
     b.outbox.clear();
@@ -840,7 +844,7 @@ fn a_dropped_tab_joins_the_group_it_lands_in() {
     let first = b.model.active.unwrap();
     let a = b.new_tab("https://a.test/").unwrap();
     let id = b.new_group(Some(a)).unwrap();
-    b.move_tab_to(first, a);
+    b.move_tab_to(first, a, false);
     assert_eq!(b.model.tab(first).unwrap().group_id, Some(id), "dropped on a grouped tab");
     b.set_tab_group(first, None);
     b.pin_toggle(first);
@@ -1215,6 +1219,15 @@ fn links_from_other_apps_open_in_new_tabs_and_load_as_a_pages_link() {
 }
 
 #[test]
+fn only_a_web_page_has_a_qr_code() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "file:///home/me/a.html");
+    assert!(b.qr_code().is_none());
+    assert_eq!(b.toast.as_ref().unwrap().text, "Only web pages have a QR code");
+}
+
+#[test]
 fn open_tabs_are_offered_as_switch_to_tab_rows_across_the_profiles_spaces() {
     let (_dir, mut b) = browser();
     let docs = b.new_tab("https://docs.test/guide").unwrap();
@@ -1223,6 +1236,7 @@ fn open_tabs_are_offered_as_switch_to_tab_rows_across_the_profiles_spaces() {
     assert_eq!(rows.iter().map(|r| r.key).collect::<Vec<_>>(), [docs]);
     assert_eq!(rows[0].detail(), "Switch to Tab");
     assert!(b.tab_suggestions(" ").is_empty());
+    assert!(b.tab_suggestions("news").is_empty(), "the current tab is not offered");
     let home = b.model.space_ix;
     b.save_space(&b.new_space_draft());
     let rows = b.tab_suggestions("docs.test/guide");

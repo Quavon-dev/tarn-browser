@@ -153,7 +153,7 @@ fn schedule_rows(ui: Ui, schedule: Schedule) -> View {
                 .rounded(px(Theme::radius_small()))
                 .bg(if on { Theme::accent_soft() } else { Theme::control() })
                 .selected(on)
-                .child(small(*name).text_color(if on { Theme::accent() } else { Theme::muted() }))
+                .child(small(*name).text_color(if on { Theme::accent_text() } else { Theme::muted() }))
                 .into_element()
         })
         .collect();
@@ -181,6 +181,7 @@ pub fn new_space_panel(ui: Ui) -> AnyElement {
         ui.space_draft.set(read(ui, Browser::new_space_draft));
     }
     let profiles = read(ui, |b| b.core.disk.profiles().unwrap_or_default()).unwrap_or_default();
+    let names: Vec<String> = profiles.iter().map(|p| p.name.clone()).collect();
     let new_profile = move || {
         view()
             .flex_col()
@@ -188,6 +189,7 @@ pub fn new_space_panel(ui: Ui) -> AnyElement {
             .child(note("Starts empty, with its own logins, cookies, site data, history and bookmarks."))
             .child(section("Profile Name"))
             .child(field(ui, "Profile Name", |d| d.profile_name.clone(), |d, v| d.profile_name = v))
+            .child(super::profiles::taken_note(move || draft(ui, |d| d.profile_name.clone()).unwrap_or_default(), names.clone()))
             .child(section("Profile Color"))
             .child(dynamic(move || draft(ui, |d| swatches(ui, &d.profile_color, false, |d, c| d.profile_color = c))))
     };
@@ -336,7 +338,9 @@ fn library_results(ui: Ui, history: &[store::HistoryEntry], query: &str) -> View
             .children(empty)
             .children(tabs)
     });
-    let links = |rows: Vec<crate::browser::library::Link>| -> Vec<AnyElement> { rows.into_iter().map(|link| super::panels::link_row(ui, link)).collect() };
+    let links = |rows: Vec<crate::browser::library::Link>| -> Vec<AnyElement> {
+        rows.into_iter().map(|link| super::panels::link_row(ui, link).into_element()).collect()
+    };
     let downloads: Vec<AnyElement> = found.downloads.into_iter().map(|d| super::panels::saved_download(ui, d)).collect();
     view()
         .flex_col()
@@ -379,7 +383,7 @@ pub fn memory_panel(ui: Ui) -> AnyElement {
                     crate::snapshot::tab_label(t, b, key),
                     host,
                     memory::detail(costs.get(&key).copied(), !live.contains(&key)),
-                    live.contains(&key) && b.model.active != Some(key),
+                    live.contains(&key) && b.model.active != Some(key) && !b.in_split(key),
                 )
             })
             .collect::<Vec<_>>()
@@ -521,19 +525,16 @@ fn mark_row(ui: Ui, marks: &[Bookmark], mark: &Bookmark, edit: Option<MarkEdit>,
         return row.child(view().w(px(actions_width)).flex_none()).into_element();
     }
     let alone = mark.url.is_some() || !marks.iter().any(|m| m.parent_id == Some(id));
-    let deletion = crate::controls::icon_button(icons::TRASH, "Delete", move || match alone {
-        true => act(ui, |b| b.delete_bookmark(id)),
-        false => {
-            ui.confirm.set(Some(format!("bookmark {id}")));
-            act(ui, |_| {});
-        }
+    let deletion = crate::controls::icon_button(icons::TRASH, "Delete", move || {
+        ui.confirm.set(Some(format!("bookmark {id}")));
+        act(ui, |_| {});
     });
-    let asked = (!alone && ui.confirm.with_untracked(|c| c.as_deref() == Some(format!("bookmark {id}").as_str()))).then(|| {
+    let asked = ui.confirm.with_untracked(|c| c.as_deref() == Some(format!("bookmark {id}").as_str())).then(|| {
         view()
             .flex_row()
             .items_center()
             .gap_2()
-            .child(note(format!("Delete “{name}” and everything in it?")))
+            .child(note(if alone { format!("Delete “{name}”?") } else { format!("Delete “{name}” and everything in it?") }))
             .child(crate::controls::accent_pill("Delete", move || {
                 ui.confirm.set(None);
                 act(ui, |b| b.delete_bookmark(id));

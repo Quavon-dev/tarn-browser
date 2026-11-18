@@ -61,6 +61,17 @@ pub fn clear_history(store: &Store, profile_id: Id, range: HistoryRange, now: i6
     }
 }
 
+/// "5 min ago", "3 h ago", "2 d ago", then the date.
+pub fn ago(ms: i64, now: i64) -> String {
+    match (now - ms).max(0) / 60_000 {
+        0 => "Just now".into(),
+        min @ 1..60 => format!("{min} min ago"),
+        min @ 60..1440 => format!("{} h ago", min / 60),
+        min @ 1440..10_080 => format!("{} d ago", min / 1440),
+        _ => crate::shield_card::date(ms),
+    }
+}
+
 pub fn history_day(visited_at: i64, (today, yesterday): (i64, i64)) -> &'static str {
     if visited_at >= today {
         "Today"
@@ -157,6 +168,16 @@ mod tests {
         assert_eq!(urls(), ["https://old.test/"]);
         clear_history(&store, p, HistoryRange::All, now).unwrap();
         assert!(urls().is_empty());
+    }
+
+    #[test]
+    fn ages_turn_into_dates_after_a_week() {
+        let min = 60_000;
+        assert_eq!(ago(0, 59_999), "Just now");
+        assert_eq!(ago(0, 5 * min), "5 min ago");
+        assert_eq!(ago(0, 2 * 1440 * min), "2 d ago");
+        assert_eq!(ago(0, 7 * 1440 * min), "1970-01-01");
+        assert_eq!(ago(10 * min, 0), "Just now");
     }
 
     #[test]

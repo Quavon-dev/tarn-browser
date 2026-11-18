@@ -560,3 +560,29 @@ fn a_page_cannot_swap_an_offer_for_its_own() {
     b.on_event(key, "blocked", &json!({ "url": "https://ads.test/", "reason": "shield", "popup": true }));
     assert!(matches!(b.notice, Some(Notice::External { .. })));
 }
+
+#[test]
+fn a_held_warning_outlasts_later_toasts_until_dismissed() {
+    let (_dir, mut b) = browser();
+    b.show_warning("flagged");
+    b.show_toast("Zoom 110%", None);
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some("flagged"));
+    let serial = b.toast.as_ref().unwrap().serial;
+    b.dismiss_toast();
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some("Zoom 110%"));
+    b.show_toast("Zoom 125%", None);
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some("Zoom 125%"), "a harmless toast gives way");
+    b.expire_toast(serial);
+    assert!(b.toast.is_some(), "an old serial expires nothing");
+}
+
+#[test]
+fn only_entering_lockdown_in_a_profile_that_keeps_data_wipes_it() {
+    let (_dir, mut b) = browser();
+    assert!(b.shield_wipes_data(ShieldLevel::Lockdown));
+    assert!(!b.shield_wipes_data(ShieldLevel::Strict));
+    b.set_default_level(ShieldLevel::Lockdown);
+    assert!(!b.shield_wipes_data(ShieldLevel::Lockdown), "already in Lockdown");
+    b.private_space();
+    assert!(!b.shield_wipes_data(ShieldLevel::Lockdown), "a private space keeps nothing");
+}

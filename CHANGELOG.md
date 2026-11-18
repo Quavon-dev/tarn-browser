@@ -11,8 +11,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - History lists pages under Today, Yesterday and Earlier with when each was last visited. Remove
   from History (row menu, the row's trash button, or ⌘⌫ on macOS and Delete on Windows) removes a
   page, and Clear browsing history in Settings › Privacy asks whether to clear the last hour, today
-  or everything (macOS, Windows). On iOS and Android the History sheet groups pages by day, removes
-  one with its trash button and offers Clear History… with the same ranges, without the visit time.
+  or everything (macOS, Windows, Linux). On iOS and Android the History sheet groups pages by day,
+  removes one with its trash button and offers Clear History… with the same ranges, without the
+  visit time.
 - A search field in Settings finds the pane that holds a setting (macOS, Windows).
 - In the Library, F2 renames, ⌘⌫ (Delete on Windows) deletes and Shift+F10 opens the menu of the
   selected row, whose buttons stay visible; icon buttons have tooltips (macOS, Windows).
@@ -84,7 +85,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   Change Icon… in their menu (macOS, Windows; folders on Linux). Clean Up gives each group it
   makes the icon of its kind.
 - File › Close Window (⇧⌘W), View › Stop Loading (⌘.) and Reload Without Cache (⌥⌘R); ⌘+ zooms
-  in, and ⌘} ⌘{ and ⌥⌘→ ⌥⌘← go to the next and previous tab (macOS, Windows).
+  in, and ⌘} ⌘{ and ⌥⌘→ ⌥⌘← go to the next and previous tab (macOS, Windows). Linux has Close
+  Window (Ctrl+Shift+W), Reload Without Cache (Ctrl+F5), Stop Loading (Esc) as keys and command
+  rows, and Ctrl+Page Down and Ctrl+Page Up for the next and previous tab (Linux).
 - Tab and ⇧Tab move the keyboard through the toolbar's buttons and the address field (macOS,
   Windows).
 
@@ -93,11 +96,12 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Settings › Profile is now Protection and holds the only Shield level choice, with each level's
   description; the profile list is only in Profiles. The card's counters and the "Counted on this
   Mac only" label are no longer repeated next to it, and a week with nothing stopped shows one line
-  instead of an empty chart (macOS, Windows). The NSH clients (Linux, iOS, Android) name
-  the pane Protection too.
+  instead of an empty chart (macOS, Windows; on Linux the pane is Protection and holds the only
+  Shield level choice; on iOS and Android it is named Protection).
 - Choosing Lockdown (from Settings or the menu), clearing history, deleting a profile or everything
   in it, removing an extension or a theme, resetting zoom levels and deleting a bookmark ask first
-  in a dialog that names what goes, instead of a second click on the same button (macOS, Windows).
+  in a dialog that names what goes, instead of a second click on the same button (macOS, Windows;
+  on Linux Lockdown and a single bookmark delete ask in place, the others already asked once more).
   On iOS and Android, choosing Lockdown and removing a page from the Reading List ask the same way.
 - Filter-list updates, extension downloads and developer tools are switches; the search engine is
   picked from a segmented control as in the profile card; an extension's Every site switch, Forget
@@ -143,13 +147,15 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Fixed
 
 - The tab preview card follows the pointer to the next row instead of staying on the previous tab,
-  and Close Tabs Below closes the tabs shown below, leaving collapsed groups alone (macOS, Windows).
+  and Close Tabs Below closes the tabs shown below, leaving collapsed groups alone (macOS, Windows,
+  Linux).
 - Dragging a tab onto the lower half of a row drops it below that row, split panes list one per
   row so their titles fit, Duplicate places the copy under the original in its group, and an empty
-  tab name restores the page title (macOS, Windows).
+  tab name restores the page title (macOS, Windows, Linux).
 - Unloading the active pinned tab moves to its neighbour instead of reloading it, Sleep Tab is off
   for panes on screen, Rename Tab skips tiles, a double click on a group or folder header renames
-  it without collapsing it, and title matches in Find in Tabs switch to the tab (macOS, Windows).
+  it without collapsing it, and title matches in Find in Tabs switch to the tab (macOS, Windows; on Linux the
+  pinned-tab neighbour, Sleep Tab and Find in Tabs parts).
 - Sidebar rows can be reached with the keyboard: Up and Down move, Return opens, Shift+F10 opens
   the tab menu (macOS, Windows).
 - Stars on the night Shield card no longer sit on the profile name or the level (all clients).
@@ -161,25 +167,25 @@ All notable changes to Tarn are documented in this file. The format is based on
   chip, devtools labels), the caret and keyboard focus rings stay readable with any accent and
   theme; placeholders and secondary text meet 4.5:1 in every built-in theme, red warning text is
   readable in dark mode, sleeping tabs follow the theme's secondary text colour, and site initials
-  and extension badges pick a readable letter colour (macOS, Windows).
+  and extension badges pick a readable letter colour (macOS, Windows, Linux).
   On iOS and Android, Done, Clear and Cancel, the focused address field, sleeping tab cards and
   extension badges follow the same rules.
 - Every button, segment and colour swatch can be reached with Tab and pressed with Enter or Space
   where a window moves the focus on Tab, and a button that cannot be used looks dimmed (macOS,
-  Windows).
+  Windows, Linux).
 - Menu bar commands with nothing to act on are greyed on macOS, as they were on Windows: Back,
   Forward, Reopen Closed Tab, Close All Tabs, Stop Loading, and Mute Site on a page without a host.
 - File › Close Tab reads Unload Tab on a pinned tab, View › Reader reads Show or Hide Reader,
   Tabs › Search Tabs… is now Show Library, and the Spaces menu lists every space, not only the
-  first nine (macOS, Windows).
+  first nine (macOS, Windows; Show or Hide Reader on Linux).
 - Menus opened from the start page's space and Shield pills and the sidebar's space name drop
   from the button instead of the pointer, and entries inside submenus get their glyphs (macOS).
 - In the reader, ⌘F finds on the page the reader was made from, and ⌘W closes the tab instead of
-  the reader; Esc still closes the reader (macOS, Windows).
+  the reader; Esc still closes the reader (macOS, Windows, Linux).
 - Zooming shows the new zoom level, and says why nothing changes while Responsive Size is on
-  (macOS, Windows).
+  (macOS, Windows, Linux).
 - The Keyboard Shortcuts sheet scrolls with the arrow keys, Page Up and Page Down, Space, Home and
-  End (macOS, Windows).
+  End (macOS, Windows, Linux).
 - Segments, Shield level rows, accent swatches and theme cards in Settings take the keyboard with
   Tab, Enter and Space (macOS, Windows).
 - A colour typed in the theme colour editor is saved when its field loses focus, not only on
@@ -191,26 +197,29 @@ All notable changes to Tarn are documented in this file. The format is based on
   extension Install and update buttons look unavailable, with the reason, while downloads are off
   (macOS, Windows).
 - A profile name another profile has says so instead of only greying out Save, and a hidden
-  element comes back with Show Again rather than Undo (macOS, Windows).
+  element comes back with Show Again rather than Undo (macOS, Windows, Linux).
 - The Library panel stays within a narrow sidebar, and a list taller than the window ends below a
   row instead of cutting off the next heading (macOS, Windows).
 - Pages follow Tarn's light or dark theme (`prefers-color-scheme`) instead of the system's
-  appearance, and switch with it (macOS, Windows, iOS, Android).
+  appearance, and switch with it (macOS, Windows, Linux, iOS, Android).
 - Find in page searches as you type, shows "1 of 2" where the engine reports the current match
-  (Chromium, Android), and clears its highlight when the bar closes (macOS, Windows, iOS,
+  (Chromium, Android), and clears its highlight when the bar closes (macOS, Windows, Linux, iOS,
   Android).
 - A toast stays while the pointer is over it, wraps a long message onto a second line, and its
-  button is also a command row, so it can be reached from the keyboard (macOS, Windows).
+  button is also a command row, so it can be reached from the keyboard (macOS, Windows; on Linux
+  the button is a tab stop).
 - Translating a page shows Translating… while it works and then Show Original, which reloads the
   page in its own language (macOS).
 - The Reader button shows when Reader is on and then reads Exit Reader, and the Shield button's
   tooltip says how many requests it stopped on the site (macOS, Windows).
 - The address field keeps Reader open behind it and shows a sleeping tab's address; its
   suggestions no longer offer the current tab, show one Switch to Tab row for tabs on the same
-  address, and Enter in an empty field opens nothing (macOS, Windows).
+  address, and Enter in an empty field opens nothing (macOS, Windows, Linux).
+- Show QR Code and the system share sheet are offered only for web pages; on a file or other
+  address Show QR Code says why (macOS, Windows, Linux).
 - Failed and cancelled downloads stay in the Downloads list, a download in progress has a Cancel
   button, Clear offers Undo, a new download no longer hides a dangerous-file warning, and the
-  Downloads panel stays inside the window (macOS, Windows, iOS, Android).
+  Downloads panel stays inside the window (macOS, Windows, Linux, iOS, Android).
 - Two downloads of the same name at once each get their own file, instead of the second failing
   or replacing the first (Linux, iOS, Android).
 - Settings text no longer runs under the controls beside it, and text fields clip their

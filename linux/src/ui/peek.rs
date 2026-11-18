@@ -48,7 +48,7 @@ pub(super) struct HoverCard {
     serial: u64,
 }
 
-fn later(ui: Ui, wait: Duration, f: impl FnOnce() + 'static) {
+pub(super) fn later(ui: Ui, wait: Duration, f: impl FnOnce() + 'static) {
     ui.root.run(|| drop(set_timeout(wait, f)));
 }
 
@@ -152,7 +152,9 @@ pub(super) fn hover_row(ui: Ui, key: TabKey, hovered: bool, y: f32) {
     }
     ui.hover_card.update(|c| {
         c.y = y;
-        c.rest.enter(key, Instant::now());
+        if c.rest.enter(key, Instant::now()) {
+            c.shown = None;
+        }
     });
     poll(ui);
 }

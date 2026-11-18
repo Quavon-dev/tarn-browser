@@ -137,13 +137,9 @@ fn hero(ui: Ui, card: Card, level: ShieldLevel, private: bool) -> View {
             )
             .child(view().flex_row().gap_3().children(numbers))
             .child(
-                view()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(label(level_name).flex_1())
-                    .child(segmented(levels(), level, move |l| act(ui, move |b| b.set_default_level(l)))),
+                view().flex_row().items_center().gap_2().child(label(level_name).flex_1()).child(segmented(levels(), level, move |l| super::pick_level(ui, l))),
             )
+            .child(super::lockdown_confirm(ui))
             .child(actions),
     )
 }
@@ -262,7 +258,7 @@ fn hidden(ui: Ui, private: bool) -> View {
         .into_iter()
         .map(|(host, selector)| {
             let (h, s) = (host.clone(), selector.clone());
-            line(format!("{host}: {selector}")).child(pill("Undo", move || act(ui, |b| b.unzap(&h, Some(&s))))).into_element()
+            line(format!("{host}: {selector}")).child(pill("Show Again", move || act(ui, |b| b.unzap(&h, Some(&s))))).into_element()
         })
         .collect();
     view().flex_col().children(rows)
@@ -639,11 +635,6 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             body.child(section("Shield"))
                 .child(
                     group()
-                        .child(
-                            group_row()
-                                .child(label(if private { "Shield level (private space)" } else { "Default Shield level" }).flex_1())
-                                .child(segmented(levels(), level, move |l| act(ui, move |b| b.set_default_level(l)))),
-                        )
                         .child(switch(on("ads"), "Block ads", toggle("block_ads")))
                         .child(switch(on("trackers"), "Block trackers", toggle("block_trackers")))
                         .child(switch(on("annoyances"), "Block cookie banners", toggle("block_annoyances")))
@@ -684,7 +675,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                         .children((!private).then(|| data_row("Export this profile's data as JSON", pill("Export…", move || export_profile(ui)).into_element())))
                         .child(data_row(
                             "Clear browsing history, site icons, zoom levels, protected sites and hidden elements",
-                            confirmed(ui, "history".to_owned(), "Clear", move || super::clear_history(ui)),
+                            super::clear_history_choice(ui, "Clear…"),
                         ))
                         .child(data_row("Clear the download list", confirmed(ui, "download list".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads()))))
                         .child(data_row("Clear cookies and website data", confirmed(ui, "data".to_owned(), "Clear", clear_data)))
