@@ -72,6 +72,11 @@ fn subtitle(d: &Download, size: Option<u64>) -> (String, bool) {
     }
 }
 
+/// A finished download whose file was moved or deleted since.
+fn missing(d: &Download, file: Option<Option<u64>>) -> bool {
+    file == Some(None) && d.state.starts_with("finished")
+}
+
 fn tile(name: &str, color: gpui::Rgba) -> gpui::Div {
     let glyph = Icon::named(browser_core::glyphs::file_glyph(name)).unwrap_or(Icon::File);
     div().size(px(28.)).flex_none().flex().items_center().justify_center().rounded(px(Theme::radius_row())).bg(Theme::control()).child(icon(glyph, 15., color))
@@ -258,7 +263,8 @@ pub struct DownloadsWindow {
     browser: WeakEntity<Browser>,
     main: WindowHandle<Browser>,
     focus: FocusHandle,
-    rows: Vec<(Download, Option<u64>)>,
+    /// Each finished download with its file's size: `None` until checked, `Some(None)` once the file is gone.
+    rows: Vec<(Download, Option<Option<u64>>)>,
     seen: Option<u64>,
     closing: bool,
     /// The caret's centre from the card's left edge, if it points at a button.
@@ -317,12 +323,13 @@ impl DownloadsWindow {
         self.main.update(cx, |b, window, cx| b.open_library(crate::library::Page::Downloads, None, window, cx)).ok();
     }
 
-    fn row(&self, d: &Download, size: Option<u64>) -> impl IntoElement {
+    fn row(&self, d: &Download, file: Option<Option<u64>>) -> impl IntoElement {
         let path = d.path.clone();
         let reveal = move || engine::reveal_in_finder(Path::new(&path));
         let button_reveal = reveal.clone();
         let name = Path::new(&d.path).file_name().map(|n| bounded_title(&n.to_string_lossy())).unwrap_or_default();
-        let (detail, warn) = subtitle(d, size);
+        let gone = missing(d, file);
+        let (detail, warn) = if gone { ("Missing · moved or deleted".into(), true) } else { subtitle(d, file.flatten()) };
         let trailing = if warn {
             div().size(px(28.)).flex().flex_none().items_center().justify_center().child(icon(Icon::TriangleAlert, 15., Secure::warning())).into_any_element()
         } else {
@@ -335,7 +342,7 @@ impl DownloadsWindow {
                 .into_any_element()
         };
         tab_stop(list_row(("download", d.id as u64), false).h(px(ROW)).px_2())
-            .on_click(move |_, _, _| reveal())
+            .when(!gone, |d| d.on_click(move |_, _, _| reveal()))
             .child(tile(&name, if warn { Secure::warning() } else { Theme::muted() }))
             .child(
                 div()
@@ -403,7 +410,7 @@ impl Render for DownloadsWindow {
                     .await;
                 this.update(cx, |w, cx| {
                     if w.seen == Some(changed) {
-                        w.rows.iter_mut().zip(sizes).for_each(|(row, size)| row.1 = size);
+                        w.rows.iter_mut().zip(sizes).for_each(|(row, size)| row.1 = Some(size));
                         cx.notify();
                     }
                 })
@@ -497,6 +504,15 @@ mod tests {
         assert!(subtitle(&Download { state: "failed".into(), ..d.clone() }, None).1);
         assert!(subtitle(&Download { state: "finished-unquarantined".into(), ..d.clone() }, Some(1)).1);
         assert_eq!(subtitle(&Download { state: "cancelled".into(), ..d }, None), ("Cancelled".into(), false));
+    }
+
+    #[test]
+    fn a_finished_download_without_its_file_is_missing() {
+        let d = Download { id: 1, url: String::new(), path: "/d/a.zip".into(), state: "finished".into(), started_at: 0 };
+        assert!(missing(&d, Some(None)));
+        assert!(!missing(&d, None), "not checked yet");
+        assert!(!missing(&d, Some(Some(3))));
+        assert!(!missing(&Download { state: "failed".into(), ..d }, Some(None)));
     }
 
     #[test]
