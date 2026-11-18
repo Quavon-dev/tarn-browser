@@ -147,6 +147,14 @@ mod tests {
         assert_eq!(valid_name(&"x".repeat(200), []).map(|n| n.chars().count()), Some(MAX_NAME));
         assert!(name_too_long(&"x".repeat(MAX_NAME + 1)));
         assert!(!name_too_long(&format!("  {}\u{202e}  ", "x".repeat(MAX_NAME))));
+        for wide in ['ü', '\u{1F600}', '\u{6F22}'] {
+            let at_limit = format!("{}{wide}", "x".repeat(MAX_NAME - 1));
+            assert!(!name_too_long(&at_limit) && valid_name(&at_limit, []) == Some(at_limit.clone()));
+            let over = format!("{}{wide}{wide}{wide}", "x".repeat(MAX_NAME - 2));
+            assert!(name_too_long(&over));
+            assert_eq!(valid_name(&over, []).map(|n| n.chars().count()), Some(MAX_NAME));
+        }
+        assert!(name_too_long(&"\u{6F22}".repeat(200)));
     }
 
     #[test]
