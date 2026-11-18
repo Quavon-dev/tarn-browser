@@ -742,7 +742,11 @@ fn downloads(ui: Ui) -> impl IntoElement {
             |d: &store::Download| d.id,
             move |d, _| {
                 let d = d.get_untracked();
-                let finished = d.state == "finished";
+                let (status, failed) = match d.state.as_str() {
+                    "finished" => ("Saved", false),
+                    "cancelled" => ("Cancelled", false),
+                    _ => ("Failed", true),
+                };
                 view()
                     .flex_row()
                     .items_center()
@@ -754,9 +758,10 @@ fn downloads(ui: Ui) -> impl IntoElement {
                     .border_color(Theme::separator)
                     .child(sheets::file_tile(&d.url, false))
                     .child(
-                        view().flex_1().child(label(d.url.clone()).number_of_lines(1)).child(
-                            caption(if finished { "Saved" } else { "Failed" }).text_color(move || if finished { Theme::muted() } else { Theme::danger() }),
-                        ),
+                        view()
+                            .flex_1()
+                            .child(label(d.url.clone()).number_of_lines(1))
+                            .child(caption(status).text_color(move || if failed { Theme::danger() } else { Theme::muted() })),
                     )
             },
         ))))

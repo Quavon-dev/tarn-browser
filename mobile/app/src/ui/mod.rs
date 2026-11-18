@@ -308,11 +308,13 @@ fn notice(ui: Ui) -> impl IntoElement {
         if let Some(old) = timer.borrow_mut().take() {
             old.cancel();
         }
-        if let (Some(shown), _) = shown.get() {
+        if let (Some(shown), _) = shown.get()
+            && !untracked(|| ui.read(|s| s.notice_held()))
+        {
             *timer.borrow_mut() = Some(set_timeout(Duration::from_secs(5), move || {
                 ui.act(|s| {
                     if s.notice.as_ref() == Some(&shown) {
-                        s.notice = None;
+                        s.dismiss_notice();
                     }
                     Vec::new()
                 })
@@ -333,6 +335,7 @@ fn notice(ui: Ui) -> impl IntoElement {
                 .shadow(Theme::elevation(4., 14.))
                 .child(
                     label(m)
+                        .number_of_lines(2)
                         .flex_shrink(1.)
                         .flex_grow(if local { 1. } else { 0. })
                         .test_id("notice")
@@ -360,9 +363,19 @@ fn notice(ui: Ui) -> impl IntoElement {
                         })
                     })
                 }))
+                .child(dynamic(move || {
+                    ui.read(|s| s.can_restore_downloads()).then(|| {
+                        tarn_nsh_shared::controls::toast_action("Undo", move || {
+                            ui.act(|s| {
+                                s.restore_downloads();
+                                Vec::new()
+                            })
+                        })
+                    })
+                }))
                 .child(icon_button(icons::CLOSE, "Dismiss", move || {
                     ui.act(|s| {
-                        s.notice = None;
+                        s.dismiss_notice();
                         Vec::new()
                     })
                 }))

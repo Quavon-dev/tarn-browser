@@ -127,6 +127,8 @@ pub struct Shell<D: Platform> {
     pub open_offer: Option<(TabKey, String, String)>,
     pub found: Option<(usize, Option<usize>)>,
     pub undo: Option<(String, u64)>,
+    pub(crate) download_notices: Vec<(String, bool)>,
+    pub(crate) cleared_downloads: Option<(String, (bool, Id), Vec<Download>)>,
     pub transfers: Vec<crate::scripts::Transfer>,
     pub transfers_moved: std::time::Instant,
     pub reader: Option<crate::scripts::Reader>,
@@ -180,6 +182,8 @@ impl<D: Platform> Shell<D> {
             open_offer: None,
             found: None,
             undo: None,
+            download_notices: Vec::new(),
+            cleared_downloads: None,
             transfers: Vec::new(),
             transfers_moved: std::time::Instant::now(),
             reader: None,
@@ -657,6 +661,7 @@ impl<D: Platform> Shell<D> {
         }
         // Private tab ids start again in the next session, so no private pane may outlive this one.
         self.splits.retain(|k| !k.private);
+        self.download_notices.clear();
         self.opened_files.retain(|k, _| !k.private);
         for (_, profile_id) in &private {
             self.core.store(true).delete_profile(*profile_id).ok();
@@ -742,6 +747,8 @@ impl<D: Platform> Shell<D> {
         let store = self.core.store(private);
         store.clear_history(id).ok();
         store.clear_downloads(id).ok();
+        self.download_notices.clear();
+        self.cleared_downloads = None;
         self.model.closed_tabs.clear_profile(private, id);
         self.forget_icons((private, id));
         let before = self.store_id(private, id);
@@ -768,8 +775,12 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn clear_downloads(&mut self) {
-        if let Some(id) = self.profile_id() {
-            self.store().clear_downloads(id).ok();
+        let Some(profile) = self.model.profile() else { return };
+        let list = self.downloads();
+        if self.core.store(profile.0).clear_downloads(profile.1).is_ok() {
+            let text = "Downloads cleared".to_owned();
+            self.cleared_downloads = Some((text.clone(), profile, list));
+            self.notice = Some(text);
         }
     }
 

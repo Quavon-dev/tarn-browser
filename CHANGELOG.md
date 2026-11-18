@@ -205,7 +205,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   address, and Enter in an empty field opens nothing (macOS, Windows).
 - Failed and cancelled downloads stay in the Downloads list, a download in progress has a Cancel
   button, Clear offers Undo, a new download no longer hides a dangerous-file warning, and the
-  Downloads panel stays inside the window (macOS, Windows).
+  Downloads panel stays inside the window (macOS, Windows, iOS, Android).
 - Two downloads of the same name at once each get their own file, instead of the second failing
   or replacing the first (Linux, iOS, Android).
 - Settings text no longer runs under the controls beside it, and text fields clip their
