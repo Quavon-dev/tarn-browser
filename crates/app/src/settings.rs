@@ -381,7 +381,14 @@ impl SettingsWindow {
         let b = self.browser.upgrade()?;
         let b = b.read(cx);
         let current = b.model.current_space().map(|s| (s.private, s.space.profile_id));
-        let key = (b.model.space_ix, b.model.spaces.len(), b.current_profile(), b.profile_editor.is_some(), b.store(false).changes(), b.store(true).changes());
+        let key = (
+            b.model.space_ix,
+            b.model.spaces.len(),
+            b.current_profile(),
+            b.profile_editor.is_some(),
+            b.store(false).settings_changes(),
+            b.store(true).settings_changes(),
+        );
         let stored = match &self.stored {
             Some((k, stored)) if *k == key => stored.clone(),
             _ => {
