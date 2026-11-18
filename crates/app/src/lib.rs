@@ -70,6 +70,8 @@ actions!(
         NewSpace,
         PrivateSpace,
         Find,
+        FocusNextRegion,
+        FocusPreviousRegion,
         FindNext,
         FindPrevious,
         Print,
@@ -310,6 +312,8 @@ impl Render for Browser {
             })
             .on_action(cx.listener(|b, _: &ToggleCompactToolbar, _, cx| b.set_pref(prefs::Pref::CompactToolbar, !b.pref(prefs::Pref::CompactToolbar), cx)))
             .on_action(cx.listener(|b, _: &OpenAppMenu, window, cx| b.open_app_menu(window, cx)))
+            .on_action(cx.listener(|b, _: &FocusNextRegion, w, cx| b.cycle_focus(false, w, cx)))
+            .on_action(cx.listener(|b, _: &FocusPreviousRegion, w, cx| b.cycle_focus(true, w, cx)))
             // The mouse's buttons never arrive here, `watch_navigation_buttons` takes them; GPUI reports swipe events as these.
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Back), cx.listener(|b, _, _, _| b.swipe_history(true)))
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Forward), cx.listener(|b, _, _, _| b.swipe_history(false)));
@@ -366,6 +370,8 @@ pub(crate) fn bind_keys(cx: &mut App, keymap: &[(String, &'static dyn gpui::Acti
         KeyBinding::new(&shortcuts::platform("alt-cmd-left"), PreviousTab, None),
         KeyBinding::new("escape", CloseOverlay, Some("Browser")),
         KeyBinding::new("escape", CloseOverlay, Some("Settings")),
+        KeyBinding::new("f6", FocusNextRegion, Some("Browser")),
+        KeyBinding::new("shift-f6", FocusPreviousRegion, Some("Browser")),
         KeyBinding::new(&shortcuts::platform("cmd-q"), Quit, None),
         KeyBinding::new(&shortcuts::platform("cmd-z"), text_input::Undo, None),
         KeyBinding::new(&shortcuts::platform("cmd-shift-z"), text_input::Redo, None),

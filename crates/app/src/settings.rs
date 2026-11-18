@@ -166,6 +166,7 @@ pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
             ("Settings", Bound("cmd-,", &crate::Settings)),
             ("Keyboard shortcuts", Bound("cmd-/", &crate::shortcuts::ToggleShortcuts)),
             ("Open the menu", Fixed("F10")),
+            ("Move between page, address field and sidebar", Fixed("F6  ⇧F6")),
             ("Close command bar, overlay, popover or link peek", Fixed("Esc")),
             ("Undo / Redo", Fixed("⌘Z  ⇧⌘Z")),
             ("Quit", Fixed("⌘Q")),

@@ -25,6 +25,7 @@ pub mod effects;
 pub mod ext_package;
 pub mod extensions;
 pub mod find;
+pub mod focus;
 pub mod fog;
 pub mod fullscreen;
 pub mod github;

@@ -1449,6 +1449,39 @@ impl Browser {
         cx.notify();
     }
 
+    /// F6 and Shift+F6: moves the keyboard between the page, the address field and the sidebar.
+    pub(crate) fn cycle_focus(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) {
+        use browser_core::focus::{Region, next_region};
+        let open = self.command_mode.is_some();
+        let from = if open {
+            Region::Address
+        } else if self.focus.is_focused(window) {
+            Region::Page
+        } else {
+            Region::Sidebar
+        };
+        match next_region(from, back, self.active_view().is_some(), self.sidebar_shown() > 0.) {
+            Region::Address => self.open_command(CommandMode::Current, window, cx),
+            Region::Page if open => self.close_command(window, cx),
+            Region::Page => {
+                window.focus(&self.focus);
+                if let Some(view) = self.active_view() {
+                    view.focus();
+                }
+            }
+            Region::Sidebar => {
+                if open {
+                    self.close_command(window, cx);
+                }
+                if let Some(host) = &self.host {
+                    host.focus();
+                }
+                window.focus(&self.focus);
+                window.focus_next();
+            }
+        }
+    }
+
     pub fn close_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let field = self.command_mode.is_some();
         let covered = field || self.shortcuts_open;

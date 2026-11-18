@@ -1607,6 +1607,10 @@ fn to_shell(event: &NSEvent) -> bool {
 fn forwarded(modifiers: u32, key: i32) -> bool {
     use sys::cef_event_flags_t as F;
     let has = |flag: F| u64::from(modifiers) & flag.0 as u64 != 0;
+    // F6 moves the keyboard out of the page.
+    if key == 0x75 {
+        return true;
+    }
     // Backspace, Enter, Shift, Ctrl, Alt, the caret keys and Delete, the Windows keys.
     const PAGE_KEYS: [i32; 16] = [0x08, 0x0d, 0x10, 0x11, 0x12, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2e, 0x5b, 0x5c];
     // Select all, copy, paste, cut, undo, redo (Ctrl+Y on Windows); with Shift only paste as text and redo.
