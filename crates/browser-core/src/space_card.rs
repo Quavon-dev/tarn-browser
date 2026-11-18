@@ -8,10 +8,19 @@ pub const DEFAULT_PROFILE_COLOR: &str = "blue";
 pub const DEFAULT_SCHEDULE: Schedule = Schedule { days: 0, start: 9, end: 17 };
 
 pub fn valid_name<'a>(raw: &str, taken: impl IntoIterator<Item = &'a str>) -> Option<String> {
-    let name: String = raw.trim().chars().filter(|c| !c.is_control() && !is_bidi(*c)).take(MAX_NAME).collect();
+    let name: String = name_chars(raw).take(MAX_NAME).collect();
     let name = name.trim_end().to_owned();
     let free = taken.into_iter().all(|t| !t.trim().eq_ignore_ascii_case(&name));
     (!name.is_empty() && free).then_some(name)
+}
+
+/// Whether a typed name is longer than `MAX_NAME`, so saving it would cut it.
+pub fn name_too_long(raw: &str) -> bool {
+    name_chars(raw).count() > MAX_NAME
+}
+
+fn name_chars(raw: &str) -> impl Iterator<Item = char> + '_ {
+    raw.trim().chars().filter(|c| !c.is_control() && !is_bidi(*c))
 }
 
 pub fn space_name(raw: &str, spaces: &[SpaceRef], private: bool, profile: Option<Id>, editing: Option<Id>) -> Option<String> {
@@ -136,6 +145,8 @@ mod tests {
         assert_eq!(valid_name("Wo\u{202e}rk\n", []), Some("Work".into()));
         assert_eq!(valid_name("work", ["Personal", " Work"]), None);
         assert_eq!(valid_name(&"x".repeat(200), []).map(|n| n.chars().count()), Some(MAX_NAME));
+        assert!(name_too_long(&"x".repeat(MAX_NAME + 1)));
+        assert!(!name_too_long(&format!("  {}\u{202e}  ", "x".repeat(MAX_NAME))));
     }
 
     #[test]
