@@ -12,35 +12,49 @@ use crate::icon::{Icon, icon};
 use crate::theme::{Elevation, ROW_HEIGHT, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, Theme};
 
 pub fn button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
-    themed_button(id, None, text, primary)
+    themed_button(id, None, text, primary, true)
+}
+
+/// A button that cannot be pressed: dimmed, with no hover or pressed state and no tab stop. The
+/// caller adds no click handler.
+pub fn disabled_button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
+    themed_button(id, None, text, primary, false)
 }
 
 pub fn icon_text_button(id: impl Into<ElementId>, glyph: Icon, text: impl Into<SharedString>) -> Stateful<Div> {
-    themed_button(id, Some(glyph), text, false)
+    themed_button(id, Some(glyph), text, false, true)
 }
 
-fn themed_button(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
+fn themed_button(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedString>, primary: bool, enabled: bool) -> Stateful<Div> {
     let colors = if primary { (Theme::accent(), Theme::surface_edge()) } else { (Theme::control(), Theme::hairline()) };
     let label = if primary { Theme::on_fill(Theme::accent()) } else { Theme::text() };
-    pill(id, glyph, text, primary, colors, label).when(!primary, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
+    pill(id, glyph, text, primary, enabled, colors, label).when(enabled && !primary, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
 }
 
 /// A button on a security surface (prompts, banners, blocking pages), in colours no theme sets.
 pub fn secure_button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
     let colors = if primary { (Secure::accent(), Secure::surface_edge()) } else { (Secure::control(), Secure::hairline()) };
-    pill(id, None, text, primary, colors, if primary { Theme::on_accent() } else { Secure::text() })
+    pill(id, None, text, primary, true, colors, if primary { Theme::on_accent() } else { Secure::text() })
         .font_family(SYSTEM_FONT)
         .when(!primary, |d| d.hover(|s| s.bg(Secure::hover())).active(|s| s.bg(Secure::pressed())))
 }
 
 pub fn secure_ghost_button(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
-    pill(id, None, text, false, (Secure::surface(), Secure::surface()), Secure::text())
+    pill(id, None, text, false, true, (Secure::surface(), Secure::surface()), Secure::text())
         .font_family(SYSTEM_FONT)
         .hover(|s| s.bg(Secure::hover()))
         .active(|s| s.bg(Secure::pressed()))
 }
 
-fn pill(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedString>, primary: bool, (fill, edge): (Rgba, Rgba), color: Rgba) -> Stateful<Div> {
+fn pill(
+    id: impl Into<ElementId>,
+    glyph: Option<Icon>,
+    text: impl Into<SharedString>,
+    primary: bool,
+    enabled: bool,
+    (fill, edge): (Rgba, Rgba),
+    color: Rgba,
+) -> Stateful<Div> {
     div()
         .id(id)
         .flex_none()
@@ -50,14 +64,14 @@ fn pill(id: impl Into<ElementId>, glyph: Option<Icon>, text: impl Into<SharedStr
         .items_center()
         .gap_1p5()
         .rounded_full()
-        .cursor_pointer()
         .text_size(px(TEXT))
         .border_1()
         .border_color(edge)
         .bg(fill)
         .when(primary, |d| d.font_weight(FontWeight::MEDIUM))
         .text_color(color)
-        .when(primary, |d| d.hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7)))
+        .map(|d| if enabled { tab_stop(d.cursor_pointer()) } else { d.opacity(0.4) })
+        .when(enabled && primary, |d| d.hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.7)))
         .children(glyph.map(|g| icon(g, 13., Theme::muted())))
         .child(text.into())
 }
@@ -272,8 +286,7 @@ pub fn segmented() -> Div {
 }
 
 pub fn segment(id: impl Into<ElementId>, text: impl Into<SharedString>, selected: bool) -> Stateful<Div> {
-    div()
-        .id(id)
+    tab_stop(div().id(id))
         .h(px(22.))
         .px_2p5()
         .flex()
@@ -294,8 +307,7 @@ pub fn disabled_segment(id: impl Into<ElementId>, text: impl Into<SharedString>)
 
 /// A colour circle; the selected one gets a ring like the macOS accent picker.
 pub fn swatch(id: impl Into<ElementId>, color: Rgba, selected: bool, size: f32) -> Stateful<Div> {
-    div()
-        .id(id)
+    tab_stop(div().id(id))
         .w(px(size))
         .h(px(size))
         .flex()
@@ -384,7 +396,7 @@ pub fn icon_frame(id: impl Into<ElementId>, enabled: bool) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .rounded(px(Theme::radius_row()))
-        .when(enabled, |d| d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())).cursor_pointer())
+        .when(enabled, |d| tab_stop(d.hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())).cursor_pointer()))
 }
 
 #[derive(Clone)]
@@ -605,8 +617,9 @@ pub fn empty(text: impl Into<SharedString>) -> Div {
 }
 
 /// Makes `control` reachable with Tab and rings it while it has the keyboard; Enter and Space
-/// click it. A mouse press leaves the focus where it was, so the ring shows only for the
-/// keyboard. For windows that move the focus on Tab: pop-ups and Settings.
+/// click it. A mouse press takes the focus off the field or control that had it without giving
+/// it to `control`, so the ring shows only for the keyboard. Buttons, segments and swatches are
+/// tab stops already; windows that move the focus on Tab are pop-ups and Settings.
 pub fn tab_stop(control: Stateful<Div>) -> Stateful<Div> {
     // A click moves no ring onto the control and clears one a Tab left elsewhere.
     control.tab_index(0).focus(|s| s.shadow(focus_ring())).on_mouse_down(MouseButton::Left, |_, window, _| {
