@@ -2014,7 +2014,7 @@ impl SettingsWindow {
                             .flex()
                             .flex_col()
                             .gap_1p5()
-                            .child(text_block(format!("{} \u{00B7} {}", e.name, e.badge), e.permissions))
+                            .child(text_block(format!("{} \u{00B7} {}", e.name, e.badge), e.permissions).flex_initial())
                             .child(actions),
                     )
                     .child(tab_stop(div().id(("extension-switch", ix))).cursor_pointer().child(switch(on)).on_click(cx.listener(move |this, _, _, cx| {
