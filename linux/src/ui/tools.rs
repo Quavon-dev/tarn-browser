@@ -61,14 +61,16 @@ pub enum Command {
     SetPinnedUrl,
     SleepOthers,
     StopLoading,
+    ToastAction,
 }
 
-const COMMANDS: [(&str, &str, Command); 55] = [
+const COMMANDS: [(&str, &str, Command); 56] = [
     ("Settings", "preferences options", Command::Key(Action::Settings)),
     ("New Space", "workspace profile", Command::Key(Action::NewSpace)),
     ("Edit Space", "workspace rename color icon", Command::EditSpace),
     ("Private Space", "incognito", Command::Key(Action::PrivateSpace)),
     ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
+    ("Notification Action", "toast undo reveal", Command::ToastAction),
     ("Open File…", "local disk html pdf image document", Command::Key(Action::OpenFile)),
     ("Toggle Sidebar", "show hide", Command::Key(Action::ToggleSidebar)),
     ("Show Downloads", "files", Command::Key(Action::ToggleDownloads)),
@@ -132,6 +134,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
     if query.trim().is_empty() {
         return Vec::new();
     }
+    let toast = ui.snap.with_untracked(|s| s.toast.as_ref().and_then(|t| Some(format!("{} \u{2014} {}", t.action.as_ref()?.label(), t.text))));
     let Some((spaces, pinned, split, reopenable, duplicates, tab)) = read(ui, |b| {
         let active = b.model.active;
         (
@@ -157,6 +160,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         Command::ReturnToPinned | Command::SetPinnedUrl => tab.drifted,
         Command::SleepOthers => tab.sleep_others,
         Command::StopLoading => tab.loading,
+        Command::ToastAction => toast.is_some(),
         Command::Key(Action::ReloadFromOrigin) | Command::Reader => tab.open,
         Command::CloseSplit
         | Command::Key(Action::FocusNextPane | Action::FocusPreviousPane | Action::SwapPanes | Action::RotateSplitLayout | Action::RemoveFromSplitView) => {
@@ -172,6 +176,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         Command::Key(Action::ToggleSplitView) => (if split { "Close Split View" } else { "Open in Split View" }).to_owned(),
         Command::ToggleMute => (if tab.muted == Some(true) { "Unmute Site" } else { "Mute Site" }).to_owned(),
         Command::Reader => (if tab.reader { "Hide Reader" } else { "Show Reader" }).to_owned(),
+        Command::ToastAction => toast.clone().unwrap_or_default(),
         _ => label.clone(),
     };
     let room = if listing(query) { rows.len() } else { 4 };
@@ -206,6 +211,7 @@ pub fn run(ui: Ui, command: Command) {
         Command::NewWindow => super::new_window(ui),
         Command::FullScreen => act(ui, Browser::toggle_full_screen),
         Command::StopLoading => act(ui, Browser::stop),
+        Command::ToastAction => take_toast_action(ui),
         Command::Key(action) => super::run_action(ui, action),
         Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),
         Command::Space(c) => act(ui, |b| b.run_space_command(c)),
@@ -329,15 +335,18 @@ fn toast_timer(ui: Ui, serial: u64, time: Duration) {
     });
 }
 
+/// The toast's button, from the toast or its command row.
+fn take_toast_action(ui: Ui) {
+    if let Some(ToastAction::Reveal(path)) = ui.snap.with_untracked(|s| s.toast.as_ref().and_then(|t| t.action.clone())) {
+        drop(reveal_path(std::path::PathBuf::from(&path)));
+    }
+    act(ui, Browser::take_toast_action);
+}
+
 pub fn toast_bar(ui: Ui) -> AnyElement {
     dynamic(move || {
         let toast = ui.snap.with(|s| s.toast.clone())?;
-        let action = toast.action.map(|action| match action {
-            ToastAction::Undo(_) => tarn_nsh_shared::controls::toast_action("Undo", move || act(ui, Browser::take_toast_action)),
-            ToastAction::UndoSort(_) => tarn_nsh_shared::controls::toast_action("Undo Sort", move || act(ui, Browser::take_toast_action)),
-            ToastAction::RestoreDownloads(_) => tarn_nsh_shared::controls::toast_action("Undo", move || act(ui, Browser::take_toast_action)),
-            ToastAction::Reveal(path) => tarn_nsh_shared::controls::toast_action("Show in Folder", move || drop(reveal_path(std::path::PathBuf::from(&path)))),
-        });
+        let action = toast.action.map(|action| tarn_nsh_shared::controls::toast_action(action.label(), move || take_toast_action(ui)));
         Some(
             view().flex_row().justify_center().child(
                 tarn_nsh_shared::controls::toast(toast.tone)

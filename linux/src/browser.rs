@@ -102,6 +102,16 @@ pub enum ToastAction {
     RestoreDownloads(Box<(bool, Id, Vec<store::Download>)>),
 }
 
+impl ToastAction {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ToastAction::Undo(_) | ToastAction::RestoreDownloads(_) => "Undo",
+            ToastAction::UndoSort(_) => "Undo Sort",
+            ToastAction::Reveal(_) => "Show in Folder",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Toast {
     pub text: String,
