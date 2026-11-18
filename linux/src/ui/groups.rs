@@ -77,6 +77,7 @@ pub(super) fn group_card(ui: Ui, id: Id, item: ReadSignal<Row>) -> AnyElement {
         )
         .child(view().flex_1())
         .child(icon_button(icons::CLOSE, "Close Group and Its Tabs", move || act(ui, |b| b.close_group(id))));
+    let header = super::keyboard_row(ui, item.with_untracked(Row::id), header);
     let tabs = view()
         .flex_col()
         .gap(px(2.))

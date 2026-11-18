@@ -172,7 +172,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   it without collapsing it, and title matches in Find in Tabs switch to the tab (macOS, Windows; on Linux the
   pinned-tab neighbour, Sleep Tab and Find in Tabs parts).
 - Sidebar rows can be reached with the keyboard: Up and Down move, Return opens, Shift+F10 opens
-  the tab menu (macOS, Windows).
+  the tab menu (macOS, Windows, Linux).
 - Stars on the night Shield card no longer sit on the profile name or the level (all clients).
 - Text fields scroll to keep the caret in view, undo and redo with ⌘Z and ⇧⌘Z (Ctrl on Windows),
   select a word on a double click and everything on a triple click, place the caret where a

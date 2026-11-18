@@ -85,6 +85,11 @@ thread_local! {
     /// Each window's web views by tab, with the wake number the view was made for.
     static REFS: RefCell<HashMap<(u64, TabKey), (u64, ElementRef)>> = RefCell::default();
     static WINDOW_REFS: RefCell<HashMap<u64, WindowRef>> = RefCell::default();
+    /// Each window's sidebar rows by row id, with the number of the row that registered it.
+    static ROW_REFS: RefCell<HashMap<(u64, String), (u64, ElementRef)>> = RefCell::default();
+    static NEXT_ROW: Cell<u64> = const { Cell::new(0) };
+    /// The sidebar row that holds each window's keyboard focus.
+    static ROW_FOCUS: RefCell<HashMap<u64, String>> = RefCell::default();
     static FOCUSED: Cell<u64> = const { Cell::new(0) };
     static INCOMING: RefCell<Vec<std::time::Instant>> = const { RefCell::new(Vec::new()) };
     static PENDING_LINKS: RefCell<Vec<(Vec<String>, usize)>> = const { RefCell::new(Vec::new()) };
@@ -556,6 +561,7 @@ fn tiles(ui: Ui) -> View {
                     let host = item.with(|r| r.host.clone());
                     site_tile(ui, &host, 20.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element()
                 }));
+            let tile = keyboard_row(ui, item.with_untracked(snapshot::Row::id), tile);
             view()
                 .w(width)
                 .rounded(px(Theme::radius_tile()))
@@ -568,11 +574,62 @@ fn tiles(ui: Ui) -> View {
     ))
 }
 
+fn in_pinned_section(r: &snapshot::Row) -> bool {
+    r.pinned || r.depth > 0 || matches!(r.kind, RowKind::Folder(_))
+}
+
+/// The sidebar's rows that take the keyboard focus, top to bottom.
+fn keyboard_order(s: &Snapshot) -> Vec<String> {
+    fn push(r: &snapshot::Row, out: &mut Vec<String>) {
+        if !matches!(r.kind, RowKind::Split(_)) {
+            out.push(r.id());
+        }
+        r.panes.iter().for_each(|p| push(p, out));
+    }
+    let mut out: Vec<String> = s.tiles.iter().map(snapshot::Row::id).collect();
+    for pinned in [true, false] {
+        s.rows.iter().filter(|r| in_pinned_section(r) == pinned).for_each(|r| push(r, &mut out));
+    }
+    out
+}
+
+/// Lets Up and Down move the keyboard focus from this sidebar row to its neighbour; Return
+/// presses it and Shift+F10 opens its menu (NSH does both for a focused row).
+fn keyboard_row(ui: Ui, id: String, row: nsh_base::ButtonElement) -> nsh_base::ButtonElement {
+    let (r, token) = (element_ref(), NEXT_ROW.replace(NEXT_ROW.get() + 1));
+    ROW_REFS.with_borrow_mut(|refs| refs.insert((ui.window, id.clone()), (token, r)));
+    let (gone, focused, blurred) = (id.clone(), id.clone(), id);
+    cleanup(move || {
+        ROW_REFS.with_borrow_mut(|refs| {
+            if refs.get(&(ui.window, gone.clone())).is_some_and(|(t, _)| *t == token) {
+                refs.remove(&(ui.window, gone.clone()));
+            }
+        })
+    });
+    r.on_focus_in(move || drop(ROW_FOCUS.with_borrow_mut(|f| f.insert(ui.window, focused.clone()))));
+    r.on_focus_out(move || {
+        ROW_FOCUS.with_borrow_mut(|f| {
+            if f.get(&ui.window) == Some(&blurred) {
+                f.remove(&ui.window);
+            }
+        })
+    });
+    row.element_ref(&r)
+}
+
+fn move_row_focus(ui: Ui, down: bool) {
+    let Some(current) = ROW_FOCUS.with_borrow(|f| f.get(&ui.window).cloned()) else { return };
+    let order = ui.snap.with_untracked(keyboard_order);
+    let Some(ix) = order.iter().position(|id| *id == current) else { return };
+    let next = if down { order.get(ix + 1) } else { ix.checked_sub(1).and_then(|ix| order.get(ix)) };
+    if let Some((_, r)) = next.and_then(|id| ROW_REFS.with_borrow(|refs| refs.get(&(ui.window, id.clone())).cloned())) {
+        r.focus();
+    }
+}
+
 fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
     each(
-        move || {
-            ui.snap.with(|s| s.rows.iter().filter(|r| (r.pinned || r.depth > 0 || matches!(r.kind, RowKind::Folder(_))) == pinned).cloned().collect::<Vec<_>>())
-        },
+        move || ui.snap.with(|s| s.rows.iter().filter(|r| in_pinned_section(r) == pinned).cloned().collect::<Vec<_>>()),
         |r| r.id(),
         move |item, _| list_row(ui, pinned, item),
     )
@@ -600,16 +657,20 @@ fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement
         RowKind::Folder(id) => view()
             .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
             .child(
-                row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
-                    .h(px(TAB_ROW))
-                    .pl(px(8. + depth * 16.))
-                    .child(
-                        view()
-                            .text_color(Theme::muted())
-                            .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
-                    )
-                    .child(view().text_color(Theme::space_label()).child(dynamic(move || folder_icon(&item.with(|r| r.icon.clone())))))
-                    .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
+                keyboard_row(
+                    ui,
+                    item.with_untracked(snapshot::Row::id),
+                    row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id))),
+                )
+                .h(px(TAB_ROW))
+                .pl(px(8. + depth * 16.))
+                .child(
+                    view()
+                        .text_color(Theme::muted())
+                        .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
+                )
+                .child(view().text_color(Theme::space_label()).child(dynamic(move || folder_icon(&item.with(|r| r.icon.clone())))))
+                .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
             )
             .into_element(),
     }
@@ -657,7 +718,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         None => None,
     };
     let closing = move || !pinned && (hovered.get() || active());
-    let tab = row(move || Some(SharedString::from(name())), move || act(ui, |b| b.activate(key)))
+    let tab = keyboard_row(ui, item.with_untracked(snapshot::Row::id), row(move || Some(SharedString::from(name())), move || act(ui, |b| b.activate(key))))
         .on_press_down(move || ui.dragging.set(Some(key)))
         .h(px(TAB_ROW))
         .relative()
@@ -2087,6 +2148,11 @@ fn escape(ui: Ui) {
 
 fn bind_fixed(ui: Ui) {
     on_key("f5", move |_| reload(ui));
+    for (keys, down) in [("down", true), ("up", false)] {
+        on_key_with(keys, KeyOptions { when: nsh_core::keymap::When::NotEditing, pass_through: true, ..KeyOptions::default() }, move |_| {
+            move_row_focus(ui, down)
+        });
+    }
     on_key(crate::shortcuts::ZOOM_IN_SHIFTED, move |_| run_action(ui, Action::ZoomIn));
     on_key(crate::shortcuts::NEXT_TAB, move |_| run_action(ui, Action::NextTab));
     on_key(crate::shortcuts::PREVIOUS_TAB, move |_| run_action(ui, Action::PreviousTab));
@@ -2548,5 +2614,20 @@ mod tests {
         assert_eq!(super::link_window(&[1, 2, 3], 2), Some(2));
         assert_eq!(super::link_window(&[1, 3], 2), Some(1), "the focused window shows a burner tab or is closed");
         assert_eq!(super::link_window(&[], 2), None);
+    }
+
+    #[test]
+    fn arrow_keys_walk_the_pinned_section_before_the_other_tabs() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = crate::browser::Browser::open(dir.path());
+        let first = b.model.active.unwrap();
+        b.new_folder(None);
+        let folder = b.model.folders[0].id;
+        let pinned = b.new_tab("https://pinned.test/").unwrap();
+        b.pin_toggle(pinned);
+        let snap = crate::snapshot::snapshot(&b, true);
+        let id = |kind: super::RowKind| snap.rows.iter().find(|r| r.kind == kind).unwrap().id();
+        let order = super::keyboard_order(&snap);
+        assert_eq!(order, [id(super::RowKind::Tab(pinned)), id(super::RowKind::Folder(folder)), id(super::RowKind::Tab(first))]);
     }
 }
