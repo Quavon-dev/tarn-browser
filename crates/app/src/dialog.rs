@@ -1,7 +1,8 @@
 use futures::channel::oneshot;
 use gpui::{
-    App, AppContext, Context, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PromptButton,
-    PromptHandle, PromptLevel, PromptResponse, Render, RenderablePromptHandle, SharedString, StatefulInteractiveElement, Styled, Window, div, hsla, px,
+    App, AppContext, Context, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, KeyUpEvent, ParentElement,
+    PromptButton, PromptHandle, PromptLevel, PromptResponse, Render, RenderablePromptHandle, SharedString, StatefulInteractiveElement, Styled, Window, div,
+    hsla, px,
 };
 use ui::controls::{button, surface};
 use ui::theme::{Elevation, TEXT, TEXT_TITLE, Theme};
@@ -28,7 +29,10 @@ fn build(
     let dialog = cx.new(|cx| Dialog {
         message: message.to_owned().into(),
         detail: detail.map(|d| d.to_owned().into()),
-        answers: answers.iter().map(|a| (a.label().clone(), matches!(a, PromptButton::Cancel(_)))).collect(),
+        answers: answers
+            .iter()
+            .map(|a| (if matches!(a, PromptButton::Ok(_)) { "OK".into() } else { a.label().clone() }, matches!(a, PromptButton::Cancel(_))))
+            .collect(),
         focus: cx.focus_handle(),
     });
     handle.with_view(dialog, window, cx)
@@ -79,13 +83,19 @@ impl Render for Dialog {
         div()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
-                let plain = !event.keystroke.modifiers.modified();
-                match event.keystroke.key.as_str() {
-                    "escape" if plain => this.answer(cancel.unwrap_or(0), window, cx),
-                    "enter" if plain && !event.is_held => this.answer(0, window, cx),
-                    _ => return,
+                if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
+                    this.answer(cancel.unwrap_or(0), window, cx);
+                    cx.stop_propagation();
                 }
-                cx.stop_propagation();
+            }))
+            // On release: answering on the press hands focus back to the button that asked, whose
+            // click GPUI fires on that same Enter's release and so asks again. A focused answer
+            // button takes its own Enter.
+            .on_key_up(cx.listener(|this, event: &KeyUpEvent, window, cx| {
+                if event.keystroke.key == "enter" && !event.keystroke.modifiers.modified() && this.focus.is_focused(window) {
+                    this.answer(0, window, cx);
+                    cx.stop_propagation();
+                }
             }))
             .occlude()
             .size_full()
