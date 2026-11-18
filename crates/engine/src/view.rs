@@ -89,6 +89,10 @@ impl WebView {
         webkit_only!(self, v => v.set_corner_radius(radius), ())
     }
 
+    pub fn set_dark(&self, dark: bool) {
+        both!(self, v => v.set_dark(dark))
+    }
+
     pub fn set_gestures(&self, on: bool) {
         webkit_only!(self, v => v.set_gestures(on), ())
     }

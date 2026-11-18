@@ -23,6 +23,14 @@ Every shell's web view offers the same operations and reports the same events. T
 - `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted` (NSH components: the `muted`
   prop, which the component keeps across a rebuild of its view; Linux has it, iOS and Android not
   yet);
+- `set_dark`: the colour scheme pages see (`prefers-color-scheme`), set from the shell's theme
+  when a view is made and whenever the theme changes, not from the system's appearance (macOS
+  WebKit: the view's `NSAppearance`; Chromium: `Emulation.setEmulatedMedia`); Linux, iOS and
+  Android do not have it yet;
+- `clear_find`: removes the highlight a `find` left, when the find bar closes or its text is
+  emptied (WebKit drops the selection from the isolated world, not under Lockdown; Chromium stops
+  finding); `find` reports the match count and, where the engine says (Chromium), the highlighted
+  match. Linux, iOS and Android do not have `clear_find` yet;
 - `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`; Linux has `print` (the GTK print
   dialog) and `pdf` with the absolute `path` the user picked in the save dialog, printed there by
   WebKitGTK and reported on the download route as a finished download; iOS and Android have

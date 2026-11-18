@@ -60,6 +60,10 @@ impl WebView {
         self.view.set_corner_radius(radius);
     }
 
+    pub fn set_dark(&self, dark: bool) {
+        self.view.set_dark(dark);
+    }
+
     /// Two-finger swipe back and forward on a precision touchpad, for every view at once.
     pub fn set_gestures(&self, on: bool) {
         self.view.set_gestures(on);

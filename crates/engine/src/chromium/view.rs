@@ -1720,6 +1720,8 @@ struct Inner {
     clip: Cell<Option<(isize, i32, i32, i32)>>,
     visible: Cell<bool>,
     muted: Cell<bool>,
+    /// The colour scheme asked for, applied once the browser exists.
+    dark: Cell<Option<bool>>,
     first_load: RefCell<Option<Url>>,
     /// The waiting first load is a page's link (`load_link`), not the user's.
     first_link: Cell<bool>,
@@ -1906,6 +1908,7 @@ impl WebView {
             clip: Cell::new(None),
             visible: Cell::new(false),
             muted: Cell::new(false),
+            dark: Cell::new(None),
             first_load: RefCell::new(None),
             first_link: Cell::new(false),
             handover: RefCell::new(None),
@@ -1995,6 +1998,9 @@ impl WebView {
         }
         if self.0.muted.get() {
             self.set_muted(true);
+        }
+        if let Some(dark) = self.0.dark.get() {
+            self.set_dark(dark);
         }
         self.load_first();
     }
@@ -2484,6 +2490,16 @@ impl WebView {
         *self.0.tab.found.borrow_mut() = Some(Box::new(found));
         let next = self.0.tab.last_find.replace(text.to_owned()) == text;
         host.find(Some(&CefString::from(text)), i32::from(!backwards), 0, i32::from(next));
+    }
+
+    /// The colour scheme pages see (`prefers-color-scheme`): the shell's theme, not the system's.
+    pub fn set_dark(&self, dark: bool) {
+        self.0.dark.set(Some(dark));
+        if let Some(host) = self.browser_host() {
+            let scheme = if dark { "dark" } else { "light" };
+            let params = format!("{{\"features\":[{{\"name\":\"prefers-color-scheme\",\"value\":\"{scheme}\"}}]}}");
+            call(&self.0.tab, &host, "Emulation.setEmulatedMedia", &params, |_| {});
+        }
     }
 
     /// Ends the find and clears its highlight; the next find starts afresh.

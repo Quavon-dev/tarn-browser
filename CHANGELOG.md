@@ -117,6 +117,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Pages follow Tarn's light or dark theme (`prefers-color-scheme`) instead of the system's
+  appearance, and switch with it (macOS, Windows).
 - Find in page searches as you type, shows "1 of 2" where the engine reports the current match
   (Chromium), and clears its highlight when the bar closes (macOS, Windows).
 - A toast stays while the pointer is over it, wraps a long message onto a second line, and its

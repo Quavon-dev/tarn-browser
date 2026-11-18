@@ -59,11 +59,15 @@ fn spin_step(window: &Window, browser: gpui::WeakEntity<Browser>, drawn: Instant
 }
 
 impl Browser {
-    /// Gives open web views the page radius of a theme chosen after they were made.
+    /// Gives open web views the page radius and colour scheme of a theme chosen after they were made.
     pub(crate) fn follow_theme(&mut self) {
         let generation = ui::theme::Theme::generation();
         if std::mem::replace(&mut self.theme_generation, generation) != generation {
-            self.views.values().for_each(|v| v.set_corner_radius(page_corner()));
+            let dark = !ui::theme::Theme::is_light();
+            self.views.values().for_each(|v| {
+                v.set_corner_radius(page_corner());
+                v.set_dark(dark);
+            });
         }
     }
 }
@@ -1015,6 +1019,7 @@ impl Browser {
             None => self.web_view(&host, private, profile_id, url, sink)?,
         });
         view.set_corner_radius(page_corner());
+        view.set_dark(!ui::theme::Theme::is_light());
         view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
         self.views.insert(key, view.clone());
         self.attach_tarn(key);
@@ -2506,6 +2511,7 @@ impl Browser {
             return;
         };
         view.set_corner_radius(page_corner());
+        view.set_dark(!ui::theme::Theme::is_light());
         view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
         self.views.insert(key, Rc::new(view));
         self.attach_tarn(key);

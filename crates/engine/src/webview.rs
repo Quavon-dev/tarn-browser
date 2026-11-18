@@ -6,7 +6,8 @@ use objc2::rc::{Retained, Weak};
 use objc2::runtime::NSObjectProtocol;
 use objc2::{MainThreadMarker, MainThreadOnly, msg_send, sel};
 use objc2_app_kit::{
-    NSAlert, NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSPanel, NSPrintInfo, NSView, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSAlert, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSBitmapImageFileType, NSBitmapImageRep, NSImage,
+    NSPanel, NSPrintInfo, NSView, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{
     NSBundle, NSData, NSDictionary, NSError, NSKeyValueObservingOptions, NSNumber, NSObjectNSKeyValueObserverRegistration, NSPoint, NSRect, NSSize, NSString,
@@ -297,6 +298,14 @@ impl WebView {
             // SAFETY: a constant string static exported by Core Animation.
             layer.setCornerCurve(unsafe { objc2_quartz_core::kCACornerCurveContinuous });
         }
+    }
+
+    /// The colour scheme pages see (`prefers-color-scheme`) and form controls take: the shell's
+    /// theme, not the system's.
+    pub fn set_dark(&self, dark: bool) {
+        // SAFETY: constant appearance names exported by AppKit.
+        let name = unsafe { if dark { NSAppearanceNameDarkAqua } else { NSAppearanceNameAqua } };
+        self.view.setAppearance(NSAppearance::appearanceNamed(name).as_deref());
     }
 
     /// Two-finger swipe back and forward and pinch to zoom.
