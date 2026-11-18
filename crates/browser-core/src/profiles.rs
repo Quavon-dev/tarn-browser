@@ -11,6 +11,10 @@ pub fn profile_name(disk: &Store, raw: &str, editing: Option<Id>) -> Option<Stri
     crate::space_card::valid_name(raw, others.iter().map(|p| p.name.as_str()))
 }
 
+pub fn name_taken<'a>(raw: &str, taken: impl IntoIterator<Item = &'a str>) -> bool {
+    crate::space_card::valid_name(raw, []).is_some() && crate::space_card::valid_name(raw, taken).is_none()
+}
+
 pub struct NewProfile<'a> {
     pub name: &'a str,
     pub color: &'a str,
@@ -90,6 +94,13 @@ fn toggled(stored: &str, entry: &str, on: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_is_taken_only_when_another_profile_has_it() {
+        assert!(name_taken(" work ", ["Home", "Work"]));
+        assert!(!name_taken("Work", ["Home"]));
+        assert!(!name_taken("  ", ["Home"]), "an empty name is missing, not taken");
+    }
     #[test]
     fn profiles_are_created_with_their_first_space_and_deleted_with_their_settings() {
         let disk = Store::open_in_memory().unwrap();
