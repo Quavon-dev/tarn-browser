@@ -2076,7 +2076,7 @@ impl Browser {
                 }
             }
             // As a pop-up's tab: never in the burner, and its first load is the page's link, so S10 judges every hop.
-            Event::OpenTab { url, from, background } => {
+            Event::OpenTab { url, from, background, split } => {
                 let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown()) else { return cx.notify() };
                 let engine = opener.web_engine.or(self.saved.web_engine);
                 let routed = self.routed_space(&url);
@@ -2086,7 +2086,9 @@ impl Browser {
                 if let Some(tab) = self.model.new_tab(&self.core, url.as_str(), engine) {
                     self.reload_space();
                     self.link_loads.insert(tab, from.clone());
-                    if !background || routed.is_some() {
+                    if split && routed.is_none() {
+                        self.split_link(key, tab, window, cx);
+                    } else if !background || routed.is_some() {
                         self.activate(tab, window, cx);
                     } else if let Some(view) = self.create_view(tab, url.as_str(), cx) {
                         // Loaded now, as a pop-up is: a tab restored later would load its URL as the user's own.

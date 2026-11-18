@@ -85,11 +85,12 @@ pub enum Event {
     PeekLink(Url, Option<Url>),
     /// A Chromium link the user opened in a new tab (Ctrl- or middle-click, the page's menu),
     /// already checked by `nav_policy` as a pop-up, and the page it was opened from; `background`
-    /// keeps the opener in front.
+    /// keeps the opener in front, and `split` puts the tab beside it in split view.
     OpenTab {
         url: Url,
         from: Option<Url>,
         background: bool,
+        split: bool,
     },
     StoreInstall(String),
     /// A link to another app's scheme; the shell must ask before handing it off. `origin` is the
