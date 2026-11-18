@@ -7,8 +7,8 @@ use browser_core::theme::{self, Origin, Scheme, Selection, Source, ThemeRef};
 use browser_core::theme_fetch::{self as fetch, Pending, Release};
 use browser_core::theme_library::{self as library, Card, hex, read_file as read_theme_file};
 use gpui::{
-    AnyElement, AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    div, prelude::FluentBuilder, px, rgba,
+    AnyElement, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Window, div, prelude::FluentBuilder, px, rgba,
 };
 use store::Id;
 use ui::controls::{button, field, group, note, row, section, secure_button, segment, segmented, swatch, switch_row, tab_stop};
@@ -36,25 +36,32 @@ pub(super) struct Pane {
     /// The user's theme open in a text editor, its file and the time it was last read.
     watch: Option<(Id, PathBuf, Option<SystemTime>)>,
     message: Option<(bool, String)>,
-    arm_remove: Option<Id>,
     revision: u32,
     cards: RefCell<Option<Cards>>,
+    _repo_submit: Subscription,
 }
 
 impl Pane {
     pub(super) fn new(cx: &mut Context<SettingsWindow>) -> Pane {
+        let repo = cx.new(|cx| TextInput::new("owner/repository or a github.com address", cx));
+        let repo_submit = cx.subscribe(&repo, |this: &mut SettingsWindow, repo, event, cx| {
+            if matches!(event, TextInputEvent::Submit) {
+                let input = repo.read(cx).text().trim().to_owned();
+                this.fetch_github(Some(input), None, cx);
+            }
+        });
         Pane {
             catalog: crate::themes::catalog_configured().then(crate::themes::cached_catalog).flatten(),
-            repo: cx.new(|cx| TextInput::new("owner/repository or a github.com address", cx)),
+            repo,
             busy: false,
             pending: None,
             focused: None,
             colors: None,
             watch: None,
             message: None,
-            arm_remove: None,
             revision: 0,
             cards: RefCell::default(),
+            _repo_submit: repo_submit,
         }
     }
 }
@@ -330,19 +337,19 @@ impl SettingsWindow {
         Some(div().pt_3().child(card).into_any_element())
     }
 
-    fn duplicate_theme(&mut self, id: ThemeRef, cx: &mut Context<Self>) {
+    fn duplicate_theme(&mut self, id: ThemeRef, window: &mut Window, cx: &mut Context<Self>) {
         let core = crate::shared::core(cx);
         match library::duplicate(&core.disk, &id, browser_core::now()) {
             Ok(copy) => {
                 self.appearance.focused = Some(ThemeRef::Stored(copy));
-                self.edit_colors(copy, cx);
+                self.edit_colors(copy, window, cx);
                 self.report(Ok(()), "Copied. Edit its colours below or its CSS in a text editor.", cx);
             }
             Err(e) => self.report(Err(e), "", cx),
         }
     }
 
-    fn edit_colors(&mut self, id: Id, cx: &mut Context<Self>) {
+    fn edit_colors(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
         let core = crate::shared::core(cx);
         let Some(row) = core.disk.theme(id).ok().flatten() else { return };
         let Ok(parsed) = theme::parse(&row.css, Source::Yours) else { return };
@@ -356,20 +363,36 @@ impl SettingsWindow {
             });
             subscriptions.push(cx.subscribe(&input, move |this: &mut SettingsWindow, input, event, cx| {
                 if matches!(event, TextInputEvent::Submit) {
-                    let value = input.read(cx).text().to_owned();
-                    let core = crate::shared::core(cx);
-                    let saved = theme::set_color(&core.disk, id, name, &value, browser_core::now());
-                    this.report(saved, "", cx);
-                    this.appearance.message = this.appearance.message.take().filter(|(error, _)| *error);
+                    this.save_color(id, name, &input, cx);
                 }
             }));
+            let typed = input.clone();
+            subscriptions.push(cx.on_blur(&input.focus_handle(cx), window, move |this, _, cx| this.save_color(id, name, &typed, cx)));
             inputs.push((name, input));
         }
         self.appearance.colors = Some((id, inputs, subscriptions));
         cx.notify();
     }
 
-    fn edit_in_text_editor(&mut self, id: Id, cx: &mut Context<Self>) {
+    fn save_color(&mut self, id: Id, name: &'static str, input: &Entity<TextInput>, cx: &mut Context<Self>) {
+        let value = input.read(cx).text().trim().to_owned();
+        let core = crate::shared::core(cx);
+        let stored = core
+            .disk
+            .theme(id)
+            .ok()
+            .flatten()
+            .and_then(|t| theme::parse(&t.css, Source::Yours).ok())
+            .and_then(|p| theme::editable_colors(&p.tokens).into_iter().find(|(n, _)| *n == name).map(|(_, c)| hex(c)));
+        if stored.is_some_and(|c| c.eq_ignore_ascii_case(&value)) {
+            return;
+        }
+        let saved = theme::set_color(&core.disk, id, name, &value, browser_core::now());
+        self.report(saved, "", cx);
+        self.appearance.message = self.appearance.message.take().filter(|(error, _)| *error);
+    }
+
+    fn edit_in_text_editor(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
         let core = crate::shared::core(cx);
         let Some(row) = core.disk.theme(id).ok().flatten() else { return };
         let dir = themes_dir();
@@ -387,10 +410,10 @@ impl SettingsWindow {
         if watching {
             return;
         }
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
-                match this.update(cx, |this, cx| this.reload_theme_file(cx)) {
+                match this.update_in(cx, |this, window, cx| this.reload_theme_file(window, cx)) {
                     Ok(true) => {}
                     _ => break,
                 }
@@ -400,7 +423,7 @@ impl SettingsWindow {
     }
 
     /// Reads the watched file again when it changed; false once nothing is watched.
-    fn reload_theme_file(&mut self, cx: &mut Context<Self>) -> bool {
+    fn reload_theme_file(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some((id, path, seen)) = self.appearance.watch.clone() else { return false };
         let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
         if modified == seen {
@@ -410,7 +433,7 @@ impl SettingsWindow {
         let core = crate::shared::core(cx);
         let saved = read_theme_file(&path).and_then(|css| theme::save(&core.disk, id, "yours", &css, Origin::default(), browser_core::now()).map(drop));
         if self.appearance.colors.as_ref().is_some_and(|(c, _, _)| *c == id) {
-            self.edit_colors(id, cx);
+            self.edit_colors(id, window, cx);
         }
         self.report(saved, "Reloaded from the text editor.", cx);
         true
@@ -450,11 +473,6 @@ impl SettingsWindow {
     }
 
     fn remove_theme(&mut self, id: Id, cx: &mut Context<Self>) {
-        if self.appearance.arm_remove != Some(id) {
-            self.appearance.arm_remove = Some(id);
-            return cx.notify();
-        }
-        self.appearance.arm_remove = None;
         if self.appearance.watch.as_ref().is_some_and(|(w, _, _)| *w == id) {
             self.appearance.watch = None;
         }
@@ -487,7 +505,7 @@ impl SettingsWindow {
         let choices = std::iter::once((None, "Theme")).chain(Effect::ALL.map(|e| (Some(e), e.label())));
         row(first).child(text_block("Search bar effect", "Around the search field on the start page and in the command bar.")).child(segmented().children(
             choices.enumerate().map(|(ix, (effect, label))| {
-                segment(("search-effect", ix), label, effect == stored).on_click(cx.listener(move |this, _, _, cx| {
+                tab_stop(segment(("search-effect", ix), label, effect == stored)).on_click(cx.listener(move |this, _, _, cx| {
                     let saved = library::set_effect(&crate::shared::core(cx).disk, effect);
                     this.report(saved, "", cx);
                     this.appearance.message = this.appearance.message.take().filter(|(error, _)| *error);
@@ -507,7 +525,8 @@ impl SettingsWindow {
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let core = crate::shared::core(cx);
                     let mut selection = Selection::load(&core.disk);
-                    selection.match_system = !match_system;
+                    let dark_scheme = this.cards(cx).iter().find(|c| c.id == selection.dark).map_or(Scheme::Dark, |c| c.scheme);
+                    selection.set_match_system(!match_system, dark_scheme);
                     let saved = selection.save(&core.disk).map_err(|e| e.to_string());
                     this.report(saved, "", cx);
                     this.appearance.message = None;
@@ -563,9 +582,8 @@ impl SettingsWindow {
         .collect();
         let (id, scheme, withdrawn) = (card.id.clone(), card.scheme, card.withdrawn);
         let [sidebar, surface, accent, text] = card.swatches;
-        div()
-            .id(("theme-card", ix))
-            .w(px(148.))
+        tab_stop(div().id(("theme-card", ix)))
+            .min_w_0()
             .flex()
             .flex_col()
             .gap_1()
@@ -632,13 +650,16 @@ impl SettingsWindow {
         let mut actions = div().flex().flex_wrap().gap_2().when(!card.withdrawn, |d| {
             d.child(
                 button("theme-duplicate", if card.editable { "Duplicate" } else { "Duplicate and Edit" }, false)
-                    .on_click(cx.listener(move |this, _, _, cx| this.duplicate_theme(duplicate_id.clone(), cx))),
+                    .on_click(cx.listener(move |this, _, window, cx| this.duplicate_theme(duplicate_id.clone(), window, cx))),
             )
         });
         if let (Some(stored), true) = (card.stored, card.editable) {
             actions = actions
-                .child(button("theme-colors", "Edit Colours", false).on_click(cx.listener(move |this, _, _, cx| this.edit_colors(stored, cx))))
-                .child(button("theme-editor", "Edit in Text Editor", false).on_click(cx.listener(move |this, _, _, cx| this.edit_in_text_editor(stored, cx))));
+                .child(button("theme-colors", "Edit Colours", false).on_click(cx.listener(move |this, _, window, cx| this.edit_colors(stored, window, cx))))
+                .child(
+                    button("theme-editor", "Edit in Text Editor", false)
+                        .on_click(cx.listener(move |this, _, window, cx| this.edit_in_text_editor(stored, window, cx))),
+                );
         }
         if let (Some(stored), Some(repo_id)) = (card.stored, card.repo_id) {
             actions = actions.child(
@@ -653,17 +674,15 @@ impl SettingsWindow {
             );
         }
         if let Some(stored) = card.stored {
-            let armed = self.appearance.arm_remove == Some(stored);
-            actions = actions.child(
-                button("theme-remove", if armed { "Click Again to Remove" } else { "Remove" }, false)
-                    .when(armed, |d| d.text_color(Theme::danger()))
-                    .on_click(cx.listener(move |this, _, _, cx| this.remove_theme(stored, cx))),
-            );
+            let question = format!("Remove the theme \u{201C}{}\u{201D}?", bounded_title(&card.name));
+            actions = actions.child(button("theme-remove", "Remove\u{2026}", false).on_click(cx.listener(move |this, _, window, cx| {
+                this.ask(&question, None, &["Remove"], window, cx, move |this, _, cx| this.remove_theme(stored, cx));
+            })));
         }
         details.child(row(false).child(actions))
     }
 
-    fn color_editor(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn color_editor(&self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (id, inputs, _) = self.appearance.colors.as_ref()?;
         if self.appearance.focused != Some(ThemeRef::Stored(*id)) {
             return None;
@@ -677,7 +696,7 @@ impl SettingsWindow {
                 row(ix == 0)
                     .child(swatch(("theme-color", ix), rgba(color), false, 16.))
                     .child(label(name.replace('-', " ")))
-                    .child(field(false).w(px(120.)).py_0p5().child(input.clone())),
+                    .child(field(input.focus_handle(cx).is_focused(window)).w(px(120.)).py_0p5().child(input.clone())),
             );
         }
         Some(
@@ -685,15 +704,15 @@ impl SettingsWindow {
                 .child(section("Colours"))
                 .child(editor)
                 .child(note(if cfg!(windows) {
-                    "Press Enter to apply a colour. Text that would be hard to read is made readable."
+                    "A colour applies on Enter or when you leave its field. Text that would be hard to read is made readable."
                 } else {
-                    "Press Return to apply a colour. Text that would be hard to read is made readable."
+                    "A colour applies on Return or when you leave its field. Text that would be hard to read is made readable."
                 }))
                 .into_any_element(),
         )
     }
 
-    pub(super) fn theme_sections(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn theme_sections(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let core = crate::shared::core(cx);
         let selection = Selection::load(&core.disk);
         let cards = self.cards(cx);
@@ -704,12 +723,12 @@ impl SettingsWindow {
         let focused_id = self.appearance.focused.clone().unwrap_or_else(|| selection.active(crate::themes::system_light(cx)).clone());
         let focused = cards.iter().find(|c| c.id == focused_id);
         let gallery = div()
-            .flex()
-            .flex_wrap()
+            .grid()
+            .grid_cols(4)
             .gap_2()
             .children(cards.iter().enumerate().map(|(ix, card)| self.theme_card(card, &selection, card.id == focused_id, ix, cx)));
         let match_system = selection.match_system;
-        let mut page = div().child(section("Themes")).child(div().pt_1().child(gallery)).child(note(if match_system {
+        let mut page = div().child(div().pt_3().child(gallery)).child(note(if match_system {
             "Click a light theme to use it in light mode, a dark one for dark mode."
         } else {
             "Click a theme to use it."
@@ -764,7 +783,7 @@ impl SettingsWindow {
         if let Some(pending) = self.pending_card(cx) {
             page = page.child(pending);
         }
-        if let Some(editor) = self.color_editor(cx) {
+        if let Some(editor) = self.color_editor(window, cx) {
             page = page.child(editor);
         }
         let repo = self.appearance.repo.clone();
@@ -778,7 +797,7 @@ impl SettingsWindow {
                     .child(
                         row(true)
                             .child(text_block("From GitHub", "The theme.css file of a repository's release. Tarn asks GitHub only when you click Install."))
-                            .child(field(false).w(px(240.)).py_0p5().child(repo.clone()))
+                            .child(field(repo.focus_handle(cx).is_focused(window)).w(px(240.)).py_0p5().child(repo.clone()))
                             .child(button("theme-github", if busy { "Asking\u{2026}" } else { "Install" }, false).on_click(cx.listener(
                                 move |this, _, _, cx| {
                                     let input = repo.read(cx).text().trim().to_owned();

@@ -421,6 +421,11 @@ fn details(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut Contex
         .gap_2()
         .child(caption("Name"))
         .child(input(focused).child(editor.name.clone()))
+        .when(b.editor_name(cx).is_none(), |d| {
+            let others = b.other_profiles(editor.editing);
+            let taken = browser_core::profiles::name_taken(editor.name.read(cx).text(), others.iter().map(|p| p.name.as_str()));
+            d.when(taken, |d| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::warning()).child("A profile with this name exists.")))
+        })
         .child(div().pt_2().child(caption("Color")))
         .child(color_row("profile-color", Some(editor.color), false, ring(1), cx, |e, ix| e.color = ix.unwrap_or(e.color)))
         .when(!candidates.is_empty(), |d| {
