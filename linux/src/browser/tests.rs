@@ -575,3 +575,14 @@ fn a_held_warning_outlasts_later_toasts_until_dismissed() {
     b.expire_toast(serial);
     assert!(b.toast.is_some(), "an old serial expires nothing");
 }
+
+#[test]
+fn only_entering_lockdown_in_a_profile_that_keeps_data_wipes_it() {
+    let (_dir, mut b) = browser();
+    assert!(b.shield_wipes_data(ShieldLevel::Lockdown));
+    assert!(!b.shield_wipes_data(ShieldLevel::Strict));
+    b.set_default_level(ShieldLevel::Lockdown);
+    assert!(!b.shield_wipes_data(ShieldLevel::Lockdown), "already in Lockdown");
+    b.private_space();
+    assert!(!b.shield_wipes_data(ShieldLevel::Lockdown), "a private space keeps nothing");
+}

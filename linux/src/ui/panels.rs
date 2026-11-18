@@ -74,8 +74,8 @@ fn shield_panel(ui: Ui) -> AnyElement {
     let set = move |level: Option<ShieldLevel>| act(ui, |b| b.set_site_level(level));
     if host.is_empty() {
         let profile = heading(ui, label("Shield level").font_weight(FontWeight::BOLD));
-        let levels = segmented(levels(), default, move |l| act(ui, move |b| b.set_default_level(l)));
-        return popover().gap_3().child(profile).child(levels).child(small(motto(default).1)).into_element();
+        let levels = segmented(levels(), default, move |l| super::pick_level(ui, l));
+        return popover().gap_3().child(profile).child(levels).child(super::lockdown_confirm(ui)).child(small(motto(default).1)).into_element();
     }
     let (glyph, color, connection) =
         if secure { (icons::LOCK, Secure::success(), "Connection is secure") } else { (icons::TRIANGLE_ALERT, Secure::warning(), "Not secure") };

@@ -373,6 +373,35 @@ pub(super) fn clear_history_choice(ui: Ui, name: &'static str) -> AnyElement {
     })
 }
 
+/// Sets the profile's Shield level; Lockdown, which deletes the profile's website data, waits for
+/// `lockdown_confirm`.
+pub(super) fn pick_level(ui: Ui, level: shield::ShieldLevel) {
+    if read(ui, |b| b.shield_wipes_data(level)) == Some(true) {
+        ui.confirm.set(Some("lockdown".to_owned()));
+        return act(ui, |_| {});
+    }
+    act(ui, move |b| b.set_default_level(level));
+}
+
+/// The question `pick_level` asks before Lockdown.
+pub(super) fn lockdown_confirm(ui: Ui) -> AnyElement {
+    dynamic(move || {
+        ui.confirm.with(|c| c.as_deref() == Some("lockdown")).then(|| {
+            let apply = move || {
+                ui.confirm.set(None);
+                act(ui, |b| b.set_default_level(shield::ShieldLevel::Lockdown));
+            };
+            view()
+                .flex_col()
+                .gap_2()
+                .child(small(
+                    "Lockdown deletes the cookies and site data this profile has stored, except data it shares with another profile. Open pages reload.",
+                ))
+                .child(view().flex_row().gap_2().child(controls::accent_pill("Use Lockdown", apply)).child(pill("Cancel", move || ui.confirm.set(None))))
+        })
+    })
+}
+
 /// Removes one address from the history and from the cached rows.
 pub(super) fn remove_history(ui: Ui, url: String) {
     act(ui, |b| b.remove_history_url(&url));

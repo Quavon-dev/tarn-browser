@@ -137,13 +137,9 @@ fn hero(ui: Ui, card: Card, level: ShieldLevel, private: bool) -> View {
             )
             .child(view().flex_row().gap_3().children(numbers))
             .child(
-                view()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(label(level_name).flex_1())
-                    .child(segmented(levels(), level, move |l| act(ui, move |b| b.set_default_level(l)))),
+                view().flex_row().items_center().gap_2().child(label(level_name).flex_1()).child(segmented(levels(), level, move |l| super::pick_level(ui, l))),
             )
+            .child(super::lockdown_confirm(ui))
             .child(actions),
     )
 }
@@ -639,11 +635,6 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             body.child(section("Shield"))
                 .child(
                     group()
-                        .child(
-                            group_row()
-                                .child(label(if private { "Shield level (private space)" } else { "Default Shield level" }).flex_1())
-                                .child(segmented(levels(), level, move |l| act(ui, move |b| b.set_default_level(l)))),
-                        )
                         .child(switch(on("ads"), "Block ads", toggle("block_ads")))
                         .child(switch(on("trackers"), "Block trackers", toggle("block_trackers")))
                         .child(switch(on("annoyances"), "Block cookie banners", toggle("block_annoyances")))

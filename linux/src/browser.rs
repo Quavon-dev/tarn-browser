@@ -760,6 +760,12 @@ impl Browser {
         self.load(key, &url);
     }
 
+    /// Whether choosing `level` for the profile deletes its stored website data: Lockdown entered
+    /// in a profile that keeps data.
+    pub fn shield_wipes_data(&self, level: ShieldLevel) -> bool {
+        level == ShieldLevel::Lockdown && !self.model.private() && self.default_level() != ShieldLevel::Lockdown
+    }
+
     pub fn default_level(&self) -> ShieldLevel {
         let Some((private, id)) = self.profile_of_space() else { return ShieldLevel::Standard };
         self.core.profiles.borrow().get(&(private, id)).map(|rt| rt.profile.shield_level).unwrap_or_default()
