@@ -74,8 +74,7 @@ const PANES: [(SettingsPane, Icon, &str, &str); 11] = [
 ];
 
 fn pane_matches(query: &str, name: &str, words: &str) -> bool {
-    let text = format!("{name} {words}").to_lowercase();
-    query.to_lowercase().split_whitespace().all(|q| text.split_whitespace().any(|w| w.starts_with(q)))
+    browser_core::settings::words_match(query, &format!("{name} {words}"))
 }
 
 pub(crate) const LOCKDOWN_WIPE: &str =

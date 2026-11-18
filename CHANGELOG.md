@@ -14,7 +14,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   or everything (macOS, Windows, Linux). On iOS and Android the History sheet groups pages by day,
   removes one with its trash button and offers Clear History… with the same ranges, without the
   visit time.
-- A search field in Settings finds the pane that holds a setting (macOS, Windows).
+- A search field in Settings finds the pane that holds a setting (macOS, Windows, Linux, iOS,
+  Android).
 - In the Library, F2 renames, ⌘⌫ (Delete on Windows) deletes and Shift+F10 opens the menu of the
   selected row, whose buttons stay visible; icon buttons have tooltips (macOS, Windows).
 - Open File… shows a local file in a new tab: web pages with their images and styles, PDFs,

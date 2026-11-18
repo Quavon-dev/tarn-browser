@@ -429,48 +429,67 @@ fn make_default(ui: Ui) {
     });
 }
 
-fn nav(ui: Ui, current: Pane) -> View {
-    let ext_on = ui.ext_pane.get_untracked();
-    let mut out = view().flex_col().gap(px(2.)).w(px(NAV_WIDTH)).flex_none().p_2().rounded(px(Theme::radius_group())).bg(Theme::panel_nav());
-    for (group, members) in GROUPS {
-        out = out.child(view().pt_2().pb_1().px_1().child(tarn_nsh_shared::controls::caps_label(group)));
-        for pane in members.iter().copied() {
-            let selected = pane == current && !ext_on;
-            let name = panes::name(pane);
-            out = out.child(
-                crate::controls::row(name, move || {
-                    ui.ext_pane.set(false);
-                    if pane == Pane::Developer {
-                        super::devtools::refresh_servers(ui);
-                    }
-                    ui.settings_pane.set(pane);
-                    act(ui, |_| {});
-                })
-                .h(px(30.))
-                .px(px(10.))
-                .rounded(px(Theme::radius_row()))
-                .bg(if selected { Theme::selected() } else { rgba(0) })
-                .hover(|s| s.bg(Theme::hover()))
-                .text_color(if selected { Theme::text() } else { Theme::muted() })
-                .child(crate::icons::icon(panes::icon(pane), 14.))
-                .child(label(name).text_color(if selected { Theme::text() } else { Theme::muted() })),
-            );
-        }
-    }
-    out.child(
-        crate::controls::row("Extensions", move || {
-            ui.ext_pane.set(true);
-            act(ui, |_| {});
-        })
+fn nav_row(name: &'static str, glyph: &'static str, selected: bool, open: impl Fn() + 'static) -> nsh_base::ButtonElement {
+    let tint = if selected { Theme::text() } else { Theme::muted() };
+    crate::controls::row(name, open)
         .h(px(30.))
         .px(px(10.))
         .rounded(px(Theme::radius_row()))
-        .bg(if ext_on { Theme::selected() } else { rgba(0) })
+        .bg(if selected { Theme::selected() } else { rgba(0) })
         .hover(|s| s.bg(Theme::hover()))
-        .text_color(if ext_on { Theme::text() } else { Theme::muted() })
-        .child(crate::icons::icon(crate::icons::SPARKLES, 14.))
-        .child(label("Extensions").text_color(if ext_on { Theme::text() } else { Theme::muted() })),
-    )
+        .text_color(tint)
+        .child(crate::icons::icon(glyph, 14.))
+        .child(label(name).text_color(tint))
+}
+
+fn open_pane(ui: Ui, pane: Option<Pane>) {
+    ui.ext_pane.set(pane.is_none());
+    if pane == Some(Pane::Developer) {
+        super::devtools::refresh_servers(ui);
+    }
+    if let Some(pane) = pane {
+        ui.settings_pane.set(pane);
+    }
+    act(ui, |_| {});
+}
+
+/// The panes Settings search shows for `query`; `None` is Extensions.
+fn found(query: &str) -> Vec<Option<Pane>> {
+    let (name, words) = panes::EXTENSIONS;
+    let extensions = browser_core::settings::words_match(query, &format!("{name} {words}")).then_some(None);
+    GROUPS.iter().flat_map(|(_, members)| members.iter().copied()).filter(|p| panes::matches(*p, query)).map(Some).chain(extensions).collect()
+}
+
+fn nav(ui: Ui, current: Pane) -> View {
+    let ext_on = ui.ext_pane.get_untracked();
+    let shown = move |pane: Option<Pane>| if ext_on { pane.is_none() } else { pane == Some(current) };
+    let field = super::text_field(ui.library_query, "Search", NAV_WIDTH - 16.).on_submit(move |q: &str| {
+        let found = found(q);
+        if let Some(pane) = found.iter().find(|p| shown(**p)).or(found.first()) {
+            open_pane(ui, *pane);
+        }
+    });
+    let rows = dynamic(move || {
+        let query = ui.library_query.get();
+        let found = found(&query);
+        let mut out = view().flex_col().gap(px(2.));
+        if found.is_empty() {
+            return Some(out.child(note("No settings match.").px_1()));
+        }
+        for (group, members) in GROUPS {
+            if query.trim().is_empty() {
+                out = out.child(view().pt_2().pb_1().px_1().child(tarn_nsh_shared::controls::caps_label(group)));
+            }
+            for pane in members.iter().copied().filter(|p| found.contains(&Some(*p))) {
+                out = out.child(nav_row(panes::name(pane), panes::icon(pane), shown(Some(pane)), move || open_pane(ui, Some(pane))));
+            }
+        }
+        if found.contains(&None) {
+            out = out.child(nav_row(panes::EXTENSIONS.0, crate::icons::SPARKLES, ext_on, move || open_pane(ui, None)));
+        }
+        Some(out)
+    });
+    view().flex_col().gap(px(2.)).w(px(NAV_WIDTH)).flex_none().p_2().rounded(px(Theme::radius_group())).bg(Theme::panel_nav()).child(field).child(rows)
 }
 
 pub fn settings_panel(ui: Ui) -> AnyElement {

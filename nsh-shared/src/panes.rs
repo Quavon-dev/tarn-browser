@@ -34,6 +34,32 @@ pub fn name(pane: Pane) -> &'static str {
     PANES.iter().find(|(p, _)| *p == pane).map_or("", |(_, n)| n)
 }
 
+/// The words Settings search finds a pane by, besides its name.
+pub fn words(pane: Pane) -> &'static str {
+    match pane {
+        Pane::Profile => "shield level standard strict lockdown card filter lists site overrides connections default browser",
+        Pane::General => "downloads folders import about version licence source privacy imprint",
+        Pane::Appearance => "theme dark light match system accent colour color motion reduce toolbar compact sidebar search bar effect",
+        Pane::Tabs => "awake sleep memory new tab start page close archive gestures swipe",
+        Pane::Search => "search engine suggestions history text",
+        Pane::Privacy => {
+            "block ads trackers cookie banners youtube pop-ups malware adult zoom muted hidden elements connections history clear export delete data"
+        }
+        Pane::Permissions => "camera microphone location pop-ups site answers allow block",
+        Pane::Developer => "web inspector developer tools local servers localhost",
+        Pane::Profiles => "profile new edit delete space rules",
+        Pane::Shortcuts => "keyboard keys",
+    }
+}
+
+/// The Extensions entry's name and search words; NSH clients list it beside the panes.
+pub const EXTENSIONS: (&str, &str) = ("Extensions", "install github file bitwarden every site official catalog store updates");
+
+/// Whether Settings search for `query` shows `pane`.
+pub fn matches(pane: Pane, query: &str) -> bool {
+    browser_core::settings::words_match(query, &format!("{} {}", name(pane), words(pane)))
+}
+
 pub fn icon(pane: Pane) -> &'static str {
     match pane {
         Pane::Profile => crate::icons::SHIELD,
@@ -60,5 +86,14 @@ mod tests {
         let grouped: Vec<Pane> = GROUPS.iter().flat_map(|(_, panes)| panes.iter().copied()).collect();
         assert_eq!(grouped.len(), PANES.len());
         assert!(PANES.iter().all(|(p, _)| grouped.contains(p)), "every pane is in one group");
+    }
+
+    #[test]
+    fn search_finds_panes_by_name_and_words() {
+        let found = |q: &str| PANES.iter().filter(|(p, _)| matches(*p, q)).map(|(_, n)| *n).collect::<Vec<_>>();
+        assert_eq!(found("lockd"), ["Protection"]);
+        assert_eq!(found("COOKIE ban"), ["Privacy"]);
+        assert_eq!(found("").len(), PANES.len());
+        assert!(found("ock").is_empty());
     }
 }

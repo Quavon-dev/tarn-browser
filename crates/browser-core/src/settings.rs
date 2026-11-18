@@ -46,9 +46,23 @@ pub fn max_idle(sleep_after: Option<Duration>, pressure: bool) -> Option<Duratio
     sleep_after.map(|idle| if pressure { idle.min(PRESSURE_IDLE) } else { idle })
 }
 
+/// Whether every word of `query` starts a word of `text`, ignoring case; how Settings search finds a pane.
+pub fn words_match(query: &str, text: &str) -> bool {
+    let text = text.to_lowercase();
+    query.to_lowercase().split_whitespace().all(|q| text.split_whitespace().any(|w| w.starts_with(q)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn words_match_from_word_starts_ignoring_case() {
+        assert!(words_match("COOKIE ban", "Privacy cookie banners"));
+        assert!(words_match("  ", "Privacy"));
+        assert!(!words_match("ock", "lockdown"), "words match from their start");
+        assert!(!words_match("cookie zoom2", "cookie zoom"));
+    }
 
     #[test]
     fn tab_choices_default_and_ignore_unknown_values() {
