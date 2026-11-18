@@ -383,8 +383,10 @@ fn clearing_the_downloads_list_keeps_running_downloads() {
     assert!(shell.can_restore_downloads());
     shell.restore_downloads();
     assert_eq!(shell.downloads().iter().map(|d| d.url.as_str()).collect::<Vec<_>>(), ["a.zip"], "Undo puts the cleared list back");
+    shell.event(key, "download", &json!({ "id": "2", "state": "progress", "done": 1, "path": "/b.pdf" }), 4);
     shell.transfer_command("2", "downloadCancel", false);
-    assert_eq!(shell.downloads().iter().find(|d| d.url == "b.pdf").map(|d| d.state.as_str()), Some("cancelled"), "a cancelled download is listed");
+    let cancelled = shell.downloads().into_iter().find(|d| d.url == "b.pdf").map(|d| (d.state, d.started_at, d.path));
+    assert_eq!(cancelled, Some(("cancelled".to_owned(), 3, "/b.pdf".to_owned())), "a cancelled download is listed from when it started");
 }
 
 #[test]

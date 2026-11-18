@@ -74,6 +74,8 @@ pub struct Transfer {
     pub pausable: bool,
     pub state: TransferState,
     pub records: Option<(bool, store::Id)>,
+    pub started: i64,
+    pub path: String,
 }
 
 fn text(data: &Value, field: &str) -> String {
@@ -429,12 +431,27 @@ impl<D: Platform> Shell<D> {
                 if !id.is_empty() && at.is_none() {
                     let pausable = data.get("pausable").and_then(Value::as_bool).unwrap_or(false);
                     let records = self.model.profile().filter(|_| self.records());
-                    self.transfers.push(Transfer { id, tab: key, name, done: 0, total: None, pausable, state: TransferState::Saving, records });
+                    let path = text(data, "path");
+                    self.transfers.push(Transfer {
+                        id,
+                        tab: key,
+                        name,
+                        done: 0,
+                        total: None,
+                        pausable,
+                        state: TransferState::Saving,
+                        records,
+                        started: now,
+                        path,
+                    });
                 }
             }
             "progress" | "paused" | "resumed" | "flagged" => {
                 let Some(t) = at.and_then(|at| self.transfers.get_mut(at)) else { return };
                 t.done = number("done").unwrap_or(t.done);
+                if let Some(path) = Some(text(data, "path")).filter(|p| !p.is_empty()) {
+                    t.path = path;
+                }
                 t.total = number("total").or(t.total);
                 let mut flagged = None;
                 t.state = match state.as_str() {
@@ -452,11 +469,14 @@ impl<D: Platform> Shell<D> {
                 }
             }
             "finished" | "failed" => {
-                let records = match at {
-                    Some(at) => self.transfers.remove(at).records,
-                    None => self.model.profile().filter(|_| self.records()),
+                let (records, started, kept_path) = match at {
+                    Some(at) => {
+                        let t = self.transfers.remove(at);
+                        (t.records, t.started, t.path)
+                    }
+                    None => (self.model.profile().filter(|_| self.records()), now, String::new()),
                 };
-                let path = text(data, "path");
+                let path = Some(text(data, "path")).filter(|p| !p.is_empty()).unwrap_or(kept_path);
                 if state == "finished" {
                     let warns = engine::downloads::is_dangerous(&name);
                     self.download_notice(format!("Downloaded {name} to Files › Tarn › Downloads."), warns);
@@ -464,7 +484,8 @@ impl<D: Platform> Shell<D> {
                     self.download_notice(format!("{name} could not be downloaded: {}", text(data, "message")), true);
                 }
                 if let Some((private, profile)) = records {
-                    self.core.store(private).add_download(profile, &name, &path, &state, now).ok();
+                    let at = if state == "finished" { now } else { started };
+                    self.core.store(private).add_download(profile, &name, &path, &state, at).ok();
                 }
             }
             _ => {}
@@ -481,7 +502,7 @@ impl<D: Platform> Shell<D> {
         let args = if command == "downloadKeep" { json!({ "id": id, "keep": keep }) } else { json!({ "id": id }) };
         if command == "downloadCancel" || (command == "downloadKeep" && !keep) {
             if let Some((private, profile)) = t.records {
-                self.core.store(private).add_download(profile, &t.name, "", "cancelled", browser_core::now()).ok();
+                self.core.store(private).add_download(profile, &t.name, &t.path, "cancelled", t.started).ok();
             }
             self.transfers.retain(|t| t.id != id);
             self.transfers_moved = std::time::Instant::now();
