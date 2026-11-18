@@ -2160,8 +2160,47 @@ fn escape(ui: Ui) {
     }
 }
 
+/// F6 and Shift+F6: moves the keyboard between the page, the address field and the sidebar.
+fn cycle_focus(ui: Ui, back: bool) {
+    use browser_core::focus::{Region, next_region};
+    let editing = ui.editing.get_untracked();
+    let from = if editing {
+        Region::Address
+    } else if ROW_FOCUS.with_borrow(|f| f.contains_key(&ui.window)) {
+        Region::Sidebar
+    } else {
+        Region::Page
+    };
+    let page = ui.snap.with_untracked(|s| s.views.iter().find(|v| v.active).map(|v| v.key));
+    let page = page.and_then(|key| REFS.with_borrow(|refs| refs.get(&(ui.window, key)).map(|(_, r)| *r)));
+    let sidebar = ui.sidebar.get_untracked() && !ui.snap.with_untracked(|s| s.fullscreen);
+    let to = next_region(from, back, page.is_some(), sidebar);
+    if to != Region::Address && editing {
+        close_palette(ui);
+    }
+    match to {
+        Region::Address => open_palette(ui),
+        Region::Page => page.into_iter().for_each(|r| r.command("focus", JsonValue::Null)),
+        Region::Sidebar => {
+            let target = ui.snap.with_untracked(|s| {
+                let order = keyboard_order(s);
+                active_row(s.tiles.iter().chain(&s.rows)).filter(|id| order.contains(id)).or_else(|| order.into_iter().next())
+            });
+            if let Some((_, r)) = target.and_then(|id| ROW_REFS.with_borrow(|refs| refs.get(&(ui.window, id)).cloned())) {
+                r.focus();
+            }
+        }
+    }
+}
+
+fn active_row<'a>(mut rows: impl Iterator<Item = &'a snapshot::Row>) -> Option<String> {
+    rows.find_map(|r| if r.active && !matches!(r.kind, RowKind::Split(_)) { Some(r.id()) } else { active_row(r.panes.iter()) })
+}
+
 fn bind_fixed(ui: Ui) {
     on_key("f5", move |_| reload(ui));
+    on_key("f6", move |_| cycle_focus(ui, false));
+    on_key("shift+f6", move |_| cycle_focus(ui, true));
     for (keys, down) in [("down", true), ("up", false)] {
         on_key_with(keys, KeyOptions { when: nsh_core::keymap::When::NotEditing, pass_through: true, ..KeyOptions::default() }, move |_| {
             move_row_focus(ui, down)

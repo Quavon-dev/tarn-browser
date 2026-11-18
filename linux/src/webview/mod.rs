@@ -1222,6 +1222,9 @@ impl NativeComponent for TarnWebView {
             "back" | "forward" | "reload" | "reloadFromOrigin" => {}
             "clearCache" => session::clear_cache(&web),
             "stop" => web.stop_loading(),
+            "focus" => {
+                web.grab_focus();
+            }
             "print" => {
                 glib::idle_add_local_once(move || {
                     webkit6::PrintOperation::new(&web).run_dialog(web.root().and_downcast::<gtk::Window>().as_ref());

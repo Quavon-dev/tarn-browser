@@ -93,6 +93,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   rows, and Ctrl+Page Down and Ctrl+Page Up for the next and previous tab (Linux).
 - Tab and ⇧Tab move the keyboard through the toolbar's buttons and the address field (macOS,
   Windows).
+- F6 and Shift+F6 move the keyboard between the page, the address field and the sidebar (macOS,
+  Windows, Linux).
 
 ### Changed
 

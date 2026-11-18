@@ -19,7 +19,8 @@ Every shell's web view offers the same operations and reports the same events. T
   lets a main-frame `file:` navigation through only for this load or the user's Back, Forward or
   Reload onto a file the view opened this way (`nav_policy::file_open`, `Source::FileOpen`). NSH components take it as the
   `load` prop with `file: true`;
-- frame, visibility, focus and raise: on NSH, layout and focus come from the shell;
+- frame, visibility, focus and raise: on NSH, layout and focus come from the shell; Linux's
+  `focus` command gives the page the keyboard (F6);
 - `url`, `title`, `zoom` and `set_zoom`, `is_muted` and `set_muted` (NSH components: the `muted`
   prop, which the component keeps across a rebuild of its view; Linux has it, iOS and Android not
   yet);
