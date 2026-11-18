@@ -10,7 +10,7 @@ use gpui::{
 };
 use ui::controls::{key_cap, surface};
 use ui::icon::{ICON_MEDIUM, Icon, icon};
-use ui::motion::{EXIT, FADE, POP, animate};
+use ui::motion::{EXIT, FADE, animate, popover_motion};
 use ui::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 use crate::browser::Browser;
@@ -335,11 +335,7 @@ impl Render for Palette {
             .when(!b.suggestions.is_empty(), |d| d.child(list))
             .when(b.suggestions.is_empty(), |d| d.child(div().flex_1()))
             .child(footer);
-        let reduce = b.pref(Pref::ReduceMotion);
-        if self.leaving {
-            return animate(card, "palette-out", EXIT, reduce, ui::motion::pop_out);
-        }
-        animate(card, "palette-in", POP, reduce, |el, t| el.opacity(t).relative().top(px((1. - t) * 5.)))
+        popover_motion(card.relative(), "palette", self.leaving, b.pref(Pref::ReduceMotion))
     }
 }
 

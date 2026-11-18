@@ -129,6 +129,7 @@ impl Browser {
         let (generation, sink) = self.peek_sink();
         let view = self.web_view(popup, private, profile_id, url.as_str(), sink)?;
         view.set_corner_radius(page_corner());
+        view.set_dark(!ui::theme::Theme::is_light());
         view.set_frame(x, y, w, h);
         view.set_visible(true);
         view.load_link(url, self.link_peek.opener.as_ref());

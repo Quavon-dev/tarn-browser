@@ -122,10 +122,13 @@ pub fn rank_history<'a>(query: &str, history: &'a [HistoryEntry], max: usize, no
 }
 
 /// The row a keyboard step moves the highlight to: Down past the last row wraps to the first and
-/// Up past the first to the last.
+/// Up past the first to the last. A `selected` past the rows is no highlight, which Down leaves
+/// for the first row and Up for the last.
 pub fn step_selection(selected: usize, len: usize, forward: bool) -> usize {
     match (len, forward) {
         (0, _) => 0,
+        (_, true) if selected >= len => 0,
+        (_, false) if selected >= len => len - 1,
         (_, true) => (selected + 1) % len,
         (_, false) => (selected + len - 1) % len,
     }
@@ -230,11 +233,15 @@ pub fn edit<'a>(typed: &str, value: &str, tabs: &[Tab], history: &'a [HistoryEnt
 
 pub const MAX_TAB_ROWS: usize = 5;
 
+/// `rank_pages` without the rows `listed` already, with one row for tabs that show the same address
+/// (the most recently used) and at most `MAX_TAB_ROWS` tab rows.
 pub fn rank_rows(query: &str, pages: &[Page], tabs: usize, listed: impl Fn(usize) -> bool, now: i64) -> Vec<usize> {
     let mut shown_tabs = 0;
+    let mut tab_urls = HashSet::new();
     rank_pages(query, pages, now)
         .into_iter()
         .filter(|&ix| !listed(ix))
+        .filter(|&ix| ix >= tabs || tab_urls.insert(pages[ix].url))
         .filter(|&ix| {
             shown_tabs += usize::from(ix < tabs);
             ix >= tabs || shown_tabs <= MAX_TAB_ROWS
@@ -287,6 +294,8 @@ mod tests {
         assert_eq!(step_selection(1, 3, false), 0);
         assert_eq!(step_selection(0, 0, true), 0);
         assert_eq!(step_selection(0, 0, false), 0);
+        assert_eq!(step_selection(usize::MAX, 3, true), 0, "no highlight yet");
+        assert_eq!(step_selection(usize::MAX, 3, false), 2);
     }
 
     fn page(url: &'static str, title: &'static str, visits: i64, days_ago: i64) -> Page<'static> {
@@ -519,6 +528,15 @@ mod tests {
         let rows = rank_rows("alpha", &pages, tabs.len(), |ix| ix == 0 || ix == 6, NOW);
         assert!(!rows.contains(&0) && !rows.contains(&6));
         assert_eq!(rows.len(), MAX_TAB_ROWS, "a listed tab leaves room for the sixth");
+    }
+
+    #[test]
+    fn tabs_on_one_address_share_a_row_and_history_still_matches() {
+        let tab = |url: &'static str, days_ago| Page { open: true, ..page(url, "Example Domain", 1, days_ago) };
+        let pages = [tab("https://example.com/", 2), tab("https://example.com/", 0), page("https://example.org/", "Example", 1, 3)];
+        assert_eq!(rank_rows("exam", &pages, 2, |_| false, NOW), [1, 2], "the more recent tab stands for both");
+        assert_eq!(rank_rows("exam", &pages, 2, |ix| ix == 1, NOW), [0, 2], "with the current tab left out, the other one shows");
+        assert_eq!(rank_rows("exam", &pages[2..], 0, |_| false, NOW), [0]);
     }
 
     #[test]

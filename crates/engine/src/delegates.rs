@@ -1133,6 +1133,16 @@ impl DownloadDelegate {
         a.view = Some(view);
     }
 
+    /// The user's cancel: a saving download reports its failure, which removes it as declined.
+    pub(crate) fn cancel(&self, id: u64) {
+        let saving = self.ivars().active.borrow().iter().find(|a| a.id == id && a.transfer.running()).and_then(|a| a.transfer.handle().cloned());
+        self.decline(id);
+        if let Some(download) = saving {
+            // SAFETY: cancelling a live download; its failure report removes it.
+            unsafe { download.cancel(None) };
+        }
+    }
+
     fn mark_asked(&self, download: &WKDownload) {
         if let Some(a) = self.ivars().active.borrow_mut().iter_mut().find(|a| a.is(download)) {
             a.asked = true;

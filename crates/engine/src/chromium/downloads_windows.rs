@@ -232,6 +232,10 @@ pub(crate) fn resume(store: &str, id: u64) {
     control(store, id, |c| c.resume());
 }
 
+pub(crate) fn cancel(store: &str, id: u64) {
+    control(store, id, |c| c.cancel());
+}
+
 /// For quit: Chromium cannot continue a download after the next launch, so every one of `store`,
 /// held at the malware prompt or not, is cancelled and Chromium removes its part.
 pub(crate) fn quit(store: &str) {

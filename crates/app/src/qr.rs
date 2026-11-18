@@ -20,13 +20,18 @@ const CODE: f32 = 204.;
 const QUIET: usize = 3;
 const GAP: f32 = 8.;
 
+/// Only a web address means something on another device.
+pub(crate) fn web_link(url: &str) -> bool {
+    Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"))
+}
+
 pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
     root.on_action(cx.listener(|b, _: &ShareLink, w, cx| b.toggle_share_menu(w, cx))).on_action(cx.listener(|b, _: &ShowQrCode, w, cx| b.show_qr_code(w, cx)))
 }
 
 impl Browser {
     fn active_url(&self) -> Option<String> {
-        self.model.active.and_then(|key| self.tab_url(key)).filter(|u| !u.is_empty())
+        self.model.active.and_then(|key| self.tab_url(key)).filter(|u| web_link(u))
     }
 
     /// A card with the active page's QR code below the address field; Esc or a click elsewhere closes it.
@@ -36,7 +41,9 @@ impl Browser {
         {
             return;
         }
-        let Some(url) = self.active_url() else { return };
+        let Some(url) = self.active_url() else {
+            return self.show_toast("Only web pages have a QR code", None, cx);
+        };
         let Some(code) = engine::share::qr_code(&url) else {
             return self.show_toast("No QR code for this link", None, cx);
         };

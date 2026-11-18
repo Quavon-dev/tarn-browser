@@ -163,7 +163,15 @@ impl ShareMenuWindow {
         }
     }
 
+    /// The QR code and the system share sheet send the address to another device or app.
+    fn enabled(&self, entry: Entry) -> bool {
+        !matches!(entry, Entry::QrCode | Entry::More) || crate::qr::web_link(&self.url)
+    }
+
     fn choose(&mut self, entry: Entry, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.enabled(entry) {
+            return;
+        }
         match entry {
             Entry::CopyLink | Entry::CopyCleanLink => {
                 let clean = entry == Entry::CopyCleanLink;
@@ -221,7 +229,7 @@ impl ShareMenuWindow {
         let glyph = if entry == Entry::More { Icon::Ellipsis } else { Icon::named(browser_core::command::glyph(label)).unwrap_or(Icon::Command) };
         let glyph = match self.copied {
             Some(copied) if copied == entry => fade_in(icon(Icon::Check, 15., Theme::accent()), ("copied", ix), reduce),
-            _ => icon(glyph, 15., Theme::muted()).into_any_element(),
+            _ => icon(glyph, 15., if self.enabled(entry) { Theme::muted() } else { Theme::faint() }).into_any_element(),
         };
         let keys = Self::shortcut(entry, cx);
         list_row(("share", ix), self.selected == Some(ix))
@@ -229,6 +237,7 @@ impl ShareMenuWindow {
             .mx(px(PAD))
             .px_2()
             .child(glyph)
+            .when(!self.enabled(entry), |d| d.text_color(Theme::faint()))
             .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
             .when(!keys.is_empty(), |d| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(keys)))
             .on_click(cx.listener(move |this, _, window, cx| this.choose(entry, window, cx)))

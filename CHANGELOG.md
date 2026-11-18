@@ -187,6 +187,24 @@ All notable changes to Tarn are documented in this file. The format is based on
   (macOS, Windows).
 - A profile name another profile has says so instead of only greying out Save, and a hidden
   element comes back with Show Again rather than Undo (macOS, Windows).
+- The Library panel stays within a narrow sidebar, and a list taller than the window ends below a
+  row instead of cutting off the next heading (macOS, Windows).
+- Pages follow Tarn's light or dark theme (`prefers-color-scheme`) instead of the system's
+  appearance, and switch with it (macOS, Windows).
+- Find in page searches as you type, shows "1 of 2" where the engine reports the current match
+  (Chromium), and clears its highlight when the bar closes (macOS, Windows).
+- A toast stays while the pointer is over it, wraps a long message onto a second line, and its
+  button is also a command row, so it can be reached from the keyboard (macOS, Windows).
+- Translating a page shows Translating… while it works and then Show Original, which reloads the
+  page in its own language (macOS).
+- The Reader button shows when Reader is on and then reads Exit Reader, and the Shield button's
+  tooltip says how many requests it stopped on the site (macOS, Windows).
+- The address field keeps Reader open behind it and shows a sleeping tab's address; its
+  suggestions no longer offer the current tab, show one Switch to Tab row for tabs on the same
+  address, and Enter in an empty field opens nothing (macOS, Windows).
+- Failed and cancelled downloads stay in the Downloads list, a download in progress has a Cancel
+  button, Clear offers Undo, a new download no longer hides a dangerous-file warning, and the
+  Downloads panel stays inside the window (macOS, Windows).
 - Two downloads of the same name at once each get their own file, instead of the second failing
   or replacing the first (Linux, iOS, Android).
 - Settings text no longer runs under the controls beside it, and text fields clip their

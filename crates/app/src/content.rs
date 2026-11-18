@@ -170,7 +170,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                     .text_color(color)
                     .child(secure_button("dl-show", ui::controls::REVEAL, true).on_click(move |_, _, _| engine::reveal_in_finder(&reveal)))
                     .child(secure_button("dl-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| {
-                        b.download = None;
+                        b.dismiss_download();
                         cx.notify();
                     }))),
             );
@@ -182,7 +182,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 text.clone(),
                 Theme::danger(),
                 banner(text).text_color(Theme::danger()).child(secure_button("dl-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| {
-                    b.download = None;
+                    b.dismiss_download();
                     cx.notify();
                 }))),
             );
@@ -200,6 +200,8 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
             crate::blocking::Offer::Reload => "Turn On",
             #[cfg(feature = "translation")]
             crate::blocking::Offer::Translate(..) => "Translate",
+            #[cfg(feature = "translation")]
+            crate::blocking::Offer::ShowOriginal => "Show Original",
         });
         push(
             "banner-notice",
@@ -237,45 +239,43 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 "find-bar",
                 String::new(),
                 Theme::text(),
-                div().mb_2().flex_none().flex().justify_end().child(
-                    surface(12.)
-                        .w(px(400.))
-                        .flex_none()
-                        .shadow(Elevation::Floating.shadow())
-                        .when(focused, |d| d.border_color(Theme::accent()))
-                        .text_size(px(TEXT))
-                        .h(px(40.))
-                        .pl_3()
-                        .pr_1()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(icon(Icon::Search, 14., Theme::muted()))
-                        .child(div().flex_1().min_w_0().overflow_hidden().child(b.find_input.clone()))
-                        .child(
-                            div()
-                                .flex_none()
-                                .text_size(px(TEXT_SMALL))
-                                .text_color(if b.find_count == Some(0) { Theme::danger() } else { Theme::faint() })
-                                .child(browser_core::find::count_label(b.find_count)),
-                        )
-                        .child(div().w(px(1.)).h(px(18.)).flex_none().bg(Theme::separator()))
-                        .child(
-                            icon_button("find-prev", Icon::ChevronUp, true)
-                                .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
-                                .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
-                        )
-                        .child(
-                            icon_button("find-next", Icon::ChevronDown, true)
-                                .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
-                                .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
-                        )
-                        .child(
-                            icon_button("find-close", Icon::Close, true)
-                                .tooltip(tooltip("Done", Some("Esc".into())))
-                                .on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
-                        ),
-                ),
+                surface(Theme::radius_panel())
+                    .mb_2()
+                    .flex_none()
+                    .shadow(Elevation::Floating.shadow())
+                    .when(focused, |d| d.border_color(Theme::accent()))
+                    .text_size(px(TEXT))
+                    .h(px(40.))
+                    .pl_3()
+                    .pr_1()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(icon(Icon::Search, 14., Theme::muted()))
+                    .child(div().flex_1().min_w_0().overflow_hidden().child(b.find_input.clone()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(TEXT_SMALL))
+                            .text_color(if matches!(b.find_count, Some((0, _))) { Theme::danger() } else { Theme::faint() })
+                            .child(browser_core::find::count_label(b.find_count.map(|c| c.0), b.find_count.and_then(|c| c.1))),
+                    )
+                    .child(div().w(px(1.)).h(px(18.)).flex_none().bg(Theme::separator()))
+                    .child(
+                        icon_button("find-prev", Icon::ChevronUp, true)
+                            .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
+                            .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
+                    )
+                    .child(
+                        icon_button("find-next", Icon::ChevronDown, true)
+                            .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
+                            .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
+                    )
+                    .child(
+                        icon_button("find-close", Icon::Close, true)
+                            .tooltip(tooltip("Done", Some("Esc".into())))
+                            .on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
+                    ),
             );
         }
     }

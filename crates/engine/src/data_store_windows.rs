@@ -202,6 +202,11 @@ impl DataStore {
         crate::chromium::downloads_windows::resume(&self.key, id);
     }
 
+    /// Stops download `id`, saving or paused; Chromium removes its part and `Event::DownloadCancelled` follows.
+    pub fn cancel_download(&self, id: u64) {
+        crate::chromium::downloads_windows::cancel(&self.key, id);
+    }
+
     /// For quit: cancels this store's downloads, which Chromium cannot continue after relaunch.
     pub fn quit_downloads(&self) {
         crate::chromium::downloads_windows::quit(&self.key);

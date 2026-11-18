@@ -52,6 +52,9 @@ pub enum Offer {
     /// Translate this page from the language on this Mac.
     #[cfg(feature = "translation")]
     Translate(String, Url),
+    /// Reload a translated page in its own language.
+    #[cfg(feature = "translation")]
+    ShowOriginal,
 }
 
 impl AppCore {
@@ -285,6 +288,8 @@ impl Browser {
             }
             #[cfg(feature = "translation")]
             Offer::Translate(source, page) => self.translate_page(key, source, page, cx),
+            #[cfg(feature = "translation")]
+            Offer::ShowOriginal => self.reload(cx),
             #[cfg(feature = "chromium")]
             Offer::SwitchToWebKit => {
                 self.switch_web_engine(key, store::WebEngine::WebKit, window, cx);

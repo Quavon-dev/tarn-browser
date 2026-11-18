@@ -62,6 +62,7 @@ fn ago(ms: i64, now: i64) -> String {
 fn download_row(d: &Download, now: i64) -> Entry {
     let state = match d.state.as_str() {
         "failed" => "Failed",
+        "cancelled" => "Cancelled",
         s if s.starts_with("finished") => "Finished",
         _ => "In Progress",
     };
@@ -313,10 +314,11 @@ impl Browser {
         let sources = if page == Page::Import { detect_sources() } else { Vec::new() };
         let history = self.model.current_space().and_then(|s| self.store(s.private).history(s.space.profile_id, HISTORY_LOAD).ok()).unwrap_or_default();
         let rows: Vec<&HistoryEntry> = history.iter().collect();
-        let height = px(card_height(&entries(self, page, "", &rows, &downloads, &snapshots, &sources), room.max(ROW * 3.)));
+        let listed = entries(self, page, "", &rows, &downloads, &snapshots, &sources);
+        let height = px(card_height(&listed, row_boundary(&listed, room.max(ROW * 3.))));
         let bounds = Bounds::new(
             point(anchor.origin.x + px(inset + 4.), anchor.origin.y + anchor.size.height - px(inset + SPACE_ROW) - height),
-            size(px(CARD_WIDTH), height),
+            size(px(CARD_WIDTH.min(self.sidebar_width - 8.)), height),
         );
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
@@ -571,6 +573,23 @@ fn entry_height(entry: &Entry) -> f32 {
         Entry::Row(r) if r.detail.is_some() => DETAIL_ROW,
         Entry::Row(_) => ROW,
     }
+}
+
+/// The tallest list up to `max_list` that ends below a row, so a cut list never shows a heading or
+/// divider without the row under it, or half a row; `max_list` when the whole list fits.
+fn row_boundary(entries: &[Entry], max_list: f32) -> f32 {
+    let mut end = LIST_PAD;
+    let mut fit = None;
+    for (ix, entry) in entries.iter().enumerate() {
+        end += entry_height(entry) + if ix > 0 { 1. } else { 0. };
+        if end > max_list {
+            return fit.unwrap_or(max_list);
+        }
+        if !matches!(entry, Entry::Header(..) | Entry::Divider) {
+            fit = Some(end);
+        }
+    }
+    max_list
 }
 
 /// The card's height for `entries`, with the list capped at `max_list`.
@@ -1465,6 +1484,14 @@ impl Render for LibraryWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cut_list_ends_below_a_row() {
+        let entries = [row(Item::Page(Page::History), String::new(), None), Entry::Divider, Entry::Header("Open Tabs", Some(0)), Entry::Empty(String::new())];
+        assert_eq!(row_boundary(&entries, 1000.), 1000.);
+        assert_eq!(row_boundary(&entries, LIST_PAD + ROW + 1. + DIVIDER + 1. + HEADER_ROW + 10.), LIST_PAD + ROW);
+        assert_eq!(row_boundary(&entries[1..], 20.), 20., "nothing fits, so the cap stands");
+    }
 
     #[test]
     fn card_fits_its_entries_up_to_the_cap() {

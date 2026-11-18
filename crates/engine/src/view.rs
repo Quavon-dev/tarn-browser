@@ -89,6 +89,10 @@ impl WebView {
         webkit_only!(self, v => v.set_corner_radius(radius), ())
     }
 
+    pub fn set_dark(&self, dark: bool) {
+        both!(self, v => v.set_dark(dark))
+    }
+
     pub fn set_gestures(&self, on: bool) {
         webkit_only!(self, v => v.set_gestures(on), ())
     }
@@ -117,8 +121,12 @@ impl WebView {
         both!(self, v => v.url())
     }
 
-    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize) + 'static) {
+    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize, Option<usize>) + 'static) {
         both!(self, v => v.find(text, backwards, found))
+    }
+
+    pub fn clear_find(&self) {
+        both!(self, v => v.clear_find())
     }
 
     pub fn find_text(&self, query: &str, done: impl Fn(Vec<String>) + 'static) {

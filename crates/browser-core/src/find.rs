@@ -10,15 +10,20 @@ pub fn named<'a>(tabs: &'a [Tab], query: &str, title: impl Fn(&Tab) -> String) -
     tabs.iter().filter(|t| !query.is_empty() && (title(t).to_lowercase().contains(&lower) || t.url.to_lowercase().contains(&lower))).take(MAX_ROWS).collect()
 }
 
-/// What the find bar says about `count` matches; nothing before a search ran.
-pub fn count_label(count: Option<usize>) -> String {
-    match count {
-        None => String::new(),
-        Some(0) => "No matches".to_owned(),
-        Some(1) => "1 match".to_owned(),
-        Some(n) => format!("{n} matches"),
+/// What the find bar says about `count` matches and, when the engine reports it, the highlighted
+/// one (from 1); nothing before a search ran.
+pub fn count_label(count: Option<usize>, current: Option<usize>) -> String {
+    match (count, current) {
+        (None, _) => String::new(),
+        (Some(0), _) => "No matches".to_owned(),
+        (Some(n), Some(at)) => format!("{at} of {n}"),
+        (Some(1), None) => "1 match".to_owned(),
+        (Some(n), None) => format!("{n} matches"),
     }
 }
+
+/// How long the find bar waits after a keystroke before it searches.
+pub const TYPING_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// Puts `rows` after the `text_rows` already listed, keeps the selection on its row and at most `MAX_ROWS` rows.
 pub fn insert_text_rows<T>(list: &mut Vec<T>, selected: &mut usize, text_rows: &mut usize, rows: Vec<T>) {
@@ -43,10 +48,12 @@ mod tests {
 
     #[test]
     fn the_find_bar_names_the_count() {
-        assert_eq!(count_label(None), "");
-        assert_eq!(count_label(Some(0)), "No matches");
-        assert_eq!(count_label(Some(1)), "1 match");
-        assert_eq!(count_label(Some(12)), "12 matches");
+        assert_eq!(count_label(None, None), "");
+        assert_eq!(count_label(Some(0), None), "No matches");
+        assert_eq!(count_label(Some(1), None), "1 match");
+        assert_eq!(count_label(Some(12), None), "12 matches");
+        assert_eq!(count_label(Some(2), Some(1)), "1 of 2");
+        assert_eq!(count_label(Some(0), Some(1)), "No matches");
     }
 
     #[test]
