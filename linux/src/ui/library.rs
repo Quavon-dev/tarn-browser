@@ -602,11 +602,11 @@ fn mark_row(ui: Ui, marks: &[Bookmark], mark: &Bookmark, edit: Option<MarkEdit>,
         .child(edit_button(icons::FOLDER_OPEN, "Move to Folder", MarkEdit::Move(id)))
         .child(deletion);
     let editor = match edit {
-        Some(MarkEdit::Rename(e)) if e == id => Some(super::panels::rename_row(ui, format!("bookmark {id}"), &bounded_title(&mark.title), move |title| {
+        Some(MarkEdit::Rename(e)) if e == id => Some(super::panels::rename_row(ui, format!("bookmark {id}"), &mark.title, move |title| {
             ui.mark_edit.set(None);
             act(ui, |b| {
-                let shown = b.bookmarks().into_iter().find(|m| m.id == id).map(|m| bounded_title(&m.title));
-                if shown.as_deref() != Some(title.trim()) {
+                let stored = b.bookmarks().into_iter().find(|m| m.id == id).map(|m| m.title);
+                if stored.as_deref() != Some(title.trim()) {
                     b.rename_bookmark(id, &title);
                 }
             });

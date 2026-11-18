@@ -84,8 +84,9 @@ pub fn save_for_later(store: &Store, profile_id: Id, bookmarks: &[Bookmark], url
             Err(_) => return false,
         },
     };
+    let title = crate::text::clean_title(title);
     bookmarks.iter().any(|b| b.parent_id == Some(folder) && b.url.as_deref() == Some(url))
-        || store.add_bookmark(profile_id, Some(folder), Some(url), if title.is_empty() { url } else { title }, at).is_ok()
+        || store.add_bookmark(profile_id, Some(folder), Some(url), if title.is_empty() { url } else { &title }, at).is_ok()
 }
 
 pub fn reading_list_pages(bookmarks: Vec<Bookmark>) -> Vec<Bookmark> {
@@ -178,5 +179,15 @@ mod tests {
         let pages = reading_list_pages(store.bookmarks(p).unwrap());
         assert_eq!(pages.iter().map(|b| b.title.as_str()).collect::<Vec<_>>(), ["https://a.test/", "B"]);
         assert_eq!(store.bookmarks(p).unwrap().iter().filter(|b| b.url.is_none()).count(), 1);
+    }
+
+    #[test]
+    fn save_for_later_keeps_the_full_clean_title() {
+        let (store, p) = store();
+        let title = "Long ".repeat(50) + "end";
+        assert!(save_for_later(&store, p, &[], "https://a.test/", &format!("\u{202E}{title}\n"), 1));
+        assert!(save_for_later(&store, p, &store.bookmarks(p).unwrap(), "https://b.test/", "\u{202E} \n", 2));
+        let titles: Vec<String> = reading_list_pages(store.bookmarks(p).unwrap()).into_iter().map(|b| b.title).collect();
+        assert_eq!(titles, [title, "https://b.test/".to_owned()]);
     }
 }

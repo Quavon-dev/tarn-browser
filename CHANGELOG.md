@@ -267,6 +267,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Page actions are greyed or left out while no tab is open: reader, copy link and title, duplicate,
   pin, share, QR code, screenshot, PDF, save for later, bookmark, find, zoom and split view
   (macOS, Windows, Linux; on iOS and Android Find in Page and Zoom).
+- Bookmark Tab, Bookmark All Tabs and Save for Later keep the page's whole title, cleaned of
+  control and bidi characters, instead of a shortened one, and renaming starts from the saved name
+  (macOS, Windows, Linux; Save for Later on iOS and Android).
 
 ## [0.1.2] - 2026-11-17
 
