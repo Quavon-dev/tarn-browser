@@ -2502,11 +2502,11 @@ impl WebView {
         }
     }
 
-    /// Ends the find and clears its highlight; the next find starts afresh.
+    /// Ends the find and clears its highlight, keeping the page's selection; the next find starts afresh.
     pub fn clear_find(&self) {
         self.0.tab.last_find.replace(String::new());
         if let Some(host) = self.browser_host() {
-            host.stop_finding(1);
+            host.stop_finding(0);
         }
     }
 

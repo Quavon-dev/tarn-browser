@@ -307,9 +307,6 @@ pub struct Browser {
     /// Matches the last find counted, and the highlighted one when the engine reports it.
     pub find_count: Option<(usize, Option<usize>)>,
     find_typing: Option<Task<()>>,
-    /// A find ran since the bar opened, so closing it has a highlight to clear and not the
-    /// user's own selection.
-    find_searched: bool,
     /// A tab woken by Find in Tabs, searched once its page has finished loading.
     pub(crate) find_after_load: Option<TabKey>,
     pub(crate) find_tabs: Option<Task<()>>,
@@ -502,7 +499,6 @@ impl Browser {
             find_input,
             find_count: None,
             find_typing: None,
-            find_searched: false,
             find_after_load: None,
             find_tabs: None,
             refocus: false,
@@ -2455,9 +2451,7 @@ impl Browser {
         self.find_typing = None;
         window.focus(&self.focus);
         if let Some(view) = self.active_view() {
-            if std::mem::take(&mut self.find_searched) {
-                view.clear_find();
-            }
+            view.clear_find();
             view.focus();
         }
         cx.notify();
@@ -2466,7 +2460,6 @@ impl Browser {
     pub fn find(&mut self, backwards: bool, cx: &mut Context<Self>) {
         let text = self.find_input.read(cx).text().to_owned();
         let Some(view) = self.active_view().filter(|_| !text.is_empty()) else { return };
-        self.find_searched = true;
         let events = self.events.clone();
         view.find(&text, backwards, move |found, current| {
             events.unbounded_send(Msg::Found(found, current)).ok();
