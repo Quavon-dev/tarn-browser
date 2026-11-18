@@ -270,6 +270,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Bookmark Tab, Bookmark All Tabs and Save for Later keep the page's whole title, cleaned of
   control and bidi characters, instead of a shortened one, and renaming starts from the saved name
   (macOS, Windows, Linux; Save for Later on iOS and Android).
+- A profile name longer than 48 characters is no longer cut when saved: the name field says "Use
+  at most 48 characters." and Continue, Create Profile or Create Space stays off until it fits
+  (macOS, Windows, Linux, iOS, Android).
 
 ## [0.1.2] - 2026-11-17
 

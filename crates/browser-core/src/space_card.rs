@@ -19,6 +19,14 @@ pub fn name_too_long(raw: &str) -> bool {
     name_chars(raw).count() > MAX_NAME
 }
 
+/// What a new profile's name field warns: a name too long to save whole, or another profile's.
+pub fn profile_name_note<'a>(raw: &str, taken: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    if name_too_long(raw) {
+        return Some(format!("Use at most {MAX_NAME} characters."));
+    }
+    crate::profiles::name_taken(raw, taken).then(|| "Another profile has this name.".to_owned())
+}
+
 fn name_chars(raw: &str) -> impl Iterator<Item = char> + '_ {
     raw.trim().chars().filter(|c| !c.is_control() && !is_bidi(*c))
 }
@@ -89,6 +97,7 @@ impl SpaceDraft {
         let name = space_name(&self.name, spaces, self.private, self.profile, self.editing)?;
         let profile_name = match self.profile {
             Some(_) => None,
+            None if name_too_long(&self.profile_name) => return None,
             None => Some(valid_name(&self.profile_name, profiles.iter().map(|p| p.name.as_str()))?),
         };
         Some((name, profile_name))
@@ -155,6 +164,28 @@ mod tests {
             assert_eq!(valid_name(&over, []).map(|n| n.chars().count()), Some(MAX_NAME));
         }
         assert!(name_too_long(&"\u{6F22}".repeat(200)));
+    }
+
+    #[test]
+    fn a_new_profile_name_warns_when_too_long_or_taken() {
+        assert_eq!(profile_name_note(&"x".repeat(MAX_NAME + 1), ["Work"]), Some(format!("Use at most {MAX_NAME} characters.")));
+        assert_eq!(profile_name_note(" work ", ["Work"]), Some("Another profile has this name.".into()));
+        assert_eq!(profile_name_note(&"x".repeat(MAX_NAME), ["Work"]), None);
+        assert_eq!(profile_name_note("", ["Work"]), None);
+    }
+
+    #[test]
+    fn a_new_profile_name_too_long_is_not_cut_on_save() {
+        let disk = Store::open_in_memory().unwrap();
+        let home = disk.create_profile("Personal", "uuid", false).unwrap();
+        disk.create_space(home.id, "Home", "").unwrap();
+        let profiles = disk.profiles().unwrap();
+        let mut draft = SpaceDraft::new(&refs(&disk), None, &profiles);
+        draft.profile = None;
+        draft.profile_name = "x".repeat(MAX_NAME + 1);
+        assert_eq!(draft.ready(&refs(&disk), &profiles), None);
+        draft.profile_name = "x".repeat(MAX_NAME);
+        assert!(draft.ready(&refs(&disk), &profiles).is_some_and(|(_, p)| p == Some("x".repeat(MAX_NAME))));
     }
 
     #[test]
