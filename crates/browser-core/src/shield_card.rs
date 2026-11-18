@@ -215,6 +215,10 @@ pub fn scene(dark: bool) -> &'static Scene {
 const LAKE: u32 = 112;
 pub const RIDGES: (u32, u32) = (88, 48);
 
+fn behind_labels(x: u32, y: u32) -> bool {
+    x < 300 && (16..72).contains(&y)
+}
+
 fn sky(s: &Scene, draw: &mut Draw, (px, py): (u32, u32), (lx, ly): (u32, u32)) -> String {
     let mut out = format!(
         r##"<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="far" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="lake" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{}"/><stop offset="1" stop-color="{}"/></linearGradient><linearGradient id="aurora" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#62E6C4" stop-opacity="0"/><stop offset="1" stop-color="#62E6C4" stop-opacity="0.28"/></linearGradient><linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="black" stop-opacity="0"/><stop offset="1" stop-color="black" stop-opacity="0.28"/></linearGradient></defs><rect width="{W}" height="{H}" fill="url(#sky)"/>"##,
@@ -224,6 +228,9 @@ fn sky(s: &Scene, draw: &mut Draw, (px, py): (u32, u32), (lx, ly): (u32, u32)) -
         for _ in 0..30 {
             let (x, y) = (8 + draw.below(344), 6 + draw.below(70));
             let (r, o) = (["0.6", "0.8", "1.1"][draw.below(3) as usize], 35 + draw.below(55));
+            if behind_labels(x, y) {
+                continue;
+            }
             let _ = write!(out, r#"<circle cx="{x}" cy="{y}" r="{r}" fill="white" fill-opacity="0.{o}"/>"#);
         }
         let _ =
@@ -531,6 +538,19 @@ mod tests {
         assert!(front_svg(&Card { level: ShieldLevel::Lockdown, ..card("Personal") }, true, true).contains("M9 10h6M9 14h6"));
         let back = back_svg(&card("Personal"), false);
         assert!(back.contains("Stamps") && back.matches(r#"fill="url(#sky)""#).count() == 1);
+    }
+
+    #[test]
+    fn no_star_sits_behind_the_name_or_the_level() {
+        for seed in 0..64 {
+            let sky = landscape(seed, true).1;
+            for star in sky.split(r#"<circle cx=""#).skip(1).filter(|c| c.contains(r#"fill="white""#)) {
+                let num = |key: &str| star.split(key).nth(1).and_then(|v| v.split('"').next()).and_then(|v| v.parse::<u32>().ok());
+                if let (Some(x), Some(y)) = (star.split('"').next().and_then(|v| v.parse::<u32>().ok()), num(r#"cy=""#)) {
+                    assert!(!behind_labels(x, y), "seed {seed}: star at {x},{y}");
+                }
+            }
+        }
     }
 
     #[test]

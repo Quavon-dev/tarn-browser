@@ -139,6 +139,7 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Stars on the night Shield card no longer sit on the profile name or the level (all clients).
 - Text fields scroll to keep the caret in view, undo and redo with ⌘Z and ⇧⌘Z (Ctrl on Windows),
   select a word on a double click and everything on a triple click, place the caret where a
   password field is clicked, show a selection only while focused, and no longer crash when an
