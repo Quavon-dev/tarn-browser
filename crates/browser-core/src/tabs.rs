@@ -279,6 +279,12 @@ impl Model {
         self.tabs.iter().map(|t| self.key(t)).filter(|k| *k != key).collect()
     }
 
+    /// The unpinned tabs listed below `key` in the sidebar; tabs hidden in a collapsed group are not.
+    pub fn tabs_below(&self, key: TabKey) -> Vec<TabKey> {
+        let unpinned = |k: &TabKey| self.tab(*k).is_some_and(|t| t.kind == TabKind::Ephemeral);
+        self.visible_tab_order().into_iter().skip_while(|k| *k != key).skip(1).filter(unpinned).collect()
+    }
+
     /// The unpinned tab nearest `key` in the sidebar that is not in `closing`, the previous one first
     /// when `previous_first`.
     pub fn close_neighbour(&self, key: TabKey, closing: &[TabKey], previous_first: bool) -> Option<TabKey> {
@@ -863,8 +869,18 @@ mod tests {
         model.new_group(&core, Some(model.key(&pinned))).unwrap();
         model.reload_space(&core);
         assert_eq!(model.tabs.iter().filter(|t| t.group_id.is_some()).map(|t| t.id).collect::<Vec<_>>(), [loose.id]);
+        let tab = || core.disk.create_tab(s, TabKind::Ephemeral, None, "https://c.test/", "").unwrap();
+        let (a, b, g) = (tab(), tab(), tab());
+        core.disk.set_tab_group(g.id, Some(group.id)).unwrap();
+        model.reload_space(&core);
+        let below = |model: &Model, t: &store::Tab| model.tabs_below(model.key(t)).into_iter().map(|k| k.id).collect::<Vec<_>>();
+        assert_eq!(below(&model, &a), [b.id], "a grouped tab is listed above the loose ones");
+        assert_eq!(below(&model, &loose), [g.id, a.id, b.id]);
+        assert_eq!(below(&model, &pinned), [loose.id, g.id, a.id, b.id], "pinned tabs are never below");
         assert!(model.toggle_group(&core, group.id));
         assert!(model.groups[0].collapsed && core.disk.groups(s).unwrap()[0].collapsed);
+        assert_eq!(below(&model, &pinned), [a.id, b.id], "a collapsed group's tabs are hidden");
+        assert!(below(&model, &b).is_empty());
         assert!(!model.toggle_group(&core, 999));
     }
 
