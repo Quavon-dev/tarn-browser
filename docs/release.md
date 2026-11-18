@@ -288,6 +288,7 @@ format.
 Applied by hand in the repository and organisation settings; no workflow changes them. Check them again after any change to the workflows or runners.
 
 - [ ] Ruleset on `main`: require a pull request (one approval, review from Code Owners,
+      an approval from `@Quavon-dev/tarn-maintainer` as required reviewer for every file,
       dismiss stale approvals when new commits are pushed, every review conversation resolved,
       CodeRabbit's included), require the status checks `check`, `macos`, `windows`, `nsh-shared`,
       `ios`, `android`, `linux`, `flatpak`, `deny`, `coverage` and `dco` from GitHub Actions (all
@@ -309,6 +310,9 @@ Applied by hand in the repository and organisation settings; no workflow changes
       enforces a mitigation (`crates/ai`, `crates/import`, `crates/sync`, `crates/cli-bridge`, the engine's policy files); the file
       itself is the full list. Until then GitHub ignores
       its lines and no Code Owners review is required.
+- [ ] Ruleset "main merges" on `main`: restrict updates; bypass only `@Quavon-dev/maintainers`,
+      so `@Quavon-dev/tarn-maintainer` reviews but does not merge. A maintainer merges with the
+      bypass box on the pull request; it bypasses this ruleset only, never the one above.
 - [ ] Ruleset on tags `v*`: restrict creation, update and deletion; bypass for organisation
       admins and the update app (it creates the tag of its merge). An admin can therefore tag any
       commit and, since `release-signing` allows self-review, approve its signing: the release

@@ -12,7 +12,7 @@ themselves are described in [`docs/release.md`](docs/release.md), "Secrets and c
 | [@rgxdev](https://github.com/rgxdev) | Maintainer, organisation owner | Admin on the repository; member of `@Quavon-dev/maintainers`, so a Code Owner and an approver of `release-signing` |
 | [@MadebyLeopold](https://github.com/MadebyLeopold) | Maintainer, organisation owner | Same as above |
 | [@quavondev](https://github.com/quavondev) | Maintainer, organisation owner | Same as above |
-| [@eliasnau](https://github.com/eliasnau) | Tarn maintainer | Write on the repository through `@Quavon-dev/tarn-maintainer`: branches, reviews, triage and merging approved pull requests |
+| [@eliasnau](https://github.com/eliasnau) | Tarn maintainer | Write on the repository through `@Quavon-dev/tarn-maintainer`: branches, reviews and triage, no merge to `main` |
 
 Organisation owners can change repository and organisation settings, rulesets, environments and
 their secrets. GitHub never shows a secret's value, but an owner who changes an environment's rules
@@ -27,7 +27,8 @@ for their contribution and its licence terms.
 
 **Maintainer** (write access or above, member of `@Quavon-dev/maintainers`):
 - votes on issues (`CONTRIBUTING.md`, "Voting") and reviews pull requests; a pull request needs
-  the approval of a maintainer who did not write it, and Code Owner review for protected paths;
+  the approval of a `@Quavon-dev/tarn-maintainer` member who did not write it, and Code Owner
+  review for protected paths; only maintainers merge into `main`;
 - keeps `main` releasable: CI green, advisories and code scanning alerts handled within the
   thresholds in [`SECURITY.md`](SECURITY.md);
 - triages security reports sent through GitHub private vulnerability reporting, coordinates the fix
@@ -42,10 +43,10 @@ for their contribution and its licence terms.
   (not as Code Owner review);
 - labels, assigns, closes and reopens issues and pull requests, and votes on issues (the Issues
   workflow counts every account with write access, `CONTRIBUTING.md`, "Voting");
-- merges approved pull requests into `main`; outside the Code Owners' paths that makes their
-  approval the only one a pull request needs, also for commits they pushed to another author's
-  pull request (`docs/threat-model.md`, S4);
-- cannot create `v*` tags, approve a `release-signing` deployment, read secrets or change
+- gives the approval every pull request needs before it can merge (required reviewer on `main`);
+  a member's own pull request needs another member's;
+- cannot merge into `main` (only `@Quavon-dev/maintainers` may update it, ruleset "main
+  merges"), create `v*` tags, approve a `release-signing` deployment, read secrets or change
   settings. GitHub's write role on this plan also lets them start workflows and edit GitHub
   releases; signing and publishing still need a maintainer's approval.
 
