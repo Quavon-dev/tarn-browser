@@ -679,7 +679,8 @@ fn tab_panel(ui: Ui) -> AnyElement {
             tool("Save for Later", Command::SaveForLater, None),
         ];
         if article {
-            rows.push(tool("Reader", Command::Reader, Some(Action::ToggleReader)));
+            let shown = ui.snap.with_untracked(|s| s.reader.is_some());
+            rows.push(tool(if shown { "Hide Reader" } else { "Show Reader" }, Command::Reader, Some(Action::ToggleReader)));
         }
         rows.push(tool("Zap Element", Command::ZapElement, None));
         if duplicates {
@@ -825,7 +826,12 @@ fn shortcuts_panel(ui: Ui) -> AnyElement {
             shortcuts::FIXED.iter().filter(|(section, ..)| section == name).map(|(_, row_label, keys)| line(*row_label).child(small(*keys)).into_element());
         view().flex_col().w(px(250.)).gap_1().child(caps_label(name)).children(bound.chain(fixed).collect::<Vec<_>>()).into_element()
     });
-    popover().child(heading(ui, title("Keyboard Shortcuts"))).child(view().flex_row().flex_wrap().gap_6().children(columns.collect::<Vec<_>>())).into_element()
+    let sheet = element_ref();
+    super::peek::later(ui, std::time::Duration::ZERO, move || sheet.focus());
+    popover()
+        .child(heading(ui, title("Keyboard Shortcuts")))
+        .child(scroll().flex_1().focusable(true).element_ref(&sheet).child(view().flex_row().flex_wrap().gap_6().children(columns.collect::<Vec<_>>())))
+        .into_element()
 }
 
 pub fn panel_view(ui: Ui) -> AnyElement {

@@ -83,7 +83,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   Change Icon… in their menu (macOS, Windows; folders on Linux). Clean Up gives each group it
   makes the icon of its kind.
 - File › Close Window (⇧⌘W), View › Stop Loading (⌘.) and Reload Without Cache (⌥⌘R); ⌘+ zooms
-  in, and ⌘} ⌘{ and ⌥⌘→ ⌥⌘← go to the next and previous tab (macOS, Windows).
+  in, and ⌘} ⌘{ and ⌥⌘→ ⌥⌘← go to the next and previous tab (macOS, Windows). Linux has Close
+  Window (Ctrl+Shift+W), Reload Without Cache (Ctrl+F5), Stop Loading (Esc) as keys and command
+  rows, and Ctrl+Page Down and Ctrl+Page Up for the next and previous tab (Linux).
 - Tab and ⇧Tab move the keyboard through the toolbar's buttons and the address field (macOS,
   Windows).
 
@@ -168,15 +170,15 @@ All notable changes to Tarn are documented in this file. The format is based on
   Forward, Reopen Closed Tab, Close All Tabs, Stop Loading, and Mute Site on a page without a host.
 - File › Close Tab reads Unload Tab on a pinned tab, View › Reader reads Show or Hide Reader,
   Tabs › Search Tabs… is now Show Library, and the Spaces menu lists every space, not only the
-  first nine (macOS, Windows).
+  first nine (macOS, Windows; Show or Hide Reader on Linux).
 - Menus opened from the start page's space and Shield pills and the sidebar's space name drop
   from the button instead of the pointer, and entries inside submenus get their glyphs (macOS).
 - In the reader, ⌘F finds on the page the reader was made from, and ⌘W closes the tab instead of
-  the reader; Esc still closes the reader (macOS, Windows).
+  the reader; Esc still closes the reader (macOS, Windows, Linux).
 - Zooming shows the new zoom level, and says why nothing changes while Responsive Size is on
-  (macOS, Windows).
+  (macOS, Windows, Linux).
 - The Keyboard Shortcuts sheet scrolls with the arrow keys, Page Up and Page Down, Space, Home and
-  End (macOS, Windows).
+  End (macOS, Windows, Linux).
 - Segments, Shield level rows, accent swatches and theme cards in Settings take the keyboard with
   Tab, Enter and Space (macOS, Windows).
 - A colour typed in the theme colour editor is saved when its field loses focus, not only on

@@ -683,6 +683,10 @@ impl Browser {
         self.command(if dev { "reloadFromOrigin" } else { "reload" }, Value::Null);
     }
 
+    pub fn reload_from_origin(&mut self) {
+        self.command("reloadFromOrigin", Value::Null);
+    }
+
     pub fn stop(&mut self) {
         self.command("stop", Value::Null);
         if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)) {
@@ -713,7 +717,7 @@ impl Browser {
 
     pub fn zoom(&mut self, step: i32) {
         if self.responsive_preset().is_some() {
-            return;
+            return self.show_toast("Zoom is off while Responsive Size is on", None);
         }
         let Some(key) = self.model.active else { return };
         let Some(page) = self.pages.get_mut(&key) else { return };
@@ -722,6 +726,7 @@ impl Browser {
         let factor = if step == 0 { 1.0 } else { ZOOM_STEPS[(ix + step).clamp(0, ZOOM_STEPS.len() as i32 - 1) as usize] };
         page.zoom = factor;
         let host = Url::parse(&page.url).ok().and_then(|u| browser_core::site::site_host(&u).map(str::to_owned));
+        self.show_toast(format!("Zoom {}%", (factor * 100.).round()), None);
         if let (Some(host), Some(profile)) = (host, self.model.profile_of(&self.core, key)) {
             let stored = (factor != 1.0).then_some(factor);
             self.core.store(key.private).set_site_zoom(profile, &host, stored).ok();

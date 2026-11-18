@@ -60,9 +60,10 @@ pub enum Command {
     ReturnToPinned,
     SetPinnedUrl,
     SleepOthers,
+    StopLoading,
 }
 
-const COMMANDS: [(&str, &str, Command); 52] = [
+const COMMANDS: [(&str, &str, Command); 55] = [
     ("Settings", "preferences options", Command::Key(Action::Settings)),
     ("New Space", "workspace profile", Command::Key(Action::NewSpace)),
     ("Edit Space", "workspace rename color icon", Command::EditSpace),
@@ -115,6 +116,9 @@ const COMMANDS: [(&str, &str, Command); 52] = [
     ("Set Pinned URL to Current Page", "pinned home", Command::SetPinnedUrl),
     ("Sleep Other Tabs", "hibernate unload memory", Command::SleepOthers),
     ("Keyboard Shortcuts", "help keys cheat sheet", Command::Key(Action::ToggleShortcuts)),
+    ("Stop Loading", "cancel halt", Command::StopLoading),
+    ("Reload Without Cache", "refresh hard force", Command::Key(Action::ReloadFromOrigin)),
+    ("Close Window", "quit", Command::Key(Action::CloseWindow)),
 ];
 
 /// Whether `query` asks for the command list: every command it names, and nothing else.
@@ -152,6 +156,8 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         Command::ResetTitle => tab.custom,
         Command::ReturnToPinned | Command::SetPinnedUrl => tab.drifted,
         Command::SleepOthers => tab.sleep_others,
+        Command::StopLoading => tab.loading,
+        Command::Key(Action::ReloadFromOrigin) | Command::Reader => tab.open,
         Command::CloseSplit
         | Command::Key(Action::FocusNextPane | Action::FocusPreviousPane | Action::SwapPanes | Action::RotateSplitLayout | Action::RemoveFromSplitView) => {
             split
@@ -165,6 +171,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         Command::Key(Action::TogglePin) => (if pinned { "Unpin Tab" } else { "Pin Tab" }).to_owned(),
         Command::Key(Action::ToggleSplitView) => (if split { "Close Split View" } else { "Open in Split View" }).to_owned(),
         Command::ToggleMute => (if tab.muted == Some(true) { "Unmute Site" } else { "Mute Site" }).to_owned(),
+        Command::Reader => (if tab.reader { "Hide Reader" } else { "Show Reader" }).to_owned(),
         _ => label.clone(),
     };
     let room = if listing(query) { rows.len() } else { 4 };
@@ -198,6 +205,7 @@ pub fn run(ui: Ui, command: Command) {
         Command::ImportBrowserData => super::import::open(ui),
         Command::NewWindow => super::new_window(ui),
         Command::FullScreen => act(ui, Browser::toggle_full_screen),
+        Command::StopLoading => act(ui, Browser::stop),
         Command::Key(action) => super::run_action(ui, action),
         Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),
         Command::Space(c) => act(ui, |b| b.run_space_command(c)),
@@ -223,6 +231,8 @@ struct ActiveTab {
     custom: bool,
     drifted: bool,
     sleep_others: bool,
+    loading: bool,
+    reader: bool,
 }
 
 impl ActiveTab {
@@ -237,6 +247,8 @@ impl ActiveTab {
             custom: !tab.custom_title.is_empty(),
             drifted: b.pinned_drift(key).is_some(),
             sleep_others: b.can_sleep_others(key),
+            loading: b.pages.get(&key).is_some_and(|p| p.loading),
+            reader: b.reader.as_ref().is_some_and(|r| r.key == key),
         }
     }
 }

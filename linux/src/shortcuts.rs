@@ -49,6 +49,8 @@ pub enum Action {
     LastTab,
     CopyMarkdownLink,
     ToggleShortcuts,
+    CloseWindow,
+    ReloadFromOrigin,
 }
 
 pub type Binding = (&'static str, Action, &'static str);
@@ -86,6 +88,7 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
         "Page",
         &[
             ("Reload", Action::Reload, "ctrl+r"),
+            ("Reload without cache", Action::ReloadFromOrigin, "ctrl+f5"),
             ("Back", Action::Back, "alt+left"),
             ("Forward", Action::Forward, "alt+right"),
             ("Find in page", Action::Find, "ctrl+f"),
@@ -114,6 +117,7 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
         "Window",
         &[
             ("New window", Action::NewWindow, "ctrl+n"),
+            ("Close window", Action::CloseWindow, "ctrl+shift+w"),
             ("Toggle sidebar", Action::ToggleSidebar, "ctrl+s"),
             ("New space", Action::NewSpace, "ctrl+shift+s"),
             ("Private space", Action::PrivateSpace, "ctrl+shift+n"),
@@ -127,8 +131,13 @@ pub const ZOOM_IN_SHIFTED: &str = "ctrl+shift+=";
 pub const FIND_NEXT: &str = "ctrl+g";
 pub const FIND_PREVIOUS: &str = "ctrl+shift+g";
 
-pub const FIXED: [(&str, &str, &str); 8] = [
+pub const NEXT_TAB: &str = "ctrl+pagedown";
+pub const PREVIOUS_TAB: &str = "ctrl+pageup";
+
+pub const FIXED: [(&str, &str, &str); 10] = [
     ("Tabs", "Select tab 1–8", "Ctrl+1 … Ctrl+8"),
+    ("Tabs", "Next / previous tab", "Ctrl+Page Down  Ctrl+Page Up"),
+    ("Page", "Stop loading", "Esc"),
     ("Page", "Find next", "Ctrl+G"),
     ("Page", "Find previous", "Ctrl+Shift+G"),
     ("Window", "Switch to space 1–9", "Alt+1 … Alt+9"),
@@ -138,7 +147,7 @@ pub const FIXED: [(&str, &str, &str); 8] = [
     ("Window", "Quit", "Ctrl+Q"),
 ];
 
-const RESERVED: [&str; 18] = [
+const RESERVED: [&str; 20] = [
     "ctrl+1",
     "ctrl+2",
     "ctrl+3",
@@ -157,6 +166,8 @@ const RESERVED: [&str; 18] = [
     ZOOM_IN_SHIFTED,
     FIND_NEXT,
     FIND_PREVIOUS,
+    NEXT_TAB,
+    PREVIOUS_TAB,
 ];
 
 impl Action {

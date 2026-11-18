@@ -1149,10 +1149,14 @@ fn address(ui: Ui) -> View {
             when(
                 move || ui.snap.with(|s| s.article),
                 move || {
-                    icon_button(icons::BOOK_OPEN, "Reader", move || act(ui, |b| b.toggle_reader()))
-                        .h(px(CHIP))
-                        .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
-                        .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent() } else { Theme::muted() })
+                    dynamic(move || {
+                        Some(
+                            icon_button(icons::BOOK_OPEN, reader_label(ui), move || act(ui, |b| b.toggle_reader()))
+                                .h(px(CHIP))
+                                .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
+                                .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent_text() } else { Theme::muted() }),
+                        )
+                    })
                 },
             )
         }));
@@ -1235,8 +1239,12 @@ fn compact_address(ui: Ui) -> View {
         when(
             move || ui.snap.with(|s| s.article),
             move || {
-                icon_button(icons::BOOK_OPEN, "Reader", move || act(ui, |b| b.toggle_reader()))
-                    .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent() } else { Theme::muted() })
+                dynamic(move || {
+                    Some(
+                        icon_button(icons::BOOK_OPEN, reader_label(ui), move || act(ui, |b| b.toggle_reader()))
+                            .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent_text() } else { Theme::muted() }),
+                    )
+                })
             },
         )
     }))
@@ -1837,6 +1845,10 @@ fn prompt_bar(ui: Ui) -> AnyElement {
     view().child(enter).child(card).into_element()
 }
 
+fn reader_label(ui: Ui) -> &'static str {
+    if ui.snap.with(|s| s.reader.is_some()) { "Hide Reader" } else { "Show Reader" }
+}
+
 fn close_find(ui: Ui) {
     ui.finding.set(false);
     ui.find.set(String::new());
@@ -1955,6 +1967,9 @@ fn run_action(ui: Ui, action: Action) {
         Action::Back => act(ui, |b| b.back()),
         Action::Forward => act(ui, |b| b.forward()),
         Action::Find => {
+            if ui.snap.with_untracked(|s| s.reader.is_some()) {
+                tools::close_reader(ui);
+            }
             ui.finding.set(true);
             ui.find_ref.focus();
         }
@@ -1986,6 +2001,12 @@ fn run_action(ui: Ui, action: Action) {
         Action::LastTab => act(ui, |b| b.slot(9)),
         Action::CopyMarkdownLink => tools::copy_page(ui, true),
         Action::ToggleShortcuts => show(ui, Panel::Shortcuts),
+        Action::CloseWindow => {
+            if let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned()) {
+                close_window(ui, &here);
+            }
+        }
+        Action::ReloadFromOrigin => act(ui, Browser::reload_from_origin),
     }
 }
 
@@ -2024,7 +2045,9 @@ fn escape(ui: Ui) {
     } else {
         act(ui, |b| {
             if b.toast.is_some() {
-                b.toast = None;
+                b.dismiss_toast();
+            } else if b.active_page().is_some_and(|p| p.loading) {
+                b.stop();
             }
         });
         if let Some(key) = ui.snap.with_untracked(|s| s.views.iter().find(|v| v.active).map(|v| v.key))
@@ -2038,6 +2061,8 @@ fn escape(ui: Ui) {
 fn bind_fixed(ui: Ui) {
     on_key("f5", move |_| reload(ui));
     on_key(crate::shortcuts::ZOOM_IN_SHIFTED, move |_| run_action(ui, Action::ZoomIn));
+    on_key(crate::shortcuts::NEXT_TAB, move |_| run_action(ui, Action::NextTab));
+    on_key(crate::shortcuts::PREVIOUS_TAB, move |_| run_action(ui, Action::PreviousTab));
     on_key_with("escape", KeyOptions { when: nsh_core::keymap::When::Always, pass_through: true, ..KeyOptions::default() }, move |_| escape(ui));
     for (keys, backwards) in [(crate::shortcuts::FIND_NEXT, false), (crate::shortcuts::FIND_PREVIOUS, true)] {
         on_key(keys, move |_| find_again(ui, backwards));
