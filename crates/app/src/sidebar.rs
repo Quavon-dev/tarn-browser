@@ -756,7 +756,9 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
             let leaving = b.motion.unhovered.filter(|(k, at, _)| *k == key && at.elapsed() < FADE).map(|(_, _, reached)| reached);
             // The row's gap goes with the button, so a hidden button leaves the title the whole row.
             let shown = |el: Stateful<Div>, p: f32| el.w(px(CLOSE_WIDTH * p)).ml(px(-CLOSE_GAP * (1. - p))).opacity(p);
+            // The row itself is the keyboard stop; ⌘W closes it from there.
             let button = shown(icon_button(("close", t.id as u64), Icon::Close, true).overflow_hidden(), if hovered.is_some() || active { 1. } else { 0. })
+                .tab_stop(false)
                 .tooltip(crate::shortcuts::tip("Close Tab", &crate::CloseTab))
                 .on_click(cx.listener(move |b, _, window, cx| {
                     cx.stop_propagation();
