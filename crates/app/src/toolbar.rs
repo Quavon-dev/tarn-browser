@@ -316,6 +316,7 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .px(px(CHIP_INSET))
         .flex()
         .items_center()
+        .gap_2()
         .rounded(px(Theme::radius_row()))
         .bg(Secure::chip())
         .border_1()
