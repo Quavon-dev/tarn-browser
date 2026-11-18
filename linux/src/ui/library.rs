@@ -336,7 +336,7 @@ fn library_results(ui: Ui, history: &[store::HistoryEntry], query: &str) -> View
             .children(empty)
             .children(tabs)
     });
-    let links = |rows: Vec<crate::browser::library::Link>| -> Vec<AnyElement> { rows.into_iter().map(|link| super::panels::link_row(ui, link)).collect() };
+    let links = |rows: Vec<crate::browser::library::Link>| -> Vec<AnyElement> { rows.into_iter().map(|link| super::panels::link_row(ui, link).into_element()).collect() };
     let downloads: Vec<AnyElement> = found.downloads.into_iter().map(|d| super::panels::saved_download(ui, d)).collect();
     view()
         .flex_col()

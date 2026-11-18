@@ -299,7 +299,7 @@ fn site_extras(ui: Ui, host: &str) -> View {
     out.children(hidden)
 }
 
-pub(super) fn link_row(ui: Ui, link: Link) -> AnyElement {
+pub(super) fn link_row(ui: Ui, link: Link) -> nsh_base::ButtonElement {
     let host = url::Url::parse(&link.url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
     let (open, new) = (link.url.clone(), link.url.clone());
     library_row(ui, link.url.clone(), &host, link.name, move || {
@@ -315,7 +315,6 @@ pub(super) fn link_row(ui: Ui, link: Link) -> AnyElement {
         });
     }))
     .child(copy_link(ui, "Copy Link", link.url))
-    .into_element()
 }
 
 pub(super) fn search_field(ui: Ui) -> nsh_base::Input {
@@ -329,12 +328,30 @@ pub(super) fn no_results(query: &str) -> Text {
 fn history_panel(ui: Ui) -> AnyElement {
     let history = std::rc::Rc::new(read(ui, Browser::library_history).unwrap_or_default());
     let count = history.len();
+    let starts = read(ui, Browser::history_day_starts).unwrap_or_default();
     let rows = dynamic(move || {
         let query = ui.library_query.get();
         let query = query.trim();
-        let links = Browser::history_links(&history, query, LIST_ROWS);
-        let empty = links.is_empty().then(|| if query.is_empty() { note("No history yet") } else { no_results(query) });
-        Some(view().flex_col().gap(px(1.)).children(empty).children(links.into_iter().map(|link| link_row(ui, link))))
+        let (now, mut day) = (browser_core::now(), None);
+        let mut list = view().flex_col().gap(px(1.));
+        let hits: Vec<usize> = browser_core::library::history_hits(&history, query).into_iter().take(LIST_ROWS).collect();
+        if hits.is_empty() {
+            list = list.child(if query.is_empty() { note("No history yet") } else { no_results(query) });
+        }
+        for ix in hits {
+            let visit = &history[ix];
+            let named = browser_core::library::history_day(visit.visited_at, starts);
+            if day.replace(named) != Some(named) {
+                list = list.child(section(named.to_owned()));
+            }
+            let url = visit.url.clone();
+            list = list.child(
+                link_row(ui, Link::new(&visit.title, &visit.url))
+                    .child(small(browser_core::library::ago(visit.visited_at, now)).flex_none().text_color(Theme::faint()))
+                    .child(icon_button(icons::CLOSE, "Remove from History", move || super::remove_history(ui, url.clone()))),
+            );
+        }
+        Some(list)
     });
     let closed: Vec<AnyElement> = read(ui, Browser::recently_closed)
         .unwrap_or_default()
@@ -350,7 +367,7 @@ fn history_panel(ui: Ui) -> AnyElement {
         .collect();
     let closed = (!closed.is_empty())
         .then(|| view().flex_col().gap(px(1.)).child(section("Recently Closed".to_owned())).children(closed).child(section("History".to_owned())));
-    let clear = (count > 0).then(|| confirmed(ui, "history".to_owned(), "Clear History", move || super::clear_history(ui)));
+    let clear = (count > 0).then(|| super::clear_history_choice(ui, "Clear History…"));
     popover()
         .flex_1()
         .child(heading(

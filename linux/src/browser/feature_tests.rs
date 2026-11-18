@@ -575,7 +575,7 @@ fn site_icons_load_at_start_fetch_inside_the_tab_and_go_with_history() {
     visit(&mut b, key, "https://a.test/x");
     assert!(asked(&b, "readIconLinks").is_empty(), "gives up after MAX_TRIES failed fetches");
     assert!(b.core.disk.favicons(profile).unwrap().iter().all(|(h, _)| h == "b.test"));
-    b.clear_history();
+    b.clear_history(browser_core::library::HistoryRange::All);
     let cleared = b.site_icons(&icons).unwrap();
     assert!(cleared.find("b.test").is_none());
     b.outbox.clear();

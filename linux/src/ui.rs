@@ -354,6 +354,30 @@ pub(super) fn confirmed(ui: Ui, id: String, name: &'static str, run: impl Fn() +
     })
 }
 
+/// `name`, then once pressed the history ranges to clear, each of which clears at once, and Cancel.
+pub(super) fn clear_history_choice(ui: Ui, name: &'static str) -> AnyElement {
+    use browser_core::library::HistoryRange;
+    dynamic(move || {
+        if ui.confirm.with(|c| c.as_deref() == Some("history")) {
+            let ranges = HistoryRange::ALL.map(|range| {
+                controls::accent_pill(format!("Clear {}", range.label()), move || {
+                    ui.confirm.set(None);
+                    clear_history(ui, range);
+                })
+            });
+            view().flex_row().flex_wrap().items_center().gap_2().children(ranges).child(pill("Cancel", move || ui.confirm.set(None))).into_element()
+        } else {
+            pill(name, move || ui.confirm.set(Some("history".to_owned()))).into_element()
+        }
+    })
+}
+
+/// Removes one address from the history and from the cached rows.
+pub(super) fn remove_history(ui: Ui, url: String) {
+    act(ui, |b| b.remove_history_url(&url));
+    ui.history.set(Default::default());
+}
+
 fn act_moving(ui: Ui, f: impl FnOnce(&mut Browser)) {
     animate_next(POP);
     act(ui, f);
@@ -890,9 +914,11 @@ pub(super) fn in_other_windows(ui: Ui, f: impl FnOnce(&mut Browser) + Clone) {
 }
 
 /// Clears the profile's history, and the cache that would still suggest it.
-fn clear_history(ui: Ui) {
-    act(ui, |b| b.clear_history());
-    if let Some(Some(profile)) = read(ui, |b| b.model.profile()) {
+fn clear_history(ui: Ui, range: browser_core::library::HistoryRange) {
+    act(ui, |b| b.clear_history(range));
+    if range == browser_core::library::HistoryRange::All
+        && let Some(Some(profile)) = read(ui, |b| b.model.profile())
+    {
         in_other_windows(ui, move |b| {
             b.favicons.forget(&profile);
             b.reset_zooms(profile.0, profile.1, None);

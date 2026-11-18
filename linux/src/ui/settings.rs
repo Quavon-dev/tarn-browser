@@ -684,7 +684,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                         .children((!private).then(|| data_row("Export this profile's data as JSON", pill("Export…", move || export_profile(ui)).into_element())))
                         .child(data_row(
                             "Clear browsing history, site icons, zoom levels, protected sites and hidden elements",
-                            confirmed(ui, "history".to_owned(), "Clear", move || super::clear_history(ui)),
+                            super::clear_history_choice(ui, "Clear…"),
                         ))
                         .child(data_row("Clear the download list", confirmed(ui, "download list".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads()))))
                         .child(data_row("Clear cookies and website data", confirmed(ui, "data".to_owned(), "Clear", clear_data)))

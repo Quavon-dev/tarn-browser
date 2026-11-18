@@ -787,13 +787,30 @@ impl Browser {
         (shield::update::configured().then(|| self.setting_on(shield::update::SETTING)), crate::filter_updates::status().summary())
     }
 
-    pub fn clear_history(&mut self) {
+    /// Clears `range` of the profile's history; Everything also forgets site icons and zoom levels.
+    pub fn clear_history(&mut self, range: browser_core::library::HistoryRange) {
         if let Some((private, id)) = self.profile_of_space() {
-            self.core.store(private).clear_history(id).ok();
-            self.favicons.forget(&(private, id));
-            self.reset_zooms(private, id, None);
+            browser_core::library::clear_history(self.core.store(private), id, range, now()).ok();
+            if range == browser_core::library::HistoryRange::All {
+                self.favicons.forget(&(private, id));
+                self.reset_zooms(private, id, None);
+            }
         }
         self.text_found.clear();
+    }
+
+    pub fn remove_history_url(&mut self, url: &str) {
+        if let Some((private, id)) = self.profile_of_space() {
+            self.core.store(private).delete_history_url(id, url).ok();
+        }
+        self.text_found.clear();
+    }
+
+    /// Where today and yesterday start, for `library::history_day`.
+    pub fn history_day_starts(&self) -> (i64, i64) {
+        let (now, store) = (now(), self.core.store(self.model.private()));
+        let today = store.local_day_start(now).unwrap_or(now);
+        (today, store.local_day_start(today - 1).unwrap_or(today - 86_400_000))
     }
 
     pub fn clear_downloads(&mut self) {

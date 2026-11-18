@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use browser_core::bookmarks::{self, title_or_host};
 use browser_core::import::{self as data, Kinds, Source};
-use browser_core::library::{self, HISTORY_LOAD, LIST_ROWS as MAX_LIST, SECTION_ROWS as MAX_ROWS};
+use browser_core::library::{self, HISTORY_LOAD, LIST_ROWS as MAX_LIST, SECTION_ROWS as MAX_ROWS, ago};
 use browser_core::snapshot::{self, LoadError, SpaceSnapshot};
 use engine::menu::{self, Item as MenuItem};
 use futures::channel::oneshot;
@@ -47,17 +47,6 @@ const DELETE_KEY: &str = if cfg!(windows) { "Delete" } else { "⌘⌫" };
 actions!(library, [SaveSnapshot, RestoreSnapshot]);
 
 pub(crate) use browser_core::shield_card::date;
-
-/// "5 min ago", "3 h ago", "2 d ago", then the date.
-fn ago(ms: i64, now: i64) -> String {
-    match (now - ms).max(0) / 60_000 {
-        0 => "Just now".into(),
-        min @ 1..60 => format!("{min} min ago"),
-        min @ 60..1440 => format!("{} h ago", min / 60),
-        min @ 1440..10_080 => format!("{} d ago", min / 1440),
-        _ => date(ms),
-    }
-}
 
 fn download_row(d: &Download, now: i64) -> Entry {
     let state = match d.state.as_str() {
@@ -1527,15 +1516,5 @@ mod tests {
         let blob = Download { url: String::new(), state: "failed".into(), ..d };
         let Entry::Row(r) = download_row(&blob, 0) else { panic!() };
         assert_eq!(r.detail.as_deref(), Some("Failed · Just now"));
-    }
-
-    #[test]
-    fn ages_turn_into_dates_after_a_week() {
-        let min = 60_000;
-        assert_eq!(ago(0, 59_999), "Just now");
-        assert_eq!(ago(0, 5 * min), "5 min ago");
-        assert_eq!(ago(0, 2 * 1440 * min), "2 d ago");
-        assert_eq!(ago(0, 7 * 1440 * min), "1970-01-01");
-        assert_eq!(ago(10 * min, 0), "Just now");
     }
 }
