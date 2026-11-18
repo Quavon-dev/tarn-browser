@@ -152,7 +152,6 @@ pub struct Snapshot {
     pub notice: Option<Notice>,
     pub folders: Vec<(Id, String)>,
     pub toast: Option<crate::browser::Toast>,
-    /// The link under the pointer and the page it is over.
     pub link: Option<(TabKey, String)>,
     pub reader: Option<crate::browser::ReaderView>,
     pub article: bool,
@@ -474,7 +473,6 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         notice: b.notice.clone(),
         folders: b.model.folders.iter().map(|f| (f.id, f.name.clone())).collect(),
         toast: b.toast.clone(),
-        // A blocked page or JSON view covers the web view, which then reports no pointer leaving.
         link: b
             .hovered_link
             .get()

@@ -226,7 +226,8 @@ Linux packages.
 ## Shortcuts
 
 The macOS defaults (Windows and Linux use <kbd>Ctrl</kbd> where macOS uses <kbd>⌘</kbd>). Most can
-be changed in Settings › Shortcuts; tab and space numbers, Esc, Undo/Redo and ⌘Q stay fixed.
+be changed in Settings › Shortcuts; tab and space numbers, Esc, Undo/Redo and ⌘Q stay fixed. On
+Linux, Reader is <kbd>Ctrl+Alt+E</kbd>, since <kbd>Ctrl+Alt+R</kbd> rotates the split layout.
 
 | | |
 |---|---|

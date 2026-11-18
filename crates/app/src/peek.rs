@@ -29,8 +29,6 @@ pub struct Peek {
     origin: Option<Origin>,
     timer: Option<Task<()>>,
     pointer: Option<(engine::menu::EventMonitor, Task<()>)>,
-    /// The library and the downloads popover opened from the floating sidebar: they stay above it
-    /// and close with it. One opened from the main window keeps the floating sidebar away instead.
     pub(crate) owns: [bool; 2],
 }
 
@@ -144,7 +142,6 @@ impl Browser {
         });
     }
 
-    /// The main window's frame, also when `window` is the floating sidebar's.
     pub(crate) fn main_bounds(&self, window: &Window) -> Bounds<Pixels> {
         self.peek.origin.filter(|_| self.peek.is_window(window)).map_or_else(|| window.bounds(), |(bounds, _)| bounds)
     }
@@ -196,8 +193,6 @@ impl Browser {
     }
 }
 
-/// A popover opened over the floating sidebar becomes its child window, so it stays in front of
-/// it; it closes with it (`close_peek`), since a child window goes with its parent.
 pub(crate) fn popovers_over_peek(browser: &WeakEntity<Browser>, cx: &mut App) {
     let Some((peek, popovers)) = browser.upgrade().and_then(|b| {
         let b = b.read(cx);

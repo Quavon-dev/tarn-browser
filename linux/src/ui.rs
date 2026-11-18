@@ -530,7 +530,6 @@ fn web_views(ui: Ui) -> View {
         .child(link_peek::layer(ui))
 }
 
-/// The link under the pointer, at the bottom-left of the page it is over; the pointer passes through.
 fn link_bubble(ui: Ui) -> AnyElement {
     dynamic(move || {
         let (key, link) = ui.snap.with(|s| s.link.clone())?;
@@ -553,8 +552,8 @@ fn link_bubble(ui: Ui) -> AnyElement {
                 .border_1()
                 .border_color(Theme::surface_edge())
                 .pointer_events(nsh_core::PointerEvents::None)
-                .child(small(origin).flex_shrink(0.))
-                .child(small(rest).flex_shrink(1.).truncate())
+                .child(view().flex_row().justify_end().overflow_hidden().min_w(px(0.)).flex_shrink(1.).child(small(origin).flex_shrink(0.)))
+                .child(small(rest).flex_shrink(1000.).truncate())
         })
     })
 }

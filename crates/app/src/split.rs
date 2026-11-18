@@ -372,11 +372,14 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
     let rects = b.split_shown.rects.clone();
     let splits = splits.clone();
     let page = canvas(
-        move |bounds, _, _| {
+        move |bounds, window, _| {
             let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
             let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-            if let Some(rect) = rects.borrow_mut().get_mut(ix) {
+            if let Some(rect) = rects.borrow_mut().get_mut(ix)
+                && *rect != (x, y, w, h)
+            {
                 *rect = (x, y, w, h);
+                window.refresh();
             }
             let Some(view) = &view else { return };
             view.set_alpha(1.);

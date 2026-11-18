@@ -131,6 +131,7 @@ final class TarnWebView implements NshComponent {
     private volatile Page pending;
     private volatile boolean shellNavigation;
     private volatile boolean javaScriptOn;
+    private boolean skipCache;
 
     TarnWebView(NshComponentContext context, boolean noPersonalizedLearning) {
         this.context = context;
@@ -196,6 +197,7 @@ final class TarnWebView implements NshComponent {
         }
         if (web == null) {
             if (("reload".equals(name) || "reloadFromOrigin".equals(name)) && loadUrl != null) {
+                skipCache = "reloadFromOrigin".equals(name);
                 appliedSeq = null;
                 apply();
             }
@@ -487,6 +489,8 @@ final class TarnWebView implements NshComponent {
         extensions.apply();
         if (loadUrl != null && !Objects.equals(loadSeq, appliedSeq)) {
             appliedSeq = loadSeq;
+            if (skipCache) web.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
+            skipCache = false;
             shellLoad(loadUrl, loadOpener, loadFile);
         }
     }

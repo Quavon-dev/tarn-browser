@@ -347,7 +347,6 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                         view.set_zoom(scale);
                     }
                 }
-                // The link bubble was placed from the last frame's rect; a moved page needs one more.
                 if link_rect.replace(page) != page {
                     window.refresh();
                 }

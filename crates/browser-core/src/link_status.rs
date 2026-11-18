@@ -2,12 +2,14 @@ use crate::command::{MAX_HOST, host_tail};
 use crate::tabs::TabKey;
 use crate::text::bounded_url;
 
-/// What the status bubble shows for a link, `javascript:` links included. The page's href is
-/// parsed first, so hosts show as punycode and odd characters percent-encoded; user info is
-/// dropped and a long host keeps its end, so the registrable domain always shows (S14).
 pub fn text(raw: &str) -> Option<String> {
-    let end = raw.char_indices().nth(engine::view_policy::MAX_HOVERED_LINK).map_or(raw.len(), |(at, _)| at);
-    let url = url::Url::parse(&raw[..end]).ok()?;
+    let max = engine::view_policy::MAX_HOVERED_LINK;
+    let raw = &raw[..raw.char_indices().nth(max).map_or(raw.len(), |(at, _)| at)];
+    let cut = raw.encode_utf16().count() >= max;
+    if cut && raw.find("://").is_some_and(|at| !raw[at + 3..].contains(['/', '?', '#', '\\'])) {
+        return None;
+    }
+    let url = url::Url::parse(raw).ok()?;
     match url.scheme() {
         "javascript" => return Some(bounded_url(&url.as_str().replace("%20", " "))),
         "blob" => return Some(text(&url.as_str()["blob:".len()..]).map_or_else(|| bounded_url(url.as_str()), |inner| format!("blob:{inner}"))),
@@ -21,7 +23,6 @@ pub fn text(raw: &str) -> Option<String> {
     Some(format!("{}://{host}{}", url.scheme(), bounded_url(&url[url::Position::AfterHost..])))
 }
 
-/// `text` split after its origin, which a shell never shortens: only the rest gives way.
 pub fn split(text: &str) -> (&str, &str) {
     let scheme = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c));
     let Some(start) = text.find("://").filter(|at| scheme(text[..*at].trim_start_matches("blob:"))).map(|at| at + 3) else { return ("", text) };
@@ -29,13 +30,10 @@ pub fn split(text: &str) -> (&str, &str) {
     text.split_at(end)
 }
 
-/// The link under the pointer and the tab whose page reported it.
 #[derive(Default, Debug)]
 pub struct Hovered(Option<(TabKey, String)>);
 
 impl Hovered {
-    /// `raw` from `key`'s page, `None` once the pointer left its link; a page the pointer left
-    /// clears only its own link. Whether the shown link changed.
     pub fn set(&mut self, key: TabKey, raw: Option<&str>) -> bool {
         let link = raw.and_then(text).map(|text| (key, text));
         if link.is_none() && self.0.as_ref().is_some_and(|(k, _)| *k != key) || link == self.0 {
@@ -83,6 +81,15 @@ mod tests {
         assert_eq!(split("blob:https://a.test/id"), ("blob:https://a.test", "/id"));
         assert_eq!(text("blob:https://a.test/id?x#y").as_deref(), Some("blob:https://a.test/id?x#y"));
         assert_eq!(text("blob:abc").as_deref(), Some("blob:abc"));
+    }
+
+    #[test]
+    fn a_link_cut_inside_its_authority_shows_nothing() {
+        let cut = |link: String| link.chars().take(engine::view_policy::MAX_HOVERED_LINK).collect::<String>();
+        assert_eq!(text(&cut(format!("https://{}.bank.test@evil.test/", "a".repeat(4078)))), None);
+        assert_eq!(text(&format!("https://{}.bank.test@evil.test/", "a".repeat(4078))), None);
+        assert_eq!(text(&cut(format!("blob:https://{}.bank.test@evil.test/", "a".repeat(4078)))), None);
+        assert!(text(&cut(format!("https://evil.test/{}", "p".repeat(5000)))).is_some_and(|t| t.starts_with("https://evil.test/")));
         let long = format!("https://bank.example.com.{}.evil.test/{}", "a".repeat(200), "p".repeat(300));
         let shown = text(&long).unwrap();
         assert!(shown.starts_with("https://…") && shown.contains(".evil.test/"), "{shown}");

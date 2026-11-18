@@ -11,15 +11,12 @@ use crate::browser::{Browser, TabKey};
 
 const HEIGHT: f32 = 24.;
 const PAD: f32 = 8.;
-/// Between the bubble and the page's bottom-left corner.
 const GAP: f32 = 4.;
+const REST_GIVES_WAY: f32 = 1000.;
 
-/// The link under the pointer, at the bottom-left of its page in a pop-up window the pointer
-/// passes through, since GPUI cannot draw over the page.
 #[derive(Default)]
 pub struct LinkStatus {
     link: browser_core::link_status::Hovered,
-    /// The page's frame in the window outside split view, written as it is laid out.
     pub(crate) page: Rc<Cell<Rect>>,
     pub(crate) window: Option<WindowHandle<LinkStatusWindow>>,
     pub(crate) popup: Option<engine::Host>,
@@ -40,14 +37,12 @@ impl Browser {
             None if self.model.active == Some(key) => self.link_status.page.get(),
             None => return None,
         };
-        // A blocked page or JSON view hides the web view, which then reports no pointer leaving.
         if self.pages.get(&key).is_some_and(|p| p.blocked.is_some()) || self.json_pages.contains_key(&key) {
             return None;
         }
         (rect.2 > 0. && rect.3 > 0.).then_some(rect)
     }
 
-    /// Opens, moves or closes the bubble for the link under the pointer.
     pub(crate) fn sync_link_status(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let shown = self
             .link_status
@@ -56,7 +51,6 @@ impl Browser {
             .filter(|_| !self.overlay_open())
             .and_then(|(key, text)| Some((self.link_rect(key)?, SharedString::from(text.to_owned()))));
         let Some(((left, top, page_width, page_height), text)) = shown else {
-            // A tab switched away from, or a page covered, shows its link again only once the pointer moves.
             self.link_status.link.clear();
             return self.close_link_status(cx);
         };
@@ -75,7 +69,6 @@ impl Browser {
                 && self.link_status.placed != placed
             {
                 self.link_status.placed = placed;
-                // GPUI handles the resize this causes only outside an update, so the frame is set from a task.
                 cx.spawn(async move |_, _| host.place(&popup, x.into(), y.into(), width.into(), HEIGHT.into())).detach();
             }
             return;
@@ -136,6 +129,8 @@ impl Render for LinkStatusWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let text = self.browser.upgrade().and_then(|b| b.read(cx).link_status.link.get().map(|(_, text)| text.to_owned())).unwrap_or_default();
         let (origin, rest) = browser_core::link_status::split(&text);
+        let mut rest_el = div().one_line(rest.to_owned());
+        rest_el.style().flex_shrink = Some(REST_GIVES_WAY);
         surface(Theme::radius_row())
             .size_full()
             .px(px(PAD))
@@ -143,7 +138,7 @@ impl Render for LinkStatusWindow {
             .items_center()
             .text_size(px(TEXT_SMALL))
             .text_color(Theme::muted())
-            .child(div().flex_none().child(SharedString::from(origin.to_owned())))
-            .child(div().one_line(rest.to_owned()))
+            .child(div().min_w_0().overflow_hidden().flex().justify_end().child(div().flex_none().child(SharedString::from(origin.to_owned()))))
+            .child(rest_el)
     }
 }
