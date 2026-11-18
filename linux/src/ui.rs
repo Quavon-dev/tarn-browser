@@ -2205,6 +2205,15 @@ pub fn themes_changed() {
     for ui in WINDOWS.with_borrow(Vec::clone) {
         act(ui, Browser::apply_theme);
     }
+    if let Some(ui) = WINDOWS.with_borrow(|w| w.first().copied()) {
+        apply_color_scheme(ui, Theme::is_light());
+    }
+}
+
+/// Gives every page the app theme's colour scheme, or the system's while the theme follows it.
+fn apply_color_scheme(ui: Ui, light: bool) {
+    let follows = read(ui, |b| browser_core::theme::Selection::load(&b.core.disk).match_system).unwrap_or(true);
+    crate::webview::set_dark(follows, !light);
 }
 
 fn open_settings(ui: Ui, pane: tarn_nsh_shared::panes::Pane) {
@@ -2496,8 +2505,7 @@ fn browser_window(ui: Ui) -> AnyElement {
     });
     effect(move || {
         let light = Theme::is_light();
-        let follows = untracked(|| read(ui, |b| browser_core::theme::Selection::load(&b.core.disk).match_system)).unwrap_or(true);
-        crate::webview::set_dark(follows, !light);
+        untracked(|| apply_color_scheme(ui, light));
     });
     let full = computed(move || ui.snap.with(|s| s.fullscreen));
     view()
