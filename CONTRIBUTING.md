@@ -164,9 +164,10 @@ issue. Run the **Issues** workflow by hand to count right away.
 
 Every pull request to `main` needs every CI check green, every review conversation resolved
 (CodeRabbit's included) and the approval of a Code Owner who did not author it:
-`@Quavon-dev/tarn-maintainer`, and `@Quavon-dev/maintainers` for the protected paths; only `@Quavon-dev/maintainers` can merge. The ruleset with these requirements has
-no bypass, for people or automation: the update app's Chromium update pull requests also wait
-for a maintainer's review (`docs/release.md`, "Automatic engine updates").
+`@Quavon-dev/tarn-maintainer`, and `@Quavon-dev/maintainers` for the protected paths. A commit
+pushed after an approval needs a new approval from someone other than its pusher. The ruleset
+has no bypass, for people or automation: the update app's Chromium update pull requests also
+wait for a maintainer's review (`docs/release.md`, "Automatic engine updates").
 
 A change to `Cargo.lock` needs `scripts/third-party-licenses.sh` run and its output committed; CI
 checks it.
