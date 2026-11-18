@@ -397,9 +397,11 @@ impl Render for DownloadsWindow {
             .child(div().font_weight(FontWeight::BOLD).child("Downloads"))
             .when(!self.rows.is_empty(), |d| {
                 d.child(
-                    tab_stop(div().id("downloads-clear").px_1().rounded(px(Theme::radius_small())).cursor_pointer().text_color(Theme::accent()).child("Clear"))
-                        .hover(|s| s.opacity(0.8))
-                        .on_click(cx.listener(|this, _, window, cx| this.clear(window, cx))),
+                    tab_stop(
+                        div().id("downloads-clear").px_1().rounded(px(Theme::radius_small())).cursor_pointer().text_color(Theme::accent_text()).child("Clear"),
+                    )
+                    .hover(|s| s.opacity(0.8))
+                    .on_click(cx.listener(|this, _, window, cx| this.clear(window, cx))),
                 )
             });
         let saving: Vec<_> = transfers.iter().take(fit).map(|(id, t)| self.transfer_row(*id, t, cx).into_any_element()).collect();

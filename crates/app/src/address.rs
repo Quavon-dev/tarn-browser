@@ -298,8 +298,8 @@ impl Render for Palette {
                         .bg(Theme::accent_soft())
                         .text_size(px(TEXT_SMALL))
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(Theme::accent())
-                        .child(icon(Icon::Command, 12., Theme::accent()))
+                        .text_color(Theme::accent_text())
+                        .child(icon(Icon::Command, 12., Theme::accent_text()))
                         .child("Commands"),
                 )
             });

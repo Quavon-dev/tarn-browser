@@ -147,12 +147,17 @@ impl Theme {
     pub fn faint() -> Rgba {
         get(|t| rgba(t.faint))
     }
-    /// A sleeping tab's title: grey rather than blue, so it reads apart from awake tabs in white.
+    /// A sleeping tab's title: muted, so it reads apart from awake tabs in full text colour.
     pub fn asleep() -> Rgba {
-        rgba(if Theme::is_light() { 0x3c4a5a8c } else { 0xb4c2d08c })
+        Self::muted()
     }
     pub fn accent() -> Rgba {
         get(|t| rgba(t.accent))
+    }
+    /// The accent as text, a focus ring or a caret, adjusted to stay readable on the theme
+    /// (`Tokens::accent_text`).
+    pub fn accent_text() -> Rgba {
+        get(|t| rgba(t.accent_text()))
     }
     pub fn accent_soft() -> Rgba {
         get(|t| rgba(t.accent & 0xffffff00 | 0x47))
@@ -328,7 +333,7 @@ impl Secure {
         Self::pick(0x5aaee0, 0x1567a3)
     }
     pub fn danger() -> Rgba {
-        Self::pick(0xff453a, 0xd70015)
+        Self::pick(0xff9a92, 0xd70015)
     }
     pub fn warning() -> Rgba {
         Self::pick(0xffb340, 0xa05a00)
@@ -382,18 +387,22 @@ mod tests {
         Theme::set_tokens(hostile.tokens, Scheme::Dark, None);
         assert_eq!([Secure::text(), Secure::chip(), Secure::warning(), Secure::danger(), Secure::shield_raised(), Secure::muted()], dark);
         assert_eq!(Theme::warning(), dark[2]);
-        for bg in [Secure::chip(), Secure::surface()] {
-            assert!(contrast(hex(Secure::text()), hex(bg)) >= 4.5);
-            assert!(contrast(hex(Secure::warning()), hex(bg)) >= 4.5);
-        }
+        let readable = || {
+            for bg in [Secure::chip(), Secure::surface()] {
+                for fg in [Secure::text(), Secure::warning(), Secure::danger(), Secure::shield_raised()] {
+                    assert!(contrast(hex(fg), hex(bg)) >= 4.5, "{fg:?} on {bg:?}");
+                }
+                assert!(contrast(hex(Secure::success()), hex(bg)) >= 3.);
+            }
+            let button = browser_core::theme::over(hex(Secure::control()), hex(Secure::surface()));
+            for fg in [Secure::text(), Secure::warning(), Secure::danger()] {
+                assert!(contrast(hex(fg), button) >= 4.5, "{fg:?} on a secure button");
+            }
+        };
+        readable();
         Theme::set_tokens(Tokens::LIGHT, Scheme::Light, Some("Inter".into()));
         assert_eq!(Theme::font(), "Inter");
-        for bg in [Secure::chip(), Secure::surface()] {
-            for fg in [Secure::text(), Secure::warning(), Secure::danger(), Secure::shield_raised()] {
-                assert!(contrast(hex(fg), hex(bg)) >= 4.5, "{fg:?} on {bg:?}");
-            }
-            assert!(contrast(hex(Secure::success()), hex(bg)) >= 3.);
-        }
+        readable();
         Theme::set_accent(0x0a7aff);
         assert_eq!(hex(Theme::accent()), 0x0a7affff);
         assert_eq!(hex(Theme::selected()), 0x0a7aff52);

@@ -165,7 +165,7 @@ fn label(text: impl Into<SharedString>) -> gpui::Div {
 }
 
 fn group_label(text: &'static str) -> Div {
-    div().pt_5().pb_1p5().px_1().text_size(px(TEXT_TINY)).font_weight(FontWeight::BOLD).text_color(Theme::accent()).child(text)
+    div().pt_5().pb_1p5().px_1().text_size(px(TEXT_TINY)).font_weight(FontWeight::BOLD).text_color(Theme::accent_text()).child(text)
 }
 
 /// A section title with a button at its right end.

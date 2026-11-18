@@ -213,7 +213,7 @@ pub fn field(focused: bool) -> Div {
         .rounded(px(Theme::radius_row()))
         .bg(Theme::raised())
         .border_1()
-        .border_color(if focused { Theme::accent() } else { Theme::hairline() })
+        .border_color(if focused { Theme::accent_text() } else { Theme::hairline() })
         .when(focused, |d| d.child(ring))
 }
 
@@ -525,7 +525,12 @@ pub fn favicon(host: &str, size: f32) -> Div {
     let letter = host.trim_start_matches("www.").chars().next().map(|c| c.to_uppercase().to_string());
     let base = div().w(px(size)).h(px(size)).flex().flex_none().items_center().justify_center().rounded(px(size * 0.28));
     match letter {
-        Some(letter) => base.bg(Theme::monogram(host)).text_size(px(size * 0.62)).font_weight(FontWeight::BOLD).text_color(Theme::on_accent()).child(letter),
+        Some(letter) => base
+            .bg(Theme::monogram(host))
+            .text_size(px(size * 0.62))
+            .font_weight(FontWeight::BOLD)
+            .text_color(Theme::on_fill(Theme::monogram(host)))
+            .child(letter),
         None => base.bg(Theme::control()),
     }
 }
@@ -610,9 +615,10 @@ pub fn tab_stop(control: Stateful<Div>) -> Stateful<Div> {
     })
 }
 
-/// The keyboard focus ring: `field`'s 3 points of `accent_soft` outside the control.
+/// The keyboard focus ring: 2 points of the readable accent outside the control, at least 3:1 on
+/// the theme's backgrounds.
 pub fn focus_ring() -> Vec<BoxShadow> {
-    vec![ring(Theme::accent_soft(), 3., 0.)]
+    vec![ring(Theme::accent_text(), 2., 0.)]
 }
 
 pub fn section(title: impl Into<SharedString>) -> Div {

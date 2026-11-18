@@ -272,7 +272,7 @@ impl Render for ToastWindow {
                         .rounded(px(Theme::radius_row()))
                         .cursor_pointer()
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(Theme::accent())
+                        .text_color(Theme::accent_text())
                         .hover(|s| s.bg(Theme::hover()))
                         .active(|s| s.bg(Theme::pressed()))
                         .child(label)

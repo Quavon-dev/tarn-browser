@@ -777,7 +777,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
             Some((_, Some(does))) => d
                 .bg(Theme::accent_soft())
                 .child(div().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent()))
-                .child(div().flex_none().pr_1p5().text_size(px(TEXT_SMALL)).text_color(Theme::accent()).child(does)),
+                .child(div().flex_none().pr_1p5().text_size(px(TEXT_SMALL)).text_color(Theme::accent_text()).child(does)),
         })
         .on_drag_move(cx.listener(move |b, e: &DragMoveEvent<DraggedTab>, _, cx| {
             let inside = e.bounds.contains(&e.event.position);

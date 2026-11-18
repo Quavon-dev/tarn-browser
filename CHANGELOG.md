@@ -121,6 +121,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   select a word on a double click and everything on a triple click, place the caret where a
   password field is clicked, show a selection only while focused, and no longer crash when an
   input method selects part of its text (macOS, Windows).
+- Accent-coloured text (settings group labels, Undo in toasts, Clear in Downloads, the Commands
+  chip, devtools labels), the caret and keyboard focus rings stay readable with any accent and
+  theme; placeholders and secondary text meet 4.5:1 in every built-in theme, red warning text is
+  readable in dark mode, sleeping tabs follow the theme's secondary text colour, and site initials
+  and extension badges pick a readable letter colour (macOS, Windows).
 - Two downloads of the same name at once each get their own file, instead of the second failing
   or replacing the first (Linux, iOS, Android).
 - Settings text no longer runs under the controls beside it, and text fields clip their

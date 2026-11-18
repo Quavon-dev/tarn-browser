@@ -99,7 +99,7 @@ impl Tokens {
         hairline: 0x8ed1f71f,
         text: 0xf4f9fdff,
         muted: 0xd9ecfabf,
-        faint: 0xd9ecfa73,
+        faint: 0xd9ecfa9a,
         accent: 0x1f75b0ff,
         fog: [0x2a5478ff, 0x4f8bb8ff, 0xe3f3fdff, 0x8ed1f7ff],
         radius: [6., 9., 12., 14., 12., 16.],
@@ -129,7 +129,7 @@ impl Tokens {
         hairline: 0x1567a31f,
         text: 0x0f2236ff,
         muted: 0x1b3550c7,
-        faint: 0x1b355080,
+        faint: 0x1b3550b8,
         accent: 0x1f75b0ff,
         fog: [0xd6e4f1ff, 0xaac7e1ff, 0x4f7fa8ff, 0x1f75b0ff],
         radius: [6., 9., 12., 14., 12., 16.],
@@ -910,7 +910,7 @@ fn luminance(rgb: u32) -> f32 {
 }
 
 /// `fg` drawn over `bg`, both `0xRRGGBBAA`; the result is opaque.
-fn over(fg: u32, bg: u32) -> u32 {
+pub fn over(fg: u32, bg: u32) -> u32 {
     let a = (fg & 0xff) as f32 / 255.;
     let mix = |shift: u32| ((fg >> shift & 0xff) as f32 * a + (bg >> shift & 0xff) as f32 * (1. - a)).round() as u32;
     (mix(24) << 24) | (mix(16) << 16) | (mix(8) << 8) | 0xff
@@ -934,7 +934,10 @@ pub fn on_fill(fill: u32, behind: u32) -> u32 {
 
 /// Text colours and the contrast each needs on every background: body text, secondary text, the
 /// space name and placeholders.
-const FLOORS: [(&str, f32); 4] = [("text", 4.5), ("muted", 3.), ("space-label", 3.), ("faint", 2.)];
+const FLOORS: [(&str, f32); 4] = [("text", 4.5), ("muted", 4.5), ("space-label", 3.), ("faint", 4.5)];
+
+/// The accent's contrast floor where it is drawn as text or a focus ring (`Tokens::accent_text`).
+pub const ACCENT_TEXT_FLOOR: f32 = 4.5;
 
 fn text_slot<'a>(t: &'a mut Tokens, name: &str) -> &'a mut u32 {
     match name {
@@ -945,31 +948,48 @@ fn text_slot<'a>(t: &'a mut Tokens, name: &str) -> &'a mut u32 {
     }
 }
 
+/// `fg` itself when it reaches `floor` on every one of `backgrounds`, else the first step towards
+/// white, then towards black, that does; text alpha stays at least 0.6.
+fn readable(fg: u32, backgrounds: &[u32], floor: f32) -> Option<u32> {
+    let passes = |c: u32| backgrounds.iter().all(|bg| contrast(c, *bg) >= floor);
+    let toward = |target: u32| {
+        (1..=20).map(move |step| {
+            let k = step as f32 / 20.;
+            let mix = |shift: u32| ((fg >> shift & 0xff) as f32 * (1. - k) + (target >> shift & 0xff) as f32 * k).round() as u32;
+            (mix(24) << 24) | (mix(16) << 16) | (mix(8) << 8) | (fg & 0xff).max(153)
+        })
+    };
+    std::iter::once(fg).chain(toward(0xffffff00)).chain(toward(0)).find(|c| passes(*c))
+}
+
+impl Tokens {
+    /// Every background text sits on, opaque over the backdrop.
+    fn text_backgrounds(&self) -> Vec<u32> {
+        let base = self.backdrop.from | 0xff;
+        [self.page, self.panel, self.panel_nav, self.panel_row, self.surface, self.sidebar.from, self.sidebar.to, self.backdrop.from, self.backdrop.to]
+            .iter()
+            .map(|bg| over(*bg, base))
+            .collect()
+    }
+
+    /// The accent where it is text or a focus ring: the accent itself while it keeps
+    /// `ACCENT_TEXT_FLOOR` on every background, otherwise lightened or darkened until it does.
+    pub fn accent_text(&self) -> u32 {
+        readable(self.accent | 0xff, &self.text_backgrounds(), ACCENT_TEXT_FLOOR).unwrap_or(self.text)
+    }
+}
+
 /// Moves each text colour towards white or black until it reaches its floor on every background
 /// it sits on. When no colour can (light and dark backgrounds mixed), the text and background
 /// colours go back to the scheme's defaults. Returns what it changed.
 fn enforce_contrast(t: &mut Tokens, scheme: Scheme) -> Vec<String> {
-    let base = t.backdrop.from | 0xff;
-    let backgrounds: Vec<u32> = [t.page, t.panel, t.panel_nav, t.panel_row, t.surface, t.sidebar.from, t.sidebar.to, t.backdrop.from, t.backdrop.to]
-        .iter()
-        .map(|bg| over(*bg, base))
-        .collect();
+    let backgrounds = t.text_backgrounds();
     let mut adjusted = Vec::new();
     for (name, floor) in FLOORS {
         let slot = text_slot(t, name);
-        let passes = |c: u32| backgrounds.iter().all(|bg| contrast(c, *bg) >= floor);
-        if passes(*slot) {
-            continue;
-        }
         let original = *slot;
-        let toward = |target: u32| {
-            (1..=20).map(move |step| {
-                let k = step as f32 / 20.;
-                let mix = |shift: u32| ((original >> shift & 0xff) as f32 * (1. - k) + (target >> shift & 0xff) as f32 * k).round() as u32;
-                (mix(24) << 24) | (mix(16) << 16) | (mix(8) << 8) | (original & 0xff).max(153)
-            })
-        };
-        match toward(0xffffff00).chain(toward(0)).find(|c| passes(*c)) {
+        match readable(original, &backgrounds, floor) {
+            Some(c) if c == original => {}
             Some(c) => {
                 *slot = c;
                 adjusted.push(name.to_owned());
@@ -1368,6 +1388,22 @@ mod tests {
         assert_eq!(parse(BUILT_IN[0].1, Source::BuiltIn).unwrap().tokens, Tokens::DARK);
         let light = parse(BUILT_IN[1].1, Source::BuiltIn).unwrap();
         assert_eq!((light.tokens, light.meta.scheme), (Tokens::LIGHT, Scheme::Light));
+    }
+
+    #[test]
+    fn accent_text_is_readable_on_every_background_with_any_accent() {
+        for (id, css) in BUILT_IN {
+            let tokens = parse(css, Source::BuiltIn).unwrap().tokens;
+            for accent in std::iter::once(tokens.accent).chain(crate::prefs::ACCENTS.map(|(_, c)| c << 8 | 0xff)) {
+                let t = Tokens { accent, ..tokens };
+                let text = t.accent_text();
+                for bg in t.text_backgrounds() {
+                    assert!(contrast(text, bg) >= ACCENT_TEXT_FLOOR, "{id}: {accent:08x} as {text:08x} on {bg:08x}");
+                }
+            }
+        }
+        let t = Tokens { accent: 0xf4f9fdff, ..Tokens::DARK };
+        assert_eq!(t.accent_text(), 0xf4f9fdff, "an accent that already reads stays as it is");
     }
 
     #[test]
