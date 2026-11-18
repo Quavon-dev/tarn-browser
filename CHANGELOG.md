@@ -152,7 +152,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Fixed
 
 - Closing the find bar removes WebKit's match marker from the page, and the bar no longer stays as
-  an empty strip after Esc (macOS).
+  an empty strip after Esc (macOS). On iOS closing find also hides the marker, and on Linux it no
+  longer leaves the last match selected.
 - Settings and Library questions (Lockdown, clearing history, deleting a profile, a bookmark or a
   theme) open inside their window in the app's theme, and closing the window drops the question
   instead of leaving a stray dialog behind (macOS, Windows).

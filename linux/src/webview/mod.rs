@@ -810,8 +810,14 @@ fn find(state: &Rc<State>, args: &JsonValue) {
 
 /// `clear_find`: removes the highlight a `find` left.
 fn clear_find(state: &State) {
-    if let Some(finder) = state.web().and_then(|web| web.find_controller()) {
-        finder.search_finish();
+    if let Some(web) = state.web() {
+        if let Some(finder) = web.find_controller() {
+            finder.search_finish();
+        }
+        // search_finish unmarks the matches but leaves the last one selected; no script of Tarn's runs under Lockdown.
+        if !scripts::locked(state) {
+            web.call_async_javascript_function("getSelection()?.removeAllRanges();", None, Some(scripts::WORLD), None, None::<&gio::Cancellable>, |_| {});
+        }
     }
     state.find_text.borrow_mut().clear();
 }

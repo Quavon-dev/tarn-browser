@@ -9,8 +9,8 @@ use engine::nav_policy::{self, Decision, LevelAction, Site, Source};
 use engine::view_policy::{self, Levels};
 use nsh_platform_ios::{ComponentContext, Components, NativeComponent};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool, ProtocolObject};
-use objc2::{MainThreadMarker, MainThreadOnly, Message};
+use objc2::runtime::{AnyObject, Bool, NSObjectProtocol, ProtocolObject};
+use objc2::{MainThreadMarker, MainThreadOnly, Message, msg_send, sel};
 use objc2_foundation::{NSError, NSInteger, NSNumber, NSOperationQueue, NSString, NSURL, NSURLCredential, NSURLCredentialPersistence, NSURLRequest};
 use objc2_ui_kit::{UIUserInterfaceStyle, UIView, UIViewAutoresizing};
 use objc2_web_kit::{
@@ -495,6 +495,11 @@ impl Inner {
             "find" => self.find(&web, args),
             "clearFind" => {
                 self.find_text.borrow_mut().clear();
+                // WebKit has no public way to hide the match's marker; its private `_hideFindUI` does where it exists.
+                if web.respondsToSelector(sel!(_hideFindUI)) {
+                    // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.
+                    let _: () = unsafe { msg_send![&**web, _hideFindUI] };
+                }
                 if self.built.borrow().as_ref().is_some_and(|b| b.level != ShieldLevel::Lockdown) {
                     // SAFETY: main thread (marker); the script runs in the shell's isolated world and only clears the selection.
                     let world = unsafe { WKContentWorld::defaultClientWorld(self.mtm) };
