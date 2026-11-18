@@ -127,8 +127,9 @@ pub(crate) struct DelegateState {
     pub web_origin: RefCell<Option<String>>,
     pub last_title: RefCell<String>,
     pub after_commit: RefCell<Option<Box<dyn FnOnce()>>>,
-    /// The user chose Open Link in Split View; the window WebKit asks for next opens beside the page.
-    pub split_link: Cell<bool>,
+    /// When the user chose Open Link in Split View: the window WebKit asks for within moments opens
+    /// beside the page, and a later one does not.
+    pub split_link: Cell<Option<std::time::Instant>>,
 }
 
 impl DelegateState {
@@ -163,7 +164,7 @@ impl DelegateState {
             web_origin: RefCell::default(),
             last_title: RefCell::default(),
             after_commit: RefCell::default(),
-            split_link: Cell::new(false),
+            split_link: Cell::new(None),
         }
     }
 }
@@ -259,7 +260,7 @@ define_class!(
         // Open Link in Split View takes the same path, with its pop-up checks, in `create_web_view`.
         #[unsafe(method_id(_webView:contextMenu:forElement:))]
         fn context_menu(&self, _web_view: &WKWebView, menu: &NSMenu, _element: &AnyObject) -> Retained<NSMenu> {
-            self.ivars().split_link.set(false);
+            self.ivars().split_link.set(None);
             let new_window = NSString::from_str("WKMenuItemIdentifierOpenLinkInNewWindow");
             let items = menu.itemArray();
             if let Some(at) = items.iter().position(|item| item.identifier().is_some_and(|id| *id == *new_window)) {
@@ -288,7 +289,7 @@ define_class!(
         fn open_link_in_split_view(&self, sender: &NSMenuItem) {
             let Some(item) = sender.representedObject().and_then(|o| o.downcast::<NSMenuItem>().ok()) else { return };
             let (Some(action), Some(target)) = (item.action(), item.target()) else { return };
-            self.ivars().split_link.set(true);
+            self.ivars().split_link.set(Some(std::time::Instant::now()));
             // SAFETY: sends WebKit's own action for its Open Link in New Window entry, with that entry as sender, as AppKit would.
             unsafe { NSApplication::sharedApplication(self.mtm()).sendAction_to_from(action, Some(&target), Some(&item)) };
         }
@@ -711,7 +712,7 @@ define_class!(
             action: &WKNavigationAction,
             _features: &WKWindowFeatures,
         ) -> *mut WKWebView {
-            let split = self.ivars().split_link.take();
+            let split = self.ivars().split_link.take().is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(2));
             // SAFETY: the action's request is a valid NSURLRequest.
             let url = to_url(unsafe { action.request() }.URL());
             let decision = url.as_ref().map_or(Decision::Allow, |u| nav_policy::decide(u, Source::Popup));

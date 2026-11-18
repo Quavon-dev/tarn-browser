@@ -122,11 +122,11 @@ impl Browser {
 
     /// Opens the new tab `key`, a link from `opener`, beside it in split view.
     pub(crate) fn split_link(&mut self, opener: TabKey, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
+        // A full split takes no more panes; the link still opens, as a tab of its own.
         if self.model.active == Some(opener) || self.in_split(opener) {
-            self.join_split(opener, key, window, cx);
-        } else {
-            self.activate(key, window, cx);
+            self.splits.join(opener, key);
         }
+        self.activate(key, window, cx);
     }
 
     /// Puts `key` into `anchor`'s split, or starts one with the two, and focuses `key`.
