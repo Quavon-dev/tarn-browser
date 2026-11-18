@@ -12,7 +12,7 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, ProtocolObject};
 use objc2::{MainThreadMarker, MainThreadOnly, Message};
 use objc2_foundation::{NSError, NSInteger, NSNumber, NSOperationQueue, NSString, NSURL, NSURLCredential, NSURLCredentialPersistence, NSURLRequest};
-use objc2_ui_kit::{UIView, UIViewAutoresizing};
+use objc2_ui_kit::{UIUserInterfaceStyle, UIView, UIViewAutoresizing};
 use objc2_web_kit::{
     WKContentRuleList, WKContentRuleListStore, WKContentWorld, WKFindConfiguration, WKFindResult, WKNavigationAction, WKNavigationActionPolicy,
     WKNavigationType, WKPermissionDecision, WKUserContentController, WKWebViewConfiguration, WKWebpagePreferences,
@@ -67,6 +67,7 @@ pub(crate) struct Props {
     opener: Option<String>,
     file: bool,
     active: bool,
+    dark: bool,
 }
 
 impl Props {
@@ -157,6 +158,9 @@ impl Inner {
         self.apply_content();
         let props = self.props.borrow().clone();
         self.apply_active(props.active);
+        if let Some(web) = self.web() {
+            apply_dark(&web, props.dark);
+        }
         let load = props.load.clone().filter(|(_, seq)| *seq != self.loaded_seq.get());
         let target = match &load {
             Some((url, _)) => Some(url.clone()),
@@ -255,6 +259,7 @@ impl Inner {
         let web = WebView::init_with(WebView::alloc(mtm), self.root.bounds(), &configuration);
         web.setAutoresizingMask(UIViewAutoresizing::FlexibleWidth | UIViewAutoresizing::FlexibleHeight);
         web.set_back_forward_gestures(true);
+        apply_dark(&web, self.props.borrow().dark);
         let handler = Handler::new(mtm, Rc::downgrade(self), level);
         web.set_navigation_delegate(Some(ProtocolObject::from_ref(&*handler)));
         web.set_ui_delegate(Some(ProtocolObject::from_ref(&*handler)));
@@ -488,6 +493,14 @@ impl Inner {
                 self.apply_zoom(&web);
             }
             "find" => self.find(&web, args),
+            "clearFind" => {
+                self.find_text.borrow_mut().clear();
+                if self.built.borrow().as_ref().is_some_and(|b| b.level != ShieldLevel::Lockdown) {
+                    // SAFETY: main thread (marker); the script runs in the shell's isolated world and only clears the selection.
+                    let world = unsafe { WKContentWorld::defaultClientWorld(self.mtm) };
+                    web.evaluate(&NSString::from_str(find::RESTART), None, &world, None);
+                }
+            }
             _ => {}
         }
     }
@@ -563,6 +576,10 @@ impl Inner {
     }
 }
 
+fn apply_dark(web: &WebView, dark: bool) {
+    web.setOverrideUserInterfaceStyle(if dark { UIUserInterfaceStyle::Dark } else { UIUserInterfaceStyle::Light });
+}
+
 pub fn settle(pending: Pending, accept: bool, args: &Value) {
     let field = |name: &str| args.get(name).and_then(Value::as_str);
     match pending {
@@ -630,6 +647,7 @@ impl NativeComponent for TarnWebView {
                 }
                 "tab" => props.tab = text(),
                 "active" => props.active = value.and_then(Value::as_bool).unwrap_or(false),
+                "dark" => props.dark = value.and_then(Value::as_bool).unwrap_or(false),
                 "styles" => props.styles = crate::scripts::host_map(value).into_iter().filter_map(|(h, v)| Some((h, v.as_str()?.to_owned()))).collect(),
                 "themeStyles" => props.theme_styles = value.map(engine::page_scripts::theme_sheets).unwrap_or_default(),
                 "zaps" => {

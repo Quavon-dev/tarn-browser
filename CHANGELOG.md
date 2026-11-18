@@ -11,7 +11,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - History lists pages under Today, Yesterday and Earlier with when each was last visited. Remove
   from History (row menu, the row's trash button, or ⌘⌫ on macOS and Delete on Windows) removes a
   page, and Clear browsing history in Settings › Privacy asks whether to clear the last hour, today
-  or everything (macOS, Windows).
+  or everything (macOS, Windows). On iOS and Android the History sheet groups pages by day, removes
+  one with its trash button and offers Clear History… with the same ranges, without the visit time.
 - A search field in Settings finds the pane that holds a setting (macOS, Windows).
 - In the Library, F2 renames, ⌘⌫ (Delete on Windows) deletes and Shift+F10 opens the menu of the
   selected row, whose buttons stay visible; icon buttons have tooltips (macOS, Windows).
@@ -92,10 +93,12 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Settings › Profile is now Protection and holds the only Shield level choice, with each level's
   description; the profile list is only in Profiles. The card's counters and the "Counted on this
   Mac only" label are no longer repeated next to it, and a week with nothing stopped shows one line
-  instead of an empty chart (macOS, Windows).
+  instead of an empty chart (macOS, Windows). The NSH clients (Linux, iOS, Android) name
+  the pane Protection too.
 - Choosing Lockdown (from Settings or the menu), clearing history, deleting a profile or everything
   in it, removing an extension or a theme, resetting zoom levels and deleting a bookmark ask first
   in a dialog that names what goes, instead of a second click on the same button (macOS, Windows).
+  On iOS and Android, choosing Lockdown and removing a page from the Reading List ask the same way.
 - Filter-list updates, extension downloads and developer tools are switches; the search engine is
   picked from a segmented control as in the profile card; an extension's Every site switch, Forget
   Site Answers and Remove sit on a line under its name; Appearance has one Theme heading, theme
@@ -159,6 +162,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   theme; placeholders and secondary text meet 4.5:1 in every built-in theme, red warning text is
   readable in dark mode, sleeping tabs follow the theme's secondary text colour, and site initials
   and extension badges pick a readable letter colour (macOS, Windows).
+  On iOS and Android, Done, Clear and Cancel, the focused address field, sleeping tab cards and
+  extension badges follow the same rules.
 - Every button, segment and colour swatch can be reached with Tab and pressed with Enter or Space
   where a window moves the focus on Tab, and a button that cannot be used looks dimmed (macOS,
   Windows).
@@ -190,9 +195,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The Library panel stays within a narrow sidebar, and a list taller than the window ends below a
   row instead of cutting off the next heading (macOS, Windows).
 - Pages follow Tarn's light or dark theme (`prefers-color-scheme`) instead of the system's
-  appearance, and switch with it (macOS, Windows).
+  appearance, and switch with it (macOS, Windows, iOS, Android).
 - Find in page searches as you type, shows "1 of 2" where the engine reports the current match
-  (Chromium), and clears its highlight when the bar closes (macOS, Windows).
+  (Chromium, Android), and clears its highlight when the bar closes (macOS, Windows, iOS,
+  Android).
 - A toast stays while the pointer is over it, wraps a long message onto a second line, and its
   button is also a command row, so it can be reached from the keyboard (macOS, Windows).
 - Translating a page shows Translating… while it works and then Show Original, which reloads the
@@ -204,7 +210,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   address, and Enter in an empty field opens nothing (macOS, Windows).
 - Failed and cancelled downloads stay in the Downloads list, a download in progress has a Cancel
   button, Clear offers Undo, a new download no longer hides a dangerous-file warning, and the
-  Downloads panel stays inside the window (macOS, Windows).
+  Downloads panel stays inside the window (macOS, Windows, iOS, Android).
 - Two downloads of the same name at once each get their own file, instead of the second failing
   or replacing the first (Linux, iOS, Android).
 - Settings text no longer runs under the controls beside it, and text fields clip their

@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Message;
 import android.os.SystemClock;
+import android.view.ContextThemeWrapper;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -110,6 +111,8 @@ final class TarnWebView implements NshComponent {
     private String themeStyles = "[]";
     private Map<String, List<String>> zaps = Map.of();
     private boolean sortDownloads;
+    private boolean dark;
+    private boolean builtDark;
     private String appliedContent;
     private final List<ScriptHandler> contentScripts = new ArrayList<>();
     private String pickToken;
@@ -152,6 +155,7 @@ final class TarnWebView implements NshComponent {
             case "themeStyles" -> themeStyles = value instanceof List<?> list ? new JSONArray(list).toString() : "[]";
             case "zaps" -> zaps = parseZaps(value);
             case "sortDownloads" -> sortDownloads = Boolean.TRUE.equals(value);
+            case "dark" -> dark = Boolean.TRUE.equals(value);
             case "load" -> {
                 if (value instanceof Map<?, ?> load && load.get("url") instanceof String url) {
                     loadUrl = url;
@@ -200,6 +204,10 @@ final class TarnWebView implements NshComponent {
                 endNavigation();
             }
             case "find" -> find(Prompts.text(map, "text"), Boolean.TRUE.equals(map.get("backwards")));
+            case "clearFind" -> {
+                findText = "";
+                web.clearMatches();
+            }
             case "zoom" -> zoom(map.get("factor"));
             default -> {
                 if (!Hooks.command(name, web)) Hooks.log("unknown command " + name);
@@ -453,6 +461,9 @@ final class TarnWebView implements NshComponent {
             UNSENT.clear();
             for (Map<String, Object> data : held) emitMap("download", data);
         }
+        if (web != null && dark != builtDark) {
+            rebuildOnCurrentPage();
+        }
         if (web == null || !Objects.equals(store, builtStore)) {
             if (!build()) return;
         }
@@ -476,7 +487,9 @@ final class TarnWebView implements NshComponent {
             emit("failed", "url", loadUrl == null ? "" : loadUrl, "message", "This profile's data store is not available here");
             return false;
         }
-        PageView view = new PageView(context.getContext(), noPersonalizedLearning);
+        int theme = dark ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar;
+        PageView view = new PageView(new ContextThemeWrapper(context.getContext(), theme), noPersonalizedLearning);
+        builtDark = dark;
         Stores.attach(view, name);
         configure(view, name);
         container.addView(view, new FrameLayout.LayoutParams(
@@ -548,7 +561,11 @@ final class TarnWebView implements NshComponent {
         });
         view.setFindListener((activeMatch, matches, done) -> {
             if (!done) return;
-            emit("found", "matched", matches);
+            if (matches > 0) {
+                emit("found", "matched", matches, "current", activeMatch + 1);
+            } else {
+                emit("found", "matched", 0);
+            }
         });
     }
 
@@ -594,6 +611,17 @@ final class TarnWebView implements NshComponent {
 
     private boolean leavesJavaScriptOff(int action) {
         return !javaScriptOn && action == Native.CONTINUE_JS && (top != null || pending != null);
+    }
+
+    private void rebuildOnCurrentPage() {
+        Page current = top;
+        if (current != null) {
+            loadUrl = current.url();
+            loadOpener = null;
+            loadFile = isFile(loadUrl) && fileFolder != null;
+        }
+        tearDown();
+        appliedSeq = null;
     }
 
     private boolean rebuildKeeping(int keptLevel) {
@@ -1140,14 +1168,7 @@ final class TarnWebView implements NshComponent {
         @Override
         public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
             if (view != web) return true;
-            Page current = top;
-            if (current != null) {
-                loadUrl = current.url();
-                loadOpener = null;
-                loadFile = isFile(loadUrl) && fileFolder != null;
-            }
-            tearDown();
-            appliedSeq = null;
+            rebuildOnCurrentPage();
             emit("crashed");
             return true;
         }

@@ -190,7 +190,7 @@ pub(super) fn popup(ui: Ui) -> impl IntoElement {
                             .px_3()
                             .justify_center()
                             .on_press(move || close(ui))
-                            .child(text("Done").text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::accent)),
+                            .child(text("Done").text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::accent_text)),
                     ),
                 )
                 .child(page_view(ui, page, false))
@@ -224,7 +224,7 @@ pub(super) fn actions(ui: Ui) -> impl IntoElement {
                         b: f32::from(b) / 255.,
                         a: f32::from(a) / 255.,
                     });
-                    view().px_2().rounded_full().bg(color).child(text(badge).text_size(px(12.)).text_color(Theme::on_accent()))
+                    view().px_2().rounded_full().bg(color).child(text(badge).text_size(px(12.)).text_color(Theme::on_fill(color)))
                 }))
                 .into_element()
             });

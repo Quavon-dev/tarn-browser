@@ -425,7 +425,7 @@ impl<D: Platform> Shell<D> {
         }
         match state.as_str() {
             "started" => {
-                self.notice = Some(format!("Downloading {name}…"));
+                self.download_notice(format!("Downloading {name}…"), false);
                 if !id.is_empty() && at.is_none() {
                     let pausable = data.get("pausable").and_then(Value::as_bool).unwrap_or(false);
                     let records = self.model.profile().filter(|_| self.records());
@@ -436,16 +436,20 @@ impl<D: Platform> Shell<D> {
                 let Some(t) = at.and_then(|at| self.transfers.get_mut(at)) else { return };
                 t.done = number("done").unwrap_or(t.done);
                 t.total = number("total").or(t.total);
+                let mut flagged = None;
                 t.state = match state.as_str() {
                     "paused" => TransferState::Paused,
                     "flagged" => {
                         let host = text(data, "host");
-                        self.notice = Some(engine::downloads::flagged_notice(&t.name, &host));
+                        flagged = Some(engine::downloads::flagged_notice(&t.name, &host));
                         TransferState::Flagged(host)
                     }
                     "resumed" | "progress" if t.state == TransferState::Paused && state == "progress" => TransferState::Paused,
                     _ => TransferState::Saving,
                 };
+                if let Some(notice) = flagged {
+                    self.download_notice(notice, true);
+                }
             }
             "finished" | "failed" => {
                 let records = match at {
@@ -453,11 +457,12 @@ impl<D: Platform> Shell<D> {
                     None => self.model.profile().filter(|_| self.records()),
                 };
                 let path = text(data, "path");
-                self.notice = Some(if state == "finished" {
-                    format!("Downloaded {name} to Files › Tarn › Downloads.")
+                if state == "finished" {
+                    let warns = engine::downloads::is_dangerous(&name);
+                    self.download_notice(format!("Downloaded {name} to Files › Tarn › Downloads."), warns);
                 } else {
-                    format!("{name} could not be downloaded: {}", text(data, "message"))
-                });
+                    self.download_notice(format!("{name} could not be downloaded: {}", text(data, "message")), true);
+                }
                 if let Some((private, profile)) = records {
                     self.core.store(private).add_download(profile, &name, &path, &state, now).ok();
                 }
@@ -475,6 +480,9 @@ impl<D: Platform> Shell<D> {
         let Some(tab) = Some(t.tab).filter(live).or(self.model.active).or_else(|| self.model.lifecycle.live().next()) else { return Vec::new() };
         let args = if command == "downloadKeep" { json!({ "id": id, "keep": keep }) } else { json!({ "id": id }) };
         if command == "downloadCancel" || (command == "downloadKeep" && !keep) {
+            if let Some((private, profile)) = t.records {
+                self.core.store(private).add_download(profile, &t.name, "", "cancelled", browser_core::now()).ok();
+            }
             self.transfers.retain(|t| t.id != id);
             self.transfers_moved = std::time::Instant::now();
         } else if command == "downloadKeep"

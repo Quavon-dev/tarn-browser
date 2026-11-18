@@ -37,6 +37,34 @@ impl<D: Platform> Shell<D> {
         self.undo.as_ref().is_some_and(|(text, serial)| self.notice.as_ref() == Some(text) && self.model.closed_tabs.newest() == Some(*serial))
     }
 
+    pub fn can_restore_downloads(&self) -> bool {
+        self.cleared_downloads.as_ref().is_some_and(|(text, ..)| self.notice.as_ref() == Some(text))
+    }
+
+    pub fn restore_downloads(&mut self) {
+        let Some((_, (private, id), list)) = self.cleared_downloads.take() else { return };
+        self.notice = None;
+        for d in list.iter().rev().filter(|d| self.core.keeps_record_since(private, id, d.started_at)) {
+            self.core.store(private).add_download(id, &d.url, &d.path, &d.state, d.started_at).ok();
+        }
+    }
+
+    pub(crate) fn download_notice(&mut self, text: String, warns: bool) {
+        browser_core::toast::push_notice(&mut self.download_notices, (text, warns), |n| n.1);
+        self.notice = self.download_notices.first().map(|n| n.0.clone());
+    }
+
+    pub fn notice_held(&self) -> bool {
+        self.download_notices.first().is_some_and(|(text, warns)| *warns && self.notice.as_ref() == Some(text))
+    }
+
+    pub fn dismiss_notice(&mut self) {
+        if self.download_notices.first().is_some_and(|(text, _)| self.notice.as_ref() == Some(text)) {
+            self.download_notices.remove(0);
+        }
+        self.notice = self.download_notices.first().map(|n| n.0.clone());
+    }
+
     pub fn undo_close(&mut self) -> bool {
         let Some((_, serial)) = self.undo.take().filter(|(_, s)| self.model.closed_tabs.newest() == Some(*s)) else { return false };
         self.notice = None;

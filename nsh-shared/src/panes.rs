@@ -13,7 +13,7 @@ pub enum Pane {
 }
 
 pub const PANES: [(Pane, &str); 10] = [
-    (Pane::Profile, "Profile"),
+    (Pane::Profile, "Protection"),
     (Pane::General, "General"),
     (Pane::Appearance, "Appearance"),
     (Pane::Tabs, "Tabs"),

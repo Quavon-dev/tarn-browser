@@ -361,6 +361,31 @@ fn clear_data_empties_history_and_downloads() {
 }
 
 #[test]
+fn history_loses_one_page_or_a_range() {
+    use browser_core::library::HistoryRange;
+    let (_dir, mut shell) = open();
+    for (url, title) in [("https://a.test/", "A"), ("https://b.test/", "B")] {
+        shell.navigate(url);
+        finish(&mut shell, url, title);
+    }
+    shell.remove_history_url("https://a.test/");
+    assert_eq!(shell.history().iter().map(|h| h.url.as_str()).collect::<Vec<_>>(), ["https://b.test/"]);
+    shell.clear_history(HistoryRange::All);
+    assert!(shell.history().is_empty());
+    let (today, yesterday) = shell.day_starts(browser_core::now());
+    assert!(yesterday < today && today <= browser_core::now());
+}
+
+#[test]
+fn only_choosing_lockdown_asks_before_it_deletes_site_data() {
+    let (_dir, mut shell) = open();
+    assert_eq!(shell.shield_wipes_data(ShieldLevel::Strict), None);
+    assert!(shell.shield_wipes_data(ShieldLevel::Lockdown).is_some());
+    assert!(shell.set_default_level(ShieldLevel::Lockdown));
+    assert_eq!(shell.shield_wipes_data(ShieldLevel::Lockdown), None, "already in Lockdown");
+}
+
+#[test]
 fn prompts_queue_answer_and_remember_permissions() {
     let (_dir, mut shell) = open();
     let key = active(&shell);
@@ -412,7 +437,9 @@ fn popups_open_tabs_and_failures_show() {
     shell.event(pop, "blocked", &json!({ "url": "http://192.168.1.1/", "reason": "local_network" }), 3);
     assert!(shell.notice.as_deref().unwrap().contains("local network"));
     shell.event(pop, "found", &json!({ "matched": 3 }), 4);
-    assert_eq!(shell.found, Some(3));
+    assert_eq!(shell.found, Some((3, None)));
+    shell.event(pop, "found", &json!({ "matched": 3, "current": 2 }), 4);
+    assert_eq!(shell.found, Some((3, Some(2))));
     assert_eq!(shell.zoom(9.0), vec![Effect::Command(pop, "zoom", json!({ "factor": 3.0 }))]);
 }
 

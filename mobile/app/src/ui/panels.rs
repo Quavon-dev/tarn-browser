@@ -3,7 +3,7 @@ use browser_core::tabs::TabKey;
 use nsh_base::{alert_dialog, button, input};
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
-use serde_json::json;
+use serde_json::{Value, json};
 use shield::ShieldLevel;
 
 use super::controls::icon;
@@ -21,6 +21,8 @@ use tarn_nsh_shared::panes::{self, Pane};
 const FIND_RADIUS: f32 = 12.;
 const TAB_ICON: f32 = 20.;
 const FIND_WIDTH: f32 = 420.;
+const LOCKDOWN_WIPE: &str =
+    "Lockdown deletes the cookies and site data this profile has stored, except data it shares with another profile. Open pages reload.";
 
 fn title(screen: Screen) -> &'static str {
     match screen {
@@ -111,7 +113,7 @@ fn sheet(ui: Ui, screen: Screen, body: AnyElement) -> impl IntoElement {
                     .px_3()
                     .justify_center()
                     .on_press(move || leave(ui, Screen::Browse))
-                    .child(text("Done").text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::accent)),
+                    .child(text("Done").text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::accent_text)),
             ),
         )
         .child(scroll().key(name).flex_1().child(view().gap_3().px_3().pt_2().pb_6().child(body)))
@@ -242,7 +244,13 @@ fn tab_card(ui: Ui, key: TabKey, title: String, url: String) -> View {
                         tarn_nsh_shared::controls::site_tile(ui.read(|s| s.site_icon(&url)), &host, TAB_ICON).mr_2()
                     }
                 }))
-                .child(label(title.clone()).font_weight(FontWeight::SEMIBOLD).number_of_lines(1).flex_1())
+                .child(
+                    label(title.clone())
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .number_of_lines(1)
+                        .flex_1()
+                        .text_color(move || if ui.read(|s| s.model.lifecycle.live().any(|l| l == key)) { Theme::text() } else { Theme::asleep() }),
+                )
                 .child(dynamic(move || movable().then(|| icon_button(icons::CHEVRON_RIGHT, "Move to Space", move || ui.show(Screen::Move(key))))))
                 .child(dynamic(move || {
                     let menu = ui.read(|s| s.splits.menu(s.model.active, key));
@@ -525,12 +533,17 @@ fn settings(ui: Ui) -> impl IntoElement {
         .child(sheets::shield_card(ui))
         .child(section("Shield level"))
         .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
-            ui.act(|s| {
-                if let Some(level) = level {
+            let Some(level) = level else { return };
+            let set = move || {
+                ui.act(|s| {
                     s.set_default_level(level);
-                }
-                Vec::new()
-            })
+                    Vec::new()
+                })
+            };
+            match ui.read(|s| s.shield_wipes_data(level)) {
+                Some(profile) => confirm(format!("Use Lockdown for the profile \u{201C}{profile}\u{201D}?"), LOCKDOWN_WIPE, "Use Lockdown", set),
+                None => set(),
+            }
         }, false))
         .child(dynamic(move || {
             let level = ui.read_data(|s| s.default_level());
@@ -603,7 +616,7 @@ fn settings(ui: Ui) -> impl IntoElement {
 }
 
 /// Asks before a destructive action, which runs only on `action`.
-pub(super) fn confirm(title: &'static str, description: &'static str, action: &'static str, then: impl FnOnce() + 'static) {
+pub(super) fn confirm(title: impl Into<SharedString>, description: &'static str, action: &'static str, then: impl FnOnce() + 'static) {
     let answer = alert_dialog().title(title).description(description).cancel("cancel", "Cancel").destructive("confirm", action).show();
     spawn(async move {
         if answer.await.is_ok_and(|a| a.action.as_deref() == Some("confirm")) {
@@ -696,20 +709,80 @@ fn history(ui: Ui) -> impl IntoElement {
                 (n, _) => small(if n == 1 { "1 page".to_owned() } else { format!("{n} pages") }).px_1().into_element(),
             })
         }))
-        .child(framed(group().child(each(
-            rows,
-            |h: &store::HistoryEntry| (h.url.clone(), h.visited_at),
-            move |h, _| {
-                let entry = h.get_untracked();
-                let url = entry.url.clone();
-                let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title };
-                let host = url::Url::parse(&entry.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or(entry.url);
-                detail_row(Some(icons::GLOBE), name, Some(caption(host).number_of_lines(1)), move || {
-                    ui.show(Screen::Browse);
-                    ui.act(|s| s.navigate(&url));
-                })
-            },
-        ))))
+        .child(dynamic(move || {
+            let starts = ui.read(|s| s.day_starts(browser_core::now()));
+            let mut days: Vec<(&'static str, Vec<store::HistoryEntry>)> = Vec::new();
+            for h in rows() {
+                let day = browser_core::library::history_day(h.visited_at, starts);
+                match days.last_mut() {
+                    Some((last, list)) if *last == day => list.push(h),
+                    _ => days.push((day, vec![h])),
+                }
+            }
+            let remove = move |url: String| {
+                move || {
+                    ui.act(|s| {
+                        s.remove_history_url(&url);
+                        Vec::new()
+                    });
+                    let q = query.get_untracked();
+                    lookup(&q, browser_core::suggest::searches_text(q.trim()));
+                }
+            };
+            Some(view().gap_2().children(days.into_iter().map(|(day, list)| {
+                view().gap_1().child(section(day)).child(framed(group().children(list.into_iter().map(|entry| {
+                    let url = entry.url.clone();
+                    let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title };
+                    let host =
+                        url::Url::parse(&entry.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or(entry.url);
+                    let open = url.clone();
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .child(
+                            detail_row(Some(icons::GLOBE), name, Some(caption(host).number_of_lines(1)), move || {
+                                ui.show(Screen::Browse);
+                                ui.act(|s| s.navigate(&open));
+                            })
+                            .flex_1(),
+                        )
+                        .child(icon_button(icons::TRASH, "Remove from History", remove(url)))
+                }))))
+            })))
+        }))
+        .child(dynamic(move || {
+            (!found.with(Vec::is_empty) || !query.get().trim().is_empty()).then(|| {
+                framed(group().child(row(icons::TRASH, "Clear History…", move || {
+                    clear_history(ui, move || {
+                        let q = query.get_untracked();
+                        lookup(&q, false);
+                    })
+                })))
+            })
+        }))
+}
+
+fn clear_history(ui: Ui, then: impl FnOnce() + 'static) {
+    use browser_core::library::HistoryRange;
+    let mut dialog = alert_dialog()
+        .title("Clear history?")
+        .description("Visits in the chosen range are removed from this profile's history.")
+        .action_sheet()
+        .cancel("cancel", "Cancel");
+    for (ix, range) in HistoryRange::ALL.iter().enumerate() {
+        dialog = dialog.destructive(ix.to_string(), range.label());
+    }
+    let answer = dialog.show();
+    spawn(async move {
+        let picked = answer.await.ok().and_then(|a| a.action).and_then(|id| id.parse::<usize>().ok()).and_then(|ix| HistoryRange::ALL.get(ix).copied());
+        if let Some(range) = picked {
+            ui.act(|s| {
+                s.clear_history(range);
+                Vec::new()
+            });
+            then();
+        }
+    });
 }
 
 fn downloads(ui: Ui) -> impl IntoElement {
@@ -733,7 +806,7 @@ fn downloads(ui: Ui) -> impl IntoElement {
                                 Vec::new()
                             })
                         })
-                        .child(text("Clear").text_size(px(TEXT_TITLE)).text_color(Theme::accent)),
+                        .child(text("Clear").text_size(px(TEXT_TITLE)).text_color(Theme::accent_text)),
                 )
             })
         }))
@@ -742,7 +815,11 @@ fn downloads(ui: Ui) -> impl IntoElement {
             |d: &store::Download| d.id,
             move |d, _| {
                 let d = d.get_untracked();
-                let finished = d.state == "finished";
+                let (status, failed) = match d.state.as_str() {
+                    "finished" => ("Saved", false),
+                    "cancelled" => ("Cancelled", false),
+                    _ => ("Failed", true),
+                };
                 view()
                     .flex_row()
                     .items_center()
@@ -754,9 +831,10 @@ fn downloads(ui: Ui) -> impl IntoElement {
                     .border_color(Theme::separator)
                     .child(sheets::file_tile(&d.url, false))
                     .child(
-                        view().flex_1().child(label(d.url.clone()).number_of_lines(1)).child(
-                            caption(if finished { "Saved" } else { "Failed" }).text_color(move || if finished { Theme::muted() } else { Theme::danger() }),
-                        ),
+                        view()
+                            .flex_1()
+                            .child(label(d.url.clone()).number_of_lines(1))
+                            .child(caption(status).text_color(move || if failed { Theme::danger() } else { Theme::muted() })),
                     )
             },
         ))))
@@ -821,11 +899,14 @@ fn find(ui: Ui) -> impl IntoElement {
     };
     let count = move || ui.read(|s| s.found).filter(|_| !query.get().is_empty());
     let always = KeyOptions { when: When::Always, ..KeyOptions::default() };
-    on_key_with("escape", always, move |_| ui.show(Screen::Browse));
     on_key_with("mod+g", always, move |_| search(false));
     on_key_with("shift+mod+g", always, move |_| search(true));
     let shown = tarn_nsh_shared::motion::pop_in();
-    let close = move || tarn_nsh_shared::motion::pop_out(shown, 1., move || ui.show(Screen::Browse));
+    let close = move || {
+        ui.act_on_screen(|s| s.active_command("clearFind", Value::Null));
+        tarn_nsh_shared::motion::pop_out(shown, 1., move || ui.show(Screen::Browse));
+    };
+    on_key_with("escape", always, move |_| close());
     surface(FIND_RADIUS)
         .absolute()
         .top(px(8.))
@@ -848,9 +929,9 @@ fn find(ui: Ui) -> impl IntoElement {
                     query.set(typed.clone());
                     ui.act_on_screen(|s| {
                         s.found = None;
-                        Vec::new()
+                        if typed.is_empty() { s.active_command("clearFind", Value::Null) } else { Vec::new() }
                     });
-                    set_timeout(sheets::FIND_DELAY, move || {
+                    set_timeout(browser_core::find::TYPING_DELAY, move || {
                         if query.get_untracked() == typed {
                             search(false);
                         }
@@ -867,13 +948,8 @@ fn find(ui: Ui) -> impl IntoElement {
                 .text_color(Theme::text),
         )
         .child(
-            small(move || match count() {
-                Some(0) => "No matches".to_owned(),
-                Some(1) => "1 match".to_owned(),
-                Some(n) => format!("{n} matches"),
-                None => String::new(),
-            })
-            .text_color(move || if count() == Some(0) { Theme::danger() } else { Theme::faint() }),
+            small(move || count().map_or_else(String::new, |(n, at)| browser_core::find::count_label(Some(n), at)))
+                .text_color(move || if count().is_some_and(|(n, _)| n == 0) { Theme::danger() } else { Theme::faint() }),
         )
         .child(view().w(px(1.)).h(px(20.)).mx_1().bg(Theme::separator))
         .child(tarn_nsh_shared::controls::icon_button(find_glyph(glyphs::CHEVRON_UP), "Previous", move || search(true)))

@@ -50,6 +50,8 @@ off at Lockdown, TLS errors are never bypassed, and there is no remote debugging
 | prop | `burstsOf` | string | The `tab` of the opener a popup tab came from: the view shares that tab's prompt and popup limits (S23). Linux only so far; iOS and Android still need it |
 | command | `back`, `forward`, `reload`, `stop` | none | |
 | command | `find` | `{text, backwards}` | Emits `found` |
+| command | `clearFind` | none | Removes the highlight a `find` left, when the find bar closes or its text is emptied: iOS clears the selection from the isolated world (not under Lockdown, where it stays until the page is touched), Android `clearMatches()`. Emits nothing |
+| prop | `dark` | bool | The colour scheme pages see (`prefers-color-scheme`), from the shell's theme, not the system's: iOS the web view's `overrideUserInterfaceStyle`, Android the theme of the context the WebView is made with (see the differences below). Default false |
 | command | `answer` | `{id, accept, text?, user?, password?, silence?}` | Answers a `prompt`; an unanswered prompt is declined when the component is destroyed. `silence: true` ("Block requests from this page") declines it and every other pending prompt, and the page's later dialogs and permission requests, until its next navigation (S23). Linux only so far; iOS and Android still need it |
 | command | `zoom` | `{factor}` | 0.5 to 3.0 (`engine::view_policy::zoom_factor`); 1.0 is the page's own size |
 | event | `committed` | `{url, title, canGoBack, canGoForward}` | Main frame committed |
@@ -61,7 +63,7 @@ off at Lockdown, TLS errors are never bypassed, and there is no remote debugging
 | event | `popup` | `{url, link?}` | A user-gesture popup allowed by `nav_policy`; the shell opens it as a new tab. `link` (v3) is true for a link that opens a new window (iOS: `WKNavigationTypeLinkActivated`; Android: the tap's hit test is an anchor). As on macOS, only a link pop-up goes to the space a rule names, as a fresh tab without an opener; a script's `window.open` opens in the opener's space with `load.opener` |
 | event | `prompt` | `{id, kind, origin, topOrigin?, message?, default?, realm?, insecure?}` | `kind`: alert, confirm, text, camera, microphone, location, credentials |
 | event | `download` | `{state, name, path?, message?, url?, quarantined?}` | `state`: started, finished, failed; `finished` carries the download's `url` (without user name and password; empty for `blob:` and `data:` on iOS and Linux, which Android sends unchanged) and whether the file was marked with its origin (`quarantined`). Names are sanitised (`engine::downloads`); downloads are never opened automatically |
-| event | `found` | `{matched}` | The number of matches, 0 for none |
+| event | `found` | `{matched, current?}` | The number of matches, 0 for none; `current` (from 1) is the highlighted match, Android only (`browser_core::find::count_label` shows "1 of 2") |
 | event | `history` | `{canGoBack, canGoForward}` | The back/forward list changed without a commit: a same-document navigation (`pushState`, a fragment). iOS observes `canGoBack`/`canGoForward`, Android sends it from `doUpdateVisitedHistory` |
 | event | `pressed` | none | A touch went down on the page; it still reaches the page. A split pane on a tablet takes the focus. iOS reports it from the component's view (`hitTest:withEvent:` for touches, not hover), Android from the web view's touch listener |
 | event | `crashed` | none | The content process ended; the shell reloads at most once per minute |
@@ -81,6 +83,10 @@ Platform differences left in the contract, and why:
   desktop browser does (`WebKitWebView` zoom level, like the macOS app);
 - `find` on iOS: WebKit finds from the page's selection, so a new text clears the selection first and
   starts again at the first match; the same text steps from the current one, as Android's `findNext`;
+- `dark` on Android: Android System WebView takes the page's colour scheme from the theme of the
+  context the view is made with and offers no setter for it, so a theme change rebuilds an open
+  view on its committed page, as after a crash; its back and forward list starts again. iOS
+  switches the same view;
 - `found.matched` on iOS: WebKit says only whether anything matched; the count is the page's visible text
   searched case-insensitively in the shell's isolated world (frames are not counted, at least 1 when
   WebKit found a match); Android and Linux report the engine's count;

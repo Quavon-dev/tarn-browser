@@ -125,8 +125,10 @@ pub struct Shell<D: Platform> {
     /// The tone of the notice with this text; any other notice reads as information.
     pub tone: Option<(String, browser_core::toast::Tone)>,
     pub open_offer: Option<(TabKey, String, String)>,
-    pub found: Option<u64>,
+    pub found: Option<(usize, Option<usize>)>,
     pub undo: Option<(String, u64)>,
+    pub(crate) download_notices: Vec<(String, bool)>,
+    pub(crate) cleared_downloads: Option<(String, (bool, Id), Vec<Download>)>,
     pub transfers: Vec<crate::scripts::Transfer>,
     pub transfers_moved: std::time::Instant,
     pub reader: Option<crate::scripts::Reader>,
@@ -180,6 +182,8 @@ impl<D: Platform> Shell<D> {
             open_offer: None,
             found: None,
             undo: None,
+            download_notices: Vec::new(),
+            cleared_downloads: None,
             transfers: Vec::new(),
             transfers_moved: std::time::Instant::now(),
             reader: None,
@@ -657,6 +661,7 @@ impl<D: Platform> Shell<D> {
         }
         // Private tab ids start again in the next session, so no private pane may outlive this one.
         self.splits.retain(|k| !k.private);
+        self.download_notices.clear();
         self.opened_files.retain(|k, _| !k.private);
         for (_, profile_id) in &private {
             self.core.store(true).delete_profile(*profile_id).ok();
@@ -696,6 +701,14 @@ impl<D: Platform> Shell<D> {
     pub fn default_level(&self) -> ShieldLevel {
         let Some((private, id)) = self.model.profile() else { return ShieldLevel::Standard };
         self.core.store(private).profile(id).map(|p| p.shield_level).unwrap_or_default()
+    }
+
+    pub fn shield_wipes_data(&self, level: ShieldLevel) -> Option<String> {
+        let (private, id) = self.model.profile()?;
+        if level != ShieldLevel::Lockdown || private || self.default_level() == ShieldLevel::Lockdown {
+            return None;
+        }
+        Some(self.core.store(private).profile(id).map(|p| browser_core::text::bounded_title(&p.name)).unwrap_or_default())
     }
 
     pub fn set_default_level(&mut self, level: ShieldLevel) -> bool {
@@ -742,6 +755,8 @@ impl<D: Platform> Shell<D> {
         let store = self.core.store(private);
         store.clear_history(id).ok();
         store.clear_downloads(id).ok();
+        self.download_notices.clear();
+        self.cleared_downloads = None;
         self.model.closed_tabs.clear_profile(private, id);
         self.forget_icons((private, id));
         let before = self.store_id(private, id);
@@ -759,6 +774,29 @@ impl<D: Platform> Shell<D> {
         self.notice = Some("Browsing data cleared.".into());
     }
 
+    pub fn clear_history(&mut self, range: browser_core::library::HistoryRange) {
+        let Some((private, id)) = self.model.profile() else { return };
+        if browser_core::library::clear_history(self.core.store(private), id, range, browser_core::now()).is_err() {
+            return;
+        }
+        if range == browser_core::library::HistoryRange::All {
+            self.model.closed_tabs.clear_profile(private, id);
+            self.forget_icons((private, id));
+        }
+        self.notice = Some("History cleared.".into());
+    }
+
+    pub fn remove_history_url(&mut self, url: &str) {
+        if let Some((private, id)) = self.model.profile() {
+            self.core.store(private).delete_history_url(id, url).ok();
+        }
+    }
+
+    pub fn day_starts(&self, now: i64) -> (i64, i64) {
+        let today = self.core.disk.local_day_start(now).unwrap_or(now);
+        (today, self.core.disk.local_day_start(today - 1).unwrap_or(today - 86_400_000))
+    }
+
     pub fn history(&self) -> Vec<HistoryEntry> {
         self.profile_id().and_then(|id| self.store().history(id, 200).ok()).unwrap_or_default()
     }
@@ -768,8 +806,12 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn clear_downloads(&mut self) {
-        if let Some(id) = self.profile_id() {
-            self.store().clear_downloads(id).ok();
+        let Some(profile) = self.model.profile() else { return };
+        let list = self.downloads();
+        if self.core.store(profile.0).clear_downloads(profile.1).is_ok() {
+            let text = "Downloads cleared".to_owned();
+            self.cleared_downloads = Some((text.clone(), profile, list));
+            self.notice = Some(text);
         }
     }
 
