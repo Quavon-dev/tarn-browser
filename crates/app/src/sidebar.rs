@@ -496,8 +496,10 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         (true, _) => (if b.model.burner_shown() { Icon::Flame } else { ui::icon::space_icon(&s.space.icon) }, Theme::warning()),
         (false, tint) => (ui::icon::space_icon(&s.space.icon), tint.unwrap_or(Theme::space_label())),
     });
-    let menu = move |b: &mut Browser, w: &mut Window, cx: &mut Context<Browser>| {
+    let at = std::rc::Rc::<std::cell::Cell<_>>::default();
+    let menu = move |b: &mut Browser, button: Option<gpui::Bounds<gpui::Pixels>>, w: &mut Window, cx: &mut Context<Browser>| {
         if b.rename_input(RenameTarget::Space(space_id)).is_none() {
+            b.menu_at = button;
             b.space_menu(b.model.space_ix, w, cx);
         }
     };
@@ -513,8 +515,9 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .cursor_pointer()
         .hover(|s| s.bg(Theme::hover()))
         .active(|s| s.bg(Theme::pressed()))
-        .on_click(cx.listener(move |b, _, w, cx| menu(b, w, cx)))
-        .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| menu(b, w, cx)))
+        .child(crate::address::measure(at.clone()))
+        .on_click(cx.listener(move |b, _, w, cx| menu(b, Some(at.get()), w, cx)))
+        .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| menu(b, None, w, cx)))
         .children(glyph.map(|(glyph, color)| {
             div()
                 .size(px(28.))

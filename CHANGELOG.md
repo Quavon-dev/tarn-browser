@@ -75,6 +75,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Tab groups and folders can show an icon: one of twenty symbols or a single emoji, set with
   Change Icon… in their menu (macOS, Windows; folders on Linux). Clean Up gives each group it
   makes the icon of its kind.
+- File › Close Window (⇧⌘W), View › Stop Loading (⌘.) and Reload Without Cache (⌥⌘R); ⌘+ zooms
+  in, and ⌘} ⌘{ and ⌥⌘→ ⌥⌘← go to the next and previous tab (macOS, Windows).
+- Tab and ⇧Tab move the keyboard through the toolbar's buttons and the address field (macOS,
+  Windows).
 
 ### Changed
 
@@ -117,6 +121,19 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Menu bar commands with nothing to act on are greyed on macOS, as they were on Windows: Back,
+  Forward, Reopen Closed Tab, Close All Tabs, Stop Loading, and Mute Site on a page without a host.
+- File › Close Tab reads Unload Tab on a pinned tab, View › Reader reads Show or Hide Reader,
+  Tabs › Search Tabs… is now Show Library, and the Spaces menu lists every space, not only the
+  first nine (macOS, Windows).
+- Menus opened from the start page's space and Shield pills and the sidebar's space name drop
+  from the button instead of the pointer, and entries inside submenus get their glyphs (macOS).
+- In the reader, ⌘F finds on the page the reader was made from, and ⌘W closes the tab instead of
+  the reader; Esc still closes the reader (macOS, Windows).
+- Zooming shows the new zoom level, and says why nothing changes while Responsive Size is on
+  (macOS, Windows).
+- The Keyboard Shortcuts sheet scrolls with the arrow keys, Page Up and Page Down, Space, Home and
+  End (macOS, Windows).
 - Two downloads of the same name at once each get their own file, instead of the second failing
   or replacing the first (Linux, iOS, Android).
 - Settings text no longer runs under the controls beside it, and text fields clip their

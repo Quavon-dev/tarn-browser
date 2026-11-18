@@ -76,6 +76,7 @@ pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
             ("Select last tab", Bound("cmd-9", &crate::LastTab)),
             ("Next tab", Bound("ctrl-tab", &crate::NextTab)),
             ("Previous tab", Bound("ctrl-shift-tab", &crate::PreviousTab)),
+            ("Next or previous tab, other keys", Fixed("⌘} ⌘{ ⌥⌘→ ⌥⌘←")),
             ("Pin or unpin tab", Bound("cmd-d", &crate::TogglePin)),
             ("New tab group", Bound("cmd-alt-g", &crate::NewGroup)),
             ("Open or close split view", Bound("cmd-ctrl-n", &crate::split::ToggleSplitView)),
@@ -90,12 +91,15 @@ pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
         "Page",
         &[
             ("Reload", Bound("cmd-r", &crate::Reload)),
+            ("Reload without cache", Bound("alt-cmd-r", &crate::ReloadFromOrigin)),
+            ("Stop loading", Bound("cmd-.", &crate::StopLoading)),
             ("Back", Bound("cmd-[", &crate::Back)),
             ("Forward", Bound("cmd-]", &crate::Forward)),
             ("Find in page", Bound("cmd-f", &crate::Find)),
             ("Find next", Bound("cmd-g", &crate::FindNext)),
             ("Find previous", Bound("cmd-shift-g", &crate::FindPrevious)),
             ("Zoom in", Bound("cmd-=", &crate::ZoomIn)),
+            ("Zoom in, other key", Fixed("⌘+")),
             ("Zoom out", Bound("cmd--", &crate::ZoomOut)),
             ("Actual size", Bound("cmd-0", &crate::ZoomReset)),
             ("Copy link", Bound("cmd-shift-c", &crate::CopyLink)),
@@ -122,6 +126,7 @@ pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
         "Window",
         &[
             ("New window", Bound("cmd-n", &crate::NewWindow)),
+            ("Close window", Bound("cmd-shift-w", &crate::CloseWindow)),
             ("Toggle sidebar", Bound("cmd-s", &crate::ToggleSidebar)),
             ("New space", Bound("cmd-shift-s", &crate::NewSpace)),
             ("Private space", Bound("cmd-shift-n", &crate::PrivateSpace)),
@@ -2096,6 +2101,8 @@ mod tests {
             let key = match key {
                 "escape" => "Esc".to_owned(),
                 "tab" => "⇥".to_owned(),
+                "left" => "←".to_owned(),
+                "right" => "→".to_owned(),
                 k if mods == "ctrl" && k.parse::<u8>().is_ok() => "1".to_owned(),
                 k => k.to_uppercase(),
             };

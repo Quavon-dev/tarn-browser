@@ -34,12 +34,13 @@ fn glyph(label: &str) -> Option<Image> {
 pub fn with_glyphs<T>(items: Vec<Item<T>>) -> Vec<Item<T>> {
     items
         .into_iter()
-        .map(|item| {
-            let glyph = match &item {
-                Item::Action { title, image: None, .. } => glyph(title),
-                _ => None,
-            };
-            if glyph.is_some() { item.image(glyph) } else { item }
+        .map(|item| match item {
+            Item::Submenu(title, children) => Item::Submenu(title, with_glyphs(children)),
+            Item::Action { image: None, ref title, .. } => {
+                let glyph = glyph(title);
+                if glyph.is_some() { item.image(glyph) } else { item }
+            }
+            item => item,
         })
         .collect()
 }
@@ -50,10 +51,15 @@ mod tests {
 
     #[test]
     fn menu_entries_get_their_label_glyph_and_names_none() {
-        let items =
-            with_glyphs(vec![Item::action("Copy Link", 1), Item::Separator, Item::action("Holiday plans", 2), Item::Submenu("Move to Space".into(), vec![])]);
-        let images: Vec<bool> =
-            items.iter().map(|i| matches!(i, Item::Action { image: Some(Image::Template(png)), .. } if png.starts_with(b"\x89PNG"))).collect();
+        let items = with_glyphs(vec![
+            Item::action("Copy Link", 1),
+            Item::Separator,
+            Item::action("Holiday plans", 2),
+            Item::Submenu("Move to Space".into(), vec![Item::action("Copy Link", 3)]),
+        ]);
+        let glyphed = |i: &Item<i32>| matches!(i, Item::Action { image: Some(Image::Template(png)), .. } if png.starts_with(b"\x89PNG"));
+        let images: Vec<bool> = items.iter().map(glyphed).collect();
         assert_eq!(images, [true, false, false, false]);
+        assert!(matches!(&items[3], Item::Submenu(_, children) if glyphed(&children[0])), "submenu entries get glyphs too");
     }
 }

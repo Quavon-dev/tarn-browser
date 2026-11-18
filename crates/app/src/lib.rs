@@ -93,6 +93,7 @@ actions!(tarn, [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyClean
 actions!(tarn, [AboutTarn, CheckForUpdates, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
 actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAutoHideSidebar, ToggleDownloads]);
 actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, BurnerTab]);
+actions!(tarn, [CloseWindow, StopLoading, ReloadFromOrigin]);
 
 /// Actions the command bar offers: label, search keywords, action.
 pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
@@ -168,6 +169,8 @@ impl Render for Browser {
         if self.hidden_field_focused(window, cx) || (std::mem::take(&mut self.refocus) || stranded) && !self.overlay_open() && self.active_prompt().is_none() {
             window.focus(&self.focus_handle(cx));
         }
+        let [back, forward, close_tab, bookmark, print, stop, reload_fresh] =
+            [&Back as &dyn gpui::Action, &Forward, &CloseTab, &BookmarkTab, &Print, &StopLoading, &ReloadFromOrigin].map(|a| !self.idle(a));
         let mut root = div()
             .key_context("Browser")
             .track_focus(&self.focus_handle(cx))
@@ -195,22 +198,36 @@ impl Render for Browser {
                 }
             }))
             .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, w, cx| b.prompt_key(e, w, cx)))
+            .on_key_down(|e: &gpui::KeyDownEvent, w, _| {
+                let m = e.keystroke.modifiers;
+                if e.keystroke.key == "tab" && !(m.control || m.platform || m.alt || m.function) {
+                    if m.shift { w.focus_prev() } else { w.focus_next() }
+                }
+            })
             .on_action(cx.listener(|b, _: &NewTab, w, cx| b.new_tab_page(w, cx)))
             .on_action(cx.listener(|b, _: &NewChromiumWindow, w, cx| b.new_chromium_window(w, cx)))
             .on_action(cx.listener(|b, _: &profiles::NewProfile, w, cx| b.open_profile_editor(None, w, cx)))
             .on_action(cx.listener(|b, _: &profiles::EditProfile, w, cx| b.edit_current_profile(w, cx)))
             .on_action(cx.listener(|b, _: &OpenLocation, w, cx| b.open_command(CommandMode::Current, w, cx)))
             .on_action(cx.listener(|b, _: &OpenFile, w, cx| b.choose_file(w, cx)))
-            .on_action(cx.listener(|b, _: &CloseTab, w, cx| {
-                if b.overlay_open() {
-                    b.dismiss_overlay(w, cx);
-                } else if let Some(key) = b.model.active {
-                    b.close_tab(key, w, cx);
-                }
+            .when(close_tab, |d| {
+                d.on_action(cx.listener(|b, _: &CloseTab, w, cx| {
+                    if b.card_open() {
+                        b.dismiss_overlay(w, cx);
+                    } else if let Some(key) = b.model.active {
+                        b.close_tab(key, w, cx);
+                    }
+                }))
+            })
+            .on_action(cx.listener(|b, _: &CloseWindow, w, cx| {
+                crate::shared::window_closed(&b.core, b.saved.id, cx);
+                w.remove_window();
             }))
             .on_action(cx.listener(|b, _: &Reload, _, cx| b.reload(cx)))
-            .on_action(cx.listener(|b, _: &Back, _, _| b.back()))
-            .on_action(cx.listener(|b, _: &Forward, _, _| b.forward()))
+            .when(reload_fresh, |d| d.on_action(cx.listener(|b, _: &ReloadFromOrigin, _, cx| b.reload_page(true, cx))))
+            .when(stop, |d| d.on_action(cx.listener(|b, _: &StopLoading, _, cx| b.stop_loading(cx))))
+            .when(back, |d| d.on_action(cx.listener(|b, _: &Back, _, _| b.back())))
+            .when(forward, |d| d.on_action(cx.listener(|b, _: &Forward, _, _| b.forward())))
             .on_action(cx.listener(|b, _: &ZoomIn, _, cx| b.zoom(Some(1.1), cx)))
             .on_action(cx.listener(|b, _: &ZoomOut, _, cx| b.zoom(Some(1.0 / 1.1), cx)))
             .on_action(cx.listener(|b, _: &ZoomReset, _, cx| b.zoom(None, cx)))
@@ -218,7 +235,7 @@ impl Render for Browser {
             .on_action(cx.listener(|b, _: &Find, w, cx| b.open_find(w, cx)))
             .on_action(cx.listener(|b, _: &FindNext, _, cx| b.find(false, cx)))
             .on_action(cx.listener(|b, _: &FindPrevious, _, cx| b.find(true, cx)))
-            .on_action(cx.listener(|b, _: &Print, _, _| b.print()))
+            .when(print, |d| d.on_action(cx.listener(|b, _: &Print, _, _| b.print())))
             .on_action(cx.listener(|b, _: &NewSpace, w, cx| b.new_space(w, cx)))
             .on_action(cx.listener(|b, _: &spaces::EditSpace, w, cx| b.open_space_card(Some(b.model.space_ix), w, cx)))
             .on_action(cx.listener(|b, _: &PrivateSpace, w, cx| b.open_private_space(w, cx)))
@@ -228,11 +245,13 @@ impl Render for Browser {
             .on_action(cx.listener(|b, _: &ToggleDownloads, w, cx| b.toggle_downloads(w, cx)))
             .on_action(cx.listener(|b, _: &site_settings::SiteSettings, w, cx| b.toggle_site_settings(w, cx)))
             .on_action(cx.listener(|b, _: &zaps::ZapElement, _, _| b.zap_element()))
-            .on_action(cx.listener(|b, _: &BookmarkTab, w, cx| {
-                if let Some(id) = b.bookmark_tab(None, cx) {
-                    b.show_library(Some(id), w, cx);
-                }
-            }))
+            .when(bookmark, |d| {
+                d.on_action(cx.listener(|b, _: &BookmarkTab, w, cx| {
+                    if let Some(id) = b.bookmark_tab(None, cx) {
+                        b.show_library(Some(id), w, cx);
+                    }
+                }))
+            })
             .on_action(cx.listener(|b, _: &BookmarkAllTabs, _, cx| b.bookmark_all_tabs(cx)))
             .on_action(cx.listener(|b, _: &library::SaveSnapshot, w, cx| b.save_snapshot(w, cx)))
             .on_action(cx.listener(|b, _: &library::RestoreSnapshot, w, cx| b.open_library(library::Page::Snapshots, None, w, cx)))
@@ -244,7 +263,7 @@ impl Render for Browser {
         }
         indexed_actions!(select_tab: Tab1 => 1, Tab2 => 2, Tab3 => 3, Tab4 => 4, Tab5 => 5, Tab6 => 6, Tab7 => 7, Tab8 => 8, LastTab => 9);
         indexed_actions!(cycle_tab: NextTab => true, PreviousTab => false);
-        root = menubar::listen(root, cx);
+        root = menubar::listen(root, self, cx);
         root = tabs::listen(root, cx);
         root = qr::listen(reader::listen(root, cx), cx);
         root = find_tabs::listen(capture::listen(split::listen(shortcuts::listen(root, cx), cx), cx), cx);
@@ -261,8 +280,8 @@ impl Render for Browser {
         }
         indexed_actions!(switch_space: Space1 => 0, Space2 => 1, Space3 => 2, Space4 => 3, Space5 => 4, Space6 => 5, Space7 => 6, Space8 => 7, Space9 => 8);
         root = root
-            .on_action(cx.listener(|b, _: &ReopenClosedTab, w, cx| b.reopen_closed_tab(w, cx)))
-            .on_action(cx.listener(|b, _: &CloseAllTabs, w, cx| b.close_all_tabs(w, cx)))
+            .when(!self.idle(&ReopenClosedTab), |d| d.on_action(cx.listener(|b, _: &ReopenClosedTab, w, cx| b.reopen_closed_tab(w, cx))))
+            .when(!self.idle(&CloseAllTabs), |d| d.on_action(cx.listener(|b, _: &CloseAllTabs, w, cx| b.close_all_tabs(w, cx))))
             .on_action(cx.listener(|b, _: &DuplicateTab, w, cx| {
                 if let Some(key) = b.model.active {
                     b.duplicate_tab(key, w, cx);
@@ -327,7 +346,13 @@ pub(crate) fn bind_keys(cx: &mut App, keymap: &[(String, &'static dyn gpui::Acti
         cx.bind_keys([KeyBinding::new("f10", OpenAppMenu, Some("Browser"))]);
     }
     cx.bind_keys(keymap.iter().filter_map(|(keys, action)| shortcuts::binding(keys, *action)));
+    // After the keymap: menus show an action's first keys, which stay the rebindable ones.
     cx.bind_keys([
+        KeyBinding::new(&shortcuts::platform("cmd-+"), ZoomIn, None),
+        KeyBinding::new(&shortcuts::platform("cmd-}"), NextTab, None),
+        KeyBinding::new(&shortcuts::platform("cmd-{"), PreviousTab, None),
+        KeyBinding::new(&shortcuts::platform("alt-cmd-right"), NextTab, None),
+        KeyBinding::new(&shortcuts::platform("alt-cmd-left"), PreviousTab, None),
         KeyBinding::new("escape", CloseOverlay, Some("Browser")),
         KeyBinding::new("escape", CloseOverlay, Some("Settings")),
         KeyBinding::new(&shortcuts::platform("cmd-q"), Quit, None),
@@ -408,7 +433,8 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
                     MenuItem::action("Save Page as PDF", capture::SavePdf),
                     MenuItem::action("Take Screenshot", capture::TakeScreenshot),
                     MenuItem::separator(),
-                    MenuItem::action("Close Tab", CloseTab),
+                    MenuItem::action("Close Window", CloseWindow),
+                    MenuItem::action(dynamic.close_tab, CloseTab),
                     MenuItem::action("Close All Tabs", CloseAllTabs),
                 ])
                 .collect(),
