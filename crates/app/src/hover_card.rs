@@ -98,7 +98,14 @@ impl Browser {
         let y = origin.y + window.mouse_position().y - px(LIFT);
         let bottom = window.bounds().bottom();
         self.hover_card.anchor = Some((Bounds::new(point(x, y), size(px(WIDTH), px(HEIGHT))), window.display(cx).map(|d| d.id()), bottom));
-        self.hover_card.rest.enter(key, Instant::now());
+        if self.hover_card.rest.enter(key, Instant::now())
+            && let Some(handle) = self.hover_card.window.take()
+        {
+            self.hover_card.shot = None;
+            cx.defer(move |cx| {
+                handle.update(cx, |_, window, _| window.remove_window()).ok();
+            });
+        }
         self.schedule_hover_card(window, cx);
     }
 
