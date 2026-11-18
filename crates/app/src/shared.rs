@@ -436,12 +436,26 @@ fn open_new_window(cx: &mut App) {
 }
 
 pub(crate) fn open_torn(torn: Torn, row: SavedWindow, display: Option<DisplayId>, from: Option<gpui::WindowHandle<Browser>>, cx: &mut App) {
-    let row = core(cx).disk.create_window(&row).unwrap_or(row);
-    if let Some(handle) = open_window(row, display, Some(torn), cx) {
-        handle.update(cx, |_, window, _| window.activate_window()).ok();
+    let core = core(cx);
+    let opened = match core.disk.create_window(&row) {
+        Ok(row) => {
+            let opened = open_window(row.clone(), display, Some(torn), cx);
+            if opened.is_none() {
+                core.disk.delete_window(row.id).ok();
+            }
+            opened
+        }
+        Err(_) => None,
+    };
+    match opened {
+        Some(handle) => drop(handle.update(cx, |_, window, _| window.activate_window())),
+        None => torn.undo(&core),
     }
     if let Some(from) = from {
         from.update(cx, |b, window, cx| {
+            if opened.is_none() {
+                b.sync_shared(window, cx);
+            }
             if b.model.active.is_none_or(|a| b.model.tab(a).is_none()) {
                 b.pick_active(window, cx);
             }

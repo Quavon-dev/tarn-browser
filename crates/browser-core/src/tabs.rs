@@ -26,6 +26,7 @@ pub fn near_edge(x: f32, y: f32, width: f32, height: f32) -> bool {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Torn {
     pub key: TabKey,
+    pub from: Id,
     pub confined: Option<(bool, Id)>,
 }
 
@@ -33,6 +34,14 @@ impl Torn {
     pub fn place<D: WebsiteData>(&self, core: &Core<D>) -> (Option<Id>, Option<Id>) {
         let space = self.confined.map(|(_, id)| id).or_else(|| core.store(self.key.private).tab(self.key.id).ok().map(|t| t.space_id));
         crate::windows::saved_place(self.key.private, space, Some(self.key.id))
+    }
+
+    /// Puts a tab whose new window could not open back in the space it came from.
+    pub fn undo<D: WebsiteData>(&self, core: &Core<D>) {
+        if let Some((private, id)) = self.confined {
+            core.store(private).move_tab_to_space(self.key.id, self.from).ok();
+            core.store(private).delete_space(id).ok();
+        }
     }
 }
 
@@ -256,10 +265,11 @@ impl Model {
     }
 
     pub fn tear_off<D: WebsiteData>(&self, core: &Core<D>, key: TabKey, url: &str, temporary: bool) -> Option<Torn> {
-        if !self.tears_into_temporary(key, temporary)? {
-            return Some(Torn { key, confined: None });
-        }
         let tab = self.tab(key)?;
+        let from = tab.space_id;
+        if !self.tears_into_temporary(key, temporary)? {
+            return Some(Torn { key, from, confined: None });
+        }
         let store = core.store(key.private);
         let space = store.create_temporary_space(self.current_space()?.space.profile_id, "Temporary").ok()?;
         store.update_tab_page(key.id, url, &tab.title).ok();
@@ -267,7 +277,7 @@ impl Model {
             store.delete_space(space.id).ok();
             return None;
         }
-        Some(Torn { key, confined: Some((key.private, space.id)) })
+        Some(Torn { key, from, confined: Some((key.private, space.id)) })
     }
 
     pub fn tears_into_temporary(&self, key: TabKey, temporary: bool) -> Option<bool> {
@@ -778,7 +788,7 @@ mod tests {
         let (loose, other, pinned) = (tab(TabKind::Ephemeral), tab(TabKind::Ephemeral), tab(TabKind::Pinned));
         let key = |t: &Tab| TabKey { private: false, id: t.id };
         model.reload_space(&core);
-        let full = |t: &Tab| Some(Torn { key: key(t), confined: None });
+        let full = |t: &Tab| Some(Torn { key: key(t), from: space, confined: None });
         assert_eq!(model.tear_off_label(key(&pinned), true), Some("Opens in a new window"));
         assert_eq!(model.tear_off_label(key(&loose), true), Some("Opens in a temporary window"));
         assert_eq!(model.tear_off_label(key(&loose), false), Some("Opens in a new window"));
@@ -799,6 +809,10 @@ mod tests {
         assert_eq!((moved.space_id, moved.url.as_str()), (temporary, "https://b.test/"));
         model.reload_spaces(&core);
         assert_eq!(model.spaces.len(), 1, "other windows do not list it");
+        let undone = model.tear_off(&core, key(&other), "https://a.test/", true).unwrap();
+        undone.undo(&core);
+        assert_eq!(core.disk.tab(other.id).unwrap().space_id, space, "a tab whose window did not open goes back");
+        assert!(core.disk.temporary_space(undone.confined.unwrap().1).is_err());
 
         let mut confined = Model::new(4);
         let saved = SavedWindow { space_id: Some(temporary), active_tab_id: Some(loose.id), ..Default::default() };

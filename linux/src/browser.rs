@@ -1177,7 +1177,11 @@ impl Browser {
         let torn = self.model.tear_off(&self.core, key, &url, prefs::TEAR_OFF_TEMPORARY.on(&self.core.disk))?;
         let (space_id, active_tab_id) = torn.place(&self.core);
         let (width, height) = (self.window.width, self.window.height);
-        let row = Browser::window_row(&self.core, SavedWindow { width, height, space_id, active_tab_id, ..SavedWindow::default() });
+        let Ok(row) = self.core.disk.create_window(&SavedWindow { width, height, space_id, active_tab_id, ..SavedWindow::default() }) else {
+            torn.undo(&self.core);
+            self.model.reload_space(&self.core);
+            return None;
+        };
         self.forget_tab(key);
         self.model.reload_space(&self.core);
         if self.model.active.is_none_or(|a| a == key) {
