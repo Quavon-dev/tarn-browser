@@ -171,8 +171,8 @@ impl Render for Browser {
         if self.hidden_field_focused(window, cx) || (std::mem::take(&mut self.refocus) || stranded) && !self.overlay_open() && self.active_prompt().is_none() {
             window.focus(&self.focus_handle(cx));
         }
-        let [back, forward, close_tab, bookmark, print, stop, reload_fresh] =
-            [&Back as &dyn gpui::Action, &Forward, &CloseTab, &BookmarkTab, &Print, &StopLoading, &ReloadFromOrigin].map(|a| !self.idle(a));
+        let [back, forward, close_tab, bookmark, print, stop, reload, reload_fresh] =
+            [&Back as &dyn gpui::Action, &Forward, &CloseTab, &BookmarkTab, &Print, &StopLoading, &Reload, &ReloadFromOrigin].map(|a| !self.idle(a));
         let mut root = div()
             .key_context("Browser")
             .track_focus(&self.focus_handle(cx))
@@ -231,7 +231,7 @@ impl Render for Browser {
                 crate::shared::window_closed(&b.core, b.saved.id, cx);
                 w.remove_window();
             }))
-            .on_action(cx.listener(|b, _: &Reload, _, cx| b.reload(cx)))
+            .when(reload, |d| d.on_action(cx.listener(|b, _: &Reload, _, cx| b.reload(cx))))
             .when(reload_fresh, |d| d.on_action(cx.listener(|b, _: &ReloadFromOrigin, _, cx| b.reload_page(true, cx))))
             .when(stop, |d| d.on_action(cx.listener(|b, _: &StopLoading, _, cx| b.stop_loading(cx))))
             .when(back, |d| d.on_action(cx.listener(|b, _: &Back, _, _| b.back())))
