@@ -1124,6 +1124,26 @@ impl Store {
         self.checkpoint()
     }
 
+    pub fn delete_history_since(&self, profile_id: Id, since: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM history WHERE profile_id = ?1 AND visited_at >= ?2", params![profile_id, since])?;
+        self.checkpoint()
+    }
+
+    pub fn delete_history_url(&self, profile_id: Id, url: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM history WHERE profile_id = ?1 AND url = ?2", params![profile_id, url])?;
+        self.checkpoint()
+    }
+
+    pub fn local_day_start(&self, at: i64) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("SELECT CAST(strftime('%s', ?1 / 1000, 'unixepoch', 'localtime', 'start of day', 'utc') AS INTEGER) * 1000", [at], |r| r.get(0))?)
+    }
+
+    pub fn changes(&self) -> u64 {
+        self.conn.total_changes()
+    }
+
     pub fn favicons(&self, profile_id: Id) -> Result<Vec<(String, Vec<u8>)>> {
         let mut stmt = self.conn.prepare("SELECT host, png FROM favicons WHERE profile_id = ?1")?;
         let rows = stmt.query_map([profile_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
@@ -2042,6 +2062,29 @@ mod tests {
         store.delete_window(first.id).unwrap();
         assert_eq!(store.windows().unwrap().len(), 1);
         assert!(store.conn.execute("UPDATE windows SET web_engine = 'gecko'", []).is_err());
+    }
+
+    #[test]
+    fn history_is_deleted_by_address_or_since_a_time() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "u1", false).unwrap().id;
+        let other = store.create_profile("Q", "u2", false).unwrap().id;
+        for (url, at) in [("https://a.test/", 10), ("https://b.test/", 20), ("https://a.test/", 30)] {
+            store.add_history(p, url, "", at, false).unwrap();
+        }
+        store.add_history(other, "https://a.test/", "", 40, false).unwrap();
+        let urls = |profile| store.history(profile, 10).unwrap().into_iter().map(|h| h.url).collect::<Vec<_>>();
+        store.delete_history_since(p, 20).unwrap();
+        assert_eq!(urls(p), ["https://a.test/"]);
+        store.delete_history_url(p, "https://a.test/").unwrap();
+        assert!(urls(p).is_empty());
+        assert_eq!(urls(other), ["https://a.test/"], "another profile's history stays");
+        let before = store.changes();
+        store.set_setting("k", "v").unwrap();
+        assert!(store.changes() > before);
+        let day = store.local_day_start(1_000_000_000_000).unwrap();
+        assert!(day <= 1_000_000_000_000 && 1_000_000_000_000 - day < 86_400_000);
+        assert_eq!(store.local_day_start(day).unwrap(), day);
     }
 
     #[test]

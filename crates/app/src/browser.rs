@@ -2763,7 +2763,26 @@ impl Browser {
             .collect()
     }
 
+    pub(crate) fn shield_wipes_data(&self, level: ShieldLevel) -> bool {
+        level == ShieldLevel::Lockdown && !self.model.private() && self.current_loaded().is_some_and(|rt| rt.profile.shield_level != ShieldLevel::Lockdown)
+    }
+
     pub fn set_profile_shield(&mut self, level: ShieldLevel, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.shield_wipes_data(level) {
+            return self.apply_profile_shield(level, window, cx);
+        }
+        let name = self.current_profile().map(|p| ui::text::bounded_title(&p.name)).unwrap_or_default();
+        let question = crate::settings::lockdown_question(&name);
+        let answer = window.prompt(gpui::PromptLevel::Warning, &question, Some(crate::settings::LOCKDOWN_WIPE), &["Use Lockdown", "Cancel"], cx);
+        cx.spawn_in(window, async move |this, cx| {
+            if answer.await == Ok(0) {
+                this.update_in(cx, |b, window, cx| b.apply_profile_shield(level, window, cx)).ok();
+            }
+        })
+        .detach();
+    }
+
+    pub(crate) fn apply_profile_shield(&mut self, level: ShieldLevel, window: &mut Window, cx: &mut Context<Self>) {
         let Some(space) = self.model.current_space() else { return };
         let (private, profile_id) = (space.private, space.space.profile_id);
         if self.store(private).set_profile_shield_level(profile_id, level).is_err() {
@@ -2883,13 +2902,32 @@ impl Browser {
         }
     }
 
-    pub fn clear_history(&mut self, private: bool, profile_id: Id, cx: &mut Context<Self>) {
-        self.store(private).clear_history(profile_id).ok();
-        crate::zaps::apply(&self.core, private, profile_id);
+    pub fn clear_history(&mut self, private: bool, profile_id: Id, range: browser_core::library::HistoryRange, cx: &mut Context<Self>) {
+        browser_core::library::clear_history(self.store(private), profile_id, range, now()).ok();
+        let all = range == browser_core::library::HistoryRange::All;
+        if all {
+            crate::zaps::apply(&self.core, private, profile_id);
+        }
         let forget = move |b: &mut Self, cx: &mut Context<Self>| {
             b.forget_history(private, profile_id);
-            b.reapply_site_zooms(private, profile_id, None);
-            b.set_site_muted(private, profile_id, None, false, false);
+            if all {
+                b.reapply_site_zooms(private, profile_id, None);
+                b.set_site_muted(private, profile_id, None, false, false);
+            }
+            cx.notify();
+        };
+        forget(self, cx);
+        crate::shared::others(cx, |b, _, cx| forget(b, cx));
+    }
+
+    pub fn remove_history_url(&mut self, url: &str, cx: &mut Context<Self>) {
+        let Some((private, profile_id)) = self.model.profile() else { return };
+        self.store(private).delete_history_url(profile_id, url).ok();
+        let forget = move |b: &mut Self, cx: &mut Context<Self>| {
+            b.forget_visits(private, profile_id);
+            b.history_cache.clear();
+            b.forget_text_matches();
+            b.menu.history_cleared();
             cx.notify();
         };
         forget(self, cx);

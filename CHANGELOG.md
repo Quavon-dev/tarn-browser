@@ -8,6 +8,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- History lists pages under Today, Yesterday and Earlier with when each was last visited. Remove
+  from History (row menu, the row's trash button, or ⌘⌫ on macOS and Delete on Windows) removes a
+  page, and Clear browsing history in Settings › Privacy asks whether to clear the last hour, today
+  or everything (macOS, Windows).
+- A search field in Settings finds the pane that holds a setting (macOS, Windows).
+- In the Library, F2 renames, ⌘⌫ (Delete on Windows) deletes and Shift+F10 opens the menu of the
+  selected row, whose buttons stay visible; icon buttons have tooltips (macOS, Windows).
 - Open File… shows a local file in a new tab: web pages with their images and styles, PDFs,
   images, text, SVG and video. ⌘O on macOS, Ctrl+O on Windows and Linux, and the menu on iOS and
   Android; the address bar shows the file's name (macOS, Windows, Linux, iOS, Android; no PDFs on
@@ -82,6 +89,17 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Settings › Profile is now Protection and holds the only Shield level choice, with each level's
+  description; the profile list is only in Profiles. The card's counters and the "Counted on this
+  Mac only" label are no longer repeated next to it, and a week with nothing stopped shows one line
+  instead of an empty chart (macOS, Windows).
+- Choosing Lockdown (from Settings or the menu), clearing history, deleting a profile or everything
+  in it, removing an extension or a theme, resetting zoom levels and deleting a bookmark ask first
+  in a dialog that names what goes, instead of a second click on the same button (macOS, Windows).
+- Filter-list updates, extension downloads and developer tools are switches; the search engine is
+  picked from a segmented control as in the profile card; an extension's Every site switch, Forget
+  Site Answers and Remove sit on a line under its name; Appearance has one Theme heading, theme
+  cards fill the row and the theme's own accent swatch is marked (macOS, Windows).
 - New Space and Edit Space open as one card on every client: pick a profile or start a new one,
   then name the space and give it a colour and icon; Edit Space also sets the schedule, and changes
   apply on Save. On macOS and Windows it is a popover above the sidebar's + button, drawn like the
@@ -146,6 +164,18 @@ All notable changes to Tarn are documented in this file. The format is based on
   (macOS, Windows).
 - The Keyboard Shortcuts sheet scrolls with the arrow keys, Page Up and Page Down, Space, Home and
   End (macOS, Windows).
+- Segments, Shield level rows, accent swatches and theme cards in Settings take the keyboard with
+  Tab, Enter and Space (macOS, Windows).
+- A colour typed in the theme colour editor is saved when its field loses focus, not only on
+  Return, and turning on Match system moves a light theme picked before into the light slot
+  (macOS, Windows).
+- Reduce motion shows as on while it is on in the system settings (macOS, Windows).
+- Settings show changes made in another window or the command bar; Return in the GitHub fields of
+  Extensions and Appearance installs; Choose File says when the file is not a .zip or .crx; and
+  extension Install and update buttons look unavailable, with the reason, while downloads are off
+  (macOS, Windows).
+- A profile name another profile has says so instead of only greying out Save, and a hidden
+  element comes back with Show Again rather than Undo (macOS, Windows).
 - Two downloads of the same name at once each get their own file, instead of the second failing
   or replacing the first (Linux, iOS, Android).
 - Settings text no longer runs under the controls beside it, and text fields clip their

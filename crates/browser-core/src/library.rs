@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::path::Path;
 
-use store::{Bookmark, Download, HistoryEntry, Tab};
+use store::{Bookmark, Download, HistoryEntry, Id, Store, Tab};
 
 use crate::command::fuzzy_score;
 use crate::text::bounded_title;
@@ -32,6 +32,43 @@ pub fn bookmarks<'a>(bookmarks: &'a [Bookmark], query: &'a str) -> impl Iterator
 
 pub fn history_hits(history: &[HistoryEntry], query: &str) -> Vec<usize> {
     history.iter().enumerate().filter(|(_, h)| matches(query, &h.title, &h.url)).map(|(ix, _)| ix).collect()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HistoryRange {
+    LastHour,
+    Today,
+    All,
+}
+
+impl HistoryRange {
+    pub const ALL: [HistoryRange; 3] = [HistoryRange::LastHour, HistoryRange::Today, HistoryRange::All];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            HistoryRange::LastHour => "Last Hour",
+            HistoryRange::Today => "Today",
+            HistoryRange::All => "Everything",
+        }
+    }
+}
+
+pub fn clear_history(store: &Store, profile_id: Id, range: HistoryRange, now: i64) -> Result<(), store::Error> {
+    match range {
+        HistoryRange::LastHour => store.delete_history_since(profile_id, now - 3_600_000),
+        HistoryRange::Today => store.delete_history_since(profile_id, store.local_day_start(now)?),
+        HistoryRange::All => store.clear_history(profile_id),
+    }
+}
+
+pub fn history_day(visited_at: i64, (today, yesterday): (i64, i64)) -> &'static str {
+    if visited_at >= today {
+        "Today"
+    } else if visited_at >= yesterday {
+        "Yesterday"
+    } else {
+        "Earlier"
+    }
 }
 
 pub fn download_name(download: &Download) -> String {
@@ -103,6 +140,32 @@ mod tests {
         assert_eq!(history.iter().map(|h| h.title.as_str()).collect::<Vec<_>>(), ["Alpha", "Beta"]);
         assert_eq!(history_hits(&history, "beta"), [1]);
         assert_eq!(history_hits(&history, ""), [0, 1]);
+    }
+
+    #[test]
+    fn clear_history_removes_the_chosen_range_only() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "u", false).unwrap().id;
+        let now = 10 * 86_400_000;
+        for (url, ago) in [("https://old.test/", 3 * 86_400_000), ("https://hour.test/", 1_800_000), ("https://earlier.test/", 7_200_000)] {
+            store.add_history(p, url, "", now - ago, false).unwrap();
+        }
+        let urls = || store.history(p, 10).unwrap().into_iter().map(|h| h.url).collect::<Vec<_>>();
+        clear_history(&store, p, HistoryRange::LastHour, now).unwrap();
+        assert_eq!(urls(), ["https://earlier.test/", "https://old.test/"]);
+        clear_history(&store, p, HistoryRange::Today, now).unwrap();
+        assert!(urls().contains(&"https://old.test/".to_owned()));
+        clear_history(&store, p, HistoryRange::All, now).unwrap();
+        assert!(urls().is_empty());
+    }
+
+    #[test]
+    fn visits_group_into_today_yesterday_and_earlier() {
+        let starts = (200, 100);
+        assert_eq!(
+            [history_day(250, starts), history_day(200, starts), history_day(150, starts), history_day(99, starts)],
+            ["Today", "Today", "Yesterday", "Earlier"]
+        );
     }
 
     #[test]

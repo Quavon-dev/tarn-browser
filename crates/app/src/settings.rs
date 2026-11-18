@@ -1,6 +1,7 @@
+use browser_core::library::HistoryRange;
 use gpui::{
-    AnyElement, App, AppContext, Bounds, Context, Div, ElementId, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement, KeyDownEvent,
-    MouseButton, MouseMoveEvent, ParentElement, Pixels, Render, RenderImage, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription,
+    AnyElement, App, AppContext, Bounds, Context, Div, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
+    MouseMoveEvent, ParentElement, Pixels, PromptLevel, Render, RenderImage, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription,
     TitlebarOptions, WeakEntity, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowOptions, canvas, div, img, point,
     prelude::FluentBuilder, px, rgb, size,
 };
@@ -12,11 +13,12 @@ use std::time::{Duration, Instant};
 use store::{Id, Profile, WebEngine};
 use ui::command::ENGINES;
 use ui::controls::{
-    button, disabled_segment, group, icon_text_button, note, radio, row, section, segment, segmented, swatch, switch, switch_row, tab_stop, text_block,
+    button, disabled_segment, field, group, icon_text_button, note, radio, row, section, segment, segmented, swatch, switch, switch_row, tab_stop, text_block,
 };
 use ui::icon::{Icon, icon};
 use ui::motion::fade_in;
 use ui::text::bounded_title;
+use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{ACCENTS, TEXT, TEXT_HEADING, TEXT_SMALL, TEXT_TINY, TEXT_TITLE, Theme};
 
 use crate::browser::Browser;
@@ -45,19 +47,42 @@ pub enum SettingsPane {
     Shortcuts,
 }
 
-const PANES: [(SettingsPane, Icon, &str); 11] = [
-    (SettingsPane::Profile, Icon::Shield, "Profile"),
-    (SettingsPane::Profiles, Icon::Person, "Profiles"),
-    (SettingsPane::General, Icon::Gear, "General"),
-    (SettingsPane::Appearance, Icon::Palette, "Appearance"),
-    (SettingsPane::Tabs, Icon::AppWindow, "Tabs"),
-    (SettingsPane::Search, Icon::Search, "Search"),
-    (SettingsPane::Privacy, Icon::Hand, "Privacy"),
-    (SettingsPane::Permissions, Icon::Camera, "Permissions"),
-    (SettingsPane::Developer, Icon::Code, "Developer"),
-    (SettingsPane::Extensions, Icon::Braces, "Extensions"),
-    (SettingsPane::Shortcuts, Icon::Keyboard, "Shortcuts"),
+const PANES: [(SettingsPane, Icon, &str, &str); 11] = [
+    (SettingsPane::Profile, Icon::Shield, "Protection", "shield level standard strict lockdown card filter lists site overrides connections default browser"),
+    (SettingsPane::Profiles, Icon::Person, "Profiles", "profile new edit delete space rules"),
+    (SettingsPane::General, Icon::Gear, "General", "updates nightly web engine chromium webkit downloads import about version licence source privacy imprint"),
+    (
+        SettingsPane::Appearance,
+        Icon::Palette,
+        "Appearance",
+        "theme dark light match system accent colour color motion reduce toolbar compact sidebar search bar effect",
+    ),
+    (SettingsPane::Tabs, Icon::AppWindow, "Tabs", "awake sleep memory new tab start page close archive gestures swipe trackpad touchpad"),
+    (SettingsPane::Search, Icon::Search, "Search", "search engine suggestions history text"),
+    (
+        SettingsPane::Privacy,
+        Icon::Hand,
+        "Privacy",
+        "block ads trackers cookie banners youtube pop-ups malware adult zoom muted hidden elements connections history clear export delete data localhost",
+    ),
+    (SettingsPane::Permissions, Icon::Camera, "Permissions", "camera microphone location pop-ups site answers allow block"),
+    (SettingsPane::Developer, Icon::Code, "Developer", "web inspector developer tools profile local servers localhost"),
+    (SettingsPane::Extensions, Icon::Braces, "Extensions", "install github file bitwarden every site official catalog store updates"),
+    (SettingsPane::Shortcuts, Icon::Keyboard, "Shortcuts", "keyboard keys"),
 ];
+
+fn pane_matches(query: &str, name: &str, words: &str) -> bool {
+    let text = format!("{name} {words}").to_lowercase();
+    query.to_lowercase().split_whitespace().all(|q| text.split_whitespace().any(|w| w.starts_with(q)))
+}
+
+pub(crate) const LOCKDOWN_WIPE: &str =
+    "Lockdown deletes the cookies and site data this profile has stored, except data it shares with another profile. Open pages reload.";
+
+pub(crate) fn lockdown_question(profile: &str) -> String {
+    format!("Use Lockdown for the profile \u{201C}{profile}\u{201D}?")
+}
+
 const YOU: usize = 2;
 
 type Pick = fn(&mut Browser, usize, &mut Context<Browser>);
@@ -169,10 +194,6 @@ fn label(text: impl Into<SharedString>) -> gpui::Div {
     div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(text.into())
 }
 
-fn group_label(text: &'static str) -> Div {
-    div().pt_5().pb_1p5().px_1().text_size(px(TEXT_TINY)).font_weight(FontWeight::BOLD).text_color(Theme::accent_text()).child(text)
-}
-
 /// A section title with a button at its right end.
 fn heading(title: impl Into<SharedString>, action: impl IntoElement) -> Div {
     section(title).flex().items_center().justify_between().gap_3().child(action)
@@ -190,8 +211,8 @@ fn licenses() -> Option<std::path::PathBuf> {
     PATH.clone()
 }
 
-fn danger(id: impl Into<ElementId>, idle: &'static str, armed_text: &'static str, armed: bool) -> Stateful<Div> {
-    button(id, if armed { armed_text } else { idle }, false).when(armed, |d| d.text_color(Theme::danger()))
+fn available(button: Stateful<Div>, on: bool, reason: &'static str) -> Stateful<Div> {
+    if on { button } else { button.opacity(0.45).cursor_default().tooltip(ui::controls::tooltip(reason, None)) }
 }
 
 /// Values read from the database, kept until a setting changes or the profile or space does.
@@ -205,7 +226,7 @@ struct Stored {
     profiles: Vec<Profile>,
 }
 
-type StoredKey = (usize, usize, Option<Profile>, bool);
+type StoredKey = (usize, usize, Option<Profile>, bool, u64, u64);
 
 /// What the panes show, read from the browser once per render.
 struct Snapshot {
@@ -255,11 +276,10 @@ pub struct SettingsWindow {
     browser: WeakEntity<Browser>,
     main: WindowHandle<Browser>,
     pane: SettingsPane,
-    /// The action and profile a first click armed; the second click acts only on that profile.
-    armed: Option<(&'static str, bool, Id)>,
     focus: FocusHandle,
     stored: Option<(StoredKey, Stored)>,
-    repo_input: gpui::Entity<ui::text_input::TextInput>,
+    repo_input: gpui::Entity<TextInput>,
+    search: gpui::Entity<TextInput>,
     card: Option<(CardKey, Option<Card>)>,
     motion: CardMotion,
     /// `None` until asked; asking LaunchServices on every render would be wasteful.
@@ -270,6 +290,7 @@ pub struct SettingsWindow {
     recording: Option<(&'static dyn gpui::Action, Subscription)>,
     shortcut_error: Option<String>,
     appearance: appearance::Pane,
+    _inputs: [Subscription; 2],
     _observe: Option<Subscription>,
     _activation: Subscription,
     _release: Subscription,
@@ -316,15 +337,24 @@ impl SettingsWindow {
                 // The pane list is a tab stop, so Tab and Shift+Tab come back to its Up and Down.
                 let focus = cx.focus_handle().tab_stop(true);
                 window.focus(&focus);
-                let repo_input = cx.new(|cx| ui::text_input::TextInput::new("owner/repository or a github.com address", cx));
+                let repo_input = cx.new(|cx| TextInput::new("owner/repository or a github.com address", cx));
+                let search = cx.new(|cx| TextInput::new("Search", cx));
+                let inputs = [
+                    cx.subscribe(&repo_input, |this: &mut SettingsWindow, _, event, cx| {
+                        if matches!(event, TextInputEvent::Submit) {
+                            this.install_from_github(cx);
+                        }
+                    }),
+                    cx.subscribe(&search, |this: &mut SettingsWindow, _, event, cx| this.on_search(event, cx)),
+                ];
                 SettingsWindow {
                     browser,
                     main,
                     pane: SettingsPane::Profile,
-                    armed: None,
                     focus,
                     stored: None,
                     repo_input,
+                    search,
                     motion: CardMotion::default(),
                     card: None,
                     default_browser: None,
@@ -333,6 +363,7 @@ impl SettingsWindow {
                     recording: None,
                     shortcut_error: None,
                     appearance: appearance::Pane::new(cx),
+                    _inputs: inputs,
                     _observe: observe,
                     _activation: activation,
                     _release: cx.on_release(|this: &mut SettingsWindow, cx| {
@@ -348,7 +379,7 @@ impl SettingsWindow {
         let b = self.browser.upgrade()?;
         let b = b.read(cx);
         let current = b.model.current_space().map(|s| (s.private, s.space.profile_id));
-        let key = (b.model.space_ix, b.model.spaces.len(), b.current_profile(), b.profile_editor.is_some());
+        let key = (b.model.space_ix, b.model.spaces.len(), b.current_profile(), b.profile_editor.is_some(), b.store(false).changes(), b.store(true).changes());
         let stored = match &self.stored {
             Some((k, stored)) if *k == key => stored.clone(),
             _ => {
@@ -449,7 +480,8 @@ impl SettingsWindow {
         cx: &mut Context<Self>,
     ) -> Div {
         row(first).child(text_block(title, detail)).child(segmented().children(options.iter().enumerate().map(|(ix, option)| {
-            segment((title, ix), *option, ix == selected).on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| pick(b, ix, cx))))
+            tab_stop(segment((title, ix), *option, ix == selected))
+                .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| pick(b, ix, cx))))
         })))
     }
 
@@ -461,13 +493,75 @@ impl SettingsWindow {
             self.with_browser(cx, |b, _, cx| b.refresh_local_servers(cx));
         }
         self.pane = pane;
-        self.armed = None;
         self.recording = None;
         self.shortcut_error = None;
         self.card_notice = None;
         (self.motion.hover, self.motion.pressed) = (false, false);
         self.default_browser = None;
         cx.notify();
+    }
+
+    fn found_panes(&self, cx: &App) -> Vec<SettingsPane> {
+        let query = self.search.read(cx).text();
+        PANES.iter().filter(|(_, _, name, words)| pane_matches(query, name, words)).map(|(pane, ..)| *pane).collect()
+    }
+
+    fn on_search(&mut self, event: &TextInputEvent, cx: &mut Context<Self>) {
+        let found = self.found_panes(cx);
+        let at = found.iter().position(|p| *p == self.pane);
+        let pick = match event {
+            TextInputEvent::Changed if at.is_none() => found.first(),
+            TextInputEvent::Submit => at.or(Some(0)).and_then(|ix| found.get(ix)),
+            TextInputEvent::Down => found.get(at.map_or(0, |ix| ix + 1)),
+            TextInputEvent::Up => at.and_then(|ix| ix.checked_sub(1)).and_then(|ix| found.get(ix)),
+            TextInputEvent::Cancel => {
+                self.search.update(cx, |s, cx| s.set_text("", cx));
+                None
+            }
+            _ => None,
+        };
+        match pick {
+            Some(pane) => self.set_pane(*pane, cx),
+            None => cx.notify(),
+        }
+    }
+
+    fn install_from_github(&mut self, cx: &mut Context<Self>) {
+        let repo = self.repo_input.read(cx).text().trim().to_owned();
+        if !repo.is_empty() {
+            self.with_browser(cx, move |b, _, cx| b.install_extension(crate::extensions::Install::Github(repo), None, cx));
+        }
+    }
+
+    fn ask(
+        &self,
+        message: &str,
+        detail: Option<&str>,
+        answers: &[&str],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Self, usize, &mut Context<Self>) + 'static,
+    ) {
+        let count = answers.len();
+        let buttons: Vec<&str> = answers.iter().copied().chain(["Cancel"]).collect();
+        let answer = window.prompt(PromptLevel::Warning, message, detail, &buttons, cx);
+        cx.spawn(async move |this, cx| {
+            if let Ok(ix) = answer.await
+                && ix < count
+            {
+                this.update(cx, |this, cx| then(this, ix, cx)).ok();
+            }
+        })
+        .detach();
+    }
+
+    fn set_level(&mut self, level: ShieldLevel, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let apply = move |this: &mut Self, _: usize, cx: &mut Context<Self>| this.with_browser(cx, |b, w, cx| b.apply_profile_shield(level, w, cx));
+        if self.browser.upgrade().is_some_and(|b| b.read(cx).shield_wipes_data(level)) {
+            self.ask(&lockdown_question(name), Some(LOCKDOWN_WIPE), &["Use Lockdown"], window, cx, apply);
+        } else {
+            apply(self, 0, cx);
+        }
     }
 
     fn shortcuts(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -679,7 +773,9 @@ impl Render for SettingsWindow {
         let current = self.pane;
         let snapshot = self.snapshot(cx);
         let reduce = snapshot.as_ref().is_some_and(|s| s.reduce);
-        let private = snapshot.as_ref().is_some_and(|s| s.private);
+        let found = self.found_panes(cx);
+        let searching = found.len() < PANES.len();
+        let search_focused = self.search.focus_handle(cx).is_focused(window);
 
         let nav = div()
             .w(px(SIDEBAR_WIDTH))
@@ -694,9 +790,12 @@ impl Render for SettingsWindow {
             .border_r_1()
             .border_color(Theme::separator())
             .window_control_area(gpui::WindowControlArea::Drag)
-            .children(PANES.iter().enumerate().flat_map(|(ix, &(pane, glyph, text))| {
+            .child(field(search_focused).mb_1().occlude().py_0p5().child(self.search.clone()))
+            .when(found.is_empty(), |d| d.child(note("No settings match.").px_2()))
+            .children(PANES.iter().enumerate().filter(|(_, (pane, ..))| found.contains(pane)).flat_map(|(ix, &(pane, glyph, text, _))| {
                 let selected = pane == current;
                 let group = match ix {
+                    _ if searching => None,
                     0 => Some("YOU"),
                     YOU => Some("BROWSER"),
                     _ => None,
@@ -740,7 +839,7 @@ impl Render for SettingsWindow {
             (_, None) => note("The browser window is closed.").into_any_element(),
             (SettingsPane::Profile, Some(s)) => self.profile_tab(&s, window, cx),
             (SettingsPane::General, Some(s)) => self.general(&s, cx),
-            (SettingsPane::Appearance, Some(s)) => self.appearance(&s, cx),
+            (SettingsPane::Appearance, Some(s)) => self.appearance(&s, window, cx),
             (SettingsPane::Tabs, Some(s)) => self.tabs(&s, cx),
             (SettingsPane::Search, Some(s)) => self.search(&s, cx),
             (SettingsPane::Privacy, Some(s)) => self.privacy(s, cx),
@@ -750,7 +849,7 @@ impl Render for SettingsWindow {
             (SettingsPane::Extensions, Some(s)) => self.extensions(s, window, cx),
             (SettingsPane::Shortcuts, Some(_)) => self.shortcuts(cx),
         };
-        let name = PANES.iter().find(|(p, ..)| *p == current).map_or("", |(_, _, t)| *t);
+        let name = PANES.iter().find(|(p, ..)| *p == current).map_or("", |(_, _, t, _)| *t);
 
         let content = div()
             .flex_1()
@@ -770,25 +869,6 @@ impl Render for SettingsWindow {
                     .text_size(px(TEXT_TITLE))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(name))
-                    .when(current == SettingsPane::Profile, |d| {
-                        d.child(
-                            div()
-                                .flex()
-                                .flex_none()
-                                .items_center()
-                                .gap_1()
-                                .px_2()
-                                .py_0p5()
-                                .rounded_full()
-                                .border_1()
-                                .border_color(Theme::hairline())
-                                .text_size(px(TEXT_SMALL))
-                                .font_weight(FontWeight::NORMAL)
-                                .text_color(Theme::muted())
-                                .child(icon(Icon::Lock, 11., Theme::muted()))
-                                .child(if private { "Kept in memory only".to_owned() } else { format!("Counted on {} only", ui::controls::THIS_DEVICE) }),
-                        )
-                    })
                     .when(cfg!(windows), |d| {
                         d.pr_2().window_control_area(gpui::WindowControlArea::Drag).child(div().flex_1()).children(ui::controls::window_controls())
                     }),
@@ -822,8 +902,11 @@ impl Render for SettingsWindow {
                 if !this.focus.is_focused(window) || this.recording.is_some() || event.keystroke.modifiers.modified() {
                     return;
                 }
-                let at = PANES.iter().position(|(p, ..)| *p == this.pane).unwrap_or(0) as isize;
-                this.set_pane(PANES[(at + step).clamp(0, PANES.len() as isize - 1) as usize].0, cx);
+                let found = this.found_panes(cx);
+                let at = found.iter().position(|p| *p == this.pane).unwrap_or(0) as isize;
+                if let Some(pane) = found.get((at + step).min(found.len() as isize - 1).max(0) as usize) {
+                    this.set_pane(*pane, cx);
+                }
             }))
             .size_full()
             .flex()
@@ -870,6 +953,9 @@ const CONTENT_WIDTH: f32 = 760.;
 fn week_chart(card: &Card) -> Div {
     const BARS: f32 = 92.;
     let days = browser_core::shield_card::day_totals(&card.week);
+    if days.iter().all(|(_, n)| *n <= 0) {
+        return group().child(row(true).child(text_block("Last 7 days", "Nothing stopped yet. Each day Shield stops something shows here.")));
+    }
     let busiest = days.iter().map(|(_, n)| *n).max().unwrap_or(0);
     let bars = days.iter().map(|(day, n)| {
         let fill = if *n == 0 { 2. } else { (BARS * *n as f32 / busiest.max(1) as f32).max(4.) };
@@ -1039,6 +1125,7 @@ impl SettingsWindow {
                 ),
             );
         }
+        let levels = self.shield_levels(s, cx);
         let to_privacy =
             |id: &'static str, text: &'static str| button(id, text, false).on_click(cx.listener(|this, _, _, cx| this.set_pane(SettingsPane::Privacy, cx)));
         let overrides = match s.overrides.len() {
@@ -1055,6 +1142,9 @@ impl SettingsWindow {
                     format!("{kept} Only what Tarn stops itself counts: ad and tracker blocks in WebKit tabs are not counted, because WebKit does not report what its blocking rules stop.")
                 }
             }))
+            .child(section("Shield level"))
+            .child(levels)
+            .child(note("Applies to this profile. Open pages reload with the new level."))
             .child(section("Shield"))
             .child(
                 group()
@@ -1092,24 +1182,12 @@ impl SettingsWindow {
     }
 
     fn hero(&self, card: &Card, face: impl IntoElement, target: Option<(bool, Id)>, cx: &mut Context<Self>) -> Div {
-        let numbers = card.counters.iter().zip(browser_core::shield_card::NUMBERS).map(|((_, n), caption)| {
-            div()
-                .flex()
-                .flex_col()
-                .child(div().text_size(px(TEXT_HEADING)).font_weight(FontWeight::BOLD).child(thousands((*n).max(0) as u64)))
-                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(caption))
-        });
         let private = target.is_some_and(|(private, _)| private);
         let since = match (card.days, &card.since) {
             (Some(days), Some(since)) => format!("Protected for {} · since {since}", browser_core::shield_card::days_text(days)),
             _ if private => "Counts stay in memory until the private space closes.".to_owned(),
             _ => "Counting starts with the first thing Shield stops.".to_owned(),
         };
-        let levels = ShieldLevel::ALL.into_iter().enumerate().map(|(ix, level)| {
-            tab_stop(segment(("profile-level", ix), shield_badge(level), level == card.level)).on_click(cx.listener(move |this, _, _, cx| {
-                this.with_browser(cx, |b, w, cx| b.set_profile_shield(level, w, cx));
-            }))
-        });
         let saved = card.clone();
         let shared = card.clone();
         let system = cfg!(target_os = "macos");
@@ -1163,8 +1241,6 @@ impl SettingsWindow {
                         )
                         .child(value(since).text_size(px(TEXT_SMALL))),
                 )
-                .child(div().flex().flex_wrap().gap_x_5().gap_y_2().children(numbers))
-                .child(div().flex().items_center().justify_between().gap_2().child(label("Shield level")).child(segmented().children(levels)))
                 .child(actions),
         )
     }
@@ -1199,8 +1275,6 @@ impl SettingsWindow {
 
     fn general(&self, s: &Snapshot, cx: &mut Context<Self>) -> AnyElement {
         div()
-            .child(section("Profiles"))
-            .child(s.profiles.iter().enumerate().fold(group(), |list, (ix, p)| list.child(self.profile_row(s, ix, p, false, cx))))
             .child(section("Updates"))
             .child(if s.updater {
                 group()
@@ -1299,38 +1373,64 @@ impl SettingsWindow {
             if !available && !selected {
                 return disabled_segment(("web-engine", ix), name);
             }
-            segment(("web-engine", ix), name, selected)
+            tab_stop(segment(("web-engine", ix), name, selected))
                 .when(available, |d| d.on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.set_default_web_engine(engine, w, cx)))))
         });
         row(true).child(text_block("Default web engine", detail)).child(segmented().children(options))
     }
 
-    fn appearance(&self, s: &Snapshot, cx: &mut Context<Self>) -> AnyElement {
+    fn appearance(&self, s: &Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme_accent = crate::themes::theme_accent(&crate::shared::core(cx)) >> 8;
-        let colors = std::iter::once(theme_accent).chain(ACCENTS.iter().map(|(_, c)| *c));
-        let accents = div().flex().gap_2().children(colors.enumerate().map(|(ix, color)| {
-            swatch(("accent", ix), rgb(color), ix == s.accent, 18.)
+        let colors = std::iter::once((crate::prefs::THEME_ACCENT, theme_accent)).chain(ACCENTS.iter().copied());
+        let accents = div().flex().gap_2().children(colors.enumerate().map(|(ix, (name, color))| {
+            let glyph = (ix == 0).then(|| icon(Icon::Palette, 11., Theme::on_fill(rgb(color))));
+            tab_stop(swatch(("accent", ix), rgb(color), ix == s.accent, 18.))
+                .children(glyph)
+                .tooltip(ui::controls::tooltip(if ix == 0 { "The theme's own accent" } else { name }, None))
                 .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_choice(Choice::Accent, ix, cx))))
         }));
         let compact = s.prefs.get(Pref::CompactToolbar) as usize;
+        let motion = "Cards, banners, the sidebar and tab switches appear without animation.";
+        let reduce_motion = if s.reduce && !s.prefs.get(Pref::ReduceMotion) {
+            let system = if cfg!(windows) {
+                "On while animations are off in Windows settings."
+            } else {
+                "On while Reduce motion is on in macOS Accessibility settings."
+            };
+            row(true).child(text_block("Reduce motion", format!("{motion} {system}"))).child(switch(true).opacity(0.5)).into_any_element()
+        } else {
+            self.pref_row(true, Pref::ReduceMotion, "Reduce motion", motion, s.prefs.get(Pref::ReduceMotion), cx).into_any_element()
+        };
         div()
-            .child(group_label("THEME"))
+            .child(section("Theme"))
             .child(group().children(self.theme_rows(cx)).child(row(false).child(text_block("Accent", "Buttons, selection and focus.")).child(accents)))
-            .child(group_label("MOTION"))
+            .child(self.theme_sections(window, cx))
+            .child(section("Motion"))
+            .child(group().child(reduce_motion).child(self.search_effect_row(false, cx)))
+            .child(section("Layout"))
             .child(
                 group()
-                    .child(self.pref_row(true, Pref::ReduceMotion, "Reduce motion", if cfg!(windows) { "Cards, banners, the sidebar and tab switches appear without animation. Always on while animations are off in Windows settings." } else { "Cards, banners, the sidebar and tab switches appear without animation. Always on while Reduce motion is on in macOS Accessibility settings." }, s.prefs.get(Pref::ReduceMotion), cx))
-                    .child(self.search_effect_row(false, cx)),
+                    .child(self.choice_row(
+                        true,
+                        "Toolbar",
+                        "Compact puts the address field into a slimmer bar.",
+                        &["Classic", "Compact"],
+                        compact,
+                        |b, ix, cx| b.set_pref(Pref::CompactToolbar, ix == 1, cx),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::AutoHideSidebar,
+                        "Hide sidebar automatically",
+                        format!(
+                            "With the sidebar hidden ({}), it slides in over the page while the pointer rests at the window's left edge.",
+                            crate::shortcuts::shown(&crate::ToggleSidebar, cx)
+                        ),
+                        s.prefs.get(Pref::AutoHideSidebar),
+                        cx,
+                    )),
             )
-            .child(group_label("LAYOUT"))
-            .child(
-                group()
-                    .child(self.choice_row(true, "Toolbar", "Compact puts the address field into a slimmer bar.", &["Classic", "Compact"], compact, |b, ix, cx| {
-                        b.set_pref(Pref::CompactToolbar, ix == 1, cx)
-                    }, cx))
-                    .child(self.pref_row(false, Pref::AutoHideSidebar, "Hide sidebar automatically", format!("With the sidebar hidden ({}), it slides in over the page while the pointer rests at the window's left edge.", crate::shortcuts::shown(&crate::ToggleSidebar, cx)), s.prefs.get(Pref::AutoHideSidebar), cx)),
-            )
-            .child(self.theme_sections(cx))
             .into_any_element()
     }
 
@@ -1402,19 +1502,10 @@ impl SettingsWindow {
 
     fn search(&self, s: &Snapshot, cx: &mut Context<Self>) -> AnyElement {
         let name = s.profile.as_ref().map(|p| bounded_title(&p.name)).unwrap_or_default();
-        let mut engines = group();
-        for (ix, engine) in ENGINES.iter().enumerate() {
-            engines = engines.child(
-                row(ix == 0)
-                    .id(("engine", ix))
-                    .cursor_pointer()
-                    .hover(|st| st.bg(Theme::hover()))
-                    .active(|st| st.bg(Theme::pressed()))
-                    .child(radio(ix == s.engine))
-                    .child(label(engine.name))
-                    .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_search_engine(ix, cx)))),
-            );
-        }
+        let engines = group().child(row(true).child(segmented().children(ENGINES.iter().enumerate().map(|(ix, engine)| {
+            tab_stop(segment(("engine", ix), engine.name, ix == s.engine))
+                .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_search_engine(ix, cx))))
+        }))));
         div()
             .child(section("Search engine"))
             .child(engines)
@@ -1461,26 +1552,30 @@ impl SettingsWindow {
             .into_any_element()
     }
 
-    fn privacy(&self, s: Snapshot, cx: &mut Context<Self>) -> AnyElement {
+    fn shield_levels(&self, s: &Snapshot, cx: &mut Context<Self>) -> Div {
         let level = s.profile.as_ref().map(|p| p.shield_level).unwrap_or_default();
-        let target = s.profile.as_ref().map(|p| (s.private, p.id));
-        let mut levels = group();
-        for (ix, l) in ShieldLevel::ALL.into_iter().enumerate() {
-            levels = levels.child(
-                row(ix == 0)
-                    .id(l.as_str())
+        let name = s.profile.as_ref().map(|p| bounded_title(&p.name)).unwrap_or_default();
+        ShieldLevel::ALL.into_iter().enumerate().fold(group(), |levels, (ix, l)| {
+            let name = name.clone();
+            levels.child(
+                tab_stop(row(ix == 0).id(l.as_str()))
                     .cursor_pointer()
                     .hover(|s| s.bg(Theme::hover()))
                     .active(|s| s.bg(Theme::pressed()))
                     .child(radio(l == level))
                     .child(text_block(shield_badge(l), level_description(l)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
                         if l != level {
-                            this.with_browser(cx, |b, w, cx| b.set_profile_shield(l, w, cx));
+                            this.set_level(l, &name, window, cx);
                         }
                     })),
-            );
-        }
+            )
+        })
+    }
+
+    fn privacy(&self, s: Snapshot, cx: &mut Context<Self>) -> AnyElement {
+        let target = s.profile.as_ref().map(|p| (s.private, p.id));
+        let profile_name = s.profile.as_ref().map(|p| bounded_title(&p.name)).unwrap_or_default();
 
         let sites = if s.overrides.is_empty() {
             note("No site overrides. Use the Shield button in the address bar to set one for a site.")
@@ -1497,10 +1592,13 @@ impl SettingsWindow {
             list
         };
 
-        let is_armed = |action: &'static str| target.is_some_and(|(p, id)| self.armed == Some((action, p, id)));
         let reset_zooms = (!s.zooms.is_empty()).then(|| {
-            danger("reset-zooms", "Reset All…", "Confirm Reset", is_armed("zoom"))
-                .on_click(arm(cx, target, "zoom", |b, p, id, _, cx| b.remove_site_zoom(p, id, None, cx)))
+            button("reset-zooms", "Reset All…", false).on_click(cx.listener(move |this, _, window, cx| {
+                let Some((private, id)) = target else { return };
+                this.ask("Reset every saved zoom level?", None, &["Reset All"], window, cx, move |this, _, cx| {
+                    this.with_browser(cx, |b, _, cx| b.remove_site_zoom(private, id, None, cx))
+                });
+            }))
         });
         let zooms = if s.zooms.is_empty() {
             note(format!(
@@ -1530,7 +1628,7 @@ impl SettingsWindow {
             let mut list = group();
             for (ix, (host, selector)) in s.zapped.into_iter().enumerate() {
                 list = list.child(row(ix == 0).child(label(bounded_title(&format!("{host} — {selector}")))).child(
-                    button(("unzap", ix), "Undo", false).on_click(cx.listener(move |this, _, _, cx| {
+                    button(("unzap", ix), "Show Again", false).on_click(cx.listener(move |this, _, _, cx| {
                         let (host, selector) = (host.clone(), selector.clone());
                         this.with_browser(cx, move |b, _, cx| b.unzap(&host, Some(&selector), cx));
                     })),
@@ -1590,24 +1688,26 @@ impl SettingsWindow {
         let filter_state = s.filters.summary();
         let connection = |first: bool, name: &'static str, detail: String| row(first).child(text_block(name, detail));
         let connections = group()
-            .child(
-                connection(true, "Filter-list updates", format!("GitHub, once a day. {filter_state}")).when(filters::configured(), |d| {
-                    d.child(button("filter-updates", if updates { "Turn Off" } else { "Turn On" }, false).on_click(
-                        cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_filter_updates(!updates, cx))),
-                    ))
-                }),
-            )
-            .child(
-                connection(
+            .child(if filters::configured() {
+                switch_row("filter-updates", true, text_block("Filter-list updates", format!("GitHub, once a day. {filter_state}")), updates)
+                    .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_filter_updates(!updates, cx))))
+                    .into_any_element()
+            } else {
+                connection(true, "Filter-list updates", format!("GitHub, once a day. {filter_state}")).into_any_element()
+            })
+            .child({
+                let on = s.extension_downloads;
+                switch_row(
+                    "extension-downloads",
                     false,
-                    "Extension and theme downloads",
-                    "GitHub, only when you click Install, Check for updates or Show official extensions in Extensions or Appearance settings. GitHub learns your address and the repository.".into(),
+                    text_block(
+                        "Extension and theme downloads",
+                        "GitHub, only when you click Install, Check for updates or Show official extensions in Extensions or Appearance settings. GitHub learns your address and the repository.",
+                    ),
+                    on,
                 )
-                .child(button("extension-downloads", if s.extension_downloads { "Turn Off" } else { "Turn On" }, false).on_click({
-                    let on = s.extension_downloads;
-                    cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_extension_downloads(!on, cx)))
-                })),
-            )
+                .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_extension_downloads(!on, cx))))
+            })
             .child(connection(false, "Site icons", "The site you are on, or a server it already loaded from such as its CDN (without cookies), through the tab's web engine with its Shield rules; never under Lockdown.".into()))
             .child(connection(false, "Update checks", match (s.updater, s.update_checks) {
                 (false, _) => "Not set up in this build; Tarn does not check for updates.".into(),
@@ -1628,17 +1728,34 @@ impl SettingsWindow {
                 })),
             ));
         }
+        let clear_name = profile_name.clone();
+        let delete_name = profile_name.clone();
         data = data
             .child(
-                row(s.private).child(label("Clear browsing history, site icons, zoom levels, muted sites, protected sites and hidden elements")).child(
-                    danger("clear-history", "Clear…", "Confirm Clear", is_armed("clear"))
-                        .on_click(arm(cx, target, "clear", |b, p, id, _, cx| b.clear_history(p, id, cx))),
-                ),
+                row(s.private)
+                    .child(text_block(
+                        "Clear browsing history",
+                        "The last hour or today removes visited pages; everything also removes site icons, zoom levels, muted sites, protected sites and hidden elements.",
+                    ))
+                    .child(button("clear-history", "Clear…", false).on_click(cx.listener(move |this, _, window, cx| {
+                        let Some((private, id)) = target else { return };
+                        let ranges = HistoryRange::ALL.map(HistoryRange::label);
+                        let question = format!("Clear the browsing history of \u{201C}{clear_name}\u{201D}?");
+                        this.ask(&question, Some("Choose how far back to clear."), &ranges, window, cx, move |this, ix, cx| {
+                            this.with_browser(cx, |b, _, cx| b.clear_history(private, id, HistoryRange::ALL[ix], cx))
+                        });
+                    }))),
             )
             .child(
-                row(false).child(label("Delete everything in this profile")).child(
-                    danger("delete-profile", "Delete…", "Confirm Delete", is_armed("delete"))
-                        .on_click(arm(cx, target, "delete", |b, p, id, w, cx| b.delete_profile_data(p, id, w, cx))),
+                row(false).child(label(format!("Delete everything in the profile \u{201C}{profile_name}\u{201D}"))).child(
+                    button("delete-profile", "Delete…", false).on_click(cx.listener(move |this, _, window, cx| {
+                        let Some((private, id)) = target else { return };
+                        let question = format!("Delete everything in the profile \u{201C}{delete_name}\u{201D}?");
+                        let detail = "Its spaces, tabs, history, cookies, site data and site settings are deleted. This cannot be undone.";
+                        this.ask(&question, Some(detail), &["Delete Everything"], window, cx, move |this, _, cx| {
+                            this.with_browser(cx, |b, w, cx| b.delete_profile_data(private, id, w, cx))
+                        });
+                    })),
                 ),
             );
 
@@ -1648,9 +1765,6 @@ impl SettingsWindow {
             .child(note("Applies to every profile. Malware, phishing and adult lists stop whole sites with a warning page; ad, tracker and cookie-banner lists act inside pages."))
             .child(section("Sites without ad, tracker and cookie-banner blocking"))
             .child(paused)
-            .child(section("Shield"))
-            .child(levels)
-            .child(note("Applies to this profile. Open pages reload with the new level."))
             .child(section("Links from other apps"))
             .child(group().child(self.pref_row(true, Pref::LocalhostFromApps, "Open localhost links from other apps", format!("A link to {} (localhost, 127.0.0.1) from a terminal, editor or other app opens like a typed address, and the page it shows may lead elsewhere on your network as a typed one can. Off: Tarn refuses it, since a link in a mail could reach services running here; Open Anyway on the notice still opens it. Links to other addresses on your network are refused; Open Anyway on the notice opens them. Applies to every profile.", ui::controls::THIS_DEVICE), on(Pref::LocalhostFromApps), cx)))
             .child(section("Site overrides"))
@@ -1696,10 +1810,10 @@ impl SettingsWindow {
         };
         div()
             .child(section("Developer tools"))
-            .child(group().child(row(true).child(label("Web Inspector, JSON viewer, responsive sizes and local servers")).child(
-                button("developer-tools", if on { "Turn Off" } else { "Turn On" }, false)
+            .child(group().child(
+                switch_row("developer-tools", true, label("Web Inspector, JSON viewer, responsive sizes and local servers"), on)
                     .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.set_developer(!on, w, cx)))),
-            )))
+            ))
             .child(note("Applies to every profile; open pages reload. Right-click a page and choose Inspect Element; the toolbar gains responsive sizes and Clear Site Data."))
             .child(section("Developer profile"))
             .child(match dev_profile {
@@ -1860,52 +1974,70 @@ impl SettingsWindow {
             for (ix, e) in s.extensions.into_iter().enumerate() {
                 let on = e.enabled;
                 let (install_id, app_path) = (e.install_id.clone(), e.app_path.clone());
-                let mut r = row(ix == 0).child(text_block(format!("{} \u{00B7} {}", e.name, e.badge), e.permissions)).child(
-                    tab_stop(div().id(("extension-switch", ix))).cursor_pointer().child(switch(on)).on_click(cx.listener(move |this, _, _, cx| {
+                let mut actions = div().flex().flex_wrap().items_center().gap_2();
+                if let (Some(all), Some(id)) = (e.all_sites, e.install_id.clone()) {
+                    actions = actions.child(
+                        tab_stop(div().id(("extension-all", ix)))
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .cursor_pointer()
+                            .text_size(px(TEXT_SMALL))
+                            .child(switch(all))
+                            .child("Every site")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let id = id.clone();
+                                this.with_browser(cx, move |b, w, cx| b.set_extension_all_sites(&id, !all, w, cx))
+                            })),
+                    );
+                }
+                if let Some(id) = e.install_id.clone() {
+                    actions = actions.child(button(("extension-forget", ix), "Forget Site Answers", false).on_click(cx.listener(move |this, _, _, cx| {
+                        let id = id.clone();
+                        this.with_browser(cx, move |b, w, cx| b.forget_extension_answers(&id, w, cx))
+                    })));
+                }
+                if let Some(id) = e.install_id {
+                    let question = format!("Remove the extension \u{201C}{}\u{201D}?", bounded_title(&e.name));
+                    actions = actions.child(button(("extension-remove", ix), "Remove\u{2026}", false).on_click(cx.listener(move |this, _, window, cx| {
+                        let id = id.clone();
+                        this.ask(&question, Some("Its files and the data it stored are deleted."), &["Remove"], window, cx, move |this, _, cx| {
+                            this.with_browser(cx, move |b, _, cx| b.remove_extension(&id, cx))
+                        });
+                    })));
+                }
+                let r = row(ix == 0)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap_1p5()
+                            .child(text_block(format!("{} \u{00B7} {}", e.name, e.badge), e.permissions))
+                            .child(actions),
+                    )
+                    .child(tab_stop(div().id(("extension-switch", ix))).cursor_pointer().child(switch(on)).on_click(cx.listener(move |this, _, _, cx| {
                         let (install_id, app_path) = (install_id.clone(), app_path.clone());
                         this.with_browser(cx, move |b, w, cx| match (install_id, app_path) {
                             (Some(id), _) => b.set_extension(&id, !on, w, cx),
                             (None, Some(path)) => b.enable_app_extension(path, w, cx),
                             _ => {}
                         })
-                    })),
-                );
-                if let (Some(all), Some(id)) = (e.all_sites, e.install_id.clone()) {
-                    r = r.child(button(("extension-all", ix), if all { "\u{2713} Every site" } else { "Every site" }, false).on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            let id = id.clone();
-                            this.with_browser(cx, move |b, w, cx| b.set_extension_all_sites(&id, !all, w, cx))
-                        },
-                    )));
-                }
-                if let Some(id) = e.install_id.clone() {
-                    r = r.child(button(("extension-forget", ix), "Forget Site Answers", false).on_click(cx.listener(move |this, _, _, cx| {
-                        let id = id.clone();
-                        this.with_browser(cx, move |b, w, cx| b.forget_extension_answers(&id, w, cx))
                     })));
-                }
-                if let Some(id) = e.install_id {
-                    r = r.child(button(("extension-remove", ix), "Remove", false).on_click(cx.listener(move |this, _, _, cx| {
-                        let id = id.clone();
-                        this.with_browser(cx, move |b, _, cx| b.remove_extension(&id, cx))
-                    })));
-                }
                 list = list.child(r);
             }
             list
         };
         let downloads = s.extension_downloads;
+        const OFF: &str = "Extension downloads are off in Privacy settings.";
         let input = self.repo_input.clone();
         let focused = input.focus_handle(cx).is_focused(window);
         let add = group()
-            .child(row(true).child(ui::controls::field(focused).flex_1().py_0p5().child(input.clone())).child(button("install-github", "Install", false).when(
+            .child(row(true).child(field(focused).flex_1().py_0p5().child(input)).child(available(
+                button("install-github", "Install", false).when(downloads, |d| d.on_click(cx.listener(|this, _, _, cx| this.install_from_github(cx)))),
                 downloads,
-                |d| {
-                    d.on_click(cx.listener(move |this, _, _, cx| {
-                        let repo = input.read(cx).text().to_owned();
-                        this.with_browser(cx, move |b, _, cx| b.install_extension(crate::extensions::Install::Github(repo), None, cx))
-                    }))
-                },
+                OFF,
             )))
             .child(row(false).child(label("A .zip or .crx file")).child(button("install-file", "Choose File\u{2026}", false).on_click(cx.listener(
                 |this, _, _, cx| {
@@ -1913,17 +2045,27 @@ impl SettingsWindow {
                     let main = this.main;
                     cx.spawn(async move |_, cx| {
                         let Ok(Ok(Some(paths))) = paths.await else { return };
-                        let Some(path) = paths.into_iter().next().filter(|p| p.extension().is_some_and(|e| e == "zip" || e == "crx")) else { return };
-                        main.update(cx, |b, _, cx| b.install_extension(crate::extensions::Install::File(path), None, cx)).ok();
+                        let Some(path) = paths.into_iter().next() else { return };
+                        main.update(cx, |b, _, cx| {
+                            if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip") || e.eq_ignore_ascii_case("crx")) {
+                                b.install_extension(crate::extensions::Install::File(path), None, cx);
+                            } else {
+                                b.core.extensions.borrow_mut().notices.push("Choose a .zip or .crx extension file.".to_owned());
+                                cx.notify();
+                            }
+                        })
+                        .ok();
                     })
                     .detach();
                 },
             ))))
             .child(
-                row(false).child(label("Installed from GitHub or the catalog")).child(
+                row(false).child(label("Installed from GitHub or the catalog")).child(available(
                     button("extension-updates", "Check for Updates", false)
                         .when(downloads, |d| d.on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.check_extension_updates(cx))))),
-                ),
+                    downloads,
+                    OFF,
+                )),
             );
         page = page.child(section("Installed")).child(installed).child(section("Access")).child(access).child(section("Add")).child(add);
         if !downloads {
@@ -1932,24 +2074,29 @@ impl SettingsWindow {
         if crate::extensions::catalog_configured() {
             let (rows, old) = s.catalog;
             let mut official = group().child(
-                row(true).child(label("Reviewed and signed by Tarn")).child(
+                row(true).child(label("Reviewed and signed by Tarn")).child(available(
                     button("catalog", "Show Official Extensions", false)
                         .when(downloads, |d| d.on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.fetch_catalog(cx))))),
-                ),
+                    downloads,
+                    OFF,
+                )),
             );
             for (ix, e) in rows.into_iter().enumerate() {
                 let id = e.id.clone();
                 official = official.child(row(false).child(text_block(format!("{} {}", e.name, e.version), e.description)).child(if e.installed {
                     value("Installed").into_any_element()
                 } else {
-                    button(("catalog-install", ix), "Install", false)
-                        .when(downloads, |d| {
+                    available(
+                        button(("catalog-install", ix), "Install", false).when(downloads, |d| {
                             d.on_click(cx.listener(move |this, _, _, cx| {
                                 let id = id.clone();
                                 this.with_browser(cx, move |b, _, cx| b.install_official(&id, cx))
                             }))
-                        })
-                        .into_any_element()
+                        }),
+                        downloads,
+                        OFF,
+                    )
+                    .into_any_element()
                 }));
             }
             official = official.child(self.link_row(
@@ -1970,7 +2117,6 @@ impl SettingsWindow {
 
     fn profile_row(&self, s: &Snapshot, ix: usize, p: &Profile, deletable: bool, cx: &mut Context<Self>) -> gpui::Div {
         let id = p.id;
-        let armed = self.armed == Some(("delete-profile", false, id));
         let current = s.profile.as_ref().is_some_and(|c| c.id == id && c.is_private == p.is_private);
         row(ix == 0)
             .child(if p.is_private { icon(Icon::Person, 14., Theme::warning()).into_any_element() } else { profile_dot(&p.color, 12.).into_any_element() })
@@ -1986,11 +2132,12 @@ impl SettingsWindow {
                 )
             })
             .when(!p.is_private && deletable, |d| {
-                d.child(danger(("delete-profile", ix), "Delete…", "Confirm Delete", armed).on_click(cx.listener(move |this, _, _, cx| {
-                    if confirm_twice(&mut this.armed, ("delete-profile", false, id)) {
-                        this.with_browser(cx, |b, w, cx| b.delete_profile(id, w, cx));
-                    }
-                    cx.notify();
+                let question = format!("Delete the profile \u{201C}{}\u{201D}?", bounded_title(&p.name));
+                d.child(button(("delete-profile", ix), "Delete…", false).on_click(cx.listener(move |this, _, window, cx| {
+                    let detail = "Its spaces, tabs, history and website data are deleted. Website data another profile shares stays for that profile.";
+                    this.ask(&question, Some(detail), &["Delete Profile"], window, cx, move |this, _, cx| {
+                        this.with_browser(cx, |b, w, cx| b.delete_profile(id, w, cx))
+                    });
                 })))
             })
     }
@@ -2028,23 +2175,6 @@ impl SettingsWindow {
     }
 }
 
-type ProfileAction = fn(&mut Browser, bool, Id, &mut Window, &mut Context<Browser>);
-
-fn arm(
-    cx: &mut Context<SettingsWindow>,
-    target: Option<(bool, Id)>,
-    action: &'static str,
-    run: ProfileAction,
-) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static {
-    cx.listener(move |this, _, _, cx| {
-        let Some((private, id)) = target else { return };
-        if confirm_twice(&mut this.armed, (action, private, id)) {
-            this.with_browser(cx, |b, w, cx| run(b, private, id, w, cx));
-        }
-        cx.notify();
-    })
-}
-
 /// Arms on the first call for `target`; returns true on a second call for the same target.
 pub(crate) fn confirm_twice<T: PartialEq>(armed: &mut Option<T>, target: T) -> bool {
     if armed.take().is_some_and(|a| a == target) {
@@ -2065,6 +2195,16 @@ mod tests {
         assert_eq!(super::thousands(1000), "1,000");
         assert_eq!(super::thousands(502_431), "502,431");
         assert_eq!(super::thousands(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn search_finds_panes_by_word_starts() {
+        let found =
+            |q: &str| super::PANES.iter().filter(|(_, _, name, words)| super::pane_matches(q, name, words)).map(|(_, _, name, _)| *name).collect::<Vec<_>>();
+        assert_eq!(found("lockd"), ["Protection"]);
+        assert_eq!(found("COOKIE ban"), ["Privacy"]);
+        assert_eq!(found("").len(), super::PANES.len());
+        assert!(found("ock").is_empty(), "words match from their start");
     }
 
     #[test]

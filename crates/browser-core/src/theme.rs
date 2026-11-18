@@ -1138,6 +1138,15 @@ impl Selection {
         store.set_setting(MATCH_SYSTEM_SETTING, if self.match_system { "on" } else { "off" })
     }
 
+    /// Turns Match system on or off. With it off every pick lands in the dark slot, so turning it
+    /// on moves a light theme found there, whose scheme is `dark_scheme`, to the light slot.
+    pub fn set_match_system(&mut self, on: bool, dark_scheme: Scheme) {
+        if on && !self.match_system && dark_scheme == Scheme::Light {
+            self.light = std::mem::replace(&mut self.dark, ThemeRef::DARK);
+        }
+        self.match_system = on;
+    }
+
     /// The theme to show, given whether macOS is in light appearance.
     pub fn active(&self, system_light: bool) -> &ThemeRef {
         if self.match_system && system_light { &self.light } else { &self.dark }
@@ -1404,6 +1413,19 @@ mod tests {
         }
         let t = Tokens { accent: 0xf4f9fdff, ..Tokens::DARK };
         assert_eq!(t.accent_text(), 0xf4f9fdff, "an accent that already reads stays as it is");
+    }
+
+    #[test]
+    fn match_system_moves_a_light_pick_to_the_light_slot() {
+        let mut s = Selection { dark: ThemeRef::Stored(3), light: ThemeRef::LIGHT, match_system: false };
+        s.set_match_system(true, Scheme::Light);
+        assert_eq!(s, Selection { dark: ThemeRef::DARK, light: ThemeRef::Stored(3), match_system: true });
+        let mut s = Selection { dark: ThemeRef::Stored(4), light: ThemeRef::LIGHT, match_system: false };
+        s.set_match_system(true, Scheme::Dark);
+        assert_eq!(s, Selection { dark: ThemeRef::Stored(4), light: ThemeRef::LIGHT, match_system: true });
+        s.set_match_system(false, Scheme::Light);
+        assert_eq!(s.dark, ThemeRef::Stored(4));
+        assert!(!s.match_system);
     }
 
     #[test]

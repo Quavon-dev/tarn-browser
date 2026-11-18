@@ -15,7 +15,7 @@ use gpui::{
     prelude::FluentBuilder, px, size,
 };
 use store::{Bookmark, Download, HistoryEntry, Id, Snapshot, Tab};
-use ui::controls::{button, caption, empty, icon_button, key_hint, surface};
+use ui::controls::{button, caption, empty, icon_button, key_hint, surface, tooltip};
 use ui::icon::{ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, POP, animate};
 use ui::text::bounded_title;
@@ -42,6 +42,7 @@ const LIST_PAD: f32 = 6.;
 pub(crate) const SPACE_ROW: f32 = 40.;
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(120);
 const MEMORY_REFRESH: Duration = Duration::from_secs(2);
+const DELETE_KEY: &str = if cfg!(windows) { "Delete" } else { "⌘⌫" };
 
 actions!(library, [SaveSnapshot, RestoreSnapshot]);
 
@@ -66,6 +67,17 @@ fn download_row(d: &Download, now: i64) -> Entry {
     };
     let detail = tab_host(&d.url).into_iter().chain([state.to_owned(), ago(d.started_at, now)]).collect::<Vec<_>>().join(" · ");
     Entry::Row(Row { item: Item::Download(d.clone()), title: library::download_name(d), named: None, detail: Some(detail) })
+}
+
+fn visit_row(h: &HistoryEntry, now: i64) -> Entry {
+    Entry::Row(Row { item: Item::Url(h.url.clone()), title: title_or_host(&h.title, &h.url), named: None, detail: Some(ago(h.visited_at, now)) })
+}
+
+fn visit(r: &Row) -> Option<&str> {
+    match (&r.item, r.named) {
+        (Item::Url(url), None) => Some(url),
+        _ => None,
+    }
 }
 
 fn detect_sources() -> Vec<Source> {
@@ -375,6 +387,7 @@ enum Cmd {
     ToggleBookmark(TabKey),
     CopyLink(String),
     RemoveDownload(Id),
+    RemoveHistory(String),
 }
 
 #[derive(Clone)]
@@ -409,7 +422,8 @@ fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], down
     let matches = |title: &str, url: &str| library::matches(query, title, url);
     let bookmarks = &b.bookmarks;
     let found = |limit| library::bookmarks(bookmarks, query).take(limit).map(bookmark_row);
-    let history = |limit| history.iter().take(limit).map(|h| row(Item::Url(h.url.clone()), title_or_host(&h.title, &h.url), None));
+    let visits = history;
+    let history = |limit| visits.iter().take(limit).map(|h| row(Item::Url(h.url.clone()), title_or_host(&h.title, &h.url), None));
     let downloads = |limit| {
         let now = now();
         library::downloads(downloads, query).take(limit).map(move |d| download_row(d, now))
@@ -453,7 +467,17 @@ fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], down
         }
         Page::History => {
             out.push(Entry::Back("History".into()));
-            out.extend(history(MAX_LIST));
+            let (now, store) = (now(), b.store(b.model.private()));
+            let today = store.local_day_start(now).unwrap_or(now);
+            let starts = (today, store.local_day_start(today - 1).unwrap_or(today - 86_400_000));
+            let mut last = None;
+            for h in visits.iter().take(MAX_LIST) {
+                let day = library::history_day(h.visited_at, starts);
+                if last.replace(day) != Some(day) {
+                    out.push(Entry::Header(day, None));
+                }
+                out.push(visit_row(h, now));
+            }
         }
         Page::Bookmarks(folder) => {
             let name = folder.and_then(|id| bookmarks.iter().find(|bm| bm.id == id)).map_or("Bookmarks".into(), |bm| bounded_title(&bm.title));
@@ -897,14 +921,47 @@ impl LibraryWindow {
         let Some(browser) = self.browser.upgrade() else { return };
         let b = browser.read(cx);
         let Some(bm) = b.bookmarks.iter().find(|bm| bm.id == id) else { return };
-        if bookmarks::subtree(&b.bookmarks, id).len() == 1 {
-            browser.update(cx, |b, cx| b.delete_bookmark(id, cx));
-            return;
-        }
-        let message = format!("Delete “{}” and everything in it?", bounded_title(&bm.title));
+        let message = if bookmarks::subtree(&b.bookmarks, id).len() == 1 {
+            format!("Delete the bookmark “{}”?", bounded_title(&bm.title))
+        } else {
+            format!("Delete “{}” and everything in it?", bounded_title(&bm.title))
+        };
         self.confirm(&message, None, "Delete", window, cx, move |this, cx| {
             this.browser.update(cx, |b, cx| b.delete_bookmark(id, cx)).ok();
         });
+    }
+
+    fn remove_history(&mut self, url: String, cx: &mut Context<Self>) {
+        self.browser.update(cx, |b, cx| b.remove_history_url(&url, cx)).ok();
+        self.history.retain(|h| h.url != url);
+        *self.history_hits.borrow_mut() = None;
+        self.shown = self.rows(cx);
+        cx.notify();
+    }
+
+    /// Delete, F2 and Shift+F10 act on the selected row; the delete keys only while the search
+    /// field is empty, so they still edit its text.
+    fn on_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let key = &event.keystroke;
+        let Some((_, r)) = self.shown.get(self.selected).cloned() else { return };
+        if self.renaming.is_some() || self.holding || event.is_held {
+            return;
+        }
+        let deletes = (key.key == "delete" && !key.modifiers.modified()) || (key.key == "backspace" && key.modifiers.secondary());
+        match key.key.as_str() {
+            _ if deletes && self.query.read(cx).text().is_empty() => match (r.named, visit(&r)) {
+                (Some(named), _) => self.delete(named, window, cx),
+                (None, Some(url)) => self.remove_history(url.to_owned(), cx),
+                _ => return,
+            },
+            "f2" if !key.modifiers.modified() => match r.named {
+                Some(named) => self.begin_rename(named, r.title.clone(), window, cx),
+                None => return,
+            },
+            "f10" if key.modifiers.shift => self.row_menu(r.item.clone(), r.named, window, cx),
+            _ => return,
+        }
+        cx.stop_propagation();
     }
 
     fn confirm(
@@ -1059,6 +1116,7 @@ impl LibraryWindow {
             }
             Cmd::CopyLink(url) => cx.write_to_clipboard(ClipboardItem::new_string(url)),
             Cmd::RemoveDownload(id) => self.remove_download(Some(id), cx),
+            Cmd::RemoveHistory(url) => self.remove_history(url, cx),
         }
     }
 
@@ -1073,6 +1131,10 @@ impl LibraryWindow {
             _ => None,
         };
         let item_key = item.clone();
+        let history = match &item {
+            Item::Url(url) if named.is_none() => Some(url.clone()),
+            _ => None,
+        };
         let mut items = match &item {
             Item::Download(d) => {
                 let mut items = vec![MenuItem::action(ui::controls::REVEAL, Cmd::Open(item.clone()))];
@@ -1095,6 +1157,9 @@ impl LibraryWindow {
         }
         if let Item::Tab(key) = item_key {
             items.push(MenuItem::action(if bookmarked { "Remove Bookmark" } else { "Bookmark Tab" }, Cmd::ToggleBookmark(key)));
+        }
+        if let Some(url) = history {
+            items.extend([MenuItem::Separator, MenuItem::action("Remove from History", Cmd::RemoveHistory(url))]);
         }
         if let Some(Named::Bookmark(id)) = named {
             let parent = b.bookmarks.iter().find(|bm| bm.id == id).and_then(|bm| bm.parent_id);
@@ -1168,6 +1233,8 @@ impl LibraryWindow {
         let item = r.item.clone();
         let menu_item = r.item.clone();
         let named = r.named;
+        let visited = visit(&r).map(str::to_owned);
+        let on_hover = move |d: gpui::Div| if selected { d } else { d.invisible().group_hover("library-row", |s| s.visible()) };
         let browser = self.browser.upgrade();
         let b = browser.as_ref().map(|b| b.read(cx));
         let sleepable = match r.item {
@@ -1213,28 +1280,36 @@ impl LibraryWindow {
                     Named::Bookmark(id) | Named::Snapshot(id) => id as u64,
                 };
                 d.child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .invisible()
-                        .group_hover("library-row", |s| s.visible())
-                        .child(icon_button(("rename", id), Icon::Pencil, true).on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.begin_rename(named, title.clone(), window, cx);
-                        })))
-                        .child(icon_button(("delete", id), Icon::Trash, true).on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.delete(named, window, cx);
-                        }))),
+                    on_hover(div().flex().flex_none())
+                        .child(icon_button(("rename", id), Icon::Pencil, true).tooltip(tooltip("Rename", Some("F2".into()))).on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.begin_rename(named, title.clone(), window, cx);
+                            },
+                        )))
+                        .child(icon_button(("delete", id), Icon::Trash, true).tooltip(tooltip("Delete", Some(DELETE_KEY.into()))).on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.delete(named, window, cx);
+                            },
+                        ))),
                 )
             })
+            .when_some(visited, |d, url| {
+                d.child(on_hover(div().flex().flex_none()).child(
+                    icon_button(("forget-visit", ix), Icon::Trash, true).tooltip(tooltip("Remove from History", Some(DELETE_KEY.into()))).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.remove_history(url.clone(), cx);
+                        }),
+                    ),
+                ))
+            })
             .when_some(sleepable, |d, key| {
-                d.child(button(("library-sleep", ix), "Sleep", false).invisible().group_hover("library-row", |s| s.visible()).on_click(cx.listener(
-                    move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.sleep(vec![key], cx);
-                    },
-                )))
+                d.child(on_hover(div()).child(button(("library-sleep", ix), "Sleep", false).on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.sleep(vec![key], cx);
+                }))))
             })
             .when(drills, |d| d.child(icon(Icon::ChevronRight, ICON_SMALL, Theme::muted())))
             .when(!matches!(r.item, Item::Page(_) | Item::ClearDownloads | Item::SleepInactive | Item::Source(_)), |d| {
@@ -1325,10 +1400,12 @@ impl Render for LibraryWindow {
                             .map(|n| div().flex_none().px_1().text_size(px(TEXT_SMALL)).font_weight(FontWeight::NORMAL).text_color(Theme::muted()).child(n)),
                     )
                     .when(on_bookmarks, |d| {
-                        d.child(icon_button("library-new-folder", Icon::FolderPlus, true).on_click(cx.listener(|this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.new_folder(window, cx);
-                        })))
+                        d.child(icon_button("library-new-folder", Icon::FolderPlus, true).tooltip(tooltip("New Folder", None)).on_click(cx.listener(
+                            |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.new_folder(window, cx);
+                            },
+                        )))
                     })
                     .on_click(cx.listener(|this, _, window, cx| this.back(window, cx)))
                     .into_any_element(),
@@ -1374,6 +1451,7 @@ impl Render for LibraryWindow {
         };
         div()
             .key_context("Library")
+            .capture_key_down(cx.listener(Self::on_key))
             .on_action(cx.listener(|this, _: &ToggleLibrary, window, cx| this.close(true, window, cx)))
             .on_action(cx.listener(|this, _: &crate::menubar::ShowHistory, _, cx| this.go(Page::History, cx)))
             .on_action(cx.listener(|this, _: &crate::menubar::ManageBookmarks, _, cx| this.go(Page::Bookmarks(None), cx)))
