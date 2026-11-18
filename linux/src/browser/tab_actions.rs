@@ -20,10 +20,7 @@ impl Browser {
         let Some(url) = self.tab_url(key).filter(|u| Url::parse(u).is_ok()) else { return };
         // A copy of a file the user opened shows that file too.
         let copy = match Url::parse(&url).ok().filter(|_| self.pages.get(&key).and_then(|p| p.opened_file.as_deref()) == Some(url.as_str())) {
-            Some(file) => {
-                self.open_file(&file);
-                self.model.active.filter(|a| *a != key)
-            }
+            Some(file) => self.open_file(&file),
             None => self.new_tab(&url),
         };
         if let Some(copy) = copy {

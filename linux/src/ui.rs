@@ -450,7 +450,9 @@ fn open_file(ui: Ui) {
             let Some(url) = path.as_deref().and_then(browser_core::open_file::url_for) else { return };
             animate_next(POP);
             ui.panel.set(Panel::None);
-            act(ui, |b| b.open_file(&url));
+            act(ui, |b| {
+                b.open_file(&url);
+            });
         }))
     });
 }

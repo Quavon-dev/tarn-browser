@@ -405,11 +405,12 @@ impl Browser {
     }
 
     /// Shows a file the user picked in a new tab; only Open File reaches `file:` URLs (S6).
-    pub fn open_file(&mut self, url: &Url) {
-        let Some(key) = self.new_tab(url.as_str()) else { return };
+    pub fn open_file(&mut self, url: &Url) -> Option<TabKey> {
+        let key = self.new_tab(url.as_str())?;
         let page = self.pages.entry(key).or_default();
         page.opened_file = Some(url.to_string());
         page.file = true;
+        Some(key)
     }
 
     pub fn level_for(&self, key: TabKey, url: &str) -> ShieldLevel {
