@@ -181,6 +181,7 @@ pub fn new_space_panel(ui: Ui) -> AnyElement {
         ui.space_draft.set(read(ui, Browser::new_space_draft));
     }
     let profiles = read(ui, |b| b.core.disk.profiles().unwrap_or_default()).unwrap_or_default();
+    let names: Vec<String> = profiles.iter().map(|p| p.name.clone()).collect();
     let new_profile = move || {
         view()
             .flex_col()
@@ -188,6 +189,7 @@ pub fn new_space_panel(ui: Ui) -> AnyElement {
             .child(note("Starts empty, with its own logins, cookies, site data, history and bookmarks."))
             .child(section("Profile Name"))
             .child(field(ui, "Profile Name", |d| d.profile_name.clone(), |d, v| d.profile_name = v))
+            .child(super::profiles::taken_note(move || draft(ui, |d| d.profile_name.clone()).unwrap_or_default(), names.clone()))
             .child(section("Profile Color"))
             .child(dynamic(move || draft(ui, |d| swatches(ui, &d.profile_color, false, |d, c| d.profile_color = c))))
     };

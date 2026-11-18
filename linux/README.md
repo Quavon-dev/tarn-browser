@@ -90,7 +90,7 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   `NetworkSession` is released, the folder is listed in `retired_stores` and removed three seconds
   later or at the next launch;
 - site panel: dark mode and site CSS (`styles` prop), Zap Element (`pick`, `zaps` prop), hidden
-  elements with Undo;
+  elements with Show Again;
 - reader view (`readArticle`) with text size and width; Read Aloud through speech-dispatcher's
   `spd-say`, shown only when it is on `PATH` (Read Aloud / Stop, no pause: `spd-say` has none);
 - full-text history (`readText`, off by default) feeding address suggestions; Find in Tabs

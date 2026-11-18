@@ -192,7 +192,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   extension Install and update buttons look unavailable, with the reason, while downloads are off
   (macOS, Windows).
 - A profile name another profile has says so instead of only greying out Save, and a hidden
-  element comes back with Show Again rather than Undo (macOS, Windows).
+  element comes back with Show Again rather than Undo (macOS, Windows, Linux).
 - The Library panel stays within a narrow sidebar, and a list taller than the window ends below a
   row instead of cutting off the next heading (macOS, Windows).
 - Pages follow Tarn's light or dark theme (`prefers-color-scheme`) instead of the system's

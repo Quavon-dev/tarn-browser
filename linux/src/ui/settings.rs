@@ -258,7 +258,7 @@ fn hidden(ui: Ui, private: bool) -> View {
         .into_iter()
         .map(|(host, selector)| {
             let (h, s) = (host.clone(), selector.clone());
-            line(format!("{host}: {selector}")).child(pill("Undo", move || act(ui, |b| b.unzap(&h, Some(&s))))).into_element()
+            line(format!("{host}: {selector}")).child(pill("Show Again", move || act(ui, |b| b.unzap(&h, Some(&s))))).into_element()
         })
         .collect();
     view().flex_col().children(rows)

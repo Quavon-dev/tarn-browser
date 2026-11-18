@@ -267,7 +267,7 @@ fn site_extras(ui: Ui, host: &str) -> View {
         .into_iter()
         .map(|(h, selector)| {
             let shown = selector.clone();
-            line(format!("Hidden: {shown}")).child(pill("Undo", move || act(ui, |b| b.unzap(&h, Some(&selector))))).into_element()
+            line(format!("Hidden: {shown}")).child(pill("Show Again", move || act(ui, |b| b.unzap(&h, Some(&selector))))).into_element()
         })
         .collect();
     let mut out = view()
