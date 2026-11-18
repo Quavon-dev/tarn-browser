@@ -88,7 +88,7 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
         "Page",
         &[
             ("Reload", Action::Reload, "ctrl+r"),
-            ("Reload without cache", Action::ReloadFromOrigin, "ctrl+f5"),
+            ("Reload without cache", Action::ReloadFromOrigin, "ctrl+shift+r"),
             ("Back", Action::Back, "alt+left"),
             ("Forward", Action::Forward, "alt+right"),
             ("Find in page", Action::Find, "ctrl+f"),
@@ -100,7 +100,7 @@ pub const SECTIONS: [(&str, &[Binding]); 5] = [
             ("Copy clean link", Action::CopyCleanLink, "ctrl+alt+shift+c"),
             ("Copy link as Markdown", Action::CopyMarkdownLink, "ctrl+alt+c"),
             ("Take screenshot", Action::TakeScreenshot, "ctrl+alt+shift+s"),
-            ("Reader", Action::ToggleReader, "ctrl+shift+r"),
+            ("Reader", Action::ToggleReader, "ctrl+alt+e"),
             ("Print", Action::Print, "ctrl+p"),
         ],
     ),

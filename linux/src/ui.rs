@@ -526,7 +526,34 @@ fn web_views(ui: Ui) -> View {
                     .h(move || px(rect().3))
             },
         ))
+        .child(link_bubble(ui))
         .child(link_peek::layer(ui))
+}
+
+/// The link under the pointer, at the bottom-left of the page it is over; the pointer passes through.
+fn link_bubble(ui: Ui) -> AnyElement {
+    dynamic(move || {
+        let (key, link) = ui.snap.with(|s| s.link.clone().filter(|_| s.blocked.is_none() && s.json.is_none()))?;
+        let (active, pane) = ui.snap.with(|s| s.views.iter().find(|v| v.key == key).map(|v| (v.active, v.pane)))?;
+        let (x, y, w, h) = split::view_rect(ui, active, pane);
+        (w > 0. && h > 0.).then(|| {
+            view()
+                .absolute()
+                .left(px(x + 4.))
+                .top(px(y + h - 28.))
+                .h(px(24.))
+                .max_w(px(w * 0.6))
+                .px(px(8.))
+                .flex_row()
+                .items_center()
+                .rounded(px(Theme::radius_row()))
+                .bg(Theme::surface())
+                .border_1()
+                .border_color(Theme::surface_edge())
+                .pointer_events(nsh_core::PointerEvents::None)
+                .child(small(link).truncate())
+        })
+    })
 }
 
 pub fn site_tile(ui: Ui, host: &str, size: f32) -> View {

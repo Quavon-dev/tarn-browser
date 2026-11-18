@@ -18,6 +18,7 @@ mod groups;
 mod hover_card;
 mod library;
 mod link_peek;
+mod link_status;
 mod memory;
 mod menu_glyphs;
 mod menubar;

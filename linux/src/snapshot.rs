@@ -152,6 +152,8 @@ pub struct Snapshot {
     pub notice: Option<Notice>,
     pub folders: Vec<(Id, String)>,
     pub toast: Option<crate::browser::Toast>,
+    /// The link under the pointer and the page it is over.
+    pub link: Option<(TabKey, String)>,
     pub reader: Option<crate::browser::ReaderView>,
     pub article: bool,
     pub burner: bool,
@@ -472,6 +474,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         notice: b.notice.clone(),
         folders: b.model.folders.iter().map(|f| (f.id, f.name.clone())).collect(),
         toast: b.toast.clone(),
+        link: b.hovered_link.get().map(|(key, text)| (key, text.to_owned())),
         reader: b.reader.clone().filter(|r| Some(r.key) == key),
         article: key.is_some_and(|k| b.articles.contains(&k)),
         burner: b.model.burner_shown(),

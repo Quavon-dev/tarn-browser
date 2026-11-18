@@ -88,6 +88,7 @@ impl Browser {
     fn settle_motion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sync_palette(window, cx);
         self.sync_toast(window, cx);
+        self.sync_link_status(window, cx);
         let fade_done = self.page_fade.as_ref().is_some_and(|(_, at)| at.elapsed() >= FADE);
         if fade_done || self.overlay_open() || self.model.active.is_none() || self.active_json().is_some() {
             let active = self.active_view();
@@ -329,23 +330,26 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         let view = b.active_view();
         let preset = b.responsive_preset();
         let alpha = b.page_fade.as_ref().map_or(1., |(_, at)| progress(*at, FADE));
+        let link_rect = b.link_status.page.clone();
         let page = canvas(
-            move |bounds, _, _| {
+            move |bounds, window, _| {
                 let Some(view) = view else { return };
                 view.set_alpha(alpha.into());
                 let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
                 let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-                match preset {
-                    Some(preset) => {
-                        let fit = devkit::responsive::fit(&preset, w, h);
-                        view.set_frame((x + fit.x).into(), (y + fit.y).into(), fit.width.into(), fit.height.into());
-                        // WebKit's page zoom stops at 0.3; below that the CSS viewport is narrower than the preset.
-                        let scale = f64::from(fit.scale).max(engine::MIN_ZOOM);
-                        if (view.zoom() - scale).abs() > 0.001 {
-                            view.set_zoom(scale);
-                        }
+                let fit = preset.map(|preset| devkit::responsive::fit(&preset, w, h));
+                let page = fit.as_ref().map_or((x, y, w, h), |fit| (x + fit.x, y + fit.y, fit.width, fit.height));
+                view.set_frame(page.0.into(), page.1.into(), page.2.into(), page.3.into());
+                if let Some(fit) = fit {
+                    // WebKit's page zoom stops at 0.3; below that the CSS viewport is narrower than the preset.
+                    let scale = f64::from(fit.scale).max(engine::MIN_ZOOM);
+                    if (view.zoom() - scale).abs() > 0.001 {
+                        view.set_zoom(scale);
                     }
-                    None => view.set_frame(x.into(), y.into(), w.into(), h.into()),
+                }
+                // The link bubble was placed from the last frame's rect; a moved page needs one more.
+                if link_rect.replace(page) != page {
+                    window.refresh();
                 }
             },
             |_, _, _, _| {},

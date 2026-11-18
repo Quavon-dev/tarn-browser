@@ -137,7 +137,13 @@ impl Browser {
             let (handle, _) =
                 ui::controls::open_popup(cx, bounds, display, false, inset, ui::theme::Theme::radius_tile(), |_, cx| PeekWindow::new(browser.clone(), cx));
             browser.update(cx, |b, _| b.peek.window = handle).ok();
+            popovers_over_peek(&browser, cx);
         });
+    }
+
+    /// The main window's frame, also when `window` is the floating sidebar's.
+    pub(crate) fn main_bounds(&self, window: &Window) -> Bounds<Pixels> {
+        self.peek.origin.filter(|_| self.peek.is_window(window)).map_or_else(|| window.bounds(), |(bounds, _)| bounds)
     }
 
     pub fn close_peek(&mut self, cx: &mut Context<Self>) {
@@ -145,6 +151,8 @@ impl Browser {
         self.peek.hover.closed();
         self.peek.timer = None;
         if let Some(handle) = self.peek.window.take() {
+            self.close_library(cx);
+            self.close_downloads(cx);
             let reduce = self.pref(Pref::ReduceMotion);
             cx.defer(move |cx| {
                 handle
@@ -161,7 +169,8 @@ impl Browser {
     /// Popups belong to this browser; they go with it instead of outliving the main window.
     pub(crate) fn close_popups(&mut self, cx: &mut App) {
         self.toast.popup = None;
-        let popups: [Option<AnyWindowHandle>; 10] = [
+        self.link_status.popup = None;
+        let popups: [Option<AnyWindowHandle>; 11] = [
             self.space_popover.take().map(|(p, _)| p.into()),
             self.hover_card.window.take().map(Into::into),
             self.site_popover.window.take().map(Into::into),
@@ -172,10 +181,27 @@ impl Browser {
             self.settings_window.take().map(Into::into),
             self.qr.take().map(Into::into),
             self.toast.window.take().map(Into::into),
+            self.link_status.window.take().map(Into::into),
         ];
         for handle in popups.into_iter().flatten() {
             handle.update(cx, |_, window, _| window.remove_window()).ok();
         }
+    }
+}
+
+/// The library and downloads popovers stay above the floating sidebar, whichever window opened
+/// last; they close with it (`close_peek`), since a child window goes with its parent.
+pub(crate) fn popovers_over_peek(browser: &WeakEntity<Browser>, cx: &mut App) {
+    let Some((peek, popovers)) = browser.upgrade().and_then(|b| {
+        let b = b.read(cx);
+        Some((b.peek.window?, [b.library.map(AnyWindowHandle::from), b.downloads_popover.window.map(AnyWindowHandle::from)]))
+    }) else {
+        return;
+    };
+    let host = |handle: AnyWindowHandle, cx: &mut App| handle.update(cx, |_, window, _| engine::Host::from_window(window)).ok().flatten();
+    let Some(peek) = host(peek.into(), cx) else { return };
+    for popover in popovers.into_iter().flatten().filter_map(|p| host(p, cx)) {
+        peek.follow(&popover);
     }
 }
 

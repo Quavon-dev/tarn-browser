@@ -670,6 +670,13 @@ wrap_display_handler! {
             emit(&tab, Event::TitleChanged(title));
         }
 
+        fn on_status_message(&self, _browser: Option<&mut Browser>, value: Option<&CefString>) {
+            if let Some(tab) = tab(self.id) {
+                let value = string(value);
+                emit(&tab, Event::LinkHovered((!value.is_empty()).then_some(value)));
+            }
+        }
+
         fn on_address_change(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, url: Option<&CefString>) {
             let (Some(tab), Some(frame)) = (tab(self.id), frame) else { return };
             // An address change between load start and end belongs to that document load; any

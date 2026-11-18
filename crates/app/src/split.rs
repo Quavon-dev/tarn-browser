@@ -43,6 +43,13 @@ impl Render for DividerDrag {
     }
 }
 
+impl Shown {
+    pub(crate) fn pane_rect(&self, key: TabKey) -> Option<split::Rect> {
+        let ix = self.panes.iter().position(|k| *k == key)?;
+        self.rects.borrow().get(ix).copied()
+    }
+}
+
 pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
     root.on_action(cx.listener(|b, _: &ToggleSplitView, w, cx| match b.model.active.filter(|a| b.splits.contains(*a)) {
         Some(active) => b.close_split(active, cx),

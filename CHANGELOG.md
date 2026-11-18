@@ -8,6 +8,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Pointing at a link shows where it leads, or the script a `javascript:` link runs, in a bubble at the
+  bottom-left of the page (macOS, Windows, Linux).
 - On macOS, Windows and Linux, dragging a tab out of the window opens it in a window of its own.
   Settings › Tabs picks a temporary window, which lists only that tab's own temporary space in the
   same profile and deletes it with its tabs when the window closes, or a full window with every
@@ -100,9 +102,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Tab groups and folders can show an icon: one of twenty symbols or a single emoji, set with
   Change Icon… in their menu (macOS, Windows, Linux; iOS and Android in the tablet Mac layout).
   Clean Up gives each group it makes the icon of its kind.
-- File › Close Window (⇧⌘W), View › Stop Loading (⌘.) and Reload Without Cache (⌥⌘R); ⌘+ zooms
+- File › Close Window (⇧⌘W), View › Stop Loading (⌘.) and Reload Without Cache (⇧⌘R); ⌘+ zooms
   in, and ⌘} ⌘{ and ⌥⌘→ ⌥⌘← go to the next and previous tab (macOS, Windows). Linux has Close
-  Window (Ctrl+Shift+W), Reload Without Cache (Ctrl+F5), Stop Loading (Esc) as keys and command
+  Window (Ctrl+Shift+W), Reload Without Cache (Ctrl+Shift+R), Stop Loading (Esc) as keys and command
   rows, and Ctrl+Page Down and Ctrl+Page Up for the next and previous tab (Linux).
 - Tab and ⇧Tab move the keyboard through the toolbar's buttons and the address field (macOS,
   Windows).
@@ -114,6 +116,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- ⇧⌘R reloads the page without the cache and Reader moves to ⌥⌘R (macOS, Windows as Ctrl+Shift+R and
+  Ctrl+Alt+R, iOS and Android with a keyboard); on Linux Ctrl+Shift+R reloads without the cache and
+  Reader is Ctrl+Alt+E.
 - Settings › Profile is now Protection and holds the only Shield level choice, with each level's
   description; the profile list is only in Profiles. The card's counters and the "Counted on this
   Mac only" label are no longer repeated next to it, and a week with nothing stopped shows one line
@@ -161,6 +166,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- The Library opened from the sidebar that slides in over the page stays in front of it, and sits
+  above the space row (macOS, Windows).
 - Renaming a space shows the name as you type instead of an empty field (macOS, Windows).
 - Closing the find bar removes WebKit's match marker from the page, and the bar no longer stays as
   an empty strip after Esc (macOS). On iOS closing find also hides the marker. The last match

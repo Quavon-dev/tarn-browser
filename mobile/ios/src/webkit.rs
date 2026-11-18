@@ -40,6 +40,8 @@ impl WebView {
         pub fn go_forward(&self) -> Option<Retained<WKNavigation>>;
         #[unsafe(method(reload))]
         pub fn reload(&self) -> Option<Retained<WKNavigation>>;
+        #[unsafe(method(reloadFromOrigin))]
+        pub fn reload_from_origin(&self) -> Option<Retained<WKNavigation>>;
         #[unsafe(method(stopLoading))]
         pub fn stop_loading(&self);
         #[unsafe(method(canGoBack))]

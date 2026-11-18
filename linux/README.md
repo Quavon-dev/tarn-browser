@@ -117,7 +117,7 @@ Same store schema and setting keys as macOS (`block_annoyances`, `history_text`,
   Memory; history rows open (an open tab of that address first), Open in New Tab and Copy Link;
 - keyboard shortcuts rebound in Settings (typed as `Ctrl+Shift+Y`; Linux has its own action list),
   with the macOS rows Close all tabs (`Ctrl+Shift+K`), Select last tab (`Ctrl+9`), Copy link as
-  Markdown (`Ctrl+Alt+C`), Close window (`Ctrl+Shift+W`), Reload without cache (`Ctrl+F5`) and
+  Markdown (`Ctrl+Alt+C`), Close window (`Ctrl+Shift+W`), Reload without cache (`Ctrl+Shift+R`) and
   Keyboard shortcuts (`Ctrl+/`, a sheet of every key, also a command); `Ctrl+Page Down` and
   `Ctrl+Page Up` step through tabs and Esc stops a loading page;
   `Alt+1`…`Alt+9` switch to space 1–9 (macOS `⌃1`…`⌃9`);

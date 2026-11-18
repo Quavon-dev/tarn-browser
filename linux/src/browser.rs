@@ -132,6 +132,7 @@ pub struct Browser {
     pub notice: Option<Notice>,
     pub downloads: Vec<DownloadItem>,
     pub toast: Option<Toast>,
+    pub hovered_link: browser_core::link_status::Hovered,
     toasts_waiting: Vec<Toast>,
     pub reader: Option<ReaderView>,
     pub articles: HashSet<TabKey>,
@@ -220,6 +221,7 @@ impl Browser {
             notice: None,
             downloads: Vec::new(),
             toast: None,
+            hovered_link: Default::default(),
             toasts_waiting: Vec::new(),
             reader: None,
             articles: HashSet::new(),
@@ -364,6 +366,7 @@ impl Browser {
     pub fn activate(&mut self, key: TabKey) {
         let Some(tab) = self.model.tab(key).cloned() else { return };
         if self.model.active != Some(key) {
+            self.hovered_link.clear();
             self.close_reader();
             self.leave_page_fullscreen();
         }
@@ -923,7 +926,15 @@ impl Browser {
     pub fn on_event(&mut self, key: TabKey, name: &str, data: &Value) {
         let text = |k: &str| data[k].as_str().unwrap_or_default().to_owned();
         match name {
-            "committed" | "finished" => self.on_page(key, name == "finished", data),
+            "committed" | "finished" => {
+                if name == "committed" {
+                    self.hovered_link.set(key, None);
+                }
+                self.on_page(key, name == "finished", data);
+            }
+            "hover" => {
+                self.hovered_link.set(key, data["url"].as_str());
+            }
             "started" | "stopped" => self.pages.entry(key).or_default().loading = name == "started",
             browser_core::extensions::STORE_EVENT => self.pages.entry(key).or_default().loading = false,
             "title" => {
@@ -996,7 +1007,10 @@ impl Browser {
                     page.found = data["matched"].as_u64();
                 }
             }
-            "crashed" => self.on_crash(key),
+            "crashed" => {
+                self.hovered_link.set(key, None);
+                self.on_crash(key);
+            }
             "fullscreen" => self.on_fullscreen(key, data),
             "screenshot" => self.on_snapshot(key, data),
             "pressed" if self.in_split(key) && self.model.active != Some(key) => self.activate(key),

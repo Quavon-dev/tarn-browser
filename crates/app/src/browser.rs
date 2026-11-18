@@ -279,6 +279,7 @@ pub struct Browser {
     pub sidebar_open: bool,
     pub sidebar_width: f32,
     pub(crate) toast: crate::toast::Toasts,
+    pub(crate) link_status: crate::link_status::LinkStatus,
     /// New tabs whose first load is a page's link, so S10 judges every redirect hop.
     link_loads: HashMap<TabKey, Option<Url>>,
     pub suggestions: Vec<Suggestion>,
@@ -481,6 +482,7 @@ impl Browser {
             sidebar_open,
             sidebar_width,
             toast: Default::default(),
+            link_status: Default::default(),
             link_loads: HashMap::new(),
             suggestions: Vec::new(),
             selected: 0,
@@ -1917,7 +1919,9 @@ impl Browser {
         }
         match event {
             Event::Loading(on) => self.pages.entry(key).or_default().loading = on,
+            Event::LinkHovered(link) => return self.link_hovered(key, link.as_deref(), cx),
             Event::Committed { url, title, can_go_back, can_go_forward } => {
+                self.link_hovered(key, None, cx);
                 engine::startup::mark("first page commit");
                 // A link stays the page's until it shows a page: a view slept or never made loads it as a link again.
                 if url.as_str() != "about:blank" {
@@ -2158,6 +2162,7 @@ impl Browser {
                 }
             }
             Event::ContentProcessTerminated => {
+                self.link_hovered(key, None, cx);
                 if self.model.active == Some(key) {
                     self.leave_page_fullscreen(window);
                 }

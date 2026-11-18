@@ -915,6 +915,12 @@ fn media_changed(state: &Weak<State>, web: &WebView) {
 fn connect(state: &Rc<State>, web: &WebView) {
     let weak = Rc::downgrade(state);
     let w = weak.clone();
+    web.connect_mouse_target_changed(move |_, hit, _| {
+        if let Some(s) = w.upgrade() {
+            s.emit("hover", json!({ "url": hit.link_uri().map(String::from) }));
+        }
+    });
+    let w = weak.clone();
     web.connect_decide_policy(move |web, decision, kind| w.upgrade().is_some_and(|s| decide(&s, web, decision, kind)));
     let w = weak.clone();
     web.connect_load_changed(move |web, event| {

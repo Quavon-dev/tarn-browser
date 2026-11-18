@@ -478,12 +478,13 @@ impl Inner {
                 self.shell_history.set(true);
                 web.go_forward();
             }
-            "reload" => match web.current_url().filter(|u| self.opened_files.borrow().contains(u)) {
+            "reload" | "reloadFromOrigin" => match web.current_url().filter(|u| self.opened_files.borrow().contains(u)) {
                 // A new content process needs the opened file's read grant again.
                 Some(url) => self.load(&url, None, true),
                 None => {
                     self.shell_history.set(true);
-                    if web.reload().is_none() {
+                    let started = if name == "reload" { web.reload() } else { web.reload_from_origin() };
+                    if started.is_none() {
                         self.shell_history.set(false);
                     }
                 }
