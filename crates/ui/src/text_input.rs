@@ -229,6 +229,13 @@ impl TextInput {
         cx.notify();
     }
 
+    /// Selects all of the content with the caret at its start, so a long text shows from its beginning.
+    pub fn select_all_from_start(&mut self, cx: &mut Context<Self>) {
+        self.selected_range = 0..self.content.len();
+        self.selection_reversed = true;
+        cx.notify();
+    }
+
     /// Whether the last edit typed text rather than removing or pasting it.
     pub fn inserted(&self) -> bool {
         self.inserted

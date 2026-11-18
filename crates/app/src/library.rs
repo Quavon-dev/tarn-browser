@@ -99,7 +99,7 @@ impl Browser {
     fn bookmark_target(&self, key: Option<TabKey>) -> Option<(String, String)> {
         let tab = key.or(self.model.active).and_then(|k| self.model.tab(k))?;
         let url = self.tab_url(self.model.key(tab)).unwrap_or_else(|| tab.url.clone());
-        (!url.is_empty()).then(|| (title_or_host(&tab.title, &url), url))
+        (!url.is_empty()).then(|| (browser_core::text::stored_title_or_host(&tab.title, &url), url))
     }
 
     /// The top-level folder Save for Later files pages into, if it exists.
@@ -677,17 +677,16 @@ impl LibraryWindow {
         };
         library.reload_snapshots(cx);
         let found = match edit {
-            Some(Named::Bookmark(id)) => library
-                .browser
-                .upgrade()
-                .and_then(|b| b.read(cx).bookmarks.iter().find(|b| b.id == id).map(|bm| (Page::Bookmarks(bm.parent_id), bm.title.clone()))),
-            Some(Named::Snapshot(id)) => library.snapshots.iter().find(|s| s.id == id).map(|s| (Page::Snapshots, s.name.clone())),
+            Some(Named::Bookmark(id)) => {
+                library.browser.upgrade().and_then(|b| b.read(cx).bookmarks.iter().find(|b| b.id == id).map(|bm| Page::Bookmarks(bm.parent_id)))
+            }
+            Some(Named::Snapshot(id)) => library.snapshots.iter().any(|s| s.id == id).then_some(Page::Snapshots),
             None => None,
         };
-        if let (Some((page, title)), Some(named)) = (found, edit) {
+        if let (Some(page), Some(named)) = (found, edit) {
             library.page = page;
             library.select(named, cx);
-            library.begin_rename(named, title, window, cx);
+            library.begin_rename(named, window, cx);
         }
         library
     }
@@ -867,10 +866,16 @@ impl LibraryWindow {
         cx.notify();
     }
 
-    fn begin_rename(&mut self, named: Named, title: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn begin_rename(&mut self, named: Named, window: &mut Window, cx: &mut Context<Self>) {
+        let title = match named {
+            Named::Bookmark(id) => self.browser.upgrade().and_then(|b| b.read(cx).bookmarks.iter().find(|bm| bm.id == id).map(|bm| bm.title.clone())),
+            Named::Snapshot(id) => self.snapshots.iter().find(|s| s.id == id).map(|s| s.name.clone()),
+        };
+        let Some(title) = title else { return };
         let input = cx.new(|cx| {
             let mut input = TextInput::new("Name", cx);
             input.set_text(title, cx);
+            input.select_all_from_start(cx);
             input
         });
         let events = cx.subscribe_in(&input, window, |this, _, event, window, cx| match event {
@@ -912,7 +917,7 @@ impl LibraryWindow {
         let Some(id) = self.browser.update(cx, |b, cx| b.new_bookmark_folder(parent, cx)).ok().flatten() else { return };
         self.go(Page::Bookmarks(parent), cx);
         self.select(Named::Bookmark(id), cx);
-        self.begin_rename(Named::Bookmark(id), bookmarks::NEW_FOLDER.into(), window, cx);
+        self.begin_rename(Named::Bookmark(id), window, cx);
     }
 
     fn delete(&mut self, named: Named, window: &mut Window, cx: &mut Context<Self>) {
@@ -958,7 +963,7 @@ impl LibraryWindow {
         }
         match key.key.as_str() {
             "f2" if !key.modifiers.modified() => match r.named {
-                Some(named) => self.begin_rename(named, r.title.clone(), window, cx),
+                Some(named) => self.begin_rename(named, window, cx),
                 None => return,
             },
             "f10" if key.modifiers.shift => self.row_menu(r.item.clone(), r.named, window, cx),
@@ -1109,15 +1114,7 @@ impl LibraryWindow {
                 }
                 self.close(true, window, cx);
             }
-            Cmd::Rename(named) => {
-                let title = match named {
-                    Named::Bookmark(id) => self.browser.upgrade().and_then(|b| b.read(cx).bookmarks.iter().find(|bm| bm.id == id).map(|bm| bm.title.clone())),
-                    Named::Snapshot(id) => self.snapshots.iter().find(|s| s.id == id).map(|s| s.name.clone()),
-                };
-                if let Some(title) = title {
-                    self.begin_rename(named, title, window, cx);
-                }
-            }
+            Cmd::Rename(named) => self.begin_rename(named, window, cx),
             Cmd::Move(id, parent) => {
                 self.browser.update(cx, |b, cx| b.move_bookmark(id, parent, cx)).ok();
             }
@@ -1220,6 +1217,7 @@ impl LibraryWindow {
         let selected = ix == self.selected;
         let drills = matches!(r.item, Item::Folder(_) | Item::Page(_));
         let editing = r.named.zip(self.renaming.as_ref()).filter(|(named, (renamed, _, _))| named == renamed).map(|(_, (_, input, _))| input.clone());
+        let editing_now = editing.is_some();
         let title: AnyElement = match (editing, &r.detail) {
             (Some(input), _) => div()
                 .flex_1()
@@ -1281,11 +1279,10 @@ impl LibraryWindow {
             .when(!selected, |d| d.hover(|s| s.bg(Theme::hover())))
             .child(leading)
             .child(title)
-            .when_some(aside, |d, aside| {
+            .when_some(aside.filter(|_| !editing_now), |d, aside| {
                 d.child(div().flex_none().whitespace_nowrap().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(SharedString::from(aside)))
             })
-            .when_some(r.named, |d, named| {
-                let title = r.title.clone();
+            .when_some(r.named.filter(|_| !editing_now), |d, named| {
                 let id = match named {
                     Named::Bookmark(id) | Named::Snapshot(id) => id as u64,
                 };
@@ -1294,7 +1291,7 @@ impl LibraryWindow {
                         .child(icon_button(("rename", id), Icon::Pencil, true).tooltip(tooltip("Rename", Some("F2".into()))).on_click(cx.listener(
                             move |this, _, window, cx| {
                                 cx.stop_propagation();
-                                this.begin_rename(named, title.clone(), window, cx);
+                                this.begin_rename(named, window, cx);
                             },
                         )))
                         .child(icon_button(("delete", id), Icon::Trash, true).tooltip(tooltip("Delete", Some(DELETE_KEY.into()))).on_click(cx.listener(
