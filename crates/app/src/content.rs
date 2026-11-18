@@ -257,8 +257,8 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                         div()
                             .flex_none()
                             .text_size(px(TEXT_SMALL))
-                            .text_color(if b.find_count == Some(0) { Theme::danger() } else { Theme::faint() })
-                            .child(browser_core::find::count_label(b.find_count)),
+                            .text_color(if matches!(b.find_count, Some((0, _))) { Theme::danger() } else { Theme::faint() })
+                            .child(browser_core::find::count_label(b.find_count.map(|c| c.0), b.find_count.and_then(|c| c.1))),
                     )
                     .child(div().w(px(1.)).h(px(18.)).flex_none().bg(Theme::separator()))
                     .child(

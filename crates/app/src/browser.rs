@@ -111,7 +111,7 @@ pub struct PendingExternal {
 
 pub(crate) enum Msg {
     Tab(TabKey, u64, Event),
-    Found(usize),
+    Found(usize, Option<usize>),
     IconLinks(TabKey, IconKey, Url, String),
     IconData(IconKey, String),
     PageText(Id, Id, String, String),
@@ -299,7 +299,9 @@ pub struct Browser {
     pub layout_stable_since: Instant,
     pub find_open: bool,
     pub find_input: Entity<TextInput>,
-    pub find_count: Option<usize>,
+    /// Matches the last find counted, and the highlighted one when the engine reports it.
+    pub find_count: Option<(usize, Option<usize>)>,
+    find_typing: Option<Task<()>>,
     /// A tab woken by Find in Tabs, searched once its page has finished loading.
     pub(crate) find_after_load: Option<TabKey>,
     pub(crate) find_tabs: Option<Task<()>>,
@@ -421,8 +423,8 @@ impl Browser {
                             b.on_event(key, event, window, cx);
                         }
                     }
-                    Msg::Found(count) => {
-                        b.find_count = Some(count);
+                    Msg::Found(count, current) => {
+                        b.find_count = Some((count, current));
                         cx.notify();
                     }
                     Msg::IconLinks(key, icon, page, links) => b.fetch_favicon(key, icon, &page, &links),
@@ -488,6 +490,7 @@ impl Browser {
             find_open: false,
             find_input,
             find_count: None,
+            find_typing: None,
             find_after_load: None,
             find_tabs: None,
             refocus: false,
@@ -2424,8 +2427,10 @@ impl Browser {
 
     pub fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.find_open = false;
+        self.find_typing = None;
         window.focus(&self.focus);
         if let Some(view) = self.active_view() {
+            view.clear_find();
             view.focus();
         }
         cx.notify();
@@ -2435,8 +2440,8 @@ impl Browser {
         let text = self.find_input.read(cx).text().to_owned();
         let Some(view) = self.active_view().filter(|_| !text.is_empty()) else { return };
         let events = self.events.clone();
-        view.find(&text, backwards, move |found| {
-            events.unbounded_send(Msg::Found(found)).ok();
+        view.find(&text, backwards, move |found, current| {
+            events.unbounded_send(Msg::Found(found, current)).ok();
         });
     }
 
@@ -2447,6 +2452,22 @@ impl Browser {
             TextInputEvent::Cancel => self.close_find(window, cx),
             TextInputEvent::Changed => {
                 self.find_count = None;
+                if self.find_input.read(cx).text().is_empty() {
+                    self.find_typing = None;
+                    if let Some(view) = self.active_view() {
+                        view.clear_find();
+                    }
+                } else {
+                    self.find_typing = Some(cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(browser_core::find::TYPING_DELAY).await;
+                        this.update(cx, |b, cx| {
+                            if b.find_open {
+                                b.find(false, cx);
+                            }
+                        })
+                        .ok();
+                    }));
+                }
                 cx.notify();
             }
             TextInputEvent::MenuClosed => {}

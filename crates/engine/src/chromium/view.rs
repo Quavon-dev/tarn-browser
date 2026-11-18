@@ -21,7 +21,7 @@ use crate::nav_policy::{self, Decision, GateAction, Source};
 use crate::tarn_ext::{ExtensionView, FrameId, Gate, PageSpec, World, WorldScripts};
 use crate::{Event, Host, Protection};
 
-type Found = Box<dyn Fn(usize)>;
+type Found = Box<dyn Fn(usize, Option<usize>)>;
 type Reply = Box<dyn FnOnce(Option<Value>)>;
 #[cfg(windows)]
 type CreatedHook = Box<dyn FnOnce(Browser)>;
@@ -1537,10 +1537,11 @@ wrap_find_handler! {
     }
 
     impl FindHandler {
-        fn on_find_result(&self, browser: Option<&mut Browser>, _identifier: i32, count: i32, _selection_rect: Option<&Rect>, _active_match_ordinal: i32, final_update: i32) {
+        fn on_find_result(&self, browser: Option<&mut Browser>, _identifier: i32, count: i32, _selection_rect: Option<&Rect>, active_match_ordinal: i32, final_update: i32) {
             let Some(tab) = tab(self.id) else { return };
             if final_update == 1 && let Some(found) = tab.found.borrow().as_ref() {
-                found(usize::try_from(count).unwrap_or(0).min(crate::page_scripts::FIND_COUNT_MAX));
+                let count = usize::try_from(count).unwrap_or(0).min(crate::page_scripts::FIND_COUNT_MAX);
+                found(count, usize::try_from(active_match_ordinal).ok().filter(|at| (1..=count).contains(at)));
             }
         }
     }
@@ -2478,11 +2479,19 @@ impl WebView {
         self.0.tab.title.borrow().clone()
     }
 
-    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize) + 'static) {
-        let Some(host) = self.browser_host() else { return found(0) };
+    pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize, Option<usize>) + 'static) {
+        let Some(host) = self.browser_host() else { return found(0, None) };
         *self.0.tab.found.borrow_mut() = Some(Box::new(found));
         let next = self.0.tab.last_find.replace(text.to_owned()) == text;
         host.find(Some(&CefString::from(text)), i32::from(!backwards), 0, i32::from(next));
+    }
+
+    /// Ends the find and clears its highlight; the next find starts afresh.
+    pub fn clear_find(&self) {
+        self.0.tab.last_find.replace(String::new());
+        if let Some(host) = self.browser_host() {
+            host.stop_finding(1);
+        }
     }
 
     pub fn is_muted(&self) -> bool {
