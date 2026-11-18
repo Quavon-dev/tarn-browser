@@ -161,6 +161,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   theme; placeholders and secondary text meet 4.5:1 in every built-in theme, red warning text is
   readable in dark mode, sleeping tabs follow the theme's secondary text colour, and site initials
   and extension badges pick a readable letter colour (macOS, Windows).
+  On iOS and Android, Done, Clear and Cancel, the focused address field, sleeping tab cards and
+  extension badges follow the same rules.
 - Every button, segment and colour swatch can be reached with Tab and pressed with Enter or Space
   where a window moves the focus on Tab, and a button that cannot be used looks dimmed (macOS,
   Windows).

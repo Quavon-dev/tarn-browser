@@ -113,7 +113,7 @@ fn sheet(ui: Ui, screen: Screen, body: AnyElement) -> impl IntoElement {
                     .px_3()
                     .justify_center()
                     .on_press(move || leave(ui, Screen::Browse))
-                    .child(text("Done").text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::accent)),
+                    .child(text("Done").text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::accent_text)),
             ),
         )
         .child(scroll().key(name).flex_1().child(view().gap_3().px_3().pt_2().pb_6().child(body)))
@@ -244,7 +244,13 @@ fn tab_card(ui: Ui, key: TabKey, title: String, url: String) -> View {
                         tarn_nsh_shared::controls::site_tile(ui.read(|s| s.site_icon(&url)), &host, TAB_ICON).mr_2()
                     }
                 }))
-                .child(label(title.clone()).font_weight(FontWeight::SEMIBOLD).number_of_lines(1).flex_1())
+                .child(
+                    label(title.clone())
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .number_of_lines(1)
+                        .flex_1()
+                        .text_color(move || if ui.read(|s| s.model.lifecycle.live().any(|l| l == key)) { Theme::text() } else { Theme::asleep() }),
+                )
                 .child(dynamic(move || movable().then(|| icon_button(icons::CHEVRON_RIGHT, "Move to Space", move || ui.show(Screen::Move(key))))))
                 .child(dynamic(move || {
                     let menu = ui.read(|s| s.splits.menu(s.model.active, key));
@@ -800,7 +806,7 @@ fn downloads(ui: Ui) -> impl IntoElement {
                                 Vec::new()
                             })
                         })
-                        .child(text("Clear").text_size(px(TEXT_TITLE)).text_color(Theme::accent)),
+                        .child(text("Clear").text_size(px(TEXT_TITLE)).text_color(Theme::accent_text)),
                 )
             })
         }))
