@@ -1,11 +1,11 @@
 name: Change proposal
-description: A large refactor, architecture, dependency or behaviour change. Needs a 👍 from another maintainer before work starts.
+description: A large refactor, architecture, dependency or behaviour change. Maintainers vote on it with 👍 or 👎.
 labels: ["type: change", "status: voting"]
 body:
   - type: markdown
     attributes:
       value: |
-        Maintainers vote with 👍 or 👎 on this issue. One 👍 from a maintainer other than the author (and more 👍 than 👎) moves it to `status: approved`; more 👎 than 👍 moves it to `status: rejected`.
+        Maintainers vote with 👍 or 👎 on this issue. One 👍 from a maintainer other than the author (and more 👍 than 👎) moves it to `status: approved`; more 👎 than 👍 moves it to `status: rejected`. The vote shows whether the change is wanted; a pull request is decided in its review.
   - type: textarea
     id: change
     attributes:

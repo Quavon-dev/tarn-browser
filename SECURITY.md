@@ -88,10 +88,10 @@ verifies its EdDSA-signed feed and archive, and the Windows updater the Ed25519-
 Every pull request is checked by `cargo deny` (known vulnerabilities in RustSec, yanked crates,
 licences, sources) on every Cargo workspace, by CodeQL (Rust, Java/Kotlin, GitHub Actions), by
 Clippy with warnings as errors on every client, and zizmor reports workflow findings as code
-scanning alerts. `main` takes no change while a required check fails: `check` and `macos`
-(formatting, Clippy and tests of the shared crates and the desktop app), `deny` (`cargo deny` on
-every workspace) and CodeQL. The other clients' jobs also run on every pull request and are fixed
-before merging, but GitHub does not enforce them. Automatic Chromium update pull requests go
+scanning alerts. `main` takes no change while a required check fails: every job of `ci.yml`
+(formatting, Clippy and tests of the shared crates and of every client, `deny` for `cargo deny` on
+every workspace, `coverage`, and `dco`) and CodeQL; nor while a review conversation is unresolved.
+Automatic Chromium update pull requests go
 through the same checks and the same human review. The release workflow runs `cargo deny` again on
 every workspace of the exact commit it releases, Chromium updates included, and signs nothing while
 it fails.

@@ -1,11 +1,24 @@
 # Contributing
 
-Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md). Read
-[`AGENTS.md`](AGENTS.md) for how the five clients and the shared crates fit together.
+Contributions are welcome, small ones included. Everyone taking part follows the
+[Code of Conduct](CODE_OF_CONDUCT.md). Read [`AGENTS.md`](AGENTS.md) for how the five clients and
+the shared crates fit together.
+
+What follows is how we work, not a list of gates. The few things a pull request cannot skip are
+the ones that protect users and the project: the required checks, the sign-off, one maintainer's
+approval, the contribution terms below and the hard rules in `AGENTS.md`. Everything else is a
+default: if you do it differently, say so in the pull request and a maintainer decides in review.
+
+- A fix or a small improvement goes straight to a pull request; no issue needed.
+- For a feature or a large change, open an issue first so you learn whether it is wanted before
+  you spend the work.
+- Build the clients you can. A change that reaches one client is welcome with a
+  `docs/port-backlog.md` entry for the others (`AGENTS.md`, "Partial ports").
+- You do not need every toolchain below: set up the clients you work on, CI runs the rest.
 
 ## Prerequisites
 
-- macOS 14 or later with Xcode (or its command line tools).
+- For macOS: macOS 14 or later with Xcode (or its command line tools).
 - Rust through [rustup](https://rustup.rs); the version is pinned in `rust-toolchain.toml` and
   installed on first use, with clippy and rustfmt.
 - [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) for the licence and advisory check.
@@ -31,7 +44,9 @@ directory.
 
 ## Checks
 
-Each must pass before a pull request is merged; CI (`.github/workflows/ci.yml`) runs them.
+CI (`.github/workflows/ci.yml`) runs all of them on every pull request, and `main` accepts
+the merge only once every one of them has passed. Run the ones for the workspaces you touched and can build, and say in the pull request
+which you did not run.
 
 | Where | Command |
 |---|---|
@@ -49,7 +64,8 @@ Each must pass before a pull request is merged; CI (`.github/workflows/ci.yml`) 
 - **Selected** only when the standard library, the platform or a crate already in the lockfile
   cannot do the job. A new dependency must be maintained, have a licence on the allow list in
   `deny.toml`, come from crates.io (Rust), Google's Maven or Maven Central (Android), and be added
-  by a maintainer or with a maintainer's approval in the pull request (`AGENTS.md`, "Do not" 12).
+  with the reason given in the pull request, where a maintainer approves it (`AGENTS.md`,
+  guideline 8).
 - **Obtained** through each ecosystem's own tooling: Cargo with committed lockfiles and versions
   pinned exactly, Gradle for the Android app, the distribution's package manager for system
   libraries in the Linux containers. Tools and binaries without such tooling (CEF, Ninja, Gradle,
@@ -101,15 +117,16 @@ session the agent asks you to accept the AI agreement (`scripts/ai-agreement.sh 
 everything it writes before it is committed or submitted, make sure it is correct, tested, secure
 and of known origin, and certify the DCO for it. With that agreement the agent adds your sign-off to
 the commits it makes for you; without it, it commits nothing. Your acceptance stays in your clone's
-Git directory and is never committed. The rules cannot be waived; the only exceptions are the ones a
-rule itself names. Maintainers close pull requests that break them.
+Git directory and is never committed. The guidelines there are defaults you may set aside for your
+change, named in the pull request; the hard rules cannot be waived, and maintainers close pull
+requests that break them.
 
 ## Issues
 
 Open an issue from one of the forms. Labels are set by the forms and kept up to date by
 `.github/workflows/issues.yml`.
 
-| Form | Labels | Needs a vote |
+| Form | Labels | Voted on |
 |------|--------|--------------|
 | Bug report | `type: bug`, `status: triage` | no |
 | Feature request | `type: feature`, `status: voting` | yes |
@@ -133,7 +150,8 @@ that person could reach (`docs/release.md`, "Secrets and credentials").
 ## Voting
 
 Maintainers (write access or above) vote with 👍 or 👎 reactions on the issue itself. The author's
-own reaction does not count.
+own reaction does not count. A vote tells you whether the maintainers want the change; it does not
+block a pull request, which is decided in its review.
 
 - More 👍 than 👎 → `status: approved`
 - More 👎 than 👍 → `status: rejected`
@@ -144,13 +162,16 @@ issue. Run the **Issues** workflow by hand to count right away.
 
 ## Pull requests
 
-Every pull request to `main` needs the approval of a maintainer who did not author it; no person
-can merge past that rule, and neither can automation: the update app's Chromium update pull
-requests also wait for a maintainer's review (`docs/release.md`, "Automatic engine updates").
+Every pull request to `main` needs every CI check green, every review conversation resolved
+(CodeRabbit's included) and the approval of a Code Owner who did not author it:
+`@Quavon-dev/tarn-maintainer`, and `@Quavon-dev/maintainers` for the protected paths. A commit
+pushed after an approval needs a new approval from someone other than its pusher. The ruleset
+has no bypass, for people or automation: the update app's Chromium update pull requests also
+wait for a maintainer's review (`docs/release.md`, "Automatic engine updates").
 
 A change to `Cargo.lock` needs `scripts/third-party-licenses.sh` run and its output committed; CI
 checks it.
 
 Link the issue with `Closes #123`. The issue gets `status: in progress`. A pull request that closes
-an issue still in `status: voting` or `status: rejected` fails the **Issues** check; re-run it once
-the issue is approved.
+an issue still in `status: voting` or `status: rejected` gets a notice from the **Issues** check;
+the reviewing maintainer decides.

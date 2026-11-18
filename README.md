@@ -140,7 +140,7 @@ the Linux, iOS and Android apps. Pages render in each platform's own engine.
 
 ## Platforms
 
-macOS is the lead client; every feature ships on all five in the same change.
+macOS is the lead client; every feature is meant to reach all five.
 
 | Platform | Interface | Web engine | Requires |
 |---|---|---|---|
