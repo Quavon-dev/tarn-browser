@@ -182,6 +182,7 @@ pub fn reading_list(ui: Ui) -> impl IntoElement {
         move |b, _| {
             let b = b.get_untracked();
             let (id, url) = (b.id, b.url.clone().unwrap_or_default());
+            let title = browser_core::text::bounded_title(&b.title);
             view()
                 .flex_row()
                 .items_center()
@@ -193,10 +194,17 @@ pub fn reading_list(ui: Ui) -> impl IntoElement {
                     .flex_1(),
                 )
                 .child(icon_button(icons::TRASH, "Remove", move || {
-                    ui.act(|s| {
-                        s.remove_from_reading_list(id);
-                        Vec::new()
-                    })
+                    super::panels::confirm(
+                        format!("Remove \u{201C}{title}\u{201D} from the Reading List?"),
+                        "The page is no longer saved for later.",
+                        "Remove",
+                        move || {
+                            ui.act(|s| {
+                                s.remove_from_reading_list(id);
+                                Vec::new()
+                            })
+                        },
+                    )
                 }))
         },
     ))))

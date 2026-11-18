@@ -703,6 +703,14 @@ impl<D: Platform> Shell<D> {
         self.core.store(private).profile(id).map(|p| p.shield_level).unwrap_or_default()
     }
 
+    pub fn shield_wipes_data(&self, level: ShieldLevel) -> Option<String> {
+        let (private, id) = self.model.profile()?;
+        if level != ShieldLevel::Lockdown || private || self.default_level() == ShieldLevel::Lockdown {
+            return None;
+        }
+        Some(self.core.store(private).profile(id).map(|p| browser_core::text::bounded_title(&p.name)).unwrap_or_default())
+    }
+
     pub fn set_default_level(&mut self, level: ShieldLevel) -> bool {
         let Some((private, id)) = self.model.profile() else { return false };
         if self.core.store(private).set_profile_shield_level(id, level).is_err() {

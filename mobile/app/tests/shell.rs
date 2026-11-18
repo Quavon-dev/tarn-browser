@@ -377,6 +377,15 @@ fn history_loses_one_page_or_a_range() {
 }
 
 #[test]
+fn only_choosing_lockdown_asks_before_it_deletes_site_data() {
+    let (_dir, mut shell) = open();
+    assert_eq!(shell.shield_wipes_data(ShieldLevel::Strict), None);
+    assert!(shell.shield_wipes_data(ShieldLevel::Lockdown).is_some());
+    assert!(shell.set_default_level(ShieldLevel::Lockdown));
+    assert_eq!(shell.shield_wipes_data(ShieldLevel::Lockdown), None, "already in Lockdown");
+}
+
+#[test]
 fn prompts_queue_answer_and_remember_permissions() {
     let (_dir, mut shell) = open();
     let key = active(&shell);

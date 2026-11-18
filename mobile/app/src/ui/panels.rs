@@ -21,6 +21,8 @@ use tarn_nsh_shared::panes::{self, Pane};
 const FIND_RADIUS: f32 = 12.;
 const TAB_ICON: f32 = 20.;
 const FIND_WIDTH: f32 = 420.;
+const LOCKDOWN_WIPE: &str =
+    "Lockdown deletes the cookies and site data this profile has stored, except data it shares with another profile. Open pages reload.";
 
 fn title(screen: Screen) -> &'static str {
     match screen {
@@ -525,12 +527,17 @@ fn settings(ui: Ui) -> impl IntoElement {
         .child(sheets::shield_card(ui))
         .child(section("Shield level"))
         .child(levels(move || Some(ui.read_data(|s| s.default_level())), move |level| {
-            ui.act(|s| {
-                if let Some(level) = level {
+            let Some(level) = level else { return };
+            let set = move || {
+                ui.act(|s| {
                     s.set_default_level(level);
-                }
-                Vec::new()
-            })
+                    Vec::new()
+                })
+            };
+            match ui.read(|s| s.shield_wipes_data(level)) {
+                Some(profile) => confirm(format!("Use Lockdown for the profile \u{201C}{profile}\u{201D}?"), LOCKDOWN_WIPE, "Use Lockdown", set),
+                None => set(),
+            }
         }, false))
         .child(dynamic(move || {
             let level = ui.read_data(|s| s.default_level());
@@ -603,7 +610,7 @@ fn settings(ui: Ui) -> impl IntoElement {
 }
 
 /// Asks before a destructive action, which runs only on `action`.
-pub(super) fn confirm(title: &'static str, description: &'static str, action: &'static str, then: impl FnOnce() + 'static) {
+pub(super) fn confirm(title: impl Into<SharedString>, description: &'static str, action: &'static str, then: impl FnOnce() + 'static) {
     let answer = alert_dialog().title(title).description(description).cancel("cancel", "Cancel").destructive("confirm", action).show();
     spawn(async move {
         if answer.await.is_ok_and(|a| a.action.as_deref() == Some("confirm")) {
