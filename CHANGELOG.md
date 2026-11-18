@@ -117,6 +117,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- A toast stays while the pointer is over it, wraps a long message onto a second line, and its
+  button is also a command row, so it can be reached from the keyboard (macOS, Windows).
 - Translating a page shows Translating… while it works and then Show Original, which reloads the
   page in its own language (macOS).
 - The Reader button shows when Reader is on and then reads Exit Reader, and the Shield button's

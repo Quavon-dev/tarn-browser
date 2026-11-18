@@ -108,6 +108,7 @@ pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
     ("New Profile", "account", &profiles::NewProfile),
     ("Edit Profile", "account", &profiles::EditProfile),
     ("Reopen Closed Tab", "undo restore", &ReopenClosedTab),
+    ("Notification Action", "toast undo reveal restart", &toast::ToastAction),
     ("Toggle Sidebar", "show hide", &ToggleSidebar),
     ("Auto-Hide Sidebar", "floating", &ToggleAutoHideSidebar),
     ("Compact Toolbar", "toggle address", &ToggleCompactToolbar),
@@ -246,7 +247,7 @@ impl Render for Browser {
         indexed_actions!(cycle_tab: NextTab => true, PreviousTab => false);
         root = menubar::listen(root, cx);
         root = tabs::listen(root, cx);
-        root = qr::listen(reader::listen(root, cx), cx);
+        root = toast::listen(qr::listen(reader::listen(root, cx), cx), cx);
         root = find_tabs::listen(capture::listen(split::listen(shortcuts::listen(root, cx), cx), cx), cx);
         #[cfg(windows)]
         {

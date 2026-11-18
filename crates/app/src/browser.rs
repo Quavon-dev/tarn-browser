@@ -1556,6 +1556,7 @@ impl Browser {
         let pinned = self.model.active_tab().is_some_and(|t| t.kind != store::TabKind::Ephemeral);
         let muted = self.model.active.is_some_and(|k| self.tab_muted(k));
         let reopenable = !self.model.closed_tabs.is_empty();
+        let toast_command = self.toast_command();
         let duplicates = !self.duplicate_tabs().is_empty();
         commands.retain(|ix| {
             let action = crate::COMMANDS[*ix].2;
@@ -1567,6 +1568,7 @@ impl Browser {
                 || !titled && is(&crate::tabs::ResetTabTitle)
                 || !drifted && (is(&crate::tabs::ReturnToPinnedUrl) || is(&crate::tabs::SetPinnedUrl))
                 || !reopenable && is(&crate::ReopenClosedTab)
+                || toast_command.is_none() && is(&crate::toast::ToastAction)
                 || !duplicates && is(&crate::tabs::CloseDuplicateTabs)
                 || !split
                     && (is(&crate::split::FocusNextPane)
@@ -1580,8 +1582,9 @@ impl Browser {
             let (label, _, action) = crate::COMMANDS[ix];
             let is = |a: &dyn gpui::Action| action.partial_eq(a);
             let on = is(&crate::TogglePin) && pinned || is(&crate::menubar::ToggleMute) && muted || is(&crate::split::ToggleSplitView) && split;
-            let label = crate::tabs::state_label(action, on).unwrap_or(label);
-            Suggestion { label: label.to_owned(), detail: crate::shortcuts::shown(action, cx), target: Target::Input(Input::Command(ix)) }
+            let shown = crate::tabs::state_label(action, on).map(str::to_owned);
+            let label = shown.or_else(|| toast_command.clone().filter(|_| is(&crate::toast::ToastAction))).unwrap_or_else(|| label.to_owned());
+            Suggestion { label, detail: crate::shortcuts::shown(action, cx), target: Target::Input(Input::Command(ix)) }
         };
         let space_rows = self.space_commands(&query);
         if query.starts_with('>') {
