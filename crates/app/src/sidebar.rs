@@ -511,7 +511,6 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .items_center()
         .gap_1()
         .rounded(px(Theme::radius_row()))
-        // The name field has no width of its own, so the switcher sized to its content would hide it.
         .when(renaming, |d| d.flex_1())
         .when(!renaming, |d| d.cursor_pointer().hover(|s| s.bg(Theme::hover())).active(|s| s.bg(Theme::pressed())))
         .child(crate::address::measure(at.clone()))
