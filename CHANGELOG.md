@@ -276,6 +276,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - A finished download whose file was moved or deleted reads "Missing · moved or deleted" with a
   warning, and offers no Reveal or Show in Folder, in the Downloads panel and the Library
   (macOS, Windows, Linux).
+- History rows show when the page was visited and its site on a second line, so the title gets
+  the row's width, and ⌘L (Ctrl+L) from the Library opens the address field (macOS, Windows,
+  Linux; the second line on iOS and Android).
 
 ## [0.1.2] - 2026-11-17
 

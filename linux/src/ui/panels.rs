@@ -295,15 +295,26 @@ fn site_extras(ui: Ui, host: &str) -> View {
     out.children(hidden)
 }
 
-pub(super) fn link_row(ui: Ui, link: Link) -> nsh_base::ButtonElement {
+/// A page's row; with a `detail` line, the host follows it there, so the title keeps the row's width.
+pub(super) fn link_row(ui: Ui, link: Link, detail: Option<String>) -> nsh_base::ButtonElement {
     let host = url::Url::parse(&link.url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
     let (open, new) = (link.url.clone(), link.url.clone());
-    library_row(ui, link.url.clone(), &host, link.name, move || {
+    let press = move || {
         ui.panel.set(Panel::None);
         let url = open.clone();
         act(ui, move |b| b.open_url(&url));
-    })
-    .child(pill("Open in New Tab", move || {
+    };
+    let row = match detail {
+        None => library_row(ui, link.url.clone(), &host, link.name, press),
+        Some(detail) => {
+            let detail = [detail.as_str(), host.trim_start_matches("www.")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+            crate::controls::row(link.url.clone(), press)
+                .min_h(px(40.))
+                .child(site_tile(ui, &host, 16.))
+                .child(view().flex_col().flex_1().min_w(px(0.)).child(label(link.name).truncate()).child(small(detail).truncate().text_color(Theme::faint())))
+        }
+    };
+    row.child(pill("Open in New Tab", move || {
         ui.panel.set(Panel::None);
         let url = new.clone();
         act(ui, move |b| {
@@ -342,13 +353,9 @@ fn history_panel(ui: Ui) -> AnyElement {
                 list = list.child(section(named.to_owned()));
             }
             let url = visit.url.clone();
+            let ago = read(ui, |b| browser_core::library::ago(b.core.store(b.model.private()), visit.visited_at, now)).unwrap_or_default();
             list = list.child(
-                super::library::focus_row(ui, link_row(ui, Link::new(&visit.title, &visit.url)), super::library::Focused::Visit(url.clone()))
-                    .child(
-                        small(read(ui, |b| browser_core::library::ago(b.core.store(b.model.private()), visit.visited_at, now)).unwrap_or_default())
-                            .flex_none()
-                            .text_color(Theme::faint()),
-                    )
+                super::library::focus_row(ui, link_row(ui, Link::new(&visit.title, &visit.url), Some(ago)), super::library::Focused::Visit(url.clone()))
                     .child(icon_button(icons::CLOSE, "Remove from History", move || super::remove_history(ui, url.clone()))),
             );
         }

@@ -2080,7 +2080,12 @@ fn run_action(ui: Ui, action: Action) {
     }
     match action {
         Action::NewTab => new_tab(ui),
-        Action::OpenLocation => open_palette(ui),
+        Action::OpenLocation => {
+            if ui.panel.get_untracked() != Panel::None {
+                show(ui, Panel::None);
+            }
+            open_palette(ui);
+        }
         Action::OpenFile => open_file(ui),
         Action::CloseTab => act_moving(ui, |b| b.model.active.into_iter().for_each(|k| b.close_tab(k))),
         Action::ReopenClosedTab => {

@@ -825,7 +825,7 @@ fn history(ui: Ui) -> impl IntoElement {
                         .flex_row()
                         .items_center()
                         .child(
-                            detail_row(Some(icons::GLOBE), name, Some(caption(format!("{host} · {when}")).number_of_lines(1)), move || {
+                            detail_row(Some(icons::GLOBE), name, Some(caption(format!("{when} · {host}")).number_of_lines(1)), move || {
                                 ui.show(Screen::Browse);
                                 ui.act(|s| s.navigate(&open));
                             })
