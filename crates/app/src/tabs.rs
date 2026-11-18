@@ -437,7 +437,7 @@ impl Browser {
 pub fn listen(root: gpui::Div, cx: &mut Context<Browser>) -> gpui::Div {
     use gpui::InteractiveElement;
     root.on_action(cx.listener(|b, _: &RenameTab, w, cx| {
-        if let Some(key) = b.model.active {
+        if let Some(key) = b.model.active.filter(|k| b.model.tab(*k).is_some_and(|t| t.kind != TabKind::Tile)) {
             b.begin_rename(crate::groups::RenameTarget::Tab(key.id), w, cx);
         }
     }))
