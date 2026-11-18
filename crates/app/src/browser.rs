@@ -340,9 +340,9 @@ pub struct Browser {
     pub(crate) link_peek: crate::link_peek::LinkPeek,
     pub(crate) splits: browser_core::split::Splits<TabKey>,
     pub(crate) split_shown: crate::split::Shown,
-    /// The row a dragged tab is over and, when the drop would split with it, what the drop does;
-    /// without one the tab lands before that row.
-    pub(crate) split_drop: Option<(TabKey, Option<&'static str>)>,
+    /// The row a dragged tab is over, when the drop would split with it what the drop does, and
+    /// otherwise whether the tab lands below that row rather than above it.
+    pub(crate) split_drop: Option<(TabKey, Option<&'static str>, bool)>,
     pub shortcuts_open: bool,
     pub(crate) shortcuts_scroll: gpui::ScrollHandle,
     pub reader: Option<crate::reader::Reader>,

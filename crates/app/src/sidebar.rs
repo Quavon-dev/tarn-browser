@@ -2,12 +2,12 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, AppContext, Background, Bounds, ClickEvent, Context, Div, DragMoveEvent, Empty, FontWeight, InteractiveElement, IntoElement, MouseButton,
-    MouseMoveEvent, ParentElement, Pixels, Point, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, StyledImage, Task, Transformation,
-    Window, canvas, div, img, percentage, prelude::FluentBuilder, px, rgb,
+    AnyElement, AppContext, Background, Bounds, ClickEvent, Context, Div, DragMoveEvent, Empty, FontWeight, InteractiveElement, IntoElement, KeyDownEvent,
+    MouseButton, MouseMoveEvent, ParentElement, Pixels, Point, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, StyledImage, Task,
+    Transformation, Window, canvas, div, img, percentage, prelude::FluentBuilder, px, rgb,
 };
 use store::{Folder, Group, Id, Tab, TabKind};
-use ui::controls::{button, favicon, field, icon_button, spinner, tooltip};
+use ui::controls::{button, favicon, field, focus_ring, icon_button, spinner, tooltip};
 use ui::icon::{ICON, ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, FADE, POP, SLIDE, animate, fade_in, progress};
 use ui::text::bounded_title;
@@ -538,15 +538,38 @@ fn tab_drop(
     kind: TabKind,
     folder: Option<Id>,
     group: Option<Id>,
-    before: Option<TabKey>,
+    on: Option<(TabKey, bool)>,
 ) -> impl Fn(&mut Browser, &DraggedTab, &mut Window, &mut Context<Browser>) {
     move |b, dragged, _, cx| {
-        let index = before.and_then(|k| b.model.tab(k)).map_or_else(|| b.model.zone_len(kind, folder), |t| b.model.drop_index(dragged.key, t));
+        let target = on.and_then(|(k, below)| Some((b.model.tab(k)?, below)));
+        let index = target.map_or_else(|| b.model.zone_len(kind, folder), |(t, below)| b.model.drop_index(dragged.key, t, below));
         b.move_tab(dragged.key, kind, folder, index, cx);
         if kind == TabKind::Ephemeral {
             b.set_tab_group(dragged.key, group, cx);
         }
     }
+}
+
+/// Makes a sidebar row reachable with Tab and the arrow keys; Return and Space click it, and
+/// ⇧F10 or the menu key open its menu. A mouse press leaves the keyboard where it was.
+fn keyboard_row(row: Stateful<Div>, menu: impl Fn(&mut Browser, &mut Window, &mut Context<Browser>) + 'static, cx: &mut Context<Browser>) -> Stateful<Div> {
+    row.tab_index(0).focus(|s| s.shadow(focus_ring())).on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default()).on_key_down(cx.listener(
+        move |b, e: &KeyDownEvent, window, cx| {
+            if b.renaming.is_some() {
+                return;
+            }
+            let shift = e.keystroke.modifiers.shift;
+            match e.keystroke.key.as_str() {
+                "down" => window.focus_next(),
+                "tab" if !shift => window.focus_next(),
+                "up" | "tab" => window.focus_prev(),
+                "f10" if shift => menu(b, window, cx),
+                "menu" => menu(b, window, cx),
+                _ => return,
+            }
+            cx.stop_propagation();
+        },
+    ))
 }
 
 /// The folder or group name, or its inline name field while it is being renamed; a click
@@ -593,8 +616,7 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
             let key = b.model.key(t);
             let active = b.model.active == Some(key);
             let title: SharedString = label(t).into();
-            let tile = div()
-                .id(("tile", t.id as u64))
+            let tile = keyboard_row(div().id(("tile", t.id as u64)), move |b, w, cx| b.tab_menu(key, w, cx), cx)
                 .w_full()
                 .h(px(side))
                 .flex()
@@ -621,7 +643,7 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
                 .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
                 .drag_over::<DraggedTab>(|s, _, _, _| s.border_color(Theme::accent()))
-                .on_drop(cx.listener(tab_drop(TabKind::Tile, None, None, Some(key))));
+                .on_drop(cx.listener(tab_drop(TabKind::Tile, None, None, Some((key, false)))));
             animate(tile, ("tile-in", t.id as u64), FADE, reduce, |el, p| el.opacity(p))
         }))
 }
@@ -640,8 +662,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
     let engine = b.tab_web_engine(key);
     let burner = b.model.burner_shown();
     let edge = |color| div().absolute().left_0().top(px(9.)).bottom(px(9.)).w(px(3.)).rounded_full().bg(color);
-    let row = div()
-        .id(("tab", t.id as u64))
+    let row = keyboard_row(div().id(("tab", t.id as u64)), move |b, w, cx| b.tab_menu(key, w, cx), cx)
         .group("tab")
         .relative()
         .h(px(TAB_ROW))
@@ -772,12 +793,15 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .on_mouse_down(MouseButton::Left, cx.listener(|b, _, _, cx| b.hide_hover_card(cx)))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.tab_menu(key, w, cx)))
         .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
-        .map(|d| match b.split_drop.filter(|(k, _)| *k == key) {
+        .map(|d| match b.split_drop.filter(|(k, ..)| *k == key) {
             None => d,
-            // A line where the tab will land, before this row.
-            Some((_, None)) => d.child(div().absolute().top_0().left(px(6.)).right(px(6.)).h(px(2.)).rounded_full().bg(Theme::accent())),
+            // A line where the tab will land, above or below this row.
+            Some((_, None, below)) => {
+                let line = div().absolute().left(px(6.)).right(px(6.)).h(px(2.)).rounded_full().bg(Theme::accent());
+                d.child(if below { line.bottom_0() } else { line.top_0() })
+            }
             // Outlined and named, so a drop that splits reads apart from one that moves the tab.
-            Some((_, Some(does))) => d
+            Some((_, Some(does), _)) => d
                 .bg(Theme::accent_soft())
                 .child(div().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent()))
                 .child(div().flex_none().pr_1p5().text_size(px(TEXT_SMALL)).text_color(Theme::accent_text()).child(does)),
@@ -787,20 +811,18 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
             let share = (e.event.position.y - e.bounds.origin.y) / e.bounds.size.height;
             let dragged = e.drag(cx).key;
             let does = b.splits.drop_label(key, dragged).filter(|_| browser_core::split::drops_into(share));
-            let target = if inside && dragged != key { Some((key, does)) } else { b.split_drop.filter(|(k, _)| *k != key) };
+            let below = browser_core::tabs::drops_below(share);
+            let target = if inside && dragged != key { Some((key, does, below)) } else { b.split_drop.filter(|(k, ..)| *k != key) };
             if b.split_drop != target {
                 b.split_drop = target;
                 cx.notify();
             }
         }))
         .on_drop(cx.listener({
-            let reorder = tab_drop(t.kind, t.folder_id, t.group_id, Some(key));
-            move |b, dragged: &DraggedTab, window, cx| {
-                if b.split_drop.take().is_some_and(|(k, does)| k == key && does.is_some()) {
-                    b.drop_on_pane(key, dragged.key, window, cx);
-                } else {
-                    reorder(b, dragged, window, cx);
-                }
+            let (kind, folder, group) = (t.kind, t.folder_id, t.group_id);
+            move |b, dragged: &DraggedTab, window, cx| match b.split_drop.take().filter(|(k, ..)| *k == key) {
+                Some((_, Some(_), _)) => b.drop_on_pane(key, dragged.key, window, cx),
+                over => tab_drop(kind, folder, group, Some((key, over.is_some_and(|(.., below)| below))))(b, dragged, window, cx),
             }
         }));
     animate(row, ("tab-in", t.id as u64), POP, b.pref(Pref::ReduceMotion), move |el, p| {
@@ -856,7 +878,7 @@ fn rows(b: &Browser, group: Option<Id>, show: impl Fn(&Tab) -> bool, cx: &mut Co
     tab_rows(b, &tabs, 0., cx)
 }
 
-/// One row per tab, a split's panes side by side in one row at the place of the first of them.
+/// One row per tab, a split's panes one below the other at the place of the first of them.
 fn tab_rows(b: &Browser, tabs: &[(&Tab, bool)], indent: f32, cx: &mut Context<Browser>) -> Vec<AnyElement> {
     let keys: Vec<TabKey> = tabs.iter().filter(|(_, leaving)| !leaving).map(|(t, _)| b.model.key(t)).collect();
     tabs.iter()
@@ -868,9 +890,9 @@ fn tab_rows(b: &Browser, tabs: &[(&Tab, bool)], indent: f32, cx: &mut Context<Br
                 [_] => tab_row(b, t, indent, cx),
                 panes => div()
                     .flex()
+                    .flex_col()
                     .gap(px(ROW_GAP))
-                    .pl(px(indent))
-                    .children(panes.iter().filter_map(|k| b.model.tab(*k)).map(|t| div().flex_1().min_w_0().flex().flex_col().child(tab_row(b, t, 0., cx))))
+                    .children(panes.iter().filter_map(|k| b.model.tab(*k)).map(|t| tab_row(b, t, indent, cx)))
                     .into_any_element(),
             })
         })
@@ -918,8 +940,7 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
     let indent = 16. * depth as f32;
     let open = b.model.expanded.contains(&id);
     let glyph = chosen_icon(&f.icon, ICON, Theme::space_label()).unwrap_or_else(|| icon(Icon::Folder, ICON, Theme::space_label()).into_any_element());
-    let header = div()
-        .id(("folder", id as u64))
+    let header = keyboard_row(div().id(("folder", id as u64)), move |b, w, cx| b.folder_menu(id, w, cx), cx)
         .h(px(TAB_ROW))
         .pl(px(10. + indent))
         .pr_2p5()
@@ -937,11 +958,10 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
         .drag_over::<DraggedFolder>(|s, _, _, _| s.bg(Theme::accent_soft()))
         .on_drop(cx.listener(move |b, dragged: &DraggedFolder, _, cx| b.move_folder(dragged.id, Some(id), cx)))
         .on_drag(DraggedFolder { id, name: bounded_title(&f.name).into() }, |d, _, _, cx| cx.new(|_| d.clone()))
-        .on_click(cx.listener(move |b, event: &ClickEvent, window, cx| {
-            b.toggle_folder(id, cx);
-            if event.click_count() == 2 {
-                b.begin_rename(RenameTarget::Folder(id), window, cx);
-            }
+        .on_click(cx.listener(move |b, event: &ClickEvent, window, cx| match event.click_count() {
+            1 => b.toggle_folder(id, cx),
+            2 => b.begin_rename(RenameTarget::Folder(id), window, cx),
+            _ => {}
         }))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.folder_menu(id, w, cx)))
         .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(glyph))
@@ -1101,8 +1121,7 @@ fn inner_height(rows: usize) -> f32 {
 fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> AnyElement {
     let id = g.id;
     let name_text: SharedString = bounded_title(&g.name).into();
-    let header = div()
-        .id(("group", id as u64))
+    let header = keyboard_row(div().id(("group", id as u64)), move |b, w, cx| b.group_menu(id, w, cx), cx)
         .h(px(TAB_ROW - 2.))
         .pl_1p5()
         .pr_0p5()
@@ -1115,11 +1134,10 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         .font_weight(FontWeight::MEDIUM)
         .hover(|s| s.bg(Theme::hover()))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.group_menu(id, w, cx)))
-        .on_click(cx.listener(move |b, event: &ClickEvent, window, cx| {
-            b.toggle_group(id, cx);
-            if event.click_count() == 2 {
-                b.begin_rename(RenameTarget::Group(id), window, cx);
-            }
+        .on_click(cx.listener(move |b, event: &ClickEvent, window, cx| match event.click_count() {
+            1 => b.toggle_group(id, cx),
+            2 => b.begin_rename(RenameTarget::Group(id), window, cx),
+            _ => {}
         }))
         .on_drag(DraggedGroup { id, name: name_text }, |d, _, _, cx| cx.new(|_| d.clone()))
         .child(group_avatar(g, 18.))
@@ -1134,9 +1152,7 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         )));
     let toggling = b.motion.toggled_group.is_some_and(|(gid, at)| gid == id && at.elapsed() < FADE);
     let is_active = |t: &Tab| b.model.active == Some(b.model.key(t));
-    let keys: Vec<TabKey> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(id)).map(|t| b.model.key(t)).collect();
-    // A split shows as one row.
-    let all = keys.iter().filter(|k| b.splits.entry(**k, &keys).is_some()).count();
+    let all = b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(id)).count();
     let active = b.model.tabs.iter().filter(|t| t.group_id == Some(id) && is_active(t)).count();
     let tabs = rows(b, Some(id), |t| !g.collapsed || toggling || is_active(t), cx);
     let (from, to) = if g.collapsed { (inner_height(all), inner_height(active)) } else { (inner_height(active), inner_height(all)) };

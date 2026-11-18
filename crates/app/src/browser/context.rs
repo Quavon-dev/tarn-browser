@@ -72,7 +72,7 @@ impl Browser {
         let ephemeral = tab.kind == TabKind::Ephemeral;
         let group = tab.group_id;
         let unpinned = self.model.ephemeral_keys();
-        let below = unpinned.iter().skip_while(|k| **k != key).nth(1).is_some();
+        let below = !self.model.tabs_below(key).is_empty();
         let others = unpinned.iter().any(|k| *k != key);
         let spaces: Vec<Item<Cmd>> = self
             .model
@@ -147,11 +147,11 @@ impl Browser {
             }
         }
         let rest = self.model.other_tabs(key);
-        let sleepers = rest.iter().any(|k| !self.sleeping(*k) && self.model.active != Some(*k));
+        let sleepers = rest.iter().any(|k| !self.sleeping(*k) && self.model.active != Some(*k) && !self.in_split(*k));
         items.extend([
             Item::Separator,
             self.mute_item(key),
-            Item::action("Sleep Tab", Cmd::Sleep(vec![key])).enabled(!active && !self.sleeping(key)),
+            Item::action("Sleep Tab", Cmd::Sleep(vec![key])).enabled(!active && !self.sleeping(key) && !self.in_split(key)),
             Item::action("Sleep Other Tabs", Cmd::Sleep(rest)).enabled(sleepers),
             Item::Separator,
             Item::action(if ephemeral { "Close Tab" } else { "Unload Tab" }, Cmd::Close(key)).key(if active {
@@ -388,7 +388,7 @@ impl Browser {
                 self.close_tabs(keys, window, cx);
             }
             Cmd::CloseBelow(key) => {
-                let keys = self.model.ephemeral_keys().into_iter().skip_while(|k| *k != key).skip(1).collect();
+                let keys = self.model.tabs_below(key);
                 self.close_tabs(keys, window, cx);
             }
             Cmd::CloseDuplicates => {
@@ -504,9 +504,15 @@ impl Browser {
             let engine = self.model.tab(key).and_then(|t| t.web_engine);
             // A copy of a file the user opened shows that file too.
             if self.page(key).opened_file.as_ref() == Some(&url) && !self.model.burner_shown() {
-                return self.new_file_tab(&url, engine, window, cx);
+                self.new_file_tab(&url, engine, window, cx);
+            } else {
+                self.new_tab_in(&url, engine, window, cx);
             }
-            self.new_tab_in(&url, engine, window, cx);
+            if let Some(copy) = self.model.active.filter(|k| *k != key) {
+                self.model.place_copy(&self.core, copy, key);
+                self.reload_space();
+                cx.notify();
+            }
         }
     }
 
@@ -552,14 +558,16 @@ impl Browser {
         let next =
             active.and_then(|a| self.splits.heir(a, &keys).or_else(|| self.model.close_neighbour(a, &keys, self.pref(crate::prefs::Pref::ClosePrevious))));
         self.hide_hover_card(cx);
-        let mut tabs: Vec<ClosedTab> = keys.into_iter().filter_map(|key| self.close_one(key, cx)).collect();
+        let mut tabs: Vec<ClosedTab> = keys.iter().filter_map(|key| self.close_one(*key, cx)).collect();
         self.reload_space();
         if burner && !tabs.is_empty() {
             self.leave_burner(window, cx);
         } else if active.is_some() && self.model.active.is_none() {
-            match next.filter(|k| self.model.tab(*k).is_some()) {
-                Some(next) if !crate::shared::live_elsewhere(next, cx) => self.activate(next, window, cx),
-                _ => self.pick_active(window, cx),
+            // An unloaded pinned tab stays listed and must not be picked straight back.
+            let next = next.filter(|k| self.model.tab(*k).is_some() && !crate::shared::live_elsewhere(*k, cx));
+            match next.or_else(|| self.model.pick(|k| keys.contains(&k) || crate::shared::live_elsewhere(k, cx))) {
+                Some(next) => self.activate(next, window, cx),
+                None => self.model.active = None,
             }
         }
         // SQLite reuses a deleted tab's id, so no other window may keep a view under it.

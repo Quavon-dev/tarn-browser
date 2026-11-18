@@ -101,6 +101,10 @@ impl Browser {
             cx.defer(move |cx| drop(handle.update(cx, |_, window, _| window.remove_window())));
             return;
         };
+        // A second peek asked for before the first one's window opened replaces it.
+        if let Some(old) = self.link_peek.window.take() {
+            cx.defer(move |cx| drop(old.update(cx, |_, window, _| window.remove_window())));
+        }
         let (tx, mut rx) = mpsc::unbounded();
         self.link_peek._escape = popup.on_escape(move || drop(tx.unbounded_send(())));
         cx.spawn(async move |this, cx| {

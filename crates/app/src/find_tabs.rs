@@ -22,11 +22,7 @@ impl Browser {
     pub(crate) fn find_in_tabs(&mut self, query: String, cx: &mut Context<Self>) {
         self.suggestions = browser_core::find::named(&self.model.tabs, &query, crate::tabs::display_title)
             .into_iter()
-            .map(|t| Suggestion {
-                label: crate::tabs::display_title(t),
-                detail: "Title or address".to_owned(),
-                target: Target::Find(self.model.key(t), query.clone()),
-            })
+            .map(|t| Suggestion { label: crate::tabs::display_title(t), detail: "Title or address".to_owned(), target: Target::Tab(self.model.key(t)) })
             .collect();
         self.selected = 0;
         cx.notify();
