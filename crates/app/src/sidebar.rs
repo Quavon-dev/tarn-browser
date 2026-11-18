@@ -855,7 +855,7 @@ fn rows(b: &Browser, group: Option<Id>, show: impl Fn(&Tab) -> bool, cx: &mut Co
     tab_rows(b, &tabs, 0., cx)
 }
 
-/// One row per tab, a split's panes side by side in one row at the place of the first of them.
+/// One row per tab, a split's panes one below the other at the place of the first of them.
 fn tab_rows(b: &Browser, tabs: &[(&Tab, bool)], indent: f32, cx: &mut Context<Browser>) -> Vec<AnyElement> {
     let keys: Vec<TabKey> = tabs.iter().filter(|(_, leaving)| !leaving).map(|(t, _)| b.model.key(t)).collect();
     tabs.iter()
@@ -867,9 +867,9 @@ fn tab_rows(b: &Browser, tabs: &[(&Tab, bool)], indent: f32, cx: &mut Context<Br
                 [_] => tab_row(b, t, indent, cx),
                 panes => div()
                     .flex()
+                    .flex_col()
                     .gap(px(ROW_GAP))
-                    .pl(px(indent))
-                    .children(panes.iter().filter_map(|k| b.model.tab(*k)).map(|t| div().flex_1().min_w_0().flex().flex_col().child(tab_row(b, t, 0., cx))))
+                    .children(panes.iter().filter_map(|k| b.model.tab(*k)).map(|t| tab_row(b, t, indent, cx)))
                     .into_any_element(),
             })
         })
@@ -1133,9 +1133,7 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         )));
     let toggling = b.motion.toggled_group.is_some_and(|(gid, at)| gid == id && at.elapsed() < FADE);
     let is_active = |t: &Tab| b.model.active == Some(b.model.key(t));
-    let keys: Vec<TabKey> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(id)).map(|t| b.model.key(t)).collect();
-    // A split shows as one row.
-    let all = keys.iter().filter(|k| b.splits.entry(**k, &keys).is_some()).count();
+    let all = b.model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(id)).count();
     let active = b.model.tabs.iter().filter(|t| t.group_id == Some(id) && is_active(t)).count();
     let tabs = rows(b, Some(id), |t| !g.collapsed || toggling || is_active(t), cx);
     let (from, to) = if g.collapsed { (inner_height(all), inner_height(active)) } else { (inner_height(active), inner_height(all)) };
