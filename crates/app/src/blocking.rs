@@ -10,6 +10,7 @@ use shield::{Category, youtube};
 use store::Id;
 use ui::controls::{secure_button, secure_surface};
 use ui::icon::{ICON_LARGE, Icon, icon};
+use ui::text::OneLine;
 use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 use url::Url;
 
@@ -350,7 +351,7 @@ pub fn render_blocked(page: &BlockedPage, cx: &mut Context<Browser>) -> gpui::An
                 .child(icon(Icon::Shield, ICON_LARGE, color))
                 .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).child(browser_core::site::warning_heading(page.category))),
         )
-        .child(div().font_weight(FontWeight::SEMIBOLD).overflow_hidden().whitespace_nowrap().text_ellipsis().child(host))
+        .child(div().font_weight(FontWeight::SEMIBOLD).one_line(host))
         .child(div().text_color(Secure::muted()).child(browser_core::site::warning_reason(page.category, if cfg!(windows) { "PC" } else { "Mac" })))
         .child(div().text_size(px(TEXT_SMALL)).text_color(Secure::faint()).child(browser_core::site::warning_source(page.category)))
         .child(

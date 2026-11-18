@@ -10,6 +10,7 @@ use store::{Download, Id};
 use ui::controls::{POPOVER_INSET, empty, icon_button, list_row, open_popup, popover, tab_stop, text_lines, tooltip};
 use ui::icon::{Icon, icon};
 use ui::motion::{REOPEN_GUARD, popover_motion};
+use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::theme::{Secure, TEXT, TEXT_SMALL, Theme};
 
@@ -322,7 +323,6 @@ impl DownloadsWindow {
         let button_reveal = reveal.clone();
         let name = Path::new(&d.path).file_name().map(|n| bounded_title(&n.to_string_lossy())).unwrap_or_default();
         let (detail, warn) = subtitle(d, size);
-        let line = || div().overflow_hidden().whitespace_nowrap().text_ellipsis();
         let trailing = if warn {
             div().size(px(28.)).flex().flex_none().items_center().justify_center().child(icon(Icon::TriangleAlert, 15., Secure::warning())).into_any_element()
         } else {
@@ -343,8 +343,8 @@ impl DownloadsWindow {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(line().child(name))
-                    .child(line().text_size(px(TEXT_SMALL)).text_color(if warn { Secure::warning() } else { Theme::muted() }).child(detail)),
+                    .child(div().one_line(name))
+                    .child(div().text_size(px(TEXT_SMALL)).text_color(if warn { Secure::warning() } else { Theme::muted() }).one_line(detail)),
             )
             .child(trailing)
     }

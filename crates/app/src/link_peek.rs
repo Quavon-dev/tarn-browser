@@ -11,6 +11,7 @@ use store::{Id, TabKind};
 use ui::controls::{button, icon_button, open_popup, surface, tooltip};
 use ui::icon::Icon;
 use ui::motion::pop_in;
+use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::theme::{Secure, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
 use url::Url;
@@ -263,17 +264,7 @@ impl Render for LinkPeekWindow {
             .items_center()
             .gap_2()
             .child(peek_origin(host, insecure))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(px(TEXT_SMALL))
-                    .text_color(Theme::muted())
-                    .child(SharedString::from(title)),
-            )
+            .child(div().flex_1().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(title)))
             .child(button("peek-open", "Open in Tab", true).on_click(cx.listener(|this, _, _, cx| this.with_main(cx, |b, w, cx| b.link_peek_to_tab(w, cx)))))
             .child(icon_button("peek-close", Icon::Close, true).tooltip(tooltip("Close", Some("Esc".into()))).on_click(cx.listener(|this, _, _, cx| {
                 this.browser.update(cx, |b, cx| b.close_link_peek(cx)).ok();

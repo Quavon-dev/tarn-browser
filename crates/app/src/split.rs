@@ -11,6 +11,7 @@ use gpui::{
 };
 use ui::controls::{icon_button, tooltip};
 use ui::icon::Icon;
+use ui::text::OneLine;
 use ui::theme::{Elevation, TEXT_SMALL, Theme};
 use url::Url;
 
@@ -325,7 +326,7 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
         .when(focused, |d| d.bg(Theme::accent_soft()).font_weight(FontWeight::MEDIUM))
         .cursor_pointer()
         .children(tab.map(|t| crate::sidebar::site_icon(b, &t.url, 14.)))
-        .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(title.clone()))
+        .child(div().flex_1().one_line(title.clone()))
         .children(host.map(|host| crate::toolbar::tail_first(div().flex_none().max_w(relative(0.4)).text_size(px(TEXT_SMALL)), host, Theme::faint())))
         .child(
             div()

@@ -9,6 +9,7 @@ use gpui::{
 };
 
 use crate::icon::{Icon, icon};
+use crate::text::OneLine;
 use crate::theme::{Elevation, ROW_HEIGHT, SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, Theme};
 
 pub fn button(id: impl Into<ElementId>, text: impl Into<SharedString>, primary: bool) -> Stateful<Div> {
@@ -602,8 +603,7 @@ pub fn text_block(title: impl Into<SharedString>, detail: impl Into<SharedString
 
 /// `text_block` kept to one line each, cut with an ellipsis, for list rows.
 pub fn text_lines(title: impl Into<SharedString>, detail: impl Into<SharedString>) -> Div {
-    let line = || div().overflow_hidden().whitespace_nowrap().text_ellipsis();
-    text_column().flex().flex_col().child(line().child(title.into())).child(line().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(detail.into()))
+    text_column().flex().flex_col().child(div().one_line(title)).child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(detail))
 }
 
 /// The heading of a group of rows in a pop-up or list, smaller and quieter than `section`.
@@ -613,7 +613,7 @@ pub fn caption(title: impl Into<SharedString>) -> Div {
 
 /// What a list shows when it has nothing to list.
 pub fn empty(text: impl Into<SharedString>) -> Div {
-    div().h(px(ROW_HEIGHT + 10.)).flex_none().px_3().flex().items_center().justify_center().text_color(Theme::muted()).child(text.into())
+    div().h(px(ROW_HEIGHT + 10.)).flex_none().px_3().flex().items_center().justify_center().text_color(Theme::muted()).child(div().one_line(text))
 }
 
 /// Makes `control` reachable with Tab and rings it while it has the keyboard; Enter and Space

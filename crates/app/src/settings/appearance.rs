@@ -17,6 +17,7 @@ use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{Secure, TEXT_SMALL, Theme};
 
 use ui::controls::text_block;
+use ui::text::OneLine;
 
 use super::{SettingsWindow, label};
 
@@ -69,14 +70,7 @@ impl Pane {
 /// Where a theme came from, in the fixed security palette and the system font, so no theme can
 /// make "Unverified" look like "Official" (threat model S29).
 fn badge_line(text: String) -> gpui::Div {
-    div()
-        .text_size(px(TEXT_SMALL))
-        .text_color(Secure::muted())
-        .font_family(ui::theme::SYSTEM_FONT)
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .text_ellipsis()
-        .child(text)
+    div().text_size(px(TEXT_SMALL)).text_color(Secure::muted()).font_family(ui::theme::SYSTEM_FONT).one_line(text)
 }
 
 #[cfg(target_os = "macos")]
@@ -605,7 +599,7 @@ impl SettingsWindow {
                         .child(div().w(px(30.)).h(px(4.)).rounded_full().bg(rgba(text))),
                 ),
             )
-            .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().child(card.name.clone()))
+            .child(div().one_line(card.name.clone()))
             .child(badge_line(if in_use.is_empty() { card.badge.clone() } else { format!("{} · {}", in_use.join(", "), card.badge) }))
             .on_click(cx.listener(move |this, _, _, cx| {
                 if withdrawn {

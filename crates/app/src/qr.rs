@@ -4,6 +4,7 @@ use gpui::{
 };
 use ui::controls::{POPOVER_INSET, open_popup, popover};
 use ui::motion::popover_motion;
+use ui::text::OneLine;
 use ui::theme::{TEXT_SMALL, Theme};
 use url::Url;
 
@@ -128,16 +129,7 @@ impl Render for QrWindow {
             .justify_center()
             .gap_2()
             .child(div().size(px(CODE)).rounded(px(Theme::radius_small())).bg(gpui::white()).flex().items_center().justify_center().child(modules))
-            .child(
-                div()
-                    .max_w(px(CODE))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(px(TEXT_SMALL))
-                    .text_color(Theme::muted())
-                    .child(self.label.clone()),
-            );
+            .child(div().max_w(px(CODE)).text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(self.label.clone()));
         div()
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &ShowQrCode, window, cx| this.close(true, window, cx)))
