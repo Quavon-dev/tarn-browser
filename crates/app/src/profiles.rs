@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, AppContext, Context, Div, Entity, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, actions, div, prelude::FluentBuilder, px, relative, rgb, transparent_black,
+    StatefulInteractiveElement, Styled, Subscription, Window, actions, div, prelude::FluentBuilder, px, relative, rgb, transparent_black,
 };
 use shield::ShieldLevel;
 use store::{Id, Profile};
@@ -53,8 +53,8 @@ pub struct ProfileEditor {
     _subscription: Subscription,
 }
 
+use browser_core::space_card::name_too_long;
 pub use browser_core::space_card::valid_name;
-use browser_core::space_card::{MAX_NAME, name_too_long};
 
 use browser_core::command::engine_key;
 
@@ -425,12 +425,7 @@ fn details(b: &Browser, editor: &ProfileEditor, window: &Window, cx: &mut Contex
         .child(input(focused).child(editor.name.clone()))
         .when(b.editor_name(cx).is_none(), |d| {
             let others = b.other_profiles(editor.editing);
-            let taken = browser_core::profiles::name_taken(editor.name.read(cx).text(), others.iter().map(|p| p.name.as_str()));
-            let message = if name_too_long(editor.name.read(cx).text()) {
-                Some(SharedString::from(format!("Use at most {MAX_NAME} characters.")))
-            } else {
-                taken.then_some("A profile with this name exists.".into())
-            };
+            let message = browser_core::space_card::profile_name_note(editor.name.read(cx).text(), others.iter().map(|p| p.name.as_str()));
             d.when_some(message, |d, message| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::warning()).child(message)))
         })
         .child(div().pt_2().child(caption("Color")))

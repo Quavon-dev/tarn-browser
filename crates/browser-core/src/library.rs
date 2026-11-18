@@ -114,7 +114,7 @@ pub const MISSING: &str = "Missing · moved or deleted";
 
 /// Whether `download` finished but its file is gone, so it has nothing to reveal or open.
 pub fn download_missing(download: &Download) -> bool {
-    download.state.starts_with("finished") && !Path::new(&download.path).exists()
+    download.state.starts_with("finished") && !std::fs::metadata(&download.path).is_ok_and(|m| m.is_file())
 }
 
 pub fn downloads<'a>(downloads: &'a [Download], query: &'a str) -> impl Iterator<Item = &'a Download> {
