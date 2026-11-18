@@ -17,16 +17,12 @@ pub struct TabKey {
     pub id: Id,
 }
 
-/// How close to a window's edge, in points, a dragged tab shows what leaving the window opens;
-/// narrow enough to stay clear of the sidebar's rows and the toolbar's controls.
 pub const TEAR_OFF_EDGE: f32 = 12.;
 
-/// Whether `(x, y)` lies within `TEAR_OFF_EDGE` of the edge of a `width` by `height` window.
 pub fn near_edge(x: f32, y: f32, width: f32, height: f32) -> bool {
     x < TEAR_OFF_EDGE || y < TEAR_OFF_EDGE || x > width - TEAR_OFF_EDGE || y > height - TEAR_OFF_EDGE
 }
 
-/// A tab dragged out of a window and the temporary space its new window keeps to, if any.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Torn {
     pub key: TabKey,
@@ -34,7 +30,6 @@ pub struct Torn {
 }
 
 impl Torn {
-    /// The space and tab the new window saves as its place.
     pub fn place<D: WebsiteData>(&self, core: &Core<D>) -> (Option<Id>, Option<Id>) {
         let space = self.confined.map(|(_, id)| id).or_else(|| core.store(self.key.private).tab(self.key.id).ok().map(|t| t.space_id));
         crate::windows::saved_place(self.key.private, space, Some(self.key.id))
@@ -70,8 +65,6 @@ pub struct Model {
     /// The private-store space of this window's burner tab; other windows' burners stay hidden.
     pub burner: Option<Id>,
     burner_profile: Option<Id>,
-    /// The temporary space this window alone lists, made when a tab was dragged out of a window;
-    /// it goes when the window closes.
     pub confined: Option<(bool, Id)>,
 }
 
@@ -185,7 +178,6 @@ impl Model {
         if let Some((private, id)) = self.confined {
             match core.store(private).temporary_space(id) {
                 Ok(space) => spaces.push(SpaceRef { private, space }),
-                // Its profile was reset or deleted: the window lists every space again.
                 Err(_) => self.confined = None,
             }
         }
@@ -251,25 +243,18 @@ impl Model {
         })
     }
 
-    /// Lists only the temporary space `id` from now on and returns its index.
     pub fn confine<D: WebsiteData>(&mut self, core: &Core<D>, private: bool, id: Id) -> usize {
         self.confined = Some((private, id));
         self.reload_spaces(core);
         0
     }
 
-    /// Deletes the confined space with its tabs, as its window closes.
     pub fn release_confined<D: WebsiteData>(&mut self, core: &Core<D>) {
-        if let Some((private, id)) = self.confined.take() {
+        if let Some((private, id)) = self.confined.take().filter(|(private, id)| core.store(*private).temporary_space(*id).is_ok()) {
             core.store(private).delete_space(id).ok();
         }
     }
 
-    /// What dragging `key` out of the window opens, with the page it shows at `url`: a window
-    /// confined to a new temporary space that the tab moved to, or a full window on the tab's own
-    /// space; `None` for nothing. A pinned tab or a tile never moves into a space that goes with
-    /// its window, and a confined window's tabs only move to another temporary space, since no
-    /// full window lists theirs.
     pub fn tear_off<D: WebsiteData>(&self, core: &Core<D>, key: TabKey, url: &str, temporary: bool) -> Option<Torn> {
         if !self.tears_into_temporary(key, temporary)? {
             return Some(Torn { key, confined: None });
@@ -285,19 +270,15 @@ impl Model {
         Some(Torn { key, confined: Some((key.private, space.id)) })
     }
 
-    /// Whether letting go of `key` outside the window opens a temporary window (`Some(true)`), a
-    /// full one, or nothing (`None`), as `tear_off` decides.
     pub fn tears_into_temporary(&self, key: TabKey, temporary: bool) -> Option<bool> {
         let tab = self.tab(key).filter(|_| !self.burner_shown() && (self.confined.is_none() || self.tabs.len() > 1))?;
         Some(self.confined.is_some() || temporary && tab.kind == TabKind::Ephemeral)
     }
 
-    /// What the preview of a dragged tab says letting go outside the window opens.
     pub fn tear_off_label(&self, key: TabKey, temporary: bool) -> Option<&'static str> {
         self.tears_into_temporary(key, temporary).map(|t| if t { "Opens in a temporary window" } else { "Opens in a new window" })
     }
 
-    /// The index of the space a window opened for `torn` shows first, with the torn tab to pick.
     pub fn launch_torn<D: WebsiteData>(&mut self, core: &Core<D>, torn: Torn) -> Option<usize> {
         let ix = match torn.confined {
             Some((private, id)) => self.confine(core, private, id),
@@ -848,6 +829,14 @@ mod tests {
         core.disk.delete_space(temporary).unwrap();
         model.reload_spaces(&core);
         assert!(model.confined.is_none() && model.spaces.len() == 1 && model.spaces[0].space.id != temporary);
+
+        let again = core.disk.create_temporary_space(profile, "Temporary").unwrap().id;
+        model.confine(&core, false, again);
+        core.disk.delete_space(again).unwrap();
+        let reused = core.disk.create_space(profile, "Home 2", "").unwrap().id;
+        assert_eq!(reused, again, "SQLite hands out the deleted id again");
+        model.release_confined(&core);
+        assert!(core.disk.spaces(profile).unwrap().iter().any(|s| s.id == reused), "a regular space with the same id stays");
     }
 
     #[test]

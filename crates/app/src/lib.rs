@@ -218,10 +218,9 @@ impl Render for Browser {
                 b.tab_drag = Some(dragged.key);
                 b.follow_tab_drag(dragged.key, dragged.title, e.event.position, w, cx);
             }))
-            .capture_any_mouse_up(cx.listener(|b, _, _, cx| {
-                b.tab_drag = None;
-                b.drop_ghost(cx);
-            }))
+            .capture_any_mouse_up(cx.listener(Browser::end_tab_drag))
+            .on_mouse_up_out(MouseButton::Right, cx.listener(Browser::end_tab_drag))
+            .on_mouse_up_out(MouseButton::Middle, cx.listener(Browser::end_tab_drag))
             .on_mouse_up_out(
                 MouseButton::Left,
                 cx.listener(|b, e: &gpui::MouseUpEvent, w, cx| {

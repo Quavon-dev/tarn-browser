@@ -195,9 +195,7 @@ pub struct Ui {
     /// The tab whose row or pane header is being dragged, and what dropping it now does where.
     dragging: Signal<Option<TabKey>>,
     split_drop: Signal<Option<(TabKey, &'static str)>>,
-    /// What leaving the window opens, while a dragged tab is near its edge.
     tear_hint: Signal<Option<&'static str>>,
-    /// The window's content size as laid out, in points.
     size: Signal<(f32, f32)>,
     resizing: Signal<Option<browser_core::split::Divider>>,
     floating: Signal<peek::Floating>,
@@ -2340,7 +2338,6 @@ fn new_window(ui: Ui) {
     open_browser_window(Browser::window_row(&core(), SavedWindow { width, height, ..SavedWindow::default() }), None);
 }
 
-/// Opens `key`, dragged out of `ui`'s window, in a window of its own.
 pub(crate) fn tear_off(ui: Ui, key: TabKey) {
     let mut torn = None;
     act(ui, |b| torn = b.tear_off(key));

@@ -435,7 +435,6 @@ fn open_new_window(cx: &mut App) {
     }
 }
 
-/// A window for `torn`, a tab dragged out of `from`, which picks another tab once its own is gone.
 pub(crate) fn open_torn(torn: Torn, row: SavedWindow, display: Option<DisplayId>, from: Option<gpui::WindowHandle<Browser>>, cx: &mut App) {
     let row = core(cx).disk.create_window(&row).unwrap_or(row);
     if let Some(handle) = open_window(row, display, Some(torn), cx) {
@@ -505,17 +504,16 @@ pub(crate) fn open_urls(urls: Vec<String>, cx: &mut App) {
     if urls.is_empty() {
         return;
     }
-    let browsers: Vec<_> = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().filter_map(|w| w.downcast::<Browser>()).collect();
-    let open = browsers.iter().copied().find(|h| h.read(cx).is_ok_and(|b| !b.model.burner_shown() && b.model.confined.is_none()));
-    let handle = match open {
-        Some(handle) => Some(handle),
-        None if browsers.is_empty() => restore_windows(cx),
-        None => {
-            let row = new_window_row(cx);
-            open_window(row, None, None, cx)
-        }
+    let usable = |cx: &App| {
+        let browsers = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().filter_map(|w| w.downcast::<Browser>());
+        browsers.into_iter().find(|h| h.read(cx).is_ok_and(|b| !b.model.burner_shown() && b.model.confined.is_none()))
     };
-    let Some(handle) = handle else { return };
+    let mut handle = usable(cx);
+    if handle.is_none() && browser_windows(cx) == 0 {
+        restore_windows(cx);
+        handle = usable(cx);
+    }
+    let Some(handle) = handle.or_else(|| open_window(new_window_row(cx), None, None, cx)) else { return };
     handle
         .update(cx, |b, window, cx| {
             b.open_urls(urls, true, window, cx);

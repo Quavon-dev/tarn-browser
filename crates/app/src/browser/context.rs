@@ -678,8 +678,6 @@ impl Browser {
         cx.notify();
     }
 
-    /// Opens `key`, dragged out of this window and let go at `at`, in a window of its own there,
-    /// which takes its live view.
     pub(crate) fn tear_off(&mut self, key: TabKey, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tab) = self.model.tab(key).cloned() else { return };
         let url = self.tab_url(key).unwrap_or(tab.url);

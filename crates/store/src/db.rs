@@ -518,13 +518,11 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// A space only the window it was made for lists, which `spaces` leaves out.
     pub fn create_temporary_space(&self, profile_id: Id, name: &str) -> Result<Space> {
         self.conn.execute("INSERT INTO spaces (profile_id, name, position, temporary) VALUES (?1, ?2, 0, 1)", params![profile_id, name])?;
         self.temporary_space(self.conn.last_insert_rowid())
     }
 
-    /// The profile's spaces with its temporary ones, for whatever lists every tab of the profile.
     pub fn every_space(&self, profile_id: Id) -> Result<Vec<Space>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end FROM spaces WHERE profile_id = ?1 ORDER BY temporary, position",
@@ -541,9 +539,12 @@ impl Store {
         )?)
     }
 
-    /// Deletes the temporary spaces no saved window shows, left behind when Tarn did not quit normally.
     pub fn delete_orphan_temporary_spaces(&self) -> Result<()> {
-        self.conn.execute("DELETE FROM spaces WHERE temporary = 1 AND id NOT IN (SELECT space_id FROM windows WHERE space_id IS NOT NULL)", [])?;
+        let deleted =
+            self.conn.execute("DELETE FROM spaces WHERE temporary = 1 AND id NOT IN (SELECT space_id FROM windows WHERE space_id IS NOT NULL)", [])?;
+        if deleted > 0 {
+            self.checkpoint().ok();
+        }
         Ok(())
     }
 

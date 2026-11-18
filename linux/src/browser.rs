@@ -209,7 +209,6 @@ impl Browser {
         browser
     }
 
-    /// `torn` is the tab dragged out of another window that this one opens for.
     pub fn new(core: Rc<Core<Data>>, window: SavedWindow, torn: Option<Torn>, elsewhere: HashSet<TabKey>, themes: themes::Themes) -> Browser {
         let mut model = Model::new(browser_core::settings::live_tabs(&core.disk));
         model.reload_spaces(&core);
@@ -1172,8 +1171,6 @@ impl Browser {
         self.core.disk.delete_window(self.window.id).ok();
     }
 
-    /// Takes `key`, dragged out of the window, off it: the saved row of the window that shows it
-    /// next, and what that window opens for; `None` when it stays.
     pub fn tear_off(&mut self, key: TabKey) -> Option<(SavedWindow, Torn)> {
         let tab = self.model.tab(key).cloned()?;
         let url = self.pages.get(&key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url);

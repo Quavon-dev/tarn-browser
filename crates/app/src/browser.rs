@@ -385,9 +385,7 @@ pub struct Browser {
     /// The row a dragged tab is over, when the drop would split with it what the drop does, and
     /// otherwise whether the tab lands below that row rather than above it.
     pub(crate) split_drop: Option<(TabKey, Option<&'static str>, bool)>,
-    /// The tab being dragged, which a drop outside the window tears off.
     pub(crate) tab_drag: Option<TabKey>,
-    /// The torn tab this new window takes from another while it picks its first tab.
     adopting: Option<TabKey>,
     pub(crate) ghost: crate::tear_off::Ghosting,
     pub shortcuts_open: bool,
@@ -415,7 +413,6 @@ pub(crate) fn launch_urls(args: impl Iterator<Item = String>) -> Vec<String> {
 }
 
 impl Browser {
-    /// `torn` is the tab dragged out of another window that this one opens for.
     pub fn new(saved: SavedWindow, torn: Option<browser_core::tabs::Torn>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let core = crate::shared::core(cx);
         let disk = &core.disk;
@@ -721,7 +718,6 @@ impl Browser {
         true
     }
 
-    /// The user closes the window: its row goes, and its temporary space with the tabs in it.
     pub(crate) fn closing(&mut self, cx: &mut App) {
         self.model.release_confined(&self.core);
         crate::shared::window_closed(&self.core, self.saved.id, cx);

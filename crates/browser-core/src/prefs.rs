@@ -12,7 +12,6 @@ pub const GESTURES: Switch = Switch { key: "gestures", default: true };
 pub const REDUCE_MOTION: Switch = Switch { key: "reduce_motion", default: false };
 pub const NEW_TAB_START_PAGE: Switch = Switch { key: "new_tab_start_page", default: false };
 pub const CLOSE_SELECTS_PREVIOUS: Switch = Switch { key: "close_selects_previous", default: false };
-/// A tab dragged out of a window opens in a window of its own temporary space, or off, in a full window.
 pub const TEAR_OFF_TEMPORARY: Switch = Switch { key: "tear_off_temporary", default: true };
 
 impl Switch {

@@ -11,7 +11,6 @@ use crate::prefs::Pref;
 const WIDTH: f32 = 240.;
 const HEIGHT: f32 = 92.;
 
-/// The small window that follows a tab dragged out of its window and says what letting go opens.
 pub struct Ghost {
     title: SharedString,
     label: &'static str,
@@ -46,8 +45,6 @@ pub(crate) struct Ghosting {
 }
 
 impl Browser {
-    /// Shows the ghost of `key` under the pointer at `at` while it is outside the window, and
-    /// takes it away when the pointer comes back.
     pub(crate) fn follow_tab_drag(&mut self, key: TabKey, title: SharedString, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         if Bounds::new(Point::default(), window.viewport_size()).contains(&at) {
             return self.drop_ghost(cx);
@@ -95,7 +92,11 @@ impl Browser {
         });
     }
 
-    /// Takes the ghost away, when the pointer is back in the window or the drag ended.
+    pub(crate) fn end_tab_drag(&mut self, _: &gpui::MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.tab_drag = None;
+        self.drop_ghost(cx);
+    }
+
     pub(crate) fn drop_ghost(&mut self, cx: &mut Context<Self>) {
         let Some((handle, _)) = self.ghost.popup.take() else { return };
         cx.defer(move |cx| {

@@ -59,7 +59,12 @@ const PANES: [(SettingsPane, Icon, &str, &str); 11] = [
         "Appearance",
         "theme dark light match system accent colour color motion reduce toolbar compact sidebar search bar effect",
     ),
-    (SettingsPane::Tabs, Icon::AppWindow, "Tabs", "awake sleep memory new tab start page close archive gestures swipe trackpad touchpad"),
+    (
+        SettingsPane::Tabs,
+        Icon::AppWindow,
+        "Tabs",
+        "awake sleep memory new tab start page close archive gestures swipe trackpad touchpad drag tear off temporary full window",
+    ),
     (SettingsPane::Search, Icon::Search, "Search", "search engine suggestions history text"),
     (
         SettingsPane::Privacy,

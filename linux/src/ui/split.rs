@@ -73,8 +73,6 @@ pub(super) fn released(ui: Ui) {
     }
 }
 
-/// While a tab is dragged near the window's edge, names what leaving the window there opens;
-/// `e` is any move with its root position.
 pub(super) fn edge_hint(ui: Ui, e: &MouseEvent) {
     let (x, y) = (e.page_position.x.0, e.page_position.y.0);
     let (width, height) = ui.size.get_untracked();
@@ -88,7 +86,6 @@ pub(super) fn edge_hint(ui: Ui, e: &MouseEvent) {
     }
 }
 
-/// The accent edge and label of `edge_hint`, which let every pointer event through.
 pub(super) fn edge_layer(ui: Ui) -> AnyElement {
     dynamic(move || {
         ui.tear_hint.get().map(|label| {
@@ -116,8 +113,7 @@ pub(super) fn edge_layer(ui: Ui) -> AnyElement {
     .into_element()
 }
 
-/// The pointer left the window holding a tab: the tab tears off into a window of its own. A
-/// release outside the window reaches no view here, so leaving it is the drop.
+/// A release outside the window reaches no view, so leaving the window is the drop.
 pub(super) fn dragged_out(ui: Ui) {
     let Some(key) = ui.dragging.get_untracked() else { return };
     release(ui);
