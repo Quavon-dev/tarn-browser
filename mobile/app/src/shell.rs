@@ -766,6 +766,29 @@ impl<D: Platform> Shell<D> {
         self.notice = Some("Browsing data cleared.".into());
     }
 
+    pub fn clear_history(&mut self, range: browser_core::library::HistoryRange) {
+        let Some((private, id)) = self.model.profile() else { return };
+        if browser_core::library::clear_history(self.core.store(private), id, range, browser_core::now()).is_err() {
+            return;
+        }
+        if range == browser_core::library::HistoryRange::All {
+            self.model.closed_tabs.clear_profile(private, id);
+            self.forget_icons((private, id));
+        }
+        self.notice = Some("History cleared.".into());
+    }
+
+    pub fn remove_history_url(&mut self, url: &str) {
+        if let Some((private, id)) = self.model.profile() {
+            self.core.store(private).delete_history_url(id, url).ok();
+        }
+    }
+
+    pub fn day_starts(&self, now: i64) -> (i64, i64) {
+        let today = self.core.disk.local_day_start(now).unwrap_or(now);
+        (today, self.core.disk.local_day_start(today - 1).unwrap_or(today - 86_400_000))
+    }
+
     pub fn history(&self) -> Vec<HistoryEntry> {
         self.profile_id().and_then(|id| self.store().history(id, 200).ok()).unwrap_or_default()
     }

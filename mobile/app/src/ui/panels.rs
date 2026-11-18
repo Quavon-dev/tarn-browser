@@ -696,20 +696,80 @@ fn history(ui: Ui) -> impl IntoElement {
                 (n, _) => small(if n == 1 { "1 page".to_owned() } else { format!("{n} pages") }).px_1().into_element(),
             })
         }))
-        .child(framed(group().child(each(
-            rows,
-            |h: &store::HistoryEntry| (h.url.clone(), h.visited_at),
-            move |h, _| {
-                let entry = h.get_untracked();
-                let url = entry.url.clone();
-                let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title };
-                let host = url::Url::parse(&entry.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or(entry.url);
-                detail_row(Some(icons::GLOBE), name, Some(caption(host).number_of_lines(1)), move || {
-                    ui.show(Screen::Browse);
-                    ui.act(|s| s.navigate(&url));
-                })
-            },
-        ))))
+        .child(dynamic(move || {
+            let starts = ui.read(|s| s.day_starts(browser_core::now()));
+            let mut days: Vec<(&'static str, Vec<store::HistoryEntry>)> = Vec::new();
+            for h in rows() {
+                let day = browser_core::library::history_day(h.visited_at, starts);
+                match days.last_mut() {
+                    Some((last, list)) if *last == day => list.push(h),
+                    _ => days.push((day, vec![h])),
+                }
+            }
+            let remove = move |url: String| {
+                move || {
+                    ui.act(|s| {
+                        s.remove_history_url(&url);
+                        Vec::new()
+                    });
+                    let q = query.get_untracked();
+                    lookup(&q, browser_core::suggest::searches_text(q.trim()));
+                }
+            };
+            Some(view().gap_2().children(days.into_iter().map(|(day, list)| {
+                view().gap_1().child(section(day)).child(framed(group().children(list.into_iter().map(|entry| {
+                    let url = entry.url.clone();
+                    let name = if entry.title.is_empty() { entry.url.clone() } else { entry.title };
+                    let host =
+                        url::Url::parse(&entry.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or(entry.url);
+                    let open = url.clone();
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .child(
+                            detail_row(Some(icons::GLOBE), name, Some(caption(host).number_of_lines(1)), move || {
+                                ui.show(Screen::Browse);
+                                ui.act(|s| s.navigate(&open));
+                            })
+                            .flex_1(),
+                        )
+                        .child(icon_button(icons::TRASH, "Remove from History", remove(url)))
+                }))))
+            })))
+        }))
+        .child(dynamic(move || {
+            (!found.with(Vec::is_empty) || !query.get().trim().is_empty()).then(|| {
+                framed(group().child(row(icons::TRASH, "Clear History…", move || {
+                    clear_history(ui, move || {
+                        let q = query.get_untracked();
+                        lookup(&q, false);
+                    })
+                })))
+            })
+        }))
+}
+
+fn clear_history(ui: Ui, then: impl FnOnce() + 'static) {
+    use browser_core::library::HistoryRange;
+    let mut dialog = alert_dialog()
+        .title("Clear history?")
+        .description("Visits in the chosen range are removed from this profile's history.")
+        .action_sheet()
+        .cancel("cancel", "Cancel");
+    for (ix, range) in HistoryRange::ALL.iter().enumerate() {
+        dialog = dialog.destructive(ix.to_string(), range.label());
+    }
+    let answer = dialog.show();
+    spawn(async move {
+        let picked = answer.await.ok().and_then(|a| a.action).and_then(|id| id.parse::<usize>().ok()).and_then(|ix| HistoryRange::ALL.get(ix).copied());
+        if let Some(range) = picked {
+            ui.act(|s| {
+                s.clear_history(range);
+                Vec::new()
+            });
+            then();
+        }
+    });
 }
 
 fn downloads(ui: Ui) -> impl IntoElement {

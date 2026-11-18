@@ -361,6 +361,22 @@ fn clear_data_empties_history_and_downloads() {
 }
 
 #[test]
+fn history_loses_one_page_or_a_range() {
+    use browser_core::library::HistoryRange;
+    let (_dir, mut shell) = open();
+    for (url, title) in [("https://a.test/", "A"), ("https://b.test/", "B")] {
+        shell.navigate(url);
+        finish(&mut shell, url, title);
+    }
+    shell.remove_history_url("https://a.test/");
+    assert_eq!(shell.history().iter().map(|h| h.url.as_str()).collect::<Vec<_>>(), ["https://b.test/"]);
+    shell.clear_history(HistoryRange::All);
+    assert!(shell.history().is_empty());
+    let (today, yesterday) = shell.day_starts(browser_core::now());
+    assert!(yesterday < today && today <= browser_core::now());
+}
+
+#[test]
 fn prompts_queue_answer_and_remember_permissions() {
     let (_dir, mut shell) = open();
     let key = active(&shell);
