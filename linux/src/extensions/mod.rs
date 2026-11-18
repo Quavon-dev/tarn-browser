@@ -154,7 +154,7 @@ impl State {
 
     fn tabs(&self, profile: Id) -> Vec<TabInfo> {
         let Some(core) = self.core() else { return Vec::new() };
-        let spaces = core.disk.spaces(profile).unwrap_or_default();
+        let spaces = core.disk.every_space(profile).unwrap_or_default();
         let tabs: Vec<store::Tab> = spaces.iter().flat_map(|s| core.disk.tabs(s.id).unwrap_or_default()).collect();
         let active_space = tabs.iter().find(|t| Some(t.id as u64) == self.active).map(|t| t.space_id);
         tabs.into_iter()

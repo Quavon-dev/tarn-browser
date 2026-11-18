@@ -37,6 +37,7 @@ mod spaces;
 mod split;
 mod tabs;
 mod tarn_ext;
+mod tear_off;
 mod themes;
 mod toast;
 mod toolbar;
@@ -212,6 +213,25 @@ impl Render for Browser {
                     cx.stop_propagation();
                 }
             })
+            .on_drag_move(cx.listener(|b, e: &gpui::DragMoveEvent<sidebar::DraggedTab>, w, cx| {
+                let dragged = e.drag(cx).clone();
+                b.tab_drag = Some(dragged.key);
+                b.follow_tab_drag(dragged.key, dragged.title, e.event.position, w, cx);
+            }))
+            .capture_any_mouse_up(cx.listener(Browser::end_tab_drag))
+            .on_mouse_up_out(MouseButton::Right, cx.listener(Browser::end_tab_drag))
+            .on_mouse_up_out(MouseButton::Middle, cx.listener(Browser::end_tab_drag))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|b, e: &gpui::MouseUpEvent, w, cx| {
+                    // Hitboxes that block the mouse leave the root unhovered inside the window too.
+                    let inside = gpui::Bounds::new(gpui::Point::default(), w.viewport_size()).contains(&e.position);
+                    b.drop_ghost(cx);
+                    if let Some(key) = b.tab_drag.take().filter(|_| cx.has_active_drag() && !inside) {
+                        b.tear_off(key, e.position, w, cx);
+                    }
+                }),
+            )
             .on_action(cx.listener(|b, _: &NewTab, w, cx| b.new_tab_page(w, cx)))
             .on_action(cx.listener(|b, _: &NewChromiumWindow, w, cx| b.new_chromium_window(w, cx)))
             .on_action(cx.listener(|b, _: &profiles::NewProfile, w, cx| b.open_profile_editor(None, w, cx)))
@@ -228,7 +248,7 @@ impl Render for Browser {
                 }))
             })
             .on_action(cx.listener(|b, _: &CloseWindow, w, cx| {
-                crate::shared::window_closed(&b.core, b.saved.id, cx);
+                b.closing(cx);
                 w.remove_window();
             }))
             .when(reload, |d| d.on_action(cx.listener(|b, _: &Reload, _, cx| b.reload(cx))))

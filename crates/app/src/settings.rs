@@ -59,7 +59,12 @@ const PANES: [(SettingsPane, Icon, &str, &str); 11] = [
         "Appearance",
         "theme dark light match system accent colour color motion reduce toolbar compact sidebar search bar effect",
     ),
-    (SettingsPane::Tabs, Icon::AppWindow, "Tabs", "awake sleep memory new tab start page close archive gestures swipe trackpad touchpad"),
+    (
+        SettingsPane::Tabs,
+        Icon::AppWindow,
+        "Tabs",
+        "awake sleep memory new tab start page close archive gestures swipe trackpad touchpad drag tear off temporary full window",
+    ),
     (SettingsPane::Search, Icon::Search, "Search", "search engine suggestions history text"),
     (
         SettingsPane::Privacy,
@@ -1479,6 +1484,15 @@ impl SettingsWindow {
                         &["Next", "Previous"],
                         s.prefs.get(Pref::ClosePrevious) as usize,
                         |b, ix, cx| b.set_pref(Pref::ClosePrevious, ix == 1, cx),
+                        cx,
+                    ))
+                    .child(self.choice_row(
+                        false,
+                        "A tab dragged out of the window opens",
+                        "A temporary window lists only that tab's own temporary space, which goes with the window; a full window lists every space and profile. Pinned tabs and tiles open in a full window, except from a temporary one.",
+                        &["Temporary window", "Full window"],
+                        usize::from(!s.prefs.get(Pref::TearOffTemporary)),
+                        |b, ix, cx| b.set_pref(Pref::TearOffTemporary, ix == 0, cx),
                         cx,
                     ))
                     .child(self.choice_row(

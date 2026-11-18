@@ -17,7 +17,7 @@ use crate::webview;
 use browser_core::closed::ARCHIVE_AFTER;
 use browser_core::command::ENGINES;
 use browser_core::incoming::LOCALHOST_FROM_APPS;
-use browser_core::prefs::{CLOSE_SELECTS_PREVIOUS, GESTURES, NEW_TAB_START_PAGE};
+use browser_core::prefs::{CLOSE_SELECTS_PREVIOUS, GESTURES, NEW_TAB_START_PAGE, TEAR_OFF_TEMPORARY};
 use browser_core::settings::{self as prefs, LIVE_TABS, LIVE_TABS_KEY, SLEEP_AFTER_DEFAULT, SLEEP_AFTER_KEY, SUGGESTIONS};
 
 const NAV_WIDTH: f32 = 180.;
@@ -537,7 +537,8 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             prefs::choice(disk, SLEEP_AFTER_KEY, &sleep_options, SLEEP_AFTER_DEFAULT),
         )
     })?;
-    let (start_page, previous, gestures) = read(ui, |b| (b.pref(NEW_TAB_START_PAGE), b.pref(CLOSE_SELECTS_PREVIOUS), b.pref(GESTURES)))?;
+    let (start_page, previous, gestures, tear_off) =
+        read(ui, |b| (b.pref(NEW_TAB_START_PAGE), b.pref(CLOSE_SELECTS_PREVIOUS), b.pref(GESTURES), b.pref(TEAR_OFF_TEMPORARY)))?;
     let (sets, paused, muted) = read(ui, |b| (b.set_categories(), b.paused_sites(), b.muted_sites()))?;
     let on = |group: &str| lists.iter().any(|l| l == group);
     let toggle = move |setting: &'static str| move || act(ui, move |b| b.toggle_setting(setting));
@@ -623,12 +624,18 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                             previous,
                             move |on| act(ui, move |b| b.set_pref(CLOSE_SELECTS_PREVIOUS, on)),
                         )))
+                        .child(group_row().child(label("A tab dragged out of the window opens").flex_1()).child(segmented(
+                            vec![(true, "Temporary window".to_owned()), (false, "Full window".to_owned())],
+                            tear_off,
+                            move |on| act(ui, move |b| b.set_pref(TEAR_OFF_TEMPORARY, on)),
+                        )))
                         .child(group_row().child(label("Close unused tabs after").flex_1()).child(segmented(choices, archive, move |ix| act(ui, move |b| b.set_archive_after(ix)))))
                         .child(switch(gestures, "Touchpad gestures", move || act(ui, |b| b.set_pref(GESTURES, !b.pref(GESTURES))))),
                 )
                 .child(note("Other tabs sleep and reload when you return, unless they are playing video or audio; fewer saves memory."))
                 .child(note("A tab left for this long sleeps and reloads when you return, after a minute while memory is short. Pinned tabs and tabs playing video or audio stay awake."))
                 .child(note("New Tab shows the command card with the search field, or the start page. After closing a tab, the next or previous one in the list becomes active."))
+                .child(note("A temporary window lists only that tab's own temporary space, which goes with the window; a full window lists every space and profile. Pinned tabs and tiles open in a full window, except from a temporary one."))
                 .child(note("Unpinned tabs you have not opened for this long move to History › Archived Tabs."))
                 .child(note("Touchpad gestures: swipe with two fingers over the sidebar to switch spaces."))
         }

@@ -8,6 +8,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- On macOS, Windows and Linux, dragging a tab out of the window opens it in a window of its own.
+  Settings › Tabs picks a temporary window, which lists only that tab's own temporary space in the
+  same profile and deletes it with its tabs when the window closes, or a full window with every
+  space and profile. Pinned tabs and tiles open in a full window, except from a temporary one.
+  Outside the window a small preview follows the pointer and says which window letting go opens
+  (macOS, Windows). On Linux the window's edge lights up with the same words as the dragged tab
+  nears it, and the tab tears off as the pointer leaves the window.
 - History lists pages under Today, Yesterday and Earlier with when each was last visited. Remove
   from History (row menu, the row's trash button, or ⌘⌫ on macOS and Delete on Windows) removes a
   page, and Clear browsing history in Settings › Privacy asks whether to clear the last hour, today

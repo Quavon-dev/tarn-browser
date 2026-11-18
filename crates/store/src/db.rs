@@ -199,6 +199,7 @@ const MIGRATIONS: &[&str] = &[
      );",
     "ALTER TABLE groups ADD COLUMN icon TEXT NOT NULL DEFAULT '';
      ALTER TABLE folders ADD COLUMN icon TEXT NOT NULL DEFAULT '';",
+    "ALTER TABLE spaces ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0;",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
@@ -511,10 +512,40 @@ impl Store {
 
     pub fn spaces(&self, profile_id: Id) -> Result<Vec<Space>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end FROM spaces WHERE profile_id = ?1 ORDER BY position",
+            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end FROM spaces WHERE profile_id = ?1 AND temporary = 0 ORDER BY position",
         )?;
         let rows = stmt.query_map([profile_id], space_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn create_temporary_space(&self, profile_id: Id, name: &str) -> Result<Space> {
+        self.conn.execute("INSERT INTO spaces (profile_id, name, position, temporary) VALUES (?1, ?2, 0, 1)", params![profile_id, name])?;
+        self.temporary_space(self.conn.last_insert_rowid())
+    }
+
+    pub fn every_space(&self, profile_id: Id) -> Result<Vec<Space>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end FROM spaces WHERE profile_id = ?1 ORDER BY temporary, position",
+        )?;
+        let rows = stmt.query_map([profile_id], space_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn temporary_space(&self, id: Id) -> Result<Space> {
+        Ok(self.conn.query_row(
+            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end FROM spaces WHERE id = ?1 AND temporary = 1",
+            [id],
+            space_row,
+        )?)
+    }
+
+    pub fn delete_orphan_temporary_spaces(&self) -> Result<()> {
+        let deleted =
+            self.conn.execute("DELETE FROM spaces WHERE temporary = 1 AND id NOT IN (SELECT space_id FROM windows WHERE space_id IS NOT NULL)", [])?;
+        if deleted > 0 {
+            self.checkpoint().ok();
+        }
+        Ok(())
     }
 
     pub fn delete_space(&self, id: Id) -> Result<()> {
@@ -2104,6 +2135,22 @@ mod tests {
         store.delete_window(first.id).unwrap();
         assert_eq!(store.windows().unwrap().len(), 1);
         assert!(store.conn.execute("UPDATE windows SET web_engine = 'gecko'", []).is_err());
+    }
+
+    #[test]
+    fn temporary_spaces_are_unlisted_and_go_without_a_window() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "uuid", false).unwrap();
+        let space = store.create_space(p.id, "S", "").unwrap();
+        let (shown, orphan) = (store.create_temporary_space(p.id, "T").unwrap(), store.create_temporary_space(p.id, "T").unwrap());
+        assert_eq!(store.spaces(p.id).unwrap(), std::slice::from_ref(&space));
+        assert_eq!(store.every_space(p.id).unwrap().len(), 3);
+        assert_eq!(store.temporary_space(shown.id).unwrap().profile_id, p.id);
+        assert!(store.temporary_space(space.id).is_err(), "a listed space is not temporary");
+        store.create_window(&SavedWindow { space_id: Some(shown.id), ..Default::default() }).unwrap();
+        store.delete_orphan_temporary_spaces().unwrap();
+        assert!(store.temporary_space(shown.id).is_ok() && store.temporary_space(orphan.id).is_err());
+        assert_eq!(store.spaces(p.id).unwrap(), [space]);
     }
 
     #[test]

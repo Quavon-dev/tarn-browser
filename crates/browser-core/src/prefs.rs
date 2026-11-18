@@ -12,6 +12,7 @@ pub const GESTURES: Switch = Switch { key: "gestures", default: true };
 pub const REDUCE_MOTION: Switch = Switch { key: "reduce_motion", default: false };
 pub const NEW_TAB_START_PAGE: Switch = Switch { key: "new_tab_start_page", default: false };
 pub const CLOSE_SELECTS_PREVIOUS: Switch = Switch { key: "close_selects_previous", default: false };
+pub const TEAR_OFF_TEMPORARY: Switch = Switch { key: "tear_off_temporary", default: true };
 
 impl Switch {
     pub fn on(self, store: &Store) -> bool {
@@ -77,6 +78,7 @@ mod tests {
     fn switches_read_their_default_until_set() {
         let store = Store::open_in_memory().unwrap();
         assert!(GESTURES.on(&store) && !REDUCE_MOTION.on(&store) && !NEW_TAB_START_PAGE.on(&store) && !CLOSE_SELECTS_PREVIOUS.on(&store));
+        assert!(TEAR_OFF_TEMPORARY.on(&store));
         assert!(GESTURES.set(&store, false) && CLOSE_SELECTS_PREVIOUS.set(&store, true));
         assert!(!GESTURES.on(&store) && CLOSE_SELECTS_PREVIOUS.on(&store));
         assert_eq!(store.setting("close_selects_previous").unwrap().as_deref(), Some("on"));

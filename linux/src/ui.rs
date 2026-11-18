@@ -195,6 +195,8 @@ pub struct Ui {
     /// The tab whose row or pane header is being dragged, and what dropping it now does where.
     dragging: Signal<Option<TabKey>>,
     split_drop: Signal<Option<(TabKey, &'static str)>>,
+    tear_hint: Signal<Option<&'static str>>,
+    size: Signal<(f32, f32)>,
     resizing: Signal<Option<browser_core::split::Divider>>,
     floating: Signal<peek::Floating>,
     hover_card: Signal<peek::HoverCard>,
@@ -2333,10 +2335,18 @@ fn keep_placement(ui: Ui, here: WindowRef) {
 
 fn new_window(ui: Ui) {
     let (width, height) = read(ui, |b| (b.window().width, b.window().height)).unwrap_or_default();
-    open_browser_window(Browser::window_row(&core(), SavedWindow { width, height, ..SavedWindow::default() }));
+    open_browser_window(Browser::window_row(&core(), SavedWindow { width, height, ..SavedWindow::default() }), None);
 }
 
-fn open_browser_window(row: SavedWindow) {
+pub(crate) fn tear_off(ui: Ui, key: TabKey) {
+    let mut torn = None;
+    act(ui, |b| torn = b.tear_off(key));
+    if let Some((row, torn)) = torn {
+        open_browser_window(row, Some(torn));
+    }
+}
+
+fn open_browser_window(row: SavedWindow, torn: Option<browser_core::tabs::Torn>) {
     let (width, height) = if row.width > 0. && row.height > 0. { (row.width as f32, row.height as f32) } else { WINDOW_SIZE };
     let mut attributes = WindowAttributes::default();
     attributes.close_on_press = Some(false);
@@ -2345,12 +2355,13 @@ fn open_browser_window(row: SavedWindow) {
             .title("Tarn")
             .default_size(Size { width: Points(width), height: Points(height) })
             .attributes(attributes)
-            .content(move || browser_window(new_ui(row.clone()))),
+            .content(move || browser_window(new_ui(row.clone(), torn))),
     );
 }
 
 fn close_window(ui: Ui, here: &WindowRef) {
     if WINDOWS.with_borrow(|windows| windows.len()) <= 1 {
+        act(ui, |b| b.model.release_confined(&b.core));
         return quit();
     }
     extensions::show_popup(ui, None);
@@ -2389,7 +2400,7 @@ fn route_downloads() {
     }));
 }
 
-fn new_ui(row: SavedWindow) -> Ui {
+fn new_ui(row: SavedWindow, torn: Option<browser_core::tabs::Torn>) -> Ui {
     let window = NEXT_WINDOW.with(|n| {
         n.set(n.get() + 1);
         n.get()
@@ -2399,7 +2410,7 @@ fn new_ui(row: SavedWindow) -> Ui {
     let themes = BROWSERS
         .with_borrow(|windows| windows.values().next().map(|b| b.themes.clone()))
         .unwrap_or_else(|| crate::browser::themes::Themes::open(&core.disk, &crate::data::root().join("filters")));
-    let mut browser = Browser::new(core, row, elsewhere, themes);
+    let mut browser = Browser::new(core, row, torn, elsewhere, themes);
     browser.downloads = BROWSERS.with_borrow(|windows| windows.values().next().map(|b| b.downloads.clone())).unwrap_or_default();
     let auto_hide = browser.auto_hide_sidebar();
     BROWSERS.with_borrow_mut(|windows| windows.insert(window, browser));
@@ -2465,6 +2476,8 @@ fn new_ui(row: SavedWindow) -> Ui {
         area: signal((0., 0.)),
         dragging: signal(None),
         split_drop: signal(None),
+        tear_hint: signal(None),
+        size: signal((0., 0.)),
         resizing: signal(None),
         floating: signal(Default::default()),
         hover_card: signal(Default::default()),
@@ -2591,7 +2604,12 @@ fn browser_window(ui: Ui) -> AnyElement {
         .text_color(Theme::text)
         .font_family(Theme::font_family)
         .child(themed(|| view().absolute().inset_0().paint(Theme::backdrop())))
-        .on_layout(move |b: &Bounds<Points>| peek::window_height(ui, b.size.height.0))
+        .on_layout(move |b: &Bounds<Points>| {
+            if ui.size.get_untracked() != (b.size.width.0, b.size.height.0) {
+                ui.size.set((b.size.width.0, b.size.height.0));
+            }
+            peek::window_height(ui, b.size.height.0);
+        })
         .child(when(move || ui.sidebar.get() && !full.get(), move || themed(move || sidebar(ui))))
         .child(
             view()
@@ -2610,10 +2628,18 @@ fn browser_window(ui: Ui) -> AnyElement {
         .child(peek::floating(ui))
         .child(peek::card(ui))
         .child(bound_keys(ui))
+        .child(split::edge_layer(ui))
         .on_mouse_up(move |_: &MouseEvent| split::release(ui))
+        .on_mouse_leave(move |e: &MouseEvent| {
+            if e.pressed_button.is_some() {
+                split::dragged_out(ui);
+            }
+        })
         .on_mouse_move(move |e: &MouseEvent| {
             if e.pressed_button.is_none() {
                 split::release(ui);
+            } else {
+                split::edge_hint(ui, e);
             }
         })
         .into_element()
@@ -2629,11 +2655,11 @@ pub fn App() -> impl IntoElement {
     let saved = Browser::saved_windows(&core());
     LAUNCHING.set(saved.len().max(1));
     let mut rows = saved.into_iter();
-    let ui = new_ui(rows.next().unwrap_or_default());
+    let ui = new_ui(rows.next().unwrap_or_default(), None);
     if shift_held() {
         act(ui, Browser::enter_safe_mode);
     }
-    rows.for_each(open_browser_window);
+    rows.for_each(|row| open_browser_window(row, None));
     LAUNCH_ARGS.set(std::env::args().skip(1).collect());
     drop(spawn(async move {
         loop {
@@ -2660,15 +2686,18 @@ fn open_app_links(args: Vec<String>) {
         }
         (urls, dropped)
     };
-    let usable: Vec<u64> =
-        windows.iter().filter(|ui| ui.open.get_untracked() && read(**ui, |b| !b.model.burner_shown()) == Some(true)).map(|ui| ui.window).collect();
+    let usable: Vec<u64> = windows
+        .iter()
+        .filter(|ui| ui.open.get_untracked() && read(**ui, |b| !b.model.burner_shown() && b.model.confined.is_none()) == Some(true))
+        .map(|ui| ui.window)
+        .collect();
     let target = link_window(&usable, FOCUSED.with(Cell::get)).and_then(|id| windows.iter().find(|w| w.window == id).copied());
     match target {
         Some(ui) => deliver_links(ui, &urls, dropped),
         None if urls.is_empty() => windows.first().into_iter().for_each(|ui| deliver_links(*ui, &[], 0)),
         None => {
             PENDING_LINKS.with_borrow_mut(|pending| pending.push((urls, dropped)));
-            open_browser_window(Browser::window_row(&core(), SavedWindow::default()));
+            open_browser_window(Browser::window_row(&core(), SavedWindow::default()), None);
         }
     }
 }

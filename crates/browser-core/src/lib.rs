@@ -178,6 +178,7 @@ impl<D: WebsiteData> Core<D> {
             Ok(store) => (store, None),
             Err(e) => (Store::open_in_memory().expect("in-memory store"), Some(format!("Profile data could not be opened ({e}); nothing will be saved."))),
         };
+        disk.delete_orphan_temporary_spaces().ok();
         if disk.profiles().map(|p| p.is_empty()).unwrap_or(false) {
             let uuid = uuid::Uuid::new_v4().to_string();
             if let Ok(p) = disk.create_profile("Personal", &uuid, false) {
