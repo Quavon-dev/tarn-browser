@@ -254,6 +254,7 @@ mod tests {
         assert!(tinted(FOLDER).contains("fill=\"currentColor\" stroke=\"currentColor\""));
         assert!(!tinted(BACK).contains("#000"));
         assert_eq!(space_icon("nope"), HOUSE);
+        assert_eq!(SPACE_ICONS[0].0, browser_core::space_card::DEFAULT_SPACE_ICON, "a new space saves the first icon the card shows");
         assert_eq!(space_icon("code"), CODE);
         let missing: Vec<&str> =
             browser_core::command::GLYPHS.iter().map(|(_, g)| *g).chain(browser_core::icon::SYMBOLS).filter(|g| named(g).is_none()).collect();

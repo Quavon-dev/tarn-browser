@@ -11,7 +11,9 @@ fn site_css_typed_in_the_site_sheet_is_saved() {
     app.type_text("id:address", "example.com").unwrap();
     app.submit("id:address").unwrap();
     app.press("label:Menu").unwrap();
+    app.wait_for("label:Shield and Settings for This Site").unwrap();
     app.press("label:Shield and Settings for This Site").unwrap();
+    app.wait_for("id:Site CSS").unwrap();
     app.type_text("id:Site CSS", "h1{color:red}").unwrap();
     app.press("label:Save CSS").unwrap();
     app.wait_for("Site CSS saved").unwrap();

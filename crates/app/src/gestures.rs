@@ -10,12 +10,7 @@ const WHEEL_PAUSE: std::time::Duration = std::time::Duration::from_millis(180);
 #[cfg(windows)]
 const WHEEL_LINE: f32 = 40.;
 
-/// Fingers moving right step to the previous item, like swiping back a page.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Step {
-    Previous,
-    Next,
-}
+pub use browser_core::sidebar::Step;
 
 /// Turns a two-finger horizontal trackpad swipe into at most one step per gesture.
 #[derive(Default)]
@@ -26,7 +21,6 @@ pub struct Swipe {
     inverted: bool,
 }
 
-/// Scroll deltas follow the content, so with natural scrolling off they point against the fingers.
 fn step(dx: f32, natural: bool) -> Step {
     if (dx > 0.) == natural { Step::Previous } else { Step::Next }
 }
@@ -176,11 +170,7 @@ impl Browser {
     }
 
     pub(crate) fn neighbour(&self, step: Step) -> Option<usize> {
-        match step {
-            Step::Next => Some(self.model.space_ix + 1),
-            Step::Previous => self.model.space_ix.checked_sub(1),
-        }
-        .filter(|ix| *ix < self.model.spaces.len())
+        browser_core::sidebar::neighbour_space(&self.model, step, |_| true)
     }
 
     /// Over the address: previous or next tab. Elsewhere on the toolbar: collapse or show the sidebar.

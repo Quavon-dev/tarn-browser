@@ -20,6 +20,45 @@ macOS reference: <crates/app/... files>.
 
 ## Open
 
+### Settings › Developer (2026-11-17)
+
+What it does: a switch for the developer tools (Web Inspector through Inspect Element, the JSON viewer,
+responsive sizes, local servers) and the Developer profile; the Web Inspector never opens on Lockdown
+pages.
+Shared API: `devkit::SETTING`, `Store::create_dev_profile`, `Profile::is_dev`;
+`tarn_nsh_shared::panes::Pane::Developer`.
+macOS reference: `crates/app/src/settings.rs` (`developer`); Linux: `linux/src/browser/devtools.rs`,
+`linux/src/ui/settings.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — `linux/src/browser/devtools.rs`, `linux/src/ui/settings.rs`
+- [ ] iOS — the pane in `mobile/app` (the Mac layout's Settings window skips `Pane::Developer` today) and
+  `WKWebView.isInspectable` in `mobile/ios` behind the switch, off under Lockdown
+- [ ] Android — the same pane and `WebView.setWebContentsDebuggingEnabled` in `TarnWebView`, which
+  turns it off today, behind the switch
+
+### Shared tablet tables that macOS and Linux still duplicate (2026-11-17)
+
+What it does: the tablet Mac layout reads its tab menu, keyboard shortcuts, command palette and trackpad
+swipe from `browser-core`; macOS, Windows and Linux still keep their own copies, which can drift.
+Shared API: `browser_core::tab_menu::items`, `browser_core::shortcuts::{SECTIONS, bindings, table}`,
+`browser_core::palette::{COMMANDS, rows}`, `browser_core::sidebar::Swipe`.
+macOS reference: `crates/app/src/browser/context.rs` (`tab_menu`), `crates/app/src/settings.rs` (`SHORTCUTS`),
+`crates/app/src/lib.rs` (`COMMANDS`), `crates/app/src/gestures.rs` (`Swipe`).
+
+- [ ] Windows — same as macOS (shares `crates/app`)
+- [ ] macOS — not a mechanical swap: the tab menu has entries the core list lacks (Reload in Chromium,
+  Bookmark Tab, Mute, Sleep, Return to pinned URL, the Split View and Add to Group submenus, key hints);
+  `SHORTCUTS` covers actions the core table does not (Close All Tabs, split panes, Print, Picture in
+  Picture, …) and binds GPUI actions; `COMMANDS` dispatches GPUI actions; `Swipe` reads touch phases
+  and natural scrolling, where the core one times wheel pauses. Each needs the core type extended
+  first. `Step` and the space neighbour already come from `browser_core::sidebar`.
+- [ ] Linux — `linux/src/shortcuts.rs` keeps user-editable bindings the core table cannot hold yet;
+  `linux/src/ui/tools.rs` (`commands`) and the This Tab panel are its palette and tab menu.
+  `Swipe`, `Step` and the space neighbour already come from `browser_core::sidebar`.
+- [x] iOS — the tablet Mac layout uses all four
+- [x] Android — same as iOS
+
 ### Tab sleeping choices and the Suggestions switch (2026-11-17)
 
 What it does: Settings chooses how many tabs stay awake (3, 6, 10, 16) and how long a background tab
@@ -130,7 +169,9 @@ macOS reference: `crates/app/src/sidebar.rs` (`chosen_icon`, `icon_picker`, `gro
 
 - [x] Windows — same code in `crates/app`; no Emoji & Symbols button, since GPUI cannot open the Windows emoji panel
 - [x] Linux — `linux/src/ui.rs` `folder_icon`, `linux/src/ui/panels.rs` `icon_choice`, `linux/src/ui/groups.rs` `badge` and the group panel
-- [ ] iOS — `mobile/app` has no folders or tab groups yet; both first
+- [ ] iOS — the tablet Mac layout shows folder and group icons and has Change Icon… with the 20 symbols and an
+  emoji field (`mobile/app/src/ui/mac/sidebar.rs`, `tarn_nsh_shared::sidebar::{chosen_icon, group_avatar}`); the phone and
+  Touch layouts have no folders or tab groups yet
 - [ ] Android — same as iOS
 
 ### Clean Up (2026-11-16, reworked 2026-11-17)
@@ -148,7 +189,9 @@ macOS reference: `crates/app/src/browser/context.rs` (`clean_up_tabs`, `undo_sor
 
 - [x] Windows — same code in `crates/app`
 - [x] Linux — `linux/src/ui.rs` (`new_tab_row`), `linux/src/ui/groups.rs` (group card and panel), `linux/src/browser/groups.rs` (`clean_up_tabs`, `undo_sort`, `ToastAction::UndoSort`), Settings › Tabs in `linux/src/ui/settings.rs`
-- [ ] iOS — `mobile/app` has no tab groups or archiving yet
+- [ ] iOS — the tablet Mac layout sorts by category with Undo Sort in its toast
+  (`mobile/app/src/ui/mac/sidebar.rs`, `browser_core::sidebar::{clean_up, undo_sort}`); archiving unused tabs and the
+  phone and Touch layouts are still missing
 - [ ] Android — same as iOS
 
 ### Tile grid (2026-11-16)
@@ -161,7 +204,9 @@ macOS reference: `crates/app/src/sidebar.rs` (`tiles`), `crates/app/src/browser/
 
 - [x] Windows — same code in `crates/app`
 - [x] Linux — `linux/src/ui.rs` (`tiles`), `linux/src/ui/panels.rs` (This Tab panel)
-- [ ] iOS — the tab sheet in `mobile/app/src/ui/panels.rs` shows every tab as a card and has no pinned tabs or tiles yet; tiles need pinning on mobile first
+- [ ] iOS — the tablet Mac layout has pinned tabs and the tile grid with Add to Tiles and Remove from Tiles
+  (`mobile/app/src/ui/mac/sidebar.rs`); the phone and Touch layouts' tab sheet in `mobile/app/src/ui/panels.rs`
+  still shows every tab as a card
 - [ ] Android — same as iOS
 
 ### YouTube ad script and Netflix visibility script (2026-11-15)

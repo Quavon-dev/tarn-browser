@@ -88,7 +88,7 @@ fn clean_links_drop_tracking_parameters_and_count_them() {
     let counted = |shell: &TestShell| shell.store().shield_week(id).unwrap().iter().map(|d| d.tracking_params).sum::<i64>();
     visit(&mut shell, "https://a.test/p?id=3&utm_source=x&fbclid=y", "A");
     assert_eq!(counted(&shell), 2, "the typed address loses its two");
-    let copied = shell.copy_clean_link().unwrap();
+    let copied = shell.copy_link(true).unwrap();
     assert_eq!(copied, "https://a.test/p?id=3");
     assert_eq!(shell.notice.as_deref(), Some("Link copied, 2 tracking parameters removed"));
     assert_eq!(shell.notice_tone(), Tone::Success);
@@ -96,7 +96,7 @@ fn clean_links_drop_tracking_parameters_and_count_them() {
     assert_eq!(shell.notice_tone(), Tone::Info, "a tone belongs to its own notice");
     assert_eq!(counted(&shell), 4, "the copied link of the committed page loses its two");
     visit(&mut shell, "https://a.test/p?id=3", "A");
-    shell.copy_clean_link().unwrap();
+    shell.copy_link(true).unwrap();
     assert_eq!(counted(&shell), 4, "a page already clean counts nothing more");
 }
 

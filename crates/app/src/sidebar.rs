@@ -539,11 +539,10 @@ fn tab_drop(
     on: Option<(TabKey, bool)>,
 ) -> impl Fn(&mut Browser, &DraggedTab, &mut Window, &mut Context<Browser>) {
     move |b, dragged, _, cx| {
-        let target = on.and_then(|(k, below)| Some((b.model.tab(k)?, below)));
-        let index = target.map_or_else(|| b.model.zone_len(kind, folder), |(t, below)| b.model.drop_index(dragged.key, t, below));
-        b.move_tab(dragged.key, kind, folder, index, cx);
-        if kind == TabKind::Ephemeral {
-            b.set_tab_group(dragged.key, group, cx);
+        let at = browser_core::sidebar::DropAt { kind, folder, group, before: on.map(|(k, _)| k), below: on.is_some_and(|(_, below)| below) };
+        if let Some(old) = browser_core::sidebar::drop_tab(&mut b.model, &b.core, dragged.key, at) {
+            b.space_shown(&old);
+            cx.notify();
         }
     }
 }
@@ -980,7 +979,7 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
 }
 
 fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
-    let cleanable = browser_core::cleanup::cleanable(&b.model.tabs) && !b.model.burner_shown();
+    let cleanable = browser_core::sidebar::cleanable(&b.model);
     div()
         .id("ephemeral")
         .flex()

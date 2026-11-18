@@ -835,5 +835,47 @@ Settings have no Suggestions switch yet, so history rows and the address field's
 always on (macOS gates both on Settings › Suggestions); both are computed on the device from local history, as on macOS.
 Screenshots: `mobile/ios/evidence/design/` (phone and iPad).
 
+### Tablet layout: Touch or Mac
+
+On a tablet (shorter side at least 600 pt) whose window is at least 700 pt wide, Settings › Appearance ›
+Layout chooses Touch (the default, the layout above) or Mac, stored as `layout.tablet` and decided by
+`browser_core::layout::effective`. Mac switches the shared controls to desktop density and arranges the
+app like the macOS client: sidebar, toolbar and a Settings window (`mobile/app/src/ui/mac/`); the page
+area and its web views stay mounted across a switch. Phones and narrow multitasking windows always use
+Touch.
+
+The Mac layout mirrors the macOS surfaces: the sidebar (space switcher, Downloads, tiles that fill their row,
+pinned tabs, folders and groups with their icons and Change Icon…, Clean Up by category with Undo Sort, tab rows with one tab menu in the macOS order, footer); the toolbar
+(sidebar toggle, Back, Forward, Reload, the private-space mark while the sidebar is hidden, the address
+capsule with the Shield chip, Split View, Share) and the command palette with key caps on its commands;
+Site settings, Downloads, Share and QR as popovers anchored under their buttons with the page still shown
+behind them; New Space and Edit Space as the shared space card in a popover above the sidebar's +
+button; the start card's space and Shield pills; the Settings window with one pane at a time, General
+listing every profile, the Shortcuts pane read from
+`browser_core::shortcuts`, and Back stepping from a licence to the list and then to the pane. A hardware
+keyboard runs the macOS shortcuts from the same table (⌘ on iPad, Ctrl on Android), the sidebar's shown
+state is stored like the macOS one (`sidebar_open`), and the address and palette fields have
+autocorrection, spell-check and capitals off.
+The Change Icon… picker takes an emoji in a text field: NSH 0.5.0 has no call that opens the system
+emoji keyboard or the Emoji & Symbols palette, which the macOS picker offers.
+
+Gaps (NSH 0.5.0): iPadOS lists no hardware-keyboard shortcut in the ⌘-hold overlay or the menu bar, since
+`nsh-platform-ios` matches keys in `pressesBegan` and registers no `UIKeyCommand` or menu builder;
+Android delivers no secondary click as a context-menu event, so tab menus open with a long press there.
+NSH 0.5.0's press events carry no pointer type, and its iOS long-press timer runs for a trackpad press as
+well, so the sidebar tells a held trackpad click from a held finger by whether the pointer hovers the row:
+a hovered row opens its tab on a long press, an unhovered one opens the menu. A hovering Apple Pencil
+therefore also opens the tab. The Settings window is a card inside the app's surface, since separate OS
+windows are desktop-only in NSH.
+The Profile pane's Shield card offers Flip, Change Design and Share Card but no Save as Image: NSH
+0.5.0's save dialog answers at once with no path on iOS and Android (`nsh_core::file_dialog`), and the
+mobile workspace has no SVG rasterizer to make the PNG the desktop clients save. Share Card hands the
+card to the system share sheet, whose Save to Files (iOS) or a target app (Android) keeps a copy.
+Sidebar tab rows and tiles drag (to reorder, pin, tile, file into a folder or a group) with a trackpad
+or mouse only: NSH 0.5.0 has pans but no lift-to-drag interaction, a long press already opens the tab's
+menu, and a finger pan on a row would take the list's scrolling; a touch user pins, tiles and groups
+from the menu. A pan reports only its start and end, so no insertion line follows the pointer while
+dragging, as it does on macOS.
+
 Not in scope until there is an account to do it with: device builds needing signing, App Store and Play
 submission, the iOS default-browser entitlement.

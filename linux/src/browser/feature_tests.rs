@@ -464,6 +464,32 @@ fn a_lone_tab_splits_with_a_copy_but_the_burner_says_it_needs_another() {
 }
 
 #[test]
+fn a_tab_dropped_on_a_grouped_row_joins_its_group_and_other_windows_reload() {
+    let (_dir, mut b) = browser();
+    let a = b.model.active.unwrap();
+    let c = b.new_tab("https://c.test/").unwrap();
+    let d = b.new_tab("https://d.test/").unwrap();
+    let id = b.new_group(Some(a)).unwrap();
+    let here = b.model.current_space().map(|s| (s.private, s.space.id));
+    b.regrouped_space = None;
+    b.move_tab_to(c, a, false);
+    assert_eq!(b.model.tab(c).unwrap().group_id, Some(id));
+    assert_eq!(b.regrouped_space, here, "other windows on this space reload its groups");
+    b.regrouped_space = None;
+    b.move_tab_to(a, c, false);
+    assert_eq!(b.regrouped_space, None, "a reorder inside the group changes no group");
+    b.move_tab_to(c, d, false);
+    assert_eq!((b.model.tab(c).unwrap().group_id, b.regrouped_space), (None, here), "leaving the group reloads too");
+    b.new_folder(None);
+    let folder = b.model.folders[0].id;
+    b.regrouped_space = None;
+    b.move_to_folder(d, folder);
+    assert_eq!(b.regrouped_space, None, "filing an ungrouped tab changes no group");
+    b.move_to_folder(a, folder);
+    assert_eq!((b.model.tab(a).unwrap().group_id, b.regrouped_space), (None, here), "filing a grouped tab takes it out of its group and reloads");
+}
+
+#[test]
 fn a_dragged_tab_takes_the_place_of_the_row_it_lands_on() {
     let (_dir, mut b) = browser();
     let a = b.model.active.unwrap();

@@ -206,6 +206,7 @@ pub fn segmented(options: Vec<Segment>) -> View {
             let shown = chosen.clone();
             let size = if touch { TEXT } else { TEXT_SMALL };
             pressable(name.clone(), press)
+                .flex_grow(1.)
                 .min_h(px(m.segment_height))
                 .px(px(if touch { 8. } else { 12. }))
                 .items_center()
@@ -344,6 +345,11 @@ pub fn key_hint(key: &str, does: &str) -> View {
         .gap(px(5.))
         .child(key_caps(key))
         .child(text(does.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::faint))
+}
+
+pub fn tip(name: &str, side: Placement) -> nsh_base::TooltipElement {
+    let bubble = view().px_2().py_1().rounded(px(Theme::radius_small())).surface();
+    nsh_base::tooltip().placement(side).child(bubble.child(text(name.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::text)))
 }
 
 pub fn site_tile(icon: Option<String>, host: &str, size: f32) -> View {

@@ -11,7 +11,6 @@ use futures::future::{Either, select};
 use gpui::{Context, PromptLevel, Window, actions};
 use shield::ShieldLevel;
 use store::{SavedWindow, Tab, TabKind, WebEngine};
-use ui::text::bounded_title;
 use url::Url;
 
 #[cfg(feature = "chromium")]
@@ -53,14 +52,7 @@ pub fn web_engine_name(engine: WebEngine) -> &'static str {
 /// The name a tab shows: the user's own, the page title, an opened file's name, the host or
 /// scheme, or "New Tab".
 pub fn display_title(tab: &Tab) -> String {
-    [&tab.custom_title, &tab.title]
-        .into_iter()
-        .map(|t| bounded_title(t))
-        .find(|t| !t.trim().is_empty())
-        .or_else(|| {
-            Url::parse(&tab.url).ok().map(|u| browser_core::command::file_name(&u).map_or_else(|| crate::browser::page_label(&u), |n| bounded_title(&n)))
-        })
-        .unwrap_or_else(|| "New Tab".into())
+    browser_core::command::display_title(&tab.custom_title, &tab.title, &tab.url)
 }
 
 impl Browser {
@@ -514,6 +506,15 @@ mod tests {
     }
 
     #[test]
+    fn the_split_command_is_found_by_the_name_it_shows() {
+        let first = |query: &str| ui::command::rank_commands(query, crate::COMMANDS.iter().map(|c| (c.0, c.1))).first().map(|ix| crate::COMMANDS[*ix].2);
+        for query in ["open in split view", "close split"] {
+            assert!(first(query).is_some_and(|a| a.partial_eq(&crate::split::ToggleSplitView) || a.partial_eq(&crate::split::CloseSplitView)), "{query}");
+        }
+        assert!(first("open in split view").is_some_and(|a| a.partial_eq(&crate::split::ToggleSplitView)));
+    }
+
+    #[test]
     fn a_custom_title_wins_until_cleared() {
         assert_eq!(display_title(&tab("Inbox (3)", "Mail", "https://mail.test/")), "Mail");
         assert_eq!(display_title(&tab("Inbox (3)", "", "https://mail.test/")), "Inbox (3)");
@@ -524,7 +525,7 @@ mod tests {
         assert_eq!(display_title(&tab("", "", "")), "New Tab");
         let file = if cfg!(windows) { "file:///C:/d/doc.pdf" } else { "file:///tmp/doc.pdf" };
         assert_eq!(display_title(&tab("", "", file)), "doc.pdf", "an opened file without a title");
-        assert_eq!(display_title(&tab("x", "evil\u{202e}name", "https://a.test/")), bounded_title("evil\u{202e}name"));
+        assert_eq!(display_title(&tab("x", "evil\u{202e}name", "https://a.test/")), ui::text::bounded_title("evil\u{202e}name"));
     }
 
     #[test]

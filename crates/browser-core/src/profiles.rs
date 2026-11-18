@@ -37,25 +37,22 @@ pub struct NewProfile<'a> {
     pub space: [&'a str; 3],
 }
 
-pub fn create(disk: &Store, new: &NewProfile, uuid: &str) -> Result<Id, store::Error> {
-    let shared = new.share.and_then(|id| disk.profile(id).ok()).map(|mut p| {
-        share_store(disk, &mut p);
-        p.data_store_uuid
-    });
-    let id = disk.create_profile(new.name, uuid, false)?.id;
+pub fn create(disk: &Store, new: &NewProfile, uuid: &str) -> Result<(Id, Id), store::Error> {
     let [space, color, icon] = new.space;
-    let written = disk
-        .set_profile(id, new.name, new.color)
-        .and_then(|_| disk.set_profile_shield_level(id, new.level))
-        .and_then(|_| disk.set_setting(&shared_key(id), shared.as_deref().unwrap_or("")))
-        .and_then(|_| disk.set_setting(&engine_key(false, id), new.engine))
-        .and_then(|_| disk.create_space(id, space, icon))
-        .and_then(|s| disk.update_space(s.id, space, color, icon));
-    if let Err(e) = written {
-        disk.delete_profile(id).ok();
-        return Err(e);
-    }
-    Ok(id)
+    disk.batch(|disk| {
+        let shared = new.share.and_then(|id| disk.profile(id).ok()).map(|mut p| {
+            share_store(disk, &mut p);
+            p.data_store_uuid
+        });
+        let id = disk.create_profile(new.name, uuid, false)?.id;
+        disk.set_profile(id, new.name, new.color)?;
+        disk.set_profile_shield_level(id, new.level)?;
+        disk.set_setting(&shared_key(id), shared.as_deref().unwrap_or(""))?;
+        disk.set_setting(&engine_key(false, id), new.engine)?;
+        let space_id = disk.create_space(id, space, icon)?.id;
+        disk.update_space(space_id, space, color, icon)?;
+        Ok((id, space_id))
+    })
 }
 
 pub fn deletable(disk: &Store, id: Id) -> bool {
@@ -130,7 +127,7 @@ mod tests {
         assert_eq!(delete(&disk, first.id), None);
         let new =
             NewProfile { name: "Work", color: "blue", level: ShieldLevel::Strict, engine: "Kagi", share: Some(first.id), space: ["Desk", "green", "code"] };
-        let id = create(&disk, &new, "uuid-b").unwrap();
+        let (id, _) = create(&disk, &new, "uuid-b").unwrap();
         let made = disk.profile(id).unwrap();
         assert_eq!((made.name.as_str(), made.color.as_str(), made.shield_level), ("Work", "blue", ShieldLevel::Strict));
         assert_eq!(disk.setting(&engine_key(false, id)).unwrap().as_deref(), Some("Kagi"));
@@ -145,7 +142,7 @@ mod tests {
         assert_eq!(disk.setting(&shared_key(id)).unwrap(), None);
         assert_eq!(disk.setting(&engine_key(false, id)).unwrap(), None);
         let own = NewProfile { share: None, ..new };
-        let id = create(&disk, &own, "uuid-c").unwrap();
+        let (id, _) = create(&disk, &own, "uuid-c").unwrap();
         assert_eq!(delete(&disk, id), Some(Deleted { own_store: "uuid-c".into(), store: "uuid-c".into(), still_used: false }));
     }
 

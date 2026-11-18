@@ -305,7 +305,7 @@ impl Browser {
     ) -> bool {
         let new = browser_core::profiles::NewProfile { name, color, level: editor.level, engine: ENGINES[editor.engine].name, share: editor.share, space };
         let id = match browser_core::profiles::create(&self.core.disk, &new, &uuid::Uuid::new_v4().to_string()) {
-            Ok(id) => id,
+            Ok((id, _)) => id,
             Err(e) => {
                 self.warning = Some(format!("The profile could not be created ({e})."));
                 cx.notify();

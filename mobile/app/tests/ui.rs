@@ -1,6 +1,29 @@
 use nsh_core::geometry::{Points, Size, point, px};
 use nsh_engine::{EngineConfig, Root};
-use nsh_testing::Headless;
+use nsh_testing::{Headless, WAIT};
+
+fn press_in_view(app: &mut Headless, selector: &str) {
+    for _ in 0..40 {
+        let screen = app.screen();
+        let target = screen.press_target(selector).unwrap().unwrap();
+        let nodes = screen.layout_nodes();
+        let at = nodes.iter().find(|n| n.id == target).unwrap().bounds;
+        let (top, bottom) = (at.origin.y.0, at.origin.y.0 + at.size.height.0);
+        let port = nodes
+            .iter()
+            .filter(|n| n.scroll.is_some() && n.bounds.size.height.0 > 0. && n.bounds.origin.x.0 <= at.origin.x.0)
+            .filter(|n| n.bounds.origin.x.0 + n.bounds.size.width.0 >= at.origin.x.0 + at.size.width.0)
+            .map(|n| (n.bounds.origin.y.0, n.bounds.origin.y.0 + n.bounds.size.height.0))
+            .next_back()
+            .unwrap();
+        if top >= port.0 && bottom <= port.1 {
+            return app.press(selector).unwrap();
+        }
+        let by = if bottom > port.1 { (bottom - port.1 + 24.).min(300.) } else { -((port.0 - top + 24.).min(300.)) };
+        app.scroll(selector, Points(by)).unwrap();
+    }
+    panic!("{selector} never came into view");
+}
 
 #[test]
 fn the_phone_shell_opens_tabs_spaces_and_settings() {
@@ -21,12 +44,16 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.press("label:Cancel").unwrap();
     app.wait_for("label:Tabs 1").unwrap();
     app.press("label:Menu").unwrap();
+    app.wait_for("label:History").unwrap();
     app.press("label:History").unwrap();
+    app.wait_for("label:Back to Menu").unwrap();
     assert!(!app.screen().shows("example.com"), "a typed address is history only once a page commits");
     app.press("Done").unwrap();
 
     app.press("label:Menu").unwrap();
+    app.wait_for("label:History").unwrap();
     app.press("label:History").unwrap();
+    app.wait_for("label:Back to Menu").unwrap();
     app.press("label:Back to Menu").unwrap();
     app.wait_for("label:Find in Page").unwrap();
     assert!(!app.screen().shows("Reopen Closed Tab"), "the menu leaves out what has nothing to act on");
@@ -34,18 +61,21 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.back().unwrap();
     app.wait_for("label:Find in Page").unwrap();
     app.back().unwrap();
-    assert!(!app.screen().shows("Find in Page"), "Back closes the Menu sheet");
+    app.wait_for_gone("Find in Page", WAIT).expect("Back closes the Menu sheet");
     app.press("label:Menu").unwrap();
+    app.wait_for("label:Find in Page").unwrap();
     app.press("label:Menu").unwrap();
-    assert!(!app.screen().shows("Find in Page"), "the Menu button closes its own sheet");
+    app.wait_for_gone("Find in Page", WAIT).expect("the Menu button closes its own sheet");
 
     app.press("label:Menu").unwrap();
+    app.wait_for("label:Find in Page").unwrap();
     app.press("label:Find in Page").unwrap();
     app.wait_for("label:Next").unwrap();
     app.press_key("escape").unwrap();
     assert!(!app.screen().shows("label:Next"), "Esc closes the find bar");
 
     app.press("label:Menu").unwrap();
+    app.wait_for("label:Find in Page").unwrap();
     app.press("New Tab >> nth=0").unwrap();
     app.wait_for("label:Tabs 2").unwrap();
     app.press("label:Tabs 2").unwrap();
@@ -54,19 +84,25 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.wait_for("label:Tabs 1").unwrap();
     app.press("Done").unwrap();
     app.press("label:Menu").unwrap();
+    app.wait_for("Reopen Closed Tab").unwrap();
     app.press("Reopen Closed Tab").unwrap();
     app.wait_for("label:Tabs 2").unwrap();
 
     app.press("label:Menu").unwrap();
+    app.wait_for("Private Space").unwrap();
     app.press("Private Space").unwrap();
     app.wait_for("label:Shield: Private, Standard").unwrap();
     app.press("label:Menu").unwrap();
+    app.wait_for("Close Private Space").unwrap();
     app.press("Close Private Space").unwrap();
     app.wait_for("label:Shield: Standard").unwrap();
 
     app.press("label:Menu").unwrap();
+    app.wait_for("Spaces and Profiles").unwrap();
     app.press("Spaces and Profiles").unwrap();
+    app.wait_for("New Space").unwrap();
     app.press("New Space").unwrap();
+    app.wait_for("id:Space Name").unwrap();
     app.type_text("id:Space Name", " Work").unwrap();
     app.scroll("Icon", Points(800.)).unwrap();
     app.press("Create Space").unwrap();
@@ -75,22 +111,27 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.press("Done").unwrap();
 
     app.press("label:Menu").unwrap();
+    app.wait_for("label:Settings").unwrap();
     app.press("label:Settings").unwrap();
-    app.press("label:Strict").unwrap();
+    app.wait_for("label:Strict").unwrap();
+    press_in_view(&mut app, "label:Strict");
     app.wait_for("label:Clear Browsing Data…").unwrap();
-    app.press("label:Ads: On").unwrap();
+    press_in_view(&mut app, "label:Ads: On");
     app.wait_for("label:Ads: Off").unwrap();
     app.press("label:Done").unwrap();
     app.wait_for("label:Shield: Strict").unwrap();
 
     app.press("label:Menu").unwrap();
+    app.wait_for("label:Find in Page").unwrap();
     app.press("New Tab >> nth=0").unwrap();
     app.wait_for("label:Tabs 2").unwrap();
     app.press("label:Tabs 2").unwrap();
+    app.wait_for("label:Close Tab").unwrap();
     assert!(!app.screen().shows("Open in Split View"), "a phone shows one page at a time");
     app.press("Done").unwrap();
     app.set_viewport(Size::new(Points(1024.), Points(768.))).unwrap();
     app.press("label:Tabs 2").unwrap();
+    app.wait_for("label:Open in Split View").unwrap();
     app.press("label:Open in Split View >> nth=0").unwrap();
     app.wait_for("label:Remove from Split View").unwrap();
     let divider_x = |app: &Headless| {
@@ -113,9 +154,11 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.drag("label:Remove from Split View >> nth=0", point(px(across), px(200.))).unwrap();
     assert!((header_x(&app) - before).abs() > 200., "a header dropped on the other pane swaps the two");
     app.press("label:Tabs 2").unwrap();
+    app.wait_for("Rotate Layout").unwrap();
     app.press("Rotate Layout").unwrap();
+    app.wait_for("Close Split View").unwrap();
     app.press("Close Split View").unwrap();
-    assert!(!app.screen().shows("Close Split View"), "a closed split leaves its tabs open");
+    app.wait_for_gone("Close Split View", WAIT).expect("a closed split leaves its tabs open");
     app.press("label:Open in Split View >> nth=0").unwrap();
     app.wait_for("label:Remove from Split View").unwrap();
     app.press("label:Close Tab >> nth=1").unwrap();

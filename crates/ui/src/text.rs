@@ -1,4 +1,4 @@
-pub use browser_core::text::{bounded_origin, bounded_title, is_bidi};
+pub use browser_core::text::{bounded_origin, bounded_title, bounded_url, is_bidi};
 use gpui::{
     App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, ParentElement, Pixels, ShapedLine, SharedString, Size, Style,
     Styled, Window,
@@ -87,30 +87,9 @@ impl Element for Line {
     }
 }
 
-/// A URL shown in full up to `MAX_URL_CHARS`; a longer one keeps its start and its end, where an
-/// app link's risky arguments often sit, with an ellipsis between.
-pub fn bounded_url(raw: &str) -> String {
-    const MAX_URL_CHARS: usize = 200;
-    let clean: Vec<char> = raw.chars().filter(|c| !c.is_control() && !is_bidi(*c)).collect();
-    if clean.len() <= MAX_URL_CHARS {
-        return clean.into_iter().collect();
-    }
-    let half = (MAX_URL_CHARS - 1) / 2;
-    clean[..half].iter().chain(std::iter::once(&'…')).chain(&clean[clean.len() - half..]).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn long_urls_keep_their_start_and_end() {
-        let url = format!("ms-officecmd:{}&tail=run", "a".repeat(400));
-        let shown = bounded_url(&url);
-        assert!(shown.starts_with("ms-officecmd:") && shown.ends_with("&tail=run") && shown.contains('…'));
-        assert!(shown.chars().count() <= 200);
-        assert_eq!(bounded_url("zoommtg://x\u{202E}y"), "zoommtg://xy");
-    }
 
     #[test]
     fn strips_controls_bidi_and_bounds_length() {

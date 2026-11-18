@@ -629,17 +629,11 @@ impl Browser {
 
     /// Moves `key` just above `target` in its zone, or just below it when `below`.
     pub fn move_tab_to(&mut self, key: TabKey, target: TabKey, below: bool) {
-        let Some(tab) = self.model.tab(target).filter(|_| key != target && key.private == target.private) else { return };
-        let (kind, folder, index) = (tab.kind, tab.folder_id, self.model.drop_index(key, tab, below));
-        if self.model.burner_shown() && kind != TabKind::Ephemeral {
-            return;
-        }
-        let group = tab.group_id;
-        if self.core.store(key.private).move_tab(key.id, kind, folder, index).is_ok() {
-            if kind == TabKind::Ephemeral {
-                self.core.store(key.private).set_tab_group(key.id, group).ok();
-            }
-            self.model.reload_space(&self.core);
+        let group = self.model.tab(key).map(|t| t.group_id);
+        let Some(at) = browser_core::sidebar::DropAt::before(&self.model, target).filter(|_| key.private == target.private) else { return };
+        let at = browser_core::sidebar::DropAt { below, ..at };
+        if browser_core::sidebar::drop_tab(&mut self.model, &self.core, key, at).is_some() && self.model.tab(key).map(|t| t.group_id) != group {
+            self.regrouped();
         }
     }
 
@@ -648,11 +642,11 @@ impl Browser {
     }
 
     pub fn move_to_folder(&mut self, key: TabKey, folder: Id) {
-        let index = self.model.zone_len(TabKind::Pinned, Some(folder));
-        if self.core.store(key.private).move_tab(key.id, TabKind::Pinned, Some(folder), index).is_ok() {
-            self.model.expanded.insert(folder);
+        let group = self.model.tab(key).map(|t| t.group_id);
+        let at = browser_core::sidebar::DropAt::zone(TabKind::Pinned, Some(folder), None);
+        if browser_core::sidebar::drop_tab(&mut self.model, &self.core, key, at).is_some() && self.model.tab(key).map(|t| t.group_id) != group {
+            self.regrouped();
         }
-        self.model.reload_space(&self.core);
     }
 
     pub fn move_to_space(&mut self, key: TabKey, ix: usize) {

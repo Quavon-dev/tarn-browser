@@ -20,6 +20,12 @@ All notable changes to Tarn are documented in this file. The format is based on
   selected row, whose buttons stay visible; icon buttons have tooltips (macOS, Windows). On Linux, F2
   renames the focused bookmark and Delete deletes it (asking first) or removes the focused History
   row; its rows have no menu, their buttons sit on the row.
+- Tablets: Settings › Appearance › Layout switches an iPad or Android tablet between the touch layout
+  and a Mac layout like the macOS app: the sidebar with tiles, pinned tabs, folders, groups and tab
+  menus, a toolbar with a command palette, Site settings, Downloads and Share as popovers under their
+  buttons, New Space and Edit Space above the sidebar's + button, Clean Up with Undo Sort, group and
+  folder icons, a Settings window, and the macOS keyboard shortcuts with a hardware keyboard (iOS,
+  Android).
 - Open File… shows a local file in a new tab: web pages with their images and styles, PDFs,
   images, text, SVG and video. ⌘O on macOS, Ctrl+O on Windows and Linux, and the menu on iOS and
   Android; the address bar shows the file's name (macOS, Windows, Linux, iOS, Android; no PDFs on
@@ -85,8 +91,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   Keyboard Shortcuts sheet (`Ctrl+/`), the macOS commands and shortcuts it was missing, switching
   to space 1–9 with `Alt+1`…`Alt+9`, and Settings › Privacy › Open localhost links from other apps.
 - Tab groups and folders can show an icon: one of twenty symbols or a single emoji, set with
-  Change Icon… in their menu (macOS, Windows; folders on Linux). Clean Up gives each group it
-  makes the icon of its kind.
+  Change Icon… in their menu (macOS, Windows, Linux; iOS and Android in the tablet Mac layout).
+  Clean Up gives each group it makes the icon of its kind.
 - File › Close Window (⇧⌘W), View › Stop Loading (⌘.) and Reload Without Cache (⌥⌘R); ⌘+ zooms
   in, and ⌘} ⌘{ and ⌥⌘→ ⌥⌘← go to the next and previous tab (macOS, Windows). Linux has Close
   Window (Ctrl+Shift+W), Reload Without Cache (Ctrl+F5), Stop Loading (Esc) as keys and command
@@ -121,31 +127,23 @@ All notable changes to Tarn are documented in this file. The format is based on
   then name the space and give it a colour and icon; Edit Space also sets the schedule, and changes
   apply on Save. On macOS and Windows it is a popover above the sidebar's + button, drawn like the
   Library, and the profile card takes the same look; on Linux a popover like the Library; on iOS and
-  Android a sheet from Spaces (macOS, Windows, Linux, iOS, Android).
+  Android a sheet from Spaces, or in the tablet Mac layout a popover above the sidebar's + button
+  (macOS, Windows, Linux, iOS, Android).
 - Clean Up sorts by what each page is: a known site decides, other pages by their address and
   title (Money and Mail and Chat take known sites only); a loose tab joins your own group that
   already holds two or more tabs of its site (a known site goes to its category's group when
   there is one), new category groups (now also Learning, Games and Food) come in a fixed order,
-  tabs of one site sit together, and Undo Sort puts everything back (macOS, Windows).
+  tabs of one site sit together, and Undo Sort puts everything back (macOS, Windows, Linux; iOS and
+  Android in the tablet Mac layout).
 - Toasts have a calmer design: a tone icon, the message and a quiet text action such as Undo
   (macOS, Windows, Linux, iOS, Android).
 - Tiles stretch to fill their row, so two tiles share the sidebar's width (macOS, Windows, Linux).
 - The profile button left the sidebar header; profiles stay in Settings › Profile and the menu
   (macOS, Windows, Linux).
 - Appearance has no separate Theme picker; the Themes grid sets the theme.
-- New Space and Edit Space open as one card on every client: pick a profile or start a new one,
-  then name the space and give it a colour and icon; Edit Space also sets the schedule, and changes
-  apply on Save. On macOS and Windows it is a popover above the sidebar's + button, drawn like the
-  Library, and the profile card takes the same look; on Linux a popover like the Library; on iOS and
-  Android a sheet from Spaces (macOS, Windows, Linux, iOS, Android).
 - Bitwarden's privileges (Touch ID unlock through the Bitwarden app, clipboard and passkeys) are
   off until you turn on Settings › Extensions › Bitwarden integration; until then Bitwarden runs
   like any other app extension (macOS).
-- Clean Up sorts by what each page is: a known site decides, other pages by their address and
-  title (Money and Mail and Chat take known sites only); a loose tab joins your own group that
-  already holds two or more tabs of its site (a known site goes to its category's group when
-  there is one), new category groups (now also Learning, Games and Food) come in a fixed order,
-  tabs of one site sit together, and Undo Sort puts everything back (macOS, Windows).
 - The macOS disk image opens on a window drawn from the Tarn icon's lake, with an arrow from Tarn
   to the Applications folder and the Tarn volume icon.
 - Settings › General lists every profile and marks the one the window uses.
