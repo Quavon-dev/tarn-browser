@@ -303,14 +303,16 @@ impl TextInput {
     }
 
     /// Keeps the text before an edit for Undo, unless the edit types on where the last one ended.
-    /// An inline completion the edit replaces is not part of that text.
+    /// An inline completion the edit replaces is not part of that text, so deleting only the
+    /// completion leaves the text as it was and keeps no step.
     fn record(&mut self, typing: bool, range: &Range<usize>) {
         let completion = shown_completion(self.completion.take(), &self.selected_range, range, self.content.len());
         let (start, snapshot) = match completion {
             Some(at) => (at, (self.content[..at].to_owned().into(), at..at)),
             None => (range.start, (self.content.clone(), self.selected_range.clone())),
         };
-        if !(typing && (range.is_empty() || completion.is_some()) && self.typing_at == Some(start)) {
+        let merges = typing && (range.is_empty() || completion.is_some()) && self.typing_at == Some(start);
+        if !merges && !(completion.is_some() && !typing) {
             if self.undo.len() == MAX_UNDO {
                 self.undo.remove(0);
             }
