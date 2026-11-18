@@ -236,11 +236,13 @@ impl Render for Browser {
             .when(stop, |d| d.on_action(cx.listener(|b, _: &StopLoading, _, cx| b.stop_loading(cx))))
             .when(back, |d| d.on_action(cx.listener(|b, _: &Back, _, _| b.back())))
             .when(forward, |d| d.on_action(cx.listener(|b, _: &Forward, _, _| b.forward())))
-            .on_action(cx.listener(|b, _: &ZoomIn, _, cx| b.zoom(Some(1.1), cx)))
-            .on_action(cx.listener(|b, _: &ZoomOut, _, cx| b.zoom(Some(1.0 / 1.1), cx)))
-            .on_action(cx.listener(|b, _: &ZoomReset, _, cx| b.zoom(None, cx)))
-            .on_action(cx.listener(|b, _: &TogglePin, _, cx| b.toggle_pin(cx)))
-            .on_action(cx.listener(|b, _: &Find, w, cx| b.open_find(w, cx)))
+            .when(!self.idle(&ZoomIn), |d| {
+                d.on_action(cx.listener(|b, _: &ZoomIn, _, cx| b.zoom(Some(1.1), cx)))
+                    .on_action(cx.listener(|b, _: &ZoomOut, _, cx| b.zoom(Some(1.0 / 1.1), cx)))
+                    .on_action(cx.listener(|b, _: &ZoomReset, _, cx| b.zoom(None, cx)))
+            })
+            .when(!self.idle(&TogglePin), |d| d.on_action(cx.listener(|b, _: &TogglePin, _, cx| b.toggle_pin(cx))))
+            .when(!self.idle(&Find), |d| d.on_action(cx.listener(|b, _: &Find, w, cx| b.open_find(w, cx))))
             .on_action(cx.listener(|b, _: &FindNext, _, cx| b.find(false, cx)))
             .on_action(cx.listener(|b, _: &FindPrevious, _, cx| b.find(true, cx)))
             .when(print, |d| d.on_action(cx.listener(|b, _: &Print, _, _| b.print())))
@@ -273,8 +275,9 @@ impl Render for Browser {
         indexed_actions!(cycle_tab: NextTab => true, PreviousTab => false);
         root = menubar::listen(root, self, cx);
         root = tabs::listen(root, cx);
-        root = toast::listen(qr::listen(reader::listen(root, cx), cx), cx);
-        root = find_tabs::listen(capture::listen(split::listen(shortcuts::listen(root, cx), cx), cx), cx);
+        let page = self.model.active.is_some();
+        root = toast::listen(root.when(page, |r| qr::listen(reader::listen(r, cx), cx)), cx);
+        root = find_tabs::listen(shortcuts::listen(root, cx).when(page, |r| capture::listen(split::listen(r, cx), cx)), cx);
         #[cfg(windows)]
         {
             use engine::chromium::EditCommand as E;
@@ -290,21 +293,23 @@ impl Render for Browser {
         root = root
             .when(!self.idle(&ReopenClosedTab), |d| d.on_action(cx.listener(|b, _: &ReopenClosedTab, w, cx| b.reopen_closed_tab(w, cx))))
             .when(!self.idle(&CloseAllTabs), |d| d.on_action(cx.listener(|b, _: &CloseAllTabs, w, cx| b.close_all_tabs(w, cx))))
-            .on_action(cx.listener(|b, _: &DuplicateTab, w, cx| {
-                if let Some(key) = b.model.active {
-                    b.duplicate_tab(key, w, cx);
-                }
-            }))
-            .on_action(cx.listener(|b, _: &CopyLink, _, cx| {
-                if let Some(key) = b.model.active {
-                    b.copy_link(key, false, cx);
-                }
-            }))
-            .on_action(cx.listener(|b, _: &CopyCleanLink, _, cx| {
-                if let Some(key) = b.model.active {
-                    b.copy_link(key, true, cx);
-                }
-            }))
+            .when(!self.idle(&DuplicateTab), |d| {
+                d.on_action(cx.listener(|b, _: &DuplicateTab, w, cx| {
+                    if let Some(key) = b.model.active {
+                        b.duplicate_tab(key, w, cx);
+                    }
+                }))
+                .on_action(cx.listener(|b, _: &CopyLink, _, cx| {
+                    if let Some(key) = b.model.active {
+                        b.copy_link(key, false, cx);
+                    }
+                }))
+                .on_action(cx.listener(|b, _: &CopyCleanLink, _, cx| {
+                    if let Some(key) = b.model.active {
+                        b.copy_link(key, true, cx);
+                    }
+                }))
+            })
             .on_action(cx.listener(|b, _: &ToggleCompactToolbar, _, cx| b.set_pref(prefs::Pref::CompactToolbar, !b.pref(prefs::Pref::CompactToolbar), cx)))
             .on_action(cx.listener(|b, _: &OpenAppMenu, window, cx| b.open_app_menu(window, cx)))
             // The mouse's buttons never arrive here, `watch_navigation_buttons` takes them; GPUI reports swipe events as these.
