@@ -45,7 +45,8 @@ impl Element for Line {
         let font_size = style.font_size.to_pixels(window.rem_size());
         let line_height = window.line_height();
         let width = window.text_system().shape_line(self.0.clone(), font_size, &[style.to_run(self.0.len())], None).width;
-        let layout = window.request_measured_layout(Style::default(), move |known, _, _, _| Size { width: known.width.unwrap_or(width), height: line_height });
+        let layout =
+            window.request_measured_layout(Style::default(), move |known, _, _, _| Size { width: known.width.unwrap_or(width.ceil()), height: line_height });
         (layout, ())
     }
 
@@ -61,6 +62,11 @@ impl Element for Line {
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());
         let mut runs = vec![style.to_run(self.0.len())];
+        let whole = window.text_system().shape_line(self.0.clone(), font_size, &runs, None);
+        // The wrapper sums unkerned advances, so it would cut a line whose shaped width fits.
+        if whole.width <= bounds.size.width {
+            return Some(whole);
+        }
         let text = cx.text_system().line_wrapper(style.font(), font_size).truncate_line(self.0.clone(), bounds.size.width, "…", &mut runs);
         Some(window.text_system().shape_line(text, font_size, &runs, None))
     }
