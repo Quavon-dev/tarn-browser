@@ -24,7 +24,7 @@ use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
 
 use crate::ToggleLibrary;
-use crate::browser::{Browser, TabKey, now, tab_host};
+use crate::browser::{Browser, CommandMode, TabKey, now, tab_host};
 use crate::peek::{popup_options, remove_after_exit};
 use crate::prefs::Pref;
 use crate::settings::thousands;
@@ -290,26 +290,23 @@ impl Browser {
     /// Opens the library on `page`; with `edit`, that row's name field is open.
     pub(crate) fn open_library(&mut self, page: Page, edit: Option<Named>, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(handle) = self.library {
-            cx.defer(move |cx| drop(handle.update(cx, |library, _, cx| library.go(page, cx))));
+            cx.defer(move |cx| drop(handle.update(cx, |library, window, cx| library.go(page, window, cx))));
             return;
         }
         let Some(main) = window.window_handle().downcast::<Browser>().or(self.peek.main) else { return };
         let inset = SIDEBAR_MARGIN;
         let anchor = window.bounds();
         let room = f32::from(anchor.size.height) - 2. * inset - SPACE_ROW - TOOLBAR_HEIGHT - SEARCH_HEIGHT - 2.;
+        let max_list = room.max(ROW * 3.);
         let downloads = self.downloads();
         let snapshots = self.snapshots();
-        // GPUI cannot move a window and resizes it from the top, so the popover keeps the height of
-        // the page it opened on; other pages scroll inside it.
         let sources = if page == Page::Import { detect_sources() } else { Vec::new() };
         let history = self.model.current_space().and_then(|s| self.store(s.private).history(s.space.profile_id, HISTORY_LOAD).ok()).unwrap_or_default();
         let rows: Vec<&HistoryEntry> = history.iter().collect();
         let listed = entries(self, page, "", &rows, &downloads, &snapshots, &sources);
-        let height = px(card_height(&listed, row_boundary(&listed, room.max(ROW * 3.))));
-        let bounds = Bounds::new(
-            point(anchor.origin.x + px(inset + 4.), anchor.origin.y + anchor.size.height - px(inset + SPACE_ROW) - height),
-            size(px(CARD_WIDTH.min(self.sidebar_width - 8.)), height),
-        );
+        let height = px(card_height(&listed, row_boundary(&listed, max_list)));
+        let (x, bottom, width) = (inset + 4., f32::from(anchor.size.height) - inset - SPACE_ROW, CARD_WIDTH.min(self.sidebar_width - 8.));
+        let bounds = Bounds::new(point(anchor.origin.x + px(x), anchor.origin.y + px(bottom) - height), size(px(width), height));
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
         // The new window renders from the browser at once, so it must open after this update ends.
@@ -321,6 +318,7 @@ impl Browser {
                 }
                 cx.new(|cx| LibraryWindow {
                     page,
+                    fit: Some(Fit { x, bottom, width, max_list }),
                     sources: sources.clone(),
                     ..LibraryWindow::new(browser.clone(), main, history, downloads.clone(), edit, window, cx)
                 })
@@ -612,7 +610,16 @@ pub struct LibraryWindow {
     closing: bool,
     /// A context menu or alert is up; the popover stays open although it is not the key window.
     holding: bool,
+    fit: Option<Fit>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// Where the popover sits in its browser window, so each page can refit its height to its rows.
+struct Fit {
+    x: f32,
+    bottom: f32,
+    width: f32,
+    max_list: f32,
 }
 
 impl LibraryWindow {
@@ -673,6 +680,7 @@ impl LibraryWindow {
             backward: false,
             closing: false,
             holding: false,
+            fit: None,
             _subscriptions: subscriptions,
         };
         library.reload_snapshots(cx);
@@ -769,7 +777,7 @@ impl LibraryWindow {
         self.browser.update(cx, |b, cx| b.sleep_tabs(keys, cx)).ok();
     }
 
-    fn go(&mut self, page: Page, cx: &mut Context<Self>) {
+    fn go(&mut self, page: Page, window: &Window, cx: &mut Context<Self>) {
         if page == Page::Import {
             self.sources = detect_sources();
         }
@@ -784,15 +792,25 @@ impl LibraryWindow {
         self.query.update(cx, |q, cx| q.set_text("", cx));
         self.shown = self.rows(cx);
         self.scroll.scroll_to_item(0);
+        self.refit(window, cx);
         cx.notify();
+    }
+
+    fn refit(&self, window: &Window, cx: &mut Context<Self>) {
+        let (Some(fit), Some(browser)) = (&self.fit, self.browser.upgrade()) else { return };
+        let (Some(main), Some(popup)) = (browser.read(cx).host.clone(), engine::Host::from_window(window)) else { return };
+        let listed = self.entries(browser.read(cx), cx);
+        let height = card_height(&listed, row_boundary(&listed, fit.max_list));
+        let (x, bottom, width) = (fit.x, fit.bottom, fit.width);
+        cx.spawn(async move |_, _| main.place(&popup, x.into(), (bottom - height).into(), width.into(), height.into())).detach();
     }
 
     fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let parent = |id| self.browser.upgrade().and_then(|b| b.read(cx).bookmarks.iter().find(|bm| bm.id == id).and_then(|bm| bm.parent_id));
         match self.page {
             Page::Home => return self.close(true, window, cx),
-            Page::History | Page::Bookmarks(None) | Page::Downloads | Page::Snapshots | Page::Import | Page::Memory => self.go(Page::Home, cx),
-            Page::Bookmarks(Some(id)) => self.go(Page::Bookmarks(parent(id)), cx),
+            Page::History | Page::Bookmarks(None) | Page::Downloads | Page::Snapshots | Page::Import | Page::Memory => self.go(Page::Home, window, cx),
+            Page::Bookmarks(Some(id)) => self.go(Page::Bookmarks(parent(id)), window, cx),
         }
         self.backward = true;
     }
@@ -807,8 +825,8 @@ impl LibraryWindow {
                 self.main.update(cx, |b, window, cx| b.open_url(&url, window, cx)).ok();
                 self.close(true, window, cx);
             }
-            Item::Folder(id) => self.go(Page::Bookmarks(Some(id)), cx),
-            Item::Page(page) => self.go(page, cx),
+            Item::Folder(id) => self.go(Page::Bookmarks(Some(id)), window, cx),
+            Item::Page(page) => self.go(page, window, cx),
             Item::Download(d) => engine::reveal_in_finder(std::path::Path::new(&d.path)),
             Item::Snapshot(saved) => self.restore(saved, true, window, cx),
             Item::Source(ix) => self.start_import(ix, window, cx),
@@ -915,7 +933,7 @@ impl LibraryWindow {
             _ => None,
         };
         let Some(id) = self.browser.update(cx, |b, cx| b.new_bookmark_folder(parent, cx)).ok().flatten() else { return };
-        self.go(Page::Bookmarks(parent), cx);
+        self.go(Page::Bookmarks(parent), window, cx);
         self.select(Named::Bookmark(id), cx);
         self.begin_rename(Named::Bookmark(id), window, cx);
     }
@@ -1218,26 +1236,6 @@ impl LibraryWindow {
         let drills = matches!(r.item, Item::Folder(_) | Item::Page(_));
         let editing = r.named.zip(self.renaming.as_ref()).filter(|(named, (renamed, _, _))| named == renamed).map(|(_, (_, input, _))| input.clone());
         let editing_now = editing.is_some();
-        let title: AnyElement = match (editing, &r.detail) {
-            (Some(input), _) => div()
-                .flex_1()
-                .min_w_0()
-                .px_1()
-                .rounded(px(Theme::radius_row()))
-                .bg(Theme::raised())
-                .on_mouse_down_out(cx.listener(|this, _, window, cx| this.end_rename(true, window, cx)))
-                .child(input)
-                .into_any_element(),
-            (None, Some(detail)) => div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(div().one_line(SharedString::from(r.title.clone())))
-                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(detail.clone())))
-                .into_any_element(),
-            (None, None) => div().flex_1().one_line(SharedString::from(r.title.clone())).into_any_element(),
-        };
         let item = r.item.clone();
         let menu_item = r.item.clone();
         let named = r.named;
@@ -1263,6 +1261,31 @@ impl LibraryWindow {
             Item::Page(Page::Downloads) => tally(self.downloads.len()),
             Item::Page(Page::Snapshots) => tally(self.snapshots.len()),
             _ => None,
+        };
+        // A row with a detail line shows its host there, so the title keeps the row's width.
+        let (aside, detail) = match (&r.detail, aside) {
+            (Some(detail), Some(host)) if matches!(r.item, Item::Url(_)) => (None, Some(format!("{detail} · {host}"))),
+            (detail, aside) => (aside, detail.clone()),
+        };
+        let title: AnyElement = match (editing, detail) {
+            (Some(input), _) => div()
+                .flex_1()
+                .min_w_0()
+                .px_1()
+                .rounded(px(Theme::radius_row()))
+                .bg(Theme::raised())
+                .on_mouse_down_out(cx.listener(|this, _, window, cx| this.end_rename(true, window, cx)))
+                .child(input)
+                .into_any_element(),
+            (None, Some(detail)) => div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(div().one_line(SharedString::from(r.title.clone())))
+                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(detail)))
+                .into_any_element(),
+            (None, None) => div().flex_1().one_line(SharedString::from(r.title.clone())).into_any_element(),
         };
         div()
             .id(("library-row", ix))
@@ -1462,9 +1485,13 @@ impl Render for LibraryWindow {
             .capture_action(cx.listener(|this, _: &ui::text_input::Delete, window, cx| this.delete_selected(window, cx)))
             .capture_action(cx.listener(|this, _: &ui::text_input::DeleteToBeginning, window, cx| this.delete_selected(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleLibrary, window, cx| this.close(true, window, cx)))
-            .on_action(cx.listener(|this, _: &crate::menubar::ShowHistory, _, cx| this.go(Page::History, cx)))
-            .on_action(cx.listener(|this, _: &crate::menubar::ManageBookmarks, _, cx| this.go(Page::Bookmarks(None), cx)))
-            .on_action(cx.listener(|this, _: &crate::menubar::ShowMemory, _, cx| this.go(Page::Memory, cx)))
+            .on_action(cx.listener(|this, _: &crate::OpenLocation, window, cx| {
+                this.close(true, window, cx);
+                this.main.update(cx, |b, window, cx| b.open_command(CommandMode::Current, window, cx)).ok();
+            }))
+            .on_action(cx.listener(|this, _: &crate::menubar::ShowHistory, window, cx| this.go(Page::History, window, cx)))
+            .on_action(cx.listener(|this, _: &crate::menubar::ManageBookmarks, window, cx| this.go(Page::Bookmarks(None), window, cx)))
+            .on_action(cx.listener(|this, _: &crate::menubar::ShowMemory, window, cx| this.go(Page::Memory, window, cx)))
             .size_full()
             .child(card)
             .into_any_element()
