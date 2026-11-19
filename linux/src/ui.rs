@@ -36,7 +36,7 @@ use crate::icons;
 use crate::shortcuts::Action;
 use crate::snapshot::{self, RowKind, Snapshot};
 use crate::theme::{Paint, SYSTEM_FONT, Secure, TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
-use browser_core::command::{ENGINES, Input, Section, classify_input};
+use browser_core::command::{ENGINES, Input, Section, classify_input, search_engine};
 use browser_core::{Core, suggest};
 use store::SavedWindow;
 use tarn_nsh_shared::controls::{icon_size, secure_button, secure_surface};
@@ -1506,12 +1506,12 @@ fn input_row(ui: Ui, query: Signal<String>) -> AnyElement {
         if tools::listing(&text) {
             return None;
         }
-        let engine = read(ui, |b| b.search_engine()).unwrap_or_default();
-        let (name, note, glyph, rejected) = match classify_input(&text, &ENGINES[engine]) {
+        let (engine, shortcuts) = read(ui, |b| (b.search_engine(), b.search_shortcuts())).unwrap_or_default();
+        let (name, note, glyph, rejected) = match classify_input(&text, &ENGINES[engine], shortcuts) {
             Some(Input::Navigate(u)) => (u.to_string(), "Open".to_owned(), icons::GLOBE, false),
             Some(Input::External(u)) => (u.to_string(), format!("Open in another app ({})", u.scheme()), icons::EXTERNAL_LINK, false),
             Some(Input::Rejected) => (text.clone(), "This kind of address cannot be opened".to_owned(), icons::TRIANGLE_ALERT, true),
-            _ => (text.clone(), format!("Search {}", ENGINES[engine].name), icons::SEARCH, false),
+            _ => (text.clone(), format!("Search {}", search_engine(&text, &ENGINES[engine], shortcuts).name), icons::SEARCH, false),
         };
         Some(
             suggestion_row(name.clone(), move || go(ui, query.get_untracked()))

@@ -209,7 +209,7 @@ fn address_input(ui: Ui) -> nsh_base::Input {
             ui.fresh.set(None);
             ui.screen.set(Screen::Browse);
             dismiss_keyboard();
-            ui.act(|s| s.navigate(&typed));
+            ui.act(|s| s.navigate_typed(&typed));
         })
         .keyboard_type(KeyboardType::Url)
         .return_key_type(ReturnKeyType::Go)

@@ -41,7 +41,7 @@ pub fn words(pane: Pane) -> &'static str {
         Pane::General => "downloads folders import about version licence source privacy imprint",
         Pane::Appearance => "theme dark light match system accent colour color motion reduce toolbar compact sidebar search bar effect",
         Pane::Tabs => "awake sleep memory new tab start page close archive gestures swipe drag tear off temporary full window",
-        Pane::Search => "search engine suggestions history text",
+        Pane::Search => "search engine suggestions history text shortcuts bangs",
         Pane::Privacy => {
             "block ads trackers cookie banners youtube pop-ups malware adult zoom muted hidden elements connections history clear export delete data"
         }

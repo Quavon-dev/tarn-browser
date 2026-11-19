@@ -464,7 +464,7 @@ v3, with host tests in `app/tests/features.rs` and `site_ui.rs`:
   `tarn_nsh_shared::panes`); the Shield card is the Mac's glacier lake (`browser_core::shield_card`, the
   landscape as SVG and its words as native text, scaled to the sheet), Flip and New Design, "Last 7 days"
   per counter in faint tracks and the sites protected most (no tilt, NSH has no 3D transform); Cookie banners filter switch (`block_annoyances`), "Search the text of visited
-  pages" (`history_text`, History gets a search field), "Sort downloads into folders" (`sort_downloads`);
+  pages" (`history_text`, History gets a search field), "Sort downloads into folders" (`sort_downloads`), "Search shortcuts" (`search_shortcuts`);
 - Downloads sheet: running transfers with progress, Pause/Resume/Cancel, Keep/Delete for flagged ones.
 Not on mobile: shortcut rebinding, memory panel, live peek, translation, startup trace. Android runs no
 icon script and shows letter tiles for sites: Android WebView offers no isolated world for Tarn's icon

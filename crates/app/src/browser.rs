@@ -1607,6 +1607,14 @@ impl Browser {
         self.suggest(None, cx);
     }
 
+    pub(crate) fn refresh_open_suggestions(&mut self, cx: &mut Context<Self>) {
+        if self.command_mode.is_some()
+            && let Some(again) = self.suggested.clone()
+        {
+            self.suggest(Some(again), cx);
+        }
+    }
+
     /// Builds the suggestions for the field's text, or `again` for the query and completion they
     /// were last built for.
     fn suggest(&mut self, again: Option<(String, Option<suggest::Completion>)>, cx: &mut Context<Self>) {
@@ -1673,8 +1681,10 @@ impl Browser {
             self.select_suggestion_at(0, cx);
             return;
         }
-        let engine = &command::ENGINES[self.search_engine()];
-        let input = command::classify_input(&query, engine);
+        let shortcuts = self.pref(crate::prefs::Pref::SearchShortcuts);
+        let default = &command::ENGINES[self.search_engine()];
+        let engine = command::search_engine(&query, default, shortcuts);
+        let input = command::classify_input(&query, default, shortcuts);
         if let Some(Input::Navigate(u)) = &input {
             out.extend(self.open_tabs_at(&self.clean_user_url(u.clone())));
         }
