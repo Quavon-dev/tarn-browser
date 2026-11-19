@@ -396,11 +396,11 @@ fn sidebar_state_persists() {
 #[test]
 fn choices_default_and_ignore_unknown_values() {
     let store = Store::open_in_memory().unwrap();
-    assert_eq!(live_tabs(&store), 6);
+    assert_eq!(live_tabs(&store), 10);
     store.set_setting(Choice::LiveTabs.key(), "16").unwrap();
     assert_eq!(live_tabs(&store), 16);
     store.set_setting(Choice::LiveTabs.key(), "999").unwrap();
-    assert_eq!(live_tabs(&store), 6);
+    assert_eq!(live_tabs(&store), 10);
     assert_eq!(Choice::Accent.options()[Choice::Accent.load(&store)], THEME_ACCENT, "the theme's accent by default");
     store.set_setting(Choice::Accent.key(), "Green").unwrap();
     assert_eq!(Choice::Accent.options()[Choice::Accent.load(&store)], "Green", "a saved accent keeps its colour");

@@ -703,8 +703,8 @@ fn background_tabs_over_the_memory_budget_sleep_heaviest_first() {
     });
     let usage = usage.collect();
     b.samples.record(usage, start);
-    let two_minutes_ago = start - Duration::from_secs(120);
-    b.used.extend([pinned, heavy, playing, pane].map(|k| (k, two_minutes_ago)));
+    let eleven_minutes_ago = start - Duration::from_secs(11 * 60);
+    b.used.extend([pinned, heavy, playing, pane].map(|k| (k, eleven_minutes_ago)));
     b.used.insert(recent, start - Duration::from_secs(30));
     let live = |b: &Browser, key| b.model.lifecycle.live().any(|k| k == key);
 
@@ -727,7 +727,7 @@ fn sleep_after_never_turns_the_memory_budget_off() {
     b.new_tab("https://shown.test/").unwrap();
     b.processes.insert(heavy, 100);
     b.samples.record([(100, Usage { footprint: 4 * engine::lifecycle::BACKGROUND_BUDGET, cpu_ns: 0 })].into(), Instant::now());
-    b.used.insert(heavy, Instant::now() - Duration::from_secs(120));
+    b.used.insert(heavy, Instant::now() - Duration::from_secs(11 * 60));
     let live = |b: &Browser| b.model.lifecycle.live().any(|k| k == heavy);
     b.set_sleep_after(0);
     b.idle_tick(1);

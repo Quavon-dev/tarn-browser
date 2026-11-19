@@ -91,6 +91,9 @@ pub fn heaviest<T>(awake: impl IntoIterator<Item = (T, u64, bool, Duration)>, n:
     ranked.into_iter().take(n).map(|(t, ..)| t).collect()
 }
 
+/// How long an awake background tab must have gone unused before the memory budget may sleep it.
+pub const BUDGET_IDLE: Duration = Duration::from_secs(10 * 60);
+
 /// How much measured memory the awake background tabs may hold before the heaviest sleep.
 pub const BACKGROUND_BUDGET: u64 = 1 << 30;
 
@@ -103,11 +106,11 @@ pub fn budget_idle(idle: Duration, pinned: bool) -> Duration {
 }
 
 /// The awake background tabs, given as for `heaviest`, that must sleep, the most memory first, so
-/// the rest fit `budget`; a tab playing media or used within `HEAVY_IDLE` stays awake.
+/// the rest fit `budget`; a tab playing media or used within `BUDGET_IDLE` stays awake.
 pub fn over_budget<T>(awake: impl IntoIterator<Item = (T, u64, bool, Duration)>, budget: u64) -> Vec<T> {
     let awake: Vec<_> = awake.into_iter().collect();
     let mut total: u64 = awake.iter().map(|(_, memory, ..)| memory).sum();
-    let mut ranked: Vec<_> = awake.into_iter().filter(|(_, _, playing, idle)| !playing && *idle >= HEAVY_IDLE).collect();
+    let mut ranked: Vec<_> = awake.into_iter().filter(|(_, _, playing, idle)| !playing && *idle >= BUDGET_IDLE).collect();
     ranked.sort_by_key(|(_, memory, ..)| std::cmp::Reverse(*memory));
     let mut sleep = Vec::new();
     for (tab, memory, ..) in ranked {
@@ -154,7 +157,7 @@ mod tests {
 
     #[test]
     fn the_heaviest_idle_tabs_sleep_until_the_rest_fit_the_budget() {
-        let (idle, fresh) = (HEAVY_IDLE, Duration::from_secs(5));
+        let (idle, fresh) = (BUDGET_IDLE, Duration::from_secs(5 * 60));
         let awake = [(1, 300, false, idle), (2, 900, false, idle), (3, 500, true, idle), (4, 800, false, fresh), (5, 400, false, idle)];
         assert_eq!(over_budget(awake, 2_000), [2], "2900 minus 900 fits");
         assert_eq!(over_budget(awake, 1_600), [2, 5]);

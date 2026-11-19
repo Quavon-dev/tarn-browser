@@ -7,7 +7,7 @@ pub const LIVE_TABS_KEY: &str = "live_tabs";
 pub const SLEEP_AFTER_KEY: &str = "sleep_after";
 
 pub const LIVE_TABS: [&str; 4] = ["3", "6", "10", "16"];
-pub const LIVE_TABS_DEFAULT: usize = 1;
+pub const LIVE_TABS_DEFAULT: usize = 2;
 pub const SLEEP_AFTER: [(&str, Option<Duration>); 4] = [
     ("Never", None),
     ("10 minutes", Some(Duration::from_secs(600))),
@@ -16,7 +16,7 @@ pub const SLEEP_AFTER: [(&str, Option<Duration>); 4] = [
 ];
 pub const SLEEP_AFTER_DEFAULT: usize = 2;
 /// How long a background tab may stay unused while the system is short of memory.
-pub const PRESSURE_IDLE: Duration = Duration::from_secs(60);
+pub const PRESSURE_IDLE: Duration = Duration::from_secs(300);
 
 pub fn option_index(options: &[&str], stored: Option<&str>) -> Option<usize> {
     options.iter().position(|o| Some(*o) == stored)
@@ -32,7 +32,7 @@ pub fn sleep_after_options() -> Vec<&'static str> {
 }
 
 pub fn live_tabs(store: &Store) -> usize {
-    LIVE_TABS[choice(store, LIVE_TABS_KEY, &LIVE_TABS, LIVE_TABS_DEFAULT)].parse().unwrap_or(6)
+    LIVE_TABS[choice(store, LIVE_TABS_KEY, &LIVE_TABS, LIVE_TABS_DEFAULT)].parse().unwrap_or(10)
 }
 
 /// How long a tab may stay off screen before it sleeps; `None` leaves sleeping to the tab limit.
@@ -67,13 +67,13 @@ mod tests {
     #[test]
     fn tab_choices_default_and_ignore_unknown_values() {
         let store = Store::open_in_memory().unwrap();
-        assert_eq!((live_tabs(&store), sleep_after(&store)), (6, Some(Duration::from_secs(1_800))));
+        assert_eq!((live_tabs(&store), sleep_after(&store)), (10, Some(Duration::from_secs(1_800))));
         store.set_setting(LIVE_TABS_KEY, "16").unwrap();
         store.set_setting(SLEEP_AFTER_KEY, "Never").unwrap();
         assert_eq!((live_tabs(&store), sleep_after(&store)), (16, None));
         store.set_setting(LIVE_TABS_KEY, "999").unwrap();
         store.set_setting(SLEEP_AFTER_KEY, "1 week").unwrap();
-        assert_eq!((live_tabs(&store), sleep_after(&store)), (6, Some(Duration::from_secs(1_800))));
+        assert_eq!((live_tabs(&store), sleep_after(&store)), (10, Some(Duration::from_secs(1_800))));
     }
 
     #[test]

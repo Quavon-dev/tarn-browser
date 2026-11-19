@@ -633,7 +633,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                         .child(switch(gestures, "Touchpad gestures", move || act(ui, |b| b.set_pref(GESTURES, !b.pref(GESTURES))))),
                 )
                 .child(note("Other tabs sleep and reload when you return, unless they are playing video or audio; fewer saves memory."))
-                .child(note("A tab left for this long sleeps and reloads when you return, after a minute while memory is short. Pinned tabs and tabs playing video or audio stay awake."))
+                .child(note("A tab left for this long sleeps and reloads when you return, after five minutes while memory is short. Pinned tabs and tabs playing video or audio stay awake."))
                 .child(note("New Tab shows the command card with the search field, or the start page. After closing a tab, the next or previous one in the list becomes active."))
                 .child(note("A temporary window lists only that tab's own temporary space, which goes with the window; a full window lists every space and profile. Pinned tabs and tiles open in a full window, except from a temporary one."))
                 .child(note("Unpinned tabs you have not opened for this long move to History › Archived Tabs."))

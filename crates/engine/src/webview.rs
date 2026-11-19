@@ -501,6 +501,20 @@ impl WebView {
         self.muted.get()
     }
 
+    /// What sleeping would lose; nothing to read under Lockdown, where no script of Tarn's runs on the page.
+    pub fn page_keep(&self, done: impl Fn(crate::page_scripts::PageKeep) + 'static) {
+        if self._delegate.level() == ShieldLevel::Lockdown {
+            return done(Default::default());
+        }
+        self.run_isolated(crate::page_scripts::PAGE_KEEP, move |answer| done(crate::page_scripts::page_keep(&answer)));
+    }
+
+    pub fn scroll_to(&self, offset: (f64, f64)) {
+        if self._delegate.level() != ShieldLevel::Lockdown {
+            self.run_isolated(&crate::page_scripts::scroll_script(offset), |_| {});
+        }
+    }
+
     /// Whether the page is playing video or audio now, in any frame, or using the camera or microphone.
     pub fn media_playing(&self, done: impl Fn(bool) + 'static) {
         use objc2_web_kit::WKMediaCaptureState;

@@ -1301,7 +1301,7 @@ impl LibraryWindow {
         let menu_item = r.item.clone();
         let named = r.named;
         let visited = visit(&r).map(str::to_owned);
-        let on_hover = move |d: gpui::Div| if selected { d } else { d.invisible().group_hover("library-row", |s| s.visible()) };
+        let on_hover = move |d: gpui::Div| if selected { d } else { d.hidden().group_hover("library-row", |s| s.flex()) };
         let browser = self.browser.upgrade();
         let b = browser.as_ref().map(|b| b.read(cx));
         let sleepable = match r.item {
@@ -1310,6 +1310,7 @@ impl LibraryWindow {
             }
             _ => None,
         };
+        let has_actions = r.named.is_some() || visited.is_some() || sleepable.is_some();
         let inside = |folder: Option<Id>| b.map_or(0, |b| b.bookmarks.iter().filter(|bm| bm.parent_id == folder).count());
         // Shortened from the left like the toolbar's host (S5), so the registrable domain stays visible.
         let host =
@@ -1364,7 +1365,8 @@ impl LibraryWindow {
             .child(leading)
             .child(title)
             .when_some(aside.filter(|_| !editing_now), |d, aside| {
-                d.child(div().flex_none().whitespace_nowrap().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(SharedString::from(aside)))
+                let aside = div().flex_none().whitespace_nowrap().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(SharedString::from(aside));
+                d.child(aside.when(has_actions, |a| if selected { a.hidden() } else { a.group_hover("library-row", |s| s.hidden()) }))
             })
             .when_some(r.named.filter(|_| !editing_now), |d, named| {
                 let id = match named {

@@ -6,6 +6,24 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- The Dock menu (the taskbar jump list on Windows) offers New Private Window and New Burner Window
+  (macOS, Windows).
+
+### Changed
+
+- Background tabs sleep less eagerly: ten tabs stay awake by default instead of six, the memory
+  budget only sleeps tabs unused for ten minutes instead of one, and a short-of-memory system waits
+  five minutes instead of one (macOS, Windows, Linux).
+- A background tab with form input you typed no longer sleeps on its own, and a tab that sleeps
+  scrolls back to where you left it when it wakes (macOS, Windows).
+
+### Fixed
+
+- Library rows no longer squeeze titles down to a few letters: the rename, delete and remove buttons
+  take the host's place only under the pointer or on the selected row.
+
 ## [0.1.3] - 2026-11-19
 
 ### Added

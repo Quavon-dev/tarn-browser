@@ -306,8 +306,8 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   round-trip through libsoup with every attribute (`linux/src/webview/session.rs`). Not supported:
   KWallet without its Secret Service interface, as `oo7` speaks only the Secret Service API; a
   profile that keeps its key there imports only its `v10` cookies.
-- Tab sleeping follows macOS: a tab sleeps beyond the live-tab limit (six by default), or after
-  30 minutes (by default) off screen (one minute while `MemAvailable` in `/proc/meminfo` is under a tenth of `MemTotal`, the
+- Tab sleeping follows macOS: a tab sleeps beyond the live-tab limit (ten by default), or after
+  30 minutes (by default) off screen (five minutes while `MemAvailable` in `/proc/meminfo` is under a tenth of `MemTotal`, the
   counterpart of the macOS kernel pressure level); pinned tabs and tiles skip the idle timer, and a
   tab playing audio or using the camera or microphone stays awake (WebKitGTK `is-playing-audio` and
   capture states). Sleeping rows are greyed (`Theme::asleep`, the site tile dimmed). Gap: WebKitGTK
@@ -315,7 +315,7 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   does not keep a tab awake. Once a minute the awake background tabs whose web processes together
   hold more than `engine::lifecycle::BACKGROUND_BUDGET` (split between windows) sleep, heaviest
   first, as on macOS (`Browser::sleep_over_budget` in `linux/src/memory.rs`); a playing tab, one
-  used in the last minute (pinned: 30 minutes) or one in the split stays awake. "Tabs kept awake"
+  used in the last ten minutes (pinned: 30 minutes) or one in the split stays awake. "Tabs kept awake"
   and "Sleep background tabs after" are in Settings › Tabs, as on macOS, with the macOS options
   and defaults from `browser_core::settings`; Never stops idle sleeping and the memory budget,
   short of memory too.

@@ -426,11 +426,16 @@ fn new_window_row(cx: &mut App) -> SavedWindow {
 
 /// A new window offset from the frontmost one on its screen, or centred when none is open.
 pub(crate) fn new_window(cx: &mut App) {
-    // The window the action came from is leased until dispatch ends; its frame is read after.
-    cx.defer(open_new_window);
+    new_window_then(cx, |_, _, _| {});
 }
 
-fn open_new_window(cx: &mut App) {
+/// A new window as `new_window` that runs `then` once open, as for a private or burner window.
+pub(crate) fn new_window_then(cx: &mut App, then: impl FnOnce(&mut Browser, &mut Window, &mut gpui::Context<Browser>) + 'static) {
+    // The window the action came from is leased until dispatch ends; its frame is read after.
+    cx.defer(move |cx| open_new_window(then, cx));
+}
+
+fn open_new_window(then: impl FnOnce(&mut Browser, &mut Window, &mut gpui::Context<Browser>), cx: &mut App) {
     let front = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().find_map(|w| w.downcast::<Browser>());
     let placed = front.and_then(|h| h.update(cx, |_, window, cx| (window_frame(window), window.display(cx).map(|d| d.id()))).ok());
     let (row, display) = match placed {
@@ -441,7 +446,12 @@ fn open_new_window(cx: &mut App) {
         None => (new_window_row(cx), None),
     };
     if let Some(handle) = open_window(row, display, None, cx) {
-        handle.update(cx, |_, window, _| window.activate_window()).ok();
+        handle
+            .update(cx, |b, window, cx| {
+                then(b, window, cx);
+                window.activate_window();
+            })
+            .ok();
         cx.activate(true);
     }
 }

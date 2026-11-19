@@ -96,7 +96,7 @@ actions!(tarn, [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyClean
 actions!(tarn, [AboutTarn, CheckForUpdates, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
 actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAutoHideSidebar, ToggleDownloads]);
 actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, BurnerTab]);
-actions!(tarn, [CloseWindow, StopLoading, ReloadFromOrigin]);
+actions!(tarn, [CloseWindow, StopLoading, ReloadFromOrigin, NewPrivateWindow, NewBurnerWindow]);
 
 /// Actions the command bar offers: label, search keywords, action.
 pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
@@ -560,8 +560,14 @@ pub fn run() {
         }
         if shared::start(cx) {
             cx.on_action(|_: &NewWindow, cx| shared::new_window(cx));
+            cx.on_action(|_: &NewPrivateWindow, cx| shared::new_window_then(cx, |b, window, cx| b.open_private_space(window, cx)));
+            cx.on_action(|_: &NewBurnerWindow, cx| shared::new_window_then(cx, |b, window, cx| b.open_burner(window, cx)));
             shortcuts::rebind(cx);
-            cx.set_dock_menu(vec![MenuItem::action("New Window", NewWindow)]);
+            cx.set_dock_menu(vec![
+                MenuItem::action("New Window", NewWindow),
+                MenuItem::action("New Private Window", NewPrivateWindow),
+                MenuItem::action("New Burner Window", NewBurnerWindow),
+            ]);
             if shared::core(cx).updater.is_some() {
                 cx.on_action(|_: &CheckForUpdates, cx| {
                     if let Some(updater) = &shared::core(cx).updater {

@@ -1462,7 +1462,7 @@ impl SettingsWindow {
                     .child(self.choice_row(
                         false,
                         "Sleep background tabs after",
-                        "A tab left for this long sleeps and reloads when you return; past 1 GB of background tabs, the heaviest sleep after a minute (pinned tabs after 30). Tabs playing video or audio stay awake.",
+                        "A tab left for this long sleeps and reloads when you return; past 1 GB of background tabs, the heaviest sleep after ten minutes (pinned tabs after 30). Tabs playing video or audio stay awake.",
                         &Choice::SleepAfter.options(),
                         s.sleep_after,
                         |b, ix, cx| b.set_choice(Choice::SleepAfter, ix, cx),

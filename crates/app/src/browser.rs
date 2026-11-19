@@ -104,6 +104,8 @@ pub struct PageState {
     pub typed: Option<String>,
     /// The file this tab opened with Open File: a slept, rebuilt or moved view shows it again (S6).
     pub opened_file: Option<Url>,
+    /// The page and scroll offset the tab had when it went to sleep, restored when that page loads again.
+    pub scroll_back: Option<(String, (f64, f64))>,
 }
 
 /// A request to hand a URL to another app; `tab` is `None` when the user typed it, `origin` is the
@@ -362,6 +364,8 @@ pub struct Browser {
     /// Awake tabs whose page last said it was playing, and the background tabs marked heavy.
     pub(crate) playing: HashSet<TabKey>,
     pub(crate) heavy: Vec<TabKey>,
+    /// Background tabs left awake for the form input the user typed, until they are shown again.
+    pub(crate) typed_in: HashSet<TabKey>,
     pub(crate) sidebar_toggled: Option<Instant>,
     pub(crate) page_fade: Option<(Rc<WebView>, Instant)>,
     pub(crate) overlay_exit: Option<Instant>,
@@ -548,6 +552,7 @@ impl Browser {
             menu_open: false,
             seen: HashMap::new(),
             playing: HashSet::new(),
+            typed_in: HashSet::new(),
             heavy: Vec::new(),
             sidebar_toggled: None,
             page_fade: None,
@@ -1959,6 +1964,11 @@ impl Browser {
                 self.page_changed(key, &url, &title, can_go_back, can_go_forward, false);
                 let page = self.pages.entry(key).or_default();
                 page.crashed = false;
+                if let Some((_, offset)) = page.scroll_back.take_if(|(slept, _)| slept == url.as_str())
+                    && let Some(view) = self.views.get(&key)
+                {
+                    view.scroll_to(offset);
+                }
                 let typed = suggest::typed_visit(&mut page.typed, url.as_str());
                 self.record_visit(key, &url, &title, typed);
                 self.request_page_text(key, &url);
