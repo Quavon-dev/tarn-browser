@@ -392,6 +392,8 @@ pub struct Browser {
     pub(crate) split_drop: Option<(TabKey, Option<&'static str>, bool)>,
     pub(crate) tab_drag: Option<TabKey>,
     adopting: Option<TabKey>,
+    /// A private or burner window whose space could not be made: it shows no space while it closes.
+    pub(crate) abandoned: bool,
     pub(crate) ghost: crate::tear_off::Ghosting,
     pub shortcuts_open: bool,
     pub(crate) shortcuts_scroll: gpui::ScrollHandle,
@@ -584,6 +586,7 @@ impl Browser {
             split_drop: None,
             tab_drag: None,
             adopting: None,
+            abandoned: false,
             ghost: Default::default(),
             shortcuts_open: false,
             shortcuts_scroll: gpui::ScrollHandle::new(),
@@ -653,6 +656,7 @@ impl Browser {
         window.focus(&browser.focus);
         let Some(restore) = restore else {
             eprintln!("tarn: could not make the space for a new private or burner window");
+            browser.abandoned = true;
             cx.defer_in(window, |b, window, cx| {
                 b.closing(cx);
                 window.remove_window();
@@ -769,6 +773,9 @@ impl Browser {
     /// Catches up with what other windows changed: spaces, tabs and bookmarks, and drops views of
     /// tabs they closed or archived.
     pub(crate) fn sync_shared(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.abandoned {
+            return;
+        }
         let lost_active = self.drop_gone_views(cx);
         let profile = self.model.current_space().map(|s| (s.private, s.space.profile_id));
         self.reload_spaces();
@@ -1431,7 +1438,7 @@ impl Browser {
     }
 
     pub fn switch_space(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if ix >= self.model.spaces.len() || self.in_main(window, cx, move |b, window, cx| b.switch_space(ix, window, cx)) {
+        if self.abandoned || ix >= self.model.spaces.len() || self.in_main(window, cx, move |b, window, cx| b.switch_space(ix, window, cx)) {
             return;
         }
         self.commit_rename(cx);
