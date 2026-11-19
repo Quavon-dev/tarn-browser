@@ -24,6 +24,11 @@
     {
       "matchManagers": ["github-actions"],
       "pinDigests": true
+    },
+    {
+      "description": "chromium-update.yml moves cef with packaging/cef.lock",
+      "matchPackageNames": ["cef", "cef-dll-sys"],
+      "enabled": false
     }
   ]
 }

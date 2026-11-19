@@ -758,7 +758,8 @@ Not run in this pass: `Medium_Phone_API_36.1` (the emulator had 344 MB free and 
   (`nsh-android.tar.gz`) are both downloaded with pinned SHA-256 sums. The simulator app itself is not
   packaged in CI (`nsh package --target ios-simulator`), only checked. Engine update pull requests
   run these jobs like any other; `chromium-update.yml` refreshes the `mobile/`, `linux/` and
-  `nsh-shared/` lockfiles together with the root version bump.
+  `nsh-shared/` lockfiles together with the root version bump and the `cef` crate
+  (`docs/release.md`, "Automatic engine updates").
 - **Threat model:** `docs/threat-model.md`, section "iOS, Android and Linux", including the Android
   private-space wording (S8).
 - **Retried checks** (`mobile/evidence/m4/README.md`): the iOS private-network block from a public top

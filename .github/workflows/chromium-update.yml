@@ -1,8 +1,8 @@
 name: Chromium update
 
-# Proposes a newer CEF build of the cef crate's branch as a pull request; once a maintainer has
-# reviewed and merged it, tags the merge and calls release.yml, which signs and publishes it after a
-# maintainer approves its release-signing deployment.
+# Proposes the newest stable CEF build, with the cef crate that builds against it, as a pull
+# request; once a maintainer has reviewed and merged it, tags the merge and calls release.yml, which
+# signs and publishes it after a maintainer approves its release-signing deployment.
 on:
   schedule:
     - cron: "41 */3 * * *"
@@ -29,6 +29,7 @@ jobs:
     permissions:
       contents: read
     outputs:
+      cef_crate: ${{ steps.find.outputs.cef_crate }}
       cef_version: ${{ steps.find.outputs.cef_version }}
       chromium_version: ${{ steps.find.outputs.chromium_version }}
       release_date: ${{ steps.find.outputs.release_date }}
@@ -48,8 +49,8 @@ jobs:
           newer() { [[ "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" == "$1" ]]; }
           history=https://versionhistory.googleapis.com/v1/chrome/platforms/mac/channels
           pinned="$(grep -E '^chromium_version=' packaging/cef.lock | cut -d= -f2-)"
-          crate="$(grep -A1 '^name = "cef-dll-sys"$' Cargo.lock | sed -n 's/^version = ".*+\(.*\)"$/\1/p')"
-          [[ "$crate" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          pinned_crate="$(grep -A1 '^name = "cef"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
+          [[ "$pinned_crate" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+\.[0-9]+\.[0-9]+$ ]]
 
           fetch -o serving.json "$history/stable/versions/all/releases?filter=endtime=none"
           latest="$(jq -r '[.releases[] | {v: .version, d: .serving.startTime[:10]}] | sort_by(.v | split(".") | map(tonumber)) | last | "\(.v) \(.d)"' serving.json)"
@@ -57,26 +58,49 @@ jobs:
           if newer "${latest% *}" "$pinned" && [[ "${latest#* }" < "$(date -u -d '7 days ago' +%F)" ]]; then stale=true; fi
           none() { echo "$1"; echo "stale=$stale" >> "$GITHUB_OUTPUT"; exit 0; }
 
-          # cef-dll-sys builds only against its own CEF or an older build of its branch.
+          # The newest cef crate, released with its cef-dll-sys and not older than the pinned one, that
+          # has a stable CEF build on every platform: cef-dll-sys builds only against its own CEF or an
+          # older build of its branch.
           fetch -o index.json https://cef-builds.spotifycdn.com/index.json
-          builds="$(jq -r --arg branch "${crate%.*}." '[.macosarm64.versions[], .macosx64.versions[], .windows64.versions[]]
-            | map(select(.channel == "stable" and (.cef_version | startswith($branch))) | .cef_version)
-            | group_by(.) | map(select(length == 3) | .[0]) | .[]' index.json | sort -V)"
+          builds="$(jq -r '[.macosarm64.versions[], .macosx64.versions[], .windows64.versions[]]
+            | map(select(.channel == "stable") | .cef_version) | group_by(.) | map(select(length == 3) | .[0]) | .[]' index.json | sort -V)"
+          fetch -o cef.crates https://index.crates.io/3/c/cef
+          fetch -o cef-dll-sys.crates https://index.crates.io/ce/f-/cef-dll-sys
+          released() { jq -r 'select(.yanked | not) | .vers' "$1" | sort; }
+          crates="$(comm -12 <(released cef.crates) <(released cef-dll-sys.crates) \
+            | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -rV)"
+          pinned_cef="$(grep -E '^cef_version=' packaging/cef.lock | cut -d= -f2-)"
+          crate=""
           cef=""
-          while read -r version; do
-            [[ -z "$version" ]] || newer "${version%%+*}" "$crate" || cef="$version"
-          done <<<"$builds"
-          [[ -n "$cef" ]] || none "no stable CEF build of the cef crate's CEF $crate"
+          while read -r candidate; do
+            if [[ -z "$candidate" ]] || newer "$pinned_crate" "$candidate"; then break; fi
+            ceiling="${candidate#*+}"
+            build=""
+            while read -r version; do
+              base="${version%%+*}"
+              if [[ "${base%.*}" == "${ceiling%.*}" ]] && ! newer "$base" "$ceiling"; then build="$version"; fi
+            done <<<"$builds"
+            [[ -n "$build" ]] || continue
+            # Older crates only have older builds.
+            newer "${build%%+*}" "${pinned_cef%%+*}" || break
+            if newer "$pinned" "${build##*+chromium-}"; then continue; fi
+            # An update already proposed (still open, or rejected) leaves room for an older crate's build.
+            if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/chromium-update/${build//+/%2B}" >/dev/null 2>&1; then
+              crate="$candidate"
+              cef="$build"
+              break
+            fi
+          done <<<"$crates"
+          [[ -n "$cef" ]] || none "no stable CEF build newer than $pinned_cef that is not proposed yet"
           [[ "$cef" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+g[0-9a-f]{7}\+chromium-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
           chromium="${cef##*+chromium-}"
-          newer "$chromium" "$pinned" || none "CEF $cef is not newer than Chromium $pinned"
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/chromium-update/${cef//+/%2B}" >/dev/null 2>&1; then none "CEF $cef already proposed"; fi
           # CEF's stable builds follow Chrome's extended stable channel as often as its stable one.
           fetch -o releases.json "$history/all/versions/all/releases?filter=version=$chromium"
           date="$(jq -r '[.releases[] | select(.name | test("/channels/(stable|extended)/")) | .serving.startTime[:10]] | min // empty' releases.json)"
           [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || none "Chromium $chromium is not on Google's stable list"
 
           {
+            echo "cef_crate=$crate"
             echo "cef_version=$cef"
             echo "chromium_version=$chromium"
             echo "release_date=$date"
@@ -97,6 +121,7 @@ jobs:
       commit: ${{ steps.commit.outputs.commit }}
       branch: ${{ steps.commit.outputs.branch }}
     env:
+      CEF_CRATE: ${{ needs.watch.outputs.cef_crate }}
       CEF_VERSION: ${{ needs.watch.outputs.cef_version }}
       CHROMIUM_VERSION: ${{ needs.watch.outputs.chromium_version }}
       RELEASE_DATE: ${{ needs.watch.outputs.release_date }}
@@ -122,10 +147,23 @@ jobs:
           sed -i "/^\[workspace.package\]/,/^\[/s/^version = \"$old\"$/version = \"$new\"/" Cargo.toml
           cargo update --workspace
           for dir in linux mobile nsh-shared fuzz; do (cd "$dir" && cargo update --workspace); done
+          pinned_crate="$(grep -A1 '^name = "cef"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
+          if [[ "$CEF_CRATE" != "$pinned_crate" ]]; then
+            pins="$(grep -rlE '^cef = \{ version = "=' --include=Cargo.toml crates || true)"
+            [[ -n "$pins" ]] || { echo "no cef = { version = \"=…\" } pin under crates/" >&2; exit 1; }
+            old_pin="${pinned_crate%%+*}"
+            xargs sed -i "s/^cef = { version = \"=${old_pin//./\\.}\"/cef = { version = \"=${CEF_CRATE%%+*}\"/" <<<"$pins"
+            for dir in . linux mobile nsh-shared fuzz; do
+              (cd "$dir" && cargo update -p cef --precise "$CEF_CRATE" && grep -A1 '^name = "cef-dll-sys"$' Cargo.lock | grep -qxF "version = \"$CEF_CRATE\"")
+            done
+            linux/packaging/flatpak/update-cargo-sources.sh
+            scripts/third-party-licenses.sh
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git commit -s -m "build: Chromium $CHROMIUM_VERSION (CEF $CEF_VERSION)" -- packaging/cef.lock Cargo.toml Cargo.lock linux/Cargo.lock mobile/Cargo.lock nsh-shared/Cargo.lock fuzz/Cargo.lock
+          git commit -s -m "build: Chromium $CHROMIUM_VERSION (CEF $CEF_VERSION)" -- packaging/cef.lock Cargo.toml Cargo.lock linux/Cargo.lock mobile/Cargo.lock nsh-shared/Cargo.lock fuzz/Cargo.lock \
+            crates/*/Cargo.toml packaging/third-party-licenses*.txt linux/packaging/flatpak/cargo-sources.json
           {
             echo "commit=$(git rev-parse HEAD)"
             echo "branch=$branch"
@@ -160,7 +198,7 @@ jobs:
           api="repos/$GITHUB_REPOSITORY"
           open="$(gh api "$api/pulls?head=${GITHUB_REPOSITORY_OWNER}:${BRANCH//+/%2B}&state=open" --jq length)"
           [[ "$open" != 0 ]] || gh api "$api/pulls" -f base=main -f head="$BRANCH" -f title="build: Chromium $CHROMIUM_VERSION (${BRANCH#chromium-update/})" \
-            -f body="Automatic engine update. Review the change to packaging/cef.lock and merge once CI passes; chromium-update.yml then tags the merge and starts its macOS release (docs/release.md, Automatic engine updates)." >/dev/null
+            -f body="Automatic engine update. Review the change to packaging/cef.lock and, when the cef crate moves, its pins, the cef crates in the lockfiles, the licence lists and the Flatpak sources; merge once CI passes. chromium-update.yml then tags the merge and starts its macOS release, or, when the cef crate moved, leaves the release to a maintainer (docs/release.md, Automatic engine updates)." >/dev/null
 
   tag:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -170,6 +208,8 @@ jobs:
     permissions: {}
     outputs:
       commit: ${{ steps.tag.outputs.commit }}
+      cef: ${{ steps.tag.outputs.cef }}
+      pending: ${{ steps.tag.outputs.pending }}
       tag: ${{ steps.tag.outputs.tag }}
     env:
       COMMIT: ${{ github.sha }}
@@ -206,8 +246,30 @@ jobs:
           parent="$(gh api "$api/commits/$COMMIT" --jq '.parents[0].sha')"
           gh api "$api/compare/$parent...$COMMIT" > compare.json
           extra="$(jq -r '.files[].filename' compare.json \
-            | grep -vxE 'packaging/cef\.lock|Cargo\.toml|Cargo\.lock|(linux|mobile|nsh-shared|fuzz)/Cargo\.lock' || true)"
+            | grep -vxE 'packaging/cef\.lock|Cargo\.toml|Cargo\.lock|(linux|mobile|nsh-shared|fuzz)/Cargo\.lock|crates/[^/]+/Cargo\.toml|packaging/third-party-licenses(-[a-z]+)?\.txt|linux/packaging/flatpak/cargo-sources\.json' || true)"
           [[ -z "$extra" ]] || { echo "the merge also changes $extra; release it by hand" >&2; exit 1; }
+          # A cef crate other than the latest release's is never released from here, so a crate move
+          # is not shipped by a later lock update either; report opens an issue for its release.
+          released="$(gh api "$api/releases/latest" --jq .tag_name)"
+          cef_at() { gh api -H 'Accept: application/vnd.github.raw' "$api/contents/Cargo.lock?ref=$1" | grep -A1 '^name = "cef"$' | tail -n1; }
+          crate_now="$(cef_at "$COMMIT")"
+          crate_released="$(cef_at "$released")"
+          [[ -n "$crate_now" && -n "$crate_released" ]] || { echo "no cef crate in Cargo.lock at $COMMIT or $released" >&2; exit 1; }
+          if [[ "$crate_now" != "$crate_released" ]]; then
+            changed() { jq -r --arg file "$1" '.files[] | select(.filename | test($file)) | .filename as $f
+              | (.patch // "no patch") | split("\n")[] | select(test("^([-+@]|no patch)")) | "\($f) \(.)"' compare.json; }
+            pins="$(changed '^crates/[^/]+/Cargo\.toml$')"
+            removed="$(sed -n 's/^\([^ ]*\) -/\1 /p' <<<"$pins" | sed 's/"=[0-9.]*"/"="/')"
+            added="$(sed -n 's/^\([^ ]*\) +/\1 /p' <<<"$pins" | sed 's/"=[0-9.]*"/"="/')"
+            if [[ "$removed" != "$added" ]] || grep -qvE '^([^ ]+ ([+-]cef = \{ version = "=[0-9]+\.[0-9]+\.[0-9]+", .*|@@ -([0-9]+(,[0-9]+)?) \+\3 @@.*))?$' <<<"$pins" \
+              || grep -qvE '^(Cargo\.toml ([+-]version = "[0-9]+\.[0-9]+\.[0-9]+"|@@ -([0-9]+(,[0-9]+)?) \+\3 @@.*))?$' <<<"$(changed '^Cargo\.toml$')"; then
+              echo "the merge changes more than the version and the cef pins in the manifests" >&2
+              exit 1
+            fi
+            echo "::notice::the cef crate at $COMMIT ($crate_now) is not $released's ($crate_released): not tagged; release it from GitHub as docs/release.md describes"
+            printf '%s\n' "pending=true" "cef=$cef" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           other="$(jq -r '.files[] | select(.filename != "packaging/cef.lock") | if .patch == null then "no patch for \(.filename)" else .patch end' compare.json \
             | grep -E '^([+-]|no patch)' | grep -vE '^[+-]version = "[0-9]+\.[0-9]+\.[0-9]+"$' || true)"
           [[ -z "$other" ]] || { echo "the merge changes more than versions: $other" >&2; exit 1; }
@@ -246,7 +308,7 @@ jobs:
 
   report:
     needs: [watch, propose, open, tag, build]
-    if: always() && (contains(needs.*.result, 'failure') || needs.watch.outputs.stale == 'true')
+    if: always() && (contains(needs.*.result, 'failure') || needs.watch.outputs.stale == 'true' || needs.tag.outputs.pending == 'true')
     runs-on: ubuntu-24.04
     permissions:
       issues: write
@@ -254,15 +316,20 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       FAILED: ${{ contains(needs.*.result, 'failure') }}
-      CEF_VERSION: ${{ needs.watch.outputs.cef_version || needs.tag.outputs.tag || github.sha }}
+      PENDING: ${{ needs.tag.outputs.pending == 'true' }}
+      CEF_VERSION: ${{ needs.watch.outputs.cef_version || needs.tag.outputs.cef || needs.tag.outputs.tag || github.sha }}
     steps:
       - run: |
+          next="for how to retry"
           if [[ "$FAILED" == true ]]; then
             title="Chromium update ${CEF_VERSION:-check} failed"
+          elif [[ "$PENDING" == true ]]; then
+            title="Chromium update ${CEF_VERSION} merged, release pending"
+            next="for how to release it"
           else
             title="Chromium not updated seven days after a Chrome stable release"
           fi
           run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           open="$(gh issue list --label security --state open --search "\"$title\" in:title" --json number --jq length)"
           [[ "$open" != 0 ]] || gh issue create --label security --title "$title" \
-            --body "See $run and docs/release.md (Automatic engine updates) for how to retry."
+            --body "See $run and docs/release.md (Automatic engine updates) $next."
