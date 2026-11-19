@@ -327,9 +327,10 @@ Library › Memory (or Show Memory Use in the command bar) lists the space's tab
 CPU of their web content process, with Sleep per tab and Sleep All Inactive Tabs; the sidebar's
 heavy-tab dot ranks by the same figures. Once awake background tabs hold more than 1 GB together,
 the heaviest of those unused for ten minutes sleep, pinned tabs only after 30 minutes unused (tabs
-playing media stay awake; off when sleeping is Never). A background tab whose page has form input
-you typed stays awake until you sleep it yourself (a page can use this to keep its own tab awake,
-as with media), and a tab that slept scrolls back to where you left it. Chromium tabs count by their
+playing media stay awake; off when sleeping is Never). On macOS and Windows, a background tab whose
+page has form input you typed stays awake until you sleep it yourself (a page can use this to keep
+its own tab awake, as with media), and a tab that slept scrolls back to where you left it; neither
+applies under Lockdown, where no script of Tarn's runs on the page. Chromium tabs count by their
 renderer process. Resting the
 pointer on a tab row shows its full title, address and state. Right-click a space (its name or
 icon) and choose Edit Space… to change its name, colour and icon.

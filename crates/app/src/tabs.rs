@@ -434,7 +434,7 @@ impl Browser {
         if let Ok(row) = self.core.disk.create_window(&row) {
             let display = window.display(cx).map(|d| d.id());
             cx.defer(move |cx| {
-                crate::shared::open_window(row, display, None, cx);
+                crate::shared::open_window(row, display, None, crate::browser::WindowStart::Saved, cx);
             });
         }
     }

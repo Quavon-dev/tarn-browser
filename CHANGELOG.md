@@ -20,7 +20,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   budget only sleeps tabs unused for ten minutes instead of one, and a short-of-memory system waits
   five minutes instead of one (macOS, Windows, Linux).
 - A background tab with form input you typed no longer sleeps on its own, and a tab that sleeps
-  scrolls back to where you left it when it wakes (macOS, Windows).
+  scrolls back to where you left it when it wakes (macOS, Windows; not under
+  Lockdown, which runs no script on the page).
 
 ### Fixed
 

@@ -11,7 +11,7 @@ use gpui::{
 };
 use store::{Id, SavedWindow};
 
-use crate::browser::{Browser, data_dir};
+use crate::browser::{Browser, WindowStart, data_dir};
 use crate::prefs::Prefs;
 use browser_core::tabs::Torn;
 
@@ -414,7 +414,7 @@ fn usable_window(cx: &App) -> Option<gpui::WindowHandle<Browser>> {
 }
 
 fn link_window(cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
-    usable_window(cx).or_else(|| open_window(new_window_row(cx), None, None, cx))
+    usable_window(cx).or_else(|| open_window(new_window_row(cx), None, None, WindowStart::Saved, cx))
 }
 
 /// A saved row for a new, centred window.
@@ -425,17 +425,12 @@ fn new_window_row(cx: &mut App) -> SavedWindow {
 }
 
 /// A new window offset from the frontmost one on its screen, or centred when none is open.
-pub(crate) fn new_window(cx: &mut App) {
-    new_window_then(cx, |_, _, _| {});
-}
-
-/// A new window as `new_window` that runs `then` once open, as for a private or burner window.
-pub(crate) fn new_window_then(cx: &mut App, then: impl FnOnce(&mut Browser, &mut Window, &mut gpui::Context<Browser>) + 'static) {
+pub(crate) fn new_window(start: WindowStart, cx: &mut App) {
     // The window the action came from is leased until dispatch ends; its frame is read after.
-    cx.defer(move |cx| open_new_window(then, cx));
+    cx.defer(move |cx| open_new_window(start, cx));
 }
 
-fn open_new_window(then: impl FnOnce(&mut Browser, &mut Window, &mut gpui::Context<Browser>), cx: &mut App) {
+fn open_new_window(start: WindowStart, cx: &mut App) {
     let front = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().find_map(|w| w.downcast::<Browser>());
     let placed = front.and_then(|h| h.update(cx, |_, window, cx| (window_frame(window), window.display(cx).map(|d| d.id()))).ok());
     let (row, display) = match placed {
@@ -445,10 +440,12 @@ fn open_new_window(then: impl FnOnce(&mut Browser, &mut Window, &mut gpui::Conte
         }
         None => (new_window_row(cx), None),
     };
-    if let Some(handle) = open_window(row, display, None, cx) {
+    if let Some(handle) = open_window(row, display, None, start, cx) {
         handle
             .update(cx, |b, window, cx| {
-                then(b, window, cx);
+                if start == WindowStart::Burner {
+                    b.open_burner(window, cx);
+                }
                 window.activate_window();
             })
             .ok();
@@ -460,7 +457,7 @@ pub(crate) fn open_torn(torn: Torn, row: SavedWindow, display: Option<DisplayId>
     let core = core(cx);
     let opened = match core.disk.create_window(&row) {
         Ok(row) => {
-            let opened = open_window(row.clone(), display, Some(torn), cx);
+            let opened = open_window(row.clone(), display, Some(torn), WindowStart::Saved, cx);
             if opened.is_none() {
                 core.disk.delete_window(row.id).ok();
             }
@@ -500,7 +497,7 @@ fn restore_windows(cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
     if saved.is_empty() {
         saved.push(new_window_row(cx));
     }
-    let opened: Vec<_> = saved.into_iter().filter_map(|row| open_window(row, None, None, cx)).collect();
+    let opened: Vec<_> = saved.into_iter().filter_map(|row| open_window(row, None, None, WindowStart::Saved, cx)).collect();
     each(cx, |b, _, cx| {
         b.archive_unused_tabs(cx);
     });
@@ -508,7 +505,13 @@ fn restore_windows(cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
 }
 
 /// `display` is the screen `row`'s frame is relative to; `None` for the primary one.
-pub(crate) fn open_window(row: SavedWindow, display: Option<DisplayId>, torn: Option<Torn>, cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
+pub(crate) fn open_window(
+    row: SavedWindow,
+    display: Option<DisplayId>,
+    torn: Option<Torn>,
+    start: WindowStart,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<Browser>> {
     let screen = display.and_then(|id| cx.find_display(id)).or_else(|| cx.primary_display());
     let screens: Vec<Frame> = screen.map(|d| frame(d.bounds())).into_iter().collect();
     let [x, y, width, height] = onto_screen([row.x, row.y, row.width, row.height], &screens).map(|v| v as f32);
@@ -520,7 +523,9 @@ pub(crate) fn open_window(row: SavedWindow, display: Option<DisplayId>, torn: Op
         window_min_size: Some(size(px(720.), px(480.))),
         ..Default::default()
     };
-    cx.open_window(options, |window, cx| cx.new(|cx| Browser::new(row, torn, window, cx))).inspect_err(|e| eprintln!("tarn: could not open window: {e}")).ok()
+    cx.open_window(options, |window, cx| cx.new(|cx| Browser::new(row, torn, start, window, cx)))
+        .inspect_err(|e| eprintln!("tarn: could not open window: {e}"))
+        .ok()
 }
 
 /// Whether another window shows `key` in a live view.

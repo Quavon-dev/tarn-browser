@@ -419,8 +419,16 @@ pub(crate) fn launch_urls(args: impl Iterator<Item = String>) -> Vec<String> {
     }
 }
 
+/// The space a new window opens on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WindowStart {
+    Saved,
+    Private,
+    Burner,
+}
+
 impl Browser {
-    pub fn new(saved: SavedWindow, torn: Option<browser_core::tabs::Torn>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(saved: SavedWindow, torn: Option<browser_core::tabs::Torn>, start: WindowStart, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let core = crate::shared::core(cx);
         let disk = &core.disk;
 
@@ -633,6 +641,19 @@ impl Browser {
                 let restore = browser.model.launch_space(&browser.core, &browser.saved);
                 browser.scheduled_now().unwrap_or(restore)
             }
+        };
+        // Chosen before the first switch, so a private or burner window never wakes a regular tab.
+        let back = browser.model.spaces.get(restore).map(|s| (s.private, s.space.id));
+        let restore = match start {
+            WindowStart::Saved => restore,
+            WindowStart::Private => browser.model.private_space(&browser.core).unwrap_or(restore),
+            WindowStart::Burner => match browser.model.open_burner(&browser.core) {
+                Some(ix) => {
+                    browser.burner_return = back;
+                    ix
+                }
+                None => restore,
+            },
         };
         window.focus(&browser.focus);
         browser.adopting = torn.map(|t| t.key);

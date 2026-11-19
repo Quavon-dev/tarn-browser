@@ -2562,11 +2562,14 @@ impl WebView {
         }
     }
 
-    /// Only Windows makes Lockdown views in Chromium; macOS opens Lockdown sites in WebKit.
+    #[cfg(windows)]
     fn lockdown_view(&self) -> bool {
-        #[cfg(windows)]
-        return self.0.tab.lockdown_view.get();
-        #[cfg(target_os = "macos")]
+        self.0.tab.lockdown_view.get()
+    }
+
+    /// macOS opens Lockdown sites in WebKit, never in Chromium.
+    #[cfg(target_os = "macos")]
+    fn lockdown_view(&self) -> bool {
         false
     }
 

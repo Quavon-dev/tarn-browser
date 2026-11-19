@@ -559,9 +559,9 @@ pub fn run() {
             cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
         }
         if shared::start(cx) {
-            cx.on_action(|_: &NewWindow, cx| shared::new_window(cx));
-            cx.on_action(|_: &NewPrivateWindow, cx| shared::new_window_then(cx, |b, window, cx| b.open_private_space(window, cx)));
-            cx.on_action(|_: &NewBurnerWindow, cx| shared::new_window_then(cx, |b, window, cx| b.open_burner(window, cx)));
+            cx.on_action(|_: &NewWindow, cx| shared::new_window(crate::browser::WindowStart::Saved, cx));
+            cx.on_action(|_: &NewPrivateWindow, cx| shared::new_window(crate::browser::WindowStart::Private, cx));
+            cx.on_action(|_: &NewBurnerWindow, cx| shared::new_window(crate::browser::WindowStart::Burner, cx));
             shortcuts::rebind(cx);
             cx.set_dock_menu(vec![
                 MenuItem::action("New Window", NewWindow),

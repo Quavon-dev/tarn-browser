@@ -1373,6 +1373,12 @@ impl LibraryWindow {
                     cx.notify();
                 }
             }))
+            .on_mouse_move(cx.listener(move |this, _: &gpui::MouseMoveEvent, _, cx| {
+                if this.hovered != Some(ix) {
+                    this.hovered = Some(ix);
+                    cx.notify();
+                }
+            }))
             .child(leading)
             .child(title)
             .when_some(aside.filter(|_| !editing_now), |d, aside| {

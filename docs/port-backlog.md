@@ -25,7 +25,8 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 What it does: a background tab whose page has form input the user typed is not put to sleep by the
 idle timer, the live-tab limit or the memory budget (Sleep Tab still sleeps it); a tab that sleeps
-scrolls back to where it was once its page loads again.
+scrolls back to where it was once its page loads again. Neither applies under Lockdown, where no
+script of Tarn's runs on the page.
 Shared API: `engine::page_scripts::{PAGE_KEEP, page_keep, PageKeep, scroll_script}`;
 `engine::WebView::{page_keep, scroll_to}`.
 Reference: `crates/app/src/tabs.rs` (`sleep_keeping_scroll`), `crates/app/src/browser.rs`
