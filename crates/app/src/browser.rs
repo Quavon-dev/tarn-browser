@@ -642,20 +642,23 @@ impl Browser {
                 browser.scheduled_now().unwrap_or(restore)
             }
         };
-        // Chosen before the first switch, so a private or burner window never wakes a regular tab.
+        // Chosen before the first switch, so a private or burner window never wakes a regular tab;
+        // one whose space cannot be made closes instead.
         let back = browser.model.spaces.get(restore).map(|s| (s.private, s.space.id));
         let restore = match start {
-            WindowStart::Saved => restore,
-            WindowStart::Private => browser.model.private_space(&browser.core).unwrap_or(restore),
-            WindowStart::Burner => match browser.model.open_burner(&browser.core) {
-                Some(ix) => {
-                    browser.burner_return = back;
-                    ix
-                }
-                None => restore,
-            },
+            WindowStart::Saved => Some(restore),
+            WindowStart::Private => browser.model.private_space(&browser.core),
+            WindowStart::Burner => browser.model.open_burner(&browser.core).inspect(|_| browser.burner_return = back),
         };
         window.focus(&browser.focus);
+        let Some(restore) = restore else {
+            eprintln!("tarn: could not make the space for a new private or burner window");
+            cx.defer_in(window, |b, window, cx| {
+                b.closing(cx);
+                window.remove_window();
+            });
+            return browser;
+        };
         browser.adopting = torn.map(|t| t.key);
         browser.switch_space(restore, window, cx);
         browser.adopting = None;

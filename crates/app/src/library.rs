@@ -604,8 +604,10 @@ pub struct LibraryWindow {
     query: Entity<TextInput>,
     page: Page,
     selected: usize,
-    /// The row under the pointer, which shows its actions in place of its host.
+    /// The row under the pointer, which shows its actions in place of its host, and the list's
+    /// scroll offset it was found at: a scroll moves another row under the pointer.
     hovered: Option<usize>,
+    hovered_at: gpui::Point<gpui::Pixels>,
     history: Vec<HistoryEntry>,
     /// The query and the indices of the history entries it matches, kept until either changes.
     history_hits: RefCell<Option<(String, Rc<[usize]>)>>,
@@ -685,6 +687,7 @@ impl LibraryWindow {
             page: Page::Home,
             selected: 0,
             hovered: None,
+            hovered_at: Default::default(),
             history,
             history_hits: RefCell::new(None),
             shown: Vec::new(),
@@ -1432,6 +1435,10 @@ impl LibraryWindow {
 
 impl Render for LibraryWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.scroll.offset() != self.hovered_at {
+            self.hovered_at = self.scroll.offset();
+            self.hovered = None;
+        }
         let Some(browser) = self.browser.upgrade() else { return div().into_any_element() };
         let b = browser.read(cx);
         let reduce = b.pref(Pref::ReduceMotion);
@@ -1477,22 +1484,8 @@ impl Render for LibraryWindow {
         let listed = entries.iter().filter(|(e, _)| matches!(e, Entry::Row(r) if !matches!(r.item, Item::ClearDownloads | Item::SleepInactive))).count();
         let capped = matches!(self.page, Page::History | Page::Downloads) || on_bookmarks && !self.query.read(cx).text().trim().is_empty();
         let mut ix = 0;
-        let mut list = div()
-            .id("library-list")
-            .track_scroll(&self.scroll)
-            .on_scroll_wheel(cx.listener(|this, _, _, cx| {
-                if this.hovered.take().is_some() {
-                    cx.notify();
-                }
-            }))
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .px_1p5()
-            .pb(px(LIST_PAD))
-            .flex()
-            .flex_col()
-            .gap(px(1.));
+        let mut list =
+            div().id("library-list").track_scroll(&self.scroll).flex_1().min_h_0().overflow_y_scroll().px_1p5().pb(px(LIST_PAD)).flex().flex_col().gap(px(1.));
         for (entry, leading) in entries {
             list = list.child(match entry {
                 Entry::Header(text, n) => caption(text)
