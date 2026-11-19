@@ -2550,16 +2550,24 @@ impl WebView {
 
     /// What sleeping would lose; nothing to read in a Lockdown view, where no script of Tarn's runs on the page.
     pub fn page_keep(&self, done: impl Fn(crate::page_scripts::PageKeep) + 'static) {
-        if self.0.tab.lockdown_view.get() {
+        if self.lockdown_view() {
             return done(Default::default());
         }
         self.run_isolated(crate::page_scripts::PAGE_KEEP, move |answer| done(crate::page_scripts::page_keep(&answer)));
     }
 
     pub fn scroll_to(&self, offset: (f64, f64)) {
-        if !self.0.tab.lockdown_view.get() {
+        if !self.lockdown_view() {
             self.run_isolated(&crate::page_scripts::scroll_script(offset), |_| {});
         }
+    }
+
+    /// Only Windows makes Lockdown views in Chromium; macOS opens Lockdown sites in WebKit.
+    fn lockdown_view(&self) -> bool {
+        #[cfg(windows)]
+        return self.0.tab.lockdown_view.get();
+        #[cfg(target_os = "macos")]
+        false
     }
 
     /// Whether the top document is playing video or audio now. The page answers for itself, so
