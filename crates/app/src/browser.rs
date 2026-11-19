@@ -1147,10 +1147,11 @@ impl Browser {
         }
         let left = Instant::now();
         self.seen.extend(self.model.active.into_iter().chain([key]).map(|k| (k, left)));
+        self.typed_in.remove(&key);
         let evicted = self.model.lifecycle.activate_with(&partners, key);
         for evicted in evicted {
-            if evicted == key || partners.contains(&evicted) {
-                // The split's panes stay awake above the live-tab limit while it lasts.
+            if evicted == key || partners.contains(&evicted) || self.typed_in.contains(&evicted) {
+                // The split's panes, and tabs with typed input, stay awake above the live-tab limit.
                 self.model.lifecycle.keep(evicted);
             } else {
                 self.sleep_unless_playing(evicted, cx);
@@ -1243,6 +1244,7 @@ impl Browser {
 
     /// Drops this window's view of `key`, and the fade still showing it.
     fn take_view(&mut self, key: TabKey) -> Option<Rc<WebView>> {
+        self.typed_in.remove(&key);
         let view = self.views.remove(&key)?;
         if self.page_fade.as_ref().is_some_and(|(fading, _)| Rc::ptr_eq(fading, &view)) {
             self.page_fade = None;
@@ -1964,7 +1966,7 @@ impl Browser {
                 self.page_changed(key, &url, &title, can_go_back, can_go_forward, false);
                 let page = self.pages.entry(key).or_default();
                 page.crashed = false;
-                if let Some((_, offset)) = page.scroll_back.take_if(|(slept, _)| slept == url.as_str())
+                if let Some((_, offset)) = page.scroll_back.take().filter(|(slept, _)| slept == url.as_str())
                     && let Some(view) = self.views.get(&key)
                 {
                     view.scroll_to(offset);

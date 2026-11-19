@@ -413,17 +413,19 @@ pub struct PageKeep {
 }
 
 /// Answers `PageKeep` as JSON. A field counts once the user has interacted with it (`:user-valid`
-/// or `:user-invalid`) or while it has focus, so values a page script fills in do not keep a tab
-/// awake. Only the verdict leaves the page, never a value. An async function body for the engine's
+/// or `:user-invalid`), or while it has focus on a page the user has used, so values a page script
+/// fills in do not keep a tab awake. Only the verdict leaves the page, never a value. An async function body for the engine's
 /// isolated world.
-pub const PAGE_KEEP: &str = r"const user = e => { try { return e.matches(':user-valid, :user-invalid'); } catch { return true; } };
+pub const PAGE_KEEP: &str = r"const first = e => { const o = [...e.options], d = o.findIndex(o => o.defaultSelected); return d >= 0 ? d : e.size > 1 ? -1 : o.findIndex(o => !o.disabled); };
+            const used = typeof navigator === 'undefined' || !navigator.userActivation || navigator.userActivation.hasBeenActive;
+            const user = e => { try { return e.matches(':user-valid, :user-invalid'); } catch { return true; } };
             const changed = e => e.type === 'checkbox' || e.type === 'radio' ? e.checked !== e.defaultChecked
-                : e.localName === 'select' ? [...e.options].some(o => o.selected !== o.defaultSelected)
+                : e.localName === 'select' ? (e.multiple ? [...e.options].some(o => o.selected !== o.defaultSelected) : e.selectedIndex !== first(e))
                 : e.type === 'file' ? e.files.length > 0 : e.value !== e.defaultValue;
             const skip = /^(hidden|submit|button|reset|image)$/, active = document.activeElement;
             const fields = [...document.querySelectorAll('input, textarea, select')].slice(0, 2000);
-            const edited = fields.some(e => !skip.test(e.type) && !e.disabled && (e === active || user(e)) && changed(e))
-                || !!(active && active.isContentEditable && active.textContent.trim());
+            const edited = fields.some(e => !skip.test(e.type) && !e.disabled && (used && e === active || user(e)) && changed(e))
+                || !!(used && active && active.isContentEditable && active.textContent.trim());
             return JSON.stringify({ edited, x: scrollX, y: scrollY });";
 
 pub fn page_keep(answer: &str) -> PageKeep {
@@ -603,10 +605,17 @@ mod javascript_core_tests {
     /// Runs `PAGE_KEEP` in JavaScriptCore over form fields given as JS object literals; `user`
     /// marks a field as matching `:user-valid` / `:user-invalid`, `focus` makes it the active element.
     fn keep_of(fields: &str) -> PageKeep {
+        keep_after(fields, true)
+    }
+
+    /// As `keep_of` on a page the user has (`used`) or has not yet clicked or typed in.
+    fn keep_after(fields: &str, used: bool) -> PageKeep {
         let script = format!(
-            "const fields = [{fields}].map(f => ({{ localName: 'input', type: 'text', disabled: false, defaultValue: '', value: '', ...f,
+            "const navigator = {{ userActivation: {{ hasBeenActive: {used} }} }};
+            const fields = [{fields}].map(f => ({{ localName: 'input', type: 'text', disabled: false, defaultValue: '', value: '', ...f,
                 matches: () => !!f.user }}));
             const document = {{ activeElement: fields.find(f => f.focus) || null, querySelectorAll: () => fields }};
+            fields.filter(f => f.options).forEach(f => f.options = f.options.map(o => ({{ disabled: false, defaultSelected: false, ...o }})));
             const scrollX = 0, scrollY = 300;
             (function () {{ {PAGE_KEEP} }})()"
         );
@@ -624,6 +633,16 @@ mod javascript_core_tests {
         assert!(!keep_of("{ value: 'x', defaultValue: 'x', user: true }").edited, "an unchanged field");
         assert!(!keep_of("{ type: 'hidden', value: 'token', user: true }").edited);
         assert!(keep_of("{ type: 'checkbox', checked: true, defaultChecked: false, user: true }").edited);
+        assert!(!keep_after("{ value: 'autofocused and filled', focus: true }", false).edited, "focus the page gave itself");
+        let select = |index: u8, user: bool| {
+            format!("{{ localName: 'select', type: 'select-one', options: [{{}}, {{}}], selectedIndex: {index}, user: {user}, focus: true }}")
+        };
+        assert!(!keep_of(&select(0, false)).edited, "an untouched select shows its first option");
+        assert!(keep_of(&select(1, true)).edited);
+        assert!(
+            !keep_of("{ localName: 'select', type: 'select-one', size: 4, options: [{}, {}], selectedIndex: -1, focus: true }").edited,
+            "an untouched list box"
+        );
     }
 
     #[test]

@@ -156,7 +156,7 @@ impl Browser {
         view.page_keep(move |keep| drop(tx.unbounded_send(keep)));
         cx.spawn(async move |this, cx| {
             // Sleep Tab waits less on a page that does not answer, the one most worth sleeping.
-            let wait = if spare_input { PROBE_TIMEOUT } else { Duration::from_secs(1) };
+            let wait = if spare_input { PROBE_TIMEOUT } else { Duration::from_secs(2) };
             let timeout = std::pin::pin!(cx.background_executor().timer(wait));
             let keep = match select(rx.next(), timeout).await {
                 Either::Left((Some(keep), _)) => keep,

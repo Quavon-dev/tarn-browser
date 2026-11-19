@@ -311,7 +311,7 @@ impl Browser {
 
     /// The most recent tabs stay awake.
     fn set_live_tabs(&mut self, max: usize, cx: &mut Context<Self>) {
-        for key in self.model.lifecycle.set_max_live(max, |_| false) {
+        for key in self.model.lifecycle.set_max_live(max, |k| self.typed_in.contains(&k)) {
             self.sleep_unless_playing(key, cx);
         }
     }

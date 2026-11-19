@@ -576,6 +576,14 @@ pub fn run() {
                 });
             }
             shared::open_windows(cx);
+            // A jump-list entry that started Tarn arrives as its arguments, not from a running instance.
+            #[cfg(windows)]
+            if let [flag, index] = std::env::args().skip(1).collect::<Vec<_>>().as_slice()
+                && flag == "--dock-action"
+                && let Ok(index) = index.parse()
+            {
+                cx.perform_dock_menu_action(index);
+            }
             cx.spawn(async move |cx| {
                 while let Some(list) = futures::StreamExt::next(&mut opened).await {
                     // A Windows launch with no links asks the running Tarn to come to the front.

@@ -604,6 +604,8 @@ pub struct LibraryWindow {
     query: Entity<TextInput>,
     page: Page,
     selected: usize,
+    /// The row under the pointer, which shows its actions in place of its host.
+    hovered: Option<usize>,
     history: Vec<HistoryEntry>,
     /// The query and the indices of the history entries it matches, kept until either changes.
     history_hits: RefCell<Option<(String, Rc<[usize]>)>>,
@@ -682,6 +684,7 @@ impl LibraryWindow {
             query,
             page: Page::Home,
             selected: 0,
+            hovered: None,
             history,
             history_hits: RefCell::new(None),
             shown: Vec::new(),
@@ -797,6 +800,7 @@ impl LibraryWindow {
     }
 
     fn go(&mut self, page: Page, window: &Window, cx: &mut Context<Self>) {
+        self.hovered = None;
         if page == Page::Import {
             self.sources = detect_sources();
         }
@@ -1301,7 +1305,8 @@ impl LibraryWindow {
         let menu_item = r.item.clone();
         let named = r.named;
         let visited = visit(&r).map(str::to_owned);
-        let on_hover = move |d: gpui::Div| if selected { d } else { d.hidden().group_hover("library-row", |s| s.flex()) };
+        let acting = selected || self.hovered == Some(ix);
+        let on_hover = move |d: gpui::Div| if acting { d } else { d.hidden() };
         let browser = self.browser.upgrade();
         let b = browser.as_ref().map(|b| b.read(cx));
         let sleepable = match r.item {
@@ -1351,7 +1356,6 @@ impl LibraryWindow {
         };
         div()
             .id(("library-row", ix))
-            .group("library-row")
             .h(px(if r.detail.is_some() { DETAIL_ROW } else { ROW }))
             .px_2()
             .flex()
@@ -1362,11 +1366,18 @@ impl LibraryWindow {
             .cursor_pointer()
             .when(selected, |d| d.bg(Theme::selected()))
             .when(!selected, |d| d.hover(|s| s.bg(Theme::hover())))
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                let next = if *hovered { Some(ix) } else { this.hovered.filter(|h| *h != ix) };
+                if next != this.hovered {
+                    this.hovered = next;
+                    cx.notify();
+                }
+            }))
             .child(leading)
             .child(title)
             .when_some(aside.filter(|_| !editing_now), |d, aside| {
                 let aside = div().flex_none().whitespace_nowrap().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(SharedString::from(aside));
-                d.child(aside.when(has_actions, |a| if selected { a.hidden() } else { a.group_hover("library-row", |s| s.hidden()) }))
+                d.child(aside.when(has_actions && acting, |a| a.hidden()))
             })
             .when_some(r.named.filter(|_| !editing_now), |d, named| {
                 let id = match named {
@@ -1460,8 +1471,22 @@ impl Render for LibraryWindow {
         let listed = entries.iter().filter(|(e, _)| matches!(e, Entry::Row(r) if !matches!(r.item, Item::ClearDownloads | Item::SleepInactive))).count();
         let capped = matches!(self.page, Page::History | Page::Downloads) || on_bookmarks && !self.query.read(cx).text().trim().is_empty();
         let mut ix = 0;
-        let mut list =
-            div().id("library-list").track_scroll(&self.scroll).flex_1().min_h_0().overflow_y_scroll().px_1p5().pb(px(LIST_PAD)).flex().flex_col().gap(px(1.));
+        let mut list = div()
+            .id("library-list")
+            .track_scroll(&self.scroll)
+            .on_scroll_wheel(cx.listener(|this, _, _, cx| {
+                if this.hovered.take().is_some() {
+                    cx.notify();
+                }
+            }))
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .px_1p5()
+            .pb(px(LIST_PAD))
+            .flex()
+            .flex_col()
+            .gap(px(1.));
         for (entry, leading) in entries {
             list = list.child(match entry {
                 Entry::Header(text, n) => caption(text)
