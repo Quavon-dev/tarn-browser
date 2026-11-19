@@ -86,7 +86,7 @@ impl Browser {
         if !self.peek_enabled() {
             return;
         }
-        if !self.peek.hover.open && !engine::app_active() {
+        if !self.peek.hover.open && !(engine::app_active() && window.is_window_active()) {
             self.peek.hover.closed();
             self.peek.timer = None;
             return;
