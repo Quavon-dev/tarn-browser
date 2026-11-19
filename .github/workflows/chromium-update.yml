@@ -69,22 +69,31 @@ jobs:
           released() { jq -r 'select(.yanked | not) | .vers' "$1" | sort; }
           crates="$(comm -12 <(released cef.crates) <(released cef-dll-sys.crates) \
             | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -rV)"
+          pinned_cef="$(grep -E '^cef_version=' packaging/cef.lock | cut -d= -f2-)"
           crate=""
           cef=""
           while read -r candidate; do
             if [[ -z "$candidate" ]] || newer "$pinned_crate" "$candidate"; then break; fi
             ceiling="${candidate#*+}"
+            build=""
             while read -r version; do
               base="${version%%+*}"
-              if [[ "${base%.*}" == "${ceiling%.*}" ]] && ! newer "$base" "$ceiling"; then cef="$version"; fi
+              if [[ "${base%.*}" == "${ceiling%.*}" ]] && ! newer "$base" "$ceiling"; then build="$version"; fi
             done <<<"$builds"
-            if [[ -n "$cef" ]]; then crate="$candidate"; break; fi
+            [[ -n "$build" ]] || continue
+            # Older crates only have older builds.
+            newer "${build%%+*}" "${pinned_cef%%+*}" || break
+            if newer "$pinned" "${build##*+chromium-}"; then continue; fi
+            # An update already proposed (still open, or rejected) leaves room for an older crate's build.
+            if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/chromium-update/${build//+/%2B}" >/dev/null 2>&1; then
+              crate="$candidate"
+              cef="$build"
+              break
+            fi
           done <<<"$crates"
-          [[ -n "$cef" ]] || none "no stable CEF build for a cef crate from $pinned_crate on"
+          [[ -n "$cef" ]] || none "no stable CEF build newer than $pinned_cef that is not proposed yet"
           [[ "$cef" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+g[0-9a-f]{7}\+chromium-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
           chromium="${cef##*+chromium-}"
-          newer "$chromium" "$pinned" || none "CEF $cef is not newer than Chromium $pinned"
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/chromium-update/${cef//+/%2B}" >/dev/null 2>&1; then none "CEF $cef already proposed"; fi
           # CEF's stable builds follow Chrome's extended stable channel as often as its stable one.
           fetch -o releases.json "$history/all/versions/all/releases?filter=version=$chromium"
           date="$(jq -r '[.releases[] | select(.name | test("/channels/(stable|extended)/")) | .serving.startTime[:10]] | min // empty' releases.json)"
@@ -140,31 +149,14 @@ jobs:
           for dir in linux mobile nsh-shared fuzz; do (cd "$dir" && cargo update --workspace); done
           pinned_crate="$(grep -A1 '^name = "cef"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
           if [[ "$CEF_CRATE" != "$pinned_crate" ]]; then
-            cp linux/Cargo.lock "$RUNNER_TEMP/linux.lock"
-            grep -rlE '^cef = \{ version = "=' --include=Cargo.toml crates \
-              | xargs sed -i "s/^cef = { version = \"=${pinned_crate%%+*}\"/cef = { version = \"=${CEF_CRATE%%+*}\"/"
+            pins="$(grep -rlE '^cef = \{ version = "=' --include=Cargo.toml crates || true)"
+            [[ -n "$pins" ]] || { echo "no cef = { version = \"=…\" } pin under crates/" >&2; exit 1; }
+            old_pin="${pinned_crate%%+*}"
+            xargs sed -i "s/^cef = { version = \"=${old_pin//./\\.}\"/cef = { version = \"=${CEF_CRATE%%+*}\"/" <<<"$pins"
             for dir in . linux mobile nsh-shared fuzz; do
               (cd "$dir" && cargo update -p cef --precise "$CEF_CRATE" && grep -A1 '^name = "cef-dll-sys"$' Cargo.lock | grep -qxF "version = \"$CEF_CRATE\"")
             done
-            python3 -I - "$RUNNER_TEMP/linux.lock" linux/Cargo.lock linux/packaging/flatpak/cargo-sources.json <<'EOF'
-          import sys, tomllib
-          from pathlib import Path
-          def crates(path):
-              return {(p["name"], p["version"], p["checksum"]) for p in tomllib.loads(Path(path).read_text())["package"] if "checksum" in p}
-          old, new = crates(sys.argv[1]), crates(sys.argv[2])
-          gone, came = old - new, new - old
-          names = sorted(name for name, _, _ in gone)
-          if names != sorted(name for name, _, _ in came) or len(set(names)) != len(names):
-              sys.exit("linux/Cargo.lock gained or lost crates: run linux/packaging/flatpak/update-cargo-sources.sh by hand")
-          sources = Path(sys.argv[3])
-          text = sources.read_text()
-          for name, version, checksum in gone:
-              _, to_version, to_checksum = next(c for c in came if c[0] == name)
-              for end in (".crate", '"'):
-                  text = text.replace(f"/{name}-{version}{end}", f"/{name}-{to_version}{end}")
-              text = text.replace(checksum, to_checksum)
-          sources.write_text(text)
-          EOF
+            linux/packaging/flatpak/update-cargo-sources.sh
             scripts/third-party-licenses.sh
           fi
           git config user.name "github-actions[bot]"
@@ -256,9 +248,25 @@ jobs:
           extra="$(jq -r '.files[].filename' compare.json \
             | grep -vxE 'packaging/cef\.lock|Cargo\.toml|Cargo\.lock|(linux|mobile|nsh-shared|fuzz)/Cargo\.lock|crates/[^/]+/Cargo\.toml|packaging/third-party-licenses(-[a-z]+)?\.txt|linux/packaging/flatpak/cargo-sources\.json' || true)"
           [[ -z "$extra" ]] || { echo "the merge also changes $extra; release it by hand" >&2; exit 1; }
-          # A merge that moves the cef crate is never tagged here; report opens an issue for its release.
-          if jq -r '.files[].filename' compare.json | grep -qE '^crates/[^/]+/Cargo\.toml$'; then
-            echo "::notice::$COMMIT moves the cef crate: not tagged; release it from GitHub as docs/release.md describes"
+          # A cef crate other than the latest release's is never released from here, so a crate move
+          # is not shipped by a later lock update either; report opens an issue for its release.
+          released="$(gh api "$api/releases/latest" --jq .tag_name)"
+          cef_at() { gh api -H 'Accept: application/vnd.github.raw' "$api/contents/Cargo.lock?ref=$1" | grep -A1 '^name = "cef"$' | tail -n1; }
+          crate_now="$(cef_at "$COMMIT")"
+          crate_released="$(cef_at "$released")"
+          [[ -n "$crate_now" && -n "$crate_released" ]] || { echo "no cef crate in Cargo.lock at $COMMIT or $released" >&2; exit 1; }
+          if [[ "$crate_now" != "$crate_released" ]]; then
+            changed() { jq -r --arg file "$1" '.files[] | select(.filename | test($file)) | .filename as $f
+              | (.patch // "no patch") | split("\n")[] | select(test("^([-+@]|no patch)")) | "\($f) \(.)"' compare.json; }
+            pins="$(changed '^crates/[^/]+/Cargo\.toml$')"
+            removed="$(sed -n 's/^\([^ ]*\) -/\1 /p' <<<"$pins" | sed 's/"=[0-9.]*"/"="/')"
+            added="$(sed -n 's/^\([^ ]*\) +/\1 /p' <<<"$pins" | sed 's/"=[0-9.]*"/"="/')"
+            if [[ "$removed" != "$added" ]] || grep -qvE '^([^ ]+ ([+-]cef = \{ version = "=[0-9]+\.[0-9]+\.[0-9]+", .*|@@ -([0-9]+(,[0-9]+)?) \+\3 @@.*))?$' <<<"$pins" \
+              || grep -qvE '^(Cargo\.toml ([+-]version = "[0-9]+\.[0-9]+\.[0-9]+"|@@ -([0-9]+(,[0-9]+)?) \+\3 @@.*))?$' <<<"$(changed '^Cargo\.toml$')"; then
+              echo "the merge changes more than the version and the cef pins in the manifests" >&2
+              exit 1
+            fi
+            echo "::notice::the cef crate at $COMMIT ($crate_now) is not $released's ($crate_released): not tagged; release it from GitHub as docs/release.md describes"
             printf '%s\n' "pending=true" "cef=$cef" >> "$GITHUB_OUTPUT"
             exit 0
           fi

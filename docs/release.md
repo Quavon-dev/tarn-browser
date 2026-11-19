@@ -387,14 +387,18 @@ runs again when a merge to `main` changes `packaging/cef.lock`:
    and `cef-dll-sys`. It takes the newest `cef` crate (released with the same `cef-dll-sys`, not
    yanked, not older than the pinned one) that has a stable CEF build for macOS arm64, macOS x64
    and Windows that `cef-dll-sys` builds against, its own CEF version or an older build of its
-   major.minor, and the newest such build. Its Chromium version must be newer than the pinned one
-   and on Google's Mac stable or extended stable list (CEF follows either); the release date is
-   Google's first serving date. It computes each archive's SHA-256.
+   major.minor, and the newest such build. The build must be newer than the pinned CEF build and
+   not proposed before (a branch `chromium-update/<CEF version>` exists); if it was, an older
+   crate's newer-than-pinned build is taken, so a crate update waiting for code changes or
+   rejected does not hold back builds of older crates, and neither does a build whose Chromium is
+   older than the pinned one. Its Chromium version must be on Google's Mac stable or extended
+   stable list (CEF follows either);
+   the release date is Google's first serving date. It computes each archive's SHA-256.
 2. `propose` writes `packaging/cef.lock` and bumps the patch version in `Cargo.toml`. When the
    crate moves, it sets the `cef = { version = "=…" }` pins in `crates/*/Cargo.toml`, runs
    `cargo update -p cef --precise` in every workspace (failing unless `cef-dll-sys` lands on the
-   same version), carries the changed crates into `linux/packaging/flatpak/cargo-sources.json`
-   and rewrites the licence lists. It refreshes every workspace's `Cargo.lock` and pushes
+   same version), regenerates `linux/packaging/flatpak/cargo-sources.json` with
+   `update-cargo-sources.sh` and rewrites the licence lists. It refreshes every workspace's `Cargo.lock` and pushes
    `chromium-update/<CEF version>`.
 3. `open`, with the update app's token, opens its pull request. CI runs on it like on any other,
    and like any other it needs a maintainer's approval to merge. If `main` moved since the branch
@@ -423,16 +427,19 @@ not require it.
 The pipeline moves the `cef` crate with the CEF build, a new Chromium milestone included; the
 pull request's CI shows whether the new crate still builds, and one that needs code changes is
 fixed on its branch. A CEF build newer than every published `cef` crate waits for the crate.
-`tag` does not tag a merge that moves the crate (it changes a `crates/*/Cargo.toml`; the file
-allowlist then also admits the licence lists and the Flatpak sources): it opens an issue labelled
-`security`, "release pending", and a maintainer releases it as any other release from GitHub
-(raise the version in every client and in `CHANGELOG.md`, then `start-release.yml`); only lock
+`tag` does not tag a merge whose `cef` crate differs from the latest release's, so a later lock
+update does not ship an unreleased crate move either. Its file allowlist admits
+`crates/*/Cargo.toml`, the licence lists and the Flatpak sources; in `crates/*/Cargo.toml` only the
+version of each `cef` pin may change in place and in `Cargo.toml` only the version line, while a merge with
+the released crate still allows only `version` lines in every file. It
+opens an issue labelled `security`, "release pending". Before releasing, a maintainer re-runs
+`linux/packaging/flatpak/update-cargo-sources.sh` and `scripts/third-party-licenses.sh` on `main`
+and checks that nothing changes, then releases it as any other release from GitHub (raise the
+version in every client and in `CHANGELOG.md`, then `start-release.yml`); only lock
 updates within the pinned crate's CEF version are tagged and released automatically. A merge
-that also changes code fails `tag` and is released the same way. Until that release, a later
-automatic lock update would ship the crate move with it. A crate update that
-adds or removes crates in `linux/Cargo.lock` fails `propose`; refresh the Flatpak sources with
-`linux/packaging/flatpak/update-cargo-sources.sh` and propose it by hand. Renovate leaves `cef`
-and `cef-dll-sys` to this pipeline.
+that also changes code fails `tag` and is released the same way. A `cef` release that keeps the
+pinned CEF build (such as `156.3.1+156.0.15`) is not proposed; it comes with the next CEF
+build. Renovate leaves `cef` and `cef-dll-sys` to this pipeline.
 
 ## Licences in the bundle
 
