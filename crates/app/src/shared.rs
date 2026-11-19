@@ -443,7 +443,7 @@ fn open_new_window(start: WindowStart, cx: &mut App) {
     if let Some(handle) = open_window(row, display, None, start, cx) {
         handle
             .update(cx, |b, window, cx| {
-                if start == WindowStart::Burner {
+                if start == WindowStart::Burner && b.model.burner_shown() {
                     b.open_burner(window, cx);
                 }
                 window.activate_window();
