@@ -6,6 +6,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-19
+
 ### Added
 
 - Pointing at a link shows where it leads, or the script a `javascript:` link runs, in a bubble at the
@@ -154,9 +156,6 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Toasts have a calmer design: a tone icon, the message and a quiet text action such as Undo
   (macOS, Windows, Linux, iOS, Android).
 - Tiles stretch to fill their row, so two tiles share the sidebar's width (macOS, Windows, Linux).
-- The profile button left the sidebar header; profiles stay in Settings › Profile and the menu
-  (macOS, Windows, Linux).
-- Appearance has no separate Theme picker; the Themes grid sets the theme.
 - Bitwarden's privileges (Touch ID unlock through the Bitwarden app, clipboard and passkeys) are
   off until you turn on Settings › Extensions › Bitwarden integration; until then Bitwarden runs
   like any other app extension (macOS).
@@ -167,6 +166,12 @@ All notable changes to Tarn are documented in this file. The format is based on
   bar sit in its centre (macOS, Windows, Linux).
 - The compact toolbar's address field keeps the same inset around the shield and the trailing
   buttons, which now sit inside it.
+
+### Removed
+
+- The profile button left the sidebar header; profiles stay in Settings › Profile and the menu
+  (macOS, Windows, Linux).
+- Appearance has no separate Theme picker; the Themes grid sets the theme.
 
 ### Fixed
 
@@ -590,6 +595,7 @@ All notable changes to Tarn are documented in this file. The format is based on
 - One address field for URLs, search, open tabs and app actions, with configurable shortcuts.
 - Split View, link peek, tab groups, pinned tabs that remember their page and sleeping tabs.
 
-[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/Quavon-dev/tarn-browser/releases/tag/v0.1.0
