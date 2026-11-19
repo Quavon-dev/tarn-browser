@@ -63,7 +63,7 @@ impl Browser {
     }
 
     pub fn open_bookmark(&mut self, url: &str) {
-        let Some(Input::Navigate(url)) = classify_input(url, &ENGINES[0]) else {
+        let Some(Input::Navigate(url)) = classify_input(url, &ENGINES[0], false) else {
             self.notice = Some(Notice::Message("Tarn does not open this kind of address.".into()));
             return;
         };

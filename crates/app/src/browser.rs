@@ -1673,8 +1673,10 @@ impl Browser {
             self.select_suggestion_at(0, cx);
             return;
         }
-        let engine = &command::ENGINES[self.search_engine()];
-        let input = command::classify_input(&query, engine);
+        let shortcuts = self.pref(crate::prefs::Pref::SearchShortcuts);
+        let default = &command::ENGINES[self.search_engine()];
+        let engine = command::search_engine(&query, default, shortcuts);
+        let input = command::classify_input(&query, default, shortcuts);
         if let Some(Input::Navigate(u)) = &input {
             out.extend(self.open_tabs_at(&self.clean_user_url(u.clone())));
         }

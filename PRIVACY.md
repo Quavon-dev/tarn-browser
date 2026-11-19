@@ -120,7 +120,9 @@ you quit.
 
 The default search engine is DuckDuckGo. What you type in the command bar is sent to DuckDuckGo only
 when you press Enter on a search; search suggestions are off, so keystrokes are not sent while you
-type. No affiliate or tracking parameters are added.
+type. No affiliate or tracking parameters are added. With Settings › Search › Search shortcuts on
+(off by default), a `!key` such as `!yt` sends what you type to the site it names instead of your
+search engine, in every space including the private space, again only when you press Enter.
 
 ## Crash reports
 

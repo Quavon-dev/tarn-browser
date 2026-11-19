@@ -18,7 +18,7 @@ use browser_core::closed::ARCHIVE_AFTER;
 use browser_core::command::ENGINES;
 use browser_core::incoming::LOCALHOST_FROM_APPS;
 use browser_core::prefs::{CLOSE_SELECTS_PREVIOUS, GESTURES, NEW_TAB_START_PAGE, TEAR_OFF_TEMPORARY};
-use browser_core::settings::{self as prefs, LIVE_TABS, LIVE_TABS_KEY, SLEEP_AFTER_DEFAULT, SLEEP_AFTER_KEY, SUGGESTIONS};
+use browser_core::settings::{self as prefs, LIVE_TABS, LIVE_TABS_KEY, SEARCH_SHORTCUTS, SLEEP_AFTER_DEFAULT, SLEEP_AFTER_KEY, SUGGESTIONS};
 
 const NAV_WIDTH: f32 = 180.;
 const CARD_SCALE: u32 = 3;
@@ -528,11 +528,12 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             b.setting_on(shield::groups::YOUTUBE_SETTING),
         )
     })?;
-    let (suggestions, live_tabs, sleep_after) = read(ui, |b| {
+    let (suggestions, shortcuts, live_tabs, sleep_after) = read(ui, |b| {
         let disk = &b.core.disk;
         let sleep_options = prefs::sleep_after_options();
         (
             b.suggestions(),
+            b.search_shortcuts(),
             prefs::choice(disk, LIVE_TABS_KEY, &LIVE_TABS, prefs::LIVE_TABS_DEFAULT),
             prefs::choice(disk, SLEEP_AFTER_KEY, &sleep_options, SLEEP_AFTER_DEFAULT),
         )
@@ -647,6 +648,9 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 .child(group().child(switch(suggestions, "Suggest open tabs and history", toggle(SUGGESTIONS))).child(switch(history_text, "Search the text of visited pages", toggle_off(HISTORY_TEXT))))
                 .child(note("Shown under the address field while you type. Nothing you type leaves this computer before you press Enter."))
                 .child(note("Search the text of visited pages keeps up to 4 KB of each page's text on this computer so history suggestions match what a page said. Never for the private space or Lockdown pages; cleared with history, and when you turn this off."))
+                .child(section("Shortcuts"))
+                .child(group().child(switch(shortcuts, "Search shortcuts", toggle_off(SEARCH_SHORTCUTS))))
+                .child(note(prefs::SEARCH_SHORTCUTS_NOTE))
         }
         Pane::Privacy => {
             let (localhost, zoom_rows) = read(ui, |b| (b.setting_on(LOCALHOST_FROM_APPS), b.site_zooms())).unwrap_or((true, Vec::new()));

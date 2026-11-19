@@ -13,6 +13,7 @@ pub enum Pref {
     Gestures,
     ReduceMotion,
     Suggestions,
+    SearchShortcuts,
     NewTabStartPage,
     ClosePrevious,
     TearOffTemporary,
@@ -33,12 +34,13 @@ pub enum Pref {
 }
 
 impl Pref {
-    pub const ALL: [Pref; 22] = [
+    pub const ALL: [Pref; 23] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
         Pref::ReduceMotion,
         Pref::Suggestions,
+        Pref::SearchShortcuts,
         Pref::NewTabStartPage,
         Pref::ClosePrevious,
         Pref::TearOffTemporary,
@@ -65,6 +67,7 @@ impl Pref {
             Pref::Gestures => "gestures",
             Pref::ReduceMotion => "reduce_motion",
             Pref::Suggestions => browser_core::settings::SUGGESTIONS,
+            Pref::SearchShortcuts => browser_core::settings::SEARCH_SHORTCUTS,
             Pref::NewTabStartPage => "new_tab_start_page",
             Pref::ClosePrevious => "close_selects_previous",
             Pref::TearOffTemporary => "tear_off_temporary",
@@ -375,7 +378,7 @@ fn prefs_default_and_roundtrip() {
     assert!(prefs.get(Pref::Gestures) && !prefs.get(Pref::CompactToolbar));
     assert!(prefs.get(Pref::BlockAds) && prefs.get(Pref::BlockMalware) && prefs.get(Pref::YouTubeAds) && !prefs.get(Pref::BlockAdult));
     assert!(prefs.get(Pref::UpdateChecks) && !prefs.get(Pref::HistoryText) && !prefs.get(Pref::SortDownloads));
-    assert!(!prefs.get(Pref::ExtensionsBitwarden));
+    assert!(!prefs.get(Pref::ExtensionsBitwarden) && !prefs.get(Pref::SearchShortcuts));
     store.set_setting(Pref::Gestures.key(), "off").unwrap();
     store.set_setting(Pref::CompactToolbar.key(), "on").unwrap();
     let prefs = Prefs::load(&store);

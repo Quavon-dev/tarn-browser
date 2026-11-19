@@ -77,6 +77,10 @@ impl Browser {
         self.setting_on(browser_core::settings::SUGGESTIONS)
     }
 
+    pub fn search_shortcuts(&self) -> bool {
+        browser_core::settings::search_shortcuts(&self.core.disk)
+    }
+
     /// The history rows and inline completion for the address field's new `value`; none while
     /// Suggestions is off.
     pub fn address_edit(

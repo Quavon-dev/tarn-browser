@@ -475,6 +475,10 @@ impl<D: Platform> Shell<D> {
         Some((code, browser_core::command::display_host(&url)))
     }
 
+    pub fn search_shortcuts(&self) -> bool {
+        browser_core::settings::search_shortcuts(&self.core.disk)
+    }
+
     pub fn setting_on(&self, key: &str) -> bool {
         self.core.disk.setting(key).ok().flatten().is_some_and(|v| v == "on")
     }

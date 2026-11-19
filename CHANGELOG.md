@@ -6,6 +6,12 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Search shortcuts: with Settings › Search › Search shortcuts on (off by default), `!yt cats` or
+  `cats !yt` searches YouTube instead of your search engine; 83 shortcuts such as `!g`, `!w`, `!gh`,
+  `!a` and `!gm`. The suggestion row names the site. On every client.
+
 ## [0.1.3] - 2026-11-19
 
 ### Added

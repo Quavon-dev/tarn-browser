@@ -20,6 +20,102 @@ pub const ENGINES: [Engine; 6] = [
     Engine { name: "Google", url: "https://www.google.com/search", param: "q" },
     Engine { name: "Bing", url: "https://www.bing.com/search", param: "q" },
 ];
+
+pub struct Bang {
+    pub key: &'static str,
+    pub engine: Engine,
+}
+
+const fn bang(key: &'static str, name: &'static str, url: &'static str, param: &'static str) -> Bang {
+    Bang { key, engine: Engine { name, url, param } }
+}
+
+pub const BANGS: &[Bang] = &[
+    bang("g", "Google", "https://www.google.com/search", "q"),
+    bang("b", "Bing", "https://www.bing.com/search", "q"),
+    bang("ddg", "DuckDuckGo", "https://duckduckgo.com/", "q"),
+    bang("sp", "Startpage", "https://www.startpage.com/sp/search", "query"),
+    bang("brave", "Brave Search", "https://search.brave.com/search", "q"),
+    bang("eco", "Ecosia", "https://www.ecosia.org/search", "q"),
+    bang("qw", "Qwant", "https://www.qwant.com/", "q"),
+    bang("mojeek", "Mojeek", "https://www.mojeek.com/search", "q"),
+    bang("kagi", "Kagi", "https://kagi.com/search", "q"),
+    bang("y", "Yahoo", "https://search.yahoo.com/search", "p"),
+    bang("yandex", "Yandex", "https://yandex.com/search/", "text"),
+    bang("baidu", "Baidu", "https://www.baidu.com/s", "wd"),
+    bang("yt", "YouTube", "https://www.youtube.com/results", "search_query"),
+    bang("ytm", "YouTube Music", "https://music.youtube.com/search", "q"),
+    bang("vimeo", "Vimeo", "https://vimeo.com/search", "q"),
+    bang("sc", "SoundCloud", "https://soundcloud.com/search", "q"),
+    bang("bc", "Bandcamp", "https://bandcamp.com/search", "q"),
+    bang("genius", "Genius", "https://genius.com/search", "q"),
+    bang("discogs", "Discogs", "https://www.discogs.com/search/", "q"),
+    bang("w", "Wikipedia", "https://en.wikipedia.org/w/index.php", "search"),
+    bang("dew", "Wikipedia (Deutsch)", "https://de.wikipedia.org/w/index.php", "search"),
+    bang("wikt", "Wiktionary", "https://en.wiktionary.org/w/index.php", "search"),
+    bang("wa", "Wolfram|Alpha", "https://www.wolframalpha.com/input", "i"),
+    bang("wh", "wikiHow", "https://www.wikihow.com/wikiHowTo", "search"),
+    bang("quora", "Quora", "https://www.quora.com/search", "q"),
+    bang("archive", "Internet Archive", "https://archive.org/search", "query"),
+    bang("scholar", "Google Scholar", "https://scholar.google.com/scholar", "q"),
+    bang("arxiv", "arXiv", "https://arxiv.org/search/?searchtype=all", "query"),
+    bang("pubmed", "PubMed", "https://pubmed.ncbi.nlm.nih.gov/", "term"),
+    bang("imdb", "IMDb", "https://www.imdb.com/find/", "q"),
+    bang("tmdb", "TMDB", "https://www.themoviedb.org/search", "query"),
+    bang("rt", "Rotten Tomatoes", "https://www.rottentomatoes.com/search", "search"),
+    bang("mal", "MyAnimeList", "https://myanimelist.net/search/all", "q"),
+    bang("gr", "Goodreads", "https://www.goodreads.com/search", "q"),
+    bang("gh", "GitHub", "https://github.com/search", "q"),
+    bang("so", "Stack Overflow", "https://stackoverflow.com/search", "q"),
+    bang("su", "Super User", "https://superuser.com/search", "q"),
+    bang("au", "Ask Ubuntu", "https://askubuntu.com/search", "q"),
+    bang("mdn", "MDN", "https://developer.mozilla.org/en-US/search", "q"),
+    bang("caniuse", "Can I use", "https://caniuse.com/", "search"),
+    bang("rust", "Rust std", "https://doc.rust-lang.org/std/", "search"),
+    bang("crates", "crates.io", "https://crates.io/search", "q"),
+    bang("docs", "Docs.rs", "https://docs.rs/releases/search", "query"),
+    bang("npm", "npm", "https://www.npmjs.com/search", "q"),
+    bang("pypi", "PyPI", "https://pypi.org/search/", "q"),
+    bang("py", "Python docs", "https://docs.python.org/3/search.html", "q"),
+    bang("go", "Go Packages", "https://pkg.go.dev/search", "q"),
+    bang("gem", "RubyGems", "https://rubygems.org/search", "query"),
+    bang("hex", "Hex", "https://hex.pm/packages", "search"),
+    bang("nuget", "NuGet", "https://www.nuget.org/packages", "q"),
+    bang("mvn", "Maven Central", "https://central.sonatype.com/search", "q"),
+    bang("dh", "Docker Hub", "https://hub.docker.com/search", "q"),
+    bang("aur", "AUR", "https://aur.archlinux.org/packages", "K"),
+    bang("arch", "ArchWiki", "https://wiki.archlinux.org/index.php", "search"),
+    bang("man", "man pages", "https://man.archlinux.org/search", "q"),
+    bang("snap", "Snapcraft", "https://snapcraft.io/search", "q"),
+    bang("hn", "Hacker News", "https://hn.algolia.com/", "q"),
+    bang("r", "Reddit", "https://www.reddit.com/search/", "q"),
+    bang("x", "X", "https://x.com/search", "q"),
+    bang("bsky", "Bluesky", "https://bsky.app/search", "q"),
+    bang("pin", "Pinterest", "https://www.pinterest.com/search/pins/", "q"),
+    bang("a", "Amazon", "https://www.amazon.com/s", "k"),
+    bang("ade", "Amazon.de", "https://www.amazon.de/s", "k"),
+    bang("ebay", "eBay", "https://www.ebay.com/sch/i.html", "_nkw"),
+    bang("ebde", "eBay.de", "https://www.ebay.de/sch/i.html", "_nkw"),
+    bang("etsy", "Etsy", "https://www.etsy.com/search", "q"),
+    bang("ali", "AliExpress", "https://www.aliexpress.com/wholesale", "SearchText"),
+    bang("idealo", "idealo", "https://www.idealo.de/preisvergleich/MainSearchProductCategory.html", "q"),
+    bang("gz", "Geizhals", "https://geizhals.de/", "fs"),
+    bang("steam", "Steam", "https://store.steampowered.com/search/", "term"),
+    bang("play", "Google Play", "https://play.google.com/store/search", "q"),
+    bang("as", "App Store", "https://apps.apple.com/us/iphone/search", "term"),
+    bang("gm", "Google Maps", "https://www.google.com/maps/search/?api=1", "query"),
+    bang("osm", "OpenStreetMap", "https://www.openstreetmap.org/search", "query"),
+    bang("bk", "Booking.com", "https://www.booking.com/searchresults.html", "ss"),
+    bang("ta", "Tripadvisor", "https://www.tripadvisor.com/Search", "q"),
+    bang("yelp", "Yelp", "https://www.yelp.com/search", "find_desc"),
+    bang("gi", "Google Images", "https://www.google.com/search?udm=2", "q"),
+    bang("bi", "Bing Images", "https://www.bing.com/images/search", "q"),
+    bang("gn", "Google News", "https://news.google.com/search", "q"),
+    bang("gt", "Google Translate", "https://translate.google.com/?sl=auto", "text"),
+    bang("ud", "Urban Dictionary", "https://www.urbandictionary.com/define.php", "term"),
+    bang("linguee", "Linguee", "https://www.linguee.com/english-german/search", "query"),
+];
+
 const KNOWN_SCHEMES: &[&str] =
     &["http", "https", "about", "file", "data", "javascript", "vbscript", "blob", "view-source", "tarn", "mailto", "tel", "sms", "facetime"];
 
@@ -49,13 +145,34 @@ pub fn search_url(engine: &Engine, query: &str) -> Url {
     url
 }
 
+pub fn find_bang(input: &str) -> Option<(&'static Engine, &str)> {
+    let input = input.trim();
+    let lookup = |word: &str| {
+        let key = word.strip_prefix('!')?;
+        BANGS.iter().find(|b| b.key.eq_ignore_ascii_case(key)).map(|b| &b.engine)
+    };
+    let first = input.split(char::is_whitespace).next()?;
+    if let Some(engine) = lookup(first) {
+        return Some((engine, input[first.len()..].trim()));
+    }
+    let last = input.rsplit(char::is_whitespace).next()?;
+    lookup(last).map(|engine| (engine, input[..input.len() - last.len()].trim()))
+}
+
+pub fn search_engine<'a>(raw: &str, engine: &'a Engine, shortcuts: bool) -> &'a Engine {
+    find_bang(raw).filter(|_| shortcuts).map_or(engine, |(e, _)| e)
+}
+
 /// Turns command-bar text into a URL to load or a search with `engine`.
-pub fn classify_input(raw: &str, engine: &Engine) -> Option<Input> {
-    let search_url = |query: &str| search_url(engine, query);
+pub fn classify_input(raw: &str, engine: &Engine, shortcuts: bool) -> Option<Input> {
     let input = raw.trim();
     if input.is_empty() {
         return None;
     }
+    if let Some((site, query)) = find_bang(input).filter(|_| shortcuts) {
+        return Some(if query.is_empty() { Input::Navigate(Url::parse(site.url).expect("static URL")) } else { Input::Search(search_url(site, query)) });
+    }
+    let search_url = |query: &str| search_url(engine, query);
     if let Some((scheme, _)) = input.split_once(':') {
         let scheme = scheme.to_ascii_lowercase();
         if input.contains("://") || KNOWN_SCHEMES.contains(&scheme.as_str()) {
@@ -386,7 +503,70 @@ mod tests {
     use super::*;
 
     fn kind(s: &str) -> Option<Input> {
-        classify_input(s, &ENGINES[0])
+        classify_input(s, &ENGINES[0], false)
+    }
+
+    fn bang_search(s: &str) -> Option<String> {
+        match classify_input(s, &ENGINES[0], true) {
+            Some(Input::Search(u)) => Some(u.to_string()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn shortcuts_search_the_named_site_before_or_after_the_words() {
+        assert_eq!(bang_search("!yt cats").unwrap(), "https://www.youtube.com/results?search_query=cats");
+        assert_eq!(bang_search("  big cats !YT ").unwrap(), "https://www.youtube.com/results?search_query=big+cats");
+        assert_eq!(bang_search("!g cats !yt").unwrap(), "https://www.google.com/search?q=cats+%21yt", "the first shortcut wins");
+        assert_eq!(bang_search("!yt !g").unwrap(), "https://www.youtube.com/results?search_query=%21g");
+        assert_eq!(bang_search("!w a&b=c").unwrap(), "https://en.wikipedia.org/w/index.php?search=a%26b%3Dc");
+        assert_eq!(bang_search("!gi cat").unwrap(), "https://www.google.com/search?udm=2&q=cat");
+    }
+
+    #[test]
+    fn a_shortcut_wins_over_addresses_and_schemes() {
+        assert_eq!(bang_search("!g example.com").unwrap(), "https://www.google.com/search?q=example.com");
+        assert_eq!(bang_search("!g javascript:alert(1)").unwrap(), "https://www.google.com/search?q=javascript%3Aalert%281%29");
+        assert_eq!(bang_search("https://a.test !g").unwrap(), "https://www.google.com/search?q=https%3A%2F%2Fa.test");
+    }
+
+    #[test]
+    fn a_shortcut_alone_opens_the_site() {
+        let open = |s| match classify_input(s, &ENGINES[0], true) {
+            Some(Input::Navigate(u)) => u.to_string(),
+            other => panic!("{s}: {other:?}"),
+        };
+        assert_eq!(open("!gm"), "https://www.google.com/maps/search/?api=1");
+        assert_eq!(open(" !RUST "), "https://doc.rust-lang.org/std/");
+    }
+
+    #[test]
+    fn unknown_or_partial_shortcuts_search_the_whole_text() {
+        for s in ["!zzz cats", "!", "!!", "! yt cats", "hello!", "a!b", "cats!yt", "!yt!"] {
+            let Some(Input::Search(u)) = classify_input(s, &ENGINES[0], true) else { panic!("{s}") };
+            assert_eq!(u.query_pairs().next().unwrap().1, s, "{s}");
+        }
+    }
+
+    #[test]
+    fn shortcuts_off_keep_the_default_engine() {
+        let Some(Input::Search(u)) = kind("!yt cats") else { panic!() };
+        assert_eq!(u.as_str(), "https://duckduckgo.com/?q=%21yt+cats");
+        assert_eq!(search_engine("!yt cats", &ENGINES[0], false).name, "DuckDuckGo");
+        assert_eq!(search_engine("!yt cats", &ENGINES[0], true).name, "YouTube");
+        assert_eq!(search_engine("cats", &ENGINES[0], true).name, "DuckDuckGo");
+    }
+
+    #[test]
+    fn every_shortcut_is_unique_lowercase_https_and_untagged() {
+        let mut keys = std::collections::HashSet::new();
+        for b in BANGS {
+            assert!(keys.insert(b.key), "duplicate {}", b.key);
+            assert!(!b.key.is_empty() && b.key.chars().all(|c| c.is_ascii_lowercase()), "{}", b.key);
+            let url = search_url(&b.engine, "x");
+            assert_eq!(url.scheme(), "https", "{}", b.key);
+            assert!(url.query_pairs().all(|(k, _)| !["tag", "ref", "aff", "affiliate", "utm_source"].contains(&k.as_ref())), "{}", b.key);
+        }
     }
 
     fn nav(s: &str) -> String {
@@ -436,7 +616,7 @@ mod tests {
         assert_eq!(kind("   "), None);
         let Some(Input::Search(u)) = kind("a&b=c d") else { panic!() };
         assert_eq!(u.as_str(), "https://duckduckgo.com/?q=a%26b%3Dc+d");
-        let Some(Input::Search(u)) = classify_input("a b", &ENGINES[1]) else { panic!() };
+        let Some(Input::Search(u)) = classify_input("a b", &ENGINES[1], false) else { panic!() };
         assert_eq!(u.as_str(), "https://www.startpage.com/sp/search?query=a+b");
     }
 

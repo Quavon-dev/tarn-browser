@@ -653,6 +653,22 @@ fn the_suggestions_switch_turns_off_history_rows_completion_and_text_search() {
 }
 
 #[test]
+fn search_shortcuts_are_off_until_switched_on_and_work_in_the_private_space() {
+    let (_dir, mut b) = browser();
+    let loaded = |b: &Browser| b.pages[&b.model.active.unwrap()].load.as_ref().map(|(url, _)| url.clone());
+    assert!(!b.search_shortcuts());
+    b.navigate_in("!yt cats", false);
+    assert_eq!(loaded(&b).as_deref(), Some("https://duckduckgo.com/?q=%21yt+cats"));
+    b.toggle_off_setting(browser_core::settings::SEARCH_SHORTCUTS);
+    assert!(b.search_shortcuts());
+    b.navigate_in("!yt cats", false);
+    assert_eq!(loaded(&b).as_deref(), Some("https://www.youtube.com/results?search_query=cats"));
+    b.private_space();
+    b.navigate_in("cats !w", true);
+    assert_eq!(loaded(&b).as_deref(), Some("https://en.wikipedia.org/w/index.php?search=cats"));
+}
+
+#[test]
 fn the_tab_choices_set_the_live_limit_and_the_sleep_time() {
     use std::time::{Duration, Instant};
     let (_dir, mut b) = browser();

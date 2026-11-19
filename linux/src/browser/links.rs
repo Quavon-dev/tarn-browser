@@ -58,7 +58,7 @@ impl Browser {
             url: url.to_owned(),
             space,
         };
-        let mut rows: Vec<TabRow> = match classify_input(query, &ENGINES[self.search_engine()]) {
+        let mut rows: Vec<TabRow> = match classify_input(query, &ENGINES[self.search_engine()], self.search_shortcuts()) {
             Some(Input::Navigate(url)) => {
                 let url = self.core.clean_user_url(self.model.profile(), url);
                 self.model
