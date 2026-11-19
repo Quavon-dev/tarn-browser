@@ -383,17 +383,24 @@ Applied by hand in the repository and organisation settings; no workflow changes
 `.github/workflows/chromium-update.yml` checks for a new CEF build every three hours from `main`, and
 runs again when a merge to `main` changes `packaging/cef.lock`:
 
-1. `watch` reads `https://cef-builds.spotifycdn.com/index.json` and takes the newest stable CEF
-   build present for both architectures that `cef-dll-sys` builds against: the crate's own CEF
-   version or an older build of its major.minor. Its Chromium version must be newer than the
-   pinned one and on Google's Mac stable or extended stable list (CEF follows either); the
-   release date is Google's first serving date. It computes each archive's SHA-256.
-2. `propose` writes `packaging/cef.lock`, bumps the patch version in `Cargo.toml`, refreshes every
-   workspace's `Cargo.lock` and pushes `chromium-update/<CEF version>`.
+1. `watch` reads `https://cef-builds.spotifycdn.com/index.json` and the crates.io index of `cef`
+   and `cef-dll-sys`. It takes the newest `cef` crate (released with the same `cef-dll-sys`, not
+   yanked, not older than the pinned one) that has a stable CEF build for macOS arm64, macOS x64
+   and Windows that `cef-dll-sys` builds against, its own CEF version or an older build of its
+   major.minor, and the newest such build. Its Chromium version must be newer than the pinned one
+   and on Google's Mac stable or extended stable list (CEF follows either); the release date is
+   Google's first serving date. It computes each archive's SHA-256.
+2. `propose` writes `packaging/cef.lock` and bumps the patch version in `Cargo.toml`. When the
+   crate moves, it sets the `cef = { version = "=…" }` pins in `crates/*/Cargo.toml`, runs
+   `cargo update -p cef --precise` in every workspace (failing unless `cef-dll-sys` lands on the
+   same version), carries the changed crates into `linux/packaging/flatpak/cargo-sources.json`
+   and rewrites the licence lists. It refreshes every workspace's `Cargo.lock` and pushes
+   `chromium-update/<CEF version>`.
 3. `open`, with the update app's token, opens its pull request. CI runs on it like on any other,
    and like any other it needs a maintainer's approval to merge. If `main` moved since the branch
-   was cut, update the branch first, so the merged tree is the tested one. A maintainer reviews the `packaging/cef.lock` change (version,
-   host, hashes) and merges it.
+   was cut, update the branch first, so the merged tree is the tested one. A maintainer reviews the
+   `packaging/cef.lock` change (version, host, hashes) and, when the `cef` crate moves, its pins,
+   the `cef` crates in the lockfiles, the licence lists and the Flatpak sources, and merges it.
 4. The merge's push to `main` changes `packaging/cef.lock` and starts the workflow again: `tag`
    checks that the commit is the merge of the app's own `chromium-update/` pull request, tags it
    `v<version>` with the app, and `build` calls `release.yml` with it. Against `main` before the
@@ -413,10 +420,19 @@ branch: `watch` then proposes nothing for that CEF build. If `main` moved after 
 update the branch from the pull request page and wait for CI before merging; the ruleset does
 not require it.
 
-The pipeline never moves the `cef` crate. A newer CEF build than the crate's own (a patch build
-included, since `cef-dll-sys` refuses those) and a new Chromium milestone come through Renovate,
-are reviewed by hand, carry their `packaging/cef.lock` and are released with a maintainer-signed
-tag; after that the pipeline can only follow with lock updates up to the crate's CEF version.
+The pipeline moves the `cef` crate with the CEF build, a new Chromium milestone included; the
+pull request's CI shows whether the new crate still builds, and one that needs code changes is
+fixed on its branch. A CEF build newer than every published `cef` crate waits for the crate.
+`tag` does not tag a merge that moves the crate (it changes a `crates/*/Cargo.toml`; the file
+allowlist then also admits the licence lists and the Flatpak sources): it opens an issue labelled
+`security`, "release pending", and a maintainer releases it as any other release from GitHub
+(raise the version in every client and in `CHANGELOG.md`, then `start-release.yml`); only lock
+updates within the pinned crate's CEF version are tagged and released automatically. A merge
+that also changes code fails `tag` and is released the same way. Until that release, a later
+automatic lock update would ship the crate move with it. A crate update that
+adds or removes crates in `linux/Cargo.lock` fails `propose`; refresh the Flatpak sources with
+`linux/packaging/flatpak/update-cargo-sources.sh` and propose it by hand. Renovate leaves `cef`
+and `cef-dll-sys` to this pipeline.
 
 ## Licences in the bundle
 
