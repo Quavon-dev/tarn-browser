@@ -96,7 +96,7 @@ actions!(tarn, [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyClean
 actions!(tarn, [AboutTarn, CheckForUpdates, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
 actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAutoHideSidebar, ToggleDownloads]);
 actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, BurnerTab]);
-actions!(tarn, [CloseWindow, StopLoading, ReloadFromOrigin]);
+actions!(tarn, [CloseWindow, StopLoading, ReloadFromOrigin, NewPrivateWindow, NewBurnerWindow]);
 
 /// Actions the command bar offers: label, search keywords, action.
 pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
@@ -559,9 +559,15 @@ pub fn run() {
             cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
         }
         if shared::start(cx) {
-            cx.on_action(|_: &NewWindow, cx| shared::new_window(cx));
+            cx.on_action(|_: &NewWindow, cx| shared::new_window(crate::browser::WindowStart::Saved, cx));
+            cx.on_action(|_: &NewPrivateWindow, cx| shared::new_window(crate::browser::WindowStart::Private, cx));
+            cx.on_action(|_: &NewBurnerWindow, cx| shared::new_window(crate::browser::WindowStart::Burner, cx));
             shortcuts::rebind(cx);
-            cx.set_dock_menu(vec![MenuItem::action("New Window", NewWindow)]);
+            cx.set_dock_menu(vec![
+                MenuItem::action("New Window", NewWindow),
+                MenuItem::action("New Private Window", NewPrivateWindow),
+                MenuItem::action("New Burner Window", NewBurnerWindow),
+            ]);
             if shared::core(cx).updater.is_some() {
                 cx.on_action(|_: &CheckForUpdates, cx| {
                     if let Some(updater) = &shared::core(cx).updater {
@@ -570,6 +576,14 @@ pub fn run() {
                 });
             }
             shared::open_windows(cx);
+            // A jump-list entry that started Tarn arrives as its arguments, not from a running instance.
+            #[cfg(windows)]
+            if let [flag, index] = std::env::args().skip(1).collect::<Vec<_>>().as_slice()
+                && flag == "--dock-action"
+                && let Ok(index) = index.parse()
+            {
+                cx.perform_dock_menu_action(index);
+            }
             cx.spawn(async move |cx| {
                 while let Some(list) = futures::StreamExt::next(&mut opened).await {
                     // A Windows launch with no links asks the running Tarn to come to the front.

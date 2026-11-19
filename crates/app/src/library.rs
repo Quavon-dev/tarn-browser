@@ -604,6 +604,10 @@ pub struct LibraryWindow {
     query: Entity<TextInput>,
     page: Page,
     selected: usize,
+    /// The row under the pointer, which shows its actions in place of its host, and the list's
+    /// scroll offset it was found at: a scroll moves another row under the pointer.
+    hovered: Option<usize>,
+    hovered_at: gpui::Point<gpui::Pixels>,
     history: Vec<HistoryEntry>,
     /// The query and the indices of the history entries it matches, kept until either changes.
     history_hits: RefCell<Option<(String, Rc<[usize]>)>>,
@@ -682,6 +686,8 @@ impl LibraryWindow {
             query,
             page: Page::Home,
             selected: 0,
+            hovered: None,
+            hovered_at: Default::default(),
             history,
             history_hits: RefCell::new(None),
             shown: Vec::new(),
@@ -797,6 +803,7 @@ impl LibraryWindow {
     }
 
     fn go(&mut self, page: Page, window: &Window, cx: &mut Context<Self>) {
+        self.hovered = None;
         if page == Page::Import {
             self.sources = detect_sources();
         }
@@ -1301,7 +1308,8 @@ impl LibraryWindow {
         let menu_item = r.item.clone();
         let named = r.named;
         let visited = visit(&r).map(str::to_owned);
-        let on_hover = move |d: gpui::Div| if selected { d } else { d.invisible().group_hover("library-row", |s| s.visible()) };
+        let acting = selected || self.hovered == Some(ix);
+        let on_hover = move |d: gpui::Div| if acting { d } else { d.hidden() };
         let browser = self.browser.upgrade();
         let b = browser.as_ref().map(|b| b.read(cx));
         let sleepable = match r.item {
@@ -1310,6 +1318,7 @@ impl LibraryWindow {
             }
             _ => None,
         };
+        let has_actions = r.named.is_some() || visited.is_some() || sleepable.is_some();
         let inside = |folder: Option<Id>| b.map_or(0, |b| b.bookmarks.iter().filter(|bm| bm.parent_id == folder).count());
         // Shortened from the left like the toolbar's host (S5), so the registrable domain stays visible.
         let host =
@@ -1350,7 +1359,6 @@ impl LibraryWindow {
         };
         div()
             .id(("library-row", ix))
-            .group("library-row")
             .h(px(if r.detail.is_some() { DETAIL_ROW } else { ROW }))
             .px_2()
             .flex()
@@ -1361,10 +1369,24 @@ impl LibraryWindow {
             .cursor_pointer()
             .when(selected, |d| d.bg(Theme::selected()))
             .when(!selected, |d| d.hover(|s| s.bg(Theme::hover())))
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                let next = if *hovered { Some(ix) } else { this.hovered.filter(|h| *h != ix) };
+                if next != this.hovered {
+                    this.hovered = next;
+                    cx.notify();
+                }
+            }))
+            .on_mouse_move(cx.listener(move |this, _: &gpui::MouseMoveEvent, _, cx| {
+                if this.hovered != Some(ix) {
+                    this.hovered = Some(ix);
+                    cx.notify();
+                }
+            }))
             .child(leading)
             .child(title)
             .when_some(aside.filter(|_| !editing_now), |d, aside| {
-                d.child(div().flex_none().whitespace_nowrap().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(SharedString::from(aside)))
+                let aside = div().flex_none().whitespace_nowrap().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(SharedString::from(aside));
+                d.child(aside.when(has_actions && acting, |a| a.hidden()))
             })
             .when_some(r.named.filter(|_| !editing_now), |d, named| {
                 let id = match named {
@@ -1413,6 +1435,10 @@ impl LibraryWindow {
 
 impl Render for LibraryWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.scroll.offset() != self.hovered_at {
+            self.hovered_at = self.scroll.offset();
+            self.hovered = None;
+        }
         let Some(browser) = self.browser.upgrade() else { return div().into_any_element() };
         let b = browser.read(cx);
         let reduce = b.pref(Pref::ReduceMotion);

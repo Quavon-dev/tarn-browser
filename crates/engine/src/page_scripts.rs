@@ -405,8 +405,63 @@ pub const PICTURE_IN_PICTURE: &str = r"const area = v => v.clientWidth * v.clien
             }
             return 'refused';";
 
+/// What sleeping would lose on a page: whether the user changed a form field, and the scroll offset.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct PageKeep {
+    pub edited: bool,
+    pub scroll: (f64, f64),
+}
+
+/// Answers `PageKeep` as JSON. A field counts once the user has interacted with it (`:user-valid`
+/// or `:user-invalid`), or while it has focus on a page the user has used, so values a page script
+/// fills in do not keep a tab awake. Only the verdict leaves the page, never a value. An async function body for the engine's
+/// isolated world.
+pub const PAGE_KEEP: &str = r"const first = e => { const o = [...e.options], d = o.findIndex(o => o.defaultSelected); return d >= 0 ? d : e.size > 1 ? -1 : o.findIndex(o => !o.disabled); };
+            const used = typeof navigator === 'undefined' || !navigator.userActivation || navigator.userActivation.hasBeenActive;
+            const user = e => { try { return e.matches(':user-valid, :user-invalid'); } catch { return true; } };
+            const changed = e => e.type === 'checkbox' || e.type === 'radio' ? e.checked !== e.defaultChecked
+                : e.localName === 'select' ? (e.multiple ? [...e.options].some(o => o.selected !== o.defaultSelected) : e.selectedIndex !== first(e))
+                : e.type === 'file' ? e.files.length > 0 : e.value !== e.defaultValue;
+            const skip = /^(hidden|submit|button|reset|image)$/, active = document.activeElement;
+            const fields = [...document.querySelectorAll('input, textarea, select')].slice(0, 2000);
+            const edited = fields.some(e => !skip.test(e.type) && !e.disabled && (used && e === active || user(e)) && changed(e))
+                || !!(used && active && active.isContentEditable && active.textContent.trim());
+            return JSON.stringify({ edited, x: scrollX, y: scrollY });";
+
+pub fn page_keep(answer: &str) -> PageKeep {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(answer) else { return PageKeep::default() };
+    let offset = |key: &str| value[key].as_f64().filter(|v| v.is_finite() && *v > 0.).unwrap_or(0.);
+    PageKeep { edited: value["edited"].as_bool().unwrap_or(false), scroll: (offset("x"), offset("y")) }
+}
+
+/// Scrolls back to `(x, y)`, retrying while the page grows toward it, until the user scrolls. An
+/// async function body for the engine's isolated world.
+pub fn scroll_script((x, y): (f64, f64)) -> String {
+    let (x, y) = (if x.is_finite() { x.max(0.) } else { 0. }, if y.is_finite() { y.max(0.) } else { 0. });
+    format!(
+        r"let last = -1;
+            for (let i = 0; i < 10; i++) {{
+                if (last >= 0 && Math.abs(scrollY - last) > 1) return '';
+                scrollTo({{ left: {x}, top: {y}, behavior: 'instant' }});
+                last = scrollY;
+                if (Math.abs(scrollY - {y}) < 2) return '';
+                await new Promise(r => setTimeout(r, 200));
+            }}
+            return '';"
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn page_keep_reads_the_verdict_and_a_sane_offset() {
+        assert_eq!(page_keep(r#"{"edited":true,"x":0,"y":1200.5}"#), PageKeep { edited: true, scroll: (0., 1200.5) });
+        assert_eq!(page_keep(r#"{"edited":"yes","x":-4,"y":null}"#), PageKeep::default());
+        assert_eq!(page_keep(""), PageKeep::default(), "Lockdown and failed scripts answer empty");
+        assert!(scroll_script((f64::NAN, -3.)).contains("left: 0, top: 0,"));
+        assert!(scroll_script((0., 640.)).contains("left: 0, top: 640,"));
+    }
+
     use super::*;
 
     const HOSTILE_CSS: &str = "</style><script>globalThis.pwned=1</script>\"'`${x}\\\u{2028}\nbody{}";
@@ -545,6 +600,49 @@ mod javascript_core_tests {
 
     fn find_in(text: &str, query: &str) -> Vec<String> {
         find_in_nodes(&[("P", text)], query)
+    }
+
+    /// Runs `PAGE_KEEP` in JavaScriptCore over form fields given as JS object literals; `user`
+    /// marks a field as matching `:user-valid` / `:user-invalid`, `focus` makes it the active element.
+    fn keep_of(fields: &str) -> PageKeep {
+        keep_after(fields, true)
+    }
+
+    /// As `keep_of` on a page the user has (`used`) or has not yet clicked or typed in.
+    fn keep_after(fields: &str, used: bool) -> PageKeep {
+        let script = format!(
+            "const navigator = {{ userActivation: {{ hasBeenActive: {used} }} }};
+            const fields = [{fields}].map(f => ({{ localName: 'input', type: 'text', disabled: false, defaultValue: '', value: '', ...f,
+                matches: () => !!f.user }}));
+            const document = {{ activeElement: fields.find(f => f.focus) || null, querySelectorAll: () => fields }};
+            fields.filter(f => f.options).forEach(f => f.options = f.options.map(o => ({{ disabled: false, defaultSelected: false, ...o }})));
+            const scrollX = 0, scrollY = 300;
+            (function () {{ {PAGE_KEEP} }})()"
+        );
+        let out = std::process::Command::new("osascript").args(["-l", "JavaScript", "-e", &script]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        page_keep(String::from_utf8_lossy(&out.stdout).trim())
+    }
+
+    #[test]
+    fn only_input_the_user_typed_keeps_a_page_awake() {
+        assert_eq!(keep_of(""), PageKeep { edited: false, scroll: (0., 300.) });
+        assert!(!keep_of("{ value: 'filled by the page' }").edited, "a value the page set is not the user's");
+        assert!(keep_of("{ value: 'typed', user: true }").edited);
+        assert!(keep_of("{ value: 'typing', focus: true }").edited);
+        assert!(!keep_of("{ value: 'x', defaultValue: 'x', user: true }").edited, "an unchanged field");
+        assert!(!keep_of("{ type: 'hidden', value: 'token', user: true }").edited);
+        assert!(keep_of("{ type: 'checkbox', checked: true, defaultChecked: false, user: true }").edited);
+        assert!(!keep_after("{ value: 'autofocused and filled', focus: true }", false).edited, "focus the page gave itself");
+        let select = |index: u8, user: bool| {
+            format!("{{ localName: 'select', type: 'select-one', options: [{{}}, {{}}], selectedIndex: {index}, user: {user}, focus: true }}")
+        };
+        assert!(!keep_of(&select(0, false)).edited, "an untouched select shows its first option");
+        assert!(keep_of(&select(1, true)).edited);
+        assert!(
+            !keep_of("{ localName: 'select', type: 'select-one', size: 4, options: [{}, {}], selectedIndex: -1, focus: true }").edited,
+            "an untouched list box"
+        );
     }
 
     #[test]

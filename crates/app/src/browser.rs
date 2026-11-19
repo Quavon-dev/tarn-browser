@@ -104,6 +104,8 @@ pub struct PageState {
     pub typed: Option<String>,
     /// The file this tab opened with Open File: a slept, rebuilt or moved view shows it again (S6).
     pub opened_file: Option<Url>,
+    /// The page and scroll offset the tab had when it went to sleep, restored when that page loads again.
+    pub scroll_back: Option<(String, (f64, f64))>,
 }
 
 /// A request to hand a URL to another app; `tab` is `None` when the user typed it, `origin` is the
@@ -362,6 +364,8 @@ pub struct Browser {
     /// Awake tabs whose page last said it was playing, and the background tabs marked heavy.
     pub(crate) playing: HashSet<TabKey>,
     pub(crate) heavy: Vec<TabKey>,
+    /// Background tabs left awake for the form input the user typed, until they are shown again.
+    pub(crate) typed_in: HashSet<TabKey>,
     pub(crate) sidebar_toggled: Option<Instant>,
     pub(crate) page_fade: Option<(Rc<WebView>, Instant)>,
     pub(crate) overlay_exit: Option<Instant>,
@@ -388,6 +392,8 @@ pub struct Browser {
     pub(crate) split_drop: Option<(TabKey, Option<&'static str>, bool)>,
     pub(crate) tab_drag: Option<TabKey>,
     adopting: Option<TabKey>,
+    /// A private or burner window whose space could not be made: it shows no space while it closes.
+    pub(crate) abandoned: bool,
     pub(crate) ghost: crate::tear_off::Ghosting,
     pub shortcuts_open: bool,
     pub(crate) shortcuts_scroll: gpui::ScrollHandle,
@@ -415,8 +421,16 @@ pub(crate) fn launch_urls(args: impl Iterator<Item = String>) -> Vec<String> {
     }
 }
 
+/// The space a new window opens on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WindowStart {
+    Saved,
+    Private,
+    Burner,
+}
+
 impl Browser {
-    pub fn new(saved: SavedWindow, torn: Option<browser_core::tabs::Torn>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(saved: SavedWindow, torn: Option<browser_core::tabs::Torn>, start: WindowStart, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let core = crate::shared::core(cx);
         let disk = &core.disk;
 
@@ -548,6 +562,7 @@ impl Browser {
             menu_open: false,
             seen: HashMap::new(),
             playing: HashSet::new(),
+            typed_in: HashSet::new(),
             heavy: Vec::new(),
             sidebar_toggled: None,
             page_fade: None,
@@ -571,6 +586,7 @@ impl Browser {
             split_drop: None,
             tab_drag: None,
             adopting: None,
+            abandoned: false,
             ghost: Default::default(),
             shortcuts_open: false,
             shortcuts_scroll: gpui::ScrollHandle::new(),
@@ -629,7 +645,24 @@ impl Browser {
                 browser.scheduled_now().unwrap_or(restore)
             }
         };
+        // Chosen before the first switch, so a private or burner window never wakes a regular tab;
+        // one whose space cannot be made closes instead.
+        let back = browser.model.spaces.get(restore).map(|s| (s.private, s.space.id));
+        let restore = match start {
+            WindowStart::Saved => Some(restore),
+            WindowStart::Private => browser.model.private_space(&browser.core),
+            WindowStart::Burner => browser.model.open_burner(&browser.core).inspect(|_| browser.burner_return = back),
+        };
         window.focus(&browser.focus);
+        let Some(restore) = restore else {
+            eprintln!("tarn: could not make the space for a new private or burner window");
+            browser.abandoned = true;
+            cx.defer_in(window, |b, window, cx| {
+                b.closing(cx);
+                window.remove_window();
+            });
+            return browser;
+        };
         browser.adopting = torn.map(|t| t.key);
         browser.switch_space(restore, window, cx);
         browser.adopting = None;
@@ -740,6 +773,9 @@ impl Browser {
     /// Catches up with what other windows changed: spaces, tabs and bookmarks, and drops views of
     /// tabs they closed or archived.
     pub(crate) fn sync_shared(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.abandoned {
+            return;
+        }
         let lost_active = self.drop_gone_views(cx);
         let profile = self.model.current_space().map(|s| (s.private, s.space.profile_id));
         self.reload_spaces();
@@ -1142,10 +1178,11 @@ impl Browser {
         }
         let left = Instant::now();
         self.seen.extend(self.model.active.into_iter().chain([key]).map(|k| (k, left)));
+        self.typed_in.remove(&key);
         let evicted = self.model.lifecycle.activate_with(&partners, key);
         for evicted in evicted {
-            if evicted == key || partners.contains(&evicted) {
-                // The split's panes stay awake above the live-tab limit while it lasts.
+            if evicted == key || partners.contains(&evicted) || self.typed_in.contains(&evicted) {
+                // The split's panes, and tabs with typed input, stay awake above the live-tab limit.
                 self.model.lifecycle.keep(evicted);
             } else {
                 self.sleep_unless_playing(evicted, cx);
@@ -1238,6 +1275,7 @@ impl Browser {
 
     /// Drops this window's view of `key`, and the fade still showing it.
     fn take_view(&mut self, key: TabKey) -> Option<Rc<WebView>> {
+        self.typed_in.remove(&key);
         let view = self.views.remove(&key)?;
         if self.page_fade.as_ref().is_some_and(|(fading, _)| Rc::ptr_eq(fading, &view)) {
             self.page_fade = None;
@@ -1400,7 +1438,7 @@ impl Browser {
     }
 
     pub fn switch_space(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if ix >= self.model.spaces.len() || self.in_main(window, cx, move |b, window, cx| b.switch_space(ix, window, cx)) {
+        if self.abandoned || ix >= self.model.spaces.len() || self.in_main(window, cx, move |b, window, cx| b.switch_space(ix, window, cx)) {
             return;
         }
         self.commit_rename(cx);
@@ -1969,6 +2007,11 @@ impl Browser {
                 self.page_changed(key, &url, &title, can_go_back, can_go_forward, false);
                 let page = self.pages.entry(key).or_default();
                 page.crashed = false;
+                if let Some((_, offset)) = page.scroll_back.take().filter(|(slept, _)| slept == url.as_str())
+                    && let Some(view) = self.views.get(&key)
+                {
+                    view.scroll_to(offset);
+                }
                 let typed = suggest::typed_visit(&mut page.typed, url.as_str());
                 self.record_visit(key, &url, &title, typed);
                 self.request_page_text(key, &url);

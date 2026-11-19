@@ -169,6 +169,15 @@ impl WebView {
         both!(self, v => v.media_playing(done))
     }
 
+    /// What sleeping the page would lose: input the user typed and the scroll offset.
+    pub fn page_keep(&self, done: impl Fn(crate::page_scripts::PageKeep) + 'static) {
+        both!(self, v => v.page_keep(done))
+    }
+
+    pub fn scroll_to(&self, offset: (f64, f64)) {
+        both!(self, v => v.scroll_to(offset))
+    }
+
     /// The page's own process; in Chromium the renderer of the top document, once it said which.
     pub fn process_id(&self) -> Option<i32> {
         both!(self, v => v.process_id())

@@ -525,7 +525,7 @@ fn a_playing_tab_stays_awake_beyond_the_live_tab_limit() {
 }
 
 #[test]
-fn idle_background_tabs_sleep_after_half_an_hour_or_a_minute_when_memory_is_short() {
+fn idle_background_tabs_sleep_after_half_an_hour_or_five_minutes_when_memory_is_short() {
     use std::time::{Duration, Instant};
     let (_dir, mut b) = browser();
     let pinned = active(&b);
@@ -536,9 +536,9 @@ fn idle_background_tabs_sleep_after_half_an_hour_or_a_minute_when_memory_is_shor
     let shown = b.new_tab("https://shown.test/").unwrap();
     let start = Instant::now();
     let live = |b: &Browser, key| b.model.lifecycle.live().any(|k| k == key);
-    b.sleep_idle_tabs(start + Duration::from_secs(90), false);
-    assert!(live(&b, idle), "a minute is not enough while memory is plentiful");
-    b.sleep_idle_tabs(start + Duration::from_secs(90), true);
+    b.sleep_idle_tabs(start + Duration::from_secs(6 * 60), false);
+    assert!(live(&b, idle), "five minutes are not enough while memory is plentiful");
+    b.sleep_idle_tabs(start + Duration::from_secs(6 * 60), true);
     assert!(!live(&b, idle) && b.pages[&idle].load.is_none());
     assert!(live(&b, pinned) && live(&b, playing) && live(&b, shown), "pinned, playing and shown tabs stay awake");
     b.activate(idle);

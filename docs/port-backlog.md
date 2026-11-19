@@ -21,6 +21,35 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Typed input keeps a tab awake; sleep keeps the scroll offset (2026-11-19)
+
+What it does: a background tab whose page has form input the user typed is not put to sleep by the
+idle timer, the live-tab limit or the memory budget (Sleep Tab still sleeps it); a tab that sleeps
+scrolls back to where it was once its page loads again. Neither applies under Lockdown, where no
+script of Tarn's runs on the page.
+Shared API: `engine::page_scripts::{PAGE_KEEP, page_keep, PageKeep, scroll_script}`;
+`engine::WebView::{page_keep, scroll_to}`.
+Reference: `crates/app/src/tabs.rs` (`sleep_keeping_scroll`), `crates/app/src/browser.rs`
+(`PageState::scroll_back`, `Event::Finished`).
+
+- [x] Windows — same code in `crates/app`, `crates/engine/src/view_windows.rs`
+- [ ] Linux — run `PAGE_KEEP` in the isolated world before `sleep_tab` / `unload` in
+  `linux/src/memory.rs`, and `scroll_script` on the next load-finished of that page
+- [ ] iOS — `mobile/ios` web view: the same two scripts around the `mobile/app` lifecycle eviction
+- [ ] Android — `TarnWebView`: the same two scripts around the `mobile/app` lifecycle eviction
+
+### New Private Window and New Burner Window from the Dock (2026-11-19)
+
+What it does: the app icon's menu (Dock on macOS, jump list on Windows) opens a new window straight
+into the private space or a burner tab.
+Shared API: none beyond the existing private space and burner (`browser_core::tabs::Model::{private_space, open_burner}`).
+Reference: `crates/app/src/lib.rs` (`set_dock_menu`), `crates/app/src/shared.rs` (`new_window_then`).
+
+- [x] Windows — same code in `crates/app` (jump list)
+- [ ] Linux — `Actions=` entries in the `.desktop` file that start Tarn with a private or burner window
+- [ ] iOS — Home Screen quick actions (`UIApplicationShortcutItem`)
+- [ ] Android — launcher shortcuts (`ShortcutManager` / `shortcuts.xml`) for `PrivateActivity` and a burner tab
+
 ### Settings › Developer (2026-11-17)
 
 What it does: a switch for the developer tools (Web Inspector through Inspect Element, the JSON viewer,

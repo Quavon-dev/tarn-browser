@@ -146,6 +146,14 @@ impl WebView {
         self.view.media_playing(done);
     }
 
+    pub fn page_keep(&self, done: impl Fn(crate::page_scripts::PageKeep) + 'static) {
+        self.view.page_keep(done);
+    }
+
+    pub fn scroll_to(&self, offset: (f64, f64)) {
+        self.view.scroll_to(offset);
+    }
+
     pub fn set_muted(&self, muted: bool) {
         self.view.set_muted(muted);
     }

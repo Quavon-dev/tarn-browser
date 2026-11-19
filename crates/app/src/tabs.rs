@@ -143,9 +143,41 @@ impl Browser {
     pub fn sleep_tabs(&mut self, keys: Vec<TabKey>, cx: &mut Context<Self>) {
         let live: Vec<TabKey> = keys.into_iter().filter(|k| !self.sleeping(*k) && self.model.active != Some(*k) && !self.in_split(*k)).collect();
         for key in live {
-            self.hibernate(key, cx);
+            self.sleep_keeping_scroll(key, false, cx);
         }
-        cx.notify();
+    }
+
+    /// Hibernates a background tab once its page has said what sleep would lose: the scroll offset
+    /// comes back when the page loads again, and with `spare_input` a page with typed input stays
+    /// awake. A page that does not answer sleeps.
+    fn sleep_keeping_scroll(&mut self, key: TabKey, spare_input: bool, cx: &mut Context<Self>) {
+        let Some(view) = self.views.get(&key) else { return };
+        let (weak, (tx, mut rx)) = (Rc::downgrade(view), mpsc::unbounded());
+        view.page_keep(move |keep| drop(tx.unbounded_send(keep)));
+        cx.spawn(async move |this, cx| {
+            // Sleep Tab waits less on a page that does not answer, the one most worth sleeping.
+            let wait = if spare_input { PROBE_TIMEOUT } else { Duration::from_secs(2) };
+            let timeout = std::pin::pin!(cx.background_executor().timer(wait));
+            let keep = match select(rx.next(), timeout).await {
+                Either::Left((Some(keep), _)) => keep,
+                _ => Default::default(),
+            };
+            this.update(cx, |b, cx| {
+                if !b.same_view(key, &weak) || b.model.active == Some(key) || b.in_split(key) {
+                    return;
+                }
+                if spare_input && keep.edited {
+                    b.typed_in.insert(key);
+                    return;
+                }
+                let url = b.views.get(&key).and_then(|v| v.url()).map(String::from).filter(|_| keep.scroll != (0., 0.));
+                b.pages.entry(key).or_default().scroll_back = url.map(|url| (url, keep.scroll));
+                b.hibernate(key, cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Hibernates a background tab unless its page is playing video or audio. Until the page has
@@ -166,8 +198,7 @@ impl Browser {
                 this.update(cx, |b, cx| {
                     let same = b.same_view(key, &weak);
                     if same && b.model.active != Some(key) && !b.in_split(key) {
-                        b.hibernate(key, cx);
-                        cx.notify();
+                        b.sleep_keeping_scroll(key, true, cx);
                     }
                 })
                 .ok();
@@ -180,10 +211,11 @@ impl Browser {
     /// is Never, background tabs over their window's equal part of the memory budget sleep too, the
     /// heaviest first; pinned tabs only for the budget, once unused for `PINNED_IDLE`.
     pub(crate) fn sleep_idle_tabs(&mut self, cx: &mut Context<Self>) {
-        // Short of memory, a tab left for a minute sleeps; the web processes are what holds the memory.
+        // Short of memory, a tab left for five minutes sleeps; the web processes are what holds the memory.
         let max_idle = browser_core::settings::max_idle(crate::prefs::sleep_after(&self.core.disk), platform::memory::pressure());
         let (now, keys) = (Instant::now(), self.views.keys().copied().collect::<Vec<_>>());
         self.seen.retain(|k, _| keys.contains(k));
+        self.typed_in.retain(|k| keys.contains(k));
         let mut background = Vec::new();
         for key in keys {
             let pinned = self.store(key.private).tab(key.id).is_ok_and(|t| t.kind != TabKind::Ephemeral);
@@ -191,18 +223,20 @@ impl Browser {
             let seen = self.seen.entry(key).or_insert(now);
             if on_screen {
                 *seen = now;
+                self.typed_in.remove(&key);
                 continue;
             }
             let idle = now.duration_since(*seen);
             background.push((key, engine::lifecycle::budget_idle(idle, pinned)));
-            if !pinned && max_idle.is_some_and(|max| idle >= max) {
+            if !pinned && !self.typed_in.contains(&key) && max_idle.is_some_and(|max| idle >= max) {
                 self.sleep_unless_playing(key, cx);
             }
         }
         self.sample_processes(cx);
         if max_idle.is_some() {
             let costs = self.tab_costs();
-            let awake = background.into_iter().map(|(k, idle)| (k, share(&costs, k), self.playing.contains(&k), idle));
+            // A tab kept for typed input counts like a playing one, so the budget sleeps others instead.
+            let awake = background.into_iter().map(|(k, idle)| (k, share(&costs, k), self.playing.contains(&k) || self.typed_in.contains(&k), idle));
             let windows = crate::shared::browser_windows(cx).max(1) as u64;
             for key in engine::lifecycle::over_budget(awake, engine::lifecycle::BACKGROUND_BUDGET / windows) {
                 self.sleep_unless_playing(key, cx);
@@ -400,7 +434,7 @@ impl Browser {
         if let Ok(row) = self.core.disk.create_window(&row) {
             let display = window.display(cx).map(|d| d.id());
             cx.defer(move |cx| {
-                crate::shared::open_window(row, display, None, cx);
+                crate::shared::open_window(row, display, None, crate::browser::WindowStart::Saved, cx);
             });
         }
     }
