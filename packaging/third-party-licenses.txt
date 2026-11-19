@@ -9670,13 +9670,13 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 =====
-cef 156.4.0+156.0.26
+cef 156.7.0+156.0.31
 Licence: Apache-2.0 OR MIT
 Source: https://github.com/tauri-apps/cef-rs
 Authors: Wu Yu Wei <yuweiwu@pm.me>, Bill Avery <wravery@gmail.com>, csmoe <csmoe@msn.com>
 (The crate ships no licence file; the licence named above applies, its text is at the end.)
 =====
-cef-dll-sys 156.4.0+156.0.26
+cef-dll-sys 156.7.0+156.0.31
 Licence: Apache-2.0 OR MIT
 Source: https://github.com/tauri-apps/cef-rs
 Authors: Wu Yu Wei <yuweiwu@pm.me>, Bill Avery <wravery@gmail.com>, csmoe <csmoe@msn.com>
