@@ -270,6 +270,10 @@ impl Browser {
             if pref.blocking() {
                 self.blocking_changed(pref, cx);
             }
+            if pref == Pref::SearchShortcuts {
+                self.refresh_open_suggestions(cx);
+                crate::shared::others(cx, |b, _, cx| b.refresh_open_suggestions(cx));
+            }
             if pref == Pref::SortDownloads {
                 self.core.profiles.borrow().values().for_each(|rt| rt.data.set_sort_downloads(on));
             }

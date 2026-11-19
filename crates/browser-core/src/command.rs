@@ -103,7 +103,7 @@ pub const BANGS: &[Bang] = &[
     bang("steam", "Steam", "https://store.steampowered.com/search/", "term"),
     bang("play", "Google Play", "https://play.google.com/store/search", "q"),
     bang("as", "App Store", "https://apps.apple.com/us/iphone/search", "term"),
-    bang("gm", "Google Maps", "https://www.google.com/maps/search/?api=1", "query"),
+    bang("gm", "Google Maps", "https://www.google.com/maps", "q"),
     bang("osm", "OpenStreetMap", "https://www.openstreetmap.org/search", "query"),
     bang("bk", "Booking.com", "https://www.booking.com/searchresults.html", "ss"),
     bang("ta", "Tripadvisor", "https://www.tripadvisor.com/Search", "q"),
@@ -521,6 +521,7 @@ mod tests {
         assert_eq!(bang_search("!yt !g").unwrap(), "https://www.youtube.com/results?search_query=%21g");
         assert_eq!(bang_search("!w a&b=c").unwrap(), "https://en.wikipedia.org/w/index.php?search=a%26b%3Dc");
         assert_eq!(bang_search("!gi cat").unwrap(), "https://www.google.com/search?udm=2&q=cat");
+        assert_eq!(bang_search("!gm Berlin").unwrap(), "https://www.google.com/maps?q=Berlin");
     }
 
     #[test]
@@ -536,7 +537,7 @@ mod tests {
             Some(Input::Navigate(u)) => u.to_string(),
             other => panic!("{s}: {other:?}"),
         };
-        assert_eq!(open("!gm"), "https://www.google.com/maps/search/?api=1");
+        assert_eq!(open("!gm"), "https://www.google.com/maps");
         assert_eq!(open(" !RUST "), "https://doc.rust-lang.org/std/");
     }
 
