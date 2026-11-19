@@ -267,6 +267,60 @@ impl Drop for EventMonitor {
     }
 }
 
+/// The character and flags the built-in keyboard sends for a caret or delete key, by key code.
+fn caret_key(key_code: u16) -> Option<(char, NSEventModifierFlags)> {
+    let arrow = NSEventModifierFlags::Function | NSEventModifierFlags::NumericPad;
+    Some(match key_code {
+        123 => ('\u{f702}', arrow),
+        124 => ('\u{f703}', arrow),
+        125 => ('\u{f701}', arrow),
+        126 => ('\u{f700}', arrow),
+        115 => ('\u{f729}', NSEventModifierFlags::Function),
+        119 => ('\u{f72b}', NSEventModifierFlags::Function),
+        116 => ('\u{f72c}', NSEventModifierFlags::Function),
+        121 => ('\u{f72d}', NSEventModifierFlags::Function),
+        117 => ('\u{f728}', NSEventModifierFlags::Function),
+        _ => return None,
+    })
+}
+
+/// A caret key press from Universal Control or some keyboards can carry the layout's control
+/// character in its underlying event although the event shows the standard one; the text input
+/// system types that character into the focused web view. Rebuilding the event from what it shows
+/// drops it. Installed once for the app.
+pub(crate) fn keep_caret_keys_standard() {
+    thread_local! {
+        static MONITOR: std::cell::OnceCell<Option<EventMonitor>> = const { std::cell::OnceCell::new() };
+    }
+    MONITOR.with(|m| {
+        m.get_or_init(|| {
+            let handler = RcBlock::new(|event: NonNull<NSEvent>| -> *mut NSEvent {
+                // SAFETY: AppKit passes a valid event for the duration of the handler.
+                let e = unsafe { event.as_ref() };
+                let Some((character, standard)) = caret_key(e.keyCode()) else { return event.as_ptr() };
+                let text = NSString::from_str(&character.to_string());
+                let flags = e.modifierFlags() | standard;
+                let replaced =
+                    NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+                        e.r#type(),
+                        e.locationInWindow(),
+                        flags,
+                        e.timestamp(),
+                        e.windowNumber(),
+                        None,
+                        &text,
+                        &text,
+                        e.isARepeat(),
+                        e.keyCode(),
+                    );
+                replaced.map_or(event.as_ptr(), Retained::autorelease_ptr)
+            });
+            // SAFETY: as in `on_navigation_buttons`.
+            unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown | NSEventMask::KeyUp, &handler) }.map(EventMonitor)
+        });
+    });
+}
+
 impl Host {
     /// Calls `navigate(true)` for the mouse's back button and `navigate(false)` for forward,
     /// anywhere in the host's window including over web views, which ignore those buttons.
@@ -386,4 +440,14 @@ fn key_equivalents_parse() {
     assert_eq!(key_equivalent("cmd-f5").0, "\u{f708}");
     assert_eq!(key_equivalent("cmd-tab").0, "\t");
     assert_eq!(key_equivalent("cmd-volumeup").0, "");
+}
+
+#[test]
+fn caret_keys_get_the_built_in_keyboards_character_and_flags() {
+    let arrow = NSEventModifierFlags::Function | NSEventModifierFlags::NumericPad;
+    assert_eq!(caret_key(123), Some(('\u{f702}', arrow)));
+    assert_eq!(caret_key(124), Some(('\u{f703}', arrow)));
+    assert_eq!(caret_key(115), Some(('\u{f729}', NSEventModifierFlags::Function)), "Home is not on the numeric pad");
+    assert_eq!(caret_key(117), Some(('\u{f728}', NSEventModifierFlags::Function)));
+    assert_eq!(caret_key(0), None, "a letter key keeps its event");
 }

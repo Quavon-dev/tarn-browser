@@ -852,7 +852,11 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         .into_element()
 }
 
+const SPACE_BAR: browser_core::sidebar::SpaceBar =
+    browser_core::sidebar::SpaceBar { width: SIDEBAR_WIDTH - 18. - 2. * SPACE_BUTTON, icon: SPACE_BUTTON, gap: 2. };
+
 fn space_bar(ui: Ui) -> View {
+    let strip = computed(move || ui.snap.with(|s| SPACE_BAR.strip(s.spaces.len(), s.spaces.iter().position(|x| x.current).unwrap_or(0))));
     let spaces = each(
         move || ui.snap.with(|s| s.spaces.clone()),
         |s| (s.ix, s.icon.clone(), s.color.clone(), s.label.clone()),
@@ -860,23 +864,28 @@ fn space_bar(ui: Ui) -> View {
             let (ix, icon, name, private, color) = space.with_untracked(|s| (s.ix, s.icon.clone(), s.label.clone(), s.private, s.color.clone()));
             let source = if private { icons::PERSON } else { icons::space_icon(&icon) };
             let current = move || space.with(|s| s.current);
+            let dot = move || strip.get().compact && !current();
+            let tint = move || match (current(), private) {
+                (true, true) => Theme::warning(),
+                (true, false) => space_tint(&color, 1.).unwrap_or(Theme::text()),
+                (false, _) => space_tint(&color, 0.45).unwrap_or(Theme::faint()),
+            };
+            let glyph_tint = tint.clone();
             let button = controls::row(name, move || {
                 animate_next(SLIDE);
                 act(ui, |b| b.switch_space_by_user(ix));
             })
-            .w(px(SPACE_BUTTON))
+            .w(move || px(if dot() { browser_core::sidebar::SPACE_DOT } else { SPACE_BUTTON }))
             .h(px(SPACE_BUTTON))
             .flex_none()
             .px_0()
             .justify_center()
             .rounded(px(Theme::radius_row()))
             .bg(move || if current() { Theme::selected() } else { Theme::clear() })
-            .text_color(move || match (current(), private) {
-                (true, true) => Theme::warning(),
-                (true, false) => space_tint(&color, 1.).unwrap_or(Theme::text()),
-                (false, _) => space_tint(&color, 0.45).unwrap_or(Theme::faint()),
-            })
-            .child(icons::icon(source, icon_size()));
+            .text_color(glyph_tint)
+            .child(dynamic(move || {
+                if dot() { view().w(px(6.)).h(px(6.)).rounded(px(3.)).bg(tint()).into_element() } else { icons::icon(source, icon_size()).into_element() }
+            }));
             view()
                 .on_context_menu(move |_: &ContextMenuEvent| {
                     if let Some(Some(key)) = read(ui, |b| b.model.spaces.get(ix).map(|s| (s.private, s.space.id))) {
@@ -886,22 +895,25 @@ fn space_bar(ui: Ui) -> View {
                 .child(button)
         },
     );
+    let strip_ref = element_ref();
+    let shown = computed(move || (strip.get(), ui.snap.with(|s| s.spaces.iter().position(|x| x.current))));
+    let reveal = move |animated| {
+        if let Some(x) = shown.get().0.scroll {
+            strip_ref.scroll_to(nsh_core::Point::new(Points(x), Points(0.)), animated);
+        }
+    };
+    effect(move || reveal(true));
     view()
         .flex_row()
         .items_center()
         .min_h(px(40.))
         .py(px(6.))
         .px_1()
-        .child(view().flex_row().flex_none().w(px(2. * SPACE_BUTTON)).child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::Library))))
-        .child(view().flex_row().flex_wrap().flex_1().items_center().justify_center().gap(px(2.)).child(spaces))
-        .child(
-            view()
-                .flex_row()
-                .flex_none()
-                .w(px(2. * SPACE_BUTTON))
-                .child(icon_button(icons::PLUS, "New Space", move || show(ui, Panel::NewSpace)))
-                .child(icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings))),
-        )
+        .child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::Library)))
+        .child(scroll().horizontal().element_ref(&strip_ref).flex_1().min_w(px(0.)).child(
+            view().flex_row().flex_grow(1.).items_center().justify_center().gap(px(2.)).on_layout(move |_: &Bounds<Points>| reveal(false)).child(spaces),
+        ))
+        .child(icon_button(icons::PLUS, "New Space", move || show(ui, Panel::NewSpace)).text_color(Theme::faint()))
 }
 
 fn downloads_button(ui: Ui) -> AnyElement {
@@ -983,7 +995,9 @@ fn new_tab_row(ui: Ui) -> View {
 }
 
 fn sidebar(ui: Ui) -> View {
-    let header = view().flex_row().items_center().gap_1().h(px(TOOLBAR_HEIGHT - 8.)).pl_1().child(space_switcher(ui)).child(downloads_button(ui));
+    let settings = icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings));
+    let header =
+        view().flex_row().items_center().gap_1().h(px(TOOLBAR_HEIGHT - 8.)).pl_1().child(space_switcher(ui)).child(downloads_button(ui)).child(settings);
     let list = view()
         .flex_col()
         .gap(px(2.))
@@ -1004,17 +1018,22 @@ fn sidebar(ui: Ui) -> View {
         .border_color(Theme::sidebar_edge())
         .shadow(Theme::elevation(10., 30.))
         .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Sidebar))
-        .on_wheel(move |e: &WheelEvent| {
-            if let WheelDelta::Points(p) = e.delta {
-                let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swiped(p.x.0, p.y.0, std::time::Instant::now()));
-                if let Some(step) = step {
-                    animate_next(SLIDE);
-                    act(ui, |b| b.swipe_to(step));
-                }
-            }
-        })
         .child(header)
-        .child(scroll().flex_1().child(list))
+        .child(
+            view()
+                .flex_1()
+                .min_h(px(0.))
+                .on_wheel(move |e: &WheelEvent| {
+                    if let WheelDelta::Points(p) = e.delta {
+                        let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swiped(p.x.0, p.y.0, std::time::Instant::now()));
+                        if let Some(step) = step {
+                            animate_next(SLIDE);
+                            act(ui, |b| b.swipe_to(step));
+                        }
+                    }
+                })
+                .child(scroll().flex_1().child(list)),
+        )
         .child(space_bar(ui))
 }
 

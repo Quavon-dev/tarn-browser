@@ -542,6 +542,7 @@ pub fn run() {
     engine::menu::disable_saved_application_state();
     // macOS hands links from other apps to the default browser as an event, also at a cold launch.
     let (urls, mut opened) = futures::channel::mpsc::unbounded();
+    std::thread::spawn(|| std::sync::LazyLock::force(&content::MARK_IMAGE));
     let app = Application::new().with_assets(ui::icon::Assets);
     #[cfg(windows)]
     let links = urls.clone();

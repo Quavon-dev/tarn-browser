@@ -33,7 +33,7 @@ pub fn for_profile(b: &Browser) -> Option<Card> {
 }
 
 /// `text` loads the system fonts once, which takes a moment; the ridges have no text.
-fn rasterize(svg: &str, width: u32, text: bool) -> Option<Pixmap> {
+pub(crate) fn rasterize(svg: &str, width: u32, text: bool) -> Option<Pixmap> {
     static FONTS: LazyLock<Arc<resvg::usvg::fontdb::Database>> = LazyLock::new(|| {
         let mut db = resvg::usvg::fontdb::Database::new();
         db.load_system_fonts();

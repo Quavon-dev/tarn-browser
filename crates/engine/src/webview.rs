@@ -71,6 +71,7 @@ impl Host {
         // SAFETY: an AppKit window handle points to a live NSView owned by the window, and we
         // are on the main thread. Retaining it keeps it alive for as long as the Host exists.
         let view = unsafe { Retained::retain(handle.ns_view.as_ptr().cast::<NSView>()) }?;
+        crate::menu::keep_caret_keys_standard();
         Some(Host { view })
     }
 

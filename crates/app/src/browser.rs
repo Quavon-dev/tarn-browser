@@ -391,6 +391,8 @@ pub struct Browser {
     pub(crate) ghost: crate::tear_off::Ghosting,
     pub shortcuts_open: bool,
     pub(crate) shortcuts_scroll: gpui::ScrollHandle,
+    pub(crate) space_strip_scroll: gpui::ScrollHandle,
+    pub(crate) space_strip_shown: std::cell::Cell<Option<(usize, usize, i32)>>,
     pub reader: Option<crate::reader::Reader>,
     pub reader_layout: crate::reader::Layout,
     /// This window's row; its engine is the window engine.
@@ -572,6 +574,8 @@ impl Browser {
             ghost: Default::default(),
             shortcuts_open: false,
             shortcuts_scroll: gpui::ScrollHandle::new(),
+            space_strip_scroll: gpui::ScrollHandle::new(),
+            space_strip_shown: Default::default(),
             reader: None,
             reader_layout: Default::default(),
             saved,

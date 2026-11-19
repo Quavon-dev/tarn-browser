@@ -932,25 +932,42 @@ fn header(bar: Bar) -> View {
         .pr(px(TILE_GAP))
         .child(switcher(bar))
         .child(downloads_button(bar.ui))
+        .child(glyph_button(glyphs::GEAR, "Settings", Placement::Bottom, move || bar.ui.toggle(Screen::Settings)))
 }
 
-fn space_buttons(ui: Ui) -> AnyElement {
-    each(
-        move || {
-            ui.read(|s| {
-                s.spaces()
-                    .into_iter()
-                    .filter_map(|item| {
-                        let space = s.model.spaces.get(item.ix)?;
-                        let glyph = if item.burner { glyphs::FLAME } else { glyphs::space_icon(&space.space.icon) };
-                        Some((item.ix, item.name, glyph, item.private, space.space.color.clone(), item.ix == s.model.space_ix))
-                    })
-                    .collect::<Vec<_>>()
+const SPACE_BAR: bar::SpaceBar = bar::SpaceBar { width: WIDTH - 22. - 2. * BUTTON, icon: BUTTON, gap: 2. };
+
+type SpaceButton = (usize, String, &'static str, bool, String, bool, bool);
+
+fn space_strip(ui: Ui) -> Memo<bar::SpaceStrip> {
+    computed(move || {
+        ui.read_data(|s| {
+            let items = s.spaces();
+            SPACE_BAR.strip(items.len(), items.iter().position(|i| i.ix == s.model.space_ix).unwrap_or(0))
+        })
+    })
+}
+
+fn space_list(ui: Ui, compact: bool) -> Vec<SpaceButton> {
+    ui.read(|s| {
+        s.spaces()
+            .into_iter()
+            .filter_map(|item| {
+                let space = s.model.spaces.get(item.ix)?;
+                let glyph = if item.burner { glyphs::FLAME } else { glyphs::space_icon(&space.space.icon) };
+                let current = item.ix == s.model.space_ix;
+                Some((item.ix, item.name, glyph, item.private, space.space.color.clone(), current, compact && !current))
             })
-        },
-        |s: &(usize, String, &'static str, bool, String, bool)| s.clone(),
+            .collect()
+    })
+}
+
+fn space_buttons(ui: Ui, strip: Memo<bar::SpaceStrip>) -> AnyElement {
+    each(
+        move || space_list(ui, strip.get().compact),
+        |s: &SpaceButton| s.clone(),
         move |space, _| {
-            let (ix, name, glyph, private, color, current) = space.get_untracked();
+            let (ix, name, glyph, private, color, current, dot) = space.get_untracked();
             let tint = space_tint(&color, private);
             let color = match (current, private, tint) {
                 (true, true, _) => Theme::warning(),
@@ -958,10 +975,11 @@ fn space_buttons(ui: Ui) -> AnyElement {
                 (false, _, Some(tint)) => Rgba { a: 0.45, ..tint },
                 (false, _, None) => Theme::faint(),
             };
+            let face = if dot { view().w(px(6.)).h(px(6.)).rounded(px(3.)).bg(color).into_element() } else { glyphs::icon(glyph, GLYPH).into_element() };
             button()
                 .accessibility_label(name.clone())
                 .on_press(move || act(ui, |s| s.choose_space(ix, browser_core::now())))
-                .w(px(BUTTON))
+                .w(px(if dot { bar::SPACE_DOT } else { BUTTON }))
                 .h(px(BUTTON))
                 .flex_none()
                 .items_center()
@@ -971,16 +989,21 @@ fn space_buttons(ui: Ui) -> AnyElement {
                 .hover(|s| s.bg(Theme::hover()))
                 .active(|s| s.bg(Theme::pressed()))
                 .text_color(color)
-                .child(view().size_full().items_center().justify_center().tooltip(tip(&name, Placement::Top)).child(glyphs::icon(glyph, GLYPH)))
+                .child(view().size_full().items_center().justify_center().tooltip(tip(&name, Placement::Top)).child(face))
         },
     )
 }
 
-fn side() -> View {
-    view().flex_row().flex_none().gap(px(2.)).w(px(2. * BUTTON + 2.))
-}
-
 fn footer(ui: Ui) -> View {
+    let strip = space_strip(ui);
+    let strip_ref = element_ref();
+    let shown = computed(move || (strip.get(), ui.read_data(|s| s.model.space_ix)));
+    let reveal = move |animated| {
+        if let Some(x) = shown.get().0.scroll {
+            strip_ref.scroll_to(Point::new(Points(x), Points(0.)), animated);
+        }
+    };
+    effect(move || reveal(true));
     view()
         .flex_row()
         .items_center()
@@ -989,25 +1012,30 @@ fn footer(ui: Ui) -> View {
         .flex_none()
         .px_2()
         .child(
-            side().child(
-                glyph_button(glyphs::LIBRARY, "Library", Placement::Top, move || ui.toggle(Screen::History))
-                    .bg(move || if ui.screen.get() == Screen::History { Theme::selected() } else { Theme::clear() }),
+            glyph_button(glyphs::LIBRARY, "Library", Placement::Top, move || ui.toggle(Screen::History))
+                .bg(move || if ui.screen.get() == Screen::History { Theme::selected() } else { Theme::clear() }),
+        )
+        .child(
+            scroll().horizontal().element_ref(&strip_ref).flex_1().min_w(px(0.)).child(
+                view()
+                    .flex_row()
+                    .flex_grow(1.)
+                    .items_center()
+                    .justify_center()
+                    .gap(px(2.))
+                    .on_layout(move |_: &Bounds<Points>| reveal(false))
+                    .child(space_buttons(ui, strip)),
             ),
         )
-        .child(scroll().horizontal().flex_1().min_w(px(0.)).child(view().flex_row().flex_grow(1.).justify_center().gap(px(2.)).child(space_buttons(ui))))
-        .child(
-            side()
-                .justify_end()
-                .child(when(
-                    move || ui.read_data(|s| s.can_add_space()),
-                    move || {
-                        glyph_button(glyphs::PLUS, "New Space", Placement::Top, move || ui.toggle(Screen::SpaceNew))
-                            .element_ref(&ui.popovers.new_space)
-                            .bg(move || if ui.screen.get() == Screen::SpaceNew { Theme::selected() } else { Theme::clear() })
-                    },
-                ))
-                .child(glyph_button(glyphs::GEAR, "Settings", Placement::Top, move || ui.toggle(Screen::Settings))),
-        )
+        .child(view().w(px(BUTTON)).h(px(BUTTON)).flex_none().child(when(
+            move || ui.read_data(|s| s.can_add_space()),
+            move || {
+                glyph_button(glyphs::PLUS, "New Space", Placement::Top, move || ui.toggle(Screen::SpaceNew))
+                    .element_ref(&ui.popovers.new_space)
+                    .text_color(Theme::faint())
+                    .bg(move || if ui.screen.get() == Screen::SpaceNew { Theme::selected() } else { Theme::clear() })
+            },
+        )))
 }
 
 fn background(ui: Ui) -> AnyElement {

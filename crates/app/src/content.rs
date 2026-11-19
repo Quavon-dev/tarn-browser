@@ -1,8 +1,9 @@
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Context, Focusable, FontWeight, HighlightStyle, InteractiveElement, IntoElement, ParentElement, Rgba, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, StyledText, Window, canvas, div, img, prelude::FluentBuilder, px, relative,
+    AnyElement, AssetSource, Context, Focusable, FontWeight, HighlightStyle, InteractiveElement, IntoElement, ParentElement, RenderImage, Rgba, SharedString,
+    Stateful, StatefulInteractiveElement, Styled, StyledText, Window, canvas, div, img, prelude::FluentBuilder, px, relative,
 };
 use ui::controls::{button, field, icon_button, list_row, secure_button, secure_ghost_button, secure_surface, surface, tab_stop, tooltip};
 use ui::icon::{ICON_MEDIUM, ICON_SMALL, Icon, MARK, icon};
@@ -558,6 +559,22 @@ pub fn suggestion_rows(b: &Browser) -> Vec<Stateful<gpui::Div>> {
         .collect()
 }
 
+pub(crate) static MARK_IMAGE: LazyLock<Option<Arc<RenderImage>>> = LazyLock::new(|| {
+    let svg = ui::icon::Assets.load(MARK).ok()??;
+    let pixmap = crate::shield_card::rasterize(std::str::from_utf8(&svg).ok()?, 192, false)?;
+    let (width, height) = (pixmap.width(), pixmap.height());
+    let mut bgra = pixmap.take();
+    for p in bgra.as_chunks_mut::<4>().0 {
+        if let a @ 1..=254 = p[3] {
+            for c in &mut p[..3] {
+                *c = (u16::from(*c) * 255 / u16::from(a)).min(255) as u8;
+            }
+        }
+        p.swap(0, 2);
+    }
+    Some(Arc::new(RenderImage::new([image::Frame::new(image::RgbaImage::from_raw(width, height, bgra)?)])))
+});
+
 fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
     let typing = b.command_mode.is_some() && !b.inline_editing();
     let input: AnyElement =
@@ -684,7 +701,7 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .px_4()
         .pb_4()
         .gap_7()
-        .child(img(MARK).w(px(64.)).h(px(64.)).flex_none())
+        .child(MARK_IMAGE.clone().map_or_else(|| img(MARK), img).w(px(64.)).h(px(64.)).flex_none())
         .child(pop_in(
             div().relative().w(px(680.)).max_w_full().min_h_0().flex().flex_col().child(b.search_fx.clone()).child(card.occlude()),
             ("start-card", typing as usize),
@@ -881,4 +898,10 @@ impl gpui::Render for SearchFx {
                 .child(underlay),
         }
     }
+}
+
+#[test]
+fn the_start_page_mark_is_drawn_ready() {
+    let mark = MARK_IMAGE.as_ref().expect("the bundled mark rasterizes");
+    assert_eq!(mark.size(0), gpui::size(gpui::DevicePixels(192), gpui::DevicePixels(192)));
 }
