@@ -10,6 +10,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 - The Dock menu (the taskbar jump list on Windows) offers New Private Window and New Burner Window
   (macOS, Windows).
+- Search shortcuts: with Settings › Search › Search shortcuts on (off by default), `!yt cats` or
+  `cats !yt` searches YouTube instead of your search engine; 83 shortcuts such as `!g`, `!w`, `!gh`,
+  `!a` and `!gm`. The suggestion row names the site. On every client.
 
 ### Changed
 

@@ -1,5 +1,6 @@
 use browser_core::command::ENGINES;
 use browser_core::layout::Layout;
+use browser_core::settings::{SEARCH_SHORTCUTS, SEARCH_SHORTCUTS_NOTE};
 use browser_core::tabs::TabKey;
 use nsh_base::{alert_dialog, button, input};
 use nsh_core::keymap::When;
@@ -662,7 +663,15 @@ pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 s.set_setting_on(crate::scripts::HISTORY_TEXT, !on)
             })
         }))))
-        .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1()),
+        .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1())
+        .child(section("Shortcuts"))
+        .child(framed(group().child(switch_row("Search shortcuts", move || ui.read_data(|s| s.search_shortcuts()), move || {
+            ui.act(|s| {
+                let on = s.search_shortcuts();
+                s.set_setting_on(SEARCH_SHORTCUTS, !on)
+            })
+        }))))
+        .child(caption(SEARCH_SHORTCUTS_NOTE).number_of_lines(0).px_1()),
         Pane::Privacy => body
             .child(section("Filter lists"))
         .child(framed(group().child(FILTER_SWITCHES.iter().map(|(key, name, _)| {

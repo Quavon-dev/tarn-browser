@@ -223,6 +223,23 @@ fn page_world_platforms_run_no_script_a_page_did_not_ask_for() {
 }
 
 #[test]
+fn search_shortcuts_are_off_until_switched_on_and_work_in_private_spaces() {
+    let (_dir, mut shell) = open();
+    let shown = |shell: &TestShell| shell.active_page().map(|p| p.url.clone());
+    assert!(!shell.search_shortcuts());
+    shell.navigate_typed("!yt cats");
+    assert_eq!(shown(&shell).as_deref(), Some("https://duckduckgo.com/?q=%21yt+cats"));
+    shell.set_setting_on(browser_core::settings::SEARCH_SHORTCUTS, true);
+    shell.navigate("notes !yt");
+    assert_eq!(shown(&shell).as_deref(), Some("https://duckduckgo.com/?q=notes+%21yt"), "bookmark and history rows ignore shortcuts");
+    shell.navigate_typed("!yt cats");
+    assert_eq!(shown(&shell).as_deref(), Some("https://www.youtube.com/results?search_query=cats"));
+    shell.enter_private();
+    shell.navigate_typed("cats !w");
+    assert_eq!(shown(&shell).as_deref(), Some("https://en.wikipedia.org/w/index.php?search=cats"));
+}
+
+#[test]
 fn page_text_is_kept_only_when_switched_on_and_never_in_private_spaces() {
     let (_dir, mut shell) = open();
     let effects = visit(&mut shell, "https://a.test/", "A");

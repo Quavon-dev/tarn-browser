@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use browser_core::command::{ENGINES, Input, address, classify_input};
+use browser_core::command::{ENGINES, Input, address, classify_input, search_engine};
 use browser_core::palette::{self, Command, Row, State, listing};
 use browser_core::shortcuts;
 use browser_core::suggest::step_selection;
@@ -350,7 +350,7 @@ fn go(ui: Ui, text: String) {
     ui.fresh.set(None);
     ui.editing.set(false);
     dismiss_keyboard();
-    ui.act(|s| s.navigate(&text));
+    ui.act(|s| s.navigate_typed(&text));
 }
 
 fn submit(ui: Ui, text: String, completed: Option<(String, String)>) {
@@ -410,12 +410,12 @@ fn input_row(ui: Ui, completed: Signal<Option<(String, String)>>) -> impl IntoEl
             return None;
         }
         let text = typed_target(ui.address.get(), completed.get());
-        let engine = &ENGINES[ui.read(|s| s.search_engine())];
-        let (name, note, glyph, rejected) = match classify_input(&text, engine) {
+        let (engine, shortcuts) = ui.read(|s| (&ENGINES[s.search_engine()], s.search_shortcuts()));
+        let (name, note, glyph, rejected) = match classify_input(&text, engine, shortcuts) {
             Some(Input::Navigate(u)) => (u.to_string(), "Open".to_owned(), glyphs::GLOBE, false),
             Some(Input::External(u)) => (u.to_string(), format!("Open in another app ({})", u.scheme()), glyphs::EXTERNAL_LINK, false),
             Some(Input::Rejected) => (text.clone(), "This kind of address cannot be opened".to_owned(), glyphs::TRIANGLE_ALERT, true),
-            _ => (text.clone(), format!("Search {}", engine.name), glyphs::SEARCH, false),
+            _ => (text.clone(), format!("Search {}", search_engine(&text, engine, shortcuts).name), glyphs::SEARCH, false),
         };
         Some(
             row(name.clone(), move || go(ui, typed_target(ui.address.get_untracked(), completed.get_untracked())))

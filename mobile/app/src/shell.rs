@@ -418,8 +418,16 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn navigate(&mut self, text: &str) -> Vec<Effect> {
+        self.open_input(text, false)
+    }
+
+    pub fn navigate_typed(&mut self, text: &str) -> Vec<Effect> {
+        self.open_input(text, self.search_shortcuts())
+    }
+
+    fn open_input(&mut self, text: &str, shortcuts: bool) -> Vec<Effect> {
         let engine = &ENGINES[self.search_engine()];
-        let input = match classify_input(text, engine) {
+        let input = match classify_input(text, engine, shortcuts) {
             Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(self.model.profile(), url))),
             input => input,
         };

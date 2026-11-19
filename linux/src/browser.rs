@@ -444,7 +444,7 @@ impl Browser {
         let blank = self.active_page().is_none_or(|p| p.url.is_empty() || p.url == START_URL);
         let new_tab = new_tab && !blank;
         let engine = &ENGINES[input::engine_index(self.core.store(private), private, profile)];
-        let input = match classify_input(text, engine) {
+        let input = match classify_input(text, engine, self.search_shortcuts()) {
             Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(Some((private, profile)), url))),
             input => input,
         };

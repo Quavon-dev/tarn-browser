@@ -3,6 +3,8 @@ use std::time::Duration;
 use store::Store;
 
 pub const SUGGESTIONS: &str = "suggestions";
+pub const SEARCH_SHORTCUTS: &str = "search_shortcuts";
+pub const SEARCH_SHORTCUTS_NOTE: &str = "Type !g, !yt, !w, !gh, !a and others before or after your words to search that site instead of your search engine.";
 pub const LIVE_TABS_KEY: &str = "live_tabs";
 pub const SLEEP_AFTER_KEY: &str = "sleep_after";
 
@@ -25,6 +27,10 @@ pub fn option_index(options: &[&str], stored: Option<&str>) -> Option<usize> {
 /// The stored option of `key` among `options`, or `default` when none is stored or it is unknown.
 pub fn choice(store: &Store, key: &str, options: &[&str], default: usize) -> usize {
     option_index(options, store.setting(key).ok().flatten().as_deref()).unwrap_or(default)
+}
+
+pub fn search_shortcuts(store: &Store) -> bool {
+    store.setting(SEARCH_SHORTCUTS).ok().flatten().as_deref() == Some("on")
 }
 
 pub fn sleep_after_options() -> Vec<&'static str> {

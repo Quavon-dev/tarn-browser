@@ -336,6 +336,15 @@ icon) and choose Edit Space… to change its name, colour and icon.
 
 </details>
 
+### Search shortcuts
+
+With Settings › Search › Search shortcuts on (it is off at first), a `!key` before or after your
+words searches that site instead of your search engine: `!yt cats` or `cats !yt`. A shortcut on its
+own opens the site. Common ones: `!g` Google, `!b` Bing, `!ddg` DuckDuckGo, `!yt` YouTube, `!w`
+Wikipedia, `!wa` Wolfram|Alpha, `!gh` GitHub, `!so` Stack Overflow, `!mdn` MDN, `!crates`
+crates.io, `!npm` npm, `!r` Reddit, `!a` Amazon, `!gm` Google Maps, `!gt` Google Translate. The
+full list is `BANGS` in `crates/browser-core/src/command.rs`.
+
 ## Development
 
 Checks per workspace (each runs in its own directory; CI runs all of them):

@@ -65,7 +65,7 @@ const PANES: [(SettingsPane, Icon, &str, &str); 11] = [
         "Tabs",
         "awake sleep memory new tab start page close archive gestures swipe trackpad touchpad drag tear off temporary full window",
     ),
-    (SettingsPane::Search, Icon::Search, "Search", "search engine suggestions history text"),
+    (SettingsPane::Search, Icon::Search, "Search", "search engine suggestions history text shortcuts bangs"),
     (
         SettingsPane::Privacy,
         Icon::Hand,
@@ -1534,6 +1534,7 @@ impl SettingsWindow {
             .child(
                 group()
                     .child(self.pref_row(true, Pref::Suggestions, "Suggest open tabs and history", format!("Shown under the command field while you type. Nothing you type leaves {} before you press {}.", ui::controls::THIS_DEVICE, if cfg!(windows) { "Enter" } else { "Return" }), s.prefs.get(Pref::Suggestions), cx))
+                    .child(self.pref_row(false, Pref::SearchShortcuts, "Search shortcuts", browser_core::settings::SEARCH_SHORTCUTS_NOTE, s.prefs.get(Pref::SearchShortcuts), cx))
                     .child(self.pref_row(false, Pref::HistoryText, "Search the text of visited pages", format!("Keeps up to 4 KB of each page's text on {} so history suggestions match what a page said. Never for the private space or Lockdown pages; cleared with history, and when you turn this off.", ui::controls::THIS_DEVICE), s.prefs.get(Pref::HistoryText), cx)),
             )
             .into_any_element()
