@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.1.4" date="2026-11-20" type="development">
+      <description>
+        <p>Search shortcuts and gentler tab sleep.</p>
+      </description>
+    </release>
     <release version="0.1.3" date="2026-11-19" type="development">
       <description>
         <p>Most macOS features on Linux, Open File, tabs dragged out into a window of their own, a link status bubble, and a full interface and accessibility pass.</p>
