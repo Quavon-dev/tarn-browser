@@ -6,6 +6,25 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Download notices float over the page instead of pushing it down and show only on the tab that was
+  in front when they appeared; a finished download's notice disappears after 5 seconds, while a
+  warning (no quarantine, a file that can run code, a failed download) stays until you dismiss it
+  (macOS, Windows).
+
+### Added
+
+- Settings › Privacy › Passkeys and security keys turns passkey sign-in on or off for sites (on by
+  default) (macOS, WebKit tabs).
+
+### Fixed
+
+- A long toast message wraps to up to three lines inside its card instead of running past the
+  card's edge and hiding its button (macOS, Windows).
+- The download button of the PDF viewer in a WebKit tab saves the PDF to Downloads; it did nothing
+  before (macOS).
+
 ## [0.1.4] - 2026-11-20
 
 ### Added

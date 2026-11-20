@@ -294,6 +294,19 @@ define_class!(
             self.emit(Event::LinkHovered(link.map(|s| s.to_string())));
         }
 
+        /// The download button of WebKit's PDF viewer: saves the document on screen, with no new request.
+        #[unsafe(method(_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:))]
+        fn save_data_to_file(&self, web_view: &WKWebView, data: &NSData, name: &NSString, mime: &NSString, url: Option<&NSURL>) {
+            if mime.to_string().eq_ignore_ascii_case("application/pdf") {
+                // An `<embed>` or `<object>` PDF may report its page's address, so the PDF must be the
+                // main frame's whole document, not only share its address.
+                let known = web_view.respondsToSelector(sel!(_isDisplayingPDF));
+                // SAFETY: `_isDisplayingPDF` (checked above) answers a BOOL for a live web view on the main thread.
+                let whole_page = known && unsafe { msg_send![web_view, _isDisplayingPDF] };
+                self.save_shown_pdf(data, &downloads::pdf_name(&name.to_string()), to_url(url.map(|u| u.retain())).filter(|_| whole_page));
+            }
+        }
+
         #[unsafe(method(openLinkInSplitView:))]
         fn open_link_in_split_view(&self, sender: &NSMenuItem) {
             let Some(item) = sender.representedObject().and_then(|o| o.downcast::<NSMenuItem>().ok()) else { return };
@@ -915,6 +928,46 @@ impl Delegate {
         self.emit(Event::Prompt(Prompt { origin, top_origin, insecure: false, message, kind, reply: Some(reply), suppress }));
     }
 
+    /// Saves the PDF the main frame shows, under the same per-tab limit as a downloaded file and the
+    /// malware-list prompt for its host.
+    fn save_shown_pdf(&self, data: &NSData, name: &str, origin: Option<Url>) {
+        let state = self.ivars();
+        let without_fragment = |u: &Url| {
+            let mut u = u.clone();
+            u.set_fragment(None);
+            u
+        };
+        let page = state.committed_url.borrow().clone();
+        // Downloads come from the main frame only (S11); a PDF in a frame is not the page.
+        if origin.is_none() || origin.as_ref().map(without_fragment) != page.as_ref().map(without_fragment) {
+            self.emit(Event::DownloadFailed { id: None, message: "Only a PDF shown as the page itself can be saved.".into() });
+            return;
+        }
+        if !within_burst(&state.recent_downloads, DOWNLOAD_BURST) {
+            self.emit(Event::DownloadFailed { id: None, message: "Too many downloads from this page; blocked.".into() });
+            return;
+        }
+        let bytes = data.to_vec();
+        let page = page.filter(|u| matches!(u.scheme(), "http" | "https" | "file"));
+        // A blob: or data: page is judged by the last real origin it came from.
+        let judged = page.clone().or_else(|| state.web_origin.borrow().as_deref().and_then(|o| Url::parse(o).ok()));
+        let downloads = state.downloads.clone();
+        let Some(from) = downloads::flagged_source([judged], &*state.site_for) else {
+            downloads.save_bytes(name, &bytes, page);
+            return;
+        };
+        let pending = RefCell::new(Some((downloads, name.to_owned(), bytes, page)));
+        self.ask_to_keep(
+            &from,
+            name,
+            RcBlock::new(move |keep: Bool| {
+                if let Some((downloads, name, bytes, page)) = pending.take().filter(|_| keep.as_bool()) {
+                    downloads.save_bytes(&name, &bytes, page);
+                }
+            }),
+        );
+    }
+
     fn adopt_download(&self, download: &WKDownload) {
         let state = self.ivars();
         if !within_burst(&state.recent_downloads, DOWNLOAD_BURST) {
@@ -1055,19 +1108,10 @@ impl DownloadDelegate {
     }
 
     fn save(&self, download: &WKDownload, url: Option<Url>, name: &str, source: Option<DownloadSource>, handler: &DynBlock<dyn Fn(*mut NSURL)>) {
-        let Some(home) = std::env::home_dir() else {
+        let Some(path) = self.reserve(name) else {
             handler.call((std::ptr::null_mut(),));
-            (self.ivars().sink)(Event::DownloadFailed { id: None, message: "Tarn could not find the Downloads folder.".into() });
             return;
         };
-        let downloads_dir = home.join("Downloads");
-        let sorted = self.ivars().sort.get().then(|| downloads::folder_for(name)).flatten().and_then(|f| downloads::sorted_dir(&downloads_dir, f));
-        let dir = sorted.unwrap_or(downloads_dir);
-        let path = RESERVED.with_borrow_mut(|reserved| {
-            let path = downloads::free_path(&dir, name, |p| reserved.contains(p));
-            reserved.insert(path.clone());
-            path
-        });
         let ns_url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
         let id = self.ivars().next_id.get();
         self.ivars().next_id.set(id + 1);
@@ -1088,6 +1132,45 @@ impl DownloadDelegate {
         handler.call((Retained::as_ptr(&ns_url).cast_mut(),));
         (self.ivars().sink)(event);
         self.report_active();
+    }
+
+    /// A free path in Downloads (or its subfolder for the type) held until the caller releases it.
+    fn reserve(&self, name: &str) -> Option<PathBuf> {
+        let Some(home) = std::env::home_dir() else {
+            (self.ivars().sink)(Event::DownloadFailed { id: None, message: "Tarn could not find the Downloads folder.".into() });
+            return None;
+        };
+        let downloads_dir = home.join("Downloads");
+        let sorted = self.ivars().sort.get().then(|| downloads::folder_for(name)).flatten().and_then(|f| downloads::sorted_dir(&downloads_dir, f));
+        let dir = sorted.unwrap_or(downloads_dir);
+        Some(RESERVED.with_borrow_mut(|reserved| {
+            let path = downloads::free_path(&dir, name, |p| reserved.contains(p));
+            reserved.insert(path.clone());
+            path
+        }))
+    }
+
+    /// Writes a file the page already holds, quarantined as a download from `from`.
+    fn save_bytes(&self, name: &str, bytes: &[u8], from: Option<Url>) {
+        let Some(path) = self.reserve(name) else { return };
+        let started = SystemTime::now();
+        let written = std::fs::OpenOptions::new().write(true).create_new(true).open(&path).and_then(|mut f| std::io::Write::write_all(&mut f, bytes));
+        RESERVED.with_borrow_mut(|r| r.remove(&path));
+        let event = match written {
+            Ok(()) => {
+                let id = self.ivars().next_id.get();
+                self.ivars().next_id.set(id + 1);
+                let quarantined = quarantine(&path, from.as_ref());
+                Event::DownloadFinished { id, url: from, path, started, quarantined }
+            }
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::AlreadyExists {
+                    std::fs::remove_file(&path).ok();
+                }
+                Event::DownloadFailed { id: None, message: format!("Tarn could not save {name}: {e}") }
+            }
+        };
+        (self.ivars().sink)(event);
     }
 
     fn take(&self, download: &WKDownload) -> Option<ActiveDownload> {

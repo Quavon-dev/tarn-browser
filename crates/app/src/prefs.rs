@@ -31,10 +31,11 @@ pub enum Pref {
     HistoryText,
     SortDownloads,
     LocalhostFromApps,
+    Passkeys,
 }
 
 impl Pref {
-    pub const ALL: [Pref; 23] = [
+    pub const ALL: [Pref; 24] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
@@ -58,6 +59,7 @@ impl Pref {
         Pref::HistoryText,
         Pref::SortDownloads,
         Pref::LocalhostFromApps,
+        Pref::Passkeys,
     ];
 
     pub(crate) fn key(self) -> &'static str {
@@ -85,6 +87,7 @@ impl Pref {
             Pref::HistoryText => "history_text",
             Pref::SortDownloads => "sort_downloads",
             Pref::LocalhostFromApps => browser_core::incoming::LOCALHOST_FROM_APPS,
+            Pref::Passkeys => browser_core::settings::PASSKEYS,
         }
     }
 
@@ -104,6 +107,7 @@ impl Pref {
                 | Pref::UpdateChecks
                 | Pref::ExtensionsEverySite
                 | Pref::LocalhostFromApps
+                | Pref::Passkeys
         )
     }
 
@@ -242,8 +246,10 @@ impl Browser {
             if pref == Pref::Gestures {
                 #[cfg(windows)]
                 engine::set_swipe_navigation(on);
-                self.apply_gestures();
-                crate::shared::others(cx, |b, _, _| b.apply_gestures());
+            }
+            if matches!(pref, Pref::Gestures | Pref::Passkeys) {
+                self.apply_view_prefs();
+                crate::shared::others(cx, |b, _, _| b.apply_view_prefs());
             }
             if let (Pref::UpdateChecks, Some(updater)) = (pref, &self.core.updater) {
                 updater.set_automatic(on);
@@ -383,6 +389,9 @@ fn prefs_default_and_roundtrip() {
     assert!(prefs.get(Pref::BlockAds) && prefs.get(Pref::BlockMalware) && prefs.get(Pref::YouTubeAds) && !prefs.get(Pref::BlockAdult));
     assert!(prefs.get(Pref::UpdateChecks) && !prefs.get(Pref::HistoryText) && !prefs.get(Pref::SortDownloads));
     assert!(!prefs.get(Pref::ExtensionsBitwarden) && !prefs.get(Pref::SearchShortcuts));
+    assert_eq!(prefs.get(Pref::Passkeys), browser_core::settings::passkeys(&store), "the switch is the setting every client reads");
+    store.set_setting(Pref::Passkeys.key(), "off").unwrap();
+    assert!(!Prefs::load(&store).get(Pref::Passkeys) && !browser_core::settings::passkeys(&store));
     store.set_setting(Pref::Gestures.key(), "off").unwrap();
     store.set_setting(Pref::CompactToolbar.key(), "on").unwrap();
     let prefs = Prefs::load(&store);

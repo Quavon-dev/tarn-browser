@@ -69,6 +69,9 @@ impl WebView {
         self.view.set_gestures(on);
     }
 
+    /// Chromium keeps its own WebAuthn: CEF has no per-view switch for it (docs/port-backlog.md).
+    pub fn set_passkeys(&self, _on: bool) {}
+
     pub fn set_visible(&self, visible: bool) {
         self.view.set_visible(visible);
     }

@@ -763,11 +763,16 @@ impl Browser {
         self.switch_space(next, window, cx);
     }
 
-    pub(crate) fn apply_gestures(&self) {
-        let on = self.pref(Pref::Gestures);
-        for view in self.views.values() {
-            view.set_gestures(on);
+    pub(crate) fn apply_view_prefs(&self) {
+        self.views.values().for_each(|view| self.view_prefs(view));
+        if let Some(peek) = &self.link_peek.view {
+            peek.set_passkeys(self.pref(Pref::Passkeys));
         }
+    }
+
+    pub(crate) fn view_prefs(&self, view: &engine::WebView) {
+        view.set_gestures(self.pref(Pref::Gestures));
+        view.set_passkeys(self.pref(Pref::Passkeys));
     }
 
     /// The mouse's back and forward buttons, which web views ignore.
