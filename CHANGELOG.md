@@ -25,6 +25,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- With two windows open, moving the pointer to the left edge slides in the hidden sidebar only in
+  the focused window, not in every window behind it (macOS, Windows).
 - Library rows no longer squeeze titles down to a few letters: the rename, delete and remove buttons
   take the host's place only under the pointer or on the selected row.
 

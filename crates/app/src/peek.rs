@@ -86,7 +86,7 @@ impl Browser {
         if !self.peek_enabled() {
             return;
         }
-        if !self.peek.hover.open && !engine::app_active() {
+        if !self.peek.hover.open && !(engine::app_active() && window.is_window_active()) {
             self.peek.hover.closed();
             self.peek.timer = None;
             return;
@@ -126,6 +126,9 @@ impl Browser {
 
     /// The card's window spans from the main window's left edge, so the card slides in from it.
     fn open_peek(&mut self, cx: &mut Context<Self>) {
+        if cx.active_window().map(|w| w.window_id()) != self.peek.main.map(|m| m.window_id()) {
+            return self.peek.hover.closed();
+        }
         let Some((main, display)) = self.peek.origin.filter(|_| self.peek_enabled() && self.peek.window.is_none()) else { return };
         let bounds = Bounds::new(
             point(main.origin.x, main.origin.y + px(CARD_TOP)),
