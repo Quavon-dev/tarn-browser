@@ -885,5 +885,8 @@ menu, and a finger pan on a row would take the list's scrolling; a touch user pi
 from the menu. A pan reports only its start and end, so no insertion line follows the pointer while
 dragging, as it does on macOS.
 
-Signing and store submission are manual maintainer steps (`docs/release.md`, "Store submission"). Not in
-scope until there is an account to do it with: the iOS default-browser entitlement.
+Stable full releases dispatch protected iOS and Android store jobs (`docs/release.md`, "Store submission").
+They verify release checksums and tag/commit attestations before signing, then upload to TestFlight and
+the Play internal track (draft until Play setup is complete). Nightlies and macOS-only releases do not
+enter store jobs; no store credentials reach builds. Public store submission and the iOS
+default-browser entitlement approval remain maintainer steps.

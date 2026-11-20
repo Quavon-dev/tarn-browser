@@ -27,9 +27,9 @@ feeds ("Signing in CI") and publishes a GitHub release with:
 - `Tarn-<tag>-ios-unsigned.zip` (`nsh package --target ios`, built with Xcode 26.3 and the iOS 26 SDK; the bundle
   carries `PrivacyInfo.xcprivacy` from `mobile/ios` and the toolchain's `DT*` Info.plist keys),
   `Tarn-<tag>-android-unsigned.apk` (`assembleRelease`, for sideloading) and
-  `Tarn-<tag>-android-unsigned.aab` (`bundleRelease`, for Google Play): unsigned, because store
-  signing keys never enter CI; the maintainer signs and submits them ("Store submission"), which
-  only Quavon UG (haftungsbeschränkt) may do for the app stores (`LICENSE-APP-STORE.md`).
+  `Tarn-<tag>-android-unsigned.aab` (`bundleRelease`, for Google Play): unsigned build outputs. Protected store jobs sign and upload the iOS bundle and Android AAB
+  after verification ("Store submission"); the APK remains unsigned. Only Quavon UG
+  (haftungsbeschränkt) may submit them to the app stores (`LICENSE-APP-STORE.md`).
 - CycloneDX SBOMs, one per client, each listing the crates built into it for that client's target
   (`cargo cyclonedx`): `Tarn-<tag>.cdx.json` (macOS app, plus the embedded Sparkle framework and
   CEF), `Tarn-<tag>-windows-x64.cdx.json` (`crates/app-dll`, plus CEF), `Tarn-<tag>-linux.cdx.json`
@@ -285,45 +285,109 @@ each Chromium update, since the staleness gate also closes Chromium by its age.
 `windows` CI job) checks the Ed25519 verification against RFC 8032's test vectors and the feed
 format.
 
-## Store submission (maintainer)
+## Store submission (protected CI)
 
-The signing keys, the provisioning profile and the store accounts stay on the maintainer's machine.
-Download the release's `ios` and `android` files with `SHA256SUMS`, and sign nothing that fails the
-checksum and attestation check in `SECURITY.md` ("Verifying a release") or names a tag other than
-the one you mean (the release tag, or `nightly`).
-The stores refuse a build number they already have, and nightly builds keep the last release's
-(`build` in `mobile/app/nsh.json`, `versionCode` in `mobile/android/host/build.gradle.kts`), so a
-nightly goes to TestFlight or the internal testing track only from a commit that raised both; once
-the current `version` is approved on the App Store, TestFlight also needs a higher `version` (and
-`versionName` to match).
+`mobile-store.yml` signs published stable releases for TestFlight and Google Play internal testing.
+It runs only by `workflow_dispatch` on `main`, never on a release tag, pull request or nightly.
+After a full release is published, `release.yml` dispatches it explicitly: GitHub suppresses release
+webhooks created with `GITHUB_TOKEN`. `release-published.yml` also dispatches for releases published
+outside that workflow, only when both mobile assets and `SHA256SUMS` exist. macOS-only releases
+and nightly builds never start store uploads. This implements automatic testing uploads only.
+Public App Store submission and Google Play production publishing require a separate configured
+review/listing/production workflow after the first store tests succeed.
 
-iOS (`Tarn.app` holds `Info.plist`, `Tarn`, `Assets.car`, the `AppIcon*.png` files and the `nsh/`
-assets, no nested code):
+Each platform enters its own protected environment and checks out the dispatch's exact `main`
+commit, with credentials persistence disabled. Before any signing secret is placed in a step's
+process environment, `scripts/mobile-store.py` downloads that platform's unsigned artifact and
+`SHA256SUMS` from the published release. Both must have valid GitHub attestations from
+`release.yml`, on GitHub-hosted runners, with a signer identity at `main` or that release tag.
+The certificate's source digest must match the resolved release commit, and the verified custom
+predicate must name the requested tag and that commit; the artifact must also match the attested
+checksum file. Drafts, prereleases, moving tags and
+releases without both mobile files fail closed. Only the trusted script from `main` executes;
+no build tools, dependency installers or released code run in either credential job.
 
-```sh
-unzip Tarn-<tag>-ios-unsigned.zip
-cp Tarn.mobileprovision Tarn.app/embedded.mobileprovision
-security cms -D -i Tarn.mobileprovision | plutil -extract Entitlements xml1 -o entitlements.plist -
-codesign --force --sign "Apple Distribution: <team>" --entitlements entitlements.plist Tarn.app
-mkdir Payload && cp -R Tarn.app Payload/
-ditto -c -k --keepParent Payload Tarn.ipa
-xcrun altool --upload-app -t ios -f Tarn.ipa --apiKey <key id> --apiIssuer <issuer id>
-```
-
-Transporter uploads the same `Tarn.ipa`. The default-browser entitlement needs Apple's approval and
-goes into the profile before the entitlements are extracted.
-
-Android (Play App Signing; the key below is the upload key, Google holds the app signing key):
+The stores refuse a build number they already have (`build` in `mobile/app/nsh.json`,
+`versionCode` in `mobile/android/host/build.gradle.kts`). Raise both for every uploaded release.
+Once the current `version` is approved on the App Store, TestFlight also needs a higher `version`
+(and Android `versionName` must match). Rerunning a successful upload is not idempotent: the stores
+reject an existing build number. After one platform fails, retry only it:
 
 ```sh
-jarsigner -keystore upload.jks -signedjar Tarn-<tag>-android.aab Tarn-<tag>-android-unsigned.aab upload
-apksigner sign --ks sideload.jks --out Tarn-<tag>-android.apk Tarn-<tag>-android-unsigned.apk
+gh workflow run mobile-store.yml --ref main -f tag=vX.Y.Z -f platform=ios
+# platform can also be android or both
 ```
 
-Upload the signed `.aab` to the internal testing track in the Play Console. The sideload `.apk` gets
-its own key, never the upload key, so a Play upload-key reset does not strand sideload users; it is
-signed outside `SHA256SUMS` and the attestation, so the key's certificate fingerprint goes into
-`SECURITY.md` before the first signed APK is published.
+### iOS: TestFlight
+
+The `ios-store` environment holds base64 `IOS_DISTRIBUTION_P12` and
+`IOS_PROVISIONING_PROFILE`, the P12's `IOS_DISTRIBUTION_PASSWORD`, and raw P8 `ASC_API_KEY`.
+Environment variables `ASC_KEY_ID` and `ASC_ISSUER_ID` identify the App Store Connect team API key.
+The configured app is `de.quavon.tarn`, App Store Connect app `6835617312`, Apple team `CFV35FGSHF`.
+The dedicated team API key `Tarn GitHub Releases` uses App Manager rather than Admin. Apple team
+API keys apply to every app on the team and cannot be restricted to Tarn; the approved `ios-store`
+environment and trusted workflow are the boundary around that wider credential.
+
+The job validates an unexpired App Store distribution profile with the exact team and app
+identifier, no debug entitlement and no development/ad-hoc device list. It rejects ZIP traversal,
+links and nested code (Tarn's bundle currently has no frameworks or extensions), caps extraction at
+1 GiB and 20,000 ZIP entries, checks the bundle
+version against the release tag, and checks that the imported Apple Distribution certificate is
+one the profile permits. Before secrets are exposed, the job downloads Apple's public
+[WWDR G3 intermediate](https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer), verifies
+SHA-256 `dcf21878c77f4198e4b4614f03d696d89c66c66008d4244e1b99161aac91601f`, and later imports it
+into the temporary signing keychain alongside the leaf certificate/private key. It checks that the
+leaf issuer matches G3 and requires a valid code-signing identity rather than relying on P12 import
+success. Apple [identifies G3 as the Apple Distribution intermediate](https://developer.apple.com/help/account/certificates/wwdr-intermediate-certificates/);
+its availability is explicit rather than dependent on a runner image's Xcode initialization. `codesign` signs
+only the verified bundle with the profile's entitlements; `altool` validates and uploads the IPA.
+Apple processes the upload for TestFlight; this does not submit it for public App Store review or
+configure tester groups. The default-browser entitlement needs Apple's approval and a matching
+profile before signing. Temporary keychains, profiles, keys and bundles are deleted on exit and
+in an `always()` cleanup step; nothing signed is uploaded as a GitHub artifact.
+
+### Android: Play internal testing
+
+The `android-store` environment holds base64 `ANDROID_UPLOAD_KEYSTORE`,
+`ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS` and `ANDROID_UPLOAD_KEY_PASSWORD`.
+This is the Play upload key; Google Play App Signing retains the separate app signing key.
+`jarsigner` signs only the attested AAB and verifies its signature. The sideload APK is never signed
+or uploaded by this workflow. A future sideload release must use its own key, whose certificate
+fingerprint belongs in `SECURITY.md` before publication.
+
+Google authentication uses GitHub OIDC through the official `google-github-actions/auth` action,
+pinned to v3.0.0 commit `7c6bc770dae815cd3e89ee6cdf493a5fab2cc093` (Apache-2.0). This action is
+needed to exchange GitHub's identity for a short-lived Google OAuth token without a stored
+service-account key or custom cryptography. No credentials file is created. Environment variables
+`GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT` select the provider and account.
+The provider must restrict tokens to this repository's immutable repository/owner IDs, `main`,
+the `android-store` environment subject, and the exact
+`Quavon-dev/tarn-browser/.github/workflows/mobile-store.yml@refs/heads/main` workflow identity.
+Grant the repository identity `roles/iam.workloadIdentityUser` on that service account, enable the
+Android Publisher API and IAM Credentials API, and invite the service-account email in Play Console
+with access only to Tarn and testing releases. No production publishing permission is required.
+
+The standard-library uploader creates an edit, uploads the AAB, compares Play's returned SHA-256
+with the signed file, sets only the `internal` track, validates and commits the edit. The commit
+explicitly requests `changesInReviewBehavior=ERROR_IF_IN_REVIEW`, so an existing review causes failure instead of being
+cancelled. It also requests `changesNotSentForReview=true`, which Google documents as deferring
+review after rejection. That parameter is not a general guarantee that no review will be needed.
+Unsupported or rejected parameters fail the upload; the workflow never retries with those guards
+removed. Complete any required review in Play Console. A failed edit is discarded when possible;
+it otherwise expires. API errors report their HTTP status without printing account response bodies
+or tokens. `PLAY_RELEASE_STATUS` defaults to `draft`, which works
+with an app still being set up and leaves the release unpublished. Once the app's required Play
+Console setup and first release are complete, a maintainer can set it to `completed` to distribute
+to internal testers when Google permits the release. Google may still require a review or Console
+action for an internal release; a successful upload does not mean public store publication.
+The workflow never targets production or explicitly submits a public release.
+If Google requires the initial bundle/release to be uploaded in Play Console before API access,
+complete that bootstrap there, then use a release with a higher version code.
+
+Reference: [Apple build uploads](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds),
+[Google federation action](https://github.com/google-github-actions/auth),
+[Play tracks](https://developers.google.com/android-publisher/tracks) and
+[Play edit commit](https://developers.google.com/android-publisher/api-ref/rest/v3/edits/commit).
 
 ## Repository settings (maintainer)
 
@@ -396,12 +460,19 @@ Applied by hand in the repository and organisation settings; no workflow changes
       that outside accounts can start (pull requests, issues, comments) runs on anything but
       `ubuntu-24.04`, `macos-15` or `windows-2025`, so a self-hosted label such as `ubuntu-fast` is refused too.
 
+- [ ] `ios-store` and `android-store` environments: only `main` may deploy; require a maintainer's
+      approval and disable administrator bypass. The store workflow checks the same branch and
+      repository before entering a job. Store secrets belong only to the corresponding environment.
+- [ ] Google WIF provider and Play service-account permissions follow "Store submission"; verify the
+      repository/owner IDs, subject, branch and workflow identity conditions before granting access.
+
 ## Secrets and credentials
 
 - **Stored** only as secrets of the GitHub environments named above (`release-signing`,
   `nightly-signing`, `chromium-update`, `filter-signing`) and of `linux-repo` and `aur`
   (`linux-repo.yml`), never as repository secrets, in the repository, in workflow files or in logs.
-  Store signing keys (iOS, Android) never enter CI.
+  Mobile store keys live only in the separate `ios-store` and `android-store` environments;
+  build, release assembly and nightly jobs hold none of them.
 - **Accessed** only by the one job that needs each one: `sign` for the Apple and notary credentials
   and the update key (`SPARKLE_ED_PRIVATE_KEY`, which signs both the Sparkle feed and the Windows
   feed); the `open` and `tag` jobs of `chromium-update.yml` and `sign` for the update app key; the signing job
