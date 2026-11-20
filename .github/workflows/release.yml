@@ -857,3 +857,9 @@ jobs:
             echo "::notice::$highest now carries the Windows feed of $best (Windows $best_version)"
           fi
           gh workflow run linux-repo.yml --ref main
+      - name: Start mobile store uploads
+        if: ${{ !inputs.nightly && (github.event_name == 'push' && inputs.commit == '' || inputs.full) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run mobile-store.yml --ref main -f tag="$TAG" -f platform=both
