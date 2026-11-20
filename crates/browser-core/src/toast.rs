@@ -21,6 +21,17 @@ pub fn closed(group: bool, count: usize) -> String {
     }
 }
 
+/// The toast for a download that ended: `Ok((quarantined, executable))` or the failure message.
+/// `mark` names what flags a downloaded file on the platform.
+pub fn download(name: &str, result: Result<(bool, bool), &str>, mark: &str) -> (Tone, String) {
+    match result {
+        Ok((false, _)) => (Tone::Warning, format!("Downloaded “{name}”, but {mark} could not be set. Do not open it unless you trust it.")),
+        Ok((true, true)) => (Tone::Warning, format!("Downloaded “{name}”. This file type can run code; open it only if you trust the site.")),
+        Ok((true, false)) => (Tone::Success, format!("Downloaded “{name}”")),
+        Err(message) => (Tone::Warning, format!("Download failed: {message}")),
+    }
+}
+
 /// Adds a notice to those waiting, the first of which shows: a warning waits until dismissed,
 /// while a harmless notice gives way to the next one.
 pub fn push_notice<T>(queue: &mut Vec<T>, notice: T, warns: impl Fn(&T) -> bool) {
@@ -44,6 +55,15 @@ mod tests {
         assert_eq!(queue, ["!unquarantined", "saved c"]);
         push_notice(&mut queue, "!failed", warns);
         assert_eq!(queue, ["!unquarantined", "!failed"]);
+    }
+
+    #[test]
+    fn a_download_warns_when_unmarked_runnable_or_failed() {
+        assert_eq!(download("a.pdf", Ok((true, false)), "macOS quarantine"), (Tone::Success, "Downloaded “a.pdf”".into()));
+        assert_eq!(download("a.pdf", Ok((false, false)), "macOS quarantine").0, Tone::Warning);
+        assert!(download("a.pdf", Ok((false, false)), "the mark of the web").1.contains("the mark of the web could not be set"));
+        assert!(download("a.app", Ok((true, true)), "macOS quarantine").1.contains("can run code"));
+        assert_eq!(download("a.pdf", Err("disk full"), "macOS quarantine"), (Tone::Warning, "Download failed: disk full".into()));
     }
 
     #[test]

@@ -21,6 +21,22 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Download notices float over the page (2026-11-20)
+
+What it does: a finished or failed download (and a saved screenshot or PDF) shows a toast over the
+page instead of a banner that moves it, only while the tab that was in front is active; a finished
+download's toast disappears after 5 seconds, a warning stays until dismissed and nothing replaces it.
+Toasts about downloads keep the security colours (S29).
+Shared API: `browser_core::toast::download`.
+Reference: `crates/app/src/browser.rs` (`notify_download`), `crates/app/src/toast.rs` (`show_tab_toast`,
+`secure_card`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `linux/src/browser/pages.rs` (`on_download`) shows no notice for a finished download; add a
+  tab toast with `browser_core::toast::download`
+- [ ] iOS — `mobile/app` `download_notices` / `notice`: an overlay bound to the tab, 5 s unless it warns
+- [ ] Android — the same in `mobile/app`
+
 ### Passkeys and security keys switch (2026-11-20)
 
 What it does: Settings › Privacy › Passkeys and security keys (on by default) turns WebAuthn sign-in

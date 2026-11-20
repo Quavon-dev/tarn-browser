@@ -489,6 +489,7 @@ mod tests {
             (include_str!("content.rs"), ["fn floating(", "fn banner(", "fn prompt_card(", "fn start_shield("].as_slice()),
             (include_str!("blocking.rs"), ["pub fn render_blocked("].as_slice()),
             (include_str!("link_peek.rs"), ["fn peek_origin("].as_slice()),
+            (include_str!("toast.rs"), ["fn secure_card("].as_slice()),
             (include_str!("settings/appearance.rs"), ["fn badge_line("].as_slice()),
         ];
         let mut checked = 0;
