@@ -6,6 +6,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-20
+
 ### Added
 
 - The Dock menu (the taskbar jump list on Windows) offers New Private Window and New Burner Window
@@ -22,13 +24,14 @@ All notable changes to Tarn are documented in this file. The format is based on
 - A background tab with form input you typed no longer sleeps on its own, and a tab that sleeps
   scrolls back to where you left it when it wakes (macOS, Windows; not under
   Lockdown, which runs no script on the page).
+- Chromium tabs run on Chromium 156.0.8078.100 (CEF 156.0.31) (macOS, Windows).
 
 ### Fixed
 
 - With two windows open, moving the pointer to the left edge slides in the hidden sidebar only in
   the focused window, not in every window behind it (macOS, Windows).
 - Library rows no longer squeeze titles down to a few letters: the rename, delete and remove buttons
-  take the host's place only under the pointer or on the selected row.
+  take the host's place only under the pointer or on the selected row (macOS, Windows).
 
 ## [0.1.3] - 2026-11-19
 
@@ -619,7 +622,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - One address field for URLs, search, open tabs and app actions, with configurable shortcuts.
 - Split View, link peek, tab groups, pinned tabs that remember their page and sleeping tabs.
 
-[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/Quavon-dev/tarn-browser/releases/tag/v0.1.0
