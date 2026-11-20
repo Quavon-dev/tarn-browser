@@ -610,6 +610,12 @@ impl WebView {
         }
     }
 
+    /// Downloads the document on screen when it is a PDF WebKit shows inline, so the user keeps
+    /// the original file rather than a re-rendered copy; false for any other page.
+    pub fn download_pdf(&self) -> bool {
+        self._delegate.download_pdf(&self.view)
+    }
+
     /// Moves the largest playing video (else the largest video) into Picture in Picture, or back
     /// out of it. WebKit treats the shell's script as a user gesture. `done` receives "pip",
     /// "exit", "none" or "refused".

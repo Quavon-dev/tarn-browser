@@ -27,6 +27,9 @@ impl Browser {
     /// Downloads and listed in the tab's own profile store (in memory for private spaces).
     pub fn capture(&mut self, screenshot: bool, cx: &mut Context<Self>) {
         let (Some(key), Some(view)) = (self.model.active, self.active_view()) else { return };
+        if !screenshot && view.download_pdf() {
+            return;
+        }
         let Some(profile_id) = self.profile_of(key) else { return };
         let page = (profile_id, self.tab_url(key).unwrap_or_default(), self.page_title(key));
         let (tx, mut rx) = mpsc::unbounded();

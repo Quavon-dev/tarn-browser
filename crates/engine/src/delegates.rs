@@ -16,7 +16,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{
     NSArray, NSData, NSDictionary, NSError, NSHTTPURLResponse, NSObject, NSProgressReporting, NSRect, NSString, NSTimer, NSURL, NSURLAuthenticationChallenge,
-    NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLCredential, NSURLProtectionSpace, NSURLQuarantinePropertiesKey,
+    NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLCredential, NSURLProtectionSpace, NSURLQuarantinePropertiesKey, NSURLRequest,
     NSURLResponse, NSURLSessionAuthChallengeDisposition,
 };
 use objc2_web_kit::{
@@ -122,6 +122,9 @@ pub(crate) struct DelegateState {
     pub committed_origin: RefCell<Option<String>>,
     /// URL of the page on screen: set on commit and on same-document changes.
     pub committed_url: RefCell<Option<Url>>,
+    /// The main-frame response in flight, then the page on screen, is a PDF WebKit shows inline.
+    pub pdf_response: Cell<bool>,
+    pub showing_pdf: Cell<bool>,
     /// The origin of the last page with one: `about:blank` and other origin-less pages keep it,
     /// so they cannot launder a public page's navigation to a private address (S10).
     pub web_origin: RefCell<Option<String>>,
@@ -161,6 +164,8 @@ impl DelegateState {
             silenced: Rc::default(),
             committed_origin: RefCell::default(),
             committed_url: RefCell::default(),
+            pdf_response: Cell::new(false),
+            showing_pdf: Cell::new(false),
             web_origin: RefCell::default(),
             last_title: RefCell::default(),
             after_commit: RefCell::default(),
@@ -292,6 +297,12 @@ define_class!(
             let link: Option<Retained<NSURL>> = hit.and_then(|h| unsafe { msg_send![h, absoluteLinkURL] });
             let link = link.and_then(|u| u.absoluteString()).map(|s| if s.length() > crate::view_policy::MAX_HOVERED_LINK { s.substringToIndex(crate::view_policy::MAX_HOVERED_LINK) } else { s });
             self.emit(Event::LinkHovered(link.map(|s| s.to_string())));
+        }
+
+        /// The download button of WebKit's PDF viewer.
+        #[unsafe(method(_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:))]
+        fn save_data_to_file(&self, web_view: &WKWebView, _data: &NSData, _name: &NSString, _mime: &NSString, _url: Option<&NSURL>) {
+            self.download_pdf(web_view);
         }
 
         #[unsafe(method(openLinkInSplitView:))]
@@ -521,6 +532,11 @@ define_class!(
             let (main, download) = unsafe {
                 (response.isForMainFrame(), !response.canShowMIMEType() || is_attachment(&response.response()))
             };
+            if main {
+                // SAFETY: reading the MIME type of the live response.
+                let mime = unsafe { response.response() }.MIMEType();
+                self.ivars().pdf_response.set(!download && mime.is_some_and(|m| m.to_string().eq_ignore_ascii_case("application/pdf")));
+            }
             let policy = match (download, main && self.ivars().main_initiated.get()) {
                 (false, _) => WKNavigationResponsePolicy::Allow,
                 (true, true) => WKNavigationResponsePolicy::Download,
@@ -609,6 +625,7 @@ define_class!(
         #[unsafe(method(webView:didCommitNavigation:))]
         fn did_commit(&self, web_view: &WKWebView, navigation: Option<&WKNavigation>) {
             self.settle(navigation);
+            self.ivars().showing_pdf.set(self.ivars().pdf_response.replace(false));
             self.ivars().silenced.set(false);
             self.ivars().user_navigation.set(false);
             self.ivars().history_step.take();
@@ -915,6 +932,22 @@ impl Delegate {
         self.emit(Event::Prompt(Prompt { origin, top_origin, insecure: false, message, kind, reply: Some(reply), suppress }));
     }
 
+    /// Downloads the document on screen when it is a PDF WebKit shows inline, so the user keeps the
+    /// original file through the usual download checks; false for any other page.
+    pub(crate) fn download_pdf(&self, web_view: &WKWebView) -> bool {
+        let state = self.ivars();
+        // A blob, data or POST-only PDF cannot be fetched again; Save Page as PDF then renders it.
+        let url = state.committed_url.borrow().clone().filter(|u| state.showing_pdf.get() && matches!(u.scheme(), "http" | "https" | "file"));
+        let Some(ns_url) = url.and_then(|url| NSURL::URLWithString(&NSString::from_str(url.as_str()))) else { return false };
+        let request = NSURLRequest::requestWithURL(&ns_url);
+        let this = self.retain();
+        // SAFETY: WebKit hands the completion a live download on the main thread.
+        let handler = RcBlock::new(move |download: std::ptr::NonNull<WKDownload>| this.adopt_download(unsafe { download.as_ref() }));
+        // SAFETY: main-thread call with a valid request; WebKit copies the block.
+        unsafe { web_view.startDownloadUsingRequest_completionHandler(&request, &handler) };
+        true
+    }
+
     fn adopt_download(&self, download: &WKDownload) {
         let state = self.ivars();
         if !within_burst(&state.recent_downloads, DOWNLOAD_BURST) {
@@ -944,6 +977,7 @@ impl Delegate {
     }
 
     fn failed(&self, web_view: &WKWebView, error: &NSError) {
+        self.ivars().pdf_response.set(false);
         self.ivars().user_navigation.set(false);
         self.ivars().history_step.take();
         // SAFETY: main-thread access to a live web view.

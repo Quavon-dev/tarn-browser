@@ -170,6 +170,11 @@ impl WebView {
         self.view.pdf(done);
     }
 
+    /// Chromium's PDF viewer has its own download button.
+    pub fn download_pdf(&self) -> bool {
+        false
+    }
+
     pub fn picture_in_picture(&self, done: impl Fn(String) + 'static) {
         self.view.picture_in_picture(done);
     }
