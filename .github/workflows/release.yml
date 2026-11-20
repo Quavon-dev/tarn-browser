@@ -262,8 +262,32 @@ jobs:
           # mobile/app/nsh.json's MinimumOSVersion; without it Rust links for iOS 10, which lacks
           # ___chkstk_darwin that the C dependencies (built for the SDK's iOS) call.
           IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+          # App Store Connect takes only builds made with the iOS 26 SDK or later; macos-15 defaults to Xcode 16.
+          DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
         run: |
           (cd mobile/app && nsh package --target ios -o "$RUNNER_TEMP/ios")
+          app="$RUNNER_TEMP/ios/Tarn.app"
+          cp mobile/ios/PrivacyInfo.xcprivacy "$app/"
+          xcode="$(xcodebuild -version)"
+          read -r major minor patch <<< "$(sed -n 's/^Xcode \([0-9]*\)\.\([0-9]*\)\.\{0,1\}\([0-9]*\)$/\1 \2 \3/p' <<< "$xcode")"
+          xcode_build="$(sed -n 's/^Build version //p' <<< "$xcode")"
+          sdk="$(xcrun --sdk iphoneos --show-sdk-version)"
+          sdk_build="$(xcrun --sdk iphoneos --show-sdk-build-version)"
+          [[ -n "$major" && -n "$xcode_build" && -n "$sdk_build" && "${sdk%%.*}" -ge 26 ]] || { echo "unexpected toolchain: $xcode, SDK $sdk" >&2; exit 1; }
+          vtool -show-build "$app/Tarn" | grep -q "sdk ${sdk}$" || { echo "Tarn was not linked against the iOS $sdk SDK" >&2; exit 1; }
+          while IFS='|' read -r key value; do
+            /usr/libexec/PlistBuddy -c "Add :$key string $value" "$app/Info.plist"
+          done <<EOF
+          DTPlatformName|iphoneos
+          DTPlatformVersion|$sdk
+          DTPlatformBuild|$sdk_build
+          DTSDKName|iphoneos$sdk
+          DTSDKBuild|$sdk_build
+          DTXcode|$(printf '%02d%d%d' "$major" "$minor" "${patch:-0}")
+          DTXcodeBuild|$xcode_build
+          DTCompiler|com.apple.compilers.llvm.clang.1_0
+          BuildMachineOSBuild|$(sw_vers -buildVersion)
+          EOF
           mkdir "$RUNNER_TEMP/out-ios"
           ditto -c -k --keepParent "$RUNNER_TEMP/ios/Tarn.app" "$RUNNER_TEMP/out-ios/Tarn-${TAG}-ios-unsigned.zip"
       - id: ios
@@ -276,7 +300,7 @@ jobs:
   android:
     if: (github.event_name == 'push' && inputs.commit == '' || inputs.nightly || inputs.full) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
     outputs:
-      apk: ${{ steps.android.outputs.artifact-id }}
+      android: ${{ steps.android.outputs.artifact-id }}
       sbom: ${{ steps.android-sbom.outputs.artifact-id }}
     runs-on: ubuntu-24.04
     permissions:
@@ -306,9 +330,10 @@ jobs:
           echo "$RUNNER_TEMP/nsh/bin" >> "$GITHUB_PATH"
       - name: Android (unsigned)
         run: |
-          GRADLE_TASK=assembleRelease mobile/android/build.sh
+          GRADLE_TASK="assembleRelease bundleRelease" mobile/android/build.sh
           mkdir "$RUNNER_TEMP/out-android"
           cp mobile/android/host/build/outputs/apk/release/*.apk "$RUNNER_TEMP/out-android/Tarn-${TAG}-android-unsigned.apk"
+          cp mobile/android/host/build/outputs/bundle/release/*.aab "$RUNNER_TEMP/out-android/Tarn-${TAG}-android-unsigned.aab"
       - id: android
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -593,7 +618,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: github.event_name == 'push' && inputs.commit == '' || inputs.nightly || inputs.full
         with:
-          artifact-ids: ${{ needs.android.outputs.apk }}
+          artifact-ids: ${{ needs.android.outputs.android }}
           path: artifacts/android
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -635,7 +660,7 @@ jobs:
             take linux "tarn_${version}_debian*_amd64.deb" "tarn_${version}_ubuntu*_amd64.deb" \
               "tarn-${version}-*.x86_64.rpm" "tarn-${version}-*-x86_64.pkg.tar.zst"
             take ios "Tarn-${TAG}-ios-unsigned.zip"
-            take android "Tarn-${TAG}-android-unsigned.apk"
+            take android "Tarn-${TAG}-android-unsigned.apk" "Tarn-${TAG}-android-unsigned.aab"
             take android-sbom "Tarn-${TAG}-android-java.cdx.json"
           fi
           cd dist && sha256sum ./* > SHA256SUMS
@@ -655,6 +680,7 @@ jobs:
             dist/*.rpm
             dist/*.pkg.tar.zst
             dist/*.apk
+            dist/*.aab
             dist/*.cdx.json
             dist/SHA256SUMS
           predicate-type: https://github.com/Quavon-dev/tarn-browser/attestations/release/v1

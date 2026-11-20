@@ -24,20 +24,22 @@ feeds ("Signing in CI") and publishes a GitHub release with:
   users install and the updater downloads. `windows-update.json` and `.sig`, the signed Windows feed.
 - `tarn_<version>_<distribution>_amd64.deb` (Debian, Ubuntu), the Fedora `.rpm` and the Arch
   `.pkg.tar.zst`, each built in a clean container by `linux/packaging/build-all.sh`.
-- `Tarn-<tag>-ios-unsigned.zip` (`nsh package --target ios`) and
-  `Tarn-<tag>-android-unsigned.apk` (`assembleRelease`): unsigned, because store signing keys
-  never enter CI; the maintainer signs and submits them, which only Quavon UG
-  (haftungsbeschränkt) may do for the app stores (`LICENSE-APP-STORE.md`).
+- `Tarn-<tag>-ios-unsigned.zip` (`nsh package --target ios`, built with Xcode 26.3 and the iOS 26 SDK; the bundle
+  carries `PrivacyInfo.xcprivacy` from `mobile/ios` and the toolchain's `DT*` Info.plist keys),
+  `Tarn-<tag>-android-unsigned.apk` (`assembleRelease`, for sideloading) and
+  `Tarn-<tag>-android-unsigned.aab` (`bundleRelease`, for Google Play): unsigned, because store
+  signing keys never enter CI; the maintainer signs and submits them ("Store submission"), which
+  only Quavon UG (haftungsbeschränkt) may do for the app stores (`LICENSE-APP-STORE.md`).
 - CycloneDX SBOMs, one per client, each listing the crates built into it for that client's target
   (`cargo cyclonedx`): `Tarn-<tag>.cdx.json` (macOS app, plus the embedded Sparkle framework and
   CEF), `Tarn-<tag>-windows-x64.cdx.json` (`crates/app-dll`, plus CEF), `Tarn-<tag>-linux.cdx.json`
   (the `linux/` workspace; WebKitGTK and the other system libraries come from the distribution or
   runtime), `Tarn-<tag>-ios.cdx.json` and `Tarn-<tag>-android.cdx.json` (`mobile/app`; NSH's own
   platform crates, which `nsh package` adds in its generated workspace, are not listed), and
-  `Tarn-<tag>-android-java.cdx.json`, the APK's Java dependencies from Gradle's
+  `Tarn-<tag>-android-java.cdx.json`, the APK's and AAB's Java dependencies from Gradle's
   `releaseRuntimeClasspath` plus the pinned `nsh-embed-android` classes, written by the CycloneDX
-  Gradle plugin (`-Psbom`) only after the APK is uploaded; the plugin is resolved but not applied in
-  the APK build. A macOS-only release carries the macOS SBOM alone.
+  Gradle plugin (`-Psbom`) only after the APK and AAB are uploaded; the plugin is resolved but not
+  applied in their build. A macOS-only release carries the macOS SBOM alone.
 - `SHA256SUMS` for every file.
 
 Nothing is published until a maintainer approves the run's `release-signing` deployment. Every build
@@ -282,6 +284,46 @@ each Chromium update, since the staleness gate also closes Chromium by its age.
 `scripts/sign-windows.ps1 -Check` checks a release feed by hand; the authority is the client's own verification (`crates/platform/src/updater/windows.rs`). `scripts/sign-windows.test.ps1` (run by the
 `windows` CI job) checks the Ed25519 verification against RFC 8032's test vectors and the feed
 format.
+
+## Store submission (maintainer)
+
+The signing keys, the provisioning profile and the store accounts stay on the maintainer's machine.
+Download the release's `ios` and `android` files with `SHA256SUMS`, and sign nothing that fails the
+checksum and attestation check in `SECURITY.md` ("Verifying a release") or names a tag other than
+the one you mean (the release tag, or `nightly`).
+The stores refuse a build number they already have, and nightly builds keep the last release's
+(`build` in `mobile/app/nsh.json`, `versionCode` in `mobile/android/host/build.gradle.kts`), so a
+nightly goes to TestFlight or the internal testing track only from a commit that raised both; once
+the current `version` is approved on the App Store, TestFlight also needs a higher `version` (and
+`versionName` to match).
+
+iOS (`Tarn.app` holds `Info.plist`, `Tarn`, `Assets.car`, the `AppIcon*.png` files and the `nsh/`
+assets, no nested code):
+
+```sh
+unzip Tarn-<tag>-ios-unsigned.zip
+cp Tarn.mobileprovision Tarn.app/embedded.mobileprovision
+security cms -D -i Tarn.mobileprovision | plutil -extract Entitlements xml1 -o entitlements.plist -
+codesign --force --sign "Apple Distribution: <team>" --entitlements entitlements.plist Tarn.app
+mkdir Payload && cp -R Tarn.app Payload/
+ditto -c -k --keepParent Payload Tarn.ipa
+xcrun altool --upload-app -t ios -f Tarn.ipa --apiKey <key id> --apiIssuer <issuer id>
+```
+
+Transporter uploads the same `Tarn.ipa`. The default-browser entitlement needs Apple's approval and
+goes into the profile before the entitlements are extracted.
+
+Android (Play App Signing; the key below is the upload key, Google holds the app signing key):
+
+```sh
+jarsigner -keystore upload.jks -signedjar Tarn-<tag>-android.aab Tarn-<tag>-android-unsigned.aab upload
+apksigner sign --ks sideload.jks --out Tarn-<tag>-android.apk Tarn-<tag>-android-unsigned.apk
+```
+
+Upload the signed `.aab` to the internal testing track in the Play Console. The sideload `.apk` gets
+its own key, never the upload key, so a Play upload-key reset does not strand sideload users; it is
+signed outside `SHA256SUMS` and the attestation, so the key's certificate fingerprint goes into
+`SECURITY.md` before the first signed APK is published.
 
 ## Repository settings (maintainer)
 

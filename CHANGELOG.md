@@ -6,6 +6,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Releases also carry an unsigned Android App Bundle for Google Play, and the iOS app is built with
+  the iOS 26 SDK and carries a privacy manifest (iOS, Android).
+
 ## [0.1.4] - 2026-11-20
 
 ### Added

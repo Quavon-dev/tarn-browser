@@ -797,7 +797,8 @@ site CSS (S28/S29).
 Not on iOS or Android, a platform gap: the stores decide which build a phone installs, so Settings ›
 General › Nightly builds (macOS and Windows, `docs/release.md` "Update channels") has no counterpart.
 The nightly pre-release carries the unsigned iOS and Android builds for testers; nightlies for phones
-would go through TestFlight and the Play internal testing track, uploaded by hand.
+would go through TestFlight and the Play internal testing track, uploaded by hand from a commit
+that raised the build number (`docs/release.md`, "Store submission").
 
 ## 5. Design
 
@@ -884,5 +885,5 @@ menu, and a finger pan on a row would take the list's scrolling; a touch user pi
 from the menu. A pan reports only its start and end, so no insertion line follows the pointer while
 dragging, as it does on macOS.
 
-Not in scope until there is an account to do it with: device builds needing signing, App Store and Play
-submission, the iOS default-browser entitlement.
+Signing and store submission are manual maintainer steps (`docs/release.md`, "Store submission"). Not in
+scope until there is an account to do it with: the iOS default-browser entitlement.
