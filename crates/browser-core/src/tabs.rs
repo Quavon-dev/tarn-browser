@@ -561,10 +561,11 @@ fn holds(space: &SpaceRef, key: TabKey, profile: Option<Id>) -> bool {
     space.private == key.private && Some(space.space.profile_id) == profile
 }
 
-/// Moves a tab to `engine`; the saved page state belongs to the old engine, so it goes.
-pub fn set_web_engine<D: WebsiteData>(core: &Core<D>, key: TabKey, engine: WebEngine) -> Result<(), store::Error> {
+/// Moves a tab to `engine`, or with `None` lets it follow the default; the saved page state
+/// belongs to the old engine, so it goes.
+pub fn set_web_engine<D: WebsiteData>(core: &Core<D>, key: TabKey, engine: Option<WebEngine>) -> Result<(), store::Error> {
     let store = core.store(key.private);
-    store.set_tab_web_engine(key.id, Some(engine))?;
+    store.set_tab_web_engine(key.id, engine)?;
     store.set_interaction_state(key.id, None)
 }
 
@@ -1219,11 +1220,15 @@ mod tests {
         let space = core.disk.spaces(core.disk.profiles().unwrap()[0].id).unwrap()[0].id;
         let id = core.disk.create_tab(space, TabKind::Ephemeral, None, "https://a.test/", "A").unwrap().id;
         core.disk.set_interaction_state(id, Some(&[7u8][..])).unwrap();
-        set_web_engine(&core, TabKey { private: false, id }, WebEngine::Chromium).unwrap();
+        set_web_engine(&core, TabKey { private: false, id }, Some(WebEngine::Chromium)).unwrap();
+        let other = core.disk.create_tab(space, TabKind::Ephemeral, None, "https://b.test/", "B").unwrap().id;
+        core.disk.set_interaction_state(other, Some(&[7u8][..])).unwrap();
+        set_web_engine(&core, TabKey { private: false, id: other }, None).unwrap();
         drop(core);
         let store = Store::open(dir.path()).unwrap();
         assert_eq!(store.tab(id).unwrap().web_engine, Some(WebEngine::Chromium));
         assert_eq!(store.interaction_state(id).unwrap(), None);
+        assert_eq!((store.tab(other).unwrap().web_engine, store.interaction_state(other).unwrap()), (None, None));
     }
 
     #[test]

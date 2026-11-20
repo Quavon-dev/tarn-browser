@@ -302,7 +302,8 @@ fn engine_badge(b: &Browser, cx: &mut Context<Browser>) -> Option<Stateful<Div>>
         return None;
     }
     let to = b.web_engine_switch(key);
-    let badge = chip_frame("engine", to.is_some()).text_size(px(TEXT_SMALL)).text_color(Secure::muted()).child(crate::tabs::web_engine_name(engine));
+    let color = if to.is_some() { Secure::muted() } else { Secure::faint() };
+    let badge = chip_frame("engine", to.is_some()).text_size(px(TEXT_SMALL)).text_color(color).child(crate::tabs::web_engine_name(engine));
     let Some(to) = to else { return Some(badge) };
     let tip = match to {
         WebEngine::Chromium => crate::shortcuts::tip("Reload in Chromium", &crate::tabs::ReloadInChromium),

@@ -373,13 +373,18 @@ impl Browser {
 
     /// Reopens the tab's page in `engine`; its back list and unsaved input are lost.
     pub fn switch_web_engine(&mut self, key: TabKey, engine: WebEngine, window: &mut Window, cx: &mut Context<Self>) {
-        if self.model.tab(key).is_none() || self.web_engine_switch(key) != Some(engine) {
+        self.reopen_in(key, engine, true, window, cx);
+    }
+
+    /// `switch_web_engine`; without `pin` the tab keeps following the default engine, which must be `engine`.
+    fn reopen_in(&mut self, key: TabKey, engine: WebEngine, pin: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.model.tab(key).is_none() || self.web_engine_switch(key) != Some(engine) || (!pin && self.core.default_web_engine.get() != engine) {
             return;
         }
         if engine == WebEngine::Chromium && !self.google_notice_seen() {
-            return self.show_google_notice(window, cx, move |b, window, cx| b.switch_web_engine(key, engine, window, cx));
+            return self.show_google_notice(window, cx, move |b, window, cx| b.reopen_in(key, engine, pin, window, cx));
         }
-        if browser_core::tabs::set_web_engine(&self.core, key, engine).is_err() {
+        if browser_core::tabs::set_web_engine(&self.core, key, pin.then_some(engine)).is_err() {
             return;
         }
         self.reload_space();
@@ -424,11 +429,9 @@ impl Browser {
     fn offer_reload_in_chromium(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let keys: Vec<TabKey> = self
             .views
-            .iter()
-            .filter(|(k, v)| {
-                !v.is_chromium() && self.model.tab(**k).is_some_and(|t| t.web_engine.is_none()) && self.web_engine_switch(**k) == Some(WebEngine::Chromium)
-            })
-            .map(|(k, _)| *k)
+            .keys()
+            .copied()
+            .filter(|k| self.model.tab(*k).is_some_and(|t| t.web_engine.is_none()) && self.web_engine_switch(*k) == Some(WebEngine::Chromium))
             .collect();
         if keys.is_empty() {
             return;
@@ -442,7 +445,7 @@ impl Browser {
         let answer = window.prompt(PromptLevel::Info, "Reload open tabs in Chromium?", Some(&detail), &["Reload Tabs", "Not Now"], cx);
         cx.spawn_in(window, async move |this, cx| {
             if answer.await == Ok(0) {
-                this.update_in(cx, |b, window, cx| keys.into_iter().for_each(|key| b.switch_web_engine(key, WebEngine::Chromium, window, cx))).ok();
+                this.update_in(cx, |b, window, cx| keys.into_iter().for_each(|key| b.reopen_in(key, WebEngine::Chromium, false, window, cx))).ok();
             }
         })
         .detach();
