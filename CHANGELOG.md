@@ -13,9 +13,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
-- PDFs shown in a WebKit tab can be downloaded: the download button of the PDF viewer and Save Page
-  as PDF now save the original file to Downloads instead of doing nothing or saving a re-rendered
-  copy (macOS).
+- The download button of the PDF viewer in a WebKit tab saves the PDF to Downloads; it did nothing
+  before (macOS).
 
 ## [0.1.4] - 2026-11-20
 

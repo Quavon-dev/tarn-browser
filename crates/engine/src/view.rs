@@ -204,10 +204,6 @@ impl WebView {
         webkit_only!(self, v => v.set_passkeys(on), ())
     }
 
-    pub fn download_pdf(&self) -> bool {
-        webkit_only!(self, v => v.download_pdf(), false)
-    }
-
     pub fn picture_in_picture(&self, done: impl Fn(String) + 'static) {
         webkit_only!(self, v => v.picture_in_picture(done), done("refused".into()))
     }

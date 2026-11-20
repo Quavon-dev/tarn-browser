@@ -147,6 +147,12 @@ pub fn sanitize_filename(suggested: &str) -> String {
     truncate_keeping_extension(&if device { format!("_{name}") } else { name.to_owned() }).trim_end_matches(['.', ' ']).to_owned()
 }
 
+/// The name for a PDF the page shows: sanitised, and always ending in `.pdf`.
+pub fn pdf_name(suggested: &str) -> String {
+    let name = sanitize_filename(suggested);
+    if name.to_ascii_lowercase().ends_with(".pdf") { name } else { sanitize_filename(&format!("{name}.pdf")) }
+}
+
 fn truncate_keeping_extension(name: &str) -> String {
     if name.len() <= MAX_NAME_BYTES {
         return name.to_owned();
@@ -303,7 +309,18 @@ impl<D, R> Transfer<D, R> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+
+    #[test]
+    fn pdf_names_always_end_in_pdf() {
+        assert_eq!(pdf_name("report.pdf"), "report.pdf");
+        assert_eq!(pdf_name("Report.PDF"), "Report.PDF");
+        assert_eq!(pdf_name("../x.command"), "x.command.pdf");
+        assert_eq!(pdf_name(""), "download.pdf");
+        let long = pdf_name(&"a".repeat(400));
+        assert!(long.len() <= MAX_NAME_BYTES && long.ends_with(".pdf"));
+    }
 
     #[cfg(windows)]
     #[test]
