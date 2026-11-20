@@ -296,9 +296,14 @@ define_class!(
 
         /// The download button of WebKit's PDF viewer: saves the document on screen, with no new request.
         #[unsafe(method(_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:))]
-        fn save_data_to_file(&self, _web_view: &WKWebView, data: &NSData, name: &NSString, mime: &NSString, url: Option<&NSURL>) {
+        fn save_data_to_file(&self, web_view: &WKWebView, data: &NSData, name: &NSString, mime: &NSString, url: Option<&NSURL>) {
             if mime.to_string().eq_ignore_ascii_case("application/pdf") {
-                self.save_shown_pdf(data, &downloads::pdf_name(&name.to_string()), to_url(url.map(|u| u.retain())));
+                // An `<embed>` or `<object>` PDF may report its page's address, so the PDF must be the
+                // main frame's whole document, not only share its address.
+                let known = web_view.respondsToSelector(sel!(_isDisplayingPDF));
+                // SAFETY: `_isDisplayingPDF` (checked above) answers a BOOL for a live web view on the main thread.
+                let whole_page = known && unsafe { msg_send![web_view, _isDisplayingPDF] };
+                self.save_shown_pdf(data, &downloads::pdf_name(&name.to_string()), to_url(url.map(|u| u.retain())).filter(|_| whole_page));
             }
         }
 

@@ -25,8 +25,8 @@ pub fn closed(group: bool, count: usize) -> String {
 /// `mark` names what flags a downloaded file on the platform.
 pub fn download(name: &str, result: Result<(bool, bool), &str>, mark: &str) -> (Tone, String) {
     match result {
-        Ok((false, _)) => (Tone::Warning, format!("Downloaded “{name}”, but {mark} could not be set. Do not open it unless you trust it.")),
-        Ok((true, true)) => (Tone::Warning, format!("Downloaded “{name}”. This file type can run code; open it only if you trust the site.")),
+        Ok((false, _)) => (Tone::Warning, format!("Do not open it unless you trust it: {mark} could not be set on “{name}”.")),
+        Ok((true, true)) => (Tone::Warning, format!("This file type can run code; open it only if you trust the site: “{name}”.")),
         Ok((true, false)) => (Tone::Success, format!("Downloaded “{name}”")),
         Err(message) => (Tone::Warning, format!("Download failed: {message}")),
     }
@@ -63,6 +63,11 @@ mod tests {
         assert_eq!(download("a.pdf", Ok((false, false)), "macOS quarantine").0, Tone::Warning);
         assert!(download("a.pdf", Ok((false, false)), "the mark of the web").1.contains("the mark of the web could not be set"));
         assert!(download("a.app", Ok((true, true)), "macOS quarantine").1.contains("can run code"));
+        // The warning comes before the name, so a long name cannot push it past the toast's last line.
+        let long = "x".repeat(120);
+        for warning in [download(&long, Ok((false, false)), "macOS quarantine").1, download(&long, Ok((true, true)), "macOS quarantine").1] {
+            assert!(warning.find("trust").unwrap() < warning.find(&long).unwrap(), "{warning}");
+        }
         assert_eq!(download("a.pdf", Err("disk full"), "macOS quarantine"), (Tone::Warning, "Download failed: disk full".into()));
     }
 

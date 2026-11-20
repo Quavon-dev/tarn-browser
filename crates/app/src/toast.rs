@@ -144,7 +144,7 @@ impl Toasts {
     /// owner's toast without a tab only while the window shows that owner's `space`.
     pub fn live(&self, newest_closed: Option<u64>, active: Option<TabKey>, space: Option<Owner>) -> Option<&Toast> {
         let shown = |t: &&Toast| match t.tab {
-            Some(tab) => active == Some(tab),
+            Some(tab) => active == Some(tab) && t.owner.is_none_or(|owner| space == Some(owner)),
             None => t.owner.is_none_or(|owner| space == Some(owner)),
         };
         let passing = self.current.as_ref().filter(|t| !matches!(t.action, Some(Action::Undo(serial)) if newest_closed != Some(serial)));
@@ -267,7 +267,7 @@ impl Browser {
 
     /// Opens the toast's popup while a toast is live and closes it once none is.
     pub(crate) fn sync_toast(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let gone: Vec<TabKey> = self.toast.held_tabs().into_iter().filter(|key| !self.tab_in_window(*key)).collect();
+        let gone: Vec<TabKey> = self.toast.held_tabs().into_iter().filter(|key| !self.tab_in_window(*key) || crate::shared::live_elsewhere(*key, cx)).collect();
         self.toast.release(&gone);
         let Some((width, lines)) = self.live_toast().map(|t| toast_size(t, window)) else {
             self.toast.hovered = false;
@@ -513,12 +513,12 @@ mod tests {
         let (a, b) = (TabKey { private: false, id: 1 }, TabKey { private: false, id: 2 });
         let mut toasts = Toasts::default();
         toasts.show(Tone::Success, "Downloaded “a.pdf”".into(), None, (Some(a), Some((false, 1))), false);
-        assert!(toasts.live(None, Some(a), None).is_some());
+        assert!(toasts.live(None, Some(a), Some((false, 1))).is_some());
         assert!(toasts.live(None, Some(b), None).is_none() && toasts.live(None, None, None).is_none());
         toasts.forget((false, 2));
-        assert!(toasts.live(None, Some(a), None).is_some(), "another profile's wipe leaves it");
+        assert!(toasts.live(None, Some(a), Some((false, 1))).is_some(), "another profile's wipe leaves it");
         toasts.forget((false, 1));
-        assert!(toasts.live(None, Some(a), None).is_none());
+        assert!(toasts.live(None, Some(a), Some((false, 1))).is_none());
     }
 
     #[test]
@@ -527,11 +527,20 @@ mod tests {
         let mut toasts = Toasts::default();
         let warning = toasts.show(Tone::Warning, "Downloaded “a.app”".into(), Some(Action::Dismiss), (Some(a), Some((false, 1))), true);
         let copied = toasts.show(Tone::Success, "Link copied".into(), None, (None, None), false);
-        assert_eq!(toasts.live(None, Some(a), None).map(|t| t.serial), Some(copied));
+        assert_eq!(toasts.live(None, Some(a), Some((false, 1))).map(|t| t.serial), Some(copied));
         assert!(toasts.fade(copied) && toasts.expire(copied));
         assert!(!toasts.fade(warning) && !toasts.expire(warning), "no timer takes a warning away");
-        assert_eq!(toasts.live(None, Some(a), None).map(|t| t.serial), Some(warning));
-        assert!(toasts.take(warning).is_some() && toasts.live(None, Some(a), None).is_none());
+        assert_eq!(toasts.live(None, Some(a), Some((false, 1))).map(|t| t.serial), Some(warning));
+        assert!(toasts.take(warning).is_some() && toasts.live(None, Some(a), Some((false, 1))).is_none());
+    }
+
+    #[test]
+    fn a_tab_toast_shows_only_in_its_profiles_space() {
+        let a = TabKey { private: false, id: 1 };
+        let mut toasts = Toasts::default();
+        toasts.show(Tone::Success, "Screenshot saved".into(), None, (Some(a), Some((true, 1))), false);
+        assert!(toasts.live(None, Some(a), Some((false, 2))).is_none(), "a private profile's toast never shows over another profile");
+        assert!(toasts.live(None, Some(a), Some((true, 1))).is_some());
     }
 
     #[test]
