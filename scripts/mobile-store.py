@@ -80,7 +80,6 @@ def verify(tag: str, platform: str, destination: Path) -> None:
         verified = json.loads(gh(
             'attestation', 'verify', str(destination / name), '--repo', repo,
             '--deny-self-hosted-runners', '--source-digest', commit,
-            '--signer-workflow', f'{repo}/.github/workflows/release.yml',
             '--cert-identity-regex',
             rf'^https://github\.com/{re.escape(repo)}/\.github/workflows/release\.yml@refs/(heads/main|tags/{re.escape(tag)})$',
             '--predicate-type', PREDICATE, '--format', 'json'))

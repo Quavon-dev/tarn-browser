@@ -111,6 +111,18 @@ class VerificationTests(unittest.TestCase):
                     if args[:2] == ('attestation', 'verify'):
                         self.assertEqual(args[args.index('--source-digest') + 1], 'a' * 40)
                         self.assertIn('--deny-self-hosted-runners', args)
+                        identity_flags = {'--cert-identity', '--cert-identity-regex',
+                                          '--signer-repo', '--signer-workflow'}
+                        self.assertEqual(identity_flags.intersection(args), {'--cert-identity-regex'})
+                        identity = args[args.index('--cert-identity-regex') + 1]
+                        prefix = 'https://github.com/Quavon-dev/tarn-browser/.github/workflows/'
+                        for ref in ('main', tag):
+                            branch = 'heads/main' if ref == 'main' else f'tags/{tag}'
+                            self.assertIsNotNone(store.re.fullmatch(identity, f'{prefix}release.yml@refs/{branch}'))
+                        for other in ('release.yml@refs/heads/untrusted', 'evil.yml@refs/heads/main',
+                                      'release.yml@refs/tags/v9.9.9'):
+                            self.assertIsNone(store.re.fullmatch(identity, prefix + other))
+
                         return store.json.dumps(attestation)
                     self.fail(f'unexpected gh command: {args}')
                 with patch.dict(store.os.environ, {'GH_REPO': 'Quavon-dev/tarn-browser'}):
