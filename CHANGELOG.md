@@ -13,6 +13,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Search shortcuts: with Settings › Search › Search shortcuts on (off by default), `!yt cats` or
   `cats !yt` searches YouTube instead of your search engine; 83 shortcuts such as `!g`, `!w`, `!gh`,
   `!a` and `!gm`. The suggestion row names the site. On every client.
+- Making Chromium the default engine offers to reload the window's open WebKit tabs in Chromium,
+  and a click on the engine name in the address bar reloads the page in the other engine (macOS).
 
 ### Changed
 

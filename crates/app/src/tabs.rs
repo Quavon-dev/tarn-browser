@@ -412,8 +412,40 @@ impl Browser {
         }
         if self.core.disk.set_setting(browser_core::site::DEFAULT_WEB_ENGINE, engine.as_str()).is_ok() {
             self.core.default_web_engine.set(engine);
+            if engine == WebEngine::Chromium {
+                self.offer_reload_in_chromium(window, cx);
+            }
         }
         cx.refresh_windows();
+    }
+
+    /// Asks whether this window's open WebKit pages without an engine of their own move to Chromium;
+    /// sleeping tabs already wake in the default.
+    fn offer_reload_in_chromium(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let keys: Vec<TabKey> = self
+            .views
+            .iter()
+            .filter(|(k, v)| {
+                !v.is_chromium() && self.model.tab(**k).is_some_and(|t| t.web_engine.is_none()) && self.web_engine_switch(**k) == Some(WebEngine::Chromium)
+            })
+            .map(|(k, _)| *k)
+            .collect();
+        if keys.is_empty() {
+            return;
+        }
+        let detail = format!(
+            "{} open {} still in WebKit. Reloading moves {} to Chromium; back history and unsaved input are lost.",
+            keys.len(),
+            if keys.len() == 1 { "tab is" } else { "tabs are" },
+            if keys.len() == 1 { "it" } else { "them" }
+        );
+        let answer = window.prompt(PromptLevel::Info, "Reload open tabs in Chromium?", Some(&detail), &["Reload Tabs", "Not Now"], cx);
+        cx.spawn_in(window, async move |this, cx| {
+            if answer.await == Ok(0) {
+                this.update_in(cx, |b, window, cx| keys.into_iter().for_each(|key| b.switch_web_engine(key, WebEngine::Chromium, window, cx))).ok();
+            }
+        })
+        .detach();
     }
 
     /// A second window whose new tabs are Chromium tabs.
