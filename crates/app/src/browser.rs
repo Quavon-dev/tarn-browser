@@ -842,7 +842,7 @@ impl Browser {
             return None;
         };
         let view = Rc::new(view.rehost(&host, self.sink(key)));
-        view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
+        self.view_prefs(&view);
         self.views.insert(key, view.clone());
         self.pages.insert(key, page);
         self.attach_tarn(key);
@@ -1089,7 +1089,7 @@ impl Browser {
         });
         view.set_corner_radius(page_corner());
         view.set_dark(!ui::theme::Theme::is_light());
-        view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
+        self.view_prefs(&view);
         self.views.insert(key, view.clone());
         self.attach_tarn(key);
         Some(view)
@@ -2653,7 +2653,7 @@ impl Browser {
         };
         view.set_corner_radius(page_corner());
         view.set_dark(!ui::theme::Theme::is_light());
-        view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
+        self.view_prefs(&view);
         self.views.insert(key, Rc::new(view));
         self.attach_tarn(key);
         self.reload_space();

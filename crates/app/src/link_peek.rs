@@ -30,7 +30,7 @@ const SHADOW: f32 = 24.;
 #[derive(Default)]
 pub struct LinkPeek {
     pub(crate) window: Option<WindowHandle<LinkPeekWindow>>,
-    view: Option<Rc<WebView>>,
+    pub(crate) view: Option<Rc<WebView>>,
     host: Option<Host>,
     page: (f64, f64, f64, f64),
     profile: Option<(bool, Id)>,
@@ -139,6 +139,7 @@ impl Browser {
         let view = self.web_view(popup, private, profile_id, url.as_str(), sink)?;
         view.set_corner_radius(page_corner());
         view.set_dark(!ui::theme::Theme::is_light());
+        view.set_passkeys(self.pref(Pref::Passkeys));
         view.set_frame(x, y, w, h);
         view.set_visible(true);
         view.load_link(url, self.link_peek.opener.as_ref());
@@ -203,7 +204,7 @@ impl Browser {
         self.store(private).set_tab_web_engine(tab.id, web_engine).ok();
         let key = TabKey { private, id: tab.id };
         let view = view.rehost(&host, self.sink(key));
-        view.set_gestures(self.pref(Pref::Gestures));
+        self.view_prefs(&view);
         self.views.insert(key, Rc::new(view));
         self.attach_tarn(key);
         self.reload_space();

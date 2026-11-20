@@ -21,6 +21,22 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Passkeys and security keys switch (2026-11-20)
+
+What it does: Settings › Privacy › Passkeys and security keys (on by default) turns WebAuthn sign-in
+on or off for pages; off, `PublicKeyCredential` is gone from pages once they reload.
+Shared API: `browser_core::settings::{PASSKEYS, PASSKEYS_NOTE, passkeys}`; `engine::WebView::set_passkeys`.
+Reference: `crates/app/src/browser/context.rs` (`view_prefs`), `crates/app/src/settings.rs` (Sign-in),
+`crates/engine/src/webview.rs` (`set_passkeys`).
+
+- [ ] Windows and macOS Chromium tabs — CEF has no per-view WebAuthn switch; Chromium's
+  `--disable-blink-features=WebAuth` at CEF start (`crates/engine/src/chromium`), so the switch would
+  take effect after a restart; then show the row on Windows (hidden today) and drop "in WebKit tabs"
+  from `PASSKEYS_NOTE`
+- [ ] Linux — the switch in `linux/src/ui/settings.rs`; WebKitGTK's WebAuthn setting in `linux/src/webview`
+- [ ] iOS — the switch in `mobile/app`; the same `_WKFeature` flags on the `WKWebView` in `mobile/ios`
+- [ ] Android — the switch in `mobile/app`; `WebSettingsCompat.setWebAuthenticationSupport` in `TarnWebView`
+
 ### Typed input keeps a tab awake; sleep keeps the scroll offset (2026-11-19)
 
 What it does: a background tab whose page has form input the user typed is not put to sleep by the

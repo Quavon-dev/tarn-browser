@@ -5,6 +5,9 @@ use store::Store;
 pub const SUGGESTIONS: &str = "suggestions";
 pub const SEARCH_SHORTCUTS: &str = "search_shortcuts";
 pub const SEARCH_SHORTCUTS_NOTE: &str = "Type !g, !yt, !w, !gh, !a and others before or after your words to search that site instead of your search engine.";
+pub const PASSKEYS: &str = "passkeys";
+pub const PASSKEYS_NOTE: &str =
+    "Sites can ask for a passkey or a security key to sign you in. Off hides passkey sign-in from sites in WebKit tabs; open pages follow once they reload.";
 pub const LIVE_TABS_KEY: &str = "live_tabs";
 pub const SLEEP_AFTER_KEY: &str = "sleep_after";
 
@@ -31,6 +34,11 @@ pub fn choice(store: &Store, key: &str, options: &[&str], default: usize) -> usi
 
 pub fn search_shortcuts(store: &Store) -> bool {
     store.setting(SEARCH_SHORTCUTS).ok().flatten().as_deref() == Some("on")
+}
+
+/// Passkey and security-key sign-in (WebAuthn); on unless turned off.
+pub fn passkeys(store: &Store) -> bool {
+    store.setting(PASSKEYS).ok().flatten().as_deref() != Some("off")
 }
 
 pub fn sleep_after_options() -> Vec<&'static str> {
@@ -77,6 +85,9 @@ mod tests {
         store.set_setting(LIVE_TABS_KEY, "16").unwrap();
         store.set_setting(SLEEP_AFTER_KEY, "Never").unwrap();
         assert_eq!((live_tabs(&store), sleep_after(&store)), (16, None));
+        assert!(passkeys(&store), "passkeys are on by default");
+        store.set_setting(PASSKEYS, "off").unwrap();
+        assert!(!passkeys(&store));
         store.set_setting(LIVE_TABS_KEY, "999").unwrap();
         store.set_setting(SLEEP_AFTER_KEY, "1 week").unwrap();
         assert_eq!((live_tabs(&store), sleep_after(&store)), (10, Some(Duration::from_secs(1_800))));

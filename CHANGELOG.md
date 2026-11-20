@@ -6,6 +6,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Settings › Privacy › Passkeys and security keys turns passkey sign-in on or off for sites (on by
+  default) (macOS, WebKit tabs).
+
 ### Fixed
 
 - PDFs shown in a WebKit tab can be downloaded: the download button of the PDF viewer and Save Page

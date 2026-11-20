@@ -199,6 +199,11 @@ impl WebView {
         webkit_only!(self, v => v.pdf(done), done(None))
     }
 
+    /// Chromium tabs keep Chromium's own WebAuthn: CEF has no per-view switch for it.
+    pub fn set_passkeys(&self, on: bool) {
+        webkit_only!(self, v => v.set_passkeys(on), ())
+    }
+
     pub fn download_pdf(&self) -> bool {
         webkit_only!(self, v => v.download_pdf(), false)
     }
