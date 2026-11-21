@@ -7,6 +7,10 @@ pub const POP: Duration = Duration::from_millis(160);
 pub const FADE: Duration = Duration::from_millis(130);
 pub const EXIT: Duration = Duration::from_millis(110);
 pub const SLIDE: Duration = Duration::from_millis(280);
+pub const TAB_IN: Duration = Duration::from_millis(340);
+pub const TAB_OUT: Duration = Duration::from_millis(220);
+pub const SWEEP: f32 = 14.;
+pub const STAGGER: Duration = Duration::from_millis(22);
 /// How soon after a pop-up closed a click on its button does not reopen it: the click that took
 /// the focus from the pop-up has already closed it.
 pub const REOPEN_GUARD: Duration = Duration::from_millis(300);
@@ -27,8 +31,27 @@ pub fn spring(t: f32) -> f32 {
     (curve(t) / curve(1.)).clamp(0., 1.)
 }
 
+/// An underdamped spring: overshoots by about 8%, swings back and settles exactly at 1.
+pub fn bounce(t: f32) -> f32 {
+    let (zeta, omega) = (0.62_f32, 11.5_f32);
+    let damped = omega * (1. - zeta * zeta).sqrt();
+    let curve = |t: f32| 1. - (-zeta * omega * t).exp() * ((damped * t).cos() + zeta * omega / damped * (damped * t).sin());
+    if t >= 1. { 1. } else { curve(t) / curve(1.) }
+}
+
 /// Runs `step` from 0 to 1 on the spring when the element first appears.
 pub fn animate<E: IntoElement + 'static>(
+    element: E,
+    id: impl Into<ElementId>,
+    duration: Duration,
+    reduce: bool,
+    step: impl Fn(E, f32) -> E + 'static,
+) -> AnyElement {
+    animate_linear(element, id, duration, reduce, move |e, t| step(e, spring(t)))
+}
+
+/// Like `animate`, but hands `step` the linear time, so it can ease each property on its own curve.
+pub fn animate_linear<E: IntoElement + 'static>(
     element: E,
     id: impl Into<ElementId>,
     duration: Duration,
@@ -38,7 +61,23 @@ pub fn animate<E: IntoElement + 'static>(
     if reduce {
         return element.into_any_element();
     }
-    element.with_animation(id, Animation::new(duration).with_easing(spring), step).into_any_element()
+    element.with_animation(id, Animation::new(duration), step).into_any_element()
+}
+
+/// Where a part that starts at `from` and ends at `to` (shares of the whole run) stands at `t`.
+pub fn phase(t: f32, from: f32, to: f32) -> f32 {
+    ((t - from) / (to - from)).clamp(0., 1.)
+}
+
+/// The `ix`th row of a list rising into place a little after the one above it.
+pub fn stagger_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<ElementId>, ix: usize, reduce: bool) -> AnyElement {
+    let delay = STAGGER.as_secs_f32() * ix.min(8) as f32;
+    let total = POP.as_secs_f32() * 1.4 + delay;
+    let start = delay / total;
+    animate_linear(element, id, Duration::from_secs_f32(total), reduce, move |e, t| {
+        let p = phase(t, start, 1.);
+        e.opacity(spring(p)).relative().top(px((1. - bounce(p)) * 6.))
+    })
 }
 
 /// Fades in while settling from a few points below; GPUI cannot scale a div, so the rise stands in.
@@ -72,7 +111,7 @@ pub fn fade_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<Elem
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::{progress, spring};
+    use super::{bounce, phase, progress, spring};
 
     #[test]
     fn spring_runs_from_zero_to_one_without_overshoot() {
@@ -81,6 +120,20 @@ mod tests {
         let samples: Vec<f32> = (0..=20).map(|i| spring(i as f32 / 20.)).collect();
         assert!(samples.windows(2).all(|w| w[0] <= w[1]));
         assert!(spring(0.5) > 0.9, "settles early like an ease-out");
+    }
+
+    #[test]
+    fn bounce_overshoots_a_little_then_settles_at_one() {
+        assert_eq!(bounce(0.), 0.);
+        assert_eq!(bounce(1.), 1.);
+        let peak = (0..=100).map(|i| bounce(i as f32 / 100.)).fold(0., f32::max);
+        assert!((1.03..1.12).contains(&peak), "{peak}");
+        assert!((bounce(0.97) - 1.).abs() < 0.01, "settled by the end");
+    }
+
+    #[test]
+    fn a_phase_runs_only_inside_its_share() {
+        assert_eq!((phase(0.1, 0.2, 0.6), phase(0.4, 0.0, 0.8), phase(0.9, 0.2, 0.6)), (0., 0.5, 1.));
     }
 
     #[test]

@@ -8,6 +8,12 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Tabs move with more life: a new tab sweeps into the sidebar and lands with a small spring, a
+  closed tab sweeps off before its gap closes, the active tab's highlight swells into place while
+  the previous one fades, a tab's icon springs up when it starts or finishes loading, tiles rise
+  in, and the rows of the address palette and the start page's suggestions rise in one after
+  another (macOS, Windows). The icon spring also reaches the sidebar on Linux and on tablets (iOS,
+  Android). Reduce Motion turns all of it off.
 - Releases also carry an unsigned Android App Bundle for Google Play, and the iOS app is built with
   the iOS 26 SDK and carries a privacy manifest (iOS, Android).
 - Download notices float over the page instead of pushing it down and show only on the tab that was

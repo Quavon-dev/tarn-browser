@@ -532,7 +532,7 @@ pub fn suggestion_rows(b: &Browser) -> Vec<Stateful<gpui::Div>> {
                 .flex()
                 .flex_col()
                 .children(headers[ix].map(|h| crate::address::section_header(h.title())))
-                .child(suggestion_row(b, ix, s))
+                .child(ui::motion::stagger_in(suggestion_row(b, ix, s), ("suggestion-in", ix), ix, b.pref(Pref::ReduceMotion)))
         })
         .collect()
 }

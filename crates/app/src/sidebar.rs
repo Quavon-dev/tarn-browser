@@ -9,7 +9,7 @@ use gpui::{
 use store::{Folder, Group, Id, Tab, TabKind};
 use ui::controls::{button, favicon, field, focus_ring, icon_button, spinner, tooltip};
 use ui::icon::{ICON, ICON_SMALL, Icon, icon};
-use ui::motion::{EXIT, FADE, POP, SLIDE, animate, fade_in, progress};
+use ui::motion::{EXIT, FADE, POP, SLIDE, SWEEP, TAB_IN, TAB_OUT, animate, animate_linear, bounce, phase, progress, spring};
 use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_SMALL, TEXT_TINY, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
@@ -53,9 +53,24 @@ pub struct Motion {
     pub(crate) pointer: Option<Point<Pixels>>,
     /// Where the pointer rested when rows moved under it; the row there already shows its button.
     pub(crate) rested: Option<Point<Pixels>>,
+    shown_active: Option<TabKey>,
+    deselected: Vec<(TabKey, Instant)>,
+    loading: HashSet<TabKey>,
+    load_flips: Vec<(TabKey, Instant)>,
 }
 
 impl Motion {
+    fn note(&mut self, active: Option<TabKey>, loading: HashSet<TabKey>, reduce: bool, now: Instant) {
+        self.deselected.retain(|(k, at)| now - *at < TAB_OUT && Some(*k) != active);
+        self.load_flips.retain(|(_, at)| now - *at < TAB_IN);
+        let was = std::mem::replace(&mut self.shown_active, active);
+        if !reduce {
+            self.deselected.extend(was.filter(|k| Some(*k) != active).map(|k| (k, now)));
+            self.load_flips.extend(loading.symmetric_difference(&self.loading).map(|k| (*k, now)));
+        }
+        self.loading = loading;
+    }
+
     /// How far `key`'s close button has grown.
     pub(crate) fn grown(&self, key: TabKey) -> f32 {
         match (self.hovered, self.unhovered) {
@@ -220,7 +235,7 @@ pub fn group_rgb(g: &Group) -> u32 {
 impl Browser {
     /// Called with the previous tab list after a reload; tabs added to the same space slide in.
     pub(crate) fn note_new_tabs(&mut self, old: &[Tab]) {
-        self.motion.entering.retain(|(_, at)| at.elapsed() < POP);
+        self.motion.entering.retain(|(_, at)| at.elapsed() < TAB_IN);
         let row = |tabs: &[Tab], id: Id| tabs.iter().position(|t| t.id == id);
         if self.motion.hovered.is_some_and(|(k, ..)| row(old, k.id) != row(&self.model.tabs, k.id)) {
             self.motion.forget_pointer();
@@ -231,6 +246,11 @@ impl Browser {
             let now = Instant::now();
             self.motion.entering.extend(self.model.tabs.iter().filter(|t| !known.contains(&t.id)).map(|t| (t.id, now)));
         }
+    }
+
+    pub(crate) fn note_motion(&mut self) {
+        let loading = self.pages.iter().filter(|(_, p)| p.loading).map(|(k, _)| *k).collect();
+        self.motion.note(self.model.active, loading, self.pref(Pref::ReduceMotion), Instant::now());
     }
 
     /// Slides from the space at `from`, whose lists are given, to the current one, picking up
@@ -332,7 +352,7 @@ impl Browser {
         let at = Instant::now();
         self.motion.leaving.push((self.model.private(), at, tab.clone()));
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(EXIT).await;
+            cx.background_executor().timer(TAB_OUT).await;
             this.update(cx, |b, cx| {
                 b.motion.leaving.retain(|(_, left, _)| *left != at);
                 cx.notify();
@@ -654,7 +674,7 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .on_drag(DraggedTab { key, title }, |d, _, _, cx| cx.new(|_| d.clone()))
                 .drag_over::<DraggedTab>(|s, _, _, _| s.border_color(Theme::accent()))
                 .on_drop(cx.listener(tab_drop(TabKind::Tile, None, None, Some((key, false)))));
-            animate(tile, ("tile-in", t.id as u64), FADE, reduce, |el, p| el.opacity(p))
+            animate_linear(tile, ("tile-in", t.id as u64), TAB_IN, reduce, |el, p| el.opacity(spring(p)).relative().top(px(8. * (1. - bounce(p)))))
         }))
 }
 
@@ -684,9 +704,19 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .items_center()
         .gap_2p5()
         .rounded(px(Theme::radius_row()))
-        .when(active, |d| {
-            let highlight = div().absolute().inset_0().rounded(px(Theme::radius_row())).bg(Theme::selected()).border_1().border_color(Theme::surface_edge());
-            d.child(fade_in(highlight, ("tab-active", t.id as u64), b.pref(Pref::ReduceMotion)))
+        .map(|d| {
+            let highlight = || div().absolute().inset_0().rounded(px(Theme::radius_row())).bg(Theme::selected()).border_1().border_color(Theme::surface_edge());
+            let reduce = b.pref(Pref::ReduceMotion);
+            if active {
+                d.child(animate_linear(highlight(), ("tab-active", t.id as u64), TAB_IN, reduce, |el, p| {
+                    let inset = |most: f32| px(most * (1. - bounce(p)).max(0.));
+                    el.top(inset(TAB_ROW / 2. - 4.)).bottom(inset(TAB_ROW / 2. - 4.)).left(inset(12.)).right(inset(12.)).opacity(spring(p))
+                }))
+            } else if b.motion.deselected.iter().any(|(k, _)| *k == key) {
+                d.child(animate(highlight(), ("tab-inactive", t.id as u64), TAB_OUT, reduce, |el, p| el.opacity(1. - p)))
+            } else {
+                d
+            }
         })
         // The other tabs of a split carry the edge too: in the accent for the split on screen.
         .when(!active && b.splits.contains(key), |d| d.child(edge(if b.in_split(key) { Theme::accent() } else { Theme::faint() })))
@@ -713,11 +743,17 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
             )
         })
         .cursor_pointer()
-        .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(match (loading, b.still()) {
-            (true, false) => spinner(14., Theme::space_label()).into_any_element(),
-            (true, true) => div().opacity(0.5).child(tab_icon(b, &t.url, 16., asleep)).into_any_element(),
-            _ => tab_icon(b, &t.url, 16., asleep),
-        }))
+        .child({
+            let glyph = div().flex_none().size(px(16.)).flex().items_center().justify_center().child(match (loading, b.still()) {
+                (true, false) => spinner(14., Theme::space_label()).into_any_element(),
+                (true, true) => div().opacity(0.5).child(tab_icon(b, &t.url, 16., asleep)).into_any_element(),
+                _ => tab_icon(b, &t.url, 16., asleep),
+            });
+            let flipped = b.motion.load_flips.iter().any(|(k, _)| *k == key);
+            animate_linear(glyph, ("tab-icon", t.id as u64 * 2 + u64::from(loading)), TAB_IN, !flipped, |el, p| {
+                el.relative().top(px(4. * (1. - bounce(p)))).opacity(spring(p))
+            })
+        })
         .when(burner, |d| {
             d.child(
                 div()
@@ -835,9 +871,12 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
                 over => tab_drop(kind, folder, group, Some((key, over.is_some_and(|(.., below)| below))))(b, dragged, window, cx),
             }
         }));
-    animate(row, ("tab-in", t.id as u64), POP, b.pref(Pref::ReduceMotion), move |el, p| {
-        let el = el.opacity(p);
-        if entering { el.h(px(TAB_ROW * p)) } else { el }
+    if !entering {
+        return animate(row, ("tab-in", t.id as u64), FADE, b.pref(Pref::ReduceMotion), |el, p| el.opacity(p));
+    }
+    animate_linear(row, ("tab-in", t.id as u64), TAB_IN, b.pref(Pref::ReduceMotion), |el, p| {
+        let (open, sweep) = (spring(phase(p, 0., 0.6)), phase(p, 0.15, 1.));
+        el.h(px(TAB_ROW * open)).opacity(spring(sweep)).left(px(-SWEEP * (1. - bounce(sweep))))
     })
 }
 
@@ -864,7 +903,10 @@ fn leaving_row(b: &Browser, t: &Tab) -> AnyElement {
         .text_color(Theme::muted())
         .child(site_icon(b, &t.url, 16.))
         .child(div().flex_1().one_line(SharedString::from(label(t))));
-    animate(row, ("tab-out", t.id as u64), EXIT, false, |el, p| el.h(px(TAB_ROW * (1. - p))).opacity(1. - p))
+    animate_linear(row, ("tab-out", t.id as u64), TAB_OUT, false, |el, p| {
+        let (gone, close) = (spring(phase(p, 0., 0.6)), spring(phase(p, 0.35, 1.)));
+        el.relative().left(px(-SWEEP * 1.5 * gone)).opacity(1. - gone).h(px(TAB_ROW * (1. - close)))
+    })
 }
 
 /// The unpinned tabs of a group (or of none), with closing tabs kept in their old place.
@@ -1278,7 +1320,9 @@ fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
 
 #[cfg(test)]
 mod tests {
-    use super::{Motion, SIDEBAR_WIDTH, TAB_ROW, inner_height, mix, tile_grid};
+    use std::collections::HashSet;
+
+    use super::{Motion, SIDEBAR_WIDTH, TAB_IN, TAB_ROW, inner_height, mix, tile_grid};
     use crate::browser::TabKey;
     use gpui::{Bounds, Rgba, point, px, size};
     use std::time::{Duration, Instant};
@@ -1312,6 +1356,24 @@ mod tests {
         assert_eq!(mix(Some(red), None, 0.25), Some(Rgba { a: 0.75, ..red }));
         assert_eq!(mix(None, Some(red), 0.25), Some(Rgba { a: 0.25, ..red }));
         assert_eq!(mix(Some(red), Some(blue), 0.5), Some(Rgba { r: 0.5, g: 0., b: 0.5, a: 1. }));
+    }
+
+    #[test]
+    fn motion_notes_deselected_tabs_and_loading_flips_unless_reduced() {
+        let (a, b, c) = (TabKey { private: false, id: 1 }, TabKey { private: false, id: 2 }, TabKey { private: false, id: 3 });
+        let now = Instant::now();
+        let mut motion = Motion::default();
+        motion.note(Some(a), HashSet::from([a]), false, now);
+        assert!(motion.deselected.is_empty());
+        assert_eq!(motion.load_flips, vec![(a, now)]);
+        motion.note(Some(b), HashSet::new(), false, now);
+        motion.note(Some(c), HashSet::new(), false, now);
+        assert_eq!(motion.deselected, vec![(a, now), (b, now)], "a fast switch keeps the earlier fade");
+        assert_eq!(motion.load_flips, vec![(a, now), (a, now)]);
+        motion.note(Some(a), HashSet::new(), false, now);
+        assert_eq!(motion.deselected, vec![(b, now), (c, now)], "a tab active again has no fade");
+        motion.note(Some(a), HashSet::from([b]), true, now + TAB_IN);
+        assert!(motion.deselected.is_empty() && motion.load_flips.is_empty(), "reduce records nothing and old entries expire");
     }
 
     #[test]
