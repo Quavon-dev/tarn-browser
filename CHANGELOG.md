@@ -6,6 +6,17 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-21
+
+### Added
+
+- Settings › General › Updates shows the update channel with Check Now (macOS, Windows); once an
+  update is downloaded it offers Restart to Update there and in the Tarn menu (Windows).
+- Settings › Privacy › Passkeys and security keys turns passkey sign-in on or off for sites (on by
+  default) (macOS, WebKit tabs).
+- Making Chromium the default engine offers to reload the window's open WebKit tabs in Chromium,
+  and a click on the engine name in the address bar reloads the page in the other engine (macOS).
+
 ### Changed
 
 - Tabs move with more life: a new tab sweeps into the sidebar and lands with a small spring, a
@@ -32,13 +43,6 @@ All notable changes to Tarn are documented in this file. The format is based on
   Windows), and the page's frame is no longer set again while a spinner turns or a page fades
   (macOS).
 
-### Added
-
-- Settings › General › Updates shows the update channel with Check Now (macOS, Windows); once an
-  update is downloaded it offers Restart to Update there and in the Tarn menu (Windows).
-- Settings › Privacy › Passkeys and security keys turns passkey sign-in on or off for sites (on by
-  default) (macOS, WebKit tabs).
-
 ### Fixed
 
 - Keyboard shortcuts such as ⌘T and the menu bar keep working after a click in the floating
@@ -64,8 +68,6 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Search shortcuts: with Settings › Search › Search shortcuts on (off by default), `!yt cats` or
   `cats !yt` searches YouTube instead of your search engine; 83 shortcuts such as `!g`, `!w`, `!gh`,
   `!a` and `!gm`. The suggestion row names the site. On every client.
-- Making Chromium the default engine offers to reload the window's open WebKit tabs in Chromium,
-  and a click on the engine name in the address bar reloads the page in the other engine (macOS).
 
 ### Changed
 
@@ -673,7 +675,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - One address field for URLs, search, open tabs and app actions, with configurable shortcuts.
 - Split View, link peek, tab groups, pinned tabs that remember their page and sleeping tabs.
 
-[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.0...v0.1.2

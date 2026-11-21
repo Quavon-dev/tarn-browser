@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.1.5" date="2026-11-21" type="development">
+      <description>
+        <p>Livelier search bar effects and tab motion, Check Now for updates, store builds for the mobile apps, passkey and engine switches on macOS, and download notices over the page on macOS and Windows.</p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-11-20" type="development">
       <description>
         <p>Search shortcuts and gentler tab sleep.</p>
