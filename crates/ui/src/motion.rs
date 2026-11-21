@@ -116,10 +116,7 @@ pub fn popover_motion<E: Styled + IntoElement + 'static>(element: E, id: &'stati
     if closing {
         animate(element, (id, 1u64), EXIT, reduce, |e, t| e.opacity(1. - t).top(px(POPUP_TRAVEL * t)))
     } else {
-        animate_linear(element, (id, 0u64), SETTLE, reduce, |e, t| {
-            let (shown, ahead) = arrive(t);
-            e.opacity(shown).top(px(POPUP_TRAVEL * ahead.max(0.)))
-        })
+        animate_linear(element, (id, 0u64), SETTLE, reduce, |e, t| e.opacity(arrive(t).0).top(px(POPUP_TRAVEL * (1. - spring(t)))))
     }
 }
 

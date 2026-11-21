@@ -781,8 +781,10 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
                 .into_element(),
                 (false, host) => {
                     let host = host.unwrap_or_default();
-                    tarn_nsh_shared::motion::popping(site_tile(ui, &host, 16.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }))
-                        .into_element()
+                    tarn_nsh_shared::motion::popping(
+                        view().child(site_tile(ui, &host, 16.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. })),
+                    )
+                    .into_element()
                 }
             })
         })

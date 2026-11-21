@@ -1,9 +1,12 @@
 //! Animated decorations around the search field: flames, aurora, sparkle or a glow with a light
 //! running around it.
 //! Pure and deterministic: a frame is a function of the field's size and the time, so every
-//! shell draws the same thing and a still frame (Reduce Motion) is just `t = 0`.
+//! shell draws the same thing and a still frame (Reduce Motion) is the one at `STILL`.
 
 use std::f32::consts::TAU;
+
+/// The time a still frame shows. The glow's light only reads as moving, so a still glow leaves it out.
+pub const STILL: f32 = 0.4;
 
 /// Frames per second the shells request while an effect is on screen in the active window.
 pub const FPS: f32 = 24.;
@@ -216,8 +219,8 @@ pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Ve
     let (_, rise) = span(effect, height);
     let particles: Vec<Particle> = match effect {
         Effect::None => Vec::new(),
+        Effect::Glow if t == STILL => Vec::new(),
         Effect::Glow => {
-            // A light runs around the card's edge, its tail fading behind it.
             let edge = Edge::new(width, height, corner, GLOW_OUT);
             let head = t * GLOW_SPEED;
             (0..GLOW_TAIL)
@@ -230,8 +233,6 @@ pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Ve
                 .collect()
         }
         Effect::Flames => {
-            // Tongues: circles stacked from a hot base to a thin tip. Each flickers on two rhythms
-            // and sways in a wave that travels up it; embers drift and twinkle above them.
             let tongues = ((width / 12.) as usize).clamp(4, MAX_PARTICLES / (TONGUE + 1));
             let mut out = Vec::with_capacity(tongues * TONGUE + tongues);
             for i in 0..tongues as u32 {
@@ -270,8 +271,6 @@ pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Ve
             out
         }
         Effect::Aurora => {
-            // Curtains: three bands of overlapping dots waving across the field, with brighter
-            // rays drifting along them and their ends fading out.
             let n = ((width / 14.) as usize).clamp(12, 96);
             (0..AURORA_BANDS)
                 .flat_map(|band| {
@@ -297,7 +296,6 @@ pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Ve
             let edge = Edge::new(width, height, corner, 0.);
             (0..count as u32)
                 .map(|i| {
-                    // Glitter glides slowly along the edge and flashes: a quick rise, a long fade.
                     let (x, y) = edge.at((hash(i, 1) + t * 0.015 * (0.5 + hash(i, 4))) * edge.length);
                     let beat = (t * (0.5 + hash(i, 2) * 0.8) + hash(i, 3)).fract();
                     let flash = if beat < 0.12 { beat / 0.12 } else { (1. - (beat - 0.12) / 0.88).powi(3) };
@@ -402,6 +400,7 @@ mod tests {
             assert!(at(step as f32 * 0.1).iter().all(|p| (outside(p) - GLOW_OUT).abs() < 0.01), "hugs the rounded outline");
         }
         assert!(head(0.5).x > head(0.).x, "runs clockwise along the top");
+        assert!(frame(Effect::Glow, w, h, r, STILL).is_empty(), "a still glow is only its ring");
         assert!(at(0.5).windows(2).all(|p| p[0].alpha >= p[1].alpha), "brightest at the head");
         let lap = Edge::new(w, h, r, GLOW_OUT).length / GLOW_SPEED;
         let (a, b) = (head(0.3), head(0.3 + lap));

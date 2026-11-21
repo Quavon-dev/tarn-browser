@@ -818,7 +818,7 @@ impl gpui::Render for SearchFx {
         use browser_core::effects::{self, Effect};
         let effect = Theme::search_effect();
         let animate = !self.reduce && effect.fps() > 0. && engine::app_active() && window.is_window_active();
-        let t = if animate { effects::clock(self.started.get_or_insert_with(Instant::now).elapsed()) } else { 0.4 };
+        let t = if animate { effects::clock(self.started.get_or_insert_with(Instant::now).elapsed()) } else { effects::STILL };
         if animate && !self.ticking {
             self.ticking = true;
             let frame = std::time::Duration::from_secs_f32(1. / effect.fps());

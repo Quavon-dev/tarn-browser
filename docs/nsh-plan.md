@@ -438,7 +438,8 @@ the effect (a canvas clipped to the flames' band changed nothing, so it was not 
 `GSK_RENDERER=cairo` the same page costs 63 %. Tarn's own work per frame is the main thread's share; on a
 desktop with a GPU the rest is GPU work. macOS: under 1 %. Evidence: `linux/evidence/themes-*.png`.
 These figures were measured with particles drawn as solid dots; since 2026-11-21 each is a soft
-glow (a radial gradient here, a blurred shadow on macOS and Windows), not yet measured again.
+glow (a radial gradient here, a blurred shadow on macOS and Windows), and Glow runs at 24 fps with
+a light running around the card instead of a ring pulsing at 8 fps; not yet measured again.
 
 ## 7. Testing
 

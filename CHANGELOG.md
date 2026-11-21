@@ -20,8 +20,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   the card. Every effect is drawn from soft, blurred glows with sharp glints for sparks instead
   of hard-edged dots.
 - Pop-ups, the address palette, toasts, the space and profile cards, link previews, hover cards,
-  the Library's pages, the floating sidebar, folder chevrons and switches spring into place with a
-  small overshoot instead of easing in flat (macOS, Windows).
+  the Library's pages, the floating sidebar, folder chevrons and switches spring into place
+  instead of easing in flat, most with a small overshoot (macOS, Windows).
 - Releases also carry an unsigned Android App Bundle for Google Play, and the iOS app is built with
   the iOS 26 SDK and carries a privacy manifest (iOS, Android).
 - Download notices float over the page instead of pushing it down and show only on the tab that was

@@ -352,7 +352,7 @@ impl Browser {
         let at = Instant::now();
         self.motion.leaving.push((self.model.private(), at, tab.clone()));
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(TAB_OUT).await;
+            cx.background_executor().timer(TAB_OUT + EXIT).await;
             this.update(cx, |b, cx| {
                 b.motion.leaving.retain(|(_, left, _)| *left != at);
                 cx.notify();
@@ -712,7 +712,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
             let reduce = b.pref(Pref::ReduceMotion);
             if active {
                 d.child(animate_linear(highlight(), ("tab-active", t.id as u64), TAB_IN, reduce, |el, p| {
-                    let inset = |most: f32| px(most * (1. - bounce(p)).max(0.));
+                    let inset = |most: f32| px(most * (1. - spring(p)));
                     el.top(inset(TAB_ROW / 2. - 4.)).bottom(inset(TAB_ROW / 2. - 4.)).left(inset(12.)).right(inset(12.)).opacity(spring(p))
                 }))
             } else if b.motion.deselected.iter().any(|(k, _)| *k == key) {

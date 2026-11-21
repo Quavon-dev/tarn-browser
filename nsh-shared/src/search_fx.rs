@@ -8,7 +8,7 @@ use nsh_core::prelude::*;
 
 use crate::theme::{Theme, themed};
 
-pub const STILL: f32 = 0.4;
+pub use effects::STILL;
 
 pub fn animates(effect: Effect, reduce_motion: bool, lifecycle: Lifecycle) -> bool {
     effect.fps() > 0. && !reduce_motion && lifecycle == Lifecycle::Active
@@ -26,7 +26,7 @@ pub struct Dot {
 
 pub fn dots(effect: Effect, width: f32, height: f32, t: f32, color: Rgba) -> Vec<Dot> {
     let frame: Vec<Particle> = effects::frame(effect, width, height, Theme::radius_card(), t);
-    frame
+    let mut dots = frame
         .into_iter()
         .filter(|p| p.alpha > 0.01)
         .flat_map(|p| {
@@ -35,7 +35,10 @@ pub fn dots(effect: Effect, width: f32, height: f32, t: f32, color: Rgba) -> Vec
             let glint = glint.map(|((r, g, b), a)| Dot { radius: p.radius * effects::GLINT, fill: Rgba { r, g, b, a }, soft: false, ..glow });
             std::iter::once(glow).chain(glint)
         })
-        .collect()
+        .collect::<Vec<Dot>>();
+    // Glints go over every glow, as on macOS and Windows.
+    dots.sort_by_key(|d| !d.soft);
+    dots
 }
 
 fn paint(painter: Painter, d: Dot, (dx, dy): (f32, f32)) -> Painter {
@@ -140,7 +143,9 @@ mod tests {
             !glints.is_empty() && glints.iter().all(|g| sparkle.iter().any(|d| d.soft && d.x == g.x && d.radius > g.radius)),
             "a glint sits inside its glow"
         );
-        assert!(!super::dots(Effect::Glow, 400., 54., STILL, blue).is_empty(), "the glow carries its running light");
+        assert!(sparkle.windows(2).all(|w| w[0].soft || !w[1].soft), "glints paint last");
+        assert!(!super::dots(Effect::Glow, 400., 54., 1., blue).is_empty(), "the glow carries its running light");
+        assert!(super::dots(Effect::Glow, 400., 54., STILL, blue).is_empty(), "but not in a still frame");
         assert_eq!(super::dots(Effect::Sparkle, 400., 54., STILL, blue), super::dots(Effect::Sparkle, 400., 54., STILL, blue));
         let ring = glow(0., blue)[0].color.0;
         assert_eq!(ring >> 8, 0x1f75b0);
