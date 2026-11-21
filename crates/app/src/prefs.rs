@@ -314,6 +314,7 @@ impl Browser {
 
     pub fn set_sidebar_open(&mut self, open: bool, cx: &mut Context<Self>) {
         if self.sidebar_open != open {
+            self.sidebar_from = self.sidebar_shown();
             self.sidebar_toggled = Some(std::time::Instant::now());
             self.layout_moving(if self.pref(Pref::ReduceMotion) { std::time::Duration::ZERO } else { ui::motion::SLIDE });
         }

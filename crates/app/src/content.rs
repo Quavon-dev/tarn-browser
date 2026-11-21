@@ -48,7 +48,7 @@ impl Floating {
 impl Browser {
     pub fn sidebar_shown(&self) -> f32 {
         let t = self.sidebar_toggled.filter(|_| !self.pref(Pref::ReduceMotion)).map_or(1., |at| progress(at, SLIDE));
-        if self.sidebar_open { t } else { 1. - t }
+        slide_at(self.sidebar_from, if self.sidebar_open { 1. } else { 0. }, t)
     }
 
     pub fn dismiss_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -103,6 +103,11 @@ impl Browser {
             window.request_animation_frame();
         }
     }
+}
+
+/// Where a slide from `from` to `to` stands at eased progress `t`.
+fn slide_at(from: f32, to: f32, t: f32) -> f32 {
+    from + (to - from) * t
 }
 
 fn banner(text: impl Into<SharedString>) -> gpui::Div {
@@ -861,4 +866,17 @@ impl gpui::Render for SearchFx {
 fn the_start_page_mark_is_drawn_ready() {
     let mark = MARK_IMAGE.as_ref().expect("the bundled mark rasterizes");
     assert_eq!(mark.size(0), gpui::size(gpui::DevicePixels(192), gpui::DevicePixels(192)));
+}
+
+#[cfg(test)]
+mod slide_tests {
+    use super::slide_at;
+
+    #[test]
+    fn a_slide_turned_back_midway_starts_where_it_stood() {
+        let opening = slide_at(0., 1., 0.4);
+        assert_eq!(slide_at(opening, 0., 0.), opening, "no jump when it turns");
+        assert_eq!(slide_at(opening, 0., 1.), 0.);
+        assert_eq!(slide_at(1., 0., 0.25), 0.75);
+    }
 }
