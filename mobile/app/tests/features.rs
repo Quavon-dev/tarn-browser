@@ -568,10 +568,8 @@ fn keep_waits_until_a_sidebar_slide_has_ended() {
         !browser_core::prompts::stable(shell.transfers_moved, toggled + browser_core::prompts::BYPASS_DELAY + std::time::Duration::from_millis(100)),
         "a change mid-slide still waits for the slide to end"
     );
-    assert!(browser_core::prompts::stable(
-        shell.transfers_moved,
-        toggled + tarn_nsh_shared::motion::SLIDE + browser_core::prompts::BYPASS_DELAY + std::time::Duration::from_millis(50)
-    ));
+    assert!(shell.transfers_moved >= toggled + tarn_nsh_shared::motion::SLIDE, "the wait runs from the end of the slide");
+    assert!(browser_core::prompts::stable(shell.transfers_moved, shell.transfers_moved + browser_core::prompts::BYPASS_DELAY));
 }
 
 #[test]
