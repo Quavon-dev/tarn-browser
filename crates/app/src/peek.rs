@@ -18,8 +18,6 @@ use browser_core::hover::{CLOSE_DELAY, Hover};
 
 /// The card starts below the toolbar, so the window's own traffic lights stay above it.
 const CARD_TOP: f32 = TOOLBAR_HEIGHT;
-/// How long after a hand-back the main window's next activation still counts as that hand-back.
-pub(crate) const HAND_BACK: std::time::Duration = std::time::Duration::from_secs(1);
 
 type Origin = (Bounds<Pixels>, Option<DisplayId>);
 
@@ -32,8 +30,6 @@ pub struct Peek {
     timer: Option<Task<()>>,
     pointer: Option<(engine::menu::EventMonitor, Task<()>)>,
     pub(crate) owns: [bool; 2],
-    /// When the main window last took the keyboard back from this panel, which had it only for a click.
-    pub(crate) handed_back: Option<Instant>,
 }
 
 impl Peek {
@@ -243,9 +239,7 @@ impl PeekWindow {
                 let main = browser.update(cx, |b, _| {
                     let keyboard_here =
                         b.renaming.is_some() || b.menu_open || b.library.is_some() || b.downloads_popover.is_open() || b.space_popover.is_some();
-                    let main = b.peek.main.filter(|_| !keyboard_here);
-                    b.peek.handed_back = main.map(|_| Instant::now());
-                    main
+                    b.peek.main.filter(|_| !keyboard_here)
                 });
                 if let Ok(Some(main)) = main {
                     main.update(cx, |_, window, _| window.activate_window()).ok();
