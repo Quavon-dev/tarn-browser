@@ -428,7 +428,7 @@ impl SettingsWindow {
             engine: stored.engine,
             web_engine: b.core.default_web_engine.get(),
             updater: b.core.updater.is_some(),
-            update_ready: b.core.updater.as_ref().and_then(platform::updater::Updater::ready_version),
+            update_ready: if self.pane == SettingsPane::General { b.core.updater.as_ref().and_then(platform::updater::Updater::ready_version) } else { None },
             update_checks: b.core.update_checks(),
             chromium_allowed: b.core.chromium_allowed(),
             chromium_closed: b.chromium_closed(),
@@ -1363,18 +1363,15 @@ impl SettingsWindow {
     }
 
     fn update_row(s: &Snapshot) -> Div {
-        match &s.update_ready {
-            Some(version) => row(false)
-                .child(text_block(format!("Tarn {version} is ready"), "Downloaded and verified; it installs when Tarn restarts."))
-                .child(button("update-restart", "Restart to Update", true).on_click(|_, _, cx| crate::shared::restart_to_update(cx))),
-            None => row(false)
-                .child(if s.prefs.get(Pref::NightlyUpdates) {
-                    text_block("Nightly channel", "A new release reaches it as the next nightly build.")
-                } else {
-                    text_block("Release channel", "Tested releases only.")
-                })
-                .child(button("update-check", "Check Now", false).on_click(|_, _, cx| cx.dispatch_action(&crate::CheckForUpdates))),
-        }
+        let check = button("update-check", "Check Now", false).on_click(|_, _, cx| crate::shared::check_for_updates(cx));
+        let text = match (&s.update_ready, s.prefs.get(Pref::NightlyUpdates)) {
+            (Some(version), _) => text_block(format!("Tarn {version} is ready"), "Downloaded and verified; it installs when Tarn restarts."),
+            (None, true) => text_block("Nightly channel", "A new release reaches it as the next nightly build."),
+            (None, false) => text_block("Release channel", "Tested releases only."),
+        };
+        row(false).child(text).child(div().flex().gap_2().child(check).when(s.update_ready.is_some(), |d| {
+            d.child(button("update-restart", "Restart to Update", true).on_click(|_, _, cx| crate::shared::restart_to_update(cx)))
+        }))
     }
 
     fn link_row(&self, id: &'static str, title: &'static str, detail: &'static str, url: &'static str, cx: &mut Context<Self>) -> Div {

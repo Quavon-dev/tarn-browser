@@ -430,25 +430,23 @@ fn set_menus(cx: &mut App, dynamic: menubar::Dynamic) {
 pub(crate) type MenuMarks = Vec<(&'static str, Vec<engine::menu::Mark>)>;
 
 pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
-    let all = vec![
+    let mut all = vec![
         Menu {
             name: "Tarn".into(),
-            items: [MenuItem::action("About Tarn", AboutTarn), MenuItem::action("Check for Updates…", CheckForUpdates)]
-                .into_iter()
-                .chain(cfg!(windows).then(|| MenuItem::action("Restart to Update", RestartToUpdate)))
-                .chain([
-                    MenuItem::separator(),
-                    MenuItem::action("Settings…", Settings),
-                    MenuItem::separator(),
-                    MenuItem::os_submenu("Services", SystemMenuType::Services),
-                    MenuItem::separator(),
-                    MenuItem::action("Hide Tarn", HideTarn),
-                    MenuItem::action("Hide Others", HideOthers),
-                    MenuItem::action("Show All", ShowAll),
-                    MenuItem::separator(),
-                    MenuItem::action("Quit Tarn", Quit),
-                ])
-                .collect(),
+            items: vec![
+                MenuItem::action("About Tarn", AboutTarn),
+                MenuItem::action("Check for Updates…", CheckForUpdates),
+                MenuItem::separator(),
+                MenuItem::action("Settings…", Settings),
+                MenuItem::separator(),
+                MenuItem::os_submenu("Services", SystemMenuType::Services),
+                MenuItem::separator(),
+                MenuItem::action("Hide Tarn", HideTarn),
+                MenuItem::action("Hide Others", HideOthers),
+                MenuItem::action("Show All", ShowAll),
+                MenuItem::separator(),
+                MenuItem::action("Quit Tarn", Quit),
+            ],
         },
         Menu {
             name: "File".into(),
@@ -502,6 +500,9 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
         Menu { name: "History".into(), items: dynamic.history },
         Menu { name: "Window".into(), items: dynamic.window },
     ];
+    if cfg!(windows) {
+        all[0].items.insert(2, MenuItem::action("Restart to Update", RestartToUpdate));
+    }
     (all, dynamic.marks)
 }
 
@@ -571,11 +572,7 @@ pub fn run() {
                 MenuItem::action("New Burner Window", NewBurnerWindow),
             ]);
             if shared::core(cx).updater.is_some() {
-                cx.on_action(|_: &CheckForUpdates, cx| {
-                    if let Some(updater) = &shared::core(cx).updater {
-                        updater.check_now();
-                    }
-                });
+                cx.on_action(|_: &CheckForUpdates, cx| shared::check_for_updates(cx));
                 cx.on_action(|_: &RestartToUpdate, cx| shared::restart_to_update(cx));
             }
             shared::open_windows(cx);

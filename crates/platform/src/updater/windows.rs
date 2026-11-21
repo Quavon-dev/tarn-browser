@@ -382,7 +382,7 @@ impl Updater {
 
     /// Marks the downloaded installer to run once Tarn has quit; `false` when none is ready.
     pub fn install_on_quit(&self) -> bool {
-        let ready = self.ready.lock().is_ok_and(|ready| ready.as_ref().is_some_and(|r| r.path.is_file()));
+        let ready = self.ready_version().is_some();
         self.install.set(ready);
         ready
     }
