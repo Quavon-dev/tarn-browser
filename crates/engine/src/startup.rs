@@ -49,6 +49,11 @@ fn frame_line(section: &'static str, took: Duration) -> String {
     format!("tarn-frame {section} {}", took.as_micros())
 }
 
+/// Whether `TARN_FRAME_TRACE` is on, so callers skip timing frames otherwise.
+pub fn frames_traced() -> bool {
+    *FRAMES
+}
+
 /// Prints how long `section` of a frame took.
 pub fn frame(section: &'static str, took: Duration) {
     if *FRAMES {

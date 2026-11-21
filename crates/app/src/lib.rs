@@ -161,6 +161,9 @@ pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
 impl Render for Browser {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         engine::startup::mark("first window render");
+        if !engine::startup::frames_traced() {
+            return self.render_root(window, cx);
+        }
         let started = std::time::Instant::now();
         if let Some(drawn) = self.drawn_at.replace(started) {
             engine::startup::frame("interval", started - drawn);
@@ -396,6 +399,9 @@ impl Browser {
 }
 
 fn timed<T>(section: &'static str, f: impl FnOnce() -> T) -> T {
+    if !engine::startup::frames_traced() {
+        return f();
+    }
     let started = std::time::Instant::now();
     let built = f();
     engine::startup::frame(section, started.elapsed());
