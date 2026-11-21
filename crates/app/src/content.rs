@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
@@ -11,7 +13,8 @@ use ui::motion::{EXIT, FADE, SLIDE, pop_in, pop_out, progress};
 use ui::text::OneLine;
 use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
-use engine::PromptKind;
+use browser_core::layout::HeldWidths;
+use engine::{PromptKind, WebView};
 
 use browser_core::command::Section;
 
@@ -48,7 +51,13 @@ impl Floating {
 impl Browser {
     pub fn sidebar_shown(&self) -> f32 {
         let t = self.sidebar_toggled.filter(|_| !self.pref(Pref::ReduceMotion)).map_or(1., |at| progress(at, SLIDE));
-        if self.sidebar_open { t } else { 1. - t }
+        browser_core::layout::slide_at(self.sidebar_from, if self.sidebar_open { 1. } else { 0. }, t)
+    }
+
+    /// While the sidebar slides: how far it is shown and its whole share of the page's width.
+    pub(crate) fn sidebar_slide(&self) -> Option<(f32, f32)> {
+        self.sidebar_toggled.filter(|at| at.elapsed() < SLIDE && !self.pref(Pref::ReduceMotion))?;
+        Some((self.sidebar_shown(), self.sidebar_width + crate::sidebar::SIDEBAR_MARGIN - GUTTER_SHIFT))
     }
 
     pub fn dismiss_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -93,17 +102,25 @@ impl Browser {
         let fade_done = self.page_fade.as_ref().is_some_and(|(_, at)| at.elapsed() >= FADE);
         if fade_done || self.overlay_open() || self.model.active.is_none() || self.active_json().is_some() {
             let active = self.active_view();
-            if let Some((outgoing, _)) = self.page_fade.take().filter(|(v, _)| !active.as_ref().is_some_and(|a| std::rc::Rc::ptr_eq(a, v))) {
+            if let Some((outgoing, _)) = self.page_fade.take().filter(|(v, _)| !active.as_ref().is_some_and(|a| Rc::ptr_eq(a, v))) {
                 outgoing.set_visible(false);
             }
         }
         let running = |at: Option<Instant>, d| at.is_some_and(|at: Instant| at.elapsed() < d);
-        let sidebar = running(self.sidebar_toggled, SLIDE) && !self.pref(Pref::ReduceMotion);
-        if self.settle_slide() || sidebar || self.page_fade.is_some() || running(self.overlay_exit, EXIT) {
+        if self.settle_slide() || self.sidebar_slide().is_some() || self.page_fade.is_some() || running(self.overlay_exit, EXIT) {
             window.request_animation_frame();
         }
     }
 }
+
+/// The width `view` keeps while the sidebar slides; `slide` as in `HeldWidths::width`.
+pub(crate) fn held_width(held: &RefCell<HeldWidths>, view: &Rc<WebView>, width: f32, slide: Option<(f32, f32)>) -> f32 {
+    held.borrow_mut().width(Rc::as_ptr(view) as usize, width, slide, view.clipped_by_window())
+}
+
+/// How much the page area's left gutter narrows as the sidebar shows; the sidebar's share of the
+/// page's width is its own width less this.
+const GUTTER_SHIFT: f32 = 2.;
 
 fn banner(text: impl Into<SharedString>) -> gpui::Div {
     floating()
@@ -254,7 +271,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         let ghost = banner(text.clone()).text_color(*color).min_h(px(0.)).h(px(BANNER_HEIGHT * (1. - t))).mb(px(8. * (1. - t))).opacity(1. - t);
         cards.insert((*ix).min(cards.len()), ghost.into_any_element());
     }
-    let left = 8. - 2. * b.sidebar_shown();
+    let left = 8. - GUTTER_SHIFT * b.sidebar_shown();
     let area = div().absolute().top_0().bottom(px(8.)).left(px(left)).right(px(8.)).child(crate::address::measure(b.address.content.clone()));
     let panel = div().flex_1().min_h_0().relative().flex().flex_col().p(px(8.)).pt_0().pl(px(left)).text_color(Theme::text()).child(area).children(cards);
 
@@ -287,6 +304,8 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     } else {
         let view = b.active_view();
         let preset = b.responsive_preset();
+        let slide = b.sidebar_slide().filter(|_| preset.is_none());
+        let held = b.sidebar_held.clone();
         let alpha = b.page_fade.as_ref().map_or(1., |(_, at)| progress(*at, FADE));
         let link_rect = b.link_status.page.clone();
         let page = canvas(
@@ -297,7 +316,8 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                 let fit = preset.map(|preset| devkit::responsive::fit(&preset, w, h));
                 let page = fit.as_ref().map_or((x, y, w, h), |fit| (x + fit.x, y + fit.y, fit.width, fit.height));
-                view.set_frame(page.0.into(), page.1.into(), page.2.into(), page.3.into());
+                let width = held_width(&held, &view, page.2, slide);
+                view.set_frame(page.0.into(), page.1.into(), width.into(), page.3.into());
                 if let Some(fit) = fit {
                     // WebKit's page zoom stops at 0.3; below that the CSS viewport is narrower than the preset.
                     let scale = f64::from(fit.scale).max(engine::MIN_ZOOM);
@@ -305,8 +325,9 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                         view.set_zoom(scale);
                     }
                 }
+                // A refresh during prepaint is dropped; the link bubble follows the page on the next frame.
                 if link_rect.replace(page) != page {
-                    window.refresh();
+                    window.on_next_frame(|window, _| window.refresh());
                 }
             },
             |_, _, _, _| {},
@@ -511,7 +532,7 @@ pub fn suggestion_rows(b: &Browser) -> Vec<Stateful<gpui::Div>> {
                 .flex()
                 .flex_col()
                 .children(headers[ix].map(|h| crate::address::section_header(h.title())))
-                .child(suggestion_row(b, ix, s))
+                .child(ui::motion::stagger_in(suggestion_row(b, ix, s), ("suggestion-in", ix), ix, b.pref(Pref::ReduceMotion)))
         })
         .collect()
 }
@@ -797,7 +818,7 @@ impl gpui::Render for SearchFx {
         use browser_core::effects::{self, Effect};
         let effect = Theme::search_effect();
         let animate = !self.reduce && effect.fps() > 0. && engine::app_active() && window.is_window_active();
-        let t = if animate { effects::clock(self.started.get_or_insert_with(Instant::now).elapsed()) } else { 0.4 };
+        let t = if animate { effects::clock(self.started.get_or_insert_with(Instant::now).elapsed()) } else { effects::STILL };
         if animate && !self.ticking {
             self.ticking = true;
             let frame = std::time::Duration::from_secs_f32(1. / effect.fps());
@@ -818,42 +839,50 @@ impl gpui::Render for SearchFx {
         // translucent card behind its text.
         let card = || div().absolute().top(px(rise)).left(px(side)).right(px(side)).bottom(px(side)).rounded(px(Theme::radius_card()));
         let underlay = card().bg(Rgba { a: 1., ..Theme::page() });
-        match effect {
-            Effect::None => layer,
-            Effect::Glow => layer
-                .child(card().shadow(vec![gpui::BoxShadow {
+        if effect == Effect::None {
+            return layer;
+        }
+        let dots = canvas(
+            |_, _, _| {},
+            move |bounds, (), window, _| {
+                let w = f32::from(bounds.size.width) - 2. * side;
+                let h = if effect.around_card() { f32::from(bounds.size.height) - rise - side } else { SEARCH_ROW };
+                let disc = |x: f32, y: f32, radius: f32| {
+                    let at = gpui::point(bounds.origin.x + px(side + x - radius), bounds.origin.y + px(rise + y - radius));
+                    gpui::Bounds::new(at, gpui::size(px(radius * 2.), px(radius * 2.)))
+                };
+                let frame: Vec<_> = effects::frame(effect, w, h, Theme::radius_card(), t).into_iter().filter(|p| p.alpha > 0.01).collect();
+                let shaded: Vec<_> = frame.iter().map(|p| (p, effects::shade(p, (color.r, color.g, color.b)))).collect();
+                for (p, (((r, g, b), a), _)) in &shaded {
+                    let (core, blur) = (p.radius * effects::GLOW_CORE, p.radius * effects::GLOW_SIGMA);
+                    let glow = gpui::BoxShadow {
+                        color: Rgba { r: *r, g: *g, b: *b, a: *a }.into(),
+                        offset: gpui::point(px(0.), px(0.)),
+                        blur_radius: px(blur),
+                        spread_radius: px(0.),
+                    };
+                    window.paint_shadows(disc(p.x, p.y, core), gpui::Corners::all(px(core)), &[glow]);
+                }
+                for (p, (_, glint)) in &shaded {
+                    if let Some(((r, g, b), a)) = glint {
+                        let radius = p.radius * effects::GLINT;
+                        window.paint_quad(gpui::fill(disc(p.x, p.y, radius), Rgba { r: *r, g: *g, b: *b, a: *a }).corner_radii(px(radius)));
+                    }
+                }
+            },
+        )
+        .size_full();
+        layer
+            .when(effect == Effect::Glow, |l| {
+                l.child(card().shadow(vec![gpui::BoxShadow {
                     color: Rgba { a: 0.55 * effects::pulse(t), ..color }.into(),
                     offset: gpui::point(px(0.), px(0.)),
                     blur_radius: px(effects::GLOW_BLUR),
                     spread_radius: px(effects::GLOW_SPREAD),
                 }]))
-                .child(underlay),
-            _ => layer
-                .child(
-                    canvas(
-                        |_, _, _| {},
-                        move |bounds, (), window, _| {
-                            let w = f32::from(bounds.size.width) - 2. * side;
-                            // Sparkle runs around the whole card; flames and aurora grow from the search row.
-                            let h = if effect == Effect::Sparkle { f32::from(bounds.size.height) - rise - side } else { SEARCH_ROW };
-                            for p in effects::frame(effect, w, h, t).into_iter().filter(|p| p.alpha > 0.01) {
-                                let (r, g, b) = effects::tint((color.r, color.g, color.b), p.heat);
-                                // A faint halo under each dot softens the hard edge of a quad.
-                                for (scale, alpha) in [(effects::HALO, 0.22), (1., 1.)] {
-                                    let radius = p.radius * scale;
-                                    let at = gpui::point(bounds.origin.x + px(side + p.x - radius), bounds.origin.y + px(rise + p.y - radius));
-                                    let fill = Rgba { r, g, b, a: p.alpha * alpha };
-                                    window.paint_quad(
-                                        gpui::fill(gpui::Bounds::new(at, gpui::size(px(radius * 2.), px(radius * 2.))), fill).corner_radii(px(radius)),
-                                    );
-                                }
-                            }
-                        },
-                    )
-                    .size_full(),
-                )
-                .child(underlay),
-        }
+            })
+            .child(dots)
+            .child(underlay)
     }
 }
 

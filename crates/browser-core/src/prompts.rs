@@ -14,6 +14,12 @@ pub fn stable(since: Instant, now: Instant) -> bool {
     now.saturating_duration_since(since) >= BYPASS_DELAY
 }
 
+/// Restarts a guard's wait from `rest`, when what moved the guarded controls comes to rest. A wait
+/// that already runs past it is kept, so a change during a slide does not end the slide's wait.
+pub fn restart(since: &mut Instant, rest: Instant) {
+    *since = (*since).max(rest);
+}
+
 /// Permission kinds a profile can remember per origin.
 pub const PERMISSIONS: [&str; 3] = ["camera", "microphone", "location"];
 
@@ -117,6 +123,17 @@ mod tests {
 
     fn prompt(data: Value) -> Prompt {
         Prompt::from_event(&data).unwrap()
+    }
+
+    #[test]
+    fn a_restart_never_ends_a_longer_wait() {
+        let now = Instant::now();
+        let mut since = now;
+        restart(&mut since, now + Duration::from_millis(280));
+        restart(&mut since, now + Duration::from_millis(10));
+        assert_eq!(since, now + Duration::from_millis(280), "a change mid-slide keeps the slide's wait");
+        restart(&mut since, now + Duration::from_secs(1));
+        assert_eq!(since, now + Duration::from_secs(1));
     }
 
     #[test]

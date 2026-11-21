@@ -12,7 +12,7 @@ use nsh_core::prelude::*;
 use store::{Id, TabKind};
 use tarn_nsh_shared::controls::{site_tile, tip};
 use tarn_nsh_shared::icons as glyphs;
-use tarn_nsh_shared::motion::spinner;
+use tarn_nsh_shared::motion::{popping, spinner};
 use tarn_nsh_shared::popover::{self as pop, Anchor};
 use tarn_nsh_shared::sidebar::{
     BUTTON, CLOSE_GAP, CLOSE_WIDTH, FOOTER_HEIGHT, GLYPH, HEADER_HEIGHT, HEADER_INSET, INDENT, INNER_PAD, MARGIN, MENU_WIDTH, ROW_GAP, ROW_INSET, STATE_GLYPH,
@@ -75,18 +75,22 @@ fn asleep(s: &AppShell, key: TabKey) -> bool {
 }
 
 fn tab_icon(ui: Ui, key: TabKey, size: f32, spin: f32) -> AnyElement {
+    let loading = computed(move || ui.read(|s| s.pages.get(&key).is_some_and(|p| p.loading)));
     let state = computed(move || {
         ui.read(|s| {
             let url = s.tab_url(key);
-            (s.pages.get(&key).is_some_and(|p| p.loading), s.site_icon(&url), host(&url), asleep(s, key))
+            (s.site_icon(&url), host(&url), asleep(s, key))
         })
     });
     dynamic(move || {
-        let (loading, icon, host, asleep) = state.get();
-        if loading && !untracked(reduce_motion) {
-            return view().text_color(Theme::space_label).child(spinner(spin, glyphs::icon(glyphs::RELOAD, spin))).into_element();
+        if loading.get() && !untracked(reduce_motion) {
+            return popping(view().text_color(Theme::space_label).child(spinner(spin, glyphs::icon(glyphs::RELOAD, spin)))).into_element();
         }
-        site_tile(icon, &host, size).opacity(if asleep { 0.4_f32 } else { 1. }).into_element()
+        popping(view().child(dynamic(move || {
+            let (icon, host, asleep) = state.get();
+            site_tile(icon, &host, size).opacity(if asleep { 0.4_f32 } else { 1. })
+        })))
+        .into_element()
     })
 }
 

@@ -13,7 +13,9 @@ fn the_mac_layout_answers_the_macos_keys() {
     let dir = tempfile::tempdir().unwrap();
     // SAFETY: this binary has one test, and it sets the variable before the engine starts.
     unsafe { std::env::set_var("TARN_DATA_DIR", dir.path()) };
-    let mut app = Headless::start(EngineConfig::new(Root::of::<tarn_mobile::App>())).unwrap();
+    let mut config = EngineConfig::new(Root::of::<tarn_mobile::App>());
+    config.clock = nsh_core::time::Clock::manual(std::time::SystemTime::now());
+    let mut app = Headless::start(config).unwrap();
     app.wait_for("label:Tabs 1").unwrap();
     app.press_key("mod+t").unwrap();
     app.wait_for("label:Tabs 1").unwrap();

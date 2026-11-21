@@ -33,9 +33,24 @@ jobs:
           set -euo pipefail
           sha="$(gh api "repos/$GH_REPO/commits/main" --jq .sha)"
           built="$(gh api "repos/$GH_REPO/git/ref/tags/nightly" --jq .object.sha 2>/dev/null)" || built=none
+          # After the highest release and before the next, whatever version main already carries.
+          highest_release() {
+            gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" | jq -r '[.[][] | select(.draft == false and .prerelease == false)
+              | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last // "v0.0.0"'
+          }
           if [[ "$sha" == "$built" && "$MANUAL" != true ]]; then
-            echo "the nightly already holds $sha"
-            exit 0
+            # A release newer than the nightly's base version reaches the Nightly channel as the
+            # next nightly, even when main has not moved. A failed lookup skips the night.
+            release="$(highest_release)" || release=""
+            base="$(gh release download nightly --repo "$GH_REPO" --pattern windows-update.json --output - | jq -er .version)" || base=""
+            if [[ -z "$release" || -z "$base" ]]; then
+              echo "::warning::could not read the highest release ('$release') or the nightly's version ('$base'); no nightly"
+              exit 0
+            fi
+            if [[ "v${base%.*}" == "$release" ]]; then
+              echo "the nightly already holds $sha ($base)"
+              exit 0
+            fi
           fi
           ci="$(gh run list --workflow ci.yml --branch main --event push --commit "$sha" -L 1 \
             --json status,conclusion --jq '.[] | "\(.status) \(.conclusion)"')"
@@ -44,9 +59,7 @@ jobs:
             [[ "$MANUAL" != true ]] || exit 1
             exit 0
           fi
-          # After the highest release and before the next, whatever version main already carries.
-          release="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" | jq -r '[.[][] | select(.draft == false and .prerelease == false)
-            | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last // "v0.0.0"')"
+          release="$(highest_release)"
           echo "commit=$sha" >> "$GITHUB_OUTPUT"
           echo "version=${release#v}.$RUN" >> "$GITHUB_OUTPUT"
 

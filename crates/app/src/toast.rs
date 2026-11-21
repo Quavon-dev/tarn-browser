@@ -8,7 +8,7 @@ use gpui::{
 };
 use ui::controls::{POPOVER_INSET, open_popup, popover, secure_surface};
 use ui::icon::{ICON_MEDIUM, Icon, icon};
-use ui::motion::{EXIT, animate, fade_in};
+use ui::motion::{EXIT, POPUP_TRAVEL, SETTLE, animate, animate_linear, arrive};
 use ui::theme::{Elevation, SYSTEM_FONT, Secure, TEXT, Theme};
 
 use crate::browser::Browser;
@@ -381,9 +381,13 @@ impl Render for ToastWindow {
         div()
             .size_full()
             .child(if toast.closing {
-                animate(card, ("toast-out", id), EXIT, reduce, |el, t| el.opacity(1. - t)).into_any_element()
+                animate(card, ("toast-out", id), EXIT, reduce, |el, t| shifted(el.opacity(1. - t), POPUP_TRAVEL * t)).into_any_element()
             } else {
-                fade_in(card, ("toast-in", id), reduce).into_any_element()
+                animate_linear(card, ("toast-in", id), SETTLE, reduce, |el, t| {
+                    let (shown, ahead) = arrive(t);
+                    shifted(el.opacity(shown), POPUP_TRAVEL * ahead)
+                })
+                .into_any_element()
             })
             .into_any_element()
     }
@@ -431,6 +435,10 @@ fn card(toast: &Toast, main: WindowHandle<Browser>) -> gpui::Stateful<gpui::Div>
                     }),
             )
         })
+}
+
+fn shifted(card: gpui::Stateful<gpui::Div>, down: f32) -> gpui::Stateful<gpui::Div> {
+    card.top(px(POPOVER_INSET + down)).bottom(px(POPOVER_INSET - down))
 }
 
 /// An owner's toast reports a download, which is security UI (S29): it draws only from `Secure`.

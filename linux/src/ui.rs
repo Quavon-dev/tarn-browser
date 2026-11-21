@@ -768,12 +768,24 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         .child(dynamic(move || edge().map(|color| view().absolute().left(px(0.)).top(px(7.)).bottom(px(7.)).w(px(3.)).rounded_full().bg(color))))
         .child(when(move || dropping().is_some(), || view().absolute().inset_0().rounded(px(Theme::radius_row())).border_1().border_color(Theme::accent())))
         .child({
-            let mark = computed(move || item.with(|r| (r.loading && !tarn_nsh_shared::motion::reduced(), r.host.clone())));
+            let mark = computed(move || {
+                item.with(|r| {
+                    let loading = r.loading && !tarn_nsh_shared::motion::reduced();
+                    (loading, (!loading).then(|| r.host.clone()))
+                })
+            });
             dynamic(move || match mark.get() {
-                (true, _) => {
-                    view().text_color(Theme::space_label()).child(tarn_nsh_shared::motion::spinner(14., icons::icon(icons::RELOAD, 14.))).into_element()
+                (true, _) => tarn_nsh_shared::motion::popping(
+                    view().text_color(Theme::space_label()).child(tarn_nsh_shared::motion::spinner(14., icons::icon(icons::RELOAD, 14.))),
+                )
+                .into_element(),
+                (false, host) => {
+                    let host = host.unwrap_or_default();
+                    tarn_nsh_shared::motion::popping(
+                        view().child(site_tile(ui, &host, 16.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. })),
+                    )
+                    .into_element()
                 }
-                (false, host) => site_tile(ui, &host, 16.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element(),
             })
         })
         .child(
@@ -1398,15 +1410,24 @@ fn compact_address(ui: Ui) -> View {
 fn toggle_sidebar(ui: Ui) {
     animate_next(SLIDE);
     ui.sidebar.update(|o| *o = !*o);
+    act(ui, |b| b.sidebar_moved(slide_time()));
     peek::close(ui);
     peek::hide(ui);
+}
+
+/// How long a sidebar toggle moves the page area: nothing moves gradually with Reduce Motion.
+fn slide_time() -> std::time::Duration {
+    if tarn_nsh_shared::motion::reduced() { std::time::Duration::ZERO } else { SLIDE }
 }
 
 pub(super) fn set_auto_hide_sidebar(ui: Ui) {
     act(ui, |b| b.toggle_off_setting(crate::browser::AUTO_HIDE_SIDEBAR));
     let hidden = read(ui, |b| b.auto_hide_sidebar()).unwrap_or_default();
     for other in WINDOWS.with_borrow(Vec::clone) {
-        other.sidebar.set(!hidden);
+        if other.sidebar.get_untracked() == hidden {
+            other.sidebar.set(!hidden);
+            act(other, |b| b.sidebar_moved(slide_time()));
+        }
         peek::close(other);
         peek::hide(other);
     }

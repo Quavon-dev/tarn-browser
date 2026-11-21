@@ -11,7 +11,9 @@ fn the_mac_layout_opens_a_file_from_the_palette_and_its_key() {
     let dir = tempfile::tempdir().unwrap();
     // SAFETY: this binary has one test, and it sets the variable before the engine starts.
     unsafe { std::env::set_var("TARN_DATA_DIR", dir.path()) };
-    let mut app = Headless::start(EngineConfig::new(Root::of::<tarn_mobile::App>())).unwrap();
+    let mut config = EngineConfig::new(Root::of::<tarn_mobile::App>());
+    config.clock = nsh_core::time::Clock::manual(std::time::SystemTime::now());
+    let mut app = Headless::start(config).unwrap();
     app.set_viewport(Size::new(Points(1376.), Points(1032.))).unwrap();
     app.on_pick(|_| vec![PickedFile::new("note.txt", "text/plain", ImageData::new(b"hello".to_vec()))]);
     app.wait_for("label:Menu").unwrap();

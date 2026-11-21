@@ -428,7 +428,7 @@ impl<D: Platform> Shell<D> {
         let number = |field: &str| data.get(field).and_then(Value::as_u64);
         let bar_appears = at.and_then(|at| self.transfers.get(at)).is_some_and(|t| t.total.is_none() && number("total").is_some());
         if state != "progress" || bar_appears {
-            self.transfers_moved = std::time::Instant::now();
+            browser_core::prompts::restart(&mut self.transfers_moved, std::time::Instant::now());
         }
         match state.as_str() {
             "started" => {
@@ -510,12 +510,12 @@ impl<D: Platform> Shell<D> {
                 self.core.store(private).add_download(profile, &t.name, &t.path, "cancelled", t.started).ok();
             }
             self.transfers.retain(|t| t.id != id);
-            self.transfers_moved = std::time::Instant::now();
+            browser_core::prompts::restart(&mut self.transfers_moved, std::time::Instant::now());
         } else if command == "downloadKeep"
             && let Some(t) = self.transfers.iter_mut().find(|t| t.id == id)
         {
             t.state = TransferState::Saving;
-            self.transfers_moved = std::time::Instant::now();
+            browser_core::prompts::restart(&mut self.transfers_moved, std::time::Instant::now());
         }
         vec![Effect::Command(tab, command, args)]
     }

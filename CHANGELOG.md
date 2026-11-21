@@ -10,6 +10,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Settings › General › Updates shows the update channel with Check Now (macOS, Windows); once an
+  update is downloaded it offers Restart to Update there and in the Tarn menu (Windows).
 - Settings › Privacy › Passkeys and security keys turns passkey sign-in on or off for sites (on by
   default) (macOS, WebKit tabs).
 - Making Chromium the default engine offers to reload the window's open WebKit tabs in Chromium,
@@ -17,15 +19,41 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Tabs move with more life: a new tab sweeps into the sidebar and lands with a small spring, a
+  closed tab sweeps off before its gap closes, the active tab's highlight swells into place while
+  the previous one fades, a tab's icon springs up when it starts or finishes loading, tiles rise
+  in, and the rows of the address palette and the start page's suggestions rise in one after
+  another (macOS, Windows). The icon spring also reaches the sidebar on Linux and on tablets (iOS,
+  Android). Reduce Motion turns all of it off.
+- The search bar effects are livelier on every client: flames flicker on two rhythms with a wave
+  running up each tongue and twinkling embers, the aurora waves in three curtains with drifting
+  rays, sparkle glides along the edge and flashes, and the glow carries a light running around
+  the card. Every effect is drawn from soft, blurred glows with sharp glints for sparks instead
+  of hard-edged dots.
+- Pop-ups, the address palette, toasts, the space and profile cards, link previews, hover cards,
+  the Library's pages, the floating sidebar, folder chevrons and switches spring into place
+  instead of easing in flat, most with a small overshoot (macOS, Windows).
 - Releases also carry an unsigned Android App Bundle for Google Play, and the iOS app is built with
   the iOS 26 SDK and carries a privacy manifest (iOS, Android).
 - Download notices float over the page instead of pushing it down and show only on the tab that was
   in front when they appeared; a finished download's notice disappears after 5 seconds, while a
   warning (no quarantine, a file that can run code, a failed download) stays until you dismiss it
   (macOS, Windows).
+- Showing or hiding the sidebar moves the page without laying it out again on every frame (macOS,
+  Windows), and the page's frame is no longer set again while a spinner turns or a page fades
+  (macOS).
 
 ### Fixed
 
+- Keyboard shortcuts such as ⌘T and the menu bar keep working after a click in the floating
+  sidebar; the click no longer leaves the keyboard with the sidebar's window (macOS).
+- The Nightly channel gets a new release by the next night even when `main` has not changed since
+  the last nightly, instead of staying on the older nightly.
+- Pressing Toggle Sidebar again while the sidebar slides turns it back from where it is instead of
+  jumping to the far edge (macOS, Windows).
+- Allow, Visit Anyway, Keep and the other guarded buttons ignore clicks until 700 ms after the
+  sidebar has finished sliding or was resized, as they already did after other layout changes (on
+  every client).
 - A long toast message wraps to up to three lines inside its card instead of running past the
   card's edge and hiding its button (macOS, Windows).
 - The download button of the PDF viewer in a WebKit tab saves the PDF to Downloads; it did nothing

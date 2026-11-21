@@ -93,7 +93,7 @@ actions!(
 );
 
 actions!(tarn, [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyCleanLink, ToggleCompactToolbar, OpenAppMenu]);
-actions!(tarn, [AboutTarn, CheckForUpdates, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
+actions!(tarn, [AboutTarn, CheckForUpdates, RestartToUpdate, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
 actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAutoHideSidebar, ToggleDownloads]);
 actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, BurnerTab]);
 actions!(tarn, [CloseWindow, StopLoading, ReloadFromOrigin, NewPrivateWindow, NewBurnerWindow]);
@@ -161,8 +161,24 @@ pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
 impl Render for Browser {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         engine::startup::mark("first window render");
+        if !engine::startup::frames_traced() {
+            return self.render_root(window, cx);
+        }
+        let started = std::time::Instant::now();
+        if let Some(drawn) = self.drawn_at.replace(started) {
+            engine::startup::frame("interval", started - drawn);
+        }
+        let root = self.render_root(window, cx);
+        engine::startup::frame("render", started.elapsed());
+        root
+    }
+}
+
+impl Browser {
+    fn render_root(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         self.follow_theme();
         ui::motion::set_reduced(self.pref(prefs::Pref::ReduceMotion));
+        self.note_motion();
         // The menu bar is the app's; only the window in front decides what it lists.
         if window.is_window_active() {
             self.refresh_menus(cx);
@@ -348,7 +364,7 @@ impl Render for Browser {
                 .flex_none()
                 .flex()
                 .justify_end()
-                .child(sidebar::render(self, cx))
+                .child(timed("sidebar", || sidebar::render(self, cx)))
                 .when(shown < 1., |d| d.w(px((self.sidebar_width + sidebar::SIDEBAR_MARGIN) * shown)).overflow_hidden().opacity(shown))
         });
         if self.page_fullscreen.is_on() && !self.page_fullscreen_holds() {
@@ -369,9 +385,28 @@ impl Render for Browser {
             return root.bg(gpui::black()).child(page.size_full()).into_any_element();
         }
         root.children(sidebar)
-            .child(div().flex_1().min_w_0().h_full().flex().flex_col().child(toolbar::render(self, cx)).child(content::render(self, window, cx)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .flex_col()
+                    .child(timed("toolbar", || toolbar::render(self, cx)))
+                    .child(timed("content", || content::render(self, window, cx))),
+            )
             .into_any_element()
     }
+}
+
+fn timed<T>(section: &'static str, f: impl FnOnce() -> T) -> T {
+    if !engine::startup::frames_traced() {
+        return f();
+    }
+    let started = std::time::Instant::now();
+    let built = f();
+    engine::startup::frame(section, started.elapsed());
+    built
 }
 
 pub(crate) fn bind_keys(cx: &mut App, keymap: &[(String, &'static dyn gpui::Action)]) {
@@ -430,7 +465,7 @@ fn set_menus(cx: &mut App, dynamic: menubar::Dynamic) {
 pub(crate) type MenuMarks = Vec<(&'static str, Vec<engine::menu::Mark>)>;
 
 pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
-    let all = vec![
+    let mut all = vec![
         Menu {
             name: "Tarn".into(),
             items: vec![
@@ -500,6 +535,9 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
         Menu { name: "History".into(), items: dynamic.history },
         Menu { name: "Window".into(), items: dynamic.window },
     ];
+    if cfg!(windows) {
+        all[0].items.insert(2, MenuItem::action("Restart to Update", RestartToUpdate));
+    }
     (all, dynamic.marks)
 }
 
@@ -569,11 +607,8 @@ pub fn run() {
                 MenuItem::action("New Burner Window", NewBurnerWindow),
             ]);
             if shared::core(cx).updater.is_some() {
-                cx.on_action(|_: &CheckForUpdates, cx| {
-                    if let Some(updater) = &shared::core(cx).updater {
-                        updater.check_now();
-                    }
-                });
+                cx.on_action(|_: &CheckForUpdates, cx| shared::check_for_updates(cx));
+                cx.on_action(|_: &RestartToUpdate, cx| shared::restart_to_update(cx));
             }
             shared::open_windows(cx);
             // A jump-list entry that started Tarn arrives as its arguments, not from a running instance.

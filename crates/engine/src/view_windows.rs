@@ -27,6 +27,12 @@ impl WebView {
         false
     }
 
+    /// Whether the window clips the page where it reaches past the window's edge: a child window
+    /// always is.
+    pub fn clipped_by_window(&self) -> bool {
+        true
+    }
+
     pub fn adopt(popup: Popup, host: &Host, inspectable: bool, sink: Rc<dyn Fn(Event)>) -> Option<Self> {
         let view = popup.view.rehost(host, sink.clone());
         view.set_inspectable(inspectable);

@@ -402,6 +402,13 @@ network, so it runs on a Mac desktop session, not in CI; compare its output befo
 startup change on the same machine. WebKit keeps the temporary profile's website data store under
 `~/Library/WebKit`.
 
+`TARN_FRAME_TRACE=1` prints `tarn-frame <section> <µs>` to stderr for every render: the time
+since the previous one (`interval`), the whole render and its `sidebar`, `toolbar` and `content`
+parts, and `tarn-frame resize` or `tarn-frame move` each time a web view's native frame changes size
+or only position; Windows sets the frame on every call, so there every call prints one of them. Render times cover
+building the element tree; GPUI's layout and paint show in `interval`. The output carries section
+names and numbers only.
+
 </details>
 
 <details>

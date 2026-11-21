@@ -177,11 +177,19 @@ impl Browser {
             let page = self.pages.entry(key).or_default();
             page.blocked = Some(BlockedPage { url: parsed.to_string(), category });
             if self.model.active == Some(key) {
-                self.guard_since = Instant::now();
+                browser_core::prompts::restart(&mut self.guard_since, Instant::now());
             }
         } else {
             self.notice = Some(Notice::Open { key, url: parsed.to_string(), message: nav_policy::blocked_message(category, &parsed) });
         }
+    }
+
+    /// The sidebar slides the page area and the downloads panel beside it for `slide`; their
+    /// guarded buttons wait until it has ended.
+    pub fn sidebar_moved(&mut self, slide: std::time::Duration) {
+        let rest = Instant::now() + slide;
+        browser_core::prompts::restart(&mut self.guard_since, rest);
+        browser_core::prompts::restart(&mut self.downloads_moved, rest);
     }
 
     /// "Go Back": the navigation never happened, so the tab still shows the page it had.

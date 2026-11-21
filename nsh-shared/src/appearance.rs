@@ -469,8 +469,10 @@ fn reduce_motion_row<H: Host>(pane: Pane<H>) -> View {
         .flex_col()
         .pb_2()
         .child(switch_row("Reduce motion", move || on, move || pane.quietly(saved(host.with_store(|s| REDUCE_MOTION.set(s, !on))))))
-        .child(view().px_3().child(small(format!("Cards, banners, the sidebar and tab switches appear without animation. Always on while {system}."))))
+        .child(view().px_3().child(small(format!("{MOTION_NOTE} Always on while {system}."))))
 }
+
+const MOTION_NOTE: &str = "Pop-ups, cards, tabs and the sidebar appear without animation, and the search bar effect holds still.";
 
 fn effect_row<H: Host>(pane: Pane<H>) -> View {
     let stored = pane.host.with_store(library::chosen_effect);
