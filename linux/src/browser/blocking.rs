@@ -184,6 +184,11 @@ impl Browser {
         }
     }
 
+    /// The sidebar slides the page area for `slide`; guarded buttons on it wait until it has ended.
+    pub fn sidebar_moved(&mut self, slide: std::time::Duration) {
+        self.guard_since = self.guard_since.max(Instant::now() + slide);
+    }
+
     /// "Go Back": the navigation never happened, so the tab still shows the page it had.
     pub fn leave_blocked(&mut self) {
         if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)) {

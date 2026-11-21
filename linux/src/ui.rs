@@ -1398,6 +1398,7 @@ fn compact_address(ui: Ui) -> View {
 fn toggle_sidebar(ui: Ui) {
     animate_next(SLIDE);
     ui.sidebar.update(|o| *o = !*o);
+    act(ui, |b| b.sidebar_moved(SLIDE));
     peek::close(ui);
     peek::hide(ui);
 }
@@ -1407,6 +1408,7 @@ pub(super) fn set_auto_hide_sidebar(ui: Ui) {
     let hidden = read(ui, |b| b.auto_hide_sidebar()).unwrap_or_default();
     for other in WINDOWS.with_borrow(Vec::clone) {
         other.sidebar.set(!hidden);
+        act(other, |b| b.sidebar_moved(SLIDE));
         peek::close(other);
         peek::hide(other);
     }

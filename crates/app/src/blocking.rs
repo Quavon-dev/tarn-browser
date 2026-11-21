@@ -306,6 +306,11 @@ impl Browser {
         self.layout_stable_since = Instant::now();
     }
 
+    /// Like `layout_changed`, for a move that lasts `motion`: guarded controls wait until it ends.
+    pub(crate) fn layout_moving(&mut self, motion: std::time::Duration) {
+        self.layout_stable_since = self.layout_stable_since.max(Instant::now() + motion);
+    }
+
     /// A background tab's controls wait for the switch to it, and a notice repeated exactly does not
     /// move anything, so neither can keep the active tab's controls waiting.
     fn changed_in(&mut self, key: TabKey) {

@@ -554,6 +554,23 @@ fn downloads_report_progress_pause_and_flagged_files() {
 }
 
 #[test]
+fn keep_waits_until_a_sidebar_slide_has_ended() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://a.test/", "A");
+    let key = active(&shell);
+    shell.event(key, "download", &json!({ "id": "7", "state": "started", "name": "a.zip", "pausable": true }), 3);
+    shell.event(key, "download", &json!({ "id": "7", "state": "flagged", "name": "a.zip", "host": "bad.test" }), 3);
+    shell.transfers_moved -= browser_core::prompts::BYPASS_DELAY;
+    let toggled = std::time::Instant::now();
+    shell.toggle_sidebar();
+    assert!(!browser_core::prompts::stable(shell.transfers_moved, toggled + browser_core::prompts::BYPASS_DELAY), "the wait restarts when the slide ends");
+    assert!(browser_core::prompts::stable(
+        shell.transfers_moved,
+        toggled + tarn_nsh_shared::motion::SLIDE + browser_core::prompts::BYPASS_DELAY + std::time::Duration::from_millis(50)
+    ));
+}
+
+#[test]
 fn the_qr_code_and_share_take_only_web_pages() {
     let (_dir, mut shell) = open();
     assert!(shell.qr_code().is_none());

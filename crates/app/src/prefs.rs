@@ -305,6 +305,7 @@ impl Browser {
 
     pub fn set_sidebar_width(&mut self, width: f32, save: bool, cx: &mut Context<Self>) {
         self.sidebar_width = clamp_sidebar_width(width);
+        self.layout_changed();
         if save {
             self.core.disk.set_setting(SIDEBAR_WIDTH_SETTING, &self.sidebar_width.to_string()).ok();
         }
@@ -314,6 +315,7 @@ impl Browser {
     pub fn set_sidebar_open(&mut self, open: bool, cx: &mut Context<Self>) {
         if self.sidebar_open != open {
             self.sidebar_toggled = Some(std::time::Instant::now());
+            self.layout_moving(if self.pref(Pref::ReduceMotion) { std::time::Duration::ZERO } else { ui::motion::SLIDE });
         }
         self.sidebar_open = open;
         browser_core::layout::save_sidebar(&self.core.disk, open).ok();
