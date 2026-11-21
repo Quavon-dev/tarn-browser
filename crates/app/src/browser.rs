@@ -350,6 +350,8 @@ pub struct Browser {
     /// Background tabs left awake for the form input the user typed, until they are shown again.
     pub(crate) typed_in: HashSet<TabKey>,
     pub(crate) sidebar_toggled: Option<Instant>,
+    /// When the window last rendered, for `TARN_FRAME_TRACE`'s frame intervals.
+    pub(crate) drawn_at: Option<Instant>,
     pub(crate) page_fade: Option<(Rc<WebView>, Instant)>,
     pub(crate) overlay_exit: Option<Instant>,
     pub(crate) fog: gpui::Entity<crate::content::Fog>,
@@ -547,6 +549,7 @@ impl Browser {
             typed_in: HashSet::new(),
             heavy: Vec::new(),
             sidebar_toggled: None,
+            drawn_at: None,
             page_fade: None,
             overlay_exit: None,
             fog: cx.new(|_| Default::default()),

@@ -2373,6 +2373,7 @@ impl WebView {
     }
 
     pub fn set_frame(&self, x: f64, y: f64, width: f64, height: f64) {
+        crate::startup::frame_set();
         self.0.frame.set(Some((x, y, width, height)));
         let host = self.0.host.borrow();
         #[cfg(windows)]

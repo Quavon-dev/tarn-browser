@@ -291,6 +291,7 @@ impl WebView {
 
     /// Positions the view in shell coordinates: logical points, origin top-left.
     pub fn set_frame(&self, x: f64, y: f64, width: f64, height: f64) {
+        crate::startup::frame_set();
         self.view.setFrame(self.host.rect(x, y, width, height));
     }
 
