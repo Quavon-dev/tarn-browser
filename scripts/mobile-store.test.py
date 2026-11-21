@@ -73,6 +73,8 @@ class VerificationTests(unittest.TestCase):
             store.prepare_ios(archive, profile_path, destination, 'v1.2.3')
             self.assertEqual((destination / 'Tarn.app/Tarn').stat().st_mode & 0o777, 0o755)
             self.assertEqual(store.plistlib.loads((root / 'entitlements.plist').read_bytes()), profile['Entitlements'])
+            self.assertEqual((root / 'profile-certificates.txt').read_text(),
+                             store.hashlib.sha1(b'synthetic certificate').hexdigest().upper() + '\n')
             oversized = zipfile.ZipInfo('Tarn.app/large')
             oversized.file_size = 1024 ** 3 + 1
             with patch.object(store.zipfile.ZipFile, 'infolist', return_value=[oversized]):

@@ -81,14 +81,32 @@ jobs:
           security unlock-keychain -p "$password" "$keychain"
           security import "$RUNNER_TEMP/verified/AppleWWDRCAG3.cer" -k "$keychain"
           security import "$work/distribution.p12" -k "$keychain" -P "$IOS_DISTRIBUTION_PASSWORD" -T /usr/bin/codesign
-          security find-certificate -c "Apple Distribution:" -p "$keychain" > "$work/distribution.pem"
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '{print $2}' | { grep -xFf "$work/profile-certificates.txt" || [[ $? -eq 1 ]]; })"
+          if [[ -z "$identity" ]]; then
+            echo "::error::The P12 holds no valid code-signing identity that the provisioning profile lists"
+            exit 1
+          elif [[ ! "$identity" =~ ^[A-F0-9]{40}$ ]]; then
+            echo "::error::The P12 holds more than one identity that the provisioning profile lists; export only one"
+            exit 1
+          fi
+          security find-certificate -a -Z -p "$keychain" | awk -v id="$identity" '/^SHA-1 hash:/ { on = ($3 == id) } on' | sed -n '/BEGIN CERTIFICATE/,/END CERTIFICATE/p' > "$work/distribution.pem"
+          if [[ ! -s "$work/distribution.pem" ]]; then
+            echo "::error::Could not read the certificate of identity $identity from the signing keychain"
+            exit 1
+          fi
+          name="$(openssl x509 -in "$work/distribution.pem" -noout -subject -nameopt multiline | sed -n 's/^ *commonName *= //p')"
+          distribution='^(Apple|iPhone) Distribution: [^[:cntrl:]]+$'
+          if [[ ! "$name" =~ $distribution ]]; then
+            echo "::error::Not an App Store distribution certificate: ${name%%$'\n'*}"
+            exit 1
+          fi
           issuer="$(openssl x509 -in "$work/distribution.pem" -noout -issuer -nameopt RFC2253)"
           intermediate="$(openssl x509 -inform DER -in "$RUNNER_TEMP/verified/AppleWWDRCAG3.cer" -noout -subject -nameopt RFC2253)"
-          [[ "${issuer#issuer=}" == "${intermediate#subject=}" ]]
+          if [[ "${issuer#issuer=}" != "${intermediate#subject=}" ]]; then
+            echo "::error::The distribution certificate is not issued by Apple WWDR G3: ${issuer#issuer=}"
+            exit 1
+          fi
           security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" >/dev/null
-          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.* \([A-F0-9]\{40\}\) "Apple Distribution:.*$/\1/p')"
-          [[ "$identity" =~ ^[A-F0-9]{40}$ ]]
-          grep -qxF "$identity" "$work/profile-certificates.txt"
           cp "$work/profile.mobileprovision" "$work/Payload/Tarn.app/embedded.mobileprovision"
           codesign --force --sign "$identity" --keychain "$keychain" --generate-entitlement-der --entitlements "$work/entitlements.plist" "$work/Payload/Tarn.app"
           codesign --verify --strict --verbose=2 "$work/Payload/Tarn.app"
@@ -131,6 +149,15 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/mobile-store.py
           sparse-checkout-cone-mode: false
+      - name: Check Google Play configuration
+        env:
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+        run: |
+          if [[ -z "$GCP_WORKLOAD_IDENTITY_PROVIDER" || -z "$GCP_SERVICE_ACCOUNT" ]]; then
+            echo "::error::Set GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT in the android-store environment (docs/release.md)"
+            exit 1
+          fi
       - name: Verify release before accessing store credentials
         env:
           GH_TOKEN: ${{ github.token }}
