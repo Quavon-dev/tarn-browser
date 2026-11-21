@@ -182,7 +182,8 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   listing the running version or a later one counts as verified for the staleness gate; a critical
   later one starts the two days. Only a later version is downloaded, into `<data>/updates/<version>`
   (kept across launches while it still verifies; older versions' folders go), and only after its
-  length, SHA-256 and Ed25519 signature check out. A toast offers Restart to Update; otherwise a
+  length, SHA-256 and Ed25519 signature check out. A toast, Settings › General and the Tarn menu
+  offer Restart to Update (Settings › General also has Check Now); otherwise a
   normal quit installs it while automatic checks are on, as Sparkle does. On quit Tarn hashes the
   file again through a handle that bars writes and starts it with
   `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART` (plus `/TARNUPDATE` after Restart to Update, which makes

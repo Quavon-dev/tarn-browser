@@ -241,6 +241,7 @@ struct Snapshot {
     engine: usize,
     web_engine: WebEngine,
     updater: bool,
+    update_ready: Option<String>,
     update_checks: bool,
     chromium_allowed: bool,
     chromium_closed: Option<&'static str>,
@@ -427,6 +428,7 @@ impl SettingsWindow {
             engine: stored.engine,
             web_engine: b.core.default_web_engine.get(),
             updater: b.core.updater.is_some(),
+            update_ready: if self.pane == SettingsPane::General { b.core.updater.as_ref().and_then(platform::updater::Updater::ready_version) } else { None },
             update_checks: b.core.update_checks(),
             chromium_allowed: b.core.chromium_allowed(),
             chromium_closed: b.chromium_closed(),
@@ -1309,6 +1311,7 @@ impl SettingsWindow {
                         s.prefs.get(Pref::NightlyUpdates),
                         cx,
                     ))
+                    .child(Self::update_row(s))
             } else {
                 group().child(row(true).child(label("Check for updates automatically")).child(value("Not set up in this build")))
             })
@@ -1357,6 +1360,18 @@ impl SettingsWindow {
                     }),
             )
             .into_any_element()
+    }
+
+    fn update_row(s: &Snapshot) -> Div {
+        let check = button("update-check", "Check Now", false).on_click(|_, _, cx| crate::shared::check_for_updates(cx));
+        let text = match (&s.update_ready, s.prefs.get(Pref::NightlyUpdates)) {
+            (Some(version), _) => text_block(format!("Tarn {version} is ready"), "Downloaded and verified; it installs when Tarn restarts."),
+            (None, true) => text_block("Nightly channel", "A new release reaches it as the next nightly build."),
+            (None, false) => text_block("Release channel", "Tested releases only."),
+        };
+        row(false).child(text).child(div().flex().gap_2().child(check).when(s.update_ready.is_some(), |d| {
+            d.child(button("update-restart", "Restart to Update", true).on_click(|_, _, cx| crate::shared::restart_to_update(cx)))
+        }))
     }
 
     fn link_row(&self, id: &'static str, title: &'static str, detail: &'static str, url: &'static str, cx: &mut Context<Self>) -> Div {
@@ -1733,7 +1748,7 @@ impl SettingsWindow {
             .child(connection(false, "Update checks", match (s.updater, s.update_checks) {
                 (false, _) => "Not set up in this build; Tarn does not check for updates.".into(),
                 (true, true) => "GitHub, once a day. Turn off in General.".into(),
-                (true, false) => "Off; only Check for Updates in the Tarn menu asks GitHub.".into(),
+                (true, false) => "Off; only Check for Updates in the Tarn menu or Check Now in General asks GitHub.".into(),
             }))
             .when(cfg!(feature = "translation"), |d| {
                 d.child(connection(false, "Translation", "None. Pages are translated on this Mac with the language packs installed in System Settings; Tarn never downloads them.".into()))
