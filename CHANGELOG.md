@@ -8,6 +8,20 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Tabs move with more life: a new tab sweeps into the sidebar and lands with a small spring, a
+  closed tab sweeps off before its gap closes, the active tab's highlight swells into place while
+  the previous one fades, a tab's icon springs up when it starts or finishes loading, tiles rise
+  in, and the rows of the address palette and the start page's suggestions rise in one after
+  another (macOS, Windows). The icon spring also reaches the sidebar on Linux and on tablets (iOS,
+  Android). Reduce Motion turns all of it off.
+- The search bar effects are livelier on every client: flames flicker on two rhythms with a wave
+  running up each tongue and twinkling embers, the aurora waves in three curtains with drifting
+  rays, sparkle glides along the edge and flashes, and the glow carries a light running around
+  the card. Every effect is drawn from soft, blurred glows with sharp glints for sparks instead
+  of hard-edged dots.
+- Pop-ups, the address palette, toasts, the space and profile cards, link previews, hover cards,
+  the Library's pages, the floating sidebar, folder chevrons and switches spring into place
+  instead of easing in flat, most with a small overshoot (macOS, Windows).
 - Releases also carry an unsigned Android App Bundle for Google Play, and the iOS app is built with
   the iOS 26 SDK and carries a privacy manifest (iOS, Android).
 - Download notices float over the page instead of pushing it down and show only on the tab that was

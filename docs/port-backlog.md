@@ -21,6 +21,47 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Springy pop-ups and cards (2026-11-21)
+
+What it does: pop-ups, toasts, cards, link previews, hover cards, the Library's page turn, the
+floating sidebar, folder chevrons and switches spring into place instead of easing in flat, most
+with a small overshoot.
+Shared API: `ui::motion::{SETTLE, POPUP_TRAVEL, arrive, rise_in, popover_motion}` (GPUI).
+Reference: `crates/ui/src/motion.rs`, `crates/ui/src/controls.rs` (`sliding_switch`),
+`crates/app/src/toast.rs`, `crates/app/src/sidebar.rs` (`floating`, `chevron`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `nsh-shared/src/motion.rs` `pop_in` and `nsh-shared/src/popover.rs` still ease in
+  flat; give pop-ups their own overshooting spec over `SETTLE` (not through `popping`, which also
+  moves small icons), keep opacity off the overshooting curve, and spring the switch knob in
+  `nsh-shared/src/controls.rs`
+- [ ] iOS — the same shared NSH change reaches `mobile/app`
+- [ ] Android — same as iOS
+
+### Livelier tab motion (2026-11-21)
+
+What it does: a new tab opens its gap, then sweeps in from the side and lands with a small spring;
+a closed tab sweeps off before its gap closes; the active tab's highlight swells from the row's
+middle while the previous one fades; a tab's icon springs up when loading starts or ends; tiles rise
+in; the rows of the address palette and of the start page's suggestions rise in one after another.
+Shared API: `ui::motion::{TAB_IN, TAB_OUT, SWEEP, STAGGER, bounce, phase, animate_linear,
+stagger_in}` (GPUI); NSH has `tarn_nsh_shared::motion::popping`.
+Reference: `crates/app/src/sidebar.rs` (`note_motion`, `tab_row`, `leaving_row`, `tiles`),
+`crates/app/src/content.rs` (`suggestion_rows`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — the icon springs up when loading starts or ends (`linux/src/ui.rs` `tab_row`), but
+  also when the row is first built; still needs the sweep in and out of tab rows (an
+  entering/exiting `MotionSpec` on `TranslateX`), the highlight swell and fade on a child view (a
+  colour transition on the whole row would also slow the drop-target colour), rising tiles and
+  staggered palette rows (`Animation::stagger_from`)
+- [ ] iOS — the same icon spring in the tablet sidebar and its tiles
+  (`mobile/app/src/ui/mac/sidebar.rs` `tab_icon`), also when the row is first built; still needs
+  the row sweep, the highlight swell and fade (on a child view, so press feedback stays instant),
+  rising tiles, the staggered address suggestions and the phone tab cards
+  (`mobile/app/src/ui/panels.rs`)
+- [ ] Android — same as iOS
+
 ### Native page frame set only when it changes (2026-11-21)
 
 What it does: the shell no longer sets the page's native frame and opacity again on every repaint

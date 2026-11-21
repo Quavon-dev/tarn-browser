@@ -178,6 +178,7 @@ impl Browser {
     fn render_root(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         self.follow_theme();
         ui::motion::set_reduced(self.pref(prefs::Pref::ReduceMotion));
+        self.note_motion();
         // The menu bar is the app's; only the window in front decides what it lists.
         if window.is_window_active() {
             self.refresh_menus(cx);

@@ -8,22 +8,49 @@ use nsh_core::prelude::*;
 
 use crate::theme::{Theme, themed};
 
-pub const STILL: f32 = 0.4;
+pub use effects::STILL;
 
 pub fn animates(effect: Effect, reduce_motion: bool, lifecycle: Lifecycle) -> bool {
     effect.fps() > 0. && !reduce_motion && lifecycle == Lifecycle::Active
 }
 
-pub fn dots(effect: Effect, width: f32, height: f32, t: f32, color: Rgba) -> Vec<(f32, f32, f32, Rgba)> {
-    let frame: Vec<Particle> = effects::frame(effect, width, height, t);
-    frame
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Dot {
+    pub x: f32,
+    pub y: f32,
+    pub radius: f32,
+    pub fill: Rgba,
+    pub soft: bool,
+}
+
+pub fn dots(effect: Effect, width: f32, height: f32, t: f32, color: Rgba) -> Vec<Dot> {
+    let frame: Vec<Particle> = effects::frame(effect, width, height, Theme::radius_card(), t);
+    let mut dots = frame
         .into_iter()
         .filter(|p| p.alpha > 0.01)
         .flat_map(|p| {
-            let (r, g, b) = effects::tint((color.r, color.g, color.b), p.heat);
-            [(effects::HALO, 0.22), (1., 1.)].map(|(scale, alpha)| (p.x, p.y, p.radius * scale, Rgba { r, g, b, a: p.alpha * alpha }))
+            let (((r, g, b), a), glint) = effects::shade(&p, (color.r, color.g, color.b));
+            let glow = Dot { x: p.x, y: p.y, radius: p.radius * effects::HALO, fill: Rgba { r, g, b, a }, soft: true };
+            let glint = glint.map(|((r, g, b), a)| Dot { radius: p.radius * effects::GLINT, fill: Rgba { r, g, b, a }, soft: false, ..glow });
+            std::iter::once(glow).chain(glint)
         })
-        .collect()
+        .collect::<Vec<Dot>>();
+    dots.sort_by_key(|d| !d.soft);
+    dots
+}
+
+fn paint(painter: Painter, d: Dot, (dx, dy): (f32, f32)) -> Painter {
+    let (x, y) = (dx + d.x, dy + d.y);
+    let painter = if d.soft {
+        let at = Point::new(Points(x), Points(y));
+        let gradient = nsh_core::canvas::CanvasGradient::radial(at, Points(0.), at, Points(d.radius));
+        painter.fill_style(
+            effects::GLOW_STOPS.into_iter().fold(gradient, |g, (at, share)| g.add_color_stop(Percentage(at), Rgba { a: d.fill.a * share, ..d.fill })),
+        )
+    } else {
+        painter.fill_style(d.fill)
+    };
+    painter.begin_path().arc(x, y, d.radius, 0., TAU).fill()
 }
 
 fn glow(t: f32, color: Rgba) -> Vec<BoxShadow> {
@@ -69,27 +96,22 @@ pub fn search_fx(row: f32) -> AnyElement {
             .overflow_hidden()
             .pointer_events(PointerEvents::None)
             .accessibility_elements_hidden(true);
-        Some(match effect {
-            Effect::Glow => layer.child(dynamic(move || card().shadow(glow(t.get(), color)))).child(underlay),
-            _ => {
-                let painter = move || {
-                    let (w, h) = size.get();
-                    let width = w - 2. * side;
-                    let height = if effect == Effect::Sparkle { h - rise - side } else { row };
-                    dots(effect, width, height, t.get(), color)
-                        .into_iter()
-                        .fold(Painter::new(), |p, (x, y, r, fill)| p.fill_style(fill).begin_path().arc(side + x, rise + y, r, 0., TAU).fill())
-                };
-                layer
-                    .on_layout(move |b: &Bounds<Points>| {
-                        let next = (b.size.width.0, b.size.height.0);
-                        if size.get_untracked() != next {
-                            size.set(next);
-                        }
-                    })
-                    .child(canvas(painter).size_full())
-                    .child(underlay)
+        let painter = move || {
+            let (w, h) = size.get();
+            let width = w - 2. * side;
+            let height = if effect.around_card() { h - rise - side } else { row };
+            dots(effect, width, height, t.get(), color).into_iter().fold(Painter::new(), |p, d| paint(p, d, (side, rise)))
+        };
+        let canvas = canvas(painter).size_full();
+        let layer = layer.on_layout(move |b: &Bounds<Points>| {
+            let next = (b.size.width.0, b.size.height.0);
+            if size.get_untracked() != next {
+                size.set(next);
             }
+        });
+        Some(match effect {
+            Effect::Glow => layer.child(dynamic(move || card().shadow(glow(t.get(), color)))).child(canvas).child(underlay),
+            _ => layer.child(canvas).child(underlay),
         })
     })
 }
@@ -109,14 +131,19 @@ mod tests {
     }
 
     #[test]
-    fn every_particle_is_a_halo_and_a_dot_in_the_effect_colour() {
+    fn every_particle_is_a_soft_glow_and_sparks_add_a_glint() {
         let blue = rgba(0x1f75b0ff);
-        let dots = dots(Effect::Flames, 400., 54., STILL, blue);
-        assert!(!dots.is_empty() && dots.len().is_multiple_of(2));
-        for pair in dots.chunks(2) {
-            assert!((pair[0].2 - pair[1].2 * effects::HALO).abs() < 1e-3 && pair[0].3.a < pair[1].3.a);
-        }
-        assert!(super::dots(Effect::Glow, 400., 54., STILL, blue).is_empty());
+        let aurora = dots(Effect::Aurora, 400., 54., STILL, blue);
+        assert!(!aurora.is_empty() && aurora.iter().all(|d| d.soft), "no hard edges in the aurora");
+        let sparkle = dots(Effect::Sparkle, 400., 54., STILL, blue);
+        let glints: Vec<&Dot> = sparkle.iter().filter(|d| !d.soft).collect();
+        assert!(
+            !glints.is_empty() && glints.iter().all(|g| sparkle.iter().any(|d| d.soft && d.x == g.x && d.radius > g.radius)),
+            "a glint sits inside its glow"
+        );
+        assert!(sparkle.windows(2).all(|w| w[0].soft || !w[1].soft), "glints paint last");
+        assert!(!super::dots(Effect::Glow, 400., 54., 1., blue).is_empty(), "the glow carries its running light");
+        assert!(super::dots(Effect::Glow, 400., 54., STILL, blue).is_empty(), "but not in a still frame");
         assert_eq!(super::dots(Effect::Sparkle, 400., 54., STILL, blue), super::dots(Effect::Sparkle, 400., 54., STILL, blue));
         let ring = glow(0., blue)[0].color.0;
         assert_eq!(ring >> 8, 0x1f75b0);

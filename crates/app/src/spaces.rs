@@ -9,7 +9,7 @@ use gpui::{
 use store::{Id, Profile, Schedule};
 use ui::controls::{button, caption, popup_options};
 use ui::icon::{Icon, SPACE_ICONS, icon};
-use ui::motion::{FADE, POP, REOPEN_GUARD, animate};
+use ui::motion::{FADE, REOPEN_GUARD, animate, rise_in};
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{PROFILE_COLORS, TEXT_SMALL, TOOLBAR_HEIGHT, Theme};
@@ -455,7 +455,7 @@ impl Render for SpacePopover {
         let card: AnyElement = if self.leave.is_some() {
             animate(card, "space-out", FADE, reduce, |el, t| el.opacity(1. - t).relative().top(px(t * 10.)))
         } else {
-            animate(card, "space-in", POP, reduce, |el, t| el.opacity(t).relative().top(px((1. - t) * 10.)))
+            rise_in(card, "space-in", 10., reduce)
         };
         div().size_full().flex().flex_col().justify_end().child(card).into_any_element()
     }

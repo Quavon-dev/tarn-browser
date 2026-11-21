@@ -18,7 +18,7 @@ use gpui::{
 use store::{Bookmark, Download, HistoryEntry, Id, Snapshot, Tab};
 use ui::controls::{button, caption, empty, icon_button, key_hint, surface, tooltip};
 use ui::icon::{ICON_SMALL, Icon, icon};
-use ui::motion::{EXIT, POP, animate};
+use ui::motion::{EXIT, POP, SETTLE, animate, animate_linear, arrive};
 use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
@@ -1552,7 +1552,10 @@ impl Render for LibraryWindow {
             (0, _) => list.into_any_element(),
             (turn, backward) => {
                 let shift = if backward { -PAGE_SHIFT } else { PAGE_SHIFT };
-                animate(list, ("library-page", turn), POP, reduce, move |el, t| el.opacity(t).relative().left(px((1. - t) * shift)))
+                animate_linear(list, ("library-page", turn), SETTLE, reduce, move |el, t| {
+                    let (shown, ahead) = arrive(t);
+                    el.opacity(shown).relative().left(px(ahead * shift))
+                })
             }
         };
         // The card grows up from its bottom edge, the anchor, over content laid out at full height.

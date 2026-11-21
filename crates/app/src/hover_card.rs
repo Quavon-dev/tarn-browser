@@ -10,7 +10,7 @@ use gpui::{
     WindowHandle, div, img, point, px, size,
 };
 use ui::controls::{POPOVER_INSET, open_popup, popover};
-use ui::motion::fade_in;
+use ui::motion::rise_in;
 use ui::text::OneLine;
 use ui::theme::{TEXT, TEXT_SMALL, Theme};
 
@@ -272,6 +272,6 @@ impl Render for CardWindow {
             .child(div().flex_none().font_weight(FontWeight::MEDIUM).line_clamp(2).child(SharedString::from(title)))
             .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(place)))
             .when(!state.is_empty(), |d| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(SharedString::from(state))));
-        fade_in(card, "hover-card", self.reduce)
+        rise_in(div().size_full().child(card), "hover-card", 4., self.reduce)
     }
 }

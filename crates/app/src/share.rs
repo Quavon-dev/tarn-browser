@@ -8,7 +8,7 @@ use gpui::{
 };
 use ui::controls::{POPOVER_INSET, list_row, open_popup, popover};
 use ui::icon::{Icon, icon};
-use ui::motion::{REOPEN_GUARD, fade_in, popover_motion};
+use ui::motion::{REOPEN_GUARD, popover_motion, rise_in};
 use ui::text::OneLine;
 use ui::theme::{TEXT, TEXT_SMALL, Theme};
 
@@ -229,7 +229,7 @@ impl ShareMenuWindow {
     fn row(&self, ix: usize, entry: Entry, label: &'static str, reduce: bool, cx: &mut Context<Self>) -> AnyElement {
         let glyph = if entry == Entry::More { Icon::Ellipsis } else { Icon::named(browser_core::command::glyph(label)).unwrap_or(Icon::Command) };
         let glyph = match self.copied {
-            Some(copied) if copied == entry => fade_in(icon(Icon::Check, 15., Theme::accent()), ("copied", ix), reduce),
+            Some(copied) if copied == entry => rise_in(div().child(icon(Icon::Check, 15., Theme::accent())), ("copied", ix), 5., reduce),
             _ => icon(glyph, 15., if self.enabled(entry) { Theme::muted() } else { Theme::faint() }).into_any_element(),
         };
         let keys = Self::shortcut(entry, cx);
