@@ -14,8 +14,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   in front when they appeared; a finished download's notice disappears after 5 seconds, while a
   warning (no quarantine, a file that can run code, a failed download) stays until you dismiss it
   (macOS, Windows).
-- Showing or hiding the sidebar moves the page without laying it out again on every frame, and the
-  page's frame is no longer set again while a spinner turns or a page fades (macOS, Windows).
+- Showing or hiding the sidebar moves the page without laying it out again on every frame (macOS,
+  Windows), and the page's frame is no longer set again while a spinner turns or a page fades
+  (macOS).
 
 ### Added
 
