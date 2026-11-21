@@ -11,6 +11,9 @@ pub const TAB_IN: Duration = Duration::from_millis(340);
 pub const TAB_OUT: Duration = Duration::from_millis(220);
 pub const SWEEP: f32 = 14.;
 pub const STAGGER: Duration = Duration::from_millis(22);
+pub const SETTLE: Duration = Duration::from_millis(300);
+/// How far a pop-up moves in its window; on Windows the window is clipped to the card, so it stays small.
+pub const POPUP_TRAVEL: f32 = 6.;
 /// How soon after a pop-up closed a click on its button does not reopen it: the click that took
 /// the focus from the pop-up has already closed it.
 pub const REOPEN_GUARD: Duration = Duration::from_millis(300);
@@ -80,9 +83,23 @@ pub fn stagger_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<E
     })
 }
 
-/// Fades in while settling from a few points below; GPUI cannot scale a div, so the rise stands in.
+/// Fades in while springing up from a few points below; GPUI cannot scale a div, so the rise stands in.
 pub fn pop_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<ElementId>, reduce: bool) -> AnyElement {
-    animate(element, id, POP, reduce, |e, t| e.opacity(t).relative().top(px((1. - t) * 5.)))
+    rise_in(element, id, POPUP_TRAVEL, reduce)
+}
+
+/// An entrance at linear time `t`: its opacity, and the share of its travel still ahead, below 0
+/// while it swings past its place.
+pub fn arrive(t: f32) -> (f32, f32) {
+    (spring(phase(t, 0., 0.45)), 1. - bounce(t))
+}
+
+/// Fades in quickly while springing up from `distance` points below, a touch past its place and back.
+pub fn rise_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<ElementId>, distance: f32, reduce: bool) -> AnyElement {
+    animate_linear(element, id, SETTLE, reduce, move |e, t| {
+        let (shown, ahead) = arrive(t);
+        e.opacity(shown).relative().top(px(ahead * distance))
+    })
 }
 
 /// Eased progress of a transition that started at `since`; 1 once `duration` has passed.
@@ -92,14 +109,17 @@ pub fn progress(since: Instant, duration: Duration) -> f32 {
 
 /// The reverse of `pop_in` at progress `t`: fades out while sinking a few points.
 pub fn pop_out<E: Styled>(element: E, t: f32) -> E {
-    element.opacity(1. - t).relative().top(px(t * 5.))
+    element.opacity(1. - t).relative().top(px(t * POPUP_TRAVEL))
 }
 
 pub fn popover_motion<E: Styled + IntoElement + 'static>(element: E, id: &'static str, closing: bool, reduce: bool) -> AnyElement {
     if closing {
-        animate(element, (id, 1u64), EXIT, reduce, |e, t| e.opacity(1. - t).top(px(5. * t)))
+        animate(element, (id, 1u64), EXIT, reduce, |e, t| e.opacity(1. - t).top(px(POPUP_TRAVEL * t)))
     } else {
-        animate(element, (id, 0u64), POP, reduce, |e, t| e.opacity(t).top(px(5. * (1. - t))))
+        animate_linear(element, (id, 0u64), SETTLE, reduce, |e, t| {
+            let (shown, ahead) = arrive(t);
+            e.opacity(shown).top(px(POPUP_TRAVEL * ahead.max(0.)))
+        })
     }
 }
 
@@ -129,6 +149,13 @@ mod tests {
         let peak = (0..=100).map(|i| bounce(i as f32 / 100.)).fold(0., f32::max);
         assert!((1.03..1.12).contains(&peak), "{peak}");
         assert!((bounce(0.97) - 1.).abs() < 0.01, "settled by the end");
+    }
+
+    #[test]
+    fn a_pop_up_swings_less_than_its_window_inset() {
+        let deepest = (0..=100).map(|i| super::arrive(i as f32 / 100.).1).fold(0., f32::min);
+        assert!(super::POPUP_TRAVEL * (1. - deepest) < crate::controls::POPOVER_INSET);
+        assert_eq!(super::arrive(1.), (1., 0.));
     }
 
     #[test]

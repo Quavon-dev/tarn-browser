@@ -1,6 +1,6 @@
 use engine::Host;
 use gpui::{AppContext, Bounds, Context, IntoElement, ParentElement, Pixels, Point, Render, SharedString, Styled, Window, WindowHandle, div, point, px, size};
-use ui::motion::{FADE, animate};
+use ui::motion::rise_in;
 use ui::text::OneLine;
 use ui::theme::{Elevation, TEXT, TEXT_SMALL, Theme};
 
@@ -34,7 +34,7 @@ impl Render for Ghost {
             .child(div().flex().gap_1().children([light(Theme::faint()), light(Theme::faint()), light(Theme::faint())]))
             .child(div().text_size(px(TEXT)).text_color(Theme::text()).one_line(self.title.clone()))
             .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::accent_text()).child(self.label));
-        animate(card, "tear-off-ghost", FADE, self.reduce, |el, t| el.opacity(t).relative().top(px((1. - t) * 8.)))
+        rise_in(card, "tear-off-ghost", 8., self.reduce)
     }
 }
 

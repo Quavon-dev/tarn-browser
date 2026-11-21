@@ -9,7 +9,7 @@ use gpui::{
 use store::{Folder, Group, Id, Tab, TabKind};
 use ui::controls::{button, favicon, field, focus_ring, icon_button, spinner, tooltip};
 use ui::icon::{ICON, ICON_SMALL, Icon, icon};
-use ui::motion::{EXIT, FADE, POP, SLIDE, SWEEP, TAB_IN, TAB_OUT, animate, animate_linear, bounce, phase, progress, spring};
+use ui::motion::{EXIT, FADE, SETTLE, SLIDE, SWEEP, TAB_IN, TAB_OUT, animate, animate_linear, arrive, bounce, phase, progress, spring};
 use ui::text::OneLine;
 use ui::text::bounded_title;
 use ui::theme::{Elevation, PROFILE_COLORS, TEXT, TEXT_SMALL, TEXT_TINY, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
@@ -432,7 +432,10 @@ pub fn floating(b: &mut Browser, height: Pixels, closing: bool, cx: &mut Context
     if closing {
         animate(card, "peek-out", EXIT, reduce, move |el, t| el.left(px(SIDEBAR_MARGIN - away * t)).opacity(1. - t))
     } else {
-        animate(card, "peek-in", POP, reduce, move |el, t| el.left(px(SIDEBAR_MARGIN - away * (1. - t))).opacity(t))
+        animate_linear(card, "peek-in", SETTLE, reduce, move |el, t| {
+            let (shown, ahead) = arrive(t);
+            el.left(px(SIDEBAR_MARGIN - away * if ahead < 0. { ahead / 4. } else { ahead })).opacity(shown)
+        })
     }
 }
 
@@ -623,8 +626,8 @@ fn name(b: &Browser, target: RenameTarget, name: &str, cx: &mut Context<Browser>
 fn chevron(b: &Browser, id: Id, open: bool) -> AnyElement {
     let turn = move |t: f32| percentage(if open { 0.25 * t } else { 0.25 * (1. - t) });
     let glyph = icon(Icon::ChevronRight, ICON_SMALL, Theme::muted()).with_transformation(Transformation::rotate(turn(1.)));
-    animate(glyph, (if open { "open" } else { "shut" }, id as u64), FADE, b.pref(Pref::ReduceMotion), move |g, t| {
-        g.with_transformation(Transformation::rotate(turn(t)))
+    animate_linear(glyph, (if open { "open" } else { "shut" }, id as u64), SETTLE, b.pref(Pref::ReduceMotion), move |g, t| {
+        g.with_transformation(Transformation::rotate(turn(bounce(t))))
     })
 }
 

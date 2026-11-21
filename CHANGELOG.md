@@ -14,6 +14,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   in, and the rows of the address palette and the start page's suggestions rise in one after
   another (macOS, Windows). The icon spring also reaches the sidebar on Linux and on tablets (iOS,
   Android). Reduce Motion turns all of it off.
+- Pop-ups, the address palette, toasts, the space and profile cards, link previews, hover cards,
+  the Library's pages, the floating sidebar, folder chevrons and switches spring into place with a
+  small overshoot instead of easing in flat (macOS, Windows).
 - Releases also carry an unsigned Android App Bundle for Google Play, and the iOS app is built with
   the iOS 26 SDK and carries a privacy manifest (iOS, Android).
 - Download notices float over the page instead of pushing it down and show only on the tab that was

@@ -21,6 +21,23 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Springy pop-ups and cards (2026-11-21)
+
+What it does: pop-ups, toasts, cards, link previews, hover cards, the Library's page turn, the
+floating sidebar, folder chevrons and switches spring into place with a small overshoot instead of
+easing in flat.
+Shared API: `ui::motion::{SETTLE, POPUP_TRAVEL, arrive, rise_in, popover_motion}` (GPUI).
+Reference: `crates/ui/src/motion.rs`, `crates/ui/src/controls.rs` (`sliding_switch`),
+`crates/app/src/toast.rs`, `crates/app/src/sidebar.rs` (`floating`, `chevron`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `nsh-shared/src/motion.rs` `pop_in` and `nsh-shared/src/popover.rs` still ease in
+  flat; give pop-ups their own overshooting spec over `SETTLE` (not through `popping`, which also
+  moves small icons), keep opacity off the overshooting curve, and spring the switch knob in
+  `nsh-shared/src/controls.rs`
+- [ ] iOS — the same shared NSH change reaches `mobile/app`
+- [ ] Android — same as iOS
+
 ### Livelier tab motion (2026-11-21)
 
 What it does: a new tab opens its gap, then sweeps in from the side and lands with a small spring;

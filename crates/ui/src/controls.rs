@@ -278,7 +278,9 @@ pub fn sliding_switch(id: impl Into<ElementId>, on: bool) -> gpui::AnyElement {
     let track = div().relative().w(px(34.)).h(px(20.)).flex_none().rounded_full().bg(if on { Theme::accent() } else { Theme::faint() });
     let (from, to) = if on { (2., 16.) } else { (16., 2.) };
     let key = ElementId::NamedChild(Box::new(id), SharedString::from(format!("flip-{flips}")));
-    crate::motion::animate(track, key, crate::motion::POP, false, move |track, t| track.child(knob().absolute().top(px(2.)).left(px(from + (to - from) * t))))
+    crate::motion::animate_linear(track, key, crate::motion::SETTLE, false, move |track, t| {
+        track.child(knob().absolute().top(px(2.)).left(px(from + (to - from) * crate::motion::bounce(t))))
+    })
 }
 
 fn knob() -> Div {
