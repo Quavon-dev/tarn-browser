@@ -21,6 +21,37 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Native page frame set only when it changes (2026-11-21)
+
+What it does: the shell no longer sets the page's native frame and opacity again on every repaint
+(a turning spinner, a fade) when they have not changed, so the page is not laid out anew.
+Shared API: none; each engine compares with the native view's current frame in `set_frame`.
+Reference: `crates/engine/src/webview.rs`, `crates/engine/src/chromium/view.rs` (macOS branch).
+
+- [ ] Windows — `crates/engine/src/chromium/view.rs` `set_frame` still calls `SetWindowPos` every
+  time; compare with the child window's current rect (`GetWindowRect` mapped to the parent), not a
+  cached request, since Chromium may move its own window
+- [ ] Linux — check `linux/src/webview` for the same repeated allocation
+- [ ] iOS — check the WKWebView frame updates in `mobile/ios`
+- [ ] Android — check `TarnWebView` layout updates
+
+### Smooth sidebar slide (2026-11-21)
+
+What it does: showing or hiding the sidebar moves the page without laying it out on every frame (it
+keeps one size and takes its final size when the slide ends), and a toggle mid-slide turns back from
+where the sidebar stands instead of jumping to the far edge.
+Shared API: `browser_core::layout::sliding_width`, `browser_core::layout::slide_at`.
+Reference: `crates/app/src/content.rs` (`sidebar_shown`, `sidebar_slide`, the page canvas),
+`crates/app/src/split.rs` (`pane`), `crates/engine/src/view.rs` (`clipped_by_window`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `linux/src/ui.rs` `toggle_sidebar` slides with NSH's layout animation
+  (`animate_next(SLIDE)`); measure whether the WebKitGTK view is laid out on every frame and whether
+  a second toggle mid-slide jumps, and hold the width with `sliding_width` where it is
+- [ ] iOS — the same for the WKWebView beside the sidebar in `mobile/app` (`features.rs`
+  `toggle_sidebar`)
+- [ ] Android — the same for `TarnWebView`
+
 ### Download notices float over the page (2026-11-20)
 
 What it does: a finished or failed download (and a saved screenshot or PDF) shows a toast over the

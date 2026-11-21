@@ -285,7 +285,7 @@ impl Browser {
             if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
                 item.done = data["done"].as_u64().unwrap_or(item.done);
                 if item.total.is_none() && data["total"].as_u64().is_some() {
-                    self.downloads_moved = std::time::Instant::now();
+                    browser_core::prompts::restart(&mut self.downloads_moved, std::time::Instant::now());
                 }
                 item.total = data["total"].as_u64().or(item.total);
             }
@@ -341,7 +341,7 @@ impl Browser {
     }
 
     pub fn settle_downloads(&mut self) {
-        self.downloads_moved = std::time::Instant::now();
+        browser_core::prompts::restart(&mut self.downloads_moved, std::time::Instant::now());
     }
 
     pub fn forget_download(&mut self, id: &str) {

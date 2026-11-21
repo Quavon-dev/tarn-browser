@@ -161,6 +161,21 @@ pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
 impl Render for Browser {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         engine::startup::mark("first window render");
+        if !engine::startup::frames_traced() {
+            return self.render_root(window, cx);
+        }
+        let started = std::time::Instant::now();
+        if let Some(drawn) = self.drawn_at.replace(started) {
+            engine::startup::frame("interval", started - drawn);
+        }
+        let root = self.render_root(window, cx);
+        engine::startup::frame("render", started.elapsed());
+        root
+    }
+}
+
+impl Browser {
+    fn render_root(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         self.follow_theme();
         ui::motion::set_reduced(self.pref(prefs::Pref::ReduceMotion));
         // The menu bar is the app's; only the window in front decides what it lists.
@@ -348,7 +363,7 @@ impl Render for Browser {
                 .flex_none()
                 .flex()
                 .justify_end()
-                .child(sidebar::render(self, cx))
+                .child(timed("sidebar", || sidebar::render(self, cx)))
                 .when(shown < 1., |d| d.w(px((self.sidebar_width + sidebar::SIDEBAR_MARGIN) * shown)).overflow_hidden().opacity(shown))
         });
         if self.page_fullscreen.is_on() && !self.page_fullscreen_holds() {
@@ -369,9 +384,28 @@ impl Render for Browser {
             return root.bg(gpui::black()).child(page.size_full()).into_any_element();
         }
         root.children(sidebar)
-            .child(div().flex_1().min_w_0().h_full().flex().flex_col().child(toolbar::render(self, cx)).child(content::render(self, window, cx)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .flex_col()
+                    .child(timed("toolbar", || toolbar::render(self, cx)))
+                    .child(timed("content", || content::render(self, window, cx))),
+            )
             .into_any_element()
     }
+}
+
+fn timed<T>(section: &'static str, f: impl FnOnce() -> T) -> T {
+    if !engine::startup::frames_traced() {
+        return f();
+    }
+    let started = std::time::Instant::now();
+    let built = f();
+    engine::startup::frame(section, started.elapsed());
+    built
 }
 
 pub(crate) fn bind_keys(cx: &mut App, keymap: &[(String, &'static dyn gpui::Action)]) {

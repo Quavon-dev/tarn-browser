@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
@@ -11,7 +13,8 @@ use ui::motion::{EXIT, FADE, SLIDE, pop_in, pop_out, progress};
 use ui::text::OneLine;
 use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
-use engine::PromptKind;
+use browser_core::layout::HeldWidths;
+use engine::{PromptKind, WebView};
 
 use browser_core::command::Section;
 
@@ -48,7 +51,13 @@ impl Floating {
 impl Browser {
     pub fn sidebar_shown(&self) -> f32 {
         let t = self.sidebar_toggled.filter(|_| !self.pref(Pref::ReduceMotion)).map_or(1., |at| progress(at, SLIDE));
-        if self.sidebar_open { t } else { 1. - t }
+        browser_core::layout::slide_at(self.sidebar_from, if self.sidebar_open { 1. } else { 0. }, t)
+    }
+
+    /// While the sidebar slides: how far it is shown and its whole share of the page's width.
+    pub(crate) fn sidebar_slide(&self) -> Option<(f32, f32)> {
+        self.sidebar_toggled.filter(|at| at.elapsed() < SLIDE && !self.pref(Pref::ReduceMotion))?;
+        Some((self.sidebar_shown(), self.sidebar_width + crate::sidebar::SIDEBAR_MARGIN - GUTTER_SHIFT))
     }
 
     pub fn dismiss_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -93,17 +102,25 @@ impl Browser {
         let fade_done = self.page_fade.as_ref().is_some_and(|(_, at)| at.elapsed() >= FADE);
         if fade_done || self.overlay_open() || self.model.active.is_none() || self.active_json().is_some() {
             let active = self.active_view();
-            if let Some((outgoing, _)) = self.page_fade.take().filter(|(v, _)| !active.as_ref().is_some_and(|a| std::rc::Rc::ptr_eq(a, v))) {
+            if let Some((outgoing, _)) = self.page_fade.take().filter(|(v, _)| !active.as_ref().is_some_and(|a| Rc::ptr_eq(a, v))) {
                 outgoing.set_visible(false);
             }
         }
         let running = |at: Option<Instant>, d| at.is_some_and(|at: Instant| at.elapsed() < d);
-        let sidebar = running(self.sidebar_toggled, SLIDE) && !self.pref(Pref::ReduceMotion);
-        if self.settle_slide() || sidebar || self.page_fade.is_some() || running(self.overlay_exit, EXIT) {
+        if self.settle_slide() || self.sidebar_slide().is_some() || self.page_fade.is_some() || running(self.overlay_exit, EXIT) {
             window.request_animation_frame();
         }
     }
 }
+
+/// The width `view` keeps while the sidebar slides; `slide` as in `HeldWidths::width`.
+pub(crate) fn held_width(held: &RefCell<HeldWidths>, view: &Rc<WebView>, width: f32, slide: Option<(f32, f32)>) -> f32 {
+    held.borrow_mut().width(Rc::as_ptr(view) as usize, width, slide, view.clipped_by_window())
+}
+
+/// How much the page area's left gutter narrows as the sidebar shows; the sidebar's share of the
+/// page's width is its own width less this.
+const GUTTER_SHIFT: f32 = 2.;
 
 fn banner(text: impl Into<SharedString>) -> gpui::Div {
     floating()
@@ -254,7 +271,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         let ghost = banner(text.clone()).text_color(*color).min_h(px(0.)).h(px(BANNER_HEIGHT * (1. - t))).mb(px(8. * (1. - t))).opacity(1. - t);
         cards.insert((*ix).min(cards.len()), ghost.into_any_element());
     }
-    let left = 8. - 2. * b.sidebar_shown();
+    let left = 8. - GUTTER_SHIFT * b.sidebar_shown();
     let area = div().absolute().top_0().bottom(px(8.)).left(px(left)).right(px(8.)).child(crate::address::measure(b.address.content.clone()));
     let panel = div().flex_1().min_h_0().relative().flex().flex_col().p(px(8.)).pt_0().pl(px(left)).text_color(Theme::text()).child(area).children(cards);
 
@@ -287,6 +304,8 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     } else {
         let view = b.active_view();
         let preset = b.responsive_preset();
+        let slide = b.sidebar_slide().filter(|_| preset.is_none());
+        let held = b.sidebar_held.clone();
         let alpha = b.page_fade.as_ref().map_or(1., |(_, at)| progress(*at, FADE));
         let link_rect = b.link_status.page.clone();
         let page = canvas(
@@ -297,7 +316,8 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                 let fit = preset.map(|preset| devkit::responsive::fit(&preset, w, h));
                 let page = fit.as_ref().map_or((x, y, w, h), |fit| (x + fit.x, y + fit.y, fit.width, fit.height));
-                view.set_frame(page.0.into(), page.1.into(), page.2.into(), page.3.into());
+                let width = held_width(&held, &view, page.2, slide);
+                view.set_frame(page.0.into(), page.1.into(), width.into(), page.3.into());
                 if let Some(fit) = fit {
                     // WebKit's page zoom stops at 0.3; below that the CSS viewport is narrower than the preset.
                     let scale = f64::from(fit.scale).max(engine::MIN_ZOOM);
@@ -305,8 +325,9 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                         view.set_zoom(scale);
                     }
                 }
+                // A refresh during prepaint is dropped; the link bubble follows the page on the next frame.
                 if link_rect.replace(page) != page {
-                    window.refresh();
+                    window.on_next_frame(|window, _| window.refresh());
                 }
             },
             |_, _, _, _| {},

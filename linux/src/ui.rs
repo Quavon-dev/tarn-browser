@@ -1398,15 +1398,24 @@ fn compact_address(ui: Ui) -> View {
 fn toggle_sidebar(ui: Ui) {
     animate_next(SLIDE);
     ui.sidebar.update(|o| *o = !*o);
+    act(ui, |b| b.sidebar_moved(slide_time()));
     peek::close(ui);
     peek::hide(ui);
+}
+
+/// How long a sidebar toggle moves the page area: nothing moves gradually with Reduce Motion.
+fn slide_time() -> std::time::Duration {
+    if tarn_nsh_shared::motion::reduced() { std::time::Duration::ZERO } else { SLIDE }
 }
 
 pub(super) fn set_auto_hide_sidebar(ui: Ui) {
     act(ui, |b| b.toggle_off_setting(crate::browser::AUTO_HIDE_SIDEBAR));
     let hidden = read(ui, |b| b.auto_hide_sidebar()).unwrap_or_default();
     for other in WINDOWS.with_borrow(Vec::clone) {
-        other.sidebar.set(!hidden);
+        if other.sidebar.get_untracked() == hidden {
+            other.sidebar.set(!hidden);
+            act(other, |b| b.sidebar_moved(slide_time()));
+        }
         peek::close(other);
         peek::hide(other);
     }

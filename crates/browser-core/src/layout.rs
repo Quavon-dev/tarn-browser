@@ -62,9 +62,89 @@ pub fn effective(setting: Layout, width: f32, height: f32) -> Layout {
     if setting == Layout::Mac && offered(width, height) { Layout::Mac } else { Layout::Touch }
 }
 
+/// A page's width while the sidebar slides, held at one size so the page is laid out once, not on
+/// every frame: the widest it gets when the window clips what reaches past its edge, else the
+/// narrowest. `shown` is how far the sidebar is shown, `full` its whole share of the width.
+/// Layout snaps `width` to device pixels, so the result is rounded to whole points to stay put.
+pub fn sliding_width(width: f32, shown: f32, full: f32, clipped: bool) -> f32 {
+    (if clipped { width + full * shown } else { width - full * (1. - shown) }).round()
+}
+
+/// The width each web view keeps while the sidebar slides, by an id for the view. A width is taken
+/// once per slide and view, since layout snaps bounds to pixels, which would nudge it by a point.
+#[derive(Default)]
+pub struct HeldWidths(std::collections::HashMap<usize, (f32, f32)>);
+
+impl HeldWidths {
+    /// The width view `id` keeps, laid out `width` wide. `slide` is how far the sidebar is shown and
+    /// its share of the view's width, or `None` once it rests. A view its window does not clip
+    /// never reaches past its place.
+    pub fn width(&mut self, id: usize, width: f32, slide: Option<(f32, f32)>, clipped: bool) -> f32 {
+        let Some((shown, full)) = slide else {
+            self.0.remove(&id);
+            return width;
+        };
+        let kept = match self.0.get(&id) {
+            Some(&(of, kept)) if of == full => kept,
+            _ => {
+                let kept = sliding_width(width, shown, full, clipped);
+                self.0.insert(id, (full, kept));
+                kept
+            }
+        };
+        if clipped { kept } else { kept.min(width) }
+    }
+
+    /// A new slide takes every width afresh.
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
+/// Where a slide from `from` to `to` stands at eased progress `t`.
+pub fn slide_at(from: f32, to: f32, t: f32) -> f32 {
+    from + (to - from) * t
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sliding_page_keeps_one_size_and_never_reaches_left_of_its_place() {
+        let (closed, full): (f32, f32) = (1262., 263.);
+        for shown in [0., 0.25, 0.5, 0.75, 1.] {
+            let laid_out = ((closed - full * shown) * 2.).round() / 2.;
+            let wide = sliding_width(laid_out, shown, full, true);
+            let narrow = sliding_width(laid_out, shown, full, false);
+            assert_eq!(wide, closed, "clipped: the closed-sidebar width throughout, snapped to device pixels or not");
+            assert_eq!(narrow, closed - full, "unclipped: the open-sidebar width throughout");
+            assert!(narrow <= laid_out + 0.5, "an unclipped page never reaches past its place");
+        }
+    }
+
+    #[test]
+    fn a_held_width_lasts_one_slide_per_view_and_share() {
+        let mut held = HeldWidths::default();
+        assert_eq!(held.width(1, 1000., Some((0.5, 260.)), true), 1130.);
+        assert_eq!(held.width(1, 1060.5, Some((0.25, 260.)), true), 1130., "kept while the slide runs, snapping or not");
+        assert_eq!(held.width(2, 500., Some((0.5, 130.)), true), 565., "each view holds its own");
+        assert_eq!(held.width(1, 600., Some((0.5, 130.)), true), 665., "a view now in a split pane takes a new share");
+        assert_eq!(held.width(1, 1262., None, true), 1262., "at rest the layout width");
+        assert_eq!(held.width(1, 1000., Some((0.5, 260.)), true), 1130., "and the next slide takes it afresh");
+        assert_eq!(held.width(3, 1000., Some((0.5, 260.)), false), 870.);
+        assert_eq!(held.width(3, 800., Some((0.6, 260.)), false), 800., "never past its place when not clipped");
+        held.clear();
+        assert_eq!(held.width(2, 600., Some((0.5, 130.)), true), 665.);
+    }
+
+    #[test]
+    fn a_slide_turned_back_midway_starts_where_it_stood() {
+        let opening = slide_at(0., 1., 0.4);
+        assert_eq!(slide_at(opening, 0., 0.), opening, "no jump when it turns");
+        assert_eq!(slide_at(opening, 0., 1.), 0.);
+        assert_eq!(slide_at(1., 0., 0.25), 0.75);
+    }
 
     #[test]
     fn touch_is_the_default_and_the_choice_is_stored() {

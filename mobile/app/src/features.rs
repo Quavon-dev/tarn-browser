@@ -493,6 +493,8 @@ impl<D: Platform> Shell<D> {
 
     pub fn toggle_sidebar(&mut self) {
         self.sidebar_open = !self.sidebar_open;
+        // The downloads pop-over hangs from the sidebar, so the slide moves its Keep button.
+        browser_core::prompts::restart(&mut self.transfers_moved, std::time::Instant::now() + tarn_nsh_shared::motion::SLIDE);
         if let Err(e) = browser_core::layout::save_sidebar(&self.core.disk, self.sidebar_open) {
             self.toast_as(browser_core::toast::Tone::Warning, format!("The sidebar setting could not be saved: {e}"));
         }

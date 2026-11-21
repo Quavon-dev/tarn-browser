@@ -10,7 +10,9 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     let dir = tempfile::tempdir().unwrap();
     // SAFETY: this binary has one test, and it sets the variable before the engine starts.
     unsafe { std::env::set_var("TARN_DATA_DIR", dir.path()) };
-    let mut app = Headless::start(EngineConfig::new(Root::of::<tarn_mobile::App>())).unwrap();
+    let mut config = EngineConfig::new(Root::of::<tarn_mobile::App>());
+    config.clock = nsh_core::time::Clock::manual(std::time::SystemTime::now());
+    let mut app = Headless::start(config).unwrap();
     app.set_viewport(Size::new(Points(1376.), Points(1032.))).unwrap();
     app.wait_for("label:Menu").unwrap();
     app.press("label:Menu").unwrap();

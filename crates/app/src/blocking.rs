@@ -303,7 +303,12 @@ impl Browser {
     }
 
     pub(crate) fn layout_changed(&mut self) {
-        self.layout_stable_since = Instant::now();
+        self.layout_moving(std::time::Duration::ZERO);
+    }
+
+    /// Like `layout_changed`, for a move that lasts `motion`: guarded controls wait until it ends.
+    pub(crate) fn layout_moving(&mut self, motion: std::time::Duration) {
+        browser_core::prompts::restart(&mut self.layout_stable_since, Instant::now() + motion);
     }
 
     /// A background tab's controls wait for the switch to it, and a notice repeated exactly does not

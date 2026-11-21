@@ -14,6 +14,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   in front when they appeared; a finished download's notice disappears after 5 seconds, while a
   warning (no quarantine, a file that can run code, a failed download) stays until you dismiss it
   (macOS, Windows).
+- Showing or hiding the sidebar moves the page without laying it out again on every frame (macOS,
+  Windows), and the page's frame is no longer set again while a spinner turns or a page fades
+  (macOS).
 
 ### Added
 
@@ -26,6 +29,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 - The Nightly channel gets a new release by the next night even when `main` has not changed since
   the last nightly, instead of staying on the older nightly.
+- Pressing Toggle Sidebar again while the sidebar slides turns it back from where it is instead of
+  jumping to the far edge (macOS, Windows).
+- Allow, Visit Anyway, Keep and the other guarded buttons ignore clicks until 700 ms after the
+  sidebar has finished sliding or was resized, as they already did after other layout changes (on
+  every client).
 - A long toast message wraps to up to three lines inside its card instead of running past the
   card's edge and hiding its button (macOS, Windows).
 - The download button of the PDF viewer in a WebKit tab saves the PDF to Downloads; it did nothing

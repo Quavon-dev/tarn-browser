@@ -177,7 +177,7 @@ impl Ui {
         }
         if screen == Screen::Downloads {
             self.act(|s| {
-                s.transfers_moved = std::time::Instant::now();
+                browser_core::prompts::restart(&mut s.transfers_moved, std::time::Instant::now());
                 Vec::new()
             });
         }

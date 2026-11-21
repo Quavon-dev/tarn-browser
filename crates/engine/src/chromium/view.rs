@@ -2372,6 +2372,7 @@ impl WebView {
         frame.load_url(Some(&CefString::from(url.as_str())));
     }
 
+    /// On macOS a frame that is already in place is not set again: the page would be laid out anew.
     pub fn set_frame(&self, x: f64, y: f64, width: f64, height: f64) {
         self.0.frame.set(Some((x, y, width, height)));
         let host = self.0.host.borrow();
@@ -2379,6 +2380,8 @@ impl WebView {
         if let Some(child) = self.hwnd() {
             let (x, y, width, height) = host.pixels(x, y, width, height);
             let diameter = (self.0.radius.get() * 2. * host.scale()).round() as i32;
+            let resized = self.0.clip.get().is_none_or(|(c, w, h, _)| (c, w, h) != (child as isize, width, height));
+            crate::startup::frame_set(resized);
             // SAFETY: a child window of this thread; the window owns the region once it is set,
             // and no region removes the clip.
             unsafe {
@@ -2396,8 +2399,12 @@ impl WebView {
         #[cfg(target_os = "macos")]
         {
             let (Some(child), Some(parent)) = (self.ns_window(), host.view.window()) else { return };
-            let rect = host.view.convertRect_toView(host.rect(x, y, width, height), None);
-            child.setFrame_display(parent.convertRectToScreen(rect), true);
+            let rect = parent.convertRectToScreen(host.view.convertRect_toView(host.rect(x, y, width, height), None));
+            let current = child.frame();
+            if current != rect {
+                crate::startup::frame_set(current.size != rect.size);
+                child.setFrame_display(rect, true);
+            }
         }
     }
 
@@ -2459,7 +2466,9 @@ impl WebView {
     /// The page's opacity, for fades; a Windows child window is layered only while it fades.
     pub fn set_alpha(&self, alpha: f64) {
         #[cfg(target_os = "macos")]
-        if let Some(child) = self.ns_window() {
+        if let Some(child) = self.ns_window()
+            && child.alphaValue() != alpha
+        {
             child.setAlphaValue(alpha);
         }
         #[cfg(windows)]

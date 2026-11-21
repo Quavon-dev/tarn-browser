@@ -51,6 +51,12 @@ impl WebView {
         webkit_only!(self, _v => false, true)
     }
 
+    /// Whether the window clips the page where it reaches past the window's edge; a Chromium page
+    /// on macOS is a window of its own and would draw beyond it.
+    pub fn clipped_by_window(&self) -> bool {
+        !self.is_chromium()
+    }
+
     pub fn adopt(popup: Popup, host: &Host, inspectable: bool, sink: Rc<dyn Fn(Event)>) -> Option<Self> {
         webview::WebView::adopt(popup, host, inspectable, sink).map(WebView::WebKit)
     }

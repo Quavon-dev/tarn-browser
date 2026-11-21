@@ -374,7 +374,7 @@ impl Browser {
             self.link_peek = None;
         }
         let at = std::time::Instant::now();
-        self.guard_since = at;
+        browser_core::prompts::restart(&mut self.guard_since, at);
         self.used.extend(self.model.active.into_iter().chain([key]).map(|k| (k, at)));
         self.model.active = Some(key);
         self.ext_activated(key);
