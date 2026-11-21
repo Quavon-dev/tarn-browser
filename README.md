@@ -7,7 +7,7 @@
 **An open-source, keyboard-first browser with built-in tracker and ad blocking.**<br>
 Switch tabs by typing, browse with separate profiles, and set privacy controls per site. Built in Rust, with no telemetry or accounts.
 
-**[Download Tarn](https://tarnbrowser.com/download)** · [Watch the demo](docs/media/demo.mp4) · [Contribute](CONTRIBUTING.md)
+**[Download Tarn](https://tarnbrowser.com/download)** · [See the demo](#demo) · [Contribute](CONTRIBUTING.md)
 
 [![CI](https://github.com/Quavon-dev/tarn-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/Quavon-dev/tarn-browser/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Quavon-dev/tarn-browser/badge)](https://scorecard.dev/viewer/?uri=github.com/Quavon-dev/tarn-browser)
@@ -16,9 +16,10 @@ Switch tabs by typing, browse with separate profiles, and set privacy controls p
 
 [Features](#features) · [Screenshots](#screenshots) · [Platforms](#platforms) · [Build](#build-and-run) · [Shortcuts](#shortcuts) · [Development](#development)
 
-<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Tarn demo: the address field switching to an open tab, a command opening Split View, link peek, Reader, the Shield site card, the shortcut sheet and the Ember theme" width="100%" /></a>
+<a name="demo"></a>
+<img src="docs/media/demo.gif" alt="Tarn demo: the address field switching to an open tab, a command opening Split View, link peek, Reader, the Shield site card, the shortcut sheet and the Ember theme" width="100%" />
 
-<sub>▶ Full-quality video: <a href="docs/media/demo.mp4">docs/media/demo.mp4</a></sub>
+<sub><a href="https://raw.githubusercontent.com/Quavon-dev/tarn-browser/main/docs/media/demo.mp4">Download the demo video (MP4)</a></sub>
 
 </div>
 
