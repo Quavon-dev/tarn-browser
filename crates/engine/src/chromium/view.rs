@@ -1747,9 +1747,6 @@ struct Inner {
     radius: Cell<f64>,
     #[cfg(windows)]
     clip: Cell<Option<(isize, i32, i32, i32)>>,
-    /// The window, its parent and the pixel rect last placed with `SetWindowPos`.
-    #[cfg(windows)]
-    placed: Cell<Option<(isize, isize, [i32; 4])>>,
     visible: Cell<bool>,
     muted: Cell<bool>,
     /// The colour scheme asked for, applied once the browser exists.
@@ -1938,8 +1935,6 @@ impl WebView {
             radius: Cell::new(0.),
             #[cfg(windows)]
             clip: Cell::new(None),
-            #[cfg(windows)]
-            placed: Cell::new(None),
             visible: Cell::new(false),
             muted: Cell::new(false),
             dark: Cell::new(None),
@@ -2377,7 +2372,7 @@ impl WebView {
         frame.load_url(Some(&CefString::from(url.as_str())));
     }
 
-    /// A frame that is already in place is not set again: the page would be laid out anew.
+    /// On macOS a frame that is already in place is not set again: the page would be laid out anew.
     pub fn set_frame(&self, x: f64, y: f64, width: f64, height: f64) {
         self.0.frame.set(Some((x, y, width, height)));
         let host = self.0.host.borrow();
@@ -2385,15 +2380,12 @@ impl WebView {
         if let Some(child) = self.hwnd() {
             let (x, y, width, height) = host.pixels(x, y, width, height);
             let diameter = (self.0.radius.get() * 2. * host.scale()).round() as i32;
-            let placed = (child as isize, host.hwnd as isize, [x, y, width, height]);
+            let resized = self.0.clip.get().is_none_or(|(c, w, h, _)| (c, w, h) != (child as isize, width, height));
+            crate::startup::frame_set(resized);
             // SAFETY: a child window of this thread; the window owns the region once it is set,
             // and no region removes the clip.
             unsafe {
-                let last = self.0.placed.replace(Some(placed));
-                if last != Some(placed) {
-                    crate::startup::frame_set(last.is_none_or(|(_, _, [.., w, h])| [w, h] != [width, height]));
-                    SetWindowPos(child, std::ptr::null_mut(), x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
-                }
+                SetWindowPos(child, std::ptr::null_mut(), x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
                 let clip = (child as isize, width, height, diameter);
                 if self.0.clip.replace(Some(clip)) != Some(clip) {
                     let region = if diameter > 0 { CreateRoundRectRgn(0, 0, width + 1, height + 1, diameter, diameter) } else { std::ptr::null_mut() };

@@ -21,6 +21,20 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Native page frame set only when it changes (2026-11-21)
+
+What it does: the shell no longer sets the page's native frame and opacity again on every repaint
+(a turning spinner, a fade) when they have not changed, so the page is not laid out anew.
+Shared API: none; each engine compares with the native view's current frame in `set_frame`.
+Reference: `crates/engine/src/webview.rs`, `crates/engine/src/chromium/view.rs` (macOS branch).
+
+- [ ] Windows — `crates/engine/src/chromium/view.rs` `set_frame` still calls `SetWindowPos` every
+  time; compare with the child window's current rect (`GetWindowRect` mapped to the parent), not a
+  cached request, since Chromium may move its own window
+- [ ] Linux — check `linux/src/webview` for the same repeated allocation
+- [ ] iOS — check the WKWebView frame updates in `mobile/ios`
+- [ ] Android — check `TarnWebView` layout updates
+
 ### Smooth sidebar slide (2026-11-21)
 
 What it does: showing or hiding the sidebar moves the page without laying it out on every frame (it
