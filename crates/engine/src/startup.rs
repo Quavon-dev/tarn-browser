@@ -1,6 +1,6 @@
 //! `TARN_STARTUP_TRACE=1` prints to stderr when each startup step first finished, and
 //! `TARN_FRAME_TRACE=1` prints how long each part of the shell's frames took and each time a web
-//! view's native frame was set. Steps and sections are fixed names, so the output never carries a URL or
+//! view's native frame moved or was resized. Steps and sections are fixed names, so the output never carries a URL or
 //! anything else from the profile.
 
 use std::sync::{LazyLock, Mutex, PoisonError};
@@ -56,10 +56,10 @@ pub fn frame(section: &'static str, took: Duration) {
     }
 }
 
-/// Prints a call that sets a web view's native frame.
-pub fn frame_set() {
+/// Prints a change of a web view's native frame: `resize` when its size changed, else `move`.
+pub fn frame_set(resized: bool) {
     if *FRAMES {
-        eprintln!("tarn-frame set_frame");
+        eprintln!("tarn-frame {}", if resized { "resize" } else { "move" });
     }
 }
 

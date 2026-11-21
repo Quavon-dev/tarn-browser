@@ -51,6 +51,12 @@ impl Browser {
         slide_at(self.sidebar_from, if self.sidebar_open { 1. } else { 0. }, t)
     }
 
+    /// While the sidebar slides: how far it is shown and its whole share of the page's width.
+    pub(crate) fn sidebar_slide(&self) -> Option<(f32, f32)> {
+        self.sidebar_toggled.filter(|at| at.elapsed() < SLIDE && !self.pref(Pref::ReduceMotion))?;
+        Some((self.sidebar_shown(), self.sidebar_width + crate::sidebar::SIDEBAR_MARGIN - 2.))
+    }
+
     pub fn dismiss_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.in_space_popover(window, cx, |b, window, cx| b.dismiss_overlay(window, cx)) {
             return;
@@ -103,6 +109,13 @@ impl Browser {
             window.request_animation_frame();
         }
     }
+}
+
+/// A page's width while the sidebar slides, held at one size so the page is laid out once, not on
+/// every frame: the widest it gets when the window clips what reaches past its edge, else the
+/// narrowest. `shown` is how far the sidebar is shown, `full` its whole share of the width.
+pub(crate) fn sliding_width(width: f32, shown: f32, full: f32, clipped: bool) -> f32 {
+    if clipped { width + full * shown } else { width - full * (1. - shown) }
 }
 
 /// Where a slide from `from` to `to` stands at eased progress `t`.
@@ -292,6 +305,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     } else {
         let view = b.active_view();
         let preset = b.responsive_preset();
+        let slide = b.sidebar_slide().filter(|_| preset.is_none());
         let alpha = b.page_fade.as_ref().map_or(1., |(_, at)| progress(*at, FADE));
         let link_rect = b.link_status.page.clone();
         let page = canvas(
@@ -302,7 +316,8 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                 let fit = preset.map(|preset| devkit::responsive::fit(&preset, w, h));
                 let page = fit.as_ref().map_or((x, y, w, h), |fit| (x + fit.x, y + fit.y, fit.width, fit.height));
-                view.set_frame(page.0.into(), page.1.into(), page.2.into(), page.3.into());
+                let width = slide.map_or(page.2, |(shown, full)| sliding_width(page.2, shown, full, view.clipped_by_window()));
+                view.set_frame(page.0.into(), page.1.into(), width.into(), page.3.into());
                 if let Some(fit) = fit {
                     // WebKit's page zoom stops at 0.3; below that the CSS viewport is narrower than the preset.
                     let scale = f64::from(fit.scale).max(engine::MIN_ZOOM);
@@ -870,7 +885,20 @@ fn the_start_page_mark_is_drawn_ready() {
 
 #[cfg(test)]
 mod slide_tests {
-    use super::slide_at;
+    use super::{slide_at, sliding_width};
+
+    #[test]
+    fn a_sliding_page_keeps_one_size_and_never_reaches_left_of_its_place() {
+        let (closed, full) = (1200., 268.);
+        for shown in [0., 0.25, 0.5, 0.75, 1.] {
+            let laid_out = closed - full * shown;
+            let wide = sliding_width(laid_out, shown, full, true);
+            let narrow = sliding_width(laid_out, shown, full, false);
+            assert!((wide - closed).abs() < 0.01, "clipped: the closed-sidebar width throughout, {wide}");
+            assert!((narrow - (closed - full)).abs() < 0.01, "unclipped: the open-sidebar width throughout, {narrow}");
+            assert!(narrow <= laid_out + 0.01, "an unclipped page never reaches past its place");
+        }
+    }
 
     #[test]
     fn a_slide_turned_back_midway_starts_where_it_stood() {

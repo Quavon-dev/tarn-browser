@@ -2389,8 +2389,9 @@ impl WebView {
             // SAFETY: a child window of this thread; the window owns the region once it is set,
             // and no region removes the clip.
             unsafe {
-                if self.0.placed.replace(Some(placed)) != Some(placed) {
-                    crate::startup::frame_set();
+                let last = self.0.placed.replace(Some(placed));
+                if last != Some(placed) {
+                    crate::startup::frame_set(last.is_none_or(|(_, _, [.., w, h])| [w, h] != [width, height]));
                     SetWindowPos(child, std::ptr::null_mut(), x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
                 }
                 let clip = (child as isize, width, height, diameter);
@@ -2407,8 +2408,9 @@ impl WebView {
         {
             let (Some(child), Some(parent)) = (self.ns_window(), host.view.window()) else { return };
             let rect = parent.convertRectToScreen(host.view.convertRect_toView(host.rect(x, y, width, height), None));
-            if child.frame() != rect {
-                crate::startup::frame_set();
+            let current = child.frame();
+            if current != rect {
+                crate::startup::frame_set(current.size != rect.size);
                 child.setFrame_display(rect, true);
             }
         }

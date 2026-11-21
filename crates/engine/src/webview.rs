@@ -293,8 +293,9 @@ impl WebView {
     /// A frame that is already in place is not set again: AppKit would lay the page out anew.
     pub fn set_frame(&self, x: f64, y: f64, width: f64, height: f64) {
         let rect = self.host.rect(x, y, width, height);
-        if self.view.frame() != rect {
-            crate::startup::frame_set();
+        let current = self.view.frame();
+        if current != rect {
+            crate::startup::frame_set(current.size != rect.size);
             self.view.setFrame(rect);
         }
     }
