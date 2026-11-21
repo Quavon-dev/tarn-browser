@@ -597,6 +597,10 @@ impl Browser {
         let appearance = cx.observe_window_appearance(window, |b, _, cx| crate::themes::appearance_changed(&b.core.clone(), cx));
         let deactivate = cx.observe_window_activation(window, |b, window, cx| {
             cx.notify();
+            let handed_back = b.peek.handed_back.take().is_some_and(|at| at.elapsed() < crate::peek::HAND_BACK);
+            if window.is_window_active() && handed_back {
+                return;
+            }
             if window.is_window_active() {
                 // Animations in every window stood still while Tarn was in the background.
                 crate::shared::others(cx, |_, _, cx| cx.notify());
