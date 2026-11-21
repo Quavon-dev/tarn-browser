@@ -382,7 +382,8 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
                 && *rect != (x, y, w, h)
             {
                 *rect = (x, y, w, h);
-                window.refresh();
+                // A refresh during prepaint is dropped; what follows the pane redraws on the next frame.
+                window.on_next_frame(|window, _| window.refresh());
             }
             let Some(view) = &view else { return };
             view.set_alpha(1.);

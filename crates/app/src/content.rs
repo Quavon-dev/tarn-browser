@@ -325,8 +325,9 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                         view.set_zoom(scale);
                     }
                 }
+                // A refresh during prepaint is dropped; the link bubble follows the page on the next frame.
                 if link_rect.replace(page) != page {
-                    window.refresh();
+                    window.on_next_frame(|window, _| window.refresh());
                 }
             },
             |_, _, _, _| {},
