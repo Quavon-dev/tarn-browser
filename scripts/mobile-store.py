@@ -126,6 +126,9 @@ def prepare_ios(archive: Path, profile_path: Path, destination: Path, tag: str) 
             or info.get('CFBundleShortVersionString') != tag[1:]
             or not re.fullmatch(r'[0-9]+', str(info.get('CFBundleVersion', '')))):
         raise ValueError('iOS bundle identity, version or build number does not match the release')
+    capabilities = info.get('UIRequiredDeviceCapabilities')
+    if not isinstance(capabilities, list) or 'arm64' not in capabilities:
+        raise ValueError('App Store Connect requires arm64 in UIRequiredDeviceCapabilities')
     (destination.parent / 'entitlements.plist').write_bytes(plistlib.dumps(entitlements))
     fingerprints = [hashlib.sha1(cert).hexdigest().upper() for cert in profile['DeveloperCertificates']]
     (destination.parent / 'profile-certificates.txt').write_text('\n'.join(fingerprints) + '\n')

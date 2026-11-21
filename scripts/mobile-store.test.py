@@ -60,7 +60,8 @@ class VerificationTests(unittest.TestCase):
                    'Entitlements': {'application-identifier': f'{store.TEAM}.{store.PACKAGE}',
                                     'com.apple.developer.team-identifier': store.TEAM}}
         info = {'CFBundleIdentifier': store.PACKAGE, 'CFBundleExecutable': 'Tarn',
-                'CFBundleShortVersionString': '1.2.3', 'CFBundleVersion': '5'}
+                'CFBundleShortVersionString': '1.2.3', 'CFBundleVersion': '5',
+                'UIRequiredDeviceCapabilities': ['arm64']}
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             archive = root / 'app.zip'
@@ -75,6 +76,12 @@ class VerificationTests(unittest.TestCase):
             self.assertEqual(store.plistlib.loads((root / 'entitlements.plist').read_bytes()), profile['Entitlements'])
             self.assertEqual((root / 'profile-certificates.txt').read_text(),
                              store.hashlib.sha1(b'synthetic certificate').hexdigest().upper() + '\n')
+            del info['UIRequiredDeviceCapabilities']
+            with zipfile.ZipFile(archive, 'w') as output:
+                output.writestr('Tarn.app/Info.plist', store.plistlib.dumps(info))
+                output.writestr('Tarn.app/Tarn', b'synthetic executable')
+            with self.assertRaises(ValueError):
+                store.prepare_ios(archive, profile_path, root / 'Missing', 'v1.2.3')
             oversized = zipfile.ZipInfo('Tarn.app/large')
             oversized.file_size = 1024 ** 3 + 1
             with patch.object(store.zipfile.ZipFile, 'infolist', return_value=[oversized]):
