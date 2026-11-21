@@ -74,7 +74,9 @@ install's container.
 
 `.github/workflows/nightly.yml` builds the head of `main` every night at 02:23 UTC with
 `release.yml` (`nightly: true`), for every client. It skips the night when the `nightly` tag
-already names that commit, and builds nothing unless the CI run of that push to `main` succeeded.
+already names that commit and no release was published after the nightly, and builds nothing unless
+the CI run of that push to `main` succeeded. A release therefore reaches the Nightly channel by the
+next night as a nightly above it, even when `main` has not moved since.
 `gh workflow run nightly.yml` builds at once, also a commit the nightly already holds, and fails
 while CI on that commit has not succeeded.
 

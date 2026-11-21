@@ -93,7 +93,7 @@ actions!(
 );
 
 actions!(tarn, [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyCleanLink, ToggleCompactToolbar, OpenAppMenu]);
-actions!(tarn, [AboutTarn, CheckForUpdates, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
+actions!(tarn, [AboutTarn, CheckForUpdates, RestartToUpdate, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
 actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAutoHideSidebar, ToggleDownloads]);
 actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, BurnerTab]);
 actions!(tarn, [CloseWindow, StopLoading, ReloadFromOrigin, NewPrivateWindow, NewBurnerWindow]);
@@ -433,20 +433,22 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
     let all = vec![
         Menu {
             name: "Tarn".into(),
-            items: vec![
-                MenuItem::action("About Tarn", AboutTarn),
-                MenuItem::action("Check for Updates…", CheckForUpdates),
-                MenuItem::separator(),
-                MenuItem::action("Settings…", Settings),
-                MenuItem::separator(),
-                MenuItem::os_submenu("Services", SystemMenuType::Services),
-                MenuItem::separator(),
-                MenuItem::action("Hide Tarn", HideTarn),
-                MenuItem::action("Hide Others", HideOthers),
-                MenuItem::action("Show All", ShowAll),
-                MenuItem::separator(),
-                MenuItem::action("Quit Tarn", Quit),
-            ],
+            items: [MenuItem::action("About Tarn", AboutTarn), MenuItem::action("Check for Updates…", CheckForUpdates)]
+                .into_iter()
+                .chain(cfg!(windows).then(|| MenuItem::action("Restart to Update", RestartToUpdate)))
+                .chain([
+                    MenuItem::separator(),
+                    MenuItem::action("Settings…", Settings),
+                    MenuItem::separator(),
+                    MenuItem::os_submenu("Services", SystemMenuType::Services),
+                    MenuItem::separator(),
+                    MenuItem::action("Hide Tarn", HideTarn),
+                    MenuItem::action("Hide Others", HideOthers),
+                    MenuItem::action("Show All", ShowAll),
+                    MenuItem::separator(),
+                    MenuItem::action("Quit Tarn", Quit),
+                ])
+                .collect(),
         },
         Menu {
             name: "File".into(),
@@ -574,6 +576,7 @@ pub fn run() {
                         updater.check_now();
                     }
                 });
+                cx.on_action(|_: &RestartToUpdate, cx| shared::restart_to_update(cx));
             }
             shared::open_windows(cx);
             // A jump-list entry that started Tarn arrives as its arguments, not from a running instance.

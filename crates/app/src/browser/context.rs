@@ -837,7 +837,9 @@ fn app_menu(
                 let (checked, image) = marks.next_if(|(title, ..)| *title == name).map_or((false, None), |(_, on, image)| (on, image));
                 let idle = idle(&*action)
                     || action.partial_eq(&crate::menubar::Heading)
-                    || (action.partial_eq(&crate::CheckForUpdates) && crate::shared::core(cx).updater.is_none());
+                    || (action.partial_eq(&crate::CheckForUpdates) && crate::shared::core(cx).updater.is_none())
+                    || (action.partial_eq(&crate::RestartToUpdate)
+                        && crate::shared::core(cx).updater.as_ref().and_then(platform::updater::Updater::ready_version).is_none());
                 let keys = crate::shortcuts::keys(&*action, cx);
                 Item::action(name, action).key(keys).checked(checked).enabled(!idle).image(image)
             }

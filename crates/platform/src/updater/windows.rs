@@ -375,6 +375,11 @@ impl Updater {
         self.messages.send(Message::CheckNow).ok();
     }
 
+    /// The version of the verified installer waiting for Restart to Update, if its file is there.
+    pub fn ready_version(&self) -> Option<String> {
+        self.ready.lock().ok()?.as_ref().filter(|r| r.path.is_file()).map(|r| r.version.clone())
+    }
+
     /// Marks the downloaded installer to run once Tarn has quit; `false` when none is ready.
     pub fn install_on_quit(&self) -> bool {
         let ready = self.ready.lock().is_ok_and(|ready| ready.as_ref().is_some_and(|r| r.path.is_file()));

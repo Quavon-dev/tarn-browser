@@ -17,11 +17,15 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Settings › General › Updates shows the update channel with Check Now (macOS, Windows); once an
+  update is downloaded it offers Restart to Update there and in the Tarn menu (Windows).
 - Settings › Privacy › Passkeys and security keys turns passkey sign-in on or off for sites (on by
   default) (macOS, WebKit tabs).
 
 ### Fixed
 
+- The Nightly channel gets a new release by the next night even when `main` has not changed since
+  the last nightly, instead of staying on the older nightly.
 - A long toast message wraps to up to three lines inside its card instead of running past the
   card's edge and hiding its button (macOS, Windows).
 - The download button of the PDF viewer in a WebKit tab saves the PDF to Downloads; it did nothing

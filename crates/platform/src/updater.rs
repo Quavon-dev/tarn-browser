@@ -269,6 +269,11 @@ mod mac {
             }
         }
 
+        /// Sparkle shows and installs a downloaded update itself.
+        pub fn ready_version(&self) -> Option<String> {
+            None
+        }
+
         /// Sparkle installs a downloaded update itself when Tarn quits.
         pub fn install_on_quit(&self) -> bool {
             false
