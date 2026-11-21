@@ -27,6 +27,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Keyboard shortcuts such as ⌘T and the menu bar keep working after a click in the floating
+  sidebar; the click no longer leaves the keyboard with the sidebar's window (macOS).
 - The Nightly channel gets a new release by the next night even when `main` has not changed since
   the last nightly, instead of staying on the older nightly.
 - Pressing Toggle Sidebar again while the sidebar slides turns it back from where it is instead of

@@ -139,8 +139,9 @@ impl Browser {
         // The new window renders from the browser at once, so it must open after this update ends.
         cx.defer(move |cx| {
             let inset = [0., crate::sidebar::SIDEBAR_MARGIN, GRACE, crate::sidebar::SIDEBAR_MARGIN];
-            let (handle, _) =
-                ui::controls::open_popup(cx, bounds, display, false, inset, ui::theme::Theme::radius_tile(), |_, cx| PeekWindow::new(browser.clone(), cx));
+            let (handle, _) = ui::controls::open_popup(cx, bounds, display, false, inset, ui::theme::Theme::radius_tile(), |window, cx| {
+                PeekWindow::new(browser.clone(), window, cx)
+            });
             browser.update(cx, |b, _| b.peek.window = handle).ok();
         });
     }
@@ -217,13 +218,23 @@ pub(crate) fn popovers_over_peek(browser: &WeakEntity<Browser>, cx: &mut App) {
 pub struct PeekWindow {
     browser: WeakEntity<Browser>,
     closing: bool,
-    _observe: Option<Subscription>,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl PeekWindow {
-    fn new(browser: WeakEntity<Browser>, cx: &mut Context<Self>) -> Self {
-        let observe = browser.upgrade().map(|b| cx.observe(&b, |_, _, cx| cx.notify()));
-        PeekWindow { browser, closing: false, _observe: observe }
+    fn new(browser: WeakEntity<Browser>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut subscriptions: Vec<_> = browser.upgrade().map(|b| cx.observe(&b, |_, _, cx| cx.notify())).into_iter().collect();
+        // A click makes this panel the key window; shortcuts and the menu bar belong to the main one unless a rename types here.
+        subscriptions.push(cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() {
+                return;
+            }
+            let main = this.browser.upgrade().and_then(|b| b.read(cx).peek.main.filter(|_| b.read(cx).renaming.is_none()));
+            if let Some(main) = main {
+                cx.defer(move |cx| drop(main.update(cx, |_, window, _| window.activate_window())));
+            }
+        }));
+        PeekWindow { browser, closing: false, _subscriptions: subscriptions }
     }
 }
 
