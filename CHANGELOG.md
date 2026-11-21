@@ -6,6 +6,16 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-21
+
+### Fixed
+
+- iOS release signing selects the distribution identity from the provisioning profile and uses
+  an isolated keychain.
+- iOS release packages declare the required arm64 capability. App Store Connect validation or
+  upload rejection now fails the publishing job.
+- Android store uploads report which Google Play configuration is missing.
+
 ## [0.1.5] - 2026-11-21
 
 ### Added
@@ -675,7 +685,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - One address field for URLs, search, open tabs and app actions, with configurable shortcuts.
 - Split View, link peek, tab groups, pinned tabs that remember their page and sleeping tabs.
 
-[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.2...v0.1.3
