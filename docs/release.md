@@ -335,13 +335,14 @@ The job validates an unexpired App Store distribution profile with the exact tea
 identifier, no debug entitlement and no development/ad-hoc device list. It rejects ZIP traversal,
 links and nested code (Tarn's bundle currently has no frameworks or extensions), caps extraction at
 1 GiB and 20,000 ZIP entries, checks the bundle
-version against the release tag, and checks that the imported Apple Distribution certificate is
-one the profile permits. Before secrets are exposed, the job downloads Apple's public
+version against the release tag, and signs with the one imported identity whose certificate the
+profile lists, which must be an Apple Distribution or iOS Distribution (`iPhone Distribution:`)
+certificate. Before secrets are exposed, the job downloads Apple's public
 [WWDR G3 intermediate](https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer), verifies
 SHA-256 `dcf21878c77f4198e4b4614f03d696d89c66c66008d4244e1b99161aac91601f`, and later imports it
 into the temporary signing keychain alongside the leaf certificate/private key. It checks that the
 leaf issuer matches G3 and requires a valid code-signing identity rather than relying on P12 import
-success. Apple [identifies G3 as the Apple Distribution intermediate](https://developer.apple.com/help/account/certificates/wwdr-intermediate-certificates/);
+success; both certificate kinds must be issued by G3. Apple [identifies G3 as the Apple Distribution intermediate](https://developer.apple.com/help/account/certificates/wwdr-intermediate-certificates/);
 its availability is explicit rather than dependent on a runner image's Xcode initialization. `codesign` signs
 only the verified bundle with the profile's entitlements; `altool` validates and uploads the IPA.
 Apple processes the upload for TestFlight; this does not submit it for public App Store review or
@@ -362,7 +363,8 @@ Google authentication uses GitHub OIDC through the official `google-github-actio
 pinned to v3.0.0 commit `7c6bc770dae815cd3e89ee6cdf493a5fab2cc093` (Apache-2.0). This action is
 needed to exchange GitHub's identity for a short-lived Google OAuth token without a stored
 service-account key or custom cryptography. No credentials file is created. Environment variables
-`GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT` select the provider and account.
+`GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT` select the provider and account; the
+job stops before downloading the release while either is unset.
 The provider must restrict tokens to this repository's immutable repository/owner IDs, `main`,
 the `android-store` environment subject, and the exact
 `Quavon-dev/tarn-browser/.github/workflows/mobile-store.yml@refs/heads/main` workflow identity.
