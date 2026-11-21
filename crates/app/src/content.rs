@@ -294,6 +294,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         let view = b.active_view();
         let preset = b.responsive_preset();
         let slide = b.sidebar_slide().filter(|_| preset.is_none());
+        let held = b.sidebar_held.clone();
         let alpha = b.page_fade.as_ref().map_or(1., |(_, at)| progress(*at, FADE));
         let link_rect = b.link_status.page.clone();
         let page = canvas(
@@ -304,7 +305,10 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                 let fit = preset.map(|preset| devkit::responsive::fit(&preset, w, h));
                 let page = fit.as_ref().map_or((x, y, w, h), |fit| (x + fit.x, y + fit.y, fit.width, fit.height));
-                let width = slide.map_or(page.2, |(shown, full)| browser_core::layout::sliding_width(page.2, shown, full, view.clipped_by_window()));
+                // Taken once per slide: layout snaps the bounds to pixels, which would nudge it by a point.
+                let width = slide.map(|(shown, full)| held.get().unwrap_or(browser_core::layout::sliding_width(page.2, shown, full, view.clipped_by_window())));
+                held.set(width);
+                let width = width.unwrap_or(page.2);
                 view.set_frame(page.0.into(), page.1.into(), width.into(), page.3.into());
                 if let Some(fit) = fit {
                     // WebKit's page zoom stops at 0.3; below that the CSS viewport is narrower than the preset.

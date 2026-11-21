@@ -352,6 +352,8 @@ pub struct Browser {
     pub(crate) sidebar_toggled: Option<Instant>,
     /// How far the sidebar was shown when it was last toggled, so a toggle mid-slide turns back from there.
     pub(crate) sidebar_from: f32,
+    /// The page's width held while the sidebar slides.
+    pub(crate) sidebar_held: Rc<std::cell::Cell<Option<f32>>>,
     /// When the window last rendered, for `TARN_FRAME_TRACE`'s frame intervals.
     pub(crate) drawn_at: Option<Instant>,
     pub(crate) page_fade: Option<(Rc<WebView>, Instant)>,
@@ -552,6 +554,7 @@ impl Browser {
             heavy: Vec::new(),
             sidebar_toggled: None,
             sidebar_from: 0.,
+            sidebar_held: Rc::default(),
             drawn_at: None,
             page_fade: None,
             overlay_exit: None,
