@@ -1416,7 +1416,7 @@ impl SettingsWindow {
                 .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_choice(Choice::Accent, ix, cx))))
         }));
         let compact = s.prefs.get(Pref::CompactToolbar) as usize;
-        let motion = "Cards, banners, the sidebar and tab switches appear without animation.";
+        let motion = "Pop-ups, cards, tabs and the sidebar appear without animation, and the search bar effect holds still.";
         let reduce_motion = if s.reduce && !s.prefs.get(Pref::ReduceMotion) {
             let system = if cfg!(windows) {
                 "On while animations are off in Windows settings."

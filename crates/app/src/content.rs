@@ -839,42 +839,38 @@ impl gpui::Render for SearchFx {
         // translucent card behind its text.
         let card = || div().absolute().top(px(rise)).left(px(side)).right(px(side)).bottom(px(side)).rounded(px(Theme::radius_card()));
         let underlay = card().bg(Rgba { a: 1., ..Theme::page() });
-        match effect {
-            Effect::None => layer,
-            Effect::Glow => layer
-                .child(card().shadow(vec![gpui::BoxShadow {
+        if effect == Effect::None {
+            return layer;
+        }
+        let dots = canvas(
+            |_, _, _| {},
+            move |bounds, (), window, _| {
+                let w = f32::from(bounds.size.width) - 2. * side;
+                let h = if effect.around_card() { f32::from(bounds.size.height) - rise - side } else { SEARCH_ROW };
+                for p in effects::frame(effect, w, h, Theme::radius_card(), t).into_iter().filter(|p| p.alpha > 0.01) {
+                    let (r, g, b) = effects::tint((color.r, color.g, color.b), p.heat);
+                    // A faint halo under each dot softens the hard edge of a quad.
+                    for (scale, alpha) in [(effects::HALO, 0.22), (1., 1.)] {
+                        let radius = p.radius * scale;
+                        let at = gpui::point(bounds.origin.x + px(side + p.x - radius), bounds.origin.y + px(rise + p.y - radius));
+                        let fill = Rgba { r, g, b, a: p.alpha * alpha };
+                        window.paint_quad(gpui::fill(gpui::Bounds::new(at, gpui::size(px(radius * 2.), px(radius * 2.))), fill).corner_radii(px(radius)));
+                    }
+                }
+            },
+        )
+        .size_full();
+        layer
+            .when(effect == Effect::Glow, |l| {
+                l.child(card().shadow(vec![gpui::BoxShadow {
                     color: Rgba { a: 0.55 * effects::pulse(t), ..color }.into(),
                     offset: gpui::point(px(0.), px(0.)),
                     blur_radius: px(effects::GLOW_BLUR),
                     spread_radius: px(effects::GLOW_SPREAD),
                 }]))
-                .child(underlay),
-            _ => layer
-                .child(
-                    canvas(
-                        |_, _, _| {},
-                        move |bounds, (), window, _| {
-                            let w = f32::from(bounds.size.width) - 2. * side;
-                            // Sparkle runs around the whole card; flames and aurora grow from the search row.
-                            let h = if effect == Effect::Sparkle { f32::from(bounds.size.height) - rise - side } else { SEARCH_ROW };
-                            for p in effects::frame(effect, w, h, t).into_iter().filter(|p| p.alpha > 0.01) {
-                                let (r, g, b) = effects::tint((color.r, color.g, color.b), p.heat);
-                                // A faint halo under each dot softens the hard edge of a quad.
-                                for (scale, alpha) in [(effects::HALO, 0.22), (1., 1.)] {
-                                    let radius = p.radius * scale;
-                                    let at = gpui::point(bounds.origin.x + px(side + p.x - radius), bounds.origin.y + px(rise + p.y - radius));
-                                    let fill = Rgba { r, g, b, a: p.alpha * alpha };
-                                    window.paint_quad(
-                                        gpui::fill(gpui::Bounds::new(at, gpui::size(px(radius * 2.), px(radius * 2.))), fill).corner_radii(px(radius)),
-                                    );
-                                }
-                            }
-                        },
-                    )
-                    .size_full(),
-                )
-                .child(underlay),
-        }
+            })
+            .child(dots)
+            .child(underlay)
     }
 }
 

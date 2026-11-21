@@ -15,7 +15,7 @@ pub fn animates(effect: Effect, reduce_motion: bool, lifecycle: Lifecycle) -> bo
 }
 
 pub fn dots(effect: Effect, width: f32, height: f32, t: f32, color: Rgba) -> Vec<(f32, f32, f32, Rgba)> {
-    let frame: Vec<Particle> = effects::frame(effect, width, height, t);
+    let frame: Vec<Particle> = effects::frame(effect, width, height, Theme::radius_card(), t);
     frame
         .into_iter()
         .filter(|p| p.alpha > 0.01)
@@ -69,27 +69,24 @@ pub fn search_fx(row: f32) -> AnyElement {
             .overflow_hidden()
             .pointer_events(PointerEvents::None)
             .accessibility_elements_hidden(true);
-        Some(match effect {
-            Effect::Glow => layer.child(dynamic(move || card().shadow(glow(t.get(), color)))).child(underlay),
-            _ => {
-                let painter = move || {
-                    let (w, h) = size.get();
-                    let width = w - 2. * side;
-                    let height = if effect == Effect::Sparkle { h - rise - side } else { row };
-                    dots(effect, width, height, t.get(), color)
-                        .into_iter()
-                        .fold(Painter::new(), |p, (x, y, r, fill)| p.fill_style(fill).begin_path().arc(side + x, rise + y, r, 0., TAU).fill())
-                };
-                layer
-                    .on_layout(move |b: &Bounds<Points>| {
-                        let next = (b.size.width.0, b.size.height.0);
-                        if size.get_untracked() != next {
-                            size.set(next);
-                        }
-                    })
-                    .child(canvas(painter).size_full())
-                    .child(underlay)
+        let painter = move || {
+            let (w, h) = size.get();
+            let width = w - 2. * side;
+            let height = if effect.around_card() { h - rise - side } else { row };
+            dots(effect, width, height, t.get(), color)
+                .into_iter()
+                .fold(Painter::new(), |p, (x, y, r, fill)| p.fill_style(fill).begin_path().arc(side + x, rise + y, r, 0., TAU).fill())
+        };
+        let canvas = canvas(painter).size_full();
+        let layer = layer.on_layout(move |b: &Bounds<Points>| {
+            let next = (b.size.width.0, b.size.height.0);
+            if size.get_untracked() != next {
+                size.set(next);
             }
+        });
+        Some(match effect {
+            Effect::Glow => layer.child(dynamic(move || card().shadow(glow(t.get(), color)))).child(canvas).child(underlay),
+            _ => layer.child(canvas).child(underlay),
         })
     })
 }
@@ -116,7 +113,7 @@ mod tests {
         for pair in dots.chunks(2) {
             assert!((pair[0].2 - pair[1].2 * effects::HALO).abs() < 1e-3 && pair[0].3.a < pair[1].3.a);
         }
-        assert!(super::dots(Effect::Glow, 400., 54., STILL, blue).is_empty());
+        assert!(!super::dots(Effect::Glow, 400., 54., STILL, blue).is_empty(), "the glow carries its running light");
         assert_eq!(super::dots(Effect::Sparkle, 400., 54., STILL, blue), super::dots(Effect::Sparkle, 400., 54., STILL, blue));
         let ring = glow(0., blue)[0].color.0;
         assert_eq!(ring >> 8, 0x1f75b0);

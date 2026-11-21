@@ -14,6 +14,10 @@ All notable changes to Tarn are documented in this file. The format is based on
   in, and the rows of the address palette and the start page's suggestions rise in one after
   another (macOS, Windows). The icon spring also reaches the sidebar on Linux and on tablets (iOS,
   Android). Reduce Motion turns all of it off.
+- The search bar effects are livelier on every client: flames flicker on two rhythms with a wave
+  running up each tongue and twinkling embers, the aurora waves in three curtains with drifting
+  rays, sparkle glides along the edge and flashes, and the glow carries a light running around
+  the card.
 - Pop-ups, the address palette, toasts, the space and profile cards, link previews, hover cards,
   the Library's pages, the floating sidebar, folder chevrons and switches spring into place with a
   small overshoot instead of easing in flat (macOS, Windows).
