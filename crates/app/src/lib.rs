@@ -93,7 +93,7 @@ actions!(
 );
 
 actions!(tarn, [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyCleanLink, ToggleCompactToolbar, OpenAppMenu]);
-actions!(tarn, [AboutTarn, CheckForUpdates, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
+actions!(tarn, [AboutTarn, CheckForUpdates, RestartToUpdate, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
 actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAutoHideSidebar, ToggleDownloads]);
 actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, BurnerTab]);
 actions!(tarn, [CloseWindow, StopLoading, ReloadFromOrigin, NewPrivateWindow, NewBurnerWindow]);
@@ -464,7 +464,7 @@ fn set_menus(cx: &mut App, dynamic: menubar::Dynamic) {
 pub(crate) type MenuMarks = Vec<(&'static str, Vec<engine::menu::Mark>)>;
 
 pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
-    let all = vec![
+    let mut all = vec![
         Menu {
             name: "Tarn".into(),
             items: vec![
@@ -534,6 +534,9 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
         Menu { name: "History".into(), items: dynamic.history },
         Menu { name: "Window".into(), items: dynamic.window },
     ];
+    if cfg!(windows) {
+        all[0].items.insert(2, MenuItem::action("Restart to Update", RestartToUpdate));
+    }
     (all, dynamic.marks)
 }
 
@@ -603,11 +606,8 @@ pub fn run() {
                 MenuItem::action("New Burner Window", NewBurnerWindow),
             ]);
             if shared::core(cx).updater.is_some() {
-                cx.on_action(|_: &CheckForUpdates, cx| {
-                    if let Some(updater) = &shared::core(cx).updater {
-                        updater.check_now();
-                    }
-                });
+                cx.on_action(|_: &CheckForUpdates, cx| shared::check_for_updates(cx));
+                cx.on_action(|_: &RestartToUpdate, cx| shared::restart_to_update(cx));
             }
             shared::open_windows(cx);
             // A jump-list entry that started Tarn arrives as its arguments, not from a running instance.

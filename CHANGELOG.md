@@ -20,11 +20,15 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Settings › General › Updates shows the update channel with Check Now (macOS, Windows); once an
+  update is downloaded it offers Restart to Update there and in the Tarn menu (Windows).
 - Settings › Privacy › Passkeys and security keys turns passkey sign-in on or off for sites (on by
   default) (macOS, WebKit tabs).
 
 ### Fixed
 
+- The Nightly channel gets a new release by the next night even when `main` has not changed since
+  the last nightly, instead of staying on the older nightly.
 - Pressing Toggle Sidebar again while the sidebar slides turns it back from where it is instead of
   jumping to the far edge (macOS, Windows).
 - Allow, Visit Anyway, Keep and the other guarded buttons ignore clicks until 700 ms after the

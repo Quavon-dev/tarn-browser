@@ -317,10 +317,19 @@ fn toast_front(tone: browser_core::toast::Tone, text: impl Into<gpui::SharedStri
     }
 }
 
+pub(crate) fn check_for_updates(cx: &mut App) {
+    if let Some(updater) = &core(cx).updater {
+        updater.check_now();
+    }
+}
+
 /// Quits through the normal path; the updater then starts the installer, which starts Tarn again.
 pub(crate) fn restart_to_update(cx: &mut App) {
     if core(cx).updater.as_ref().is_some_and(platform::updater::Updater::install_on_quit) {
         cx.quit();
+    } else {
+        toast_front(browser_core::toast::Tone::Warning, "The update is no longer ready; check for updates again", None, cx);
+        cx.refresh_windows();
     }
 }
 
