@@ -70,7 +70,7 @@ const PANES: [(SettingsPane, Icon, &str, &str); 11] = [
         SettingsPane::Privacy,
         Icon::Hand,
         "Privacy",
-        "block ads trackers cookie banners youtube pop-ups malware adult zoom muted hidden elements connections history clear export delete data localhost",
+        "block ads trackers cookie banners youtube pop-ups malware adult zoom muted hidden elements connections history clear export delete data localhost passkeys security keys sign-in",
     ),
     (SettingsPane::Permissions, Icon::Camera, "Permissions", "camera microphone location pop-ups site answers allow block"),
     (SettingsPane::Developer, Icon::Code, "Developer", "web inspector developer tools profile local servers localhost"),
@@ -1786,6 +1786,10 @@ impl SettingsWindow {
             .child(note("Applies to every profile. Malware, phishing and adult lists stop whole sites with a warning page; ad, tracker and cookie-banner lists act inside pages."))
             .child(section("Sites without ad, tracker and cookie-banner blocking"))
             .child(paused)
+            .when(!cfg!(windows), |d| {
+                d.child(section("Sign-in"))
+                    .child(group().child(self.pref_row(true, Pref::Passkeys, "Passkeys and security keys", browser_core::settings::PASSKEYS_NOTE, on(Pref::Passkeys), cx)))
+            })
             .child(section("Links from other apps"))
             .child(group().child(self.pref_row(true, Pref::LocalhostFromApps, "Open localhost links from other apps", format!("A link to {} (localhost, 127.0.0.1) from a terminal, editor or other app opens like a typed address, and the page it shows may lead elsewhere on your network as a typed one can. Off: Tarn refuses it, since a link in a mail could reach services running here; Open Anyway on the notice still opens it. Links to other addresses on your network are refused; Open Anyway on the notice opens them. Applies to every profile.", ui::controls::THIS_DEVICE), on(Pref::LocalhostFromApps), cx)))
             .child(section("Site overrides"))

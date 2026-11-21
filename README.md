@@ -346,6 +346,16 @@ Wikipedia, `!wa` Wolfram|Alpha, `!gh` GitHub, `!so` Stack Overflow, `!mdn` MDN, 
 crates.io, `!npm` npm, `!r` Reddit, `!a` Amazon, `!gm` Google Maps, `!gt` Google Translate. The
 full list is `BANGS` in `crates/browser-core/src/command.rs`.
 
+### Passkeys
+
+Settings › Privacy › Passkeys and security keys (on at first) lets sites ask for a passkey or a
+security key to sign you in (WebAuthn); off, WebKit tabs hide passkey sign-in from every site and
+open pages follow once they reload (macOS). Passkeys saved in Apple Passwords (iCloud Keychain)
+also need Apple's `com.apple.developer.web-browser.public-key-credential` entitlement in the signed
+app, which Apple grants per developer team; a build without it offers security keys only. Tarn
+cannot fill passwords from Apple Passwords: macOS gives third-party browsers no API to read them
+(AuthenticationServices' password APIs serve credential providers and an app's own domains).
+
 ## Development
 
 Checks per workspace (each runs in its own directory; CI runs all of them):

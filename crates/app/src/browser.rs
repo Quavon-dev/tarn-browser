@@ -130,22 +130,6 @@ pub(crate) enum Msg {
     Article(TabKey, Url, bool, String),
 }
 
-pub struct DownloadNotice {
-    pub private: bool,
-    pub profile_id: Id,
-    pub result: Result<(std::path::PathBuf, bool), String>,
-}
-
-impl DownloadNotice {
-    /// A failure, a file that is not quarantined or one that can run code.
-    pub fn warns(&self) -> bool {
-        match &self.result {
-            Ok((path, quarantined)) => !quarantined || path.file_name().is_some_and(|n| engine::downloads::is_dangerous(&n.to_string_lossy())),
-            Err(_) => true,
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CommandMode {
     NewTab,
@@ -231,11 +215,11 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
         }
         _ => return,
     };
-    crate::shared::each(cx, |b, _, cx| {
+    crate::shared::each(cx, |b, window, cx| {
         if let Some(id) = id {
             b.set_transfer((private, profile_id, id), None, cx);
         }
-        b.push_download_notice(DownloadNotice { private, profile_id, result: result.clone() });
+        b.notify_download(private, profile_id, &result, window.is_window_active(), cx);
         b.downloads_popover.changed += 1;
         cx.notify();
     });
@@ -295,7 +279,6 @@ pub struct Browser {
     /// rebuild them without completing the field again.
     suggested: Option<(String, Option<suggest::Completion>)>,
     pub pending_external: Option<PendingExternal>,
-    pub download: Vec<DownloadNotice>,
     pub downloads_popover: crate::downloads::Downloads,
     pub prompts: HashMap<TabKey, VecDeque<Prompt>>,
     pub prompt_input: Entity<TextInput>,
@@ -508,7 +491,6 @@ impl Browser {
             history_text_search: None,
             suggested: None,
             pending_external: None,
-            download: Vec::new(),
             downloads_popover: Default::default(),
             prompts: HashMap::new(),
             prompt_input,
@@ -842,7 +824,7 @@ impl Browser {
             return None;
         };
         let view = Rc::new(view.rehost(&host, self.sink(key)));
-        view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
+        self.view_prefs(&view);
         self.views.insert(key, view.clone());
         self.pages.insert(key, page);
         self.attach_tarn(key);
@@ -1089,7 +1071,7 @@ impl Browser {
         });
         view.set_corner_radius(page_corner());
         view.set_dark(!ui::theme::Theme::is_light());
-        view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
+        self.view_prefs(&view);
         self.views.insert(key, view.clone());
         self.attach_tarn(key);
         Some(view)
@@ -1129,22 +1111,31 @@ impl Browser {
         cx.notify();
     }
 
-    fn current_download_ix(&self) -> Option<usize> {
-        let space = self.model.current_space()?;
-        self.download.iter().position(|d| d.private == space.private && d.profile_id == space.space.profile_id)
-    }
-
-    pub fn current_download(&self) -> Option<&DownloadNotice> {
-        self.current_download_ix().map(|ix| &self.download[ix])
-    }
-
-    pub(crate) fn push_download_notice(&mut self, notice: DownloadNotice) {
-        browser_core::toast::push_notice(&mut self.download, notice, DownloadNotice::warns);
-    }
-
-    pub(crate) fn dismiss_download(&mut self) {
-        if let Some(ix) = self.current_download_ix() {
-            self.download.remove(ix);
+    /// Shows how a download ended over the active tab: a passing toast in the window in front, or a
+    /// warning in every window, held until dismissed (S11) and, while the window shows another
+    /// profile's space, waiting for that profile's space.
+    pub(crate) fn notify_download(
+        &mut self,
+        private: bool,
+        profile_id: Id,
+        result: &Result<(std::path::PathBuf, bool), String>,
+        front: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let here = self.model.current_space().is_some_and(|s| (s.private, s.space.profile_id) == (private, profile_id));
+        let mark = if cfg!(windows) { "the mark of the web" } else { "macOS quarantine" };
+        let (tone, text) = match result {
+            Ok((path, quarantined)) => {
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                browser_core::toast::download(&ui::text::bounded_title(&name), Ok((*quarantined, engine::downloads::is_dangerous(&name))), mark)
+            }
+            Err(message) => browser_core::toast::download("", Err(&ui::text::bounded_title(message)), mark),
+        };
+        if tone == browser_core::toast::Tone::Warning {
+            self.hold_toast(text, self.model.active.filter(|_| here), (private, profile_id), cx);
+        } else if here && front {
+            let reveal = result.as_ref().ok().map(|(path, _)| crate::toast::Action::Reveal(path.clone()));
+            self.show_tab_toast(tone, text, reveal, (private, profile_id), cx);
         }
     }
 
@@ -2653,7 +2644,7 @@ impl Browser {
         };
         view.set_corner_radius(page_corner());
         view.set_dark(!ui::theme::Theme::is_light());
-        view.set_gestures(self.pref(crate::prefs::Pref::Gestures));
+        self.view_prefs(&view);
         self.views.insert(key, Rc::new(view));
         self.attach_tarn(key);
         self.reload_space();
@@ -3219,14 +3210,14 @@ impl Browser {
         Self::sync_other_windows(cx);
         crate::shared::others(cx, |b, _, cx| {
             b.forget_history(private, profile_id);
-            b.download.retain(|d| (d.private, d.profile_id) != target);
+            b.toast.forget(target);
             cx.notify();
         });
         for key in keys {
             self.hibernate(key, cx);
         }
         self.model.forget_folders(private, &folders);
-        self.download.retain(|d| (d.private, d.profile_id) != target);
+        self.toast.forget(target);
         self.pending_external = None;
         self.refocus |= std::mem::take(&mut self.find_open);
         self.suggestions.clear();

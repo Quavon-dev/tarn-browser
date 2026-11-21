@@ -10,6 +10,22 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 - Releases also carry an unsigned Android App Bundle for Google Play, and the iOS app is built with
   the iOS 26 SDK and carries a privacy manifest (iOS, Android).
+- Download notices float over the page instead of pushing it down and show only on the tab that was
+  in front when they appeared; a finished download's notice disappears after 5 seconds, while a
+  warning (no quarantine, a file that can run code, a failed download) stays until you dismiss it
+  (macOS, Windows).
+
+### Added
+
+- Settings › Privacy › Passkeys and security keys turns passkey sign-in on or off for sites (on by
+  default) (macOS, WebKit tabs).
+
+### Fixed
+
+- A long toast message wraps to up to three lines inside its card instead of running past the
+  card's edge and hiding its button (macOS, Windows).
+- The download button of the PDF viewer in a WebKit tab saves the PDF to Downloads; it did nothing
+  before (macOS).
 
 ## [0.1.4] - 2026-11-20
 
@@ -20,6 +36,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Search shortcuts: with Settings › Search › Search shortcuts on (off by default), `!yt cats` or
   `cats !yt` searches YouTube instead of your search engine; 83 shortcuts such as `!g`, `!w`, `!gh`,
   `!a` and `!gm`. The suggestion row names the site. On every client.
+- Making Chromium the default engine offers to reload the window's open WebKit tabs in Chromium,
+  and a click on the engine name in the address bar reloads the page in the other engine (macOS).
 
 ### Changed
 

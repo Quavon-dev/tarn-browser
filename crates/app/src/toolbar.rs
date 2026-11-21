@@ -293,11 +293,26 @@ fn mute_button(b: &Browser, cx: &mut Context<Browser>) -> Option<impl IntoElemen
     })))
 }
 
-/// The active page's engine, unless it is WebKit and WebKit is the default.
-fn engine_badge(b: &Browser) -> Option<Div> {
-    let engine = b.tab_web_engine(b.model.active?);
-    (engine != WebEngine::WebKit || b.core.default_web_engine.get() != WebEngine::WebKit)
-        .then(|| div().px_1p5().text_size(px(TEXT_SMALL)).text_color(Secure::muted()).child(crate::tabs::web_engine_name(engine)))
+/// The active page's engine, unless it is WebKit and WebKit is the default; a click reloads the
+/// page in the other engine where it can move.
+fn engine_badge(b: &Browser, cx: &mut Context<Browser>) -> Option<Stateful<Div>> {
+    let key = b.model.active?;
+    let engine = b.tab_web_engine(key);
+    if engine == WebEngine::WebKit && b.core.default_web_engine.get() == WebEngine::WebKit {
+        return None;
+    }
+    let to = b.web_engine_switch(key);
+    let color = if to.is_some() { Secure::muted() } else { Secure::faint() };
+    let badge = chip_frame("engine", to.is_some()).text_size(px(TEXT_SMALL)).text_color(color).child(crate::tabs::web_engine_name(engine));
+    let Some(to) = to else { return Some(badge) };
+    let tip = match to {
+        WebEngine::Chromium => crate::shortcuts::tip("Reload in Chromium", &crate::tabs::ReloadInChromium),
+        WebEngine::WebKit => crate::shortcuts::tip("Reload in WebKit", &crate::tabs::ReloadInWebKit),
+    };
+    Some(badge.tooltip(tip).occlude().on_click(cx.listener(move |b, _, window, cx| {
+        cx.stop_propagation();
+        b.switch_web_engine(key, to, window, cx);
+    })))
 }
 
 const FIELD: f32 = 30.;
@@ -346,7 +361,7 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .justify_end()
                 .children(reader_button(b, cx))
                 .children(mute_button(b, cx))
-                .children(engine_badge(b))
+                .children(engine_badge(b, cx))
                 .when(site.controls, |d| d.child(bookmark_button(b, &site, cx))),
         )
 }
@@ -397,7 +412,7 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
                             .justify_end()
                             .children(reader_button(b, cx))
                             .children(mute_button(b, cx))
-                            .children(engine_badge(b))
+                            .children(engine_badge(b, cx))
                             .when(site.controls, |d| d.child(bookmark_button(b, &site, cx))),
                     ),
             ),
@@ -489,6 +504,7 @@ mod tests {
             (include_str!("content.rs"), ["fn floating(", "fn banner(", "fn prompt_card(", "fn start_shield("].as_slice()),
             (include_str!("blocking.rs"), ["pub fn render_blocked("].as_slice()),
             (include_str!("link_peek.rs"), ["fn peek_origin("].as_slice()),
+            (include_str!("toast.rs"), ["fn secure_card("].as_slice()),
             (include_str!("settings/appearance.rs"), ["fn badge_line("].as_slice()),
         ];
         let mut checked = 0;

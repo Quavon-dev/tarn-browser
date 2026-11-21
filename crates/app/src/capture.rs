@@ -6,7 +6,7 @@ use futures::channel::mpsc;
 use gpui::{ClipboardItem, Context, Div, Image, ImageFormat, InteractiveElement, actions};
 use url::Url;
 
-use crate::browser::{Browser, DownloadNotice, TabKey, now};
+use crate::browser::{Browser, TabKey, now};
 
 actions!(tarn, [TakeScreenshot, SavePdf, CopyMarkdownLink, CopyTitle, PictureInPicture]);
 
@@ -72,12 +72,15 @@ impl Browser {
             self.downloads_popover.changed += 1;
         }
         match result {
-            Ok(path) if screenshot => {
-                self.show_toast_as(browser_core::toast::Tone::Success, "Screenshot saved and copied", Some(crate::toast::Action::Reveal(path)), cx)
-            }
+            Ok(path) if screenshot => self.show_tab_toast(
+                browser_core::toast::Tone::Success,
+                "Screenshot saved and copied",
+                Some(crate::toast::Action::Reveal(path)),
+                (private, profile_id),
+                cx,
+            ),
             result => {
-                self.push_download_notice(DownloadNotice { private, profile_id, result: result.map(|path| (path, true)) });
-                cx.notify();
+                self.notify_download(private, profile_id, &result.map(|path| (path, true)), true, cx);
             }
         }
     }

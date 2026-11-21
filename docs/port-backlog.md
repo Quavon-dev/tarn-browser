@@ -21,6 +21,38 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Download notices float over the page (2026-11-20)
+
+What it does: a finished or failed download (and a saved screenshot or PDF) shows a toast over the
+page instead of a banner that moves it, only while the tab that was in front is active; a finished
+download's toast disappears after 5 seconds, a warning stays until dismissed and nothing replaces it.
+Toasts about downloads keep the security colours (S29).
+Shared API: `browser_core::toast::download`.
+Reference: `crates/app/src/browser.rs` (`notify_download`), `crates/app/src/toast.rs` (`show_tab_toast`,
+`secure_card`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `linux/src/browser/pages.rs` (`on_download`) shows no notice for a finished download; add a
+  tab toast with `browser_core::toast::download`
+- [ ] iOS — `mobile/app` `download_notices` / `notice`: an overlay bound to the tab, 5 s unless it warns
+- [ ] Android — the same in `mobile/app`
+
+### Passkeys and security keys switch (2026-11-20)
+
+What it does: Settings › Privacy › Passkeys and security keys (on by default) turns WebAuthn sign-in
+on or off for pages; off, `PublicKeyCredential` is gone from pages once they reload.
+Shared API: `browser_core::settings::{PASSKEYS, PASSKEYS_NOTE, passkeys}`; `engine::WebView::set_passkeys`.
+Reference: `crates/app/src/browser/context.rs` (`view_prefs`), `crates/app/src/settings.rs` (Sign-in),
+`crates/engine/src/webview.rs` (`set_passkeys`).
+
+- [ ] Windows and macOS Chromium tabs — CEF has no per-view WebAuthn switch; Chromium's
+  `--disable-blink-features=WebAuth` at CEF start (`crates/engine/src/chromium`), so the switch would
+  take effect after a restart; then show the row on Windows (hidden today) and drop "in WebKit tabs"
+  from `PASSKEYS_NOTE`
+- [ ] Linux — the switch in `linux/src/ui/settings.rs`; WebKitGTK's WebAuthn setting in `linux/src/webview`
+- [ ] iOS — the switch in `mobile/app`; the same `_WKFeature` flags on the `WKWebView` in `mobile/ios`
+- [ ] Android — the switch in `mobile/app`; `WebSettingsCompat.setWebAuthenticationSupport` in `TarnWebView`
+
 ### Typed input keeps a tab awake; sleep keeps the scroll offset (2026-11-19)
 
 What it does: a background tab whose page has form input the user typed is not put to sleep by the

@@ -4,18 +4,18 @@ use std::rc::Rc;
 use block2::RcBlock;
 use objc2::rc::{Retained, Weak};
 use objc2::runtime::NSObjectProtocol;
-use objc2::{MainThreadMarker, MainThreadOnly, msg_send, sel};
+use objc2::{ClassType, MainThreadMarker, MainThreadOnly, msg_send, sel};
 use objc2_app_kit::{
     NSAlert, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSBitmapImageFileType, NSBitmapImageRep, NSImage,
     NSPanel, NSPrintInfo, NSView, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{
-    NSBundle, NSData, NSDictionary, NSError, NSKeyValueObservingOptions, NSNumber, NSObjectNSKeyValueObserverRegistration, NSPoint, NSRect, NSSize, NSString,
-    NSURL, NSURLRequest,
+    NSArray, NSBundle, NSData, NSDictionary, NSError, NSKeyValueObservingOptions, NSNumber, NSObject, NSObjectNSKeyValueObserverRegistration, NSPoint, NSRect,
+    NSSize, NSString, NSURL, NSURLRequest,
 };
 use objc2_web_kit::{
-    WKBackForwardListItem, WKContentWorld, WKFindConfiguration, WKFindResult, WKNavigation, WKSnapshotConfiguration, WKUserContentController, WKUserScript,
-    WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration,
+    WKBackForwardListItem, WKContentWorld, WKFindConfiguration, WKFindResult, WKNavigation, WKPreferences, WKSnapshotConfiguration, WKUserContentController,
+    WKUserScript, WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use shield::ShieldLevel;
@@ -318,6 +318,29 @@ impl WebView {
         unsafe {
             self.view.setAllowsBackForwardNavigationGestures(on);
             self.view.setAllowsMagnification(on);
+        }
+    }
+
+    /// Passkey and security-key sign-in (WebAuthn) for the next pages this view loads; on restores
+    /// WebKit's own default. Passkeys from
+    /// iCloud Keychain also need the `com.apple.developer.web-browser.public-key-credential` entitlement.
+    pub fn set_passkeys(&self, on: bool) {
+        let class = WKPreferences::class();
+        // SAFETY: main-thread read; the view's configuration shares its live preferences object.
+        let prefs = unsafe { self.view.configuration().preferences() };
+        if !class.metaclass().responds_to(sel!(_features)) || !prefs.respondsToSelector(sel!(_setEnabled:forFeature:)) {
+            return;
+        }
+        // SAFETY: `_features` (checked above) returns WebKit's `_WKFeature` objects, each with an NSString `key`.
+        let features: Retained<NSArray<NSObject>> = unsafe { msg_send![class, _features] };
+        for feature in features.iter() {
+            // SAFETY: every `_WKFeature` answers `key` with a non-null NSString.
+            let key: Retained<NSString> = unsafe { msg_send![&*feature, key] };
+            if matches!(key.to_string().as_str(), "WebAuthenticationEnabled" | "WebAuthenticationASEnabled") {
+                // SAFETY: every `_WKFeature` answers `defaultValue` with a BOOL; `_setEnabled:forFeature:`
+                // (checked above) takes a BOOL and one of `_features`.
+                let () = unsafe { msg_send![&*prefs, _setEnabled: on && msg_send![&*feature, defaultValue], forFeature: &*feature] };
+            }
         }
     }
 

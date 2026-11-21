@@ -149,49 +149,6 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 .child(secure_button("ext-cancel", "Cancel", false).on_click(cx.listener(|b, _, _, cx| b.resolve_external(false, cx)))),
         );
     }
-    match b.current_download().map(|d| &d.result) {
-        Some(Ok((path, quarantined))) => {
-            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            let reveal = path.clone();
-            let executable = engine::downloads::is_dangerous(&name);
-            let name = ui::text::bounded_title(&name);
-            let dangerous = executable || !quarantined;
-            let text = match (quarantined, executable) {
-                (false, _) => format!(
-                    "Downloaded “{name}”, but {} could not be set. Do not open it unless you trust it.",
-                    if cfg!(windows) { "the mark of the web" } else { "macOS quarantine" }
-                ),
-                (true, true) => format!("Downloaded “{name}”. This file type can run code; open it only if you trust the site."),
-                (true, false) => format!("Downloaded “{name}”"),
-            };
-            let color = if dangerous { Secure::warning() } else { Secure::text() };
-            push(
-                "banner-download",
-                text.clone(),
-                color,
-                banner(text)
-                    .text_color(color)
-                    .child(secure_button("dl-show", ui::controls::REVEAL, true).on_click(move |_, _, _| engine::reveal_in_finder(&reveal)))
-                    .child(secure_button("dl-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| {
-                        b.dismiss_download();
-                        cx.notify();
-                    }))),
-            );
-        }
-        Some(Err(message)) => {
-            let text = format!("Download failed: {}", ui::text::bounded_title(message));
-            push(
-                "banner-download",
-                text.clone(),
-                Theme::danger(),
-                banner(text).text_color(Theme::danger()).child(secure_button("dl-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| {
-                    b.dismiss_download();
-                    cx.notify();
-                }))),
-            );
-        }
-        None => {}
-    }
     if let Some(message) = page.notice {
         let text = ui::text::bounded_title(&message);
         let offer = page.offer.as_ref().map(|o| match o {
