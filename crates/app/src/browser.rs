@@ -353,7 +353,7 @@ pub struct Browser {
     /// How far the sidebar was shown when it was last toggled, so a toggle mid-slide turns back from there.
     pub(crate) sidebar_from: f32,
     /// The width each web view keeps while the sidebar slides, by the view's address.
-    pub(crate) sidebar_held: Rc<RefCell<HashMap<usize, f32>>>,
+    pub(crate) sidebar_held: Rc<RefCell<browser_core::layout::HeldWidths>>,
     /// When the window last rendered, for `TARN_FRAME_TRACE`'s frame intervals.
     pub(crate) drawn_at: Option<Instant>,
     pub(crate) page_fade: Option<(Rc<WebView>, Instant)>,

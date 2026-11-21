@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -14,6 +13,7 @@ use ui::motion::{EXIT, FADE, SLIDE, pop_in, pop_out, progress};
 use ui::text::OneLine;
 use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
+use browser_core::layout::HeldWidths;
 use engine::{PromptKind, WebView};
 
 use browser_core::command::Section;
@@ -113,20 +113,9 @@ impl Browser {
     }
 }
 
-/// The width `view` keeps while the sidebar slides (`slide`: how far it is shown, and its share of
-/// the view's width), else `width`. Taken once per slide and view: layout snaps the bounds to
-/// pixels, which would nudge it by a point. A page its window does not clip never reaches past its
-/// place.
-pub(crate) fn held_width(held: &RefCell<HashMap<usize, f32>>, view: &Rc<WebView>, width: f32, slide: Option<(f32, f32)>) -> f32 {
-    let id = Rc::as_ptr(view) as usize;
-    let mut held = held.borrow_mut();
-    let Some((shown, full)) = slide else {
-        held.remove(&id);
-        return width;
-    };
-    let clipped = view.clipped_by_window();
-    let kept = *held.entry(id).or_insert_with(|| browser_core::layout::sliding_width(width, shown, full, clipped));
-    if clipped { kept } else { kept.min(width) }
+/// The width `view` keeps while the sidebar slides; `slide` as in `HeldWidths::width`.
+pub(crate) fn held_width(held: &RefCell<HeldWidths>, view: &Rc<WebView>, width: f32, slide: Option<(f32, f32)>) -> f32 {
+    held.borrow_mut().width(Rc::as_ptr(view) as usize, width, slide, view.clipped_by_window())
 }
 
 /// How much the page area's left gutter narrows as the sidebar shows; the sidebar's share of the
