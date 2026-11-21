@@ -847,14 +847,28 @@ impl gpui::Render for SearchFx {
             move |bounds, (), window, _| {
                 let w = f32::from(bounds.size.width) - 2. * side;
                 let h = if effect.around_card() { f32::from(bounds.size.height) - rise - side } else { SEARCH_ROW };
-                for p in effects::frame(effect, w, h, Theme::radius_card(), t).into_iter().filter(|p| p.alpha > 0.01) {
-                    let (r, g, b) = effects::tint((color.r, color.g, color.b), p.heat);
-                    // A faint halo under each dot softens the hard edge of a quad.
-                    for (scale, alpha) in [(effects::HALO, 0.22), (1., 1.)] {
-                        let radius = p.radius * scale;
-                        let at = gpui::point(bounds.origin.x + px(side + p.x - radius), bounds.origin.y + px(rise + p.y - radius));
-                        let fill = Rgba { r, g, b, a: p.alpha * alpha };
-                        window.paint_quad(gpui::fill(gpui::Bounds::new(at, gpui::size(px(radius * 2.), px(radius * 2.))), fill).corner_radii(px(radius)));
+                let disc = |x: f32, y: f32, radius: f32| {
+                    let at = gpui::point(bounds.origin.x + px(side + x - radius), bounds.origin.y + px(rise + y - radius));
+                    gpui::Bounds::new(at, gpui::size(px(radius * 2.), px(radius * 2.)))
+                };
+                let frame: Vec<_> = effects::frame(effect, w, h, Theme::radius_card(), t).into_iter().filter(|p| p.alpha > 0.01).collect();
+                let shaded: Vec<_> = frame.iter().map(|p| (p, effects::shade(p, (color.r, color.g, color.b)))).collect();
+                // A blurred disc is a soft glow. GPUI's blur sigma is the blur radius, so a third of the
+                // fade makes it gone by `radius * HALO`. All glows go first, so they draw in one batch.
+                for (p, (((r, g, b), a), _)) in &shaded {
+                    let (core, blur) = (p.radius * effects::GLOW_CORE, p.radius * effects::GLOW_SIGMA);
+                    let glow = gpui::BoxShadow {
+                        color: Rgba { r: *r, g: *g, b: *b, a: *a }.into(),
+                        offset: gpui::point(px(0.), px(0.)),
+                        blur_radius: px(blur),
+                        spread_radius: px(0.),
+                    };
+                    window.paint_shadows(disc(p.x, p.y, core), gpui::Corners::all(px(core)), &[glow]);
+                }
+                for (p, (_, glint)) in &shaded {
+                    if let Some(((r, g, b), a)) = glint {
+                        let radius = p.radius * effects::GLINT;
+                        window.paint_quad(gpui::fill(disc(p.x, p.y, radius), Rgba { r: *r, g: *g, b: *b, a: *a }).corner_radii(px(radius)));
                     }
                 }
             },

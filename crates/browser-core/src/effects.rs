@@ -14,8 +14,8 @@ const AURORA_BANDS: usize = 3;
 /// The glow's light: its speed around the card in points a second, its tail's length and dots,
 /// and how far outside the card's edge it runs, so the card does not hide half of it.
 const GLOW_SPEED: f32 = 260.;
-const GLOW_TAIL_LENGTH: f32 = 110.;
-const GLOW_TAIL: usize = 22;
+const GLOW_TAIL_LENGTH: f32 = 150.;
+const GLOW_TAIL: usize = 36;
 const GLOW_OUT: f32 = 2.;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -83,13 +83,24 @@ pub fn tint((r, g, b): (f32, f32, f32), heat: f32) -> (f32, f32, f32) {
     (mix(r, hot.0), mix(g, hot.1), mix(b, hot.2))
 }
 
+/// A colour `(r, g, b)` in 0..1 and its alpha.
+pub type Paint = ((f32, f32, f32), f32);
+
+/// How a particle in the effect colour `color` is shaded: its glow, and its glint when it has one.
+pub fn shade(p: &Particle, color: (f32, f32, f32)) -> (Paint, Option<Paint>) {
+    let glow = tint(color, p.heat);
+    let glint = (p.glint > 0.05).then(|| (tint(glow, 0.7), p.alpha * p.glint));
+    ((glow, (p.alpha * 1.25).min(1.)), glint)
+}
+
 /// Seconds since an effect started, wrapped so `f32` keeps sub-frame precision on long uptimes.
 pub fn clock(elapsed: std::time::Duration) -> f32 {
     (elapsed.as_secs_f64() % 600.) as f32
 }
 
-/// One soft dot, relative to the field's top-left corner. `heat` runs from 0 (the effect colour)
-/// to 1 (its hot or light end).
+/// One soft glow, relative to the field's top-left corner, fading out by `radius * HALO`. `heat`
+/// runs from 0 (the effect colour) to 1 (its hot or light end); `glint` (0..1) is the strength of
+/// a small sharp core at its centre, for sparks and the glow's light.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Particle {
     pub x: f32,
@@ -97,6 +108,7 @@ pub struct Particle {
     pub radius: f32,
     pub alpha: f32,
     pub heat: f32,
+    pub glint: f32,
 }
 
 /// How far particles may reach outside the field, so the shell can size the layer behind it.
@@ -105,9 +117,9 @@ pub fn reach(effect: Effect, height: f32) -> (f32, f32) {
     let halo = match effect {
         Effect::None => 0.,
         Effect::Glow => GLOW_BLUR + GLOW_SPREAD,
-        Effect::Flames => 13. * HALO,
+        Effect::Flames => 16. * HALO,
         Effect::Aurora => height * 0.4 * HALO,
-        Effect::Sparkle => 5. * HALO,
+        Effect::Sparkle => 6.5 * HALO,
     };
     ((side + halo).min(MAX_SIDE), rise + halo)
 }
@@ -119,8 +131,16 @@ pub const MAX_SIDE: f32 = 16.;
 pub const GLOW_BLUR: f32 = 12.;
 pub const GLOW_SPREAD: f32 = 2.;
 
-/// How much bigger than a dot the shells draw its soft halo.
+/// How far past a particle's radius its glow fades out, the share of the radius its glow keeps
+/// solid before it starts to fade, and the size of its glint core.
 pub const HALO: f32 = 1.8;
+pub const GLOW_CORE: f32 = 0.75;
+pub const GLINT: f32 = 0.3;
+/// The blur of a glow's disc, as a share of its radius: three of it fade the disc out by `HALO`.
+pub const GLOW_SIGMA: f32 = (HALO - GLOW_CORE) / 3.;
+/// A glow's falloff as (share of `radius * HALO`, share of its alpha): the disc blurred by
+/// `GLOW_SIGMA`, for shells that paint a radial gradient instead.
+pub const GLOW_STOPS: [(f32, f32); 4] = [(0., 0.9), (0.42, 0.45), (0.67, 0.1), (1., 0.)];
 
 /// How far particle centres travel outside the field.
 fn span(effect: Effect, height: f32) -> (f32, f32) {
@@ -205,7 +225,7 @@ pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Ve
                     let f = k as f32 / GLOW_TAIL as f32;
                     let (x, y) = edge.at(head - f * GLOW_TAIL_LENGTH.min(edge.length / 2.));
                     let fade = (1. - f).powf(1.6);
-                    Particle { x, y, radius: 1.2 + 2.6 * fade, alpha: 0.9 * fade, heat: fade }
+                    Particle { x, y, radius: 1.8 + 4.2 * fade, alpha: fade.sqrt(), heat: fade, glint: fade * fade }
                 })
                 .collect()
         }
@@ -227,9 +247,10 @@ pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Ve
                     out.push(Particle {
                         x: base + wave * f.powf(1.3) * 6.,
                         y: height * 0.12 - f * tall,
-                        radius: (9. + hash(i, 7) * 4.) * (1. - f * 0.82),
-                        alpha: (0.92 - f * 0.6) * (0.7 + 0.3 * flicker),
+                        radius: (11. + hash(i, 7) * 5.) * (1. - f * 0.75),
+                        alpha: (1. - f * 0.5) * (0.75 + 0.25 * flicker),
                         heat: (1. - f).powf(1.5),
+                        glint: 0.35 * (1. - f).powi(4),
                     });
                 }
             }
@@ -240,9 +261,10 @@ pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Ve
                 out.push(Particle {
                     x: (hash(i, 3) * width + (t * 2.2 + i as f32).sin() * 10. * p).clamp(0., width),
                     y: -p * rise,
-                    radius: (1.2 + hash(i, 8) * 1.8) * (1. - 0.4 * p),
+                    radius: (1.8 + hash(i, 8) * 2.) * (1. - 0.4 * p),
                     alpha: (1. - p) * 0.95 * twinkle,
                     heat: 0.85 * (1. - p),
+                    glint: 0.7 * (1. - p) * twinkle,
                 });
             }
             out
@@ -263,8 +285,9 @@ pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Ve
                             x: along * width,
                             y: -rise * (0.2 + 0.26 * b + 0.16 * wave),
                             radius: height * (0.26 + 0.12 * ray),
-                            alpha: (0.035 + 0.075 * ray) * ends,
+                            alpha: (0.08 + 0.14 * ray) * ends,
                             heat: (0.3 * b + 0.25 * ray).min(1.),
+                            glint: 0.,
                         }
                     })
                 })
@@ -278,7 +301,7 @@ pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Ve
                     let (x, y) = edge.at((hash(i, 1) + t * 0.015 * (0.5 + hash(i, 4))) * edge.length);
                     let beat = (t * (0.5 + hash(i, 2) * 0.8) + hash(i, 3)).fract();
                     let flash = if beat < 0.12 { beat / 0.12 } else { (1. - (beat - 0.12) / 0.88).powi(3) };
-                    Particle { x, y, radius: 1.2 + flash * 3.3, alpha: flash, heat: flash }
+                    Particle { x, y, radius: 1.8 + flash * 4.6, alpha: flash, heat: flash, glint: flash }
                 })
                 .collect()
         }
@@ -344,7 +367,7 @@ mod tests {
                         let halo = p.radius * HALO;
                         assert!(p.x - halo >= -side && p.x + halo <= w + side, "{effect:?} x {} r {}", p.x, p.radius);
                         assert!(p.y - halo >= -rise && p.y + halo <= h + side, "{effect:?} y {} r {}", p.y, p.radius);
-                        assert!((0. ..=1.).contains(&p.alpha) && (0. ..=1.).contains(&p.heat) && p.radius >= 0., "{effect:?} {p:?}");
+                        assert!([p.alpha, p.heat, p.glint].iter().all(|v| (0. ..=1.).contains(v)) && p.radius >= 0., "{effect:?} {p:?}");
                     }
                 }
                 assert_eq!(super::frame(effect, w, h, 16., 1.25), super::frame(effect, w, h, 16., 1.25));
@@ -401,6 +424,31 @@ mod tests {
         let frames: Vec<Vec<Particle>> = (0..48).map(|i| frame(Effect::Sparkle, 400., 50., 16., i as f32 / FPS)).collect();
         assert!(frames.iter().flatten().any(|p| p.alpha > 0.95) && frames.iter().flatten().any(|p| p.alpha < 0.05), "flashes on and off");
         assert!(frames[0].iter().zip(&frames[47]).filter(|(a, b)| a.x != b.x || a.y != b.y).count() > frames[0].len() / 2, "glides");
+    }
+
+    #[test]
+    fn the_gradient_stops_follow_the_blurred_disc() {
+        let half = |d: f32| 0.5 * (1. + erf(d / (GLOW_SIGMA * std::f32::consts::SQRT_2)));
+        for (at, share) in GLOW_STOPS {
+            let r = at * HALO;
+            let blurred = half(GLOW_CORE - r) - half(-GLOW_CORE - r);
+            assert!((blurred - share).abs() < 0.08, "at {at}: disc {blurred}, stop {share}");
+        }
+    }
+
+    fn erf(x: f32) -> f32 {
+        let t = 1. / (1. + 0.327_591_1 * x.abs());
+        let y = 1. - (((((1.061_405_4 * t - 1.453_152_1) * t) + 1.421_413_8) * t - 0.284_496_74) * t + 0.254_829_6) * t * (-x * x).exp();
+        y.copysign(x)
+    }
+
+    #[test]
+    fn shading_caps_the_glow_and_drops_faint_glints() {
+        let p = Particle { x: 0., y: 0., radius: 4., alpha: 1., heat: 1., glint: 0.04 };
+        let ((_, glow), glint) = shade(&p, (0.1, 0.4, 0.8));
+        assert_eq!((glow, glint), (1., None));
+        let ((_, glow), glint) = shade(&Particle { alpha: 0.4, glint: 0.5, ..p }, (0.1, 0.4, 0.8));
+        assert_eq!((glow, glint.map(|g| g.1)), (0.5, Some(0.2)));
     }
 
     #[test]
