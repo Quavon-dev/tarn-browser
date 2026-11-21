@@ -54,7 +54,7 @@ impl Browser {
     /// While the sidebar slides: how far it is shown and its whole share of the page's width.
     pub(crate) fn sidebar_slide(&self) -> Option<(f32, f32)> {
         self.sidebar_toggled.filter(|at| at.elapsed() < SLIDE && !self.pref(Pref::ReduceMotion))?;
-        Some((self.sidebar_shown(), self.sidebar_width + crate::sidebar::SIDEBAR_MARGIN - 2.))
+        Some((self.sidebar_shown(), self.sidebar_width + crate::sidebar::SIDEBAR_MARGIN - GUTTER_SHIFT))
     }
 
     pub fn dismiss_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -104,12 +104,15 @@ impl Browser {
             }
         }
         let running = |at: Option<Instant>, d| at.is_some_and(|at: Instant| at.elapsed() < d);
-        let sidebar = running(self.sidebar_toggled, SLIDE) && !self.pref(Pref::ReduceMotion);
-        if self.settle_slide() || sidebar || self.page_fade.is_some() || running(self.overlay_exit, EXIT) {
+        if self.settle_slide() || self.sidebar_slide().is_some() || self.page_fade.is_some() || running(self.overlay_exit, EXIT) {
             window.request_animation_frame();
         }
     }
 }
+
+/// How much the page area's left gutter narrows as the sidebar shows; the sidebar's share of the
+/// page's width is its own width less this.
+const GUTTER_SHIFT: f32 = 2.;
 
 fn banner(text: impl Into<SharedString>) -> gpui::Div {
     floating()
@@ -260,7 +263,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         let ghost = banner(text.clone()).text_color(*color).min_h(px(0.)).h(px(BANNER_HEIGHT * (1. - t))).mb(px(8. * (1. - t))).opacity(1. - t);
         cards.insert((*ix).min(cards.len()), ghost.into_any_element());
     }
-    let left = 8. - 2. * b.sidebar_shown();
+    let left = 8. - GUTTER_SHIFT * b.sidebar_shown();
     let area = div().absolute().top_0().bottom(px(8.)).left(px(left)).right(px(8.)).child(crate::address::measure(b.address.content.clone()));
     let panel = div().flex_1().min_h_0().relative().flex().flex_col().p(px(8.)).pt_0().pl(px(left)).text_color(Theme::text()).child(area).children(cards);
 
@@ -305,10 +308,16 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                 let fit = preset.map(|preset| devkit::responsive::fit(&preset, w, h));
                 let page = fit.as_ref().map_or((x, y, w, h), |fit| (x + fit.x, y + fit.y, fit.width, fit.height));
-                // Taken once per slide: layout snaps the bounds to pixels, which would nudge it by a point.
-                let width = slide.map(|(shown, full)| held.get().unwrap_or(browser_core::layout::sliding_width(page.2, shown, full, view.clipped_by_window())));
-                held.set(width);
-                let width = width.unwrap_or(page.2);
+                // Taken once per slide and view: layout snaps the bounds to pixels, which would nudge it
+                // by a point. A page its window does not clip never reaches past its place.
+                let clipped = view.clipped_by_window();
+                let id = std::rc::Rc::as_ptr(&view) as usize;
+                let width = slide.map(|(shown, full)| match held.get() {
+                    Some((of, width)) if of == id => width,
+                    _ => browser_core::layout::sliding_width(page.2, shown, full, clipped),
+                });
+                held.set(width.map(|w| (id, w)));
+                let width = width.map_or(page.2, |w| if clipped { w } else { w.min(page.2) });
                 view.set_frame(page.0.into(), page.1.into(), width.into(), page.3.into());
                 if let Some(fit) = fit {
                     // WebKit's page zoom stops at 0.3; below that the CSS viewport is narrower than the preset.

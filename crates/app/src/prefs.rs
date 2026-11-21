@@ -312,7 +312,9 @@ impl Browser {
         cx.notify();
     }
 
-    pub fn set_sidebar_open(&mut self, open: bool, cx: &mut Context<Self>) {
+    /// Shows or hides the sidebar with its slide, from wherever a slide still running stands; the
+    /// guarded buttons wait until it has ended.
+    pub(crate) fn slide_sidebar(&mut self, open: bool) {
         if self.sidebar_open != open {
             self.sidebar_from = self.sidebar_shown();
             self.sidebar_held.set(None);
@@ -320,6 +322,10 @@ impl Browser {
             self.layout_moving(if self.pref(Pref::ReduceMotion) { std::time::Duration::ZERO } else { ui::motion::SLIDE });
         }
         self.sidebar_open = open;
+    }
+
+    pub fn set_sidebar_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.slide_sidebar(open);
         browser_core::layout::save_sidebar(&self.core.disk, open).ok();
         self.close_peek(cx);
         self.hide_hover_card(cx);

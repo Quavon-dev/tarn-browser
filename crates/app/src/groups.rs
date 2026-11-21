@@ -187,9 +187,8 @@ impl Browser {
             window.activate_window();
         }
         window.focus(&focus);
-        if !self.sidebar_open && !self.peek.is_window(window) {
-            self.sidebar_open = true;
-            self.layout_changed();
+        if !self.peek.is_window(window) {
+            self.slide_sidebar(true);
         }
         self.renaming = Some(Rename { target, icon, input, _subscriptions: [events, blur, deactivate] });
         cx.notify();
