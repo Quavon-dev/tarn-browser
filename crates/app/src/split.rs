@@ -259,7 +259,9 @@ pub fn render(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Option
         .zip(split.layout())
         .enumerate()
         .map(|(ix, (key, (x, y, w, h)))| {
-            let card = pane(b, &splits, ix, *key, w * width >= HOST_ROOM, cx);
+            // A pane at the right edge keeps its width while the sidebar slides; one left of another would cover it.
+            let share = (x + w >= 0.999).then_some(w);
+            let card = pane(b, &splits, ix, *key, w * width >= HOST_ROOM, share, cx);
             div().absolute().left(relative(x)).top(relative(y)).w(relative(w)).h(relative(h)).p(px(GAP / 2.)).child(card)
         })
         .collect();
@@ -317,7 +319,8 @@ fn grip(divider: Divider, (x, y, w, h): split::Share, cx: &mut Context<Browser>)
 
 /// One pane's card: its header, then the page. A web view is a native view above GPUI, so the
 /// header has a height of its own and the page starts below it.
-fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey, roomy: bool, cx: &mut Context<Browser>) -> Div {
+/// `share`: the pane's fraction of the split's width, when it may keep its width during a slide.
+fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey, roomy: bool, share: Option<f32>, cx: &mut Context<Browser>) -> Div {
     let focused = b.model.active == Some(key);
     let tab = b.model.tab(key);
     let title: SharedString = tab.map(crate::tabs::display_title).unwrap_or_default().into();
@@ -371,6 +374,8 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
     let covered = blocked.is_some() || json.is_some();
     let rects = b.split_shown.rects.clone();
     let splits = splits.clone();
+    let slide = share.and_then(|share| b.sidebar_slide().map(|(shown, full)| (shown, full * share)));
+    let held = b.sidebar_held.clone();
     let page = canvas(
         move |bounds, window, _| {
             let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
@@ -388,6 +393,7 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
             if covered {
                 view.set_frame(0., 0., 0., 0.);
             } else {
+                let w = crate::content::held_width(&held, view, w, slide);
                 view.set_frame(x.into(), y.into(), w.into(), h.into());
             }
         },

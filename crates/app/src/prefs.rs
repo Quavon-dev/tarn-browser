@@ -317,7 +317,7 @@ impl Browser {
     pub(crate) fn slide_sidebar(&mut self, open: bool) {
         if self.sidebar_open != open {
             self.sidebar_from = self.sidebar_shown();
-            self.sidebar_held.set(None);
+            self.sidebar_held.borrow_mut().clear();
             self.sidebar_toggled = Some(std::time::Instant::now());
             self.layout_moving(if self.pref(Pref::ReduceMotion) { std::time::Duration::ZERO } else { ui::motion::SLIDE });
         }

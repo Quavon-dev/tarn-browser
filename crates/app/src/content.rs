@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
@@ -11,7 +14,7 @@ use ui::motion::{EXIT, FADE, SLIDE, pop_in, pop_out, progress};
 use ui::text::OneLine;
 use ui::theme::{Elevation, Secure, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
-use engine::PromptKind;
+use engine::{PromptKind, WebView};
 
 use browser_core::command::Section;
 
@@ -99,7 +102,7 @@ impl Browser {
         let fade_done = self.page_fade.as_ref().is_some_and(|(_, at)| at.elapsed() >= FADE);
         if fade_done || self.overlay_open() || self.model.active.is_none() || self.active_json().is_some() {
             let active = self.active_view();
-            if let Some((outgoing, _)) = self.page_fade.take().filter(|(v, _)| !active.as_ref().is_some_and(|a| std::rc::Rc::ptr_eq(a, v))) {
+            if let Some((outgoing, _)) = self.page_fade.take().filter(|(v, _)| !active.as_ref().is_some_and(|a| Rc::ptr_eq(a, v))) {
                 outgoing.set_visible(false);
             }
         }
@@ -108,6 +111,22 @@ impl Browser {
             window.request_animation_frame();
         }
     }
+}
+
+/// The width `view` keeps while the sidebar slides (`slide`: how far it is shown, and its share of
+/// the view's width), else `width`. Taken once per slide and view: layout snaps the bounds to
+/// pixels, which would nudge it by a point. A page its window does not clip never reaches past its
+/// place.
+pub(crate) fn held_width(held: &RefCell<HashMap<usize, f32>>, view: &Rc<WebView>, width: f32, slide: Option<(f32, f32)>) -> f32 {
+    let id = Rc::as_ptr(view) as usize;
+    let mut held = held.borrow_mut();
+    let Some((shown, full)) = slide else {
+        held.remove(&id);
+        return width;
+    };
+    let clipped = view.clipped_by_window();
+    let kept = *held.entry(id).or_insert_with(|| browser_core::layout::sliding_width(width, shown, full, clipped));
+    if clipped { kept } else { kept.min(width) }
 }
 
 /// How much the page area's left gutter narrows as the sidebar shows; the sidebar's share of the
@@ -308,16 +327,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                 let fit = preset.map(|preset| devkit::responsive::fit(&preset, w, h));
                 let page = fit.as_ref().map_or((x, y, w, h), |fit| (x + fit.x, y + fit.y, fit.width, fit.height));
-                // Taken once per slide and view: layout snaps the bounds to pixels, which would nudge it
-                // by a point. A page its window does not clip never reaches past its place.
-                let clipped = view.clipped_by_window();
-                let id = std::rc::Rc::as_ptr(&view) as usize;
-                let width = slide.map(|(shown, full)| match held.get() {
-                    Some((of, width)) if of == id => width,
-                    _ => browser_core::layout::sliding_width(page.2, shown, full, clipped),
-                });
-                held.set(width.map(|w| (id, w)));
-                let width = width.map_or(page.2, |w| if clipped { w } else { w.min(page.2) });
+                let width = held_width(&held, &view, page.2, slide);
                 view.set_frame(page.0.into(), page.1.into(), width.into(), page.3.into());
                 if let Some(fit) = fit {
                     // WebKit's page zoom stops at 0.3; below that the CSS viewport is narrower than the preset.
