@@ -391,7 +391,7 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
             if covered {
                 view.set_frame(0., 0., 0., 0.);
             } else {
-                let w = slide.map_or(w, |(shown, full)| crate::content::sliding_width(w, shown, full, view.clipped_by_window()));
+                let w = slide.map_or(w, |(shown, full)| browser_core::layout::sliding_width(w, shown, full, view.clipped_by_window()));
                 view.set_frame(x.into(), y.into(), w.into(), h.into());
             }
         },

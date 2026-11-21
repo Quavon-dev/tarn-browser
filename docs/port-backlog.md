@@ -21,6 +21,23 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Smooth sidebar slide (2026-11-21)
+
+What it does: showing or hiding the sidebar moves the page without laying it out on every frame (it
+keeps one size and takes its final size when the slide ends), and a toggle mid-slide turns back from
+where the sidebar stands instead of jumping to the far edge.
+Shared API: `browser_core::layout::sliding_width`, `browser_core::layout::slide_at`.
+Reference: `crates/app/src/content.rs` (`sidebar_shown`, `sidebar_slide`, the page canvas),
+`crates/app/src/split.rs` (`pane`), `crates/engine/src/view.rs` (`clipped_by_window`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `linux/src/ui.rs` `toggle_sidebar` slides with NSH's layout animation
+  (`animate_next(SLIDE)`); measure whether the WebKitGTK view is laid out on every frame and whether
+  a second toggle mid-slide jumps, and hold the width with `sliding_width` where it is
+- [ ] iOS — the same for the WKWebView beside the sidebar in `mobile/app` (`features.rs`
+  `toggle_sidebar`)
+- [ ] Android — the same for `TarnWebView`
+
 ### Download notices float over the page (2026-11-20)
 
 What it does: a finished or failed download (and a saved screenshot or PDF) shows a toast over the
