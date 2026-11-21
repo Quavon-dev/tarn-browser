@@ -290,9 +290,13 @@ impl WebView {
     }
 
     /// Positions the view in shell coordinates: logical points, origin top-left.
+    /// A frame that is already in place is not set again: AppKit would lay the page out anew.
     pub fn set_frame(&self, x: f64, y: f64, width: f64, height: f64) {
-        crate::startup::frame_set();
-        self.view.setFrame(self.host.rect(x, y, width, height));
+        let rect = self.host.rect(x, y, width, height);
+        if self.view.frame() != rect {
+            crate::startup::frame_set();
+            self.view.setFrame(rect);
+        }
     }
 
     pub fn set_corner_radius(&self, radius: f64) {
@@ -353,7 +357,9 @@ impl WebView {
     }
 
     pub fn set_alpha(&self, alpha: f64) {
-        self.view.setAlphaValue(alpha);
+        if self.view.alphaValue() != alpha {
+            self.view.setAlphaValue(alpha);
+        }
     }
 
     /// Orders the view above the other web views in the window.
