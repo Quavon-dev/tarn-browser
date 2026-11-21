@@ -8,6 +8,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Releases also carry an unsigned Android App Bundle for Google Play, and the iOS app is built with
+  the iOS 26 SDK and carries a privacy manifest (iOS, Android).
 - Download notices float over the page instead of pushing it down and show only on the tab that was
   in front when they appeared; a finished download's notice disappears after 5 seconds, while a
   warning (no quarantine, a file that can run code, a failed download) stays until you dismiss it

@@ -18,3 +18,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh workflow run linux-repo.yml --ref main
+
+  mobile-store:
+    if: github.event.release.prerelease == false && startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+          ASSETS: ${{ toJSON(github.event.release.assets) }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 0
+          for name in SHA256SUMS "Tarn-${TAG}-ios-unsigned.zip" "Tarn-${TAG}-android-unsigned.aab"; do
+            jq -e --arg name "$name" 'any(.[]; .name == $name)' <<<"$ASSETS" >/dev/null || exit 0
+          done
+          gh workflow run mobile-store.yml --ref main -f tag="$TAG" -f platform=both

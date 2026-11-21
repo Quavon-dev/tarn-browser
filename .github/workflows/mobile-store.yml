@@ -1,0 +1,174 @@
+name: Mobile stores
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release tag (vX.Y.Z)
+        type: string
+        required: true
+      platform:
+        description: Store to upload (both by default)
+        type: choice
+        options: [both, ios, android]
+        default: both
+
+permissions: {}
+
+concurrency:
+  group: mobile-store-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  ios:
+    if: github.repository == 'Quavon-dev/tarn-browser' && github.ref == 'refs/heads/main' && (inputs.platform == 'both' || inputs.platform == 'ios')
+    runs-on: macos-15
+    timeout-minutes: 30
+    environment: ios-store
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      TAG: ${{ inputs.tag }}
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/mobile-store.py
+          sparse-checkout-cone-mode: false
+      - name: Verify release before accessing store credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 scripts/mobile-store.py verify "$TAG" ios "$RUNNER_TEMP/verified"
+      - name: Verify Apple signing intermediate before credentials
+        run: |
+          curl -fsSL https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer -o "$RUNNER_TEMP/verified/AppleWWDRCAG3.cer"
+          echo "dcf21878c77f4198e4b4614f03d696d89c66c66008d4244e1b99161aac91601f  $RUNNER_TEMP/verified/AppleWWDRCAG3.cer" | shasum -a 256 -c -
+      - name: Sign and upload to TestFlight
+        env:
+          IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
+          IOS_DISTRIBUTION_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ -n "$IOS_DISTRIBUTION_P12" && -n "$IOS_DISTRIBUTION_PASSWORD" && -n "$IOS_PROVISIONING_PROFILE" && -n "$ASC_API_KEY" ]]
+          [[ "$ASC_KEY_ID" =~ ^[A-Z0-9]{10}$ && "$ASC_ISSUER_ID" =~ ^[0-9a-fA-F-]{36}$ ]]
+          work="$RUNNER_TEMP/ios-store"
+          mkdir -p "$work/private_keys"
+          keychain="$work/signing.keychain-db"
+          cleanup() {
+            status=0
+            if [[ -f "$keychain" ]]; then security delete-keychain "$keychain" || status=$?; fi
+            rm -rf "$work" "$RUNNER_TEMP/verified"
+            return "$status"
+          }
+          trap cleanup EXIT
+          printf '%s' "$IOS_DISTRIBUTION_P12" | base64 --decode > "$work/distribution.p12"
+          printf '%s' "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$work/profile.mobileprovision"
+          printf '%s' "$ASC_API_KEY" > "$work/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          security cms -D -i "$work/profile.mobileprovision" > "$work/profile.plist"
+          python3 scripts/mobile-store.py prepare-ios "$RUNNER_TEMP/verified/Tarn-${TAG}-ios-unsigned.zip" "$work/profile.plist" "$work/Payload" "$TAG"
+          password="$(openssl rand -hex 32)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 1800 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/verified/AppleWWDRCAG3.cer" -k "$keychain"
+          security import "$work/distribution.p12" -k "$keychain" -P "$IOS_DISTRIBUTION_PASSWORD" -T /usr/bin/codesign
+          security find-certificate -c "Apple Distribution:" -p "$keychain" > "$work/distribution.pem"
+          issuer="$(openssl x509 -in "$work/distribution.pem" -noout -issuer -nameopt RFC2253)"
+          intermediate="$(openssl x509 -inform DER -in "$RUNNER_TEMP/verified/AppleWWDRCAG3.cer" -noout -subject -nameopt RFC2253)"
+          [[ "${issuer#issuer=}" == "${intermediate#subject=}" ]]
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" >/dev/null
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.* \([A-F0-9]\{40\}\) "Apple Distribution:.*$/\1/p')"
+          [[ "$identity" =~ ^[A-F0-9]{40}$ ]]
+          grep -qxF "$identity" "$work/profile-certificates.txt"
+          cp "$work/profile.mobileprovision" "$work/Payload/Tarn.app/embedded.mobileprovision"
+          codesign --force --sign "$identity" --keychain "$keychain" --generate-entitlement-der --entitlements "$work/entitlements.plist" "$work/Payload/Tarn.app"
+          codesign --verify --strict --verbose=2 "$work/Payload/Tarn.app"
+          ditto -c -k --keepParent "$work/Payload" "$work/Tarn.ipa"
+          export API_PRIVATE_KEYS_DIR="$work/private_keys"
+          help="$(xcrun altool --help 2>&1)"
+          if grep -q -- '--api-key ' <<<"$help"; then
+            xcrun altool --validate-app "$work/Tarn.ipa" --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
+            xcrun altool --upload-app -f "$work/Tarn.ipa" --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
+          else
+            xcrun altool --validate-app -t ios -f "$work/Tarn.ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+            xcrun altool --upload-app -t ios -f "$work/Tarn.ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          fi
+          echo "Uploaded $TAG to App Store Connect app 6835617312 for TestFlight processing." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove temporary signing data
+        if: always()
+        run: |
+          status=0
+          if [[ -f "$RUNNER_TEMP/ios-store/signing.keychain-db" ]]; then
+            security delete-keychain "$RUNNER_TEMP/ios-store/signing.keychain-db" || status=$?
+          fi
+          rm -rf "$RUNNER_TEMP/ios-store" "$RUNNER_TEMP/verified"
+          exit "$status"
+
+  android:
+    if: github.repository == 'Quavon-dev/tarn-browser' && github.ref == 'refs/heads/main' && (inputs.platform == 'both' || inputs.platform == 'android')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: android-store
+    permissions:
+      contents: read
+      attestations: read
+      id-token: write
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/mobile-store.py
+          sparse-checkout-cone-mode: false
+      - name: Verify release before accessing store credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 scripts/mobile-store.py verify "$TAG" android "$RUNNER_TEMP/verified"
+      - name: Sign Play upload bundle
+        env:
+          ANDROID_UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ -n "$ANDROID_UPLOAD_KEYSTORE" && -n "$ANDROID_UPLOAD_KEYSTORE_PASSWORD" && -n "$ANDROID_UPLOAD_KEY_ALIAS" && -n "$ANDROID_UPLOAD_KEY_PASSWORD" ]]
+          work="$RUNNER_TEMP/android-store"
+          mkdir "$work"
+          trap 'rm -f "$work/upload.jks"' EXIT
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE" | base64 --decode > "$work/upload.jks"
+          jarsigner -keystore "$work/upload.jks" -storepass:env ANDROID_UPLOAD_KEYSTORE_PASSWORD -keypass:env ANDROID_UPLOAD_KEY_PASSWORD \
+            -signedjar "$work/Tarn.aab" "$RUNNER_TEMP/verified/Tarn-${TAG}-android-unsigned.aab" "$ANDROID_UPLOAD_KEY_ALIAS"
+          jarsigner -verify "$work/Tarn.aab"
+      - id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Upload to Play internal testing
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          PLAY_RELEASE_STATUS: ${{ vars.PLAY_RELEASE_STATUS || 'draft' }}
+        run: |
+          python3 scripts/mobile-store.py publish-android "$RUNNER_TEMP/android-store/Tarn.aab" "$TAG"
+          echo "Uploaded $TAG to Play internal testing ($PLAY_RELEASE_STATUS)." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove temporary signing data
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/android-store" "$RUNNER_TEMP/verified"
