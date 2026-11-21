@@ -10,6 +10,7 @@
   "ios": {
     "infoPlist": {
       "MinimumOSVersion": "17.0",
+      "UIRequiredDeviceCapabilities": ["arm64"],
       "UIFileSharingEnabled": true,
       "LSSupportsOpeningDocumentsInPlace": true,
       "ITSAppUsesNonExemptEncryption": false,

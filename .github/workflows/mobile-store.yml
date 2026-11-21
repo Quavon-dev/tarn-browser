@@ -117,12 +117,16 @@ jobs:
           export API_PRIVATE_KEYS_DIR="$work/private_keys"
           help="$(xcrun altool --help 2>&1)"
           if grep -q -- '--api-key ' <<<"$help"; then
-            xcrun altool --validate-app "$work/Tarn.ipa" --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
-            xcrun altool --upload-app -f "$work/Tarn.ipa" --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
+            validate=(xcrun altool --validate-app "$work/Tarn.ipa" --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID")
+            upload=(xcrun altool --upload-app -f "$work/Tarn.ipa" --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID")
           else
-            xcrun altool --validate-app -t ios -f "$work/Tarn.ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
-            xcrun altool --upload-app -t ios -f "$work/Tarn.ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+            validate=(xcrun altool --validate-app -t ios -f "$work/Tarn.ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID")
+            upload=(xcrun altool --upload-app -t ios -f "$work/Tarn.ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID")
           fi
+          "${validate[@]}" 2>&1 | tee "$work/validate.log"
+          grep -Eq "VERIFY( '[^']*')? SUCCEEDED|No errors validating" "$work/validate.log" || { echo "::error::altool reported no successful validation (it can exit 0 after a rejection)"; exit 1; }
+          "${upload[@]}" 2>&1 | tee "$work/upload.log"
+          grep -Eq "UPLOAD( '[^']*')? SUCCEEDED|No errors uploading" "$work/upload.log" || { echo "::error::altool reported no successful upload (it can exit 0 after a rejection)"; exit 1; }
           echo "Uploaded $TAG to App Store Connect app 6835617312 for TestFlight processing." >> "$GITHUB_STEP_SUMMARY"
       - name: Remove temporary signing data
         if: always()

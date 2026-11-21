@@ -267,6 +267,7 @@ jobs:
         run: |
           (cd mobile/app && nsh package --target ios -o "$RUNNER_TEMP/ios")
           app="$RUNNER_TEMP/ios/Tarn.app"
+          plutil -extract UIRequiredDeviceCapabilities json -o - "$app/Info.plist" | grep -q '"arm64"' || { echo "Info.plist lacks arm64 in UIRequiredDeviceCapabilities" >&2; exit 1; }
           cp mobile/ios/PrivacyInfo.xcprivacy "$app/"
           xcode="$(xcodebuild -version)"
           read -r major minor patch <<< "$(sed -n 's/^Xcode \([0-9]*\)\.\([0-9]*\)\.\{0,1\}\([0-9]*\)$/\1 \2 \3/p' <<< "$xcode")"
