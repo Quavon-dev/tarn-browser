@@ -58,6 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          trap 'echo "::error::Failed at line $LINENO: $BASH_COMMAND"' ERR
           [[ -n "$IOS_DISTRIBUTION_P12" && -n "$IOS_DISTRIBUTION_PASSWORD" && -n "$IOS_PROVISIONING_PROFILE" && -n "$ASC_API_KEY" ]]
           [[ "$ASC_KEY_ID" =~ ^[A-Z0-9]{10}$ && "$ASC_ISSUER_ID" =~ ^[0-9a-fA-F-]{36}$ ]]
           work="$RUNNER_TEMP/ios-store"
@@ -69,7 +70,7 @@ jobs:
             rm -rf "$work" "$RUNNER_TEMP/verified"
             return "$status"
           }
-          trap cleanup EXIT
+          trap 'trap - ERR; cleanup' EXIT
           printf '%s' "$IOS_DISTRIBUTION_P12" | base64 --decode > "$work/distribution.p12"
           printf '%s' "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$work/profile.mobileprovision"
           printf '%s' "$ASC_API_KEY" > "$work/private_keys/AuthKey_${ASC_KEY_ID}.p8"
@@ -79,6 +80,8 @@ jobs:
           security create-keychain -p "$password" "$keychain"
           security set-keychain-settings -lut 1800 "$keychain"
           security unlock-keychain -p "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          security default-keychain -d user -s "$keychain"
           security import "$RUNNER_TEMP/verified/AppleWWDRCAG3.cer" -k "$keychain"
           security import "$work/distribution.p12" -k "$keychain" -P "$IOS_DISTRIBUTION_PASSWORD" -T /usr/bin/codesign
           identity="$(security find-identity -v -p codesigning "$keychain" | awk '{print $2}' | { grep -xFf "$work/profile-certificates.txt" || [[ $? -eq 1 ]]; })"
@@ -106,7 +109,7 @@ jobs:
             echo "::error::The distribution certificate is not issued by Apple WWDR G3: ${issuer#issuer=}"
             exit 1
           fi
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
           cp "$work/profile.mobileprovision" "$work/Payload/Tarn.app/embedded.mobileprovision"
           codesign --force --sign "$identity" --keychain "$keychain" --generate-entitlement-der --entitlements "$work/entitlements.plist" "$work/Payload/Tarn.app"
           codesign --verify --strict --verbose=2 "$work/Payload/Tarn.app"
