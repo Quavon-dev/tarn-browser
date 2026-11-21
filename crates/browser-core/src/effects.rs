@@ -1,11 +1,5 @@
-//! Animated decorations around the search field: flames, aurora, sparkle or a glow with a light
-//! running around it.
-//! Pure and deterministic: a frame is a function of the field's size and the time, so every
-//! shell draws the same thing and a still frame (Reduce Motion) is the one at `STILL`.
-
 use std::f32::consts::TAU;
 
-/// The time a still frame shows. The glow's light only reads as moving, so a still glow leaves it out.
 pub const STILL: f32 = 0.4;
 
 /// Frames per second the shells request while an effect is on screen in the active window.
@@ -14,8 +8,6 @@ const MAX_PARTICLES: usize = 480;
 /// Circles stacked in one flame tongue, base to tip.
 const TONGUE: usize = 7;
 const AURORA_BANDS: usize = 3;
-/// The glow's light: its speed around the card in points a second, its tail's length and dots,
-/// and how far outside the card's edge it runs, so the card does not hide half of it.
 const GLOW_SPEED: f32 = 260.;
 const GLOW_TAIL_LENGTH: f32 = 150.;
 const GLOW_TAIL: usize = 36;
@@ -59,7 +51,6 @@ impl Effect {
         }
     }
 
-    /// Frames per second while it shows; none for `None`.
     pub fn fps(self) -> f32 {
         match self {
             Effect::None => 0.,
@@ -67,7 +58,6 @@ impl Effect {
         }
     }
 
-    /// Whether it runs around the whole card rather than growing from the search row.
     pub fn around_card(self) -> bool {
         matches!(self, Effect::Glow | Effect::Sparkle)
     }
@@ -86,10 +76,8 @@ pub fn tint((r, g, b): (f32, f32, f32), heat: f32) -> (f32, f32, f32) {
     (mix(r, hot.0), mix(g, hot.1), mix(b, hot.2))
 }
 
-/// A colour `(r, g, b)` in 0..1 and its alpha.
 pub type Paint = ((f32, f32, f32), f32);
 
-/// How a particle in the effect colour `color` is shaded: its glow, and its glint when it has one.
 pub fn shade(p: &Particle, color: (f32, f32, f32)) -> (Paint, Option<Paint>) {
     let glow = tint(color, p.heat);
     let glint = (p.glint > 0.05).then(|| (tint(glow, 0.7), p.alpha * p.glint));
@@ -101,9 +89,6 @@ pub fn clock(elapsed: std::time::Duration) -> f32 {
     (elapsed.as_secs_f64() % 600.) as f32
 }
 
-/// One soft glow, relative to the field's top-left corner, fading out by `radius * HALO`. `heat`
-/// runs from 0 (the effect colour) to 1 (its hot or light end); `glint` (0..1) is the strength of
-/// a small sharp core at its centre, for sparks and the glow's light.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Particle {
     pub x: f32,
@@ -134,15 +119,10 @@ pub const MAX_SIDE: f32 = 16.;
 pub const GLOW_BLUR: f32 = 12.;
 pub const GLOW_SPREAD: f32 = 2.;
 
-/// How far past a particle's radius its glow fades out, the share of the radius its glow keeps
-/// solid before it starts to fade, and the size of its glint core.
 pub const HALO: f32 = 1.8;
 pub const GLOW_CORE: f32 = 0.75;
 pub const GLINT: f32 = 0.3;
-/// The blur of a glow's disc, as a share of its radius: three of it fade the disc out by `HALO`.
 pub const GLOW_SIGMA: f32 = (HALO - GLOW_CORE) / 3.;
-/// A glow's falloff as (share of `radius * HALO`, share of its alpha): the disc blurred by
-/// `GLOW_SIGMA`, for shells that paint a radial gradient instead.
 pub const GLOW_STOPS: [(f32, f32); 4] = [(0., 0.9), (0.42, 0.45), (0.67, 0.1), (1., 0.)];
 
 /// How far particle centres travel outside the field.
@@ -159,8 +139,6 @@ pub fn pulse(t: f32) -> f32 {
     0.675 + 0.325 * (t * std::f32::consts::TAU / 2.4).sin()
 }
 
-/// The outline of the field's rounded rectangle, `out` points outside it, walked clockwise from
-/// the start of its top edge.
 struct Edge {
     width: f32,
     height: f32,
@@ -210,7 +188,6 @@ fn hash(i: u32, k: u32) -> f32 {
     (h & 0xffff) as f32 / 65_535.
 }
 
-/// The particles of `effect` around a `width` × `height` field with `corner` radius at `t` seconds.
 pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Vec<Particle> {
     if !(width.is_finite() && height.is_finite() && t.is_finite()) || width <= 0. || height <= 0. {
         return Vec::new();
@@ -304,7 +281,6 @@ pub fn frame(effect: Effect, width: f32, height: f32, corner: f32, t: f32) -> Ve
                 .collect()
         }
     };
-    // Every halo stays inside the reach sideways, where the shells clip the layer.
     let (side, _) = reach(effect, height);
     particles
         .into_iter()
@@ -389,7 +365,6 @@ mod tests {
     #[test]
     fn the_glow_light_runs_around_the_edge_with_its_tail_behind() {
         let (w, h, r) = (400., 50., 16.);
-        // Distance from the card's rounded outline, negative inside.
         let outside = |p: &Particle| {
             let (qx, qy) = ((p.x - w / 2.).abs() - (w / 2. - r), (p.y - h / 2.).abs() - (h / 2. - r));
             qx.max(0.).hypot(qy.max(0.)) + qx.max(qy).min(0.) - r

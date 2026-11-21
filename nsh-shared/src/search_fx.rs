@@ -14,7 +14,6 @@ pub fn animates(effect: Effect, reduce_motion: bool, lifecycle: Lifecycle) -> bo
     effect.fps() > 0. && !reduce_motion && lifecycle == Lifecycle::Active
 }
 
-/// A soft glow (fading out to its radius) or a sharp glint, centred at `x`, `y`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Dot {
     pub x: f32,
@@ -36,7 +35,6 @@ pub fn dots(effect: Effect, width: f32, height: f32, t: f32, color: Rgba) -> Vec
             std::iter::once(glow).chain(glint)
         })
         .collect::<Vec<Dot>>();
-    // Glints go over every glow, as on macOS and Windows.
     dots.sort_by_key(|d| !d.soft);
     dots
 }

@@ -853,8 +853,6 @@ impl gpui::Render for SearchFx {
                 };
                 let frame: Vec<_> = effects::frame(effect, w, h, Theme::radius_card(), t).into_iter().filter(|p| p.alpha > 0.01).collect();
                 let shaded: Vec<_> = frame.iter().map(|p| (p, effects::shade(p, (color.r, color.g, color.b)))).collect();
-                // A blurred disc is a soft glow. GPUI's blur sigma is the blur radius, so a third of the
-                // fade makes it gone by `radius * HALO`. All glows go first, so they draw in one batch.
                 for (p, (((r, g, b), a), _)) in &shaded {
                     let (core, blur) = (p.radius * effects::GLOW_CORE, p.radius * effects::GLOW_SIGMA);
                     let glow = gpui::BoxShadow {

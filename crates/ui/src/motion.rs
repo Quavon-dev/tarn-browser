@@ -12,7 +12,6 @@ pub const TAB_OUT: Duration = Duration::from_millis(220);
 pub const SWEEP: f32 = 14.;
 pub const STAGGER: Duration = Duration::from_millis(22);
 pub const SETTLE: Duration = Duration::from_millis(300);
-/// How far a pop-up moves in its window; on Windows the window is clipped to the card, so it stays small.
 pub const POPUP_TRAVEL: f32 = 6.;
 /// How soon after a pop-up closed a click on its button does not reopen it: the click that took
 /// the focus from the pop-up has already closed it.
@@ -34,7 +33,6 @@ pub fn spring(t: f32) -> f32 {
     (curve(t) / curve(1.)).clamp(0., 1.)
 }
 
-/// An underdamped spring: overshoots by about 8%, swings back and settles exactly at 1.
 pub fn bounce(t: f32) -> f32 {
     let (zeta, omega) = (0.62_f32, 11.5_f32);
     let damped = omega * (1. - zeta * zeta).sqrt();
@@ -53,7 +51,6 @@ pub fn animate<E: IntoElement + 'static>(
     animate_linear(element, id, duration, reduce, move |e, t| step(e, spring(t)))
 }
 
-/// Like `animate`, but hands `step` the linear time, so it can ease each property on its own curve.
 pub fn animate_linear<E: IntoElement + 'static>(
     element: E,
     id: impl Into<ElementId>,
@@ -67,12 +64,10 @@ pub fn animate_linear<E: IntoElement + 'static>(
     element.with_animation(id, Animation::new(duration), step).into_any_element()
 }
 
-/// Where a part that starts at `from` and ends at `to` (shares of the whole run) stands at `t`.
 pub fn phase(t: f32, from: f32, to: f32) -> f32 {
     ((t - from) / (to - from)).clamp(0., 1.)
 }
 
-/// The `ix`th row of a list rising into place a little after the one above it.
 pub fn stagger_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<ElementId>, ix: usize, reduce: bool) -> AnyElement {
     let delay = STAGGER.as_secs_f32() * ix.min(8) as f32;
     let total = POP.as_secs_f32() * 1.4 + delay;
@@ -83,18 +78,14 @@ pub fn stagger_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<E
     })
 }
 
-/// Fades in while springing up from a few points below; GPUI cannot scale a div, so the rise stands in.
 pub fn pop_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<ElementId>, reduce: bool) -> AnyElement {
     rise_in(element, id, POPUP_TRAVEL, reduce)
 }
 
-/// An entrance at linear time `t`: its opacity, and the share of its travel still ahead, below 0
-/// while it swings past its place.
 pub fn arrive(t: f32) -> (f32, f32) {
     (spring(phase(t, 0., 0.45)), 1. - bounce(t))
 }
 
-/// Fades in quickly while springing up from `distance` points below, a touch past its place and back.
 pub fn rise_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<ElementId>, distance: f32, reduce: bool) -> AnyElement {
     animate_linear(element, id, SETTLE, reduce, move |e, t| {
         let (shown, ahead) = arrive(t);

@@ -61,8 +61,8 @@ pub struct Motion {
 
 impl Motion {
     fn note(&mut self, active: Option<TabKey>, loading: HashSet<TabKey>, reduce: bool, now: Instant) {
-        self.deselected.retain(|(k, at)| now - *at < TAB_OUT && Some(*k) != active);
-        self.load_flips.retain(|(_, at)| now - *at < TAB_IN);
+        self.deselected.retain(|(k, at)| !reduce && now - *at < TAB_OUT && Some(*k) != active);
+        self.load_flips.retain(|(_, at)| !reduce && now - *at < TAB_IN);
         let was = std::mem::replace(&mut self.shown_active, active);
         if !reduce {
             self.deselected.extend(was.filter(|k| Some(*k) != active).map(|k| (k, now)));
@@ -1325,7 +1325,7 @@ fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
 mod tests {
     use std::collections::HashSet;
 
-    use super::{Motion, SIDEBAR_WIDTH, TAB_IN, TAB_ROW, inner_height, mix, tile_grid};
+    use super::{Motion, SIDEBAR_WIDTH, TAB_IN, TAB_OUT, TAB_ROW, inner_height, mix, tile_grid};
     use crate::browser::TabKey;
     use gpui::{Bounds, Rgba, point, px, size};
     use std::time::{Duration, Instant};
@@ -1375,8 +1375,13 @@ mod tests {
         assert_eq!(motion.load_flips, vec![(a, now), (a, now)]);
         motion.note(Some(a), HashSet::new(), false, now);
         assert_eq!(motion.deselected, vec![(b, now), (c, now)], "a tab active again has no fade");
-        motion.note(Some(a), HashSet::from([b]), true, now + TAB_IN);
-        assert!(motion.deselected.is_empty() && motion.load_flips.is_empty(), "reduce records nothing and old entries expire");
+        let mut reduced = Motion { deselected: motion.deselected.clone(), load_flips: motion.load_flips.clone(), ..Default::default() };
+        reduced.note(Some(a), HashSet::new(), true, now);
+        assert!(reduced.deselected.is_empty() && reduced.load_flips.is_empty(), "turning on Reduce Motion drops transitions in flight");
+        motion.note(Some(a), HashSet::new(), false, now + TAB_IN.max(TAB_OUT));
+        assert!(motion.deselected.is_empty() && motion.load_flips.is_empty(), "old entries expire");
+        motion.note(Some(b), HashSet::from([b]), true, now + TAB_IN * 2);
+        assert!(motion.deselected.is_empty() && motion.load_flips.is_empty(), "reduce records nothing");
     }
 
     #[test]
