@@ -1042,12 +1042,16 @@ fn visit_anyway_waits_until_a_sidebar_slide_has_ended() {
     let (_dir, mut b) = browser();
     let key = b.model.active.unwrap();
     visit(&mut b, key, "https://news.test/");
-    b.on_event(key, "blocked", &json!({ "url": "https://evil.test/x", "reason": "listed", "category": "malware" }));
     let slide = std::time::Duration::from_millis(280);
     let toggled = std::time::Instant::now();
     b.sidebar_moved(slide);
-    b.visit_anyway_at(toggled + BYPASS_DELAY + std::time::Duration::from_millis(10));
-    assert!(blocked_page(&b).is_some(), "the slide moved the button, so the wait restarts when it ends");
+    assert!(
+        !browser_core::prompts::stable(b.downloads_moved, toggled + BYPASS_DELAY + std::time::Duration::from_millis(100)),
+        "the downloads panel slides too"
+    );
+    b.on_event(key, "blocked", &json!({ "url": "https://evil.test/x", "reason": "listed", "category": "malware" }));
+    b.visit_anyway_at(toggled + BYPASS_DELAY + std::time::Duration::from_millis(100));
+    assert!(blocked_page(&b).is_some(), "a warning shown mid-slide still waits for the slide to end");
     b.visit_anyway_at(b.guard_since + BYPASS_DELAY);
     assert!(blocked_page(&b).is_none());
 }

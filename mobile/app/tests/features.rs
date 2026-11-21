@@ -563,7 +563,11 @@ fn keep_waits_until_a_sidebar_slide_has_ended() {
     shell.transfers_moved -= browser_core::prompts::BYPASS_DELAY;
     let toggled = std::time::Instant::now();
     shell.toggle_sidebar();
-    assert!(!browser_core::prompts::stable(shell.transfers_moved, toggled + browser_core::prompts::BYPASS_DELAY), "the wait restarts when the slide ends");
+    shell.event(key, "download", &json!({ "id": "7", "state": "paused", "done": 1 }), 3);
+    assert!(
+        !browser_core::prompts::stable(shell.transfers_moved, toggled + browser_core::prompts::BYPASS_DELAY + std::time::Duration::from_millis(100)),
+        "a change mid-slide still waits for the slide to end"
+    );
     assert!(browser_core::prompts::stable(
         shell.transfers_moved,
         toggled + tarn_nsh_shared::motion::SLIDE + browser_core::prompts::BYPASS_DELAY + std::time::Duration::from_millis(50)
