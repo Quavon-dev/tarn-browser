@@ -4,8 +4,10 @@
 
 # Tarn
 
-**A fast, private browser with a native interface on every platform.**<br>
-Written in Rust. No telemetry, no accounts, no Electron.
+**An open-source, keyboard-first browser with built-in tracker and ad blocking.**<br>
+Switch tabs by typing, browse with separate profiles, and set privacy controls per site. Built in Rust, with no telemetry or accounts.
+
+**[Download Tarn](https://tarnbrowser.com/download)** · [See the demo](#demo) · [Contribute](CONTRIBUTING.md)
 
 [![CI](https://github.com/Quavon-dev/tarn-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/Quavon-dev/tarn-browser/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Quavon-dev/tarn-browser/badge)](https://scorecard.dev/viewer/?uri=github.com/Quavon-dev/tarn-browser)
@@ -14,15 +16,22 @@ Written in Rust. No telemetry, no accounts, no Electron.
 
 [Features](#features) · [Screenshots](#screenshots) · [Platforms](#platforms) · [Build](#build-and-run) · [Shortcuts](#shortcuts) · [Development](#development)
 
-<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Tarn demo: the address field switching to an open tab, a command opening Split View, link peek, Reader, the Shield site card, the shortcut sheet and the Ember theme" width="100%" /></a>
+<a name="demo"></a>
+<img src="docs/media/demo.gif" alt="Tarn demo: the address field switching to an open tab, a command opening Split View, link peek, Reader, the Shield site card, the shortcut sheet and the Ember theme" width="100%" />
 
-<sub>▶ Full-quality video: <a href="docs/media/demo.mp4">docs/media/demo.mp4</a></sub>
+<sub><a href="https://raw.githubusercontent.com/Quavon-dev/tarn-browser/main/docs/media/demo.mp4">Download the demo video (MP4)</a></sub>
 
 </div>
 
 > [!NOTE]
 > **Status:** pre-1.0. Features, settings and stored data can change between releases without a
-> migration path. There are no published releases yet; build from source.
+> migration path.
+
+## Get Tarn
+
+Start with the macOS DMG or a Linux package from the [latest GitHub release](https://github.com/Quavon-dev/tarn-browser/releases/latest).
+Windows packages are provided as unsigned previews. iOS and Android builds are still in testing.
+For platform requirements and installation options, visit the [Tarn download page](https://tarnbrowser.com/download).
 
 ## Features
 
@@ -370,7 +379,8 @@ Checks per workspace (each runs in its own directory; CI runs all of them):
 
 `cargo deny check` runs where a workspace has a `deny.toml`. `unsafe` code is allowed only in
 `crates/engine` (and later `crates/platform`); every other crate is `#![forbid(unsafe_code)]`.
-How to contribute: [`CONTRIBUTING.md`](CONTRIBUTING.md); AI-assisted contributions follow
+Start with a [good first issue](https://github.com/Quavon-dev/tarn-browser/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+and read [`CONTRIBUTING.md`](CONTRIBUTING.md); AI-assisted contributions follow
 [`AGENTS.md`](AGENTS.md). All of Tarn's code, packaging and release automation live in this
 repository; no other repository is part of the codebase.
 
