@@ -195,11 +195,16 @@ link; iOS and Android need a native share sheet from their host).
 
 v3 platform differences:
 - Android runs the picker, reader and page-text scripts, and also `insertText`, `readSelection`,
-  `readMedia`, `media` and `ping`, in the page world: Android WebView offers no isolated world
-  (`evaluateJavascript` always runs in the page's own world) and Tarn keeps no bridge. So the page can
-  see a snippet as it is typed, forge any answer (Rust checks every one: `selection_answer`,
-  `media_answer`, `snippets::inserted`, `capture::element_area`), and `play` runs without the user's
-  gesture;
+  the assistant's selection read, `readMedia`, `media` and `ping`, in the page world: Android WebView
+  offers no isolated world (`evaluateJavascript` always runs in the page's own world) and Tarn keeps no
+  bridge. So the page can see a snippet as it is typed, forge any answer (Rust checks every one:
+  `selection_answer`, `media_answer`, `snippets::inserted`, `capture::element_area`), and `play` runs
+  without the user's gesture. The scripts' own guards hold there only against an honest page: a page
+  can override what `SELECTED_TEXT` uses to refuse a password or card field and what
+  `insert_text_script` uses to find the focused field, so it can hand the assistant other text than
+  the selection, a field's included, or take a snippet into another of its fields. Rust still bounds
+  and trims every answer (`selection_answer`, `SELECTION_MAX_BYTES`) and refuses a snippet over
+  `snippets::MAX_SNIPPET`;
   `findText` reads the page's text there with `page_text_script` (at most 1,000,000 characters) and matches
   the query in Rust (`tarn-mobile-android`'s `find_snippets`, case-insensitive, 60 characters of context), so
   the query never reaches the page; it sends snippets and `matched`, the page's total. A view reads a page's
