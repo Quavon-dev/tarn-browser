@@ -78,18 +78,37 @@ fn from_celsius(value: f64, scale: f64) -> f64 {
     }
 }
 
-/// "5 km in mi", "5km to miles", "100 f in c": the amount converted, with the target unit as typed.
-/// Units of different kinds, unknown units and text over `calc::MAX_INPUT` bytes give `None`.
+/// An amount as typed: a comma before groups of exactly three digits, or anywhere beside a point,
+/// separates thousands ("1,500", "1,500.5"); a single other comma is the decimal one ("1,5").
+fn amount(text: &str) -> Option<f64> {
+    let thousands = text.contains('.') || text.split(',').skip(1).all(|group| group.len() == 3);
+    let text = match (thousands, text.matches(',').count()) {
+        (true, _) => text.replace(',', ""),
+        (false, 1) => text.replace(',', "."),
+        _ => return None,
+    };
+    text.parse().ok()
+}
+
+/// "5 km in mi", "5km to miles", "100 f in c", "1,5 km in m", "12 in to cm": the amount converted,
+/// with the target unit as typed; every " in ", " to " and " as " is tried until both units are
+/// known. Units of different kinds, unknown units and text over `calc::MAX_INPUT` bytes give `None`.
 pub fn convert(text: &str) -> Option<(f64, String)> {
     let text = text.trim();
     if text.len() > super::calc::MAX_INPUT {
         return None;
     }
     let lower = text.to_lowercase();
-    let (from, to) = [" in ", " to ", " as "].iter().find_map(|sep| lower.split_once(sep))?;
+    [" in ", " to ", " as "]
+        .iter()
+        .flat_map(|sep| lower.match_indices(sep).map(|(at, sep)| (&lower[..at], &lower[at + sep.len()..])))
+        .find_map(|(from, to)| convert_split(from, to))
+}
+
+fn convert_split(from: &str, to: &str) -> Option<(f64, String)> {
     let from = from.trim();
     let split = from.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == ',')).unwrap_or(from.len());
-    let amount: f64 = from[..split].replace(',', "").parse().ok()?;
+    let amount = amount(&from[..split])?;
     let (kind, factor) = unit(&from[split..])?;
     let (target, target_factor) = unit(to)?;
     if kind != target || !amount.is_finite() {
@@ -124,6 +143,22 @@ mod tests {
         assert_eq!(shown("2 hours in min").as_deref(), Some("120 min"));
         assert_eq!(shown("1 week in days").as_deref(), Some("7 days"));
         assert_eq!(shown("1,000 m in km").as_deref(), Some("1 km"));
+    }
+
+    #[test]
+    fn reads_a_decimal_comma_and_thousands() {
+        assert_eq!(shown("1,5 km in m").as_deref(), Some("1500 m"));
+        assert_eq!(shown("1,500 km in m").as_deref(), Some("1500000 m"));
+        assert_eq!(shown("1,500.5 m in km").as_deref(), Some("1.5005 km"));
+        assert_eq!(shown("1,234,567 g in kg").as_deref(), Some("1234.567 kg"));
+        assert_eq!(convert("1,5,6 km in m"), None);
+    }
+
+    #[test]
+    fn tries_every_separator_until_both_units_are_known() {
+        assert_eq!(shown("12 in to cm").as_deref(), Some("30.48 cm"));
+        assert_eq!(shown("3 ft in in").as_deref(), Some("36 in"));
+        assert_eq!(shown("10 min as s").as_deref(), Some("600 s"));
     }
 
     #[test]

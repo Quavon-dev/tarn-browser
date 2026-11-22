@@ -209,13 +209,6 @@ fn address_input(ui: Ui) -> nsh_base::Input {
             }
         })
         .on_submit(move |value: &str| {
-            if ui.picked.get_untracked().is_none()
-                && let Some(answer) = browser_core::palette::answers(value).into_iter().next()
-            {
-                ui.editing.set(false);
-                dismiss_keyboard();
-                return ui.copy_answer(answer.copy);
-            }
             let picked = ui.picked.get_untracked().and_then(|ix| ui.suggest.with_untracked(|rows| rows.get(ix).map(|h| h.url.clone())));
             let typed = picked.or_else(|| completed.get_untracked().filter(|(full, _)| full == value).map(|(_, url)| url)).unwrap_or_else(|| value.to_owned());
             ui.editing.set(false);

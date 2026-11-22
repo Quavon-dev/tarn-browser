@@ -8,8 +8,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
-- The command bar answers sums ("12 * 4 + 2"), unit conversions ("5 km in mi") and emoji searches
-  (":rocket") offline on every client; Enter or a tap copies the answer.
+- The command bar answers sums ("12 * 4 + 2"), unit conversions ("5 km in mi", "1,5 km in m") and
+  emoji searches (":rocket") offline on every client; picking the answer row copies it, while Enter
+  alone still searches or opens what was typed. Dates, "24/7" and plain numbers get no answer.
 - Undo (⌘Z, Ctrl+Z) outside a text field and the page takes back the last closed tabs, Clean Up or
   tab moved in the sidebar, one step at a time, on macOS, Windows, Linux and iPad with a keyboard; a
   toast's Undo runs the same step. A private space or burner tab keeps nothing to undo.

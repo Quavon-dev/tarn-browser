@@ -370,11 +370,16 @@ and mirrored in `nsh-shared/src/theme.rs` (a test keeps them equal); every shell
 `Theme::tab_row` and `Theme::row_gap`, set with `Theme::set_compact` when the pref is read.
 
 **Command bar answers:** `browser_core::palette::answers` gives the rows the command bar answers
-offline, listed first on every client, with Enter or a tap copying `Answer::copy`: `palette::calc`
-evaluates `+ - * / % ^`, parentheses and decimals (at most `calc::MAX_INPUT` bytes, nesting bounded,
-finite results only), `palette::units` converts length, mass, temperature, volume, data size and time
-("5 km in mi"), and `palette::emoji` finds emoji by name after a `:` in a built-in table. Nothing is
-fetched, so there is no currency conversion.
+offline, listed first on every client, labels cut to `MAX_ANSWER_LABEL`; picking one (arrow keys
+then Enter, a click or a tap) copies `Answer::copy`. An answer row is never the default:
+`palette::default_row` gives the first row after them, so Enter alone runs what was typed (search
+or navigate) on macOS, Windows, Linux, iPad and phone. `palette::calc` evaluates `+ - * / % ^`,
+parentheses and decimals with at least one operator between two numbers (a signed number, or digits
+joined only by `-` or `/` such as a date or "24/7", gets no answer unless typed after `=`; at most
+`calc::MAX_INPUT` bytes, nesting bounded, finite results only, exponent notation outside 1e-9 to
+1e15), `palette::units` converts length, mass, temperature, volume, data size and time ("5 km in mi",
+"1,5 km in m", "12 in to cm"), and `palette::emoji` finds emoji by name after a `:` in a built-in
+table. Nothing is fetched, so there is no currency conversion.
 
 **Assistant:** `browser_core::assistant` is the chat every client renders and the rules its
 requests follow (threat model S2, S3, S9); it does not depend on the `ai` crate and sends nothing.

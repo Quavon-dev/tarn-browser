@@ -15,16 +15,29 @@ pub struct Answer {
 }
 
 pub const ANSWER_DETAIL: &str = "Copy";
+/// The longest answer label, in characters.
+pub const MAX_ANSWER_LABEL: usize = 64;
 
 /// The answer rows for `query`, first in the list: a result of `calc` or `units`, else the emoji
-/// `emoji::search` finds.
+/// `emoji::search` finds. Labels are cut to `MAX_ANSWER_LABEL`.
 pub fn answers(query: &str) -> Vec<Answer> {
     let value = calc::evaluate(query).map(|v| (calc::format(v), String::new())).or_else(|| units::convert(query).map(|(v, unit)| (calc::format(v), unit)));
+    let answer = |label: String, copy: String| {
+        let label = if label.chars().count() > MAX_ANSWER_LABEL { label.chars().take(MAX_ANSWER_LABEL - 1).collect::<String>() + "…" } else { label };
+        Answer { label, copy }
+    };
     if let Some((number, unit)) = value {
         let label = if unit.is_empty() { format!("= {number}") } else { format!("= {number} {unit}") };
-        return vec![Answer { label, copy: number }];
+        return vec![answer(label, number)];
     }
-    emoji::search(query).into_iter().map(|(emoji, name)| Answer { label: format!("{emoji}  {name}"), copy: emoji.to_owned() }).collect()
+    emoji::search(query).into_iter().map(|(emoji, name)| answer(format!("{emoji}  {name}"), emoji.to_owned())).collect()
+}
+
+/// The row Enter takes before the user picks one, of `rows` listed with `answers` answer rows
+/// first: the first row after them, so Enter runs what was typed and an answer is copied only
+/// once picked; `None` when only answers are listed.
+pub fn default_row(answers: usize, rows: usize) -> Option<usize> {
+    (answers < rows).then_some(answers)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -390,6 +403,16 @@ mod tests {
         assert_eq!(answers("2 km in m")[0].copy, "2000");
         assert_eq!(answers(":taco")[0].copy, "\u{1F32E}");
         assert!(answers("42").is_empty() && answers("rust language").is_empty() && answers("> copy").is_empty());
+        assert!(answers("2024-01-15").is_empty() && answers("24/7").is_empty() && answers("-5").is_empty());
+        assert!(answers("9 ^ 9 ^ 9 / 7").iter().all(|a| a.label.chars().count() <= MAX_ANSWER_LABEL));
+        assert_eq!(answers("2 ^ 64")[0].label, "= 1.844674407e19");
+    }
+
+    #[test]
+    fn enter_runs_the_typed_row_and_never_an_unpicked_answer() {
+        assert_eq!(default_row(1, 4), Some(1));
+        assert_eq!(default_row(0, 3), Some(0));
+        assert_eq!(default_row(2, 2), None);
     }
 
     #[test]

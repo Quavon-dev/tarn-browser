@@ -1818,8 +1818,12 @@ impl Browser {
             };
             out.insert(0, Suggestion { label: ui::text::bounded_url(&shown), detail: ui::text::bounded_url(&detail), target });
         }
-        let answers = browser_core::palette::answers(&query).into_iter();
-        out.splice(0..0, answers.map(|a| Suggestion { label: a.label, detail: browser_core::palette::ANSWER_DETAIL.to_owned(), target: Target::Copy(a.copy) }));
+        let answers = browser_core::palette::answers(&query);
+        let answered = answers.len();
+        out.splice(
+            0..0,
+            answers.into_iter().map(|a| Suggestion { label: a.label, detail: browser_core::palette::ANSWER_DETAIL.to_owned(), target: Target::Copy(a.copy) }),
+        );
         let typed = out.len();
         let listed: HashSet<TabKey> = out.iter().filter_map(|s| if let Target::Tab(k) = s.target { Some(k) } else { None }).collect();
         let completed = completion.as_ref().map(|c| c.url.as_str());
@@ -1871,7 +1875,7 @@ impl Browser {
         // An empty field highlights nothing, so Enter opens nothing until the user picks a row.
         let chosen = self.suggestions.get(self.selected).filter(|_| rebuilt).map(|s| (s.label.clone(), s.detail.clone()));
         self.suggestions = out;
-        let first = if query.is_empty() { usize::MAX } else { 0 };
+        let first = if query.is_empty() { None } else { browser_core::palette::default_row(answered, self.suggestions.len()) }.unwrap_or(usize::MAX);
         self.selected = chosen.and_then(|(label, detail)| self.suggestions.iter().position(|s| s.label == label && s.detail == detail)).unwrap_or(first);
         self.suggested = Some((query.clone(), completion.clone()));
         self.history_text_search = search_later.map(|profile| self.search_history_text_later(profile, query, cx));

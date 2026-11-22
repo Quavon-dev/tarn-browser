@@ -1,23 +1,33 @@
 pub const MAX_INPUT: usize = 200;
 const MAX_DEPTH: usize = 32;
 
-/// The value of an arithmetic expression: `+ - * / % ^`, parentheses and decimals. Plain numbers,
-/// text over `MAX_INPUT` bytes, nesting deeper than 32 and results that are not finite give `None`.
+/// The value of an arithmetic expression: `+ - * / % ^`, parentheses and decimals, with at least
+/// one operator between two numbers. Plain or signed numbers, digits joined only by `-` or `/`
+/// without a leading `=` (a date, "24/7", a phone number), text over `MAX_INPUT` bytes, nesting
+/// deeper than 32 and results that are not finite give `None`.
 pub fn evaluate(text: &str) -> Option<f64> {
-    let text = text.trim().strip_prefix('=').unwrap_or(text).trim();
-    if text.len() > MAX_INPUT || !text.contains(|c: char| "+-*/%^(".contains(c)) {
+    let trimmed = text.trim();
+    let text = trimmed.strip_prefix('=').unwrap_or(trimmed).trim();
+    let dated = text.bytes().all(|b| b.is_ascii_digit() || b == b'-' || b == b'/');
+    if text.len() > MAX_INPUT || (dated && !trimmed.starts_with('=')) {
         return None;
     }
-    let mut parser = Parser { bytes: text.as_bytes(), at: 0, depth: 0, operators: 0 };
+    let mut parser = Parser { bytes: text.as_bytes(), at: 0, depth: 0, binary: 0 };
     let value = parser.sum()?;
     parser.skip_space();
-    (parser.at == parser.bytes.len() && parser.operators > 0 && value.is_finite()).then_some(value)
+    (parser.at == parser.bytes.len() && parser.binary > 0 && value.is_finite()).then_some(value)
 }
 
 /// A result as the answer row shows and copies it: whole numbers without a decimal point, others
-/// rounded to ten significant digits.
+/// rounded to ten significant digits, and in exponent notation outside 1e-9 to 1e15.
 pub fn format(value: f64) -> String {
-    if value.fract() == 0.0 && value.abs() < 1e15 {
+    let size = value.abs();
+    if size != 0.0 && !(1e-9..1e15).contains(&size) {
+        let text = format!("{value:.9e}");
+        let (mantissa, exponent) = text.split_once('e').unwrap_or((&text, "0"));
+        return format!("{}e{exponent}", mantissa.trim_end_matches('0').trim_end_matches('.'));
+    }
+    if value.fract() == 0.0 {
         return format!("{}", value as i64);
     }
     let digits = (9 - value.abs().log10().floor() as i32).clamp(0, 15) as usize;
@@ -30,7 +40,7 @@ struct Parser<'a> {
     bytes: &'a [u8],
     at: usize,
     depth: usize,
-    operators: usize,
+    binary: usize,
 }
 
 impl Parser<'_> {
@@ -44,13 +54,18 @@ impl Parser<'_> {
         self.skip_space();
         let op = *self.bytes.get(self.at).filter(|b| ops.contains(b))?;
         self.at += 1;
-        self.operators += 1;
+        Some(op)
+    }
+
+    fn binary(&mut self, ops: &[u8]) -> Option<u8> {
+        let op = self.eat(ops)?;
+        self.binary += 1;
         Some(op)
     }
 
     fn sum(&mut self) -> Option<f64> {
         let mut value = self.product()?;
-        while let Some(op) = self.eat(b"+-") {
+        while let Some(op) = self.binary(b"+-") {
             let right = self.product()?;
             value = if op == b'+' { value + right } else { value - right };
         }
@@ -59,7 +74,7 @@ impl Parser<'_> {
 
     fn product(&mut self) -> Option<f64> {
         let mut value = self.unary()?;
-        while let Some(op) = self.eat(b"*/%") {
+        while let Some(op) = self.binary(b"*/%") {
             let right = self.unary()?;
             value = match op {
                 b'*' => value * right,
@@ -84,7 +99,7 @@ impl Parser<'_> {
 
     fn power(&mut self) -> Option<f64> {
         let base = self.atom()?;
-        if self.eat(b"^").is_none() {
+        if self.binary(b"^").is_none() {
             return Some(base);
         }
         self.depth += 1;
@@ -137,8 +152,28 @@ mod tests {
         assert_eq!(shown("= 6 * 7").as_deref(), Some("42"));
         assert_eq!(shown("1 / 3").as_deref(), Some("0.3333333333"));
         assert_eq!(shown("0.1 + 0.2").as_deref(), Some("0.3"));
-        assert_eq!(shown("-(3)").as_deref(), Some("-3"));
+        assert_eq!(shown("-(3) * 2").as_deref(), Some("-6"));
         assert_eq!(shown("-0.0000001 * 0").as_deref(), Some("0"));
+        assert_eq!(shown("8 / 2").as_deref(), Some("4"));
+        assert_eq!(shown("= 24/7").as_deref(), Some("3.428571429"), "a leading = asks for the sum");
+        assert_eq!(shown("1.5-0.5").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn answers_only_an_operator_between_two_numbers() {
+        for text in ["2024-01-15", "24/7", "555-1234", "1/2/2024", "-5", "+5", "-(3)", "--5", "1.2.3", "(42)"] {
+            assert_eq!(evaluate(text), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn large_and_tiny_results_use_exponents() {
+        assert_eq!(format(1e15), "1e15");
+        assert_eq!(format(-2.5e20), "-2.5e20");
+        assert_eq!(format(1.0 / 3e12), "3.333333333e-13");
+        assert_eq!(format(999_999_999_999_999.0), "999999999999999");
+        assert_eq!(format(1e-9), "0.000000001");
+        assert_eq!(format(f64::MAX).len(), "1.797693135e308".len());
     }
 
     #[test]

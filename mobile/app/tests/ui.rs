@@ -37,6 +37,12 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     assert!(!app.screen().enabled("label:Back").unwrap(), "a new tab has nothing to go back to");
     assert!(!app.screen().enabled("label:Forward").unwrap());
 
+    app.type_text("id:address", "6 * 7").unwrap();
+    app.wait_for("= 42").unwrap();
+    app.submit("id:address").unwrap();
+    app.wait_for("label:Share").unwrap();
+    assert!(!app.screen().shows("Copied"), "Enter searches for what was typed; only a picked answer row copies");
+    app.clear("id:address").unwrap();
     app.type_text("id:address", "example.com").unwrap();
     app.submit("id:address").unwrap();
     app.wait_for("label:Share").unwrap();
