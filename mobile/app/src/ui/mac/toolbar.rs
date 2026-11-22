@@ -263,6 +263,8 @@ fn state(ui: Ui) -> State {
         split: s.model.active.is_some_and(|k| s.splits.contains(k)),
         reopenable: !s.model.closed_tabs.is_empty(),
         duplicates: !s.duplicate_tabs().is_empty(),
+        private: s.model.private(),
+        ..State::default()
     })
 }
 
@@ -335,7 +337,7 @@ fn run(ui: Ui, command: Command) {
             s.splits.close(k);
         }),
         Command::TogglePin => on_active(ui, |s, k| s.toggle_pin(k)),
-        Command::SaveSnapshot | Command::Memory | Command::NewWindow | Command::FocusNextPane | Command::FocusPreviousPane | Command::SwapPanes => {}
+        _ => {}
     }
 }
 

@@ -6,6 +6,14 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- The command bar lists the same commands on every client from one shared list. macOS and Windows
+  add New Window, Enter or Exit Full Screen, Stop Loading, Reload Without Cache, Close Window,
+  Manage Bookmarks and Import Browser Data; Linux calls Memory "Show Memory Use";
+  macOS and Windows name Reader Show Reader or Hide Reader, as Linux does;
+  a private space no longer offers snapshots on Linux, iOS and Android.
+
 ## [0.1.6] - 2026-11-21
 
 ### Fixed

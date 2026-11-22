@@ -4,23 +4,45 @@ pub const PLAIN_ROOM: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Command {
+    Settings,
     OpenFile,
-    ReopenClosedTab,
-    TogglePin,
-    CloseDuplicates,
-    ZapElement,
-    Reader,
-    SaveForLater,
+    NewGroup,
+    BookmarkTab,
+    BookmarkAllTabs,
+    ManageBookmarks,
+    NewSpace,
+    EditSpace,
+    PrivateSpace,
     BurnerTab,
-    FindInTabs,
-    CopyLink,
-    CopyCleanLink,
-    ShowQrCode,
+    NewProfile,
+    EditProfile,
+    ReopenClosedTab,
+    ToastAction,
+    ToggleSidebar,
+    AutoHideSidebar,
+    CompactToolbar,
+    CloseAllTabs,
+    ShowLibrary,
     SaveSnapshot,
     Snapshots,
+    ShowDownloads,
+    DuplicateTab,
+    ReloadInChromium,
+    ReloadInWebKit,
+    CopyLink,
+    CopyCleanLink,
+    TogglePin,
+    ToggleMute,
+    ShowHistory,
+    RenameTab,
+    ResetTitle,
+    ReturnToPinned,
+    SetPinnedUrl,
+    SleepOthers,
     Memory,
-    ReadingList,
-    NewWindow,
+    CloseDuplicates,
+    SiteSettings,
+    ZapElement,
     ToggleSplitView,
     FocusNextPane,
     FocusPreviousPane,
@@ -28,26 +50,67 @@ pub enum Command {
     RotateSplitLayout,
     RemoveFromSplitView,
     CloseSplit,
+    Reader,
+    SaveForLater,
+    ReadingList,
+    Archived,
+    PictureInPicture,
+    TakeScreenshot,
+    SavePdf,
+    CopyMarkdownLink,
+    CopyTitle,
+    Share,
+    ShowQrCode,
+    FindInTabs,
+    ImportBrowserData,
+    NewWindow,
+    FullScreen,
+    StopLoading,
+    ReloadFromOrigin,
+    CloseWindow,
+    KeyboardShortcuts,
 }
 
-pub const COMMANDS: [(&str, &str, Command); 24] = [
-    ("Open File…", "local html pdf image text document view", Command::OpenFile),
-    ("Reopen Closed Tab", "undo restore", Command::ReopenClosedTab),
-    ("Pin or Unpin Tab", "", Command::TogglePin),
-    ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
-    ("Zap Element", "hide remove element block", Command::ZapElement),
-    ("Reader", "article reading view text", Command::Reader),
-    ("Save for Later", "reading list read later bookmark", Command::SaveForLater),
+pub const COMMANDS: [(&str, &str, Command); 65] = [
+    ("Settings", "preferences options", Command::Settings),
+    ("Open File\u{2026}", "local disk html pdf image text document view", Command::OpenFile),
+    ("New Tab Group", "group", Command::NewGroup),
+    ("Bookmark Tab\u{2026}", "favorite save star", Command::BookmarkTab),
+    ("Bookmark All Tabs", "favorite save folder", Command::BookmarkAllTabs),
+    ("Manage Bookmarks", "favorites library folders edit", Command::ManageBookmarks),
+    ("New Space", "workspace profile", Command::NewSpace),
+    ("Edit Space", "workspace rename color icon", Command::EditSpace),
+    ("Private Space", "incognito", Command::PrivateSpace),
     ("Burner Tab", "throwaway incognito temporary private", Command::BurnerTab),
-    ("Find in Tabs", "search text all pages", Command::FindInTabs),
+    ("New Profile", "account", Command::NewProfile),
+    ("Edit Profile", "account", Command::EditProfile),
+    ("Reopen Closed Tab", "undo restore", Command::ReopenClosedTab),
+    ("Notification Action", "toast undo reveal restart", Command::ToastAction),
+    ("Toggle Sidebar", "show hide", Command::ToggleSidebar),
+    ("Auto-Hide Sidebar", "floating", Command::AutoHideSidebar),
+    ("Compact Toolbar", "toggle address", Command::CompactToolbar),
+    ("Close All Tabs", "clear", Command::CloseAllTabs),
+    ("Show Library", "bookmarks history", Command::ShowLibrary),
+    ("Save Space as Snapshot", "session tabs save", Command::SaveSnapshot),
+    ("Restore Snapshot\u{2026}", "session tabs open", Command::Snapshots),
+    ("Show Downloads", "files", Command::ShowDownloads),
+    ("Duplicate Tab", "copy", Command::DuplicateTab),
+    ("Reload in Chromium", "engine chrome switch", Command::ReloadInChromium),
+    ("Reload in WebKit", "engine safari switch", Command::ReloadInWebKit),
     ("Copy Link", "url address", Command::CopyLink),
     ("Copy Clean Link", "url tracking parameters utm strip", Command::CopyCleanLink),
-    ("Show QR Code", "phone scan link", Command::ShowQrCode),
-    ("Save Space as Snapshot", "session tabs save", Command::SaveSnapshot),
-    ("Restore Snapshot…", "session tabs open", Command::Snapshots),
-    ("Memory", "process cpu ram usage sleep", Command::Memory),
-    ("Reading List", "read later saved pages", Command::ReadingList),
-    ("New Window", "open another browser window", Command::NewWindow),
+    ("Pin or Unpin Tab", "", Command::TogglePin),
+    ("Mute or Unmute Site", "sound audio silence", Command::ToggleMute),
+    ("Show History", "visited", Command::ShowHistory),
+    ("Rename Tab", "title name", Command::RenameTab),
+    ("Reset Tab Title", "rename name", Command::ResetTitle),
+    ("Return to Pinned URL", "home back pinned", Command::ReturnToPinned),
+    ("Set Pinned URL to Current Page", "pinned home", Command::SetPinnedUrl),
+    ("Sleep Other Tabs", "hibernate unload memory", Command::SleepOthers),
+    ("Show Memory Use", "memory ram cpu energy process task manager usage sleep", Command::Memory),
+    ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
+    ("Site Settings", "shield permissions zoom mute clear data", Command::SiteSettings),
+    ("Zap Element", "hide remove element block", Command::ZapElement),
     ("Open in Split View", "open or close side by side tabs grid four", Command::ToggleSplitView),
     ("Focus Next Pane", "split view switch", Command::FocusNextPane),
     ("Focus Previous Pane", "split view switch", Command::FocusPreviousPane),
@@ -55,15 +118,56 @@ pub const COMMANDS: [(&str, &str, Command); 24] = [
     ("Rotate Split Layout", "split view stacked side by side rows columns", Command::RotateSplitLayout),
     ("Remove Tab from Split View", "split pane leave", Command::RemoveFromSplitView),
     ("Close Split View", "split panes end separate", Command::CloseSplit),
+    ("Reader", "article reading view text", Command::Reader),
+    ("Save for Later", "reading list read later bookmark", Command::SaveForLater),
+    ("Reading List", "read later saved pages", Command::ReadingList),
+    ("Archived Tabs", "unused closed old bookmarks", Command::Archived),
+    ("Picture in Picture", "video pip float", Command::PictureInPicture),
+    ("Take Screenshot", "capture image png", Command::TakeScreenshot),
+    ("Save Page as PDF", "export print", Command::SavePdf),
+    ("Copy Link as Markdown", "url markdown", Command::CopyMarkdownLink),
+    ("Copy Title", "page name", Command::CopyTitle),
+    ("Share", "send airdrop mail messages link", Command::Share),
+    ("Show QR Code", "phone scan link", Command::ShowQrCode),
+    ("Find in Tabs", "search text all pages", Command::FindInTabs),
+    ("Import Browser Data\u{2026}", "chrome edge brave chromium firefox safari history bookmarks cookies", Command::ImportBrowserData),
+    ("New Window", "open another browser window", Command::NewWindow),
+    ("Enter or Exit Full Screen", "fullscreen window video f11", Command::FullScreen),
+    ("Stop Loading", "cancel halt", Command::StopLoading),
+    ("Reload Without Cache", "refresh hard force", Command::ReloadFromOrigin),
+    ("Close Window", "quit", Command::CloseWindow),
+    ("Keyboard Shortcuts", "help keys cheat sheet", Command::KeyboardShortcuts),
 ];
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+impl Command {
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
+    pub fn label(self) -> &'static str {
+        COMMANDS[self.index()].0
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pub pinned: bool,
     pub pin_blocked: bool,
     pub split: bool,
     pub reopenable: bool,
     pub duplicates: bool,
+    pub no_tab: bool,
+    pub no_page: bool,
+    pub private: bool,
+    pub muted: Option<bool>,
+    pub reader: Option<bool>,
+    pub custom_title: bool,
+    pub renamable: bool,
+    pub drifted: bool,
+    pub sleep_others: bool,
+    pub unpinned: bool,
+    pub loading: bool,
+    pub toast: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,40 +181,58 @@ pub fn listing(query: &str) -> bool {
 }
 
 impl State {
-    fn shows(self, command: Command) -> bool {
+    fn shows(&self, command: Command) -> bool {
+        use Command::*;
+        let tab = !self.no_tab;
         match command {
-            Command::CloseDuplicates => self.duplicates,
-            Command::ReopenClosedTab => self.reopenable,
-            Command::TogglePin => !self.pin_blocked,
-            Command::ToggleSplitView => !self.split,
-            Command::CloseSplit
-            | Command::FocusNextPane
-            | Command::FocusPreviousPane
-            | Command::SwapPanes
-            | Command::RotateSplitLayout
-            | Command::RemoveFromSplitView => self.split,
+            CloseDuplicates => self.duplicates,
+            ReopenClosedTab => self.reopenable,
+            TogglePin => tab && !self.pin_blocked,
+            ToggleSplitView => tab && !self.split,
+            CloseSplit | FocusNextPane | FocusPreviousPane | SwapPanes | RotateSplitLayout | RemoveFromSplitView => self.split,
+            SaveSnapshot | Snapshots => !self.private,
+            ToggleMute => tab && self.muted.is_some(),
+            ResetTitle => tab && self.custom_title,
+            RenameTab => tab && self.renamable,
+            ReturnToPinned | SetPinnedUrl => tab && self.drifted,
+            SleepOthers => tab && self.sleep_others,
+            CloseAllTabs => self.unpinned,
+            StopLoading => tab && self.loading,
+            ToastAction => self.toast.is_some(),
+            SiteSettings | ReloadFromOrigin => tab && !self.no_page,
+            ReloadInChromium | ReloadInWebKit => tab,
+            Reader | SaveForLater | CopyLink | CopyCleanLink | CopyMarkdownLink | CopyTitle | ShowQrCode | Share | SavePdf | ZapElement | BookmarkTab
+            | TakeScreenshot | DuplicateTab | PictureInPicture => tab,
             _ => true,
         }
     }
 
-    fn name(self, label: &str, command: Command) -> String {
+    fn name(&self, command: Command) -> String {
+        let pick = |on: bool, yes: &str, no: &str| (if on { yes } else { no }).to_owned();
         match command {
-            Command::TogglePin => (if self.pinned { "Unpin Tab" } else { "Pin Tab" }).to_owned(),
-            _ => label.to_owned(),
+            Command::TogglePin => pick(self.pinned, "Unpin Tab", "Pin Tab"),
+            Command::ToggleMute => pick(self.muted == Some(true), "Unmute Site", "Mute Site"),
+            Command::Reader if self.reader.is_some() => pick(self.reader == Some(true), "Hide Reader", "Show Reader"),
+            Command::ToastAction => self.toast.clone().unwrap_or_default(),
+            _ => command.label().to_owned(),
         }
     }
 }
 
-pub fn rows(query: &str, state: State, offered: impl Fn(Command) -> bool, extra: &[(String, &str)]) -> Vec<(String, Row)> {
+pub fn ranked(query: &str, state: &State, offered: impl Fn(Command) -> bool, extra: &[(String, &str)]) -> Vec<(String, Row)> {
     if query.trim().is_empty() {
         return Vec::new();
     }
     let mut all: Vec<(String, &str, &str, Row)> =
-        COMMANDS.iter().filter(|(_, _, c)| offered(*c) && state.shows(*c)).map(|(l, k, c)| (state.name(l, *c), *l, *k, Row::Command(*c))).collect();
+        COMMANDS.iter().filter(|(_, _, c)| state.shows(*c) && offered(*c)).map(|(l, k, c)| (state.name(*c), *l, *k, Row::Command(*c))).collect();
     all.extend(extra.iter().enumerate().map(|(ix, (l, k))| (l.clone(), l.as_str(), *k, Row::Extra(ix))));
     let ranked = rank_commands(query, all.iter().map(|(_, l, k, _)| (*l, *k)));
-    let room = if listing(query) { all.len() } else { PLAIN_ROOM };
-    ranked.into_iter().take(room).map(|ix| (all[ix].0.clone(), all[ix].3)).collect()
+    ranked.into_iter().map(|ix| (all[ix].0.clone(), all[ix].3)).collect()
+}
+
+pub fn rows(query: &str, state: State, offered: impl Fn(Command) -> bool, extra: &[(String, &str)]) -> Vec<(String, Row)> {
+    let room = if listing(query) { usize::MAX } else { PLAIN_ROOM };
+    ranked(query, &state, offered, extra).into_iter().take(room).collect()
 }
 
 #[cfg(test)]
@@ -169,6 +291,43 @@ mod tests {
         let extra = [("Switch to Work".to_owned(), "space workspace")];
         let found = rows(">", State::default(), |c| c == Command::Reader, &extra);
         assert_eq!(found, [("Reader".to_owned(), Row::Command(Command::Reader)), ("Switch to Work".to_owned(), Row::Extra(0))]);
+    }
+
+    #[test]
+    fn commands_are_listed_in_their_enum_order() {
+        for (ix, (_, _, c)) in COMMANDS.iter().enumerate() {
+            assert_eq!(c.index(), ix, "{c:?}");
+        }
+    }
+
+    #[test]
+    fn tab_commands_need_a_tab_and_page_commands_a_page() {
+        let none = State { no_tab: true, ..State::default() };
+        assert!(names("copy link", none.clone()).is_empty());
+        assert!(names("site settings", State { no_page: true, ..State::default() }).is_empty());
+        assert_eq!(names("site settings", State::default()), ["Site Settings"]);
+        assert_eq!(
+            names("reload in webkit", State { no_page: true, ..State::default() }),
+            ["Reload in WebKit"],
+            "a file or blank page can still switch engines"
+        );
+    }
+
+    #[test]
+    fn a_private_window_offers_no_snapshots() {
+        assert!(names("> snapshot", State { private: true, ..State::default() }).is_empty());
+        assert!(!names("> snapshot", State::default()).is_empty());
+    }
+
+    #[test]
+    fn mute_reader_and_notice_are_named_by_their_state() {
+        assert!(!names("mute site", State::default()).iter().any(|n| n.contains("Mute")));
+        assert_eq!(names("mute site", State { muted: Some(true), ..State::default() })[0], "Unmute Site");
+        assert_eq!(names("> reader", State { reader: Some(true), ..State::default() })[0], "Hide Reader");
+        assert_eq!(names("> reader", State::default())[0], "Reader");
+        let toast = State { toast: Some("Undo \u{2014} Tab closed".into()), ..State::default() };
+        assert_eq!(names("notification action", toast), ["Undo \u{2014} Tab closed"]);
+        assert!(names("notification action", State::default()).is_empty());
     }
 
     #[test]

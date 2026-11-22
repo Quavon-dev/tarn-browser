@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Instant, UNIX_EPOCH};
 
+use browser_core::palette::Command;
 use browser_core::suggest::{self, Page};
 use engine::nav_policy::{self, Decision, Source};
 use engine::{DataStore, Event, Host, Popup, Prompt, PromptKind, WebView};
@@ -1665,53 +1666,58 @@ impl Browser {
             return self.find_in_tabs(query, cx);
         }
         let mut out = Vec::new();
-        let mut commands = command::rank_commands(&query, crate::COMMANDS.iter().map(|c| (c.0, c.1)));
-        let has_site = self.site().is_some();
-        commands.retain(|ix| has_site || !crate::COMMANDS[*ix].2.partial_eq(&crate::site_settings::SiteSettings));
-        // Which engine the tab can switch to reads the profile and a lock file, so only when a
-        // switch command is ranked at all.
-        let switching = commands.iter().any(|ix| {
-            let action = crate::COMMANDS[*ix].2;
-            action.partial_eq(&crate::tabs::ReloadInChromium) || action.partial_eq(&crate::tabs::ReloadInWebKit)
-        });
-        let to = self.model.active.filter(|_| switching).and_then(|k| self.web_engine_switch(k));
-        let private = self.model.private();
-        let zappable = self.site().is_some_and(|(k, u)| self.zappable(k, &u));
-        let titled = self.model.active_tab().is_some_and(|t| !t.custom_title.is_empty());
-        let drifted = self.model.active.and_then(|k| self.pinned_drift(k)).is_some();
-        let split = self.model.active.is_some_and(|a| self.splits.contains(a));
-        let pinned = self.model.active_tab().is_some_and(|t| t.kind != store::TabKind::Ephemeral);
-        let muted = self.model.active.is_some_and(|k| self.tab_muted(k));
-        let reopenable = !self.model.closed_tabs.is_empty();
-        let toast_command = self.toast_command();
-        let duplicates = !self.duplicate_tabs().is_empty();
-        commands.retain(|ix| {
-            let action = crate::COMMANDS[*ix].2;
-            let is = |a: &dyn gpui::Action| action.partial_eq(a);
-            !(is(&crate::tabs::ReloadInChromium) && to != Some(WebEngine::Chromium)
-                || is(&crate::tabs::ReloadInWebKit) && to != Some(WebEngine::WebKit)
-                || private && (is(&crate::library::SaveSnapshot) || is(&crate::library::RestoreSnapshot))
-                || !zappable && is(&crate::zaps::ZapElement)
-                || !titled && is(&crate::tabs::ResetTabTitle)
-                || !drifted && (is(&crate::tabs::ReturnToPinnedUrl) || is(&crate::tabs::SetPinnedUrl))
-                || !reopenable && is(&crate::ReopenClosedTab)
-                || toast_command.is_none() && is(&crate::toast::ToastAction)
-                || !duplicates && is(&crate::tabs::CloseDuplicateTabs)
-                || !split
-                    && (is(&crate::split::FocusNextPane)
-                        || is(&crate::split::FocusPreviousPane)
-                        || is(&crate::split::SwapPanes)
-                        || is(&crate::split::RotateSplitLayout)
-                        || is(&crate::split::RemoveFromSplitView)
-                        || is(&crate::split::CloseSplitView)))
-        });
-        let command = |ix: usize| {
-            let (label, _, action) = crate::COMMANDS[ix];
-            let is = |a: &dyn gpui::Action| action.partial_eq(a);
-            let on = is(&crate::TogglePin) && pinned || is(&crate::menubar::ToggleMute) && muted || is(&crate::split::ToggleSplitView) && split;
-            let shown = crate::tabs::state_label(action, on).map(str::to_owned);
-            let label = shown.or_else(|| toast_command.clone().filter(|_| is(&crate::toast::ToastAction))).unwrap_or_else(|| label.to_owned());
-            Suggestion { label, detail: crate::shortcuts::shown(action, cx), target: Target::Input(Input::Command(ix)) }
+        let site = self.site();
+        let tab = self.model.active_tab();
+        let idle = |a: &dyn gpui::Action| self.idle(a);
+        let state = browser_core::palette::State {
+            pinned: tab.is_some_and(|t| t.kind != store::TabKind::Ephemeral),
+            split: self.model.active.is_some_and(|a| self.splits.contains(a)),
+            reopenable: !idle(&crate::ReopenClosedTab),
+            duplicates: !self.duplicate_tabs().is_empty(),
+            no_tab: tab.is_none(),
+            no_page: self.model.active.and_then(|k| self.tab_url(k)).is_none(),
+            private: self.model.private(),
+            muted: self.model.active.filter(|_| !idle(&crate::menubar::ToggleMute)).map(|k| self.tab_muted(k)),
+            custom_title: tab.is_some_and(|t| !t.custom_title.is_empty()),
+            renamable: tab.is_some(),
+            drifted: self.model.active.and_then(|k| self.pinned_drift(k)).is_some(),
+            sleep_others: true,
+            unpinned: !idle(&crate::CloseAllTabs),
+            loading: !idle(&crate::StopLoading),
+            toast: self.toast_command(),
+            reader: Some(self.reader_shown()),
+            ..Default::default()
+        };
+        let zappable = site.as_ref().is_some_and(|(k, u)| self.zappable(*k, u));
+        let offered = |c: Command| {
+            crate::command_action(c).is_some()
+                && match c {
+                    Command::ZapElement => zappable,
+                    Command::SiteSettings => site.is_some(),
+                    Command::ImportBrowserData => browser_core::import::available(),
+                    _ => true,
+                }
+        };
+        let mut commands: Vec<(String, Command)> = browser_core::palette::ranked(&query, &state, offered, &[])
+            .into_iter()
+            .filter_map(|(label, row)| match row {
+                browser_core::palette::Row::Command(c) => Some((label, c)),
+                browser_core::palette::Row::Extra(_) => None,
+            })
+            .collect();
+        // Which engine the tab can switch to reads the profile and a lock file, so only once a
+        // switch command was ranked.
+        if commands.iter().any(|(_, c)| matches!(c, Command::ReloadInChromium | Command::ReloadInWebKit)) {
+            let to = self.model.active.and_then(|k| self.web_engine_switch(k));
+            commands.retain(|(_, c)| match c {
+                Command::ReloadInChromium => to == Some(WebEngine::Chromium),
+                Command::ReloadInWebKit => to == Some(WebEngine::WebKit),
+                _ => true,
+            });
+        }
+        let command = |(label, c): (String, Command)| {
+            let detail = crate::command_action(c).map(|a| crate::shortcuts::shown(a, cx)).unwrap_or_default();
+            Suggestion { label, detail, target: Target::Input(Input::Command(c.index())) }
         };
         let space_rows = self.space_commands(&query);
         if query.starts_with('>') {
@@ -1726,9 +1732,9 @@ impl Browser {
         if let Some(Input::Navigate(u)) = &input {
             out.extend(self.open_tabs_at(&self.clean_user_url(u.clone())));
         }
-        let exact = commands.first().is_some_and(|ix| crate::COMMANDS[*ix].0.eq_ignore_ascii_case(&query));
+        let exact = commands.first().is_some_and(|(label, c)| label.eq_ignore_ascii_case(&query) || c.label().eq_ignore_ascii_case(&query));
         if exact {
-            out.extend(commands.iter().copied().map(command));
+            out.extend(commands.iter().cloned().map(command));
         }
         if let Some(input) = input {
             let (label, detail) = match &input {
@@ -1874,9 +1880,9 @@ impl Browser {
                 return self.open_text_match(key, query, window, cx);
             }
             Target::Input(Input::Command(ix)) => {
-                let action = crate::COMMANDS[*ix].2.boxed_clone();
+                let Some(action) = browser_core::palette::COMMANDS.get(*ix).and_then(|c| crate::command_action(c.2)) else { return };
                 self.close_command(window, cx);
-                window.dispatch_action(action, cx);
+                window.dispatch_action(action.boxed_clone(), cx);
                 return;
             }
             Target::Action(action) => {

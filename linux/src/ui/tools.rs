@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use browser_core::command::rank_commands;
+use browser_core::palette;
 use nsh_core::file_dialog::{FileFilter, SaveDialog};
 use nsh_core::prelude::*;
 
@@ -64,69 +64,78 @@ pub enum Command {
     ToastAction,
 }
 
-const COMMANDS: [(&str, &str, Command); 56] = [
-    ("Settings", "preferences options", Command::Key(Action::Settings)),
-    ("New Space", "workspace profile", Command::Key(Action::NewSpace)),
-    ("Edit Space", "workspace rename color icon", Command::EditSpace),
-    ("Private Space", "incognito", Command::Key(Action::PrivateSpace)),
-    ("Reopen Closed Tab", "undo restore", Command::Key(Action::ReopenClosedTab)),
-    ("Notification Action", "toast undo reveal", Command::ToastAction),
-    ("Open File…", "local disk html pdf image document", Command::Key(Action::OpenFile)),
-    ("Toggle Sidebar", "show hide", Command::Key(Action::ToggleSidebar)),
-    ("Show Downloads", "files", Command::Key(Action::ToggleDownloads)),
-    ("Show History", "visited", Command::Key(Action::ShowHistory)),
-    ("Site Settings", "shield permissions zoom mute clear data", Command::SiteSettings),
-    ("Pin or Unpin Tab", "", Command::Key(Action::TogglePin)),
-    ("New Tab Group", "group", Command::Key(Action::NewGroup)),
-    ("Close Duplicate Tabs", "same page dedupe clean up", Command::CloseDuplicates),
-    ("Zap Element", "hide remove element block", Command::ZapElement),
-    ("Reader", "article reading view text", Command::Reader),
-    ("Bookmark Tab…", "favorite save star", Command::Key(Action::BookmarkTab)),
-    ("Bookmark All Tabs", "favorite save folder", Command::BookmarkAllTabs),
-    ("Manage Bookmarks", "favorites library folders edit", Command::Key(Action::ManageBookmarks)),
-    ("Save for Later", "reading list read later bookmark", Command::SaveForLater),
-    ("Burner Tab", "throwaway incognito temporary private", Command::BurnerTab),
-    ("Find in Tabs", "search text all pages", Command::FindInTabs),
-    ("Copy Link", "url address", Command::CopyLink),
-    ("Copy Clean Link", "url tracking parameters utm strip", Command::CopyCleanLink),
-    ("Copy Link as Markdown", "url markdown", Command::CopyMarkdownLink),
-    ("Copy Title", "page name", Command::CopyTitle),
-    ("Take Screenshot", "capture image png", Command::Key(Action::TakeScreenshot)),
-    ("Show QR Code", "phone scan link", Command::ShowQrCode),
-    ("Save Page as PDF", "export print", Command::SavePdf),
-    ("Save Space as Snapshot", "session tabs save", Command::SaveSnapshot),
-    ("Restore Snapshot…", "session tabs open", Command::Snapshots),
-    ("Memory", "process cpu ram usage sleep", Command::Memory),
-    ("Reading List", "read later saved pages", Command::ReadingList),
-    ("Archived Tabs", "unused closed old bookmarks", Command::Archived),
-    ("Import Browser Data\u{2026}", "chrome edge brave chromium firefox history bookmarks cookies", Command::ImportBrowserData),
-    ("New Window", "open another browser window", Command::NewWindow),
-    ("Enter or Exit Full Screen", "fullscreen window video f11", Command::FullScreen),
-    ("Open in Split View", "open or close side by side tabs grid four", Command::Key(Action::ToggleSplitView)),
-    ("Focus Next Pane", "split view switch", Command::Key(Action::FocusNextPane)),
-    ("Focus Previous Pane", "split view switch", Command::Key(Action::FocusPreviousPane)),
-    ("Swap Split Panes", "split view exchange move", Command::Key(Action::SwapPanes)),
-    ("Rotate Split Layout", "split view stacked side by side rows columns", Command::Key(Action::RotateSplitLayout)),
-    ("Remove Tab from Split View", "split pane leave", Command::Key(Action::RemoveFromSplitView)),
-    ("Close Split View", "split panes end separate", Command::CloseSplit),
-    ("Close All Tabs", "clear", Command::Key(Action::CloseAllTabs)),
-    ("Duplicate Tab", "copy", Command::DuplicateTab),
-    ("Mute or Unmute Site", "sound audio silence", Command::ToggleMute),
-    ("Rename Tab", "title name", Command::RenameTab),
-    ("Reset Tab Title", "rename name", Command::ResetTitle),
-    ("Return to Pinned URL", "home back pinned", Command::ReturnToPinned),
-    ("Set Pinned URL to Current Page", "pinned home", Command::SetPinnedUrl),
-    ("Sleep Other Tabs", "hibernate unload memory", Command::SleepOthers),
-    ("Keyboard Shortcuts", "help keys cheat sheet", Command::Key(Action::ToggleShortcuts)),
-    ("Stop Loading", "cancel halt", Command::StopLoading),
-    ("Reload Without Cache", "refresh hard force", Command::Key(Action::ReloadFromOrigin)),
-    ("Close Window", "quit", Command::Key(Action::CloseWindow)),
-];
-
-/// Whether `query` asks for the command list: every command it names, and nothing else.
-pub fn listing(query: &str) -> bool {
-    query.trim_start().starts_with('>')
+fn command_for(command: palette::Command) -> Option<Command> {
+    use palette::Command as C;
+    Some(match command {
+        C::Settings => Command::Key(Action::Settings),
+        C::OpenFile => Command::Key(Action::OpenFile),
+        C::NewGroup => Command::Key(Action::NewGroup),
+        C::BookmarkTab => Command::Key(Action::BookmarkTab),
+        C::BookmarkAllTabs => Command::BookmarkAllTabs,
+        C::ManageBookmarks => Command::Key(Action::ManageBookmarks),
+        C::NewSpace => Command::Key(Action::NewSpace),
+        C::EditSpace => Command::EditSpace,
+        C::PrivateSpace => Command::Key(Action::PrivateSpace),
+        C::BurnerTab => Command::BurnerTab,
+        C::ReopenClosedTab => Command::Key(Action::ReopenClosedTab),
+        C::ToastAction => Command::ToastAction,
+        C::ToggleSidebar => Command::Key(Action::ToggleSidebar),
+        C::CloseAllTabs => Command::Key(Action::CloseAllTabs),
+        C::SaveSnapshot => Command::SaveSnapshot,
+        C::Snapshots => Command::Snapshots,
+        C::ShowDownloads => Command::Key(Action::ToggleDownloads),
+        C::DuplicateTab => Command::DuplicateTab,
+        C::CopyLink => Command::CopyLink,
+        C::CopyCleanLink => Command::CopyCleanLink,
+        C::TogglePin => Command::Key(Action::TogglePin),
+        C::ToggleMute => Command::ToggleMute,
+        C::ShowHistory => Command::Key(Action::ShowHistory),
+        C::RenameTab => Command::RenameTab,
+        C::ResetTitle => Command::ResetTitle,
+        C::ReturnToPinned => Command::ReturnToPinned,
+        C::SetPinnedUrl => Command::SetPinnedUrl,
+        C::SleepOthers => Command::SleepOthers,
+        C::Memory => Command::Memory,
+        C::CloseDuplicates => Command::CloseDuplicates,
+        C::SiteSettings => Command::SiteSettings,
+        C::ZapElement => Command::ZapElement,
+        C::ToggleSplitView => Command::Key(Action::ToggleSplitView),
+        C::FocusNextPane => Command::Key(Action::FocusNextPane),
+        C::FocusPreviousPane => Command::Key(Action::FocusPreviousPane),
+        C::SwapPanes => Command::Key(Action::SwapPanes),
+        C::RotateSplitLayout => Command::Key(Action::RotateSplitLayout),
+        C::RemoveFromSplitView => Command::Key(Action::RemoveFromSplitView),
+        C::CloseSplit => Command::CloseSplit,
+        C::Reader => Command::Reader,
+        C::SaveForLater => Command::SaveForLater,
+        C::ReadingList => Command::ReadingList,
+        C::Archived => Command::Archived,
+        C::TakeScreenshot => Command::Key(Action::TakeScreenshot),
+        C::SavePdf => Command::SavePdf,
+        C::CopyMarkdownLink => Command::CopyMarkdownLink,
+        C::CopyTitle => Command::CopyTitle,
+        C::ShowQrCode => Command::ShowQrCode,
+        C::FindInTabs => Command::FindInTabs,
+        C::ImportBrowserData => Command::ImportBrowserData,
+        C::NewWindow => Command::NewWindow,
+        C::FullScreen => Command::FullScreen,
+        C::StopLoading => Command::StopLoading,
+        C::ReloadFromOrigin => Command::Key(Action::ReloadFromOrigin),
+        C::CloseWindow => Command::Key(Action::CloseWindow),
+        C::KeyboardShortcuts => Command::Key(Action::ToggleShortcuts),
+        C::NewProfile
+        | C::EditProfile
+        | C::AutoHideSidebar
+        | C::CompactToolbar
+        | C::ShowLibrary
+        | C::ReloadInChromium
+        | C::ReloadInWebKit
+        | C::PictureInPicture
+        | C::Share => return None,
+    })
 }
+
+pub use palette::listing;
 
 /// The commands `query` names, leaving out those with nothing to act on, and those that toggle
 /// named by what they do now.
@@ -135,7 +144,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         return Vec::new();
     }
     let toast = ui.snap.with_untracked(|s| s.toast.as_ref().and_then(|t| Some(format!("{} \u{2014} {}", t.action.as_ref()?.label(), t.text))));
-    let Some((spaces, pinned, split, reopenable, duplicates, tab)) = read(ui, |b| {
+    let Some((spaces, pinned, split, reopenable, duplicates, private, tab)) = read(ui, |b| {
         let active = b.model.active;
         (
             b.space_commands(),
@@ -143,54 +152,40 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
             active.is_some_and(|k| b.splits.contains(k)),
             b.model.closed_tabs.newest().is_some(),
             !b.duplicate_tabs().is_empty(),
+            b.model.private(),
             ActiveTab::of(b),
         )
     }) else {
         return Vec::new();
     };
-    let shown = |command: &Command| match command {
-        Command::CloseDuplicates => duplicates,
-        Command::ImportBrowserData => browser_core::import::available(),
-        Command::Key(Action::ReopenClosedTab) => reopenable,
-        Command::Key(Action::CloseAllTabs) => tab.unpinned,
-        Command::DuplicateTab => tab.open,
-        Command::RenameTab => tab.renamable,
-        Command::ToggleMute => tab.muted.is_some(),
-        Command::ResetTitle => tab.custom,
-        Command::ReturnToPinned | Command::SetPinnedUrl => tab.drifted,
-        Command::SleepOthers => tab.sleep_others,
-        Command::StopLoading => tab.loading,
-        Command::ToastAction => toast.is_some(),
-        Command::Key(Action::ReloadFromOrigin) => tab.open && !ui.snap.with_untracked(super::no_page),
-        Command::Reader
-        | Command::SaveForLater
-        | Command::CopyLink
-        | Command::CopyCleanLink
-        | Command::CopyMarkdownLink
-        | Command::CopyTitle
-        | Command::ShowQrCode
-        | Command::SavePdf
-        | Command::ZapElement
-        | Command::Key(Action::TogglePin | Action::BookmarkTab | Action::TakeScreenshot | Action::ToggleSplitView) => tab.open,
-        Command::CloseSplit
-        | Command::Key(Action::FocusNextPane | Action::FocusPreviousPane | Action::SwapPanes | Action::RotateSplitLayout | Action::RemoveFromSplitView) => {
-            split
-        }
-        _ => true,
+    let state = palette::State {
+        pinned,
+        split,
+        reopenable,
+        duplicates,
+        private,
+        no_tab: !tab.open,
+        no_page: ui.snap.with_untracked(super::no_page),
+        muted: tab.muted,
+        reader: Some(tab.reader),
+        custom_title: tab.custom,
+        renamable: tab.renamable,
+        drifted: tab.drifted,
+        sleep_others: tab.sleep_others,
+        unpinned: tab.unpinned,
+        loading: tab.loading,
+        toast,
+        ..palette::State::default()
     };
-    let mut rows: Vec<(String, &str, Command)> = COMMANDS.iter().filter(|(_, _, c)| shown(c)).map(|(l, k, c)| ((*l).to_owned(), *k, *c)).collect();
-    rows.extend(spaces.into_iter().map(|(l, c)| (l, "space workspace", Command::Space(c))));
-    let ranked = rank_commands(query, rows.iter().map(|(l, k, _)| (l.as_str(), *k)));
-    let named = |(label, _, command): &(String, &str, Command)| match command {
-        Command::Key(Action::TogglePin) => (if pinned { "Unpin Tab" } else { "Pin Tab" }).to_owned(),
-        Command::Key(Action::ToggleSplitView) => (if split { "Close Split View" } else { "Open in Split View" }).to_owned(),
-        Command::ToggleMute => (if tab.muted == Some(true) { "Unmute Site" } else { "Mute Site" }).to_owned(),
-        Command::Reader => (if tab.reader { "Hide Reader" } else { "Show Reader" }).to_owned(),
-        Command::ToastAction => toast.clone().unwrap_or_default(),
-        _ => label.clone(),
-    };
-    let room = if listing(query) { rows.len() } else { 4 };
-    ranked.into_iter().take(room).map(|ix| (named(&rows[ix]), rows[ix].2)).collect()
+    let offered = |c: palette::Command| command_for(c).is_some() && (c != palette::Command::ImportBrowserData || browser_core::import::available());
+    let extra: Vec<(String, &str)> = spaces.iter().map(|(l, _)| (l.clone(), "space workspace")).collect();
+    palette::rows(query, state, offered, &extra)
+        .into_iter()
+        .filter_map(|(label, row)| match row {
+            palette::Row::Command(c) => Some((label, command_for(c)?)),
+            palette::Row::Extra(ix) => Some((label, Command::Space(spaces[ix].1))),
+        })
+        .collect()
 }
 
 pub fn run(ui: Ui, command: Command) {
