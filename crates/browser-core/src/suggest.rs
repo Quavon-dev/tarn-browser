@@ -102,19 +102,21 @@ pub fn rank_pages(query: &str, pages: &[Page], now: i64) -> Vec<usize> {
     let lowered: String = query.trim().chars().flat_map(fold).collect();
     let query = Query { text: &lowered, words: lowered.split_whitespace().collect(), chars: fuzzy_query(&lowered) };
     let mut text = String::new();
-    let mut best: HashMap<&str, i64> = HashMap::new();
-    for page in pages {
-        let score = best.entry(page.url).or_default();
-        *score = (*score).max(frecency(page.visits, page.last_visit, now));
+    let mut by_url: HashMap<&str, (i64, bool, usize)> = HashMap::with_capacity(pages.len());
+    for (ix, page) in pages.iter().enumerate() {
+        let (best, open, _) = by_url.entry(page.url).or_insert((0, false, ix));
+        *best = (*best).max(frecency(page.visits, page.last_visit, now));
+        *open |= page.open;
     }
-    let open: HashSet<&str> = pages.iter().filter(|p| p.open).map(|p| p.url).collect();
-    let mut seen = HashSet::new();
     let mut ranked: Vec<_> = pages
         .iter()
         .enumerate()
-        .filter(|(_, p)| p.open || !open.contains(p.url) && seen.insert(p.url))
         .filter_map(|(ix, p)| {
-            tier(&query, p, &mut text).map(|(tier, fuzzy)| ((Reverse(tier), Reverse(fuzzy), Reverse(best[p.url]), Reverse(p.last_visit), ix), ix))
+            let (best, url_open, first) = by_url[p.url];
+            if !p.open && (url_open || first != ix) {
+                return None;
+            }
+            tier(&query, p, &mut text).map(|(tier, fuzzy)| ((Reverse(tier), Reverse(fuzzy), Reverse(best), Reverse(p.last_visit), ix), ix))
         })
         .collect();
     ranked.sort_unstable();
@@ -554,6 +556,13 @@ mod tests {
         assert_eq!(rank_pages("a.test/path", &pages, NOW), [0]);
         assert_eq!(rank_pages("ärz", &pages, NOW), [1]);
         assert_eq!(rank_pages("prx", &pages, NOW), [1]);
+    }
+
+    #[test]
+    fn history_keeps_its_first_entry_per_url_with_the_best_frecency() {
+        let pages = [page("https://a.test/", "First", 1, 200), page("https://ab.test/", "Ab", 5, 0), page("https://a.test/", "Second", 50, 0)];
+        assert_eq!(rank_pages("a", &pages, NOW), [0, 1], "the first entry stands for its url with the later entry's frecency");
+        assert_eq!(rank_pages("second", &pages, NOW), Vec::<usize>::new(), "the later entry's title is not searched");
     }
 
     #[test]
