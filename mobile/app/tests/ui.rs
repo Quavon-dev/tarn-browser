@@ -49,6 +49,8 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.press("label:New Tab").unwrap();
     app.wait_for("label:Tabs 2").unwrap();
     app.wait_for("label:Cancel").unwrap();
+    app.wait_for("QUICK ACTIONS").unwrap();
+    assert!(app.screen().matches("label:Show History").unwrap(), "the empty field lists its sections");
     app.press("label:Cancel").unwrap();
     app.wait_for("label:Tabs 1").unwrap();
     app.press("label:Menu").unwrap();

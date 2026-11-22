@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
-use browser_core::command::{ENGINES, Input, classify_input};
+use browser_core::command::{ENGINES, Input, Section, classify_input};
 use browser_core::incoming::{self, LOCALHOST_FROM_APPS};
+use browser_core::palette;
 use browser_core::suggest::{self, Page};
 use browser_core::tabs::TabKey;
 use browser_core::text::bounded_title;
@@ -48,6 +49,18 @@ impl Browser {
         if self.model.tab(key).is_some() {
             self.activate(key);
         }
+    }
+
+    /// The empty command bar's sections; a private space lists no bookmarks.
+    pub fn palette_sections(
+        &self,
+        state: &palette::State,
+        offered: impl Fn(palette::Command) -> bool,
+        history: &[store::HistoryEntry],
+    ) -> Vec<(Section, Vec<palette::Entry>)> {
+        let bookmarks = if state.private { Vec::new() } else { self.bookmarks() };
+        let data = palette::Data { tabs: &self.model.tabs, active: self.model.active.map(|k| k.id), bookmarks: &bookmarks, history, now: browser_core::now() };
+        palette::sections(state, offered, &data)
     }
 
     pub fn tab_suggestions(&self, query: &str) -> Vec<TabRow> {

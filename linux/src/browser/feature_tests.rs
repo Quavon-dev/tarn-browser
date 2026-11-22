@@ -1923,3 +1923,22 @@ fn the_shown_page_is_pinged_and_offers_wait_and_reload_once_it_stops_answering()
     assert_eq!(b.outbox.last().map(|(k, n, _)| (*k, *n)), Some((key, "reloadFresh")));
     assert!(!hung(&b));
 }
+
+#[test]
+fn the_empty_command_bar_lists_sections_and_a_private_space_no_recent_or_frequent_rows() {
+    use browser_core::command::Section;
+    use browser_core::palette::State;
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    visit(&mut b, first, "https://a.test/");
+    let second = b.new_tab("https://b.test/").unwrap();
+    visit(&mut b, second, "https://b.test/");
+    let history = [store::HistoryEntry { url: "https://c.test/".into(), title: "C".into(), visited_at: 0, visits: 3, typed: 0 }];
+    let heads = |b: &Browser, state: &State| b.palette_sections(state, |_| true, &history).into_iter().map(|(s, _)| s).collect::<Vec<_>>();
+    let shown = heads(&b, &State::default());
+    assert!(shown.contains(&Section::RecentTabs) && shown.contains(&Section::Frequent) && shown.contains(&Section::QuickActions), "{shown:?}");
+    b.private_space();
+    assert!(b.model.private());
+    let shown = heads(&b, &State { private: true, ..State::default() });
+    assert!(!shown.contains(&Section::RecentTabs) && !shown.contains(&Section::Frequent), "{shown:?}");
+}

@@ -8,6 +8,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- The empty command bar lists sections on every client: Now (commands for the current tab),
+  Favorites (pinned tabs and top-level bookmarks), Recent Tabs (the five most recently used other
+  tabs), Frequent (most visited pages) and Quick Actions. A private space lists no Recent Tabs and
+  no Frequent pages.
 - Ask Assistant about Selection on every client: selected text's menu (the context menu on macOS,
   Windows and Linux, the edit menu on iOS, the selection toolbar on Android) attaches the selection
   to the chat, and Ask Assistant to runs Summarize, Explain, Improve Writing, Fix Spelling,

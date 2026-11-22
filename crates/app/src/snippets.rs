@@ -22,9 +22,13 @@ pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
 fn rows(query: &str, all: &[Snippet]) -> Vec<Suggestion> {
     let found: Vec<Suggestion> = snippets::matching(query, all)
         .into_iter()
-        .map(|s| Suggestion { label: s.name.clone(), detail: snippets::preview(&s.body), target: Target::Snippet(s.body.clone()) })
+        .map(|s| Suggestion { section: None, label: s.name.clone(), detail: snippets::preview(&s.body), target: Target::Snippet(s.body.clone()) })
         .collect();
-    if found.is_empty() { vec![Suggestion { label: EMPTY.to_owned(), detail: String::new(), target: Target::Snippet(String::new()) }] } else { found }
+    if found.is_empty() {
+        vec![Suggestion { section: None, label: EMPTY.to_owned(), detail: String::new(), target: Target::Snippet(String::new()) }]
+    } else {
+        found
+    }
 }
 
 impl Browser {

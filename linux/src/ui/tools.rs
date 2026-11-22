@@ -159,8 +159,55 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
     if query.trim().is_empty() {
         return Vec::new();
     }
+    let Some((state, spaces)) = state(ui) else { return Vec::new() };
+    let extra: Vec<(String, &str)> = spaces.iter().map(|(l, _)| (l.clone(), "space workspace")).collect();
+    let answers = palette::answers(query).into_iter().map(|a| (a.label, Command::Copy(a.copy)));
+    answers
+        .chain(palette::rows(query, state, offered, &extra).into_iter().filter_map(|(label, row)| match row {
+            palette::Row::Command(c) => Some((label, command_for(c)?)),
+            palette::Row::Extra(ix) => Some((label, Command::Space(spaces[ix].1))),
+        }))
+        .collect()
+}
+
+/// The empty command bar's sections, one row each, the first of a section with its heading, and
+/// the address a page or tab row's icon shows.
+pub fn sections(ui: Ui, history: &[store::HistoryEntry]) -> Vec<SectionRow> {
+    let Some((state, _)) = state(ui) else { return Vec::new() };
+    read(ui, |b| {
+        let url = |id| b.model.tabs.iter().find(|t| t.id == id).map(|t| t.url.clone()).unwrap_or_default();
+        let mut rows = Vec::new();
+        for (section, entries) in b.palette_sections(&state, offered, history) {
+            for (ix, entry) in entries.into_iter().enumerate() {
+                let address = match &entry.item {
+                    palette::Item::Command(_) => String::new(),
+                    palette::Item::Tab(id) => url(*id),
+                    palette::Item::Bookmark(u) | palette::Item::History(u) => u.clone(),
+                };
+                rows.push(((ix == 0).then_some(section), entry, address));
+            }
+        }
+        rows
+    })
+    .unwrap_or_default()
+}
+
+pub type SectionRow = (Option<browser_core::command::Section>, palette::Entry, String);
+
+/// The command a section row runs, and its shortcut.
+pub fn section_command(ui: Ui, command: palette::Command) -> Option<(Command, Option<String>)> {
+    let command = command_for(command)?;
+    let keys = action(&command).and_then(|a| super::shortcut_of(ui, a));
+    Some((command, keys))
+}
+
+fn offered(c: palette::Command) -> bool {
+    command_for(c).is_some() && (c != palette::Command::ImportBrowserData || browser_core::import::available())
+}
+
+fn state(ui: Ui) -> Option<(palette::State, Vec<(String, SpaceCommand)>)> {
     let toast = ui.snap.with_untracked(|s| s.toast.as_ref().and_then(|t| Some(format!("{} \u{2014} {}", t.action.as_ref()?.label(), t.text))));
-    let Some((spaces, pinned, split, reopenable, duplicates, private, tab, developer, assistant)) = read(ui, |b| {
+    let (spaces, pinned, split, reopenable, duplicates, private, tab, developer, assistant) = read(ui, |b| {
         let active = b.model.active;
         (
             b.space_commands(),
@@ -173,9 +220,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
             b.devtools_on(),
             b.model.assistant_offered(&b.core, b.model.active.and_then(|k| b.pages.get(&k)).map(|p| p.url.as_str())),
         )
-    }) else {
-        return Vec::new();
-    };
+    })?;
     let state = palette::State {
         pinned,
         split,
@@ -197,15 +242,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         assistant,
         ..palette::State::default()
     };
-    let offered = |c: palette::Command| command_for(c).is_some() && (c != palette::Command::ImportBrowserData || browser_core::import::available());
-    let extra: Vec<(String, &str)> = spaces.iter().map(|(l, _)| (l.clone(), "space workspace")).collect();
-    let answers = palette::answers(query).into_iter().map(|a| (a.label, Command::Copy(a.copy)));
-    answers
-        .chain(palette::rows(query, state, offered, &extra).into_iter().filter_map(|(label, row)| match row {
-            palette::Row::Command(c) => Some((label, command_for(c)?)),
-            palette::Row::Extra(ix) => Some((label, Command::Space(spaces[ix].1))),
-        }))
-        .collect()
+    Some((state, spaces))
 }
 
 pub fn run(ui: Ui, command: Command) {

@@ -1,4 +1,10 @@
-use crate::command::rank_commands;
+use std::collections::HashSet;
+use std::time::Duration;
+
+use store::{Bookmark, HistoryEntry, Id, Tab, TabKind};
+
+use crate::command::{Section, display_title, rank_commands};
+use crate::suggest::frecency;
 
 pub mod calc;
 pub mod emoji;
@@ -296,6 +302,139 @@ pub fn rows(query: &str, state: State, offered: impl Fn(Command) -> bool, extra:
     ranked(query, &state, offered, extra).into_iter().take(room).collect()
 }
 
+/// Whether the command bar shows `sections` instead of ranked rows: nothing typed yet.
+pub fn sectioned(query: &str) -> bool {
+    query.trim().is_empty()
+}
+
+/// A row of the command bar that has an actions page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Item {
+    Command(Command),
+    Tab(Id),
+    Bookmark(String),
+    History(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub item: Item,
+    pub label: String,
+    pub detail: String,
+}
+
+/// What the empty command bar lists from: the current space's tabs, the profile's bookmarks and
+/// history.
+pub struct Data<'a> {
+    pub tabs: &'a [Tab],
+    pub active: Option<Id>,
+    pub bookmarks: &'a [Bookmark],
+    pub history: &'a [HistoryEntry],
+    pub now: i64,
+}
+
+pub const SECTION_ROWS: usize = 5;
+const NOW: [Command; 6] = [Command::CopyLink, Command::BookmarkTab, Command::TogglePin, Command::Reader, Command::ToggleSplitView, Command::Share];
+const NOW_ROWS: usize = 4;
+const QUICK: [Command; 7] =
+    [Command::ReopenClosedTab, Command::ShowHistory, Command::ShowDownloads, Command::ManageBookmarks, Command::NewWindow, Command::Ask, Command::Settings];
+
+fn page_detail(url: &str) -> String {
+    crate::text::bounded_url(url.trim_start_matches("https://").trim_end_matches('/'))
+}
+
+/// The sections the empty command bar lists, each non-empty and in order: Now (commands for the
+/// current tab), Favorites (pinned tabs, then top-level bookmarks), Recent Tabs (the most recently used other
+/// tabs), Frequent (history by frecency) and Quick Actions. A private space lists no Recent Tabs
+/// and no Frequent rows. A page shows once, in its first section.
+pub fn sections(state: &State, offered: impl Fn(Command) -> bool, data: &Data) -> Vec<(Section, Vec<Entry>)> {
+    let command = |c: Command| Entry { item: Item::Command(c), label: state.name(c), detail: String::new() };
+    let usable = |c: &&Command| state.shows(**c) && offered(**c);
+    let now: Vec<Entry> = NOW.iter().filter(usable).take(NOW_ROWS).map(|c| command(*c)).collect();
+    let tab = |t: &Tab| Entry { item: Item::Tab(t.id), label: display_title(&t.custom_title, &t.title, &t.url), detail: "Switch to Tab".to_owned() };
+    let mut shown: HashSet<&str> = HashSet::new();
+    let mut favorites: Vec<Entry> = Vec::new();
+    for t in data.tabs.iter().filter(|t| t.kind != TabKind::Ephemeral && Some(t.id) != data.active) {
+        shown.insert(&t.url);
+        favorites.push(tab(t));
+    }
+    for b in data.bookmarks.iter().filter(|b| b.parent_id.is_none()) {
+        let Some(url) = b.url.as_deref().filter(|u| shown.insert(u)) else { continue };
+        let label = display_title("", &b.title, url);
+        favorites.push(Entry { item: Item::Bookmark(url.to_owned()), label, detail: page_detail(url) });
+    }
+    favorites.truncate(SECTION_ROWS);
+    let (mut recent, mut frequent) = (Vec::new(), Vec::new());
+    if !state.private {
+        let mut tabs: Vec<&Tab> = data.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && Some(t.id) != data.active).collect();
+        tabs.sort_by_key(|t| std::cmp::Reverse(t.last_active));
+        recent = tabs.into_iter().take(SECTION_ROWS).map(tab).collect();
+        shown.extend(data.tabs.iter().map(|t| t.url.as_str()));
+        let mut pages: Vec<&HistoryEntry> = data.history.iter().filter(|h| !shown.contains(h.url.as_str())).collect();
+        pages.sort_by_key(|h| (std::cmp::Reverse(frecency(h.visits, h.visited_at, data.now)), std::cmp::Reverse(h.visited_at)));
+        let mut seen = HashSet::new();
+        frequent = pages
+            .into_iter()
+            .filter(|h| seen.insert(h.url.as_str()))
+            .take(SECTION_ROWS)
+            .map(|h| Entry { item: Item::History(h.url.clone()), label: display_title("", &h.title, &h.url), detail: page_detail(&h.url) })
+            .collect();
+    }
+    let ran: Vec<Command> = now.iter().filter_map(|e| if let Item::Command(c) = e.item { Some(c) } else { None }).collect();
+    let quick: Vec<Entry> = QUICK.iter().filter(usable).filter(|c| !ran.contains(c)).take(SECTION_ROWS).map(|c| command(*c)).collect();
+    [(Section::Now, now), (Section::Favorites, favorites), (Section::RecentTabs, recent), (Section::Frequent, frequent), (Section::QuickActions, quick)]
+        .into_iter()
+        .filter(|(_, rows)| !rows.is_empty())
+        .collect()
+}
+
+/// What a row's actions page offers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    Run,
+    Switch,
+    Close,
+    CopyLink,
+    /// Moves the tab to the client's `ix`-th move target.
+    MoveToSpace(usize),
+    Open,
+    OpenInNewTab,
+    RemoveFromHistory,
+}
+
+/// The actions page of `item`, named; `spaces` names the spaces a tab can move to, in the client's
+/// order. A command's page holds Run, beside which the client shows its shortcut.
+pub fn actions(item: &Item, spaces: &[&str]) -> Vec<(String, Action)> {
+    let named = |list: &[(&str, Action)]| list.iter().map(|(l, a)| ((*l).to_owned(), *a)).collect::<Vec<_>>();
+    match item {
+        Item::Command(_) => named(&[("Run", Action::Run)]),
+        Item::Tab(_) => {
+            let mut all = named(&[("Switch to Tab", Action::Switch), ("Close Tab", Action::Close), ("Copy Link", Action::CopyLink)]);
+            all.extend(spaces.iter().enumerate().map(|(ix, name)| (format!("Move to {}", crate::text::bounded_title(name)), Action::MoveToSpace(ix))));
+            all
+        }
+        Item::Bookmark(_) => named(&[("Open", Action::Open), ("Open in New Tab", Action::OpenInNewTab), ("Copy Link", Action::CopyLink)]),
+        Item::History(_) => named(&[
+            ("Open", Action::Open),
+            ("Open in New Tab", Action::OpenInNewTab),
+            ("Copy Link", Action::CopyLink),
+            ("Remove from History", Action::RemoveFromHistory),
+        ]),
+    }
+}
+
+/// How long the address field shakes when Enter meets an address Tarn cannot open.
+pub const SHAKE: Duration = Duration::from_millis(360);
+/// What the field says instead of shaking when motion is reduced.
+pub const INVALID_ADDRESS: &str = "Can\u{2019}t open this address";
+
+/// The field's horizontal offset in points at progress `t` (0 to 1) of the shake: three decaying
+/// swings that end at rest.
+pub fn shake(t: f32) -> f32 {
+    let t = t.clamp(0., 1.);
+    6. * (1. - t) * (t * 3. * std::f32::consts::TAU).sin()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,6 +566,98 @@ mod tests {
         assert_eq!(default_row(1, 4), Some(1));
         assert_eq!(default_row(0, 3), Some(0));
         assert_eq!(default_row(2, 2), None);
+    }
+
+    fn tab(id: Id, kind: TabKind, url: &str, last_active: i64) -> Tab {
+        Tab {
+            id,
+            space_id: 1,
+            folder_id: None,
+            kind,
+            url: url.into(),
+            title: format!("T{id}"),
+            position: id,
+            last_active,
+            group_id: None,
+            pinned_url: None,
+            custom_title: String::new(),
+            web_engine: None,
+        }
+    }
+
+    fn bookmark(url: Option<&str>, title: &str) -> Bookmark {
+        Bookmark { id: 1, profile_id: 1, parent_id: None, url: url.map(Into::into), title: title.into(), position: 0, created_at: 0 }
+    }
+
+    fn visit(url: &str, visits: i64, visited_at: i64) -> HistoryEntry {
+        HistoryEntry { url: url.into(), title: String::new(), visited_at, visits, typed: 0 }
+    }
+
+    #[test]
+    fn the_empty_bar_lists_its_sections_in_order_without_repeating_a_page() {
+        let tabs = [
+            tab(1, TabKind::Pinned, "https://mail.test/", 0),
+            tab(2, TabKind::Ephemeral, "https://a.test/", 10),
+            tab(3, TabKind::Ephemeral, "https://b.test/", 30),
+            tab(4, TabKind::Ephemeral, "https://c.test/", 20),
+        ];
+        let bookmarks = [bookmark(Some("https://mail.test/"), ""), bookmark(None, "Folder"), bookmark(Some("https://docs.test/"), "Docs")];
+        let now = 100 * 86_400_000;
+        let history = [
+            visit("https://a.test/", 50, now),
+            visit("https://old.test/", 3, now - 200 * 86_400_000),
+            visit("https://new.test/", 3, now),
+            visit("https://docs.test/", 9, now),
+        ];
+        let data = Data { tabs: &tabs, active: Some(4), bookmarks: &bookmarks, history: &history, now };
+        let found = sections(&State { reopenable: true, ..State::default() }, |_| true, &data);
+        let heads: Vec<Section> = found.iter().map(|(s, _)| *s).collect();
+        assert_eq!(heads, [Section::Now, Section::Favorites, Section::RecentTabs, Section::Frequent, Section::QuickActions]);
+        let items = |ix: usize| found[ix].1.iter().map(|e| e.item.clone()).collect::<Vec<_>>();
+        assert_eq!(found[0].1.len(), NOW_ROWS);
+        assert_eq!(items(1), [Item::Tab(1), Item::Bookmark("https://docs.test/".into())]);
+        assert_eq!(found[1].1[1].label, "Docs");
+        assert_eq!(items(2), [Item::Tab(3), Item::Tab(2)], "most recent first, without the active tab");
+        assert_eq!(items(3), [Item::History("https://new.test/".into()), Item::History("https://old.test/".into())]);
+        assert_eq!(found[4].1[0].item, Item::Command(Command::ReopenClosedTab));
+        assert!(found[4].1.len() <= SECTION_ROWS);
+    }
+
+    #[test]
+    fn a_private_space_lists_no_recent_tabs_or_frequent_pages() {
+        let tabs = [tab(1, TabKind::Ephemeral, "https://a.test/", 1), tab(2, TabKind::Ephemeral, "https://b.test/", 2)];
+        let history = [visit("https://c.test/", 4, 0)];
+        let data = Data { tabs: &tabs, active: Some(1), bookmarks: &[], history: &history, now: 0 };
+        let heads: Vec<Section> = sections(&State { private: true, ..State::default() }, |_| true, &data).into_iter().map(|(s, _)| s).collect();
+        assert_eq!(heads, [Section::Now, Section::QuickActions]);
+    }
+
+    #[test]
+    fn sections_list_only_what_the_tab_and_the_client_allow() {
+        let data = Data { tabs: &[], active: None, bookmarks: &[], history: &[], now: 0 };
+        let found = sections(&State { no_tab: true, no_page: true, ..State::default() }, |c| c != Command::Settings, &data);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0, Section::QuickActions);
+        assert!(found[0].1.iter().all(|e| !matches!(e.item, Item::Command(Command::Settings | Command::ReopenClosedTab | Command::Ask))));
+        assert!(sectioned("  ") && !sectioned("a"));
+    }
+
+    #[test]
+    fn each_row_kind_has_its_actions() {
+        let kinds = |item: Item, spaces: &[&str]| actions(&item, spaces).into_iter().map(|(_, a)| a).collect::<Vec<_>>();
+        assert_eq!(kinds(Item::Command(Command::Settings), &[]), [Action::Run]);
+        assert_eq!(kinds(Item::Tab(1), &["Work", "Home"]), [Action::Switch, Action::Close, Action::CopyLink, Action::MoveToSpace(0), Action::MoveToSpace(1)]);
+        assert_eq!(actions(&Item::Tab(1), &["Work"])[3].0, "Move to Work");
+        assert_eq!(kinds(Item::Bookmark("https://a.test/".into()), &[]), [Action::Open, Action::OpenInNewTab, Action::CopyLink]);
+        assert_eq!(kinds(Item::History("https://a.test/".into()), &[])[3], Action::RemoveFromHistory);
+    }
+
+    #[test]
+    fn the_shake_swings_and_comes_to_rest() {
+        assert_eq!(shake(0.), 0.);
+        assert!(shake(1.).abs() < 1e-4);
+        assert!((0..=100).map(|i| shake(i as f32 / 100.).abs()).all(|x| x <= 6.));
+        assert!((0..=100).any(|i| shake(i as f32 / 100.) < -2.) && (0..=100).any(|i| shake(i as f32 / 100.) > 2.));
     }
 
     #[test]

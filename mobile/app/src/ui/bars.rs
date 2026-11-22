@@ -471,7 +471,51 @@ fn bind_suggestion_keys(ui: Ui) {
     }
 }
 
+/// The empty field's sections on a phone: a caps header per section and a touch-sized row per entry.
+fn section_rows(ui: Ui, sectioned: &super::mac::Sectioned) -> View {
+    let mut list = view().flex_col();
+    for (ix, (section, entry)) in sectioned.iter().enumerate() {
+        if ix == 0 || sectioned[ix - 1].0 != *section {
+            list = list.child(view().px_3().pt_2().pb_1().child(tarn_nsh_shared::controls::caps_label(section.title())));
+        }
+        let glyph = match &entry.item {
+            browser_core::palette::Item::Command(_) => glyphs::glyph(browser_core::command::glyph(&entry.label)),
+            browser_core::palette::Item::Tab(_) => glyphs::APP_WINDOW,
+            browser_core::palette::Item::Bookmark(_) => glyphs::BOOKMARK,
+            browser_core::palette::Item::History(_) => glyphs::GLOBE,
+        };
+        let item = entry.item.clone();
+        list = list.child(
+            button()
+                .accessibility_label(SharedString::from(entry.label.clone()))
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .min_h(px(TOUCH_TARGET))
+                .px_3()
+                .rounded(px(Theme::radius_row()))
+                .active(|s| s.bg(Theme::pressed))
+                .on_press(move || super::mac::open_entry(ui, item.clone()))
+                .child(view().text_color(Theme::muted).child(glyphs::icon(glyph, ICON)))
+                .child(
+                    view()
+                        .flex_1()
+                        .child(label(entry.label.clone()).number_of_lines(1))
+                        .children((!entry.detail.is_empty()).then(|| small(entry.detail.clone()).number_of_lines(1))),
+                ),
+        );
+    }
+    list
+}
+
 pub fn suggestions(ui: Ui) -> impl IntoElement {
+    let sectioned = move || ui.editing.get() && ui.address.with(|a| browser_core::palette::sectioned(a));
+    let section_list = dynamic(move || {
+        (ui.editing.get() && !ui.mac.get()).then(|| {
+            let listed = super::mac::sections(ui);
+            dynamic(move || sectioned().then(|| section_rows(ui, &listed)))
+        })
+    });
     let found = move || if ui.editing.get() { ui.suggest.get() } else { Vec::new() };
     let answers = move || if ui.editing.get() { ui.address.with(|a| browser_core::palette::answers(a)) } else { Vec::new() };
     let answer_rows = each(
@@ -490,8 +534,13 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
         },
     );
     let list = scroll().flex_shrink(1.).style_when(move || ui.wide(), |s| s.flex_1()).child(suggestion_keys(ui)).child(
-        surface(Theme::radius_panel()).p_1().m_2().style_when(move || found().is_empty() && answers().is_empty(), |s| s.hidden()).child(answer_rows).child(
-            each(
+        surface(Theme::radius_panel())
+            .p_1()
+            .m_2()
+            .style_when(move || found().is_empty() && answers().is_empty() && !sectioned(), |s| s.hidden())
+            .child(section_list)
+            .child(answer_rows)
+            .child(each(
                 found,
                 |h: &store::HistoryEntry| h.url.clone(),
                 move |h, ix| {
@@ -507,8 +556,7 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
                     .rounded(px(Theme::radius_row()))
                     .bg(move || if ui.picked.get() == Some(ix.get()) { Theme::selected() } else { Theme::clear() })
                 },
-            ),
-        ),
+            )),
     );
     view().flex_1().style_when(move || !ui.editing.get() || ui.mac.get(), |s| s.hidden()).style_when(move || !ui.wide(), |s| s.justify_end()).child(list)
 }

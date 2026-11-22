@@ -336,6 +336,11 @@ pub enum Section {
     Tabs,
     Suggestions,
     History,
+    Now,
+    Favorites,
+    RecentTabs,
+    Frequent,
+    QuickActions,
 }
 
 impl Section {
@@ -345,6 +350,11 @@ impl Section {
             Section::Tabs => "TABS",
             Section::Suggestions => "SUGGESTIONS",
             Section::History => "HISTORY",
+            Section::Now => "NOW",
+            Section::Favorites => "FAVORITES",
+            Section::RecentTabs => "RECENT TABS",
+            Section::Frequent => "FREQUENT",
+            Section::QuickActions => "QUICK ACTIONS",
         }
     }
 }

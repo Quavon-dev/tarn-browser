@@ -519,7 +519,7 @@ fn section(target: &Target) -> Section {
 }
 
 pub fn sections(rows: &[Suggestion]) -> Vec<Option<Section>> {
-    browser_core::command::section_headers(&rows.iter().map(|s| section(&s.target)).collect::<Vec<_>>())
+    browser_core::command::section_headers(&rows.iter().map(|s| s.section.unwrap_or_else(|| section(&s.target))).collect::<Vec<_>>())
 }
 
 fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div> {

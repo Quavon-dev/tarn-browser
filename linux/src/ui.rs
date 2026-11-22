@@ -70,6 +70,8 @@ const RETIRE_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
 const SUGGESTIONS: usize = 6;
 const PALETTE_WIDTH: f32 = 640.;
 const PALETTE_ROW: f32 = 40.;
+/// Rows the empty command bar shows before its sections scroll.
+const SECTION_ROWS_SHOWN: f32 = 10.;
 const PROMPT_RADIUS: f32 = 12.;
 const FIND_RADIUS: f32 = 12.;
 const FIND_WIDTH: f32 = 380.;
@@ -143,6 +145,8 @@ pub struct Ui {
     command: Signal<String>,
     suggest: Signal<Vec<(String, String)>>,
     tabs: Signal<Vec<crate::browser::links::TabRow>>,
+    /// The empty command bar's rows (`tools::sections`).
+    sections: Signal<Vec<tools::SectionRow>>,
     pasteable: Signal<bool>,
     finding: Signal<bool>,
     find: Signal<String>,
@@ -448,6 +452,7 @@ fn new_tab(ui: Ui) {
         ui.completed.set(None);
         ui.picked.set(0);
         ui.suggest.set(Vec::new());
+        fill_sections(ui);
         ui.new_tab_card.set(true);
         return;
     }
@@ -1162,6 +1167,17 @@ fn show_suggestions(ui: Ui, rows: Vec<(String, String)>, query: &str, current: S
 /// A `>` list has only the command rows, from row 1.
 fn step_pick(ui: Ui, query: Signal<String>, key: &str) {
     let query = query.get_untracked();
+    if browser_core::palette::sectioned(&query) && !ui.find_tabs.get_untracked() {
+        let rows = ui.sections.with_untracked(Vec::len);
+        ui.picked.update(|p| {
+            *p = 1 + match key {
+                "pageup" => 0,
+                "pagedown" => rows.saturating_sub(1),
+                _ => browser_core::suggest::step_selection(p.checked_sub(1).unwrap_or(rows), rows, key == "down"),
+            }
+        });
+        return;
+    }
     let commands = tools::commands(ui, &query).len();
     let listed = ui.tabs.with_untracked(Vec::len) + ui.suggest.with_untracked(Vec::len);
     let (first, rows) = if tools::listing(&query) { (1, commands) } else { (0, 1 + commands + listed) };
@@ -1185,6 +1201,12 @@ fn submit(ui: Ui, query: Signal<String>, text: String) {
         }
         return;
     }
+    if browser_core::palette::sectioned(&query.get_untracked())
+        && !ui.find_tabs.get_untracked()
+        && let Some((_, entry, _)) = ui.sections.with_untracked(|s| s.get(picked.wrapping_sub(1)).cloned())
+    {
+        return run_entry(ui, &entry.item);
+    }
     if picked == 0 || ui.find_tabs.get_untracked() {
         return go(ui, text);
     }
@@ -1203,6 +1225,24 @@ fn submit(ui: Ui, query: Signal<String>, text: String) {
 fn clear_suggestions(ui: Ui) {
     ui.suggest.set(Vec::new());
     ui.tabs.set(Vec::new());
+    ui.sections.set(Vec::new());
+}
+
+fn fill_sections(ui: Ui) {
+    ui.sections.set(tools::sections(ui, &history(ui)));
+}
+
+fn run_entry(ui: Ui, item: &browser_core::palette::Item) {
+    use browser_core::palette::Item;
+    match item {
+        Item::Command(c) => {
+            if let Some((command, _)) = tools::section_command(ui, *c) {
+                tools::pick(ui, command);
+            }
+        }
+        Item::Tab(id) => switch_to_tab(ui, TabKey { private: read(ui, |b| b.model.private()).unwrap_or(false), id: *id }),
+        Item::Bookmark(url) | Item::History(url) => go(ui, url.clone()),
+    }
 }
 
 /// A field's text after a `;name` expanded, with the caret after it.
@@ -1299,6 +1339,9 @@ fn open_palette(ui: Ui) {
     ui.picked.set(0);
     clear_suggestions(ui);
     load_history(ui);
+    if browser_core::palette::sectioned(&ui.address.get_untracked()) {
+        fill_sections(ui);
+    }
     ui.editing.set(true);
 }
 
@@ -1673,8 +1716,7 @@ pub(super) fn picked_fill(ui: Ui, row: usize) -> Rgba {
     if ui.picked.get() == row { Theme::selected() } else { rgba(0) }
 }
 
-fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
-    let first = computed(move || 1 + tools::commands(ui, &query.get()).len());
+fn pick_keys(ui: Ui, query: Signal<String>, address: bool) {
     for key in ["up", "down", "pageup", "pagedown"] {
         let options = KeyOptions { when: nsh_core::keymap::When::Always, repeat: true, ..KeyOptions::default() };
         // The start card's rows and the address field's can both be on screen; only the edited field's move.
@@ -1684,6 +1726,56 @@ fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
             }
         });
     }
+}
+
+/// The empty field's sections; row `n` of them is picked row `n + 1`.
+fn section_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
+    pick_keys(ui, query, address);
+    let rows = dynamic(move || {
+        let items: Vec<AnyElement> = ui
+            .sections
+            .get()
+            .into_iter()
+            .enumerate()
+            .map(|(ix, (section, entry, url))| {
+                let row = ix + 1;
+                let at = element_ref();
+                effect(move || {
+                    if ui.picked.get() == row {
+                        at.reveal(nsh_core::RevealOptions::default().vertical(nsh_core::ScrollAlignment::Nearest));
+                    }
+                });
+                let (tile, keys) = match entry.item {
+                    browser_core::palette::Item::Command(c) => (
+                        row_glyph(ui, icons::glyph(browser_core::command::glyph(&entry.label)), move || row),
+                        tools::section_command(ui, c).and_then(|(_, keys)| keys),
+                    ),
+                    _ => (view().w(px(28.)).items_center().child(site_tile(ui, &host_of(&url), 20.)), None),
+                };
+                let item = entry.item.clone();
+                view()
+                    .flex_col()
+                    .children(section.map(|s| row_section(s.title())))
+                    .child(
+                        suggestion_row(entry.label.clone(), move || run_entry(ui, &item))
+                            .element_ref(&at)
+                            .bg(move || picked_fill(ui, row))
+                            .child(tile)
+                            .child(label(entry.label).flex_1().truncate())
+                            .children((!entry.detail.is_empty()).then(|| detail(entry.detail)))
+                            .children(keys.map(|k| tarn_nsh_shared::controls::key_caps(&k))),
+                    )
+                    .into_element()
+            })
+            .collect();
+        view().flex_col().gap(px(2.)).children(items)
+    });
+    view().flex_col().py(px(6.)).child(scroll().max_h(px(SECTION_ROWS_SHOWN * (PALETTE_ROW + 2.))).child(rows))
+}
+
+fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
+    let first = computed(move || 1 + tools::commands(ui, &query.get()).len());
+    pick_keys(ui, query, address);
     let listed = move || if query.with(|q| tools::listing(q)) { Vec::new() } else { ui.suggest.get() };
     let tabs = move || if query.with(|q| tools::listing(q)) { Vec::new() } else { ui.tabs.get() };
     let after_tabs = computed(move || first.get() + ui.tabs.with(Vec::len));
@@ -1752,6 +1844,7 @@ fn palette(ui: Ui) -> AnyElement {
                         set_caret_at_end(ui.address, ui.address_ref, full);
                     } else if value != ui.address.get_untracked() {
                         let _span = engine::startup::span(engine::startup::PALETTE_QUERY);
+                        ui.sections.set(if browser_core::palette::sectioned(value) { tools::sections(ui, &history(ui)) } else { Vec::new() });
                         let (history, typed) = (history(ui), ui.typed.get_untracked());
                         let edit = read(ui, |b| b.address_edit(&typed, value, &history, SUGGESTIONS));
                         let Some((rows, completion)) = edit else { return };
@@ -1803,7 +1896,13 @@ fn palette(ui: Ui) -> AnyElement {
                     return tools::find_rows(ui).into_element();
                 }
                 let typed = ui.address.with(|a| !a.trim().is_empty() && ui.snap.with(|s| *a != s.url));
-                if typed { suggestion_rows(ui, ui.address, true).into_element() } else { view().into_element() }
+                if typed {
+                    suggestion_rows(ui, ui.address, true).into_element()
+                } else if ui.address.with(|a| browser_core::palette::sectioned(a)) {
+                    section_rows(ui, ui.address, true).into_element()
+                } else {
+                    view().into_element()
+                }
             });
             let hint = tarn_nsh_shared::controls::key_hint;
             let footer = view()
@@ -1858,6 +1957,9 @@ fn start_card(ui: Ui) -> AnyElement {
             if ui.snap.with_untracked(|s| s.devtools) {
                 devtools::refresh_servers(ui);
             }
+            if browser_core::palette::sectioned(&ui.command.get_untracked()) {
+                fill_sections(ui);
+            }
             let field = input()
                 .value(move || ui.command.get())
                 .on_change(move |v: &str| {
@@ -1870,6 +1972,7 @@ fn start_card(ui: Ui) -> AnyElement {
                         return set_caret_at_end(ui.command, ui.command_ref, full);
                     }
                     ui.command.set(v.to_owned());
+                    ui.sections.set(if browser_core::palette::sectioned(v) { tools::sections(ui, &history(ui)) } else { Vec::new() });
                     show_suggestions(ui, crate::input::suggestions(&history(ui), &[], v, SUGGESTIONS), v, ui.command);
                 })
                 .on_submit(move |v: &str| {
@@ -1926,6 +2029,10 @@ fn start_card(ui: Ui) -> AnyElement {
                 .shadow(Theme::elevation(18., 48.))
                 .child(input_row)
                 .child(when(typing, move || suggestion_rows(ui, ui.command, false).mb_1().border_t_1().border_color(Theme::hairline())))
+                .child(when(
+                    move || !typing() && ui.sections.with(|s| !s.is_empty()),
+                    move || section_rows(ui, ui.command, false).mb_1().border_t_1().border_color(Theme::hairline()),
+                ))
                 .child(footer);
             let column = view()
                 .flex_col()
@@ -2663,6 +2770,7 @@ fn new_ui(row: SavedWindow, torn: Option<browser_core::tabs::Torn>) -> Ui {
         command: signal(String::new()),
         suggest: signal(Vec::new()),
         tabs: signal(Vec::new()),
+        sections: signal(Vec::new()),
         pasteable: signal(false),
         finding: signal(false),
         find: signal(String::new()),

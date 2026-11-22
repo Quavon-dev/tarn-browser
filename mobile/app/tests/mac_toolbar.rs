@@ -135,4 +135,14 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.submit("id:palette-field").unwrap();
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
     app.wait_for("Pin tabs from their menu").unwrap();
+
+    app.press_key("mod+l").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    app.clear("id:palette-field").unwrap();
+    for section in ["NOW", "QUICK ACTIONS"] {
+        app.wait_for(section).unwrap();
+    }
+    app.wait_for("label:Copy Link").unwrap();
+    app.press("label:Show History").unwrap();
+    app.wait_for_gone("id:palette-field", WAIT).unwrap();
 }

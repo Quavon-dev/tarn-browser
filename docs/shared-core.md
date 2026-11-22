@@ -422,6 +422,15 @@ joined only by `-` or `/` such as a date or "24/7", gets no answer unless typed 
 "1,5 km in m", "12 in to cm"), and `palette::emoji` finds emoji by name after a `:` in a built-in
 table. Nothing is fetched, so there is no currency conversion.
 
+**Command bar sections:** while nothing is typed (`palette::sectioned`), every client lists
+`palette::sections(state, offered, data)` instead of ranked rows, under `command::Section` headers:
+Now (commands for the current tab), Favorites (pinned tabs, then top-level bookmarks), Recent Tabs
+(the `SECTION_ROWS` most recently used other tabs), Frequent (history by `suggest::frecency`) and
+Quick Actions; empty sections are left out and a page shows once. `palette::Data` carries the
+space's tabs, the active tab, the profile's bookmarks and the history the bar already loaded. A
+private space lists no Recent Tabs and no Frequent rows. Nothing is highlighted until the user
+moves, so Enter on the empty field opens nothing.
+
 **Notes:** `browser_core::notes` is the notes list and editor every client renders: `rows(notes,
 query)` filters by title and text without case (title matches first, last edited first) and gives
 each row its shown title (`notes::title`: the title, else the first line, else `UNTITLED`) and a

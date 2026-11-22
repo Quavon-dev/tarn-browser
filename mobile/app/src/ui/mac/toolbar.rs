@@ -1,7 +1,8 @@
 use std::rc::Rc;
 
+use browser_core::command::Section;
 use browser_core::command::{ENGINES, Input, address, classify_input, search_engine};
-use browser_core::palette::{self, Command, Row, State, listing};
+use browser_core::palette::{self, Command, Data, Entry, Item, Row, State, listing};
 use browser_core::shortcuts;
 use browser_core::suggest::step_selection;
 use nsh_base::input;
@@ -20,7 +21,7 @@ use url::Url;
 use super::super::{Screen, Ui, bars};
 use crate::theme::{TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
 
-const OFFERED: [Command; 26] = [
+const OFFERED: [Command; 29] = [
     Command::OpenFile,
     Command::ReopenClosedTab,
     Command::TogglePin,
@@ -47,6 +48,9 @@ const OFFERED: [Command; 26] = [
     Command::TabsOnTop,
     Command::Ask,
     Command::AskPage,
+    Command::ShowHistory,
+    Command::ShowDownloads,
+    Command::Settings,
 ];
 
 fn level_name(level: ShieldLevel) -> &'static str {
@@ -280,6 +284,7 @@ fn state(ui: Ui) -> State {
 fn offered(ui: Ui, command: Command) -> bool {
     OFFERED.contains(&command)
         && match command {
+            Command::ToggleSplitView | Command::TabsOnTop => ui.wide(),
             Command::Reader => ui.read(|s| s.offers_reader()),
             Command::ZapElement => ui.read(|s| s.zappable()),
             Command::TakeScreenshot | Command::CaptureArea | Command::CaptureElement | Command::CaptureFullPage | Command::InsertSnippet => {
@@ -289,6 +294,40 @@ fn offered(ui: Ui, command: Command) -> bool {
             Command::CopyLink | Command::CopyCleanLink | Command::ShowQrCode | Command::SaveForLater => ui.read(|s| s.share_url().is_some()),
             _ => true,
         }
+}
+
+pub(in crate::ui) type Sectioned = Rc<Vec<(Section, Entry)>>;
+
+/// The empty command bar's rows (`palette::sections`), each with its section, read once per open.
+pub(in crate::ui) fn sections(ui: Ui) -> Sectioned {
+    untracked(|| {
+        let state = state(ui);
+        let found = ui.read(|s| {
+            let private = s.model.private();
+            let bookmarks = s.profile_id().filter(|_| !private).and_then(|id| s.store().bookmarks(id).ok()).unwrap_or_default();
+            let history = if private { Vec::new() } else { s.suggestion_history() };
+            let data = Data { tabs: &s.model.tabs, active: s.model.active.map(|k| k.id), bookmarks: &bookmarks, history: &history, now: browser_core::now() };
+            palette::sections(&state, |c| offered(ui, c), &data)
+        });
+        Rc::new(found.into_iter().flat_map(|(section, rows)| rows.into_iter().map(move |e| (section, e))).collect())
+    })
+}
+
+/// Opens a row of `sections`: runs its command, switches to its tab or opens its page.
+pub(in crate::ui) fn open_entry(ui: Ui, item: Item) {
+    match item {
+        Item::Command(c) => pick(ui, Pick::Run(c)),
+        Item::Tab(id) => {
+            ui.fresh.set(None);
+            close_palette(ui);
+            ui.act(|s| {
+                s.activate(browser_core::tabs::TabKey { private: s.model.private(), id });
+                Vec::new()
+            });
+            ui.show(Screen::Browse);
+        }
+        Item::Bookmark(url) | Item::History(url) => go(ui, url),
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -352,6 +391,9 @@ fn run(ui: Ui, command: Command) {
         Command::ShowQrCode => ui.show(Screen::Qr),
         Command::Snapshots => ui.show(Screen::Spaces),
         Command::ReadingList => ui.show(Screen::ReadingList),
+        Command::ShowHistory => ui.show(Screen::History),
+        Command::ShowDownloads => ui.show(Screen::Downloads),
+        Command::Settings => ui.show(Screen::Settings),
         Command::ToggleSplitView => toggle_split(ui),
         Command::RotateSplitLayout => on_active(ui, |s, k| {
             s.splits.rotate(k);
@@ -398,7 +440,13 @@ fn go(ui: Ui, text: String) {
     ui.act(|s| s.navigate_typed(&text));
 }
 
-fn submit(ui: Ui, text: String, completed: Option<(String, String)>) {
+fn submit(ui: Ui, text: String, completed: Option<(String, String)>, sectioned: &Sectioned) {
+    if palette::sectioned(&text) {
+        if let Some((_, entry)) = ui.picked.get_untracked().and_then(|ix| sectioned.get(ix)) {
+            open_entry(ui, entry.item.clone());
+        }
+        return;
+    }
     let picked = ui.picked.get_untracked().unwrap_or(0);
     let commands = commands(ui, &text);
     if listing(&text) {
@@ -422,10 +470,15 @@ fn typed_target(text: String, completed: Option<(String, String)>) -> String {
     completed.filter(|(full, _)| *full == text).map_or(text, |(_, url)| url)
 }
 
-fn step(ui: Ui, key: &str) {
+fn step(ui: Ui, key: &str, sectioned: &Sectioned) {
     let query = ui.address.get_untracked();
-    let commands = commands(ui, &query).len();
-    let (first, count) = if listing(&query) { (1, commands) } else { (0, 1 + commands + ui.suggest.with_untracked(Vec::len)) };
+    let (first, count) = if palette::sectioned(&query) {
+        (0, sectioned.len())
+    } else if listing(&query) {
+        (1, commands(ui, &query).len())
+    } else {
+        (0, 1 + commands(ui, &query).len() + ui.suggest.with_untracked(Vec::len))
+    };
     if count == 0 {
         return;
     }
@@ -438,9 +491,10 @@ fn step(ui: Ui, key: &str) {
     ui.picked.set(Some(first + next));
 }
 
-fn bind_keys(ui: Ui) {
+fn bind_keys(ui: Ui, sectioned: &Sectioned) {
     for key in ["up", "down", "pageup", "pagedown"] {
-        on_key_with(key, KeyOptions { when: When::Always, repeat: true, ..KeyOptions::default() }, move |_| step(ui, key));
+        let sectioned = sectioned.clone();
+        on_key_with(key, KeyOptions { when: When::Always, repeat: true, ..KeyOptions::default() }, move |_| step(ui, key, &sectioned));
     }
     on_key_with("escape", KeyOptions { when: When::Always, ..KeyOptions::default() }, move |_| close_palette(ui));
 }
@@ -523,7 +577,40 @@ fn suggestion_rows(ui: Ui) -> impl IntoElement {
     ))
 }
 
-fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>) -> impl IntoElement {
+/// The empty bar's sections; Enter opens nothing until a row is picked.
+fn section_rows(ui: Ui, sectioned: &Sectioned) -> impl IntoElement {
+    let mut list = view().flex_col().gap(px(tarn_nsh_shared::toolbar::TOOL_GAP));
+    for (ix, (section, entry)) in sectioned.iter().enumerate() {
+        if ix == 0 || sectioned[ix - 1].0 != *section {
+            list = list.child(row_section(section.title()));
+        }
+        let item = entry.item.clone();
+        let row_ = row(entry.label.clone(), move || open_entry(ui, item.clone())).bg(move || picked_fill(ui.picked.get() == Some(ix)));
+        list = list.child(match &entry.item {
+            Item::Command(c) => row_
+                .child(row_glyph(glyphs::glyph(browser_core::command::glyph(&entry.label)), move || ui.picked.get() == Some(ix)))
+                .child(row_name(entry.label.clone(), Theme::text()))
+                .children(
+                    shortcuts::for_command(*c)
+                        .filter(|a| super::input::offered(*a))
+                        .and_then(|a| shortcuts::keys_for(a, super::input::keyboard()))
+                        .map(|k| key_caps(&k)),
+                ),
+            Item::Tab(_) | Item::Bookmark(_) | Item::History(_) => {
+                let url = match &entry.item {
+                    Item::Tab(id) => ui.read(|s| s.model.tabs.iter().find(|t| t.id == *id).map(|t| t.url.clone())).unwrap_or_default(),
+                    Item::Bookmark(u) | Item::History(u) => u.clone(),
+                    Item::Command(_) => String::new(),
+                };
+                let site = Url::parse(&url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+                row_.child(row_site(None, &site)).child(row_name(entry.label.clone(), Theme::text())).child(row_detail(entry.detail.clone()))
+            }
+        });
+    }
+    list
+}
+
+fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>, sectioned: Sectioned) -> impl IntoElement {
     let typed = signal(String::new());
     let history = Rc::new(ui.read(|s| s.suggestion_history()));
     let at = element_ref();
@@ -544,7 +631,7 @@ fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>) -> impl In
             let (found, completion) = ui.read(|s| s.suggest_from(&history, &typed.get_untracked(), value));
             typed.set(value.to_owned());
             ui.suggest.set(found);
-            ui.picked.set(Some(usize::from(listing(value))));
+            ui.picked.set((!palette::sectioned(value)).then(|| usize::from(listing(value))));
             let full = format!("{value}{}", completion.as_ref().map_or("", |c| c.suffix.as_str()));
             completed.set(completion.map(|c| (full.clone(), c.url.to_string())));
             ui.address.set(full.clone());
@@ -552,7 +639,7 @@ fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>) -> impl In
                 at.set_selection(value.encode_utf16().count() as u32, full.encode_utf16().count() as u32);
             }
         })
-        .on_submit(move |value: &str| submit(ui, value.to_owned(), completed.get_untracked()))
+        .on_submit(move |value: &str| submit(ui, value.to_owned(), completed.get_untracked(), &sectioned))
         .keyboard_type(KeyboardType::Url)
         .return_key_type(ReturnKeyType::Go)
         .auto_capitalize(AutoCapitalize::None)
@@ -571,13 +658,25 @@ pub(super) fn palette(ui: Ui) -> impl IntoElement {
     when(
         move || ui.editing.get(),
         move || {
-            bind_keys(ui);
+            let sectioned = sections(ui);
+            bind_keys(ui, &sectioned);
             let completed = signal(None::<(String, String)>);
             let typed = move || ui.address.with(|a| !a.trim().is_empty()) && ui.read(|s| ui.address.with(|a| *a != s.active_url()));
             themed(move || {
-                let list = dynamic(move || typed().then(|| rows().child(input_row(ui, completed)).child(command_rows(ui)).child(suggestion_rows(ui))));
-                tarn_nsh_shared::toolbar::palette(palette_field(ui, completed), move || ui.address.with(|a| listing(a)), list, move || close_palette(ui))
-                    .top(px(TOOLBAR_HEIGHT))
+                let shown = sectioned.clone();
+                let list = dynamic(move || {
+                    if ui.address.with(|a| palette::sectioned(a)) {
+                        return (!shown.is_empty()).then(|| rows().child(section_rows(ui, &shown)).into_element());
+                    }
+                    typed().then(|| rows().child(input_row(ui, completed)).child(command_rows(ui)).child(suggestion_rows(ui)).into_element())
+                });
+                tarn_nsh_shared::toolbar::palette(
+                    palette_field(ui, completed, sectioned.clone()),
+                    move || ui.address.with(|a| listing(a)),
+                    list,
+                    move || close_palette(ui),
+                )
+                .top(px(TOOLBAR_HEIGHT))
             })
         },
     )

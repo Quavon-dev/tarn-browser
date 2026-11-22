@@ -4,6 +4,8 @@ mod settings;
 mod sidebar;
 mod toolbar;
 
+pub(super) use toolbar::{Sectioned, open_entry, sections};
+
 use nsh_core::prelude::*;
 
 use super::{Screen, Ui};

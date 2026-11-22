@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Instant, UNIX_EPOCH};
 
-use browser_core::palette::Command;
+use browser_core::palette::{Command, Item};
 use browser_core::suggest::{self, Page};
 use engine::nav_policy::{self, Decision, Source};
 use engine::{DataStore, Event, Host, Popup, Prompt, PromptKind, WebView};
@@ -158,6 +158,8 @@ pub enum Target {
 }
 
 pub struct Suggestion {
+    /// The empty bar's section the row is listed in; `None` derives it from the target.
+    pub section: Option<browser_core::command::Section>,
     pub label: String,
     pub detail: String,
     pub target: Target,
@@ -1686,7 +1688,7 @@ impl Browser {
         }
         command::rank_commands(query, rows.iter().map(|(label, _)| (label.as_str(), "space workspace")))
             .into_iter()
-            .map(|ix| Suggestion { label: rows[ix].0.clone(), detail: String::new(), target: Target::Action(rows[ix].1.boxed_clone()) })
+            .map(|ix| Suggestion { section: None, label: rows[ix].0.clone(), detail: String::new(), target: Target::Action(rows[ix].1.boxed_clone()) })
             .collect()
     }
 
@@ -1771,8 +1773,37 @@ impl Browser {
         }
         let command = |(label, c): (String, Command)| {
             let detail = crate::command_action(c).map(|a| crate::shortcuts::shown(a, cx)).unwrap_or_default();
-            Suggestion { label, detail, target: Target::Input(Input::Command(c.index())) }
+            Suggestion { section: None, label, detail, target: Target::Input(Input::Command(c.index())) }
         };
+        if browser_core::palette::sectioned(&query) {
+            let private = self.model.private();
+            let data = browser_core::palette::Data {
+                tabs: &self.model.tabs,
+                active: self.model.active.map(|k| k.id),
+                bookmarks: &self.bookmarks,
+                history: &self.history_cache,
+                now: now(),
+            };
+            let mut out = Vec::new();
+            for (section, entries) in browser_core::palette::sections(&state, offered, &data) {
+                for entry in entries {
+                    let row = match entry.item {
+                        Item::Command(c) => command((entry.label, c)),
+                        Item::Tab(id) => Suggestion { section: None, label: entry.label, detail: entry.detail, target: Target::Tab(TabKey { private, id }) },
+                        Item::Bookmark(url) | Item::History(url) => {
+                            let Ok(url) = Url::parse(&url) else { continue };
+                            Suggestion { section: None, label: entry.label, detail: entry.detail, target: Target::Url(url) }
+                        }
+                    };
+                    out.push(Suggestion { section: Some(section), ..row });
+                }
+            }
+            self.suggestions = out;
+            self.selected = usize::MAX;
+            self.suggested = Some((query, None));
+            cx.notify();
+            return;
+        }
         let space_rows = self.space_commands(&query);
         if query.starts_with('>') {
             self.suggestions = commands.into_iter().map(command).chain(space_rows).collect();
@@ -1798,7 +1829,7 @@ impl Browser {
                 Input::Rejected => (query.clone(), "This kind of address cannot be opened".to_owned()),
                 Input::Command(_) => unreachable!("classify_input never names a command"),
             };
-            out.push(Suggestion { label, detail, target: Target::Input(input) });
+            out.push(Suggestion { section: None, label, detail, target: Target::Input(input) });
         }
         if !exact {
             out.extend(commands.into_iter().map(command));
@@ -1827,13 +1858,18 @@ impl Browser {
                     (Target::Input(Input::Navigate(c.url.clone())), detail)
                 }
             };
-            out.insert(0, Suggestion { label: ui::text::bounded_url(&shown), detail: ui::text::bounded_url(&detail), target });
+            out.insert(0, Suggestion { section: None, label: ui::text::bounded_url(&shown), detail: ui::text::bounded_url(&detail), target });
         }
         let answers = browser_core::palette::answers(&query);
         let answered = answers.len();
         out.splice(
             0..0,
-            answers.into_iter().map(|a| Suggestion { label: a.label, detail: browser_core::palette::ANSWER_DETAIL.to_owned(), target: Target::Copy(a.copy) }),
+            answers.into_iter().map(|a| Suggestion {
+                section: None,
+                label: a.label,
+                detail: browser_core::palette::ANSWER_DETAIL.to_owned(),
+                target: Target::Copy(a.copy),
+            }),
         );
         let typed = out.len();
         let listed: HashSet<TabKey> = out.iter().filter_map(|s| if let Target::Tab(k) = s.target { Some(k) } else { None }).collect();
@@ -1863,6 +1899,7 @@ impl Browser {
         found.truncate(room - ranked.len());
         let history_row = |url: &str, title: &str| {
             Url::parse(url).ok().map(|target| Suggestion {
+                section: None,
                 label: ui::text::bounded_title(if title.is_empty() { url } else { title }),
                 detail: ui::text::bounded_url(url.trim_start_matches("https://").trim_end_matches('/')),
                 target: Target::Url(target),
@@ -1872,6 +1909,7 @@ impl Browser {
             let page = pages[ix];
             if ix < tabs.len() {
                 out.push(Suggestion {
+                    section: None,
                     label: ui::text::bounded_title(if page.title.is_empty() { page.url } else { page.title }),
                     detail: "Switch to Tab".to_owned(),
                     target: Target::Tab(TabKey { private, id: tabs[ix].id }),
@@ -2012,6 +2050,7 @@ impl Browser {
             .tabs_showing(&self.core, url)
             .into_iter()
             .map(|(key, t, space)| Suggestion {
+                section: None,
                 label: ui::text::bounded_title(if t.title.is_empty() { &t.url } else { &t.title }),
                 detail: browser_core::tabs::switch_detail(space.as_deref()),
                 target: Target::Tab(key),
