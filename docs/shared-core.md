@@ -259,6 +259,19 @@ keeps the host's TLS key policy (`StrongKeys`) and proxy hooks, where rustls's p
 would need its Kotlin component bundled into the APK and initialised over JNI. `Fetch.post` accepts
 HTTPS only, so Ollama is not reachable on Android.
 
+On-device models implement `ai::LocalModel` (a `Provider` with `availability()`: `Available`,
+`NotSupported(reason)` or `NeedsSetup(reason)`). `ai::local::stream` asks the model only when it is
+available and otherwise fails with `AiError::Unavailable` and that reason; nothing falls back to a
+cloud provider. `ai::local::route(choice, availability, on_device_task)` is the assistant's rule for
+who answers: a local choice is answered locally or not at all, and a selection command or summary
+stays on the device whenever a local model is available, even with the cloud chosen. Backends:
+`engine::foundation_models::FoundationModel` on macOS and iOS (Apple's on-device model through the
+Swift shim `crates/engine/src/foundation_models.swift`, built by `crates/engine/build.rs` with the
+`foundation-models` feature, which needs the macOS or iOS 26 SDK; `app/foundation-models` and
+`tarn-mobile-ios/foundation-models` forward it), and `ai::Ollama`, which counts as local once
+something listens on its loopback port (macOS, Windows, Linux). Windows and Android have no
+on-device model (`docs/windows-plan.md` §8, `docs/mobile-plan.md`).
+
 The Claude API token lives behind `ai::Secrets` (`get`, `set`, `delete` by service and account;
 `ai::secrets::{store_token, load_token, delete_token}`), never in a file or the database.
 `ai::secrets::Keyring` is the Keychain on macOS and iOS, the Credential Manager on Windows and the

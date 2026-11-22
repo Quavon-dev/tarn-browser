@@ -17,6 +17,7 @@ path = "src/main.rs"
 [features]
 chromium = ["engine/chromium"]
 translation = ["engine/translation"]
+foundation-models = ["engine/foundation-models"]
 
 [dependencies]
 devkit.workspace = true

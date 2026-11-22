@@ -306,6 +306,13 @@ decisions come from `browser_core::tarn_ext`.
   reports when a page starts playing media, so the mini-player (`browser_core::media::Player`) asks a
   tab when the user leaves it, after a button press and while its media plays; media that starts later
   in a tab already left shows once the tab is asked again.
+- **On-device model.** iOS answers with Apple's on-device model (`engine::foundation_models`,
+  `tarn-mobile-ios` feature `foundation-models`, iOS 26 SDK), which never leaves the device.
+- **Gap: an on-device model on Android.** The Android SDK has no public on-device language model API
+  (`android.jar` up to API 37 has none); Gemini Nano is reached only through Google's ML Kit GenAI or
+  AI Edge libraries, new Gradle dependencies outside the platform. Ollama is not reachable either
+  (`Fetch.post` is HTTPS only), so Android has no local model and `ai::local::route` answers
+  Unavailable for a local choice there.
 - **Gap: playing media on Android.** Android has no isolated world that runs as the user's gesture, so the
   `media` command's `play` is refused where the page's media needs one (`setMediaPlaybackRequiresUserGesture`);
   pause and seek work.

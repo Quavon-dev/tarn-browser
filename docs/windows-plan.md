@@ -372,6 +372,10 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
   which S22 refuses. Shipping that would break S18 (per-profile installs, per-site prompts, none in
   private or Lockdown), so Settings › Extensions says only Tarn extensions run on Windows until CEF
   offers per-context loading and host permissions.
+- **On-device model, a gap.** Windows' on-device language model (`Microsoft.Windows.AI.Text`)
+  belongs to the Windows App SDK, which the `windows` and `windows-sys` crates in `Cargo.lock` do not
+  cover; reaching it needs the Windows App SDK runtime and its projection, a new dependency. The
+  assistant's local option on Windows is Ollama on loopback (`ai::Ollama` as `ai::LocalModel`).
 - **GPUI Windows maturity:** fewer users than macOS; IME and accessibility (UI Automation) gaps
   may block release.
 - **Code-signing cost and SmartScreen reputation** for an unfunded open-source project.

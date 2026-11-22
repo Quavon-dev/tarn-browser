@@ -29,6 +29,7 @@ pub enum AiError {
     Refused,
     Secrets(String),
     Cli(String),
+    Unavailable(String),
 }
 
 impl fmt::Display for AiError {
@@ -41,6 +42,7 @@ impl fmt::Display for AiError {
             Self::Refused => f.write_str("the model declined to answer"),
             Self::Secrets(e) => write!(f, "secret store: {e}"),
             Self::Cli(e) => write!(f, "claude cli: {e}"),
+            Self::Unavailable(why) => f.write_str(why),
         }
     }
 }
@@ -48,7 +50,7 @@ impl fmt::Display for AiError {
 impl std::error::Error for AiError {}
 
 impl Request {
-    pub(crate) fn user_message(&self) -> String {
+    pub fn user_message(&self) -> String {
         match &self.page {
             None => self.question.clone(),
             Some(p) => format!(

@@ -1,12 +1,16 @@
+use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use serde_json::json;
 
+use crate::local::{Availability, LocalModel};
 use crate::provider::{self, AiError, Provider, Request};
 use crate::transport::Transport;
 
 const URL: &str = "http://127.0.0.1:11434/api/chat";
+pub const NOT_RUNNING: &str = "Ollama is not running on this device. Start it, then try again.";
 
 #[derive(Debug, Clone)]
 pub struct Ollama {
@@ -18,6 +22,26 @@ pub struct Ollama {
 impl Ollama {
     pub fn new(model: impl Into<String>, transport: Arc<dyn Transport>) -> Self {
         Self { model: model.into(), url: URL.into(), transport }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn at_port(port: u16, model: &str, transport: Arc<dyn Transport>) -> Self {
+        Self { url: format!("http://127.0.0.1:{port}/api/chat"), ..Self::new(model, transport) }
+    }
+
+    fn listening(&self) -> bool {
+        let addr = url::Url::parse(&self.url).ok().and_then(|u| match u.host() {
+            Some(url::Host::Ipv4(ip)) if ip.is_loopback() => Some(SocketAddr::from((ip, u.port_or_known_default()?))),
+            _ => None,
+        });
+        addr.is_some_and(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok())
+    }
+}
+
+/// Ollama runs on this machine, so it counts as local once something listens on its loopback port.
+impl LocalModel for Ollama {
+    fn availability(&self) -> Availability {
+        if self.listening() { Availability::Available } else { Availability::NeedsSetup(NOT_RUNNING.into()) }
     }
 }
 

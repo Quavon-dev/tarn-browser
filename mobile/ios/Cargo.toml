@@ -6,6 +6,9 @@ license.workspace = true
 publish.workspace = true
 rust-version.workspace = true
 
+[features]
+foundation-models = ["engine/foundation-models"]
+
 [dependencies]
 browser-core.workspace = true
 engine.workspace = true
