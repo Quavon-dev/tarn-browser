@@ -88,6 +88,8 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.wait_for("label:Tabs 2").unwrap();
     app.press("label:Tabs 2").unwrap();
     app.wait_for("label:Close Tab").unwrap();
+    assert!(app.screen().shows("Clean Up"), "the phone Tabs sheet sorts two loose tabs");
+    assert!(!app.screen().shows("Group with Assistant"), "Group with Assistant waits for AI in Settings");
     app.press("label:Close Tab >> nth=1").unwrap();
     app.wait_for("label:Tabs 1").unwrap();
     app.press("Done").unwrap();

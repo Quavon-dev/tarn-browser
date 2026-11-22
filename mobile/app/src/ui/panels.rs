@@ -218,6 +218,20 @@ fn tabs(ui: Ui) -> impl IntoElement {
                     })
                 }))
                 .child(dynamic(move || {
+                    ui.read(|s| browser_core::sidebar::cleanable(&s.model)).then(|| {
+                        pill("Clean Up", move || {
+                            ui.act(|s| {
+                                s.clean_up();
+                                Vec::new()
+                            })
+                        })
+                    })
+                }))
+                .child(dynamic(move || {
+                    ui.read(|s| browser_core::sidebar::cleanable(&s.model) && s.model.assistant_offered(&s.core, None))
+                        .then(|| pill("Group with Assistant", move || super::assistant::group_tabs(ui)))
+                }))
+                .child(dynamic(move || {
                     (ui.wide() && ui.read(|s| s.shown_split().is_some())).then(|| {
                         view()
                             .flex_row()

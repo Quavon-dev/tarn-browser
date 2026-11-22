@@ -21,28 +21,6 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
-### Assistant: selection and other tabs as pills (2026-11-22)
-
-What it does: attach the page's selected text (`assistant::Pill::Selection`) or another open tab
-(`Pill::Tab`) to an assistant question, from the page's context menu or a long press.
-Shared API: `browser_core::assistant::Event::AddPill`, through `tarn_nsh_shared::assistant::Chat::attach`.
-Reference: `linux/src/browser/pages.rs` `read_page_for_assistant`, `mobile/app/src/scripts.rs`.
-
-- [ ] macOS — a context-menu entry on selected text and a tab picker in the chat (`crates/app/src/assistant.rs`); chat links reachable by keyboard
-- [ ] Windows — same as macOS (shares `crates/app`)
-- [ ] Linux — a context-menu entry on selected text in `linux/src/webview` and a tab picker in the chat
-- [ ] iOS — the edit menu of a selection in `mobile/ios`; a tab picker in the chat
-- [ ] Android — the text selection action mode in `TarnWebView`; a tab picker in the chat
-
-### Group with Assistant on phones (2026-11-22)
-
-What it does: Clean Up's Group with Assistant, which Linux and the iPad Mac layout show beside Clean Up.
-Shared API: `browser_core::sidebar::{assistant_grouping, group_as_proposed}`, `tarn_nsh_shared::assistant::group_tabs`.
-Reference: `mobile/app/src/ui/mac/sidebar.rs`, `mobile/app/src/ui/assistant.rs`.
-
-- [ ] iOS — the phone Tabs sheet has no Clean Up yet; add both there
-- [ ] Android — same as iOS
-
 ### Insert Snippet in the page's context menu (2026-11-22)
 
 What it does: right-clicking (long-pressing) a text field on a page offers Insert Snippet…, which

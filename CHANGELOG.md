@@ -8,6 +8,16 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Ask Assistant about Selection on every client: selected text's menu (the context menu on macOS,
+  Windows and Linux, the edit menu on iOS, the selection toolbar on Android) attaches the selection
+  to the chat, and Ask Assistant to runs Summarize, Explain, Improve Writing, Fix Spelling,
+  Translate or the profile's own commands on it with one choice. Answers stay in the chat and say
+  which model gave them; commands use the system's on-device model where it can answer and the
+  Claude API was chosen, and a local choice that cannot answer says why instead of asking the cloud.
+- The assistant chat attaches another open tab of the space from Add Tab… (Attach Tab on Linux,
+  iOS and Android); a sleeping tab is shown as asleep and never loaded for it. Links in an answer
+  are also listed under it, reachable with Tab and opened with Enter after the usual confirmation.
+- Clean Up and Group with Assistant in the phone Tabs sheet on iOS and Android.
 - Assistant on macOS and Windows, off until you turn it on per profile in Settings › AI: ⇧Esc or
   the command bar's Ask and Ask About This Page open a chat column beside the page. It lists every
   page it would send and its size, sends only when you press Send, to the Claude API or Ollama on
