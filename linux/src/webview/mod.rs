@@ -971,14 +971,20 @@ fn snapshot_texture(state: &Rc<State>, web: &WebView, area: Option<engine::view_
                     let answer = result.ok().filter(|v| v.is_string()).map(|v| v.to_str().to_string()).unwrap_or_default();
                     let size = serde_json::from_str::<[f64; 4]>(&answer).ok();
                     let fits = engine::page_scripts::document_size(&answer, scale);
-                    if !size.zip(fits).is_some_and(|([_, _, w, h], [_, _, fw, fh])| w == fw && h == fh) {
-                        return done(None);
-                    }
-                    view.snapshot(SnapshotRegion::FullDocument, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| done(result.ok()));
+                    let Some([_, _, w, h]) = fits.filter(|[_, _, fw, fh]| size.is_some_and(|[_, _, w, h]| w == *fw && h == *fh)) else { return done(None) };
+                    view.snapshot(SnapshotRegion::FullDocument, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| {
+                        done(result.ok().filter(|t| as_checked((t.width(), t.height()), [w, h], scale)))
+                    });
                 },
             );
         }
     }
+}
+
+/// The size limits were checked on the document as measured, so a page that grew before WebKit drew
+/// it is refused.
+fn as_checked((texture_width, texture_height): (i32, i32), [width, height]: [f64; 2], scale: f64) -> bool {
+    f64::from(texture_width) <= (width * scale).ceil() && f64::from(texture_height) <= (height * scale).ceil()
 }
 
 /// The texture pixels `[x0, y0, x1, y1]` a CSS-pixel `[x, y, width, height]` covers at `per_css`

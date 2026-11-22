@@ -571,6 +571,14 @@ fn a_snapshot_is_scaled_down_to_the_card_width() {
 }
 
 #[test]
+fn a_full_page_texture_larger_than_the_checked_document_is_refused() {
+    assert!(as_checked((800, 2000), [800., 2000.], 1.));
+    assert!(as_checked((1601, 4001), [800.4, 2000.4], 2.), "a fraction rounds up");
+    assert!(!as_checked((800, 2001), [800., 2000.], 1.), "the page grew after it was measured");
+    assert!(!as_checked((1601, 4000), [800., 2000.], 2.));
+}
+
+#[test]
 fn a_snapshot_area_is_cut_inside_the_texture() {
     assert_eq!(pixel_rect([10., 5., 20., 10.], 2., 1000, 1000), Some([20, 10, 60, 30]));
     assert_eq!(pixel_rect([90., 0., 50., 10.], 1., 100, 100), Some([90, 0, 100, 10]), "cut at the edge");
@@ -810,6 +818,13 @@ fn a_screenshot_saves_a_new_png_under_the_given_name_only() {
     std::fs::remove_file(&path).unwrap();
     let side = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
     assert_eq!((side(16), side(20)), (50, 40), "only the area is saved");
+    state.events.borrow_mut().clear();
+    screenshot(&state, &web, &json!({ "seq": 6, "name": "tarn-display-full.png", "fullPage": true }));
+    assert!(spin_until(|| event(&state, "screenshot").is_some(), 20), "the full-page screenshot answered");
+    let answer = event(&state, "screenshot").unwrap();
+    let path = std::path::PathBuf::from(answer["path"].as_str().unwrap_or_default());
+    assert!(std::fs::read(&path).is_ok_and(|png| png.starts_with(b"\x89PNG")), "a full page as measured is saved: {answer}");
+    std::fs::remove_file(&path).unwrap();
     state.events.borrow_mut().clear();
     screenshot(&state, &web, &json!({ "seq": 5, "name": "tarn-display-none.png", "x": -1, "y": 0, "width": 50, "height": 40 }));
     assert!(spin_until(|| event(&state, "screenshot").is_some(), 20));
