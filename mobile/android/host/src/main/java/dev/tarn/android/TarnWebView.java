@@ -384,6 +384,13 @@ final class TarnWebView implements NshComponent {
                     search.accept(text);
                 });
             }
+            case "readSelection" -> runAsync(page == null ? null : Native.selectedTextScript(), SCRIPT_WAIT_MS, text -> emit("selection", "seq", seq, "url", url, "text", text));
+            case "readMedia" -> runAsync(page == null ? null : Native.mediaStateScript(), SCRIPT_WAIT_MS, text -> emit("mediaState", "seq", seq, "url", url, "text", text));
+            case "media" -> {
+                double seconds = args.get("seconds") instanceof Number n ? n.doubleValue() : Double.NaN;
+                runAsync(page == null ? null : Native.mediaCommandScript(Prompts.text(args, "action"), seconds), SCRIPT_WAIT_MS, text -> {});
+            }
+            case "snapshotRect" -> snapshotRect(seq, args);
             case "pick" -> {
                 endPick();
                 Consumer<String> done = new Consumer<>() {
@@ -407,6 +414,39 @@ final class TarnWebView implements NshComponent {
             }
         }
         return true;
+    }
+
+    /** A PNG of the area {@code Native.snapshotArea} accepts; Android WebView draws only the visible page, so a full page is that. */
+    @SuppressWarnings("deprecation")
+    private void snapshotRect(Object seq, Map<?, ?> args) {
+        double[] area = web == null ? null : Native.snapshotArea(Boolean.TRUE.equals(args.get("fullPage")), number(args, "x"), number(args, "y"), number(args, "width"), number(args, "height"));
+        if (area == null || web.getWidth() <= 0 || web.getHeight() <= 0) {
+            emit("snapshotRect", "seq", seq, "png", null);
+            return;
+        }
+        double scale = web.getScale();
+        int left = area.length == 4 ? (int) Math.min(web.getWidth(), Math.floor(area[0] * scale)) : 0;
+        int top = area.length == 4 ? (int) Math.min(web.getHeight(), Math.floor(area[1] * scale)) : 0;
+        int right = area.length == 4 ? (int) Math.min(web.getWidth(), Math.ceil((area[0] + area[2]) * scale)) : web.getWidth();
+        int bottom = area.length == 4 ? (int) Math.min(web.getHeight(), Math.ceil((area[1] + area[3]) * scale)) : web.getHeight();
+        if (right <= left || bottom <= top) {
+            emit("snapshotRect", "seq", seq, "png", null);
+            return;
+        }
+        Bitmap bitmap = Bitmap.createBitmap(right - left, bottom - top, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+        canvas.translate(-web.getScrollX() - left, -web.getScrollY() - top);
+        web.draw(canvas);
+        FINDER.execute(() -> {
+            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+            boolean done = bitmap.compress(Bitmap.CompressFormat.PNG, 100, png);
+            bitmap.recycle();
+            emit("snapshotRect", "seq", seq, "png", done ? "data:image/png;base64," + android.util.Base64.encodeToString(png.toByteArray(), android.util.Base64.NO_WRAP) : null);
+        });
+    }
+
+    private static double number(Map<?, ?> args, String key) {
+        return args.get(key) instanceof Number n ? n.doubleValue() : Double.NaN;
     }
 
     private void keepFindCache() {

@@ -11,7 +11,7 @@ mod transport;
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JObject, JObjectArray, JString};
-use jni::sys::{jboolean, jint, jlong, jobjectArray, jstring};
+use jni::sys::{jboolean, jdouble, jdoubleArray, jint, jlong, jobjectArray, jstring};
 
 pub use data::{Data, PRIVATE_PREFIX};
 pub use host::{Host, Space, close_private_space, host, open_private_space, space};
@@ -170,6 +170,47 @@ pub extern "system" fn Java_dev_tarn_android_Native_fetchIconScript(mut env: JNI
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_tarn_android_Native_picker(mut env: JNIEnv, _: JClass) -> jstring {
     java_string(&mut env, Some(engine::page_scripts::PICKER.to_owned()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_selectedTextScript(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::page_scripts::SELECTED_TEXT.to_owned()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_mediaStateScript(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::page_scripts::media_state_script()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_mediaCommandScript(mut env: JNIEnv, _: JClass, action: JString, seconds: jdouble) -> jstring {
+    let args = serde_json::json!({ "action": string(&mut env, &action), "seconds": seconds });
+    java_string(&mut env, browser_core::page_ops::media_command(&args).map(engine::page_scripts::media_command_script))
+}
+
+/// `[x, y, width, height]` of an accepted snapshot rectangle, empty for the full page, null when refused.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_snapshotArea(
+    env: JNIEnv,
+    _: JClass,
+    full_page: jboolean,
+    x: jdouble,
+    y: jdouble,
+    width: jdouble,
+    height: jdouble,
+) -> jdoubleArray {
+    use engine::view_policy::SnapshotArea;
+    let args = serde_json::json!({ "fullPage": full_page != 0, "x": x, "y": y, "width": width, "height": height });
+    let values = match browser_core::page_ops::snapshot_area(&args) {
+        None => return std::ptr::null_mut(),
+        Some(SnapshotArea::FullPage) => Vec::new(),
+        Some(SnapshotArea::Rect { x, y, width, height }) => vec![x, y, width, height],
+    };
+    let Ok(array) = env.new_double_array(values.len() as i32) else { return std::ptr::null_mut() };
+    if env.set_double_array_region(&array, 0, &values).is_err() {
+        return std::ptr::null_mut();
+    }
+    array.into_raw()
 }
 
 #[unsafe(no_mangle)]

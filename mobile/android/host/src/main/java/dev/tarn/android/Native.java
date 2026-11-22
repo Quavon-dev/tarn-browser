@@ -85,6 +85,14 @@ final class Native {
 
     static native String picker();
 
+    static native String selectedTextScript();
+
+    static native String mediaStateScript();
+
+    static native String mediaCommandScript(String action, double seconds);
+
+    static native double[] snapshotArea(boolean fullPage, double x, double y, double width, double height);
+
     static native String findTextScript(String page);
 
     static native String[] findSnippets(String text, String query);
