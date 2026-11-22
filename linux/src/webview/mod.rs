@@ -892,7 +892,7 @@ fn snapshot_rect(state: &Rc<State>, web: &WebView, args: &JsonValue) {
             state.emit("snapshotRect", json!({ "seq": seq, "png": png.map(|b| format!("data:image/png;base64,{}", glib::base64_encode(&b))) }));
         }
     };
-    match browser_core::page_ops::snapshot_area(args) {
+    match browser_core::page_ops::snapshot_area(args, device_scale(web)) {
         None => answer(None),
         area => snapshot_texture(state, web, area, move |texture| answer(texture.map(|t| t.save_to_png_bytes()))),
     }
@@ -900,11 +900,18 @@ fn snapshot_rect(state: &Rc<State>, web: &WebView, args: &JsonValue) {
 
 type Texture = webkit6::gdk::Texture;
 
+/// Device pixels per CSS pixel of `web`'s page.
+fn device_scale(web: &WebView) -> f64 {
+    f64::from(web.scale_factor()) * web.zoom_level()
+}
+
 /// The visible page, an area of it in CSS pixels, or the whole document when it fits
-/// `SNAPSHOT_MAX_SIDE` (WebKitGTK cannot clip a full-document snapshot, so a longer one gives none);
-/// under Lockdown a full page is the visible one.
+/// `SNAPSHOT_MAX_SIDE` and `SNAPSHOT_MAX_PIXELS` uncut (WebKitGTK cannot clip a full-document
+/// snapshot, so a longer one gives none); under Lockdown a full page is the visible one. A texture
+/// over `SNAPSHOT_MAX_PIXELS` is dropped.
 fn snapshot_texture(state: &Rc<State>, web: &WebView, area: Option<engine::view_policy::SnapshotArea>, done: impl FnOnce(Option<Texture>) + 'static) {
-    use engine::view_policy::{SNAPSHOT_MAX_SIDE, SnapshotArea};
+    use engine::view_policy::{SNAPSHOT_MAX_PIXELS, SnapshotArea};
+    let done = move |texture: Option<Texture>| done(texture.filter(|t| f64::from(t.width()) * f64::from(t.height()) <= SNAPSHOT_MAX_PIXELS));
     let visible = |web: &WebView, done: Box<dyn FnOnce(Option<Texture>)>| {
         web.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| done(result.ok()))
     };
@@ -924,7 +931,7 @@ fn snapshot_texture(state: &Rc<State>, web: &WebView, area: Option<engine::view_
         }
         Some(SnapshotArea::FullPage) if scripts::locked(state) => visible(web, Box::new(done)),
         Some(SnapshotArea::FullPage) => {
-            let view = web.clone();
+            let (view, scale) = (web.clone(), device_scale(web));
             web.call_async_javascript_function(
                 engine::page_scripts::DOCUMENT_SIZE,
                 None,
@@ -932,8 +939,10 @@ fn snapshot_texture(state: &Rc<State>, web: &WebView, area: Option<engine::view_
                 None,
                 None::<&gio::Cancellable>,
                 move |result| {
-                    let size = result.ok().filter(|v| v.is_string()).and_then(|v| serde_json::from_str::<[f64; 4]>(&v.to_str()).ok());
-                    if !size.is_some_and(|[_, _, w, h]| w <= SNAPSHOT_MAX_SIDE && h <= SNAPSHOT_MAX_SIDE) {
+                    let answer = result.ok().filter(|v| v.is_string()).map(|v| v.to_str().to_string()).unwrap_or_default();
+                    let size = serde_json::from_str::<[f64; 4]>(&answer).ok();
+                    let fits = engine::page_scripts::document_size(&answer, scale);
+                    if !size.zip(fits).is_some_and(|([_, _, w, h], [_, _, fw, fh])| w == fw && h == fh) {
                         return done(None);
                     }
                     view.snapshot(SnapshotRegion::FullDocument, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| done(result.ok()));
@@ -984,7 +993,7 @@ fn screenshot(state: &Rc<State>, web: &WebView, args: &JsonValue) {
             },
         );
     };
-    let area = browser_core::page_ops::snapshot_area(args);
+    let area = browser_core::page_ops::snapshot_area(args, device_scale(web));
     if area.is_none() && (args.get("fullPage").is_some() || args.get("x").is_some()) {
         return answer(Err("Nothing to capture in that area".to_owned()));
     }

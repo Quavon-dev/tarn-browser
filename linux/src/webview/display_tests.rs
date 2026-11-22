@@ -116,6 +116,28 @@ fn insert_text_types_into_the_focused_field_only() {
 
 #[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn the_selection_is_read_but_never_from_a_secret_field() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    page_eval(&web, "getSelection().selectAllChildren(document.getElementById('p')); 'ok'");
+    let read = ask(&state, "readSelection", json!({ "seq": 1 }), "selection");
+    assert!(read["text"].as_str().unwrap().starts_with("The quick zebrafish"), "{read}");
+    for (field, autocomplete) in [("input", "one-time-code"), ("input", "section-a cc-number"), ("textarea", "new-password")] {
+        page_eval(
+            &web,
+            &format!(
+                "(() => {{ const host = document.createElement('div'); document.body.append(host);
+                 const f = host.attachShadow({{ mode: 'open' }}).appendChild(document.createElement('{field}'));
+                 f.setAttribute('autocomplete', '{autocomplete}'); f.value = '4111111111111111'; f.focus(); f.select(); return 'ok'; }})()"
+            ),
+        );
+        assert_eq!(ask(&state, "readSelection", json!({ "seq": 2 }), "selection")["text"], "", "{field} {autocomplete}");
+    }
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
     gtk::init().expect("a display");
     let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");

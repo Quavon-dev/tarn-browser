@@ -495,7 +495,8 @@ impl WebView {
         self.read_isolated(&crate::page_scripts::media_state_script(), done);
     }
 
-    /// WebKit treats the client world's script as the user's gesture, so `play` is allowed.
+    /// WebKit treats every client world script as the user's gesture, so `play` is allowed, and a
+    /// pause or seek lends the page one too (`docs/threat-model.md` S23).
     pub fn media_command(&self, command: crate::page_scripts::MediaCommand) {
         self.read_isolated(&crate::page_scripts::media_command_script(command), |_| {});
     }
@@ -685,12 +686,14 @@ impl WebView {
             }
         }
         let done: Rc<dyn Fn(Option<Vec<u8>>)> = Rc::new(done);
-        match area {
-            SnapshotArea::Rect { x, y, width, height } => take(&self.view, Some(NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))), done),
-            SnapshotArea::FullPage if self._delegate.level() == ShieldLevel::Lockdown => take(&self.view, None, done),
-            SnapshotArea::FullPage => {
+        let scale = self.view.window().map_or(2., |w| w.backingScaleFactor());
+        match area.at_scale(scale) {
+            None => done(None),
+            Some(SnapshotArea::Rect { x, y, width, height }) => take(&self.view, Some(NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))), done),
+            Some(SnapshotArea::FullPage) if self._delegate.level() == ShieldLevel::Lockdown => take(&self.view, None, done),
+            Some(SnapshotArea::FullPage) => {
                 let view = self.view.clone();
-                self.run_isolated(crate::page_scripts::DOCUMENT_SIZE, move |answer| match crate::page_scripts::document_size(&answer) {
+                self.run_isolated(crate::page_scripts::DOCUMENT_SIZE, move |answer| match crate::page_scripts::document_size(&answer, scale) {
                     Some([x, y, w, h]) => take(&view, Some(NSRect::new(NSPoint::new(-x, -y), NSSize::new(w, h))), done.clone()),
                     None => done(None),
                 });

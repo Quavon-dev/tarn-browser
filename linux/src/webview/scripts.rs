@@ -71,11 +71,13 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             run(state, body, move |s, url, text| s.emit("jsonText", json!({ "seq": seq, "url": url, "text": text })));
         }
         "readSelection" => {
-            run(state, Some(page_scripts::SELECTED_TEXT.to_owned()), move |s, url, text| s.emit("selection", json!({ "seq": seq, "url": url, "text": text })));
+            run(state, Some(page_scripts::SELECTED_TEXT.to_owned()), move |s, url, text| {
+                s.emit("selection", json!({ "seq": seq, "url": url, "text": browser_core::page_ops::selection_answer(&text) }))
+            });
         }
-        "readMedia" => {
-            run(state, Some(page_scripts::media_state_script()), move |s, url, text| s.emit("mediaState", json!({ "seq": seq, "url": url, "text": text })))
-        }
+        "readMedia" => run(state, Some(page_scripts::media_state_script()), move |s, url, text| {
+            s.emit("mediaState", json!({ "seq": seq, "url": url, "text": browser_core::page_ops::media_answer(&text) }))
+        }),
         "media" => run(state, browser_core::page_ops::media_command(args).map(page_scripts::media_command_script), |_, _, _| {}),
         "pick" if args["rect"].as_bool() == Some(true) => {
             run(state, Some(page_scripts::pick_rect_script()), move |s, url, rect| s.emit("picked", json!({ "seq": seq, "url": url, "rect": rect })))

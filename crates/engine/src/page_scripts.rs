@@ -437,10 +437,14 @@ pub const PICTURE_IN_PICTURE: &str = r"const area = v => v.clientWidth * v.clien
 /// Most UTF-16 units of the page's selection `SELECTED_TEXT` hands over.
 pub const SELECTION_MAX: usize = 64 * 1024;
 
-/// The top document's selected text, at most `SELECTION_MAX` UTF-16 units; empty while a password
-/// field has the focus. An async function body for the engine's isolated world.
-pub const SELECTED_TEXT: &str = r"const active = document.activeElement;
-            if (active && active.localName === 'input' && active.type === 'password') return '';
+/// The top document's selected text, at most `SELECTION_MAX` UTF-16 units; empty while a password,
+/// card or one-time-code field has the focus, also inside a shadow root. An async function body for
+/// the engine's isolated world.
+pub const SELECTED_TEXT: &str = r"let active = document.activeElement;
+            while (active && active.shadowRoot && active.shadowRoot.activeElement) active = active.shadowRoot.activeElement;
+            const secret = t => /^(cc-.+|current-password|new-password|one-time-code)$/.test(t);
+            if (active && ((active.localName === 'input' && active.type === 'password')
+                || String(active.getAttribute && active.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/).some(secret))) return '';
             const selection = getSelection();
             const text = selection ? String(selection).slice(0, 65536) : '';
             return text.toWellFormed ? text.toWellFormed() : text;";
@@ -495,12 +499,14 @@ pub fn media_command_script(command: MediaCommand) -> String {
 pub const DOCUMENT_SIZE: &str = r"const d = document.documentElement;
             return JSON.stringify([scrollX, scrollY, Math.max(d.scrollWidth, d.clientWidth), Math.max(d.scrollHeight, d.clientHeight)]);";
 
-/// `DOCUMENT_SIZE`'s answer, the size cut to `view_policy::SNAPSHOT_MAX_SIDE`.
-pub fn document_size(answer: &str) -> Option<[f64; 4]> {
+/// `DOCUMENT_SIZE`'s answer, the size cut to `view_policy::SNAPSHOT_MAX_SIDE` and its height to
+/// what fits `view_policy::SNAPSHOT_MAX_PIXELS` at `scale` device pixels per CSS pixel.
+pub fn document_size(answer: &str, scale: f64) -> Option<[f64; 4]> {
     let [x, y, w, h]: [f64; 4] = serde_json::from_str(answer).ok()?;
     let side = |v: f64| (v.is_finite() && v >= 1.).then(|| v.min(crate::view_policy::SNAPSHOT_MAX_SIDE));
     let offset = |v: f64| if v.is_finite() { v.max(0.) } else { 0. };
-    Some([offset(x), offset(y), side(w)?, side(h)?])
+    let w = side(w)?;
+    Some([offset(x), offset(y), w, crate::view_policy::snapshot_height(w, side(h)?, scale)?])
 }
 
 /// What sleeping would lose on a page: whether the user changed a form field, and the scroll offset.
@@ -569,12 +575,22 @@ mod tests {
     }
 
     #[test]
+    fn the_selection_read_skips_secret_fields_inside_shadow_roots_too() {
+        assert!(SELECTED_TEXT.contains("active.shadowRoot.activeElement"));
+        for token in ["cc-.+", "current-password", "new-password", "one-time-code"] {
+            assert!(SELECTED_TEXT.contains(token), "{token}");
+        }
+    }
+
+    #[test]
     fn document_size_is_bounded_and_media_seeks_stay_finite() {
         let max = crate::view_policy::SNAPSHOT_MAX_SIDE;
-        assert_eq!(document_size("[10, -5, 1280, 1e9]"), Some([10., 0., 1280., max]));
-        assert_eq!(document_size("[0, 0, 0, 800]"), None);
-        assert_eq!(document_size("[0, 0, 800]"), None);
-        assert_eq!(document_size(""), None, "Lockdown answers empty");
+        assert_eq!(document_size("[10, -5, 1280, 1e9]", 1.), Some([10., 0., 1280., max]));
+        assert_eq!(document_size("[0, 0, 1280, 16000]", 2.), Some([0., 0., 1280., 13107.]), "at most 64 MiP at the screen's scale");
+        assert_eq!(document_size("[0, 0, 16384, 16384]", 1.), Some([0., 0., 16384., 4096.]));
+        assert_eq!(document_size("[0, 0, 0, 800]", 1.), None);
+        assert_eq!(document_size("[0, 0, 800]", 1.), None);
+        assert_eq!(document_size("", 1.), None, "Lockdown answers empty");
         assert!(media_command_script(MediaCommand::SeekBy(f64::INFINITY)).contains("m.currentTime + (0)"));
         assert!(media_command_script(MediaCommand::SeekBy(-1e9)).contains(&format!("m.currentTime + ({})", -MEDIA_SEEK_MAX)));
     }

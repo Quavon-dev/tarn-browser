@@ -63,11 +63,14 @@ Every shell's web view offers the same operations and reports the same events. T
   audible media element (read, and play, pause or seek), and a PNG of a rectangle of the visible
   page or of the whole document. The reads are isolated-world scripts from `engine::page_scripts`
   that answer empty under Lockdown; `browser_core::page_ops` checks every answer and command
-  (`selection`, `MediaState::parse`, `media_command`, `snapshot_area`). NSH components:
+  (`selection`, `MediaState::parse`, `media_command`, `snapshot_area`); components emit only
+  `selection_answer` and `media_answer` of a script's answer. NSH components:
   `readSelection` (`selection`), `readMedia` (`mediaState`), `media` and `snapshotRect`
   (`snapshotRect`), `docs/mobile-plan.md` §2. A full page is the document cut to
-  `view_policy::SNAPSHOT_MAX_SIDE` on macOS and Windows; Linux takes it only when the document fits
-  that size (WebKitGTK cannot clip a full-document snapshot) and answers none otherwise; iOS and
+  `view_policy::SNAPSHOT_MAX_SIDE` and its height to `SNAPSHOT_MAX_PIXELS` at the device scale
+  (`view_policy::snapshot_height`, also for rectangles) on macOS and Windows; Linux takes it only
+  when the document fits those uncut (WebKitGTK cannot clip a full-document snapshot), answers
+  none otherwise and drops any larger texture; iOS and
   Android draw only the visible page. The window's mini-player is `browser_core::media::Player`:
   shells ask `media_state` of a tab when the engine says it plays (Linux's `playing` event, the
   macOS and Windows background probe), when the user leaves it and after a button press, and

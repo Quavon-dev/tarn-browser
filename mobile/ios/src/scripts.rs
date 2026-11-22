@@ -86,12 +86,12 @@ impl Inner {
                 let body = (!query.is_empty()).then(|| page_scripts::find_text_script(query));
                 self.run(body, move |text| context.emit("textFound", json!({ "seq": seq, "url": shown, "snippets": page_scripts::find_snippets(&text) })));
             }
-            "readSelection" => {
-                self.run(Some(page_scripts::SELECTED_TEXT.to_owned()), move |text| context.emit("selection", json!({ "seq": seq, "url": shown, "text": text })))
-            }
-            "readMedia" => {
-                self.run(Some(page_scripts::media_state_script()), move |text| context.emit("mediaState", json!({ "seq": seq, "url": shown, "text": text })))
-            }
+            "readSelection" => self.run(Some(page_scripts::SELECTED_TEXT.to_owned()), move |text| {
+                context.emit("selection", json!({ "seq": seq, "url": shown, "text": browser_core::page_ops::selection_answer(&text) }))
+            }),
+            "readMedia" => self.run(Some(page_scripts::media_state_script()), move |text| {
+                context.emit("mediaState", json!({ "seq": seq, "url": shown, "text": browser_core::page_ops::media_answer(&text) }))
+            }),
             "insertText" => {
                 let body =
                     args.get("text").and_then(Value::as_str).filter(|t| t.len() <= browser_core::snippets::MAX_SNIPPET).map(page_scripts::insert_text_script);
@@ -130,7 +130,7 @@ impl Inner {
     /// A PNG `data:` URI of the area `browser_core::page_ops::snapshot_area` accepts, in CSS pixels
     /// at the page's zoom; WKWebView on iOS draws only the visible page, so a full page is that.
     fn snapshot_rect(&self, args: &Value, done: impl Fn(Option<String>) + 'static) {
-        let Some(area) = browser_core::page_ops::snapshot_area(args) else { return done(None) };
+        let Some(area) = browser_core::page_ops::snapshot_area(args, self.device_scale()) else { return done(None) };
         self.snapshot_png(Some(area), move |data| {
             done(data.map(|d| format!("data:image/png;base64,{}", d.base64EncodedStringWithOptions(NSDataBase64EncodingOptions(0)))))
         });
@@ -139,7 +139,7 @@ impl Inner {
     /// The visible page, or the area of `snapshot_area` the command names, saved under
     /// Documents/Downloads as downloads are and put on the pasteboard.
     fn screenshot(&self, args: &Value, done: impl Fn(Result<String, String>) + 'static) {
-        let area = browser_core::page_ops::snapshot_area(args);
+        let area = browser_core::page_ops::snapshot_area(args, self.device_scale());
         if area.is_none() && (args.get("fullPage").is_some() || args.get("x").is_some()) {
             return done(Err("Nothing to capture in that area".into()));
         }
@@ -155,6 +155,11 @@ impl Inner {
                     .map_err(|e| e.to_string())
             }))
         });
+    }
+
+    /// Device pixels per CSS pixel of the page: its zoom at the screen's scale.
+    fn device_scale(&self) -> f64 {
+        self.web().map_or(1., |web| web.scroll_view().zoomScale() * web.contentScaleFactor())
     }
 
     /// A PNG of an area in CSS pixels at the page's zoom; WKWebView on iOS draws only the visible

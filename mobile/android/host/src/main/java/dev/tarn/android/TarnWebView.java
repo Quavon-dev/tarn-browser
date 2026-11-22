@@ -389,8 +389,8 @@ final class TarnWebView implements NshComponent {
                 String body = page == null || text == null ? null : Native.insertTextScript(text);
                 runAsync(body, SCRIPT_WAIT_MS, answer -> emit("textInserted", "seq", seq, "inserted", Native.inserted(answer)));
             }
-            case "readSelection" -> runAsync(page == null ? null : Native.selectedTextScript(), SCRIPT_WAIT_MS, text -> emit("selection", "seq", seq, "url", url, "text", text));
-            case "readMedia" -> runAsync(page == null ? null : Native.mediaStateScript(), SCRIPT_WAIT_MS, text -> emit("mediaState", "seq", seq, "url", url, "text", text));
+            case "readSelection" -> runAsync(page == null ? null : Native.selectedTextScript(), SCRIPT_WAIT_MS, text -> emit("selection", "seq", seq, "url", url, "text", Native.selectionAnswer(text)));
+            case "readMedia" -> runAsync(page == null ? null : Native.mediaStateScript(), SCRIPT_WAIT_MS, text -> emit("mediaState", "seq", seq, "url", url, "text", Native.mediaAnswer(text)));
             case "media" -> {
                 double seconds = args.get("seconds") instanceof Number n ? n.doubleValue() : Double.NaN;
                 runAsync(page == null ? null : Native.mediaCommandScript(Prompts.text(args, "action"), seconds), SCRIPT_WAIT_MS, text -> {});
@@ -423,8 +423,10 @@ final class TarnWebView implements NshComponent {
         return true;
     }
 
-    private static double[] area(Map<?, ?> args) {
-        return Native.snapshotArea(Boolean.TRUE.equals(args.get("fullPage")), number(args, "x"), number(args, "y"), number(args, "width"), number(args, "height"));
+    @SuppressWarnings("deprecation")
+    private double[] area(Map<?, ?> args) {
+        double scale = web == null ? 1 : web.getScale();
+        return Native.snapshotArea(Boolean.TRUE.equals(args.get("fullPage")), number(args, "x"), number(args, "y"), number(args, "width"), number(args, "height"), scale);
     }
 
     /** The area {@code Native.snapshotArea} gives, {@code [x, y, width, height]} or empty for all of it; Android WebView draws only the visible page, so a full page is that. */

@@ -194,6 +194,20 @@ pub extern "system" fn Java_dev_tarn_android_Native_selectedTextScript(mut env: 
     java_string(&mut env, Some(engine::page_scripts::SELECTED_TEXT.to_owned()))
 }
 
+/// `browser_core::page_ops::selection_answer` of a page-world answer, which the page may have forged.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_selectionAnswer(mut env: JNIEnv, _: JClass, answer: JString) -> jstring {
+    let answer = string(&mut env, &answer).unwrap_or_default();
+    java_string(&mut env, Some(browser_core::page_ops::selection_answer(&answer)))
+}
+
+/// `browser_core::page_ops::media_answer` of a page-world answer, which the page may have forged.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_mediaAnswer(mut env: JNIEnv, _: JClass, answer: JString) -> jstring {
+    let answer = string(&mut env, &answer).unwrap_or_default();
+    java_string(&mut env, Some(browser_core::page_ops::media_answer(&answer)))
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_tarn_android_Native_mediaStateScript(mut env: JNIEnv, _: JClass) -> jstring {
     java_string(&mut env, Some(engine::page_scripts::media_state_script()))
@@ -215,10 +229,11 @@ pub extern "system" fn Java_dev_tarn_android_Native_snapshotArea(
     y: jdouble,
     width: jdouble,
     height: jdouble,
+    scale: jdouble,
 ) -> jdoubleArray {
     use engine::view_policy::SnapshotArea;
     let args = serde_json::json!({ "fullPage": full_page != 0, "x": x, "y": y, "width": width, "height": height });
-    let values = match browser_core::page_ops::snapshot_area(&args) {
+    let values = match browser_core::page_ops::snapshot_area(&args, scale) {
         None => return std::ptr::null_mut(),
         Some(SnapshotArea::FullPage) => Vec::new(),
         Some(SnapshotArea::Rect { x, y, width, height }) => vec![x, y, width, height],

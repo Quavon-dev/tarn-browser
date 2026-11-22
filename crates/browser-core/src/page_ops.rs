@@ -21,6 +21,19 @@ pub fn selection(raw: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
+/// What a component hands on from `SELECTED_TEXT`'s answer: `selection`, empty for none.
+pub fn selection_answer(raw: &str) -> String {
+    selection(raw).unwrap_or_default()
+}
+
+/// What a component hands on from `media_state_script`'s answer: `MediaState::parse` written back
+/// as JSON, empty for none or a malformed answer.
+pub fn media_answer(raw: &str) -> String {
+    MediaState::parse(raw)
+        .map(|m| serde_json::json!({ "playing": m.playing, "title": m.title, "duration": m.duration, "position": m.position }).to_string())
+        .unwrap_or_default()
+}
+
 /// The page's first audible media element, as `media_state_script` reads it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MediaState {
@@ -57,13 +70,13 @@ pub fn media_command(args: &Value) -> Option<MediaCommand> {
 }
 
 /// A shell's snapshot request: `{fullPage: true}` or `{x, y, width, height}` in CSS pixels of the
-/// visible page.
-pub fn snapshot_area(args: &Value) -> Option<SnapshotArea> {
+/// visible page, for an engine drawing `scale` device pixels per CSS pixel.
+pub fn snapshot_area(args: &Value, scale: f64) -> Option<SnapshotArea> {
     if args["fullPage"].as_bool() == Some(true) {
         return Some(SnapshotArea::FullPage);
     }
     let number = |key: &str| args[key].as_f64();
-    SnapshotArea::rect(number("x")?, number("y")?, number("width")?, number("height")?)
+    SnapshotArea::rect(number("x")?, number("y")?, number("width")?, number("height")?, scale)
 }
 
 #[cfg(test)]
@@ -96,6 +109,20 @@ mod tests {
     }
 
     #[test]
+    fn components_hand_on_only_checked_answers() {
+        assert_eq!(selection_answer("  the reef \n"), "the reef");
+        assert_eq!(selection_answer(&"a".repeat(SELECTION_MAX_BYTES * 4)).len(), SELECTION_MAX_BYTES);
+        let forged = format!(r#"{{"playing":true,"title":"{}\u202e","duration":5,"position":99,"extra":"{}"}}"#, "x".repeat(5000), "y".repeat(5000));
+        let answer = media_answer(&forged);
+        assert!(!answer.contains("extra") && !answer.contains('\u{202e}'), "{answer}");
+        assert_eq!(MediaState::parse(&answer), MediaState::parse(&forged), "the answer parses as what it came from");
+        assert_eq!(MediaState::parse(&answer).unwrap().position, Some(5.));
+        assert_eq!(media_answer("not json"), "");
+        let bare = MediaState { playing: true, title: String::new(), duration: None, position: None };
+        assert_eq!(MediaState::parse(&media_answer(r#"{"playing":true}"#)), Some(bare));
+    }
+
+    #[test]
     fn media_commands_parse_and_seeks_are_bounded() {
         assert_eq!(media_command(&json!({ "action": "play" })), Some(MediaCommand::Play));
         assert_eq!(media_command(&json!({ "action": "pause" })), Some(MediaCommand::Pause));
@@ -109,18 +136,18 @@ mod tests {
 
     #[test]
     fn snapshot_areas_are_a_full_page_or_a_sane_rectangle() {
-        assert_eq!(snapshot_area(&json!({ "fullPage": true })), Some(SnapshotArea::FullPage));
+        assert_eq!(snapshot_area(&json!({ "fullPage": true }), 1.), Some(SnapshotArea::FullPage));
         assert_eq!(
-            snapshot_area(&json!({ "x": 0, "y": 10.5, "width": 300, "height": 200 })),
+            snapshot_area(&json!({ "x": 0, "y": 10.5, "width": 300, "height": 200 }), 1.),
             Some(SnapshotArea::Rect { x: 0., y: 10.5, width: 300., height: 200. })
         );
         assert_eq!(
-            snapshot_area(&json!({ "x": 0, "y": 0, "width": 1e9, "height": 20 })),
+            snapshot_area(&json!({ "x": 0, "y": 0, "width": 1e9, "height": 20 }), 1.),
             Some(SnapshotArea::Rect { x: 0., y: 0., width: engine::view_policy::SNAPSHOT_MAX_SIDE, height: 20. })
         );
-        assert_eq!(snapshot_area(&json!({ "x": -1, "y": 0, "width": 10, "height": 10 })), None);
-        assert_eq!(snapshot_area(&json!({ "x": 0, "y": 0, "width": 0, "height": 10 })), None);
-        assert_eq!(snapshot_area(&json!({ "x": 0, "y": 0, "width": 10 })), None);
-        assert_eq!(snapshot_area(&json!({ "fullPage": false })), None);
+        assert_eq!(snapshot_area(&json!({ "x": -1, "y": 0, "width": 10, "height": 10 }), 1.), None);
+        assert_eq!(snapshot_area(&json!({ "x": 0, "y": 0, "width": 0, "height": 10 }), 1.), None);
+        assert_eq!(snapshot_area(&json!({ "x": 0, "y": 0, "width": 10 }), 1.), None);
+        assert_eq!(snapshot_area(&json!({ "fullPage": false }), 1.), None);
     }
 }

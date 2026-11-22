@@ -53,7 +53,7 @@ pub fn drag_rect(from: (f64, f64), to: (f64, f64), page: (f64, f64)) -> [f64; 4]
 /// The area a drag selects for Capture Area; `None` for a drag shorter than `MIN_SIDE` either way.
 pub fn drag_area(from: (f64, f64), to: (f64, f64), page: (f64, f64)) -> Option<SnapshotArea> {
     let [x, y, w, h] = drag_rect(from, to, page);
-    (w >= MIN_SIDE && h >= MIN_SIDE).then(|| SnapshotArea::rect(x, y, w, h)).flatten()
+    (w >= MIN_SIDE && h >= MIN_SIDE).then(|| SnapshotArea::rect(x, y, w, h, 1.)).flatten()
 }
 
 /// The picked element's area from `page_scripts::PICK_RECT`'s answer `[x, y, width, height]`, cut
@@ -61,7 +61,7 @@ pub fn drag_area(from: (f64, f64), to: (f64, f64), page: (f64, f64)) -> Option<S
 pub fn element_area(answer: &str, page: (f64, f64)) -> Option<SnapshotArea> {
     let [x, y, w, h]: [f64; 4] = serde_json::from_str(answer).ok()?;
     let [x, y, w, h] = drag_rect((x, y), (x + w, y + h), page);
-    (w >= 1. && h >= 1.).then(|| SnapshotArea::rect(x, y, w, h)).flatten()
+    (w >= 1. && h >= 1.).then(|| SnapshotArea::rect(x, y, w, h, 1.)).flatten()
 }
 
 pub fn save_new(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
@@ -97,7 +97,7 @@ mod tests {
         assert_eq!(element_area("[1, 2, 3]", page), None);
         assert!(Mode::Element.needs_script() && !Mode::Area.needs_script() && !Mode::FullPage.needs_script());
         for area in [SnapshotArea::FullPage, SnapshotArea::Rect { x: 1., y: 2., width: 30., height: 40. }] {
-            assert_eq!(crate::page_ops::snapshot_area(&area_args(area)), Some(area));
+            assert_eq!(crate::page_ops::snapshot_area(&area_args(area), 1.), Some(area));
         }
     }
 
