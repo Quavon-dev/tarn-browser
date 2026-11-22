@@ -286,7 +286,7 @@ impl Browser {
     }
 
     pub fn switch_space(&mut self, ix: usize) {
-        let _span = engine::startup::span(engine::startup::SPACE_SWITCH);
+        let _span = (ix != self.model.space_ix).then(|| engine::startup::span(engine::startup::SPACE_SWITCH)).flatten();
         let burning = self.model.burner_shown();
         self.close_reader();
         if self.model.switch_space(&self.core, ix).is_none() {

@@ -1622,6 +1622,7 @@ fn palette(ui: Ui) -> AnyElement {
                         let query = value.to_owned();
                         act(ui, |b| b.find_in_tabs(&query));
                     } else if value != ui.address.get_untracked() {
+                        let _span = engine::startup::span(engine::startup::PALETTE_QUERY);
                         let (history, typed) = (history(ui), ui.typed.get_untracked());
                         let edit = read(ui, |b| b.address_edit(&typed, value, &history, SUGGESTIONS));
                         let Some((rows, completion)) = edit else { return };

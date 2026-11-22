@@ -642,7 +642,7 @@ impl<D: Platform> Shell<D> {
         if !self.model.spaces.get(ix).is_some_and(Self::shows) {
             return;
         }
-        let _span = engine::startup::span(engine::startup::SPACE_SWITCH);
+        let _span = (ix != self.model.space_ix).then(|| engine::startup::span(engine::startup::SPACE_SWITCH)).flatten();
         let leaving_burner = self.in_burner() && ix != self.model.space_ix;
         if self.model.switch_space(&self.core, ix).is_none() {
             return;
