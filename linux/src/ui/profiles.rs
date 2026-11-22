@@ -302,6 +302,7 @@ pub fn profiles_pane(ui: Ui) -> View {
                     let mut deleted = false;
                     act(ui, |b| deleted = b.delete_profile(id));
                     if deleted {
+                        super::forget_chats();
                         browser_core::ext_package::remove_tree(&crate::data::root().join("extensions").join(id.to_string())).ok();
                         super::sync_others(ui);
                     }

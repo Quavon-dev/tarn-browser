@@ -1,4 +1,5 @@
 mod appearance;
+mod assistant;
 mod blocking;
 mod capture;
 mod devtools;
@@ -127,6 +128,8 @@ pub enum Panel {
 #[derive(Clone, Copy)]
 pub struct Ui {
     window: u64,
+    chat: tarn_nsh_shared::assistant::Chat,
+    assistant: Signal<bool>,
     snap: Signal<Snapshot>,
     icons: Signal<crate::browser::icons::SiteIcons>,
     panel: Signal<Panel>,
@@ -253,12 +256,13 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
             forgotten,
             b.window_request.take(),
         );
+        let pages = std::mem::take(&mut b.assistant_pages);
         for (_, other) in windows.iter_mut().filter(|(w, _)| **w != ui.window) {
             groups.iter().for_each(|(private, id)| other.model.closed_tabs.forget_group(*private, *id));
         }
-        Some((done, regrouped))
+        Some((done, regrouped, pages))
     });
-    let Some(((icons, commands, released, retired, cancelled, kept, snap, moved, forgotten, mode), regrouped)) = done else { return };
+    let Some(((icons, commands, released, retired, cancelled, kept, snap, moved, forgotten, mode), regrouped, pages)) = done else { return };
     if let Some(mode) = mode
         && let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned())
     {
@@ -272,6 +276,9 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
             _ => false,
         };
     ui.snap.set(snap);
+    if !pages.is_empty() {
+        assistant::attach(ui, pages);
+    }
     if let Some(icons) = icons {
         ui.icons.set(icons);
     }
@@ -305,6 +312,12 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
             act_dyn(other, &mut Browser::sync_shared, true);
         }
     }
+}
+
+/// Drops every window's assistant chat (a profile was deleted or reset).
+fn forget_chats() {
+    tarn_nsh_shared::assistant::forget_chats();
+    WINDOWS.with_borrow(Vec::clone).into_iter().for_each(|w| w.chat.close());
 }
 
 fn sync_others(ui: Ui) {
@@ -1011,6 +1024,10 @@ fn new_tab_row(ui: Ui) -> View {
         .child(when(
             move || ui.snap.with(|s| s.cleanable),
             move || icon_button(icons::BROOM_SPARKLES, browser_core::cleanup::DESCRIPTION, move || act(ui, Browser::clean_up_tabs)),
+        ))
+        .child(when(
+            move || ui.snap.with(|s| s.cleanable) && read(ui, |b| b.model.assistant_offered(&b.core, None)) == Some(true),
+            move || icon_button(icons::SPARKLES, "Group with Assistant", move || assistant::group_tabs(ui)),
         ))
 }
 
@@ -2628,6 +2645,8 @@ fn new_ui(row: SavedWindow, torn: Option<browser_core::tabs::Torn>) -> Ui {
     BROWSERS.with_borrow_mut(|windows| windows.insert(window, browser));
     let ui = Ui {
         window,
+        chat: tarn_nsh_shared::assistant::Chat::new(),
+        assistant: signal(false),
         open: signal(true),
         snap: signal(Snapshot::default()),
         icons: signal(Default::default()),
@@ -2840,6 +2859,7 @@ fn browser_window(ui: Ui) -> AnyElement {
                 .child(content(ui))
                 .child(when(move || !full.get(), move || themed(move || tools::toast_bar(ui)))),
         )
+        .child(when(move || ui.assistant.get() && !full.get(), move || themed(move || assistant::panel(ui))))
         .child(peek::edge(ui))
         .child(peek::floating(ui))
         .child(peek::card(ui))

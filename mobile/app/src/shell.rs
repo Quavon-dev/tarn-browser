@@ -133,6 +133,8 @@ pub struct Shell<D: Platform> {
     pub(crate) download_notices: Vec<(String, bool)>,
     pub(crate) cleared_downloads: Option<(String, (bool, Id), Vec<Download>)>,
     pub sort_undo: Option<(String, (bool, browser_core::cleanup::Undo))>,
+    /// Pages read for the assistant, for the chat to attach.
+    pub assistant_pages: Vec<(browser_core::assistant::Origin, browser_core::assistant::Pill)>,
     pub transfers: Vec<crate::scripts::Transfer>,
     pub transfers_moved: std::time::Instant,
     pub reader: Option<crate::scripts::Reader>,
@@ -204,6 +206,7 @@ impl<D: Platform> Shell<D> {
             download_notices: Vec::new(),
             cleared_downloads: None,
             sort_undo: None,
+            assistant_pages: Vec::new(),
             transfers: Vec::new(),
             transfers_moved: std::time::Instant::now(),
             reader: None,

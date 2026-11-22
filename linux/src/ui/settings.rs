@@ -413,6 +413,7 @@ fn delete_profile_data(ui: Ui) {
     let mut wipes = Vec::new();
     act(ui, |b| wipes = b.delete_profile_data());
     in_other_windows(ui, move |b| b.forget_profile(private, profile));
+    super::forget_chats();
     for window in WINDOWS.with_borrow(Vec::clone) {
         window.history.set(Default::default());
     }
@@ -476,25 +477,33 @@ fn open_pane(ui: Ui, pane: Option<Pane>) {
     act(ui, |_| {});
 }
 
-/// The panes Settings search shows for `query`; `None` is Extensions.
-fn found(query: &str) -> Vec<Option<Pane>> {
+/// The panes Settings search shows for `query`; `None` is Extensions. AI shows only where
+/// `assistant::offered`.
+fn found(ui: Ui, query: &str) -> Vec<Option<Pane>> {
+    let ai = tarn_nsh_shared::assistant::offered(super::assistant::Host(ui));
     let (name, words) = panes::EXTENSIONS;
     let extensions = browser_core::settings::words_match(query, &format!("{name} {words}")).then_some(None);
-    GROUPS.iter().flat_map(|(_, members)| members.iter().copied()).filter(|p| panes::matches(*p, query)).map(Some).chain(extensions).collect()
+    GROUPS
+        .iter()
+        .flat_map(|(_, members)| members.iter().copied())
+        .filter(|p| (ai || *p != Pane::Ai) && panes::matches(*p, query))
+        .map(Some)
+        .chain(extensions)
+        .collect()
 }
 
 fn nav(ui: Ui, current: Pane) -> View {
     let ext_on = ui.ext_pane.get_untracked();
     let shown = move |pane: Option<Pane>| if ext_on { pane.is_none() } else { pane == Some(current) };
     let field = super::text_field(ui.library_query, "Search", NAV_WIDTH - 16.).on_submit(move |q: &str| {
-        let found = found(q);
+        let found = found(ui, q);
         if let Some(pane) = found.iter().find(|p| shown(**p)).or(found.first()) {
             open_pane(ui, *pane);
         }
     });
     let rows = dynamic(move || {
         let query = ui.library_query.get();
-        let found = found(&query);
+        let found = found(ui, &query);
         let mut out = view().flex_col().gap(px(2.));
         if found.is_empty() {
             return Some(out.child(note("No settings match.").px_1()));
@@ -755,6 +764,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
         Pane::Shortcuts => body.child(view().pt_3().child(shortcut_rows(ui))),
         Pane::Snippets => body.child(view().pt_3().child(tarn_nsh_shared::snippets::pane(Notes(ui)))),
         Pane::Notes => body.child(view().pt_3().child(tarn_nsh_shared::notes::pane(Notes(ui)))),
+        Pane::Ai => body.child(view().pt_3().child(tarn_nsh_shared::assistant::settings_pane(super::assistant::Host(ui), ui.chat))),
         Pane::Developer => super::devtools::pane(ui, body),
     })
 }

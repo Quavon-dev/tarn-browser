@@ -67,16 +67,24 @@ fn nav(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
                     .font_weight(FontWeight::BOLD)
                     .text_color(Theme::faint),
             )
-            .children(members.iter().filter(|p| !matches!(p, Pane::Tabs | Pane::Developer)).map(move |p| {
-                let p = *p;
-                nav_row(panes::name(p), panes::icon(p), shown(p), move || {
-                    pane.set(p);
-                    if ui.screen.get_untracked() != Screen::Settings {
-                        ui.show(Screen::Settings);
-                    }
-                })
-                .into_element()
-            }))
+            .children(
+                members
+                    .iter()
+                    .filter(move |p| {
+                        !matches!(p, Pane::Tabs | Pane::Developer)
+                            && (**p != Pane::Ai || tarn_nsh_shared::assistant::offered(super::super::assistant::Host(ui)))
+                    })
+                    .map(move |p| {
+                        let p = *p;
+                        nav_row(panes::name(p), panes::icon(p), shown(p), move || {
+                            pane.set(p);
+                            if ui.screen.get_untracked() != Screen::Settings {
+                                ui.show(Screen::Settings);
+                            }
+                        })
+                        .into_element()
+                    }),
+            )
             .child(when(
                 move || last_group(ix) && !private(ui),
                 move || nav_row(EXTENSIONS, glyphs::SPARKLES, move || ui.screen.get() == Screen::Extensions, move || ui.show(Screen::Extensions)),

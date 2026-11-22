@@ -1000,6 +1000,7 @@ pub fn heading_for(screen: Screen) -> Option<&'static str> {
         Screen::FindTabs => "Find in Tabs",
         Screen::Qr => "QR Code",
         Screen::Snippets => "Insert Snippet",
+        Screen::Assistant => "Assistant",
         Screen::ReadingList => "Reading List",
         Screen::Move(_) => "Move Tab",
         Screen::SpaceNew => "New Space",

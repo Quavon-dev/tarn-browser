@@ -24,6 +24,7 @@ pub enum Script {
     IconLinks,
     Icon,
     Media,
+    Assistant,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -265,6 +266,9 @@ impl<D: Platform> Shell<D> {
                     }
                 }
             }
+            "pageText" if data.get("seq").and_then(Value::as_u64).and_then(|s| self.scripts.get(&s)).is_some_and(|(_, s)| *s == Script::Assistant) => {
+                self.page_for_assistant(key, data);
+            }
             "pageText" => {
                 if let Some(url) = self.answer_for(key, data, Script::Text)
                     && let (Some(id), Some(visit)) = (self.profile_id(), self.visits.get(&key).copied())
@@ -285,6 +289,29 @@ impl<D: Platform> Shell<D> {
             _ => {}
         }
         Vec::new()
+    }
+
+    /// The assistant's `Origin` for the active page, or the current space with no page.
+    pub fn assistant_origin(&self) -> Option<browser_core::assistant::Origin> {
+        let url = self.active_url();
+        self.model.assistant_origin(&self.core, Some(&url).filter(|u| !u.is_empty()).map(String::as_str))
+    }
+
+    /// Reads the active web page's text for the assistant; it arrives in `assistant_pages`.
+    pub fn read_page_for_assistant(&mut self) -> Vec<Effect> {
+        let Some(key) = self.model.active.filter(|_| web(&self.active_url())) else {
+            self.notice = Some("This page cannot be shared with the assistant.".into());
+            return Vec::new();
+        };
+        self.ask(key, Script::Assistant, "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT }))
+    }
+
+    fn page_for_assistant(&mut self, key: TabKey, data: &Value) {
+        let Some(url) = self.answer_for(key, data, Script::Assistant).filter(|_| self.model.active == Some(key)) else { return };
+        if let Some(origin) = self.model.assistant_origin(&self.core, Some(&url)) {
+            let pill = browser_core::assistant::Pill::Page { title: self.page_title(key), text: text(data, "text"), url };
+            self.assistant_pages.push((origin, pill));
+        }
     }
 
     pub fn page_title(&self, key: TabKey) -> String {

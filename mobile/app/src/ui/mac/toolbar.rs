@@ -20,7 +20,7 @@ use url::Url;
 use super::super::{Screen, Ui, bars};
 use crate::theme::{TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
 
-const OFFERED: [Command; 24] = [
+const OFFERED: [Command; 26] = [
     Command::OpenFile,
     Command::ReopenClosedTab,
     Command::TogglePin,
@@ -45,6 +45,8 @@ const OFFERED: [Command; 24] = [
     Command::RemoveFromSplitView,
     Command::CloseSplit,
     Command::TabsOnTop,
+    Command::Ask,
+    Command::AskPage,
 ];
 
 fn level_name(level: ShieldLevel) -> &'static str {
@@ -270,6 +272,7 @@ fn state(ui: Ui) -> State {
         reopenable: !s.model.closed_tabs.is_empty(),
         duplicates: !s.duplicate_tabs().is_empty(),
         private: s.model.private(),
+        assistant: s.model.assistant_offered(&s.core, Some(&s.active_url()).filter(|u| !u.is_empty()).map(String::as_str)),
         ..State::default()
     })
 }
@@ -362,6 +365,8 @@ fn run(ui: Ui, command: Command) {
             s.toggle_tabs_on_top();
             Vec::new()
         }),
+        Command::Ask => super::super::assistant::open(ui, false),
+        Command::AskPage => super::super::assistant::open(ui, true),
         _ => {}
     }
 }

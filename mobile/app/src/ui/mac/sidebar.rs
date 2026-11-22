@@ -791,6 +791,18 @@ fn new_tab_row(bar: Bar) -> View {
                 .accessibility_label("Clean Up")
             },
         ))
+        .child(when(
+            move || ui.read(|s| bar::cleanable(&s.model) && s.model.assistant_offered(&s.core, None)),
+            move || {
+                glyph_button(
+                    glyphs::SPARKLES,
+                    "Group with Assistant: sends the loose tabs' sites and titles to the assistant you chose in Settings › AI.",
+                    Placement::Top,
+                    move || super::super::assistant::group_tabs(ui),
+                )
+                .accessibility_label("Group with Assistant")
+            },
+        ))
 }
 
 fn group_card(bar: Bar, id: Id) -> View {

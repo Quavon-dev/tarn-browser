@@ -30,6 +30,7 @@ pub mod icons {
     pub const BOOK_OPEN: ImageAsset = asset!("icons/book-open.svg");
     pub const BOOKMARK: ImageAsset = asset!("icons/bookmark.svg");
     pub const FLAME: ImageAsset = asset!("icons/flame.svg");
+    pub const SPARKLES: ImageAsset = asset!("icons/sparkles.svg");
     pub const PAUSE: ImageAsset = asset!("icons/pause.svg");
     pub const PLAY: ImageAsset = asset!("icons/play.svg");
     pub const TRASH: ImageAsset = asset!("icons/trash.svg");

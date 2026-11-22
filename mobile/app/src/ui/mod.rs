@@ -1,4 +1,5 @@
 mod appearance;
+mod assistant;
 mod bars;
 mod capture;
 mod controls;
@@ -61,6 +62,7 @@ pub enum Screen {
     Extensions,
     ExtensionPopup,
     Snippets,
+    Assistant,
 }
 
 thread_local! {
@@ -88,6 +90,7 @@ pub struct Ui {
     pub mac: Signal<bool>,
     pub page_overlay: Signal<Option<tarn_nsh_shared::page_overlay::Overlay>>,
     pub popovers: mac::popovers::Anchors,
+    pub chat: tarn_nsh_shared::assistant::Chat,
     pub root: Owner,
 }
 
@@ -146,6 +149,10 @@ impl Ui {
 
     fn run(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>, changed: bool) {
         let effects = apply(f);
+        let pages = SHELL.with(|s| s.borrow_mut().as_mut().map(|s| std::mem::take(&mut s.assistant_pages)).unwrap_or_default());
+        if !pages.is_empty() {
+            assistant::attach(self, pages);
+        }
         self.rev.update(|r| *r += 1);
         if changed {
             self.changes.update(|r| *r += 1);
@@ -565,6 +572,7 @@ pub fn App() -> impl IntoElement {
         root: Owner::current(),
         page_overlay: signal(None),
         popovers: mac::popovers::Anchors::default(),
+        chat: tarn_nsh_shared::assistant::Chat::new(),
     };
     let extensions_open = std::cell::Cell::new(false);
     effect(move || {

@@ -56,6 +56,24 @@ impl<D: Platform> Shell<D> {
         self.sort_undo = sorted.undo.map(|undo| (sorted.text, undo));
     }
 
+    /// Clean Up's assistant request for the current space's loose tabs, and that space.
+    pub fn assistant_grouping(&self) -> Option<((bool, store::Id), browser_core::cleanup::ai::Request)> {
+        let private = self.model.private();
+        browser_core::sidebar::assistant_grouping(&self.model, &self.core, |t| {
+            let key = TabKey { private, id: t.id };
+            let url = self.tab_url(key);
+            let level = self.model.level_for(&self.core, key, &url);
+            (url, level)
+        })
+    }
+
+    /// Files the tabs the assistant grouped, of those it was sent, as an undoable Clean Up.
+    pub fn group_as_proposed(&mut self, space: (bool, store::Id), sent: &std::collections::HashSet<store::Id>, proposal: &[(String, Vec<store::Id>)]) {
+        let done = browser_core::sidebar::group_as_proposed(&mut self.model, &self.core, space, sent, proposal);
+        self.toast_as(done.tone, done.text.clone());
+        self.sort_undo = done.undo.map(|undo| (done.text, undo));
+    }
+
     pub fn can_undo_sort(&self) -> bool {
         self.sort_undo.as_ref().is_some_and(|(text, _)| self.notice.as_ref() == Some(text))
     }

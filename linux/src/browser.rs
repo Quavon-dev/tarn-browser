@@ -166,6 +166,8 @@ pub struct Browser {
     pub elsewhere: HashSet<TabKey>,
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
+    /// Pages read for the assistant, for the window's chat to attach.
+    pub assistant_pages: Vec<(browser_core::assistant::Origin, browser_core::assistant::Pill)>,
     /// Groups this window deleted; other windows drop them from their reopen stacks.
     pub forgotten_groups: Vec<(bool, Id)>,
     /// The space whose groups this window changed; other windows showing it reload it.
@@ -259,6 +261,7 @@ impl Browser {
             favicons: Default::default(),
             elsewhere,
             forgotten: Vec::new(),
+            assistant_pages: Vec::new(),
             forgotten_groups: Vec::new(),
             regrouped_space: None,
             themes,

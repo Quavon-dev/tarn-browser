@@ -9,12 +9,13 @@ pub enum Pane {
     Permissions,
     Snippets,
     Notes,
+    Ai,
     Developer,
     Profiles,
     Shortcuts,
 }
 
-pub const PANES: [(Pane, &str); 12] = [
+pub const PANES: [(Pane, &str); 13] = [
     (Pane::Profile, "Protection"),
     (Pane::General, "General"),
     (Pane::Appearance, "Appearance"),
@@ -24,6 +25,7 @@ pub const PANES: [(Pane, &str); 12] = [
     (Pane::Permissions, "Permissions"),
     (Pane::Snippets, "Snippets"),
     (Pane::Notes, "Notes"),
+    (Pane::Ai, "AI"),
     (Pane::Developer, "Developer"),
     (Pane::Profiles, "Profiles"),
     (Pane::Shortcuts, "Shortcuts"),
@@ -42,6 +44,7 @@ pub const GROUPS: [(&str, &[Pane]); 2] = [
             Pane::Permissions,
             Pane::Snippets,
             Pane::Notes,
+            Pane::Ai,
             Pane::Developer,
             Pane::Shortcuts,
         ],
@@ -66,6 +69,7 @@ pub fn words(pane: Pane) -> &'static str {
         Pane::Permissions => "camera microphone location pop-ups site answers allow block",
         Pane::Snippets => "text expand insert type template signature reply",
         Pane::Notes => "notes write search ideas assistant",
+        Pane::Ai => "assistant chat claude api key ollama model provider group tabs",
         Pane::Developer => "web inspector developer tools local servers localhost",
         Pane::Profiles => "profile new edit delete space rules",
         Pane::Shortcuts => "keyboard keys",
@@ -91,6 +95,7 @@ pub fn icon(pane: Pane) -> &'static str {
         Pane::Permissions => crate::icons::CAMERA,
         Pane::Snippets => crate::icons::FILE_TEXT,
         Pane::Notes => crate::icons::PENCIL,
+        Pane::Ai => crate::icons::SPARKLES,
         Pane::Developer => crate::icons::CODE,
         Pane::Profiles => crate::icons::PERSON,
         Pane::Shortcuts => crate::icons::KEYBOARD,

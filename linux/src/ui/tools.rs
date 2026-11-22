@@ -68,6 +68,8 @@ pub enum Command {
     SleepOthers,
     StopLoading,
     ToastAction,
+    Ask,
+    AskPage,
 }
 
 fn command_for(command: palette::Command) -> Option<Command> {
@@ -143,9 +145,9 @@ fn command_for(command: palette::Command) -> Option<Command> {
         | C::ReloadInChromium
         | C::ReloadInWebKit
         | C::PictureInPicture
-        | C::Share
-        | C::Ask
-        | C::AskPage => return None,
+        | C::Share => return None,
+        C::Ask => Command::Ask,
+        C::AskPage => Command::AskPage,
     })
 }
 
@@ -158,7 +160,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         return Vec::new();
     }
     let toast = ui.snap.with_untracked(|s| s.toast.as_ref().and_then(|t| Some(format!("{} \u{2014} {}", t.action.as_ref()?.label(), t.text))));
-    let Some((spaces, pinned, split, reopenable, duplicates, private, tab, developer)) = read(ui, |b| {
+    let Some((spaces, pinned, split, reopenable, duplicates, private, tab, developer, assistant)) = read(ui, |b| {
         let active = b.model.active;
         (
             b.space_commands(),
@@ -169,6 +171,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
             b.model.private(),
             ActiveTab::of(b),
             b.devtools_on(),
+            b.model.assistant_offered(&b.core, b.model.active.and_then(|k| b.pages.get(&k)).map(|p| p.url.as_str())),
         )
     }) else {
         return Vec::new();
@@ -191,6 +194,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         loading: tab.loading,
         toast,
         developer,
+        assistant,
         ..palette::State::default()
     };
     let offered = |c: palette::Command| command_for(c).is_some() && (c != palette::Command::ImportBrowserData || browser_core::import::available());
@@ -242,6 +246,8 @@ pub fn run(ui: Ui, command: Command) {
         Command::FullScreen => act(ui, Browser::toggle_full_screen),
         Command::StopLoading => act(ui, Browser::stop),
         Command::ToastAction => take_toast_action(ui),
+        Command::Ask => super::assistant::open(ui, false),
+        Command::AskPage => super::assistant::open(ui, true),
         Command::Key(action) => super::run_action(ui, action),
         Command::CloseSplit => act(ui, |b| b.model.active.into_iter().for_each(|k| b.close_split(k))),
         Command::Space(c) => act(ui, |b| b.run_space_command(c)),

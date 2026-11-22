@@ -4684,11 +4684,13 @@ dependencies = [
 name = "tarn-nsh-shared"
 version = "0.1.0"
 dependencies = [
+ "ai",
  "browser-core",
  "nsh-base",
  "nsh-core",
  "shield",
  "store",
+ "url",
 ]
 
 [[package]]

@@ -1,4 +1,5 @@
 pub mod appearance;
+pub mod assistant;
 pub mod card;
 pub mod controls;
 pub mod extensions;

@@ -5281,6 +5281,7 @@ dependencies = [
 name = "tarn-mobile"
 version = "0.1.6"
 dependencies = [
+ "ai",
  "browser-core",
  "engine",
  "nsh-base",
@@ -5336,11 +5337,13 @@ dependencies = [
 name = "tarn-nsh-shared"
 version = "0.1.0"
 dependencies = [
+ "ai",
  "browser-core",
  "nsh-base",
  "nsh-core",
  "shield",
  "store",
+ "url",
 ]
 
 [[package]]

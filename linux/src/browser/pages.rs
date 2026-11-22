@@ -25,6 +25,7 @@ pub enum Request {
     IconData(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     Capture { key: TabKey, profile: Id, url: String, started: i64 },
     Json(TabKey),
+    Assistant(TabKey),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -148,6 +149,7 @@ impl Browser {
             }
             ("article", Some(Request::Read(k))) if k == key => self.open_article(key, text),
             ("pageText", Some(Request::Text(k, visit))) if k == key => self.keep_text(key, visit, text),
+            ("pageText", Some(Request::Assistant(k))) if k == key => self.page_for_assistant(key, text),
             ("textFound", Some(Request::Find(k, query))) if k == key && query == self.find_query => {
                 let snippets: Vec<String> = data["snippets"].as_array().into_iter().flatten().filter_map(|s| s.as_str()).map(str::to_owned).collect();
                 self.add_text_rows(key, engine::page_scripts::find_snippets(&snippets.join("\n")));
@@ -189,6 +191,28 @@ impl Browser {
         if !key.private && !self.setting_off(HISTORY_TEXT) && !text.trim().is_empty() {
             self.core.disk.set_history_text(profile, visit, &url, store::clip_history_text(text)).ok();
             self.text_found.clear();
+        }
+    }
+
+    /// The assistant's `Origin` for the active page, or the current space with no page.
+    pub fn assistant_origin(&self) -> Option<browser_core::assistant::Origin> {
+        let url = self.model.active.and_then(|k| self.pages.get(&k)).map(|p| p.url.clone());
+        self.model.assistant_origin(&self.core, url.as_deref())
+    }
+
+    /// Reads the active page's text for the assistant; it arrives in `assistant_pages`.
+    pub fn read_page_for_assistant(&mut self) {
+        let Some(key) = self.model.active.filter(|k| self.unlocked(*k).is_some()) else {
+            return self.show_toast("This page cannot be shared with the assistant", None);
+        };
+        self.ask(key, Request::Assistant(key), "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT }));
+    }
+
+    fn page_for_assistant(&mut self, key: TabKey, text: &str) {
+        let Some(page) = self.pages.get(&key).filter(|_| self.model.active == Some(key)) else { return };
+        let (url, title) = (page.url.clone(), page.title.clone());
+        if let Some(origin) = self.model.assistant_origin(&self.core, Some(&url)) {
+            self.assistant_pages.push((origin, browser_core::assistant::Pill::Page { url, title, text: text.to_owned() }));
         }
     }
 

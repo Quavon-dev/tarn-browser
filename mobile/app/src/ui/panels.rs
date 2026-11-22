@@ -59,6 +59,7 @@ pub fn panel(ui: Ui) -> impl IntoElement {
             Screen::FindTabs => sheets::find_tabs(ui).into_element(),
             Screen::Qr => sheets::qr(ui).into_element(),
             Screen::Snippets => sheets::insert_snippet(ui).into_element(),
+            Screen::Assistant => tarn_nsh_shared::assistant::body(super::assistant::Host(ui), ui.chat),
             Screen::ReadingList => sheets::reading_list(ui).into_element(),
             Screen::Move(key) => sheets::move_tab(ui, key).into_element(),
             Screen::SpaceNew => sheets::space_card(ui, None).into_element(),
@@ -357,6 +358,10 @@ fn menu(ui: Ui) -> impl IntoElement {
                     },
                 ))
                 .child(when(
+                    move || ui.read(|s| s.model.assistant_offered(&s.core, Some(&s.active_url()).filter(|u| !u.is_empty()).map(String::as_str))),
+                    move || row(icons::SPARKLES, "Ask Assistant", move || super::assistant::open(ui, false)),
+                ))
+                .child(when(
                     move || ui.read(|s| !s.model.closed_tabs.is_empty()),
                     move || {
                         row(icons::UNDO, "Reopen Closed Tab", move || {
@@ -597,7 +602,7 @@ pub(super) fn settings(ui: Ui) -> impl IntoElement {
         .map(|&pane| -> Part {
             (
                 Box::new(move |q: &str| panes::matches(pane, q)),
-                Box::new(move || view().gap_2().child(pane_heading(pane)).children(pane_body(ui, pane)).into_element()),
+                Box::new(move || view().children(pane_body(ui, pane).map(|body| view().gap_2().child(pane_heading(pane)).child(body))).into_element()),
             )
         })
         .collect();
@@ -664,7 +669,8 @@ impl tarn_nsh_shared::notes::Host for Notes {
     }
 }
 
-const TOUCH_PANES: [Pane; 8] = [Pane::Profile, Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Snippets, Pane::Notes];
+const TOUCH_PANES: [Pane; 9] =
+    [Pane::Profile, Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Snippets, Pane::Notes, Pane::Ai];
 
 pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
     let body = view().gap_2();
@@ -733,6 +739,8 @@ pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
         Pane::Permissions => body.child(permissions(ui)),
         Pane::Snippets => body.child(tarn_nsh_shared::snippets::pane(Notes(ui))),
         Pane::Notes => body.child(tarn_nsh_shared::notes::pane(Notes(ui))),
+        Pane::Ai if !tarn_nsh_shared::assistant::offered(super::assistant::Host(ui)) => return None,
+        Pane::Ai => body.child(tarn_nsh_shared::assistant::settings_pane(super::assistant::Host(ui), ui.chat)),
         Pane::Profiles => body.child(spaces(ui)),
         Pane::Tabs | Pane::Developer | Pane::Shortcuts => return None,
     })
@@ -744,7 +752,9 @@ pub(super) fn your_data(ui: Ui) -> View {
             ui.act(|s| {
                 s.clear_data();
                 Vec::new()
-            })
+            });
+            tarn_nsh_shared::assistant::forget_chats();
+            ui.chat.close();
         })
     }))))
 }
