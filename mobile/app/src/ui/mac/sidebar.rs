@@ -1122,6 +1122,7 @@ pub(super) fn sidebar(ui: Ui) -> impl IntoElement {
                 })
                 .child(scroll().flex_1().child(list)),
         )
+        .child(super::super::media::bar(ui, true))
         .child(footer(ui))
 }
 

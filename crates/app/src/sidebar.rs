@@ -490,6 +490,7 @@ fn content(b: &mut Browser, inset: f32, cx: &mut Context<Browser>) -> Div {
                 .child(list(b, cx).left(px(offset)))
                 .children(other_list.into_iter().flatten()),
         )
+        .children(crate::mini_player::render(b, cx))
         .child(space_dots(b, cx))
 }
 

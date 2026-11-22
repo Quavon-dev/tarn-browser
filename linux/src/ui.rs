@@ -227,7 +227,9 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         let elsewhere = live_elsewhere(windows, ui.window);
         let b = windows.get_mut(&ui.window)?;
         b.elsewhere = elsewhere;
+        let before = b.model.active;
         f(b);
+        b.settle_media(before);
         b.keep_page_fullscreen(overlay, address, find);
         let moved = b.model.active.filter(|k| b.elsewhere.contains(k));
         let forgotten = std::mem::take(&mut b.forgotten);
@@ -1051,7 +1053,20 @@ fn sidebar(ui: Ui) -> View {
                 })
                 .child(scroll().flex_1().child(list)),
         )
+        .child(mini_player(ui))
         .child(space_bar(ui))
+}
+
+fn mini_player(ui: Ui) -> View {
+    let media = move || ui.snap.with(|s| s.media.as_ref().map(|(_, title, playing)| (title.clone(), *playing)));
+    let open = move || {
+        if let Some(key) = ui.snap.with_untracked(|s| s.media.as_ref().map(|m| m.0)) {
+            act(ui, |b| b.activate(key));
+        }
+    };
+    let polls = computed(move || ui.snap.with(|s| s.media_polls));
+    tarn_nsh_shared::mini_player::every(browser_core::media::POLL, move || polls.get(), move || act_quietly(ui, Browser::poll_media));
+    view().px_2().pb_1().child(tarn_nsh_shared::mini_player::mini_player(media, open, move |control| act(ui, |b| b.press_media(control))))
 }
 
 /// Whether a space is private, and its profile.

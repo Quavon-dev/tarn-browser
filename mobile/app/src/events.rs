@@ -96,7 +96,9 @@ impl<D: Platform> Shell<D> {
             "screenshot" => self.screenshot_event(key, data),
             "prompt" => return self.prompt(key, data),
             crate::extensions::MESSAGE => return self.extension_message(key, data, std::time::Instant::now()),
-            "article" | "pageText" | "iconLinks" | "iconData" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
+            "article" | "pageText" | "iconLinks" | "iconData" | "textFound" | "picked" | "shielded" | "mediaState" => {
+                return self.script_event(key, name, data);
+            }
             "found" => {
                 let number = |field: &str| data.get(field).and_then(Value::as_u64).map(|n| n as usize);
                 self.found = number("matched").map(|n| (n, number("current")));

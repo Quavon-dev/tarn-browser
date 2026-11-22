@@ -21,6 +21,19 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Mini-player while the sidebar is hidden (2026-11-22)
+
+What it does: the mini-player of a tab left playing stays reachable when the sidebar is hidden,
+as on macOS, where the floating sidebar shows it.
+Shared API: `browser_core::media::Player`; `tarn_nsh_shared::mini_player`.
+Reference: `crates/app/src/mini_player.rs`, `crates/app/src/sidebar.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `linux/src/ui.rs` draws the mini-player and runs its poll timer in the sidebar only;
+  show it (and keep the timer) while the sidebar is hidden
+- [x] iOS — above the bottom bar on phones, in the sidebar on iPad
+- [x] Android — above the bottom bar
+
 ### Springy pop-ups and cards (2026-11-21)
 
 What it does: pop-ups, toasts, cards, link previews, hover cards, the Library's page turn, the

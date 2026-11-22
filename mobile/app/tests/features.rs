@@ -172,6 +172,31 @@ fn captures_save_an_area_or_a_picked_element_and_record_it_once() {
 }
 
 #[test]
+fn the_mini_player_follows_the_tab_left_playing_and_sends_its_controls() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://music.test/", "Music");
+    let key = active(&shell);
+    shell.new_tab(None);
+    visit(&mut shell, "https://b.test/", "B");
+    let asked = shell.settle_media(Some(key));
+    let args = command(&asked, "readMedia").expect("the tab left is asked for its media").clone();
+    shell.event(key, "mediaState", &json!({ "seq": seq(&args), "url": "https://music.test/", "text": r#"{"playing":true,"title":"","position":1}"# }), 3);
+    assert_eq!(shell.mini_player(), Some((key, "Music".to_owned(), true)), "an untitled media shows its tab's title");
+    assert!(command(&shell.poll_media(), "readMedia").is_some(), "polls while it plays");
+
+    let pressed = shell.press_media(browser_core::media::Control::PlayPause);
+    assert_eq!(command(&pressed, "media"), Some(&json!({ "action": "pause" })));
+    assert!(command(&pressed, "readMedia").is_some(), "asked again after the press");
+    assert!(shell.poll_media().is_empty(), "nothing polls while paused");
+
+    shell.activate(key);
+    assert_eq!(shell.mini_player(), None, "the tab on screen has its own controls");
+    shell.close_or_unload(key);
+    shell.settle_media(None);
+    assert_eq!(shell.player.tab(), None);
+}
+
+#[test]
 fn private_spaces_never_send_or_keep_zaps() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");

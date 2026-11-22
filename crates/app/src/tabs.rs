@@ -261,6 +261,9 @@ impl Browser {
                         return;
                     }
                     let changed = if playing { b.playing.insert(key) } else { b.playing.remove(&key) };
+                    if changed && playing {
+                        b.ask_media(key, cx);
+                    }
                     if changed {
                         b.rank_heavy();
                         cx.notify();

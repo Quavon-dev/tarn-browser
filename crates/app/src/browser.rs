@@ -271,6 +271,7 @@ pub struct Browser {
     pub(crate) toast: crate::toast::Toasts,
     pub(crate) link_status: crate::link_status::LinkStatus,
     pub(crate) capture_overlay: Option<crate::capture_overlay::Overlay>,
+    pub(crate) mini_player: crate::mini_player::MiniPlayer,
     /// New tabs whose first load is a page's link, so S10 judges every redirect hop.
     link_loads: HashMap<TabKey, Option<Url>>,
     pub suggestions: Vec<Suggestion>,
@@ -497,6 +498,7 @@ impl Browser {
             toast: Default::default(),
             link_status: Default::default(),
             capture_overlay: None,
+            mini_player: Default::default(),
             link_loads: HashMap::new(),
             suggestions: Vec::new(),
             selected: 0,
@@ -1188,6 +1190,9 @@ impl Browser {
                 prev.set_visible(false);
             }
         }
+        if let Some(prev) = self.model.active.filter(|p| *p != key) {
+            self.ask_media(prev, cx);
+        }
         let left = Instant::now();
         self.seen.extend(self.model.active.into_iter().chain([key]).map(|k| (k, left)));
         self.typed_in.remove(&key);
@@ -1288,6 +1293,7 @@ impl Browser {
     /// Drops this window's view of `key`, and the fade still showing it.
     fn take_view(&mut self, key: TabKey) -> Option<Rc<WebView>> {
         self.typed_in.remove(&key);
+        self.forget_media(key);
         let view = self.views.remove(&key)?;
         if self.page_fade.as_ref().is_some_and(|(fading, _)| Rc::ptr_eq(fading, &view)) {
             self.page_fade = None;
@@ -2370,6 +2376,7 @@ impl Browser {
     /// With `link`, the URL loads as a link from that page (or from none), not as typed.
     fn rebuild_view_loading(&mut self, key: TabKey, url: &Url, storage: Option<engine::handover::Storage>, link: Option<Option<Url>>, cx: &mut Context<Self>) {
         if self.model.tab(key).is_some() && self.views.remove(&key).is_some() {
+            self.forget_media(key);
             // The old view's last events are dropped; the new one says when its load starts.
             self.pages.entry(key).or_default().loading = false;
             self.drop_prompts(key, cx);

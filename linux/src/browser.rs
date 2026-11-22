@@ -9,6 +9,7 @@ pub mod icons;
 pub mod library;
 pub mod link_peek;
 pub mod links;
+mod media;
 pub mod pages;
 pub mod profile_data;
 pub mod profiles;
@@ -148,6 +149,7 @@ pub struct Browser {
     pub samples: crate::memory::Samples,
     pub used: HashMap<TabKey, std::time::Instant>,
     pub playing: HashSet<TabKey>,
+    pub player: browser_core::media::Player,
     pub swipe: swipe::Swipe,
     pub released: Vec<crate::data::StoreKey>,
     pub retired: Vec<String>,
@@ -240,6 +242,7 @@ impl Browser {
             samples: Default::default(),
             used: HashMap::new(),
             playing: HashSet::new(),
+            player: Default::default(),
             swipe: Default::default(),
             released: Vec::new(),
             retired: Vec::new(),
@@ -1050,7 +1053,7 @@ impl Browser {
                 }
             }
             link_peek::PEEK_EVENT => self.open_link_peek(key, &text("url")),
-            "article" | "pageText" | "textFound" | "picked" => self.on_script_event(key, name, data),
+            "article" | "pageText" | "textFound" | "picked" | "mediaState" => self.on_script_event(key, name, data),
             "iconLinks" => self.on_icon_event(key, data, None),
             "shielded" => self.on_shielded(key, data),
             "process" => {
@@ -1076,6 +1079,7 @@ impl Browser {
             "playing" => {
                 if data["playing"].as_bool() == Some(true) {
                     self.playing.insert(key);
+                    self.ask_media(key);
                 } else {
                     self.playing.remove(&key);
                 }

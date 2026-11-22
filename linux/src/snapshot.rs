@@ -172,6 +172,9 @@ pub struct Snapshot {
     pub responsive: Option<devkit::responsive::Preset>,
     pub json: Option<std::rc::Rc<devkit::json_view::Tree>>,
     pub local_servers: Option<Vec<u16>>,
+    /// The mini-player: its tab, title and whether it plays.
+    pub media: Option<(TabKey, String, bool)>,
+    pub media_polls: bool,
 }
 
 pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
@@ -513,6 +516,8 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         responsive: b.responsive_preset(),
         json: b.active_json(),
         local_servers: b.local_servers.clone(),
+        media: b.mini_player(),
+        media_polls: b.player.polls(),
     }
 }
 

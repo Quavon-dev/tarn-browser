@@ -30,6 +30,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   Page join Take Screenshot on every client, and iOS and Android gain Take Screenshot. Captures are
   saved to Downloads and copied (not on Android); iOS and Android capture the visible part of a full
   page.
+- A mini-player shows the media of a tab you left playing, on every client: its title, play or
+  pause and 15 seconds back or forward; clicking the title goes back to the tab. It reads only the
+  page's own title and asks the page nothing while nothing plays.
 
 ### Changed
 

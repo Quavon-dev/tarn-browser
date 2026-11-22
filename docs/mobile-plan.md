@@ -293,6 +293,10 @@ decisions come from `browser_core::tarn_ext`.
 - **Gap: screenshots on Android's clipboard.** Android's clipboard holds an image only as a content
   URI, which any app reading the clipboard could then open, so the `screenshot` command saves the PNG
   to Downloads without copying it.
+- **Gap: a signal that a page started playing.** Neither WKWebView on iOS nor Android System WebView
+  reports when a page starts playing media, so the mini-player (`browser_core::media::Player`) asks a
+  tab when the user leaves it, after a button press and while its media plays; media that starts later
+  in a tab already left shows once the tab is asked again.
 - **Gap: playing media on Android.** Android has no isolated world that runs as the user's gesture, so the
   `media` command's `play` is refused where the page's media needs one (`setMediaPlaybackRequiresUserGesture`);
   pause and seek work.

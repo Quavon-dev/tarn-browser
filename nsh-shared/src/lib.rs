@@ -4,6 +4,7 @@ pub mod controls;
 pub mod extensions;
 pub mod fog;
 pub mod icons;
+pub mod mini_player;
 pub mod motion;
 pub mod page_overlay;
 pub mod panes;

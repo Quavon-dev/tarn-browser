@@ -24,6 +24,7 @@ mod link_status;
 mod memory;
 mod menu_glyphs;
 mod menubar;
+mod mini_player;
 mod peek;
 mod prefs;
 mod profiles;

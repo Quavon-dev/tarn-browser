@@ -62,7 +62,11 @@ Every shell's web view offers the same operations and reports the same events. T
   (`snapshotRect`), `docs/mobile-plan.md` §2. A full page is the document cut to
   `view_policy::SNAPSHOT_MAX_SIDE` on macOS and Windows; Linux takes it only when the document fits
   that size (WebKitGTK cannot clip a full-document snapshot) and answers none otherwise; iOS and
-  Android draw only the visible page;
+  Android draw only the visible page. The window's mini-player is `browser_core::media::Player`:
+  shells ask `media_state` of a tab when the engine says it plays (Linux's `playing` event, the
+  macOS and Windows background probe), when the user leaves it and after a button press, and
+  again every `media::POLL` only while the shown media plays; its buttons send
+  `media::Control::command` (`args` for NSH components);
 - isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
   and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
   has no isolated world and runs those scripts in the page world, so a shell must not send it

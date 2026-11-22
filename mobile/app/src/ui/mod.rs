@@ -4,6 +4,7 @@ mod capture;
 mod controls;
 mod extensions;
 mod mac;
+mod media;
 mod panels;
 mod prompt;
 mod share;
@@ -143,7 +144,9 @@ impl Ui {
         let effects = SHELL.with(|s| {
             let mut shell = s.borrow_mut();
             let shell = shell.as_mut().expect("the shell opens with the app");
+            let before = shell.model.active;
             let mut effects = f(shell);
+            effects.extend(shell.settle_media(before));
             effects.extend(shell.take_effects());
             effects
         });
@@ -594,6 +597,7 @@ pub fn App() -> impl IntoElement {
     follow();
     set_interval(Duration::from_secs(60), follow);
     set_interval(engine::lifecycle::PING_EVERY, move || ui.act(|s| s.ping_page(Instant::now())));
+    media::poll(ui);
     extensions::start(ui);
     view()
         .flex_1()
@@ -622,6 +626,7 @@ pub fn App() -> impl IntoElement {
                 .child(each(move || pages.get(), |v: &ViewProps| (v.key, v.born), move |item, _| web_view(ui, item)))
                 .child(split::dividers(ui))
                 .child(capture::layer(ui))
+                .child(media::bar(ui, false))
                 .child(start(ui))
                 .child(bars::suggestions(ui))
                 .child(prompt::prompt_panel(ui))

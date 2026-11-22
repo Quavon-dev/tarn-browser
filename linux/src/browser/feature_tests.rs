@@ -1395,6 +1395,41 @@ fn captures_ask_the_page_for_an_area_and_an_element_through_the_picker() {
 }
 
 #[test]
+fn the_mini_player_shows_playing_media_of_a_tab_off_screen_and_sends_its_controls() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://music.test/");
+    b.outbox.clear();
+    b.on_event(key, "playing", &json!({ "playing": true }));
+    let seq = asked(&b, "readMedia")[0]["seq"].clone();
+    b.on_event(
+        key,
+        "mediaState",
+        &json!({ "seq": seq, "url": "https://music.test/", "text": r#"{"playing":true,"title":"Song","duration":100,"position":3}"# }),
+    );
+    assert!(b.player.polls());
+    assert_eq!(b.mini_player(), None, "the tab on screen has its own controls");
+    let other = b.new_tab("https://b.test/").unwrap();
+    b.activate(other);
+    assert_eq!(b.mini_player(), Some((key, "Song".to_owned(), true)));
+
+    b.outbox.clear();
+    b.press_media(browser_core::media::Control::PlayPause);
+    assert_eq!(b.outbox[0], (key, "media", json!({ "action": "pause" })));
+    assert_eq!(b.mini_player().map(|m| m.2), Some(false));
+    assert!(!b.player.polls() && asked(&b, "readMedia").len() == 1, "asked again after the press");
+    b.poll_media();
+    assert_eq!(asked(&b, "readMedia").len(), 1, "nothing polls while paused");
+
+    b.outbox.clear();
+    b.settle_media(Some(other));
+    assert!(asked(&b, "readMedia").is_empty(), "a tab still shown is not asked");
+    b.close_tab(key);
+    b.settle_media(None);
+    assert_eq!(b.player.tab(), None, "a closed tab leaves the mini-player");
+}
+
+#[test]
 fn a_burner_screenshot_is_saved_but_not_recorded() {
     let (_dir, mut b) = browser();
     b.open_burner();

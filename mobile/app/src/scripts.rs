@@ -23,6 +23,7 @@ pub enum Script {
     Text,
     IconLinks,
     Icon,
+    Media,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -92,7 +93,7 @@ impl<D: Platform> Shell<D> {
         self.seq
     }
 
-    fn ask(&mut self, key: TabKey, script: Script, name: &'static str, mut args: Value) -> Vec<Effect> {
+    pub(crate) fn ask(&mut self, key: TabKey, script: Script, name: &'static str, mut args: Value) -> Vec<Effect> {
         let seq = self.next_seq();
         args["seq"] = json!(seq);
         self.scripts.retain(|_, (k, s)| !(*k == key && *s == script));
@@ -107,7 +108,7 @@ impl<D: Platform> Shell<D> {
         self.scripts.retain(|_, (k, _)| *k != key);
     }
 
-    fn answer_for(&mut self, key: TabKey, data: &Value, script: Script) -> Option<String> {
+    pub(crate) fn answer_for(&mut self, key: TabKey, data: &Value, script: Script) -> Option<String> {
         let seq = data.get("seq").and_then(Value::as_u64)?;
         if self.scripts.get(&seq) != Some(&(key, script)) {
             return None;
@@ -277,6 +278,7 @@ impl<D: Platform> Shell<D> {
             "iconLinks" => return self.icon_links(key, data),
             "iconData" => self.icon_event(key, name, data, favicon::normalize(&text(data, "text"))),
             "textFound" => self.text_found(key, data),
+            "mediaState" => self.media_answered(key, data),
             "picked" if self.capturing.is_some_and(|(k, ..)| k == key) => return self.capture_picked(key, data),
             "picked" => self.picked(key, data),
             "shielded" => self.shielded_event(key, data),
