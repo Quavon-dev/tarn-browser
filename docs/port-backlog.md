@@ -21,6 +21,20 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Measure (2026-11-22)
+
+What it does: a developer tool that shows rulers and a box the user drags over a still of the page,
+labelled with its size and position in CSS pixels; offered only with the developer tools on.
+Shared API: `browser_core::measure::{ticks, css_box, label, HINT}`, `palette::Command::Measure`
+with `palette::State::developer`; `tarn_nsh_shared::page_overlay` (`Purpose::Measure`).
+Reference: `crates/app/src/capture_overlay.rs`, `linux/src/ui/capture.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux
+- [ ] iOS — needs the Settings › Developer pane first (entry below); then a two-tap distance on the
+  shared overlay in `mobile/app`, with `State::developer` from `devkit::SETTING`
+- [ ] Android — same as iOS
+
 ### Mini-player while the sidebar is hidden (2026-11-22)
 
 What it does: the mini-player of a tab left playing stays reachable when the sidebar is hidden,

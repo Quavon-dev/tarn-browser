@@ -1430,6 +1430,28 @@ fn the_mini_player_shows_playing_media_of_a_tab_off_screen_and_sends_its_control
 }
 
 #[test]
+fn measure_opens_over_a_still_of_the_page_only_with_the_developer_tools_on() {
+    use tarn_nsh_shared::page_overlay::Purpose;
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://site.test/");
+    let offered = |b: &Browser| {
+        let state = browser_core::palette::State { developer: b.devtools_on(), ..browser_core::palette::State::default() };
+        browser_core::palette::rows("measure", state, |_| true, &[]).iter().any(|(name, _)| name == "Measure")
+    };
+    b.outbox.clear();
+    assert!(!offered(&b) && b.page_still(Purpose::Measure, (800., 600.)).is_none());
+    assert!(asked(&b, "snapshotRect").is_empty(), "nothing is asked of the page");
+
+    b.set_developer(true);
+    assert!(offered(&b));
+    let overlay = b.page_still(Purpose::Measure, (800., 600.)).unwrap();
+    assert_eq!((overlay.purpose, overlay.key, overlay.page), (Purpose::Measure, key, (800., 600.)));
+    let still = asked(&b, "snapshotRect")[0].clone();
+    assert_eq!((still["seq"].as_u64(), still["width"].as_f64(), still["height"].as_f64()), (Some(overlay.seq), Some(800.), Some(600.)));
+}
+
+#[test]
 fn a_burner_screenshot_is_saved_but_not_recorded() {
     let (_dir, mut b) = browser();
     b.open_burner();

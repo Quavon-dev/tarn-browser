@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use browser_core::capture::{AREA_HINT, drag_area, drag_rect};
+use browser_core::measure;
 use engine::view_policy::SnapshotArea;
 use futures::StreamExt;
 use futures::channel::mpsc;
@@ -15,13 +16,14 @@ use gpui::{
     relative,
 };
 use ui::controls::surface;
-use ui::theme::{Elevation, TEXT_SMALL, Theme};
+use ui::theme::{Elevation, TEXT_SMALL, TEXT_TINY, Theme};
 
 use crate::browser::{Browser, TabKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Purpose {
     Area,
+    Measure,
 }
 
 pub struct Overlay {
@@ -49,7 +51,7 @@ impl Overlay {
 }
 
 impl Browser {
-    pub(crate) fn capture_area(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_overlay(&mut self, purpose: Purpose, window: &mut Window, cx: &mut Context<Self>) {
         let Some(key) = self.model.active else { return };
         let (Some(view), Some((_, _, width, height))) = (self.views.get(&key).cloned(), self.link_rect(key)) else { return };
         let (weak, zoom, (tx, mut rx)) = (Rc::downgrade(&view), view.zoom(), mpsc::unbounded());
@@ -60,10 +62,14 @@ impl Browser {
                 if b.model.active != Some(key) || !b.same_view(key, &weak) {
                     return;
                 }
-                let Some(png) = png else { return b.capture_tab(key, true, |_, done| done(None), cx) };
+                let Some(png) = png else {
+                    return if purpose == Purpose::Area {
+                        b.capture_tab(key, true, |_, done| done(None), cx)
+                    };
+                };
                 b.capture_overlay = Some(Overlay {
                     key,
-                    purpose: Purpose::Area,
+                    purpose,
                     image: Arc::new(Image::from_bytes(ImageFormat::Png, png)),
                     page: (width, height),
                     zoom,
@@ -102,9 +108,9 @@ impl Browser {
         cx.notify();
     }
 
-    /// A drag selects the area; a click keeps the overlay open.
+    /// A drag selects the area; a click keeps the overlay open. A measured box stays until the next drag.
     fn end_capture_drag(&mut self, cx: &mut Context<Self>) {
-        let Some(overlay) = self.capture_overlay.as_mut() else { return };
+        let Some(overlay) = self.capture_overlay.as_mut().filter(|o| o.purpose == Purpose::Area) else { return };
         let Some((from, to)) = overlay.drag.take() else { return };
         let area = drag_area(overlay.css(from), overlay.css(to), overlay.css(overlay.page));
         let Some(SnapshotArea::Rect { x, y, width, height }) = area else { return cx.notify() };
@@ -141,13 +147,31 @@ pub(crate) fn render(b: &Browser, key: TabKey, cx: &mut Context<Browser>) -> Opt
     let dim = Rgba { r: 0., g: 0., b: 0., a: crate::address::DIM };
     let band = |x: f32, y: f32, bw: f32, bh: f32| div().absolute().left(relative(x / w)).top(relative(y / h)).w(relative(bw / w)).h(relative(bh / h));
     let bounds = overlay.bounds.clone();
-    let rect = overlay.drag.map(|(from, to)| {
-        let f = |p: (f32, f32)| (f64::from(p.0), f64::from(p.1));
-        drag_rect(f(from), f(to), f(overlay.page)).map(|v| v as f32)
-    });
-    let shade = match rect {
-        None => vec![band(0., 0., w, h).bg(dim)],
-        Some([x, y, rw, rh]) => vec![
+    let f = |p: (f32, f32)| (f64::from(p.0), f64::from(p.1));
+    let rect = overlay.drag.map(|(from, to)| drag_rect(f(from), f(to), f(overlay.page)).map(|v| v as f32));
+    let shade = match (overlay.purpose, rect) {
+        (Purpose::Measure, None) => Vec::new(),
+        (Purpose::Measure, Some([x, y, rw, rh])) => {
+            let [px_, py_] = pill_origin([x, y, rw, rh], h);
+            let css = measure::css_box(f(from_to(overlay).0), f(from_to(overlay).1), f(overlay.page), overlay.zoom);
+            vec![
+                band(x, y, rw, rh).border_1().border_color(Theme::accent()).bg(Theme::accent_soft()),
+                band(px_, py_, 0., 0.).child(
+                    div()
+                        .absolute()
+                        .px_1p5()
+                        .py_0p5()
+                        .rounded(px(Theme::radius_small()))
+                        .bg(Theme::accent())
+                        .text_color(Theme::on_accent())
+                        .text_size(px(TEXT_SMALL))
+                        .whitespace_nowrap()
+                        .child(measure::label(css)),
+                ),
+            ]
+        }
+        (Purpose::Area, None) => vec![band(0., 0., w, h).bg(dim)],
+        (Purpose::Area, Some([x, y, rw, rh])) => vec![
             band(0., 0., w, y).bg(dim),
             band(0., y + rh, w, h - y - rh).bg(dim),
             band(0., y, x, rh).bg(dim),
@@ -158,8 +182,10 @@ pub(crate) fn render(b: &Browser, key: TabKey, cx: &mut Context<Browser>) -> Opt
     let hint = surface(Theme::radius_panel()).shadow(Elevation::Floating.shadow()).px_3().py_1p5().text_size(px(TEXT_SMALL)).text_color(Theme::text()).child(
         match overlay.purpose {
             Purpose::Area => AREA_HINT,
+            Purpose::Measure => measure::HINT,
         },
     );
+    let hint_top = 12. + if overlay.purpose == Purpose::Measure { measure::RULER as f32 } else { 0. };
     let end = |b: &mut Browser, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Browser>| b.end_capture_drag(cx);
     let layer = div()
         .id("capture-overlay")
@@ -171,7 +197,8 @@ pub(crate) fn render(b: &Browser, key: TabKey, cx: &mut Context<Browser>) -> Opt
         .child(img(overlay.image.clone()).size_full().object_fit(ObjectFit::Fill))
         .child(canvas(move |b, _, _| bounds.set(b), |_, _, _, _| {}).absolute().inset_0())
         .children(shade)
-        .when(rect.is_none(), |d| d.child(div().absolute().top_3().left_0().right_0().flex().justify_center().child(hint)))
+        .when(overlay.purpose == Purpose::Measure, |d| d.children(rulers(overlay)))
+        .when(rect.is_none(), |d| d.child(div().absolute().top(px(hint_top)).left_0().right_0().flex().justify_center().child(hint)))
         .on_mouse_down(MouseButton::Left, cx.listener(|b, e: &MouseDownEvent, _, cx| b.drag_capture(e.position, true, cx)))
         .on_mouse_move(cx.listener(|b, e: &MouseMoveEvent, _, cx| {
             if e.dragging() {
@@ -183,8 +210,55 @@ pub(crate) fn render(b: &Browser, key: TabKey, cx: &mut Context<Browser>) -> Opt
     Some(layer.into_any_element())
 }
 
+fn from_to(overlay: &Overlay) -> ((f32, f32), (f32, f32)) {
+    overlay.drag.unwrap_or_default()
+}
+
+/// Where the measured box's label goes: under the box, or over it when the page ends below.
+fn pill_origin([x, y, _, h]: [f32; 4], page_height: f32) -> [f32; 2] {
+    let below = y + h + 6.;
+    [x, if below + PILL < page_height { below } else { (y - PILL - 6.).max(0.) }]
+}
+
+const PILL: f32 = 22.;
+
+/// The top and left rulers, numbered in the page's CSS pixels.
+fn rulers(overlay: &Overlay) -> [gpui::Div; 2] {
+    let ((w, h), zoom, thick) = (overlay.page, overlay.zoom, measure::RULER as f32);
+    let ruler = |horizontal: bool| {
+        let length = if horizontal { w } else { h };
+        let marks = measure::ticks(f64::from(length), zoom).into_iter().flat_map(move |tick| {
+            let at = relative(tick.at as f32 / length);
+            let size = thick * if tick.label.is_some() { 0.5 } else { 0.25 };
+            let mark = div().absolute().bg(Theme::faint());
+            let mark = if horizontal { mark.left(at).bottom_0().w(px(1.)).h(px(size)) } else { mark.top(at).right_0().h(px(1.)).w(px(size)) };
+            let text = tick.label.map(|label| {
+                let text = div().absolute().text_size(px(TEXT_TINY)).line_height(px(TEXT_TINY)).text_color(Theme::muted());
+                // Stacked, four-digit numbers stay clear of the left ruler's marks.
+                if horizontal {
+                    text.whitespace_nowrap().left(at).ml(px(3.)).top_0().child(label)
+                } else {
+                    text.top(at).left(px(3.)).mt(px(2.)).flex().flex_col().items_center().children(label.chars().map(|c| c.to_string()))
+                }
+            });
+            std::iter::once(mark).chain(text)
+        });
+        let bar = div().absolute().overflow_hidden().bg(Theme::panel()).border_color(Theme::separator());
+        let bar = if horizontal { bar.top_0().left_0().right_0().h(px(thick)).border_b_1() } else { bar.top_0().left_0().bottom_0().w(px(thick)).border_r_1() };
+        bar.children(marks)
+    };
+    [ruler(true), ruler(false)]
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_measure_label_sits_under_the_box_unless_the_page_ends() {
+        assert_eq!(super::pill_origin([10., 20., 100., 50.], 600.), [10., 76.]);
+        assert_eq!(super::pill_origin([10., 500., 100., 90.], 600.), [10., 472.]);
+        assert_eq!(super::pill_origin([0., 2., 100., 595.], 600.), [0., 0.]);
+    }
+
     #[test]
     fn crops_the_still_to_the_dragged_area() {
         let mut png = std::io::Cursor::new(Vec::new());

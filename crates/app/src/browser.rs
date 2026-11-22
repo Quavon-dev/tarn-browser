@@ -1711,6 +1711,7 @@ impl Browser {
             loading: !idle(&crate::StopLoading),
             toast: self.toast_command(),
             reader: Some(self.reader_shown()),
+            developer: self.devtools_on(),
             ..Default::default()
         };
         let zappable = site.as_ref().is_some_and(|(k, u)| self.zappable(*k, u));

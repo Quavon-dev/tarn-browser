@@ -85,6 +85,7 @@ pub enum Command {
     CaptureArea,
     CaptureElement,
     CaptureFullPage,
+    Measure,
     SavePdf,
     CopyMarkdownLink,
     CopyTitle,
@@ -159,6 +160,7 @@ pub const COMMANDS: [(&str, &str, Command); 71] = [
     ("Capture Area", "screenshot region rectangle crop image png", Command::CaptureArea),
     ("Capture Element", "screenshot pick part image png", Command::CaptureElement),
     ("Capture Full Page", "screenshot whole long scrolling image png", Command::CaptureFullPage),
+    ("Measure", "ruler pixels size distance developer", Command::Measure),
     ("Save Page as PDF", "export print", Command::SavePdf),
     ("Copy Link as Markdown", "url markdown", Command::CopyMarkdownLink),
     ("Copy Title", "page name", Command::CopyTitle),
@@ -205,6 +207,7 @@ pub struct State {
     pub unpinned: bool,
     pub loading: bool,
     pub toast: Option<String>,
+    pub developer: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -241,6 +244,7 @@ impl State {
             Reader | SaveForLater | CopyLink | CopyCleanLink | CopyMarkdownLink | CopyTitle | ShowQrCode | Share | SavePdf | ZapElement | BookmarkTab
             | TakeScreenshot | DuplicateTab | PictureInPicture => tab,
             CaptureArea | CaptureElement | CaptureFullPage => tab && !self.no_page,
+            Measure => tab && !self.no_page && self.developer,
             _ => true,
         }
     }
@@ -323,6 +327,8 @@ mod tests {
         assert!(names("swap panes", State::default()).is_empty());
         assert!(names("close duplicate", State::default()).is_empty());
         assert_eq!(names("capture area", State::default())[0], "Capture Area");
+        assert!(!names("measure", State::default()).contains(&"Measure".to_owned()), "only with the developer tools on");
+        assert_eq!(names("measure", State { developer: true, ..State::default() })[0], "Measure");
         assert!(
             !names("capture", State { no_page: true, ..State::default() }).iter().any(|n| n.starts_with("Capture")),
             "a tab without a page has nothing to capture"

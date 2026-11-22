@@ -5,6 +5,7 @@ use browser_core::toast::Tone;
 use engine::view_policy::SnapshotArea;
 use serde_json::{Value, json};
 use shield::ShieldLevel;
+use tarn_nsh_shared::page_overlay::{Overlay, Purpose};
 use url::Url;
 
 use super::{Browser, Notice, Request, ToastAction};
@@ -29,6 +30,18 @@ impl Browser {
         let title = if title.is_empty() { self.model.tab(key).map(|t| t.title.clone()).unwrap_or_default() } else { title };
         area["name"] = json!(browser_core::text::capture_name(&title, Url::parse(&url).ok().as_ref(), "png"));
         self.ask(key, Request::Capture { key, profile, url, started: now() }, "screenshot", area);
+    }
+
+    /// Asks the active tab for a still of its visible page, `page` CSS pixels, to draw an overlay
+    /// over; Measure only while the developer tools are on.
+    pub fn page_still(&mut self, purpose: Purpose, page: (f64, f64)) -> Option<Overlay> {
+        let key = self.model.active.filter(|_| purpose != Purpose::Measure || self.devtools_on())?;
+        let seq = self.next_seq();
+        self.outbox.push((key, "snapshotRect", json!({ "seq": seq, "x": 0, "y": 0, "width": page.0, "height": page.1 })));
+        Some(match purpose {
+            Purpose::Area => Overlay::area(key, seq, page),
+            Purpose::Measure => Overlay::measure(key, seq, page),
+        })
     }
 
     /// Capture Element on the active tab, whose visible page is `page` CSS pixels.

@@ -33,6 +33,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - A mini-player shows the media of a tab you left playing, on every client: its title, play or
   pause and 15 seconds back or forward; clicking the title goes back to the tab. It reads only the
   page's own title and asks the page nothing while nothing plays.
+- Measure, a developer tool on macOS, Windows and Linux: rulers and a box you drag over a still
+  of the page give sizes and positions in CSS pixels. It is offered where Web Inspector is
+  (Settings › Developer or a Developer profile) and runs nothing on the page.
 
 ### Changed
 

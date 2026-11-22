@@ -40,6 +40,7 @@ pub mod layout;
 pub mod library;
 pub mod licences;
 pub mod link_status;
+pub mod measure;
 pub mod media;
 pub mod open_file;
 pub mod page_ops;

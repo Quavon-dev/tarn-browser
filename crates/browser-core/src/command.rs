@@ -282,6 +282,7 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Picture in Picture", "picture-in-picture-2"),
     ("Take Screenshot", "camera"),
     ("Capture", "camera"),
+    ("Measure", "code"),
     ("Save Page as PDF", "file-down"),
     ("Print", "printer"),
     ("Share", "share"),

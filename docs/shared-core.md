@@ -52,7 +52,8 @@ Every shell's web view offers the same operations and reports the same events. T
   (`browser_core::capture::element_area` cuts it to the page); empty when cancelled or under
   Lockdown. NSH components: `pick` with `rect: true`, answered by `picked` `{seq, url, rect}`.
   Capture Area draws its rectangle in the shell over a still snapshot of the page
-  (`capture::drag_area`), with no script on the page;
+  (`capture::drag_area`), with no script on the page, and so does the developer Measure tool
+  (`browser_core::measure`, offered with `palette::State::developer`, where Web Inspector is);
 - `selected_text`, `media_state`, `media_command` and `snapshot_rect`: the selection, the first
   audible media element (read, and play, pause or seek), and a PNG of a rectangle of the visible
   page or of the whole document. The reads are isolated-world scripts from `engine::page_scripts`

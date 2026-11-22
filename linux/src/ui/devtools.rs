@@ -121,6 +121,14 @@ pub(super) fn responsive_button(ui: Ui) -> AnyElement {
     })
 }
 
+pub(super) fn measure_button(ui: Ui) -> AnyElement {
+    dynamic(move || {
+        ui.snap.with(|s| s.devtools && s.tab && !super::no_page(s)).then(|| {
+            icon_button(icons::CODE, "Measure", move || super::capture::open(ui, tarn_nsh_shared::page_overlay::Purpose::Measure)).text_color(Theme::muted())
+        })
+    })
+}
+
 pub(super) fn refresh_servers(ui: Ui) {
     ui.root.run(|| {
         drop(spawn(async move {

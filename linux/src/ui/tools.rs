@@ -33,6 +33,7 @@ pub enum Command {
     CaptureArea,
     CaptureElement,
     CaptureFullPage,
+    Measure,
     Reader,
     SaveForLater,
     BurnerTab,
@@ -120,6 +121,7 @@ fn command_for(command: palette::Command) -> Option<Command> {
         C::CaptureArea => Command::CaptureArea,
         C::CaptureElement => Command::CaptureElement,
         C::CaptureFullPage => Command::CaptureFullPage,
+        C::Measure => Command::Measure,
         C::SavePdf => Command::SavePdf,
         C::CopyMarkdownLink => Command::CopyMarkdownLink,
         C::CopyTitle => Command::CopyTitle,
@@ -155,7 +157,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         return Vec::new();
     }
     let toast = ui.snap.with_untracked(|s| s.toast.as_ref().and_then(|t| Some(format!("{} \u{2014} {}", t.action.as_ref()?.label(), t.text))));
-    let Some((spaces, pinned, split, reopenable, duplicates, private, tab)) = read(ui, |b| {
+    let Some((spaces, pinned, split, reopenable, duplicates, private, tab, developer)) = read(ui, |b| {
         let active = b.model.active;
         (
             b.space_commands(),
@@ -165,6 +167,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
             !b.duplicate_tabs().is_empty(),
             b.model.private(),
             ActiveTab::of(b),
+            b.devtools_on(),
         )
     }) else {
         return Vec::new();
@@ -186,6 +189,7 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
         unpinned: tab.unpinned,
         loading: tab.loading,
         toast,
+        developer,
         ..palette::State::default()
     };
     let offered = |c: palette::Command| command_for(c).is_some() && (c != palette::Command::ImportBrowserData || browser_core::import::available());
@@ -208,9 +212,10 @@ pub fn run(ui: Ui, command: Command) {
         }
         Command::CloseDuplicates => act(ui, Browser::close_duplicates),
         Command::ZapElement => act(ui, Browser::zap_element),
-        Command::CaptureArea => super::capture::capture_area(ui),
+        Command::CaptureArea => super::capture::open(ui, tarn_nsh_shared::page_overlay::Purpose::Area),
         Command::CaptureElement => super::capture::capture_element(ui),
         Command::CaptureFullPage => act(ui, Browser::capture_full_page),
+        Command::Measure => super::capture::open(ui, tarn_nsh_shared::page_overlay::Purpose::Measure),
         Command::Reader => act(ui, Browser::toggle_reader),
         Command::SaveForLater => act(ui, Browser::save_for_later),
         Command::BurnerTab => act(ui, Browser::open_burner),

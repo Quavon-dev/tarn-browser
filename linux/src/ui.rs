@@ -1372,7 +1372,15 @@ fn toolbar(ui: Ui) -> View {
         let share = controls::icon_button_at(icons::SHARE, "Share", Placement::Left, move || show(ui, Panel::Share))
             .disabled(no_tab)
             .disabled_style(|s| s.text_color(Theme::faint()));
-        view().flex_row().items_center().gap(px(2.)).child(devtools::responsive_button(ui)).child(extensions::buttons(ui)).child(split).child(share)
+        view()
+            .flex_row()
+            .items_center()
+            .gap(px(2.))
+            .child(devtools::responsive_button(ui))
+            .child(devtools::measure_button(ui))
+            .child(extensions::buttons(ui))
+            .child(split)
+            .child(share)
     };
     let compact = computed(move || ui.snap.with(|s| s.compact));
     let address = move || if compact.get() { compact_address(ui) } else { address(ui) };

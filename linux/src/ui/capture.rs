@@ -1,16 +1,10 @@
-use std::cell::Cell;
-
 use browser_core::tabs::TabKey;
 use nsh_core::JsonValue;
 use nsh_core::prelude::*;
 use serde_json::json;
-use tarn_nsh_shared::page_overlay::{self, Outcome, Overlay};
+use tarn_nsh_shared::page_overlay::{self, Outcome, Purpose};
 
-use super::{REFS, Ui, act, read, split};
-
-thread_local! {
-    static NEXT_SHOT: Cell<u64> = const { Cell::new(0) };
-}
+use super::{Ui, act, read, split};
 
 /// The active tab and the size of its visible page in CSS pixels.
 fn active_page(ui: Ui) -> Option<(TabKey, (f64, f64))> {
@@ -25,12 +19,14 @@ pub(super) fn capture_element(ui: Ui) {
     }
 }
 
-pub(super) fn capture_area(ui: Ui) {
-    let Some((key, page)) = active_page(ui) else { return };
-    let Some(web) = REFS.with_borrow(|refs| refs.get(&(ui.window, key)).map(|(_, r)| *r)) else { return };
-    let seq = NEXT_SHOT.with(|n| n.replace(n.get() + 1));
-    ui.page_overlay.set(Some(Overlay::area(key, seq, page)));
-    web.command("snapshotRect", json!({ "seq": seq, "x": 0, "y": 0, "width": page.0, "height": page.1 }));
+/// Capture Area or Measure over a still of the active page.
+pub(super) fn open(ui: Ui, purpose: Purpose) {
+    let Some((_, page)) = active_page(ui) else { return };
+    let mut overlay = None;
+    act(ui, |b| overlay = b.page_still(purpose, page));
+    if overlay.is_some() {
+        ui.page_overlay.set(overlay);
+    }
 }
 
 pub(super) fn shown(ui: Ui, key: TabKey, data: &JsonValue) {

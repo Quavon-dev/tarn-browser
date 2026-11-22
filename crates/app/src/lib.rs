@@ -157,6 +157,7 @@ pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<
         C::PictureInPicture => &capture::PictureInPicture,
         C::TakeScreenshot => &capture::TakeScreenshot,
         C::CaptureArea => &capture::CaptureArea,
+        C::Measure => &capture::Measure,
         C::CaptureElement => &capture::CaptureElement,
         C::CaptureFullPage => &capture::CaptureFullPage,
         C::SavePdf => &capture::SavePdf,
