@@ -35,6 +35,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Address and command field suggestions rank a long history faster on every client.
 - New tabs open on top of the unpinned tabs, and a tab opened from a link or pop-up opens just
   below the tab it came from, after the tabs opened from that tab before, on every client.
+- Dark pages: forced dark mode leaves a site alone when its own colour scheme is dark (or follows
+  the system while the system is dark), even before its background loads, and keeps dialogs,
+  pop-overs and full-screen video looking right on every client.
 
 ## [0.1.6] - 2026-11-21
 

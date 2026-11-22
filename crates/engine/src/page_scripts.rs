@@ -278,8 +278,9 @@ pub const REMOVE_SITE_STYLES: &str = "globalThis.tarnSiteStyle = null; document.
 /// `*` (every host), several joined by `,`. The element moves to the end of the root once parsed, after `<body>`, so it
 /// wins ties against the page's own sheets.
 ///
-/// `DARK_CSS` gets its own element ahead of the rest, enabled only while the page looks light: the
-/// first opaque background of `<body>` or `<html>`, else the page's colour scheme, else white. It
+/// `DARK_CSS` gets its own element ahead of the rest, enabled only while the page looks light: a
+/// page whose own colour scheme is dark (or light and dark while the system is dark) never is; else
+/// the first opaque background of `<body>` or `<html>` decides, else white. It
 /// is decided again on `DOMContentLoaded`, `load` and, 100 ms after the last one, changes to the
 /// theme attributes of `<html>` and `<body>`, to `<html>`'s children or to the system's appearance.
 pub fn site_styles_script(styles: &[(String, String)]) -> Option<String> {
@@ -297,9 +298,10 @@ pub fn site_styles_script(styles: &[(String, String)]) -> Option<String> {
         const s = sheet(css), d = css !== all && sheet(D); globalThis.tarnSiteStyle = s; let t; \
         const bg = e => {{ const c = e ? getComputedStyle(e).backgroundColor : ''; const v = c.startsWith('rgb') ? c.match(/[\\d.]+/g).map(Number) : []; \
         return v.length > 2 && v[3] !== 0 ? 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2] > 128 : null; }}; \
-        const light = () => {{ const b = bg(document.body); if (b !== null) return b; d.media = 'not all'; const r = bg(document.documentElement); if (r !== null) return r; \
-        const m = document.querySelector('meta[name=color-scheme]'); const cs = getComputedStyle(document.documentElement).colorScheme + ' ' + (m ? m.content : ''); \
-        return !cs.includes('dark') || (cs.includes('light') && !matchMedia('(prefers-color-scheme: dark)').matches); }}; \
+        const light = () => {{ d.media = 'not all'; const m = document.querySelector('meta[name=color-scheme]'); \
+        const cs = getComputedStyle(document.documentElement).colorScheme + ' ' + (m ? m.content : ''); \
+        if (cs.includes('dark') && (!cs.includes('light') || matchMedia('(prefers-color-scheme: dark)').matches)) return false; \
+        const b = bg(document.body); if (b !== null) return b; const r = bg(document.documentElement); return r !== null ? r : true; }}; \
         const check = () => {{ if (globalThis.tarnSiteStyle !== s) return o.disconnect(); if (!document.documentElement) return; \
         const want = light() ? '' : 'not all'; if (d.media !== want) d.media = want; \
         if (document.body) o.observe(document.body, {{ attributes: true, attributeFilter: ['class', 'style', 'bgcolor'] }}); }}; \
@@ -360,10 +362,13 @@ pub fn theme_sheets(value: &serde_json::Value) -> Vec<(String, String)> {
 }
 
 /// Forced dark mode: the page is inverted and its media inverted back. The page keeps a light
-/// colour scheme, as a dark one would be inverted to light.
+/// colour scheme, as a dark one would be inverted to light. The top layer is drawn outside
+/// `<html>`'s filter: dialogs and pop-overs there are inverted on their own, and what is in full
+/// screen shows as it is.
 pub const DARK_CSS: &str = "html { color-scheme: light !important; filter: invert(1) hue-rotate(180deg) !important; background-color: #fff; } \
-    img, video, picture, canvas, iframe, embed, object, svg image, [style*=\"url(\"] { filter: invert(1) hue-rotate(180deg) !important; } \
-    :is(picture, embed, object, [style*=\"url(\"]) :is(img, video, picture, canvas, iframe, svg image, [style*=\"url(\"]) { filter: none !important; }";
+    img, video, picture, canvas, iframe, embed, object, input[type=image], svg image, [style*=\"url(\"], :is(:modal, :popover-open) { filter: invert(1) hue-rotate(180deg) !important; } \
+    :is(picture, embed, object, [style*=\"url(\"]) :is(img, video, picture, canvas, iframe, svg image, [style*=\"url(\"]), \
+    :fullscreen, :fullscreen :is(img, video, picture, canvas, iframe, embed, object, svg image, [style*=\"url(\"]) { filter: none !important; }";
 
 /// Each host's style sheet: forced dark first, then the user's own CSS, which may adjust it.
 pub fn site_styles(css: Vec<(String, String)>, dark: Vec<String>) -> Vec<(String, String)> {
@@ -810,6 +815,9 @@ mod javascript_core_tests {
         assert_eq!(scheme("light dark", None, true), "off,css");
         assert_eq!(scheme("light dark", None, false), "dark,css");
         assert_eq!(scheme("normal", Some("dark"), false), "off,css");
+        assert_eq!(dark_sheets(true, "rgb(255, 255, 255)", NONE, "dark", None, false, None), "off,css", "the page's own dark scheme comes first");
+        assert_eq!(dark_sheets(true, "rgb(255, 255, 255)", NONE, "light dark", None, true, None), "off,css");
+        assert_eq!(dark_sheets(true, "rgb(255, 255, 255)", NONE, "light dark", None, false, None), "dark,css");
         assert_eq!(dark_sheets(true, "rgb(250, 250, 250)", NONE, "normal", None, false, Some("rgb(13, 17, 23)")), "off,css", "a theme switch");
         assert_eq!(dark_sheets(true, "rgb(13, 17, 23)", NONE, "normal", None, false, Some("rgb(255, 255, 255)")), "dark,css");
         assert_eq!(dark_sheets(false, "rgb(255, 255, 255)", NONE, "normal", None, false, None), "css");
