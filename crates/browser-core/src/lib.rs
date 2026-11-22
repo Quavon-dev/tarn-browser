@@ -42,6 +42,7 @@ pub mod licences;
 pub mod link_status;
 pub mod measure;
 pub mod media;
+pub mod notes;
 pub mod open_file;
 pub mod page_ops;
 pub mod palette;

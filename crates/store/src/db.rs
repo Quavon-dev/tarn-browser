@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use shield::ShieldLevel;
 
 use crate::models::{
-    AiCommand, Bookmark, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Profile, SavedWindow, Schedule,
+    AiCommand, Bookmark, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Note, Profile, SavedWindow, Schedule,
     ShieldDay, ShieldStats, Slot, Snapshot, Snippet, Space, SpaceRule, Tab, TabKind, WebEngine,
 };
 
@@ -221,12 +221,19 @@ const MIGRATIONS: &[&str] = &[
          body TEXT NOT NULL,
          UNIQUE (profile_id, name)
      );",
+    "CREATE TABLE notes (
+         id INTEGER PRIMARY KEY,
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         title TEXT NOT NULL,
+         body TEXT NOT NULL,
+         updated INTEGER NOT NULL
+     );",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
 const PROFILE_NEUTRAL: [&str; 3] = ["settings", "themes", "windows"];
 /// Every table holding profile data, with the filter that selects one profile's rows.
-const PROFILE_TABLES: [(&str, &str); 29] = [
+const PROFILE_TABLES: [(&str, &str); 30] = [
     ("profiles", "id = ?1"),
     ("spaces", "profile_id = ?1"),
     ("folders", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
@@ -256,6 +263,7 @@ const PROFILE_TABLES: [(&str, &str); 29] = [
     ("ai_commands", "profile_id = ?1"),
     ("feature_hints", "profile_id = ?1"),
     ("snippets", "profile_id = ?1"),
+    ("notes", "profile_id = ?1"),
 ];
 /// Sites kept per profile for the privacy report's list.
 const MAX_SHIELD_SITES: i64 = 200;
@@ -280,6 +288,18 @@ pub const MAX_SNIPPET_NAME: usize = 32;
 pub fn valid_snippet_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= MAX_SNIPPET_NAME && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
 }
+/// The longest note title and note text kept, in bytes, and the most notes a profile keeps.
+pub const MAX_NOTE_TITLE: usize = 200;
+pub const MAX_NOTE: usize = 64 * 1024;
+pub const MAX_NOTES: usize = 1000;
+
+/// A character a note never keeps: a control character other than a line break or tab, or a bidi,
+/// zero-width or tag character (kept in sync with `browser_core::text::is_bidi`).
+pub fn is_invisible(c: char) -> bool {
+    (c.is_control() && c != '\n' && c != '\t')
+        || matches!(c, '\u{061C}' | '\u{115F}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{E0000}'..='\u{E007F}')
+}
+
 /// The most CSS one site may keep, in bytes.
 pub const MAX_SITE_CSS: usize = 64 * 1024;
 /// The largest theme file kept, in bytes (`browser_core::theme::MAX_THEME_BYTES`).
@@ -1140,6 +1160,55 @@ impl Store {
 
     pub fn delete_snippet(&self, profile_id: Id, id: Id) -> Result<()> {
         self.conn.execute("DELETE FROM snippets WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
+        self.checkpoint().ok();
+        Ok(())
+    }
+
+    /// The profile's notes, last edited first.
+    pub fn notes(&self, profile_id: Id) -> Result<Vec<Note>> {
+        let mut stmt = self.conn.prepare("SELECT id, profile_id, title, body, updated FROM notes WHERE profile_id = ?1 ORDER BY updated DESC, id DESC")?;
+        let rows =
+            stmt.query_map([profile_id], |r| Ok(Note { id: r.get(0)?, profile_id: r.get(1)?, title: r.get(2)?, body: r.get(3)?, updated: r.get(4)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Adds a note (`id` none) or replaces the profile's note `id`, without invisible characters
+    /// (`is_invisible`) and with the title on one line. Refused for a private profile, for an empty
+    /// note, past `MAX_NOTE_TITLE` or `MAX_NOTE` bytes, or for a new note past `MAX_NOTES`.
+    pub fn save_note(&self, profile_id: Id, id: Option<Id>, title: &str, body: &str) -> Result<Note> {
+        let visible = |s: &str| s.chars().filter(|c| !is_invisible(*c)).collect::<String>();
+        let title = visible(title).split_whitespace().collect::<Vec<_>>().join(" ");
+        let body = visible(body);
+        if (title.is_empty() && body.trim().is_empty()) || title.len() > MAX_NOTE_TITLE || body.len() > MAX_NOTE {
+            return Err(Error::Invalid("note"));
+        }
+        let updated = now_ms();
+        let id = match id {
+            None => self.conn.query_row(
+                "INSERT INTO notes (profile_id, title, body, updated)
+                 SELECT id, ?2, ?3, ?4 FROM profiles
+                 WHERE id = ?1 AND NOT is_private AND (SELECT COUNT(*) FROM notes WHERE profile_id = ?1) < ?5
+                 RETURNING id",
+                params![profile_id, title, body, updated, MAX_NOTES as i64],
+                |r| r.get(0),
+            ),
+            Some(id) => self.conn.query_row(
+                "UPDATE notes SET title = ?3, body = ?4, updated = ?5
+                 WHERE id = ?2 AND profile_id = ?1 AND profile_id IN (SELECT id FROM profiles WHERE NOT is_private)
+                 RETURNING id",
+                params![profile_id, id, title, body, updated],
+                |r| r.get(0),
+            ),
+        };
+        let id = match id {
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Err(Error::Invalid("note")),
+            other => other?,
+        };
+        Ok(Note { id, profile_id, title, body, updated })
+    }
+
+    pub fn delete_note(&self, profile_id: Id, id: Id) -> Result<()> {
+        self.conn.execute("DELETE FROM notes WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
         self.checkpoint().ok();
         Ok(())
     }
@@ -2426,6 +2495,51 @@ mod tests {
         store.count_hint(2, "Reader", 1).unwrap();
         store.delete_profile(2).unwrap();
         assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM feature_hints", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn notes_are_clean_capped_per_profile_and_go_with_the_profile_and_its_reset() {
+        let mut store = store_before("CREATE TABLE notes");
+        store.conn.execute_batch("INSERT INTO profiles (id, name, data_store_uuid, created_at) VALUES (1, 'P', 'u1', 5), (2, 'Q', 'u2', 6);").unwrap();
+        store.migrate().unwrap();
+        let note = store.save_note(1, None, " Reef\n\u{202e}trip\u{7} ", "Day 1\u{200b}\n\tsnorkel\u{feff}").unwrap();
+        assert_eq!((note.title.as_str(), note.body.as_str()), ("Reef trip", "Day 1\n\tsnorkel"));
+        let edited = store.save_note(1, Some(note.id), "Reef trip", "Day 2").unwrap();
+        assert_eq!(edited.id, note.id);
+        store.save_note(1, None, "", "Only text").unwrap();
+        assert_eq!(store.notes(1).unwrap().iter().map(|n| n.body.as_str()).collect::<Vec<_>>(), ["Only text", "Day 2"]);
+        assert!(store.notes(2).unwrap().is_empty(), "notes are per profile");
+        assert!(store.save_note(2, Some(note.id), "x", "y").is_err(), "another profile cannot edit it");
+        for (title, body) in [("", " \n"), ("\u{202e}", "\u{200b}"), (&"t".repeat(MAX_NOTE_TITLE + 1), "x"), ("t", &"x".repeat(MAX_NOTE + 1))] {
+            assert!(store.save_note(1, None, title, body).is_err(), "{title:?}");
+        }
+        assert!(store.save_note(1, Some(9999), "t", "x").is_err(), "no such note");
+        store.delete_note(2, note.id).unwrap();
+        assert_eq!(store.notes(1).unwrap().len(), 2, "another profile's id deletes nothing");
+        assert!(store.export_profile(1).unwrap().contains("\"notes\""));
+        store.reset_profile(1, "S").unwrap();
+        assert!(store.notes(1).unwrap().is_empty());
+        store.save_note(2, None, "x", "y").unwrap();
+        store.delete_profile(2).unwrap();
+        assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM notes", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn notes_are_never_written_for_a_private_profile_and_stop_at_the_cap() {
+        let store = Store::open_in_memory().unwrap();
+        let private = store.create_profile("Private", "u-p", true).unwrap().id;
+        assert!(matches!(store.save_note(private, None, "t", "x"), Err(Error::Invalid("note"))));
+        assert!(store.notes(private).unwrap().is_empty());
+        let saved = store.create_profile("P", "u1", false).unwrap().id;
+        let id = store.save_note(saved, None, "t", "x").unwrap().id;
+        store.conn.execute("UPDATE profiles SET is_private = 1 WHERE id = ?1", [saved]).unwrap();
+        assert!(store.save_note(saved, Some(id), "t", "changed").is_err(), "nor edited once private");
+        store.conn.execute("UPDATE profiles SET is_private = 0 WHERE id = ?1", [saved]).unwrap();
+        for i in 1..MAX_NOTES {
+            store.save_note(saved, None, &i.to_string(), "x").unwrap();
+        }
+        assert!(store.save_note(saved, None, "one more", "x").is_err());
+        assert!(store.save_note(saved, Some(id), "t", "an edit still saves").is_ok());
     }
 
     #[test]

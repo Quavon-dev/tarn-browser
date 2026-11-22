@@ -224,6 +224,16 @@ pub struct Snippet {
     pub body: String,
 }
 
+/// A note the user wrote in a profile; `updated` is in milliseconds since the epoch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note {
+    pub id: Id,
+    pub profile_id: Id,
+    pub title: String,
+    pub body: String,
+    pub updated: i64,
+}
+
 /// A named copy of a space's tabs and groups; its data is read only to restore it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot {

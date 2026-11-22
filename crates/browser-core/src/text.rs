@@ -56,7 +56,7 @@ pub fn capture_name(title: &str, url: Option<&url::Url>, ext: &str) -> String {
 }
 
 pub fn is_bidi(c: char) -> bool {
-    // Kept in sync with engine::downloads and ai::page_context, which cannot depend on `browser-core`.
+    // Kept in sync with engine::downloads, ai::page_context and store::is_invisible, which cannot depend on `browser-core`.
     matches!(c, '\u{061C}' | '\u{115F}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{E0000}'..='\u{E007F}')
 }
 

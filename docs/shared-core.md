@@ -406,6 +406,16 @@ joined only by `-` or `/` such as a date or "24/7", gets no answer unless typed 
 "1,5 km in m", "12 in to cm"), and `palette::emoji` finds emoji by name after a `:` in a built-in
 table. Nothing is fetched, so there is no currency conversion.
 
+**Notes:** `browser_core::notes` is the notes list and editor every client renders: `rows(notes,
+query)` filters by title and text without case (title matches first, last edited first) and gives
+each row its shown title (`notes::title`: the title, else the first line, else `UNTITLED`) and a
+preview line; `Draft::save` checks a draft and saves it through `store::Store::save_note`, which
+drops invisible characters (`store::is_invisible`), caps the title at `MAX_NOTE_TITLE`, the text at
+`MAX_NOTE` and a profile at `MAX_NOTES` notes, and refuses a private profile. `notes::as_pill`
+gives the `assistant::Pill::Note` that attaches a note to a question. Notes live in the profile
+table `notes`, so export, Delete everything and deleting the profile cover them; they are never
+synced.
+
 **Assistant:** `browser_core::assistant` is the chat every client renders and the rules its
 requests follow (threat model S2, S3, S9); it does not depend on the `ai` crate and sends nothing.
 `Session::new` binds a chat to one profile and refuses a private space, a burner tab, a Lockdown
