@@ -309,6 +309,16 @@ The tab, motion and gesture switches and the accent choice are stored under the 
 
 The NSH shells for Linux, iOS and Android (`docs/nsh-plan.md` P2–P4) sit on `browser-core`.
 
+**Shortcut tips:** `browser_core::hints::Throttle` decides whether a toast names a command's
+shortcut after it ran from a menu or the command bar (`Throttle::hint`, text `hints::text`): at most
+`MAX_SHOWS` times per command, never in a profile's first day, at least `QUIET` (two days) after the
+profile's last tip, never while the user is typing, and never once Settings turns off
+`prefs::FEATURE_HINTS` (Settings › Appearance › Tips on every client, explained by `hints::NOTE`).
+Counters live in the profile's `feature_hints` rows, which go with the profile; a private space or
+burner tab offers none. macOS and Windows offer one after a command bar command, Linux after a
+command bar or panel menu command, the iPad keyboard layout after a command bar command; a command
+that showed its own toast gets none.
+
 **Command bar answers:** `browser_core::palette::answers` gives the rows the command bar answers
 offline, listed first on every client, with Enter or a tap copying `Answer::copy`: `palette::calc`
 evaluates `+ - * / % ^`, parentheses and decimals (at most `calc::MAX_INPUT` bytes, nesting bounded,

@@ -13,6 +13,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Undo (⌘Z, Ctrl+Z) outside a text field and the page takes back the last closed tabs, Clean Up or
   tab moved in the sidebar, one step at a time, on macOS, Windows, Linux and iPad with a keyboard; a
   toast's Undo runs the same step. A private space or burner tab keeps nothing to undo.
+- Shortcut tips: after a command runs from the command bar (and, on Linux, a panel menu), a notice
+  may name its keyboard shortcut, at most three times per command, two days apart and never on a
+  profile's first day; Settings › Appearance › Tips turns them off on every client.
 
 ### Changed
 

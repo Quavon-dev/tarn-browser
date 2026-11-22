@@ -277,7 +277,16 @@ pub fn pick(ui: Ui, command: Command) {
     ui.editing.set(false);
     ui.address_ref.blur();
     ui.command.set(String::new());
+    run_from_menu(ui, command);
+}
+
+/// Runs a command picked from a menu or the command bar, then perhaps names its shortcut.
+pub fn run_from_menu(ui: Ui, command: Command) {
+    let shortcut = action(&command).and_then(|a| Some((a, super::shortcut_of(ui, a)?)));
     run(ui, command);
+    let Some((action, keys)) = shortcut else { return };
+    let typing = ui.editing.get_untracked() || ui.finding.get_untracked() || ui.find_tabs.get_untracked() || ui.panel.get_untracked() != Panel::None;
+    act(ui, |b| b.offer_hint(browser_core::shortcuts::label(action), &keys, typing));
 }
 
 pub fn copy_link(ui: Ui, clean: bool) {
@@ -508,7 +517,7 @@ pub fn share_panel(ui: Ui) -> AnyElement {
         )
         .child(icon_button(icons::CLOSE, "Close", move || show(ui, Panel::None)));
     let item = |name: &'static str, command: Command, action: Option<Action>| {
-        super::panels::menu_row(name, action.and_then(|a| super::shortcut_of(ui, a)), move || run(ui, command.clone()))
+        super::panels::menu_row(name, action.and_then(|a| super::shortcut_of(ui, a)), move || run_from_menu(ui, command.clone()))
     };
     super::panels::popover()
         .gap_1()

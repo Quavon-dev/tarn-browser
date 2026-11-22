@@ -11,8 +11,8 @@ is at https://tarnbrowser.com/privacy.
 ## What stays on your device
 
 History (and, only if you turn on Settings › Search › Search the text of visited pages, up to 4 KB
-of each visited page's text), cookies, cache, open tabs, permissions, downloads, favicons, settings
-and the Shield card's counters (tracking parameters removed, pages upgraded to HTTPS, local-network
+of each visited page's text), cookies, cache, open tabs, permissions, downloads, favicons, settings,
+how often and when each shortcut tip was shown, and the Shield card's counters (tracking parameters removed, pages upgraded to HTTPS, local-network
 visits blocked, pages on block lists stopped, pop-ups blocked and requests blocked by the Chromium
 engine's filter; in total, per day for the last seven days and per site for the sites protected
 most) with its design value are stored only on your Mac, separately for each profile, in

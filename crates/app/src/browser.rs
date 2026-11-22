@@ -1554,6 +1554,10 @@ impl Browser {
         }
     }
 
+    pub(crate) fn focus_is_page(&self, window: &Window) -> bool {
+        self.focus.is_focused(window)
+    }
+
     pub fn close_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let field = self.command_mode.is_some();
         let covered = field || self.shortcuts_open;
@@ -1889,9 +1893,11 @@ impl Browser {
                 return self.open_text_match(key, query, window, cx);
             }
             Target::Input(Input::Command(ix)) => {
-                let Some(action) = browser_core::palette::COMMANDS.get(*ix).and_then(|c| crate::command_action(c.2)) else { return };
+                let Some((name, action)) = browser_core::palette::COMMANDS.get(*ix).and_then(|c| Some((c.0, crate::command_action(c.2)?))) else { return };
+                let keys = crate::shortcuts::shown(action, cx);
                 self.close_command(window, cx);
                 window.dispatch_action(action.boxed_clone(), cx);
+                cx.defer_in(window, move |b, window, cx| b.offer_hint(name, &keys, window, cx));
                 return;
             }
             Target::Action(action) => {

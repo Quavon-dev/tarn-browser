@@ -31,6 +31,7 @@ pub mod fog;
 pub mod fullscreen;
 pub mod github;
 pub mod glyphs;
+pub mod hints;
 pub mod hover;
 pub mod icon;
 pub mod import;

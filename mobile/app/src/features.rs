@@ -30,6 +30,18 @@ impl<D: Platform> Shell<D> {
         self.notice = Some(text);
     }
 
+    /// A notice naming `keys` after `command` ran from the command bar, if the profile's hint
+    /// throttle allows one and no other notice shows; none in a private space or a burner tab.
+    pub fn offer_hint(&mut self, command: &str, keys: &str, typing: bool) {
+        let Some((false, profile)) = self.model.profile() else { return };
+        if self.notice.is_some() {
+            return;
+        }
+        if let Some(text) = (browser_core::hints::Throttle { store: &self.core.disk, profile }).hint(command, keys, browser_core::now(), typing) {
+            self.toast_as(browser_core::toast::Tone::Info, text);
+        }
+    }
+
     pub fn notice_tone(&self) -> browser_core::toast::Tone {
         self.tone.as_ref().filter(|(text, _)| self.notice.as_ref() == Some(text)).map_or_else(Default::default, |(_, tone)| *tone)
     }

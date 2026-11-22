@@ -177,6 +177,20 @@ impl Browser {
         self.show_toast_as(Tone::Info, text, action, cx);
     }
 
+    /// After `command` ran from the command bar: a toast naming its `keys`, if the profile's
+    /// hint throttle allows one and the command showed no toast of its own; none in a private
+    /// space, a burner tab or while a field other than the page has the keyboard.
+    pub(crate) fn offer_hint(&mut self, command: &str, keys: &str, window: &Window, cx: &mut Context<Self>) {
+        let Some((false, profile)) = self.model.profile() else { return };
+        if self.live_toast().is_some() {
+            return;
+        }
+        let typing = self.command_mode.is_some() || self.renaming.is_some() || !self.focus_is_page(window);
+        if let Some(text) = (browser_core::hints::Throttle { store: &self.core.disk, profile }).hint(command, keys, browser_core::now(), typing) {
+            self.show_toast_as(Tone::Info, text, None, cx);
+        }
+    }
+
     pub(crate) fn show_toast_as(&mut self, tone: Tone, text: impl Into<SharedString>, action: Option<Action>, cx: &mut Context<Self>) {
         let wait = if action.is_some() { ACTION_TIME } else { TOAST_TIME };
         self.show_toast_for(tone, text.into(), action, (None, None), wait, cx);

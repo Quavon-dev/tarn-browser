@@ -1326,6 +1326,8 @@ impl SettingsWindow {
             .child(self.theme_sections(window, cx))
             .child(section("Motion"))
             .child(group().child(reduce_motion).child(self.search_effect_row(false, cx)))
+            .child(section("Tips"))
+            .child(group().child(self.pref_row(true, Pref::FeatureHints, "Shortcut tips", browser_core::hints::NOTE, s.prefs.get(Pref::FeatureHints), cx)))
             .child(section("Layout"))
             .child(
                 group()

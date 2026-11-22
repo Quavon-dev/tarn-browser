@@ -353,7 +353,17 @@ fn pick(ui: Ui, pick: Pick) {
     close_palette(ui);
     match pick {
         Pick::Copy(text) => ui.copy_answer(text),
-        Pick::Run(command) => run(ui, command),
+        Pick::Run(command) => {
+            run(ui, command);
+            let action = shortcuts::for_command(command).filter(|a| super::input::offered(*a));
+            if let Some((action, keys)) = action.and_then(|a| Some((a, shortcuts::keys_for(a, super::input::keyboard())?))) {
+                let typing = ui.editing.get_untracked();
+                ui.act(|s| {
+                    s.offer_hint(shortcuts::label(action), &keys, typing);
+                    Vec::new()
+                });
+            }
+        }
     }
 }
 

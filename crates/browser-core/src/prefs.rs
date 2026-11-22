@@ -13,6 +13,8 @@ pub const REDUCE_MOTION: Switch = Switch { key: "reduce_motion", default: false 
 pub const NEW_TAB_START_PAGE: Switch = Switch { key: "new_tab_start_page", default: false };
 pub const CLOSE_SELECTS_PREVIOUS: Switch = Switch { key: "close_selects_previous", default: false };
 pub const TEAR_OFF_TEMPORARY: Switch = Switch { key: "tear_off_temporary", default: true };
+/// Settings' switch for the toasts that name a command's shortcut (`hints`), on every client.
+pub const FEATURE_HINTS: Switch = Switch { key: "feature_hints", default: true };
 
 impl Switch {
     pub fn on(self, store: &Store) -> bool {

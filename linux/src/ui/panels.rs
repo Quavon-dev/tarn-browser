@@ -715,7 +715,7 @@ fn tab_panel(ui: Ui) -> AnyElement {
     let folder_buttons: Vec<AnyElement> =
         folders.into_iter().map(|(id, name)| pill(name, move || act(ui, |b| b.move_to_folder(key, id))).into_element()).collect();
     let tool = |name: &'static str, command: Command, action: Option<Action>| {
-        menu_row(name, action.and_then(&keys), move || super::tools::run(ui, command.clone())).into_element()
+        menu_row(name, action.and_then(&keys), move || super::tools::run_from_menu(ui, command.clone())).into_element()
     };
     let rename =
         (kind != TabKind::Tile).then(|| rename_row(ui, format!("tab {}-{}", key.private, key.id), &name, move |name| act(ui, |b| b.rename_tab(key, &name))));
@@ -797,8 +797,9 @@ fn sidebar_panel(ui: Ui) -> AnyElement {
 
 fn address_panel(ui: Ui) -> AnyElement {
     let site = ui.snap.with(|s| !s.host.is_empty());
-    let tool =
-        |name: &'static str, command: Command, action: Action| menu_row(name, super::shortcut_of(ui, action), move || super::tools::run(ui, command.clone()));
+    let tool = |name: &'static str, command: Command, action: Action| {
+        menu_row(name, super::shortcut_of(ui, action), move || super::tools::run_from_menu(ui, command.clone()))
+    };
     let paste =
         menu_row("Paste and Go", None, move || super::paste_and_go(ui)).disabled(move || !ui.pasteable.get()).disabled_style(|s| s.text_color(Theme::faint()));
     popover()

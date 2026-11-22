@@ -207,12 +207,19 @@ const MIGRATIONS: &[&str] = &[
          template TEXT NOT NULL
      );
      CREATE INDEX ai_commands_profile ON ai_commands(profile_id);",
+    "CREATE TABLE feature_hints (
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         hint TEXT NOT NULL,
+         shown INTEGER NOT NULL,
+         last_at INTEGER NOT NULL,
+         PRIMARY KEY (profile_id, hint)
+     );",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
 const PROFILE_NEUTRAL: [&str; 3] = ["settings", "themes", "windows"];
 /// Every table holding profile data, with the filter that selects one profile's rows.
-const PROFILE_TABLES: [(&str, &str); 27] = [
+const PROFILE_TABLES: [(&str, &str); 28] = [
     ("profiles", "id = ?1"),
     ("spaces", "profile_id = ?1"),
     ("folders", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
@@ -240,6 +247,7 @@ const PROFILE_TABLES: [(&str, &str); 27] = [
     ("zapped_elements", "profile_id = ?1"),
     ("extension_storage", "profile_id = ?1"),
     ("ai_commands", "profile_id = ?1"),
+    ("feature_hints", "profile_id = ?1"),
 ];
 /// Sites kept per profile for the privacy report's list.
 const MAX_SHIELD_SITES: i64 = 200;
@@ -1090,6 +1098,27 @@ impl Store {
     pub fn delete_ai_command(&self, profile_id: Id, id: Id) -> Result<()> {
         self.conn.execute("DELETE FROM ai_commands WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
         self.checkpoint().ok();
+        Ok(())
+    }
+
+    /// When the profile was created, when it last showed any feature hint, and how often it
+    /// showed `hint`.
+    pub fn hint_counts(&self, profile_id: Id, hint: &str) -> Result<(i64, Option<i64>, i64)> {
+        Ok(self.conn.query_row(
+            "SELECT created_at, (SELECT MAX(last_at) FROM feature_hints WHERE profile_id = ?1),
+                    COALESCE((SELECT shown FROM feature_hints WHERE profile_id = ?1 AND hint = ?2), 0)
+             FROM profiles WHERE id = ?1",
+            params![profile_id, hint],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?)
+    }
+
+    pub fn count_hint(&self, profile_id: Id, hint: &str, now: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO feature_hints (profile_id, hint, shown, last_at) VALUES (?1, ?2, 1, ?3)
+             ON CONFLICT (profile_id, hint) DO UPDATE SET shown = shown + 1, last_at = ?3",
+            params![profile_id, hint, now],
+        )?;
         Ok(())
     }
 
@@ -2335,6 +2364,25 @@ mod tests {
         assert!(store.snapshots(1).unwrap().is_empty());
         store.delete_profile(2).unwrap();
         assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn feature_hints_count_per_profile_and_go_with_the_profile_and_its_reset() {
+        let mut store = store_before("CREATE TABLE feature_hints");
+        store.conn.execute_batch("INSERT INTO profiles (id, name, data_store_uuid, created_at) VALUES (1, 'P', 'u1', 5), (2, 'Q', 'u2', 6);").unwrap();
+        store.migrate().unwrap();
+        assert_eq!(store.hint_counts(1, "Copy Link").unwrap(), (5, None, 0));
+        store.count_hint(1, "Copy Link", 10).unwrap();
+        store.count_hint(1, "Copy Link", 20).unwrap();
+        store.count_hint(1, "Reader", 15).unwrap();
+        assert_eq!(store.hint_counts(1, "Copy Link").unwrap(), (5, Some(20), 2));
+        assert_eq!(store.hint_counts(2, "Copy Link").unwrap(), (6, None, 0), "counters are per profile");
+        assert!(store.export_profile(1).unwrap().contains("\"feature_hints\""));
+        store.reset_profile(1, "S").unwrap();
+        assert_eq!(store.hint_counts(1, "Copy Link").unwrap().2, 0);
+        store.count_hint(2, "Reader", 1).unwrap();
+        store.delete_profile(2).unwrap();
+        assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM feature_hints", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
     }
 
     #[test]
