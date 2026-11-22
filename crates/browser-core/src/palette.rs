@@ -104,7 +104,7 @@ pub enum Command {
     AskPage,
 }
 
-pub const COMMANDS: [(&str, &str, Command); 72] = [
+pub const COMMANDS: [(&str, &str, Command); 73] = [
     ("Settings", "preferences options", Command::Settings),
     ("Open File\u{2026}", "local disk html pdf image text document view", Command::OpenFile),
     ("New Tab Group", "group", Command::NewGroup),

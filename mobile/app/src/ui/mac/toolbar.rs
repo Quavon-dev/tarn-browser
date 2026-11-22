@@ -20,7 +20,7 @@ use url::Url;
 use super::super::{Screen, Ui, bars};
 use crate::theme::{TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
 
-const OFFERED: [Command; 23] = [
+const OFFERED: [Command; 24] = [
     Command::OpenFile,
     Command::ReopenClosedTab,
     Command::TogglePin,
