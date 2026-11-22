@@ -374,7 +374,7 @@ impl Browser {
                 .flex_none()
                 .flex()
                 .justify_end()
-                .child(timed("sidebar", || sidebar::render(self, cx)))
+                .child(timed(engine::startup::SIDEBAR_FRAME, || sidebar::render(self, cx)))
                 .when(shown < 1., |d| d.w(px((self.sidebar_width + sidebar::SIDEBAR_MARGIN) * shown)).overflow_hidden().opacity(shown))
         });
         if self.page_fullscreen.is_on() && !self.page_fullscreen_holds() {
@@ -410,13 +410,8 @@ impl Browser {
 }
 
 fn timed<T>(section: &'static str, f: impl FnOnce() -> T) -> T {
-    if !engine::startup::frames_traced() {
-        return f();
-    }
-    let started = std::time::Instant::now();
-    let built = f();
-    engine::startup::frame(section, started.elapsed());
-    built
+    let _span = engine::startup::span(section);
+    f()
 }
 
 pub(crate) fn bind_keys(cx: &mut App, keymap: &[(String, &'static dyn gpui::Action)]) {

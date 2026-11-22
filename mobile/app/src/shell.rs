@@ -330,6 +330,7 @@ impl<D: Platform> Shell<D> {
         if self.model.tab(key).is_none() {
             return;
         }
+        let _span = (self.model.active != Some(key)).then(|| engine::startup::span(engine::startup::TAB_SWITCH));
         self.model.active = Some(key);
         if self.external.as_ref().is_some_and(|(k, _)| *k != key) {
             self.external = None;
@@ -641,6 +642,7 @@ impl<D: Platform> Shell<D> {
         if !self.model.spaces.get(ix).is_some_and(Self::shows) {
             return;
         }
+        let _span = engine::startup::span(engine::startup::SPACE_SWITCH);
         let leaving_burner = self.in_burner() && ix != self.model.space_ix;
         if self.model.switch_space(&self.core, ix).is_none() {
             return;
@@ -900,6 +902,7 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn suggest_from(&self, history: &[HistoryEntry], typed: &str, value: &str) -> (Vec<HistoryEntry>, Option<suggest::Completion>) {
+        let _span = engine::startup::span(engine::startup::PALETTE_QUERY);
         let (rows, completion) = suggest::edit(typed, value, &self.model.tabs, history, SUGGESTIONS, browser_core::now());
         (rows.into_iter().cloned().collect(), completion)
     }

@@ -1731,6 +1731,7 @@ fn start_card(ui: Ui) -> AnyElement {
             let field = input()
                 .value(move || ui.command.get())
                 .on_change(move |v: &str| {
+                    let _span = engine::startup::span(engine::startup::PALETTE_QUERY);
                     // A new query reads the history again, so visits since the last one show.
                     if ui.command.with_untracked(String::is_empty) {
                         load_history(ui);

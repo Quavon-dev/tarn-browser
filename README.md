@@ -416,8 +416,11 @@ startup change on the same machine. WebKit keeps the temporary profile's website
 since the previous one (`interval`), the whole render and its `sidebar`, `toolbar` and `content`
 parts, and `tarn-frame resize` or `tarn-frame move` each time a web view's native frame changes size
 or only position; Windows sets the frame on every call, so there every call prints one of them. Render times cover
-building the element tree; GPUI's layout and paint show in `interval`. The output carries section
-names and numbers only.
+building the element tree; GPUI's layout and paint show in `interval`. Every client also prints
+`tab-switch`, `space-switch` and `palette-query` for each switch and each query typed into the
+address or command field. The output carries section names and numbers only.
+`cargo run --release -p engine --example frame-summary < log` prints each section's count, median
+and 95th percentile.
 
 </details>
 

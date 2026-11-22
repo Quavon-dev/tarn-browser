@@ -286,6 +286,7 @@ impl Browser {
     }
 
     pub fn switch_space(&mut self, ix: usize) {
+        let _span = engine::startup::span(engine::startup::SPACE_SWITCH);
         let burning = self.model.burner_shown();
         self.close_reader();
         if self.model.switch_space(&self.core, ix).is_none() {
@@ -365,6 +366,7 @@ impl Browser {
 
     pub fn activate(&mut self, key: TabKey) {
         let Some(tab) = self.model.tab(key).cloned() else { return };
+        let _span = (self.model.active != Some(key)).then(|| engine::startup::span(engine::startup::TAB_SWITCH));
         if self.model.active != Some(key) {
             self.hovered_link.clear();
             self.close_reader();

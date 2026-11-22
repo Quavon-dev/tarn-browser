@@ -1158,6 +1158,7 @@ impl Browser {
             return;
         }
         let switched = self.model.active != Some(key);
+        let _span = switched.then(|| engine::startup::span(engine::startup::TAB_SWITCH));
         if switched {
             self.leave_page_fullscreen(window);
         }
@@ -1442,6 +1443,7 @@ impl Browser {
         if self.abandoned || ix >= self.model.spaces.len() || self.in_main(window, cx, move |b, window, cx| b.switch_space(ix, window, cx)) {
             return;
         }
+        let _span = engine::startup::span(engine::startup::SPACE_SWITCH);
         self.commit_rename(cx);
         self.hide_hover_card(cx);
         if self.command_mode.is_some() {
@@ -1657,6 +1659,7 @@ impl Browser {
     /// Builds the suggestions for the field's text, or `again` for the query and completion they
     /// were last built for.
     fn suggest(&mut self, again: Option<(String, Option<suggest::Completion>)>, cx: &mut Context<Self>) {
+        let _span = engine::startup::span(engine::startup::PALETTE_QUERY);
         let rebuilt = again.is_some();
         let (query, kept) = again.map_or_else(|| (self.command.read(cx).text().trim().to_owned(), None), |(q, c)| (q, Some(c)));
         if !rebuilt {
