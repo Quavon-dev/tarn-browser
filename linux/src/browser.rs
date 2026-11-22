@@ -130,6 +130,7 @@ pub struct Browser {
     pub model: Model,
     pub pages: HashMap<TabKey, Page>,
     pub outbox: Vec<(TabKey, &'static str, Value)>,
+    pub hang: engine::lifecycle::Hang<TabKey>,
     pub notice: Option<Notice>,
     pub downloads: Vec<DownloadItem>,
     pub toast: Option<Toast>,
@@ -219,6 +220,7 @@ impl Browser {
             model,
             pages: HashMap::new(),
             outbox: Vec::new(),
+            hang: Default::default(),
             notice: None,
             downloads: Vec::new(),
             toast: None,
@@ -1052,6 +1054,7 @@ impl Browser {
                     page.found = data["matched"].as_u64();
                 }
             }
+            "selection" => self.hang.answered(key),
             "crashed" => {
                 self.hovered_link.set(key, None);
                 self.on_crash(key);

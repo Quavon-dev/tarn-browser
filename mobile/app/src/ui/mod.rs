@@ -12,7 +12,7 @@ mod split;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use browser_core::tabs::TabKey;
 use nsh_core::prelude::*;
@@ -587,6 +587,7 @@ pub fn App() -> impl IntoElement {
     };
     follow();
     set_interval(Duration::from_secs(60), follow);
+    set_interval(engine::lifecycle::PING_EVERY, move || ui.act(|s| s.ping_page(Instant::now())));
     extensions::start(ui);
     view()
         .flex_1()
@@ -609,7 +610,8 @@ pub fn App() -> impl IntoElement {
                         .style_when(move || ui.browsing(), |s| s.absolute().top(px(0.)).left(px(0.)).right(px(0.)))
                         .child(notice(ui))
                         .child(sheets::picking_banner(ui))
-                        .child(bars::page_error(ui)),
+                        .child(bars::page_error(ui))
+                        .child(bars::page_hang(ui)),
                 )
                 .child(each(move || pages.get(), |v: &ViewProps| (v.key, v.born), move |item, _| web_view(ui, item)))
                 .child(split::dividers(ui))

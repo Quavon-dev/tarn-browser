@@ -319,6 +319,15 @@ burner tab offers none. macOS and Windows offer one after a command bar command,
 command bar or panel menu command, the iPad keyboard layout after a command bar command; a command
 that showed its own toast gets none.
 
+**Hung pages:** `engine::lifecycle::Hang` decides when the shown page counts as hung: each shell
+pings it every `PING_EVERY` with the isolated-world selection read (macOS and Windows
+`WebView::selected_text`, NSH components `readSelection`), which a page whose main thread is stuck
+never answers, and shows a card (`HANG_NOTE`) once a ping has gone unanswered for `HANG_AFTER`.
+Wait hides it for another `HANG_AFTER`; Reload gives the page a fresh start: macOS and Windows
+rebuild the tab's view, Linux's component takes `reloadFresh`, which ends the view's web process
+(`webkit_web_view_terminate_web_process`) and reloads, and iOS and Android give the tab a new view
+(gaps in `docs/mobile-plan.md` and `docs/windows-plan.md`).
+
 **Density:** `prefs::COMPACT` (Settings › Appearance, explained by `prefs::COMPACT_NOTE`) picks
 the second of each density token, `TAB_ROW` and `ROW_GAP`, defined once in `crates/ui/src/theme.rs`
 and mirrored in `nsh-shared/src/theme.rs` (a test keeps them equal); every shell reads them through

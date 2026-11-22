@@ -147,6 +147,8 @@ pub struct Snapshot {
     pub zoom: f64,
     pub found: Option<u64>,
     pub error: Option<String>,
+    /// The shown page has stopped answering (`engine::lifecycle::Hang`).
+    pub hung: bool,
     pub blocked: Option<crate::browser::blocking::BlockedPage>,
     pub prompt: Option<Prompt>,
     pub notice: Option<Notice>,
@@ -468,6 +470,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         zoom: if page.zoom > 0.0 { page.zoom } else { 1.0 },
         found: page.found,
         error: page.error.clone(),
+        hung: b.model.active.is_some() && b.hang.hung(std::time::Instant::now()) == b.model.active,
         blocked: page.blocked.clone(),
         prompt: page.prompts.front().cloned(),
         notice: b.notice.clone(),

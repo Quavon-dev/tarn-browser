@@ -333,6 +333,27 @@ pub fn page_error(ui: Ui) -> impl IntoElement {
     })
 }
 
+pub fn page_hang(ui: Ui) -> impl IntoElement {
+    dynamic(move || {
+        let hung = ui.read(|s| s.hung() && s.active_page().is_none_or(|p| p.error.is_none()));
+        (hung && ui.screen.get() == Screen::Browse && !ui.editing.get()).then(|| {
+            surface(Theme::radius_panel())
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .mx_3()
+                .my_1()
+                .pl_4()
+                .pr_1()
+                .py_1()
+                .shadow(Theme::elevation(4., 14.))
+                .child(label(engine::lifecycle::HANG_NOTE).flex_1().test_id("page-hang").text_color(Theme::warning))
+                .child(pill("Wait", move || ui.act(|s| s.wait_for_page())))
+                .child(accent_pill("Reload", move || ui.act(|s| s.reload_hung())))
+        })
+    })
+}
+
 fn shield_chip(ui: Ui) -> impl IntoElement {
     let level = computed(move || ui.read(|s| s.site_level()));
     let count = move || ui.read(|s| s.site_shield_total());

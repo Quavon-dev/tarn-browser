@@ -893,6 +893,10 @@ The Profile pane's Shield card offers Flip, Change Design and Share Card but no 
 0.5.0's save dialog answers at once with no path on iOS and Android (`nsh_core::file_dialog`), and the
 mobile workspace has no SVG rasterizer to make the PNG the desktop clients save. Share Card hands the
 card to the system share sheet, whose Save to Files (iOS) or a target app (Android) keeps a copy.
+The hung-page card's Reload gives the tab a new view; on Android every WebView shares the app's one
+renderer process, and `WebViewRenderProcess.terminate()` would end every tab's pages with it, so a page
+that keeps that renderer busy can stay hung after Reload until it lets go. iOS has no public call that
+ends one `WKWebView`'s content process; the new view gets whichever process WebKit picks.
 Sidebar tab rows and tiles drag (to reorder, pin, tile, file into a folder or a group) with a trackpad
 or mouse only: NSH 0.5.0 has pans but no lift-to-drag interaction, a long press already opens the tab's
 menu, and a finger pan on a row would take the list's scrolling; a touch user pins, tiles and groups

@@ -18,6 +18,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   profile's first day; Settings › Appearance › Tips turns them off on every client.
 - Compact density: Settings › Appearance turns on shorter rows and gaps in the sidebar on every
   client.
+- A page that stops responding for eight seconds shows a card with Wait and Reload on every client;
+  Reload starts the page again in a new view, and on Linux in a new web process.
 
 ### Changed
 

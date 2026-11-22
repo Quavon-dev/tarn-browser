@@ -190,6 +190,18 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 .child(secure_button("notice-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| b.dismiss_error(cx)))),
         );
     }
+    if let Some(key) = b.hang.hung(Instant::now()).filter(|k| b.model.active == Some(*k) && error.is_none()) {
+        let text = engine::lifecycle::HANG_NOTE;
+        push(
+            "banner-hang",
+            text.to_owned(),
+            Theme::warning(),
+            banner(text)
+                .text_color(Theme::warning())
+                .child(secure_button("hang-wait", "Wait", false).on_click(cx.listener(|b, _, _, cx| b.wait_for_page(cx))))
+                .child(secure_button("hang-reload", "Reload", true).on_click(cx.listener(move |b, _, _, cx| b.reload_hung(key, cx)))),
+        );
+    }
     if let Some(message) = error {
         let text = format!("This page could not be loaded: {}", ui::text::bounded_title(&message));
         push(

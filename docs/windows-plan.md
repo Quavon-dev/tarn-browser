@@ -349,6 +349,9 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
   itself: Back and Forward past Chromium's own list load the saved page in place of the current
   entry, as the user's own load. Scroll positions and form contents are not kept, and a page left
   that way while Chromium has forward entries of its own comes after them.
+- **Hung pages:** the hung-page card's Reload builds a new view; Chromium may place it in the same
+  renderer process as the hung page when the site matches, and CEF offers no call to end one view's
+  renderer, so such a page can stay hung until it lets go.
 - **AppContainer:** may not be feasible with WebView2 and GPUI's DirectX device; then S12 is
   weaker on Windows than on macOS.
 - **Request filtering cost:** `WebResourceRequested` for every request is slower than compiled

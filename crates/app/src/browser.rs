@@ -306,6 +306,7 @@ pub struct Browser {
     pub space_switched_at: Option<i64>,
     /// When Reload was last asked for, so its arrow spins at least `SPIN` even for a cached page.
     pub(crate) reload_spin: Option<(TabKey, Instant)>,
+    pub(crate) hang: engine::lifecycle::Hang<TabKey>,
     /// A display frame is booked to redraw the spinners.
     spinning: bool,
     /// The profile whose bookmarks `bookmarks` holds; `reload_bookmarks` refreshes them.
@@ -516,6 +517,7 @@ impl Browser {
             refocus: false,
             space_switched_at: None,
             reload_spin: None,
+            hang: Default::default(),
             spinning: false,
             bookmarks_of: None,
             burner_return: None,
@@ -627,6 +629,7 @@ impl Browser {
         browser.watch_navigation_buttons(window, cx);
         browser.watch_split_clicks(window, cx);
         browser.watch_peek_pointer(window, cx);
+        browser.watch_hangs(cx);
         browser.developer = browser.core.disk.setting(DEVELOPER_SETTING).ok().flatten().as_deref() == Some("on");
         if browser.developer {
             browser.refresh_local_servers(cx);

@@ -62,6 +62,25 @@ impl Browser {
         self.model.reload_space(&self.core);
     }
 
+    /// Pings the shown page, as `engine::lifecycle::Hang` asks, every `PING_EVERY`.
+    pub fn ping_page(&mut self, now: std::time::Instant) {
+        match self.model.active {
+            Some(key) if self.hang.ping(key, now) => self.outbox.push((key, "readSelection", serde_json::json!({ "seq": 0 }))),
+            Some(_) => {}
+            None => self.hang.forget(),
+        }
+    }
+
+    pub fn wait_for_page(&mut self) {
+        self.hang.wait(std::time::Instant::now());
+    }
+
+    /// Reload on the hung-page card: WebKitGTK ends the view's web process and loads the page in a new one.
+    pub fn reload_hung(&mut self) {
+        self.hang.forget();
+        self.command("reloadFresh", serde_json::Value::Null);
+    }
+
     pub fn sleeping(&self, key: TabKey) -> bool {
         self.model.active != Some(key) && !self.elsewhere.contains(&key) && !self.model.lifecycle.live().any(|k| k == key)
     }

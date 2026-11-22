@@ -544,6 +544,65 @@ fn share(costs: &HashMap<TabKey, Cost>, key: TabKey) -> u64 {
     costs.get(&key).map_or(0, |c| c.footprint / c.sharing as u64)
 }
 
+impl Browser {
+    /// Pings the shown page every `PING_EVERY` while the window lives.
+    pub(crate) fn watch_hangs(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(engine::lifecycle::PING_EVERY).await;
+                if this.update(cx, |b, cx| b.ping_page(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn ping_page(&mut self, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        let was = self.hang.hung(now);
+        match self.model.active.and_then(|k| Some((k, self.views.get(&k)?.clone()))) {
+            Some((key, view)) if self.hang.ping(key, now) => {
+                let (tx, mut rx) = mpsc::unbounded();
+                view.selected_text(move |_| drop(tx.unbounded_send(())));
+                cx.spawn(async move |this, cx| {
+                    if rx.next().await.is_some() {
+                        this.update(cx, |b, cx| {
+                            let was = b.hang.hung(Instant::now());
+                            b.hang.answered(key);
+                            if was.is_some() {
+                                cx.notify();
+                            }
+                        })
+                        .ok();
+                    }
+                })
+                .detach();
+            }
+            Some(_) => {}
+            None => self.hang.forget(),
+        }
+        if was != self.hang.hung(now) {
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn wait_for_page(&mut self, cx: &mut Context<Self>) {
+        self.hang.wait(Instant::now());
+        cx.notify();
+    }
+
+    /// Reload on the hung-page card: a new view, so WebKit and Chromium may give it a new process.
+    pub(crate) fn reload_hung(&mut self, key: TabKey, cx: &mut Context<Self>) {
+        self.hang.forget();
+        match self.tab_url(key).and_then(|u| Url::parse(&u).ok()) {
+            Some(url) => self.rebuild_view(key, &url, cx),
+            None => self.reload(cx),
+        }
+        cx.notify();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

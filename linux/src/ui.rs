@@ -2105,6 +2105,17 @@ fn error_bar(ui: Ui) -> AnyElement {
     })
 }
 
+fn hang_bar(ui: Ui) -> AnyElement {
+    dynamic(move || {
+        ui.snap.with(|s| s.hung && s.error.is_none()).then(|| {
+            bar()
+                .child(body(engine::lifecycle::HANG_NOTE).text_color(Theme::warning()).flex_1().truncate())
+                .child(pill("Wait", move || act(ui, |b| b.wait_for_page())))
+                .child(controls::accent_pill("Reload", move || act(ui, |b| b.reload_hung())))
+        })
+    })
+}
+
 fn content(ui: Ui) -> View {
     let covered =
         move || ui.snap.with(|s| s.blank || s.reader.is_some() || s.blocked.is_some() || s.json.is_some()) || ui.panel.get() != Panel::None || ui.editing.get();
@@ -2650,6 +2661,7 @@ fn browser_window(ui: Ui) -> AnyElement {
             b.idle_tick(windows);
         })
     }));
+    drop(set_interval(engine::lifecycle::PING_EVERY, move || act_quietly(ui, |b| b.ping_page(std::time::Instant::now()))));
     drop(set_interval(SAMPLE_TICK, move || {
         if ui.speaking.get_untracked() && !crate::speech::speaking() {
             ui.speaking.set(false);
@@ -2702,6 +2714,7 @@ fn browser_window(ui: Ui) -> AnyElement {
                 .child(themed(move || extensions::popup_panel(ui)))
                 .child(notice_bar(ui))
                 .child(when(move || !full.get(), move || error_bar(ui)))
+                .child(when(move || !full.get(), move || hang_bar(ui)))
                 .child(prompt_bar(ui))
                 .child(themed(move || find_bar(ui)))
                 .child(content(ui))

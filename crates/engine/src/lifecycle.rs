@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 use std::hash::Hash;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How long an awake background tab must have gone unused before it counts as heavy.
 pub const HEAVY_IDLE: Duration = Duration::from_secs(60);
@@ -123,8 +123,94 @@ pub fn over_budget<T>(awake: impl IntoIterator<Item = (T, u64, bool, Duration)>,
     sleep
 }
 
+/// How long the shown page may leave a ping unanswered before the shell offers Wait or Reload.
+pub const HANG_AFTER: Duration = Duration::from_secs(8);
+/// How often the shell pings the shown page: an isolated-world read the page's own busy main
+/// thread holds back.
+pub const PING_EVERY: Duration = Duration::from_secs(2);
+/// The hung-page card's words, beside its Wait and Reload buttons.
+pub const HANG_NOTE: &str = "This page is not responding. Wait for it, or reload it in a new view.";
+
+/// Whether the page a window shows has stopped answering. The shell pings the shown tab every
+/// `PING_EVERY`, reports each answer, and shows the hung-page card while `hung` names a tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hang<T> {
+    tab: Option<T>,
+    since: Option<Instant>,
+    waited: Option<Instant>,
+}
+
+impl<T> Default for Hang<T> {
+    fn default() -> Self {
+        Hang { tab: None, since: None, waited: None }
+    }
+}
+
+impl<T: Copy + Eq> Hang<T> {
+    /// Whether to ping `tab` now: true unless a ping to it is still unanswered. Another tab starts afresh.
+    pub fn ping(&mut self, tab: T, now: Instant) -> bool {
+        if self.tab != Some(tab) {
+            *self = Hang { tab: Some(tab), ..Hang::default() };
+        }
+        let send = self.since.is_none();
+        self.since.get_or_insert(now);
+        send
+    }
+
+    /// Any answer from `tab` shows it is alive.
+    pub fn answered(&mut self, tab: T) {
+        if self.tab == Some(tab) {
+            *self = Hang { tab: Some(tab), ..Hang::default() };
+        }
+    }
+
+    /// The tab whose page has not answered for `HANG_AFTER`, counted from the last Wait.
+    pub fn hung(&self, now: Instant) -> Option<T> {
+        let since = self.since?;
+        let from = self.waited.map_or(since, |w| w.max(since));
+        (now.saturating_duration_since(from) >= HANG_AFTER).then_some(self.tab).flatten()
+    }
+
+    /// Wait: the card goes until the page has stayed silent for another `HANG_AFTER`.
+    pub fn wait(&mut self, now: Instant) {
+        self.waited = Some(now);
+    }
+
+    /// A reload, a new view or a closed tab: nothing is outstanding.
+    pub fn forget(&mut self) {
+        *self = Hang::default();
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_page_that_stops_answering_is_hung_until_it_answers_or_the_user_waits() {
+        use super::{HANG_AFTER, Hang};
+        use std::time::{Duration, Instant};
+        let t0 = Instant::now();
+        let at = |d: Duration| t0 + d;
+        let mut hang = Hang::default();
+        assert!(hang.ping(1, t0));
+        assert!(!hang.ping(1, at(PING)), "one ping at a time");
+        assert_eq!(hang.hung(at(HANG_AFTER - PING)), None);
+        assert_eq!(hang.hung(at(HANG_AFTER)), Some(1));
+        hang.answered(2);
+        assert_eq!(hang.hung(at(HANG_AFTER)), Some(1), "another tab's answer says nothing");
+        hang.wait(at(HANG_AFTER));
+        assert_eq!(hang.hung(at(HANG_AFTER * 2 - PING)), None, "Wait hides the card");
+        assert_eq!(hang.hung(at(HANG_AFTER * 2)), Some(1), "and it comes back while the page stays silent");
+        hang.answered(1);
+        assert_eq!(hang.hung(at(HANG_AFTER * 3)), None);
+        assert!(hang.ping(1, at(HANG_AFTER * 3)));
+        assert!(hang.ping(2, at(HANG_AFTER * 3)), "switching tabs starts afresh");
+        assert_eq!(hang.hung(at(HANG_AFTER * 4 - PING)), None);
+        hang.forget();
+        assert_eq!(hang.hung(at(HANG_AFTER * 9)), None);
+    }
+
+    const PING: std::time::Duration = super::PING_EVERY;
+
     #[test]
     fn waking_a_pane_keeps_the_live_panes_numbers() {
         let mut life = Lifecycle::new(3);

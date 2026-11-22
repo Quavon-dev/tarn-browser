@@ -145,6 +145,7 @@ pub struct Shell<D: Platform> {
     loads: HashMap<TabKey, Load>,
     pub(crate) visits: HashMap<TabKey, Id>,
     pub(crate) crashed: HashSet<TabKey>,
+    pub hang: engine::lifecycle::Hang<TabKey>,
     pub(crate) seq: u64,
     pub themes: crate::themes::Themes,
     pub ext: crate::extensions::Runtime,
@@ -205,6 +206,7 @@ impl<D: Platform> Shell<D> {
             loads: HashMap::new(),
             visits: HashMap::new(),
             crashed: HashSet::new(),
+            hang: Default::default(),
             seq: 0,
             themes,
             ext: crate::extensions::Runtime::default(),
@@ -957,6 +959,41 @@ impl<D: Platform> Shell<D> {
 
     pub fn active_command(&self, name: &'static str, args: Value) -> Vec<Effect> {
         self.model.active.map(|k| vec![Effect::Command(k, name, args)]).unwrap_or_default()
+    }
+
+    /// Pings the shown page, as `engine::lifecycle::Hang` asks, every `PING_EVERY`.
+    pub fn ping_page(&mut self, now: std::time::Instant) -> Vec<Effect> {
+        match self.model.active {
+            Some(key) if self.hang.ping(key, now) => vec![Effect::Command(key, "readSelection", serde_json::json!({ "seq": 0 }))],
+            Some(_) => Vec::new(),
+            None => {
+                self.hang.forget();
+                Vec::new()
+            }
+        }
+    }
+
+    pub fn hung(&self) -> bool {
+        self.model.active.is_some() && self.hang.hung(std::time::Instant::now()) == self.model.active
+    }
+
+    pub fn wait_for_page(&mut self) -> Vec<Effect> {
+        self.hang.wait(std::time::Instant::now());
+        Vec::new()
+    }
+
+    /// Reload on the hung-page card: the tab gets a new view, loaded at the page's address.
+    pub fn reload_hung(&mut self) -> Vec<Effect> {
+        self.hang.forget();
+        if let Some(key) = self.model.active {
+            let url = self.pages.get(&key).map(|p| p.url.clone()).filter(|u| !u.is_empty());
+            self.unmount(key);
+            self.activate(key);
+            if let Some(url) = url {
+                self.load_in(key, &url, None);
+            }
+        }
+        Vec::new()
     }
 
     pub fn dismiss_error(&mut self) -> Vec<Effect> {
