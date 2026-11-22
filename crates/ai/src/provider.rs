@@ -27,7 +27,7 @@ pub enum AiError {
     Status(u16, String),
     Protocol(String),
     Refused,
-    Keychain(String),
+    Secrets(String),
     Cli(String),
 }
 
@@ -39,7 +39,7 @@ impl fmt::Display for AiError {
             Self::Status(code, msg) => write!(f, "HTTP {code}: {msg}"),
             Self::Protocol(e) => write!(f, "unexpected response: {e}"),
             Self::Refused => f.write_str("the model declined to answer"),
-            Self::Keychain(e) => write!(f, "keychain: {e}"),
+            Self::Secrets(e) => write!(f, "secret store: {e}"),
             Self::Cli(e) => write!(f, "claude cli: {e}"),
         }
     }

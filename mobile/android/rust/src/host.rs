@@ -230,6 +230,27 @@ impl Drop for Stream {
     }
 }
 
+/// Calls one of the host's `secret*` methods; a Java exception (Keystore or storage failure) is an
+/// error, never an empty answer.
+pub(crate) fn secret(method: &str, signature: &str, values: &[&str]) -> Result<Option<String>, String> {
+    let unavailable = || "The secret store is not available.".to_owned();
+    let bridge = BRIDGE.get().ok_or_else(unavailable)?;
+    let mut env = bridge.vm.attach_current_thread_permanently().map_err(|_| unavailable())?;
+    let result = env.with_local_frame(8, |env| -> jni::errors::Result<Option<String>> {
+        let strings = values.iter().map(|v| env.new_string(v).map(JObject::from)).collect::<jni::errors::Result<Vec<_>>>()?;
+        let args: Vec<JValue> = strings.iter().map(JValue::Object).collect();
+        let class: &JClass = bridge.class.as_obj().into();
+        match env.call_static_method(class, method, signature, &args)? {
+            jni::objects::JValueGen::Object(reply) if !reply.is_null() => Ok(Some(env.get_string(&JString::from(reply))?.into())),
+            _ => Ok(None),
+        }
+    });
+    if env.exception_check().unwrap_or(false) {
+        env.exception_clear().ok();
+    }
+    result.map_err(|_| unavailable())
+}
+
 pub fn release_store(store: &str) -> bool {
     call_string("releaseStore", store)
 }

@@ -224,6 +224,14 @@ keeps the host's TLS key policy (`StrongKeys`) and proxy hooks, where rustls's p
 would need its Kotlin component bundled into the APK and initialised over JNI. `Fetch.post` accepts
 HTTPS only, so Ollama is not reachable on Android.
 
+The Claude API token lives behind `ai::Secrets` (`get`, `set`, `delete` by service and account;
+`ai::secrets::{store_token, load_token, delete_token}`), never in a file or the database.
+`ai::secrets::Keyring` is the Keychain on macOS and iOS, the Credential Manager on Windows and the
+Secret Service over D-Bus on Linux (`oo7`, as `import` already uses). Android uses
+`tarn_mobile_android::Keystore`: the host's `Secrets.java` seals each value with AES-GCM under a key
+generated in the Android Keystore and keeps only the sealed bytes in private preferences, which the
+app excludes from backups.
+
 ## 3. `browser-core`
 
 **What it holds:** a new crate with the browser model and no UI types. That means the app-level state

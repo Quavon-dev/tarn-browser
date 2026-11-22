@@ -155,7 +155,11 @@ mod tests {
     #[test]
     fn token_never_in_debug_output() {
         let token = || ApiToken::new(SECRET.into());
+        let secrets = crate::secrets::tests::Memory::default();
+        crate::secrets::store_token(&secrets, &token()).unwrap();
         let outputs = [
+            format!("{:?}", crate::secrets::load_token(&secrets)),
+            format!("{:?}", crate::provider::AiError::Secrets("x".into())),
             format!("{:?}", token()),
             format!("{:#?}", ClaudeApi::new(token(), Some("m".into()), Arc::new(UreqTransport))),
             format!("{:?}", req()),

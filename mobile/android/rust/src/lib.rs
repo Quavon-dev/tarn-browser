@@ -4,6 +4,7 @@
 mod data;
 mod host;
 mod policy;
+mod secrets;
 pub mod system;
 pub mod tarn_ext;
 mod transport;
@@ -14,6 +15,7 @@ use jni::sys::{jboolean, jint, jlong, jobjectArray, jstring};
 
 pub use data::{Data, PRIVATE_PREFIX};
 pub use host::{Host, Space, close_private_space, host, open_private_space, space};
+pub use secrets::Keystore;
 pub use transport::HostTransport;
 
 /// Filter lists for every view in this process; `None` switches them off.
