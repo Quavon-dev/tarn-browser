@@ -75,6 +75,11 @@ define_class!(
             if *builder.system() != *UIMenuSystem::contextSystem(mtm) {
                 return;
             }
+            // SAFETY: main-thread query of the view itself; WebKit offers Copy only over a selected range.
+            let selected: bool = unsafe { msg_send![self, canPerformAction: objc2::sel!(copy:), withSender: None::<&AnyObject>] };
+            if !selected {
+                return;
+            }
             // SAFETY: main-thread read of the view's own UI delegate, a `Handler` or nil.
             let delegate: Option<Retained<AnyObject>> = unsafe { msg_send![self, UIDelegate] };
             let Some(inner) = delegate.and_then(|d| d.downcast::<Handler>().ok()).and_then(|h| h.inner()) else { return };
