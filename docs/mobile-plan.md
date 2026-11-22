@@ -168,6 +168,13 @@ its own text and a selector hiding part of itself.
 | event | `shielded` | `{kind, url}` | For the per-profile Shield counters (`Store::count`, shown by `Store::shield_week`): `https_upgrade` (`Counter::HttpsUpgrades`), `local_network` (`LocalBlocked`), `listed` (`ListedStopped`: a page stopped because a domain set names its site) and `popup` (`PopupsBlocked`: a pop-up refused for lacking a gesture; the shell skips it when `shield::rules::local_target(url)`, as macOS does). The shell counts each kind at most once per committed page |
 | event | `download` | v2 payload plus `id`, and the states below | `id` (string, unique for the app's run) is on every `download` event. `started` adds `pausable` (bool). New states: `progress` `{id, done, total?}` at most twice a second while saving; `paused` `{id, done}`; `resumed` `{id}`; `flagged` `{id, name, host}`: the request, response or page host is on the switched-on malware set (`engine::downloads::flagged_source` over `[request, response, page]` with the component's `nav_policy::Site`), even for a host the user let through for browsing; the file waits, unsaved, until `downloadKeep`. A paused download never kept is checked again (request and page) before it resumes. A declined download ends without a `failed` event |
 | command | `downloadPause`, `downloadResume`, `downloadCancel` | `{id}` | Only for a `pausable` download; iOS keeps WebKit's resume data in memory, Android keeps the `.part` file it was writing (resumed with `Range` and `If-Range`). Cancel removes the part already saved. Downloads belong to the app, not to a view (as on macOS): closing or unmounting the tab that started one keeps it running or paused, and its later events reach the shell through any live view (held until one exists); the shell matches them by `id`, sends commands through any live view and records the finished or failed file in the profile it started in |
+| command | `readSelection` | `{seq}` | Runs `engine::page_scripts::SELECTED_TEXT`: the top document's selection, empty while a password field has the focus |
+| event | `selection` | `{seq, url, text}` | The shell keeps only `browser_core::page_ops::selection(text)` (trimmed, at most `SELECTION_MAX_BYTES`, `None` when blank) |
+| command | `readMedia` | `{seq}` | Runs `engine::page_scripts::media_state_script()`: the first audible media element; it fetches nothing |
+| event | `mediaState` | `{seq, url, text}` | The shell keeps only `browser_core::page_ops::MediaState::parse(text)`; empty means none |
+| command | `media` | `{action, seconds?}` | `play`, `pause` or `seekBy` on that element, checked with `browser_core::page_ops::media_command` and run as `engine::page_scripts::media_command_script`; no answer. WebKit runs it as the user's gesture; Android runs it in the page world without one, so `play` works only where the page has allowed playback |
+| command | `snapshotRect` | `{seq, fullPage: true}` or `{seq, x, y, width, height}` | Checked with `browser_core::page_ops::snapshot_area` (CSS pixels of the visible page, sides cut to `engine::view_policy::SNAPSHOT_MAX_SIDE`). iOS and Android draw only the visible page, so a full page is the visible one there (gap below) |
+| event | `snapshotRect` | `{seq, png}` | A PNG `data:` URI, or null when the area was refused or nothing was drawn |
 | command | `downloadKeep` | `{id, keep}` | Answers `flagged`; anything but `keep: true` cancels. An unanswered one waits, like a paused one, after its component is destroyed |
 
 What the shells build from shared code without the component: copy a clean link
@@ -277,6 +284,13 @@ decisions come from `browser_core::tarn_ext`.
 - **Gap: the link under the pointer.** Neither WKWebView on iOS nor Android System WebView reports the
   element under a hovering pointer, so the status bubble the desktop clients show for a hovered link has
   nothing to show; a touch has no hover, and a long press shows the link in its menu.
+- **Gap: full-page snapshots.** WKWebView on iOS draws only the visible part of the page into a snapshot,
+  and Android System WebView draws the whole document only after the app-wide
+  `WebView.enableSlowWholeDocumentDraw()`, which slows every view; so `snapshotRect` with `fullPage` gives
+  the visible page on both.
+- **Gap: playing media on Android.** Android has no isolated world that runs as the user's gesture, so the
+  `media` command's `play` is refused where the page's media needs one (`setMediaPlaybackRequiresUserGesture`);
+  pause and seek work.
 - **Network rules.** `set_rule_lists` parses each list with `engine::content_rules`; the component applies
   them per request in `shouldInterceptRequest` and in the main-frame checks of `shellLoad`, link navigations
   and history steps, never at Lockdown (the view's or the site's level). As with Shield on Android, an

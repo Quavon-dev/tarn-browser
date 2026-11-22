@@ -155,6 +155,27 @@ impl WebView {
         both!(self, v => v.page_text(origin, max_chars, done))
     }
 
+    /// The top document's selected text, at most `page_scripts::SELECTION_MAX` UTF-16 units, read
+    /// in the isolated world; empty under Lockdown. `browser_core::page_ops::selection` bounds it.
+    pub fn selected_text(&self, done: impl Fn(String) + 'static) {
+        both!(self, v => v.selected_text(done))
+    }
+
+    /// The first audible media element as `page_scripts::media_state_script` answers it, for
+    /// `browser_core::page_ops::MediaState::parse`; empty under Lockdown.
+    pub fn media_state(&self, done: impl Fn(String) + 'static) {
+        both!(self, v => v.media_state(done))
+    }
+
+    pub fn media_command(&self, command: crate::page_scripts::MediaCommand) {
+        both!(self, v => v.media_command(command))
+    }
+
+    /// A PNG of `area`; a full page is cut to `view_policy::SNAPSHOT_MAX_SIDE`.
+    pub fn snapshot_rect(&self, area: crate::view_policy::SnapshotArea, done: impl Fn(Option<Vec<u8>>) + 'static) {
+        both!(self, v => v.snapshot_rect(area, done))
+    }
+
     pub fn article(&self, origin: &Url, probe: bool, done: impl Fn(String) + 'static) {
         both!(self, v => v.article(origin, probe, done))
     }

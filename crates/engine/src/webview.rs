@@ -466,6 +466,28 @@ impl WebView {
         }
     }
 
+    /// Runs a read of Tarn's in the client world; `done` gets an empty string under Lockdown,
+    /// where no script of Tarn's runs on the page.
+    fn read_isolated(&self, body: &str, done: impl Fn(String) + 'static) {
+        if self._delegate.level() == ShieldLevel::Lockdown {
+            return done(String::new());
+        }
+        self.run_isolated(body, done);
+    }
+
+    pub fn selected_text(&self, done: impl Fn(String) + 'static) {
+        self.read_isolated(crate::page_scripts::SELECTED_TEXT, done);
+    }
+
+    pub fn media_state(&self, done: impl Fn(String) + 'static) {
+        self.read_isolated(&crate::page_scripts::media_state_script(), done);
+    }
+
+    /// WebKit treats the client world's script as the user's gesture, so `play` is allowed.
+    pub fn media_command(&self, command: crate::page_scripts::MediaCommand) {
+        self.read_isolated(&crate::page_scripts::media_command_script(command), |_| {});
+    }
+
     /// The text of a JSON document WebKit shows at `origin`, if it is at most `max_bytes` in UTF-8;
     /// empty for any other document or once the tab shows another origin.
     pub fn json_text(&self, origin: &Url, max_bytes: usize, done: impl Fn(String) + 'static) {
@@ -629,6 +651,38 @@ impl WebView {
             });
             let handler = RcBlock::new(move |image: *mut NSImage, _: *mut NSError| done(image.as_ref().and_then(png)));
             self.view.takeSnapshotWithConfiguration_completionHandler(config.as_deref(), &handler);
+        }
+    }
+
+    /// A PNG of `area` at the screen's scale. A full page is the document's area, which WebKit
+    /// draws beyond the visible part; under Lockdown, where no script of Tarn's reads the
+    /// document's size, it is the visible page.
+    pub fn snapshot_rect(&self, area: crate::view_policy::SnapshotArea, done: impl Fn(Option<Vec<u8>>) + 'static) {
+        use crate::view_policy::SnapshotArea;
+        fn take(view: &WKWebView, rect: Option<NSRect>, done: Rc<dyn Fn(Option<Vec<u8>>)>) {
+            // SAFETY: main-thread calls on a live web view and a fresh configuration; WebKit copies
+            // the block and passes an image or null, read only for the duration of the call.
+            unsafe {
+                let config = WKSnapshotConfiguration::new(view.mtm());
+                if let Some(rect) = rect {
+                    config.setRect(rect);
+                }
+                config.setAfterScreenUpdates(false);
+                let handler = RcBlock::new(move |image: *mut NSImage, _: *mut NSError| done(image.as_ref().and_then(png)));
+                view.takeSnapshotWithConfiguration_completionHandler(Some(&config), &handler);
+            }
+        }
+        let done: Rc<dyn Fn(Option<Vec<u8>>)> = Rc::new(done);
+        match area {
+            SnapshotArea::Rect { x, y, width, height } => take(&self.view, Some(NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))), done),
+            SnapshotArea::FullPage if self._delegate.level() == ShieldLevel::Lockdown => take(&self.view, None, done),
+            SnapshotArea::FullPage => {
+                let view = self.view.clone();
+                self.run_isolated(crate::page_scripts::DOCUMENT_SIZE, move |answer| match crate::page_scripts::document_size(&answer) {
+                    Some([x, y, w, h]) => take(&view, Some(NSRect::new(NSPoint::new(-x, -y), NSSize::new(w, h))), done.clone()),
+                    None => done(None),
+                });
+            }
         }
     }
 

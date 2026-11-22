@@ -405,6 +405,75 @@ pub const PICTURE_IN_PICTURE: &str = r"const area = v => v.clientWidth * v.clien
             }
             return 'refused';";
 
+/// Most UTF-16 units of the page's selection `SELECTED_TEXT` hands over.
+pub const SELECTION_MAX: usize = 64 * 1024;
+
+/// The top document's selected text, at most `SELECTION_MAX` UTF-16 units; empty while a password
+/// field has the focus. An async function body for the engine's isolated world.
+pub const SELECTED_TEXT: &str = r"const active = document.activeElement;
+            if (active && active.localName === 'input' && active.type === 'password') return '';
+            const selection = getSelection();
+            const text = selection ? String(selection).slice(0, 65536) : '';
+            return text.toWellFormed ? text.toWellFormed() : text;";
+
+/// The furthest one `MediaCommand::SeekBy` moves, in seconds either way.
+pub const MEDIA_SEEK_MAX: f64 = 3600.;
+
+/// What the shell asks of the page's first audible media element.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MediaCommand {
+    Play,
+    Pause,
+    SeekBy(f64),
+}
+
+/// The first audible media element of the top document: playing, else paused after it started.
+const MEDIA_PICK: &str = r"const media = [...document.querySelectorAll('video, audio')].slice(0, 200);
+            const audible = m => !m.muted && m.volume > 0 && m.readyState > 0 && !m.ended;
+            const m = media.find(m => audible(m) && !m.paused) || media.find(m => audible(m) && m.currentTime > 0);
+            if (!m) return '';
+            ";
+
+/// Answers the first audible media element as JSON `{playing, title, duration, position}`, with
+/// the media session's title, else the document's; empty when there is none. It only reads: no
+/// artwork is fetched. An async function body for the engine's isolated world.
+pub fn media_state_script() -> String {
+    format!(
+        r"{MEDIA_PICK}const meta = navigator.mediaSession && navigator.mediaSession.metadata;
+            const time = v => Number.isFinite(v) && v >= 0 ? v : null;
+            const title = String((meta && meta.title) || document.title || '').slice(0, {});
+            return JSON.stringify({{ playing: !m.paused, title: title.toWellFormed ? title.toWellFormed() : title, duration: time(m.duration), position: time(m.currentTime) }});",
+        crate::view_policy::MAX_TITLE
+    )
+}
+
+/// Plays, pauses or seeks the element `media_state_script` reads; a seek stays inside the media.
+/// An async function body for the engine's isolated world, run as the user's gesture.
+pub fn media_command_script(command: MediaCommand) -> String {
+    let action = match command {
+        MediaCommand::Play => "await m.play().catch(() => {});".to_owned(),
+        MediaCommand::Pause => "m.pause();".to_owned(),
+        MediaCommand::SeekBy(by) => {
+            let by = if by.is_finite() { by.clamp(-MEDIA_SEEK_MAX, MEDIA_SEEK_MAX) } else { 0. };
+            format!("m.currentTime = Math.max(0, Math.min(Number.isFinite(m.duration) ? m.duration : Infinity, m.currentTime + ({by})));")
+        }
+    };
+    format!("{MEDIA_PICK}{action}\n            return '';")
+}
+
+/// The document's scroll offset and size as `[x, y, width, height]` in CSS pixels, for an engine
+/// that needs a full-page snapshot's area spelled out.
+pub const DOCUMENT_SIZE: &str = r"const d = document.documentElement;
+            return JSON.stringify([scrollX, scrollY, Math.max(d.scrollWidth, d.clientWidth), Math.max(d.scrollHeight, d.clientHeight)]);";
+
+/// `DOCUMENT_SIZE`'s answer, the size cut to `view_policy::SNAPSHOT_MAX_SIDE`.
+pub fn document_size(answer: &str) -> Option<[f64; 4]> {
+    let [x, y, w, h]: [f64; 4] = serde_json::from_str(answer).ok()?;
+    let side = |v: f64| (v.is_finite() && v >= 1.).then(|| v.min(crate::view_policy::SNAPSHOT_MAX_SIDE));
+    let offset = |v: f64| if v.is_finite() { v.max(0.) } else { 0. };
+    Some([offset(x), offset(y), side(w)?, side(h)?])
+}
+
 /// What sleeping would lose on a page: whether the user changed a form field, and the scroll offset.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct PageKeep {
@@ -460,6 +529,17 @@ mod tests {
         assert_eq!(page_keep(""), PageKeep::default(), "Lockdown and failed scripts answer empty");
         assert!(scroll_script((f64::NAN, -3.)).contains("left: 0, top: 0,"));
         assert!(scroll_script((0., 640.)).contains("left: 0, top: 640,"));
+    }
+
+    #[test]
+    fn document_size_is_bounded_and_media_seeks_stay_finite() {
+        let max = crate::view_policy::SNAPSHOT_MAX_SIDE;
+        assert_eq!(document_size("[10, -5, 1280, 1e9]"), Some([10., 0., 1280., max]));
+        assert_eq!(document_size("[0, 0, 0, 800]"), None);
+        assert_eq!(document_size("[0, 0, 800]"), None);
+        assert_eq!(document_size(""), None, "Lockdown answers empty");
+        assert!(media_command_script(MediaCommand::SeekBy(f64::INFINITY)).contains("m.currentTime + (0)"));
+        assert!(media_command_script(MediaCommand::SeekBy(-1e9)).contains(&format!("m.currentTime + ({})", -MEDIA_SEEK_MAX)));
     }
 
     use super::*;

@@ -19,6 +19,27 @@ pub const MAX_PROMPTS: usize = 8;
 pub const MIN_PAGE_ZOOM: f64 = 0.5;
 pub const MAX_PAGE_ZOOM: f64 = 3.0;
 
+/// The longest side of a snapshot, in CSS pixels, so a page cannot ask for an unbounded bitmap.
+pub const SNAPSHOT_MAX_SIDE: f64 = 16384.;
+
+/// What `snapshot_rect` captures: a rectangle of the visible page in CSS pixels from its top-left
+/// corner, or the whole document.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SnapshotArea {
+    Rect { x: f64, y: f64, width: f64, height: f64 },
+    FullPage,
+}
+
+impl SnapshotArea {
+    /// A rectangle with a finite, non-negative origin and sides of at least one pixel, cut to
+    /// `SNAPSHOT_MAX_SIDE`.
+    pub fn rect(x: f64, y: f64, width: f64, height: f64) -> Option<Self> {
+        let side = |v: f64| (v.is_finite() && v >= 1.).then(|| v.min(SNAPSHOT_MAX_SIDE));
+        let origin = |v: f64| (v.is_finite() && v >= 0.).then_some(v.min(SNAPSHOT_MAX_SIDE));
+        Some(SnapshotArea::Rect { x: origin(x)?, y: origin(y)?, width: side(width)?, height: side(height)? })
+    }
+}
+
 pub fn zoom_factor(factor: f64) -> f64 {
     if factor.is_finite() { factor.clamp(MIN_PAGE_ZOOM, MAX_PAGE_ZOOM) } else { 1.0 }
 }

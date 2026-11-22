@@ -2220,6 +2220,55 @@ impl WebView {
         });
     }
 
+    /// Runs a read of Tarn's in the isolated world; `done` gets an empty string in a Lockdown
+    /// view, where no script of Tarn's runs on the page.
+    fn read_isolated(&self, body: &str, done: impl Fn(String) + 'static) {
+        if self.lockdown_view() {
+            return done(String::new());
+        }
+        self.run_isolated(body, done);
+    }
+
+    pub fn selected_text(&self, done: impl Fn(String) + 'static) {
+        self.read_isolated(crate::page_scripts::SELECTED_TEXT, done);
+    }
+
+    pub fn media_state(&self, done: impl Fn(String) + 'static) {
+        self.read_isolated(&crate::page_scripts::media_state_script(), done);
+    }
+
+    /// Run as the user's gesture, so `play` is allowed.
+    pub fn media_command(&self, command: crate::page_scripts::MediaCommand) {
+        if !self.lockdown_view() {
+            self.run_isolated_as_gesture(&crate::page_scripts::media_command_script(command), true, |_| {});
+        }
+    }
+
+    /// A PNG of `area`: a rectangle of the visible page, or the document's content area beyond
+    /// the viewport, cut to `SNAPSHOT_MAX_SIDE`.
+    pub fn snapshot_rect(&self, area: crate::view_policy::SnapshotArea, done: impl Fn(Option<Vec<u8>>) + 'static) {
+        use crate::view_policy::{SNAPSHOT_MAX_SIDE, SnapshotArea};
+        let Some(host) = self.browser_host() else { return done(None) };
+        let tab = self.0.tab.clone();
+        call(&self.0.tab, &host.clone(), "Page.getLayoutMetrics", "{}", move |metrics| {
+            let number = |path: &[&str]| value_at(metrics.clone(), path).map(|v| if v.get_type() == ValueType::INT { f64::from(v.int()) } else { v.double() });
+            let clip = match area {
+                SnapshotArea::Rect { x, y, width, height } => {
+                    let page = |key| number(&["cssVisualViewport", key]).unwrap_or(0.);
+                    Some((page("pageX") + x, page("pageY") + y, width, height, false))
+                }
+                SnapshotArea::FullPage => {
+                    let side = |key| number(&["cssContentSize", key]).filter(|v| *v >= 1.).map(|v| v.min(SNAPSHOT_MAX_SIDE));
+                    side("width").zip(side("height")).map(|(w, h)| (0., 0., w, h, true))
+                }
+            };
+            let Some((x, y, w, h, beyond)) = clip else { return done(None) };
+            let params =
+                format!("{{\"format\":\"png\",\"captureBeyondViewport\":{beyond},\"clip\":{{\"x\":{x},\"y\":{y},\"width\":{w},\"height\":{h},\"scale\":1}}}}");
+            call(&tab, &host, "Page.captureScreenshot", &params, move |shot| done(decode(string_at(shot, &["data"]))));
+        });
+    }
+
     /// The page printed to PDF.
     pub fn pdf(&self, done: impl Fn(Option<Vec<u8>>) + 'static) {
         let Some(host) = self.browser_host() else { return done(None) };

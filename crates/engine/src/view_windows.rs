@@ -130,6 +130,22 @@ impl WebView {
         self.view.page_text(origin, max_chars, done);
     }
 
+    pub fn selected_text(&self, done: impl Fn(String) + 'static) {
+        self.view.selected_text(done);
+    }
+
+    pub fn media_state(&self, done: impl Fn(String) + 'static) {
+        self.view.media_state(done);
+    }
+
+    pub fn media_command(&self, command: crate::page_scripts::MediaCommand) {
+        self.view.media_command(command);
+    }
+
+    pub fn snapshot_rect(&self, area: crate::view_policy::SnapshotArea, done: impl Fn(Option<Vec<u8>>) + 'static) {
+        self.view.snapshot_rect(area, done);
+    }
+
     pub fn article(&self, origin: &Url, probe: bool, done: impl Fn(String) + 'static) {
         self.view.article(origin, probe, done);
     }

@@ -46,6 +46,16 @@ Every shell's web view offers the same operations and reports the same events. T
   under the sanitised `name` in Downloads (`browser_core::capture::save_new`), copies it to the
   clipboard and answers with the event `screenshot` `{seq, path}` or `{seq, message}` (Linux; iOS
   and Android do not have it yet);
+- `selected_text`, `media_state`, `media_command` and `snapshot_rect`: the selection, the first
+  audible media element (read, and play, pause or seek), and a PNG of a rectangle of the visible
+  page or of the whole document. The reads are isolated-world scripts from `engine::page_scripts`
+  that answer empty under Lockdown; `browser_core::page_ops` checks every answer and command
+  (`selection`, `MediaState::parse`, `media_command`, `snapshot_area`). NSH components:
+  `readSelection` (`selection`), `readMedia` (`mediaState`), `media` and `snapshotRect`
+  (`snapshotRect`), `docs/mobile-plan.md` §2. A full page is the document cut to
+  `view_policy::SNAPSHOT_MAX_SIDE` on macOS and Windows; Linux takes it only when the document fits
+  that size (WebKitGTK cannot clip a full-document snapshot) and answers none otherwise; iOS and
+  Android draw only the visible page;
 - isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
   and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
   has no isolated world and runs those scripts in the page world, so a shell must not send it

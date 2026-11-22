@@ -40,6 +40,7 @@ pub mod library;
 pub mod licences;
 pub mod link_status;
 pub mod open_file;
+pub mod page_ops;
 pub mod palette;
 pub mod permissions;
 pub mod prefs;
