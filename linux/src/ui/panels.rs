@@ -601,7 +601,7 @@ fn tab_state(b: &Browser, key: browser_core::tabs::TabKey, spaces: &[(usize, Str
     Some(tab_menu::Tab {
         kind: tab.kind,
         active,
-        has_link: active && b.tab_url(key).is_some(),
+        has_link: b.tab_url(key).is_some(),
         engine: None,
         split: b.splits.menu(b.model.active, key),
         split_view: true,
@@ -736,7 +736,12 @@ fn tab_panel(ui: Ui) -> AnyElement {
         .child(heading(ui, title(name).truncate()))
         .children(rename)
         .children(burner.then(|| note("Burner tab: nothing is kept after it closes")))
-        .children(tab_rows(ui, key, tab_menu::items(&state, offered), &keys))
+        .children(tab_rows(
+            ui,
+            key,
+            tab_menu::items(&state, |c| offered(c) && (state.active || !matches!(c, tab_menu::Command::CopyLink | tab_menu::Command::CopyCleanLink))),
+            &keys,
+        ))
         .children(page_rows)
         .children(pills("Move into a folder", folder_buttons))
         .into_element()

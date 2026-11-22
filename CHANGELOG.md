@@ -14,7 +14,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   macOS and Windows name Reader Show Reader or Hide Reader, as Linux does;
   a private space no longer offers snapshots on Linux, iOS and Android.
 - Keyboard shortcuts come from one shared table on every client. macOS and Windows add Find in
-  Tabs (⇧⌘F, Ctrl+Shift+F); Linux lists the split view keys under Tabs, as macOS does. Choosing a
+  Tabs (⇧⌘F, Ctrl+Shift+F), which takes those keys back from a custom shortcut that used them; Linux lists the split view keys under Tabs, as macOS does. Choosing a
   shortcut's default keys again forgets the choice, and Reset All on Linux no longer refuses while
   one action holds another's default keys.
 - The tab menu lists the same entries in the same order on every client. Linux's tab panel gains

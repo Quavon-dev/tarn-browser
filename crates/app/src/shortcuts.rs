@@ -20,7 +20,6 @@ pub(crate) enum Keys {
     Fixed(&'static str),
 }
 
-/// Rows only this shell lists, each after the core row it follows.
 pub(crate) const FIXED: [(Shortcut, &str, &str); 10] = [
     (Shortcut::CloseAllTabs, "Select tab 1–8", "⌘1 ⌘2 ⌘3 ⌘4 ⌘5 ⌘6 ⌘7 ⌘8"),
     (Shortcut::PreviousTab, "Next or previous tab, other keys", "⌘} ⌘{ ⌥⌘→ ⌥⌘←"),
@@ -34,8 +33,6 @@ pub(crate) const FIXED: [(Shortcut, &str, &str); 10] = [
     (Shortcut::ToggleShortcuts, "Quit", "⌘Q"),
 ];
 
-/// The shortcut list: the core's sections with the rows this system offers, the Windows menu key
-/// only on Windows.
 pub(crate) fn sections() -> Vec<(&'static str, Vec<(&'static str, Keys)>)> {
     core::SECTIONS
         .iter()
@@ -114,8 +111,6 @@ fn unparse(keystroke: &Keystroke) -> String {
     keystroke.unparse().replace("win-", "cmd-").replace("super-", "cmd-")
 }
 
-/// Keys as GPUI binds them on this system, so two canonical keys that land on one Windows key
-/// compare equal.
 fn bound(keys: &str) -> Option<String> {
     Keystroke::parse(&platform(keys)).map(|k| k.unparse()).ok()
 }
@@ -159,7 +154,6 @@ impl Keystrokes for Mac {
     }
 }
 
-/// The GPUI action a core shortcut runs here, if this shell has it.
 pub(crate) fn gpui_action(action: Shortcut) -> Option<&'static dyn Action> {
     use Shortcut as S;
     Some(match action {
@@ -220,8 +214,6 @@ pub(crate) fn gpui_action(action: Shortcut) -> Option<&'static dyn Action> {
     })
 }
 
-/// Each offered action's keys and the GPUI action they run: the valid stored ones, else the
-/// default.
 pub(crate) fn keymap(stored: &HashMap<String, String>) -> Vec<(String, &'static dyn Action)> {
     core::keymap(&MAC, stored).into_iter().filter_map(|(keys, action)| Some((keys, gpui_action(action)?))).collect()
 }

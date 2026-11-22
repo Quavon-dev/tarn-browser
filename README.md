@@ -290,6 +290,7 @@ Linux, Reader is <kbd>Ctrl+Alt+E</kbd>, since <kbd>Ctrl+Alt+R</kbd> rotates the 
 | ⌘R | Reload (the arrow spins while the page loads) |
 | ⇧⌘R | Reload without cache |
 | ⌘F / ⌘G / ⇧⌘G | Find in page / next / previous |
+| ⇧⌘F | Find in tabs |
 | ⌘P | Print |
 | ⌘S | Show or hide the sidebar |
 | ⌘, | Settings window (Shield level, site overrides, history); ⌘W or Esc closes it |

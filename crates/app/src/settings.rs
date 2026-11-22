@@ -617,9 +617,7 @@ impl SettingsWindow {
     fn reset_shortcuts(&mut self, action: Option<Shortcut>, cx: &mut Context<Self>) {
         self.recording = None;
         self.shortcut_error = keymap::reset(&crate::shortcuts::MAC, &crate::shared::core(cx).disk, action).err();
-        if self.shortcut_error.is_none() {
-            cx.defer(crate::shortcuts::rebind);
-        }
+        cx.defer(crate::shortcuts::rebind);
         cx.notify();
     }
 

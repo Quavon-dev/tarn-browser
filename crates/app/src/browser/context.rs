@@ -74,7 +74,7 @@ impl Browser {
         let state = tab_menu::Tab {
             kind: tab.kind,
             active,
-            has_link: true,
+            has_link: self.tab_url(key).is_some(),
             engine: (cfg!(feature = "chromium") && !key.private).then(|| (self.tab_web_engine(key), self.web_engine_switch(key).is_some())),
             split: self.splits.menu(self.model.active, key),
             split_view: true,
@@ -422,8 +422,6 @@ impl Browser {
         }
     }
 
-    /// The tab menu's Split View entries. The shortcuts act on the active tab, so only its menu
-    /// names them.
     pub(crate) fn tab_url(&self, key: TabKey) -> Option<String> {
         self.views.get(&key).and_then(|v| v.url()).map(String::from).or_else(|| self.model.tab(key).map(|t| t.url.clone()))
     }

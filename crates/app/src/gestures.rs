@@ -11,7 +11,6 @@ const WHEEL_LINE: f32 = 40.;
 
 pub use browser_core::sidebar::{Step, Swipe};
 
-/// Feeds a trackpad scroll to `swipe`; a mouse wheel's lines are never a swipe.
 fn touch(swipe: &mut Swipe, phase: TouchPhase, delta: ScrollDelta) -> Option<Step> {
     use browser_core::sidebar::Phase;
     let ScrollDelta::Pixels(delta) = delta else { return None };
