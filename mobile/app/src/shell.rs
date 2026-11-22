@@ -146,7 +146,7 @@ pub struct Shell<D: Platform> {
     pub picking: Option<(TabKey, u64)>,
     /// Capture Element waiting for its pick: the tab, the request and the visible page in CSS pixels.
     pub capturing: Option<(TabKey, u64, (f64, f64))>,
-    pub(crate) shots: HashMap<u64, crate::capture::Shot>,
+    pub shots: HashMap<u64, crate::capture::Shot>,
     pub player: browser_core::media::Player,
     /// Insert Snippet waiting for its answer: the tab and the request.
     pub inserting: Option<(TabKey, u64)>,
@@ -601,6 +601,7 @@ impl<D: Platform> Shell<D> {
         self.pages.remove(&key);
         self.loads.remove(&key);
         self.prompts.retain(|p| p.tab != key);
+        self.shots.retain(|_, shot| shot.key != key);
         if self.external.as_ref().is_some_and(|(k, _)| *k == key) {
             self.external = None;
         }

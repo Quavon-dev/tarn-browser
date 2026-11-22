@@ -170,6 +170,11 @@ fn captures_save_an_area_or_a_picked_element_and_record_it_once() {
     assert!(shell.capture_element((800., 600.)).is_empty(), "no picker on a Lockdown page");
     assert_eq!(shell.notice.as_deref(), Some(browser_core::capture::NO_PICKER));
 
+    shell.new_tab(Some("https://cap.test/kept"));
+    shell.take_screenshot();
+    shell.close_tab(key);
+    assert!(shell.shots.values().all(|s| s.key != key) && !shell.shots.is_empty(), "a closed tab's captures are dropped, others kept");
+
     shell.enter_private();
     visit(&mut shell, "https://cap.test/private", "Private");
     let private = shell.take_screenshot();
