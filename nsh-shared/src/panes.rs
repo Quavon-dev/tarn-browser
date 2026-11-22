@@ -60,7 +60,7 @@ pub fn words(pane: Pane) -> &'static str {
     match pane {
         Pane::Profile => "shield level standard strict lockdown card filter lists site overrides connections default browser",
         Pane::General => "downloads folders import about version licence source privacy imprint",
-        Pane::Appearance => "theme dark light match system accent colour color motion reduce toolbar compact sidebar search bar effect",
+        Pane::Appearance => "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips",
         Pane::Tabs => "awake sleep memory new tab start page close archive gestures swipe drag tear off temporary full window",
         Pane::Search => "search engine suggestions history text shortcuts bangs",
         Pane::Privacy => {
@@ -120,6 +120,7 @@ mod tests {
         let found = |q: &str| PANES.iter().filter(|(p, _)| matches(*p, q)).map(|(_, n)| *n).collect::<Vec<_>>();
         assert_eq!(found("lockd"), ["Protection"]);
         assert_eq!(found("COOKIE ban"), ["Privacy"]);
+        assert_eq!(found("density"), ["Appearance"]);
         assert_eq!(found("").len(), PANES.len());
         assert!(found("ock").is_empty());
     }

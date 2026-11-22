@@ -64,7 +64,7 @@ const PANES: [(SettingsPane, Icon, &str, &str); 14] = [
         SettingsPane::Appearance,
         Icon::Palette,
         "Appearance",
-        "theme dark light match system accent colour color motion reduce toolbar compact sidebar search bar effect",
+        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips",
     ),
     (
         SettingsPane::Tabs,
@@ -2170,6 +2170,7 @@ mod tests {
             |q: &str| super::PANES.iter().filter(|(_, _, name, words)| super::pane_matches(q, name, words)).map(|(_, _, name, _)| *name).collect::<Vec<_>>();
         assert_eq!(found("lockd"), ["Protection"]);
         assert_eq!(found("COOKIE ban"), ["Privacy"]);
+        assert_eq!(found("density"), ["Appearance"]);
         assert_eq!(found("").len(), super::PANES.len());
         assert!(found("ock").is_empty(), "words match from their start");
     }
