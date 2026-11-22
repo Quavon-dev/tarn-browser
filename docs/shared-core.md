@@ -288,3 +288,21 @@ The tab, motion and gesture switches and the accent choice are stored under the 
 `browser_core::prefs`.
 
 The NSH shells for Linux, iOS and Android (`docs/nsh-plan.md` P2–P4) sit on `browser-core`.
+
+**Assistant:** `browser_core::assistant` is the chat every client renders and the rules its
+requests follow (threat model S2, S3, S9); it does not depend on the `ai` crate and sends nothing.
+`Session::new` binds a chat to one profile and refuses a private space, a burner tab, a Lockdown
+level or a profile whose `ai_enabled` is off (`store::Store::set_profile_ai`). `Session::apply` takes
+an `Event` (add or remove a pill, send, stream chunk, done, failed, cancel) and returns `Effect`s
+(start or stop a request by id, render); it allows one request at a time and at most one send per
+`MIN_SEND_INTERVAL_MS`, and ignores chunks of a stopped request. A `Pill` (page, tab, selection,
+note) is added only by an explicit event, and only from the session's own profile at a level
+`allowed` accepts. `compose` builds the request: `{question}`, `{page}` and `{selection}` are
+expanded in one pass over the template only, each pill becomes one `Block` with URLs stripped of
+query, fragment and sign-in, control and bidi characters dropped and `tarn-block` tags removed, at
+most `MAX_PILL_BYTES` a block and `MAX_TOTAL_BYTES` over pills and history. `commands::all` lists the
+built-ins and the profile's own (`store` table `ai_commands`, removed with the profile and by Delete
+everything). `links::classify` opens only `http`/`https` links without sign-in parts, asks before
+`mailto` and refuses the rest; `links::shown` always shows the whole address. `view` returns the
+`ChatView` a client draws: rows, pill chips, the blocks a send would carry with their sizes, the
+notice and the send and cancel states.
