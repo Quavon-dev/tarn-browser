@@ -171,23 +171,6 @@ macOS reference: `crates/app/src/settings.rs` (`developer`); Linux: `linux/src/b
 - [ ] Android — the same pane and `WebView.setWebContentsDebuggingEnabled` in `TarnWebView`, which
   turns it off today, behind the switch
 
-### Shared tablet tables that macOS and Linux still duplicate (2026-11-17)
-
-What it does: the tablet Mac layout reads its trackpad swipe from `browser-core`; macOS and Windows
-still keep their own copy, which can drift. The command palette (2026-11-22), the keyboard shortcuts
-(`browser_core::shortcuts` with the `Keystrokes` trait) and the tab menu (`browser_core::tab_menu::items`,
-each client passing which commands it offers) are shared by every client.
-Shared API: `browser_core::sidebar::Swipe`.
-macOS reference: `crates/app/src/gestures.rs` (`Swipe`).
-
-- [ ] Windows — same as macOS (shares `crates/app`)
-- [ ] macOS — `Swipe` reads touch phases and natural scrolling, where the core one times wheel
-  pauses; the core type needs extending first. `Step` and the space neighbour already come from
-  `browser_core::sidebar`.
-- [x] Linux — `Swipe`, `Step` and the space neighbour come from `browser_core::sidebar`
-- [x] iOS — the tablet Mac layout uses all of them
-- [x] Android — same as iOS
-
 ### Tab sleeping choices and the Suggestions switch (2026-11-17)
 
 What it does: Settings chooses how many tabs stay awake (3, 6, 10, 16) and how long a background tab

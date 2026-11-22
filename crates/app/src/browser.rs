@@ -531,7 +531,7 @@ impl Browser {
             focus: cx.focus_handle(),
             _tasks: vec![events_task],
             _subscriptions: [subscription, find_sub].into_iter().chain(prompt_subs).collect(),
-            swipe: crate::gestures::Swipe::new(engine::menu::natural_scrolling()),
+            swipe: crate::gestures::Swipe::natural(engine::menu::natural_scrolling()),
             pan: Default::default(),
             #[cfg(windows)]
             wheel: None,

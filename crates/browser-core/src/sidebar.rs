@@ -292,20 +292,49 @@ pub enum Step {
 const SWIPE_THRESHOLD: f32 = 60.;
 const SWIPE_GAP: Duration = Duration::from_millis(200);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    Started,
+    Moved,
+    Ended,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Swipe {
     dx: f32,
     dy: f32,
     armed: bool,
     last: Option<Instant>,
+    natural: bool,
 }
 
 impl Swipe {
+    pub fn natural(natural: bool) -> Self {
+        Swipe { natural, ..Swipe::default() }
+    }
+
+    fn restart(&mut self) {
+        *self = Swipe { armed: true, ..Swipe::natural(self.natural) };
+    }
+
     pub fn feed(&mut self, dx: f32, dy: f32, at: Instant) -> Option<Step> {
         if self.last.is_none_or(|last| at.saturating_duration_since(last) > SWIPE_GAP) {
-            *self = Swipe { armed: true, ..Swipe::default() };
+            self.restart();
         }
         self.last = Some(at);
+        self.moved(dx, dy)
+    }
+
+    pub fn touch(&mut self, phase: Phase, dx: f32, dy: f32) -> Option<Step> {
+        match phase {
+            Phase::Started => self.restart(),
+            Phase::Ended => self.armed = false,
+            Phase::Moved => return self.moved(dx, dy),
+        }
+        None
+    }
+
+    fn moved(&mut self, dx: f32, dy: f32) -> Option<Step> {
         if !self.armed {
             return None;
         }
@@ -317,7 +346,7 @@ impl Swipe {
             return None;
         }
         self.armed = false;
-        Some(if self.dx > 0. { Step::Next } else { Step::Previous })
+        Some(if (self.dx > 0.) != self.natural { Step::Next } else { Step::Previous })
     }
 }
 
@@ -624,6 +653,31 @@ mod tests {
         assert_eq!(s.feed(-70., 0., ms(400)), Some(Step::Previous), "a pause starts the next gesture");
         assert_eq!(s.feed(10., -70., ms(800)), None, "a vertical scroll");
         assert_eq!(s.feed(100., 0., ms(810)), None, "stays vertical until it pauses");
+    }
+
+    #[test]
+    fn touch_phases_bound_one_gesture_and_natural_scrolling_flips_it() {
+        let mut s = Swipe::natural(true);
+        assert_eq!(s.touch(Phase::Moved, -100., 0.), None, "momentum without a started gesture");
+        s.touch(Phase::Started, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, -40., 0.), None);
+        assert_eq!(s.touch(Phase::Moved, -40., 5.), Some(Step::Next));
+        assert_eq!(s.touch(Phase::Moved, -200., 0.), None, "the rest of the gesture");
+        s.touch(Phase::Ended, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, 70., 0.), None, "after the fingers lift");
+        s.touch(Phase::Started, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, 70., 0.), Some(Step::Previous));
+        s.touch(Phase::Started, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, 0., 80.), None, "a vertical scroll");
+        assert_eq!(s.touch(Phase::Moved, -200., 0.), None, "stays vertical until the next gesture");
+        s.touch(Phase::Started, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, -70., 40.), None, "too steep");
+
+        let mut s = Swipe::natural(false);
+        s.touch(Phase::Started, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, -70., 0.), Some(Step::Previous));
+        let mut s = Swipe::natural(true);
+        assert_eq!(s.feed(-70., 0., Instant::now()), Some(Step::Next), "timed wheel gestures follow the setting too");
     }
 
     #[test]
