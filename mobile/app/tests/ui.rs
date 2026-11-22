@@ -37,6 +37,10 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     assert!(!app.screen().enabled("label:Back").unwrap(), "a new tab has nothing to go back to");
     assert!(!app.screen().enabled("label:Forward").unwrap());
 
+    app.type_text("id:address", "view-source:https://a.test").unwrap();
+    app.submit("id:address").unwrap();
+    assert!(app.screen().matches("label:Cancel").unwrap(), "an address Tarn cannot open keeps the field open");
+    app.clear("id:address").unwrap();
     app.type_text("id:address", "6 * 7").unwrap();
     app.wait_for("= 42").unwrap();
     app.submit("id:address").unwrap();

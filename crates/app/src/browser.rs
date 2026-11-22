@@ -297,6 +297,9 @@ pub struct Browser {
     history_text_search: Option<Task<()>>,
     /// The actions page in the command bar: the row it acts on, and the row to return to.
     pub(crate) actions_page: Option<(String, usize)>,
+    /// How often Enter met an address Tarn cannot open since the field last changed; the field
+    /// shakes each time, or says so under Reduce Motion.
+    pub(crate) rejected: u64,
     /// The query and completion the suggestions were last built for, so a late text search can
     /// rebuild them without completing the field again.
     suggested: Option<(String, Option<suggest::Completion>)>,
@@ -532,6 +535,7 @@ impl Browser {
             history_text: None,
             history_text_search: None,
             actions_page: None,
+            rejected: 0,
             suggested: None,
             pending_external: None,
             downloads_popover: Default::default(),
@@ -1604,6 +1608,7 @@ impl Browser {
         let covered = field || self.shortcuts_open;
         self.launcher_from = None;
         self.actions_page = None;
+        self.rejected = 0;
         self.close_inline(cx);
         self.overlay_exit = None;
         self.command_mode = None;
@@ -1666,6 +1671,7 @@ impl Browser {
     fn on_command_event(&mut self, _: &Entity<TextInput>, event: &TextInputEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             TextInputEvent::Changed => {
+                self.rejected = 0;
                 if self.command_mode != Some(CommandMode::Snippets) {
                     self.expand_snippet(cx);
                 }
@@ -2124,7 +2130,10 @@ impl Browser {
                 self.close_command(window, cx);
                 return;
             }
-            Target::Input(Input::Rejected) => return,
+            Target::Input(Input::Rejected) => {
+                self.rejected += 1;
+                return cx.notify();
+            }
         };
         let group = self.new_tab_group.take();
         self.close_command(window, cx);

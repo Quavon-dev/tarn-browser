@@ -82,6 +82,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Enter on an address Tarn cannot open shakes the field instead of going anywhere, on every
+  client; with Reduce Motion the field stays still and says "Can’t open this address".
 - New Tab on iOS and Android opens the address bar over the current page like ⌘T on macOS,
   Windows and Linux: the tab is created only when you pick a result, and Cancel creates nothing.
   Settings › New tab opens › Empty tab keeps the old behaviour, as the Start page choice does on

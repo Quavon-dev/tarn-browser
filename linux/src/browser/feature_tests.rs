@@ -1944,3 +1944,15 @@ fn the_empty_command_bar_lists_sections_and_a_private_space_no_recent_or_frequen
     let shown = heads(&b, &State { private: true, ..State::default() });
     assert!(!shown.contains(&Section::RecentTabs) && !shown.contains(&Section::Frequent), "{shown:?}");
 }
+
+#[test]
+fn an_address_tarn_does_not_open_is_refused_without_a_notice_or_a_load() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://kept.test/");
+    assert!(b.rejects("javascript:alert(1)") && !b.rejects("example.com") && !b.rejects("rust language"));
+    let (count, load) = (b.model.tabs.len(), b.pages[&key].load.clone());
+    b.navigate_in("javascript:alert(1)", true);
+    assert_eq!((b.model.tabs.len(), b.pages[&key].load.clone()), (count, load));
+    assert!(b.notice.is_none(), "the field shakes instead");
+}

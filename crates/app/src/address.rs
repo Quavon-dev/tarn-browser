@@ -282,7 +282,14 @@ impl Render for Palette {
             .border_color(Theme::hairline())
             .text_size(px(TEXT_TITLE))
             .child(icon(Icon::Search, ICON_MEDIUM, Theme::muted()))
-            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(ui::text_input::mirror(b.command.clone())))
+            .child(ui::motion::shake(
+                div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(ui::text_input::mirror(b.command.clone())),
+                ("palette-shake", b.rejected),
+                b.rejected == 0 || b.pref(Pref::ReduceMotion),
+            ))
+            .when(b.rejected > 0 && b.pref(Pref::ReduceMotion), |d| {
+                d.child(div().flex_none().text_size(px(TEXT_SMALL)).text_color(Theme::danger()).child(browser_core::palette::INVALID_ADDRESS))
+            })
             .when_some(b.actions_page.as_ref().map(|(title, _)| title.clone()), |d, title| {
                 d.child(
                     div()

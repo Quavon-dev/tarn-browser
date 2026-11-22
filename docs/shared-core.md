@@ -438,6 +438,12 @@ already opens the command bar (`shortcuts::Action::CommandBar`), so the page ope
 field's caret is at the end with nothing selected (desktop and the iPad Mac layout), with the row's
 … button, or with a row's More button on phones; Esc (Back on phones) returns to the rows.
 
+**Invalid address:** Enter on typed input that `command::classify_input` rejects
+(`Input::Rejected`) opens nothing; the field shakes sideways once for `palette::SHAKE` (the
+`SHAKE` token in `crates/ui/src/motion.rs` and `nsh-shared/src/motion.rs`) along `palette::shake`,
+and each new Enter shakes it again. Under Reduce Motion it does not move and shows
+`palette::INVALID_ADDRESS` beside it until the text changes.
+
 **Notes:** `browser_core::notes` is the notes list and editor every client renders: `rows(notes,
 query)` filters by title and text without case (title matches first, last edited first) and gives
 each row its shown title (`notes::title`: the title, else the first line, else `UNTITLED`) and a

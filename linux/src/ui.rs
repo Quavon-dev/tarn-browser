@@ -152,6 +152,10 @@ pub struct Ui {
     actions: Signal<Option<actions::Page>>,
     /// The command bar field's selection (UTF-16 units), so Right at its end opens a row's actions.
     selection: Signal<(u32, u32)>,
+    /// Enter met an address Tarn does not open: how often (each shakes the field), and under
+    /// Reduce Motion whether the note says so instead.
+    shakes: Signal<u64>,
+    invalid: Signal<bool>,
     pasteable: Signal<bool>,
     finding: Signal<bool>,
     find: Signal<String>,
@@ -1235,6 +1239,32 @@ fn clear_suggestions(ui: Ui) {
     ui.tabs.set(Vec::new());
     ui.sections.set(Vec::new());
     ui.actions.set(None);
+    ui.invalid.set(false);
+}
+
+/// Shakes the field at an address Tarn does not open; under Reduce Motion a note says so instead.
+fn reject(ui: Ui) {
+    if tarn_nsh_shared::motion::reduced() {
+        ui.invalid.set(true);
+    } else {
+        ui.shakes.update(|n| *n += 1);
+    }
+}
+
+/// `field`, shaken sideways at each new `reject`.
+fn shaking<E: Element>(ui: Ui, field: E) -> E {
+    let shake = motion();
+    let seen = ui.shakes.get_untracked();
+    effect(move || {
+        if ui.shakes.get() != seen {
+            drop(untracked(|| shake.play(tarn_nsh_shared::motion::shake())));
+        }
+    });
+    field.bind_motion(&shake)
+}
+
+fn invalid_note(ui: Ui) -> AnyElement {
+    when(move || ui.invalid.get(), || view().px_4().pb_2().child(small(browser_core::palette::INVALID_ADDRESS).text_color(Theme::danger()))).into_element()
 }
 
 /// Closes the command bar or empties the start card's field.
@@ -1285,6 +1315,9 @@ fn go(ui: Ui, text: String) {
         return;
     }
     let text = ui.completed.get_untracked().filter(|(full, _)| *full == text).map_or(text, |(_, url)| url);
+    if read(ui, |b| b.rejects(&text)).unwrap_or(false) {
+        return reject(ui);
+    }
     let new_tab = ui.new_tab_card.get_untracked();
     ui.new_tab_card.set(false);
     ui.editing.set(false);
@@ -1887,6 +1920,7 @@ fn palette(ui: Ui) -> AnyElement {
                     } else if value != ui.address.get_untracked() {
                         let _span = engine::startup::span(engine::startup::PALETTE_QUERY);
                         ui.actions.set(None);
+                        ui.invalid.set(false);
                         ui.sections.set(if browser_core::palette::sectioned(value) { tools::sections(ui, &history(ui)) } else { Vec::new() });
                         let (history, typed) = (history(ui), ui.typed.get_untracked());
                         let edit = read(ui, |b| b.address_edit(&typed, value, &history, SUGGESTIONS));
@@ -1923,7 +1957,7 @@ fn palette(ui: Ui) -> AnyElement {
                     .child(icons::icon(icons::COMMAND, 11.))
                     .child(small("Commands").text_color(Theme::space_label()))
             };
-            let head = view()
+            let head = shaking(ui, view())
                 .flex_row()
                 .items_center()
                 .gap_3()
@@ -1973,6 +2007,7 @@ fn palette(ui: Ui) -> AnyElement {
                 .shadow(Theme::elevation(18., 48.))
                 .overflow_hidden()
                 .child(head)
+                .child(invalid_note(ui))
                 .child(rows)
                 .child(footer);
             let dim = nsh_base::button().accessibility_label("Close").on_press(move || close_palette(ui)).absolute().inset_0().bg(rgba(PALETTE_DIM));
@@ -2021,6 +2056,7 @@ fn start_card(ui: Ui) -> AnyElement {
                     }
                     ui.command.set(v.to_owned());
                     ui.actions.set(None);
+                    ui.invalid.set(false);
                     ui.sections.set(if browser_core::palette::sectioned(v) { tools::sections(ui, &history(ui)) } else { Vec::new() });
                     show_suggestions(ui, crate::input::suggestions(&history(ui), &[], v, SUGGESTIONS), v, ui.command);
                 })
@@ -2069,8 +2105,15 @@ fn start_card(ui: Ui) -> AnyElement {
                             .child(small(move || ui.snap.with(|s| panels::capitalised(&s.level))).text_color(Secure::muted())),
                     ),
                 );
-            let input_row =
-                view().flex_row().items_center().gap_3().px_4().h(px(54.)).text_color(Theme::muted()).child(icons::icon(icons::SEARCH, 17.)).child(field);
+            let input_row = shaking(ui, view())
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .px_4()
+                .h(px(54.))
+                .text_color(Theme::muted())
+                .child(icons::icon(icons::SEARCH, 17.))
+                .child(field);
             let card = view()
                 .flex_col()
                 .w(px(CARD_WIDTH))
@@ -2078,6 +2121,7 @@ fn start_card(ui: Ui) -> AnyElement {
                 .surface()
                 .shadow(Theme::elevation(18., 48.))
                 .child(input_row)
+                .child(invalid_note(ui))
                 .child(when(typing, move || suggestion_rows(ui, ui.command, false).mb_1().border_t_1().border_color(Theme::hairline())))
                 .child(when(
                     move || !typing() && ui.actions.with(Option::is_none) && ui.sections.with(|s| !s.is_empty()),
@@ -2827,6 +2871,8 @@ fn new_ui(row: SavedWindow, torn: Option<browser_core::tabs::Torn>) -> Ui {
         sections: signal(Vec::new()),
         actions: signal(None),
         selection: signal((0, 0)),
+        shakes: signal(0),
+        invalid: signal(false),
         pasteable: signal(false),
         finding: signal(false),
         find: signal(String::new()),

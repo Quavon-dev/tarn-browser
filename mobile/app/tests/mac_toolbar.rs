@@ -155,4 +155,19 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.wait_for("QUICK ACTIONS").unwrap();
     app.press("label:Show History").unwrap();
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
+
+    app.press_key("mod+l").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    app.clear("id:palette-field").unwrap();
+    app.type_text("id:palette-field", "view-source:https://a.test").unwrap();
+    app.submit("id:palette-field").unwrap();
+    assert!(app.screen().matches("id:palette-field").unwrap(), "an address Tarn cannot open shakes the field and opens nothing");
+    assert!(!app.screen().shows(browser_core::palette::INVALID_ADDRESS));
+    app.set_environment("reduce motion", |e| e.reduce_motion = true).unwrap();
+    app.submit("id:palette-field").unwrap();
+    app.wait_for(browser_core::palette::INVALID_ADDRESS).unwrap();
+    app.type_text("id:palette-field", "x").unwrap();
+    app.wait_for_gone(browser_core::palette::INVALID_ADDRESS, WAIT).unwrap();
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("id:palette-field", WAIT).unwrap();
 }

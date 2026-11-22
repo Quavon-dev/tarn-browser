@@ -654,7 +654,10 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
                 .text_size(px(TEXT_TITLE))
                 .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, _, cx| b.suggestion_key(e, cx)))
                 .child(icon(Icon::Search, ICON_MEDIUM, Theme::accent()))
-                .child(div().flex_1().overflow_hidden().child(input)),
+                .child(ui::motion::shake(div().flex_1().overflow_hidden().child(input), ("start-shake", b.rejected), b.rejected == 0 || reduce))
+                .when(b.rejected > 0 && reduce, |d| {
+                    d.child(div().flex_none().text_size(px(TEXT_SMALL)).text_color(Theme::danger()).child(browser_core::palette::INVALID_ADDRESS))
+                }),
         )
         .when(typing && !b.suggestions.is_empty(), |d| d.child(suggestions))
         .child(

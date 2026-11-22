@@ -477,12 +477,22 @@ impl Browser {
         }
     }
 
+    /// What the address field makes of `text` in this space.
+    fn typed_input(&self, text: &str) -> Option<Input> {
+        let (private, profile) = self.profile_of_space()?;
+        classify_input(text, &ENGINES[input::engine_index(self.core.store(private), private, profile)], self.search_shortcuts())
+    }
+
+    /// Whether `text` is an address Tarn does not open, which the field shakes at instead.
+    pub fn rejects(&self, text: &str) -> bool {
+        matches!(self.typed_input(text), Some(Input::Rejected))
+    }
+
     pub fn navigate_in(&mut self, text: &str, new_tab: bool) {
         let Some((private, profile)) = self.profile_of_space() else { return };
         let blank = self.active_page().is_none_or(|p| p.url.is_empty() || p.url == START_URL);
         let new_tab = new_tab && !blank;
-        let engine = &ENGINES[input::engine_index(self.core.store(private), private, profile)];
-        let input = match classify_input(text, engine, self.search_shortcuts()) {
+        let input = match self.typed_input(text) {
             Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(Some((private, profile)), url))),
             input => input,
         };
@@ -501,8 +511,7 @@ impl Browser {
                 }
             }
             Some(Input::External(url)) => self.notice = Some(Notice::External { url: url.to_string(), origin: String::new() }),
-            Some(Input::Rejected | Input::Command(_)) => self.notice = Some(Notice::Message("Tarn does not open this kind of address.".into())),
-            None => {}
+            Some(Input::Rejected | Input::Command(_)) | None => {}
         }
     }
 

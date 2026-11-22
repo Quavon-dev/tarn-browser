@@ -171,7 +171,7 @@ fn address_input(ui: Ui) -> nsh_base::Input {
     let completed = signal(None::<(String, String)>);
     let history = signal(std::rc::Rc::new(Vec::<store::HistoryEntry>::new()));
     let resting = move || ui.read(|s| browser_core::command::display_host(&s.active_url()));
-    input()
+    ui.shaking(input())
         .element_ref(&field)
         .value(move || if ui.editing.get() { ui.address.get() } else { resting() })
         .on_focus(move || {
@@ -183,6 +183,7 @@ fn address_input(ui: Ui) -> nsh_base::Input {
             ui.picked.set(None);
             ui.suggest.set(Vec::new());
             ui.actions.set(None);
+            ui.rejected.set(0);
             history.set(std::rc::Rc::new(ui.read(|s| s.suggestion_history())));
             ui.editing.set(true);
             field.set_selection(0, end);
@@ -191,6 +192,7 @@ fn address_input(ui: Ui) -> nsh_base::Input {
             if !ui.editing.get_untracked() || value == ui.address.get_untracked() {
                 return;
             }
+            ui.rejected.set(0);
             if let Some(full) = ui.read(|s| s.expand_snippet(value)) {
                 typed.set(full.clone());
                 completed.set(None);
@@ -211,6 +213,9 @@ fn address_input(ui: Ui) -> nsh_base::Input {
         .on_submit(move |value: &str| {
             let picked = ui.picked.get_untracked().and_then(|ix| ui.suggest.with_untracked(|rows| rows.get(ix).map(|h| h.url.clone())));
             let typed = picked.or_else(|| completed.get_untracked().filter(|(full, _)| full == value).map(|(_, url)| url)).unwrap_or_else(|| value.to_owned());
+            if ui.rejects(&typed) {
+                return;
+            }
             ui.editing.set(false);
             ui.screen.set(Screen::Browse);
             dismiss_keyboard();
@@ -584,7 +589,7 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
             .rounded(px(Theme::radius_row()))
         },
     );
-    let list = scroll().flex_shrink(1.).style_when(move || ui.wide(), |s| s.flex_1()).child(suggestion_keys(ui)).child(
+    let list = scroll().flex_shrink(1.).style_when(move || ui.wide(), |s| s.flex_1()).child(suggestion_keys(ui)).child(ui.invalid_note()).child(
         surface(Theme::radius_panel())
             .p_1()
             .m_2()

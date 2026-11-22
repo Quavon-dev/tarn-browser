@@ -451,6 +451,11 @@ impl<D: Platform> Shell<D> {
         self.open_input(text, self.search_shortcuts(), false)
     }
 
+    /// Whether typed `text` names an address Tarn does not open; the field says so instead of opening it.
+    pub fn rejects(&self, text: &str) -> bool {
+        matches!(classify_input(text, &ENGINES[self.search_engine()], self.search_shortcuts()), Some(Input::Rejected))
+    }
+
     /// Opens what was typed in a new tab: the address field opened by New Tab creates the tab
     /// only once the user picks something to open.
     pub fn open_typed_in_new_tab(&mut self, text: &str) -> Vec<Effect> {

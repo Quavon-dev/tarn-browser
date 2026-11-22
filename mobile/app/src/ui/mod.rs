@@ -90,6 +90,8 @@ pub struct Ui {
     pub field: ElementRef,
     /// The address field was opened by New Tab: what the user opens from it gets a new tab.
     pub new_tab: Signal<bool>,
+    /// Submits of an address Tarn does not open since the field was last edited; each shakes it.
+    pub rejected: Signal<u32>,
     pub mac: Signal<bool>,
     pub page_overlay: Signal<Option<tarn_nsh_shared::page_overlay::Overlay>>,
     pub popovers: mac::popovers::Anchors,
@@ -216,6 +218,37 @@ impl Ui {
         if let Some(link) = link {
             set_clipboard(link);
         }
+    }
+
+    /// Whether `text` is an address Tarn does not open; if so the field shakes, or with Reduce
+    /// Motion shows `invalid_note`, and nothing navigates.
+    pub fn rejects(self, text: &str) -> bool {
+        let rejected = untracked(|| self.read(|s| s.rejects(text)));
+        if rejected {
+            self.rejected.update(|n| *n += 1);
+        }
+        rejected
+    }
+
+    /// Binds the address field's shake, replayed on every rejected submit.
+    pub fn shaking<E: Element>(self, field: E) -> E {
+        let shake = motion();
+        effect(move || {
+            if self.rejected.get() > 0 && !reduce_motion() {
+                let spec = MotionSpec::new(KeyframeTiming::new(tarn_nsh_shared::motion::ms(tarn_nsh_shared::motion::SHAKE)).easing(Easing::Linear))
+                    .values(MotionChannel::TranslateX, (0..=12).map(|i| browser_core::palette::shake(i as f32 / 12.)));
+                drop(untracked(|| shake.play(spec)));
+            }
+        });
+        field.bind_motion(&shake)
+    }
+
+    /// The note that replaces the shake when motion is reduced.
+    pub fn invalid_note(self) -> impl IntoElement {
+        dynamic(move || {
+            (self.rejected.get() > 0 && reduce_motion())
+                .then(|| text(browser_core::palette::INVALID_ADDRESS).text_size(px(crate::theme::TEXT)).text_color(Theme::danger()).px_3().py_1())
+        })
     }
 
     /// Opens typed text or an address in the current tab, or in a new tab when New Tab opened the field.
@@ -581,6 +614,7 @@ pub fn App() -> impl IntoElement {
         actions: signal(None),
         field: element_ref(),
         new_tab: signal(false),
+        rejected: signal(0),
         mac: signal(false),
         root: Owner::current(),
         page_overlay: signal(None),

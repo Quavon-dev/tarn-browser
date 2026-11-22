@@ -258,6 +258,7 @@ pub(super) fn open_palette(ui: Ui) {
     ui.suggest.set(Vec::new());
     ui.picked.set(Some(0));
     ui.actions.set(None);
+    ui.rejected.set(0);
     if ui.screen.get_untracked() != Screen::Browse {
         ui.show(Screen::Browse);
     }
@@ -525,6 +526,9 @@ fn pick(ui: Ui, pick: Pick) {
 }
 
 fn go(ui: Ui, text: String) {
+    if ui.rejects(&text) {
+        return;
+    }
     ui.suggest.set(Vec::new());
     ui.editing.set(false);
     dismiss_keyboard();
@@ -746,7 +750,7 @@ fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>, sectioned:
     let typed = signal(String::new());
     let history = Rc::new(ui.read(|s| s.suggestion_history()));
     let at = element_ref();
-    input()
+    ui.shaking(input())
         .element_ref(&at)
         .value(move || ui.address.get())
         .on_focus(move || at.set_selection(0, ui.address.with_untracked(|a| a.encode_utf16().count() as u32)))
@@ -755,6 +759,7 @@ fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>, sectioned:
                 return;
             }
             ui.actions.set(None);
+            ui.rejected.set(0);
             if let Some(full) = ui.read(|s| s.expand_snippet(value)) {
                 typed.set(full.clone());
                 completed.set(None);
@@ -806,7 +811,9 @@ pub(super) fn palette(ui: Ui) -> impl IntoElement {
                     if ui.address.with(|a| palette::sectioned(a)) {
                         return (!shown.is_empty()).then(|| rows().child(section_rows(ui, &shown)).into_element());
                     }
-                    typed().then(|| rows().child(input_row(ui, completed)).child(command_rows(ui)).child(suggestion_rows(ui)).into_element())
+                    typed().then(|| {
+                        rows().child(ui.invalid_note()).child(input_row(ui, completed)).child(command_rows(ui)).child(suggestion_rows(ui)).into_element()
+                    })
                 });
                 tarn_nsh_shared::toolbar::palette(
                     palette_field(ui, completed, sectioned.clone(), caret),
