@@ -324,7 +324,7 @@ page took and for a toast's Undo, which first drops the step. Nothing of a priva
 tab is kept (threat model S8).
 `browser_core::closed` has the reopen stack
 and the archive of unused tabs with its Settings › Tabs choice (`ARCHIVE_AFTER`, `archive_after`,
-`ARCHIVE_INTERVAL`); `browser_core::cleanup` is Clean Up (`plan`, `apply`, `cleanable`, `summary`); `Core::{level, has_override, web_engine}` resolve per tab. The
+`ARCHIVE_INTERVAL`); `browser_core::cleanup` is Clean Up (`plan`, `apply`, `cleanable`, `summary`; `cleanup::ai::request` and `sort_from` build an assistant grouping request from loose tabs' ids, hosts and titles, never in a private space, burner tab or Lockdown, and turn a checked proposal into the same undoable `Sort`); `Core::{level, has_override, web_engine}` resolve per tab. The
 GPUI `Browser` keeps the views and what only a shell has (pages, prompts, find, favicons,
 rendering, gestures, menus, text inputs, windows) and calls the model; it passes in what the
 model cannot see, such as whether another window shows a tab and a live view's current URL.
@@ -442,7 +442,8 @@ each pill becomes one `Block` with URLs stripped of query, fragment and sign-in,
 other invisible characters (`store::is_invisible`) dropped and `tarn-block` removed in any case, at
 most `MAX_PILL_BYTES` a block and `MAX_TOTAL_BYTES` over pills and history. Each request delimits
 its blocks with a tag holding a random `nonce` of its own (`Composed::wrapped`), named in its
-system prompt (`Composed::system`). `commands::all` lists the built-ins and the profile's own
+system prompt (`Composed::system`); `Composed::user_message` is the user turn a provider sends.
+`settings` keeps the provider (Claude API or Ollama on this computer) and the Ollama model name. `commands::all` lists the built-ins and the profile's own
 (`store` table `ai_commands`, names at most `store::MAX_AI_NAME` bytes without control or invisible
 characters, removed with the profile and by Delete everything). `links::classify` refuses every
 scheme but `http`, `https` and `mailto`, any sign-in parts and local and home-network hosts
