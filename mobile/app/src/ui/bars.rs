@@ -68,15 +68,18 @@ fn new_tab(ui: Ui) -> impl IntoElement {
     icon_button(icons::PLUS, "New Tab", move || open_new_tab(ui))
 }
 
+/// Opens the address field over the current page; the tab is created once the user opens
+/// something from it, or at once when Settings asks for an empty tab.
 pub(super) fn open_new_tab(ui: Ui) {
-    let before = ui.read(|s| s.model.active);
-    let mut opened = None;
-    ui.act(|s| {
-        opened = s.new_tab(None);
-        Vec::new()
-    });
+    let empty = ui.read(|s| s.setting_on(browser_core::prefs::NEW_TAB_START_PAGE.key));
+    if empty {
+        ui.act(|s| {
+            s.new_tab(None);
+            Vec::new()
+        });
+    }
     ui.show(Screen::Browse);
-    ui.fresh.set(opened.zip(before).filter(|(k, b)| k != b));
+    ui.new_tab.set(!empty);
     ui.edit_address();
 }
 
@@ -84,12 +87,7 @@ pub(super) fn cancel(ui: Ui) {
     ui.editing.set(false);
     ui.actions.set(None);
     dismiss_keyboard();
-    let Some((key, before)) = ui.fresh.get_untracked() else { return };
-    ui.fresh.set(None);
-    ui.act(|s| {
-        s.discard_new_tab(key, before);
-        Vec::new()
-    });
+    ui.new_tab.set(false);
 }
 
 fn shield_button(ui: Ui) -> impl IntoElement {
@@ -177,7 +175,7 @@ fn address_input(ui: Ui) -> nsh_base::Input {
         .element_ref(&field)
         .value(move || if ui.editing.get() { ui.address.get() } else { resting() })
         .on_focus(move || {
-            let current = ui.read(|s| s.active_url());
+            let current = if ui.new_tab.get_untracked() { String::new() } else { ui.read(|s| s.active_url()) };
             let end = current.encode_utf16().count() as u32;
             ui.address.set(current);
             typed.set(String::new());
@@ -214,10 +212,9 @@ fn address_input(ui: Ui) -> nsh_base::Input {
             let picked = ui.picked.get_untracked().and_then(|ix| ui.suggest.with_untracked(|rows| rows.get(ix).map(|h| h.url.clone())));
             let typed = picked.or_else(|| completed.get_untracked().filter(|(full, _)| full == value).map(|(_, url)| url)).unwrap_or_else(|| value.to_owned());
             ui.editing.set(false);
-            ui.fresh.set(None);
             ui.screen.set(Screen::Browse);
             dismiss_keyboard();
-            ui.act(|s| s.navigate_typed(&typed));
+            ui.open_typed(&typed);
         })
         .keyboard_type(KeyboardType::Url)
         .return_key_type(ReturnKeyType::Go)
@@ -606,7 +603,7 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
                     let row_ = detail_row(Some(icons::GLOBE), name.clone(), Some(address_caption(&url, 1, true)), move || {
                         ui.editing.set(false);
                         dismiss_keyboard();
-                        ui.act(|s| s.navigate(&url));
+                        ui.open_typed(&url);
                     })
                     .border_b(px(0.))
                     .rounded(px(Theme::radius_row()));

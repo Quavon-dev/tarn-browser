@@ -254,7 +254,7 @@ pub(super) fn open_palette(ui: Ui) {
     if ui.editing.get_untracked() {
         return;
     }
-    ui.address.set(ui.read(|s| s.active_url()));
+    ui.address.set(if ui.new_tab.get_untracked() { String::new() } else { ui.read(|s| s.active_url()) });
     ui.suggest.set(Vec::new());
     ui.picked.set(Some(0));
     ui.actions.set(None);
@@ -319,7 +319,6 @@ pub(in crate::ui) fn open_entry(ui: Ui, item: Item) {
     match item {
         Item::Command(c) => pick(ui, Pick::Run(c)),
         Item::Tab(id) => {
-            ui.fresh.set(None);
             close_palette(ui);
             ui.act(|s| {
                 s.activate(browser_core::tabs::TabKey { private: s.model.private(), id });
@@ -508,7 +507,6 @@ fn run(ui: Ui, command: Command) {
 }
 
 fn pick(ui: Ui, pick: Pick) {
-    ui.fresh.set(None);
     close_palette(ui);
     match pick {
         Pick::Copy(text) => ui.copy_answer(text),
@@ -528,10 +526,9 @@ fn pick(ui: Ui, pick: Pick) {
 
 fn go(ui: Ui, text: String) {
     ui.suggest.set(Vec::new());
-    ui.fresh.set(None);
     ui.editing.set(false);
     dismiss_keyboard();
-    ui.act(|s| s.navigate_typed(&text));
+    ui.open_typed(&text);
 }
 
 fn submit(ui: Ui, text: String, completed: Option<(String, String)>, sectioned: &Sectioned) {

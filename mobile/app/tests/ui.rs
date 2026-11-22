@@ -47,8 +47,8 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.submit("id:address").unwrap();
     app.wait_for("label:Share").unwrap();
     app.press("label:New Tab").unwrap();
-    app.wait_for("label:Tabs 2").unwrap();
     app.wait_for("label:Cancel").unwrap();
+    assert!(app.screen().matches("label:Tabs 1").unwrap(), "New Tab opens the address field without a tab");
     app.wait_for("QUICK ACTIONS").unwrap();
     assert!(app.screen().matches("label:Show History").unwrap(), "the empty field lists its sections");
     app.press("label:Actions for Show History").unwrap();
@@ -57,7 +57,8 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.press("label:Back to List").unwrap();
     app.wait_for("QUICK ACTIONS").unwrap();
     app.press("label:Cancel").unwrap();
-    app.wait_for("label:Tabs 1").unwrap();
+    app.wait_for_gone("label:Cancel", WAIT).unwrap();
+    assert!(app.screen().matches("label:Tabs 1").unwrap(), "Cancel creates no tab");
     app.press("label:Menu").unwrap();
     app.wait_for("label:History").unwrap();
     app.press("label:History").unwrap();
@@ -92,7 +93,11 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.press("label:Menu").unwrap();
     app.wait_for("label:Find in Page").unwrap();
     app.press("New Tab >> nth=0").unwrap();
+    app.wait_for("label:Cancel").unwrap();
+    app.type_text("id:address", "example.org").unwrap();
+    app.submit("id:address").unwrap();
     app.wait_for("label:Tabs 2").unwrap();
+    assert!(!app.screen().matches("label:Tabs 3").unwrap(), "opening an address from New Tab adds exactly one tab");
     app.press("label:Tabs 2").unwrap();
     app.wait_for("label:Close Tab").unwrap();
     assert!(app.screen().shows("Clean Up"), "the phone Tabs sheet sorts two loose tabs");
@@ -141,6 +146,9 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.press("label:Menu").unwrap();
     app.wait_for("label:Find in Page").unwrap();
     app.press("New Tab >> nth=0").unwrap();
+    app.wait_for("label:Cancel").unwrap();
+    app.type_text("id:address", "example.org").unwrap();
+    app.submit("id:address").unwrap();
     app.wait_for("label:Tabs 2").unwrap();
     app.press("label:Tabs 2").unwrap();
     app.wait_for("label:Close Tab").unwrap();

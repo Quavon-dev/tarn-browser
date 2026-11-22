@@ -72,6 +72,8 @@ fn the_command_card_opens_what_was_typed_in_a_new_tab() {
     b.navigate_in("https://first.test/", true);
     assert_eq!((b.model.active, b.model.tabs.len()), (Some(first), count), "a blank tab takes it");
     visit(&mut b, first, "https://kept.test/");
+    b.navigate_in("", true);
+    assert_eq!(b.model.tabs.len(), count, "Enter with nothing typed opens no tab");
     b.navigate_in("https://new.test/", true);
     let opened = b.model.active.unwrap();
     assert_ne!(opened, first);

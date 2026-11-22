@@ -857,9 +857,9 @@ Kept from the macOS design: a Safari-style address capsule that shows only the h
 in amber for http, long hosts cut from the start, S5) and the full URL selected while editing, with the
 shield button inside it naming the level only when it is not Standard (amber shield in the private space)
 and Share at its right end while a page is loaded (hidden on an empty tab and while editing); New Tab works
-like ⌘T: it opens an empty tab with the address field focused, the keyboard up and history suggestions as you
-type, and Cancel on a tab nothing was typed into discards it and returns to the tab before (the Mac never
-creates a tab when its new-tab command bar is dismissed);
+like ⌘T: it opens the address field over the current page, the keyboard up and the empty bar's sections
+showing, and creates the tab only when a result is picked, so Cancel creates nothing (`prefs::NEW_TAB_START_PAGE`,
+Settings › New tab opens › Empty tab, opens an empty tab first as before);
 surface cards for the prompt card, notices and the find bar; pill buttons with a pressed fill; segmented
 controls for the Shield level and search engine; switches with the accent track; tiles with radius 14 and an
 accent ring for the active tab; the brand mark on an empty tab over the drifting ASCII fog

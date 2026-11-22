@@ -220,21 +220,16 @@ fn tabs_open_close_and_reopen() {
 }
 
 #[test]
-fn an_untouched_new_tab_is_discarded_and_the_last_tab_returns() {
+fn what_new_tab_opens_gets_a_tab_and_nothing_else_does() {
     let (_dir, mut shell) = open();
     shell.navigate("https://a.test/");
     let first = active(&shell);
-    let fresh = shell.new_tab(None).unwrap();
-    shell.discard_new_tab(fresh, first);
-    assert_eq!(shell.tab_count(), 1);
-    assert_eq!(active(&shell), first);
-    assert!(!shell.reopen_closed(), "a discarded new tab is not a closed tab");
-
-    let typed = shell.new_tab(None).unwrap();
-    shell.navigate("https://b.test/");
-    shell.discard_new_tab(typed, first);
-    assert_eq!(shell.tab_count(), 2, "a new tab that loads something stays");
-    assert_eq!(active(&shell), typed);
+    shell.navigate_typed("https://b.test/");
+    assert_eq!((shell.tab_count(), active(&shell)), (1, first), "typing over a page loads in its tab");
+    shell.open_typed_in_new_tab("https://c.test/");
+    assert_eq!(shell.tab_count(), 2);
+    assert_ne!(active(&shell), first);
+    assert!(!shell.reopen_closed(), "nothing was created and thrown away");
 }
 
 #[test]

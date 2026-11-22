@@ -193,13 +193,7 @@ fn tabs(ui: Ui) -> impl IntoElement {
                 .flex_row()
                 .flex_wrap()
                 .gap_2()
-                .child(pill("New Tab", move || {
-                    ui.act(|s| {
-                        s.new_tab(None);
-                        Vec::new()
-                    });
-                    ui.show(Screen::Browse);
-                }))
+                .child(pill("New Tab", move || super::bars::open_new_tab(ui)))
                 .child(pill("Burner Tab", move || {
                     ui.act(|s| {
                         s.open_burner();
@@ -331,13 +325,7 @@ fn menu(ui: Ui) -> impl IntoElement {
         .gap_2()
         .child(framed(
             group()
-                .child(row(icons::PLUS, "New Tab", move || {
-                    ui.act(|s| {
-                        s.new_tab(None);
-                        Vec::new()
-                    });
-                    ui.show(Screen::Browse);
-                }))
+                .child(row(icons::PLUS, "New Tab", move || super::bars::open_new_tab(ui)))
                 .child(row(icons::FOLDER_OPEN, "Open File…", move || open_file(ui)))
                 .child(
                     when(private, move || {
@@ -691,6 +679,20 @@ pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
     Some(match pane {
         Pane::Profile => body.child(sheets::shield_card(ui)),
         Pane::General => body
+            .child(section("New tab opens"))
+            .child(segmented(
+                [("Address bar", false), ("Empty tab", true)]
+                    .into_iter()
+                    .map(|(name, empty)| {
+                        let key = browser_core::prefs::NEW_TAB_START_PAGE.key;
+                        (
+                            name.to_owned(),
+                            Box::new(move || ui.read_data(|s| s.setting_on(key)) == empty) as Box<dyn Fn() -> bool>,
+                            Box::new(move || ui.act(|s| s.set_setting_on(key, empty))) as Box<dyn Fn()>,
+                        )
+                    })
+                    .collect(),
+            ))
             .child(section("Downloads"))
         .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
             ui.act(|s| {

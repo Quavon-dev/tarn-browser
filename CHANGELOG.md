@@ -82,6 +82,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- New Tab on iOS and Android opens the address bar over the current page like ⌘T on macOS,
+  Windows and Linux: the tab is created only when you pick a result, and Cancel creates nothing.
+  Settings › New tab opens › Empty tab keeps the old behaviour, as the Start page choice does on
+  desktop.
 - The command bar lists the same commands on every client from one shared list. macOS and Windows
   add New Window, Enter or Exit Full Screen, Stop Loading, Reload Without Cache, Close Window,
   Manage Bookmarks and Import Browser Data; Linux calls Memory "Show Memory Use";

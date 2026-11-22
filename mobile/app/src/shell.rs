@@ -444,14 +444,20 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn navigate(&mut self, text: &str) -> Vec<Effect> {
-        self.open_input(text, false)
+        self.open_input(text, false, false)
     }
 
     pub fn navigate_typed(&mut self, text: &str) -> Vec<Effect> {
-        self.open_input(text, self.search_shortcuts())
+        self.open_input(text, self.search_shortcuts(), false)
     }
 
-    fn open_input(&mut self, text: &str, shortcuts: bool) -> Vec<Effect> {
+    /// Opens what was typed in a new tab: the address field opened by New Tab creates the tab
+    /// only once the user picks something to open.
+    pub fn open_typed_in_new_tab(&mut self, text: &str) -> Vec<Effect> {
+        self.open_input(text, self.search_shortcuts(), true)
+    }
+
+    fn open_input(&mut self, text: &str, shortcuts: bool, new_tab: bool) -> Vec<Effect> {
         let engine = &ENGINES[self.search_engine()];
         let input = match classify_input(text, engine, shortcuts) {
             Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(self.model.profile(), url))),
@@ -460,7 +466,7 @@ impl<D: Platform> Shell<D> {
         let credit = matches!(input, Some(Input::Navigate(_)));
         match input {
             Some(Input::Navigate(url) | Input::Search(url)) => {
-                match self.model.active {
+                match self.model.active.filter(|_| !new_tab) {
                     Some(key) => self.load_in(key, url.as_str(), None),
                     None => {
                         self.new_tab(Some(url.as_str()));
@@ -502,16 +508,6 @@ impl<D: Platform> Shell<D> {
         if self.close_tabs(&[key]).is_some() {
             self.toast("Tab closed".into());
         }
-    }
-
-    pub fn discard_new_tab(&mut self, key: TabKey, back: TabKey) {
-        if self.model.active != Some(key) || !self.active_url().is_empty() || self.loads.contains_key(&key) || self.model.tab(back).is_none() {
-            return;
-        }
-        self.forget(key);
-        self.store().delete_tab(key.id).ok();
-        self.model.reload_space(&self.core);
-        self.activate(back);
     }
 
     pub(crate) fn close_tabs(&mut self, keys: &[TabKey]) -> Option<u64> {

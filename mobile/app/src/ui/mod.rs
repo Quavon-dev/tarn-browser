@@ -88,7 +88,8 @@ pub struct Ui {
     /// The command bar's actions page: the row it is for, its name and the row picked before it.
     pub actions: Signal<Option<(browser_core::palette::Item, String, Option<usize>)>>,
     pub field: ElementRef,
-    pub fresh: Signal<Option<(TabKey, TabKey)>>,
+    /// The address field was opened by New Tab: what the user opens from it gets a new tab.
+    pub new_tab: Signal<bool>,
     pub mac: Signal<bool>,
     pub page_overlay: Signal<Option<tarn_nsh_shared::page_overlay::Overlay>>,
     pub popovers: mac::popovers::Anchors,
@@ -179,7 +180,7 @@ impl Ui {
             dismiss_keyboard();
         }
         self.editing.set(false);
-        self.fresh.set(None);
+        self.new_tab.set(false);
         if screen == Screen::Find {
             self.act(|s| {
                 s.found = None;
@@ -215,6 +216,13 @@ impl Ui {
         if let Some(link) = link {
             set_clipboard(link);
         }
+    }
+
+    /// Opens typed text or an address in the current tab, or in a new tab when New Tab opened the field.
+    pub fn open_typed(self, text: &str) {
+        let new_tab = self.new_tab.get_untracked();
+        self.new_tab.set(false);
+        self.act(|s| if new_tab { s.open_typed_in_new_tab(text) } else { s.navigate_typed(text) });
     }
 
     pub fn copy_answer(self, text: String) {
@@ -572,7 +580,7 @@ pub fn App() -> impl IntoElement {
         suggest: signal(Vec::new()),
         actions: signal(None),
         field: element_ref(),
-        fresh: signal(None),
+        new_tab: signal(false),
         mac: signal(false),
         root: Owner::current(),
         page_overlay: signal(None),
