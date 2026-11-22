@@ -276,6 +276,7 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
             _ => false,
         };
     ui.snap.set(snap);
+    ui.chat.sync(assistant::Host(ui));
     if !pages.is_empty() {
         assistant::attach(ui, pages);
     }

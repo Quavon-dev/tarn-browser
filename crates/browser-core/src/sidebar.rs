@@ -322,6 +322,12 @@ pub fn assistant_grouping<D: WebsiteData>(
     Some(((private, space_id), crate::cleanup::ai::request(origin, &tabs, page)?))
 }
 
+/// Whether a grouping asked for in `space` may still be shown and applied: that space is still the
+/// current one and the assistant is still allowed there with its profile's AI on.
+pub fn grouping_here<D: WebsiteData>(model: &Model, core: &Core<D>, space: (bool, Id)) -> bool {
+    model.current_space().map(|s| (s.private, s.space.id)) == Some(space) && model.assistant_offered(core, None)
+}
+
 /// Files the tabs of `space` the assistant grouped, of those it was `sent`, as an undoable Clean Up.
 pub fn group_as_proposed<D: WebsiteData>(model: &mut Model, core: &Core<D>, space: (bool, Id), sent: &HashSet<Id>, proposal: &[(String, Vec<Id>)]) -> CleanUp {
     let store = core.store(space.0);
@@ -664,6 +670,11 @@ mod tests {
         core.disk.set_profile_ai(profile, true).unwrap();
         let (space, request) = assistant_grouping(&model, &core, page).unwrap();
         assert_eq!(request.sent, HashSet::from([a, b]));
+        assert!(grouping_here(&model, &core, space));
+        assert!(!grouping_here(&model, &core, (true, space.1)), "another space is not where it was asked");
+        core.disk.set_profile_ai(profile, false).unwrap();
+        assert!(!grouping_here(&model, &core, space), "AI turned off since the request");
+        core.disk.set_profile_ai(profile, true).unwrap();
         let done = group_as_proposed(&mut model, &core, space, &request.sent, &[("Reading".into(), vec![a, b, later])]);
         assert_eq!(done.tone, Tone::Info);
         let grouped: Vec<Id> = model.tabs.iter().filter(|t| t.group_id.is_some()).map(|t| t.id).collect();

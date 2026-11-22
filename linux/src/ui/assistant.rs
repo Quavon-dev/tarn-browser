@@ -100,6 +100,7 @@ pub fn group_tabs(ui: Ui) {
     assistant::group_tabs(
         Host(ui),
         request,
+        move || read(ui, |b| browser_core::sidebar::grouping_here(&b.model, &b.core, space)) == Some(true),
         move |sent, proposal| act(ui, |b| b.apply_assistant_groups(space, &sent, &proposal)),
         move |why| act(ui, |b| b.show_toast_as(browser_core::toast::Tone::Warning, why, None)),
     );

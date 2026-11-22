@@ -51,6 +51,14 @@ struct Run {
     _pump: Task<()>,
 }
 
+struct Cancel(Arc<AtomicBool>);
+
+impl Drop for Cancel {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 pub(crate) struct Assistant {
     open: bool,
     toggled: Option<Instant>,
@@ -62,6 +70,8 @@ pub(crate) struct Assistant {
     connect: bool,
     /// The tab picker is open.
     picking: bool,
+    /// Clean Up's grouping request, stopped once this window closes.
+    grouping: Option<Cancel>,
     _submit: Subscription,
 }
 
@@ -73,7 +83,7 @@ impl Assistant {
             TextInputEvent::Cancel => b.toggle_assistant(false, window, cx),
             _ => {}
         });
-        Assistant { open: false, toggled: None, from: 0., session: None, input, run: None, connect: false, picking: false, _submit: submit }
+        Assistant { open: false, toggled: None, from: 0., session: None, input, run: None, connect: false, picking: false, grouping: None, _submit: submit }
     }
 }
 
@@ -459,12 +469,15 @@ impl Browser {
         };
         self.show_toast_as(browser_core::toast::Tone::Info, "Asking the assistant to group the tabs…", None, cx);
         let (tx, rx) = futures::channel::oneshot::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.assistant.grouping = Some(Cancel(cancel.clone()));
         std::thread::spawn(move || {
             let req = ai::Request { system: request.system.to_owned(), page: None, question: request.prompt };
             let mut output = String::new();
-            let result = answer(&req, false, &AtomicBool::new(false), &mut |_| {}, &mut |text| {
-                if output.len() <= ai::grouping::MAX_OUTPUT_BYTES {
-                    output.push_str(text);
+            let result = answer(&req, false, &cancel, &mut |_| {}, &mut |text| {
+                output.push_str(text);
+                if output.len() > ai::grouping::MAX_OUTPUT_BYTES {
+                    cancel.store(true, Ordering::Relaxed);
                 }
             })
             .map_err(|e| e.to_string())
@@ -473,7 +486,7 @@ impl Browser {
         });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(result) = rx.await {
-                this.update_in(cx, |b, window, cx| b.confirm_grouping(private, space_id, origin.profile, result, window, cx)).ok();
+                this.update_in(cx, |b, window, cx| b.confirm_grouping(private, space_id, result, window, cx)).ok();
             }
         })
         .detach();
@@ -483,7 +496,6 @@ impl Browser {
         &mut self,
         private: bool,
         space_id: store::Id,
-        profile: store::Id,
         result: Result<(HashSet<store::Id>, Vec<ai::grouping::Group>), String>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -492,8 +504,7 @@ impl Browser {
             Ok(proposal) => proposal,
             Err(e) => return self.show_toast_as(browser_core::toast::Tone::Warning, format!("The assistant could not group the tabs ({e})"), None, cx),
         };
-        let here = self.model.current_space().map(|s| (s.private, s.space.id)) == Some((private, space_id));
-        if !here || self.assistant_origin().is_none_or(|(o, on)| !on || o.profile != profile) {
+        if !browser_core::sidebar::grouping_here(&self.model, &self.core, (private, space_id)) {
             return;
         }
         let proposal: Vec<(String, Vec<store::Id>)> =
@@ -506,7 +517,7 @@ impl Browser {
                 return;
             }
             this.update(cx, |b, cx| {
-                if b.model.current_space().map(|s| (s.private, s.space.id)) != Some((private, space_id)) {
+                if !browser_core::sidebar::grouping_here(&b.model, &b.core, (private, space_id)) {
                     return;
                 }
                 let store = b.store(private);

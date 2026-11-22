@@ -150,6 +150,7 @@ impl Ui {
     fn run(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>, changed: bool) {
         let effects = apply(f);
         let pages = SHELL.with(|s| s.borrow_mut().as_mut().map(|s| std::mem::take(&mut s.assistant_pages)).unwrap_or_default());
+        self.chat.sync(assistant::Host(self));
         if !pages.is_empty() {
             assistant::attach(self, pages);
         }

@@ -303,7 +303,8 @@ impl<D: Platform> Shell<D> {
 
     /// Reads the active web page's text for the assistant; it arrives in `assistant_pages`.
     pub fn read_page_for_assistant(&mut self) -> Vec<Effect> {
-        let Some(key) = self.model.active.filter(|_| web(&self.active_url())) else {
+        let here = self.assistant_origin().is_some_and(browser_core::assistant::allowed);
+        let Some(key) = self.model.active.filter(|_| here && web(&self.active_url())) else {
             self.notice = Some("This page cannot be shared with the assistant.".into());
             return Vec::new();
         };

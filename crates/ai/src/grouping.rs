@@ -35,7 +35,7 @@ pub fn parse(output: &str, sent: &HashSet<i64>) -> Result<Vec<Group>, String> {
     }
     let mut seen = HashSet::new();
     for g in &mut groups {
-        g.name = g.name.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string();
+        g.name = g.name.chars().filter(|c| !c.is_control() && !crate::page_context::is_bidi(*c)).collect::<String>().trim().to_string();
         if g.name.is_empty() || g.name.chars().count() > MAX_NAME_CHARS {
             return Err("invalid group name".into());
         }
@@ -67,6 +67,13 @@ mod tests {
         let out = "```json\n{\"groups\":[{\"name\":\" News \",\"tab_ids\":[1,3]},{\"name\":\"Dev\",\"tab_ids\":[2]}]}\n```";
         let groups = parse(out, &sent()).unwrap();
         assert_eq!(groups[0], Group { name: "News".into(), tab_ids: vec![1, 3] });
+    }
+
+    #[test]
+    fn names_lose_bidi_and_zero_width_characters() {
+        let named = |name: &str| format!(r#"{{"groups":[{{"name":"{name}","tab_ids":[1]}}]}}"#);
+        assert_eq!(parse(&named("\u{202e}Ne\u{200b}ws\u{2066}"), &sent()).unwrap()[0].name, "News");
+        assert!(parse(&named("\u{200b}\u{202e}"), &sent()).is_err(), "a name of nothing visible is refused");
     }
 
     #[test]

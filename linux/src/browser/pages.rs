@@ -204,7 +204,8 @@ impl Browser {
 
     /// Reads the active page's text for the assistant; it arrives in `assistant_pages`.
     pub fn read_page_for_assistant(&mut self) {
-        let Some(key) = self.model.active.filter(|k| self.unlocked(*k).is_some()) else {
+        let here = self.assistant_origin().is_some_and(browser_core::assistant::allowed);
+        let Some(key) = self.model.active.filter(|k| here && self.unlocked(*k).is_some()) else {
             return self.show_toast("This page cannot be shared with the assistant", None);
         };
         self.ask(key, Request::Assistant(key), "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT }));

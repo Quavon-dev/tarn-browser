@@ -103,6 +103,7 @@ pub fn group_tabs(ui: Ui) {
     assistant::group_tabs(
         Host(ui),
         request,
+        move || untracked(|| ui.read(|s| browser_core::sidebar::grouping_here(&s.model, &s.core, space))),
         move |sent, proposal| {
             ui.act(|s| {
                 s.group_as_proposed(space, &sent, &proposal);

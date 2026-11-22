@@ -30,7 +30,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   on phones, from the command bar's Ask or the menu: attach the page or a note, see what a send will
   carry with its size, ask, cancel; answers stream in with formatting, and a link opens only after a
   confirmation showing its whole address. Clean Up gains Group with Assistant, applied after a
-  confirmation and undoable. Never in a private space, a burner tab or on a Lockdown page.
+  confirmation and undoable. Never in a private space, a burner tab or on a Lockdown page; moving
+  to another profile or one of those ends the chat.
 - Notes: Settings › Notes keeps a profile's own notes on every client, with search, a title and
   text, edit and delete. They stay on the device, are never synced, go with the profile's export,
   Delete everything and deleting the profile, and a private space or burner tab writes none.

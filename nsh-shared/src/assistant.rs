@@ -213,16 +213,10 @@ impl Chat {
     /// Binds the chat to the current profile, keeping its conversation when the profile is the
     /// same; false where the assistant is off or not allowed.
     pub fn open<H: Host>(self, host: H) -> bool {
-        self.check();
-        let Some(origin) = host.origin() else {
-            self.close();
-            return false;
-        };
-        if self.session.with(|s| s.as_ref().is_some_and(|(_, s)| s.profile() == origin.profile)) && ai_on(host, origin.profile) {
+        if self.here(host) {
             return true;
         }
-        self.close();
-        let Some(session) = Session::new(origin, ai_on(host, origin.profile)) else {
+        let Some(session) = host.origin().and_then(|o| Session::new(o, ai_on(host, o.profile))) else {
             return false;
         };
         self.view.set(Some(chat_view(&session)));
@@ -239,6 +233,22 @@ impl Chat {
         self.view.set(None);
         self.tail.set(String::new());
         self.question.set(String::new());
+    }
+
+    /// Ends the conversation once the current page is another profile's, in a space or at a level
+    /// the assistant may not see, or its profile's AI is off: call whenever the window changes.
+    pub fn sync<H: Host>(self, host: H) {
+        self.check();
+        let stays = |profile: Id| host.origin().is_some_and(|o| allowed(o) && o.profile == profile) && ai_on(host, profile);
+        if self.session.with(|s| s.as_ref().is_some_and(|(_, s)| !stays(s.profile()))) {
+            self.close();
+        }
+    }
+
+    /// Whether the conversation still belongs where the window is now, after `sync`.
+    fn here<H: Host>(self, host: H) -> bool {
+        self.sync(host);
+        self.session.with(|s| s.is_some())
     }
 
     fn check(self) {
@@ -468,21 +478,26 @@ pub fn settings_pane<H: Host>(host: H, chat: Chat) -> AnyElement {
     .into_element()
 }
 
-/// Opens `raw` after the confirmation `links::classify` asks for, showing the whole address.
-fn follow<H: Host>(host: H, raw: &str) {
+fn refuse(raw: &str) {
+    drop(nsh_base::alert_dialog().title("This link cannot be opened").description(links::shown("", raw)).cancel("ok", "OK").show());
+}
+
+/// Opens `raw` after the confirmation `links::classify` asks for, showing the whole address, in a
+/// new tab of the chat's own profile; refused once the window shows another profile or a space the
+/// assistant may not see.
+fn follow<H: Host>(host: H, chat: Chat, raw: &str) {
     let (title, url) = match links::classify(raw) {
-        LinkAction::ConfirmOpen(url) => (format!("Open a page on {}?", url.host_str().unwrap_or_default()), url),
+        LinkAction::ConfirmOpen(url) if chat.here(host) => (format!("Open a page on {}?", url.host_str().unwrap_or_default()), url),
         LinkAction::ConfirmMailto(url) => ("Write an email?".to_owned(), url),
-        LinkAction::Refuse => {
-            drop(nsh_base::alert_dialog().title("This link cannot be opened").description(links::shown("", raw)).cancel("ok", "OK").show());
-            return;
-        }
+        _ => return refuse(raw),
     };
     let answer = nsh_base::alert_dialog().title(title).description(url.as_str().to_owned()).cancel("cancel", "Cancel").action("open", "Open").show();
     Owner::detached().run(|| {
         drop(spawn(async move {
             if answer.await.is_ok_and(|a| a.action.as_deref() == Some("open")) {
-                if url.scheme() == "mailto" {
+                if !chat.here(host) {
+                    refuse(url.as_str());
+                } else if url.scheme() == "mailto" {
                     drop(open_url(url.as_str()));
                 } else {
                     host.open(url);
@@ -492,7 +507,7 @@ fn follow<H: Host>(host: H, raw: &str) {
     });
 }
 
-fn spans<H: Host>(host: H, spans: Vec<Span>) -> Text {
+fn spans<H: Host>(host: H, chat: Chat, spans: Vec<Span>) -> Text {
     text("").text_size(px(TEXT)).text_color(Theme::text()).selectable(true).children(spans.into_iter().map(move |s| {
         let shown = match &s.link {
             Some(url) => links::shown(&s.text, url),
@@ -512,26 +527,26 @@ fn spans<H: Host>(host: H, spans: Vec<Span>) -> Text {
             span = span.font_family("monospace");
         }
         match s.link {
-            Some(url) => span.underline().text_color(Theme::accent_text()).on_press(move |_: &PressEvent| follow(host, &url)).into_element(),
+            Some(url) => span.underline().text_color(Theme::accent_text()).on_press(move |_: &PressEvent| follow(host, chat, &url)).into_element(),
             None => span.into_element(),
         }
     }))
 }
 
-fn block<H: Host>(host: H, block: Block) -> AnyElement {
+fn block<H: Host>(host: H, chat: Chat, block: Block) -> AnyElement {
     match block {
         Block::Heading { level, spans: s } => {
-            spans(host, s).text_size(px(if level <= 2 { TEXT_TITLE } else { TEXT })).font_weight(FontWeight::SEMIBOLD).into_element()
+            spans(host, chat, s).text_size(px(if level <= 2 { TEXT_TITLE } else { TEXT })).font_weight(FontWeight::SEMIBOLD).into_element()
         }
-        Block::Paragraph(s) => spans(host, s).into_element(),
+        Block::Paragraph(s) => spans(host, chat, s).into_element(),
         Block::ListItem { depth, number, spans: s } => view()
             .flex_row()
             .gap_1()
             .pl(px(f32::from(depth.saturating_sub(1)) * 14.))
             .child(label(number.map_or_else(|| "•".to_owned(), |n| format!("{n}."))).text_color(Theme::muted))
-            .child(spans(host, s).flex_1().min_w(px(0.)))
+            .child(spans(host, chat, s).flex_1().min_w(px(0.)))
             .into_element(),
-        Block::Quote(s) => view().pl_2().border_l_1().border_color(Theme::hairline()).child(spans(host, s).text_color(Theme::muted())).into_element(),
+        Block::Quote(s) => view().pl_2().border_l_1().border_color(Theme::hairline()).child(spans(host, chat, s).text_color(Theme::muted())).into_element(),
         Block::Code { code, .. } => view()
             .p_2()
             .rounded(px(Theme::radius_small()))
@@ -542,13 +557,13 @@ fn block<H: Host>(host: H, block: Block) -> AnyElement {
     }
 }
 
-fn answer_view<H: Host>(host: H, markdown: &str) -> View {
-    view().gap_2().children(ai::markdown::parse(markdown).into_iter().map(move |b| block(host, b)))
+fn answer_view<H: Host>(host: H, chat: Chat, markdown: &str) -> View {
+    view().gap_2().children(ai::markdown::parse(markdown).into_iter().map(move |b| block(host, chat, b)))
 }
 
 /// An answer's links again as buttons, so the keyboard reaches each one (Tab, then Enter) and
 /// opens it through the same confirmation as a press on the link.
-fn link_list<H: Host>(host: H, markdown: &str) -> Option<View> {
+fn link_list<H: Host>(host: H, chat: Chat, markdown: &str) -> Option<View> {
     let links: Vec<(String, String)> = ai::markdown::parse(markdown)
         .into_iter()
         .flat_map(|block| match block {
@@ -558,7 +573,7 @@ fn link_list<H: Host>(host: H, markdown: &str) -> Option<View> {
         .filter_map(|s| s.link.map(|url| (links::shown(&s.text, &url), url)))
         .collect();
     (!links.is_empty()).then(|| {
-        view().gap_1().child(hint("Links")).children(links.into_iter().map(move |(shown, url)| pill(shown, move || follow(host, &url)).into_element()))
+        view().gap_1().child(hint("Links")).children(links.into_iter().map(move |(shown, url)| pill(shown, move || follow(host, chat, &url)).into_element()))
     })
 }
 
@@ -598,6 +613,7 @@ pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
     let notes_open = signal(false);
     let tabs_open = signal(false);
     dynamic(move || {
+        untracked(|| chat.open(host));
         let Some(chat_view) = chat.view.get() else {
             let here = host.origin().is_some_and(allowed);
             return Some(view().gap_2().child(empty_state(if here { OFF } else { NOT_HERE })));
@@ -613,9 +629,9 @@ pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
                     Role::You => bubble.bg(Theme::selected()).child(label(row.text.clone()).selectable(true)),
                     Role::Assistant if ix == last && row.streaming => {
                         let base = row.text.clone();
-                        bubble.child(dynamic(move || Some(answer_view(host, &format!("{base}{}", chat.tail.get())))))
+                        bubble.child(dynamic(move || Some(answer_view(host, chat, &format!("{base}{}", chat.tail.get())))))
                     }
-                    Role::Assistant => bubble.child(answer_view(host, &row.text)).children(link_list(host, &row.text)),
+                    Role::Assistant => bubble.child(answer_view(host, chat, &row.text)).children(link_list(host, chat, &row.text)),
                 };
                 bubble.children(row.by.clone().map(hint)).when(row.interrupted, |b| b.opacity(0.6).child(hint("Interrupted; not sent again."))).into_element()
             })
@@ -704,9 +720,12 @@ fn notes<H: Host>(host: H, chat: Chat, open: Signal<bool>) -> View {
 
 /// Clean Up with the assistant: sends `request`, checks the proposal against the tabs it named,
 /// asks before anything moves and hands the checked groups to `apply`; `failed` gets the reason.
+/// `here` (`sidebar::grouping_here`) tells whether the space it was asked in is still shown with
+/// the assistant allowed, before the confirmation and again after it.
 pub fn group_tabs<H: Host>(
     host: H,
     request: cleanup::ai::Request,
+    here: impl Fn() -> bool + Copy + 'static,
     apply: impl FnOnce(HashSet<Id>, Vec<(String, Vec<Id>)>) + 'static,
     failed: impl FnOnce(String) + 'static,
 ) {
@@ -731,7 +750,7 @@ pub fn group_tabs<H: Host>(
         move |end| {
             let proposal = end.and_then(|()| proposal(&output.borrow(), &sent));
             match proposal {
-                Ok(groups) => confirm_groups(sent, groups, apply),
+                Ok(groups) => confirm_groups(sent, groups, here, apply),
                 Err(why) => failed(why),
             }
         },
@@ -743,7 +762,16 @@ fn proposal(output: &str, sent: &HashSet<Id>) -> Result<Vec<(String, Vec<Id>)>, 
     Ok(groups.into_iter().map(|g| (g.name, g.tab_ids)).collect())
 }
 
-fn confirm_groups(sent: HashSet<Id>, groups: Vec<(String, Vec<Id>)>, apply: impl FnOnce(HashSet<Id>, Vec<(String, Vec<Id>)>) + 'static) {
+fn confirm_groups(
+    sent: HashSet<Id>,
+    groups: Vec<(String, Vec<Id>)>,
+    here: impl Fn() -> bool + Copy + 'static,
+    apply: impl FnOnce(HashSet<Id>, Vec<(String, Vec<Id>)>) + 'static,
+) {
+    if !here() {
+        return;
+    }
+    let groups: Vec<(String, Vec<Id>)> = groups.into_iter().map(|(name, ids)| (name.chars().filter(|c| !store::is_invisible(*c)).collect(), ids)).collect();
     let names = groups.iter().map(|(name, ids)| format!("{name} ({})", ids.len())).collect::<Vec<_>>().join(", ");
     let answer = nsh_base::alert_dialog()
         .title("Group tabs as the assistant suggests?")
@@ -753,7 +781,7 @@ fn confirm_groups(sent: HashSet<Id>, groups: Vec<(String, Vec<Id>)>, apply: impl
         .show();
     Owner::detached().run(|| {
         drop(spawn(async move {
-            if answer.await.is_ok_and(|a| a.action.as_deref() == Some("group")) {
+            if answer.await.is_ok_and(|a| a.action.as_deref() == Some("group")) && here() {
                 apply(sent, groups);
             }
         }))
@@ -897,6 +925,73 @@ mod tests {
         assert_eq!(proposal("{\"groups\":[{\"name\":\"News\",\"tab_ids\":[1,3]}]}", &sent).unwrap(), [("News".to_owned(), vec![1, 3])]);
         assert!(proposal("{\"groups\":[{\"name\":\"News\",\"tab_ids\":[1,9]}]}", &sent).is_err());
         assert!(proposal("not json", &sent).is_err());
+    }
+
+    thread_local! {
+        static STORE: Store = Store::open_in_memory().unwrap();
+        static SHOWN: std::cell::Cell<Option<Origin>> = const { std::cell::Cell::new(None) };
+    }
+
+    #[derive(Clone, Copy)]
+    struct Window;
+
+    impl Host for Window {
+        fn platform(self) -> &'static Platform {
+            unreachable!()
+        }
+        fn with_store<R>(self, f: impl FnOnce(&Store) -> R) -> R {
+            STORE.with(f)
+        }
+        fn origin(self) -> Option<Origin> {
+            SHOWN.get()
+        }
+        fn level_of(self, _: &Url) -> ShieldLevel {
+            ShieldLevel::Standard
+        }
+        fn read_page(self) {}
+        fn tabs(self) -> Vec<TabChoice> {
+            Vec::new()
+        }
+        fn read_tab(self, _: TabKey) {}
+        fn open(self, _: Url) {}
+    }
+
+    #[test]
+    fn the_chat_ends_once_the_window_shows_another_profile_or_a_space_it_may_not_see() {
+        let profile = |name| STORE.with(|s| s.create_profile(name, name, false).and_then(|p| s.set_profile_ai(p.id, true).map(|()| p.id)).unwrap());
+        let runtime = nsh_core::element::Runtime::default();
+        let _entered = runtime.enter();
+        let (work, home) = (profile("work"), profile("home"));
+        let show = |profile, kind, level| SHOWN.set(Some(Origin { profile, kind, level }));
+        let chat = Chat::new();
+        let note = |chat: Chat| chat.attach(Window, SHOWN.get().unwrap(), Pill::Note(1, "n".into()));
+        let attached = |chat: Chat| chat.view.get_untracked().is_some_and(|v| !v.chips.is_empty());
+
+        show(work, ProfileKind::Normal, ShieldLevel::Standard);
+        assert!(chat.open(Window));
+        note(chat);
+        chat.sync(Window);
+        assert!(attached(chat), "the same profile keeps its conversation");
+
+        show(work, ProfileKind::Private, ShieldLevel::Standard);
+        chat.sync(Window);
+        assert!(chat.view.get_untracked().is_none() && !chat.open(Window), "a private space ends the chat and opens none");
+
+        show(work, ProfileKind::Normal, ShieldLevel::Standard);
+        assert!(chat.open(Window) && !attached(chat), "back in the profile the chat starts empty");
+        note(chat);
+        show(home, ProfileKind::Normal, ShieldLevel::Standard);
+        assert!(!chat.here(Window), "another profile's space ends the chat, so its links are refused");
+        assert!(chat.open(Window) && !attached(chat), "the other profile gets a chat of its own");
+
+        show(home, ProfileKind::Normal, ShieldLevel::Lockdown);
+        assert!(!chat.here(Window), "a Lockdown page ends the chat");
+        show(home, ProfileKind::Normal, ShieldLevel::Standard);
+        assert!(chat.open(Window));
+        STORE.with(|s| s.set_profile_ai(home, false).unwrap());
+        assert!(!chat.here(Window), "AI turned off ends the chat");
+        SHOWN.set(None);
+        assert!(!chat.open(Window));
     }
 
     #[test]
