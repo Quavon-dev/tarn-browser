@@ -358,7 +358,8 @@ rebuild the tab's view, Linux's component takes `reloadFresh`, which ends the vi
 toggled by `shortcuts::Action::ToggleTabsOnTop` (`mod+alt+shift+t`) and the command bar's
 `palette::Command::TabsOnTop`; `TabPlacement::toggled` stores the pick for new windows and `shown`
 keeps phones and the touch layout at the side. `browser_core::sidebar::strip` lists the strip:
-tiles and pinned tabs (as icons), then the other tabs in the sidebar's order. With tabs on top the
+tiles and pinned tabs (as icons), then the other tabs in the sidebar's order, including every tab of
+a collapsed folder or group, so none is out of reach while the sidebar hides. With tabs on top the
 sidebar hides without forgetting its own setting and no floating sidebar appears at the edge;
 ToggleSidebar brings the side back. macOS and Windows (`crates/app/src/tab_strip.rs`), Linux
 (`tab_strip` in `linux/src/ui.rs`, rows in `Snapshot::strip`) and the iPad Mac layout

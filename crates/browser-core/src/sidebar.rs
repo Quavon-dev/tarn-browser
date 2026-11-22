@@ -48,9 +48,9 @@ fn tab_rows(model: &Model, splits: &Splits<TabKey>, tabs: &[&Tab], depth: usize)
         .collect()
 }
 
-fn folder_rows(model: &Model, splits: &Splits<TabKey>, folder: &Folder, depth: usize, rows: &mut Vec<Row>) {
+fn folder_rows(model: &Model, splits: &Splits<TabKey>, folder: &Folder, depth: usize, open_all: bool, rows: &mut Vec<Row>) {
     rows.push(Row { kind: RowKind::Folder(folder.id), depth });
-    if !model.expanded.contains(&folder.id) {
+    if !open_all && !model.expanded.contains(&folder.id) {
         let tree = folder_tree(&model.folders, folder.id);
         let active = sorted(model, |t| t.folder_id.is_some_and(|f| tree.contains(&f)) && model.active == Some(model.key(t)));
         rows.extend(tab_rows(model, splits, &active, depth + 1));
@@ -59,7 +59,7 @@ fn folder_rows(model: &Model, splits: &Splits<TabKey>, folder: &Folder, depth: u
     let tabs = sorted(model, |t| t.kind == TabKind::Pinned && t.folder_id == Some(folder.id));
     rows.extend(tab_rows(model, splits, &tabs, depth + 1));
     for child in children(model, Some(folder.id)) {
-        folder_rows(model, splits, child, depth + 1, rows);
+        folder_rows(model, splits, child, depth + 1, open_all, rows);
     }
 }
 
@@ -70,19 +70,25 @@ fn children(model: &Model, parent: Option<Id>) -> Vec<&Folder> {
 }
 
 pub fn sidebar(model: &Model, splits: &Splits<TabKey>) -> Sidebar {
+    rows(model, splits, false)
+}
+
+/// `open_all` lists every folder's and group's tabs as if none were collapsed.
+fn rows(model: &Model, splits: &Splits<TabKey>, open_all: bool) -> Sidebar {
     let tiles = sorted(model, |t| t.kind == TabKind::Tile).into_iter().map(|t| model.key(t)).collect();
     let mut pinned: Vec<Vec<Row>> =
         tab_rows(model, splits, &sorted(model, |t| t.kind == TabKind::Pinned && t.folder_id.is_none()), 0).into_iter().map(|r| vec![r]).collect();
     for folder in children(model, None) {
         let mut block = Vec::new();
-        folder_rows(model, splits, folder, 0, &mut block);
+        folder_rows(model, splits, folder, 0, open_all, &mut block);
         pinned.push(block);
     }
     let groups = model
         .groups
         .iter()
         .map(|g| {
-            let tabs = sorted(model, |t| t.kind == TabKind::Ephemeral && t.group_id == Some(g.id) && (!g.collapsed || model.active == Some(model.key(t))));
+            let tabs =
+                sorted(model, |t| t.kind == TabKind::Ephemeral && t.group_id == Some(g.id) && (open_all || !g.collapsed || model.active == Some(model.key(t))));
             (g.id, tab_rows(model, splits, &tabs, 0))
         })
         .collect();
@@ -91,7 +97,7 @@ pub fn sidebar(model: &Model, splits: &Splits<TabKey>) -> Sidebar {
 }
 
 /// The tab strip of a window with tabs on top (`layout::TabPlacement::Top`): the pinned tabs as
-/// icons, then the other tabs, in the sidebar's order.
+/// icons, then the other tabs, in the sidebar's order, also those of collapsed folders and groups.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Strip {
     pub pinned: Vec<TabKey>,
@@ -99,7 +105,7 @@ pub struct Strip {
 }
 
 pub fn strip(model: &Model) -> Strip {
-    let bar = sidebar(model, &Splits::default());
+    let bar = rows(model, &Splits::default(), true);
     let keys = |rows: &[Row]| -> Vec<TabKey> {
         rows.iter()
             .flat_map(|r| match &r.kind {
@@ -474,6 +480,25 @@ mod tests {
         assert_eq!(shown.pinned, [tile, pinned]);
         assert_eq!(shown.tabs, model.ephemeral_keys());
         assert!(shown.tabs.contains(&a) && shown.tabs.contains(&b));
+    }
+
+    #[test]
+    fn the_strip_reaches_tabs_inside_collapsed_folders_and_groups() {
+        let (_dir, core, mut model) = opened();
+        let outer = new_folder(&mut model, &core, None).unwrap();
+        let inner = new_folder(&mut model, &core, Some(outer)).unwrap();
+        let (top, deep) = (tab(&core, &mut model, TabKind::Pinned, Some(outer)), tab(&core, &mut model, TabKind::Pinned, Some(inner)));
+        let grouped = tab(&core, &mut model, TabKind::Ephemeral, None);
+        let group = new_group(&mut model, &core, Some(grouped)).unwrap();
+        let open = strip(&model);
+        model.toggle_folder(outer);
+        model.toggle_folder(inner);
+        assert!(model.toggle_group(&core, group));
+        model.active = None;
+        let shown = strip(&model);
+        assert_eq!(shown, open, "collapsing hides nothing from the strip");
+        assert_eq!(shown.pinned, [top, deep]);
+        assert_eq!(shown.tabs, [grouped]);
     }
 
     #[test]
