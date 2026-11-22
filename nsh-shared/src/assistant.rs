@@ -277,7 +277,10 @@ impl Chat {
     /// Attaches the page's selection from the selection menu and, for a command, sends it with
     /// that command's template and no question: one choice, one send.
     pub fn ask_selection<H: Host>(self, host: H, origin: Origin, pill: Pill, command: Option<&str>) {
-        self.attach(host, origin, pill);
+        self.attach(host, origin, pill.clone());
+        if command.is_none() || !self.session.with(|s| s.as_ref().is_some_and(|(_, s)| s.holds(&pill))) {
+            return;
+        }
         let custom = host.with_store(|s| s.ai_commands(origin.profile).unwrap_or_default());
         if let Some(template) = command.and_then(|name| commands::for_selection(&custom, name)) {
             self.send_with(host, "", &template);
@@ -995,6 +998,23 @@ mod tests {
         assert!(!chat.here(Window), "AI turned off ends the chat");
         SHOWN.set(None);
         assert!(!chat.open(Window));
+    }
+
+    #[test]
+    fn a_selection_command_sends_only_when_its_selection_was_attached() {
+        let work = STORE.with(|s| s.create_profile("sel", "sel", false).and_then(|p| s.set_profile_ai(p.id, true).map(|()| p.id)).unwrap());
+        let runtime = nsh_core::element::Runtime::default();
+        let _entered = runtime.enter();
+        let shown = Origin { profile: work, kind: ProfileKind::Normal, level: ShieldLevel::Standard };
+        SHOWN.set(Some(shown));
+        let chat = Chat::new();
+        assert!(chat.open(Window));
+        chat.attach(Window, shown, Pill::Note(1, "n".into()));
+        let locked = Origin { level: ShieldLevel::Lockdown, ..shown };
+        chat.ask_selection(Window, locked, Pill::Selection { url: "https://bank.test/".into(), text: "secret".into() }, Some("Explain"));
+        let view = chat.view.get_untracked().unwrap();
+        assert!(view.notice.is_some() && view.rows.is_empty() && !view.can_cancel, "a refused selection sends nothing, not even the note");
+        SHOWN.set(None);
     }
 
     #[test]
