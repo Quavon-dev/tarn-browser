@@ -69,9 +69,11 @@ pub enum Command {
     ReloadFromOrigin,
     CloseWindow,
     KeyboardShortcuts,
+    Ask,
+    AskPage,
 }
 
-pub const COMMANDS: [(&str, &str, Command); 65] = [
+pub const COMMANDS: [(&str, &str, Command); 67] = [
     ("Settings", "preferences options", Command::Settings),
     ("Open File\u{2026}", "local disk html pdf image text document view", Command::OpenFile),
     ("New Tab Group", "group", Command::NewGroup),
@@ -137,6 +139,8 @@ pub const COMMANDS: [(&str, &str, Command); 65] = [
     ("Reload Without Cache", "refresh hard force", Command::ReloadFromOrigin),
     ("Close Window", "quit", Command::CloseWindow),
     ("Keyboard Shortcuts", "help keys cheat sheet", Command::KeyboardShortcuts),
+    ("Ask Assistant", "ai chat question help", Command::Ask),
+    ("Ask About This Page", "ai chat summarize explain page", Command::AskPage),
 ];
 
 impl Command {
@@ -298,6 +302,8 @@ mod tests {
         for (ix, (_, _, c)) in COMMANDS.iter().enumerate() {
             assert_eq!(c.index(), ix, "{c:?}");
         }
+        assert_eq!(crate::command::glyph("Ask Assistant"), "sparkles");
+        assert_eq!(crate::command::glyph("Ask About This Page"), "sparkles");
     }
 
     #[test]

@@ -276,6 +276,7 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Stop Loading", "close"),
     ("Close Window", "close"),
     ("Enter or Exit Full Screen", "app-window"),
+    ("Ask", "sparkles"),
     ("Import Browser Data", "folder-open"),
     ("Archived Tabs", "archive"),
     ("Picture in Picture", "picture-in-picture-2"),

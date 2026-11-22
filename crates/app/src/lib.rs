@@ -164,7 +164,7 @@ pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<
         C::KeyboardShortcuts => &shortcuts::ToggleShortcuts,
         C::ManageBookmarks => &menubar::ManageBookmarks,
         C::ImportBrowserData => &menubar::ImportBrowserData,
-        C::ReadingList | C::Archived => return None,
+        C::ReadingList | C::Archived | C::Ask | C::AskPage => return None,
     })
 }
 

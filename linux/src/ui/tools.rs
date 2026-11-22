@@ -131,7 +131,9 @@ fn command_for(command: palette::Command) -> Option<Command> {
         | C::ReloadInChromium
         | C::ReloadInWebKit
         | C::PictureInPicture
-        | C::Share => return None,
+        | C::Share
+        | C::Ask
+        | C::AskPage => return None,
     })
 }
 

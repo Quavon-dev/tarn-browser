@@ -305,4 +305,5 @@ built-ins and the profile's own (`store` table `ai_commands`, removed with the p
 everything). `links::classify` opens only `http`/`https` links without sign-in parts, asks before
 `mailto` and refuses the rest; `links::shown` always shows the whole address. `view` returns the
 `ChatView` a client draws: rows, pill chips, the blocks a send would carry with their sizes, the
-notice and the send and cancel states.
+notice and the send and cancel states. `browser_core::palette` has `Command::Ask` and
+`Command::AskPage`; no client offers them until its chat UI exists.
