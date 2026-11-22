@@ -604,7 +604,7 @@ pub fn App() -> impl IntoElement {
     };
     follow();
     set_interval(Duration::from_secs(60), follow);
-    set_interval(engine::lifecycle::PING_EVERY, move || ui.act(|s| s.ping_page(Instant::now())));
+    set_interval(engine::lifecycle::PING_EVERY, move || ping(ui));
     media::poll(ui);
     extensions::start(ui);
     view()
@@ -643,4 +643,27 @@ pub fn App() -> impl IntoElement {
         ))
         .child(share::share_sheet(ui))
         .child(extensions::backgrounds(ui))
+}
+
+// Redraws only when the hung-page card appears or goes, so a ping never rebuilds an open form.
+fn ping(ui: Ui) {
+    thread_local!(static DRAWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
+    let (effects, hung) = SHELL.with(|s| {
+        let mut shell = s.borrow_mut();
+        let Some(shell) = shell.as_mut() else { return (Vec::new(), false) };
+        let effects = shell.ping_page(Instant::now());
+        (effects, shell.hung())
+    });
+    for effect in effects {
+        if let Effect::Command(key, name, args) = effect {
+            VIEWS.with(|v| {
+                if let Some(view) = v.borrow().get(&key) {
+                    view.command(name, args);
+                }
+            });
+        }
+    }
+    if DRAWN.with(|d| d.replace(hung)) != hung {
+        ui.act_on_screen(|_| Vec::new());
+    }
 }
