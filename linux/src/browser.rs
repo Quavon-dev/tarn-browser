@@ -29,7 +29,7 @@ use browser_core::command::{ENGINES, Input, classify_input, engine_key};
 use browser_core::prefs::{self, Switch};
 use browser_core::prompts::Prompt;
 use browser_core::suggest;
-use browser_core::tabs::{Model, TabKey, Torn};
+use browser_core::tabs::{Model, Opened, TabKey, Torn};
 use browser_core::{Core, now};
 use engine::nav_policy::{self, Decision, Source};
 use serde_json::{Value, json};
@@ -403,7 +403,11 @@ impl Browser {
     }
 
     pub fn new_tab(&mut self, url: &str) -> Option<TabKey> {
-        let key = self.model.new_tab(&self.core, url, None)?;
+        self.open_tab(url, Opened::Typed)
+    }
+
+    pub fn open_tab(&mut self, url: &str, opened: Opened) -> Option<TabKey> {
+        let key = self.model.open_tab(&self.core, url, None, opened)?;
         self.model.reload_space(&self.core);
         self.activate(key);
         Some(key)
@@ -982,7 +986,7 @@ impl Browser {
                 let url = text("url");
                 let split = data["split"].as_bool() == Some(true) && (self.model.active == Some(key) || self.in_split(key)) && !self.model.burner_shown();
                 if !(data["link"].as_bool() == Some(true) && self.open_routed(&url))
-                    && let Some(popup) = self.new_tab(&url)
+                    && let Some(popup) = self.open_tab(&url, Opened::Link(key))
                 {
                     self.pages.entry(popup).or_default().opener = Some(key);
                     if split {
@@ -1123,7 +1127,7 @@ impl Browser {
         if let Some(Notice::NewTab { key, url, .. }) = self.notice.take_if(|n| matches!(n, Notice::NewTab { .. }))
             && self.model.tab(key).is_some()
         {
-            self.new_tab(&url);
+            self.open_tab(&url, Opened::Link(key));
         }
     }
 

@@ -414,7 +414,7 @@ fn a_split_shows_its_panes_and_a_closed_pane_hands_the_focus_on() {
     assert!(shown.contains(&(first, Some(0))) && shown.contains(&(second, Some(2))));
     assert_eq!(snap.split.as_ref().map(|s| (s.panes.len(), s.dividers.len())), Some((3, 2)));
     let rows = crate::snapshot::rows(&b);
-    assert_eq!(rows.iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), [crate::snapshot::RowKind::Split(first)], "a split lists as one row");
+    assert_eq!(rows.iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), [crate::snapshot::RowKind::Split(third)], "a split lists as one row");
     assert_eq!(rows[0].panes.iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), [first, third, second].map(crate::snapshot::RowKind::Tab), "in layout order");
     assert!(rows[0].panes.iter().all(|r| r.split == Some(true)));
     assert!(crate::snapshot::snapshot(&b, false).split.is_none(), "a panel covers the split");
@@ -492,9 +492,9 @@ fn a_tab_dropped_on_a_grouped_row_joins_its_group_and_other_windows_reload() {
 #[test]
 fn a_dragged_tab_takes_the_place_of_the_row_it_lands_on() {
     let (_dir, mut b) = browser();
-    let a = b.model.active.unwrap();
+    let d = b.model.active.unwrap();
     let c = b.new_tab("https://c.test/").unwrap();
-    let d = b.new_tab("https://d.test/").unwrap();
+    let a = b.new_tab("https://a.test/").unwrap();
     let order = |b: &Browser| b.model.ephemeral_keys();
     assert_eq!(order(&b), [a, c, d]);
     b.move_tab_to(d, a, false);
@@ -792,7 +792,7 @@ fn tabs_are_bookmarked_once_filed_into_folders_and_reopened_from_them() {
     let marks = b.bookmarks();
     assert_eq!(
         marks.iter().filter(|m| m.parent_id == Some(folder)).filter_map(|m| m.url.as_deref()).collect::<Vec<_>>(),
-        ["https://a.test/", "https://b.test/"]
+        ["https://b.test/", "https://a.test/"]
     );
     let sub = b.new_bookmark_folder(Some(folder)).unwrap();
     b.rename_bookmark(sub, "  Work  ");
@@ -850,7 +850,7 @@ fn groups_hold_tabs_collapse_to_the_active_one_and_reopen_as_a_group() {
     let c = b.new_tab("https://c.test/").unwrap();
     let id = b.new_group(Some(a)).unwrap();
     b.set_tab_group(c, Some(id));
-    assert_eq!(pane_keys(&group_row(&b, id)), [a, c].map(crate::snapshot::RowKind::Tab));
+    assert_eq!(pane_keys(&group_row(&b, id)), [c, a].map(crate::snapshot::RowKind::Tab));
     let loose: Vec<_> = crate::snapshot::rows(&b).into_iter().filter(|r| matches!(r.kind, crate::snapshot::RowKind::Tab(_))).map(|r| r.kind).collect();
     assert_eq!(loose, [crate::snapshot::RowKind::Tab(first)], "grouped tabs show only in their card");
     b.toggle_group(id);

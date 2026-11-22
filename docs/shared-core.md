@@ -272,7 +272,11 @@ host passes `base`. `container` and `staleness` are macOS-only.
 space's tabs, folders and groups, the open folders, the active tab, the tab lifecycle and the
 reopen stack, with the sidebar's tab order, number-key slots, cycling, the tab a close selects,
 the tab to show when none is active, new tabs, pin, folder, group and move-to-space commands,
-which space a window reopens on and the private space. `browser_core::closed` has the reopen stack
+which space a window reopens on and the private space. Where a new tab goes is one rule,
+`Model::insert_index` (`Model::open_tab` with `Opened::Typed` or `Opened::Link(opener)`): a typed or new
+tab on top of the unpinned tabs, a tab a link or pop-up opened after its opener and the tabs opened
+from it before, in opening order, in the opener's group; the openers are kept in memory only.
+`browser_core::closed` has the reopen stack
 and the archive of unused tabs with its Settings › Tabs choice (`ARCHIVE_AFTER`, `archive_after`,
 `ARCHIVE_INTERVAL`); `browser_core::cleanup` is Clean Up (`plan`, `apply`, `cleanable`, `summary`); `Core::{level, has_override, web_engine}` resolve per tab. The
 GPUI `Browser` keeps the views and what only a shell has (pages, prompts, find, favicons,

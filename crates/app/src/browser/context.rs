@@ -466,7 +466,7 @@ impl Browser {
             if self.page(key).opened_file.as_ref() == Some(&url) && !self.model.burner_shown() {
                 self.new_file_tab(&url, engine, window, cx);
             } else {
-                self.new_tab_in(&url, engine, window, cx);
+                self.new_tab_in(&url, engine, browser_core::tabs::Opened::Typed, window, cx);
             }
             if let Some(copy) = self.model.active.filter(|k| *k != key) {
                 self.model.place_copy(&self.core, copy, key);

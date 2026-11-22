@@ -1,7 +1,7 @@
 //! One window's spaces and tabs: which space it shows, that space's tabs, folders and groups,
 //! the active tab, the live tabs' lifecycle and the tabs it closed. The shell keeps the views.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use engine::lifecycle::Lifecycle;
 use shield::ShieldLevel;
@@ -77,6 +77,17 @@ pub struct Model {
     pub burner: Option<Id>,
     burner_profile: Option<Id>,
     pub confined: Option<(bool, Id)>,
+    /// Each tab a link opened, with the tab it opened from, in memory only.
+    openers: HashMap<TabKey, TabKey>,
+}
+
+/// How a new tab was opened, which decides where `Model::insert_index` puts it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opened {
+    /// Typed, a new tab, or opened from outside a page.
+    Typed,
+    /// A link or a pop-up of this tab.
+    Link(TabKey),
 }
 
 impl Model {
@@ -98,6 +109,7 @@ impl Model {
             burner: None,
             burner_profile: None,
             confined: None,
+            openers: HashMap::new(),
         }
     }
 
@@ -412,22 +424,62 @@ impl Model {
         live.or_else(|| candidates.into_iter().find(|k| !live_elsewhere(*k)))
     }
 
-    pub fn new_tab<D: WebsiteData>(&self, core: &Core<D>, url: &str, web_engine: Option<WebEngine>) -> Option<TabKey> {
+    /// A new unpinned tab, typed: on top of the unpinned tabs.
+    pub fn new_tab<D: WebsiteData>(&mut self, core: &Core<D>, url: &str, web_engine: Option<WebEngine>) -> Option<TabKey> {
+        self.open_tab(core, url, web_engine, Opened::Typed)
+    }
+
+    /// A new unpinned tab placed by `insert_index`; a link's tab joins its opener's group.
+    pub fn open_tab<D: WebsiteData>(&mut self, core: &Core<D>, url: &str, web_engine: Option<WebEngine>, opened: Opened) -> Option<TabKey> {
         let space = self.current_space()?;
-        let store = core.store(space.private);
+        let (private, store) = (space.private, core.store(space.private));
         let tab = store.create_tab(space.space.id, TabKind::Ephemeral, None, url, "").ok()?;
         if let Some(engine) = web_engine {
             store.set_tab_web_engine(tab.id, Some(engine)).ok();
         }
-        Some(TabKey { private: space.private, id: tab.id })
+        let key = TabKey { private, id: tab.id };
+        let group = match opened {
+            Opened::Link(opener) => self.tab(opener).filter(|t| t.kind == TabKind::Ephemeral && t.folder_id.is_none()).and_then(|t| t.group_id),
+            Opened::Typed => None,
+        };
+        store.move_tab_to(tab.id, TabKind::Ephemeral, None, self.insert_index(opened), group.map(Some)).ok();
+        let tabs = &self.tabs;
+        self.openers.retain(|k, _| tabs.iter().any(|t| t.id == k.id && private == k.private));
+        if let Opened::Link(opener) = opened {
+            self.openers.insert(key, opener);
+        }
+        Some(key)
     }
 
-    /// Moves `copy`, a new tab at the end of the unpinned tabs, just below the unpinned tab `of`
-    /// and into its group.
+    /// Where a new tab goes among the loose unpinned tabs of the current space: a typed or new
+    /// tab on top, a link's tab after its opener and the tabs opened from it, or from those, just
+    /// below it, in opening order. A link from a pinned tab, a tile, a folder or another space opens
+    /// on top.
+    pub fn insert_index(&self, opened: Opened) -> usize {
+        let Opened::Link(opener) = opened else { return 0 };
+        let mut zone: Vec<&Tab> = self.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.folder_id.is_none()).collect();
+        zone.sort_by_key(|t| t.position);
+        let Some(at) = zone.iter().position(|t| self.key(t) == opener) else { return 0 };
+        let opened_from = |t: &&&Tab| {
+            let mut key = self.key(t);
+            for _ in 0..self.openers.len() {
+                match self.openers.get(&key) {
+                    Some(from) if *from == opener => return true,
+                    Some(from) => key = *from,
+                    None => return false,
+                }
+            }
+            false
+        };
+        let stacked = zone[at + 1..].iter().take_while(opened_from).count();
+        at + 1 + stacked
+    }
+
+    /// Moves `copy`, a new unpinned tab, just below the unpinned tab `of` and into its group.
     pub fn place_copy<D: WebsiteData>(&self, core: &Core<D>, copy: TabKey, of: TabKey) {
         let Some(of) = self.tab(of).filter(|t| t.kind == TabKind::Ephemeral && t.id != copy.id) else { return };
         let store = core.store(copy.private);
-        if store.move_tab(copy.id, TabKind::Ephemeral, None, self.zone_index(of) + 1).is_ok() && of.group_id.is_some() {
+        if store.move_tab(copy.id, TabKind::Ephemeral, None, self.drop_index(copy, of, true)).is_ok() && of.group_id.is_some() {
             store.set_tab_group(copy.id, of.group_id).ok();
         }
     }
@@ -971,6 +1023,39 @@ mod tests {
     }
 
     #[test]
+    fn typed_tabs_go_on_top_and_link_tabs_stack_after_their_opener() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let pinned = core.disk.create_tab(s, TabKind::Pinned, None, "https://pinned.test/", "").unwrap().id;
+        let open = |model: &mut Model, opened: Opened| {
+            let key = model.open_tab(&core, "https://a.test/", None, opened).unwrap();
+            model.reload_space(&core);
+            key
+        };
+        let loose = |model: &Model| model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral).map(|t| t.id).collect::<Vec<_>>();
+        let a = open(&mut model, Opened::Typed);
+        let b = open(&mut model, Opened::Typed);
+        assert_eq!(loose(&model), [b.id, a.id], "typed tabs go on top");
+        let a1 = open(&mut model, Opened::Link(a));
+        let a2 = open(&mut model, Opened::Link(a));
+        let b1 = open(&mut model, Opened::Link(b));
+        assert_eq!(loose(&model), [b.id, b1.id, a.id, a1.id, a2.id], "links stack after their opener in opening order");
+        let a11 = open(&mut model, Opened::Link(a1));
+        assert_eq!(loose(&model), [b.id, b1.id, a.id, a1.id, a11.id, a2.id]);
+        let a3 = open(&mut model, Opened::Link(a));
+        assert_eq!(loose(&model)[3..], [a1.id, a11.id, a2.id, a3.id], "a stack holds the tabs opened from its tabs too");
+        let from_pinned = open(&mut model, Opened::Link(TabKey { private: false, id: pinned }));
+        assert_eq!(loose(&model)[0], from_pinned.id);
+        let group = core.disk.create_group(s, "G").unwrap().id;
+        core.disk.set_tab_group(b.id, Some(group)).unwrap();
+        model.reload_space(&core);
+        let grouped = open(&mut model, Opened::Link(b));
+        assert_eq!(model.tab(grouped).unwrap().group_id, Some(group), "a link's tab joins its opener's group");
+        let typed = open(&mut model, Opened::Typed);
+        assert_eq!(model.tab(typed).unwrap().group_id, None);
+    }
+
+    #[test]
     fn a_copy_lands_below_its_tab_in_the_same_group() {
         let (_dir, core, mut model) = opened();
         let s = model.spaces[0].space.id;
@@ -982,6 +1067,13 @@ mod tests {
         model.reload_space(&core);
         let key = |id| TabKey { private: false, id };
         model.place_copy(&core, key(copy), key(b));
+        model.reload_space(&core);
+        let first = model.new_tab(&core, "https://a.test/", None).unwrap();
+        model.reload_space(&core);
+        model.place_copy(&core, first, key(a));
+        model.reload_space(&core);
+        assert_eq!(model.tabs.iter().map(|t| t.id).collect::<Vec<_>>(), [a, first.id, b, copy, c], "a copy from above lands below too");
+        core.disk.delete_tab(first.id).unwrap();
         model.reload_space(&core);
         assert_eq!(model.tabs.iter().map(|t| t.id).collect::<Vec<_>>(), [a, b, copy, c]);
         assert_eq!(model.tab(key(copy)).unwrap().group_id, Some(group));
@@ -1250,7 +1342,7 @@ mod tests {
 
     #[test]
     fn new_tabs_join_the_current_space_with_the_engine_asked_for() {
-        let (_dir, core, model) = opened();
+        let (_dir, core, mut model) = opened();
         let key = model.new_tab(&core, "https://a.test/", Some(WebEngine::Chromium)).unwrap();
         let tab = core.disk.tab(key.id).unwrap();
         assert_eq!((tab.space_id, tab.kind, tab.web_engine), (model.spaces[0].space.id, TabKind::Ephemeral, Some(WebEngine::Chromium)));

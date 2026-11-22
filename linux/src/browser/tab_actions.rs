@@ -237,7 +237,7 @@ mod tests {
         let second = b.new_tab("https://2.test/").unwrap();
         b.duplicate_tab(first);
         let copy = b.model.active.unwrap();
-        assert_eq!(b.model.ephemeral_keys(), [first, copy, second]);
+        assert_eq!(b.model.ephemeral_keys(), [second, first, copy]);
     }
 
     #[test]
@@ -246,7 +246,7 @@ mod tests {
         let pinned = b.model.active.unwrap();
         b.pin_toggle(pinned);
         let tab = |b: &mut Browser, n: u8| b.new_tab(&format!("https://{n}.test/")).unwrap();
-        let (one, two, three) = (tab(&mut b, 1), tab(&mut b, 2), tab(&mut b, 3));
+        let (three, two, one) = (tab(&mut b, 3), tab(&mut b, 2), tab(&mut b, 1));
         assert_eq!(b.model.tabs_below(one), [two, three]);
         b.close_below(two);
         assert!(b.model.tab(three).is_none() && b.model.tab(two).is_some());

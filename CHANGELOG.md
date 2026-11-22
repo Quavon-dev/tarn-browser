@@ -27,6 +27,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   shows the Split View, Move to Space and Add to Group entries as sections; iOS and Android group the
   split view entries under Split View.
 - Address and command field suggestions rank a long history faster on every client.
+- New tabs open on top of the unpinned tabs, and a tab opened from a link or pop-up opens just
+  below the tab it came from, after the tabs opened from that tab before, on every client.
 
 ## [0.1.6] - 2026-11-21
 

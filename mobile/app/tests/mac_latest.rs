@@ -89,9 +89,9 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     app.press("label:Remove").unwrap();
     app.wait_for_gone("🚀", WAIT).unwrap();
 
-    open(&mut app, "https://github.com/a");
-    open(&mut app, "https://gitlab.com/b");
     open(&mut app, "https://example.com/");
+    open(&mut app, "https://gitlab.com/b");
+    open(&mut app, "https://github.com/a");
     app.press("label:Clean Up").unwrap();
     app.wait_for("Sorted 2 tabs into groups").unwrap();
     app.wait_for("label:Development").unwrap();

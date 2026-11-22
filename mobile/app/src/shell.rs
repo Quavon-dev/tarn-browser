@@ -946,7 +946,7 @@ impl<D: Platform> Shell<D> {
             return;
         }
         let beside = split && self.wide && (self.model.active == Some(opener) || self.shown_split().is_some_and(|s| s.panes().contains(&opener)));
-        let Some(key) = self.model.new_tab(&self.core, "", None) else { return };
+        let Some(key) = self.model.open_tab(&self.core, "", None, browser_core::tabs::Opened::Link(opener)) else { return };
         self.model.reload_space(&self.core);
         self.load_in(key, url, Some(from));
         if beside {

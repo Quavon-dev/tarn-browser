@@ -75,7 +75,7 @@ impl Browser {
 }
 
 use browser_core::closed::ClosedTab;
-pub use browser_core::tabs::{SpaceRef, TabKey, folder_tree};
+pub use browser_core::tabs::{Opened, SpaceRef, TabKey, folder_tree};
 
 #[derive(Default, Clone)]
 pub struct PageState {
@@ -1310,18 +1310,19 @@ impl Browser {
     }
 
     pub fn new_tab(&mut self, url: &Url, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_tab_in(url, None, window, cx);
+        self.new_tab_in(url, None, Opened::Typed, window, cx);
     }
 
-    /// A new tab whose `tabs.web_engine` is `web_engine`, as for a copy or a pop-up of a tab.
-    pub(crate) fn new_tab_in(&mut self, url: &Url, web_engine: Option<WebEngine>, window: &mut Window, cx: &mut Context<Self>) {
+    /// A new tab whose `tabs.web_engine` is `web_engine`, as for a copy or a pop-up of a tab,
+    /// placed as `opened` says.
+    pub(crate) fn new_tab_in(&mut self, url: &Url, web_engine: Option<WebEngine>, opened: Opened, window: &mut Window, cx: &mut Context<Self>) {
         if self.model.burner_shown()
             && let Some(key) = self.model.tabs.first().map(|t| self.model.key(t))
         {
             self.activate(key, window, cx);
             return self.navigate(url, window, cx);
         }
-        let Some(key) = self.model.new_tab(&self.core, url.as_str(), web_engine.or(self.saved.web_engine)) else { return };
+        let Some(key) = self.model.open_tab(&self.core, url.as_str(), web_engine.or(self.saved.web_engine), opened) else { return };
         self.reload_space();
         self.activate(key, window, cx);
     }
@@ -2185,7 +2186,7 @@ impl Browser {
                 if let Some(ix) = routed {
                     self.switch_space(ix, window, cx);
                 }
-                if let Some(tab) = self.model.new_tab(&self.core, url.as_str(), engine) {
+                if let Some(tab) = self.model.open_tab(&self.core, url.as_str(), engine, Opened::Link(key)) {
                     self.reload_space();
                     self.link_loads.insert(tab, from.clone());
                     if split && routed.is_none() {
