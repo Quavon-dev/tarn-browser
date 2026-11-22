@@ -42,7 +42,7 @@ pub fn title(note: &Note) -> String {
     if shown.is_empty() { UNTITLED.to_owned() } else { shown }
 }
 
-fn first_line(body: &str) -> &str {
+pub(crate) fn first_line(body: &str) -> &str {
     body.lines().find(|l| !l.trim().is_empty()).unwrap_or_default()
 }
 

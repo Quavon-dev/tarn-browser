@@ -32,10 +32,8 @@ fn rows(query: &str, all: &[Snippet]) -> Vec<Suggestion> {
 }
 
 impl Browser {
-    /// The current profile's snippets (`Core::snippets`); a private space has none.
     fn profile_snippets(&self) -> Rc<Vec<Snippet>> {
-        let Some((false, profile)) = self.model.profile() else { return Rc::default() };
-        self.core.snippets(profile)
+        self.core.snippets(self.model.profile())
     }
 
     /// Replaces a just typed `;name` at the end of the command field with its snippet.

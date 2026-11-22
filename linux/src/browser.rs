@@ -370,11 +370,10 @@ impl Browser {
     /// A toast naming `keys` after `command` ran from a menu or the command bar, if the profile's
     /// hint throttle allows one and no other toast shows; none in a private space or a burner tab.
     pub fn offer_hint(&mut self, command: &str, keys: &str, typing: bool) {
-        let Some((false, profile)) = self.model.profile() else { return };
         if self.toast.is_some() {
             return;
         }
-        if let Some(text) = (browser_core::hints::Throttle { store: &self.core.disk, profile }).hint(command, keys, now(), typing) {
+        if let Some(text) = self.core.feature_hint(self.model.profile(), command, keys, now(), typing) {
             self.show_toast_as(browser_core::toast::Tone::Info, text, None);
         }
     }

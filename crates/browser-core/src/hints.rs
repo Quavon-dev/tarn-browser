@@ -1,6 +1,7 @@
 use store::{Id, Store};
 
 use crate::prefs::FEATURE_HINTS;
+use crate::{Core, WebsiteData};
 
 const DAY: i64 = 86_400_000;
 /// How often one hint shows at most.
@@ -35,7 +36,7 @@ impl Throttle<'_> {
     /// Whether the hint for `command` shows now, counting it when it does; never while the user is
     /// `typing` or once Settings turns hints off.
     pub fn offer(&self, command: &str, now: i64, typing: bool) -> bool {
-        if typing || !FEATURE_HINTS.on(self.store) {
+        if !FEATURE_HINTS.on(self.store) {
             return false;
         }
         let Ok((since, last, shown)) = self.store.hint_counts(self.profile, command) else { return false };
@@ -46,6 +47,14 @@ impl Throttle<'_> {
     /// lets one show; none for a command without keys.
     pub fn hint(&self, command: &str, keys: &str, now: i64, typing: bool) -> Option<String> {
         (!keys.is_empty() && self.offer(command, now, typing)).then(|| text(command, keys))
+    }
+}
+
+impl<D: WebsiteData> Core<D> {
+    /// `Throttle::hint` for `profile` (private, id); none in a private space or without a profile.
+    pub fn feature_hint(&self, profile: Option<(bool, Id)>, command: &str, keys: &str, now: i64, typing: bool) -> Option<String> {
+        let Some((false, profile)) = profile else { return None };
+        Throttle { store: &self.disk, profile }.hint(command, keys, now, typing)
     }
 }
 
@@ -86,5 +95,17 @@ mod tests {
         assert!(other.offer("Copy Link", at, false), "counters are per profile");
         FEATURE_HINTS.set(&store, false);
         assert!(!other.offer("Reader", at + 10 * DAY, false), "one switch turns hints off");
+    }
+
+    #[test]
+    fn a_private_space_or_no_profile_gets_no_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::TestCore::open(dir.path(), false);
+        let p = core.disk.profiles().unwrap().remove(0).id;
+        let later = core.disk.hint_counts(p, "").unwrap().0 + DAY;
+        assert_eq!(core.feature_hint(Some((true, p)), "Reader", "R", later, false), None);
+        assert_eq!(core.feature_hint(None, "Reader", "R", later, false), None);
+        assert_eq!(core.feature_hint(Some((false, p)), "Reader", "", later, false), None, "no keys, no hint");
+        assert_eq!(core.feature_hint(Some((false, p)), "Reader", "R", later, false).as_deref(), Some("Reader also runs with R"));
     }
 }

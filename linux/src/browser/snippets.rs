@@ -7,11 +7,9 @@ use store::Snippet;
 use super::{Browser, Request};
 
 impl Browser {
-    /// The current profile's snippets (`Core::snippets`); none in a private space, whose profile
-    /// is not on disk.
+    /// The current profile's snippets (`Core::snippets`).
     pub fn snippets(&self) -> Vec<Snippet> {
-        let Some((false, profile)) = self.model.profile() else { return Vec::new() };
-        self.core.snippets(profile).to_vec()
+        self.core.snippets(self.model.profile()).to_vec()
     }
 
     pub fn snippets_changed(&self) {

@@ -61,7 +61,7 @@ pub fn matching<'a>(query: &str, snippets: &'a [Snippet]) -> Vec<&'a Snippet> {
 
 /// The first line of `body`, cut for a list row.
 pub fn preview(body: &str) -> String {
-    crate::text::bounded_title(body.lines().find(|l| !l.trim().is_empty()).unwrap_or_default())
+    crate::text::bounded_title(crate::notes::first_line(body))
 }
 
 /// Whether `insert_text_script` typed the text: it answers "1" when a field had the focus.
@@ -70,9 +70,11 @@ pub fn inserted(answer: &str) -> bool {
 }
 
 impl<D: WebsiteData> Core<D> {
-    /// A saved profile's snippets, read once until `snippets_changed`, which an edit, a reset of
-    /// the profile's data (`reset_profile_data`) and a deleted profile call.
-    pub fn snippets(&self, profile: Id) -> Rc<Vec<Snippet>> {
+    /// The snippets of `profile` (private, id), read once until `snippets_changed`, which an
+    /// edit, `reset_profile_data` and each shell's profile deletion call; none for a private
+    /// space or no profile.
+    pub fn snippets(&self, profile: Option<(bool, Id)>) -> Rc<Vec<Snippet>> {
+        let Some((false, profile)) = profile else { return Rc::default() };
         let mut cache = self.snippets.borrow_mut();
         match &*cache {
             Some((cached, list)) if *cached == profile => list.clone(),
@@ -99,11 +101,13 @@ mod tests {
         let core = crate::TestCore::open(dir.path(), false);
         let p = core.disk.profiles().unwrap().remove(0).id;
         core.disk.save_snippet(p, "sig", "Ada").unwrap();
-        assert_eq!(core.snippets(p).len(), 1);
+        assert_eq!(core.snippets(Some((false, p))).len(), 1);
+        assert!(core.snippets(Some((true, p))).is_empty(), "a private space has none");
+        assert!(core.snippets(None).is_empty());
         core.disk.save_snippet(p, "addr", "Reef Road").unwrap();
-        assert_eq!(core.snippets(p).len(), 1, "read once until a change is announced");
+        assert_eq!(core.snippets(Some((false, p))).len(), 1, "read once until a change is announced");
         core.reset_profile_data(false, p).unwrap();
-        assert!(core.snippets(p).is_empty());
+        assert!(core.snippets(Some((false, p))).is_empty());
     }
 
     fn snippet(name: &str, body: &str) -> Snippet {

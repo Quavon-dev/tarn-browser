@@ -1664,7 +1664,7 @@ fn a_reset_or_deleted_profile_leaves_none_of_its_snippets_cached() {
     b.core.disk.save_snippet(work, "sig", "Work").unwrap();
     assert_eq!(b.snippets().len(), 1);
     assert!(b.delete_profile(work));
-    assert!(b.core.snippets(work).is_empty(), "a later profile with the same id starts with none");
+    assert!(b.core.snippets(Some((false, work))).is_empty(), "a later profile with the same id starts with none");
 }
 
 #[test]
