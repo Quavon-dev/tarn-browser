@@ -117,6 +117,12 @@ All notable changes to Tarn are documented in this file. The format is based on
   New Note, a settings switch or an answer row work on the first tap.
 - Settings search finds Compact density and Shortcut tips in Appearance by "density" and "tips" on
   every client.
+- macOS and Windows: tabs on top, the mini player and the Notes and Snippets settings are reachable
+  with Tab, and Auto-Hide Sidebar no longer shows the sidebar beside tabs on top. Settings › AI says
+  what a send carries in the same words as the other clients, and a selection command is sent only
+  when its selection could be attached.
+- An Ollama error is no longer reported as Ollama not running. Snippets and assistant command templates are saved without
+  invisible or control characters, as notes are.
 
 ## [0.1.6] - 2026-11-21
 

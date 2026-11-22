@@ -62,7 +62,8 @@ Every shell's web view offers the same operations and reports the same events. T
   `textInserted` `{seq, inserted}`. Typing `;name` in a shell field expands there
   (`snippets::expand`); nothing on the page listens for keys. The profile's snippets are read once
   into `Core::snippets`, shared by every window, and forgotten by `Core::snippets_changed` after an
-  edit, `reset_profile_data` or a deleted profile;
+  edit, `reset_profile_data` or a shell's profile deletion; it takes the space's `(private, id)` and
+  answers none for a private space, whose snippets the store never saves;
 - `selected_text`, `media_state`, `media_command` and `snapshot_rect`: the selection, the first
   audible media element (read, and play, pause or seek), and a PNG of a rectangle of the visible
   page or of the whole document. The reads are isolated-world scripts from `engine::page_scripts`
@@ -71,7 +72,8 @@ Every shell's web view offers the same operations and reports the same events. T
   `selection_answer` and `media_answer` of a script's answer. NSH components:
   `readSelection` (`selection`), `ping` (`pong`), `readMedia` (`mediaState`), `media` and `snapshotRect`
   (`snapshotRect`), `docs/mobile-plan.md` §2. `set_assistant_menu(Option<Vec<String>>)` (NSH prop
-  `assistantMenu`, a list of command names or null; at most `view_policy::MAX_MENU_COMMANDS`) gives
+  `assistantMenu`, a list of command names or null, read by `view_policy::menu_commands`; at most
+  `view_policy::MAX_MENU_COMMANDS`) gives
   a selection's menu `view_policy::ASK_SELECTION` and an `ASSISTANT_COMMANDS` submenu with the
   names; null shows neither. A choice is `Event::AssistantSelection(command)`, after which the shell
   reads `selected_text`; NSH components read the selection themselves and emit
@@ -266,11 +268,13 @@ and plain HTTP to `127.0.0.1` (Ollama). macOS, Windows, Linux and iOS use `ai::U
 `tarn_mobile_android::HostTransport`, which streams through the Java host's `Fetch.post`: that
 keeps the host's TLS key policy (`StrongKeys`) and proxy hooks, where rustls's platform verifier
 would need its Kotlin component bundled into the APK and initialised over JNI. `Fetch.post` accepts
-HTTPS only, so Ollama is not reachable on Android.
+HTTPS only, so Ollama is not reachable on Android. Neither transport uses a system or user proxy:
+`UreqTransport` sets `proxy(None)`, and `Hooks.proxy` is `NO_PROXY` in a release build; only a debug
+build's test proxy (`Hooks.debugProxy`) applies there.
 
 Local models implement `ai::LocalModel`: `availability()` (`Available`, `NotSupported(reason)` or
 `NeedsSetup(reason)`) and `respond`, which takes a `local::Checked` token only `ai::local::stream`
-can make, so `stream` is the one way to run them: it asks the model only when it is available and
+and `ai::local::answer` can make, after checking availability once, so they are the one way to run them: it asks the model only when it is available and
 otherwise fails with `AiError::Unavailable` and that reason; nothing falls back to a cloud provider.
 Both may block (Ollama asks its server), so shells call `stream` off the UI thread. `ai::local::route(choice, availability, on_device_task)` is the assistant's rule for
 who answers: a local choice is answered locally or not at all, and a selection command or summary
@@ -370,7 +374,8 @@ profile's last tip, never while the user is typing (on macOS and Windows: while 
 keyboard), and never once Settings turns off
 `prefs::FEATURE_HINTS` (Settings › Appearance › Tips on every client, explained by `hints::NOTE`).
 Counters live in the profile's `feature_hints` rows, which go with the profile; a private space or
-burner tab offers none. macOS and Windows offer one after a command bar command, Linux after a
+burner tab offers none (`Core::feature_hint` takes the space's `(private, id)`, and the store
+refuses to count for a private profile). macOS and Windows offer one after a command bar command, Linux after a
 command bar or panel menu command, the iPad keyboard layout after a command bar command; a command
 that showed its own toast gets none.
 
