@@ -108,6 +108,12 @@ All notable changes to Tarn are documented in this file. The format is based on
   the system while the system is dark), even before its background loads, and keeps dialogs,
   pop-overs and full-screen video looking right on every client.
 
+### Fixed
+
+- iOS and Android: with the keyboard up, a tap on a button in a sheet, a pop-over, the assistant
+  chat or the address bar's suggestions now presses it instead of only closing the keyboard, so
+  New Note, a settings switch or an answer row work on the first tap.
+
 ## [0.1.6] - 2026-11-21
 
 ### Fixed

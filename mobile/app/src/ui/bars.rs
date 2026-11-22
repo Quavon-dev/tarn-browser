@@ -618,5 +618,9 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
                 },
             )),
     );
-    view().flex_1().style_when(move || !ui.editing.get() || ui.mac.get(), |s| s.hidden()).style_when(move || !ui.wide(), |s| s.justify_end()).child(list)
+    view()
+        .flex_1()
+        .style_when(move || !ui.editing.get() || ui.mac.get(), |s| s.hidden())
+        .style_when(move || !ui.wide(), |s| s.justify_end())
+        .child(list.keyboard_taps(KeyboardTaps::Handled))
 }

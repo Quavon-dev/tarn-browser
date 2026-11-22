@@ -99,7 +99,7 @@ fn nav(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
         .bg(Theme::panel_nav)
         .border_r_1()
         .border_color(Theme::separator)
-        .child(scroll().flex_1().child(view().pb_4().children(groups.collect::<Vec<_>>())))
+        .child(scroll().flex_1().keyboard_taps(KeyboardTaps::Handled).child(view().pb_4().children(groups.collect::<Vec<_>>())))
 }
 
 fn last_group(ix: usize) -> bool {
@@ -262,7 +262,13 @@ fn content(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
     let key = move || format!("{:?}{:?}", ui.screen.get(), pane.get());
     view().flex_1().min_w(px(0.)).h_full().child(header(ui, pane)).child(dynamic(move || {
         let shown = key();
-        Some(scroll().key(shown).flex_1().child(view().w_full().max_w(px(CONTENT_WIDTH)).self_center().px_8().pt_1().pb_8().child(body(ui, pane))))
+        Some(
+            scroll()
+                .key(shown)
+                .flex_1()
+                .keyboard_taps(KeyboardTaps::Handled)
+                .child(view().w_full().max_w(px(CONTENT_WIDTH)).self_center().px_8().pt_1().pb_8().child(body(ui, pane))),
+        )
     }))
 }
 

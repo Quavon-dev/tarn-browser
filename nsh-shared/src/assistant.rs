@@ -666,7 +666,7 @@ pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
                 .gap_2()
                 .flex_1()
                 .min_h(px(0.))
-                .child(scroll().flex_1().child(view().gap_2().children(rows)))
+                .child(scroll().flex_1().keyboard_taps(KeyboardTaps::Handled).child(view().gap_2().children(rows)))
                 .children(chat_view.notice.clone().map(|n| hint(n).text_color(Theme::accent_text)))
                 .child(view().flex_row().flex_wrap().gap_1().children(chips))
                 .children(will_send)

@@ -64,7 +64,7 @@ pub fn fitted(anchor: Anchor, width: f32, close: impl Fn() + Copy + 'static, bod
             .text_size(px(TEXT))
             .text_color(Theme::text)
             .bind_motion(&crate::motion::fade_in())
-            .child(scroll().flex_shrink(1.).min_h(px(0.)).child(body))
+            .child(scroll().flex_shrink(1.).min_h(px(0.)).keyboard_taps(KeyboardTaps::Handled).child(body))
             .children(footer.map(|f| view().flex_none().child(f))),
     );
     view().child(backdrop).child(popup)

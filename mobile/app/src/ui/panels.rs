@@ -121,7 +121,7 @@ fn sheet(ui: Ui, screen: Screen, body: AnyElement) -> impl IntoElement {
                     .child(text("Done").text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::accent_text)),
             ),
         )
-        .child(scroll().key(name).flex_1().child(view().gap_3().px_3().pt_2().pb_6().child(body)))
+        .child(scroll().key(name).flex_1().keyboard_taps(KeyboardTaps::Handled).child(view().gap_3().px_3().pt_2().pb_6().child(body)))
 }
 
 fn group() -> View {
