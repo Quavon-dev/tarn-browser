@@ -6,6 +6,8 @@ import android.webkit.WebView;
 import java.net.Proxy;
 
 final class Hooks {
+    static final boolean LOGS = false;
+
     private Hooks() {}
 
     static void log(String message) {}

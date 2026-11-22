@@ -22,6 +22,8 @@ final class Hooks {
     private static final String TAG = "tarn";
     private static final Pattern PROXY = Pattern.compile("^(localhost|127\\.0\\.0\\.1):[0-9]{1,5}$");
 
+    static final boolean LOGS = true;
+
     private Hooks() {}
 
     static void log(String message) {

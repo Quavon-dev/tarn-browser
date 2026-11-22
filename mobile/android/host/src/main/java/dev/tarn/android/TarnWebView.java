@@ -242,11 +242,11 @@ final class TarnWebView implements NshComponent {
 
     private static final String DEFAULT_LEVEL_KEY = "*";
 
-    /** The `assistantMenu` prop: the command names, at most `MAX_MENU_COMMANDS`; anything but a list hides the entries. */
     private static List<String> parseCommands(Object value) {
         if (!(value instanceof List<?> list)) return null;
+        int max = Native.maxMenuCommands();
         List<String> names = new ArrayList<>();
-        for (Object item : list) if (item instanceof String name && names.size() < Native.maxMenuCommands()) names.add(name);
+        for (Object item : list) if (item instanceof String name && names.size() < max) names.add(name);
         return List.copyOf(names);
     }
 
@@ -1106,7 +1106,7 @@ final class TarnWebView implements NshComponent {
     private void emitMap(String event, Map<String, Object> data) {
         Host.onMain(() -> {
             if (destroyed) return;
-            Hooks.log("tab " + tab + " event " + event + " " + data);
+            if (Hooks.LOGS) Hooks.log("tab " + tab + " event " + event + " " + (data.containsKey("png") ? data.keySet() : data));
             context.emit(event, data);
         });
     }
