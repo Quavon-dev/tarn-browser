@@ -752,6 +752,29 @@ fn tab_panel(ui: Ui) -> AnyElement {
         .into_element()
 }
 
+fn organize_panel(ui: Ui) -> AnyElement {
+    use browser_core::sidebar::{ORGANIZE, Organize, organize};
+    let Some((cleanable, assistant, keymap)) = read(ui, |b| {
+        (browser_core::sidebar::cleanable(&b.model), b.model.assistant_offered(&b.core, None), shortcuts::keymap(&shortcuts::stored(&b.core.disk)))
+    }) else {
+        return view().into_element();
+    };
+    let group_keys = keymap.iter().find(|(_, a)| *a == Action::NewGroup).map(|(k, _)| shortcuts::display(k));
+    let rows = organize(cleanable, assistant).into_iter().map(move |(name, o)| {
+        let keys = if o == Organize::NewGroup { group_keys.clone() } else { None };
+        menu_row(name, keys, move || {
+            ui.panel.set(Panel::None);
+            match o {
+                Organize::NewGroup => super::groups::new_group(ui, None),
+                Organize::NewFolder => act(ui, |b| b.new_folder(None)),
+                Organize::CleanUp => act(ui, Browser::clean_up_tabs),
+                Organize::GroupWithAssistant => super::assistant::group_tabs(ui),
+            }
+        })
+    });
+    popover().child(heading(ui, title(ORGANIZE))).child(group().children(rows)).into_element()
+}
+
 fn sidebar_panel(ui: Ui) -> AnyElement {
     let Some((reopenable, tabs, unpinned, duplicates, keymap)) = read(ui, |b| {
         (
@@ -863,6 +886,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Bookmarks(folder) => super::library::bookmarks_panel(ui, folder),
             Panel::Group(id) => super::groups::group_panel(ui, id),
             Panel::Sidebar => sidebar_panel(ui),
+            Panel::Organize => organize_panel(ui),
             Panel::Card(card) => super::profiles::card_panel(ui, card),
             Panel::SpaceMenu(key) => super::profiles::space_menu(ui, key),
         };
@@ -874,7 +898,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Shield => (SITE_WIDTH, Side::Centre),
             Panel::NewSpace => (SPACE_CARD_WIDTH, Side::Centre),
             Panel::Downloads => (380., Side::Start),
-            Panel::Sidebar => (320., Side::Start),
+            Panel::Sidebar | Panel::Organize => (320., Side::Start),
             Panel::Settings => (PANEL_WIDTH + 200., Side::Centre),
             _ => (PANEL_WIDTH, Side::Centre),
         };

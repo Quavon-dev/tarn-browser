@@ -64,6 +64,7 @@ pub enum Cmd {
     CloseSplit(TabKey),
     SwitchWebEngine(TabKey, WebEngine),
     ProfileShield(shield::ShieldLevel),
+    Organize(browser_core::sidebar::Organize),
 }
 
 impl Browser {
@@ -203,6 +204,19 @@ impl Browser {
                 .enabled(!self.model.ephemeral_keys().is_empty()),
             Item::action("Close Duplicate Tabs", Cmd::CloseDuplicates).enabled(!self.duplicate_tabs().is_empty()),
         ];
+        self.show_menu(items, window, cx);
+    }
+
+    pub fn organize_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use browser_core::sidebar::{Organize, cleanable, organize};
+        let assistant = self.assistant_origin().is_some_and(|(o, on)| on && browser_core::assistant::allowed(o));
+        let items = organize(cleanable(&self.model), assistant)
+            .into_iter()
+            .map(|(label, o)| {
+                let item = Item::action(label, Cmd::Organize(o));
+                if o == Organize::NewGroup { item.key(crate::shortcuts::keys(&crate::NewGroup, cx)) } else { item }
+            })
+            .collect();
         self.show_menu(items, window, cx);
     }
 
@@ -368,6 +382,12 @@ impl Browser {
                 let keys = browser_core::sidebar::tabs_below(&self.model, key);
                 self.close_tabs(keys, window, cx);
             }
+            Cmd::Organize(o) => match o {
+                browser_core::sidebar::Organize::NewGroup => self.new_group(self.model.active, window, cx),
+                browser_core::sidebar::Organize::NewFolder => self.new_folder(None, window, cx),
+                browser_core::sidebar::Organize::CleanUp => self.clean_up_tabs(cx),
+                browser_core::sidebar::Organize::GroupWithAssistant => self.group_tabs_with_assistant(window, cx),
+            },
             Cmd::CloseDuplicates => {
                 let keys = self.duplicate_tabs();
                 self.close_tabs(keys, window, cx);

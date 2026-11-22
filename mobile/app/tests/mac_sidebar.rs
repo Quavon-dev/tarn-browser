@@ -24,11 +24,17 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.press("label:Close Settings").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
-    for part in ["label:/^Space /", "label:Downloads", "label:New Tab Group", "label:New Folder", "label:Library", "label:New Space", "label:Close Tab"] {
+    for part in ["label:/^Space /", "label:Downloads", "label:Organize Tabs", "label:Library", "label:New Space", "label:Close Tab"] {
         app.wait_for(part).unwrap();
     }
     assert!(app.screen().shows("Pin tabs from their menu"), "no pinned tab yet");
+    app.press("label:Organize Tabs").unwrap();
+    for part in ["label:New Tab Group", "label:New Folder"] {
+        app.wait_for(part).unwrap();
+    }
     assert!(!app.screen().matches("label:Clean Up").unwrap(), "one tab has nothing to sort");
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("label:New Folder", WAIT).unwrap();
 
     app.long_press("label:New Tab >> nth=1").unwrap();
     app.wait_for("label:Pin Tab").unwrap();
@@ -119,6 +125,7 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.wait_for("label:Close Group and Its Tabs").unwrap();
     app.wait_for("label:Group 1").unwrap();
 
+    app.press("label:Organize Tabs").unwrap();
     app.press("label:New Tab Group").unwrap();
     app.wait_for("label:Group 1").unwrap();
     app.long_press("label:Group 1").unwrap();
@@ -126,6 +133,7 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.press("label:Ungroup").unwrap();
     app.wait_for_gone("label:Group 1", WAIT).unwrap();
 
+    app.press("label:Organize Tabs").unwrap();
     app.press("label:New Folder").unwrap();
     app.wait_for("label:Folder 1").unwrap();
     app.long_press("label:Folder 1").unwrap();

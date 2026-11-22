@@ -82,6 +82,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- The sidebar's New Tab row has one Organize Tabs button (…) in place of four: New Tab Group, New
+  Folder, Clean Up and Group with Assistant are in its menu, on every client.
 - Enter on an address Tarn cannot open shakes the field instead of going anywhere, on every
   client; with Reduce Motion the field stays still and says "Can’t open this address".
 - New Tab on iOS and Android opens the address bar over the current page like ⌘T on macOS,

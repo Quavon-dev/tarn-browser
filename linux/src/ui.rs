@@ -124,6 +124,7 @@ pub enum Panel {
     Bookmarks(Option<store::Id>),
     Group(store::Id),
     Sidebar,
+    Organize,
     Card(Option<store::Id>),
     SpaceMenu(crate::browser::profiles::SpaceKey),
 }
@@ -1030,21 +1031,7 @@ fn new_tab_row(ui: Ui) -> View {
                 .child(icons::icon(icons::PLUS, 11.)),
         )
         .child(body("New Tab").text_color(Theme::muted()));
-    view()
-        .flex_row()
-        .items_center()
-        .mb_1()
-        .child(new)
-        .child(icon_button(icons::GROUP, "New Tab Group", move || groups::new_group(ui, None)))
-        .child(icon_button(icons::FOLDER_PLUS, "New Folder", move || act(ui, |b| b.new_folder(None))))
-        .child(when(
-            move || ui.snap.with(|s| s.cleanable),
-            move || icon_button(icons::BROOM_SPARKLES, browser_core::cleanup::DESCRIPTION, move || act(ui, Browser::clean_up_tabs)),
-        ))
-        .child(when(
-            move || ui.snap.with(|s| s.cleanable) && read(ui, |b| b.model.assistant_offered(&b.core, None)) == Some(true),
-            move || icon_button(icons::SPARKLES, "Group with Assistant", move || assistant::group_tabs(ui)),
-        ))
+    view().flex_row().items_center().mb_1().child(new).child(icon_button(icons::ELLIPSIS, browser_core::sidebar::ORGANIZE, move || show(ui, Panel::Organize)))
 }
 
 fn sidebar(ui: Ui) -> View {

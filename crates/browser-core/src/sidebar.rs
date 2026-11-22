@@ -126,6 +126,27 @@ pub fn cleanable(model: &Model) -> bool {
     !model.burner_shown() && crate::cleanup::cleanable(&model.tabs)
 }
 
+pub const ORGANIZE: &str = "Organize Tabs";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Organize {
+    NewGroup,
+    NewFolder,
+    CleanUp,
+    GroupWithAssistant,
+}
+
+pub fn organize(cleanable: bool, assistant: bool) -> Vec<(&'static str, Organize)> {
+    let mut items = vec![("New Tab Group", Organize::NewGroup), ("New Folder", Organize::NewFolder)];
+    if cleanable {
+        items.push(("Clean Up", Organize::CleanUp));
+        if assistant {
+            items.push(("Group with Assistant", Organize::GroupWithAssistant));
+        }
+    }
+    items
+}
+
 fn takes(model: &Model, kind: TabKind) -> bool {
     !model.burner_shown() || kind == TabKind::Ephemeral
 }
@@ -478,6 +499,15 @@ impl SpaceBar {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn organize_offers_clean_up_only_with_tabs_to_sort_and_the_assistant_only_when_allowed() {
+        use super::{Organize, organize};
+        let names = |c, a| organize(c, a).into_iter().map(|(_, o)| o).collect::<Vec<_>>();
+        assert_eq!(names(false, true), [Organize::NewGroup, Organize::NewFolder]);
+        assert_eq!(names(true, false), [Organize::NewGroup, Organize::NewFolder, Organize::CleanUp]);
+        assert_eq!(names(true, true), [Organize::NewGroup, Organize::NewFolder, Organize::CleanUp, Organize::GroupWithAssistant]);
+    }
+
     #[test]
     fn a_second_switch_retargets_the_slide_from_where_it_stands() {
         assert_eq!(slide_start(None, 0, 1, 250., false), Some(250.));

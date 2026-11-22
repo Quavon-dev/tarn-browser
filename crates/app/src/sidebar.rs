@@ -1034,7 +1034,6 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
 }
 
 fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
-    let cleanable = browser_core::sidebar::cleanable(&b.model);
     div()
         .id("ephemeral")
         .flex()
@@ -1068,32 +1067,12 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                     )),
                 )
                 .child(div().flex_1().child("New Tab"))
-                .child(icon_button("new-group", Icon::Group, true).tooltip(crate::shortcuts::tip("New Tab Group", &crate::NewGroup)).on_click(cx.listener(
+                .child(icon_button("organize", Icon::Ellipsis, true).tooltip(tooltip(browser_core::sidebar::ORGANIZE, None)).on_click(cx.listener(
                     |b, _, w, cx| {
                         cx.stop_propagation();
-                        b.new_group(b.model.active, w, cx);
+                        b.organize_menu(w, cx);
                     },
                 )))
-                .child(icon_button("new-folder", Icon::FolderPlus, true).tooltip(tooltip("New Folder", None)).on_click(cx.listener(|b, _, w, cx| {
-                    cx.stop_propagation();
-                    b.new_folder(None, w, cx);
-                })))
-                .when(cleanable, |d| {
-                    d.child(icon_button("clean-up", Icon::BroomSparkles, true).tooltip(tooltip(browser_core::cleanup::DESCRIPTION, None)).on_click(
-                        cx.listener(|b, _, _, cx| {
-                            cx.stop_propagation();
-                            b.clean_up_tabs(cx);
-                        }),
-                    ))
-                })
-                .when(cleanable && b.assistant_origin().is_some_and(|(o, on)| on && browser_core::assistant::allowed(o)), |d| {
-                    d.child(icon_button("clean-up-assistant", Icon::Sparkles, true).tooltip(tooltip("Group Tabs with the Assistant", None)).on_click(
-                        cx.listener(|b, _, w, cx| {
-                            cx.stop_propagation();
-                            b.group_tabs_with_assistant(w, cx);
-                        }),
-                    ))
-                })
                 .on_click(cx.listener(|b, _, window, cx| b.new_tab_page(window, cx))),
         )
         .children(b.model.groups.iter().enumerate().map(|(ix, g)| group_card(b, ix, g, cx)).collect::<Vec<_>>())

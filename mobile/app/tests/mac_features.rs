@@ -63,11 +63,11 @@ fn the_mac_layout_offers_assistant_tabs_on_top_density_and_capture() {
     app.press_key("escape").unwrap();
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
 
-    app.wait_for("label:New Folder").unwrap();
+    app.wait_for("label:Organize Tabs").unwrap();
     run(&mut app, "Tabs on Top");
-    app.wait_for_gone("label:New Folder", WAIT).expect("Tabs on Top replaces the sidebar with a strip");
+    app.wait_for_gone("label:Organize Tabs", WAIT).expect("Tabs on Top replaces the sidebar with a strip");
     run(&mut app, "Tabs on Top");
-    app.wait_for("label:New Folder").expect("Tabs on Top again brings the sidebar back");
+    app.wait_for("label:Organize Tabs").expect("Tabs on Top again brings the sidebar back");
 
     let row = |app: &Headless| {
         let id = app.screen().press_target("label:example.com").unwrap().unwrap();

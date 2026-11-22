@@ -29,6 +29,7 @@ enum Target {
     Folder(Id),
     Group(Id),
     Space,
+    Organize,
     FolderIcon(Id),
     GroupIcon(Id),
 }
@@ -126,6 +127,7 @@ fn menu_items(bar: Bar, target: Target) -> View {
         Target::Folder(id) => folder_items(bar, id),
         Target::Group(id) => group_items(bar, id),
         Target::Space => space_items(bar),
+        Target::Organize => organize_items(bar),
         Target::FolderIcon(_) | Target::GroupIcon(_) => return icon_picker(bar, target),
     };
     view().flex_col().children(items)
@@ -348,6 +350,26 @@ fn group_items(bar: Bar, id: Id) -> Vec<AnyElement> {
     ]
 }
 
+fn organize_items(bar: Bar) -> Vec<AnyElement> {
+    let (cleanable, assistant) = bar.ui.read(|s| (bar::cleanable(&s.model), s.model.assistant_offered(&s.core, None)));
+    bar::organize(cleanable, assistant)
+        .into_iter()
+        .map(|(label, o)| {
+            item(bar, label, true, move |ui| match o {
+                bar::Organize::NewGroup => act(ui, |s| {
+                    let active = s.model.active;
+                    bar::new_group(&mut s.model, &s.core, active);
+                }),
+                bar::Organize::NewFolder => act(ui, |s| {
+                    bar::new_folder(&mut s.model, &s.core, None);
+                }),
+                bar::Organize::CleanUp => act(ui, |s| s.clean_up()),
+                bar::Organize::GroupWithAssistant => super::super::assistant::group_tabs(ui),
+            })
+        })
+        .collect()
+}
+
 fn space_items(bar: Bar) -> Vec<AnyElement> {
     let (ix, private) = bar.ui.read(|s| (s.model.space_ix, s.model.current_space().is_none_or(|c| c.private)));
     vec![
@@ -392,7 +414,7 @@ fn press(bar: Bar, target: Target) {
         Target::Group(id) => act(ui, |s| {
             s.model.toggle_group(&s.core, id);
         }),
-        Target::Space | Target::FolderIcon(_) | Target::GroupIcon(_) => {}
+        Target::Space | Target::Organize | Target::FolderIcon(_) | Target::GroupIcon(_) => {}
     }
 }
 
@@ -766,43 +788,14 @@ fn new_tab_row(bar: Bar) -> View {
         .active(|s| s.bg(Theme::pressed()))
         .child(new_tab_mark())
         .child(text("New Tab").text_size(px(TEXT)).flex_1());
-    view()
-        .flex_row()
-        .items_center()
-        .pr(px(2.))
-        .child(new)
-        .child(glyph_button(glyphs::GROUP, "New Tab Group", Placement::Top, move || {
-            act(ui, |s| {
-                let active = s.model.active;
-                bar::new_group(&mut s.model, &s.core, active);
-            })
-        }))
-        .child(glyph_button(glyphs::FOLDER_PLUS, "New Folder", Placement::Top, move || {
-            act(ui, |s| {
-                bar::new_folder(&mut s.model, &s.core, None);
-            })
-        }))
-        .child(when(
-            move || ui.read(|s| bar::cleanable(&s.model)),
-            move || {
-                glyph_button(glyphs::BROOM_SPARKLES, "Clean Up: sorts tabs into groups by what each page is. Runs on this device.", Placement::Top, move || {
-                    act(ui, |s| s.clean_up())
-                })
-                .accessibility_label("Clean Up")
-            },
-        ))
-        .child(when(
-            move || ui.read(|s| bar::cleanable(&s.model) && s.model.assistant_offered(&s.core, None)),
-            move || {
-                glyph_button(
-                    glyphs::SPARKLES,
-                    "Group with Assistant: sends the loose tabs' sites and titles to the assistant you chose in Settings › AI.",
-                    Placement::Top,
-                    move || super::super::assistant::group_tabs(ui),
-                )
-                .accessibility_label("Group with Assistant")
-            },
-        ))
+    view().flex_row().items_center().pr(px(2.)).child(new).child(
+        view()
+            .relative()
+            .child(glyph_button(glyphs::ELLIPSIS, bar::ORGANIZE, Placement::Top, move || {
+                open_menu(bar, Target::Organize, Point::new(Points(0.), Points(BUTTON)))
+            }))
+            .child(menu_anchor(bar, Target::Organize)),
+    )
 }
 
 fn group_card(bar: Bar, id: Id) -> View {
