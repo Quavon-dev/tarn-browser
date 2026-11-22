@@ -24,6 +24,7 @@ impl<D: WebsiteData> Core<D> {
         let store = self.store(private);
         let space = store.reset_profile(profile_id, if private { "Private" } else { "Home" })?;
         self.wiped_at.borrow_mut().insert((private, profile_id), now());
+        self.snippets_changed();
         let own_store = store.profile(profile_id).map(|p| p.data_store_uuid).unwrap_or_default();
         let fresh_store = (!private && !store_is_shared(&self.disk, profile_id, &own_store))
             .then(|| uuid::Uuid::new_v4().to_string())

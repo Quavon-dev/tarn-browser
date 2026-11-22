@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use browser_core::snippets::{self, EMPTY, NO_FIELD, NO_INSERT};
+use browser_core::snippets::{self, EMPTY, NO_FIELD, NO_INSERT, PAGE_CHANGED};
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{Context, Div, InteractiveElement, Window, actions};
@@ -28,18 +28,10 @@ fn rows(query: &str, all: &[Snippet]) -> Vec<Suggestion> {
 }
 
 impl Browser {
-    /// The current profile's snippets from its saved store, read once per profile and change; a
-    /// private space has none.
-    fn profile_snippets(&mut self) -> Rc<Vec<Snippet>> {
+    /// The current profile's snippets (`Core::snippets`); a private space has none.
+    fn profile_snippets(&self) -> Rc<Vec<Snippet>> {
         let Some((false, profile)) = self.model.profile() else { return Rc::default() };
-        match &self.snippets {
-            Some((cached, list)) if *cached == profile => list.clone(),
-            _ => {
-                let list = Rc::new(self.core.disk.snippets(profile).unwrap_or_default());
-                self.snippets = Some((profile, list.clone()));
-                list
-            }
-        }
+        self.core.snippets(profile)
     }
 
     /// Replaces a just typed `;name` at the end of the command field with its snippet.
@@ -63,6 +55,7 @@ impl Browser {
             self.notify_offer(key, NO_INSERT.into(), None);
             return cx.notify();
         }
+        self.snippet_page = self.tab_url(key).map(|url| (key, url));
         self.open_command(CommandMode::Snippets, window, cx);
     }
 
@@ -72,9 +65,13 @@ impl Browser {
         cx.notify();
     }
 
-    /// Types `body` into the active page's focused field, with a notice when none has the focus.
+    /// Types `body` into the focused field of the page Insert Snippet opened on, with a notice when
+    /// the tab shows another page or no field has the focus.
     pub(crate) fn type_snippet(&mut self, body: &str, cx: &mut Context<Self>) {
-        let Some(key) = self.model.active.filter(|_| !body.is_empty()) else { return };
+        let Some((key, url)) = self.snippet_page.take().filter(|_| !body.is_empty()) else { return };
+        if self.model.active != Some(key) || self.tab_url(key).as_deref() != Some(url.as_str()) {
+            return self.show_toast(PAGE_CHANGED, None, cx);
+        }
         let Some(view) = self.views.get(&key) else { return };
         let (weak, (tx, mut rx)) = (Rc::downgrade(view), mpsc::unbounded());
         view.insert_text(body, move |answer| drop(tx.unbounded_send(answer)));

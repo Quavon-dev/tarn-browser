@@ -55,10 +55,14 @@ Every shell's web view offers the same operations and reports the same events. T
   (`capture::drag_area`), with no script on the page, and so does the developer Measure tool
   (`browser_core::measure`, offered with `palette::State::developer`, where Web Inspector is);
 - `insert_text`: Insert Snippet types a `store::Snippet`'s text into the page's focused text field
-  (`page_scripts::insert_text_script`, isolated world, nothing under Lockdown) and answers whether
-  it did (`browser_core::snippets::inserted`). NSH components: `insertText` `{seq, text}`, answered
-  by `textInserted` `{seq, inserted}`. Typing `;name` in a shell field expands there
-  (`snippets::expand`); nothing on the page listens for keys;
+  (`page_scripts::insert_text_script`, isolated world, Android's page world, nothing under
+  Lockdown) and answers whether it did (`browser_core::snippets::inserted`). Every shell remembers
+  the tab and committed address the list opened on and types nothing once the tab shows another
+  (`snippets::PAGE_CHANGED`). NSH components: `insertText` `{seq, text}`, answered by
+  `textInserted` `{seq, inserted}`. Typing `;name` in a shell field expands there
+  (`snippets::expand`); nothing on the page listens for keys. The profile's snippets are read once
+  into `Core::snippets`, shared by every window, and forgotten by `Core::snippets_changed` after an
+  edit, `reset_profile_data` or a deleted profile;
 - `selected_text`, `media_state`, `media_command` and `snapshot_rect`: the selection, the first
   audible media element (read, and play, pause or seek), and a PNG of a rectangle of the visible
   page or of the whole document. The reads are isolated-world scripts from `engine::page_scripts`
@@ -75,7 +79,8 @@ Every shell's web view offers the same operations and reports the same events. T
   shells ask `media_state` of a tab when the engine says it plays (Linux's `playing` event, the
   macOS and Windows background probe), when the user leaves it and after a button press, and
   again every `media::POLL` only while the shown media plays; its buttons send
-  `media::Control::command` (`args` for NSH components);
+  `media::Control::command` (`args` for NSH components). Its title is `text::bounded_title` of the
+  page's media title or the tab's title on every client;
 - isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
   and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
   has no isolated world and runs those scripts in the page world, so a shell must not send it

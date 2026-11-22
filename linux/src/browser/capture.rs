@@ -23,12 +23,13 @@ impl Browser {
         }
     }
 
-    /// Saves and copies `area` of the page (`page_ops::snapshot_area`'s shape; empty for the visible page).
+    /// Saves, and outside a private space copies, `area` of the page (`page_ops::snapshot_area`'s shape; empty for the visible page).
     pub fn screenshot(&mut self, key: TabKey, mut area: Value) {
         let Some(profile) = self.model.profile_of(&self.core, key) else { return };
         let (url, title) = self.pages.get(&key).map(|p| (p.url.clone(), p.title.clone())).unwrap_or_default();
         let title = if title.is_empty() { self.model.tab(key).map(|t| t.title.clone()).unwrap_or_default() } else { title };
         area["name"] = json!(browser_core::text::capture_name(&title, Url::parse(&url).ok().as_ref(), "png"));
+        area["copy"] = json!(browser_core::capture::copies(key.private));
         self.ask(key, Request::Capture { key, profile, url, started: now() }, "screenshot", area);
     }
 

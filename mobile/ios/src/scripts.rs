@@ -138,17 +138,20 @@ impl Inner {
     }
 
     /// The visible page, or the area of `snapshot_area` the command names, saved under
-    /// Documents/Downloads as downloads are and put on the pasteboard.
+    /// Documents/Downloads as downloads are, and put on the pasteboard when the command says `copy`
+    /// (never for a private space, whose pasteboard item could reach another device).
     fn screenshot(&self, args: &Value, done: impl Fn(Result<String, String>) + 'static) {
         let area = browser_core::page_ops::snapshot_area(args, self.device_scale());
         if area.is_none() && (args.get("fullPage").is_some() || args.get("x").is_some()) {
             return done(Err("Nothing to capture in that area".into()));
         }
         let name = engine::downloads::sanitize_filename(args.get("name").and_then(Value::as_str).unwrap_or_default());
+        let copy = args.get("copy").and_then(Value::as_bool) == Some(true);
         self.snapshot_png(area, move |data| {
             done(data.ok_or_else(|| "WebKit could not capture the page".to_owned()).and_then(|data| {
-                let board = UIPasteboard::generalPasteboard();
-                board.setData_forPasteboardType(&data, &NSString::from_str("public.png"));
+                if copy {
+                    UIPasteboard::generalPasteboard().setData_forPasteboardType(&data, &NSString::from_str("public.png"));
+                }
                 let dir = crate::transfers::downloads_dir().ok_or_else(|| "The Downloads folder could not be found".to_owned())?;
                 std::fs::create_dir_all(&dir)
                     .and_then(|()| browser_core::capture::save_new(&dir, &name, &data.to_vec()))

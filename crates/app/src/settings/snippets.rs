@@ -152,7 +152,7 @@ impl SettingsWindow {
 
 /// Every window reads the profile's snippets again on the next field edit.
 fn snippets_changed(cx: &mut gpui::App) {
-    crate::shared::each(cx, |b, _, _| b.snippets = None);
+    crate::shared::each(cx, |b, _, _| b.core.snippets_changed());
 }
 
 #[cfg(test)]

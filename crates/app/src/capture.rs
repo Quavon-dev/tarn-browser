@@ -108,7 +108,7 @@ impl Browser {
         let result = bytes
             .ok_or_else(|| if cfg!(windows) { "Chromium could not capture the page" } else { "WebKit could not capture the page" }.to_owned())
             .and_then(|bytes| {
-                if screenshot {
+                if screenshot && browser_core::capture::copies(private) {
                     cx.write_to_clipboard(ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, bytes.clone())));
                 }
                 write_download(&name, &bytes).map_err(|e| e.to_string())
@@ -122,7 +122,7 @@ impl Browser {
         match result {
             Ok(path) if screenshot => self.show_tab_toast(
                 browser_core::toast::Tone::Success,
-                "Screenshot saved and copied",
+                browser_core::capture::saved_note(browser_core::capture::copies(private)),
                 Some(crate::toast::Action::Reveal(path)),
                 (private, profile_id),
                 cx,

@@ -151,7 +151,8 @@ pub struct Browser {
     pub used: HashMap<TabKey, std::time::Instant>,
     pub playing: HashSet<TabKey>,
     pub player: browser_core::media::Player,
-    snippet_cache: std::cell::RefCell<Option<(store::Id, Vec<store::Snippet>)>>,
+    /// The tab and committed address Insert Snippet opened on.
+    snippet_page: Option<(TabKey, String)>,
     pub swipe: swipe::Swipe,
     pub released: Vec<crate::data::StoreKey>,
     pub retired: Vec<String>,
@@ -245,7 +246,7 @@ impl Browser {
             used: HashMap::new(),
             playing: HashSet::new(),
             player: Default::default(),
-            snippet_cache: Default::default(),
+            snippet_page: None,
             swipe: Default::default(),
             released: Vec::new(),
             retired: Vec::new(),

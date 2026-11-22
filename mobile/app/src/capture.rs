@@ -32,11 +32,12 @@ impl<D: Platform> Shell<D> {
         self.model.active.map(|key| self.screenshot(key, area_args(SnapshotArea::FullPage))).unwrap_or_default()
     }
 
-    /// Saves and copies `area` of `key`'s page (`page_ops::snapshot_area`'s shape; empty for the visible page).
+    /// Saves, and outside a private space copies, `area` of `key`'s page (`page_ops::snapshot_area`'s shape; empty for the visible page).
     pub fn screenshot(&mut self, key: TabKey, mut area: Value) -> Vec<Effect> {
         let Some(profile) = self.model.profile() else { return Vec::new() };
         let url = self.tab_url(key);
         area["name"] = json!(browser_core::text::capture_name(&self.page_title(key), Url::parse(&url).ok().as_ref(), "png"));
+        area["copy"] = json!(browser_core::capture::copies(key.private));
         let seq = self.next_seq();
         area["seq"] = json!(seq);
         self.shots.insert(seq, Shot { key, profile, url, started: browser_core::now() });

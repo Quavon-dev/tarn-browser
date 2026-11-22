@@ -20,6 +20,17 @@ impl Mode {
     }
 }
 
+/// Whether a capture also goes on the system clipboard, which may carry it to other devices:
+/// never from a private space or burner tab, whose captures are only saved.
+pub fn copies(private: bool) -> bool {
+    !private
+}
+
+/// The toast after a screenshot was saved, and copied when `copies` allowed it.
+pub fn saved_note(copied: bool) -> &'static str {
+    if copied { "Screenshot saved and copied" } else { "Screenshot saved" }
+}
+
 /// The notice for Capture Element on a Lockdown page, where the picker cannot run.
 pub const NO_PICKER: &str = "Capture Element needs Tarn's picker, which Lockdown turns off";
 /// What every client says while the user drags out an area or picks an element.
@@ -73,6 +84,13 @@ pub fn save_new(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_private_capture_never_reaches_the_clipboard() {
+        assert!(copies(false));
+        assert!(!copies(true));
+        assert_eq!(saved_note(copies(true)), "Screenshot saved");
+    }
 
     #[test]
     fn a_drag_is_cut_to_the_page_in_any_direction_and_a_click_is_no_area() {

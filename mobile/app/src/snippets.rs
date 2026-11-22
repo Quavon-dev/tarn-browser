@@ -1,4 +1,4 @@
-use browser_core::snippets::{NO_FIELD, NO_INSERT, expand};
+use browser_core::snippets::{NO_FIELD, NO_INSERT, PAGE_CHANGED, expand};
 use browser_core::tabs::TabKey;
 use serde_json::{Value, json};
 use shield::ShieldLevel;
@@ -9,19 +9,15 @@ use crate::data::Platform;
 use crate::shell::{Effect, Shell};
 
 impl<D: Platform> Shell<D> {
-    /// The current profile's snippets, read once per profile until `snippets_changed`; none in a
-    /// private space, whose profile is not on disk.
+    /// The current profile's snippets (`Core::snippets`); none in a private space, whose profile
+    /// is not on disk.
     pub fn snippets(&self) -> Vec<Snippet> {
         let Some((false, profile)) = self.model.profile() else { return Vec::new() };
-        let mut cache = self.snippet_cache.borrow_mut();
-        if cache.as_ref().is_none_or(|(p, _)| *p != profile) {
-            *cache = Some((profile, self.core.disk.snippets(profile).unwrap_or_default()));
-        }
-        cache.as_ref().map(|(_, s)| s.clone()).unwrap_or_default()
+        self.core.snippets(profile).to_vec()
     }
 
     pub fn snippets_changed(&self) {
-        self.snippet_cache.borrow_mut().take();
+        self.core.snippets_changed();
     }
 
     /// A shell field's text with a trailing `;name` expanded.
@@ -29,7 +25,8 @@ impl<D: Platform> Shell<D> {
         expand(text, &self.snippets())
     }
 
-    /// Whether Insert Snippet can type into the active page; says why not under Lockdown.
+    /// Opens Insert Snippet on the active page, which it remembers with its committed address;
+    /// says why not under Lockdown.
     pub fn snippet_target(&mut self) -> Option<TabKey> {
         let key = self.model.active?;
         let url = Url::parse(&self.tab_url(key)).ok();
@@ -37,14 +34,24 @@ impl<D: Platform> Shell<D> {
             self.notice = Some(NO_INSERT.into());
             return None;
         }
+        self.snippet_page = self.committed(key).map(|url| (key, url));
         Some(key)
     }
 
+    /// Types `body` into the page Insert Snippet opened on, refused once the tab shows another.
     pub fn insert_snippet(&mut self, body: &str) -> Vec<Effect> {
-        let Some(key) = self.snippet_target() else { return Vec::new() };
+        let Some((key, url)) = self.snippet_page.take() else { return Vec::new() };
+        if self.model.active != Some(key) || self.committed(key).as_deref() != Some(url.as_str()) {
+            self.notice = Some(PAGE_CHANGED.into());
+            return Vec::new();
+        }
         let seq = self.next_seq();
         self.inserting = Some((key, seq));
         vec![Effect::Command(key, "insertText", json!({ "seq": seq, "text": body }))]
+    }
+
+    fn committed(&self, key: TabKey) -> Option<String> {
+        self.pages.get(&key).and_then(|p| p.committed.clone())
     }
 
     pub(crate) fn text_inserted(&mut self, key: TabKey, data: &Value) {

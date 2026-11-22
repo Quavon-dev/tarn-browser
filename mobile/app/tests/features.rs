@@ -139,7 +139,7 @@ fn captures_save_an_area_or_a_picked_element_and_record_it_once() {
     let key = active(&shell);
     let full = shell.capture_full_page();
     let args = command(&full, "screenshot").unwrap().clone();
-    assert_eq!((args["fullPage"].clone(), args["name"].clone()), (json!(true), json!("Q3 - Q4.png")));
+    assert_eq!((args["fullPage"].clone(), args["name"].clone(), args["copy"].clone()), (json!(true), json!("Q3 - Q4.png"), json!(true)));
     let other = TabKey { private: key.private, id: key.id + 1 };
     shell.event(other, "screenshot", &json!({ "seq": seq(&args), "path": "/d/elsewhere.png" }), 3);
     assert!(shell.downloads().is_empty(), "only the tab asked answers");
@@ -169,6 +169,11 @@ fn captures_save_an_area_or_a_picked_element_and_record_it_once() {
     shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
     assert!(shell.capture_element((800., 600.)).is_empty(), "no picker on a Lockdown page");
     assert_eq!(shell.notice.as_deref(), Some(browser_core::capture::NO_PICKER));
+
+    shell.enter_private();
+    visit(&mut shell, "https://cap.test/private", "Private");
+    let private = shell.take_screenshot();
+    assert_eq!(command(&private, "screenshot").unwrap()["copy"], false, "a private capture never reaches the pasteboard");
 }
 
 #[test]
@@ -207,6 +212,8 @@ fn snippets_expand_in_the_address_bar_and_insert_only_on_request() {
     assert_eq!(shell.expand_snippet("hi ;sig").as_deref(), Some("hi Best, Ada"));
     assert_eq!(shell.expand_snippet("hi;sig"), None);
 
+    assert!(shell.insert_snippet("x").is_empty(), "only from an opened list");
+    assert_eq!(shell.snippet_target(), Some(key));
     let typed = shell.insert_snippet("Best,\nAda");
     let args = command(&typed, "insertText").unwrap().clone();
     assert_eq!(args["text"], "Best,\nAda");
@@ -215,7 +222,13 @@ fn snippets_expand_in_the_address_bar_and_insert_only_on_request() {
     shell.event(key, "textInserted", &json!({ "seq": seq(&args), "inserted": false }), 3);
     assert_eq!(shell.notice.as_deref(), Some(browser_core::snippets::NO_FIELD));
 
+    shell.snippet_target();
+    visit(&mut shell, "https://elsewhere.test/", "Elsewhere");
+    assert!(shell.insert_snippet("secret").is_empty(), "nothing is typed into a page the list was not opened on");
+    assert_eq!(shell.notice.as_deref(), Some(browser_core::snippets::PAGE_CHANGED));
+
     shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
+    assert_eq!(shell.snippet_target(), None);
     assert!(shell.insert_snippet("x").is_empty());
     assert_eq!(shell.notice.as_deref(), Some(browser_core::snippets::NO_INSERT));
     shell.enter_private();

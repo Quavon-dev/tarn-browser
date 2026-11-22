@@ -177,8 +177,8 @@ its own text and a selector hiding part of itself.
 | command | `media` | `{action, seconds?}` | `play`, `pause` or `seekBy` on that element, checked with `browser_core::page_ops::media_command` and run as `engine::page_scripts::media_command_script`; no answer. WebKit runs it as the user's gesture; Android runs it in the page world without one, so `play` works only where the page has allowed playback |
 | command | `snapshotRect` | `{seq, fullPage: true}` or `{seq, x, y, width, height}` | Checked with `browser_core::page_ops::snapshot_area` (CSS pixels of the visible page, sides cut to `engine::view_policy::SNAPSHOT_MAX_SIDE` and the height to `SNAPSHOT_MAX_PIXELS` at the component's device scale). iOS and Android draw only the visible page, so a full page is the visible one there (gap below) |
 | event | `snapshotRect` | `{seq, png}` | A PNG `data:` URI, or null when the area was refused or nothing was drawn |
-| command | `screenshot` | `{seq, name}`, plus `fullPage: true` or `x, y, width, height` | Saves the visible page, or the area (`browser_core::capture::area_args`, checked with `page_ops::snapshot_area`; a refused area saves nothing), as a new PNG under the sanitised `name` in the component's Downloads folder (`capture::save_new`; on Android the private session's folder in a private space) and copies it to the clipboard (Linux, iOS; not Android, see gaps) |
-| command | `insertText` | `{seq, text}` | Insert Snippet: runs `engine::page_scripts::insert_text_script(text)` (client world on iOS, page world on Android), which types the text into the focused text field; text over `browser_core::snippets::MAX_SNIPPET` bytes is refused, and nothing runs under Lockdown |
+| command | `screenshot` | `{seq, name, copy}`, plus `fullPage: true` or `x, y, width, height` | Saves the visible page, or the area (`browser_core::capture::area_args`, checked with `page_ops::snapshot_area`; a refused area saves nothing), as a new PNG under the sanitised `name` in the component's Downloads folder (`capture::save_new`; on Android the private session's folder in a private space) and copies it to the clipboard when `copy` is true (Linux, iOS; not Android, see gaps). The shell sends `copy: browser_core::capture::copies(private)`, so a private space or burner tab never puts a capture on the clipboard or the pasteboard; a missing `copy` copies nothing |
+| command | `insertText` | `{seq, text}` | Insert Snippet: runs `engine::page_scripts::insert_text_script(text)` (client world on iOS, page world on Android), which types the text into the focused text field; the shell sends it only while the tab still shows the committed address Insert Snippet opened on (else `snippets::PAGE_CHANGED`); text over `browser_core::snippets::MAX_SNIPPET` bytes is refused, and nothing runs under Lockdown |
 | event | `textInserted` | `{seq, inserted}` | `browser_core::snippets::inserted` of the script's answer; false when no field had the focus |
 | event | `screenshot` | `{seq, path}` or `{seq, message}` | The shell lists `path` in the tab's own profile store only while `Core::keeps_record_since` allows it (in memory for a private space) |
 | command | `downloadKeep` | `{id, keep}` | Answers `flagged`; anything but `keep: true` cancels. An unanswered one waits, like a paused one, after its component is destroyed |
@@ -194,7 +194,12 @@ rows of dark modules with a one-module border; the macOS app keeps CoreImage), s
 link; iOS and Android need a native share sheet from their host).
 
 v3 platform differences:
-- Android runs the picker, reader and page-text scripts in the page world (no isolated world, no bridge);
+- Android runs the picker, reader and page-text scripts, and also `insertText`, `readSelection`,
+  `readMedia`, `media` and `ping`, in the page world: Android WebView offers no isolated world
+  (`evaluateJavascript` always runs in the page's own world) and Tarn keeps no bridge. So the page can
+  see a snippet as it is typed, forge any answer (Rust checks every one: `selection_answer`,
+  `media_answer`, `snippets::inserted`, `capture::element_area`), and `play` runs without the user's
+  gesture;
   `findText` reads the page's text there with `page_text_script` (at most 1,000,000 characters) and matches
   the query in Rust (`tarn-mobile-android`'s `find_snippets`, case-insensitive, 60 characters of context), so
   the query never reaches the page; it sends snippets and `matched`, the page's total. A view reads a page's

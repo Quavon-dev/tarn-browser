@@ -533,11 +533,7 @@ pub fn snippets_panel(ui: Ui) -> AnyElement {
                 crate::controls::row(format!("Insert {}", s.name), move || {
                     let body = body.clone();
                     ui.panel.set(Panel::None);
-                    act(ui, move |b| {
-                        if let Some(key) = b.model.active {
-                            b.insert_snippet(key, &body);
-                        }
-                    });
+                    act(ui, move |b| b.insert_snippet(&body));
                 })
                 .child(label(format!(";{}", s.name)).flex_none())
                 .child(small(browser_core::snippets::preview(&s.body)).truncate())

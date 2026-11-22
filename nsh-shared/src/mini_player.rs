@@ -19,7 +19,7 @@ pub fn mini_player(
     press: impl Fn(Control) + Copy + 'static,
 ) -> AnyElement {
     let shown = computed(move || media().is_some());
-    let title = move || media().map(|m| m.0).unwrap_or_default();
+    let title = move || media().map(|m| browser_core::text::bounded_title(&m.0)).unwrap_or_default();
     let playing = move || media().is_some_and(|m| m.1);
     dynamic(move || {
         shown.get().then(|| {

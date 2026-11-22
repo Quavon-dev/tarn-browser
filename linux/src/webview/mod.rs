@@ -978,7 +978,7 @@ fn crop(pixels: &[u8], width: usize, [x0, y0, x1, y1]: [usize; 4]) -> Vec<u8> {
 }
 
 /// `screenshot`: saves the visible page, or the area of `snapshot_area` the command names, under
-/// Downloads and copies it.
+/// Downloads, and copies it when the command says `copy` (never for a private space).
 fn screenshot(state: &Rc<State>, web: &WebView, args: &JsonValue) {
     let seq = args["seq"].as_u64().unwrap_or_default();
     let name = engine::downloads::sanitize_filename(args["name"].as_str().unwrap_or_default());
@@ -997,10 +997,12 @@ fn screenshot(state: &Rc<State>, web: &WebView, args: &JsonValue) {
     if area.is_none() && (args.get("fullPage").is_some() || args.get("x").is_some()) {
         return answer(Err("Nothing to capture in that area".to_owned()));
     }
-    let clipboard = web.clipboard();
+    let clipboard = (args["copy"].as_bool() == Some(true)).then(|| web.clipboard());
     snapshot_texture(state, web, area, move |texture| {
         answer(texture.ok_or_else(|| "WebKit could not capture the page".to_owned()).and_then(|texture| {
-            clipboard.set_texture(&texture);
+            if let Some(clipboard) = &clipboard {
+                clipboard.set_texture(&texture);
+            }
             let dir = session::downloads_dir();
             std::fs::create_dir_all(&dir).and_then(|()| browser_core::capture::save_new(&dir, &name, &texture.save_to_png_bytes())).map_err(|e| e.to_string())
         }))

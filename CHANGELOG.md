@@ -31,8 +31,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   nothing of the page, and a Lockdown page, which runs no script of Tarn's, is not checked.
 - Capture Area (drag over the page), Capture Element (pick it as Zap Element does) and Capture Full
   Page join Take Screenshot on every client, and iOS and Android gain Take Screenshot. Captures are
-  saved to Downloads and copied (not on Android); iOS and Android capture the visible part of a full
-  page.
+  saved to Downloads and copied (not on Android, nor in a private space or burner tab); iOS and
+  Android capture the visible part of a full page.
 - A mini-player shows the media of a tab you left playing, on every client: its title, play or
   pause and 15 seconds back or forward; clicking the title goes back to the tab. It reads only the
   page's own title and asks the page nothing while nothing plays.
@@ -41,7 +41,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   (Settings › Developer or a Developer profile) and runs nothing on the page.
 - Snippets: text you keep per profile in Settings › Snippets. Typing `;name` in the address or
   command bar puts it there, and Insert Snippet… (command bar, Edit menu, Linux tab panel, mobile menu) types it into the
-  page's focused field. Deleting the profile or its data removes them; private spaces have none.
+  page's focused field, and only into the page the list was opened on. Deleting the profile or its
+  data removes them at once; private spaces have none.
 
 ### Changed
 

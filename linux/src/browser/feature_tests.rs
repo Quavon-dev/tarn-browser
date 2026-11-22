@@ -1338,6 +1338,7 @@ fn a_screenshot_is_named_after_the_page_and_recorded_in_its_own_profile() {
     let requests = asked(&b, "screenshot");
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["name"], "Q3 - Q4 report.png");
+    assert_eq!(requests[0]["copy"], true);
     let seq = requests[0]["seq"].clone();
     let other = b.new_tab("https://b.test/").unwrap();
     b.on_event(other, "screenshot", &json!({ "seq": seq, "path": "/d/elsewhere.png" }));
@@ -1355,6 +1356,10 @@ fn a_screenshot_is_named_after_the_page_and_recorded_in_its_own_profile() {
     let seq = asked(&b, "screenshot").last().unwrap()["seq"].clone();
     b.on_event(key, "screenshot", &json!({ "seq": seq, "message": "WebKit could not capture the page" }));
     assert_eq!(b.notice, Some(Notice::Message("Download failed: WebKit could not capture the page".into())));
+
+    b.private_space();
+    b.take_screenshot();
+    assert_eq!(asked(&b, "screenshot").last().unwrap()["copy"], false, "a private capture never reaches the clipboard");
 }
 
 #[test]
@@ -1465,15 +1470,24 @@ fn snippets_expand_in_shell_fields_and_insert_only_on_request() {
 
     b.outbox.clear();
     assert_eq!(b.snippet_target(), Some(key));
-    b.insert_snippet(key, "Best,\nAda");
+    b.insert_snippet("Best,\nAda");
     let request = asked(&b, "insertText")[0].clone();
     assert_eq!(request["text"], "Best,\nAda");
     b.on_event(key, "textInserted", &json!({ "seq": request["seq"], "inserted": true }));
     assert!(b.toast.is_none());
-    b.insert_snippet(key, "x");
+    b.insert_snippet("x");
+    assert_eq!(asked(&b, "insertText").len(), 1, "one pick per opened list");
+    b.snippet_target();
+    b.insert_snippet("x");
     let seq = asked(&b, "insertText").last().unwrap()["seq"].clone();
     b.on_event(key, "textInserted", &json!({ "seq": seq, "inserted": false }));
     assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::snippets::NO_FIELD));
+
+    b.snippet_target();
+    visit(&mut b, key, "https://elsewhere.test/");
+    b.insert_snippet("secret");
+    assert_eq!(asked(&b, "insertText").len(), 2, "nothing is typed into a page the list was not opened on");
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::snippets::PAGE_CHANGED));
 
     b.set_site_level(Some(ShieldLevel::Lockdown));
     assert_eq!(b.snippet_target(), None);
@@ -1575,6 +1589,31 @@ fn a_full_screen_page_alone_fills_a_split() {
     let snap = crate::snapshot::snapshot(&b, true);
     assert!(snap.split.is_none());
     assert_eq!(snap.views.iter().filter(|v| v.active).map(|v| (v.key, v.pane)).collect::<Vec<_>>(), [(active, None)]);
+}
+
+#[test]
+fn a_reset_or_deleted_profile_leaves_none_of_its_snippets_cached() {
+    let (_dir, mut b) = browser();
+    let first = b.current_profile().unwrap();
+    b.core.disk.save_snippet(first, "sig", "Ada").unwrap();
+    b.snippets_changed();
+    assert_eq!(b.snippets().len(), 1);
+    b.delete_profile_data();
+    assert!(b.snippets().is_empty(), "Delete everything takes them");
+    let new = browser_core::profiles::NewProfile {
+        name: "Work",
+        color: "red",
+        level: ShieldLevel::Standard,
+        engine: browser_core::command::ENGINES[0].name,
+        share: None,
+        space: ["Desk", "green", "code"],
+    };
+    b.create_profile(&new).unwrap();
+    let work = b.current_profile().unwrap();
+    b.core.disk.save_snippet(work, "sig", "Work").unwrap();
+    assert_eq!(b.snippets().len(), 1);
+    assert!(b.delete_profile(work));
+    assert!(b.core.snippets(work).is_empty(), "a later profile with the same id starts with none");
 }
 
 #[test]

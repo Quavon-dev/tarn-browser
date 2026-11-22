@@ -67,6 +67,7 @@ impl Browser {
         }
         self.favicons.forget(&(false, id));
         self.core.wiped_at.borrow_mut().remove(&(false, id));
+        self.core.snippets_changed();
         if !deleted.still_used {
             profiles::set_retired(&self.core.disk, &deleted.store, true);
             self.retired.push(deleted.store);

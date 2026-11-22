@@ -349,6 +349,7 @@ impl Browser {
         crate::zaps::forget(&own_store);
         self.forget_favicons((false, id));
         self.core.wiped_at.borrow_mut().remove(&(false, id));
+        self.core.snippets_changed();
         self.pages.retain(|k, _| k.private || self.core.disk.tab(k.id).is_ok());
         if !deleted.still_used {
             engine::DataStore::wipe_persistent(&deleted.store);

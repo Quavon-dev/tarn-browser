@@ -275,8 +275,8 @@ pub struct Browser {
     pub(crate) link_status: crate::link_status::LinkStatus,
     pub(crate) capture_overlay: Option<crate::capture_overlay::Overlay>,
     pub(crate) mini_player: crate::mini_player::MiniPlayer,
-    /// The current profile's snippets, cached so field edits do not read the store.
-    pub(crate) snippets: Option<(Id, std::rc::Rc<Vec<store::Snippet>>)>,
+    /// The tab and committed address Insert Snippet opened on.
+    pub(crate) snippet_page: Option<(TabKey, String)>,
     /// New tabs whose first load is a page's link, so S10 judges every redirect hop.
     link_loads: HashMap<TabKey, Option<Url>>,
     pub suggestions: Vec<Suggestion>,
@@ -504,7 +504,7 @@ impl Browser {
             link_status: Default::default(),
             capture_overlay: None,
             mini_player: Default::default(),
-            snippets: None,
+            snippet_page: None,
             link_loads: HashMap::new(),
             suggestions: Vec::new(),
             selected: 0,

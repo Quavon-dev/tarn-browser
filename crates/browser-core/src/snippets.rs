@@ -3,7 +3,11 @@
 //! Snippet command, which types it into the focused field with `engine::page_scripts::
 //! insert_text_script`. No world of the page listens for keys.
 
-use store::Snippet;
+use std::rc::Rc;
+
+use store::{Id, Snippet};
+
+use crate::{Core, WebsiteData};
 
 pub use store::{MAX_SNIPPET, MAX_SNIPPET_NAME, valid_snippet_name as valid_name};
 
@@ -18,6 +22,8 @@ pub const NAME_RULE: &str = "Lowercase letters, digits, - and _, up to 32.";
 pub const NO_FIELD: &str = "Click a text field on the page first";
 /// The notice when Insert Snippet runs on a Lockdown page, where no script of Tarn's runs.
 pub const NO_INSERT: &str = "Snippets cannot be typed into a Lockdown page";
+/// The notice when the tab left the page Insert Snippet opened on before a snippet was picked.
+pub const PAGE_CHANGED: &str = "The page changed, so the snippet was not typed";
 /// What Insert Snippet lists when the profile has none.
 pub const EMPTY: &str = "No snippets yet. Add them in Settings \u{203a} Snippets.";
 
@@ -63,9 +69,42 @@ pub fn inserted(answer: &str) -> bool {
     answer == "1"
 }
 
+impl<D: WebsiteData> Core<D> {
+    /// A saved profile's snippets, read once until `snippets_changed`, which an edit, a reset of
+    /// the profile's data (`reset_profile_data`) and a deleted profile call.
+    pub fn snippets(&self, profile: Id) -> Rc<Vec<Snippet>> {
+        let mut cache = self.snippets.borrow_mut();
+        match &*cache {
+            Some((cached, list)) if *cached == profile => list.clone(),
+            _ => {
+                let list = Rc::new(self.disk.snippets(profile).unwrap_or_default());
+                *cache = Some((profile, list.clone()));
+                list
+            }
+        }
+    }
+
+    pub fn snippets_changed(&self) {
+        self.snippets.borrow_mut().take();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cached_snippets_go_with_a_reset_of_the_profiles_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::TestCore::open(dir.path(), false);
+        let p = core.disk.profiles().unwrap().remove(0).id;
+        core.disk.save_snippet(p, "sig", "Ada").unwrap();
+        assert_eq!(core.snippets(p).len(), 1);
+        core.disk.save_snippet(p, "addr", "Reef Road").unwrap();
+        assert_eq!(core.snippets(p).len(), 1, "read once until a change is announced");
+        core.reset_profile_data(false, p).unwrap();
+        assert!(core.snippets(p).is_empty());
+    }
 
     fn snippet(name: &str, body: &str) -> Snippet {
         Snippet { id: 0, profile_id: 1, name: name.into(), body: body.into() }
