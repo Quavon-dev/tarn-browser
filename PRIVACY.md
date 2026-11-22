@@ -77,8 +77,13 @@ Settings › Privacy › Connections Tarn makes on macOS and Windows.
 | Theme catalog and downloads | GitHub (the repository you name, or the official catalog in `Quavon-dev/tarn-themes`, not offered yet because its signing key is not set) | Your IP address and which repository or theme you install or check | Only when you click Install, Check for Updates or Show Official Themes in Settings › Appearance, on every client; on macOS and Windows switch off with the same Settings › Privacy switch as extensions; Linux, iOS and Android have no such switch yet (themes from a file or the clipboard keep working) |
 | Site icon | The site you are on, or a server it already loaded from (such as its CDN, without cookies), through the tab's web engine with your Shield rules | Same as visiting the site | After a page loads over https; never under Lockdown; cleared with history |
 | Translation (builds with the `translation` feature) | Nobody: Apple's Translation framework runs on your Mac | Nothing. Only language packs you installed in System Settings › General › Language & Region › Translation Languages are used; Tarn never downloads one | Only when you click Translate on the banner; never under Lockdown |
-| On-device model (builds with the `foundation-models` feature) | Nobody: Apple's on-device model runs on your Mac, iPhone or iPad | Nothing. Tarn uses only the system's on-device model, never Apple's cloud models | Only when you send a request to the on-device model in the assistant |
-| AI request (only if you enable AI) | Anthropic, or Ollama on your own Mac | The page content you choose to send | Not built yet |
+| AI request (only if you enable AI) | Anthropic, or Ollama on your own computer (loopback only, never one of Ollama's cloud models) | The page content you choose to send | Not built yet |
+
+A local model makes no connection beyond your own device. "Local" means Apple's on-device model
+(builds with the `foundation-models` feature, on macOS and iOS; only the system's on-device model,
+never Apple's cloud models) or Ollama on `127.0.0.1` with a model Ollama runs on your computer:
+Tarn asks Ollama about the model first and refuses one that runs in Ollama's cloud (a `-cloud` or
+`:cloud` name, or a remote host). A local choice is answered on your device or not at all.
 
 ## Chromium tabs
 
