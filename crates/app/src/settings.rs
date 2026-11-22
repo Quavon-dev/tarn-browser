@@ -25,6 +25,7 @@ use ui::theme::{ACCENTS, TEXT, TEXT_HEADING, TEXT_SMALL, TEXT_TINY, TEXT_TITLE, 
 
 use crate::browser::Browser;
 
+mod ai;
 mod appearance;
 mod notes;
 mod snippets;
@@ -52,9 +53,10 @@ pub enum SettingsPane {
     Snippets,
     Notes,
     Shortcuts,
+    Ai,
 }
 
-const PANES: [(SettingsPane, Icon, &str, &str); 13] = [
+const PANES: [(SettingsPane, Icon, &str, &str); 14] = [
     (SettingsPane::Profile, Icon::Shield, "Protection", "shield level standard strict lockdown card filter lists site overrides connections default browser"),
     (SettingsPane::Profiles, Icon::Person, "Profiles", "profile new edit delete space rules"),
     (SettingsPane::General, Icon::Gear, "General", "updates nightly web engine chromium webkit downloads import about version licence source privacy imprint"),
@@ -78,6 +80,7 @@ const PANES: [(SettingsPane, Icon, &str, &str); 13] = [
         "block ads trackers cookie banners youtube pop-ups malware adult zoom muted hidden elements connections history clear export delete data localhost passkeys security keys sign-in",
     ),
     (SettingsPane::Permissions, Icon::Camera, "Permissions", "camera microphone location pop-ups site answers allow block"),
+    (SettingsPane::Ai, Icon::Sparkles, "AI", "assistant chat claude api key ollama model connect disconnect ask"),
     (SettingsPane::Developer, Icon::Code, "Developer", "web inspector developer tools profile local servers localhost"),
     (SettingsPane::Extensions, Icon::Braces, "Extensions", "install github file bitwarden every site official catalog store updates"),
     (SettingsPane::Snippets, Icon::FileText, "Snippets", "text expansion insert templates signature"),
@@ -169,6 +172,9 @@ struct Snapshot {
     chromium_closed: Option<&'static str>,
     profile: Option<Profile>,
     private: bool,
+    burner: bool,
+    ai_provider: browser_core::assistant::settings::Provider,
+    ollama_model: String,
     overrides: Vec<(String, ShieldLevel)>,
     zooms: Vec<(String, f64)>,
     muted: Vec<String>,
@@ -217,6 +223,7 @@ pub struct SettingsWindow {
     appearance: appearance::Pane,
     snippets: snippets::Pane,
     notes: notes::Pane,
+    ai: ai::Pane,
     _inputs: [Subscription; 2],
     _observe: Option<Subscription>,
     _activation: Subscription,
@@ -292,6 +299,7 @@ impl SettingsWindow {
                     appearance: appearance::Pane::new(cx),
                     snippets: snippets::Pane::new(cx),
                     notes: notes::Pane::new(cx),
+                    ai: ai::Pane::new(cx),
                     _inputs: inputs,
                     _observe: observe,
                     _activation: activation,
@@ -360,6 +368,9 @@ impl SettingsWindow {
             chromium_closed: b.chromium_closed(),
             profile: b.current_profile(),
             private: b.model.current_space().is_some_and(|s| s.private),
+            burner: b.model.burner_shown(),
+            ai_provider: browser_core::assistant::settings::provider(&b.core.disk),
+            ollama_model: if self.pane == SettingsPane::Ai { browser_core::assistant::settings::ollama_model(&b.core.disk) } else { String::new() },
             overrides: if matches!(self.pane, SettingsPane::Privacy | SettingsPane::Profile) { b.site_overrides() } else { Vec::new() },
             zooms: if self.pane == SettingsPane::Privacy { b.site_zooms() } else { Vec::new() },
             muted: if self.pane == SettingsPane::Privacy { b.muted_sites() } else { Vec::new() },
@@ -773,6 +784,7 @@ impl Render for SettingsWindow {
             (SettingsPane::Snippets, Some(s)) => self.snippets(&s, window, cx),
             (SettingsPane::Notes, Some(s)) => self.notes(&s, window, cx),
             (SettingsPane::Shortcuts, Some(_)) => self.shortcuts(cx),
+            (SettingsPane::Ai, Some(s)) => self.ai(&s, window, cx),
         };
         let name = PANES.iter().find(|(p, ..)| *p == current).map_or("", |(_, _, t, _)| *t);
 

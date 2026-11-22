@@ -585,7 +585,12 @@ impl Browser {
             }
         };
         let sort = browser_core::cleanup::plan(&tabs, &groups, |t| self.tab_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone()));
-        let applied = if sort.changed { browser_core::cleanup::apply(self.store(private), space_id, &sort).map(Some) } else { Ok(None) };
+        self.apply_sort(private, space_id, &sort, archived, cx);
+    }
+
+    /// Applies a Clean Up sort, own or the assistant's, with Undo in the window and its toast.
+    pub(crate) fn apply_sort(&mut self, private: bool, space_id: Id, sort: &browser_core::cleanup::Sort, archived: usize, cx: &mut Context<Self>) {
+        let applied = if sort.changed { browser_core::cleanup::apply(self.store(private), space_id, sort).map(Some) } else { Ok(None) };
         if let Err(e) = &applied {
             eprintln!("tarn: Clean Up could not sort the tabs: {e}");
         }

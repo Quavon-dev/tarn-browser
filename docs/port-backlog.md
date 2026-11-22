@@ -21,6 +21,27 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Assistant, Settings › AI and Group Tabs with the Assistant (2026-11-22)
+
+What it does: a per-profile AI switch in Settings › AI with the provider (Claude API key in the
+platform secret store, or Ollama on this computer); a chat beside the page that lists what a send
+carries, streams the answer and opens links only after a confirmation; Ask and Ask About This Page
+in the command bar; a Clean Up entry that proposes groups and sorts only after the person agrees.
+Never in a private space, burner tab or Lockdown.
+Shared API: `browser_core::assistant::{Session, Origin, allowed, view, links, settings}`,
+`Session::send` with the page's effective Shield level, `Composed::{system, user_message}`,
+`palette::State::assistant`, `browser_core::cleanup::ai::{request, sort_from}`, `ai::grouping::parse`,
+`ai::secrets`, `ai::local::stream` for Ollama.
+Reference: `crates/app/src/assistant.rs`, `crates/app/src/settings/ai.rs`.
+
+- [x] Windows — same code in `crates/app`; built only on macOS so far, CI builds Windows
+- [ ] Linux — a side panel and a Settings › AI page in `linux/src/ui`, `palette::State::assistant`
+  in `linux/src/ui/tools.rs`, Secret Service through `ai::secrets::Keyring`
+- [ ] iOS — a sheet for the chat and a Settings › AI pane in `mobile/app`, Keychain token
+- [ ] Android — the same in `mobile/app`, token through `tarn_mobile_android::Keystore`
+- [ ] Selection pill (`Pill::Selection`) and Tab pills on every client, macOS included; chat links
+  reachable by keyboard on macOS and Windows
+
 ### Insert Snippet in the page's context menu (2026-11-22)
 
 What it does: right-clicking (long-pressing) a text field on a page offers Insert Snippet…, which

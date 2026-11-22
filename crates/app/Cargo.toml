@@ -20,6 +20,7 @@ translation = ["engine/translation"]
 foundation-models = ["engine/foundation-models"]
 
 [dependencies]
+ai = { path = "../ai" }
 devkit.workspace = true
 platform.workspace = true
 browser-core.workspace = true

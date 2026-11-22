@@ -20,7 +20,7 @@ pub(crate) enum Keys {
     Fixed(&'static str),
 }
 
-pub(crate) const FIXED: [(Shortcut, &str, &str); 10] = [
+pub(crate) const FIXED: [(Shortcut, &str, &str); 11] = [
     (Shortcut::CloseAllTabs, "Select tab 1–8", "⌘1 ⌘2 ⌘3 ⌘4 ⌘5 ⌘6 ⌘7 ⌘8"),
     (Shortcut::PreviousTab, "Next or previous tab, other keys", "⌘} ⌘{ ⌥⌘→ ⌥⌘←"),
     (Shortcut::ZoomIn, "Zoom in, other key", "⌘+"),
@@ -29,6 +29,7 @@ pub(crate) const FIXED: [(Shortcut, &str, &str); 10] = [
     (Shortcut::ToggleShortcuts, "Open the menu", "F10"),
     (Shortcut::ToggleShortcuts, "Move between page, address field and sidebar", "F6  ⇧F6"),
     (Shortcut::ToggleShortcuts, "Close command bar, overlay, popover or link peek", "Esc"),
+    (Shortcut::ToggleShortcuts, "Open or close the assistant", "⇧Esc"),
     (Shortcut::ToggleShortcuts, "Undo / Redo", "⌘Z  ⇧⌘Z"),
     (Shortcut::ToggleShortcuts, "Quit", "⌘Q"),
 ];

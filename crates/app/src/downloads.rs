@@ -96,7 +96,7 @@ fn transfer_subtitle(t: &Transfer) -> String {
     if t.paused { format!("Paused · {size}") } else { size }
 }
 
-fn bytes(n: u64) -> String {
+pub(crate) fn bytes(n: u64) -> String {
     match n {
         0..1_000 => format!("{n} bytes"),
         1_000..1_000_000 => format!("{:.0} KB", n as f64 / 1e3),

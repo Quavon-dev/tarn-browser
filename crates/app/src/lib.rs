@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod address;
+mod assistant;
 mod blocking;
 mod browser;
 mod capture;
@@ -176,7 +177,9 @@ pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<
         C::KeyboardShortcuts => &shortcuts::ToggleShortcuts,
         C::ManageBookmarks => &menubar::ManageBookmarks,
         C::ImportBrowserData => &menubar::ImportBrowserData,
-        C::ReadingList | C::Archived | C::Ask | C::AskPage => return None,
+        C::Ask => &assistant::Ask,
+        C::AskPage => &assistant::AskPage,
+        C::ReadingList | C::Archived => return None,
     })
 }
 
@@ -335,7 +338,7 @@ impl Browser {
         }
         indexed_actions!(select_tab: Tab1 => 1, Tab2 => 2, Tab3 => 3, Tab4 => 4, Tab5 => 5, Tab6 => 6, Tab7 => 7, Tab8 => 8, LastTab => 9);
         indexed_actions!(cycle_tab: NextTab => true, PreviousTab => false);
-        root = menubar::listen(root, self, cx);
+        root = assistant::listen(menubar::listen(root, self, cx), cx);
         root = tabs::listen(root, cx);
         let page = self.model.active.is_some();
         root = toast::listen(root.when(page, |r| qr::listen(reader::listen(r, cx), cx)), cx);
@@ -421,6 +424,7 @@ impl Browser {
                     .when(self.tab_placement == TabPlacement::Top, |d| d.child(tab_strip::render(self, cx)))
                     .child(timed("content", || content::render(self, window, cx))),
             )
+            .children(assistant::render(self, window, cx))
             .into_any_element()
     }
 }
@@ -446,6 +450,7 @@ pub(crate) fn bind_keys(cx: &mut App, keymap: &[(String, &'static dyn gpui::Acti
         KeyBinding::new(&shortcuts::platform("alt-cmd-right"), NextTab, None),
         KeyBinding::new(&shortcuts::platform("alt-cmd-left"), PreviousTab, None),
         KeyBinding::new("escape", CloseOverlay, Some("Browser")),
+        KeyBinding::new("shift-escape", assistant::ToggleAssistant, Some("Browser")),
         KeyBinding::new("escape", CloseOverlay, Some("Settings")),
         KeyBinding::new("f6", FocusNextRegion, Some("Browser")),
         KeyBinding::new("shift-f6", FocusPreviousRegion, Some("Browser")),

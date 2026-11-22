@@ -1086,6 +1086,14 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                         }),
                     ))
                 })
+                .when(cleanable && b.assistant_origin().is_some_and(|(o, on)| on && browser_core::assistant::allowed(o)), |d| {
+                    d.child(icon_button("clean-up-assistant", Icon::Sparkles, true).tooltip(tooltip("Group Tabs with the Assistant", None)).on_click(
+                        cx.listener(|b, _, w, cx| {
+                            cx.stop_propagation();
+                            b.group_tabs_with_assistant(w, cx);
+                        }),
+                    ))
+                })
                 .on_click(cx.listener(|b, _, window, cx| b.new_tab_page(window, cx))),
         )
         .children(b.model.groups.iter().enumerate().map(|(ix, g)| group_card(b, ix, g, cx)).collect::<Vec<_>>())

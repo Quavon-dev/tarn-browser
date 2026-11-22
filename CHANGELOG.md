@@ -8,6 +8,12 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Assistant on macOS and Windows, off until you turn it on per profile in Settings › AI: ⇧Esc or
+  the command bar's Ask and Ask About This Page open a chat column beside the page. It lists every
+  page it would send and its size, sends only when you press Send, to the Claude API or Ollama on
+  your own computer, and asks before opening any link in an answer. The sidebar's Group Tabs with
+  the Assistant proposes groups for loose web tabs and sorts them only after you agree; Undo takes
+  it back. Never in a private space, burner tab or Lockdown.
 - Notes: Settings › Notes keeps a profile's own notes on every client, with search, a title and
   text, edit and delete. They stay on the device, are never synced, go with the profile's export,
   Delete everything and deleting the profile, and a private space or burner tab writes none.

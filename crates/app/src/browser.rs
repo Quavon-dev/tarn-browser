@@ -129,6 +129,8 @@ pub(crate) enum Msg {
     Handover(TabKey, std::rc::Weak<WebView>, Option<engine::handover::Storage>),
     /// A page's article (`probe`: whether it has one), for the reader.
     Article(TabKey, Url, bool, String),
+    /// The active page's text for the assistant: who asked, its address, title and text.
+    AssistantPage(browser_core::assistant::Origin, String, String, String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -386,6 +388,7 @@ pub struct Browser {
     /// The button the next menu drops from; without one it opens at the pointer.
     pub(crate) menu_at: Option<Bounds<Pixels>>,
     pub(crate) link_peek: crate::link_peek::LinkPeek,
+    pub(crate) assistant: crate::assistant::Assistant,
     pub(crate) splits: browser_core::split::Splits<TabKey>,
     pub(crate) split_shown: crate::split::Shown,
     /// The row a dragged tab is over, when the drop would split with it what the drop does, and
@@ -443,6 +446,7 @@ impl Browser {
         let find_input = cx.new(|cx| TextInput::new("Find in page", cx));
         let prompt_subs = [&prompt_input, &auth_user, &auth_pass].map(|input| cx.subscribe_in(input, window, Self::on_prompt_input_event));
         let find_sub = cx.subscribe_in(&find_input, window, Self::on_find_event);
+        let assistant = crate::assistant::Assistant::new(window, cx);
         let (tx, mut rx) = mpsc::unbounded::<Msg>();
         let events_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(msg) = rx.next().await {
@@ -463,6 +467,7 @@ impl Browser {
                     Msg::Zap(key, page, selector) => b.zap_picked(key, page, selector, cx),
                     Msg::Article(key, url, probe, text) => b.on_article(key, url, probe, text, window, cx),
                     Msg::Peek(generation, event) => b.on_peek_event(generation, event, cx),
+                    Msg::AssistantPage(origin, url, title, text) => b.add_pill(origin, browser_core::assistant::Pill::Page { url, title, text }, cx),
                     Msg::Handover(key, old, storage) => {
                         let current = b.views.get(&key).is_some_and(|v| old.upgrade().is_some_and(|o| Rc::ptr_eq(v, &o)));
                         if let (true, Some(url)) = (current, b.tab_url(key).and_then(|u| Url::parse(&u).ok())) {
@@ -590,6 +595,7 @@ impl Browser {
             app_menu_anchor: Default::default(),
             menu_at: None,
             link_peek: Default::default(),
+            assistant,
             splits: Default::default(),
             split_shown: Default::default(),
             split_drop: None,
@@ -1725,6 +1731,7 @@ impl Browser {
             toast: self.toast_command(),
             reader: Some(self.reader_shown()),
             developer: self.devtools_on(),
+            assistant: self.assistant_allowed(),
             ..Default::default()
         };
         let zappable = site.as_ref().is_some_and(|(k, u)| self.zappable(*k, u));
@@ -3297,8 +3304,10 @@ impl Browser {
         crate::shared::others(cx, |b, _, cx| {
             b.forget_history(private, profile_id);
             b.toast.forget(target);
+            b.forget_assistant(profile_id);
             cx.notify();
         });
+        self.forget_assistant(profile_id);
         for key in keys {
             self.hibernate(key, cx);
         }
