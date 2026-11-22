@@ -61,7 +61,7 @@ impl Browser {
         }
         match element_area(rect, page) {
             Some(area) => self.screenshot(key, area_args(area)),
-            None => self.show_toast("Nothing of that element is on screen", None),
+            None => self.show_toast(browser_core::capture::OFF_SCREEN, None),
         }
     }
 

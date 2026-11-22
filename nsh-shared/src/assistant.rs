@@ -26,13 +26,11 @@ use crate::controls::{accent_pill, empty_state, group, icon_button, label, pill,
 use crate::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 pub const ABOUT: &str = "The assistant answers questions in a chat beside the page. It is off until you turn it on for this profile, and it never works in a private space, a burner tab or on a Lockdown page.";
-pub const SENT: &str = "Nothing is sent until you press Send or a command. A send carries your question, the earlier turns of this chat and only what you attached: a page (its address without query or fragment, its title and text) or a note. Group with Assistant in Clean Up sends the id, site and title of loose tabs, only when you press it.";
+pub use browser_core::assistant::{NOT_CONNECTED, NOT_HERE, SENT};
 pub const CLAUDE: &str =
     "Claude API sends each request over HTTPS to Anthropic (api.anthropic.com) with your API key; Anthropic's terms apply to what it receives.";
 pub const OLLAMA: &str = "Ollama answers on this computer: requests go to 127.0.0.1 and never leave the device. Models that run in Ollama's cloud are refused.";
 pub const OFF: &str = "Turn on the assistant for this profile in Settings › AI.";
-pub const NOT_CONNECTED: &str = "Connect a Claude API key in Settings › AI first.";
-pub const NOT_HERE: &str = "The assistant is not available in a private space, a burner tab or on a Lockdown page.";
 const FRAME: Duration = Duration::from_millis(33);
 
 /// What a client brings: its secret store, its transport and whether Ollama on loopback works.

@@ -17,6 +17,13 @@ const TAG: &str = "tarn-block";
 
 pub const ASK: &str = "{question}";
 
+/// What a send carries, as every client says it in Settings and the chat.
+pub const SENT: &str = "Nothing is sent until you press Send or a command. A send carries your question, the earlier turns of this chat and only what you attached: a page (its address without query or fragment, its title and text) or a note. Group with Assistant in Clean Up sends the id, site and title of loose tabs, only when you press it.";
+/// Why the assistant does not open in a private space, a burner tab or on a Lockdown page.
+pub const NOT_HERE: &str = "The assistant is not available in a private space, a burner tab or on a Lockdown page.";
+/// Why a send to the Claude API stopped before anything was sent.
+pub const NOT_CONNECTED: &str = "Connect a Claude API key in Settings › AI first.";
+
 /// A send through a command rather than a typed question; a local model answers it when one is available.
 pub fn on_device_task(template: &str) -> bool {
     template != ASK
@@ -237,6 +244,11 @@ impl Session {
 
     pub fn profile(&self) -> Id {
         self.profile
+    }
+
+    /// Whether `pill` is attached, so a command over it may be sent.
+    pub fn holds(&self, pill: &Pill) -> bool {
+        self.pills.iter().any(|a| a.pill == *pill)
     }
 
     pub fn apply(&mut self, event: Event) -> Vec<Effect> {
@@ -1168,6 +1180,16 @@ mod tests {
         let mut s = session();
         s.apply(Event::AddPill(ME, sel("teh cat")));
         assert_eq!(compose(&s, &all[3].1, "").question, "Fix the spelling and grammar of Selection 1 and change nothing else.");
+    }
+
+    #[test]
+    fn a_refused_selection_is_not_held() {
+        let mut s = session();
+        let chosen = selection("https://a.test/p", "words").unwrap();
+        s.apply(Event::AddPill(Origin { level: ShieldLevel::Lockdown, ..ME }, chosen.clone()));
+        assert!(!s.holds(&chosen));
+        s.apply(Event::AddPill(ME, chosen.clone()));
+        assert!(s.holds(&chosen));
     }
 
     #[test]

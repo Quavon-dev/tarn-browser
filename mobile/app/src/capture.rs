@@ -76,7 +76,7 @@ impl<D: Platform> Shell<D> {
         match element_area(&rect, page) {
             Some(area) => self.screenshot(key, area_args(area)),
             None => {
-                self.notice = Some("Nothing of that element is on screen.".into());
+                self.notice = Some(browser_core::capture::OFF_SCREEN.into());
                 Vec::new()
             }
         }

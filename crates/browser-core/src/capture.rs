@@ -33,6 +33,8 @@ pub fn saved_note(copied: bool) -> &'static str {
 
 /// The notice for Capture Element on a Lockdown page, where the picker cannot run.
 pub const NO_PICKER: &str = "Capture Element needs Tarn's picker, which Lockdown turns off";
+/// The notice when the picked element has no part inside the page's visible area.
+pub const OFF_SCREEN: &str = "Nothing of that element is on screen";
 /// What every client says while the user drags out an area or picks an element.
 pub const AREA_HINT: &str = "Drag over the area to capture. Esc cancels.";
 pub const ELEMENT_HINT: &str = "Click the element to capture. Esc cancels.";
