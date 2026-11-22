@@ -1,3 +1,4 @@
+use nsh_core::{KeyboardTaps, MountItem};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::{DialogAnswer, Headless, WAIT};
 
@@ -28,7 +29,8 @@ fn phone_snippets_assistant_tabs_capture_and_density() {
     let passes = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let seen = passes.clone();
     app.observe(move |_, batch| {
-        if format!("{batch:?}").contains("keyboard_taps: Handled") {
+        let handled = |item: &MountItem| matches!(item, MountItem::ScrollBehavior { behavior, .. } if behavior.keyboard_taps == KeyboardTaps::Handled);
+        if batch.items.iter().any(handled) {
             seen.store(true, std::sync::atomic::Ordering::Relaxed);
         }
     });

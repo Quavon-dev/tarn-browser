@@ -159,9 +159,11 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.press_key("mod+l").unwrap();
     app.wait_for("id:palette-field").unwrap();
     app.clear("id:palette-field").unwrap();
+    let tabs = app.screen().count("id:tab").unwrap();
     app.type_text("id:palette-field", "view-source:https://a.test").unwrap();
     app.submit("id:palette-field").unwrap();
-    assert!(app.screen().matches("id:palette-field").unwrap(), "an address Tarn cannot open shakes the field and opens nothing");
+    assert!(app.wait_for_gone("id:palette-field", std::time::Duration::from_millis(500)).is_err(), "an address Tarn cannot open shakes the field");
+    assert_eq!(app.screen().count("id:tab").unwrap(), tabs, "and opens nothing");
     assert!(!app.screen().shows(browser_core::palette::INVALID_ADDRESS));
     app.set_environment("reduce motion", |e| e.reduce_motion = true).unwrap();
     app.submit("id:palette-field").unwrap();
