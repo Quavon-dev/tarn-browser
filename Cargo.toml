@@ -24,7 +24,7 @@ ui = { path = "crates/ui" }
 devkit = { path = "crates/devkit" }
 block2 = "=0.6.2"
 rusqlite = { version = "=0.42.0", features = ["bundled"] }
-url = "=2.5.8"
+url = "=2.5.9"
 tempfile = "3"
 
 [workspace.lints.rust]

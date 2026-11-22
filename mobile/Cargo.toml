@@ -25,7 +25,7 @@ nsh-engine = "=0.5.0"
 nsh-testing = "=0.5.0"
 nsh-platform-ios = { version = "=0.5.0", default-features = false }
 serde_json = "1"
-url = "=2.5.8"
+url = "=2.5.9"
 uuid = { version = "1", features = ["v4"] }
 tempfile = "3"
 
