@@ -119,6 +119,7 @@ pub struct Shell<D: Platform> {
     pub wide: bool,
     pub layout: browser_core::layout::Layout,
     pub sidebar_open: bool,
+    pub tab_placement: browser_core::layout::TabPlacement,
     pub pages: HashMap<TabKey, Page>,
     pub prompts: Vec<PromptRequest>,
     pub external: Option<(TabKey, String)>,
@@ -172,6 +173,7 @@ impl<D: Platform> Shell<D> {
         let themes = crate::themes::Themes::open(&core.disk, dir);
         let layout = browser_core::layout::Layout::load(&core.disk);
         let sidebar_open = browser_core::layout::sidebar_open(&core.disk);
+        let tab_placement = browser_core::layout::TabPlacement::load(&core.disk);
         let opened = dir.join("Opened");
         browser_core::open_file::clear(&opened);
         let mut shell = Shell {
@@ -181,6 +183,7 @@ impl<D: Platform> Shell<D> {
             wide: false,
             layout,
             sidebar_open,
+            tab_placement,
             pages: HashMap::new(),
             prompts: Vec::new(),
             external: None,

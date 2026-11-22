@@ -201,6 +201,7 @@ pub(crate) fn gpui_action(action: Shortcut) -> Option<&'static dyn Action> {
         S::NewWindow => &crate::NewWindow,
         S::CloseWindow => &crate::CloseWindow,
         S::ToggleSidebar => &crate::ToggleSidebar,
+        S::ToggleTabsOnTop => &crate::ToggleTabsOnTop,
         S::NewSpace => &crate::NewSpace,
         S::PrivateSpace => &crate::PrivateSpace,
         S::BurnerTab => &crate::BurnerTab,

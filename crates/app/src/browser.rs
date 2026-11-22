@@ -266,6 +266,7 @@ pub struct Browser {
     #[cfg(feature = "translation")]
     pub(crate) translation_offered: HashSet<(bool, Id, String)>,
     pub sidebar_open: bool,
+    pub(crate) tab_placement: browser_core::layout::TabPlacement,
     pub sidebar_width: f32,
     pub(crate) toast: crate::toast::Toasts,
     pub(crate) link_status: crate::link_status::LinkStatus,
@@ -469,7 +470,8 @@ impl Browser {
             }
         });
         let live_tabs = crate::prefs::live_tabs(disk);
-        let sidebar_open = crate::prefs::sidebar_open(disk);
+        let tab_placement = browser_core::layout::TabPlacement::load(disk);
+        let sidebar_open = crate::prefs::sidebar_open(disk) && tab_placement == browser_core::layout::TabPlacement::Side;
         let sidebar_width = crate::prefs::sidebar_width(disk);
         let mut browser = Browser {
             core,
@@ -489,6 +491,7 @@ impl Browser {
             #[cfg(feature = "translation")]
             translation_offered: HashSet::new(),
             sidebar_open,
+            tab_placement,
             sidebar_width,
             toast: Default::default(),
             link_status: Default::default(),
@@ -2947,7 +2950,20 @@ impl Browser {
     }
 
     pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        if self.tab_placement == browser_core::layout::TabPlacement::Top {
+            return self.toggle_tabs_on_top(cx);
+        }
         self.set_sidebar_open(!self.sidebar_open, cx);
+    }
+
+    /// Tabs on top hide this window's sidebar without forgetting whether it was open.
+    pub fn toggle_tabs_on_top(&mut self, cx: &mut Context<Self>) {
+        self.tab_placement = self.tab_placement.toggled(&self.core.disk);
+        let open = self.tab_placement == browser_core::layout::TabPlacement::Side && crate::prefs::sidebar_open(&self.core.disk);
+        self.slide_sidebar(open);
+        self.close_peek(cx);
+        self.hide_hover_card(cx);
+        cx.notify();
     }
 
     pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {

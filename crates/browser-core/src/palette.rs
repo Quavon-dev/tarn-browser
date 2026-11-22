@@ -44,6 +44,7 @@ pub enum Command {
     ReopenClosedTab,
     ToastAction,
     ToggleSidebar,
+    TabsOnTop,
     AutoHideSidebar,
     CompactToolbar,
     CloseAllTabs,
@@ -98,7 +99,7 @@ pub enum Command {
     AskPage,
 }
 
-pub const COMMANDS: [(&str, &str, Command); 67] = [
+pub const COMMANDS: [(&str, &str, Command); 68] = [
     ("Settings", "preferences options", Command::Settings),
     ("Open File\u{2026}", "local disk html pdf image text document view", Command::OpenFile),
     ("New Tab Group", "group", Command::NewGroup),
@@ -114,6 +115,7 @@ pub const COMMANDS: [(&str, &str, Command); 67] = [
     ("Reopen Closed Tab", "undo restore", Command::ReopenClosedTab),
     ("Notification Action", "toast undo reveal restart", Command::ToastAction),
     ("Toggle Sidebar", "show hide", Command::ToggleSidebar),
+    ("Tabs on Top", "layout strip horizontal sidebar", Command::TabsOnTop),
     ("Auto-Hide Sidebar", "floating", Command::AutoHideSidebar),
     ("Compact Toolbar", "toggle address", Command::CompactToolbar),
     ("Close All Tabs", "clear", Command::CloseAllTabs),

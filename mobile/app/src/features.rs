@@ -519,7 +519,20 @@ impl<D: Platform> Shell<D> {
         Vec::new()
     }
 
+    pub fn tabs_on_top(&self) -> bool {
+        self.tab_placement == browser_core::layout::TabPlacement::Top
+    }
+
+    /// Tabs on top hide the sidebar of the Mac layout; back at the side it shows as it was.
+    pub fn toggle_tabs_on_top(&mut self) {
+        self.tab_placement = self.tab_placement.toggled(&self.core.disk);
+        browser_core::prompts::restart(&mut self.transfers_moved, std::time::Instant::now() + tarn_nsh_shared::motion::SLIDE);
+    }
+
     pub fn toggle_sidebar(&mut self) {
+        if self.tabs_on_top() {
+            return self.toggle_tabs_on_top();
+        }
         self.sidebar_open = !self.sidebar_open;
         // The downloads pop-over hangs from the sidebar, so the slide moves its Keep button.
         browser_core::prompts::restart(&mut self.transfers_moved, std::time::Instant::now() + tarn_nsh_shared::motion::SLIDE);

@@ -131,6 +131,7 @@ pub struct Browser {
     pub pages: HashMap<TabKey, Page>,
     pub outbox: Vec<(TabKey, &'static str, Value)>,
     pub hang: engine::lifecycle::Hang<TabKey>,
+    pub tab_placement: browser_core::layout::TabPlacement,
     pub notice: Option<Notice>,
     pub downloads: Vec<DownloadItem>,
     pub toast: Option<Toast>,
@@ -213,6 +214,7 @@ impl Browser {
     }
 
     pub fn new(core: Rc<Core<Data>>, window: SavedWindow, torn: Option<Torn>, elsewhere: HashSet<TabKey>, themes: themes::Themes) -> Browser {
+        let tab_placement = browser_core::layout::TabPlacement::load(&core.disk);
         let mut model = Model::new(browser_core::settings::live_tabs(&core.disk));
         model.reload_spaces(&core);
         let mut browser = Browser {
@@ -221,6 +223,7 @@ impl Browser {
             pages: HashMap::new(),
             outbox: Vec::new(),
             hang: Default::default(),
+            tab_placement,
             notice: None,
             downloads: Vec::new(),
             toast: None,
@@ -877,6 +880,14 @@ impl Browser {
 
     pub fn compact_toolbar(&self) -> bool {
         !self.setting_off(COMPACT_TOOLBAR)
+    }
+
+    pub fn tabs_on_top(&self) -> bool {
+        self.tab_placement == browser_core::layout::TabPlacement::Top
+    }
+
+    pub fn toggle_tabs_on_top(&mut self) {
+        self.tab_placement = self.tab_placement.toggled(&self.core.disk);
     }
 
     pub fn auto_hide_sidebar(&self) -> bool {

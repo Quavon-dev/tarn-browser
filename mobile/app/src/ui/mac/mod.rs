@@ -35,12 +35,13 @@ pub(super) fn frame<T: IntoElements, B: IntoElements>(
         .flex_1()
         .relative()
         .child(
-            view().flex_1().flex_row().child(when(move || mac() && ui.read_data(|s| s.sidebar_open), move || sidebar::sidebar(ui))).child(
+            view().flex_1().flex_row().child(when(move || mac() && ui.read_data(|s| s.sidebar_open && !s.tabs_on_top()), move || sidebar::sidebar(ui))).child(
                 view()
                     .flex_1()
                     .relative()
                     .child(when(move || !mac(), touch_top))
                     .child(when(mac, move || toolbar::toolbar(ui)))
+                    .child(when(move || mac() && ui.read_data(|s| s.tabs_on_top()), move || sidebar::strip(ui)))
                     .child(content)
                     .child(when(move || !mac(), touch_bottom))
                     .child(when(mac, move || toolbar::palette(ui))),

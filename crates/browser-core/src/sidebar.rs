@@ -90,6 +90,30 @@ pub fn sidebar(model: &Model, splits: &Splits<TabKey>) -> Sidebar {
     Sidebar { tiles, pinned, groups, loose }
 }
 
+/// The tab strip of a window with tabs on top (`layout::TabPlacement::Top`): the pinned tabs as
+/// icons, then the other tabs, in the sidebar's order.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Strip {
+    pub pinned: Vec<TabKey>,
+    pub tabs: Vec<TabKey>,
+}
+
+pub fn strip(model: &Model) -> Strip {
+    let bar = sidebar(model, &Splits::default());
+    let keys = |rows: &[Row]| -> Vec<TabKey> {
+        rows.iter()
+            .flat_map(|r| match &r.kind {
+                RowKind::Tab(key) => vec![*key],
+                RowKind::Split(keys) => keys.clone(),
+                RowKind::Folder(_) => Vec::new(),
+            })
+            .collect()
+    };
+    let pinned = bar.tiles.iter().copied().chain(bar.pinned.iter().flat_map(|block| keys(block))).collect();
+    let tabs = bar.groups.iter().flat_map(|(_, rows)| keys(rows)).chain(keys(&bar.loose)).collect();
+    Strip { pinned, tabs }
+}
+
 pub fn cleanable(model: &Model) -> bool {
     !model.burner_shown() && crate::cleanup::cleanable(&model.tabs)
 }
@@ -438,6 +462,18 @@ mod tests {
         let t = core.disk.create_tab(s, kind, folder, "https://a.test/", "").unwrap();
         model.reload_space(core);
         model.key(&t)
+    }
+
+    #[test]
+    fn the_strip_lists_pinned_tabs_then_the_others_in_sidebar_order() {
+        let (_dir, core, mut model) = opened();
+        let tile = tab(&core, &mut model, TabKind::Tile, None);
+        let pinned = tab(&core, &mut model, TabKind::Pinned, None);
+        let (a, b) = (tab(&core, &mut model, TabKind::Ephemeral, None), tab(&core, &mut model, TabKind::Ephemeral, None));
+        let shown = strip(&model);
+        assert_eq!(shown.pinned, [tile, pinned]);
+        assert_eq!(shown.tabs, model.ephemeral_keys());
+        assert!(shown.tabs.contains(&a) && shown.tabs.contains(&b));
     }
 
     #[test]

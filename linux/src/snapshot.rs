@@ -131,6 +131,9 @@ pub struct Snapshot {
     pub secure: bool,
     pub private: bool,
     pub rows: Vec<Row>,
+    /// Tabs on top: the strip's tabs, pinned ones first (`browser_core::sidebar::strip`); empty at the side.
+    pub strip: Vec<Row>,
+    pub tabs_top: bool,
     /// The tile grid above the pinned tabs.
     pub tiles: Vec<Row>,
     pub views: Vec<ViewItem>,
@@ -222,34 +225,48 @@ fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows
     }
 }
 
+fn strip_rows(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
+    if !b.tabs_on_top() {
+        return Vec::new();
+    }
+    let strip = browser_core::sidebar::strip(&b.model);
+    let muted = b.muted_sites();
+    let row = |k: &TabKey, pinned: bool| Some(Row { pinned, ..tab_row(b, heavy, b.model.tab(*k)?, 0, &muted) });
+    strip.pinned.iter().filter_map(|k| row(k, true)).chain(strip.tabs.iter().filter_map(|k| row(k, false))).collect()
+}
+
 fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows: &mut Vec<Row>) {
     let mut tabs: Vec<&Tab> =
         b.model.tabs.iter().filter(|t| t.folder_id == zone.folder && t.group_id == zone.group && zone.kind.is_none_or(|k| t.kind == k)).collect();
     tabs.sort_by_key(|t| t.position);
     let muted = if tabs.is_empty() { Vec::new() } else { b.muted_sites() };
     for tab in tabs {
-        let key = b.model.key(tab);
-        let url = b.pages.get(&key).map(|p| p.url.as_str()).filter(|u| !u.is_empty()).unwrap_or(&tab.url);
-        let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
-        rows.push(Row {
-            kind: RowKind::Tab(key),
-            label: tab_label(tab, b, key),
-            icon: String::new(),
-            burner: b.model.burner_shown(),
-            heavy: heavy.contains(&key),
-            asleep: b.model.active != Some(key) && !b.elsewhere.contains(&key) && !b.model.lifecycle.live().any(|k| k == key),
-            loading: b.pages.get(&key).is_some_and(|p| p.loading),
-            playing: b.playing.contains(&key),
-            muted: b.muted_with(key, &muted),
-            split: b.splits.contains(key).then(|| b.in_split(key)),
-            host,
-            depth,
-            active: b.model.active == Some(key),
-            pinned: tab.kind == TabKind::Pinned,
-            open: false,
-            panes: Vec::new(),
-            color: 0,
-        });
+        rows.push(tab_row(b, heavy, tab, depth, &muted));
+    }
+}
+
+fn tab_row(b: &Browser, heavy: &HashSet<TabKey>, tab: &Tab, depth: usize, muted: &[String]) -> Row {
+    let key = b.model.key(tab);
+    let url = b.pages.get(&key).map(|p| p.url.as_str()).filter(|u| !u.is_empty()).unwrap_or(&tab.url);
+    let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+    Row {
+        kind: RowKind::Tab(key),
+        label: tab_label(tab, b, key),
+        icon: String::new(),
+        burner: b.model.burner_shown(),
+        heavy: heavy.contains(&key),
+        asleep: b.model.active != Some(key) && !b.elsewhere.contains(&key) && !b.model.lifecycle.live().any(|k| k == key),
+        loading: b.pages.get(&key).is_some_and(|p| p.loading),
+        playing: b.playing.contains(&key),
+        muted: b.muted_with(key, muted),
+        split: b.splits.contains(key).then(|| b.in_split(key)),
+        host,
+        depth,
+        active: b.model.active == Some(key),
+        pinned: tab.kind == TabKind::Pinned,
+        open: false,
+        panes: Vec::new(),
+        color: 0,
     }
 }
 
@@ -455,6 +472,8 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         secure: !page.url.starts_with("http:"),
         private,
         rows: rows_with(b, &heavy),
+        strip: strip_rows(b, &heavy),
+        tabs_top: b.tabs_on_top(),
         tiles: tiles_with(b, &heavy),
         views: views(b, web_shown && !blank),
         split: split.filter(|_| web_shown).map(|s| split_view(b, s)),

@@ -1124,3 +1124,56 @@ pub(super) fn sidebar(ui: Ui) -> impl IntoElement {
         )
         .child(footer(ui))
 }
+
+/// Tabs on top: the pinned tabs as icons, then the others, in a strip under the toolbar.
+pub(super) fn strip(ui: Ui) -> impl IntoElement {
+    let strip = computed(move || ui.read(|s| bar::strip(&s.model)));
+    let chips = move || strip.with(|t| t.pinned.iter().map(|k| (*k, true)).chain(t.tabs.iter().map(|k| (*k, false))).collect::<Vec<_>>());
+    view()
+        .flex_row()
+        .items_center()
+        .gap(px(4.))
+        .px(px(MARGIN))
+        .pb(px(MARGIN))
+        .accessible(true)
+        .label("Tabs")
+        .child(each(chips, |(k, _)| *k, move |item, _| strip_chip(ui, item.get_untracked())))
+        .child(glyph_button(glyphs::PLUS, "New Tab", Placement::Bottom, move || bars::open_new_tab(ui)))
+}
+
+fn strip_chip(ui: Ui, (key, pinned): (TabKey, bool)) -> AnyElement {
+    let active = move || ui.read(|s| s.model.active == Some(key));
+    let title = move || SharedString::from(ui.read(|s| s.tab_title(key)));
+    let chip = pressable_view()
+        .test_id("strip-tab")
+        .label(title)
+        .on_press(move |_: &PressEvent| activate(ui, key))
+        .flex_row()
+        .items_center()
+        .h(move || px(Theme::tab_row()))
+        .gap(px(8.))
+        .rounded(px(Theme::radius_row()))
+        .bg(move || if active() { Theme::selected() } else { Theme::clear() })
+        .active(|s| s.bg(Theme::pressed()))
+        .border_1()
+        .border_color(move || if active() { Theme::surface_edge() } else { Theme::clear() })
+        .child(view().w(px(GLYPH)).h(px(GLYPH)).flex_none().items_center().justify_center().child(tab_icon(ui, key, GLYPH, 14.)));
+    if pinned {
+        return chip.w(move || px(Theme::tab_row() + 6.)).justify_center().into_element();
+    }
+    chip.flex_1()
+        .min_w(px(0.))
+        .max_w(px(200.))
+        .pl(px(ROW_INSET))
+        .pr(px(2.))
+        .child(
+            text(title)
+                .text_size(px(TEXT))
+                .text_color(move || if ui.read(|s| asleep(s, key)) && !active() { Theme::asleep() } else { Theme::text() })
+                .style_when(active, |s| s.font_weight(FontWeight::MEDIUM))
+                .flex_1()
+                .truncate(),
+        )
+        .child(glyph_button(glyphs::CLOSE, "Close Tab", Placement::Bottom, move || act(ui, |s| s.close_or_unload(key))))
+        .into_element()
+}

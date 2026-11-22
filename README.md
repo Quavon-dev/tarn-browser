@@ -293,6 +293,7 @@ Linux, Reader is <kbd>Ctrl+Alt+E</kbd>, since <kbd>Ctrl+Alt+R</kbd> rotates the 
 | ⇧⌘F | Find in tabs |
 | ⌘P | Print |
 | ⌘S | Show or hide the sidebar |
+| ⌥⇧⌘T | Tabs on top: a strip of tabs above the page in place of the sidebar, and back |
 | ⌘, | Settings window (Shield level, site overrides, history); ⌘W or Esc closes it |
 | ⌘= / ⌘- / ⌘0 | Zoom in / out / reset |
 | ⌃1 … ⌃9 | Switch space |

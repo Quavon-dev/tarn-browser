@@ -61,7 +61,10 @@ impl Browser {
 
     fn peek_enabled(&self) -> bool {
         let [library, downloads] = self.peek.owns;
-        !self.sidebar_open && (self.library.is_none() || library) && (!self.downloads_popover.is_open() || downloads)
+        !self.sidebar_open
+            && self.tab_placement == browser_core::layout::TabPlacement::Side
+            && (self.library.is_none() || library)
+            && (!self.downloads_popover.is_open() || downloads)
     }
 
     /// Pointer moves over the main window, including over the page, which GPUI never sees.

@@ -82,6 +82,7 @@ fn command_for(command: palette::Command) -> Option<Command> {
         C::ReopenClosedTab => Command::Key(Action::ReopenClosedTab),
         C::ToastAction => Command::ToastAction,
         C::ToggleSidebar => Command::Key(Action::ToggleSidebar),
+        C::TabsOnTop => Command::Key(Action::ToggleTabsOnTop),
         C::CloseAllTabs => Command::Key(Action::CloseAllTabs),
         C::SaveSnapshot => Command::SaveSnapshot,
         C::Snapshots => Command::Snapshots,

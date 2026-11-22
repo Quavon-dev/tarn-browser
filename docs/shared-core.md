@@ -328,6 +328,16 @@ rebuild the tab's view, Linux's component takes `reloadFresh`, which ends the vi
 (`webkit_web_view_terminate_web_process`) and reloads, and iOS and Android give the tab a new view
 (gaps in `docs/mobile-plan.md` and `docs/windows-plan.md`).
 
+**Tabs on top:** `browser_core::layout::TabPlacement` (`Side` or `Top`) is each window's own,
+toggled by `shortcuts::Action::ToggleTabsOnTop` (`mod+alt+shift+t`) and the command bar's
+`palette::Command::TabsOnTop`; `TabPlacement::toggled` stores the pick for new windows and `shown`
+keeps phones and the touch layout at the side. `browser_core::sidebar::strip` lists the strip:
+tiles and pinned tabs (as icons), then the other tabs in the sidebar's order. With tabs on top the
+sidebar hides without forgetting its own setting and no floating sidebar appears at the edge;
+ToggleSidebar brings the side back. macOS and Windows (`crates/app/src/tab_strip.rs`), Linux
+(`tab_strip` in `linux/src/ui.rs`, rows in `Snapshot::strip`) and the iPad Mac layout
+(`strip` in `mobile/app/src/ui/mac/sidebar.rs`) draw it under the toolbar.
+
 **Space switching:** `browser_core::sidebar::slide_start` says where the next space's list starts
 its spring, from where a running slide or drag stands, or `None` under Reduce Motion (macOS and
 Windows). The spring's damping is the named token `SPRING_DAMPING` in `crates/ui/src/motion.rs`,

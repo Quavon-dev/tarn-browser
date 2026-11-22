@@ -1406,7 +1406,76 @@ fn compact_address(ui: Ui) -> View {
     }))
 }
 
+/// Tabs on top hide this window's sidebar; back at the side it shows unless it hides automatically.
+fn toggle_tabs_on_top(ui: Ui) {
+    animate_next(SLIDE);
+    act(ui, Browser::toggle_tabs_on_top);
+    let (top, auto_hide) = read(ui, |b| (b.tabs_on_top(), b.auto_hide_sidebar())).unwrap_or_default();
+    ui.sidebar.set(!top && !auto_hide);
+    act(ui, |b| b.sidebar_moved(slide_time()));
+    peek::close(ui);
+    peek::hide(ui);
+}
+
+fn tab_strip(ui: Ui) -> View {
+    view()
+        .flex_row()
+        .items_center()
+        .gap(px(4.))
+        .pb(px(8.))
+        .min_w(px(0.))
+        .accessible(true)
+        .label("Tabs")
+        .child(each(move || ui.snap.with(|s| s.strip.clone()), snapshot::Row::id, move |item, _| strip_tab(ui, item)))
+        .child(icon_button(icons::PLUS, "New tab", move || new_tab(ui)))
+}
+
+fn strip_tab(ui: Ui, item: ReadSignal<snapshot::Row>) -> AnyElement {
+    let RowKind::Tab(key) = item.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
+    let pinned = item.with_untracked(|r| r.pinned);
+    let name = move || item.with(|r| r.label.clone());
+    let active = move || item.with(|r| r.active);
+    let chip = row(move || Some(SharedString::from(name())), move || act(ui, |b| b.activate(key)))
+        .h(move || px(Theme::tab_row()))
+        .gap_2()
+        .bg(move || if active() { Theme::selected() } else { rgba(0) })
+        .border_1()
+        .border_color(move || if active() { Theme::surface_edge() } else { Theme::clear() })
+        .child(dynamic(move || {
+            let (host, asleep) = item.with(|r| (r.host.clone(), r.asleep));
+            site_tile(ui, &host, 16.).opacity(if asleep { 0.4_f32 } else { 1. })
+        }));
+    let chip = if pinned {
+        chip.w(px(Theme::tab_row() + 6.)).px_0().justify_center()
+    } else {
+        chip.flex_1()
+            .min_w(px(0.))
+            .max_w(px(200.))
+            .pl_2()
+            .pr_1()
+            .child(
+                body(name)
+                    .text_color(move || if item.with(|r| r.asleep && !r.active) { Theme::asleep() } else { Theme::text() })
+                    .style_when(active, |s| s.font_weight(FontWeight::MEDIUM))
+                    .flex_1()
+                    .truncate(),
+            )
+            .child(icon_button(icons::CLOSE, "Close tab", move || {
+                animate_next(POP);
+                act(ui, |b| b.close_tab(key));
+            }))
+    };
+    view()
+        .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
+        .style_when(move || !pinned, |s| s.flex_1().min_w(px(0.)).max_w(px(200.)))
+        .child(chip)
+        .into_element()
+}
+
 fn toggle_sidebar(ui: Ui) {
+    if read(ui, Browser::tabs_on_top) == Some(true) {
+        return toggle_tabs_on_top(ui);
+    }
     animate_next(SLIDE);
     ui.sidebar.update(|o| *o = !*o);
     act(ui, |b| b.sidebar_moved(slide_time()));
@@ -2204,6 +2273,7 @@ fn run_action(ui: Ui, action: Action) {
         Action::ShowHistory => show(ui, Panel::History),
         Action::ToggleDownloads => show(ui, Panel::Downloads),
         Action::ToggleSidebar => toggle_sidebar(ui),
+        Action::ToggleTabsOnTop => toggle_tabs_on_top(ui),
         Action::NewSpace => show(ui, Panel::NewSpace),
         Action::PrivateSpace => act(ui, |b| b.private_space()),
         Action::Settings => show(ui, Panel::Settings),
@@ -2506,7 +2576,7 @@ fn new_ui(row: SavedWindow, torn: Option<browser_core::tabs::Torn>) -> Ui {
         .unwrap_or_else(|| crate::browser::themes::Themes::open(&core.disk, &crate::data::root().join("filters")));
     let mut browser = Browser::new(core, row, torn, elsewhere, themes);
     browser.downloads = BROWSERS.with_borrow(|windows| windows.values().next().map(|b| b.downloads.clone())).unwrap_or_default();
-    let auto_hide = browser.auto_hide_sidebar();
+    let auto_hide = browser.auto_hide_sidebar() || browser.tabs_on_top();
     BROWSERS.with_borrow_mut(|windows| windows.insert(window, browser));
     let ui = Ui {
         window,
@@ -2711,6 +2781,7 @@ fn browser_window(ui: Ui) -> AnyElement {
                 .flex_col()
                 .flex_1()
                 .child(when(move || !full.get(), move || toolbar(ui)))
+                .child(when(move || !full.get() && ui.snap.with(|s| s.tabs_top), move || themed(move || tab_strip(ui))))
                 .child(themed(move || extensions::popup_panel(ui)))
                 .child(notice_bar(ui))
                 .child(when(move || !full.get(), move || error_bar(ui)))

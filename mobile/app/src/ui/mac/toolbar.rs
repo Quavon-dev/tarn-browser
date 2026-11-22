@@ -20,7 +20,7 @@ use url::Url;
 use super::super::{Screen, Ui, bars};
 use crate::theme::{TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
 
-const OFFERED: [Command; 18] = [
+const OFFERED: [Command; 19] = [
     Command::OpenFile,
     Command::ReopenClosedTab,
     Command::TogglePin,
@@ -39,6 +39,7 @@ const OFFERED: [Command; 18] = [
     Command::RotateSplitLayout,
     Command::RemoveFromSplitView,
     Command::CloseSplit,
+    Command::TabsOnTop,
 ];
 
 fn level_name(level: ShieldLevel) -> &'static str {
@@ -344,6 +345,10 @@ fn run(ui: Ui, command: Command) {
             s.splits.close(k);
         }),
         Command::TogglePin => on_active(ui, |s, k| s.toggle_pin(k)),
+        Command::TabsOnTop => ui.act(|s| {
+            s.toggle_tabs_on_top();
+            Vec::new()
+        }),
         _ => {}
     }
 }

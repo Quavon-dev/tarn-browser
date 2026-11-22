@@ -140,6 +140,10 @@ fn run(ui: Ui, action: Action) {
             s.toggle_sidebar();
             Vec::new()
         }),
+        Action::ToggleTabsOnTop => ui.act(|s| {
+            s.toggle_tabs_on_top();
+            Vec::new()
+        }),
         Action::CloseAllTabs
         | Action::NewGroup
         | Action::ToggleSplitView

@@ -9,6 +9,7 @@ mod devtools;
 mod dialog;
 mod downloads;
 use browser_core::ext_package;
+use browser_core::layout::TabPlacement;
 mod ext_sources;
 mod extensions;
 mod filters;
@@ -36,6 +37,7 @@ mod sidebar;
 mod site_settings;
 mod spaces;
 mod split;
+mod tab_strip;
 mod tabs;
 mod tarn_ext;
 mod tear_off;
@@ -87,6 +89,7 @@ actions!(
         Space8,
         Space9,
         ToggleSidebar,
+        ToggleTabsOnTop,
         Settings,
         CloseOverlay,
     ]
@@ -115,6 +118,7 @@ pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<
         C::ReopenClosedTab => &ReopenClosedTab,
         C::ToastAction => &toast::ToastAction,
         C::ToggleSidebar => &ToggleSidebar,
+        C::TabsOnTop => &ToggleTabsOnTop,
         C::AutoHideSidebar => &ToggleAutoHideSidebar,
         C::CompactToolbar => &ToggleCompactToolbar,
         C::CloseAllTabs => &CloseAllTabs,
@@ -213,6 +217,7 @@ impl Browser {
             .font_family(Theme::font())
             .text_size(px(ui::theme::TEXT))
             .on_action(cx.listener(|b, _: &ToggleSidebar, _, cx| b.toggle_sidebar(cx)))
+            .on_action(cx.listener(|b, _: &ToggleTabsOnTop, _, cx| b.toggle_tabs_on_top(cx)))
             .on_action(cx.listener(|b, _: &Settings, w, cx| b.open_settings(w, cx)))
             .on_action(cx.listener(|b, _: &AboutTarn, w, cx| b.open_settings_pane(settings::SettingsPane::General, w, cx)))
             .on_action(cx.listener(|b, _: &ToggleFullScreen, w, _| {
@@ -404,6 +409,7 @@ impl Browser {
                     .flex()
                     .flex_col()
                     .child(timed("toolbar", || toolbar::render(self, cx)))
+                    .when(self.tab_placement == TabPlacement::Top, |d| d.child(tab_strip::render(self, cx)))
                     .child(timed("content", || content::render(self, window, cx))),
             )
             .into_any_element()

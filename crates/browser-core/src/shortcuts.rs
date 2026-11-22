@@ -47,6 +47,7 @@ pub enum Action {
     NewWindow,
     CloseWindow,
     ToggleSidebar,
+    ToggleTabsOnTop,
     NewSpace,
     PrivateSpace,
     BurnerTab,
@@ -139,6 +140,7 @@ pub const SECTIONS: [(&str, &[Binding]); 4] = [
             ("New window", Action::NewWindow, "mod+n"),
             ("Close window", Action::CloseWindow, "mod+shift+w"),
             ("Toggle sidebar", Action::ToggleSidebar, "mod+s"),
+            ("Tabs on top", Action::ToggleTabsOnTop, "mod+alt+shift+t"),
             ("New space", Action::NewSpace, "mod+shift+s"),
             ("Private space", Action::PrivateSpace, "mod+shift+n"),
             ("Burner tab", Action::BurnerTab, "mod+alt+shift+n"),
@@ -260,6 +262,7 @@ pub fn for_command(command: crate::palette::Command) -> Option<Action> {
         Command::SwapPanes => Some(Action::SwapPanes),
         Command::RotateSplitLayout => Some(Action::RotateSplitLayout),
         Command::RemoveFromSplitView => Some(Action::RemoveFromSplitView),
+        Command::TabsOnTop => Some(Action::ToggleTabsOnTop),
         _ => None,
     }
 }
@@ -399,6 +402,7 @@ mod tests {
                 | Action::ToggleDownloads
                 | Action::ShowHistory
                 | Action::ToggleSidebar
+                | Action::ToggleTabsOnTop
                 | Action::NewSpace
                 | Action::PrivateSpace
                 | Action::BurnerTab
@@ -468,6 +472,8 @@ mod tests {
         assert_eq!(of(Keyboard::Apple, Action::TakeScreenshot), "mod+alt+s");
         assert_eq!(of(Keyboard::Linux, Action::TakeScreenshot), "mod+alt+shift+s");
         assert_eq!(of(Keyboard::Other, Action::CopyMarkdownLink), "mod+alt+c");
+        assert_eq!(shown(&of(Keyboard::Apple, Action::ToggleTabsOnTop), Keyboard::Apple), "⌥⇧⌘T");
+        assert_eq!(shown(&of(Keyboard::Linux, Action::ToggleTabsOnTop), Keyboard::Linux), "Ctrl+Alt+Shift+T");
     }
 
     #[test]

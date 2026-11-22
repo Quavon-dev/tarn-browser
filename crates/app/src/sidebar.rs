@@ -187,7 +187,7 @@ pub fn site_icon(b: &Browser, url: &str, size: f32) -> AnyElement {
 }
 
 /// A sleeping tab's icon is greyed and faded, so awake tabs stand out at a glance.
-fn tab_icon(b: &Browser, url: &str, size: f32, asleep: bool) -> AnyElement {
+pub(crate) fn tab_icon(b: &Browser, url: &str, size: f32, asleep: bool) -> AnyElement {
     let dim = if asleep { 0.4 } else { 1. };
     match b.favicon(url) {
         Some(image) => img(image).w(px(size)).h(px(size)).flex_none().rounded(px(size * 0.22)).grayscale(asleep).opacity(dim).into_any_element(),
