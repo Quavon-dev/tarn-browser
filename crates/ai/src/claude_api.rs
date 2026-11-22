@@ -167,8 +167,8 @@ mod tests {
             format!("{:?}", crate::ollama::Ollama::new("m", Arc::new(UreqTransport))),
             format!("{:?}", crate::claude_cli::ClaudeCli::new("/usr/bin/false".into(), None)),
         ];
-        for out in outputs {
-            assert!(!out.contains(SECRET) && !out.contains("TESTSECRET"), "{out}");
+        for (ix, out) in outputs.iter().enumerate() {
+            assert!(!out.contains(SECRET) && !out.contains("TESTSECRET"), "output {ix} shows the token");
         }
     }
 }
