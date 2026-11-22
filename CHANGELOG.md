@@ -21,6 +21,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   Reload or Open, Rotate Layout, Close Split View and greyed-out entries that do not apply, and
   shows the Split View, Move to Space and Add to Group entries as sections; iOS and Android group the
   split view entries under Split View.
+- Address and command field suggestions rank a long history faster on every client.
 
 ## [0.1.6] - 2026-11-21
 

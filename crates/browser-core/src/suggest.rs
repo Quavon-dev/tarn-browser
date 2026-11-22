@@ -81,7 +81,13 @@ fn tier(query: &Query, page: &Page, text: &mut String) -> Option<(u8, i64)> {
         return Some((3, 0));
     }
     text.clear();
-    text.extend(page.title.chars().chain([' ']).chain(page.url.chars()).flat_map(fold));
+    for part in [page.title, " ", page.url] {
+        if part.is_ascii() {
+            text.extend(part.bytes().map(|b| char::from(b.to_ascii_lowercase())));
+        } else {
+            text.extend(part.chars().flat_map(fold));
+        }
+    }
     let words = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty());
     if query.words.iter().all(|q| words.clone().any(|w| w.starts_with(q))) {
         return Some((2, 0));
@@ -537,6 +543,17 @@ mod tests {
         assert_eq!(rank_rows("exam", &pages, 2, |_| false, NOW), [1, 2], "the more recent tab stands for both");
         assert_eq!(rank_rows("exam", &pages, 2, |ix| ix == 1, NOW), [0, 2], "with the current tab left out, the other one shows");
         assert_eq!(rank_rows("exam", &pages[2..], 0, |_| false, NOW), [0]);
+    }
+
+    #[test]
+    fn ascii_and_mixed_pages_fold_alike() {
+        let pages = [page("https://A.test/PATH", "MixedCase Title", 1, 0), page("https://b.test/Ärzte", "Praxis ÄRZTE", 1, 0)];
+        assert_eq!(rank_pages("mixedc", &pages, NOW), [0]);
+        assert_eq!(rank_pages("TITLE", &pages, NOW), [0]);
+        assert_eq!(rank_pages("mxct", &pages, NOW), [0]);
+        assert_eq!(rank_pages("a.test/path", &pages, NOW), [0]);
+        assert_eq!(rank_pages("ärz", &pages, NOW), [1]);
+        assert_eq!(rank_pages("prx", &pages, NOW), [1]);
     }
 
     #[test]
