@@ -83,9 +83,11 @@ pub(crate) fn post_json<'a>(
     body: &serde_json::Value,
     cancel: &'a AtomicBool,
 ) -> Result<Box<dyn BufRead + 'a>, AiError> {
-    if !transport::allowed(url) {
-        return Err(AiError::Network("this address is not allowed".into()));
-    }
+    let url = match url::Url::parse(url) {
+        Ok(parsed) if transport::allowed(parsed.as_str()) => parsed,
+        _ => return Err(AiError::Network("this address is not allowed".into())),
+    };
+    let url = url.as_str();
     let body = serde_json::to_vec(body).map_err(|e| AiError::Protocol(e.to_string()))?;
     let headers = [headers, &[("content-type", "application/json")]].concat();
     let mut resp = transport.post(url, &headers, &body, MAX_RESPONSE_BYTES, cancel)?;

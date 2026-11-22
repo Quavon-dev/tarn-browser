@@ -32,7 +32,7 @@ pub struct Keyring;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod apple {
-    use security_framework::passwords::{delete_generic_password, get_generic_password, set_generic_password};
+    use security_framework::passwords::{delete_generic_password, get_generic_password};
 
     use super::{Keyring, Secrets};
     use crate::provider::AiError;
@@ -48,8 +48,21 @@ mod apple {
             }
         }
 
+        #[cfg(target_os = "macos")]
         fn set(&self, service: &str, account: &str, secret: &str) -> Result<(), AiError> {
-            set_generic_password(service, account, secret.as_bytes()).map_err(|e| AiError::Secrets(e.to_string()))
+            security_framework::passwords::set_generic_password(service, account, secret.as_bytes()).map_err(|e| AiError::Secrets(e.to_string()))
+        }
+
+        // The token stays on this phone: never in a backup, a device transfer or iCloud Keychain.
+        #[cfg(target_os = "ios")]
+        fn set(&self, service: &str, account: &str, secret: &str) -> Result<(), AiError> {
+            use security_framework::access_control::{ProtectionMode, SecAccessControl};
+            use security_framework::passwords::{PasswordOptions, set_generic_password_options};
+            let err = |e: security_framework::base::Error| AiError::Secrets(e.to_string());
+            let mut options = PasswordOptions::new_generic_password(service, account);
+            options.set_access_control(SecAccessControl::create_with_protection(Some(ProtectionMode::AccessibleWhenUnlockedThisDeviceOnly), 0).map_err(err)?);
+            options.set_access_synchronized(Some(false));
+            set_generic_password_options(secret.as_bytes(), options).map_err(err)
         }
 
         fn delete(&self, service: &str, account: &str) -> Result<(), AiError> {
