@@ -582,7 +582,7 @@ impl Browser {
 
     /// Ctrl+Z outside a text field and the page: the newest close, Clean Up or sidebar move.
     pub fn undo(&mut self) {
-        if let Some(step) = self.model.pop_undo() {
+        if let Some(step) = self.model.pop_undo(&self.core) {
             self.run_undo(step, false);
         }
     }

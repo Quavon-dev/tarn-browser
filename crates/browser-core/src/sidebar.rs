@@ -668,16 +668,31 @@ mod tests {
         assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, None, None)).is_some());
         let space = model.current_space().map(|s| (s.space.profile_id, s.space.id)).unwrap();
         let serial = model.push_closed(crate::closed::Closed { private: false, profile_id: space.0, space_id: space.1, tabs: Vec::new(), group: None });
-        assert_eq!(model.pop_undo(), Some(crate::undo::Step::Closed(serial)));
-        let Some(crate::undo::Step::Moved(from)) = model.pop_undo() else { panic!("the move is next") };
+        assert_eq!(model.pop_undo(&core), Some(crate::undo::Step::Closed(serial)));
+        let Some(crate::undo::Step::Moved(from)) = model.pop_undo(&core) else { panic!("the move is next") };
         assert!(from.revert(&mut model, &core));
         let back = model.tab(a).unwrap();
         assert_eq!((back.kind, back.group_id, model.ephemeral_keys()), (TabKind::Ephemeral, Some(group), vec![a, b]));
         let serial = model.push_closed(crate::closed::Closed { private: false, profile_id: space.0, space_id: space.1, tabs: Vec::new(), group: None });
         model.closed_tabs.take(serial, &[]);
-        assert_eq!(model.pop_undo(), None, "a close reopened since is skipped");
+        assert_eq!(model.pop_undo(&core), None, "a close reopened since is skipped");
         model.push_closed(crate::closed::Closed { private: true, profile_id: space.0, space_id: space.1, tabs: Vec::new(), group: None });
         assert!(model.undo.is_empty() && !model.closed_tabs.is_empty(), "a private close is reopenable but never kept for Undo");
+    }
+
+    #[test]
+    fn undo_skips_steps_whose_tab_or_space_is_gone() {
+        let (_dir, core, mut model) = opened();
+        let (a, b) = (tab(&core, &mut model, TabKind::Ephemeral, None), tab(&core, &mut model, TabKind::Ephemeral, None));
+        assert!(drop_tab(&mut model, &core, b, DropAt::zone(TabKind::Pinned, None, None)).is_some());
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, None, None)).is_some());
+        core.disk.delete_tab(a.id).unwrap();
+        model.reload_space(&core);
+        let profile = model.spaces[0].space.profile_id;
+        model.push_closed(crate::closed::Closed { private: false, profile_id: profile, space_id: 999, tabs: Vec::new(), group: None });
+        let Some(crate::undo::Step::Moved(from)) = model.pop_undo(&core) else { panic!("the gone space's close and the gone tab's move are skipped") };
+        assert_eq!(from.key, b);
+        assert_eq!(model.pop_undo(&core), None);
     }
 
     #[test]

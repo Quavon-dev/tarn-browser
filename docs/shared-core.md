@@ -330,9 +330,10 @@ The tab, motion and gesture switches and the accent choice are stored under the 
 The NSH shells for Linux, iOS and Android (`docs/nsh-plan.md` P2–P4) sit on `browser-core`.
 
 **Shortcut tips:** `browser_core::hints::Throttle` decides whether a toast names a command's
-shortcut after it ran from a menu or the command bar (`Throttle::hint`, text `hints::text`): at most
+shortcut after it ran from the command bar (`Throttle::hint`, text `hints::text`): at most
 `MAX_SHOWS` times per command, never in a profile's first day, at least `QUIET` (two days) after the
-profile's last tip, never while the user is typing, and never once Settings turns off
+profile's last tip, never while the user is typing (on macOS and Windows: while a text field has the
+keyboard), and never once Settings turns off
 `prefs::FEATURE_HINTS` (Settings › Appearance › Tips on every client, explained by `hints::NOTE`).
 Counters live in the profile's `feature_hints` rows, which go with the profile; a private space or
 burner tab offers none. macOS and Windows offer one after a command bar command, Linux after a

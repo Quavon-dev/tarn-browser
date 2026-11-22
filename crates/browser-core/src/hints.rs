@@ -11,9 +11,9 @@ pub const FIRST_DAY: i64 = DAY;
 pub const QUIET: i64 = 2 * DAY;
 
 /// What Settings says under its switch for hints, on every client.
-pub const NOTE: &str = "After a command runs from a menu or the command bar, a notice may name its keyboard shortcut: at most three times each, two days apart, never in a profile's first day or a private space.";
+pub const NOTE: &str = "After a command runs from the command bar, a notice may name its keyboard shortcut: at most three times each, two days apart, never in a profile's first day or a private space.";
 
-/// The toast that names a command's shortcut after it ran from a menu or the command bar.
+/// The toast that names a command's shortcut after it ran from the command bar.
 pub fn text(command: &str, keys: &str) -> String {
     format!("{command} also runs with {keys}")
 }
@@ -42,7 +42,7 @@ impl Throttle<'_> {
         allows(since, last, shown, now, typing) && self.store.count_hint(self.profile, command, now).is_ok()
     }
 
-    /// The toast naming `keys` after `command` ran from a menu or the command bar, when `offer`
+    /// The toast naming `keys` after `command` ran from the command bar, when `offer`
     /// lets one show; none for a command without keys.
     pub fn hint(&self, command: &str, keys: &str, now: i64, typing: bool) -> Option<String> {
         (!keys.is_empty() && self.offer(command, now, typing)).then(|| text(command, keys))

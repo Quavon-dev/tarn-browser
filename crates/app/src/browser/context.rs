@@ -611,7 +611,7 @@ impl Browser {
             self.edit_page(engine::chromium::EditCommand::Undo, window);
             return;
         }
-        if let Some(step) = self.model.pop_undo() {
+        if let Some(step) = self.model.pop_undo(&self.core) {
             self.run_undo(step, false, window, cx);
         }
     }

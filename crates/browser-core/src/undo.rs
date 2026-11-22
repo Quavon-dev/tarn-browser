@@ -4,7 +4,6 @@ use crate::cleanup;
 use crate::tabs::{Model, TabKey};
 use crate::{Core, WebsiteData};
 
-/// The most steps a window keeps to undo.
 pub const MAX_STEPS: usize = 50;
 
 /// Something the window can undo: a close (its entry in `ClosedTabs`), a Clean Up, or a tab moved

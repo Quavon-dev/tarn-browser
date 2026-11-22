@@ -257,6 +257,12 @@ pub struct Undo {
     opened: Vec<(Id, String)>,
 }
 
+impl Undo {
+    pub fn space_id(&self) -> Id {
+        self.space_id
+    }
+}
+
 /// Applies the sort to `space_id` at once, or not at all.
 pub fn apply(store: &Store, space_id: Id, sort: &Sort) -> Result<Undo, store::Error> {
     let created = store.apply_layout(space_id, &sort.layout)?;

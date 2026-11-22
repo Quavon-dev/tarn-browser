@@ -26,7 +26,6 @@ const QR_SIZE: f32 = 204.;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
-    /// An answer of `palette::answers`, copied when run.
     Copy(String),
     CloseDuplicates,
     ZapElement,

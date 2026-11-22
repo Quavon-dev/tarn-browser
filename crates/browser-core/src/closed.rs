@@ -156,8 +156,9 @@ impl ClosedTabs {
         self.entries.last().map(|(serial, _)| *serial)
     }
 
-    pub fn contains(&self, serial: u64) -> bool {
-        self.entries.iter().any(|(s, _)| *s == serial)
+    /// Whether entry `serial` is still kept and its space still exists.
+    pub fn reopenable(&self, serial: u64, spaces: &[SpaceRef]) -> bool {
+        self.entries.iter().any(|(s, closed)| *s == serial && closed.space_ix(spaces).is_some())
     }
 
     /// Drops the tabs of deleted spaces, so a space that later reuses the id never receives them.
@@ -251,10 +252,15 @@ impl Model {
         serial
     }
 
-    /// The newest step Undo can still take back: a close whose tabs were reopened since is skipped.
-    pub fn pop_undo(&mut self) -> Option<Step> {
-        let closed = &self.closed_tabs;
-        self.undo.pop(|step| !matches!(step, Step::Closed(serial) if !closed.contains(*serial)))
+    /// The newest step Undo can still take back; a step whose closed tabs were reopened since, or
+    /// whose space or moved tab is gone, is skipped.
+    pub fn pop_undo<D: WebsiteData>(&mut self, core: &Core<D>) -> Option<Step> {
+        let (closed, spaces) = (&self.closed_tabs, &self.spaces);
+        self.undo.pop(|step| match step {
+            Step::Closed(serial) => closed.reopenable(*serial, spaces),
+            Step::CleanUp(undo) => spaces.iter().any(|s| !s.private && s.space.id == undo.space_id()),
+            Step::Moved(from) => core.store(from.key.private).tab(from.key.id).is_ok(),
+        })
     }
 
     /// The spaces with unpinned tabs unused for `max_age`, so they outlive a restart as bookmarks;

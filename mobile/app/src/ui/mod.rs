@@ -215,7 +215,6 @@ impl Ui {
         }
     }
 
-    /// Copies an answer row of the address field.
     pub fn copy_answer(self, text: String) {
         set_clipboard(text);
         self.act(|s| {

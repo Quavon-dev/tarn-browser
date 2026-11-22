@@ -105,9 +105,14 @@ impl<D: Platform> Shell<D> {
     }
 
     /// The hardware keyboard's Undo outside a text field and the page: the newest close, Clean Up
-    /// or sidebar move.
+    /// or sidebar move that can still be taken back; one that fails gives way to the next.
     pub fn undo_last(&mut self) -> bool {
-        self.model.pop_undo().is_some_and(|step| self.run_undo(step, false))
+        while let Some(step) = self.model.pop_undo(&self.core) {
+            if self.run_undo(step, false) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Takes back `step`, from Undo or a toast's Undo button; `private` is the space a Clean Up ran in.

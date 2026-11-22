@@ -1578,10 +1578,6 @@ impl Browser {
         }
     }
 
-    pub(crate) fn focus_is_page(&self, window: &Window) -> bool {
-        self.focus.is_focused(window)
-    }
-
     pub fn close_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let field = self.command_mode.is_some();
         let covered = field || self.shortcuts_open;
