@@ -15,6 +15,11 @@ pub const ROW_GAP: [f32; 2] = [1., 0.];
 pub const TEXT: f32 = 13.;
 pub const TEXT_SMALL: f32 = 11.5;
 pub const TEXT_TITLE: f32 = 15.;
+/// The system's monospaced font, for code.
+#[cfg(not(windows))]
+pub const MONO_FONT: &str = "Menlo";
+#[cfg(windows)]
+pub const MONO_FONT: &str = "Consolas";
 /// A modal card's heading.
 pub const TEXT_HEADING: f32 = 18.;
 /// A letter in a small badge.
@@ -239,6 +244,10 @@ impl Theme {
     }
     pub fn radius_card() -> f32 {
         get(|t| t.radius[5])
+    }
+    /// The black wash that dims a page under a layer over it, at `alpha`.
+    pub fn scrim(alpha: f32) -> Rgba {
+        Rgba { r: 0., g: 0., b: 0., a: alpha }
     }
     pub fn danger() -> Rgba {
         Secure::danger()

@@ -1,5 +1,7 @@
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -44,9 +46,10 @@ struct Stream {
     end: Option<Result<(), String>>,
 }
 
+/// A running answer; dropping it, also with the window, stops the answer's thread.
 struct Run {
     id: u64,
-    cancel: Arc<AtomicBool>,
+    _cancel: Cancel,
     stream: Arc<Mutex<Stream>>,
     _pump: Task<()>,
 }
@@ -58,6 +61,8 @@ impl Drop for Cancel {
         self.0.store(true, Ordering::Relaxed);
     }
 }
+
+type Parsed = (String, Rc<Vec<Block>>);
 
 pub(crate) struct Assistant {
     open: bool,
@@ -72,10 +77,24 @@ pub(crate) struct Assistant {
     picking: bool,
     /// Clean Up's grouping request, stopped once this window closes.
     grouping: Option<Cancel>,
+    /// Each answer row's text and its parsed blocks, parsed again only when the text changed.
+    parsed: RefCell<HashMap<usize, Parsed>>,
     _submit: Subscription,
 }
 
 impl Assistant {
+    fn blocks(&self, row: usize, text: &str) -> Rc<Vec<Block>> {
+        let mut parsed = self.parsed.borrow_mut();
+        if let Some((seen, blocks)) = parsed.get(&row)
+            && seen == text
+        {
+            return blocks.clone();
+        }
+        let blocks = Rc::new(ai::markdown::parse(text));
+        parsed.insert(row, (text.to_owned(), blocks.clone()));
+        blocks
+    }
+
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Browser>) -> Self {
         let input = cx.new(|cx| TextInput::new("Ask about the pills above, or anything", cx));
         let submit = cx.subscribe_in(&input, window, |b: &mut Browser, _, event, window, cx| match event {
@@ -83,7 +102,19 @@ impl Assistant {
             TextInputEvent::Cancel => b.toggle_assistant(false, window, cx),
             _ => {}
         });
-        Assistant { open: false, toggled: None, from: 0., session: None, input, run: None, connect: false, picking: false, grouping: None, _submit: submit }
+        Assistant {
+            open: false,
+            toggled: None,
+            from: 0.,
+            session: None,
+            input,
+            run: None,
+            connect: false,
+            picking: false,
+            grouping: None,
+            parsed: RefCell::default(),
+            _submit: submit,
+        }
     }
 }
 
@@ -150,9 +181,7 @@ impl Browser {
     }
 
     fn end_run(&mut self) {
-        if let Some(run) = self.assistant.run.take() {
-            run.cancel.store(true, Ordering::Relaxed);
-        }
+        self.assistant.run = None;
         self.assistant.connect = false;
     }
 
@@ -285,7 +314,10 @@ impl Browser {
             return self.show_toast_as(browser_core::toast::Tone::Info, "No text that can be shared is selected.", None, cx);
         };
         self.toggle_assistant(true, window, cx);
-        self.add_pill(origin, pill, cx);
+        self.add_pill(origin, pill.clone(), cx);
+        if !self.assistant.session.as_ref().is_some_and(|s| s.holds(&pill)) {
+            return;
+        }
         let custom = self.core.disk.ai_commands(origin.profile).unwrap_or_default();
         if let Some(template) = command.and_then(|name| commands::for_selection(&custom, &name)) {
             self.send(String::new(), &template, cx);
@@ -327,10 +359,7 @@ impl Browser {
             return;
         }
         let Some((origin, on)) = self.page_origin() else { return };
-        let Some(answer) = provider(&self.core.disk) else {
-            self.assistant.connect = true;
-            return cx.notify();
-        };
+        let answer = provider(&self.core.disk);
         self.assistant.connect = false;
         let Some(session) = self.assistant.session.as_mut() else { return };
         let (shell, profile) = (&self.core, session.profile());
@@ -390,12 +419,10 @@ impl Browser {
                             }
                         }
                     });
-                    self.assistant.run = Some(Run { id, cancel, stream, _pump: pump });
+                    self.assistant.run = Some(Run { id, _cancel: Cancel(cancel), stream, _pump: pump });
                 }
                 Effect::Stop { id } => {
-                    if let Some(run) = self.assistant.run.take_if(|r| r.id == id) {
-                        run.cancel.store(true, Ordering::Relaxed);
-                    }
+                    self.assistant.run.take_if(|r| r.id == id);
                 }
                 Effect::Append { .. } | Effect::Render => cx.notify(),
             }
@@ -420,7 +447,10 @@ impl Browser {
         let going = end.is_none();
         match end {
             Some(Ok(())) => effects.extend(session.apply(Event::Done { id })),
-            Some(Err(message)) => effects.extend(session.apply(Event::Failed { id, message })),
+            Some(Err(message)) => {
+                self.assistant.connect = message == core::NOT_CONNECTED;
+                effects.extend(session.apply(Event::Failed { id, message }));
+            }
             None => {}
         }
         if !going {
@@ -476,11 +506,7 @@ impl Browser {
         let Some(request) = browser_core::cleanup::ai::request(origin, &tabs, page) else {
             return self.show_toast_as(browser_core::toast::Tone::Info, "The assistant needs two or more loose web tabs to group", None, cx);
         };
-        let Some(answer) = provider(&self.core.disk) else {
-            self.toggle_assistant(true, window, cx);
-            self.assistant.connect = true;
-            return cx.notify();
-        };
+        let answer = provider(&self.core.disk);
         self.show_toast_as(browser_core::toast::Tone::Info, "Asking the assistant to group the tabs…", None, cx);
         let (tx, rx) = futures::channel::oneshot::channel();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -554,26 +580,26 @@ impl Browser {
     }
 }
 
-/// The provider chosen in Settings › AI, or `None` while the Claude API has no token. The token is
-/// read from the platform's secret store only, at the moment of a send. Ollama answers only through
+/// The provider chosen in Settings › AI. The Claude API's token is read from the platform's secret
+/// store only, on the answer's thread at the moment of a send; without one the answer fails with
+/// `NOT_CONNECTED` before anything is sent. Ollama answers only through
 /// `ai::local::answer`, so a local choice never reaches the cloud; with the Claude API, a command
 /// stays on this Mac where its on-device model can answer.
-pub(crate) fn provider(store: &store::Store) -> Option<Answer> {
+pub(crate) fn provider(store: &store::Store) -> Answer {
     let transport: Arc<dyn ai::Transport> = Arc::new(ai::UreqTransport);
     match browser_core::assistant::settings::provider(store) {
-        Choice::ClaudeApi => {
-            let api = ai::ClaudeApi::new(ai::secrets::load_token(&ai::secrets::Keyring).ok().flatten()?, None, transport);
-            Some(Box::new(move |req, on_device, cancel, named, on_text| {
-                ai::local::answer(Model::Cloud(&api, Choice::ClaudeApi.name()), on_device_model(), on_device, req, cancel, named, on_text)
-            }))
-        }
+        Choice::ClaudeApi => Box::new(move |req, on_device, cancel, named, on_text| {
+            let token = ai::secrets::load_token(&ai::secrets::Keyring)?.ok_or_else(|| ai::AiError::Unavailable(core::NOT_CONNECTED.into()))?;
+            let api = ai::ClaudeApi::new(token, None, transport);
+            ai::local::answer(Model::Cloud(&api, Choice::ClaudeApi.name()), on_device_model(), on_device, req, cancel, named, on_text)
+        }),
         Choice::Ollama => {
             let name = browser_core::assistant::settings::ollama_model(store);
             let label = format!("{} ({name})", Choice::Ollama.name());
             let model = ai::Ollama::new(name, transport);
-            Some(Box::new(move |req, on_device, cancel, named, on_text| {
+            Box::new(move |req, on_device, cancel, named, on_text| {
                 ai::local::answer(Model::Local(&model, &label), None, on_device, req, cancel, named, on_text)
-            }))
+            })
         }
     }
 }
@@ -613,8 +639,7 @@ pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Brow
         .bg(Theme::panel())
         .border_l_1()
         .border_color(Theme::separator())
-        // The window moves the focus on Tab only outside text fields; the column moves it from its
-        // question field too, so the keyboard reaches its links and buttons.
+        // The window's Tab stops at text fields, which would trap the keyboard in the question field.
         .on_key_down(|e: &gpui::KeyDownEvent, w, cx| {
             let m = e.keystroke.modifiers;
             if e.keystroke.key == "tab" && !(m.control || m.platform || m.alt || m.function) {
@@ -649,9 +674,7 @@ pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Brow
 
 fn unavailable(b: &Browser, cx: &mut Context<Browser>) -> AnyElement {
     let (text, settings) = match b.assistant_origin() {
-        Some((o, _)) if o.kind == ProfileKind::Private => ("The assistant is not available in private spaces.", false),
-        Some((o, _)) if o.kind == ProfileKind::Burner => ("The assistant is not available in a burner tab.", false),
-        Some((o, _)) if o.level == ShieldLevel::Lockdown => ("The assistant is not available in Lockdown profiles.", false),
+        Some((o, _)) if !core::allowed(o) => (core::NOT_HERE, false),
         Some(_) => ("The assistant is off for this profile. Turn it on in Settings › AI; nothing is sent until you press Send.", true),
         None => ("No profile is open.", false),
     };
@@ -686,11 +709,12 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                 .child(row.text.clone())
                 .into_any_element(),
             Role::Assistant => {
-                let mut answer = div().flex().flex_col().gap_2().children(markdown(&row.text, ix, &me));
+                let blocks = b.assistant.blocks(ix, &row.text);
+                let mut answer = div().flex().flex_col().gap_2().children(markdown(&blocks, ix, &me));
                 if row.streaming {
                     answer = answer.child(ui::controls::spinner(ui::icon::ICON_SMALL, Theme::muted()));
                 } else {
-                    answer = answer.children(link_list(&row.text, ix, cx));
+                    answer = answer.children(link_list(&blocks, ix, cx));
                 }
                 answer.children(row.by.clone().map(|by| note(by).pt_0())).into_any_element()
             }
@@ -708,7 +732,7 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                 .gap_1()
                 .pl_2()
                 .pr_1()
-                .h(px(24.))
+                .h_6()
                 .max_w(px(WIDTH - 32.))
                 .rounded(px(Theme::radius_small()))
                 .bg(Theme::control())
@@ -826,14 +850,14 @@ fn tab_picker(b: &Browser, cx: &Context<Browser>) -> AnyElement {
 
 /// The links of an answer again as a list of tab stops, so the keyboard reaches each one: Tab and
 /// Shift-Tab move between them, Enter opens one through the same confirmation as a click.
-fn link_list(text: &str, row: usize, cx: &Context<Browser>) -> Option<AnyElement> {
-    let links: Vec<(String, String)> = ai::markdown::parse(text)
-        .into_iter()
+fn link_list(blocks: &[Block], row: usize, cx: &Context<Browser>) -> Option<AnyElement> {
+    let links: Vec<(String, String)> = blocks
+        .iter()
         .flat_map(|block| match block {
-            Block::Heading { spans, .. } | Block::Paragraph(spans) | Block::ListItem { spans, .. } | Block::Quote(spans) => spans,
-            Block::Code { .. } | Block::Rule => Vec::new(),
+            Block::Heading { spans, .. } | Block::Paragraph(spans) | Block::ListItem { spans, .. } | Block::Quote(spans) => spans.as_slice(),
+            Block::Code { .. } | Block::Rule => &[],
         })
-        .filter_map(|span| span.link.map(|url| (links::shown(&span.text, &url), url)))
+        .filter_map(|span| span.link.as_ref().map(|url| (links::shown(&span.text, url), url.clone())))
         .collect();
     (!links.is_empty()).then(|| {
         div()
@@ -853,34 +877,34 @@ fn link_list(text: &str, row: usize, cx: &Context<Browser>) -> Option<AnyElement
 
 /// An answer drawn natively: no remote images (they arrive as alt text), every link with its whole
 /// address shown, opened only by a click through `open_answer_link`.
-fn markdown(text: &str, row: usize, me: &gpui::WeakEntity<Browser>) -> Vec<AnyElement> {
-    ai::markdown::parse(text)
-        .into_iter()
+fn markdown(blocks: &[Block], row: usize, me: &gpui::WeakEntity<Browser>) -> Vec<AnyElement> {
+    blocks
+        .iter()
         .enumerate()
         .map(|(ix, block)| {
             let id = ("assistant-text", row * 10_000 + ix);
             match block {
                 Block::Heading { level, spans } => div()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .when(level <= 2, |d| d.text_size(px(TEXT_TITLE)))
-                    .child(spans_text(id, &spans, me))
+                    .when(*level <= 2, |d| d.text_size(px(TEXT_TITLE)))
+                    .child(spans_text(id, spans, me))
                     .into_any_element(),
-                Block::Paragraph(spans) => div().child(spans_text(id, &spans, me)).into_any_element(),
+                Block::Paragraph(spans) => div().child(spans_text(id, spans, me)).into_any_element(),
                 Block::ListItem { depth, number, spans } => div()
                     .pl(px(12. * depth.saturating_sub(1) as f32))
                     .flex()
                     .gap_2()
                     .child(div().flex_none().text_color(Theme::muted()).child(number.map_or("•".to_owned(), |n| format!("{n}."))))
-                    .child(div().flex_1().min_w_0().child(spans_text(id, &spans, me)))
+                    .child(div().flex_1().min_w_0().child(spans_text(id, spans, me)))
                     .into_any_element(),
                 Block::Quote(spans) => {
-                    div().pl_2().border_l_2().border_color(Theme::separator()).text_color(Theme::muted()).child(spans_text(id, &spans, me)).into_any_element()
+                    div().pl_2().border_l_2().border_color(Theme::separator()).text_color(Theme::muted()).child(spans_text(id, spans, me)).into_any_element()
                 }
                 Block::Code { code, .. } => div()
                     .p_2()
                     .rounded(px(Theme::radius_small()))
                     .bg(Theme::control())
-                    .font_family("Menlo")
+                    .font_family(ui::theme::MONO_FONT)
                     .text_size(px(TEXT_SMALL))
                     .child(code.trim_end().to_owned())
                     .into_any_element(),

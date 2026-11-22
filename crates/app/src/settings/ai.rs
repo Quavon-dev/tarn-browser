@@ -8,12 +8,10 @@ use ui::theme::Theme;
 
 use super::{SettingsWindow, Snapshot, label, value};
 
-pub(super) const SENT: &str = "Nothing is sent until you press Send in the assistant. A send carries your question, the earlier turns of that chat and the pills shown above the question field, and nothing else: no other tabs, history, cookies or passwords. Addresses go without their query and fragment. Private spaces, burner tabs and Lockdown pages are never offered.";
-
 pub(super) struct Pane {
     token: Entity<TextInput>,
     model: Entity<TextInput>,
-    /// Whether the secret store holds a token; `None` until the pane first asks.
+    /// Whether the secret store holds a token; `None` until a background read answers.
     connected: Option<bool>,
     message: Option<String>,
     _subscriptions: [Subscription; 2],
@@ -35,6 +33,15 @@ impl Pane {
                 }
             }),
         ];
+        cx.spawn(async move |this, cx| {
+            let found = cx.background_spawn(async { ai::secrets::load_token(&ai::secrets::Keyring).ok().flatten().is_some() }).await;
+            this.update(cx, |this, cx| {
+                this.ai.connected.get_or_insert(found);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
         Pane { token, model, connected: None, message: None, _subscriptions: subscriptions }
     }
 }
@@ -71,10 +78,7 @@ impl SettingsWindow {
     pub(super) fn ai(&mut self, s: &Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(profile) = s.profile.clone() else { return note("No profile is open.").into_any_element() };
         if s.private || s.burner || profile.shield_level == ShieldLevel::Lockdown {
-            return div()
-                .child(section("Assistant"))
-                .child(note("The assistant is not available in private spaces, burner tabs or Lockdown profiles."))
-                .into_any_element();
+            return div().child(section("Assistant")).child(note(browser_core::assistant::NOT_HERE)).into_any_element();
         }
         let provider = s.ai_provider;
         let on = profile.ai_enabled;
@@ -92,7 +96,7 @@ impl SettingsWindow {
                     .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_profile_ai(id, !on, cx)))),
                 ),
             )
-            .child(note(SENT));
+            .child(note(browser_core::assistant::SENT));
         if !on {
             return page.into_any_element();
         }
@@ -110,7 +114,7 @@ impl SettingsWindow {
         )));
         page = match provider {
             Provider::ClaudeApi => {
-                let connected = *self.ai.connected.get_or_insert_with(|| ai::secrets::load_token(&ai::secrets::Keyring).ok().flatten().is_some());
+                let connected = self.ai.connected.unwrap_or(false);
                 let account = if connected {
                     row(true)
                         .child(label("Claude API key"))
