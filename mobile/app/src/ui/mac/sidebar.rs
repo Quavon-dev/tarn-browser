@@ -15,9 +15,9 @@ use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::motion::{popping, spinner};
 use tarn_nsh_shared::popover::{self as pop, Anchor};
 use tarn_nsh_shared::sidebar::{
-    BUTTON, CLOSE_GAP, CLOSE_WIDTH, FOOTER_HEIGHT, GLYPH, HEADER_HEIGHT, HEADER_INSET, INDENT, INNER_PAD, MARGIN, MENU_WIDTH, ROW_GAP, ROW_INSET, STATE_GLYPH,
-    TAB_ROW, TILE_GAP, TILE_ICON, WIDTH, chosen_icon, divider, glyph_button, group_avatar, group_color, menu_heading, menu_item, menu_separator, new_tab_mark,
-    progress_ring, tile_grid,
+    BUTTON, CLOSE_GAP, CLOSE_WIDTH, FOOTER_HEIGHT, GLYPH, HEADER_HEIGHT, HEADER_INSET, INDENT, INNER_PAD, MARGIN, MENU_WIDTH, ROW_INSET, STATE_GLYPH, TILE_GAP,
+    TILE_ICON, WIDTH, chosen_icon, divider, glyph_button, group_avatar, group_color, menu_heading, menu_item, menu_separator, new_tab_mark, progress_ring,
+    tile_grid,
 };
 
 use super::super::{AppShell, Screen, Ui, bars, panels};
@@ -228,7 +228,7 @@ fn run_tab(bar: Bar, ui: Ui, key: TabKey, command: tab_menu::Command) {
 }
 
 fn change_icon(bar: Bar, target: Target) -> AnyElement {
-    item(bar, "Change Icon…", true, move |_| open_menu(bar, target, Point::new(Points(0.), Points(TAB_ROW))))
+    item(bar, "Change Icon…", true, move |_| open_menu(bar, target, Point::new(Points(0.), Points(Theme::tab_row()))))
 }
 
 fn stored_icon(ui: Ui, target: Target) -> String {
@@ -458,7 +458,7 @@ fn tab_row(bar: Bar, key: TabKey, depth: usize) -> View {
         .relative()
         .flex_row()
         .items_center()
-        .h(px(TAB_ROW))
+        .h(move || px(Theme::tab_row()))
         .pl(px(ROW_INSET + depth as f32 * INDENT))
         .pr(px(2.))
         .gap(px(CLOSE_GAP))
@@ -618,7 +618,7 @@ fn rename_field(bar: Bar, key: TabKey) -> AnyElement {
         .on_blur(move || done(true))
         .flex_1()
         .min_w(px(0.))
-        .h(px(TAB_ROW - 8.))
+        .h(move || px(Theme::tab_row() - 8.))
         .px_1()
         .rounded(px(Theme::radius_small()))
         .bg(Theme::raised)
@@ -632,7 +632,7 @@ fn row(bar: Bar, r: &Row) -> View {
         RowKind::Tab(key) => tab_row(bar, *key, r.depth),
         RowKind::Split(panes) => view()
             .flex_row()
-            .gap(px(ROW_GAP))
+            .gap(move || px(Theme::row_gap()))
             .pl(px(r.depth as f32 * INDENT))
             .children(panes.iter().map(|k| view().flex_1().min_w(px(0.)).child(tab_row(bar, *k, 0)))),
         RowKind::Folder(id) => folder_row(bar, *id, r.depth),
@@ -653,7 +653,7 @@ fn folder_row(bar: Bar, id: Id, depth: usize) -> View {
         .on_press(move || press(bar, Target::Folder(id)))
         .flex_row()
         .items_center()
-        .h(px(TAB_ROW))
+        .h(move || px(Theme::tab_row()))
         .pl(px(ROW_INSET + depth as f32 * INDENT))
         .pr(px(ROW_INSET))
         .gap(px(CLOSE_GAP))
@@ -671,7 +671,7 @@ fn folder_row(bar: Bar, id: Id, depth: usize) -> View {
 
 fn pinned_block(bar: Bar, block: Vec<Row>) -> View {
     let ui = bar.ui;
-    let list = view().flex_col().gap(px(ROW_GAP)).children(block.iter().map(|r| row(bar, r)));
+    let list = view().flex_col().gap(move || px(Theme::row_gap())).children(block.iter().map(|r| row(bar, r)));
     let Some(RowKind::Folder(id)) = block.first().map(|r| r.kind.clone()) else { return list };
     let open = move || ui.read(|s| s.model.expanded.contains(&id));
     view()
@@ -686,7 +686,7 @@ fn pinned(bar: Bar) -> View {
     let ui = bar.ui;
     let area = view()
         .flex_col()
-        .gap(px(ROW_GAP))
+        .gap(move || px(Theme::row_gap()))
         .mt_1()
         .min_h(px(12.))
         .rounded(px(Theme::radius_row()))
@@ -695,7 +695,7 @@ fn pinned(bar: Bar) -> View {
             move || ui.read(|s| !s.model.tabs.iter().any(|t| t.kind == TabKind::Pinned) && s.model.folders.is_empty()),
             move || {
                 view()
-                    .h(px(TAB_ROW))
+                    .h(move || px(Theme::tab_row()))
                     .px(px(ROW_INSET))
                     .justify_center()
                     .rounded(px(Theme::radius_row()))
@@ -757,7 +757,7 @@ fn new_tab_row(bar: Bar) -> View {
         .flex_1()
         .flex_row()
         .items_center()
-        .h(px(TAB_ROW))
+        .h(move || px(Theme::tab_row()))
         .pl(px(ROW_INSET))
         .gap(px(CLOSE_GAP))
         .rounded(px(Theme::radius_row()))
@@ -804,7 +804,7 @@ fn group_card(bar: Bar, id: Id) -> View {
         .on_press(move || press(bar, Target::Group(id)))
         .flex_row()
         .items_center()
-        .h(px(TAB_ROW - 2.))
+        .h(move || px(Theme::tab_row() - 2.))
         .pl(px(6.))
         .pr(px(2.))
         .gap_2()
@@ -822,7 +822,7 @@ fn group_card(bar: Bar, id: Id) -> View {
     let tabs = move || bar.layout.with(|l| l.groups.iter().find(|(g, _)| *g == id).map(|(_, rows)| rows.clone()).unwrap_or_default());
     let card = view()
         .flex_col()
-        .gap(px(ROW_GAP))
+        .gap(move || px(Theme::row_gap()))
         .my(px(2.))
         .p(px(INNER_PAD))
         .rounded(px(Theme::radius_tile()))
@@ -835,7 +835,7 @@ fn group_card(bar: Bar, id: Id) -> View {
             move || {
                 view()
                     .flex_col()
-                    .gap(px(ROW_GAP))
+                    .gap(move || px(Theme::row_gap()))
                     .p(px(INNER_PAD))
                     .overflow_hidden()
                     .rounded(px(Theme::radius_row() + INNER_PAD))
@@ -852,9 +852,9 @@ fn ephemeral(bar: Bar) -> View {
     let ui = bar.ui;
     let area = view()
         .flex_col()
-        .gap(px(ROW_GAP))
+        .gap(move || px(Theme::row_gap()))
         .min_h(px(120.))
-        .pb(px(TAB_ROW * 2.))
+        .pb(move || px(Theme::tab_row() * 2.))
         .child(new_tab_row(bar))
         .child(each(
             move || ui.read(|s| s.model.groups.iter().map(|g| g.id).collect::<Vec<_>>()),

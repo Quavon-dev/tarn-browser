@@ -319,6 +319,11 @@ burner tab offers none. macOS and Windows offer one after a command bar command,
 command bar or panel menu command, the iPad keyboard layout after a command bar command; a command
 that showed its own toast gets none.
 
+**Density:** `prefs::COMPACT` (Settings › Appearance, explained by `prefs::COMPACT_NOTE`) picks
+the second of each density token, `TAB_ROW` and `ROW_GAP`, defined once in `crates/ui/src/theme.rs`
+and mirrored in `nsh-shared/src/theme.rs` (a test keeps them equal); every shell reads them through
+`Theme::tab_row` and `Theme::row_gap`, set with `Theme::set_compact` when the pref is read.
+
 **Command bar answers:** `browser_core::palette::answers` gives the rows the command bar answers
 offline, listed first on every client, with Enter or a tap copying `Answer::copy`: `palette::calc`
 evaluates `+ - * / % ^`, parentheses and decimals (at most `calc::MAX_INPUT` bytes, nesting bounded,

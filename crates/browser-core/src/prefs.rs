@@ -15,6 +15,9 @@ pub const CLOSE_SELECTS_PREVIOUS: Switch = Switch { key: "close_selects_previous
 pub const TEAR_OFF_TEMPORARY: Switch = Switch { key: "tear_off_temporary", default: true };
 /// Settings' switch for the toasts that name a command's shortcut (`hints`), on every client.
 pub const FEATURE_HINTS: Switch = Switch { key: "feature_hints", default: true };
+/// Settings' Appearance switch for compact density: tighter sidebar and tab strip rows on every client.
+pub const COMPACT: Switch = Switch { key: "compact_density", default: false };
+pub const COMPACT_NOTE: &str = "Shorter rows and gaps in the sidebar and the tab strip.";
 
 impl Switch {
     pub fn on(self, store: &Store) -> bool {
@@ -80,7 +83,7 @@ mod tests {
     fn switches_read_their_default_until_set() {
         let store = Store::open_in_memory().unwrap();
         assert!(GESTURES.on(&store) && !REDUCE_MOTION.on(&store) && !NEW_TAB_START_PAGE.on(&store) && !CLOSE_SELECTS_PREVIOUS.on(&store));
-        assert!(TEAR_OFF_TEMPORARY.on(&store));
+        assert!(TEAR_OFF_TEMPORARY.on(&store) && !COMPACT.on(&store));
         assert!(GESTURES.set(&store, false) && CLOSE_SELECTS_PREVIOUS.set(&store, true));
         assert!(!GESTURES.on(&store) && CLOSE_SELECTS_PREVIOUS.on(&store));
         assert_eq!(store.setting("close_selects_previous").unwrap().as_deref(), Some("on"));

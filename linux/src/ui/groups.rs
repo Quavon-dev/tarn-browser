@@ -4,7 +4,7 @@ use store::Id;
 use tarn_nsh_shared::theme::PROFILE_COLORS;
 
 use super::panels::{capitalised, heading, menu_row, popover, rename_row};
-use super::{Panel, TAB_ROW, Ui, act, list_row, read, show, split};
+use super::{Panel, Ui, act, list_row, read, show, split};
 use crate::browser::Browser;
 use crate::controls::{self, group, icon_button, label, small, title};
 use crate::icons;
@@ -62,7 +62,7 @@ pub(super) fn group_card(ui: Ui, id: Id, item: ReadSignal<Row>) -> AnyElement {
     let name = move || item.with(|r| r.label.clone());
     let target = signal(false);
     let header = controls::row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_group(id)))
-        .h(px(TAB_ROW - 2.))
+        .h(move || px(Theme::tab_row() - 2.))
         .pl(px(6.))
         .pr(px(2.))
         .child(dynamic(move || {

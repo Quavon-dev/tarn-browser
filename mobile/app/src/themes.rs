@@ -29,6 +29,7 @@ impl<D: Platform> Shell<D> {
         let p = &active.parsed;
         Theme::set_tokens(p.tokens, p.meta.scheme, p.font.clone());
         Theme::set_search_effect(library::search_effect(store, &active));
+        Theme::set_compact(browser_core::prefs::COMPACT.on(store));
         self.themes.active = active;
     }
 

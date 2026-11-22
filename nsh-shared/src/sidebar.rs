@@ -10,8 +10,6 @@ pub const MARGIN: f32 = 6.;
 pub const HEADER_HEIGHT: f32 = TOOLBAR_HEIGHT - MARGIN;
 pub const HEADER_INSET: f32 = TILE_GAP + 4.;
 pub const TILE_GAP: f32 = 8.;
-pub const ROW_GAP: f32 = 1.;
-pub const TAB_ROW: f32 = 30.;
 pub const ROW_INSET: f32 = 10.;
 pub const INDENT: f32 = 16.;
 pub const CLOSE_WIDTH: f32 = 28.;
@@ -143,15 +141,13 @@ mod tests {
             "pub const SIDEBAR_WIDTH: f32 = 256.;",
             "pub const SIDEBAR_MARGIN: f32 = 6.;",
             "pub(crate) const TILE_GAP: f32 = 8.;",
-            "const ROW_GAP: f32 = 1.;",
-            "const TAB_ROW: f32 = 30.;",
             "const CLOSE_WIDTH: f32 = 28.;",
             "const CLOSE_GAP: f32 = 10.;",
             "const INNER_PAD: f32 = 3.;",
         ] {
             assert!(mac.contains(line), "{line}");
         }
-        assert_eq!((WIDTH, MARGIN, HEADER_HEIGHT, TILE_GAP, TAB_ROW, CLOSE_WIDTH, CLOSE_GAP), (256., 6., 40., 8., 30., 28., 10.));
+        assert_eq!((WIDTH, MARGIN, HEADER_HEIGHT, TILE_GAP, CLOSE_WIDTH, CLOSE_GAP), (256., 6., 40., 8., 28., 10.));
     }
 
     #[test]

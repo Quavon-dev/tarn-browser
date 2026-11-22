@@ -9,6 +9,9 @@ pub struct Theme;
 
 pub const TOOLBAR_HEIGHT: f32 = 46.;
 pub const ROW_HEIGHT: f32 = 34.;
+/// Sidebar and tab strip rows and the gap between them, regular then compact (`prefs::COMPACT`).
+pub const TAB_ROW: [f32; 2] = [30., 24.];
+pub const ROW_GAP: [f32; 2] = [1., 0.];
 pub const TEXT: f32 = 13.;
 pub const TEXT_SMALL: f32 = 11.5;
 pub const TEXT_TITLE: f32 = 15.;
@@ -40,6 +43,7 @@ pub const PROFILE_COLORS: [(&str, u32); 8] = [
 static TOKENS: RwLock<Tokens> = RwLock::new(Tokens::DARK);
 static FONT: RwLock<Option<SharedString>> = RwLock::new(None);
 static LIGHT: AtomicBool = AtomicBool::new(false);
+static COMPACT: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU32 = AtomicU32::new(0);
 static ACCENT_TEXT: AtomicU32 = AtomicU32::new(0);
 
@@ -71,6 +75,15 @@ impl Theme {
     }
     pub fn is_light() -> bool {
         LIGHT.load(Ordering::Relaxed)
+    }
+    pub fn set_compact(on: bool) {
+        COMPACT.store(on, Ordering::Relaxed);
+    }
+    pub fn tab_row() -> f32 {
+        TAB_ROW[usize::from(COMPACT.load(Ordering::Relaxed))]
+    }
+    pub fn row_gap() -> f32 {
+        ROW_GAP[usize::from(COMPACT.load(Ordering::Relaxed))]
     }
     /// The theme's interface font, else the system font.
     pub fn font() -> SharedString {

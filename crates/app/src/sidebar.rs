@@ -27,9 +27,6 @@ pub(crate) const HEADER_HEIGHT: f32 = TOOLBAR_HEIGHT - SIDEBAR_MARGIN;
 /// Where the header starts, clear of the window's traffic lights.
 const NOTCH_WIDTH: f32 = TRAFFIC_LIGHT_INSET - SIDEBAR_MARGIN - 4.;
 pub(crate) const TILE_GAP: f32 = 8.;
-const ROW_GAP: f32 = 1.;
-/// Sidebar rows are tighter than `ROW_HEIGHT`, so more tabs fit.
-const TAB_ROW: f32 = 30.;
 const CLOSE_WIDTH: f32 = 28.;
 /// The row's `gap_2p5`.
 const CLOSE_GAP: f32 = 10.;
@@ -94,7 +91,7 @@ impl Motion {
     }
 
     pub(crate) fn near_rest(&self, at: Point<Pixels>) -> bool {
-        self.rested.is_some_and(|p| (p.x - at.x).abs() + (p.y - at.y).abs() < px(TAB_ROW / 2.))
+        self.rested.is_some_and(|p| (p.x - at.x).abs() + (p.y - at.y).abs() < px(Theme::tab_row() / 2.))
     }
 
     /// A row laid out under the resting pointer takes the hover no event will report, its button already grown.
@@ -698,7 +695,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
     let row = keyboard_row(div().id(("tab", t.id as u64)), move |b, w, cx| b.tab_menu(key, w, cx), cx)
         .group("tab")
         .relative()
-        .h(px(TAB_ROW))
+        .h(px(Theme::tab_row()))
         .flex_none()
         .overflow_hidden()
         .pl(px(10. + indent))
@@ -713,7 +710,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
             if active {
                 d.child(animate_linear(highlight(), ("tab-active", t.id as u64), TAB_IN, reduce, |el, p| {
                     let inset = |most: f32| px(most * (1. - spring(p)));
-                    el.top(inset(TAB_ROW / 2. - 4.)).bottom(inset(TAB_ROW / 2. - 4.)).left(inset(12.)).right(inset(12.)).opacity(spring(p))
+                    el.top(inset(Theme::tab_row() / 2. - 4.)).bottom(inset(Theme::tab_row() / 2. - 4.)).left(inset(12.)).right(inset(12.)).opacity(spring(p))
                 }))
             } else if b.motion.deselected.iter().any(|(k, _)| *k == key) {
                 d.child(animate(highlight(), ("tab-inactive", t.id as u64), TAB_OUT, reduce, |el, p| el.opacity(1. - p)))
@@ -879,7 +876,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
     }
     animate_linear(row, ("tab-in", t.id as u64), TAB_IN, b.pref(Pref::ReduceMotion), |el, p| {
         let (open, sweep) = (spring(phase(p, 0., 0.6)), phase(p, 0.15, 1.));
-        el.h(px(TAB_ROW * open)).opacity(spring(sweep)).left(px(-SWEEP * (1. - bounce(sweep))))
+        el.h(px(Theme::tab_row() * open)).opacity(spring(sweep)).left(px(-SWEEP * (1. - bounce(sweep))))
     })
 }
 
@@ -896,7 +893,7 @@ fn state_glyph(t: &Tab, asleep: bool, busy: bool) -> Option<impl IntoElement> {
 /// A closed tab's row collapsing out of the list.
 fn leaving_row(b: &Browser, t: &Tab) -> AnyElement {
     let row = div()
-        .h(px(TAB_ROW))
+        .h(px(Theme::tab_row()))
         .flex_none()
         .overflow_hidden()
         .pl(px(10.))
@@ -908,7 +905,7 @@ fn leaving_row(b: &Browser, t: &Tab) -> AnyElement {
         .child(div().flex_1().one_line(SharedString::from(label(t))));
     animate_linear(row, ("tab-out", t.id as u64), TAB_OUT, false, |el, p| {
         let (gone, close) = (spring(phase(p, 0., 0.6)), spring(phase(p, 0.35, 1.)));
-        el.relative().left(px(-SWEEP * 1.5 * gone)).opacity(1. - gone).h(px(TAB_ROW * (1. - close)))
+        el.relative().left(px(-SWEEP * 1.5 * gone)).opacity(1. - gone).h(px(Theme::tab_row() * (1. - close)))
     })
 }
 
@@ -946,7 +943,7 @@ fn tab_rows(b: &Browser, tabs: &[(&Tab, bool)], indent: f32, cx: &mut Context<Br
                 panes => div()
                     .flex()
                     .flex_col()
-                    .gap(px(ROW_GAP))
+                    .gap(px(Theme::row_gap()))
                     .children(panes.iter().filter_map(|k| b.model.tab(*k)).map(|t| tab_row(b, t, indent, cx)))
                     .into_any_element(),
             })
@@ -959,7 +956,7 @@ fn pinned(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .id("pinned")
         .flex()
         .flex_col()
-        .gap(px(ROW_GAP))
+        .gap(px(Theme::row_gap()))
         .mt_1()
         .min_h(px(12.))
         .rounded(px(Theme::radius_row()))
@@ -968,7 +965,7 @@ fn pinned(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .when(!b.model.tabs.iter().any(|t| t.kind == TabKind::Pinned) && b.model.folders.is_empty(), |d| {
             d.child(
                 div()
-                    .h(px(TAB_ROW))
+                    .h(px(Theme::tab_row()))
                     .px_2p5()
                     .flex()
                     .items_center()
@@ -996,7 +993,7 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
     let open = b.model.expanded.contains(&id);
     let glyph = chosen_icon(&f.icon, ICON, Theme::space_label()).unwrap_or_else(|| icon(Icon::Folder, ICON, Theme::space_label()).into_any_element());
     let header = keyboard_row(div().id(("folder", id as u64)), move |b, w, cx| b.folder_menu(id, w, cx), cx)
-        .h(px(TAB_ROW))
+        .h(px(Theme::tab_row()))
         .pl(px(10. + indent))
         .pr_2p5()
         .flex()
@@ -1022,7 +1019,7 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
         .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(glyph))
         .child(name(b, RenameTarget::Folder(id), &f.name, cx))
         .child(chevron(b, id, open));
-    let col = div().flex().flex_col().gap(px(ROW_GAP)).child(header).children(icon_picker(b, RenameTarget::Folder(id), &f.icon, cx));
+    let col = div().flex().flex_col().gap(px(Theme::row_gap())).child(header).children(icon_picker(b, RenameTarget::Folder(id), &f.icon, cx));
     if !open {
         // A closed folder still shows its active tab, so the selection never disappears.
         let tree = folder_tree(&b.model.folders, id);
@@ -1042,16 +1039,16 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .id("ephemeral")
         .flex()
         .flex_col()
-        .gap(px(ROW_GAP))
+        .gap(px(Theme::row_gap()))
         .min_h(px(120.))
-        .pb(px(TAB_ROW * 2.))
+        .pb(px(Theme::tab_row() * 2.))
         .rounded(px(Theme::radius_row()))
         .drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft()))
         .on_drop(cx.listener(tab_drop(TabKind::Ephemeral, None, None, None)))
         .child(
             div()
                 .id("new-tab")
-                .h(px(TAB_ROW))
+                .h(px(Theme::tab_row()))
                 .pl(px(10.))
                 .pr_0p5()
                 .flex()
@@ -1170,14 +1167,14 @@ fn group_avatar(g: &Group, size: f32) -> impl IntoElement {
 
 /// Height of a group's inner card holding `rows` tabs, border included.
 fn inner_height(rows: usize) -> f32 {
-    if rows == 0 { 0. } else { rows as f32 * (TAB_ROW + ROW_GAP) - ROW_GAP + 2. * INNER_PAD + 2. }
+    if rows == 0 { 0. } else { rows as f32 * (Theme::tab_row() + Theme::row_gap()) - Theme::row_gap() + 2. * INNER_PAD + 2. }
 }
 
 fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> AnyElement {
     let id = g.id;
     let name_text: SharedString = bounded_title(&g.name).into();
     let header = keyboard_row(div().id(("group", id as u64)), move |b, w, cx| b.group_menu(id, w, cx), cx)
-        .h(px(TAB_ROW - 2.))
+        .h(px(Theme::tab_row() - 2.))
         .pl_1p5()
         .pr_0p5()
         .flex()
@@ -1215,7 +1212,7 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         let card = div()
             .flex()
             .flex_col()
-            .gap(px(ROW_GAP))
+            .gap(px(Theme::row_gap()))
             .p(px(INNER_PAD))
             .overflow_hidden()
             .rounded(px(Theme::radius_row() + INNER_PAD))
@@ -1230,7 +1227,7 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         .id(("group-card", id as u64))
         .flex()
         .flex_col()
-        .gap(px(ROW_GAP))
+        .gap(px(Theme::row_gap()))
         .my_0p5()
         .p(px(INNER_PAD))
         .rounded(px(Theme::radius_tile()))
@@ -1325,10 +1322,11 @@ fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
 mod tests {
     use std::collections::HashSet;
 
-    use super::{Motion, SIDEBAR_WIDTH, TAB_IN, TAB_OUT, TAB_ROW, inner_height, mix, tile_grid};
+    use super::{Motion, SIDEBAR_WIDTH, TAB_IN, TAB_OUT, inner_height, mix, tile_grid};
     use crate::browser::TabKey;
     use gpui::{Bounds, Rgba, point, px, size};
     use std::time::{Duration, Instant};
+    use ui::theme::Theme;
 
     #[test]
     fn rows_moved_under_a_resting_pointer_show_their_button_there_only() {
@@ -1341,11 +1339,11 @@ mod tests {
         assert_eq!(motion.unhovered.map(|(k, _, reached)| (k, reached)), Some((a, 1.)));
         assert_eq!(motion.grown(b), 0.);
         assert!(motion.near_rest(point(px(52.), px(101.))));
-        assert!(!motion.near_rest(point(px(50.), px(100. + TAB_ROW))));
+        assert!(!motion.near_rest(point(px(50.), px(100. + Theme::tab_row()))));
 
-        let row = |top: f32| Bounds::new(point(px(0.), px(top)), size(px(240.), px(TAB_ROW)));
+        let row = |top: f32| Bounds::new(point(px(0.), px(top)), size(px(240.), px(Theme::tab_row())));
         let now = Instant::now();
-        assert!(!motion.settle(a, row(100. + TAB_ROW), point(px(52.), px(101.)), now), "a row away from the pointer stays plain");
+        assert!(!motion.settle(a, row(100. + Theme::tab_row()), point(px(52.), px(101.)), now), "a row away from the pointer stays plain");
         assert!(motion.settle(b, row(90.), point(px(52.), px(101.)), now), "the row that slid under the pointer is hovered");
         assert_eq!(motion.grown(b), 1., "its button shows at once");
         assert!(!motion.settle(a, row(90.), point(px(52.), px(101.)), now), "only one row takes the hover");
@@ -1394,7 +1392,7 @@ mod tests {
     #[test]
     fn group_inner_card_fits_its_rows() {
         assert_eq!(inner_height(0), 0.);
-        assert_eq!(inner_height(1), TAB_ROW + 8.);
-        assert_eq!(inner_height(3), 3. * TAB_ROW + 2. + 8.);
+        assert_eq!(inner_height(1), Theme::tab_row() + 8.);
+        assert_eq!(inner_height(3), 3. * Theme::tab_row() + 2. + 8.);
     }
 }

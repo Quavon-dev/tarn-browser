@@ -44,7 +44,6 @@ use tarn_nsh_shared::controls::{icon_size, secure_button, secure_surface};
 use crate::data::Data;
 
 const SIDEBAR_WIDTH: f32 = 256.;
-const TAB_ROW: f32 = 30.;
 const CARD_WIDTH: f32 = 680.;
 const ADDRESS_WIDTH: f32 = 560.;
 const COMPACT_FIELD: f32 = 28.;
@@ -695,7 +694,7 @@ fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement
                     item.with_untracked(snapshot::Row::id),
                     row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id))),
                 )
-                .h(px(TAB_ROW))
+                .h(move || px(Theme::tab_row()))
                 .pl(px(8. + depth * 16.))
                 .child(
                     view()
@@ -753,7 +752,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
     let closing = move || !pinned && (hovered.get() || active());
     let tab = keyboard_row(ui, item.with_untracked(snapshot::Row::id), row(move || Some(SharedString::from(name())), move || act(ui, |b| b.activate(key))))
         .on_press_down(move || ui.dragging.set(Some(key)))
-        .h(px(TAB_ROW))
+        .h(move || px(Theme::tab_row()))
         .relative()
         .pl(px(10. + depth * 16.))
         .pr_1()
@@ -849,7 +848,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
             split::drop_leave(ui, key);
         })
         .on_mouse_move(move |e: &MouseEvent| {
-            let share = e.position.y.0 / TAB_ROW;
+            let share = e.position.y.0 / Theme::tab_row();
             if below.get_untracked() != browser_core::tabs::drops_below(share) {
                 below.set(browser_core::tabs::drops_below(share));
             }
@@ -978,7 +977,7 @@ fn new_tab_row(ui: Ui) -> View {
         .flex_1()
         .items_center()
         .gap(px(CLOSE_GAP))
-        .h(px(TAB_ROW))
+        .h(move || px(Theme::tab_row()))
         .pl(px(10.))
         .rounded(px(Theme::radius_row()))
         .child(

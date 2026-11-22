@@ -1342,6 +1342,14 @@ impl SettingsWindow {
                     ))
                     .child(self.pref_row(
                         false,
+                        Pref::CompactDensity,
+                        "Compact density",
+                        browser_core::prefs::COMPACT_NOTE,
+                        s.prefs.get(Pref::CompactDensity),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
                         Pref::AutoHideSidebar,
                         "Hide sidebar automatically",
                         format!(

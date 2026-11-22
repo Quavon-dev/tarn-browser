@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use browser_core::effects::Effect;
 use browser_core::github::Hop;
-use browser_core::prefs::{self, ACCENTS, FEATURE_HINTS, REDUCE_MOTION, THEME_ACCENT};
+use browser_core::prefs::{self, ACCENTS, COMPACT, FEATURE_HINTS, REDUCE_MOTION, THEME_ACCENT};
 use browser_core::theme::{self, Origin, Scheme, Selection, Source, ThemeRef};
 use browser_core::theme_fetch::{self as fetch, Pending, Release};
 use browser_core::theme_library::{self as library, Card};
@@ -615,6 +615,18 @@ fn body<H: Host>(pane: Pane<H>) -> View {
     }
     let motion = if host.accent_and_motion() { group().child(reduce_motion_row(pane)) } else { group() };
     page = page.child(view().pt_4().pb_2().child(caps_label("Motion"))).child(motion.child(effect_row(pane)));
+    let compact = host.with_store(|s| COMPACT.on(s));
+    let set_compact = move || {
+        let ok = host.with_store(|s| COMPACT.set(s, !compact));
+        if ok {
+            Theme::set_compact(!compact);
+        }
+        pane.quietly(saved(ok));
+    };
+    page = page
+        .child(view().pt_4().pb_2().child(caps_label("Density")))
+        .child(group().child(switch_row("Compact density", move || compact, set_compact)))
+        .child(view().px_1().pt_1().child(small(prefs::COMPACT_NOTE)));
     let hints = host.with_store(|s| FEATURE_HINTS.on(s));
     page = page
         .child(view().pt_4().pb_2().child(caps_label("Tips")))

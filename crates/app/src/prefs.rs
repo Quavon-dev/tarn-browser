@@ -33,10 +33,11 @@ pub enum Pref {
     LocalhostFromApps,
     Passkeys,
     FeatureHints,
+    CompactDensity,
 }
 
 impl Pref {
-    pub const ALL: [Pref; 25] = [
+    pub const ALL: [Pref; 26] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
@@ -62,6 +63,7 @@ impl Pref {
         Pref::LocalhostFromApps,
         Pref::Passkeys,
         Pref::FeatureHints,
+        Pref::CompactDensity,
     ];
 
     pub(crate) fn key(self) -> &'static str {
@@ -91,6 +93,7 @@ impl Pref {
             Pref::LocalhostFromApps => browser_core::incoming::LOCALHOST_FROM_APPS,
             Pref::Passkeys => browser_core::settings::PASSKEYS,
             Pref::FeatureHints => browser_core::prefs::FEATURE_HINTS.key,
+            Pref::CompactDensity => browser_core::prefs::COMPACT.key,
         }
     }
 
@@ -491,6 +494,7 @@ mod tests {
             (Pref::ClosePrevious, prefs::CLOSE_SELECTS_PREVIOUS),
             (Pref::TearOffTemporary, prefs::TEAR_OFF_TEMPORARY),
             (Pref::FeatureHints, prefs::FEATURE_HINTS),
+            (Pref::CompactDensity, prefs::COMPACT),
         ] {
             assert_eq!((pref.key(), pref.default()), (switch.key, switch.default), "{pref:?}");
         }
