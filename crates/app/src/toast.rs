@@ -251,8 +251,13 @@ impl Browser {
         self.toast.hovered = false;
         let Some(toast) = self.live_toast().map(|t| t.serial).and_then(|serial| self.toast.take(serial)) else { return };
         match toast.action {
-            Some(Action::Undo(serial)) if self.model.closed_tabs.newest() == Some(serial) => self.reopen_closed_tab(window, cx),
-            Some(Action::UndoSort(record)) => self.undo_sort(*record, cx),
+            Some(Action::Undo(serial)) if self.model.closed_tabs.newest() == Some(serial) => {
+                self.run_undo(browser_core::undo::Step::Closed(serial), false, window, cx)
+            }
+            Some(Action::UndoSort(record)) => {
+                let (private, undo) = *record;
+                self.run_undo(browser_core::undo::Step::CleanUp(undo), private, window, cx)
+            }
             Some(Action::Reveal(path)) => engine::reveal_in_finder(&path),
             Some(Action::RestartToUpdate) => crate::shared::restart_to_update(cx),
             Some(Action::RestoreDownloads(cleared)) => {

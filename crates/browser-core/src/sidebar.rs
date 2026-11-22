@@ -219,7 +219,11 @@ fn place<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabKey, at:
         return None;
     }
     let group = (at.kind == TabKind::Ephemeral).then_some(at.group);
+    let from = crate::undo::Move::of(model, dragged);
     core.store(dragged.private).move_tab_to(dragged.id, at.kind, at.folder, index, group).ok()?;
+    if let Some(from) = from {
+        model.undo.push(crate::undo::Step::Moved(from), dragged.private);
+    }
     let old = model.reload_space(core);
     model.expanded.extend(at.folder);
     Some(old)
@@ -260,7 +264,11 @@ pub fn clean_up<D: WebsiteData>(model: &mut Model, core: &Core<D>, url: impl Fn(
     if sort.changed {
         model.reload_space(core);
     }
-    Some(CleanUp { text, tone, undo: applied.ok().flatten().map(|undo| (private, undo)) })
+    let undo = applied.ok().flatten();
+    if let Some(undo) = &undo {
+        model.undo.push(crate::undo::Step::CleanUp(undo.clone()), private);
+    }
+    Some(CleanUp { text, tone, undo: undo.map(|undo| (private, undo)) })
 }
 
 pub fn undo_sort<D: WebsiteData>(model: &mut Model, core: &Core<D>, (private, undo): &(bool, crate::cleanup::Undo)) -> bool {
@@ -596,6 +604,27 @@ mod tests {
         assert_eq!(shown(&model, "", "data:text/html,x"), "data:", "a page without a title shows its label, never its whole address");
         let tile = tab(&core, &mut model, TabKind::Tile, None);
         assert!(!rename_tab(&mut model, &core, tile, "Tile", ""), "tiles show no title");
+    }
+
+    #[test]
+    fn undo_takes_back_moves_and_closes_newest_first() {
+        let (_dir, core, mut model) = opened();
+        let (a, b) = (tab(&core, &mut model, TabKind::Ephemeral, None), tab(&core, &mut model, TabKind::Ephemeral, None));
+        let group = model.new_group(&core, Some(a)).unwrap().id;
+        model.reload_space(&core);
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, None, None)).is_some());
+        let space = model.current_space().map(|s| (s.space.profile_id, s.space.id)).unwrap();
+        let serial = model.push_closed(crate::closed::Closed { private: false, profile_id: space.0, space_id: space.1, tabs: Vec::new(), group: None });
+        assert_eq!(model.pop_undo(), Some(crate::undo::Step::Closed(serial)));
+        let Some(crate::undo::Step::Moved(from)) = model.pop_undo() else { panic!("the move is next") };
+        assert!(from.revert(&mut model, &core));
+        let back = model.tab(a).unwrap();
+        assert_eq!((back.kind, back.group_id, model.ephemeral_keys()), (TabKind::Ephemeral, Some(group), vec![a, b]));
+        let serial = model.push_closed(crate::closed::Closed { private: false, profile_id: space.0, space_id: space.1, tabs: Vec::new(), group: None });
+        model.closed_tabs.take(serial, &[]);
+        assert_eq!(model.pop_undo(), None, "a close reopened since is skipped");
+        model.push_closed(crate::closed::Closed { private: true, profile_id: space.0, space_id: space.1, tabs: Vec::new(), group: None });
+        assert!(model.undo.is_empty() && !model.closed_tabs.is_empty(), "a private close is reopenable but never kept for Undo");
     }
 
     #[test]

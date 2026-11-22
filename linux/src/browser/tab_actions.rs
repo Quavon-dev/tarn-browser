@@ -231,6 +231,22 @@ mod tests {
     }
 
     #[test]
+    fn undo_reopens_the_last_close_not_yet_reopened() {
+        let (_dir, mut b) = browser();
+        let urls = |b: &Browser| b.model.tabs.iter().map(|t| t.url.clone()).collect::<Vec<_>>();
+        let a = b.new_tab("https://a.test/").unwrap();
+        b.close_tab(a);
+        let c = b.new_tab("https://c.test/").unwrap();
+        b.close_tab(c);
+        b.reopen();
+        assert!(urls(&b).contains(&"https://c.test/".to_owned()) && !urls(&b).contains(&"https://a.test/".to_owned()));
+        b.undo();
+        assert!(urls(&b).contains(&"https://a.test/".to_owned()), "the close reopened since is skipped");
+        b.undo();
+        assert_eq!(urls(&b).len(), 3, "nothing is left to undo");
+    }
+
+    #[test]
     fn a_duplicate_lands_below_its_tab() {
         let (_dir, mut b) = browser();
         let first = b.model.active.unwrap();

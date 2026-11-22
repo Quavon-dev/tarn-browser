@@ -548,7 +548,7 @@ impl<D: Platform> Shell<D> {
                 web_engine: None,
             })
             .collect();
-        let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs: closed, group });
+        let serial = self.model.push_closed(Closed { private, profile_id, space_id, tabs: closed, group });
         for (key, _) in &tabs {
             self.forget(*key);
             self.store().delete_tab(key.id).ok();

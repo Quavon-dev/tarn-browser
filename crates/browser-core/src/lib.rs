@@ -69,6 +69,7 @@ pub mod theme_fetch;
 pub mod theme_library;
 pub mod tls;
 pub mod toast;
+pub mod undo;
 pub mod windows;
 
 pub use data::WebsiteData;

@@ -71,6 +71,8 @@ pub struct Model {
     pub active: Option<TabKey>,
     pub lifecycle: Lifecycle<TabKey>,
     pub closed_tabs: ClosedTabs,
+    /// What Undo takes back: closes, Clean Ups and sidebar moves of this window.
+    pub undo: crate::undo::Stack,
     /// The saved active tab, picked once the window's space is shown.
     pub(crate) restore_tab: Option<Id>,
     /// The private-store space of this window's burner tab; other windows' burners stay hidden.
@@ -105,6 +107,7 @@ impl Model {
             active: None,
             lifecycle: Lifecycle::new(live_tabs),
             closed_tabs: ClosedTabs::default(),
+            undo: crate::undo::Stack::default(),
             restore_tab: None,
             burner: None,
             burner_profile: None,

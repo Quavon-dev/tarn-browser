@@ -30,6 +30,7 @@ use browser_core::prefs::{self, Switch};
 use browser_core::prompts::Prompt;
 use browser_core::suggest;
 use browser_core::tabs::{Model, Opened, TabKey, Torn};
+use browser_core::undo::Step;
 use browser_core::{Core, now};
 use engine::nav_policy::{self, Decision, Source};
 use serde_json::{Value, json};
@@ -355,7 +356,10 @@ impl Browser {
         self.dismiss_toast();
         match action {
             Some(ToastAction::Undo(serial)) => self.undo_close(serial),
-            Some(ToastAction::UndoSort(sort)) => self.undo_sort(*sort),
+            Some(ToastAction::UndoSort(sort)) => {
+                let (private, undo) = *sort;
+                self.run_undo(Step::CleanUp(undo), private);
+            }
             Some(ToastAction::RestoreDownloads(cleared)) => {
                 let (private, profile, rows) = *cleared;
                 self.core.restore_downloads(private, profile, &rows);
@@ -514,7 +518,7 @@ impl Browser {
         }
         if !burner && !closed.is_empty() {
             let text = browser_core::toast::closed(group.is_some(), closed.len());
-            let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id: first.space_id, tabs: closed, group });
+            let serial = self.model.push_closed(Closed { private, profile_id, space_id: first.space_id, tabs: closed, group });
             self.show_toast(text, Some(ToastAction::Undo(serial)));
         }
         self.model.reload_space(&self.core);
@@ -548,10 +552,33 @@ impl Browser {
     }
 
     fn undo_close(&mut self, serial: u64) {
-        if self.model.closed_tabs.newest() != Some(serial) {
-            return;
+        if self.model.closed_tabs.newest() == Some(serial) {
+            self.run_undo(Step::Closed(serial), false);
         }
-        self.reopen();
+    }
+
+    /// Ctrl+Z outside a text field and the page: the newest close, Clean Up or sidebar move.
+    pub fn undo(&mut self) {
+        if let Some(step) = self.model.pop_undo() {
+            self.run_undo(step, false);
+        }
+    }
+
+    /// Takes back `step`, from Undo or a toast's Undo button; `private` is the space a Clean Up ran in.
+    pub fn run_undo(&mut self, step: Step, private: bool) {
+        self.model.undo.forget(&step);
+        match step {
+            Step::Closed(serial) => {
+                if let Some((ix, closed)) = self.model.closed_tabs.take(serial, &self.model.spaces) {
+                    self.restore_closed(ix, closed);
+                }
+            }
+            Step::CleanUp(undo) => self.undo_sort((private, undo)),
+            Step::Moved(from) => {
+                from.revert(&mut self.model, &self.core);
+                self.regrouped();
+            }
+        }
     }
 
     pub fn reopen(&mut self) {

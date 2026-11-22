@@ -2324,6 +2324,7 @@ fn bind_fixed(ui: Ui) {
             move_row_focus(ui, down)
         });
     }
+    on_key_with("mod+z", KeyOptions { when: nsh_core::keymap::When::NotEditing, ..KeyOptions::default() }, move |_| act(ui, Browser::undo));
     on_key(crate::shortcuts::ZOOM_IN_SHIFTED, move |_| run_action(ui, Action::ZoomIn));
     on_key(crate::shortcuts::NEXT_TAB, move |_| run_action(ui, Action::NextTab));
     on_key(crate::shortcuts::PREVIOUS_TAB, move |_| run_action(ui, Action::PreviousTab));

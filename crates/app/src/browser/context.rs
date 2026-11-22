@@ -7,6 +7,7 @@ use url::Url;
 
 use browser_core::closed::{Closed, ClosedGroup, ClosedTab};
 use browser_core::tab_menu;
+use browser_core::undo::Step;
 
 use super::{Browser, TabKey, now};
 use crate::groups::RenameTarget;
@@ -539,7 +540,7 @@ impl Browser {
             return;
         }
         let text = browser_core::toast::closed(group.is_some(), tabs.len());
-        let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs, group });
+        let serial = self.model.push_closed(Closed { private, profile_id, space_id, tabs, group });
         self.show_toast(text, Some(crate::toast::Action::Undo(serial)), cx);
     }
 
@@ -591,12 +592,43 @@ impl Browser {
         let text = sort.summary(applied.is_ok(), archived, crate::prefs::archive_after(&self.core.disk).is_some());
         let tone = if applied.is_ok() { browser_core::toast::Tone::Info } else { browser_core::toast::Tone::Warning };
         let undo = applied.ok().flatten();
+        if let Some(undo) = &undo {
+            self.model.undo.push(Step::CleanUp(undo.clone()), private);
+        }
         if sort.changed {
             self.reload_space();
             Self::sync_other_windows(cx);
         }
         self.show_toast_as(tone, text, undo.map(|undo| crate::toast::Action::UndoSort(Box::new((private, undo)))), cx);
         cx.notify();
+    }
+
+    /// Undo that no text field took: the page's own while it has the focus, else the window's
+    /// newest close, Clean Up or sidebar move.
+    pub(crate) fn undo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.focus.is_focused(window) {
+            #[cfg(windows)]
+            self.edit_page(engine::chromium::EditCommand::Undo, window);
+            return;
+        }
+        if let Some(step) = self.model.pop_undo() {
+            self.run_undo(step, false, window, cx);
+        }
+    }
+
+    /// Takes back `step`, from Undo or a toast's Undo button; `private` is the space a Clean Up ran in.
+    pub(crate) fn run_undo(&mut self, step: Step, private: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.model.undo.forget(&step);
+        match step {
+            Step::Closed(serial) => self.reopen_closed(Some(serial), window, cx),
+            Step::CleanUp(undo) => self.undo_sort((private, undo), cx),
+            Step::Moved(from) => {
+                from.revert(&mut self.model, &self.core);
+                self.reload_space();
+                Self::sync_other_windows(cx);
+                cx.notify();
+            }
+        }
     }
 
     /// Puts back what Clean Up sorted, in whichever space it sorted.

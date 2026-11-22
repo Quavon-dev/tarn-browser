@@ -276,6 +276,12 @@ which space a window reopens on and the private space. Where a new tab goes is o
 `Model::insert_index` (`Model::open_tab` with `Opened::Typed` or `Opened::Link(opener)`): a typed or new
 tab on top of the unpinned tabs, a tab a link or pop-up opened after its opener and the tabs opened
 from it before, in opening order, in the opener's group; the openers are kept in memory only.
+`browser_core::undo::Stack` (`Model::undo`) is the window's Undo: `Model::push_closed` puts a close on
+the reopen stack and the undo stack, `sidebar::drop_tab` and `sidebar::clean_up` add the move or Clean
+Up they made, and `Model::pop_undo` gives the newest step still undoable; each client runs a `Step`
+(reopen that entry, `cleanup::undo`, `undo::Move::revert`) for ⌘Z or Ctrl+Z that no text field or
+page took and for a toast's Undo, which first drops the step. Nothing of a private space or burner
+tab is kept (threat model S8).
 `browser_core::closed` has the reopen stack
 and the archive of unused tabs with its Settings › Tabs choice (`ARCHIVE_AFTER`, `archive_after`,
 `ARCHIVE_INTERVAL`); `browser_core::cleanup` is Clean Up (`plan`, `apply`, `cleanable`, `summary`); `Core::{level, has_override, web_engine}` resolve per tab. The

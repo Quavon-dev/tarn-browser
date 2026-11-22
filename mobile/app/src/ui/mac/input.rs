@@ -171,6 +171,12 @@ pub(super) fn bindings(ui: Ui) -> impl IntoElement {
     for (keys, action) in shortcuts::bindings(keyboard(), offered) {
         on_key_with(&keys, ALWAYS, move |_| run(ui, action));
     }
+    on_key_with("mod+z", KeyOptions { when: When::NotEditing, ..KeyOptions::default() }, move |_| {
+        ui.act(|s| {
+            s.undo_last();
+            Vec::new()
+        })
+    });
     view().child(when(
         move || ui.editing.get(),
         move || {

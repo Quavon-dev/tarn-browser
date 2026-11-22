@@ -4,6 +4,7 @@ use store::{Id, Store, Tab, TabKind, WebEngine};
 
 use crate::bookmarks::top_folder;
 use crate::tabs::{Model, SpaceRef, TabKey};
+use crate::undo::Step;
 use crate::{Core, WebsiteData};
 
 const MAX_CLOSED_TABS: usize = 20;
@@ -155,6 +156,10 @@ impl ClosedTabs {
         self.entries.last().map(|(serial, _)| *serial)
     }
 
+    pub fn contains(&self, serial: u64) -> bool {
+        self.entries.iter().any(|(s, _)| *s == serial)
+    }
+
     /// Drops the tabs of deleted spaces, so a space that later reuses the id never receives them.
     pub fn retain(&mut self, spaces: &[SpaceRef]) {
         self.entries.retain(|(_, c)| c.space_ix(spaces).is_some());
@@ -237,6 +242,21 @@ impl Archive {
 }
 
 impl Model {
+    /// Puts tabs closed together on the reopen stack and, outside a private space, on the undo
+    /// stack; the entry's serial.
+    pub fn push_closed(&mut self, closed: Closed) -> u64 {
+        let private = closed.private;
+        let serial = self.closed_tabs.push(closed);
+        self.undo.push(Step::Closed(serial), private);
+        serial
+    }
+
+    /// The newest step Undo can still take back: a close whose tabs were reopened since is skipped.
+    pub fn pop_undo(&mut self) -> Option<Step> {
+        let closed = &self.closed_tabs;
+        self.undo.pop(|step| !matches!(step, Step::Closed(serial) if !closed.contains(*serial)))
+    }
+
     /// The spaces with unpinned tabs unused for `max_age`, so they outlive a restart as bookmarks;
     /// the shell runs each in turn. The active tab is stamped first, so a tab in use never counts
     /// as unused once left.

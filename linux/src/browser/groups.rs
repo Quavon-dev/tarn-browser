@@ -141,6 +141,9 @@ impl Browser {
         let text = sort.summary(applied.is_ok(), archived, closed::archive_after(&self.core.disk).is_some());
         let tone = if applied.is_ok() { browser_core::toast::Tone::Info } else { browser_core::toast::Tone::Warning };
         let undo = applied.ok().flatten();
+        if let Some(undo) = &undo {
+            self.model.undo.push(browser_core::undo::Step::CleanUp(undo.clone()), private);
+        }
         if sort.changed {
             self.model.reload_space(&self.core);
             self.regrouped();
