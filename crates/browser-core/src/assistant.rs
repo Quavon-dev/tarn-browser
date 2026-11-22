@@ -669,12 +669,6 @@ pub mod links {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Chip {
-    pub kind: Kind,
-    pub label: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub role: Role,
     pub text: String,
@@ -687,7 +681,8 @@ pub struct Row {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatView {
     pub rows: Vec<Row>,
-    pub chips: Vec<Chip>,
+    /// Each pill's label, "Selection 1" or "Page 2: Title", as the list of what is sent names it.
+    pub chips: Vec<String>,
     pub will_send: Vec<(String, usize)>,
     pub will_send_bytes: usize,
     pub notice: Option<String>,
@@ -713,12 +708,9 @@ pub fn view(session: &Session) -> ChatView {
     let chips = session
         .pills
         .iter()
-        .map(|a| Chip {
-            kind: a.pill.kind(),
-            label: match &a.pill {
-                Pill::Page { url, title, .. } | Pill::Tab { url, title, .. } => title_or_host(title, url),
-                _ => a.label.clone(),
-            },
+        .map(|a| match &a.pill {
+            Pill::Page { url, title, .. } | Pill::Tab { url, title, .. } => format!("{}: {}", a.label, title_or_host(title, url)),
+            _ => a.label.clone(),
         })
         .collect();
     ChatView {
@@ -1113,7 +1105,7 @@ mod tests {
         s.apply(Event::AddPill(ME, page("12345")));
         s.apply(Event::AddPill(ME, Pill::Note(3, "abc".into())));
         let v = view(&s);
-        assert_eq!(v.chips, [Chip { kind: Kind::Page, label: "A".into() }, Chip { kind: Kind::Note, label: "Note 1".into() }]);
+        assert_eq!(v.chips, ["Page 1: A", "Note 1"], "a chip names its pill once, as the list of what is sent does");
         let page_bytes = "URL: https://a.test/p\nTitle: A\n\n12345".len();
         assert_eq!(v.will_send, [("Page 1".to_owned(), page_bytes), ("Note 1".to_owned(), 3)]);
         assert_eq!(v.will_send_bytes, page_bytes + 3);

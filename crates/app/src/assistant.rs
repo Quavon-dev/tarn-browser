@@ -699,11 +699,10 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                 .rounded(px(Theme::radius_small()))
                 .bg(Theme::control())
                 .text_size(px(TEXT_SMALL))
-                .child(div().text_color(Theme::muted()).child(chip.kind.name()))
-                .child(div().min_w_0().one_line(chip.label.clone()))
+                .child(div().min_w_0().one_line(chip.clone()))
                 .child(
                     tab_stop(icon_button(("assistant-remove", ix), Icon::Close, true))
-                        .tooltip(tooltip(format!("Remove {}", chip.label), None))
+                        .tooltip(tooltip(format!("Remove {chip}"), None))
                         .on_click(cx.listener(move |b, _, _, cx| b.remove_pill(ix, cx))),
                 )
         })

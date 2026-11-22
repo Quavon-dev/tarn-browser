@@ -640,8 +640,7 @@ pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
             .chips
             .iter()
             .enumerate()
-            .map(|(ix, c)| {
-                let name = format!("{}: {}", c.kind.name(), c.label);
+            .map(|(ix, name)| {
                 view()
                     .flex_row()
                     .items_center()
