@@ -189,6 +189,10 @@ final class Host {
         return Fetch.get(url, max, agent, stallMs, totalMs);
     }
 
+    static Object[] post(String url, String[] headers, byte[] body, int stallMs, int totalMs) {
+        return Fetch.post(url, headers, body, stallMs, totalMs);
+    }
+
     static void onMain(Runnable task) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             task.run();

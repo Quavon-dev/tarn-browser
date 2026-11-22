@@ -1,9 +1,10 @@
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::time::Duration;
 
 use serde_json::json;
 
 use crate::provider::{self, AiError, Provider, Request};
+use crate::transport::Transport;
 
 const URL: &str = "http://127.0.0.1:11434/api/chat";
 
@@ -11,11 +12,12 @@ const URL: &str = "http://127.0.0.1:11434/api/chat";
 pub struct Ollama {
     model: String,
     url: String,
+    transport: Arc<dyn Transport>,
 }
 
 impl Ollama {
-    pub fn new(model: impl Into<String>) -> Self {
-        Self { model: model.into(), url: URL.into() }
+    pub fn new(model: impl Into<String>, transport: Arc<dyn Transport>) -> Self {
+        Self { model: model.into(), url: URL.into(), transport }
     }
 }
 
@@ -29,8 +31,7 @@ impl Provider for Ollama {
                 { "role": "user", "content": req.user_message() },
             ],
         });
-        let agent = provider::agent(Duration::from_secs(600));
-        let reader = provider::post_json(agent.post(&self.url), &body)?;
+        let reader = provider::post_json(&*self.transport, &self.url, &[], &body, cancel)?;
         provider::for_each_line(reader, cancel, |line| {
             if line.trim().is_empty() {
                 return Ok(false);
@@ -51,6 +52,7 @@ impl Provider for Ollama {
 mod tests {
     use super::*;
     use crate::provider::test_server::serve;
+    use crate::transport::UreqTransport;
 
     fn req() -> Request {
         Request { system: "sys".into(), page: None, question: "q".into() }
@@ -60,7 +62,7 @@ mod tests {
     fn streams_ndjson() {
         let body = "{\"message\":{\"content\":\"Hel\"},\"done\":false}\n{\"message\":{\"content\":\"lo\"},\"done\":false}\n{\"done\":true}\n";
         let (base, rx) = serve("200 OK", body);
-        let o = Ollama { model: "m".into(), url: format!("{base}/api/chat") };
+        let o = Ollama { url: format!("{base}/api/chat"), ..Ollama::new("m", Arc::new(UreqTransport)) };
         let mut out = String::new();
         o.stream(&req(), &AtomicBool::new(false), &mut |t| out.push_str(t)).unwrap();
         assert_eq!(out, "Hello");
@@ -72,7 +74,7 @@ mod tests {
     #[test]
     fn does_not_follow_redirects() {
         let (base, _rx) = serve("302 Found\r\nLocation: http://example.com/", "");
-        let o = Ollama { model: "m".into(), url: format!("{base}/api/chat") };
+        let o = Ollama { url: format!("{base}/api/chat"), ..Ollama::new("m", Arc::new(UreqTransport)) };
         let err = o.stream(&req(), &AtomicBool::new(false), &mut |_| {}).unwrap_err();
         assert!(matches!(err, AiError::Status(302, _)));
     }
@@ -80,13 +82,13 @@ mod tests {
     #[test]
     fn cancel_stops_stream() {
         let (base, _rx) = serve("200 OK", "{\"message\":{\"content\":\"x\"},\"done\":false}\n");
-        let o = Ollama { model: "m".into(), url: format!("{base}/api/chat") };
+        let o = Ollama { url: format!("{base}/api/chat"), ..Ollama::new("m", Arc::new(UreqTransport)) };
         let err = o.stream(&req(), &AtomicBool::new(true), &mut |_| {}).unwrap_err();
         assert!(matches!(err, AiError::Cancelled));
     }
 
     #[test]
     fn host_is_loopback() {
-        assert!(Ollama::new("m").url.starts_with("http://127.0.0.1:11434/"));
+        assert!(Ollama::new("m", Arc::new(UreqTransport)).url.starts_with("http://127.0.0.1:11434/"));
     }
 }

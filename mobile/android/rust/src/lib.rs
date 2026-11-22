@@ -6,6 +6,7 @@ mod host;
 mod policy;
 pub mod system;
 pub mod tarn_ext;
+mod transport;
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JObject, JObjectArray, JString};
@@ -13,6 +14,7 @@ use jni::sys::{jboolean, jint, jlong, jobjectArray, jstring};
 
 pub use data::{Data, PRIVATE_PREFIX};
 pub use host::{Host, Space, close_private_space, host, open_private_space, space};
+pub use transport::HostTransport;
 
 /// Filter lists for every view in this process; `None` switches them off.
 pub fn install_filters(matcher: Option<shield::matcher::Matcher>) {

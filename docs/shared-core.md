@@ -214,6 +214,16 @@ Later, moves, recent and search) `browser_core::bookmarks`.
 The engine choice already follows this: engine resolution is in `store` (`WebEngine::resolve`),
 and `engine::cookies` and `shield::matcher` are in shared crates.
 
+The AI providers (`ai::ClaudeApi`, `ai::Ollama`) send through `ai::Transport`: a POST with headers
+and a JSON body whose streamed answer fails past a byte cap or once the cancel flag is set, with no
+redirects. Before anything is sent, `ai::transport::allowed` admits only `https://api.anthropic.com`
+and plain HTTP to `127.0.0.1` (Ollama). macOS, Windows, Linux and iOS use `ai::UreqTransport`
+(rustls with the platform's certificate verifier). Android uses
+`tarn_mobile_android::HostTransport`, which streams through the Java host's `Fetch.post`: that
+keeps the host's TLS key policy (`StrongKeys`) and proxy hooks, where rustls's platform verifier
+would need its Kotlin component bundled into the APK and initialised over JNI. `Fetch.post` accepts
+HTTPS only, so Ollama is not reachable on Android.
+
 ## 3. `browser-core`
 
 **What it holds:** a new crate with the browser model and no UI types. That means the app-level state

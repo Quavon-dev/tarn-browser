@@ -10,6 +10,7 @@ publish = false
 rust-version = "1.97"
 
 [workspace.dependencies]
+ai = { path = "../crates/ai" }
 browser-core = { path = "../crates/browser-core" }
 engine = { path = "../crates/engine" }
 shield = { path = "../crates/shield" }

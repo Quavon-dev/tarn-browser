@@ -9,9 +9,13 @@ pub mod markdown;
 pub mod ollama;
 pub mod page_context;
 pub mod provider;
+pub mod transport;
 
 pub use claude_api::{ApiToken, ClaudeApi};
 pub use claude_cli::ClaudeCli;
 pub use ollama::Ollama;
 pub use page_context::PageContext;
 pub use provider::{AiError, Provider, Request};
+pub use transport::Transport;
+#[cfg(not(target_os = "android"))]
+pub use transport::UreqTransport;

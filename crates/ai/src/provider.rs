@@ -1,12 +1,9 @@
 use std::fmt;
-use std::io::{BufRead, BufReader, Read};
-use std::sync::Arc;
+use std::io::{BufRead, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-
-use ureq::tls::{RootCerts, TlsConfig};
 
 use crate::page_context::PageContext;
+use crate::transport::{self, Transport};
 
 const MAX_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -50,12 +47,6 @@ impl fmt::Display for AiError {
 
 impl std::error::Error for AiError {}
 
-impl From<ureq::Error> for AiError {
-    fn from(e: ureq::Error) -> Self {
-        Self::Network(e.to_string())
-    }
-}
-
 impl Request {
     pub(crate) fn user_message(&self) -> String {
         match &self.page {
@@ -85,33 +76,25 @@ fn strip_delimiter(s: &str) -> String {
     out
 }
 
-pub(crate) fn agent(timeout: Duration) -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .max_redirects(0)
-        .proxy(None)
-        .tls_config(
-            TlsConfig::builder()
-                .root_certs(RootCerts::PlatformVerifier)
-                .unversioned_rustls_crypto_provider(Arc::new(rustls::crypto::ring::default_provider()))
-                .build(),
-        )
-        .http_status_as_error(false)
-        .timeout_connect(Some(Duration::from_secs(10)))
-        .timeout_global(Some(timeout))
-        .build()
-        .into()
-}
-
-pub(crate) fn post_json(req: ureq::RequestBuilder<ureq::typestate::WithBody>, body: &serde_json::Value) -> Result<BufReader<impl Read>, AiError> {
-    let resp = req.header("content-type", "application/json").send(serde_json::to_vec(body).map_err(|e| AiError::Protocol(e.to_string()))?)?;
-    let status = resp.status().as_u16();
-    let mut reader = resp.into_body().into_with_config().limit(MAX_RESPONSE_BYTES).reader();
-    if status != 200 {
-        let mut text = String::new();
-        let _ = reader.by_ref().take(4096).read_to_string(&mut text);
-        return Err(AiError::Status(status, error_message(&text)));
+pub(crate) fn post_json<'a>(
+    transport: &dyn Transport,
+    url: &str,
+    headers: &[(&str, &str)],
+    body: &serde_json::Value,
+    cancel: &'a AtomicBool,
+) -> Result<Box<dyn BufRead + 'a>, AiError> {
+    if !transport::allowed(url) {
+        return Err(AiError::Network("this address is not allowed".into()));
     }
-    Ok(BufReader::new(reader))
+    let body = serde_json::to_vec(body).map_err(|e| AiError::Protocol(e.to_string()))?;
+    let headers = [headers, &[("content-type", "application/json")]].concat();
+    let mut resp = transport.post(url, &headers, &body, MAX_RESPONSE_BYTES, cancel)?;
+    if resp.status != 200 {
+        let mut text = String::new();
+        let _ = resp.body.by_ref().take(4096).read_to_string(&mut text);
+        return Err(AiError::Status(resp.status, error_message(&text)));
+    }
+    Ok(resp.body)
 }
 
 fn error_message(body: &str) -> String {
