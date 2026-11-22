@@ -70,6 +70,13 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             let body = page.as_ref().filter(|_| max > 0).and_then(|p| page_scripts::json_text_script(p, max));
             run(state, body, move |s, url, text| s.emit("jsonText", json!({ "seq": seq, "url": url, "text": text })));
         }
+        "readSelection" => {
+            run(state, Some(page_scripts::SELECTED_TEXT.to_owned()), move |s, url, text| s.emit("selection", json!({ "seq": seq, "url": url, "text": text })));
+        }
+        "readMedia" => {
+            run(state, Some(page_scripts::media_state_script()), move |s, url, text| s.emit("mediaState", json!({ "seq": seq, "url": url, "text": text })))
+        }
+        "media" => run(state, browser_core::page_ops::media_command(args).map(page_scripts::media_command_script), |_, _, _| {}),
         "pick" => run(state, Some(PICKER.to_owned()), move |s, url, selector| s.emit("picked", json!({ "seq": seq, "url": url, "selector": selector }))),
         "pickCancel" => run(state, Some(PICK_CANCEL.to_owned()), |_, _, _| {}),
         _ => return false,

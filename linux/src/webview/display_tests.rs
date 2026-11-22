@@ -500,6 +500,16 @@ fn a_snapshot_is_scaled_down_to_the_card_width() {
 }
 
 #[test]
+fn a_snapshot_area_is_cut_inside_the_texture() {
+    assert_eq!(pixel_rect([10., 5., 20., 10.], 2., 1000, 1000), Some([20, 10, 60, 30]));
+    assert_eq!(pixel_rect([90., 0., 50., 10.], 1., 100, 100), Some([90, 0, 100, 10]), "cut at the edge");
+    assert_eq!(pixel_rect([200., 0., 10., 10.], 1., 100, 100), None, "outside the visible page");
+    assert_eq!(pixel_rect([0., 0., 10., 10.], f64::NAN, 100, 100), None);
+    let pixels: Vec<u8> = (0..9u8).flat_map(|p| [p, p, p, 255]).collect();
+    assert_eq!(crop(&pixels, 3, [1, 1, 3, 2]), vec![4, 4, 4, 255, 5, 5, 5, 255]);
+}
+
+#[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn a_muted_view_stays_muted_when_rebuilt_and_unmutes() {
     gtk::init().expect("a display");
