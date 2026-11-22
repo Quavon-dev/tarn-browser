@@ -30,9 +30,10 @@ use crate::filters;
 use crate::prefs::{Choice, LIVE_TABS, Pref, Prefs};
 use crate::profiles::{EditProfile, NewProfile, profile_dot};
 use crate::shield_card::{self, Card};
-use crate::shortcuts::Keys::{self, Bound, Fixed};
+use crate::shortcuts::Keys::{Bound, Fixed};
 use crate::toolbar::shield_badge;
 use crate::{CloseOverlay, CloseTab};
+use browser_core::shortcuts::{self as keymap, Action as Shortcut};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SettingsPane {
@@ -87,91 +88,6 @@ pub(crate) use browser_core::profiles::{LOCKDOWN_WIPE, lockdown_question};
 const YOU: usize = 2;
 
 type Pick = fn(&mut Browser, usize, &mut Context<Browser>);
-
-pub(crate) const SHORTCUTS: [(&str, &[(&str, Keys)]); 4] = [
-    (
-        "Tabs",
-        &[
-            ("New tab", Bound("cmd-t", &crate::NewTab)),
-            ("Open location", Bound("cmd-l", &crate::OpenLocation)),
-            ("Open file", Bound("cmd-o", &crate::OpenFile)),
-            ("Close tab", Bound("cmd-w", &crate::CloseTab)),
-            ("Reopen closed tab", Bound("cmd-shift-t", &crate::ReopenClosedTab)),
-            ("Close all tabs", Bound("cmd-shift-k", &crate::CloseAllTabs)),
-            ("Select tab 1–8", Fixed("⌘1 ⌘2 ⌘3 ⌘4 ⌘5 ⌘6 ⌘7 ⌘8")),
-            ("Select last tab", Bound("cmd-9", &crate::LastTab)),
-            ("Next tab", Bound("ctrl-tab", &crate::NextTab)),
-            ("Previous tab", Bound("ctrl-shift-tab", &crate::PreviousTab)),
-            ("Next or previous tab, other keys", Fixed("⌘} ⌘{ ⌥⌘→ ⌥⌘←")),
-            ("Pin or unpin tab", Bound("cmd-d", &crate::TogglePin)),
-            ("New tab group", Bound("cmd-alt-g", &crate::NewGroup)),
-            ("Open or close split view", Bound("cmd-ctrl-n", &crate::split::ToggleSplitView)),
-            ("Focus next split pane", Bound("cmd-ctrl-]", &crate::split::FocusNextPane)),
-            ("Focus previous split pane", Bound("cmd-ctrl-[", &crate::split::FocusPreviousPane)),
-            ("Swap split panes", Bound("cmd-ctrl-s", &crate::split::SwapPanes)),
-            ("Rotate split layout", Bound("cmd-ctrl-r", &crate::split::RotateSplitLayout)),
-            ("Remove tab from split view", Bound("cmd-ctrl-w", &crate::split::RemoveFromSplitView)),
-        ],
-    ),
-    (
-        "Page",
-        &[
-            ("Reload", Bound("cmd-r", &crate::Reload)),
-            ("Reload without cache", Bound("cmd-shift-r", &crate::ReloadFromOrigin)),
-            ("Stop loading", Bound("cmd-.", &crate::StopLoading)),
-            ("Back", Bound("cmd-[", &crate::Back)),
-            ("Forward", Bound("cmd-]", &crate::Forward)),
-            ("Find in page", Bound("cmd-f", &crate::Find)),
-            ("Find next", Bound("cmd-g", &crate::FindNext)),
-            ("Find previous", Bound("cmd-shift-g", &crate::FindPrevious)),
-            ("Zoom in", Bound("cmd-=", &crate::ZoomIn)),
-            ("Zoom in, other key", Fixed("⌘+")),
-            ("Zoom out", Bound("cmd--", &crate::ZoomOut)),
-            ("Actual size", Bound("cmd-0", &crate::ZoomReset)),
-            ("Copy link", Bound("cmd-shift-c", &crate::CopyLink)),
-            ("Copy clean link", Bound("ctrl-shift-cmd-c", &crate::CopyCleanLink)),
-            ("Copy link as Markdown", Bound("cmd-shift-alt-c", &crate::capture::CopyMarkdownLink)),
-            ("Take screenshot", Bound("cmd-alt-s", &crate::capture::TakeScreenshot)),
-            ("Reader", Bound("alt-cmd-r", &crate::reader::ToggleReader)),
-            ("Picture in Picture", Bound("cmd-ctrl-p", &crate::capture::PictureInPicture)),
-            ("Print", Bound("cmd-p", &crate::Print)),
-            ("Open link in a peek", Fixed("⇧-click")),
-        ],
-    ),
-    (
-        "Library",
-        &[
-            ("Bookmark this tab", Bound("cmd-shift-d", &crate::BookmarkTab)),
-            ("Show library", Bound("cmd-shift-a", &crate::ToggleLibrary)),
-            ("Show downloads", Bound("cmd-shift-j", &crate::ToggleDownloads)),
-            ("Manage bookmarks", Bound("cmd-alt-b", &crate::menubar::ManageBookmarks)),
-            ("Show history", Bound("cmd-y", &crate::menubar::ShowHistory)),
-        ],
-    ),
-    (
-        "Window",
-        &[
-            ("New window", Bound("cmd-n", &crate::NewWindow)),
-            ("Close window", Bound("cmd-shift-w", &crate::CloseWindow)),
-            ("Toggle sidebar", Bound("cmd-s", &crate::ToggleSidebar)),
-            ("New space", Bound("cmd-shift-s", &crate::NewSpace)),
-            ("Private space", Bound("cmd-shift-n", &crate::PrivateSpace)),
-            ("Burner tab", Bound("cmd-alt-shift-n", &crate::BurnerTab)),
-            ("Switch to space 1–9", Fixed("⌃1 … ⌃9")),
-            ("Minimize window", Bound("cmd-m", &crate::menubar::Minimize)),
-            ("Enter or exit full screen", Bound("cmd-ctrl-f", &crate::ToggleFullScreen)),
-            ("Hide Tarn", Bound("cmd-h", &crate::HideTarn)),
-            ("Hide others", Bound("cmd-alt-h", &crate::HideOthers)),
-            ("Settings", Bound("cmd-,", &crate::Settings)),
-            ("Keyboard shortcuts", Bound("cmd-/", &crate::shortcuts::ToggleShortcuts)),
-            ("Open the menu", Fixed("F10")),
-            ("Move between page, address field and sidebar", Fixed("F6  ⇧F6")),
-            ("Close command bar, overlay, popover or link peek", Fixed("Esc")),
-            ("Undo / Redo", Fixed("⌘Z  ⇧⌘Z")),
-            ("Quit", Fixed("⌘Q")),
-        ],
-    ),
-];
 
 pub(crate) fn level_description(level: ShieldLevel) -> &'static str {
     match level {
@@ -290,7 +206,7 @@ pub struct SettingsWindow {
     polling_default: bool,
     card_notice: Option<String>,
     /// The action whose new keys the next keystroke sets, and the interceptor that catches it.
-    recording: Option<(&'static dyn gpui::Action, Subscription)>,
+    recording: Option<(Shortcut, Subscription)>,
     shortcut_error: Option<String>,
     appearance: appearance::Pane,
     _inputs: [Subscription; 2],
@@ -582,9 +498,9 @@ impl SettingsWindow {
 
     fn shortcuts(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let stored = crate::shortcuts::stored(&crate::shared::core(cx).disk);
-        let defaults = crate::shortcuts::keymap(&Default::default());
-        let changed: Vec<&dyn gpui::Action> =
-            crate::shortcuts::keymap(&stored).into_iter().zip(&defaults).filter(|((k, _), (d, _))| k != d).map(|((_, a), _)| a).collect();
+        let defaults = keymap::keymap(&crate::shortcuts::MAC, &Default::default());
+        let changed: Vec<Shortcut> =
+            keymap::keymap(&crate::shortcuts::MAC, &stored).into_iter().zip(&defaults).filter(|((k, _), (d, _))| k != d).map(|((_, a), _)| a).collect();
         let recording = self.recording.as_ref().map(|(a, _)| *a);
         let mut n = 0usize;
         let mut pane = div()
@@ -609,19 +525,22 @@ impl SettingsWindow {
                     }),
             )
             .children(self.shortcut_error.clone().map(|e| note(e).text_color(Theme::warning())));
-        for (title, items) in SHORTCUTS.iter() {
+        for (title, items) in crate::shortcuts::sections() {
             let mut list = group();
             for (ix, (name, keys)) in items.iter().enumerate() {
                 let mut line = row(ix == 0).child(label(*name));
                 line = match keys {
-                    keys if !crate::shortcuts::listed(keys) => continue,
                     Fixed(keys) => line.child(value(ui::controls::keys(keys))),
-                    Bound(_, action) => {
+                    Bound(action) => {
                         let action = *action;
                         n += 1;
-                        let on = recording.is_some_and(|a| a.partial_eq(action));
-                        let custom = changed.iter().any(|a| a.partial_eq(action));
-                        let shown = if on { "Press keys…".to_owned() } else { crate::shortcuts::shown(action, cx) };
+                        let on = recording == Some(action);
+                        let custom = changed.contains(&action);
+                        let shown = match crate::shortcuts::gpui_action(action) {
+                            _ if on => "Press keys…".to_owned(),
+                            Some(gpui) => crate::shortcuts::shown(gpui, cx),
+                            None => String::new(),
+                        };
                         line.child(
                             div()
                                 .flex()
@@ -639,14 +558,14 @@ impl SettingsWindow {
                 };
                 list = list.child(line);
             }
-            pane = pane.child(section(*title)).child(list);
+            pane = pane.child(section(title)).child(list);
         }
         pane.into_any_element()
     }
 
     /// Catches the next keystroke in the Settings window as `action`'s new keys; a key in another
     /// window stops recording and goes on as usual.
-    fn record(&mut self, action: &'static dyn gpui::Action, window: &mut Window, cx: &mut Context<Self>) {
+    fn record(&mut self, action: Shortcut, window: &mut Window, cx: &mut Context<Self>) {
         let me = cx.entity().downgrade();
         let settings = window.window_handle().window_id();
         let interceptor = cx.intercept_keystrokes(move |event, window, cx| {
@@ -683,48 +602,24 @@ impl SettingsWindow {
             self.shortcut_error = Some("The Windows key belongs to Windows; use Ctrl, or Alt with Shift or a digit.".to_owned());
             return false;
         }
-        use crate::shortcuts::{bindable, conflict, display, keymap, parse_keys, setting_key, stored};
         let disk = &crate::shared::core(cx).disk;
-        let keys = match parse_keys(&crate::shortcuts::canonical(&keystroke.unparse())) {
-            Ok(keys) => keys,
+        match keymap::save(&crate::shortcuts::MAC, disk, action, &crate::shortcuts::canonical(&keystroke.unparse())) {
+            Ok(()) => true,
             Err(e) => {
-                self.shortcut_error = Some(e.to_owned());
-                return false;
+                self.shortcut_error = Some(e);
+                false
             }
-        };
-        if let Some(user) = conflict(&keys, action, &keymap(&stored(disk))) {
-            self.shortcut_error = Some(format!("{} is already used by {user}.", ui::controls::keys(&display(&keys))));
-            return false;
         }
-        let default = bindable().find(|(_, _, a)| a.partial_eq(action)).and_then(|(_, keys, _)| parse_keys(keys).ok());
-        let saved =
-            if default.as_deref() == Some(keys.as_str()) { disk.delete_setting(&setting_key(action)) } else { disk.set_setting(&setting_key(action), &keys) };
-        if let Err(e) = saved {
-            self.shortcut_error = Some(format!("The shortcut could not be saved ({e})."));
-        }
-        true
     }
 
     /// Back to the default keys for `action`, unless another action took them meanwhile, or for
     /// every action.
-    fn reset_shortcuts(&mut self, action: Option<&'static dyn gpui::Action>, cx: &mut Context<Self>) {
-        use crate::shortcuts::{bindable, conflict, display, keymap, parse_keys, setting_key, stored};
-        let disk = &crate::shared::core(cx).disk;
+    fn reset_shortcuts(&mut self, action: Option<Shortcut>, cx: &mut Context<Self>) {
         self.recording = None;
-        self.shortcut_error = None;
-        let default = action.and_then(|action| bindable().find(|(_, _, a)| a.partial_eq(action))).and_then(|(_, keys, _)| parse_keys(keys).ok());
-        if let (Some(action), Some(keys)) = (action, &default)
-            && let Some(user) = conflict(keys, action, &keymap(&stored(disk)))
-        {
-            self.shortcut_error = Some(format!("{} is now used by {user}; change that first.", ui::controls::keys(&display(keys))));
-            return cx.notify();
+        self.shortcut_error = keymap::reset(&crate::shortcuts::MAC, &crate::shared::core(cx).disk, action).err();
+        if self.shortcut_error.is_none() {
+            cx.defer(crate::shortcuts::rebind);
         }
-        for (_, _, a) in bindable().filter(|(_, _, a)| action.is_none_or(|action| a.partial_eq(action))) {
-            if let Err(e) = disk.delete_setting(&setting_key(a)) {
-                self.shortcut_error = Some(format!("The shortcut could not be reset ({e})."));
-            }
-        }
-        cx.defer(crate::shortcuts::rebind);
         cx.notify();
     }
 
@@ -2258,13 +2153,14 @@ mod tests {
 
     #[test]
     fn shortcuts_list_every_key_binding() {
-        let listed = super::SHORTCUTS
+        let listed = crate::shortcuts::sections()
             .iter()
             .flat_map(|(_, items)| items.iter())
             .map(|(_, keys)| match keys {
                 super::Fixed(keys) => (*keys).to_owned(),
-                super::Bound(keys, _) => crate::shortcuts::display(keys),
+                super::Bound(action) => crate::shortcuts::display(&browser_core::shortcuts::default(&crate::shortcuts::MAC, *action)),
             })
+            .chain(crate::shortcuts::FIXED.iter().map(|(_, _, keys)| (*keys).to_owned()))
             .collect::<Vec<_>>()
             .join("  ");
         for binding in include_str!("lib.rs").replace("KeyBinding::new(&shortcuts::platform(\"", "KeyBinding::new(\"").split("KeyBinding::new(\"").skip(1) {

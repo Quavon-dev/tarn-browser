@@ -182,12 +182,11 @@ fn shortcut_rows(ui: Ui) -> View {
     if let Some(error) = ui.shortcut_error.get_untracked() {
         out = out.child(note(error).text_color(Theme::warning()));
     }
-    for (name, rows) in shortcuts::SECTIONS {
+    for (name, rows) in shortcuts::sections() {
         let mut grp = group();
-        for (row_label, action, _) in rows {
-            let keys = map.iter().find(|(_, a)| a == action).map(|(k, _)| k.clone()).unwrap_or_default();
+        for (row_label, action) in rows {
+            let keys = map.iter().find(|(_, a)| *a == action).map(|(k, _)| k.clone()).unwrap_or_default();
             let custom = stored.contains_key(&action.setting_key());
-            let action = *action;
             let editing = ui.shortcut_edit.get_untracked() == Some(action);
             let control: AnyElement = if editing {
                 super::text_field(ui.shortcut_text, "ctrl+shift+y", 160.)
@@ -218,7 +217,7 @@ fn shortcut_rows(ui: Ui) -> View {
                     act(ui, |_| {});
                 })
             });
-            grp = grp.child(group_row().child(label(*row_label).flex_1()).children(reset).child(control));
+            grp = grp.child(group_row().child(label(row_label).flex_1()).children(reset).child(control));
         }
         out = out.child(small(name).pt_2()).child(grp);
     }

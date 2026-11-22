@@ -186,8 +186,8 @@ fn header(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
 fn shortcuts() -> View {
     let note =
         if cfg!(target_os = "android") { "Shortcuts work with a hardware keyboard; Ctrl stands for ⌘." } else { "Shortcuts work with a hardware keyboard." };
-    view().gap_2().child(text(note).pt_3().px_1().text_size(px(TEXT_SMALL)).text_color(Theme::muted)).children(shortcuts::table(apple_keys()).into_iter().map(
-        |(name, rows)| {
+    view().gap_2().child(text(note).pt_3().px_1().text_size(px(TEXT_SMALL)).text_color(Theme::muted)).children(
+        shortcuts::table(super::input::keyboard(), super::input::offered).into_iter().map(|(name, rows)| {
             view().child(section(name)).child(group().children(rows.into_iter().enumerate().map(|(ix, (does, keys))| {
                 view()
                     .flex_row()
@@ -200,8 +200,8 @@ fn shortcuts() -> View {
                     .child(text(keys).text_size(px(TEXT)).text_color(Theme::muted))
                     .into_element()
             })))
-        },
-    ))
+        }),
+    )
 }
 
 fn profiles(ui: Ui) -> View {

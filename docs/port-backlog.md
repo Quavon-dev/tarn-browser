@@ -173,27 +173,23 @@ macOS reference: `crates/app/src/settings.rs` (`developer`); Linux: `linux/src/b
 
 ### Shared tablet tables that macOS and Linux still duplicate (2026-11-17)
 
-What it does: the tablet Mac layout reads its tab menu, keyboard shortcuts and trackpad swipe from
-`browser-core`; macOS, Windows and Linux still keep their own copies, which can drift. The command
-palette is shared by every client since 2026-11-22: `browser_core::palette::{COMMANDS, State, ranked, rows}`
-holds every command, when it shows and what toggles are called; each client keeps only which commands
-it offers and how it runs them (`crates/app/src/lib.rs` `command_action`, `linux/src/ui/tools.rs`
-`command_for`, `mobile/app/src/ui/mac/toolbar.rs` `OFFERED`).
-Shared API: `browser_core::tab_menu::items`, `browser_core::shortcuts::{SECTIONS, bindings, table}`,
-`browser_core::sidebar::Swipe`.
-macOS reference: `crates/app/src/browser/context.rs` (`tab_menu`), `crates/app/src/settings.rs` (`SHORTCUTS`),
-`crates/app/src/gestures.rs` (`Swipe`).
+What it does: the tablet Mac layout reads its tab menu and trackpad swipe from `browser-core`; macOS,
+Windows and Linux still keep their own copies, which can drift. The command palette (2026-11-22) and
+the keyboard shortcuts are shared by every client: `browser_core::shortcuts` holds every action, its
+section, label and default keys per keyboard (Apple, Linux, other), and the user-editable keymap
+(stored keys, conflicts, reset) behind the `Keystrokes` trait; each client keeps only which actions it
+offers, how it parses keys and what it runs (`crates/app/src/shortcuts.rs` `Mac`, `gpui_action`;
+`linux/src/shortcuts.rs` `Linux`, `offered`; `mobile/app/src/ui/mac/input.rs` `offered`).
+Shared API: `browser_core::tab_menu::items`, `browser_core::sidebar::Swipe`.
+macOS reference: `crates/app/src/browser/context.rs` (`tab_menu`), `crates/app/src/gestures.rs` (`Swipe`).
 
 - [ ] Windows — same as macOS (shares `crates/app`)
-- [ ] macOS — not a mechanical swap: the tab menu has entries the core list lacks (Reload in Chromium,
-  Bookmark Tab, Mute, Sleep, Return to pinned URL, the Split View and Add to Group submenus, key hints);
-  `SHORTCUTS` covers actions the core table does not (Close All Tabs, split panes, Print, Picture in
-  Picture, …) and binds GPUI actions; `Swipe` reads touch phases and natural scrolling, where the core
-  one times wheel pauses. Each needs the core type extended first. `Step` and the space neighbour
-  already come from `browser_core::sidebar`.
-- [ ] Linux — `linux/src/shortcuts.rs` keeps user-editable bindings the core table cannot hold yet;
-  the This Tab panel is its tab menu. `Swipe`, `Step` and the space neighbour already come from
-  `browser_core::sidebar`.
+- [ ] macOS — the tab menu has entries the core list lacks (Reload in Chromium, Bookmark Tab, Mute,
+  Sleep, Return to pinned URL, the Split View and Add to Group submenus, key hints); `Swipe` reads
+  touch phases and natural scrolling, where the core one times wheel pauses. Each needs the core type
+  extended first. `Step` and the space neighbour already come from `browser_core::sidebar`.
+- [ ] Linux — the This Tab panel is its tab menu. `Swipe`, `Step` and the space neighbour already
+  come from `browser_core::sidebar`.
 - [x] iOS — the tablet Mac layout uses all three
 - [x] Android — same as iOS
 

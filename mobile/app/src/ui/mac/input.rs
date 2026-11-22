@@ -1,4 +1,4 @@
-use browser_core::shortcuts::{self, Action};
+use browser_core::shortcuts::{self, Action, Keyboard};
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use serde_json::Value;
@@ -22,6 +22,41 @@ fn select_tab(ui: Ui, action: Action) {
         });
         ui.show(Screen::Browse);
     }
+}
+
+pub(super) fn keyboard() -> Keyboard {
+    if apple_keys() { Keyboard::Apple } else { Keyboard::Other }
+}
+
+pub(super) fn offered(action: Action) -> bool {
+    !matches!(
+        action,
+        Action::CloseAllTabs
+            | Action::NewGroup
+            | Action::ToggleSplitView
+            | Action::FocusNextPane
+            | Action::FocusPreviousPane
+            | Action::SwapPanes
+            | Action::RotateSplitLayout
+            | Action::RemoveFromSplitView
+            | Action::StopLoading
+            | Action::FindNext
+            | Action::FindPrevious
+            | Action::CopyMarkdownLink
+            | Action::TakeScreenshot
+            | Action::PictureInPicture
+            | Action::Print
+            | Action::BookmarkTab
+            | Action::ToggleLibrary
+            | Action::ManageBookmarks
+            | Action::NewWindow
+            | Action::CloseWindow
+            | Action::Minimize
+            | Action::ToggleFullScreen
+            | Action::HideTarn
+            | Action::HideOthers
+            | Action::ToggleShortcuts
+    )
 }
 
 fn zoom(ui: Ui, delta: f64) {
@@ -104,11 +139,36 @@ fn run(ui: Ui, action: Action) {
             s.toggle_sidebar();
             Vec::new()
         }),
+        Action::CloseAllTabs
+        | Action::NewGroup
+        | Action::ToggleSplitView
+        | Action::FocusNextPane
+        | Action::FocusPreviousPane
+        | Action::SwapPanes
+        | Action::RotateSplitLayout
+        | Action::RemoveFromSplitView
+        | Action::StopLoading
+        | Action::FindNext
+        | Action::FindPrevious
+        | Action::CopyMarkdownLink
+        | Action::TakeScreenshot
+        | Action::PictureInPicture
+        | Action::Print
+        | Action::BookmarkTab
+        | Action::ToggleLibrary
+        | Action::ManageBookmarks
+        | Action::NewWindow
+        | Action::CloseWindow
+        | Action::Minimize
+        | Action::ToggleFullScreen
+        | Action::HideTarn
+        | Action::HideOthers
+        | Action::ToggleShortcuts => {}
     }
 }
 
 pub(super) fn bindings(ui: Ui) -> impl IntoElement {
-    for (keys, action) in shortcuts::bindings(apple_keys()) {
+    for (keys, action) in shortcuts::bindings(keyboard(), offered) {
         on_key_with(&keys, ALWAYS, move |_| run(ui, action));
     }
     view().child(when(

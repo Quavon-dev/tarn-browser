@@ -828,13 +828,13 @@ fn address_panel(ui: Ui) -> AnyElement {
 
 fn shortcuts_panel(ui: Ui) -> AnyElement {
     let map = read(ui, |b| shortcuts::keymap(&shortcuts::stored(&b.core.disk))).unwrap_or_default();
-    let columns = shortcuts::SECTIONS.iter().map(|(name, rows)| {
-        let bound = rows.iter().map(|(row_label, action, _)| {
-            let keys = map.iter().find(|(_, a)| a == action).map(|(k, _)| shortcuts::display(k)).unwrap_or_default();
-            line(*row_label).child(tarn_nsh_shared::controls::key_caps(&keys)).into_element()
+    let columns = shortcuts::sections().map(|(name, rows)| {
+        let bound = rows.into_iter().map(|(row_label, action)| {
+            let keys = map.iter().find(|(_, a)| *a == action).map(|(k, _)| shortcuts::display(k)).unwrap_or_default();
+            line(row_label).child(tarn_nsh_shared::controls::key_caps(&keys)).into_element()
         });
         let fixed =
-            shortcuts::FIXED.iter().filter(|(section, ..)| section == name).map(|(_, row_label, keys)| line(*row_label).child(small(*keys)).into_element());
+            shortcuts::FIXED.iter().filter(|(section, ..)| *section == name).map(|(_, row_label, keys)| line(*row_label).child(small(*keys)).into_element());
         view().flex_col().w(px(250.)).gap_1().child(caps_label(name)).children(bound.chain(fixed).collect::<Vec<_>>()).into_element()
     });
     let sheet = element_ref();

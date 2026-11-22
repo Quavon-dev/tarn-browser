@@ -1,131 +1,9 @@
 use std::collections::HashMap;
 
+use browser_core::shortcuts::{self as core, Keyboard, Keystrokes};
+pub use browser_core::shortcuts::{Action, stored};
 use nsh_core::keymap::Keystroke;
 use nsh_core::platform::Os;
-
-pub const PREFIX: &str = "keymap.";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Action {
-    NewTab,
-    OpenLocation,
-    OpenFile,
-    CloseTab,
-    CloseAllTabs,
-    ReopenClosedTab,
-    NextTab,
-    PreviousTab,
-    TogglePin,
-    BurnerTab,
-    NewGroup,
-    Reload,
-    Back,
-    Forward,
-    Find,
-    FindInTabs,
-    ZoomIn,
-    ZoomOut,
-    ZoomReset,
-    CopyLink,
-    CopyCleanLink,
-    TakeScreenshot,
-    ToggleReader,
-    Print,
-    BookmarkTab,
-    ManageBookmarks,
-    ShowHistory,
-    ToggleDownloads,
-    ToggleSidebar,
-    NewSpace,
-    PrivateSpace,
-    Settings,
-    NewWindow,
-    ToggleSplitView,
-    FocusNextPane,
-    FocusPreviousPane,
-    SwapPanes,
-    RotateSplitLayout,
-    RemoveFromSplitView,
-    LastTab,
-    CopyMarkdownLink,
-    ToggleShortcuts,
-    CloseWindow,
-    ReloadFromOrigin,
-}
-
-pub type Binding = (&'static str, Action, &'static str);
-
-pub const SECTIONS: [(&str, &[Binding]); 5] = [
-    (
-        "Tabs",
-        &[
-            ("New tab", Action::NewTab, "ctrl+t"),
-            ("Open location", Action::OpenLocation, "ctrl+l"),
-            ("Open file", Action::OpenFile, "ctrl+o"),
-            ("Close tab", Action::CloseTab, "ctrl+w"),
-            ("Close all tabs", Action::CloseAllTabs, "ctrl+shift+k"),
-            ("Reopen closed tab", Action::ReopenClosedTab, "ctrl+shift+t"),
-            ("Select last tab", Action::LastTab, "ctrl+9"),
-            ("Next tab", Action::NextTab, "ctrl+tab"),
-            ("Previous tab", Action::PreviousTab, "ctrl+shift+tab"),
-            ("Pin or unpin tab", Action::TogglePin, "ctrl+d"),
-            ("Burner tab", Action::BurnerTab, "ctrl+alt+shift+n"),
-            ("New tab group", Action::NewGroup, "ctrl+alt+g"),
-        ],
-    ),
-    (
-        "Split View",
-        &[
-            ("Open or close split view", Action::ToggleSplitView, "ctrl+alt+n"),
-            ("Focus next split pane", Action::FocusNextPane, "ctrl+alt+]"),
-            ("Focus previous split pane", Action::FocusPreviousPane, "ctrl+alt+["),
-            ("Swap split panes", Action::SwapPanes, "ctrl+alt+s"),
-            ("Rotate split layout", Action::RotateSplitLayout, "ctrl+alt+r"),
-            ("Remove tab from split view", Action::RemoveFromSplitView, "ctrl+alt+w"),
-        ],
-    ),
-    (
-        "Page",
-        &[
-            ("Reload", Action::Reload, "ctrl+r"),
-            ("Reload without cache", Action::ReloadFromOrigin, "ctrl+shift+r"),
-            ("Back", Action::Back, "alt+left"),
-            ("Forward", Action::Forward, "alt+right"),
-            ("Find in page", Action::Find, "ctrl+f"),
-            ("Find in tabs", Action::FindInTabs, "ctrl+shift+f"),
-            ("Zoom in", Action::ZoomIn, "ctrl+="),
-            ("Zoom out", Action::ZoomOut, "ctrl+-"),
-            ("Actual size", Action::ZoomReset, "ctrl+0"),
-            ("Copy link", Action::CopyLink, "ctrl+shift+c"),
-            ("Copy clean link", Action::CopyCleanLink, "ctrl+alt+shift+c"),
-            ("Copy link as Markdown", Action::CopyMarkdownLink, "ctrl+alt+c"),
-            ("Take screenshot", Action::TakeScreenshot, "ctrl+alt+shift+s"),
-            ("Reader", Action::ToggleReader, "ctrl+alt+e"),
-            ("Print", Action::Print, "ctrl+p"),
-        ],
-    ),
-    (
-        "Library",
-        &[
-            ("Bookmark this tab", Action::BookmarkTab, "ctrl+shift+d"),
-            ("Manage bookmarks", Action::ManageBookmarks, "ctrl+alt+b"),
-            ("Show history", Action::ShowHistory, "ctrl+h"),
-            ("Show downloads", Action::ToggleDownloads, "ctrl+j"),
-        ],
-    ),
-    (
-        "Window",
-        &[
-            ("New window", Action::NewWindow, "ctrl+n"),
-            ("Close window", Action::CloseWindow, "ctrl+shift+w"),
-            ("Toggle sidebar", Action::ToggleSidebar, "ctrl+s"),
-            ("New space", Action::NewSpace, "ctrl+shift+s"),
-            ("Private space", Action::PrivateSpace, "ctrl+shift+n"),
-            ("Settings", Action::Settings, "ctrl+,"),
-            ("Keyboard shortcuts", Action::ToggleShortcuts, "ctrl+/"),
-        ],
-    ),
-];
 
 pub const ZOOM_IN_SHIFTED: &str = "ctrl+shift+=";
 pub const FIND_NEXT: &str = "ctrl+g";
@@ -171,22 +49,55 @@ const RESERVED: [&str; 20] = [
     PREVIOUS_TAB,
 ];
 
-impl Action {
-    pub fn name(self) -> String {
-        format!("tarn::{self:?}")
+struct Linux;
+
+impl Keystrokes for Linux {
+    fn keyboard(&self) -> Keyboard {
+        Keyboard::Linux
     }
 
-    pub fn setting_key(self) -> String {
-        format!("{PREFIX}{}", self.name())
+    fn offered(&self, action: Action) -> bool {
+        offered(action)
+    }
+
+    fn written(&self, keys: &str) -> String {
+        let keys = keys.replace("mod", "ctrl");
+        canonical(&keys).map_or(keys, |k| k.to_string())
+    }
+
+    fn parse(&self, raw: &str) -> Result<String, &'static str> {
+        parse_keys(raw)
+    }
+
+    fn fixed(&self, keys: &str) -> bool {
+        RESERVED.iter().filter_map(|r| canonical(r)).any(|r| r.to_string() == keys)
+    }
+
+    fn display(&self, keys: &str) -> String {
+        display(keys)
     }
 }
 
-pub fn bindable() -> impl Iterator<Item = (&'static str, Action, &'static str)> {
-    SECTIONS.iter().flat_map(|(_, rows)| rows.iter().copied())
+pub fn offered(action: Action) -> bool {
+    !matches!(
+        action,
+        Action::CommandBar
+            | Action::StopLoading
+            | Action::FindNext
+            | Action::FindPrevious
+            | Action::PictureInPicture
+            | Action::ToggleLibrary
+            | Action::Minimize
+            | Action::ToggleFullScreen
+            | Action::HideTarn
+            | Action::HideOthers
+            | Action::SelectTab(_)
+            | Action::SwitchSpace(_)
+    )
 }
 
-pub fn label(action: Action) -> &'static str {
-    bindable().find(|(_, a, _)| *a == action).map_or("", |(l, ..)| l)
+pub fn sections() -> impl Iterator<Item = (&'static str, Vec<(&'static str, Action)>)> {
+    core::SECTIONS.iter().map(|(name, rows)| (*name, rows.iter().filter(|(_, a, _)| offered(*a)).map(|(l, a, _)| (*l, *a)).collect()))
 }
 
 fn canonical(text: &str) -> Option<Keystroke> {
@@ -204,35 +115,8 @@ pub fn parse_keys(raw: &str) -> Result<String, &'static str> {
     Ok(keystroke.to_string())
 }
 
-pub fn conflict(keys: &str, action: Action, keymap: &[(String, Action)]) -> Option<&'static str> {
-    if RESERVED.iter().filter_map(|r| canonical(r)).any(|r| r.to_string() == keys) {
-        return Some("a fixed shortcut");
-    }
-    keymap.iter().find(|(k, a)| k == keys && *a != action).map(|(_, other)| label(*other))
-}
-
-fn default(keys: &str) -> String {
-    canonical(keys).map_or_else(|| keys.to_owned(), |k| k.to_string())
-}
-
 pub fn keymap(stored: &HashMap<String, String>) -> Vec<(String, Action)> {
-    let chosen = |action: Action| stored.get(&action.setting_key()).and_then(|k| parse_keys(k).ok());
-    let mut keymap: Vec<(String, Action)> = bindable().map(|(_, a, keys)| (chosen(a).unwrap_or_else(|| default(keys)), a)).collect();
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for (ix, (_, action, keys)) in bindable().enumerate() {
-            if keymap[ix].0 != default(keys) && conflict(&keymap[ix].0, action, &keymap).is_some() {
-                keymap[ix].0 = default(keys);
-                changed = true;
-            }
-        }
-    }
-    keymap
-}
-
-pub fn stored(disk: &store::Store) -> HashMap<String, String> {
-    disk.settings_with_prefix(PREFIX).unwrap_or_default().into_iter().collect()
+    core::keymap(&Linux, stored)
 }
 
 pub fn display(keys: &str) -> String {
@@ -254,28 +138,24 @@ pub fn display(keys: &str) -> String {
 }
 
 pub fn save(disk: &store::Store, action: Action, raw: &str) -> Result<(), String> {
-    let keys = parse_keys(raw).map_err(str::to_owned)?;
-    let map = keymap(&stored(disk));
-    if let Some(user) = conflict(&keys, action, &map) {
-        return Err(format!("{} is already used by {user}.", display(&keys)));
-    }
-    disk.set_setting(&action.setting_key(), &keys).map_err(|e| format!("The shortcut could not be saved ({e})."))
+    core::save(&Linux, disk, action, raw)
 }
 
 pub fn reset(disk: &store::Store, action: Option<Action>) -> Result<(), String> {
-    let map = keymap(&stored(disk));
-    for (_, a, keys) in bindable().filter(|(_, a, _)| action.is_none_or(|x| x == *a)) {
-        if let Some(user) = conflict(&default(keys), a, &map) {
-            return Err(format!("{} is now used by {user}; change that first.", display(&default(keys))));
-        }
-        disk.delete_setting(&a.setting_key()).map_err(|e| format!("The shortcut could not be reset ({e})."))?;
-    }
-    Ok(())
+    core::reset(&Linux, disk, action)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn conflict(keys: &str, action: Action, keymap: &[(String, Action)]) -> Option<&'static str> {
+        core::conflict(&Linux, keys, action, keymap)
+    }
+
+    fn default(action: Action) -> String {
+        core::default(&Linux, action)
+    }
 
     #[test]
     fn keys_parse_to_one_canonical_keystroke_with_ctrl() {
@@ -292,10 +172,17 @@ mod tests {
         keys.sort();
         keys.dedup();
         assert_eq!(keys.len(), defaults.len());
-        for (_, _, keys) in SECTIONS.iter().find(|(name, _)| *name == "Split View").unwrap().1 {
-            assert_eq!(parse_keys(keys).as_deref(), Ok(default(keys).as_str()), "{keys} can be typed back in");
+        for action in [
+            Action::ToggleSplitView,
+            Action::FocusNextPane,
+            Action::FocusPreviousPane,
+            Action::SwapPanes,
+            Action::RotateSplitLayout,
+            Action::RemoveFromSplitView,
+            Action::TakeScreenshot,
+        ] {
+            assert_eq!(parse_keys(&default(action)).as_deref(), Ok(default(action).as_str()), "{action:?} can be typed back in");
         }
-        assert_eq!(parse_keys("ctrl+alt+shift+s").as_deref(), Ok(default("ctrl+alt+shift+s").as_str()), "Take screenshot can be typed back in");
         assert_eq!(Action::NewTab.setting_key(), "keymap.tarn::NewTab");
         let stored = HashMap::from([
             (Action::NewTab.setting_key(), "ctrl+shift+y".to_owned()),
@@ -315,15 +202,33 @@ mod tests {
     }
 
     #[test]
-    fn rows_ported_from_macos_have_their_keys_and_fixed_rows_name_a_section() {
+    fn every_linux_default_stays_where_it_was() {
         let map = keymap(&HashMap::new());
         let of = |a: Action| map.iter().find(|(_, x)| *x == a).unwrap().0.clone();
-        assert_eq!(of(Action::CloseAllTabs), "ctrl+shift+k");
-        assert_eq!(of(Action::LastTab), "ctrl+9");
-        assert_eq!(of(Action::CopyMarkdownLink), "ctrl+alt+c");
-        assert_eq!(of(Action::ToggleShortcuts), "ctrl+/");
+        for (action, keys) in [
+            (Action::CloseAllTabs, "ctrl+shift+k"),
+            (Action::LastTab, "ctrl+9"),
+            (Action::CopyMarkdownLink, "ctrl+alt+c"),
+            (Action::ToggleShortcuts, "ctrl+/"),
+            (Action::Back, "alt+left"),
+            (Action::Forward, "alt+right"),
+            (Action::ToggleReader, "ctrl+alt+e"),
+            (Action::ShowHistory, "ctrl+h"),
+            (Action::ToggleDownloads, "ctrl+j"),
+            (Action::TakeScreenshot, "ctrl+alt+shift+s"),
+            (Action::ToggleSplitView, "ctrl+alt+n"),
+            (Action::RemoveFromSplitView, "ctrl+alt+w"),
+            (Action::NewGroup, "ctrl+alt+g"),
+            (Action::BurnerTab, "ctrl+alt+shift+n"),
+            (Action::CopyCleanLink, "ctrl+alt+shift+c"),
+            (Action::ManageBookmarks, "ctrl+alt+b"),
+            (Action::NewWindow, "ctrl+n"),
+        ] {
+            assert_eq!(of(action), keys, "{action:?}");
+        }
         assert_eq!(conflict("ctrl+9", Action::NewTab, &map), Some("Select last tab"));
-        assert!(FIXED.iter().all(|(section, ..)| SECTIONS.iter().any(|(name, _)| name == section)));
+        assert!(FIXED.iter().all(|(section, ..)| core::SECTIONS.iter().any(|(name, _)| name == section)));
+        assert!(!map.iter().any(|(_, a)| *a == Action::HideTarn), "macOS-only actions take no key here");
     }
 
     #[test]
@@ -334,8 +239,6 @@ mod tests {
         assert_eq!(stored(&disk)["keymap.tarn::NewTab"], "ctrl+shift+y");
         save(&disk, Action::CloseTab, "ctrl+t").unwrap();
         assert!(reset(&disk, Some(Action::NewTab)).unwrap_err().contains("Close tab"));
-        reset(&disk, None).unwrap_err();
-        save(&disk, Action::CloseTab, "ctrl+w").unwrap();
         reset(&disk, None).unwrap();
         assert!(stored(&disk).is_empty());
     }

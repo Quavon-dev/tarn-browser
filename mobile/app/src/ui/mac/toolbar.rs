@@ -439,7 +439,12 @@ fn command_rows(ui: Ui) -> impl IntoElement {
                 .bg(move || picked_fill(picked(ui, ix + 1)))
                 .child(row_glyph(glyphs::glyph(browser_core::command::glyph(&name)), move || picked(ui, ix + 1)))
                 .child(row_name(name, Theme::text()))
-                .children(shortcuts::for_command(command).and_then(|a| shortcuts::keys_for(a, apple_keys())).map(|k| key_caps(&k)))
+                .children(
+                    shortcuts::for_command(command)
+                        .filter(|a| super::input::offered(*a))
+                        .and_then(|a| shortcuts::keys_for(a, super::input::keyboard()))
+                        .map(|k| key_caps(&k)),
+                )
         });
         view().flex_col().gap(px(tarn_nsh_shared::toolbar::TOOL_GAP)).children(shown.then(|| row_section("Commands"))).children(items)
     })

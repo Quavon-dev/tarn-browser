@@ -2213,6 +2213,18 @@ fn run_action(ui: Ui, action: Action) {
         }
         Action::ReloadFromOrigin if !ui.snap.with_untracked(no_page) => act(ui, Browser::reload_from_origin),
         Action::ReloadFromOrigin => {}
+        Action::CommandBar
+        | Action::StopLoading
+        | Action::FindNext
+        | Action::FindPrevious
+        | Action::PictureInPicture
+        | Action::ToggleLibrary
+        | Action::Minimize
+        | Action::ToggleFullScreen
+        | Action::HideTarn
+        | Action::HideOthers
+        | Action::SelectTab(_)
+        | Action::SwitchSpace(_) => {}
     }
 }
 
