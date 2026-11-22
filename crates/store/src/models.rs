@@ -205,6 +205,15 @@ pub struct SavedWindow {
     pub position: i64,
 }
 
+/// A profile's own assistant command; `browser_core::assistant::compose` expands its template.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiCommand {
+    pub id: Id,
+    pub profile_id: Id,
+    pub name: String,
+    pub template: String,
+}
+
 /// A named copy of a space's tabs and groups; its data is read only to restore it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot {

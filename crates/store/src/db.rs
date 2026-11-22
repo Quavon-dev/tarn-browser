@@ -10,8 +10,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use shield::ShieldLevel;
 
 use crate::models::{
-    Bookmark, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Profile, SavedWindow, Schedule, ShieldDay,
-    ShieldStats, Slot, Snapshot, Space, SpaceRule, Tab, TabKind, WebEngine,
+    AiCommand, Bookmark, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Profile, SavedWindow, Schedule,
+    ShieldDay, ShieldStats, Slot, Snapshot, Space, SpaceRule, Tab, TabKind, WebEngine,
 };
 
 const MIGRATIONS: &[&str] = &[
@@ -200,12 +200,19 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE groups ADD COLUMN icon TEXT NOT NULL DEFAULT '';
      ALTER TABLE folders ADD COLUMN icon TEXT NOT NULL DEFAULT '';",
     "ALTER TABLE spaces ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0;",
+    "CREATE TABLE ai_commands (
+         id INTEGER PRIMARY KEY,
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         name TEXT NOT NULL,
+         template TEXT NOT NULL
+     );
+     CREATE INDEX ai_commands_profile ON ai_commands(profile_id);",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
 const PROFILE_NEUTRAL: [&str; 3] = ["settings", "themes", "windows"];
 /// Every table holding profile data, with the filter that selects one profile's rows.
-const PROFILE_TABLES: [(&str, &str); 26] = [
+const PROFILE_TABLES: [(&str, &str); 27] = [
     ("profiles", "id = ?1"),
     ("spaces", "profile_id = ?1"),
     ("folders", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
@@ -232,6 +239,7 @@ const PROFILE_TABLES: [(&str, &str); 26] = [
     ("space_rules", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
     ("zapped_elements", "profile_id = ?1"),
     ("extension_storage", "profile_id = ?1"),
+    ("ai_commands", "profile_id = ?1"),
 ];
 /// Sites kept per profile for the privacy report's list.
 const MAX_SHIELD_SITES: i64 = 200;
@@ -246,6 +254,8 @@ pub fn clip_history_text(text: &str) -> &str {
     }
     &text[..end]
 }
+/// The longest custom assistant command template kept, in bytes.
+pub const MAX_AI_TEMPLATE: usize = 4096;
 /// The most CSS one site may keep, in bytes.
 pub const MAX_SITE_CSS: usize = 64 * 1024;
 /// The largest theme file kept, in bytes (`browser_core::theme::MAX_THEME_BYTES`).
@@ -376,6 +386,12 @@ impl Store {
 
     pub fn set_profile_shield_level(&self, id: Id, level: ShieldLevel) -> Result<()> {
         self.conn.execute("UPDATE profiles SET shield_level = ?2 WHERE id = ?1", params![id, level.as_str()])?;
+        self.settings_changed();
+        Ok(())
+    }
+
+    pub fn set_profile_ai(&self, id: Id, enabled: bool) -> Result<()> {
+        self.conn.execute("UPDATE profiles SET ai_enabled = ?2 WHERE id = ?1", params![id, enabled])?;
         self.settings_changed();
         Ok(())
     }
@@ -1049,6 +1065,31 @@ impl Store {
 
     pub fn rename_snapshot(&self, profile_id: Id, id: Id, name: &str) -> Result<()> {
         self.conn.execute("UPDATE snapshots SET name = ?3 WHERE profile_id = ?1 AND id = ?2", params![profile_id, id, name])?;
+        Ok(())
+    }
+
+    pub fn ai_commands(&self, profile_id: Id) -> Result<Vec<AiCommand>> {
+        let mut stmt = self.conn.prepare("SELECT id, profile_id, name, template FROM ai_commands WHERE profile_id = ?1 ORDER BY id")?;
+        let rows = stmt.query_map([profile_id], |r| Ok(AiCommand { id: r.get(0)?, profile_id: r.get(1)?, name: r.get(2)?, template: r.get(3)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// A blank name or a template over `MAX_AI_TEMPLATE` bytes is refused.
+    pub fn create_ai_command(&self, profile_id: Id, name: &str, template: &str) -> Result<AiCommand> {
+        check_ai_command(name, template)?;
+        self.conn.execute("INSERT INTO ai_commands (profile_id, name, template) VALUES (?1, ?2, ?3)", params![profile_id, name, template])?;
+        Ok(AiCommand { id: self.conn.last_insert_rowid(), profile_id, name: name.to_owned(), template: template.to_owned() })
+    }
+
+    pub fn update_ai_command(&self, profile_id: Id, id: Id, name: &str, template: &str) -> Result<()> {
+        check_ai_command(name, template)?;
+        self.conn.execute("UPDATE ai_commands SET name = ?3, template = ?4 WHERE profile_id = ?1 AND id = ?2", params![profile_id, id, name, template])?;
+        Ok(())
+    }
+
+    pub fn delete_ai_command(&self, profile_id: Id, id: Id) -> Result<()> {
+        self.conn.execute("DELETE FROM ai_commands WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
+        self.checkpoint().ok();
         Ok(())
     }
 
@@ -1869,6 +1910,13 @@ fn tab_row(r: &Row) -> rusqlite::Result<Tab> {
     })
 }
 
+fn check_ai_command(name: &str, template: &str) -> Result<()> {
+    if name.trim().is_empty() || template.len() > MAX_AI_TEMPLATE {
+        return Err(Error::Invalid("ai command"));
+    }
+    Ok(())
+}
+
 fn invalid(column: usize) -> rusqlite::Error {
     rusqlite::Error::InvalidColumnType(column, "enum".into(), rusqlite::types::Type::Text)
 }
@@ -2287,6 +2335,31 @@ mod tests {
         assert!(store.snapshots(1).unwrap().is_empty());
         store.delete_profile(2).unwrap();
         assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn ai_commands_upgrade_stay_per_profile_and_go_with_the_profile_and_its_reset() {
+        let mut store = store_before("CREATE TABLE ai_commands");
+        store.conn.execute_batch("INSERT INTO profiles (id, name, data_store_uuid) VALUES (1, 'P', 'u1'), (2, 'Q', 'u2');").unwrap();
+        store.migrate().unwrap();
+        assert!(!store.profile(1).unwrap().ai_enabled);
+        store.set_profile_ai(1, true).unwrap();
+        assert!(store.profile(1).unwrap().ai_enabled && !store.profile(2).unwrap().ai_enabled);
+        let tldr = store.create_ai_command(1, "TL;DR", "Shorten {page}").unwrap();
+        let other = store.create_ai_command(2, "Other", "x").unwrap();
+        assert!(store.create_ai_command(1, " ", "x").is_err());
+        assert!(store.create_ai_command(1, "Big", &"x".repeat(MAX_AI_TEMPLATE + 1)).is_err());
+        store.update_ai_command(2, tldr.id, "Taken", "y").unwrap();
+        store.delete_ai_command(2, tldr.id).unwrap();
+        assert_eq!(store.ai_commands(1).unwrap(), std::slice::from_ref(&tldr), "another profile cannot change it");
+        store.update_ai_command(1, tldr.id, "Short", "Shorten {selection}").unwrap();
+        assert_eq!(store.ai_commands(1).unwrap()[0].template, "Shorten {selection}");
+        assert!(store.export_profile(1).unwrap().contains("\"ai_commands\""));
+        store.reset_profile(1, "S").unwrap();
+        assert!(store.ai_commands(1).unwrap().is_empty());
+        assert_eq!(store.ai_commands(2).unwrap(), [other]);
+        store.delete_profile(2).unwrap();
+        assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM ai_commands", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
     }
 
     #[test]
