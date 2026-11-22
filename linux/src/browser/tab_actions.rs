@@ -65,7 +65,7 @@ impl Browser {
     /// Pings the shown page, as `engine::lifecycle::Hang` asks, every `PING_EVERY`.
     pub fn ping_page(&mut self, now: std::time::Instant) {
         match self.model.active {
-            Some(key) if self.hang.ping(key, now) => self.outbox.push((key, "readSelection", serde_json::json!({ "seq": 0 }))),
+            Some(key) if self.hang.ping(key, now) => self.outbox.push((key, "ping", serde_json::json!({ "seq": 0 }))),
             Some(_) => {}
             None => self.hang.forget(),
         }

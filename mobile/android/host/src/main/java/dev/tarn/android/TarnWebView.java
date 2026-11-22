@@ -389,6 +389,7 @@ final class TarnWebView implements NshComponent {
                 String body = page == null || text == null ? null : Native.insertTextScript(text);
                 runAsync(body, SCRIPT_WAIT_MS, answer -> emit("textInserted", "seq", seq, "inserted", Native.inserted(answer)));
             }
+            case "ping" -> runSync(page == null ? null : Native.pingScript(), answer -> emit("pong", "seq", seq));
             case "readSelection" -> runAsync(page == null ? null : Native.selectedTextScript(), SCRIPT_WAIT_MS, text -> emit("selection", "seq", seq, "url", url, "text", Native.selectionAnswer(text)));
             case "readMedia" -> runAsync(page == null ? null : Native.mediaStateScript(), SCRIPT_WAIT_MS, text -> emit("mediaState", "seq", seq, "url", url, "text", Native.mediaAnswer(text)));
             case "media" -> {

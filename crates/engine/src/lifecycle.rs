@@ -125,8 +125,8 @@ pub fn over_budget<T>(awake: impl IntoIterator<Item = (T, u64, bool, Duration)>,
 
 /// How long the shown page may leave a ping unanswered before the shell offers Wait or Reload.
 pub const HANG_AFTER: Duration = Duration::from_secs(8);
-/// How often the shell pings the shown page: an isolated-world read the page's own busy main
-/// thread holds back.
+/// How often the shell pings the shown page with `page_scripts::PING`, which the page's own busy
+/// main thread holds back.
 pub const PING_EVERY: Duration = Duration::from_secs(2);
 /// The hung-page card's words, beside its Wait and Reload buttons.
 pub const HANG_NOTE: &str = "This page is not responding. Wait for it, or reload it in a new view.";

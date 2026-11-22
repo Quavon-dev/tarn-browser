@@ -119,6 +119,9 @@ impl Ui {
         if &*e.name == browser_core::extensions::STORE_EVENT {
             extensions::store_link(self, key, e.data["id"].as_str().unwrap_or_default());
         }
+        if &*e.name == "pong" {
+            return self.run_quietly(|s| s.event(key, &e.name, &e.data, browser_core::now()));
+        }
         if &*e.name == "snapshotRect" {
             return capture::shown(self, key, &e.data);
         }
@@ -142,33 +145,22 @@ impl Ui {
     }
 
     fn run(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>, changed: bool) {
-        let effects = SHELL.with(|s| {
-            let mut shell = s.borrow_mut();
-            let shell = shell.as_mut().expect("the shell opens with the app");
-            let before = shell.model.active;
-            let mut effects = f(shell);
-            effects.extend(shell.settle_media(before));
-            effects.extend(shell.take_effects());
-            effects
-        });
+        let effects = apply(f);
         self.rev.update(|r| *r += 1);
         if changed {
             self.changes.update(|r| *r += 1);
         }
-        for effect in effects {
-            match effect {
-                Effect::Command(key, name, args) => VIEWS.with(|v| {
-                    if let Some(view) = v.borrow().get(&key) {
-                        view.command(name, args);
-                    }
-                }),
-                Effect::PagePost(install_id, kind, json) => extensions::post(install_id, kind, json),
-                Effect::Open(url) => {
-                    spawn(async move {
-                        let _ = open_url(url).await;
-                    });
-                }
-            }
+        dispatch(effects);
+    }
+
+    /// Redraws only when the hung-page card appears or goes, so a ping or its answer never rebuilds an open form.
+    fn run_quietly(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>) {
+        thread_local!(static DRAWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
+        let effects = apply(f);
+        let hung = SHELL.with(|s| s.borrow().as_ref().is_some_and(AppShell::hung));
+        dispatch(effects);
+        if DRAWN.with(|d| d.replace(hung)) != hung {
+            self.act_on_screen(|_| Vec::new());
         }
     }
 
@@ -267,6 +259,36 @@ fn open_shell() {
             *s.borrow_mut() = Some(AppShell::open(&dir));
         }
     });
+}
+
+fn apply(f: impl FnOnce(&mut AppShell) -> Vec<Effect>) -> Vec<Effect> {
+    SHELL.with(|s| {
+        let mut shell = s.borrow_mut();
+        let shell = shell.as_mut().expect("the shell opens with the app");
+        let before = shell.model.active;
+        let mut effects = f(shell);
+        effects.extend(shell.settle_media(before));
+        effects.extend(shell.take_effects());
+        effects
+    })
+}
+
+fn dispatch(effects: Vec<Effect>) {
+    for effect in effects {
+        match effect {
+            Effect::Command(key, name, args) => VIEWS.with(|v| {
+                if let Some(view) = v.borrow().get(&key) {
+                    view.command(name, args);
+                }
+            }),
+            Effect::PagePost(install_id, kind, json) => extensions::post(install_id, kind, json),
+            Effect::Open(url) => {
+                spawn(async move {
+                    let _ = open_url(url).await;
+                });
+            }
+        }
+    }
 }
 
 fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
@@ -603,7 +625,7 @@ pub fn App() -> impl IntoElement {
     };
     follow();
     set_interval(Duration::from_secs(60), follow);
-    set_interval(engine::lifecycle::PING_EVERY, move || ping(ui));
+    set_interval(engine::lifecycle::PING_EVERY, move || ui.run_quietly(|s| s.ping_page(Instant::now())));
     media::poll(ui);
     extensions::start(ui);
     view()
@@ -642,27 +664,4 @@ pub fn App() -> impl IntoElement {
         ))
         .child(share::share_sheet(ui))
         .child(extensions::backgrounds(ui))
-}
-
-// Redraws only when the hung-page card appears or goes, so a ping never rebuilds an open form.
-fn ping(ui: Ui) {
-    thread_local!(static DRAWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
-    let (effects, hung) = SHELL.with(|s| {
-        let mut shell = s.borrow_mut();
-        let Some(shell) = shell.as_mut() else { return (Vec::new(), false) };
-        let effects = shell.ping_page(Instant::now());
-        (effects, shell.hung())
-    });
-    for effect in effects {
-        if let Effect::Command(key, name, args) = effect {
-            VIEWS.with(|v| {
-                if let Some(view) = v.borrow().get(&key) {
-                    view.command(name, args);
-                }
-            });
-        }
-    }
-    if DRAWN.with(|d| d.replace(hung)) != hung {
-        ui.act_on_screen(|_| Vec::new());
-    }
 }

@@ -111,7 +111,7 @@ impl<D: Platform> Shell<D> {
                 }
             }
             "pressed" if self.wide && self.model.active != Some(key) && self.shown_split().is_some_and(|s| s.panes().contains(&key)) => self.activate(key),
-            "selection" => self.hang.answered(key),
+            "pong" => self.hang.answered(key),
             "crashed" => return self.crashed(key),
             _ => {}
         }

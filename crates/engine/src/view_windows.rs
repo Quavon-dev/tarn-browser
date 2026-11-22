@@ -138,6 +138,10 @@ impl WebView {
         self.view.page_text(origin, max_chars, done);
     }
 
+    pub fn ping(&self, done: impl Fn() + 'static) {
+        self.view.ping(done);
+    }
+
     pub fn selected_text(&self, done: impl Fn(String) + 'static) {
         self.view.selected_text(done);
     }

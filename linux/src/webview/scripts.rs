@@ -70,6 +70,7 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             let body = page.as_ref().filter(|_| max > 0).and_then(|p| page_scripts::json_text_script(p, max));
             run(state, body, move |s, url, text| s.emit("jsonText", json!({ "seq": seq, "url": url, "text": text })));
         }
+        "ping" => run(state, Some(page_scripts::PING.to_owned()), move |s, _, _| s.emit("pong", json!({ "seq": seq }))),
         "readSelection" => {
             run(state, Some(page_scripts::SELECTED_TEXT.to_owned()), move |s, url, text| {
                 s.emit("selection", json!({ "seq": seq, "url": url, "text": browser_core::page_ops::selection_answer(&text) }))

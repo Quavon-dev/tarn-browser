@@ -2245,6 +2245,12 @@ impl WebView {
         self.run_isolated(body, done);
     }
 
+    /// One evaluation of a constant in the page's own world, so no isolated world is made per ping.
+    pub fn ping(&self, done: impl Fn() + 'static) {
+        let Some(host) = self.browser_host().filter(|_| !self.lockdown_view()) else { return done() };
+        call(&self.0.tab, &host, "Runtime.evaluate", "{\"expression\":\"0\"}", move |_| done());
+    }
+
     pub fn selected_text(&self, done: impl Fn(String) + 'static) {
         self.read_isolated(crate::page_scripts::SELECTED_TEXT, done);
     }

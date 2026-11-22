@@ -86,6 +86,7 @@ impl Inner {
                 let body = (!query.is_empty()).then(|| page_scripts::find_text_script(query));
                 self.run(body, move |text| context.emit("textFound", json!({ "seq": seq, "url": shown, "snippets": page_scripts::find_snippets(&text) })));
             }
+            "ping" => self.run(Some(page_scripts::PING.to_owned()), move |_| context.emit("pong", json!({ "seq": seq }))),
             "readSelection" => self.run(Some(page_scripts::SELECTED_TEXT.to_owned()), move |text| {
                 context.emit("selection", json!({ "seq": seq, "url": shown, "text": browser_core::page_ops::selection_answer(&text) }))
             }),

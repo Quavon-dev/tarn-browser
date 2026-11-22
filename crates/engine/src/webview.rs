@@ -487,6 +487,10 @@ impl WebView {
         self.run_isolated(body, done);
     }
 
+    pub fn ping(&self, done: impl Fn() + 'static) {
+        self.read_isolated(crate::page_scripts::PING, move |_| done());
+    }
+
     pub fn selected_text(&self, done: impl Fn(String) + 'static) {
         self.read_isolated(crate::page_scripts::SELECTED_TEXT, done);
     }

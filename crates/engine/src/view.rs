@@ -167,6 +167,12 @@ impl WebView {
         both!(self, v => v.page_text(origin, max_chars, done))
     }
 
+    /// Calls `done` once the page ran `page_scripts::PING` (`lifecycle::Hang`); at once under
+    /// Lockdown, where no script of Tarn's runs, so a hang goes unnoticed there.
+    pub fn ping(&self, done: impl Fn() + 'static) {
+        both!(self, v => v.ping(done))
+    }
+
     /// The top document's selected text, at most `page_scripts::SELECTION_MAX` UTF-16 units, read
     /// in the isolated world; empty under Lockdown. `browser_core::page_ops::selection` bounds it.
     pub fn selected_text(&self, done: impl Fn(String) + 'static) {

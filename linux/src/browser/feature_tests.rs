@@ -1808,3 +1808,30 @@ fn a_hovered_link_shows_until_the_pointer_leaves_or_the_page_changes() {
     assert!(blocked_page(&b).is_some());
     assert_eq!(crate::snapshot::snapshot(&b, true).link, None, "a blocked page covers the view");
 }
+
+#[test]
+fn the_shown_page_is_pinged_and_offers_wait_and_reload_once_it_stops_answering() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://slow.test/");
+    b.outbox.clear();
+    let silent = std::time::Instant::now() - engine::lifecycle::HANG_AFTER;
+    let hung = |b: &Browser| crate::snapshot::snapshot(b, true).hung;
+    b.ping_page(silent);
+    b.ping_page(std::time::Instant::now());
+    assert_eq!(asked(&b, "ping").len(), 1, "one ping at a time");
+    assert!(asked(&b, "readSelection").is_empty(), "the ping reads nothing of the page");
+    assert!(hung(&b));
+    b.wait_for_page();
+    assert!(!hung(&b), "Wait hides the card");
+    b.on_event(key, "pong", &json!({ "seq": 0 }));
+    b.ping_page(silent);
+    assert_eq!(asked(&b, "ping").len(), 2, "an answer lets the next ping go");
+    assert!(hung(&b));
+    b.on_event(key, "pong", &json!({ "seq": 0 }));
+    assert!(!hung(&b), "the answer hides the card");
+    b.ping_page(silent);
+    b.reload_hung();
+    assert_eq!(b.outbox.last().map(|(k, n, _)| (*k, *n)), Some((key, "reloadFresh")));
+    assert!(!hung(&b));
+}

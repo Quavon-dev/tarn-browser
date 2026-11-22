@@ -434,6 +434,9 @@ pub const PICTURE_IN_PICTURE: &str = r"const area = v => v.clientWidth * v.clien
             }
             return 'refused';";
 
+/// `lifecycle::Hang`'s ping: it reads nothing, and answers only once the page's main thread is free.
+pub const PING: &str = "return '';";
+
 /// Most UTF-16 units of the page's selection `SELECTED_TEXT` hands over.
 pub const SELECTION_MAX: usize = 64 * 1024;
 

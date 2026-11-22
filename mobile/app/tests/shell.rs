@@ -1150,3 +1150,29 @@ fn store_links_install_only_from_a_profile_tab_outside_lockdown() {
     assert!(shell.set_default_level(ShieldLevel::Lockdown));
     assert!(!shell.store_link_allowed(active(&shell)), "never in a Lockdown profile");
 }
+
+#[test]
+fn the_shown_page_is_pinged_and_offers_wait_and_reload_once_it_stops_answering() {
+    let (_dir, mut shell) = open();
+    finish(&mut shell, "https://slow.test/", "Slow");
+    let key = active(&shell);
+    let silent = std::time::Instant::now() - engine::lifecycle::HANG_AFTER;
+    let pinged = shell.ping_page(silent);
+    assert!(matches!(pinged.as_slice(), [Effect::Command(k, "ping", _)] if *k == key), "{pinged:?}");
+    assert!(shell.ping_page(std::time::Instant::now()).is_empty(), "one ping at a time");
+    assert!(shell.hung());
+    shell.wait_for_page();
+    assert!(!shell.hung(), "Wait hides the card");
+    shell.event(key, "pong", &json!({ "seq": 0 }), 3);
+    assert_eq!(shell.ping_page(silent).len(), 1, "an answer lets the next ping go");
+    assert!(shell.hung());
+    shell.event(key, "pong", &json!({ "seq": 0 }), 4);
+    assert!(!shell.hung(), "the answer hides the card");
+    shell.ping_page(silent);
+    let born = shell.views()[0].born;
+    shell.reload_hung();
+    assert!(!shell.hung());
+    let view = &shell.views()[0];
+    assert!(view.born > born, "Reload gives the tab a new view");
+    assert_eq!(view.load.as_ref().map(|l| l.url.as_str()), Some("https://slow.test/"));
+}

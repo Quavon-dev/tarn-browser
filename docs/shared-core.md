@@ -65,7 +65,7 @@ Every shell's web view offers the same operations and reports the same events. T
   that answer empty under Lockdown; `browser_core::page_ops` checks every answer and command
   (`selection`, `MediaState::parse`, `media_command`, `snapshot_area`); components emit only
   `selection_answer` and `media_answer` of a script's answer. NSH components:
-  `readSelection` (`selection`), `readMedia` (`mediaState`), `media` and `snapshotRect`
+  `readSelection` (`selection`), `ping` (`pong`), `readMedia` (`mediaState`), `media` and `snapshotRect`
   (`snapshotRect`), `docs/mobile-plan.md` §2. A full page is the document cut to
   `view_policy::SNAPSHOT_MAX_SIDE` and its height to `SNAPSHOT_MAX_PIXELS` at the device scale
   (`view_policy::snapshot_height`, also for rectangles) on macOS and Windows; Linux takes it only
@@ -341,9 +341,14 @@ command bar or panel menu command, the iPad keyboard layout after a command bar 
 that showed its own toast gets none.
 
 **Hung pages:** `engine::lifecycle::Hang` decides when the shown page counts as hung: each shell
-pings it every `PING_EVERY` with the isolated-world selection read (macOS and Windows
-`WebView::selected_text`, NSH components `readSelection`), which a page whose main thread is stuck
-never answers, and shows a card (`HANG_NOTE`) once a ping has gone unanswered for `HANG_AFTER`.
+pings it every `PING_EVERY` with `engine::page_scripts::PING`, which reads nothing and answers
+only once the page's main thread runs it (macOS and Windows `WebView::ping`: WebKit's client
+world, Chromium one `Runtime.evaluate` of a constant in the page's world; NSH components `ping`,
+answered by `pong`: the isolated world on Linux and iOS, the page world on Android, which has no
+other). A page whose main thread is stuck never answers, and the shell shows a card (`HANG_NOTE`)
+once a ping has gone unanswered for `HANG_AFTER`. Blind spot: under Lockdown no script of Tarn's
+runs, so every engine answers a ping at once and a hung Lockdown page shows no card. iOS and
+Android redraw only when the card appears or goes, never for a ping or its answer.
 Wait hides it for another `HANG_AFTER`; Reload gives the page a fresh start: macOS and Windows
 rebuild the tab's view, Linux's component takes `reloadFresh`, which ends the view's web process
 (`webkit_web_view_terminate_web_process`) and reloads, and iOS and Android give the tab a new view
@@ -361,9 +366,9 @@ ToggleSidebar brings the side back. macOS and Windows (`crates/app/src/tab_strip
 
 **Space switching:** `browser_core::sidebar::slide_start` says where the next space's list starts
 its spring, from where a running slide or drag stands, or `None` under Reduce Motion (macOS and
-Windows). The spring's damping is the named token `SPRING_DAMPING` in `crates/ui/src/motion.rs`,
-mirrored in `nsh-shared/src/motion.rs`, whose `space_switch` animates Linux, iOS and Android's
-layout on that spring over `SLIDE` before a click, key or swipe switches the space.
+Windows). The spring is critically damped: `spring` in `crates/ui/src/motion.rs`, and
+`SPRING_DAMPING` in `nsh-shared/src/motion.rs`, whose `space_switch` animates Linux, iOS and
+Android's layout on that spring over `SLIDE` before a click, key or swipe switches the space.
 
 **Density:** `prefs::COMPACT` (Settings › Appearance, explained by `prefs::COMPACT_NOTE`) picks
 the second of each density token, `TAB_ROW` and `ROW_GAP`, defined once in `crates/ui/src/theme.rs`

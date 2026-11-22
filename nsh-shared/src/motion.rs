@@ -157,7 +157,6 @@ mod tests {
             assert!(include_str!("../../crates/ui/src/motion.rs").contains(&line), "{line}");
         }
         assert_eq!((ms(POP), layout(SLIDE).duration_ms), (160., 280.));
-        assert!(include_str!("../../crates/ui/src/motion.rs").contains(&format!("pub const SPRING_DAMPING: f32 = {SPRING_DAMPING:?};").replace(".0;", ".;")));
     }
 
     #[test]

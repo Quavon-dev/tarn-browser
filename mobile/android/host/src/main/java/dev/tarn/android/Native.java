@@ -91,6 +91,8 @@ final class Native {
 
     static native boolean inserted(String answer);
 
+    static native String pingScript();
+
     static native String selectedTextScript();
 
     static native String selectionAnswer(String answer);

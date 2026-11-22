@@ -567,7 +567,7 @@ impl Browser {
         match self.model.active.and_then(|k| Some((k, self.views.get(&k)?.clone()))) {
             Some((key, view)) if self.hang.ping(key, now) => {
                 let (tx, mut rx) = mpsc::unbounded();
-                view.selected_text(move |_| drop(tx.unbounded_send(())));
+                view.ping(move || drop(tx.unbounded_send(())));
                 cx.spawn(async move |this, cx| {
                     if rx.next().await.is_some() {
                         this.update(cx, |b, cx| {

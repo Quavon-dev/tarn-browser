@@ -27,9 +27,6 @@ pub fn reduced() -> bool {
     REDUCE.load(Ordering::Relaxed)
 }
 
-/// The damping ratio of `spring`, which a space switch runs over `SLIDE`: critically damped.
-pub const SPRING_DAMPING: f32 = 1.;
-
 /// A critically damped spring, rescaled so it ends exactly at 1.
 pub fn spring(t: f32) -> f32 {
     let curve = |t: f32| 1. - (1. + 9. * t) * (-9. * t).exp();

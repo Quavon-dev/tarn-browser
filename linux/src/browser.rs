@@ -1071,7 +1071,7 @@ impl Browser {
                     page.found = data["matched"].as_u64();
                 }
             }
-            "selection" => self.hang.answered(key),
+            "pong" => self.hang.answered(key),
             "crashed" => {
                 self.hovered_link.set(key, None);
                 self.on_crash(key);
