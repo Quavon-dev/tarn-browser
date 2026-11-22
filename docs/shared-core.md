@@ -54,6 +54,11 @@ Every shell's web view offers the same operations and reports the same events. T
   Capture Area draws its rectangle in the shell over a still snapshot of the page
   (`capture::drag_area`), with no script on the page, and so does the developer Measure tool
   (`browser_core::measure`, offered with `palette::State::developer`, where Web Inspector is);
+- `insert_text`: Insert Snippet types a `store::Snippet`'s text into the page's focused text field
+  (`page_scripts::insert_text_script`, isolated world, nothing under Lockdown) and answers whether
+  it did (`browser_core::snippets::inserted`). NSH components: `insertText` `{seq, text}`, answered
+  by `textInserted` `{seq, inserted}`. Typing `;name` in a shell field expands there
+  (`snippets::expand`); nothing on the page listens for keys;
 - `selected_text`, `media_state`, `media_command` and `snapshot_rect`: the selection, the first
   audible media element (read, and play, pause or seek), and a PNG of a rectangle of the visible
   page or of the whole document. The reads are isolated-world scripts from `engine::page_scripts`

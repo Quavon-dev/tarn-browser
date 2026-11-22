@@ -99,6 +99,23 @@ fn contract_v3_scripts_run_in_the_tarn_world_and_styles_and_zaps_apply() {
 
 #[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn insert_text_types_into_the_focused_field_only() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    let none = ask(&state, "insertText", json!({ "seq": 1, "text": "hello" }), "textInserted");
+    assert_eq!(none, json!({ "seq": 1, "inserted": false }), "no field has the focus");
+    page_eval(&web, "const t = document.createElement('textarea'); t.id = 'note'; document.body.append(t); t.focus(); 'ok'");
+    let typed = ask(&state, "insertText", json!({ "seq": 2, "text": "Best,\nAda" }), "textInserted");
+    assert_eq!(typed, json!({ "seq": 2, "inserted": true }));
+    assert_eq!(page_eval(&web, "document.getElementById('note').value"), "Best,\nAda");
+    let long = "a".repeat(browser_core::snippets::MAX_SNIPPET + 1);
+    assert_eq!(ask(&state, "insertText", json!({ "seq": 3, "text": long }), "textInserted")["inserted"], false, "a longer text is refused");
+    assert_eq!(page_eval(&web, "document.getElementById('note').value"), "Best,\nAda");
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn only_the_users_own_navigation_to_a_store_link_asks_to_install() {
     gtk::init().expect("a display");
     let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");

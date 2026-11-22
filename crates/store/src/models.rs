@@ -214,6 +214,16 @@ pub struct AiCommand {
     pub template: String,
 }
 
+/// A profile's text snippet: typing `;name` in a shell field puts `body` there, and Insert Snippet
+/// types it into the page (`browser_core::snippets`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snippet {
+    pub id: Id,
+    pub profile_id: Id,
+    pub name: String,
+    pub body: String,
+}
+
 /// A named copy of a space's tabs and groups; its data is read only to restore it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot {

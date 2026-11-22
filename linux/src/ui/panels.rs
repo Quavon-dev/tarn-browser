@@ -730,6 +730,7 @@ fn tab_panel(ui: Ui) -> AnyElement {
         rows.push(tool("Capture Area", Command::CaptureArea, None));
         rows.push(tool("Capture Element", Command::CaptureElement, None));
         rows.push(tool("Capture Full Page", Command::CaptureFullPage, None));
+        rows.push(tool("Insert Snippet\u{2026}", Command::InsertSnippet, None));
         if duplicates {
             rows.push(tool("Close Duplicate Tabs", Command::CloseDuplicates, None));
         }
@@ -849,6 +850,7 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::ReadingList => super::library::reading_list_panel(ui),
             Panel::Archived => super::library::archived_panel(ui),
             Panel::Qr => super::tools::qr_panel(ui),
+            Panel::Snippets => super::tools::snippets_panel(ui),
             Panel::Share => super::tools::share_panel(ui),
             Panel::Library => super::library::library_panel(ui),
             Panel::Address => address_panel(ui),

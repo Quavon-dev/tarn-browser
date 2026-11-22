@@ -122,6 +122,10 @@ impl WebView {
         self.view.pick_rect(done);
     }
 
+    pub fn insert_text(&self, text: &str, done: impl Fn(String) + 'static) {
+        self.view.insert_text(text, done);
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         self.view.icon_links(origin, done);
     }

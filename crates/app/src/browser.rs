@@ -136,6 +136,7 @@ pub enum CommandMode {
     NewTab,
     Current,
     FindInTabs,
+    Snippets,
 }
 
 pub enum Target {
@@ -147,6 +148,8 @@ pub enum Target {
     Find(TabKey, String),
     /// An answer of `palette::answers`, which Enter copies.
     Copy(String),
+    /// A snippet's body, which Enter types into the page; empty for the row saying there are none.
+    Snippet(String),
 }
 
 pub struct Suggestion {
@@ -272,6 +275,8 @@ pub struct Browser {
     pub(crate) link_status: crate::link_status::LinkStatus,
     pub(crate) capture_overlay: Option<crate::capture_overlay::Overlay>,
     pub(crate) mini_player: crate::mini_player::MiniPlayer,
+    /// The current profile's snippets, cached so field edits do not read the store.
+    pub(crate) snippets: Option<(Id, std::rc::Rc<Vec<store::Snippet>>)>,
     /// New tabs whose first load is a page's link, so S10 judges every redirect hop.
     link_loads: HashMap<TabKey, Option<Url>>,
     pub suggestions: Vec<Suggestion>,
@@ -499,6 +504,7 @@ impl Browser {
             link_status: Default::default(),
             capture_overlay: None,
             mini_player: Default::default(),
+            snippets: None,
             link_loads: HashMap::new(),
             suggestions: Vec::new(),
             selected: 0,
@@ -1507,9 +1513,13 @@ impl Browser {
             CommandMode::Current => {
                 self.active_view().and_then(|v| v.url()).map(String::from).or_else(|| self.model.active_tab().map(|t| t.url.clone())).unwrap_or_default()
             }
-            CommandMode::NewTab | CommandMode::FindInTabs => String::new(),
+            CommandMode::NewTab | CommandMode::FindInTabs | CommandMode::Snippets => String::new(),
         };
-        let placeholder = if mode == CommandMode::FindInTabs { "Find in this space's tabs" } else { "Search or enter address" };
+        let placeholder = match mode {
+            CommandMode::FindInTabs => "Find in this space's tabs",
+            CommandMode::Snippets => "Insert a snippet",
+            _ => "Search or enter address",
+        };
         let private = self.model.private();
         self.history_cache = self.model.current_space().map(|s| s.space.profile_id).and_then(|p| self.store(private).history(p, 2000).ok()).unwrap_or_default();
         self.history_text = None;
@@ -1637,7 +1647,12 @@ impl Browser {
 
     fn on_command_event(&mut self, _: &Entity<TextInput>, event: &TextInputEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
-            TextInputEvent::Changed => self.update_suggestions(cx),
+            TextInputEvent::Changed => {
+                if self.command_mode != Some(CommandMode::Snippets) {
+                    self.expand_snippet(cx);
+                }
+                self.update_suggestions(cx)
+            }
             TextInputEvent::Submit => self.submit_command(self.selected, window, cx),
             TextInputEvent::Cancel => self.dismiss_overlay(window, cx),
             TextInputEvent::Up => self.select_suggestion(false, cx),
@@ -1687,8 +1702,10 @@ impl Browser {
         if !rebuilt {
             (self.history_text_search, self.suggested) = (None, None);
         }
-        if self.command_mode == Some(CommandMode::FindInTabs) {
-            return self.find_in_tabs(query, cx);
+        match self.command_mode {
+            Some(CommandMode::FindInTabs) => return self.find_in_tabs(query, cx),
+            Some(CommandMode::Snippets) => return self.snippet_rows(&query, cx),
+            _ => {}
         }
         let mut out = Vec::new();
         let site = self.site();
@@ -1921,6 +1938,11 @@ impl Browser {
                 window.dispatch_action(action, cx);
                 return;
             }
+            Target::Snippet(body) => {
+                let body = body.clone();
+                self.close_command(window, cx);
+                return self.type_snippet(&body, cx);
+            }
             Target::Copy(text) => {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
                 self.close_command(window, cx);
@@ -1953,7 +1975,7 @@ impl Browser {
                     self.set_tab_group(key, Some(group), cx);
                 }
             }
-            CommandMode::Current | CommandMode::FindInTabs => {
+            CommandMode::Current | CommandMode::FindInTabs | CommandMode::Snippets => {
                 self.navigate(&url, window, cx);
                 if credit {
                     self.mark_typed(&url);

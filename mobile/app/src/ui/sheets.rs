@@ -34,6 +34,45 @@ fn row_button(name: String, detail: Option<String>, press: impl Fn() + 'static) 
     detail_row(None, name, detail.map(|d| caption(d).number_of_lines(2).into_element()), press)
 }
 
+/// Opens Insert Snippet, unless the page is one no snippet can be typed into.
+pub fn open_insert_snippet(ui: Ui) {
+    let mut target = None;
+    ui.act_on_screen(|s| {
+        target = s.snippet_target();
+        Vec::new()
+    });
+    ui.show(if target.is_some() { Screen::Snippets } else { Screen::Browse });
+}
+
+/// Insert Snippet's list, filtered as the user types; a choice types the snippet into the page.
+pub fn insert_snippet(ui: Ui) -> impl IntoElement {
+    let query = signal(String::new());
+    let all = ui.read(|s| s.snippets());
+    let rows = dynamic(move || {
+        if all.is_empty() {
+            return Some(caption(browser_core::snippets::EMPTY).px_1().into_element());
+        }
+        let rows: Vec<AnyElement> = query
+            .with(|q| browser_core::snippets::matching(q, &all).into_iter().cloned().collect::<Vec<_>>())
+            .into_iter()
+            .map(|s| {
+                let body = s.body.clone();
+                row_button(format!(";{}", s.name), Some(browser_core::snippets::preview(&s.body)), move || {
+                    let body = body.clone();
+                    ui.show(Screen::Browse);
+                    ui.act_on_screen(|s| s.insert_snippet(&body));
+                })
+                .into_element()
+            })
+            .collect();
+        Some(framed(view().children(rows)).into_element())
+    });
+    view()
+        .gap_2()
+        .child(text_field("Filter snippets", "Filter snippets").auto_focus(true).value(move || query.get()).on_change(move |v: &str| query.set(v.to_owned())))
+        .child(rows)
+}
+
 pub fn reader(ui: Ui) -> impl IntoElement {
     let size = signal(TEXT_TITLE + 2.);
     let speaking = signal(false);
@@ -960,6 +999,7 @@ pub fn heading_for(screen: Screen) -> Option<&'static str> {
         Screen::Reader => "Reader",
         Screen::FindTabs => "Find in Tabs",
         Screen::Qr => "QR Code",
+        Screen::Snippets => "Insert Snippet",
         Screen::ReadingList => "Reading List",
         Screen::Move(_) => "Move Tab",
         Screen::SpaceNew => "New Space",

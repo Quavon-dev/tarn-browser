@@ -36,6 +36,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Measure, a developer tool on macOS, Windows and Linux: rulers and a box you drag over a still
   of the page give sizes and positions in CSS pixels. It is offered where Web Inspector is
   (Settings › Developer or a Developer profile) and runs nothing on the page.
+- Snippets: text you keep per profile in Settings › Snippets. Typing `;name` in the address or
+  command bar puts it there, and Insert Snippet… (command bar, Edit menu, Linux tab panel, mobile menu) types it into the
+  page's focused field. Deleting the profile or its data removes them; private spaces have none.
 
 ### Changed
 

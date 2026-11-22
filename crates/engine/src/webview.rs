@@ -445,6 +445,12 @@ impl WebView {
         self.read_isolated(&crate::page_scripts::pick_rect_script(), done);
     }
 
+    /// Types `text` into the page's focused field (`page_scripts::insert_text_script`); "1" when
+    /// it did, empty otherwise and under Lockdown.
+    pub fn insert_text(&self, text: &str, done: impl Fn(String) + 'static) {
+        self.read_isolated(&crate::page_scripts::insert_text_script(text), done);
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         match icon_links_script(origin) {
             Some(script) => self.run_isolated(&script, done),

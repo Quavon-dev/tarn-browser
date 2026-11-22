@@ -60,6 +60,7 @@ pub enum Screen {
     Licence(usize),
     Extensions,
     ExtensionPopup,
+    Snippets,
 }
 
 thread_local! {
@@ -246,6 +247,13 @@ impl Ui {
             && (!self.editing.get() || self.mac.get())
             && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
     }
+}
+
+/// A field's text after a `;name` expanded, with the caret after it.
+pub(super) fn caret_at_end(text: Signal<String>, field: ElementRef, full: String) {
+    let end = full.encode_utf16().count() as u32;
+    text.set(full);
+    field.set_selection(end, end);
 }
 
 fn shell_dir() -> std::path::PathBuf {

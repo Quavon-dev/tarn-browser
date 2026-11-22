@@ -23,6 +23,21 @@ use browser_core::settings::{self as prefs, LIVE_TABS, LIVE_TABS_KEY, SEARCH_SHO
 const NAV_WIDTH: f32 = 180.;
 const CARD_SCALE: u32 = 3;
 
+#[derive(Clone, Copy)]
+struct Notes(Ui);
+
+impl tarn_nsh_shared::snippets::Host for Notes {
+    fn profile(self) -> Option<store::Id> {
+        read(self.0, |b| b.model.profile().filter(|(private, _)| !private).map(|(_, id)| id)).flatten()
+    }
+    fn with_store<R>(self, f: impl FnOnce(&store::Store) -> R) -> R {
+        f(&super::core().disk)
+    }
+    fn changed(self) {
+        act(self.0, |b| b.snippets_changed());
+    }
+}
+
 fn card_of(b: &Browser) -> Option<(Card, bool)> {
     let space = b.model.current_space()?;
     let store = b.core.store(space.private);
@@ -729,6 +744,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             .child(note("This profile's answers to sites. A site you forget asks again next time; Lockdown sites never ask."))
             .child(view().pt_2().child(permissions(ui))),
         Pane::Shortcuts => body.child(view().pt_3().child(shortcut_rows(ui))),
+        Pane::Snippets => body.child(view().pt_3().child(tarn_nsh_shared::snippets::pane(Notes(ui)))),
         Pane::Developer => super::devtools::pane(ui, body),
     })
 }

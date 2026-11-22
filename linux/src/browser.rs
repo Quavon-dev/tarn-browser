@@ -14,6 +14,7 @@ pub mod pages;
 pub mod profile_data;
 pub mod profiles;
 mod site;
+mod snippets;
 pub mod spaces;
 mod split;
 pub mod swipe;
@@ -150,6 +151,7 @@ pub struct Browser {
     pub used: HashMap<TabKey, std::time::Instant>,
     pub playing: HashSet<TabKey>,
     pub player: browser_core::media::Player,
+    snippet_cache: std::cell::RefCell<Option<(store::Id, Vec<store::Snippet>)>>,
     pub swipe: swipe::Swipe,
     pub released: Vec<crate::data::StoreKey>,
     pub retired: Vec<String>,
@@ -243,6 +245,7 @@ impl Browser {
             used: HashMap::new(),
             playing: HashSet::new(),
             player: Default::default(),
+            snippet_cache: Default::default(),
             swipe: Default::default(),
             released: Vec::new(),
             retired: Vec::new(),
@@ -1075,6 +1078,7 @@ impl Browser {
             }
             "fullscreen" => self.on_fullscreen(key, data),
             "screenshot" => self.on_snapshot(key, data),
+            "textInserted" => self.text_inserted(key, data),
             "pressed" if self.in_split(key) && self.model.active != Some(key) => self.activate(key),
             "playing" => {
                 if data["playing"].as_bool() == Some(true) {

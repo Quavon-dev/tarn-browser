@@ -92,6 +92,11 @@ impl Inner {
             "readMedia" => {
                 self.run(Some(page_scripts::media_state_script()), move |text| context.emit("mediaState", json!({ "seq": seq, "url": shown, "text": text })))
             }
+            "insertText" => {
+                let body =
+                    args.get("text").and_then(Value::as_str).filter(|t| t.len() <= browser_core::snippets::MAX_SNIPPET).map(page_scripts::insert_text_script);
+                self.run(body, move |answer| context.emit("textInserted", json!({ "seq": seq, "inserted": browser_core::snippets::inserted(&answer) })));
+            }
             "media" => self.run(browser_core::page_ops::media_command(args).map(page_scripts::media_command_script), |_| {}),
             "snapshotRect" => self.snapshot_rect(args, move |png| context.emit("snapshotRect", json!({ "seq": seq, "png": png }))),
             "screenshot" => self.screenshot(args, move |saved| {

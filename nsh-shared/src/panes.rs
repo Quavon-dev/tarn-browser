@@ -7,12 +7,13 @@ pub enum Pane {
     Search,
     Privacy,
     Permissions,
+    Snippets,
     Developer,
     Profiles,
     Shortcuts,
 }
 
-pub const PANES: [(Pane, &str); 10] = [
+pub const PANES: [(Pane, &str); 11] = [
     (Pane::Profile, "Protection"),
     (Pane::General, "General"),
     (Pane::Appearance, "Appearance"),
@@ -20,6 +21,7 @@ pub const PANES: [(Pane, &str); 10] = [
     (Pane::Search, "Search"),
     (Pane::Privacy, "Privacy"),
     (Pane::Permissions, "Permissions"),
+    (Pane::Snippets, "Snippets"),
     (Pane::Developer, "Developer"),
     (Pane::Profiles, "Profiles"),
     (Pane::Shortcuts, "Shortcuts"),
@@ -27,7 +29,10 @@ pub const PANES: [(Pane, &str); 10] = [
 
 pub const GROUPS: [(&str, &[Pane]); 2] = [
     ("You", &[Pane::Profile, Pane::Profiles]),
-    ("Browser", &[Pane::General, Pane::Appearance, Pane::Tabs, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Developer, Pane::Shortcuts]),
+    (
+        "Browser",
+        &[Pane::General, Pane::Appearance, Pane::Tabs, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Snippets, Pane::Developer, Pane::Shortcuts],
+    ),
 ];
 
 pub fn name(pane: Pane) -> &'static str {
@@ -46,6 +51,7 @@ pub fn words(pane: Pane) -> &'static str {
             "block ads trackers cookie banners youtube pop-ups malware adult zoom muted hidden elements connections history clear export delete data"
         }
         Pane::Permissions => "camera microphone location pop-ups site answers allow block",
+        Pane::Snippets => "text expand insert type template signature reply",
         Pane::Developer => "web inspector developer tools local servers localhost",
         Pane::Profiles => "profile new edit delete space rules",
         Pane::Shortcuts => "keyboard keys",
@@ -69,6 +75,7 @@ pub fn icon(pane: Pane) -> &'static str {
         Pane::Search => crate::icons::SEARCH,
         Pane::Privacy => crate::icons::HAND,
         Pane::Permissions => crate::icons::CAMERA,
+        Pane::Snippets => crate::icons::FILE_TEXT,
         Pane::Developer => crate::icons::CODE,
         Pane::Profiles => crate::icons::PERSON,
         Pane::Shortcuts => crate::icons::KEYBOARD,

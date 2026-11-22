@@ -81,6 +81,10 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             run(state, Some(page_scripts::pick_rect_script()), move |s, url, rect| s.emit("picked", json!({ "seq": seq, "url": url, "rect": rect })))
         }
         "pick" => run(state, Some(PICKER.to_owned()), move |s, url, selector| s.emit("picked", json!({ "seq": seq, "url": url, "selector": selector }))),
+        "insertText" => {
+            let body = args["text"].as_str().filter(|t| t.len() <= browser_core::snippets::MAX_SNIPPET).map(page_scripts::insert_text_script);
+            run(state, body, move |s, _, answer| s.emit("textInserted", json!({ "seq": seq, "inserted": browser_core::snippets::inserted(&answer) })));
+        }
         "pickCancel" => run(state, Some(PICK_CANCEL.to_owned()), |_, _, _| {}),
         _ => return false,
     }

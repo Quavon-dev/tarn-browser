@@ -99,6 +99,7 @@ thread_local! {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Panel {
     None,
+    Snippets,
     Shield,
     Settings,
     Library,
@@ -1185,6 +1186,13 @@ fn clear_suggestions(ui: Ui) {
     ui.tabs.set(Vec::new());
 }
 
+/// A field's text after a `;name` expanded, with the caret after it.
+fn set_caret_at_end(text: Signal<String>, field: ElementRef, full: String) {
+    let end = full.chars().count() as u32;
+    text.set(full);
+    field.set_selection(end, end);
+}
+
 fn switch_to_tab(ui: Ui, key: TabKey) {
     ui.picked.set(0);
     ui.editing.set(false);
@@ -1718,6 +1726,11 @@ fn palette(ui: Ui) -> AnyElement {
                         ui.address.set(value.to_owned());
                         let query = value.to_owned();
                         act(ui, |b| b.find_in_tabs(&query));
+                    } else if let Some(full) = read(ui, |b| b.expand_snippet(value)).flatten() {
+                        clear_suggestions(ui);
+                        ui.typed.set(full.clone());
+                        ui.completed.set(None);
+                        set_caret_at_end(ui.address, ui.address_ref, full);
                     } else if value != ui.address.get_untracked() {
                         let _span = engine::startup::span(engine::startup::PALETTE_QUERY);
                         let (history, typed) = (history(ui), ui.typed.get_untracked());
@@ -1833,6 +1846,9 @@ fn start_card(ui: Ui) -> AnyElement {
                     // A new query reads the history again, so visits since the last one show.
                     if ui.command.with_untracked(String::is_empty) {
                         load_history(ui);
+                    }
+                    if let Some(full) = read(ui, |b| b.expand_snippet(v)).flatten() {
+                        return set_caret_at_end(ui.command, ui.command_ref, full);
                     }
                     ui.command.set(v.to_owned());
                     show_suggestions(ui, crate::input::suggestions(&history(ui), &[], v, SUGGESTIONS), v, ui.command);

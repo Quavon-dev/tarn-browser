@@ -142,6 +142,9 @@ pub struct Shell<D: Platform> {
     pub capturing: Option<(TabKey, u64, (f64, f64))>,
     pub(crate) shots: HashMap<u64, crate::capture::Shot>,
     pub player: browser_core::media::Player,
+    /// Insert Snippet waiting for its answer: the tab and the request.
+    pub inserting: Option<(TabKey, u64)>,
+    pub(crate) snippet_cache: std::cell::RefCell<Option<(store::Id, Vec<store::Snippet>)>>,
     pub switched_at: Option<i64>,
     pub(crate) scripts: HashMap<u64, (TabKey, crate::scripts::Script)>,
     pub(crate) icon_asks: HashMap<TabKey, HashMap<IconAsk, engine::favicon::Ticket>>,
@@ -208,6 +211,8 @@ impl<D: Platform> Shell<D> {
             capturing: None,
             shots: HashMap::new(),
             player: Default::default(),
+            inserting: None,
+            snippet_cache: Default::default(),
             switched_at: None,
             scripts: HashMap::new(),
             icon_asks: HashMap::new(),

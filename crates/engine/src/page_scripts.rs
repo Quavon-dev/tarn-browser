@@ -68,6 +68,20 @@ pub fn pick_rect_script() -> String {
     format!("const pickRect = true;\n{PICKER}")
 }
 
+/// Types `text` into the focused text field of the top document with the editing command the
+/// page's own undo knows, as the user's explicit Insert Snippet; answers "1" when a field had the
+/// focus and "" otherwise (none, read only, or a password field). It listens for nothing. An async
+/// function body for the engine's isolated world, run as the user's gesture.
+pub fn insert_text_script(text: &str) -> String {
+    let text = handover::js_string(text);
+    format!(
+        r"const el = document.activeElement;
+            const typed = el && el.localName === 'input' && /^(text|search|email|url|tel)$/.test(el.type);
+            if (!el || !(el.isContentEditable || el.localName === 'textarea' || typed) || el.readOnly || el.disabled) return '';
+            return document.execCommand('insertText', false, {text}) ? '1' : '';"
+    )
+}
+
 /// Most snippets a page gives Find in Tabs, the characters of context on each side of a match, the
 /// longest query passed on, and how much of the page's text is searched.
 pub const FIND_MATCHES: usize = 3;
@@ -544,6 +558,14 @@ mod tests {
         assert_eq!(page_keep(""), PageKeep::default(), "Lockdown and failed scripts answer empty");
         assert!(scroll_script((f64::NAN, -3.)).contains("left: 0, top: 0,"));
         assert!(scroll_script((0., 640.)).contains("left: 0, top: 640,"));
+    }
+
+    #[test]
+    fn inserted_text_stays_a_string_literal() {
+        let script = insert_text_script(HOSTILE_CSS);
+        assert!(script.contains(&format!("execCommand('insertText', false, {})", handover::js_string(HOSTILE_CSS))));
+        assert!(!script.contains("</script>"), "{script}");
+        assert!(!script.contains("addEventListener"), "it listens for nothing");
     }
 
     #[test]

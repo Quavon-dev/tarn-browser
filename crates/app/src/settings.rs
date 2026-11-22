@@ -26,6 +26,7 @@ use ui::theme::{ACCENTS, TEXT, TEXT_HEADING, TEXT_SMALL, TEXT_TINY, TEXT_TITLE, 
 use crate::browser::Browser;
 
 mod appearance;
+mod snippets;
 use crate::filters;
 use crate::prefs::{Choice, LIVE_TABS, Pref, Prefs};
 use crate::profiles::{EditProfile, NewProfile, profile_dot};
@@ -47,10 +48,11 @@ pub enum SettingsPane {
     Profiles,
     Developer,
     Extensions,
+    Snippets,
     Shortcuts,
 }
 
-const PANES: [(SettingsPane, Icon, &str, &str); 11] = [
+const PANES: [(SettingsPane, Icon, &str, &str); 12] = [
     (SettingsPane::Profile, Icon::Shield, "Protection", "shield level standard strict lockdown card filter lists site overrides connections default browser"),
     (SettingsPane::Profiles, Icon::Person, "Profiles", "profile new edit delete space rules"),
     (SettingsPane::General, Icon::Gear, "General", "updates nightly web engine chromium webkit downloads import about version licence source privacy imprint"),
@@ -76,6 +78,7 @@ const PANES: [(SettingsPane, Icon, &str, &str); 11] = [
     (SettingsPane::Permissions, Icon::Camera, "Permissions", "camera microphone location pop-ups site answers allow block"),
     (SettingsPane::Developer, Icon::Code, "Developer", "web inspector developer tools profile local servers localhost"),
     (SettingsPane::Extensions, Icon::Braces, "Extensions", "install github file bitwarden every site official catalog store updates"),
+    (SettingsPane::Snippets, Icon::FileText, "Snippets", "text expansion insert templates signature"),
     (SettingsPane::Shortcuts, Icon::Keyboard, "Shortcuts", "keyboard keys"),
 ];
 
@@ -209,6 +212,7 @@ pub struct SettingsWindow {
     recording: Option<(Shortcut, Subscription)>,
     shortcut_error: Option<String>,
     appearance: appearance::Pane,
+    snippets: snippets::Pane,
     _inputs: [Subscription; 2],
     _observe: Option<Subscription>,
     _activation: Subscription,
@@ -282,6 +286,7 @@ impl SettingsWindow {
                     recording: None,
                     shortcut_error: None,
                     appearance: appearance::Pane::new(cx),
+                    snippets: snippets::Pane::new(cx),
                     _inputs: inputs,
                     _observe: observe,
                     _activation: activation,
@@ -760,6 +765,7 @@ impl Render for SettingsWindow {
             (SettingsPane::Profiles, Some(s)) => self.profiles(&s, cx),
             (SettingsPane::Developer, Some(s)) => self.developer(s, cx),
             (SettingsPane::Extensions, Some(s)) => self.extensions(s, window, cx),
+            (SettingsPane::Snippets, Some(s)) => self.snippets(&s, window, cx),
             (SettingsPane::Shortcuts, Some(_)) => self.shortcuts(cx),
         };
         let name = PANES.iter().find(|(p, ..)| *p == current).map_or("", |(_, _, t, _)| *t);

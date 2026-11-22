@@ -58,6 +58,7 @@ pub fn panel(ui: Ui) -> impl IntoElement {
             Screen::Reader => sheets::reader(ui).into_element(),
             Screen::FindTabs => sheets::find_tabs(ui).into_element(),
             Screen::Qr => sheets::qr(ui).into_element(),
+            Screen::Snippets => sheets::insert_snippet(ui).into_element(),
             Screen::ReadingList => sheets::reading_list(ui).into_element(),
             Screen::Move(key) => sheets::move_tab(ui, key).into_element(),
             Screen::SpaceNew => sheets::space_card(ui, None).into_element(),
@@ -417,6 +418,7 @@ fn menu(ui: Ui) -> impl IntoElement {
                                 ui.show(Screen::Browse);
                                 ui.act(|s| s.capture_full_page());
                             }))
+                            .child(row(icons::PENCIL, "Insert Snippet\u{2026}", move || sheets::open_insert_snippet(ui)))
                     },
                 )),
         ))
@@ -635,7 +637,25 @@ pub(super) fn settings(ui: Ui) -> impl IntoElement {
         .child(blocks)
 }
 
-const TOUCH_PANES: [Pane; 6] = [Pane::Profile, Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions];
+#[derive(Clone, Copy)]
+struct Notes(Ui);
+
+impl tarn_nsh_shared::snippets::Host for Notes {
+    fn profile(self) -> Option<store::Id> {
+        self.0.read_data(|s| s.model.profile().filter(|(private, _)| !private).map(|(_, id)| id))
+    }
+    fn with_store<R>(self, f: impl FnOnce(&store::Store) -> R) -> R {
+        self.0.read_data(|s| f(&s.core.disk))
+    }
+    fn changed(self) {
+        self.0.act(|s| {
+            s.snippets_changed();
+            Vec::new()
+        });
+    }
+}
+
+const TOUCH_PANES: [Pane; 7] = [Pane::Profile, Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Snippets];
 
 pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
     let body = view().gap_2();
@@ -702,6 +722,7 @@ pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
         }).collect::<Vec<_>>())))
         .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1()),
         Pane::Permissions => body.child(permissions(ui)),
+        Pane::Snippets => body.child(tarn_nsh_shared::snippets::pane(Notes(ui))),
         Pane::Profiles => body.child(spaces(ui)),
         Pane::Tabs | Pane::Developer | Pane::Shortcuts => return None,
     })

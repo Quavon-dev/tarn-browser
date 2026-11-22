@@ -20,6 +20,7 @@ pub enum Request {
     Pick(TabKey),
     PickRect(TabKey, (f64, f64)),
     Media(TabKey),
+    Insert(TabKey),
     IconLinks(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     IconData(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     Capture { key: TabKey, profile: Id, url: String, started: i64 },

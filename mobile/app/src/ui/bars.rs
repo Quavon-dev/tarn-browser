@@ -191,6 +191,12 @@ fn address_input(ui: Ui) -> nsh_base::Input {
             if !ui.editing.get_untracked() || value == ui.address.get_untracked() {
                 return;
             }
+            if let Some(full) = ui.read(|s| s.expand_snippet(value)) {
+                typed.set(full.clone());
+                completed.set(None);
+                ui.suggest.set(Vec::new());
+                return super::caret_at_end(ui.address, field, full);
+            }
             let (rows, completion) = ui.read(|s| s.suggest_from(&history.get_untracked(), &typed.get_untracked(), value));
             typed.set(value.to_owned());
             ui.picked.set(None);

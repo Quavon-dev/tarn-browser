@@ -12,5 +12,6 @@ pub mod popover;
 pub mod qr;
 pub mod search_fx;
 pub mod sidebar;
+pub mod snippets;
 pub mod theme;
 pub mod toolbar;

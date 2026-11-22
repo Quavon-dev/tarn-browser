@@ -37,6 +37,7 @@ mod shield_card;
 mod shortcuts;
 mod sidebar;
 mod site_settings;
+mod snippets;
 mod spaces;
 mod split;
 mod tab_strip;
@@ -157,6 +158,7 @@ pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<
         C::PictureInPicture => &capture::PictureInPicture,
         C::TakeScreenshot => &capture::TakeScreenshot,
         C::CaptureArea => &capture::CaptureArea,
+        C::InsertSnippet => &snippets::InsertSnippet,
         C::Measure => &capture::Measure,
         C::CaptureElement => &capture::CaptureElement,
         C::CaptureFullPage => &capture::CaptureFullPage,
@@ -337,7 +339,7 @@ impl Browser {
         root = tabs::listen(root, cx);
         let page = self.model.active.is_some();
         root = toast::listen(root.when(page, |r| qr::listen(reader::listen(r, cx), cx)), cx);
-        root = find_tabs::listen(shortcuts::listen(root, cx).when(page, |r| capture::listen(split::listen(r, cx), cx)), cx);
+        root = find_tabs::listen(shortcuts::listen(root, cx).when(page, |r| snippets::listen(capture::listen(split::listen(r, cx), cx), cx)), cx);
         #[cfg(windows)]
         {
             use engine::chromium::EditCommand as E;
@@ -544,6 +546,7 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
                 MenuItem::os_action("Copy", text_input::Copy, OsAction::Copy),
                 MenuItem::os_action("Paste", text_input::Paste, OsAction::Paste),
                 MenuItem::os_action("Select All", text_input::SelectAll, OsAction::SelectAll),
+                MenuItem::action("Insert Snippet\u{2026}", snippets::InsertSnippet),
                 MenuItem::separator(),
                 MenuItem::action("Find…", Find),
                 MenuItem::action("Find Next", FindNext),

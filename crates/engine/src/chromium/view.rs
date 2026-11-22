@@ -2198,6 +2198,13 @@ impl WebView {
         self.run_isolated_as_gesture(&crate::page_scripts::pick_rect_script(), true, done);
     }
 
+    pub fn insert_text(&self, text: &str, done: impl Fn(String) + 'static) {
+        if self.lockdown_view() {
+            return done(String::new());
+        }
+        self.run_isolated_as_gesture(&crate::page_scripts::insert_text_script(text), true, done);
+    }
+
     pub fn json_text(&self, origin: &Url, max_bytes: usize, done: impl Fn(String) + 'static) {
         match crate::page_scripts::json_text_script(origin, max_bytes) {
             Some(script) => self.run_isolated(&script, done),

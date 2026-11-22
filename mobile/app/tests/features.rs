@@ -197,6 +197,32 @@ fn the_mini_player_follows_the_tab_left_playing_and_sends_its_controls() {
 }
 
 #[test]
+fn snippets_expand_in_the_address_bar_and_insert_only_on_request() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://form.test/", "Form");
+    let key = active(&shell);
+    let profile = shell.model.profile().unwrap().1;
+    shell.core.disk.save_snippet(profile, "sig", "Best,\nAda").unwrap();
+    shell.snippets_changed();
+    assert_eq!(shell.expand_snippet("hi ;sig").as_deref(), Some("hi Best, Ada"));
+    assert_eq!(shell.expand_snippet("hi;sig"), None);
+
+    let typed = shell.insert_snippet("Best,\nAda");
+    let args = command(&typed, "insertText").unwrap().clone();
+    assert_eq!(args["text"], "Best,\nAda");
+    shell.event(key, "textInserted", &json!({ "seq": seq(&args) + 1, "inserted": false }), 3);
+    assert!(shell.inserting.is_some(), "another request's answer is dropped");
+    shell.event(key, "textInserted", &json!({ "seq": seq(&args), "inserted": false }), 3);
+    assert_eq!(shell.notice.as_deref(), Some(browser_core::snippets::NO_FIELD));
+
+    shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
+    assert!(shell.insert_snippet("x").is_empty());
+    assert_eq!(shell.notice.as_deref(), Some(browser_core::snippets::NO_INSERT));
+    shell.enter_private();
+    assert!(shell.snippets().is_empty(), "a private space has no snippets on disk");
+}
+
+#[test]
 fn private_spaces_never_send_or_keep_zaps() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");

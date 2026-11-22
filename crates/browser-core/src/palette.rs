@@ -86,6 +86,7 @@ pub enum Command {
     CaptureElement,
     CaptureFullPage,
     Measure,
+    InsertSnippet,
     SavePdf,
     CopyMarkdownLink,
     CopyTitle,
@@ -103,7 +104,7 @@ pub enum Command {
     AskPage,
 }
 
-pub const COMMANDS: [(&str, &str, Command); 71] = [
+pub const COMMANDS: [(&str, &str, Command); 72] = [
     ("Settings", "preferences options", Command::Settings),
     ("Open File\u{2026}", "local disk html pdf image text document view", Command::OpenFile),
     ("New Tab Group", "group", Command::NewGroup),
@@ -161,6 +162,7 @@ pub const COMMANDS: [(&str, &str, Command); 71] = [
     ("Capture Element", "screenshot pick part image png", Command::CaptureElement),
     ("Capture Full Page", "screenshot whole long scrolling image png", Command::CaptureFullPage),
     ("Measure", "ruler pixels size distance developer", Command::Measure),
+    ("Insert Snippet\u{2026}", "text expand template paste type", Command::InsertSnippet),
     ("Save Page as PDF", "export print", Command::SavePdf),
     ("Copy Link as Markdown", "url markdown", Command::CopyMarkdownLink),
     ("Copy Title", "page name", Command::CopyTitle),
@@ -243,7 +245,7 @@ impl State {
             ReloadInChromium | ReloadInWebKit => tab,
             Reader | SaveForLater | CopyLink | CopyCleanLink | CopyMarkdownLink | CopyTitle | ShowQrCode | Share | SavePdf | ZapElement | BookmarkTab
             | TakeScreenshot | DuplicateTab | PictureInPicture => tab,
-            CaptureArea | CaptureElement | CaptureFullPage => tab && !self.no_page,
+            CaptureArea | CaptureElement | CaptureFullPage | InsertSnippet => tab && !self.no_page,
             Measure => tab && !self.no_page && self.developer,
             _ => true,
         }

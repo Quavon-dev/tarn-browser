@@ -11,7 +11,7 @@ use shield::ShieldLevel;
 
 use crate::models::{
     AiCommand, Bookmark, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Profile, SavedWindow, Schedule,
-    ShieldDay, ShieldStats, Slot, Snapshot, Space, SpaceRule, Tab, TabKind, WebEngine,
+    ShieldDay, ShieldStats, Slot, Snapshot, Snippet, Space, SpaceRule, Tab, TabKind, WebEngine,
 };
 
 const MIGRATIONS: &[&str] = &[
@@ -214,12 +214,19 @@ const MIGRATIONS: &[&str] = &[
          last_at INTEGER NOT NULL,
          PRIMARY KEY (profile_id, hint)
      );",
+    "CREATE TABLE snippets (
+         id INTEGER PRIMARY KEY,
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         name TEXT NOT NULL,
+         body TEXT NOT NULL,
+         UNIQUE (profile_id, name)
+     );",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
 const PROFILE_NEUTRAL: [&str; 3] = ["settings", "themes", "windows"];
 /// Every table holding profile data, with the filter that selects one profile's rows.
-const PROFILE_TABLES: [(&str, &str); 28] = [
+const PROFILE_TABLES: [(&str, &str); 29] = [
     ("profiles", "id = ?1"),
     ("spaces", "profile_id = ?1"),
     ("folders", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
@@ -248,6 +255,7 @@ const PROFILE_TABLES: [(&str, &str); 28] = [
     ("extension_storage", "profile_id = ?1"),
     ("ai_commands", "profile_id = ?1"),
     ("feature_hints", "profile_id = ?1"),
+    ("snippets", "profile_id = ?1"),
 ];
 /// Sites kept per profile for the privacy report's list.
 const MAX_SHIELD_SITES: i64 = 200;
@@ -264,6 +272,14 @@ pub fn clip_history_text(text: &str) -> &str {
 }
 /// The longest custom assistant command template kept, in bytes.
 pub const MAX_AI_TEMPLATE: usize = 4096;
+/// The longest snippet text kept, in bytes, and the longest snippet name.
+pub const MAX_SNIPPET: usize = 16 * 1024;
+pub const MAX_SNIPPET_NAME: usize = 32;
+
+/// A snippet name: 1 to `MAX_SNIPPET_NAME` lowercase ASCII letters, digits, `-` or `_`.
+pub fn valid_snippet_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_SNIPPET_NAME && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+}
 /// The most CSS one site may keep, in bytes.
 pub const MAX_SITE_CSS: usize = 64 * 1024;
 /// The largest theme file kept, in bytes (`browser_core::theme::MAX_THEME_BYTES`).
@@ -1097,6 +1113,33 @@ impl Store {
 
     pub fn delete_ai_command(&self, profile_id: Id, id: Id) -> Result<()> {
         self.conn.execute("DELETE FROM ai_commands WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
+        self.checkpoint().ok();
+        Ok(())
+    }
+
+    pub fn snippets(&self, profile_id: Id) -> Result<Vec<Snippet>> {
+        let mut stmt = self.conn.prepare("SELECT id, profile_id, name, body FROM snippets WHERE profile_id = ?1 ORDER BY name")?;
+        let rows = stmt.query_map([profile_id], |r| Ok(Snippet { id: r.get(0)?, profile_id: r.get(1)?, name: r.get(2)?, body: r.get(3)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Saves `body` under `name`, replacing the profile's snippet of that name. An invalid name
+    /// (`valid_snippet_name`), an empty body or one over `MAX_SNIPPET` bytes is refused.
+    pub fn save_snippet(&self, profile_id: Id, name: &str, body: &str) -> Result<Snippet> {
+        if !valid_snippet_name(name) || body.trim().is_empty() || body.len() > MAX_SNIPPET {
+            return Err(Error::Invalid("snippet"));
+        }
+        let id = self.conn.query_row(
+            "INSERT INTO snippets (profile_id, name, body) VALUES (?1, ?2, ?3)
+             ON CONFLICT (profile_id, name) DO UPDATE SET body = ?3 RETURNING id",
+            params![profile_id, name, body],
+            |r| r.get(0),
+        )?;
+        Ok(Snippet { id, profile_id, name: name.to_owned(), body: body.to_owned() })
+    }
+
+    pub fn delete_snippet(&self, profile_id: Id, id: Id) -> Result<()> {
+        self.conn.execute("DELETE FROM snippets WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
         self.checkpoint().ok();
         Ok(())
     }
@@ -2383,6 +2426,40 @@ mod tests {
         store.count_hint(2, "Reader", 1).unwrap();
         store.delete_profile(2).unwrap();
         assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM feature_hints", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn snippets_are_checked_per_profile_and_go_with_the_profile_and_its_reset() {
+        let mut store = store_before("CREATE TABLE snippets");
+        store.conn.execute_batch("INSERT INTO profiles (id, name, data_store_uuid, created_at) VALUES (1, 'P', 'u1', 5), (2, 'Q', 'u2', 6);").unwrap();
+        store.migrate().unwrap();
+        let sig = store.save_snippet(1, "sig", "Best,\nAda").unwrap();
+        assert_eq!(store.save_snippet(1, "sig", "Thanks,\nAda").unwrap().id, sig.id, "a name keeps its row");
+        store.save_snippet(1, "addr", "1 Reef Road").unwrap();
+        assert_eq!(
+            store.snippets(1).unwrap().iter().map(|s| (s.name.as_str(), s.body.as_str())).collect::<Vec<_>>(),
+            [("addr", "1 Reef Road"), ("sig", "Thanks,\nAda")]
+        );
+        assert!(store.snippets(2).unwrap().is_empty(), "snippets are per profile");
+        for (name, body) in [
+            ("", "x"),
+            ("Sig", "x"),
+            ("a b", "x"),
+            (";sig", "x"),
+            (&"a".repeat(MAX_SNIPPET_NAME + 1), "x"),
+            ("ok", " \n"),
+            ("ok", &"x".repeat(MAX_SNIPPET + 1)),
+        ] {
+            assert!(store.save_snippet(1, name, body).is_err(), "{name:?}");
+        }
+        store.delete_snippet(2, sig.id).unwrap();
+        assert_eq!(store.snippets(1).unwrap().len(), 2, "another profile's id deletes nothing");
+        assert!(store.export_profile(1).unwrap().contains("\"snippets\""));
+        store.reset_profile(1, "S").unwrap();
+        assert!(store.snippets(1).unwrap().is_empty());
+        store.save_snippet(2, "x", "y").unwrap();
+        store.delete_profile(2).unwrap();
+        assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM snippets", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
     }
 
     #[test]

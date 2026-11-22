@@ -21,6 +21,24 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Insert Snippet in the page's context menu (2026-11-22)
+
+What it does: right-clicking (long-pressing) a text field on a page offers Insert Snippet…, which
+opens the same snippet list as the command bar; macOS and Windows also take multi-line snippet text
+in Settings, as the NSH pane does.
+Shared API: `palette::Command::InsertSnippet`, `browser_core::snippets`; web view operation
+`insert_text` / component `insertText`.
+Reference: `crates/app/src/snippets.rs`, `linux/src/browser/snippets.rs`,
+`nsh-shared/src/snippets.rs`.
+
+- [ ] macOS — an entry in WebKit's editable-field menu (`crates/engine/src/delegates.rs`,
+  `context_menu`) and Chromium's, sent to the shell as an engine event; a multi-line field for the
+  text in `crates/app/src/settings/snippets.rs` (`ui::TextInput` is one line)
+- [ ] Windows — the same in `crates/app` and the Chromium menu
+- [ ] Linux — WebKitGTK's `context-menu` signal for editable targets in `linux/src/webview`
+- [ ] iOS — the edit menu of a focused field in `mobile/ios`
+- [ ] Android — the text selection action mode in `TarnWebView`
+
 ### Measure (2026-11-22)
 
 What it does: a developer tool that shows rulers and a box the user drags over a still of the page,

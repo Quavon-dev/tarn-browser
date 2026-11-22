@@ -87,6 +87,10 @@ final class Native {
 
     static native String pickRect();
 
+    static native String insertTextScript(String text);
+
+    static native boolean inserted(String answer);
+
     static native String selectedTextScript();
 
     static native String mediaStateScript();

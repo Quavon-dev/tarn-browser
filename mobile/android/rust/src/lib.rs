@@ -172,6 +172,18 @@ pub extern "system" fn Java_dev_tarn_android_Native_picker(mut env: JNIEnv, _: J
     java_string(&mut env, Some(engine::page_scripts::PICKER.to_owned()))
 }
 
+/// `insert_text_script` of `text`; null for a text longer than a snippet.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_insertTextScript(mut env: JNIEnv, _: JClass, text: JString) -> jstring {
+    let script = string(&mut env, &text).filter(|t| t.len() <= browser_core::snippets::MAX_SNIPPET).map(|t| engine::page_scripts::insert_text_script(&t));
+    java_string(&mut env, script)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_inserted(mut env: JNIEnv, _: JClass, answer: JString) -> jboolean {
+    jboolean::from(browser_core::snippets::inserted(&string(&mut env, &answer).unwrap_or_default()))
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_tarn_android_Native_pickRect(mut env: JNIEnv, _: JClass) -> jstring {
     java_string(&mut env, Some(engine::page_scripts::pick_rect_script()))

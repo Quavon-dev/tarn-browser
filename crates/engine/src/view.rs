@@ -149,6 +149,12 @@ impl WebView {
         both!(self, v => v.pick_rect(done))
     }
 
+    /// Types `text` into the page's focused text field for Insert Snippet; answers "1" when it did
+    /// (`browser_core::snippets::inserted`), empty otherwise and under Lockdown.
+    pub fn insert_text(&self, text: &str, done: impl Fn(String) + 'static) {
+        both!(self, v => v.insert_text(text, done))
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         both!(self, v => v.icon_links(origin, done))
     }

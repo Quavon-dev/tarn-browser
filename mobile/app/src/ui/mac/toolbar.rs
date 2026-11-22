@@ -30,6 +30,7 @@ const OFFERED: [Command; 23] = [
     Command::CaptureArea,
     Command::CaptureElement,
     Command::CaptureFullPage,
+    Command::InsertSnippet,
     Command::Reader,
     Command::SaveForLater,
     Command::BurnerTab,
@@ -278,7 +279,9 @@ fn offered(ui: Ui, command: Command) -> bool {
         && match command {
             Command::Reader => ui.read(|s| s.offers_reader()),
             Command::ZapElement => ui.read(|s| s.zappable()),
-            Command::TakeScreenshot | Command::CaptureArea | Command::CaptureElement | Command::CaptureFullPage => ui.read(|s| s.offers_capture()),
+            Command::TakeScreenshot | Command::CaptureArea | Command::CaptureElement | Command::CaptureFullPage | Command::InsertSnippet => {
+                ui.read(|s| s.offers_capture())
+            }
             Command::BurnerTab => !ui.read(|s| s.in_burner() || <crate::data::Data as crate::data::Platform>::private_process()),
             Command::CopyLink | Command::CopyCleanLink | Command::ShowQrCode | Command::SaveForLater => ui.read(|s| s.share_url().is_some()),
             _ => true,
@@ -334,6 +337,7 @@ fn run(ui: Ui, command: Command) {
         Command::CaptureArea => super::super::capture::capture_area(ui),
         Command::CaptureElement => super::super::capture::capture_element(ui),
         Command::CaptureFullPage => ui.act(|s| s.capture_full_page()),
+        Command::InsertSnippet => super::super::sheets::open_insert_snippet(ui),
         Command::Reader => ui.act(|s| s.open_reader()),
         Command::SaveForLater => quiet(|s| {
             s.save_for_later(browser_core::now());
@@ -525,6 +529,12 @@ fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>) -> impl In
         .on_change(move |value: &str| {
             if value == ui.address.get_untracked() {
                 return;
+            }
+            if let Some(full) = ui.read(|s| s.expand_snippet(value)) {
+                typed.set(full.clone());
+                completed.set(None);
+                ui.suggest.set(Vec::new());
+                return super::super::caret_at_end(ui.address, at, full);
             }
             let (found, completion) = ui.read(|s| s.suggest_from(&history, &typed.get_untracked(), value));
             typed.set(value.to_owned());

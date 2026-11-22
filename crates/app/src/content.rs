@@ -487,12 +487,13 @@ fn suggestion_tile(b: &Browser, s: &Suggestion, selected: bool) -> gpui::Div {
     let url = match &s.target {
         Target::Tab(key) | Target::Find(key, _) => b.model.tab(*key).map(|t| t.url.clone()),
         Target::Url(u) | Target::Input(Input::Navigate(u)) => Some(u.to_string()),
-        Target::Input(_) | Target::Action(_) | Target::Copy(_) => None,
+        Target::Input(_) | Target::Action(_) | Target::Copy(_) | Target::Snippet(_) => None,
     };
     let glyph = match &s.target {
         Target::Input(Input::Command(_)) | Target::Action(_) => Icon::named(browser_core::command::glyph(&s.label)).unwrap_or(Icon::Command),
         Target::Input(Input::External(_)) => Icon::AppWindow,
         Target::Copy(_) => Icon::Copy,
+        Target::Snippet(_) => Icon::FileText,
         _ => Icon::Search,
     };
     let fill = if selected { Theme::accent() } else { Theme::control() };
@@ -513,7 +514,7 @@ fn section(target: &Target) -> Section {
         Target::Input(ui::command::Input::Command(_)) | Target::Action(_) => Section::Commands,
         Target::Tab(_) | Target::Find(..) => Section::Tabs,
         Target::Url(_) => Section::History,
-        Target::Input(_) | Target::Copy(_) => Section::Suggestions,
+        Target::Input(_) | Target::Copy(_) | Target::Snippet(_) => Section::Suggestions,
     }
 }
 

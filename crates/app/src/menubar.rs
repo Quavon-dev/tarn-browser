@@ -46,7 +46,7 @@ pub struct SwitchToSpace {
 }
 
 /// Actions on the active tab's page, which do nothing while no tab is open.
-const NEED_A_TAB: [&dyn Action; 25] = [
+const NEED_A_TAB: [&dyn Action; 26] = [
     &crate::BookmarkTab,
     &crate::Print,
     &crate::Reload,
@@ -61,6 +61,7 @@ const NEED_A_TAB: [&dyn Action; 25] = [
     &crate::capture::CaptureArea,
     &crate::capture::CaptureElement,
     &crate::capture::CaptureFullPage,
+    &crate::snippets::InsertSnippet,
     &crate::capture::SavePdf,
     &crate::capture::PictureInPicture,
     &crate::qr::ShareLink,

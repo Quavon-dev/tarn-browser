@@ -34,6 +34,7 @@ pub enum Command {
     CaptureElement,
     CaptureFullPage,
     Measure,
+    InsertSnippet,
     Reader,
     SaveForLater,
     BurnerTab,
@@ -122,6 +123,7 @@ fn command_for(command: palette::Command) -> Option<Command> {
         C::CaptureElement => Command::CaptureElement,
         C::CaptureFullPage => Command::CaptureFullPage,
         C::Measure => Command::Measure,
+        C::InsertSnippet => Command::InsertSnippet,
         C::SavePdf => Command::SavePdf,
         C::CopyMarkdownLink => Command::CopyMarkdownLink,
         C::CopyTitle => Command::CopyTitle,
@@ -216,6 +218,7 @@ pub fn run(ui: Ui, command: Command) {
         Command::CaptureElement => super::capture::capture_element(ui),
         Command::CaptureFullPage => act(ui, Browser::capture_full_page),
         Command::Measure => super::capture::open(ui, tarn_nsh_shared::page_overlay::Purpose::Measure),
+        Command::InsertSnippet => open_snippets(ui),
         Command::Reader => act(ui, Browser::toggle_reader),
         Command::SaveForLater => act(ui, Browser::save_for_later),
         Command::BurnerTab => act(ui, Browser::open_burner),
@@ -491,6 +494,60 @@ pub fn close_find_tabs(ui: Ui) {
     ui.address.set(String::new());
     ui.address_ref.blur();
     act(ui, |b| b.find_in_tabs(""));
+}
+
+fn open_snippets(ui: Ui) {
+    let mut target = None;
+    act(ui, |b| target = b.snippet_target());
+    if target.is_some() {
+        show(ui, Panel::Snippets);
+    }
+}
+
+/// Insert Snippet's list, filtered as the user types; a choice types the snippet into the page.
+pub fn snippets_panel(ui: Ui) -> AnyElement {
+    let query = signal(String::new());
+    let all = read(ui, Browser::snippets).unwrap_or_default();
+    let field = nsh_base::input()
+        .value(move || query.get())
+        .on_change(move |v: &str| query.set(v.to_owned()))
+        .placeholder("Filter snippets")
+        .label("Filter snippets")
+        .auto_focus(true)
+        .w_full()
+        .px(px(8.))
+        .py(px(4.))
+        .rounded(px(Theme::radius_row()))
+        .bg(Theme::raised())
+        .border_1()
+        .border_color(Theme::hairline())
+        .text_color(Theme::text());
+    let rows = dynamic(move || {
+        if all.is_empty() {
+            return Some(view().child(note(browser_core::snippets::EMPTY)));
+        }
+        let found = query.with(|q| browser_core::snippets::matching(q, &all).into_iter().cloned().collect::<Vec<_>>());
+        let rows: Vec<AnyElement> = found
+            .into_iter()
+            .map(|s| {
+                let body = s.body.clone();
+                crate::controls::row(format!("Insert {}", s.name), move || {
+                    let body = body.clone();
+                    ui.panel.set(Panel::None);
+                    act(ui, move |b| {
+                        if let Some(key) = b.model.active {
+                            b.insert_snippet(key, &body);
+                        }
+                    });
+                })
+                .child(label(format!(";{}", s.name)).flex_none())
+                .child(small(browser_core::snippets::preview(&s.body)).truncate())
+                .into_element()
+            })
+            .collect();
+        Some(view().flex_col().gap(px(2.)).children(rows))
+    });
+    super::panels::popover().child(super::panels::heading(ui, label("Insert Snippet"))).child(field).child(rows).into_element()
 }
 
 pub fn qr_panel(ui: Ui) -> AnyElement {

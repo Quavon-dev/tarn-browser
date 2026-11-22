@@ -7,6 +7,7 @@ pub mod media;
 pub mod platform;
 pub mod scripts;
 pub mod shell;
+pub mod snippets;
 pub mod theme;
 pub mod themes;
 pub mod ui;

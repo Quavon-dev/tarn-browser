@@ -1452,6 +1452,37 @@ fn measure_opens_over_a_still_of_the_page_only_with_the_developer_tools_on() {
 }
 
 #[test]
+fn snippets_expand_in_shell_fields_and_insert_only_on_request() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    let profile = b.model.profile().unwrap().1;
+    visit(&mut b, key, "https://form.test/");
+    assert_eq!(b.expand_snippet("see ;sig"), None);
+    b.core.disk.save_snippet(profile, "sig", "Best,\nAda").unwrap();
+    assert_eq!(b.expand_snippet("see ;sig"), None, "cached until the pane says it changed");
+    b.snippets_changed();
+    assert_eq!(b.expand_snippet("see ;sig").as_deref(), Some("see Best, Ada"));
+
+    b.outbox.clear();
+    assert_eq!(b.snippet_target(), Some(key));
+    b.insert_snippet(key, "Best,\nAda");
+    let request = asked(&b, "insertText")[0].clone();
+    assert_eq!(request["text"], "Best,\nAda");
+    b.on_event(key, "textInserted", &json!({ "seq": request["seq"], "inserted": true }));
+    assert!(b.toast.is_none());
+    b.insert_snippet(key, "x");
+    let seq = asked(&b, "insertText").last().unwrap()["seq"].clone();
+    b.on_event(key, "textInserted", &json!({ "seq": seq, "inserted": false }));
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::snippets::NO_FIELD));
+
+    b.set_site_level(Some(ShieldLevel::Lockdown));
+    assert_eq!(b.snippet_target(), None);
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::snippets::NO_INSERT));
+    b.private_space();
+    assert!(b.snippets().is_empty(), "a private space has no snippets on disk");
+}
+
+#[test]
 fn a_burner_screenshot_is_saved_but_not_recorded() {
     let (_dir, mut b) = browser();
     b.open_burner();

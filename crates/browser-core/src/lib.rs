@@ -58,6 +58,7 @@ pub mod shortcuts;
 pub mod sidebar;
 pub mod site;
 pub mod snapshot;
+pub mod snippets;
 pub mod space_card;
 pub mod split;
 #[cfg(any(target_os = "macos", windows))]
