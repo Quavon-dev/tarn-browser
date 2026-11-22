@@ -13,6 +13,7 @@ use crate::theme::Theme;
 use crate::theme::{SYSTEM_FONT, Secure};
 use browser_core::library::LIST_ROWS;
 use browser_core::shield_card::{motto, thousands};
+use browser_core::tab_menu;
 use store::TabKind;
 use tarn_nsh_shared::controls::{caps_label, glyph_row, glyph_switch};
 
@@ -589,106 +590,137 @@ fn pills(name: &str, buttons: Vec<AnyElement>) -> Option<View> {
     (!buttons.is_empty()).then(|| view().flex_col().child(section(name.to_owned())).child(view().flex_row().flex_wrap().gap_2().children(buttons)))
 }
 
-struct TabState {
-    custom: bool,
-    drift: Option<String>,
-    muted: Option<bool>,
-    sleepable: bool,
-    sleep_others: bool,
-    others: bool,
-    below: bool,
+fn offered(command: tab_menu::Command) -> bool {
+    !matches!(command, tab_menu::Command::SwitchEngine | tab_menu::Command::Rename)
 }
 
-fn tab_state(b: &Browser, key: browser_core::tabs::TabKey) -> TabState {
-    let unpinned = b.model.ephemeral_keys();
-    TabState {
-        custom: b.model.tab(key).is_some_and(|t| !t.custom_title.is_empty()),
+fn tab_state(b: &Browser, key: browser_core::tabs::TabKey, spaces: &[(usize, String)]) -> Option<tab_menu::Tab> {
+    let tab = b.model.tab(key)?;
+    let active = b.model.active == Some(key);
+    let targets = b.model.move_targets(&b.core, key);
+    Some(tab_menu::Tab {
+        kind: tab.kind,
+        active,
+        has_link: active && b.tab_url(key).is_some(),
+        engine: None,
+        split: b.splits.menu(b.model.active, key),
+        split_view: true,
+        burner: b.model.burner_shown(),
+        custom_title: !tab.custom_title.is_empty(),
         drift: b.pinned_drift(key).and_then(|u| u.host_str().map(browser_core::text::bounded_title)),
+        grouped: tab.group_id.is_some(),
         muted: b.can_mute(key).then(|| b.tab_muted(key)),
-        sleepable: b.model.active != Some(key) && !b.sleeping(key) && !b.in_split(key),
+        sleepable: !active && !b.sleeping(key) && !b.in_split(key),
         sleep_others: b.can_sleep_others(key),
-        others: unpinned.iter().any(|k| *k != key),
+        others: b.model.ephemeral_keys().iter().any(|k| *k != key),
         below: !b.model.tabs_below(key).is_empty(),
+        spaces: spaces.iter().filter(|(ix, _)| targets.contains(ix)).cloned().collect(),
+        groups: b.model.groups.iter().filter(|g| Some(g.id) != tab.group_id).map(|g| (g.id, g.name.clone())).collect(),
+    })
+}
+
+fn run_tab(ui: Ui, key: browser_core::tabs::TabKey, command: tab_menu::Command) {
+    use tab_menu::Command as C;
+    if matches!(
+        command,
+        C::Open
+            | C::Duplicate
+            | C::Split
+            | C::LeaveSplit
+            | C::RotateSplit
+            | C::CloseSplit
+            | C::ReturnToPinned
+            | C::MoveToSpace(_)
+            | C::Unload
+            | C::Close
+            | C::CloseOthers
+            | C::CloseBelow
+    ) {
+        ui.panel.set(Panel::None);
     }
+    match command {
+        C::Reload => super::reload(ui),
+        C::Open => act(ui, |b| b.activate(key)),
+        C::Duplicate => act(ui, |b| b.duplicate_tab(key)),
+        C::CopyLink => super::tools::copy_link(ui, false),
+        C::CopyCleanLink => super::tools::copy_link(ui, true),
+        C::Bookmark => super::library::bookmark_tab(ui, Some(key)),
+        C::Split => act(ui, |b| b.split_with(key)),
+        C::LeaveSplit => act(ui, |b| b.leave_split(key)),
+        C::RotateSplit => act(ui, |b| b.rotate_split(key)),
+        C::CloseSplit => act(ui, |b| b.close_split(key)),
+        C::TogglePin => act(ui, |b| b.pin_toggle(key)),
+        C::ToggleTile => act(ui, |b| b.tile_toggle(key)),
+        C::ResetTitle => act(ui, |b| b.reset_tab_title(key)),
+        C::ReturnToPinned => act(ui, |b| b.return_to_pinned(key)),
+        C::SetPinnedUrl => act(ui, |b| b.set_pinned_url(key)),
+        C::MoveToSpace(ix) => act(ui, |b| b.move_to_space(key, ix)),
+        C::AddToGroup(id) => act(ui, |b| b.set_tab_group(key, Some(id))),
+        C::NewGroup => super::groups::new_group(ui, Some(key)),
+        C::RemoveFromGroup => act(ui, |b| b.set_tab_group(key, None)),
+        C::ToggleMute => act(ui, |b| b.toggle_site_muted(key)),
+        C::Sleep => act(ui, |b| b.sleep_tabs(vec![key])),
+        C::SleepOthers => act(ui, |b| b.sleep_tabs(b.model.other_tabs(key))),
+        C::Unload | C::Close => act(ui, |b| b.close_tab(key)),
+        C::CloseOthers => act(ui, |b| b.close_others(key)),
+        C::CloseBelow => act(ui, |b| b.close_below(key)),
+        C::SwitchEngine | C::Rename => {}
+    }
+}
+
+fn tab_rows(ui: Ui, key: browser_core::tabs::TabKey, items: Vec<tab_menu::Item>, keys: &dyn Fn(Action) -> Option<String>) -> Vec<View> {
+    let mut out = Vec::new();
+    let mut rows = Vec::new();
+    for item in items {
+        match item {
+            tab_menu::Item::Command(command, name, enabled, shortcut) => rows.push(
+                menu_row(&name, shortcut.and_then(keys), move || run_tab(ui, key, command))
+                    .disabled(move || !enabled)
+                    .disabled_style(|s| s.text_color(Theme::faint()))
+                    .into_element(),
+            ),
+            tab_menu::Item::Separator => out.extend((!rows.is_empty()).then(|| group().children(std::mem::take(&mut rows)))),
+            tab_menu::Item::Submenu(name, inner) => {
+                out.extend((!rows.is_empty()).then(|| group().children(std::mem::take(&mut rows))));
+                let inner = inner.into_iter().filter(|i| *i != tab_menu::Item::Separator).collect();
+                out.push(view().flex_col().child(section(name.to_owned())).children(tab_rows(ui, key, inner, keys)));
+            }
+        }
+    }
+    out.extend((!rows.is_empty()).then(|| group().children(rows)));
+    out
 }
 
 fn tab_panel(ui: Ui) -> AnyElement {
     let menu = ui.tab_menu.get_untracked();
-    let Some((key, active, name, kind, targets, duplicates, keymap, split, (in_group, groups), state)) = read(ui, |b| {
+    let (folders, spaces, burner, article) = ui.snap.with(|s| (s.folders.clone(), s.spaces.clone(), s.burner, s.article));
+    let labels: Vec<(usize, String)> = spaces.iter().map(|s| (s.ix, s.label.clone())).collect();
+    let Some((key, active, name, kind, duplicates, keymap, state)) = read(ui, |b| {
         let key = menu.filter(|k| b.model.tab(*k).is_some()).or(b.model.active)?;
         let tab = b.model.tab(key)?;
-        let keymap = shortcuts::keymap(&shortcuts::stored(&b.core.disk));
         Some((
             key,
             b.model.active == Some(key),
             crate::snapshot::tab_label(tab, b, key),
             tab.kind,
-            b.model.move_targets(&b.core, key),
             !b.duplicate_tabs().is_empty(),
-            keymap,
-            b.splits.menu(b.model.active, key),
-            (tab.group_id, b.model.groups.iter().filter(|g| Some(g.id) != tab.group_id).map(|g| (g.id, g.name.clone())).collect::<Vec<_>>()),
-            tab_state(b, key),
+            shortcuts::keymap(&shortcuts::stored(&b.core.disk)),
+            tab_state(b, key, &labels)?,
         ))
     })
     .flatten() else {
         return view().into_element();
     };
-    let (folders, spaces, burner, article) = ui.snap.with(|s| (s.folders.clone(), s.spaces.clone(), s.burner, s.article));
-    let keys = |action: Action| active.then(|| keymap.iter().find(|(_, a)| *a == action).map(|(k, _)| shortcuts::display(k))).flatten();
+    let keys = move |action: Action| keymap.iter().find(|(_, a)| *a == action).map(|(k, _)| shortcuts::display(k));
     let folder_buttons: Vec<AnyElement> =
         folders.into_iter().map(|(id, name)| pill(name, move || act(ui, |b| b.move_to_folder(key, id))).into_element()).collect();
-    let space_buttons: Vec<AnyElement> = spaces
-        .into_iter()
-        .filter(|s| targets.contains(&s.ix))
-        .map(|s| {
-            pill(s.label, move || {
-                ui.panel.set(Panel::None);
-                act(ui, |b| b.move_to_space(key, s.ix));
-            })
-            .into_element()
-        })
-        .collect();
     let tool = |name: &'static str, command: Command, action: Option<Action>| {
-        menu_row(name, action.and_then(keys), move || super::tools::run(ui, command)).into_element()
+        menu_row(name, action.and_then(&keys), move || super::tools::run(ui, command)).into_element()
     };
-    let tab_rows = (!burner).then(|| {
-        let (pinned, tile) = (kind != TabKind::Ephemeral, kind == TabKind::Tile);
-        let pin = menu_row(if pinned { "Unpin" } else { "Pin" }, keys(Action::TogglePin), move || act(ui, |b| b.pin_toggle(key)));
-        let tiles = menu_row(if tile { "Remove from Tiles" } else { "Add to Tiles" }, None, move || act(ui, |b| b.tile_toggle(key)));
-        let reset = state.custom.then(|| menu_row("Reset Title", None, move || act(ui, |b| b.reset_tab_title(key))));
-        let drift = state.drift.clone().map(|host| {
-            let back = menu_row(&format!("Return to {host}"), None, move || {
-                ui.panel.set(Panel::None);
-                act(ui, |b| b.return_to_pinned(key));
-            });
-            [back, menu_row("Set Pinned URL to Current Page", None, move || act(ui, |b| b.set_pinned_url(key)))]
-        });
-        group().child(pin).child(tiles).children(reset).children(drift.into_iter().flatten())
-    });
     let rename =
         (kind != TabKind::Tile).then(|| rename_row(ui, format!("tab {}-{}", key.private, key.id), &name, move |name| act(ui, |b| b.rename_tab(key, &name))));
-    let duplicate = menu_row("Duplicate Tab", None, move || {
-        ui.panel.set(Panel::None);
-        act(ui, |b| b.duplicate_tab(key));
-    });
-    let group_buttons: Vec<AnyElement> = if kind == TabKind::Ephemeral {
-        groups
-            .into_iter()
-            .map(|(id, name)| pill(name, move || act(ui, |b| b.set_tab_group(key, Some(id)))).into_element())
-            .chain([pill("New Group", move || super::groups::new_group(ui, Some(key))).into_element()])
-            .collect()
-    } else {
-        Vec::new()
-    };
-    let ungroup = in_group.map(|_| group().child(menu_row("Remove from Group", None, move || act(ui, |b| b.set_tab_group(key, None)))));
     let page_rows = active.then(|| {
-        let mut rows = vec![
-            tool("Copy Link", Command::CopyLink, Some(Action::CopyLink)),
-            tool("Copy Clean Link", Command::CopyCleanLink, Some(Action::CopyCleanLink)),
-            tool("Show QR Code", Command::ShowQrCode, None),
-            tool("Save for Later", Command::SaveForLater, None),
-        ];
+        let mut rows = vec![tool("Show QR Code", Command::ShowQrCode, None), tool("Save for Later", Command::SaveForLater, None)];
         if article {
             let shown = ui.snap.with_untracked(|s| s.reader.is_some());
             rows.push(tool(if shown { "Hide Reader" } else { "Show Reader" }, Command::Reader, Some(Action::ToggleReader)));
@@ -700,65 +732,13 @@ fn tab_panel(ui: Ui) -> AnyElement {
         rows.push(tool("New Burner Tab", Command::BurnerTab, Some(Action::BurnerTab)));
         group().children(rows)
     });
-    let in_split = move |run: fn(&mut Browser, browser_core::tabs::TabKey)| {
-        move || {
-            ui.panel.set(Panel::None);
-            act(ui, |b| run(b, key));
-        }
-    };
-    let mut split_rows = Vec::new();
-    if split.enabled {
-        split_rows.push(menu_row(split.entry.label(), keys(Action::ToggleSplitView), in_split(Browser::split_with)));
-    }
-    if split.member {
-        split_rows.push(menu_row("Remove from Split View", keys(Action::RemoveFromSplitView), in_split(Browser::leave_split)));
-        split_rows.push(menu_row("Rotate Layout", keys(Action::RotateSplitLayout), in_split(Browser::rotate_split)));
-        split_rows.push(menu_row("Close Split View", keys(Action::ToggleSplitView), in_split(Browser::close_split)));
-    }
-    let split_rows = (!split_rows.is_empty()).then(|| view().flex_col().child(section("Split View".to_owned())).child(group().children(split_rows)));
-    let bookmark = menu_row("Bookmark Tab…", keys(Action::BookmarkTab), move || super::library::bookmark_tab(ui, Some(key)));
-    let mut sound_rows = Vec::new();
-    if let Some(muted) = state.muted {
-        sound_rows.push(menu_row(if muted { "Unmute Site" } else { "Mute Site" }, None, move || act(ui, |b| b.toggle_site_muted(key))));
-    }
-    if state.sleepable {
-        sound_rows.push(menu_row("Sleep Tab", None, move || act(ui, |b| b.sleep_tabs(vec![key]))));
-    }
-    if state.sleep_others {
-        sound_rows.push(menu_row("Sleep Other Tabs", None, move || act(ui, |b| b.sleep_tabs(b.model.other_tabs(key)))));
-    }
-    let sound_rows = (!sound_rows.is_empty()).then(|| group().children(sound_rows));
-    let ephemeral = kind == TabKind::Ephemeral;
-    let close = menu_row(if ephemeral { "Close Tab" } else { "Unload Tab" }, keys(Action::CloseTab), move || {
-        ui.panel.set(Panel::None);
-        act(ui, |b| b.close_tab(key));
-    });
-    let close_others = (ephemeral && state.others).then(|| {
-        menu_row("Close Other Tabs", None, move || {
-            ui.panel.set(Panel::None);
-            act(ui, |b| b.close_others(key));
-        })
-    });
-    let close_below = (ephemeral && state.below).then(|| {
-        menu_row("Close Tabs Below", None, move || {
-            ui.panel.set(Panel::None);
-            act(ui, |b| b.close_below(key));
-        })
-    });
     popover()
         .child(heading(ui, title(name).truncate()))
         .children(rename)
-        .child(group().child(duplicate))
         .children(burner.then(|| note("Burner tab: nothing is kept after it closes")))
+        .children(tab_rows(ui, key, tab_menu::items(&state, offered), &keys))
         .children(page_rows)
-        .children(split_rows)
-        .children(tab_rows)
-        .children(pills("Add to Group", group_buttons))
-        .children(ungroup)
         .children(pills("Move into a folder", folder_buttons))
-        .children(pills("Move to another space of this profile", space_buttons))
-        .children(sound_rows)
-        .child(group().child(bookmark).child(close).children(close_others).children(close_below))
         .into_element()
 }
 

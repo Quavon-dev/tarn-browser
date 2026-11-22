@@ -17,6 +17,10 @@ All notable changes to Tarn are documented in this file. The format is based on
   Tabs (⇧⌘F, Ctrl+Shift+F); Linux lists the split view keys under Tabs, as macOS does. Choosing a
   shortcut's default keys again forgets the choice, and Reset All on Linux no longer refuses while
   one action holds another's default keys.
+- The tab menu lists the same entries in the same order on every client. Linux's tab panel gains
+  Reload or Open, Rotate Layout, Close Split View and greyed-out entries that do not apply, and
+  shows the Split View, Move to Space and Add to Group entries as sections; iOS and Android group the
+  split view entries under Split View.
 
 ## [0.1.6] - 2026-11-21
 

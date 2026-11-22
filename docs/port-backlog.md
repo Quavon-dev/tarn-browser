@@ -173,24 +173,19 @@ macOS reference: `crates/app/src/settings.rs` (`developer`); Linux: `linux/src/b
 
 ### Shared tablet tables that macOS and Linux still duplicate (2026-11-17)
 
-What it does: the tablet Mac layout reads its tab menu and trackpad swipe from `browser-core`; macOS,
-Windows and Linux still keep their own copies, which can drift. The command palette (2026-11-22) and
-the keyboard shortcuts are shared by every client: `browser_core::shortcuts` holds every action, its
-section, label and default keys per keyboard (Apple, Linux, other), and the user-editable keymap
-(stored keys, conflicts, reset) behind the `Keystrokes` trait; each client keeps only which actions it
-offers, how it parses keys and what it runs (`crates/app/src/shortcuts.rs` `Mac`, `gpui_action`;
-`linux/src/shortcuts.rs` `Linux`, `offered`; `mobile/app/src/ui/mac/input.rs` `offered`).
-Shared API: `browser_core::tab_menu::items`, `browser_core::sidebar::Swipe`.
-macOS reference: `crates/app/src/browser/context.rs` (`tab_menu`), `crates/app/src/gestures.rs` (`Swipe`).
+What it does: the tablet Mac layout reads its trackpad swipe from `browser-core`; macOS and Windows
+still keep their own copy, which can drift. The command palette (2026-11-22), the keyboard shortcuts
+(`browser_core::shortcuts` with the `Keystrokes` trait) and the tab menu (`browser_core::tab_menu::items`,
+each client passing which commands it offers) are shared by every client.
+Shared API: `browser_core::sidebar::Swipe`.
+macOS reference: `crates/app/src/gestures.rs` (`Swipe`).
 
 - [ ] Windows — same as macOS (shares `crates/app`)
-- [ ] macOS — the tab menu has entries the core list lacks (Reload in Chromium, Bookmark Tab, Mute,
-  Sleep, Return to pinned URL, the Split View and Add to Group submenus, key hints); `Swipe` reads
-  touch phases and natural scrolling, where the core one times wheel pauses. Each needs the core type
-  extended first. `Step` and the space neighbour already come from `browser_core::sidebar`.
-- [ ] Linux — the This Tab panel is its tab menu. `Swipe`, `Step` and the space neighbour already
-  come from `browser_core::sidebar`.
-- [x] iOS — the tablet Mac layout uses all three
+- [ ] macOS — `Swipe` reads touch phases and natural scrolling, where the core one times wheel
+  pauses; the core type needs extending first. `Step` and the space neighbour already come from
+  `browser_core::sidebar`.
+- [x] Linux — `Swipe`, `Step` and the space neighbour come from `browser_core::sidebar`
+- [x] iOS — the tablet Mac layout uses all of them
 - [x] Android — same as iOS
 
 ### Tab sleeping choices and the Suggestions switch (2026-11-17)

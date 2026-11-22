@@ -139,11 +139,16 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
             kind: t.kind,
             active: s.model.active == Some(key),
             has_link: s.web_link_of(key).is_some(),
+            engine: None,
             split: s.splits.menu(s.model.active, key),
             split_view: ui.wide(),
             burner: s.model.burner_shown(),
             custom_title: !t.custom_title.is_empty(),
+            drift: None,
             grouped: t.group_id.is_some(),
+            muted: None,
+            sleepable: false,
+            sleep_others: false,
             others: !bar::other_unpinned(&s.model, key).is_empty(),
             below: !bar::tabs_below(&s.model, key).is_empty(),
             spaces: if s.in_burner() { Vec::new() } else { s.move_targets(key) },
@@ -152,12 +157,24 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
     }) else {
         return Vec::new();
     };
-    tab_menu::items(&tab)
+    tab_entries(bar, key, tab_menu::items(&tab, offered))
+}
+
+fn offered(command: tab_menu::Command) -> bool {
+    use tab_menu::Command as C;
+    !matches!(
+        command,
+        C::SwitchEngine | C::Bookmark | C::RotateSplit | C::CloseSplit | C::ReturnToPinned | C::SetPinnedUrl | C::ToggleMute | C::Sleep | C::SleepOthers
+    )
+}
+
+fn tab_entries(bar: Bar, key: TabKey, items: Vec<tab_menu::Item>) -> Vec<AnyElement> {
+    items
         .into_iter()
-        .map(|entry| match entry {
-            tab_menu::Item::Command(command, label, enabled) => item(bar, label, enabled, move |ui| run_tab(bar, ui, key, command)),
-            tab_menu::Item::Heading(name) => menu_heading(name).into_element(),
-            tab_menu::Item::Separator => menu_separator().into_element(),
+        .flat_map(|entry| match entry {
+            tab_menu::Item::Command(command, label, enabled, _) => vec![item(bar, label, enabled, move |ui| run_tab(bar, ui, key, command))],
+            tab_menu::Item::Submenu(name, inner) => std::iter::once(menu_heading(name).into_element()).chain(tab_entries(bar, key, inner)).collect(),
+            tab_menu::Item::Separator => vec![menu_separator().into_element()],
         })
         .collect()
 }
@@ -206,6 +223,7 @@ fn run_tab(bar: Bar, ui: Ui, key: TabKey, command: tab_menu::Command) {
         C::Close => act(ui, |s| s.close_or_unload(key)),
         C::CloseOthers => act(ui, |s| s.close_many(&bar::other_unpinned(&s.model, key))),
         C::CloseBelow => act(ui, |s| s.close_many(&bar::tabs_below(&s.model, key))),
+        C::SwitchEngine | C::Bookmark | C::RotateSplit | C::CloseSplit | C::ReturnToPinned | C::SetPinnedUrl | C::ToggleMute | C::Sleep | C::SleepOthers => {}
     }
 }
 
