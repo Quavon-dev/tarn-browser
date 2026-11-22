@@ -1113,15 +1113,15 @@ impl Store {
     }
 
     /// A blank name, one over `MAX_AI_NAME` bytes or with control or invisible characters, or a
-    /// template over `MAX_AI_TEMPLATE` bytes is refused.
+    /// template over `MAX_AI_TEMPLATE` bytes is refused; the template is saved `visible`.
     pub fn create_ai_command(&self, profile_id: Id, name: &str, template: &str) -> Result<AiCommand> {
-        check_ai_command(name, template)?;
+        let template = check_ai_command(name, template)?;
         self.conn.execute("INSERT INTO ai_commands (profile_id, name, template) VALUES (?1, ?2, ?3)", params![profile_id, name, template])?;
-        Ok(AiCommand { id: self.conn.last_insert_rowid(), profile_id, name: name.to_owned(), template: template.to_owned() })
+        Ok(AiCommand { id: self.conn.last_insert_rowid(), profile_id, name: name.to_owned(), template })
     }
 
     pub fn update_ai_command(&self, profile_id: Id, id: Id, name: &str, template: &str) -> Result<()> {
-        check_ai_command(name, template)?;
+        let template = check_ai_command(name, template)?;
         self.conn.execute("UPDATE ai_commands SET name = ?3, template = ?4 WHERE profile_id = ?1 AND id = ?2", params![profile_id, id, name, template])?;
         Ok(())
     }
@@ -1138,19 +1138,24 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Saves `body` under `name`, replacing the profile's snippet of that name. An invalid name
-    /// (`valid_snippet_name`), an empty body or one over `MAX_SNIPPET` bytes is refused.
+    /// Saves `body`, `visible`, under `name`, replacing the profile's snippet of that name.
+    /// Refused for a private profile, an invalid name (`valid_snippet_name`), an empty body or one
+    /// over `MAX_SNIPPET` bytes.
     pub fn save_snippet(&self, profile_id: Id, name: &str, body: &str) -> Result<Snippet> {
+        let body = visible(body);
         if !valid_snippet_name(name) || body.trim().is_empty() || body.len() > MAX_SNIPPET {
             return Err(Error::Invalid("snippet"));
         }
-        let id = self.conn.query_row(
-            "INSERT INTO snippets (profile_id, name, body) VALUES (?1, ?2, ?3)
+        let id = match self.conn.query_row(
+            "INSERT INTO snippets (profile_id, name, body) SELECT id, ?2, ?3 FROM profiles WHERE id = ?1 AND NOT is_private
              ON CONFLICT (profile_id, name) DO UPDATE SET body = ?3 RETURNING id",
             params![profile_id, name, body],
             |r| r.get(0),
-        )?;
-        Ok(Snippet { id, profile_id, name: name.to_owned(), body: body.to_owned() })
+        ) {
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Err(Error::Invalid("snippet")),
+            other => other?,
+        };
+        Ok(Snippet { id, profile_id, name: name.to_owned(), body })
     }
 
     pub fn delete_snippet(&self, profile_id: Id, id: Id) -> Result<()> {
@@ -1166,11 +1171,10 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Adds a note (`id` none) or replaces the profile's note `id`, without invisible characters
-    /// (`is_invisible`) and with the title on one line. Refused for a private profile, for an empty
+    /// Adds a note (`id` none) or replaces the profile's note `id`, `visible` and with the title on
+    /// one line. Refused for a private profile, for an empty
     /// note, a title past `MAX_NOTE_TITLE` characters, text past `MAX_NOTE` bytes, or for a new note past `MAX_NOTES`.
     pub fn save_note(&self, profile_id: Id, id: Option<Id>, title: &str, body: &str) -> Result<Note> {
-        let visible = |s: &str| s.chars().filter(|c| !(c.is_control() && *c != '\n' && *c != '\t') && !crate::is_invisible(*c)).collect::<String>();
         let title = visible(title).split_whitespace().collect::<Vec<_>>().join(" ");
         let body = visible(body);
         if (title.is_empty() && body.trim().is_empty()) || title.chars().count() > MAX_NOTE_TITLE || body.len() > MAX_NOTE {
@@ -1219,12 +1223,16 @@ impl Store {
         )?)
     }
 
+    /// Counts a shown hint; refused for a private profile.
     pub fn count_hint(&self, profile_id: Id, hint: &str, now: i64) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO feature_hints (profile_id, hint, shown, last_at) VALUES (?1, ?2, 1, ?3)
+        let counted = self.conn.execute(
+            "INSERT INTO feature_hints (profile_id, hint, shown, last_at) SELECT id, ?2, 1, ?3 FROM profiles WHERE id = ?1 AND NOT is_private
              ON CONFLICT (profile_id, hint) DO UPDATE SET shown = shown + 1, last_at = ?3",
             params![profile_id, hint, now],
         )?;
+        if counted == 0 {
+            return Err(Error::Invalid("hint"));
+        }
         Ok(())
     }
 
@@ -2045,12 +2053,18 @@ fn tab_row(r: &Row) -> rusqlite::Result<Tab> {
     })
 }
 
-fn check_ai_command(name: &str, template: &str) -> Result<()> {
+fn check_ai_command(name: &str, template: &str) -> Result<String> {
     if name.trim().is_empty() || name.len() > MAX_AI_NAME || name.chars().any(|c| c.is_control() || crate::is_invisible(c)) || template.len() > MAX_AI_TEMPLATE
     {
         return Err(Error::Invalid("ai command"));
     }
-    Ok(())
+    Ok(visible(template))
+}
+
+/// `text` without invisible characters (`is_invisible`) or control characters other than line
+/// breaks and tabs.
+fn visible(text: &str) -> String {
+    text.chars().filter(|c| !(c.is_control() && *c != '\n' && *c != '\t') && !crate::is_invisible(*c)).collect()
 }
 
 fn invalid(column: usize) -> rusqlite::Error {
@@ -2572,6 +2586,24 @@ mod tests {
         store.save_snippet(2, "x", "y").unwrap();
         store.delete_profile(2).unwrap();
         assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM snippets", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn snippets_and_hints_skip_private_profiles_and_texts_drop_invisible_characters() {
+        let store = Store::open_in_memory().unwrap();
+        let private = store.create_profile("Private", "u-p", true).unwrap().id;
+        assert!(matches!(store.save_snippet(private, "sig", "x"), Err(Error::Invalid("snippet"))));
+        assert!(store.snippets(private).unwrap().is_empty());
+        assert!(store.count_hint(private, "Reader", 1).is_err());
+        assert_eq!(store.hint_counts(private, "Reader").unwrap().2, 0);
+        let saved = store.create_profile("P", "u1", false).unwrap().id;
+        assert_eq!(store.save_snippet(saved, "sig", "Best\u{202e},\u{7}\n\tAda\u{200b}").unwrap().body, "Best,\n\tAda");
+        assert_eq!(store.snippets(saved).unwrap()[0].body, "Best,\n\tAda");
+        assert!(store.save_snippet(saved, "blank", "\u{200b}\u{7}").is_err());
+        let command = store.create_ai_command(saved, "Short", "Shorten\u{202e} {page}\u{7}\n").unwrap();
+        assert_eq!(command.template, "Shorten {page}\n");
+        store.update_ai_command(saved, command.id, "Short", "a\u{2066}b").unwrap();
+        assert_eq!(store.ai_commands(saved).unwrap()[0].template, "ab");
     }
 
     #[test]
