@@ -56,6 +56,8 @@ pub enum TextInputEvent {
     Cancel,
     Up,
     Down,
+    /// Right was pressed with the caret at the end and nothing selected.
+    PastEnd,
     /// The context menu closed; a pop-up that closes on losing activation checks it again here.
     MenuClosed,
 }
@@ -330,7 +332,9 @@ impl TextInput {
     }
 
     fn right(&mut self, _: &Right, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
+        if self.caret_at_end() {
+            cx.emit(TextInputEvent::PastEnd);
+        } else if self.selected_range.is_empty() {
             self.move_to(self.next_boundary(self.selected_range.end), cx);
         } else {
             self.move_to(self.selected_range.end, cx)

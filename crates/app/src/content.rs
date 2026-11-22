@@ -487,10 +487,10 @@ fn suggestion_tile(b: &Browser, s: &Suggestion, selected: bool) -> gpui::Div {
     let url = match &s.target {
         Target::Tab(key) | Target::Find(key, _) => b.model.tab(*key).map(|t| t.url.clone()),
         Target::Url(u) | Target::Input(Input::Navigate(u)) => Some(u.to_string()),
-        Target::Input(_) | Target::Action(_) | Target::Copy(_) | Target::Snippet(_) => None,
+        Target::Input(_) | Target::Action(_) | Target::Copy(_) | Target::Snippet(_) | Target::Act(..) => None,
     };
     let glyph = match &s.target {
-        Target::Input(Input::Command(_)) | Target::Action(_) => Icon::named(browser_core::command::glyph(&s.label)).unwrap_or(Icon::Command),
+        Target::Input(Input::Command(_)) | Target::Action(_) | Target::Act(..) => Icon::named(browser_core::command::glyph(&s.label)).unwrap_or(Icon::Command),
         Target::Input(Input::External(_)) => Icon::AppWindow,
         Target::Copy(_) => Icon::Copy,
         Target::Snippet(_) => Icon::FileText,
@@ -514,19 +514,40 @@ fn section(target: &Target) -> Section {
         Target::Input(ui::command::Input::Command(_)) | Target::Action(_) => Section::Commands,
         Target::Tab(_) | Target::Find(..) => Section::Tabs,
         Target::Url(_) => Section::History,
-        Target::Input(_) | Target::Copy(_) | Target::Snippet(_) => Section::Suggestions,
+        Target::Input(_) | Target::Copy(_) | Target::Snippet(_) | Target::Act(..) => Section::Suggestions,
     }
 }
 
 pub fn sections(rows: &[Suggestion]) -> Vec<Option<Section>> {
+    if rows.iter().any(|s| matches!(s.target, Target::Act(..))) {
+        return vec![None; rows.len()];
+    }
     browser_core::command::section_headers(&rows.iter().map(|s| s.section.unwrap_or_else(|| section(&s.target))).collect::<Vec<_>>())
+}
+
+/// The row's button that opens its actions page; shown on the highlighted or hovered row.
+pub(crate) fn more_button(ix: usize, label: &str, selected: bool) -> Stateful<gpui::Div> {
+    div()
+        .id(("suggestion-more", ix))
+        .size(px(24.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(Theme::radius_small()))
+        .cursor_pointer()
+        .hover(|s| s.bg(Theme::hover()))
+        .when(!selected, |d| d.opacity(0.).group_hover("suggestion", |s| s.opacity(1.)))
+        .tooltip(tooltip(format!("Actions for {label}"), Some("\u{2192}".into())))
+        .child(icon(Icon::Ellipsis, ICON_SMALL, Theme::muted()))
 }
 
 fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div> {
     let selected = ix == b.selected;
     let rejected = matches!(s.target, Target::Input(ui::command::Input::Rejected));
-    let command = section(&s.target) == Section::Commands;
+    let command = section(&s.target) == Section::Commands || matches!(s.target, Target::Act(..));
     list_row(("suggestion", ix), selected)
+        .group("suggestion")
         .h(px(SUGGESTION_ROW))
         .mx_1p5()
         .px_1p5()
@@ -539,18 +560,19 @@ fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div>
         })
 }
 
-pub fn suggestion_rows(b: &Browser) -> Vec<Stateful<gpui::Div>> {
+pub fn suggestion_rows(b: &Browser, more: impl Fn(usize, Stateful<gpui::Div>) -> Stateful<gpui::Div>) -> Vec<Stateful<gpui::Div>> {
     let headers = sections(&b.suggestions);
     b.suggestions
         .iter()
         .enumerate()
         .map(|(ix, s)| {
+            let actions = (b.actions_page.is_none() && b.row_item(s).is_some()).then(|| more(ix, more_button(ix, &s.label, ix == b.selected)));
             div()
                 .id(("suggestion-item", ix))
                 .flex()
                 .flex_col()
                 .children(headers[ix].map(|h| crate::address::section_header(h.title())))
-                .child(ui::motion::stagger_in(suggestion_row(b, ix, s), ("suggestion-in", ix), ix, b.pref(Pref::ReduceMotion)))
+                .child(ui::motion::stagger_in(suggestion_row(b, ix, s).children(actions), ("suggestion-in", ix), ix, b.pref(Pref::ReduceMotion)))
         })
         .collect()
 }
@@ -600,7 +622,15 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .border_t_1()
         .border_color(Theme::hairline())
         .children(
-            suggestion_rows(b).into_iter().enumerate().map(|(ix, row)| row.on_click(cx.listener(move |b, _, window, cx| b.submit_command(ix, window, cx)))),
+            suggestion_rows(b, |ix, more| {
+                more.on_click(cx.listener(move |b, _, _, cx| {
+                    cx.stop_propagation();
+                    b.open_actions(ix, cx);
+                }))
+            })
+            .into_iter()
+            .enumerate()
+            .map(|(ix, row)| row.on_click(cx.listener(move |b, _, window, cx| b.submit_command(ix, window, cx)))),
         );
     let (space_at, shield_at) = (std::rc::Rc::<std::cell::Cell<_>>::default(), std::rc::Rc::<std::cell::Cell<_>>::default());
     let card = surface(Theme::radius_card())

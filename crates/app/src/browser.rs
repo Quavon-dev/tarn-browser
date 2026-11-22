@@ -155,6 +155,8 @@ pub enum Target {
     Copy(String),
     /// A snippet's body, which Enter types into the page; empty for the row saying there are none.
     Snippet(String),
+    /// A row of the actions page: what it acts on and what it does.
+    Act(Item, browser_core::palette::Action),
 }
 
 pub struct Suggestion {
@@ -293,6 +295,8 @@ pub struct Browser {
     /// The last page-text search: profile, query and the visits it found.
     history_text: Option<(Id, String, Vec<HistoryEntry>)>,
     history_text_search: Option<Task<()>>,
+    /// The actions page in the command bar: the row it acts on, and the row to return to.
+    pub(crate) actions_page: Option<(String, usize)>,
     /// The query and completion the suggestions were last built for, so a late text search can
     /// rebuild them without completing the field again.
     suggested: Option<(String, Option<suggest::Completion>)>,
@@ -527,6 +531,7 @@ impl Browser {
             history_cache: Vec::new(),
             history_text: None,
             history_text_search: None,
+            actions_page: None,
             suggested: None,
             pending_external: None,
             downloads_popover: Default::default(),
@@ -1598,6 +1603,7 @@ impl Browser {
         let field = self.command_mode.is_some();
         let covered = field || self.shortcuts_open;
         self.launcher_from = None;
+        self.actions_page = None;
         self.close_inline(cx);
         self.overlay_exit = None;
         self.command_mode = None;
@@ -1666,7 +1672,9 @@ impl Browser {
                 self.update_suggestions(cx)
             }
             TextInputEvent::Submit => self.submit_command(self.selected, window, cx),
+            TextInputEvent::Cancel if self.actions_page.is_some() => self.leave_actions(cx),
             TextInputEvent::Cancel => self.dismiss_overlay(window, cx),
+            TextInputEvent::PastEnd => self.open_actions(self.selected, cx),
             TextInputEvent::Up => self.select_suggestion(false, cx),
             TextInputEvent::Down => self.select_suggestion(true, cx),
             TextInputEvent::MenuClosed if !window.is_window_active() && self.inline_editing() => self.close_command(window, cx),
@@ -1696,8 +1704,106 @@ impl Browser {
         self.suggest(None, cx);
     }
 
+    /// What an actions page can act on for a row, if anything.
+    pub(crate) fn row_item(&self, s: &Suggestion) -> Option<Item> {
+        use browser_core::command::Section;
+        match &s.target {
+            Target::Tab(key) | Target::Find(key, _) => Some(Item::Tab(key.id)),
+            Target::Url(u) if s.section == Some(Section::Favorites) => Some(Item::Bookmark(u.to_string())),
+            Target::Url(u) => Some(Item::History(u.to_string())),
+            Target::Input(Input::Command(ix)) => browser_core::palette::COMMANDS.get(*ix).map(|c| Item::Command(c.2)),
+            _ => None,
+        }
+    }
+
+    /// Lists the actions of row `ix` in place of the rows; Esc goes back to them.
+    pub(crate) fn open_actions(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if !matches!(self.command_mode, Some(CommandMode::NewTab | CommandMode::Current)) || self.actions_page.is_some() {
+            return;
+        }
+        let Some((row, item)) = self.suggestions.get(ix).and_then(|s| Some((s, self.row_item(s)?))) else { return };
+        let title = row.label.clone();
+        let spaces: Vec<String> = match item {
+            Item::Tab(id) => {
+                let key = TabKey { private: self.model.private(), id };
+                self.model.move_targets(&self.core, key).into_iter().map(|ix| self.model.spaces[ix].space.name.clone()).collect()
+            }
+            _ => Vec::new(),
+        };
+        let names: Vec<&str> = spaces.iter().map(String::as_str).collect();
+        let shortcut = match item {
+            Item::Command(c) => crate::command_action(c).map(|a| crate::shortcuts::shown(a, cx)).unwrap_or_default(),
+            _ => String::new(),
+        };
+        self.suggestions = browser_core::palette::actions(&item, &names)
+            .into_iter()
+            .map(|(label, action)| {
+                let detail = if action == browser_core::palette::Action::Run { shortcut.clone() } else { String::new() };
+                Suggestion { section: None, label, detail, target: Target::Act(item.clone(), action) }
+            })
+            .collect();
+        self.actions_page = Some((title, ix));
+        self.select_suggestion_at(0, cx);
+    }
+
+    pub(crate) fn leave_actions(&mut self, cx: &mut Context<Self>) {
+        let Some((_, back)) = self.actions_page.take() else { return };
+        self.suggest(self.suggested.clone(), cx);
+        self.select_suggestion_at(back, cx);
+    }
+
+    /// Runs an action of the actions page, mostly as the row it stands for would run.
+    fn run_action(&mut self, ix: usize, item: Item, action: browser_core::palette::Action, window: &mut Window, cx: &mut Context<Self>) {
+        use browser_core::palette::Action;
+        let private = self.model.private();
+        let url = match &item {
+            Item::Tab(id) => self.tab_url(TabKey { private, id: *id }).map(|u| u.to_string()),
+            Item::Bookmark(u) | Item::History(u) => Some(u.clone()),
+            Item::Command(_) => None,
+        };
+        let target = match (item, action) {
+            (Item::Command(c), Action::Run) => Target::Input(Input::Command(c.index())),
+            (Item::Tab(id), Action::Switch) => Target::Tab(TabKey { private, id }),
+            (Item::Tab(id), Action::Close) => {
+                self.close_command(window, cx);
+                return self.close_tab(TabKey { private, id }, window, cx);
+            }
+            (Item::Tab(id), Action::MoveToSpace(n)) => {
+                let key = TabKey { private, id };
+                let Some(space) = self.model.move_targets(&self.core, key).get(n).copied() else { return };
+                self.close_command(window, cx);
+                return self.move_to_space(key, space, window, cx);
+            }
+            (Item::History(u), Action::RemoveFromHistory) => {
+                self.remove_history_url(&u, cx);
+                self.actions_page = None;
+                return self.suggest(None, cx);
+            }
+            (_, Action::CopyLink) => match url {
+                Some(u) => Target::Copy(u),
+                None => return,
+            },
+            (_, Action::OpenInNewTab) => {
+                self.command_mode = Some(CommandMode::NewTab);
+                match url.and_then(|u| Url::parse(&u).ok()) {
+                    Some(u) => Target::Url(u),
+                    None => return,
+                }
+            }
+            (_, Action::Open) => match url.and_then(|u| Url::parse(&u).ok()) {
+                Some(u) => Target::Url(u),
+                None => return,
+            },
+            _ => return,
+        };
+        self.actions_page = None;
+        self.suggestions[ix].target = target;
+        self.submit_command(ix, window, cx);
+    }
+
     pub(crate) fn refresh_open_suggestions(&mut self, cx: &mut Context<Self>) {
         if self.command_mode.is_some()
+            && self.actions_page.is_none()
             && let Some(again) = self.suggested.clone()
         {
             self.suggest(Some(again), cx);
@@ -1710,6 +1816,10 @@ impl Browser {
         let _span =
             (again.is_none() && self.command_mode != Some(CommandMode::FindInTabs)).then(|| engine::startup::span(engine::startup::PALETTE_QUERY)).flatten();
         let rebuilt = again.is_some();
+        if rebuilt && self.actions_page.is_some() {
+            return;
+        }
+        self.actions_page = None;
         let (query, kept) = again.map_or_else(|| (self.command.read(cx).text().trim().to_owned(), None), |(q, c)| (q, Some(c)));
         if !rebuilt {
             (self.history_text_search, self.suggested) = (None, None);
@@ -1995,6 +2105,10 @@ impl Browser {
                 let body = body.clone();
                 self.close_command(window, cx);
                 return self.type_snippet(&body, cx);
+            }
+            Target::Act(item, action) => {
+                let (item, action) = (item.clone(), *action);
+                return self.run_action(ix, item, action, window, cx);
             }
             Target::Copy(text) => {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
@@ -2736,7 +2850,7 @@ impl Browser {
                 }
                 cx.notify();
             }
-            TextInputEvent::MenuClosed => {}
+            TextInputEvent::MenuClosed | TextInputEvent::PastEnd => {}
         }
     }
 

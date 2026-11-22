@@ -201,6 +201,11 @@ pub fn section_command(ui: Ui, command: palette::Command) -> Option<(Command, Op
     Some((command, keys))
 }
 
+/// The palette command a command row runs; `None` for an answer or a space row.
+pub fn palette_command(command: &Command) -> Option<palette::Command> {
+    palette::COMMANDS.iter().map(|(_, _, c)| *c).find(|c| command_for(*c).as_ref() == Some(command))
+}
+
 fn offered(c: palette::Command) -> bool {
     command_for(c).is_some() && (c != palette::Command::ImportBrowserData || browser_core::import::available())
 }
@@ -729,4 +734,19 @@ pub fn note(content: impl Into<String>) -> Text {
 
 pub fn line(name: impl Into<String>) -> View {
     view().flex_row().items_center().gap_2().min_h(px(32.)).child(body(name.into()).flex_1().truncate())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_command_row_names_the_palette_command_it_runs() {
+        for (_, _, c) in palette::COMMANDS {
+            if let Some(command) = command_for(c) {
+                assert_eq!(palette_command(&command), Some(c), "{c:?}");
+            }
+        }
+        assert_eq!(palette_command(&Command::Copy("1".into())), None);
+    }
 }

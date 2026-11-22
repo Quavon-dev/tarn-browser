@@ -779,6 +779,7 @@ impl LibraryWindow {
                 }
             }
             TextInputEvent::Cancel => self.back(window, cx),
+            TextInputEvent::PastEnd => return,
             TextInputEvent::MenuClosed => {
                 if !window.is_window_active() && !self.holding {
                     self.close(false, window, cx);

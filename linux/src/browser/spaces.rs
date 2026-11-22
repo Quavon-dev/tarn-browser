@@ -220,14 +220,24 @@ impl Browser {
     pub fn space_commands(&self) -> Vec<(String, SpaceCommand)> {
         let mut rows = Vec::new();
         let active = self.model.active;
-        for (ix, s) in self.model.spaces.iter().enumerate().filter(|(ix, _)| *ix != self.model.space_ix) {
-            let name = if s.private { "Private".to_owned() } else { engine::view_policy::title(&s.space.name) };
+        for ix in (0..self.model.spaces.len()).filter(|ix| *ix != self.model.space_ix) {
+            let name = self.space_title(ix);
             rows.push((format!("Switch to {name}"), SpaceCommand::Switch(ix)));
             if let Some(key) = active.filter(|k| self.model.move_targets(&self.core, *k).contains(&ix)) {
                 rows.push((format!("Move Tab to {name}"), SpaceCommand::Move(key, ix)));
             }
         }
         rows
+    }
+
+    fn space_title(&self, ix: usize) -> String {
+        let s = &self.model.spaces[ix];
+        if s.private { "Private".to_owned() } else { engine::view_policy::title(&s.space.name) }
+    }
+
+    /// The spaces the tab can move to, as `model.spaces` indices with their names.
+    pub fn move_targets(&self, key: TabKey) -> Vec<(usize, String)> {
+        self.model.move_targets(&self.core, key).into_iter().map(|ix| (ix, self.space_title(ix))).collect()
     }
 
     pub fn run_space_command(&mut self, command: SpaceCommand) {

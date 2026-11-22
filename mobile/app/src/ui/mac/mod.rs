@@ -4,7 +4,7 @@ mod settings;
 mod sidebar;
 mod toolbar;
 
-pub(super) use toolbar::{Sectioned, open_entry, sections};
+pub(super) use toolbar::{Sectioned, item_actions, open_entry, run_action, sections};
 
 use nsh_core::prelude::*;
 

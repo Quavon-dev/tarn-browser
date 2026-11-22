@@ -181,11 +181,5 @@ pub(super) fn bindings(ui: Ui) -> impl IntoElement {
             Vec::new()
         })
     });
-    view().child(when(
-        move || ui.editing.get(),
-        move || {
-            on_key_with("escape", ALWAYS, move |_| bars::cancel(ui));
-            view()
-        },
-    ))
+    view()
 }

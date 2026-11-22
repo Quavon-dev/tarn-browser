@@ -8,6 +8,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- An actions page for each command bar row: → with the cursor at the end of the field (⌘K already
+  opens the bar), the row's … button, or on phones its More button lists what the row can do — a
+  tab: Switch, Close, Copy Link, Move to another space; a history page: Open, Open in New Tab, Copy
+  Link, Remove from History; a bookmark: Open, Open in New Tab, Copy Link; a command: Run with its
+  shortcut. Esc goes back to the rows.
 - The empty command bar lists sections on every client: Now (commands for the current tab),
   Favorites (pinned tabs and top-level bookmarks), Recent Tabs (the five most recently used other
   tabs), Frequent (most visited pages) and Quick Actions. A private space lists no Recent Tabs and

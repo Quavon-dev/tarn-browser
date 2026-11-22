@@ -431,6 +431,13 @@ space's tabs, the active tab, the profile's bookmarks and the history the bar al
 private space lists no Recent Tabs and no Frequent rows. Nothing is highlighted until the user
 moves, so Enter on the empty field opens nothing.
 
+**Command bar actions:** `palette::actions(item, spaces)` is the actions page of a row
+(`palette::Item`: a command, a tab, a bookmark or a history page), named and in order; `spaces`
+names the client's move targets for a tab, so `Action::MoveToSpace(ix)` indexes them. ⌘K (Ctrl+K)
+already opens the command bar (`shortcuts::Action::CommandBar`), so the page opens with → when the
+field's caret is at the end with nothing selected (desktop and the iPad Mac layout), with the row's
+… button, or with a row's More button on phones; Esc (Back on phones) returns to the rows.
+
 **Notes:** `browser_core::notes` is the notes list and editor every client renders: `rows(notes,
 query)` filters by title and text without case (title matches first, last edited first) and gives
 each row its shown title (`notes::title`: the title, else the first line, else `UNTITLED`) and a

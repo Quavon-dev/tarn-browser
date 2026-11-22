@@ -143,6 +143,16 @@ fn the_mac_toolbar_opens_a_command_palette() {
         app.wait_for(section).unwrap();
     }
     app.wait_for("label:Copy Link").unwrap();
+    app.press_key("down").unwrap();
+    app.press_key("right").unwrap();
+    app.wait_for("label:Run").unwrap();
+    assert!(!app.screen().shows("QUICK ACTIONS"), "Right opens the picked row's actions");
+    app.press_key("escape").unwrap();
+    app.wait_for("QUICK ACTIONS").unwrap();
+    app.press_key("right").unwrap();
+    app.wait_for("label:Run").unwrap();
+    app.press_key("left").unwrap();
+    app.wait_for("QUICK ACTIONS").unwrap();
     app.press("label:Show History").unwrap();
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
 }

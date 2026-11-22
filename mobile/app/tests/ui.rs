@@ -51,6 +51,11 @@ fn the_phone_shell_opens_tabs_spaces_and_settings() {
     app.wait_for("label:Cancel").unwrap();
     app.wait_for("QUICK ACTIONS").unwrap();
     assert!(app.screen().matches("label:Show History").unwrap(), "the empty field lists its sections");
+    app.press("label:Actions for Show History").unwrap();
+    app.wait_for("label:Run").unwrap();
+    assert!(!app.screen().shows("QUICK ACTIONS"), "the actions page replaces the list");
+    app.press("label:Back to List").unwrap();
+    app.wait_for("QUICK ACTIONS").unwrap();
     app.press("label:Cancel").unwrap();
     app.wait_for("label:Tabs 1").unwrap();
     app.press("label:Menu").unwrap();

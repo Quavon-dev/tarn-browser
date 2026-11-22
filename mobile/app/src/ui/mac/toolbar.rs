@@ -257,6 +257,7 @@ pub(super) fn open_palette(ui: Ui) {
     ui.address.set(ui.read(|s| s.active_url()));
     ui.suggest.set(Vec::new());
     ui.picked.set(Some(0));
+    ui.actions.set(None);
     if ui.screen.get_untracked() != Screen::Browse {
         ui.show(Screen::Browse);
     }
@@ -328,6 +329,99 @@ pub(in crate::ui) fn open_entry(ui: Ui, item: Item) {
         }
         Item::Bookmark(url) | Item::History(url) => go(ui, url),
     }
+}
+
+fn move_targets(ui: Ui, item: &Item) -> Vec<(usize, String)> {
+    match item {
+        Item::Tab(id) => ui.read(|s| s.move_targets(browser_core::tabs::TabKey { private: s.model.private(), id: *id })),
+        _ => Vec::new(),
+    }
+}
+
+/// The actions page of `item` (`palette::actions`), with the spaces its tab can move to.
+pub(in crate::ui) fn item_actions(ui: Ui, item: &Item) -> Vec<(String, palette::Action)> {
+    let targets = untracked(|| move_targets(ui, item));
+    palette::actions(item, &targets.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>())
+}
+
+pub(in crate::ui) fn run_action(ui: Ui, item: Item, action: palette::Action) {
+    use palette::Action as A;
+    let key = match item {
+        Item::Tab(id) => Some(browser_core::tabs::TabKey { private: ui.read(|s| s.model.private()), id }),
+        _ => None,
+    };
+    let url = match &item {
+        Item::Bookmark(u) | Item::History(u) => Some(u.clone()),
+        Item::Command(_) | Item::Tab(_) => None,
+    };
+    let target = match action {
+        A::MoveToSpace(ix) => move_targets(ui, &item).get(ix).map(|(ix, _)| *ix),
+        _ => None,
+    };
+    if matches!(action, A::Run | A::Switch | A::Open) {
+        return open_entry(ui, item);
+    }
+    close_palette(ui);
+    match (action, key, url) {
+        (A::Close, Some(key), _) => ui.act(|s| {
+            s.close_tab(key);
+            Vec::new()
+        }),
+        (A::CopyLink, Some(key), _) => ui.copy_link(Some(key), false),
+        (A::CopyLink, None, Some(url)) => ui.copy_answer(url),
+        (A::MoveToSpace(_), Some(key), _) => {
+            if let Some(ix) = target {
+                ui.act(|s| {
+                    s.move_tab(key, ix);
+                    Vec::new()
+                });
+            }
+        }
+        (A::OpenInNewTab, _, Some(url)) => {
+            ui.act(|s| {
+                s.new_tab(Some(&url));
+                Vec::new()
+            });
+            ui.show(Screen::Browse);
+        }
+        (A::RemoveFromHistory, _, Some(url)) => ui.act(|s| {
+            s.remove_history_url(&url);
+            Vec::new()
+        }),
+        _ => {}
+    }
+}
+
+/// The picked row as an item with an actions page, and its name.
+fn picked_item(ui: Ui, sectioned: &Sectioned) -> Option<(Item, String)> {
+    let query = ui.address.get_untracked();
+    let at = ui.picked.get_untracked()?;
+    if palette::sectioned(&query) {
+        return sectioned.get(at).map(|(_, e)| (e.item.clone(), e.label.clone()));
+    }
+    let commands = commands(ui, &query);
+    if let Some((name, Pick::Run(c))) = at.checked_sub(1).and_then(|ix| commands.get(ix)) {
+        return Some((Item::Command(*c), name.clone()));
+    }
+    if listing(&query) {
+        return None;
+    }
+    let ix = at.checked_sub(1 + commands.len())?;
+    ui.suggest.with_untracked(|rows| rows.get(ix).map(|h| (Item::History(h.url.clone()), browser_core::command::display_title("", &h.title, &h.url))))
+}
+
+fn open_actions(ui: Ui, sectioned: &Sectioned) {
+    if let Some((item, name)) = picked_item(ui, sectioned) {
+        ui.actions.set(Some((item, name, ui.picked.get_untracked())));
+        ui.picked.set(Some(0));
+    }
+}
+
+fn close_actions(ui: Ui) -> bool {
+    let Some((_, _, picked)) = ui.actions.get_untracked() else { return false };
+    ui.actions.set(None);
+    ui.picked.set(picked);
+    true
 }
 
 #[derive(Clone, PartialEq)]
@@ -441,6 +535,12 @@ fn go(ui: Ui, text: String) {
 }
 
 fn submit(ui: Ui, text: String, completed: Option<(String, String)>, sectioned: &Sectioned) {
+    if let Some((item, _, _)) = ui.actions.get_untracked() {
+        if let Some((_, action)) = ui.picked.get_untracked().and_then(|ix| item_actions(ui, &item).get(ix).cloned()) {
+            run_action(ui, item, action);
+        }
+        return;
+    }
     if palette::sectioned(&text) {
         if let Some((_, entry)) = ui.picked.get_untracked().and_then(|ix| sectioned.get(ix)) {
             open_entry(ui, entry.item.clone());
@@ -472,7 +572,9 @@ fn typed_target(text: String, completed: Option<(String, String)>) -> String {
 
 fn step(ui: Ui, key: &str, sectioned: &Sectioned) {
     let query = ui.address.get_untracked();
-    let (first, count) = if palette::sectioned(&query) {
+    let (first, count) = if let Some((item, _, _)) = ui.actions.get_untracked() {
+        (0, item_actions(ui, &item).len())
+    } else if palette::sectioned(&query) {
         (0, sectioned.len())
     } else if listing(&query) {
         (1, commands(ui, &query).len())
@@ -491,12 +593,27 @@ fn step(ui: Ui, key: &str, sectioned: &Sectioned) {
     ui.picked.set(Some(first + next));
 }
 
-fn bind_keys(ui: Ui, sectioned: &Sectioned) {
+fn bind_keys(ui: Ui, sectioned: &Sectioned, caret: Signal<(u32, u32)>) {
     for key in ["up", "down", "pageup", "pagedown"] {
         let sectioned = sectioned.clone();
         on_key_with(key, KeyOptions { when: When::Always, repeat: true, ..KeyOptions::default() }, move |_| step(ui, key, &sectioned));
     }
-    on_key_with("escape", KeyOptions { when: When::Always, ..KeyOptions::default() }, move |_| close_palette(ui));
+    on_key_with("escape", KeyOptions { when: When::Always, ..KeyOptions::default() }, move |_| {
+        if !close_actions(ui) {
+            close_palette(ui);
+        }
+    });
+    let sectioned = sectioned.clone();
+    // Right opens the picked row's actions only with the caret at the end, where it moves nothing.
+    on_key_with("right", KeyOptions { when: When::Always, ..KeyOptions::default() }, move |_| {
+        let end = ui.address.with_untracked(|a| a.encode_utf16().count() as u32);
+        if ui.actions.get_untracked().is_none() && caret.get_untracked() == (end, end) {
+            open_actions(ui, &sectioned);
+        }
+    });
+    on_key_with("left", KeyOptions { when: When::Always, ..KeyOptions::default() }, move |_| {
+        close_actions(ui);
+    });
 }
 
 fn picked(ui: Ui, row: usize) -> bool {
@@ -577,6 +694,24 @@ fn suggestion_rows(ui: Ui) -> impl IntoElement {
     ))
 }
 
+/// The actions page of the row `item` named `name`; Run shows the command's keys.
+fn action_rows(ui: Ui, item: Item, name: String) -> impl IntoElement {
+    let keys = match item {
+        Item::Command(c) => shortcuts::for_command(c).filter(|a| super::input::offered(*a)).and_then(|a| shortcuts::keys_for(a, super::input::keyboard())),
+        _ => None,
+    };
+    let rows_ = item_actions(ui, &item).into_iter().enumerate().map(move |(ix, (label, action))| {
+        let item = item.clone();
+        let glyph = glyphs::glyph(browser_core::command::glyph(&label));
+        row(label.clone(), move || run_action(ui, item.clone(), action))
+            .bg(move || picked_fill(ui.picked.get() == Some(ix)))
+            .child(row_glyph(glyph, move || ui.picked.get() == Some(ix)))
+            .child(row_name(label, Theme::text()))
+            .children(keys.as_deref().filter(|_| action == palette::Action::Run).map(key_caps))
+    });
+    view().flex_col().gap(px(tarn_nsh_shared::toolbar::TOOL_GAP)).child(row_section(&name)).children(rows_.collect::<Vec<_>>())
+}
+
 /// The empty bar's sections; Enter opens nothing until a row is picked.
 fn section_rows(ui: Ui, sectioned: &Sectioned) -> impl IntoElement {
     let mut list = view().flex_col().gap(px(tarn_nsh_shared::toolbar::TOOL_GAP));
@@ -610,7 +745,7 @@ fn section_rows(ui: Ui, sectioned: &Sectioned) -> impl IntoElement {
     list
 }
 
-fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>, sectioned: Sectioned) -> impl IntoElement {
+fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>, sectioned: Sectioned, caret: Signal<(u32, u32)>) -> impl IntoElement {
     let typed = signal(String::new());
     let history = Rc::new(ui.read(|s| s.suggestion_history()));
     let at = element_ref();
@@ -622,6 +757,7 @@ fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>, sectioned:
             if value == ui.address.get_untracked() {
                 return;
             }
+            ui.actions.set(None);
             if let Some(full) = ui.read(|s| s.expand_snippet(value)) {
                 typed.set(full.clone());
                 completed.set(None);
@@ -639,6 +775,7 @@ fn palette_field(ui: Ui, completed: Signal<Option<(String, String)>>, sectioned:
                 at.set_selection(value.encode_utf16().count() as u32, full.encode_utf16().count() as u32);
             }
         })
+        .on_selection_change(move |s: &Selection| caret.set((s.start, s.end)))
         .on_submit(move |value: &str| submit(ui, value.to_owned(), completed.get_untracked(), &sectioned))
         .keyboard_type(KeyboardType::Url)
         .return_key_type(ReturnKeyType::Go)
@@ -659,19 +796,23 @@ pub(super) fn palette(ui: Ui) -> impl IntoElement {
         move || ui.editing.get(),
         move || {
             let sectioned = sections(ui);
-            bind_keys(ui, &sectioned);
+            let caret = signal((0u32, 0u32));
+            bind_keys(ui, &sectioned, caret);
             let completed = signal(None::<(String, String)>);
             let typed = move || ui.address.with(|a| !a.trim().is_empty()) && ui.read(|s| ui.address.with(|a| *a != s.active_url()));
             themed(move || {
                 let shown = sectioned.clone();
                 let list = dynamic(move || {
+                    if let Some((item, name, _)) = ui.actions.get() {
+                        return Some(rows().child(action_rows(ui, item, name)).into_element());
+                    }
                     if ui.address.with(|a| palette::sectioned(a)) {
                         return (!shown.is_empty()).then(|| rows().child(section_rows(ui, &shown)).into_element());
                     }
                     typed().then(|| rows().child(input_row(ui, completed)).child(command_rows(ui)).child(suggestion_rows(ui)).into_element())
                 });
                 tarn_nsh_shared::toolbar::palette(
-                    palette_field(ui, completed, sectioned.clone()),
+                    palette_field(ui, completed, sectioned.clone(), caret),
                     move || ui.address.with(|a| listing(a)),
                     list,
                     move || close_palette(ui),

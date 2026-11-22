@@ -85,6 +85,8 @@ pub struct Ui {
     pub address: Signal<String>,
     pub editing: Signal<bool>,
     pub suggest: Signal<Vec<store::HistoryEntry>>,
+    /// The command bar's actions page: the row it is for, its name and the row picked before it.
+    pub actions: Signal<Option<(browser_core::palette::Item, String, Option<usize>)>>,
     pub field: ElementRef,
     pub fresh: Signal<Option<(TabKey, TabKey)>>,
     pub mac: Signal<bool>,
@@ -568,6 +570,7 @@ pub fn App() -> impl IntoElement {
         address: signal(String::new()),
         editing: signal(false),
         suggest: signal(Vec::new()),
+        actions: signal(None),
         field: element_ref(),
         fresh: signal(None),
         mac: signal(false),

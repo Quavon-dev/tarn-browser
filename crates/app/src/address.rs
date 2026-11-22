@@ -283,6 +283,27 @@ impl Render for Palette {
             .text_size(px(TEXT_TITLE))
             .child(icon(Icon::Search, ICON_MEDIUM, Theme::muted()))
             .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(ui::text_input::mirror(b.command.clone())))
+            .when_some(b.actions_page.as_ref().map(|(title, _)| title.clone()), |d, title| {
+                d.child(
+                    div()
+                        .h(px(22.))
+                        .max_w(px(240.))
+                        .px_2()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap_1()
+                        .rounded(px(Theme::radius_small()))
+                        .border_1()
+                        .border_color(Theme::hairline())
+                        .bg(Theme::accent_soft())
+                        .text_size(px(TEXT_SMALL))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(Theme::accent_text())
+                        .child(icon(Icon::ChevronLeft, 12., Theme::accent_text()))
+                        .child(ui::text::OneLine::one_line(div().min_w_0(), title)),
+                )
+            })
             .when(commands, |d| {
                 d.child(
                     div()
@@ -303,7 +324,13 @@ impl Render for Palette {
                         .child("Commands"),
                 )
             });
-        let rows = suggestion_rows(b).into_iter().enumerate().map(|(ix, row)| {
+        let more = |ix: usize, more: gpui::Stateful<gpui::Div>| {
+            more.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                cx.stop_propagation();
+                main.update(cx, |b, _, cx| b.open_actions(ix, cx)).ok();
+            })
+        };
+        let rows = suggestion_rows(b, more).into_iter().enumerate().map(|(ix, row)| {
             row.on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 main.update(cx, |b, window, cx| b.submit_command(ix, window, cx)).ok();
             })
@@ -322,8 +349,9 @@ impl Render for Palette {
             .text_color(Theme::faint())
             .child(hint(&["↵"], "Run"))
             .child(hint(&["↑", "↓"], "Move"))
+            .when(b.actions_page.is_none(), |d| d.child(hint(&["\u{2192}"], "Actions")))
             .child(div().flex_1())
-            .child(hint(&["esc"], "Close"));
+            .child(hint(&["esc"], if b.actions_page.is_some() { "Back" } else { "Close" }));
         let card = surface(Theme::radius_card())
             .size_full()
             .flex()

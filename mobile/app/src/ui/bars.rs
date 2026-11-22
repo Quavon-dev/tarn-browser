@@ -82,6 +82,7 @@ pub(super) fn open_new_tab(ui: Ui) {
 
 pub(super) fn cancel(ui: Ui) {
     ui.editing.set(false);
+    ui.actions.set(None);
     dismiss_keyboard();
     let Some((key, before)) = ui.fresh.get_untracked() else { return };
     ui.fresh.set(None);
@@ -183,6 +184,7 @@ fn address_input(ui: Ui) -> nsh_base::Input {
             completed.set(None);
             ui.picked.set(None);
             ui.suggest.set(Vec::new());
+            ui.actions.set(None);
             history.set(std::rc::Rc::new(ui.read(|s| s.suggestion_history())));
             ui.editing.set(true);
             field.set_selection(0, end);
@@ -471,6 +473,57 @@ fn bind_suggestion_keys(ui: Ui) {
     }
 }
 
+/// A row with a trailing button that opens the row's actions page.
+fn with_more(ui: Ui, row: impl IntoElement, item: browser_core::palette::Item, name: String) -> View {
+    let more = button()
+        .accessibility_label(SharedString::from(format!("Actions for {name}")))
+        .w(px(TOUCH_TARGET))
+        .h(px(TOUCH_TARGET))
+        .items_center()
+        .justify_center()
+        .rounded(px(Theme::radius_row()))
+        .active(|s| s.bg(Theme::pressed))
+        .on_press(move || {
+            ui.picked.set(None);
+            ui.actions.set(Some((item.clone(), name.clone(), None)));
+        })
+        .child(view().text_color(Theme::muted).child(glyphs::icon(glyphs::ELLIPSIS, ICON)));
+    view().flex_row().items_center().child(view().flex_1().child(row)).child(more)
+}
+
+/// The actions page of the row the More button was pressed on, with Back to the list.
+fn action_rows(ui: Ui, item: browser_core::palette::Item, name: String) -> View {
+    let back = button()
+        .accessibility_label("Back to List")
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .min_h(px(TOUCH_TARGET))
+        .px_3()
+        .active(|s| s.bg(Theme::pressed))
+        .on_press(move || ui.actions.set(None))
+        .child(view().text_color(Theme::accent_text).child(glyphs::icon(glyphs::CHEVRON_LEFT, ICON)))
+        .child(label(name).number_of_lines(1).flex_1());
+    let rows_ = super::mac::item_actions(ui, &item).into_iter().map(move |(name, action)| {
+        let item = item.clone();
+        let glyph = glyphs::glyph(browser_core::command::glyph(&name));
+        button()
+            .accessibility_label(SharedString::from(name.clone()))
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .min_h(px(TOUCH_TARGET))
+            .px_3()
+            .rounded(px(Theme::radius_row()))
+            .active(|s| s.bg(Theme::pressed))
+            .on_press(move || super::mac::run_action(ui, item.clone(), action))
+            .child(view().text_color(Theme::muted).child(glyphs::icon(glyph, ICON)))
+            .child(label(name).number_of_lines(1).flex_1())
+            .into_element()
+    });
+    view().flex_col().child(back).children(rows_.collect::<Vec<_>>())
+}
+
 /// The empty field's sections on a phone: a caps header per section and a touch-sized row per entry.
 fn section_rows(ui: Ui, sectioned: &super::mac::Sectioned) -> View {
     let mut list = view().flex_col();
@@ -485,39 +538,40 @@ fn section_rows(ui: Ui, sectioned: &super::mac::Sectioned) -> View {
             browser_core::palette::Item::History(_) => glyphs::GLOBE,
         };
         let item = entry.item.clone();
-        list = list.child(
-            button()
-                .accessibility_label(SharedString::from(entry.label.clone()))
-                .flex_row()
-                .items_center()
-                .gap_3()
-                .min_h(px(TOUCH_TARGET))
-                .px_3()
-                .rounded(px(Theme::radius_row()))
-                .active(|s| s.bg(Theme::pressed))
-                .on_press(move || super::mac::open_entry(ui, item.clone()))
-                .child(view().text_color(Theme::muted).child(glyphs::icon(glyph, ICON)))
-                .child(
-                    view()
-                        .flex_1()
-                        .child(label(entry.label.clone()).number_of_lines(1))
-                        .children((!entry.detail.is_empty()).then(|| small(entry.detail.clone()).number_of_lines(1))),
-                ),
-        );
+        let row_ = button()
+            .accessibility_label(SharedString::from(entry.label.clone()))
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .min_h(px(TOUCH_TARGET))
+            .px_3()
+            .rounded(px(Theme::radius_row()))
+            .active(|s| s.bg(Theme::pressed))
+            .on_press(move || super::mac::open_entry(ui, item.clone()))
+            .child(view().text_color(Theme::muted).child(glyphs::icon(glyph, ICON)))
+            .child(
+                view()
+                    .flex_1()
+                    .child(label(entry.label.clone()).number_of_lines(1))
+                    .children((!entry.detail.is_empty()).then(|| small(entry.detail.clone()).number_of_lines(1))),
+            );
+        list = list.child(with_more(ui, row_, entry.item.clone(), entry.label.clone()));
     }
     list
 }
 
 pub fn suggestions(ui: Ui) -> impl IntoElement {
-    let sectioned = move || ui.editing.get() && ui.address.with(|a| browser_core::palette::sectioned(a));
+    let paged = move || ui.editing.get() && ui.actions.with(Option::is_some);
+    let sectioned = move || ui.editing.get() && !paged() && ui.address.with(|a| browser_core::palette::sectioned(a));
+    let action_list = dynamic(move || ui.actions.get().filter(|_| ui.editing.get()).map(|(item, name, _)| action_rows(ui, item, name)));
     let section_list = dynamic(move || {
         (ui.editing.get() && !ui.mac.get()).then(|| {
             let listed = super::mac::sections(ui);
             dynamic(move || sectioned().then(|| section_rows(ui, &listed)))
         })
     });
-    let found = move || if ui.editing.get() { ui.suggest.get() } else { Vec::new() };
-    let answers = move || if ui.editing.get() { ui.address.with(|a| browser_core::palette::answers(a)) } else { Vec::new() };
+    let found = move || if ui.editing.get() && !paged() { ui.suggest.get() } else { Vec::new() };
+    let answers = move || if ui.editing.get() && !paged() { ui.address.with(|a| browser_core::palette::answers(a)) } else { Vec::new() };
     let answer_rows = each(
         answers,
         |a: &browser_core::palette::Answer| a.label.clone(),
@@ -537,7 +591,8 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
         surface(Theme::radius_panel())
             .p_1()
             .m_2()
-            .style_when(move || found().is_empty() && answers().is_empty() && !sectioned(), |s| s.hidden())
+            .style_when(move || found().is_empty() && answers().is_empty() && !sectioned() && !paged(), |s| s.hidden())
+            .child(action_list)
             .child(section_list)
             .child(answer_rows)
             .child(each(
@@ -547,14 +602,17 @@ pub fn suggestions(ui: Ui) -> impl IntoElement {
                     let entry = h.get_untracked();
                     let url = entry.url.clone();
                     let name = browser_core::command::display_title("", &entry.title, &url);
-                    detail_row(Some(icons::GLOBE), name, Some(address_caption(&url, 1, true)), move || {
+                    let item = browser_core::palette::Item::History(url.clone());
+                    let row_ = detail_row(Some(icons::GLOBE), name.clone(), Some(address_caption(&url, 1, true)), move || {
                         ui.editing.set(false);
                         dismiss_keyboard();
                         ui.act(|s| s.navigate(&url));
                     })
                     .border_b(px(0.))
-                    .rounded(px(Theme::radius_row()))
-                    .bg(move || if ui.picked.get() == Some(ix.get()) { Theme::selected() } else { Theme::clear() })
+                    .rounded(px(Theme::radius_row()));
+                    with_more(ui, row_, item, name)
+                        .rounded(px(Theme::radius_row()))
+                        .bg(move || if ui.picked.get() == Some(ix.get()) { Theme::selected() } else { Theme::clear() })
                 },
             )),
     );

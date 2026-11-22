@@ -1,3 +1,4 @@
+mod actions;
 mod appearance;
 mod assistant;
 mod blocking;
@@ -147,6 +148,10 @@ pub struct Ui {
     tabs: Signal<Vec<crate::browser::links::TabRow>>,
     /// The empty command bar's rows (`tools::sections`).
     sections: Signal<Vec<tools::SectionRow>>,
+    /// The actions page of a command bar row, shown instead of the list.
+    actions: Signal<Option<actions::Page>>,
+    /// The command bar field's selection (UTF-16 units), so Right at its end opens a row's actions.
+    selection: Signal<(u32, u32)>,
     pasteable: Signal<bool>,
     finding: Signal<bool>,
     find: Signal<String>,
@@ -1194,6 +1199,9 @@ fn step_pick(ui: Ui, query: Signal<String>, key: &str) {
 /// Enter in the address field or the start card: the picked row of `query`, or what was typed.
 fn submit(ui: Ui, query: Signal<String>, text: String) {
     let picked = ui.picked.get_untracked();
+    if ui.actions.with_untracked(Option::is_some) {
+        return actions::run(ui, picked);
+    }
     // The command list shows commands only: Enter runs the picked one, or nothing.
     if tools::listing(&query.get_untracked()) {
         if let Some((_, command)) = tools::commands(ui, &query.get_untracked()).get(picked.saturating_sub(1)) {
@@ -1226,6 +1234,13 @@ fn clear_suggestions(ui: Ui) {
     ui.suggest.set(Vec::new());
     ui.tabs.set(Vec::new());
     ui.sections.set(Vec::new());
+    ui.actions.set(None);
+}
+
+/// Closes the command bar or empties the start card's field.
+fn end_palette(ui: Ui) {
+    close_palette(ui);
+    ui.command.set(String::new());
 }
 
 fn fill_sections(ui: Ui) {
@@ -1717,6 +1732,14 @@ pub(super) fn picked_fill(ui: Ui, row: usize) -> Rgba {
 }
 
 fn pick_keys(ui: Ui, query: Signal<String>, address: bool) {
+    let right = KeyOptions { when: nsh_core::keymap::When::Always, pass_through: true, ..KeyOptions::default() };
+    on_key_with("right", right, move |_| {
+        let (start, end) = ui.selection.get_untracked();
+        let at_end = start == end && end as usize == query.with_untracked(|q| q.encode_utf16().count());
+        if ui.editing.get_untracked() == address && at_end {
+            actions::open(ui, query);
+        }
+    });
     for key in ["up", "down", "pageup", "pagedown"] {
         let options = KeyOptions { when: nsh_core::keymap::When::Always, repeat: true, ..KeyOptions::default() };
         // The start card's rows and the address field's can both be on screen; only the edited field's move.
@@ -1726,6 +1749,16 @@ fn pick_keys(ui: Ui, query: Signal<String>, address: bool) {
             }
         });
     }
+}
+
+/// A list row with a trailing button that opens its actions page, as Right does.
+fn with_actions(ui: Ui, query: Signal<String>, row: impl Fn() -> usize + 'static, name: &str, content: impl IntoElement) -> View {
+    let more = icon_button(icons::ELLIPSIS, &format!("Actions for {name}"), move || {
+        ui.picked.set(row());
+        actions::open(ui, query);
+    })
+    .mr(px(6.));
+    view().flex_row().items_center().child(view().flex_1().min_w(px(0.)).child(content)).child(more)
 }
 
 /// The empty field's sections; row `n` of them is picked row `n + 1`.
@@ -1756,15 +1789,19 @@ fn section_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
                 view()
                     .flex_col()
                     .children(section.map(|s| row_section(s.title())))
-                    .child(
+                    .child(with_actions(
+                        ui,
+                        query,
+                        move || row,
+                        &entry.label,
                         suggestion_row(entry.label.clone(), move || run_entry(ui, &item))
                             .element_ref(&at)
                             .bg(move || picked_fill(ui, row))
                             .child(tile)
-                            .child(label(entry.label).flex_1().truncate())
+                            .child(label(entry.label.clone()).flex_1().truncate())
                             .children((!entry.detail.is_empty()).then(|| detail(entry.detail)))
                             .children(keys.map(|k| tarn_nsh_shared::controls::key_caps(&k))),
-                    )
+                    ))
                     .into_element()
             })
             .collect();
@@ -1792,11 +1829,13 @@ fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
             move |item, ix| {
                 let row = item.get_untracked();
                 let (key, detail_text) = (row.key, row.detail());
-                suggestion_row(row.title.clone(), move || switch_to_tab(ui, key))
+                let row_ix = move || first.get_untracked() + ix.get_untracked();
+                let content = suggestion_row(row.title.clone(), move || switch_to_tab(ui, key))
                     .bg(move || picked_fill(ui, first.get() + ix.get()))
                     .child(view().w(px(28.)).items_center().child(site_tile(ui, &host_of(&row.url), 20.)))
                     .child(label(row.title.clone()).flex_1().truncate())
-                    .child(detail(detail_text))
+                    .child(detail(detail_text));
+                with_actions(ui, query, row_ix, &row.title, content)
             },
         ))
         .child(when(move || !listed().is_empty(), || row_section(Section::History.title())))
@@ -1807,11 +1846,14 @@ fn suggestion_rows(ui: Ui, query: Signal<String>, address: bool) -> View {
                 let (title, url) = item.get_untracked();
                 let host = host_of(&url);
                 let target = url.clone();
-                suggestion_row(url.clone(), move || go(ui, target.clone()))
+                let name = if title.is_empty() { url.clone() } else { title };
+                let row_ix = move || after_tabs.get_untracked() + ix.get_untracked();
+                let content = suggestion_row(url.clone(), move || go(ui, target.clone()))
                     .bg(move || picked_fill(ui, after_tabs.get() + ix.get()))
                     .child(view().w(px(28.)).items_center().child(site_tile(ui, &host, 20.)))
-                    .child(label(if title.is_empty() { url.clone() } else { title }).flex_1().truncate())
-                    .child(detail(url.trim_start_matches("https://").trim_end_matches('/').to_owned()))
+                    .child(label(name.clone()).flex_1().truncate())
+                    .child(detail(url.trim_start_matches("https://").trim_end_matches('/').to_owned()));
+                with_actions(ui, query, row_ix, &name, content)
             },
         ))
 }
@@ -1844,6 +1886,7 @@ fn palette(ui: Ui) -> AnyElement {
                         set_caret_at_end(ui.address, ui.address_ref, full);
                     } else if value != ui.address.get_untracked() {
                         let _span = engine::startup::span(engine::startup::PALETTE_QUERY);
+                        ui.actions.set(None);
                         ui.sections.set(if browser_core::palette::sectioned(value) { tools::sections(ui, &history(ui)) } else { Vec::new() });
                         let (history, typed) = (history(ui), ui.typed.get_untracked());
                         let edit = read(ui, |b| b.address_edit(&typed, value, &history, SUGGESTIONS));
@@ -1858,6 +1901,7 @@ fn palette(ui: Ui) -> AnyElement {
                         }
                     }
                 })
+                .on_selection_change(move |s: &Selection| ui.selection.set((s.start, s.end)))
                 .on_submit(move |value: &str| submit(ui, ui.address, value.to_owned()))
                 .placeholder(move || if ui.find_tabs.get() { "Find in this space's tabs" } else { "Search or enter address" })
                 .label("Address")
@@ -1895,6 +1939,9 @@ fn palette(ui: Ui) -> AnyElement {
                 if ui.find_tabs.get() {
                     return tools::find_rows(ui).into_element();
                 }
+                if ui.actions.with(Option::is_some) {
+                    return actions::rows(ui, true);
+                }
                 let typed = ui.address.with(|a| !a.trim().is_empty() && ui.snap.with(|s| *a != s.url));
                 if typed {
                     suggestion_rows(ui, ui.address, true).into_element()
@@ -1915,6 +1962,7 @@ fn palette(ui: Ui) -> AnyElement {
                 .border_color(Theme::hairline())
                 .child(hint("↵", "Run"))
                 .child(hint("↑+↓", "Move"))
+                .child(hint("→", "Actions"))
                 .child(view().flex_1())
                 .child(hint("Esc", "Close"));
             let card = view()
@@ -1972,9 +2020,11 @@ fn start_card(ui: Ui) -> AnyElement {
                         return set_caret_at_end(ui.command, ui.command_ref, full);
                     }
                     ui.command.set(v.to_owned());
+                    ui.actions.set(None);
                     ui.sections.set(if browser_core::palette::sectioned(v) { tools::sections(ui, &history(ui)) } else { Vec::new() });
                     show_suggestions(ui, crate::input::suggestions(&history(ui), &[], v, SUGGESTIONS), v, ui.command);
                 })
+                .on_selection_change(move |s: &Selection| ui.selection.set((s.start, s.end)))
                 .on_submit(move |v: &str| {
                     submit(ui, ui.command, v.to_owned());
                     ui.command.set(String::new());
@@ -1986,7 +2036,7 @@ fn start_card(ui: Ui) -> AnyElement {
                 .flex_1()
                 .text_size(px(TEXT_TITLE))
                 .text_color(Theme::text());
-            let typing = move || !ui.command.with(|c| c.trim().is_empty());
+            let typing = move || !ui.command.with(|c| c.trim().is_empty()) && ui.actions.with(Option::is_none);
             let dot = view().w(px(8.)).h(px(8.)).rounded_full().bg(move || ui.snap.with(|s| Theme::profile_color(&s.profile_color).unwrap_or(Theme::faint())));
             let footer = view()
                 .flex_row()
@@ -2030,8 +2080,12 @@ fn start_card(ui: Ui) -> AnyElement {
                 .child(input_row)
                 .child(when(typing, move || suggestion_rows(ui, ui.command, false).mb_1().border_t_1().border_color(Theme::hairline())))
                 .child(when(
-                    move || !typing() && ui.sections.with(|s| !s.is_empty()),
+                    move || !typing() && ui.actions.with(Option::is_none) && ui.sections.with(|s| !s.is_empty()),
                     move || section_rows(ui, ui.command, false).mb_1().border_t_1().border_color(Theme::hairline()),
+                ))
+                .child(when(
+                    move || ui.actions.with(Option::is_some),
+                    move || view().mb_1().border_t_1().border_color(Theme::hairline()).child(actions::rows(ui, false)),
                 ))
                 .child(footer);
             let column = view()
@@ -2494,7 +2548,7 @@ fn bound_keys(ui: Ui) -> AnyElement {
 }
 
 fn escape(ui: Ui) {
-    if capture::cancel(ui) {
+    if capture::cancel(ui) || actions::close(ui) {
         return;
     }
     if ui.find_tabs.get_untracked() {
@@ -2771,6 +2825,8 @@ fn new_ui(row: SavedWindow, torn: Option<browser_core::tabs::Torn>) -> Ui {
         suggest: signal(Vec::new()),
         tabs: signal(Vec::new()),
         sections: signal(Vec::new()),
+        actions: signal(None),
+        selection: signal((0, 0)),
         pasteable: signal(false),
         finding: signal(false),
         find: signal(String::new()),
