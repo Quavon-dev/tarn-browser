@@ -609,8 +609,19 @@ impl Model {
     /// The command names a page's selection menu offers after Ask Assistant about Selection; none
     /// where the assistant is not offered for `page`, so the menu shows no assistant entry.
     pub fn assistant_menu<D: WebsiteData>(&self, core: &Core<D>, page: &str) -> Option<Vec<String>> {
-        let origin = self.assistant_origin(core, Some(page)).filter(|_| self.assistant_offered(core, Some(page)))?;
-        Some(crate::assistant::commands::names(&core.disk.ai_commands(origin.profile).unwrap_or_default()))
+        self.assistant_menu_for(core, self.assistant_commands(core).as_ref(), page)
+    }
+
+    /// What every page's selection menu in the current profile may offer, read from the store once
+    /// per profile change; none where its kind or AI switch keeps the assistant off.
+    pub fn assistant_commands<D: WebsiteData>(&self, core: &Core<D>) -> Option<Vec<String>> {
+        let profile = self.assistant_origin(core, None).filter(|o| o.kind == ProfileKind::Normal)?.profile;
+        core.disk.profile(profile).is_ok_and(|p| p.ai_enabled).then(|| crate::assistant::commands::names(&core.disk.ai_commands(profile).unwrap_or_default()))
+    }
+
+    /// `assistant_menu` from `commands` (`assistant_commands`), deciding only `page`'s level.
+    pub fn assistant_menu_for<D: WebsiteData>(&self, core: &Core<D>, commands: Option<&Vec<String>>, page: &str) -> Option<Vec<String>> {
+        commands.filter(|_| self.assistant_origin(core, Some(page)).is_some_and(crate::assistant::allowed)).cloned()
     }
 
     /// The chat's tab picker: the current space's other web tabs the assistant may read, with
@@ -921,6 +932,12 @@ mod tests {
         assert_eq!(model.assistant_tabs(&core, |_, t| t.url.clone())[0].title, "b.test");
         assert_eq!(model.assistant_menu(&core, "https://a.test/").map(|m| m.len()), Some(5));
         assert_eq!(model.assistant_menu(&core, "https://bank.test/"), None, "a Lockdown page offers no assistant entry");
+        let commands = model.assistant_commands(&core);
+        assert_eq!(model.assistant_menu_for(&core, commands.as_ref(), "https://a.test/"), model.assistant_menu(&core, "https://a.test/"));
+        assert_eq!(model.assistant_menu_for(&core, commands.as_ref(), "https://bank.test/"), None);
+        core.disk.set_profile_ai(profile, false).unwrap();
+        assert_eq!(model.assistant_commands(&core), None, "AI off offers no command");
+        core.disk.set_profile_ai(profile, true).unwrap();
         let ix = model.open_burner(&core).unwrap();
         model.switch_space(&core, ix).unwrap();
         core.open_profile(true, model.profile().unwrap().1, || std::rc::Rc::new(|_| {}));

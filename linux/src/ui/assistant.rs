@@ -56,6 +56,10 @@ impl assistant::Host for Host {
             b.new_tab(url.as_str());
         });
     }
+
+    fn changed(self) {
+        act(self.0, |_| ());
+    }
 }
 
 /// Shows the chat beside the page, attaching the page when `page` is set.

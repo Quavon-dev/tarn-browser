@@ -63,6 +63,8 @@ pub trait Host: Copy + 'static {
     fn read_tab(self, key: TabKey);
     /// Opens `url` in a new tab of the current profile.
     fn open(self, url: Url);
+    /// The current profile's AI switch changed, so its pages' selection menus follow.
+    fn changed(self);
 }
 
 fn ai_on<H: Host>(host: H, profile: Id) -> bool {
@@ -409,6 +411,7 @@ pub fn settings_pane<H: Host>(host: H, chat: Chat) -> AnyElement {
                 forget_chats();
                 chat.close();
             }
+            host.changed();
             rev.update(|r| *r += 1);
         };
         let options: Vec<crate::controls::Segment> = Provider::ALL
@@ -951,6 +954,7 @@ mod tests {
         }
         fn read_tab(self, _: TabKey) {}
         fn open(self, _: Url) {}
+        fn changed(self) {}
     }
 
     #[test]

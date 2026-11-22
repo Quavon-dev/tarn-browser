@@ -79,6 +79,7 @@ pub struct ProfileProps {
     pub theme_styles: Vec<(String, String)>,
     pub zaps: BTreeMap<String, Vec<String>>,
     pub sort_downloads: bool,
+    pub assistant: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -313,6 +314,7 @@ impl<D: Platform> Shell<D> {
             theme_styles: self.theme_styles(private, profile_id),
             zaps,
             sort_downloads: self.setting_on(crate::scripts::SORT_DOWNLOADS),
+            assistant: self.model.assistant_commands(&self.core),
         })
     }
 
@@ -340,7 +342,7 @@ impl<D: Platform> Shell<D> {
                 zaps: props.zaps.clone(),
                 sort_downloads: props.sort_downloads,
                 load: self.loads.get(&key).cloned(),
-                assistant: self.model.assistant_menu(&self.core, &self.tab_url(key)),
+                assistant: self.model.assistant_menu_for(&self.core, props.assistant.as_ref(), &self.tab_url(key)),
             })
             .collect()
     }

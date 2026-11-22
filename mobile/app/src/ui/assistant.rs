@@ -49,6 +49,10 @@ impl assistant::Host for Host {
         });
         self.0.show(Screen::Browse);
     }
+
+    fn changed(self) {
+        self.0.act(|_| Vec::new());
+    }
 }
 
 /// Shows the chat (a sheet on a phone, a column beside the page in the Mac layout), attaching the

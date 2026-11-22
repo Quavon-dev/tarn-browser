@@ -368,6 +368,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
     let sort_downloads = !b.setting_off(crate::browser::pages::SORT_DOWNLOADS);
     let youtube = b.setting_on(shield::groups::YOUTUBE_SETTING);
     let developer = b.developer();
+    let commands = b.model.assistant_commands(&b.core);
     let mut keys: Vec<TabKey> = b.model.lifecycle.live().filter(|k| b.model.tab(*k).is_some()).collect();
     keys.sort_by_key(|k| k.id);
     let mut site = HashMap::new();
@@ -396,7 +397,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 link: page.is_some_and(|p| p.link),
                 file: page.is_some_and(|p| p.file),
                 muted: b.muted_with(key, &muted),
-                assistant: page.and_then(|p| b.model.assistant_menu(&b.core, &p.url)).map_or(Value::Null, Value::from),
+                assistant: page.and_then(|p| b.model.assistant_menu_for(&b.core, commands.as_ref(), &p.url)).map_or(Value::Null, Value::from),
                 opener: page.and_then(|p| p.opener).map(|k| format!("{}-{}", k.private, k.id)).unwrap_or_default(),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
                 pane: panes.iter().position(|k| *k == key).filter(|_| shown),
