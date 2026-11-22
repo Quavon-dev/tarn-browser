@@ -236,10 +236,11 @@ impl Chat {
     }
 
     /// Ends the conversation once the current page is another profile's, in a space or at a level
-    /// the assistant may not see, or its profile's AI is off: call whenever the window changes.
+    /// the assistant may not see: call whenever the window changes. Its AI switch turned off ends
+    /// it through `forget_chats`, so a page event reads no store.
     pub fn sync<H: Host>(self, host: H) {
         self.check();
-        let stays = |profile: Id| host.origin().is_some_and(|o| allowed(o) && o.profile == profile) && ai_on(host, profile);
+        let stays = |profile: Id| host.origin().is_some_and(|o| allowed(o) && o.profile == profile);
         if self.session.with(|s| s.as_ref().is_some_and(|(_, s)| !stays(s.profile()))) {
             self.close();
         }
@@ -990,6 +991,7 @@ mod tests {
         show(home, ProfileKind::Normal, ShieldLevel::Standard);
         assert!(chat.open(Window));
         STORE.with(|s| s.set_profile_ai(home, false).unwrap());
+        forget_chats();
         assert!(!chat.here(Window), "AI turned off ends the chat");
         SHOWN.set(None);
         assert!(!chat.open(Window));
