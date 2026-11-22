@@ -510,8 +510,6 @@ fn link_menu(state: &std::rc::Weak<State>, menu: &webkit6::ContextMenu, hit: &we
     menu.insert(&ContextMenuItem::from_gaction(&split, "Open Link in Split View", None), at as i32 + 1);
 }
 
-/// Ask Assistant about Selection and its Ask Assistant to submenu on selected text, where the shell
-/// set the commands; each reads the selection and emits `assistantSelection`.
 fn assistant_menu_items(state: &std::rc::Weak<State>, menu: &webkit6::ContextMenu, hit: &webkit6::HitTestResult) {
     use webkit6::{ContextMenu, ContextMenuItem};
     let Some(s) = state.upgrade().filter(|_| hit.context_is_selection()) else { return };
@@ -911,8 +909,6 @@ fn scale_down(pixels: &[u8], width: usize, height: usize, max_width: usize) -> (
     (out, w, h)
 }
 
-/// `snapshotRect`: a PNG of an area `browser_core::page_ops::snapshot_area` accepts (see
-/// `snapshot_texture`).
 fn snapshot_rect(state: &Rc<State>, web: &WebView, args: &JsonValue) {
     let seq = args["seq"].as_u64().unwrap_or_default();
     let weak = Rc::downgrade(state);
@@ -929,15 +925,12 @@ fn snapshot_rect(state: &Rc<State>, web: &WebView, args: &JsonValue) {
 
 type Texture = webkit6::gdk::Texture;
 
-/// Device pixels per CSS pixel of `web`'s page.
 fn device_scale(web: &WebView) -> f64 {
     f64::from(web.scale_factor()) * web.zoom_level()
 }
 
-/// The visible page, an area of it in CSS pixels, or the whole document when it fits
-/// `SNAPSHOT_MAX_SIDE` and `SNAPSHOT_MAX_PIXELS` uncut (WebKitGTK cannot clip a full-document
-/// snapshot, so a longer one gives none); under Lockdown a full page is the visible one. A texture
-/// over `SNAPSHOT_MAX_PIXELS` is dropped.
+/// WebKitGTK cannot clip a full-document snapshot, so a document over `SNAPSHOT_MAX_SIDE` or
+/// `SNAPSHOT_MAX_PIXELS` gives none.
 fn snapshot_texture(state: &Rc<State>, web: &WebView, area: Option<engine::view_policy::SnapshotArea>, done: impl FnOnce(Option<Texture>) + 'static) {
     use engine::view_policy::{SNAPSHOT_MAX_PIXELS, SnapshotArea};
     let done = move |texture: Option<Texture>| done(texture.filter(|t| f64::from(t.width()) * f64::from(t.height()) <= SNAPSHOT_MAX_PIXELS));

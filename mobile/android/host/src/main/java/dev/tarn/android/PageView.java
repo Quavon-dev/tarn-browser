@@ -32,7 +32,6 @@ final class PageView extends WebView {
         return connection;
     }
 
-    /** The commands a selection offers after Ask Assistant about Selection (null hides them), and what a choice asks. */
     void setAssistantMenu(Supplier<List<String>> commands, Consumer<String> ask) {
         assistantMenu = commands;
         askAssistant = ask;
@@ -43,10 +42,7 @@ final class PageView extends WebView {
         return super.startActionMode(new AssistantCallback(callback), type);
     }
 
-    /**
-     * The text selection action mode with Ask Assistant about Selection and one entry per command; the floating
-     * toolbar shows no submenus, so the commands follow in its overflow.
-     */
+    /** The floating toolbar shows no submenus, so the commands follow in its overflow. */
     private final class AssistantCallback extends ActionMode.Callback2 {
         private final ActionMode.Callback wrapped;
         private List<String> commands;

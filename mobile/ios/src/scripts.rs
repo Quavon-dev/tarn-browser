@@ -55,8 +55,7 @@ impl Inner {
         web.call_async(&NSString::from_str(&body), None, None, &world, Some(&block));
     }
 
-    /// Reads the selection for Ask Assistant about Selection or one of its commands, in the shell's
-    /// world, which hands over no text from a password or card field; nothing under Lockdown.
+    /// In the shell's world, so the page cannot lift the password and card field guard.
     pub(crate) fn ask_selection(&self, command: Option<String>) {
         let shown = self.web().and_then(|w| w.current_url()).map(|u| u.to_string()).unwrap_or_default();
         let context = self.context.clone();
@@ -138,8 +137,6 @@ impl Inner {
         true
     }
 
-    /// A PNG `data:` URI of the area `browser_core::page_ops::snapshot_area` accepts, in CSS pixels
-    /// at the page's zoom; WKWebView on iOS draws only the visible page, so a full page is that.
     fn snapshot_rect(&self, args: &Value, done: impl Fn(Option<String>) + 'static) {
         let Some(area) = browser_core::page_ops::snapshot_area(args, self.device_scale()) else { return done(None) };
         self.snapshot_png(Some(area), move |data| {
@@ -147,9 +144,7 @@ impl Inner {
         });
     }
 
-    /// The visible page, or the area of `snapshot_area` the command names, saved under
-    /// Documents/Downloads as downloads are, and put on the pasteboard when the command says `copy`
-    /// (never for a private space, whose pasteboard item could reach another device).
+    /// Never copied for a private space, whose pasteboard item could reach another device.
     fn screenshot(&self, args: &Value, done: impl Fn(Result<String, String>) + 'static) {
         let area = browser_core::page_ops::snapshot_area(args, self.device_scale());
         if area.is_none() && (args.get("fullPage").is_some() || args.get("x").is_some()) {
@@ -171,13 +166,11 @@ impl Inner {
         });
     }
 
-    /// Device pixels per CSS pixel of the page: its zoom at the screen's scale.
     fn device_scale(&self) -> f64 {
         self.web().map_or(1., |web| web.scroll_view().zoomScale() * web.contentScaleFactor())
     }
 
-    /// A PNG of an area in CSS pixels at the page's zoom; WKWebView on iOS draws only the visible
-    /// page, so a full page (or none named) is that.
+    /// WKWebView on iOS draws only the visible page, so a full page (or none named) is that.
     fn snapshot_png(&self, area: Option<SnapshotArea>, done: impl Fn(Option<Retained<NSData>>) + 'static) {
         let Some(web) = self.web() else { return done(None) };
         // SAFETY: main thread (marker); plain getters and setters on a live view and a fresh

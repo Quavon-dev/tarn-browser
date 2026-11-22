@@ -93,9 +93,7 @@ fn backend<H: Host>(host: H) -> Result<Backend, String> {
     }
 }
 
-/// Runs one request on the chosen provider, or a command (`on_device`) on the platform's
-/// on-device model where it can answer (`ai::local::answer`); `out` hears who answers, then the
-/// text. Call off the main thread.
+/// Blocks on the network: call off the main thread.
 fn answer(
     backend: &Backend,
     platform: &Platform,
@@ -127,8 +125,6 @@ enum Msg {
     End(Result<(), String>),
 }
 
-/// Everything that arrived since the last frame: the model that answers, once named, the text as
-/// one chunk, and how the request ended if it did.
 fn drain(rx: &mpsc::Receiver<Msg>) -> (Option<String>, String, Option<Result<(), String>>) {
     let (mut model, mut text) = (None, String::new());
     loop {
@@ -142,8 +138,6 @@ fn drain(rx: &mpsc::Receiver<Msg>) -> (Option<String>, String, Option<Result<(),
     }
 }
 
-/// Starts `req` on a background thread; `on_frame` gets the model once it is named and the text
-/// of each frame (at most one call per `FRAME`), and `done` how it ended.
 fn run<H: Host>(
     host: H,
     req: ai::Request,

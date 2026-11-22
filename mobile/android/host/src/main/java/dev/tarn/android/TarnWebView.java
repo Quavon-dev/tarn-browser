@@ -250,7 +250,6 @@ final class TarnWebView implements NshComponent {
         return List.copyOf(names);
     }
 
-    /** Reads the selection for Ask Assistant about Selection or one of its commands; no text from a password or card field. */
     private void askSelection(String command) {
         Page page = top;
         String url = page == null ? "" : page.url();
@@ -456,7 +455,7 @@ final class TarnWebView implements NshComponent {
         return Native.snapshotArea(Boolean.TRUE.equals(args.get("fullPage")), number(args, "x"), number(args, "y"), number(args, "width"), number(args, "height"), scale);
     }
 
-    /** The area {@code Native.snapshotArea} gives, {@code [x, y, width, height]} or empty for all of it; Android WebView draws only the visible page, so a full page is that. */
+    /** Android WebView draws only the visible page, so a full page is that. */
     @SuppressWarnings("deprecation")
     private Bitmap drawn(double[] area) {
         if (web == null || area == null || web.getWidth() <= 0 || web.getHeight() <= 0) return null;
@@ -473,10 +472,7 @@ final class TarnWebView implements NshComponent {
         return bitmap;
     }
 
-    /**
-     * The visible page, or the area the command names, saved under Downloads (the private session's in a private space). It is not
-     * copied: Android's clipboard holds an image only as a content URI that any app reading the clipboard could open.
-     */
+    /** Not copied: Android's clipboard holds an image only as a content URI that any app reading the clipboard could open. */
     private void screenshot(Object seq, Map<?, ?> args) {
         double[] area = args.containsKey("fullPage") || args.containsKey("x") ? area(args) : new double[0];
         Bitmap bitmap = drawn(area);
