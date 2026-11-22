@@ -182,7 +182,7 @@ impl Browser {
         self.regrouped();
     }
 
-    fn current_url(&self, key: TabKey) -> Option<String> {
+    pub fn current_url(&self, key: TabKey) -> Option<String> {
         self.pages.get(&key).map(|p| p.url.clone()).filter(|u| !u.is_empty())
     }
 }

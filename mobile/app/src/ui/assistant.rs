@@ -1,4 +1,5 @@
-use browser_core::assistant::{Origin, allowed};
+use browser_core::assistant::{Origin, Pill, allowed};
+use browser_core::tabs::{TabChoice, TabKey};
 use nsh_core::prelude::*;
 use shield::ShieldLevel;
 use tarn_nsh_shared::assistant::{self, Platform};
@@ -33,6 +34,14 @@ impl assistant::Host for Host {
         self.0.act_on_screen(|s| s.read_page_for_assistant());
     }
 
+    fn tabs(self) -> Vec<TabChoice> {
+        untracked(|| self.0.read(|s| s.model.assistant_tabs(&s.core, |key, _| s.tab_url(key))))
+    }
+
+    fn read_tab(self, key: TabKey) {
+        self.0.act_on_screen(|s| s.read_tab_for_assistant(key));
+    }
+
     fn open(self, url: Url) {
         self.0.act(|s| {
             s.new_tab(Some(url.as_str()));
@@ -59,9 +68,14 @@ pub fn open(ui: Ui, page: bool) {
     }
 }
 
-pub fn attach(ui: Ui, pages: Vec<(Origin, browser_core::assistant::Pill)>) {
-    for (origin, pill) in pages {
-        ui.chat.attach(Host(ui), origin, pill);
+/// Attaches what was read for the chat; a selection opens the chat first and a selection's
+/// command sends it.
+pub fn attach(ui: Ui, pages: Vec<(Origin, Pill, Option<String>)>) {
+    for (origin, pill, command) in pages {
+        if matches!(pill, Pill::Selection { .. }) {
+            open(ui, false);
+        }
+        ui.chat.ask_selection(Host(ui), origin, pill, command.as_deref());
     }
 }
 

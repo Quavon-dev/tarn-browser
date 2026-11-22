@@ -244,6 +244,12 @@ impl WebView {
         webkit_only!(self, v => v.pdf(done), done(None))
     }
 
+    /// What a selection's menu offers the assistant (`Event::AssistantSelection`): `None` shows no
+    /// assistant entry, as where the assistant is not allowed for the page.
+    pub fn set_assistant_menu(&self, commands: Option<Vec<String>>) {
+        both!(self, v => v.set_assistant_menu(commands))
+    }
+
     /// Chromium tabs keep Chromium's own WebAuthn: CEF has no per-view switch for it.
     pub fn set_passkeys(&self, on: bool) {
         webkit_only!(self, v => v.set_passkeys(on), ())

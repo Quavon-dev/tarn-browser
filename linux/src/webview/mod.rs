@@ -101,6 +101,8 @@ struct State {
     zap_filter: RefCell<Option<String>>,
     sort_downloads: Cell<bool>,
     youtube: Cell<bool>,
+    /// The commands a selection's menu offers after Ask Assistant about Selection; none hides both.
+    assistant_menu: RefCell<Option<Vec<String>>>,
     processes: RefCell<std::collections::HashSet<i32>>,
     process: Cell<Option<i32>>,
     #[cfg(test)]
@@ -506,6 +508,39 @@ fn link_menu(state: &std::rc::Weak<State>, menu: &webkit6::ContextMenu, hit: &we
         }
     });
     menu.insert(&ContextMenuItem::from_gaction(&split, "Open Link in Split View", None), at as i32 + 1);
+}
+
+/// The `assistantMenu` prop: the command names, at most `MAX_MENU_COMMANDS`; anything but a list hides the entries.
+fn assistant_menu(value: &JsonValue) -> Option<Vec<String>> {
+    let names = value.as_array()?.iter().filter_map(|v| v.as_str()).take(engine::view_policy::MAX_MENU_COMMANDS);
+    Some(names.map(str::to_owned).collect())
+}
+
+/// Ask Assistant about Selection and its Ask Assistant to submenu on selected text, where the shell
+/// set the commands; each reads the selection and emits `assistantSelection`.
+fn assistant_menu_items(state: &std::rc::Weak<State>, menu: &webkit6::ContextMenu, hit: &webkit6::HitTestResult) {
+    use webkit6::{ContextMenu, ContextMenuItem};
+    let Some(s) = state.upgrade().filter(|_| hit.context_is_selection()) else { return };
+    let Some(commands) = s.assistant_menu.borrow().clone() else { return };
+    let item = |name: &str, label: &str, command: Option<String>| {
+        let action = gio::SimpleAction::new(name, None);
+        let state = state.clone();
+        action.connect_activate(move |_, _| {
+            if let Some(s) = state.upgrade() {
+                scripts::ask_selection(&s, command.clone());
+            }
+        });
+        ContextMenuItem::from_gaction(&action, label, None)
+    };
+    menu.append(&ContextMenuItem::new_separator());
+    menu.append(&item("ask-assistant", engine::view_policy::ASK_SELECTION, None));
+    if !commands.is_empty() {
+        let sub = ContextMenu::new();
+        for (ix, name) in commands.into_iter().enumerate() {
+            sub.append(&item(&format!("ask-assistant-{ix}"), &name, Some(name.clone())));
+        }
+        menu.append(&ContextMenuItem::with_submenu(engine::view_policy::ASSISTANT_COMMANDS, &sub));
+    }
 }
 
 /// `by_page`: a window the page opens, which its site's pop-up rule and the domain sets judge; a
@@ -1168,6 +1203,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
     let w = weak.clone();
     web.connect_context_menu(move |_, menu, hit| {
         link_menu(&w, menu, hit);
+        assistant_menu_items(&w, menu, hit);
         false
     });
     if let Some(finder) = web.find_controller() {
@@ -1311,6 +1347,10 @@ impl NativeComponent for TarnWebView {
             "blocking" => return set_blocking(state, value),
             "sortDownloads" => return state.sort_downloads.set(value.as_bool().unwrap_or(false)),
             "muted" => return mute(state, value.as_bool().unwrap_or(false)),
+            "assistantMenu" => {
+                *state.assistant_menu.borrow_mut() = assistant_menu(value);
+                return;
+            }
             "load" => {
                 *state.load.borrow_mut() = value["url"].as_str().zip(value["seq"].as_u64()).map(|(u, s)| (u.to_owned(), s));
                 state.load_link.set(value["link"].as_bool() == Some(true));

@@ -166,8 +166,9 @@ pub struct Browser {
     pub elsewhere: HashSet<TabKey>,
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
-    /// Pages read for the assistant, for the window's chat to attach.
-    pub assistant_pages: Vec<(browser_core::assistant::Origin, browser_core::assistant::Pill)>,
+    /// Pages, tabs and selections read for the assistant, with the command a selection runs, for
+    /// the window's chat to attach.
+    pub assistant_pages: Vec<(browser_core::assistant::Origin, browser_core::assistant::Pill, Option<String>)>,
     /// Groups this window deleted; other windows drop them from their reopen stacks.
     pub forgotten_groups: Vec<(bool, Id)>,
     /// The space whose groups this window changed; other windows showing it reload it.
@@ -1000,6 +1001,7 @@ impl Browser {
                 }
                 self.on_page(key, name == "finished", data);
             }
+            "assistantSelection" => self.selection_for_assistant(key, &text("url"), &text("text"), data["command"].as_str().map(str::to_owned)),
             "hover" => {
                 self.hovered_link.set(key, data["url"].as_str());
             }

@@ -130,6 +130,8 @@ pub(crate) struct DelegateState {
     /// When the user chose Open Link in Split View: the window WebKit asks for within moments opens
     /// beside the page, and a later one does not.
     pub split_link: Cell<Option<std::time::Instant>>,
+    /// The commands a selection's menu offers after Ask Assistant about Selection; none hides both.
+    pub assistant_menu: RefCell<Option<Vec<String>>>,
 }
 
 impl DelegateState {
@@ -165,6 +167,7 @@ impl DelegateState {
             last_title: RefCell::default(),
             after_commit: RefCell::default(),
             split_link: Cell::new(None),
+            assistant_menu: RefCell::default(),
         }
     }
 }
@@ -282,7 +285,18 @@ define_class!(
                 };
                 menu.insertItem_atIndex(&split, at as isize + 1);
             }
+            let copy = NSString::from_str("WKMenuItemIdentifierCopy");
+            let selected = menu.itemArray().iter().any(|item| item.identifier().is_some_and(|id| *id == *copy));
+            if let Some(commands) = self.ivars().assistant_menu.borrow().as_ref().filter(|_| selected) {
+                self.add_assistant_items(menu, commands);
+            }
             menu.retain()
+        }
+
+        #[unsafe(method(askAssistant:))]
+        fn ask_assistant(&self, sender: &NSMenuItem) {
+            let command = usize::try_from(sender.tag()).ok().and_then(|ix| self.ivars().assistant_menu.borrow().as_ref()?.get(ix).cloned());
+            self.emit(Event::AssistantSelection(command));
         }
 
         #[unsafe(method(_webView:mouseDidMoveOverElement:withFlags:userInfo:))]
@@ -881,6 +895,46 @@ impl Delegate {
 
     pub(crate) fn set_history_step(&self, urls: Vec<Url>) {
         *self.ivars().history_step.borrow_mut() = urls;
+    }
+
+    pub(crate) fn set_assistant_menu(&self, commands: Option<Vec<String>>) {
+        *self.ivars().assistant_menu.borrow_mut() = commands;
+    }
+
+    /// Ask Assistant about Selection and the Ask Assistant to submenu, after a separator; each
+    /// sends `askAssistant:` with its command's index as tag, or -1 for the question itself.
+    fn add_assistant_items(&self, menu: &NSMenu, commands: &[String]) {
+        let mtm = self.mtm();
+        let item = |title: &str, tag: isize| {
+            // SAFETY: `askAssistant:` is implemented above with the `(id)sender` signature AppKit
+            // sends; the menu holds its target weakly, and WebKit keeps this delegate while it shows a menu.
+            let item = unsafe {
+                let item = NSMenuItem::initWithTitle_action_keyEquivalent(
+                    NSMenuItem::alloc(mtm),
+                    &NSString::from_str(title),
+                    Some(sel!(askAssistant:)),
+                    &NSString::new(),
+                );
+                item.setTarget(Some(self));
+                item
+            };
+            item.setTag(tag);
+            item
+        };
+        menu.addItem(&NSMenuItem::separatorItem(mtm));
+        menu.addItem(&item(crate::view_policy::ASK_SELECTION, -1));
+        if commands.is_empty() {
+            return;
+        }
+        let title = NSString::from_str(crate::view_policy::ASSISTANT_COMMANDS);
+        let sub = NSMenu::initWithTitle(NSMenu::alloc(mtm), &title);
+        for (ix, name) in commands.iter().enumerate() {
+            sub.addItem(&item(name, ix as isize));
+        }
+        // SAFETY: a parent entry with no action; its submenu holds the commands.
+        let parent = unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(mtm), &title, None, &NSString::new()) };
+        parent.setSubmenu(Some(&sub));
+        menu.addItem(&parent);
     }
 
     pub(crate) fn set_sink(&self, sink: Rc<dyn Fn(Event)>) {

@@ -114,6 +114,7 @@ final class TarnWebView implements NshComponent {
     private boolean sortDownloads;
     private boolean dark;
     private boolean splitLinks;
+    private List<String> assistantMenu;
     private boolean builtDark;
     private String appliedContent;
     private final List<ScriptHandler> contentScripts = new ArrayList<>();
@@ -161,6 +162,10 @@ final class TarnWebView implements NshComponent {
             case "dark" -> dark = Boolean.TRUE.equals(value);
             case "splitLinks" -> {
                 splitLinks = Boolean.TRUE.equals(value);
+                return;
+            }
+            case "assistantMenu" -> {
+                assistantMenu = parseCommands(value);
                 return;
             }
             case "load" -> {
@@ -236,6 +241,27 @@ final class TarnWebView implements NshComponent {
     }
 
     private static final String DEFAULT_LEVEL_KEY = "*";
+
+    /** The `assistantMenu` prop: the command names, at most `MAX_MENU_COMMANDS`; anything but a list hides the entries. */
+    private static List<String> parseCommands(Object value) {
+        if (!(value instanceof List<?> list)) return null;
+        List<String> names = new ArrayList<>();
+        for (Object item : list) if (item instanceof String name && names.size() < Native.maxMenuCommands()) names.add(name);
+        return List.copyOf(names);
+    }
+
+    /** Reads the selection for Ask Assistant about Selection or one of its commands; no text from a password or card field. */
+    private void askSelection(String command) {
+        Page page = top;
+        String url = page == null ? "" : page.url();
+        runAsync(page == null ? null : Native.selectedTextScript(), SCRIPT_WAIT_MS, text -> {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("url", url);
+            data.put("text", Native.selectionAnswer(text));
+            if (command != null) data.put("command", command);
+            emitMap("assistantSelection", data);
+        });
+    }
 
     private static Map<String, String> parseStyles(Object value) {
         if (!(value instanceof Map<?, ?> map)) return Map.of();
@@ -592,6 +618,7 @@ final class TarnWebView implements NshComponent {
         }
         int theme = dark ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar;
         PageView view = new PageView(new ContextThemeWrapper(context.getContext(), theme), noPersonalizedLearning);
+        view.setAssistantMenu(() -> assistantMenu, this::askSelection);
         builtDark = dark;
         Stores.attach(view, name);
         configure(view, name);

@@ -820,3 +820,39 @@ fn private_spaces_show_icons_without_storing_them() {
     assert!(shell.site_icon("https://p.test/").is_none());
     assert!(TestShell::open(dir.path()).site_icon("https://p.test/").is_none());
 }
+
+#[test]
+fn a_selection_and_a_loaded_tab_reach_the_assistant_and_a_sleeping_tab_is_never_read() {
+    use browser_core::assistant::Pill;
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://a.test/", "A");
+    let first = active(&shell);
+    let menu = |shell: &TestShell| shell.views().into_iter().find(|v| v.key == first).and_then(|v| v.assistant);
+    assert_eq!(menu(&shell), None, "the selection menu has no assistant entry while AI is off");
+    let profile = shell.model.profile().unwrap().1;
+    shell.core.disk.set_profile_ai(profile, true).unwrap();
+    assert_eq!(menu(&shell).unwrap()[..2], ["Summarize", "Explain"]);
+
+    shell.event(first, "assistantSelection", &json!({ "url": "https://a.test/", "text": " chosen words ", "command": "Explain" }), 3);
+    let (_, pill, chosen) = shell.assistant_pages.pop().unwrap();
+    assert_eq!(pill, Pill::Selection { url: "https://a.test/".into(), text: "chosen words".into() });
+    assert_eq!(chosen.as_deref(), Some("Explain"));
+    shell.event(first, "assistantSelection", &json!({ "url": "https://old.test/", "text": "x" }), 4);
+    shell.event(first, "assistantSelection", &json!({ "url": "https://a.test/", "text": "" }), 5);
+    assert!(shell.assistant_pages.is_empty(), "a selection from a page no longer shown, or none, attaches nothing");
+
+    shell.new_tab(None);
+    visit(&mut shell, "https://b.test/", "B");
+    let listed: Vec<(TabKey, bool)> = shell.model.assistant_tabs(&shell.core, |_, t| t.url.clone()).into_iter().map(|c| (c.key, c.awake)).collect();
+    assert_eq!(listed, [(first, true)], "the picker lists the other tab, not the active one");
+    let effects = shell.read_tab_for_assistant(first);
+    let args = command(&effects, "readText").unwrap().clone();
+    shell.event(first, "pageText", &json!({ "seq": seq(&args), "url": "https://a.test/", "text": "page a" }), 6);
+    let (_, pill, _) = shell.assistant_pages.pop().unwrap();
+    assert!(matches!(pill, Pill::Tab { ref url, ref text, .. } if url == "https://a.test/" && text == "page a"));
+
+    shell.model.lifecycle.remove(first);
+    assert!(shell.model.assistant_tabs(&shell.core, |_, t| t.url.clone()).iter().all(|c| !c.awake), "a sleeping tab shows as unavailable");
+    assert!(shell.read_tab_for_assistant(first).is_empty(), "a sleeping tab is never woken to be read");
+    assert!(shell.notice.is_some());
+}

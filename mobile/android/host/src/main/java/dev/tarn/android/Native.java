@@ -95,6 +95,12 @@ final class Native {
 
     static native String selectedTextScript();
 
+    static native String askSelectionLabel();
+
+    static native String assistantCommandsLabel();
+
+    static native int maxMenuCommands();
+
     static native String selectionAnswer(String answer);
 
     static native String mediaAnswer(String answer);

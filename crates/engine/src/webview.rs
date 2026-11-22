@@ -327,6 +327,10 @@ impl WebView {
         }
     }
 
+    pub fn set_assistant_menu(&self, commands: Option<Vec<String>>) {
+        self._delegate.set_assistant_menu(commands);
+    }
+
     /// Passkey and security-key sign-in (WebAuthn) for the next pages this view loads; on restores
     /// WebKit's own default. Passkeys from
     /// iCloud Keychain also need the `com.apple.developer.web-browser.public-key-credential` entitlement.

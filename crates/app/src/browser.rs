@@ -129,8 +129,10 @@ pub(crate) enum Msg {
     Handover(TabKey, std::rc::Weak<WebView>, Option<engine::handover::Storage>),
     /// A page's article (`probe`: whether it has one), for the reader.
     Article(TabKey, Url, bool, String),
-    /// The active page's text for the assistant: who asked, its address, title and text.
-    AssistantPage(browser_core::assistant::Origin, String, String, String),
+    /// A page or another tab read for the assistant, with who asked.
+    AssistantPill(browser_core::assistant::Origin, browser_core::assistant::Pill),
+    /// The selection a tab's menu asked the assistant about: who asked, its page, the raw text and the command.
+    AssistantSelection(browser_core::assistant::Origin, String, String, Option<String>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -467,7 +469,8 @@ impl Browser {
                     Msg::Zap(key, page, selector) => b.zap_picked(key, page, selector, cx),
                     Msg::Article(key, url, probe, text) => b.on_article(key, url, probe, text, window, cx),
                     Msg::Peek(generation, event) => b.on_peek_event(generation, event, cx),
-                    Msg::AssistantPage(origin, url, title, text) => b.add_pill(origin, browser_core::assistant::Pill::Page { url, title, text }, cx),
+                    Msg::AssistantPill(origin, pill) => b.add_pill(origin, pill, cx),
+                    Msg::AssistantSelection(origin, url, raw, command) => b.selection_for_assistant(origin, &url, &raw, command, window, cx),
                     Msg::Handover(key, old, storage) => {
                         let current = b.views.get(&key).is_some_and(|v| old.upgrade().is_some_and(|o| Rc::ptr_eq(v, &o)));
                         if let (true, Some(url)) = (current, b.tab_url(key).and_then(|u| Url::parse(&u).ok())) {
@@ -2042,6 +2045,7 @@ impl Browser {
         match event {
             Event::Loading(on) => self.pages.entry(key).or_default().loading = on,
             Event::LinkHovered(link) => return self.link_hovered(key, link.as_deref(), cx),
+            Event::AssistantSelection(command) => return self.ask_selection(key, command, cx),
             Event::Committed { url, title, can_go_back, can_go_forward } => {
                 self.link_hovered(key, None, cx);
                 engine::startup::mark("first page commit");
@@ -2054,6 +2058,7 @@ impl Browser {
                 self.json_pages.remove(&key);
                 let previous = self.store(key.private).tab(key.id).ok().and_then(|t| tab_host(&t.url));
                 self.page_changed(key, &url, &title, can_go_back, can_go_forward, true);
+                self.sync_assistant_menu(key);
                 // An Open Anyway offer belongs to the page that was refused, not to the next one; the
                 // blank document a new view starts with is no page.
                 if let Some(page) = self.pages.get_mut(&key).filter(|p| url.as_str() != "about:blank" && matches!(p.offer, Some(Offer::Open(_)))) {

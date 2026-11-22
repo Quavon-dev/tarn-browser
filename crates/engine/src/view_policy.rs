@@ -18,6 +18,11 @@ pub const DEFAULT_LEVEL_KEY: &str = "*";
 pub const MAX_PROMPTS: usize = 8;
 pub const MIN_PAGE_ZOOM: f64 = 0.5;
 pub const MAX_PAGE_ZOOM: f64 = 3.0;
+/// The selection menu's assistant entries, with the command names the shell sets after them.
+pub const ASK_SELECTION: &str = "Ask Assistant about Selection";
+pub const ASSISTANT_COMMANDS: &str = "Ask Assistant to";
+/// The most commands that menu lists.
+pub const MAX_MENU_COMMANDS: usize = 32;
 
 /// The longest side of a snapshot, in CSS pixels, so a page cannot ask for an unbounded bitmap.
 pub const SNAPSHOT_MAX_SIDE: f64 = 16384.;

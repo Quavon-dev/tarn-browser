@@ -115,6 +115,38 @@ fn insert_text_types_into_the_focused_field_only() {
 }
 
 #[test]
+fn the_assistant_menu_prop_takes_names_only_from_a_list() {
+    assert_eq!(assistant_menu(&JsonValue::Null), None);
+    assert_eq!(assistant_menu(&json!(["Explain", 3, "Fix Spelling"])), Some(vec!["Explain".to_owned(), "Fix Spelling".to_owned()]));
+    assert_eq!(assistant_menu(&json!(vec!["x"; 40])).map(|m| m.len()), Some(engine::view_policy::MAX_MENU_COMMANDS));
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn ask_assistant_reads_the_selection_with_its_command_but_never_a_secret_field() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    let asked = |command: Option<&str>| {
+        state.events.borrow_mut().clear();
+        scripts::ask_selection(&state, command.map(str::to_owned));
+        assert!(spin_until(|| event(&state, "assistantSelection").is_some(), 20), "the selection was read");
+        event(&state, "assistantSelection").unwrap()
+    };
+    page_eval(&web, "getSelection().selectAllChildren(document.getElementById('p')); 'ok'");
+    let read = asked(Some("Explain"));
+    assert!(read["text"].as_str().unwrap().starts_with("The quick zebrafish"), "{read}");
+    assert_eq!(read["command"], "Explain");
+    assert!(read["url"].as_str().is_some_and(|u| !u.is_empty()));
+    assert_eq!(asked(None)["command"], JsonValue::Null);
+    page_eval(
+        &web,
+        "const f = document.createElement('input'); f.type = 'password'; f.value = 'typed value'; document.body.append(f); f.focus(); f.select(); 'ok'",
+    );
+    assert_eq!(asked(None)["text"], "", "a password field's text never reaches the assistant");
+}
+
+#[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn the_selection_is_read_but_never_from_a_secret_field() {
     gtk::init().expect("a display");

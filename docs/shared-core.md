@@ -70,7 +70,16 @@ Every shell's web view offers the same operations and reports the same events. T
   (`selection`, `MediaState::parse`, `media_command`, `snapshot_area`); components emit only
   `selection_answer` and `media_answer` of a script's answer. NSH components:
   `readSelection` (`selection`), `ping` (`pong`), `readMedia` (`mediaState`), `media` and `snapshotRect`
-  (`snapshotRect`), `docs/mobile-plan.md` §2. A full page is the document cut to
+  (`snapshotRect`), `docs/mobile-plan.md` §2. `set_assistant_menu(Option<Vec<String>>)` (NSH prop
+  `assistantMenu`, a list of command names or null; at most `view_policy::MAX_MENU_COMMANDS`) gives
+  a selection's menu `view_policy::ASK_SELECTION` and an `ASSISTANT_COMMANDS` submenu with the
+  names; null shows neither. A choice is `Event::AssistantSelection(command)`, after which the shell
+  reads `selected_text`; NSH components read the selection themselves and emit
+  `assistantSelection` `{url, text, command}` with `selection_answer` of it. Shells set the list
+  from `tabs::Model::assistant_menu` for the page shown (WebKit's menu on macOS, Chromium's on
+  macOS and Windows, WebKitGTK's `context-menu` on Linux, the edit menu of a `WKWebView` subclass
+  on iOS, the text selection action mode of `PageView` on Android, where the floating toolbar has no
+  submenus and lists the commands in its overflow). A full page is the document cut to
   `view_policy::SNAPSHOT_MAX_SIDE` and its height to `SNAPSHOT_MAX_PIXELS` at the device scale
   (`view_policy::snapshot_height`, also for rectangles) on macOS and Windows; Linux takes it only
   when the document fits those uncut (WebKitGTK cannot clip a full-document snapshot), answers
@@ -265,11 +274,16 @@ can make, so `stream` is the one way to run them: it asks the model only when it
 otherwise fails with `AiError::Unavailable` and that reason; nothing falls back to a cloud provider.
 Both may block (Ollama asks its server), so shells call `stream` off the UI thread. `ai::local::route(choice, availability, on_device_task)` is the assistant's rule for
 who answers: a local choice is answered locally or not at all, and a selection command or summary
-stays on the device whenever a local model is available, even with the cloud chosen. Backends:
+stays on the device whenever a local model is available, even with the cloud chosen.
+`ai::local::answer(chosen, on_device, on_device_task, …)` applies it for every client and names the
+model that answers before it streams (`assistant::Event::AnsweredBy`, shown as "Answered by …");
+`assistant::on_device_task` makes every command an on-device task. The cloud is the platform's
+on-device model's only alternative when the cloud was chosen; Ollama, a local choice, keeps its
+own model. Backends:
 `engine::foundation_models::FoundationModel` on macOS and iOS (Apple's on-device model through the
 Swift shim `crates/engine/src/foundation_models.swift`, built by `crates/engine/build.rs` with the
-`foundation-models` feature, which needs the macOS or iOS 26 SDK; `app/foundation-models` and
-`tarn-mobile-ios/foundation-models` forward it), and `ai::Ollama` on loopback, available once Ollama answers `/api/show` for a model that runs on
+`foundation-models` feature, which needs the macOS or iOS 26 SDK; `app/foundation-models`,
+`tarn-mobile/foundation-models` and `tarn-mobile-ios/foundation-models` forward it), and `ai::Ollama` on loopback, available once Ollama answers `/api/show` for a model that runs on
 this machine: a `-cloud` or `:cloud` name or a reported remote host is refused (macOS, Windows,
 Linux). Windows and Android have no
 on-device model (`docs/windows-plan.md` §8, `docs/mobile-plan.md`).
@@ -443,6 +457,11 @@ other invisible characters (`store::is_invisible`) dropped and `tarn-block` remo
 most `MAX_PILL_BYTES` a block and `MAX_TOTAL_BYTES` over pills and history. Each request delimits
 its blocks with a tag holding a random `nonce` of its own (`Composed::wrapped`), named in its
 system prompt (`Composed::system`); `Composed::user_message` is the user turn a provider sends.
+`selection(url, raw)` makes a selection pill bounded by `page_ops::selection`, and
+`commands::for_selection` the template a selection's menu command sends with no question, where
+`{page}` names the selection. `tabs::Model::assistant_tabs` is the chat's tab picker: the current
+space's other web tabs the assistant may read, each `awake` only while its view is live; a
+sleeping tab is listed but never woken to be read.
 `settings` keeps the provider (Claude API or Ollama on this computer) and the Ollama model name. `commands::all` lists the built-ins and the profile's own
 (`store` table `ai_commands`, names at most `store::MAX_AI_NAME` bytes without control or invisible
 characters, removed with the profile and by Delete everything). `links::classify` refuses every

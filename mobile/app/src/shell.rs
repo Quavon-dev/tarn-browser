@@ -65,6 +65,8 @@ pub struct ViewProps {
     pub zaps: BTreeMap<String, Vec<String>>,
     pub sort_downloads: bool,
     pub load: Option<Load>,
+    /// The selection menu's assistant commands; none where the assistant may not see the page.
+    pub assistant: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -133,8 +135,9 @@ pub struct Shell<D: Platform> {
     pub(crate) download_notices: Vec<(String, bool)>,
     pub(crate) cleared_downloads: Option<(String, (bool, Id), Vec<Download>)>,
     pub sort_undo: Option<(String, (bool, browser_core::cleanup::Undo))>,
-    /// Pages read for the assistant, for the chat to attach.
-    pub assistant_pages: Vec<(browser_core::assistant::Origin, browser_core::assistant::Pill)>,
+    /// Pages, tabs and selections read for the assistant, with the command a selection runs, for
+    /// the chat to attach.
+    pub assistant_pages: Vec<(browser_core::assistant::Origin, browser_core::assistant::Pill, Option<String>)>,
     pub transfers: Vec<crate::scripts::Transfer>,
     pub transfers_moved: std::time::Instant,
     pub reader: Option<crate::scripts::Reader>,
@@ -337,6 +340,7 @@ impl<D: Platform> Shell<D> {
                 zaps: props.zaps.clone(),
                 sort_downloads: props.sort_downloads,
                 load: self.loads.get(&key).cloned(),
+                assistant: self.model.assistant_menu(&self.core, &self.tab_url(key)),
             })
             .collect()
     }

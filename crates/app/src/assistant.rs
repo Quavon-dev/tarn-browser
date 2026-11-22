@@ -4,10 +4,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use ai::local::Model;
 use ai::markdown::{Block, Span};
 use browser_core::assistant::links::{self, LinkAction};
 use browser_core::assistant::settings::Provider as Choice;
-use browser_core::assistant::{self as core, ChatView, Effect, Event, Origin, Pill, ProfileKind, Role, Session};
+use browser_core::assistant::{self as core, ChatView, Effect, Event, Origin, Pill, ProfileKind, Role, Session, commands};
+use browser_core::tabs::TabKey;
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, FontStyle, FontWeight, HighlightStyle, InteractiveElement, InteractiveText, IntoElement, ParentElement,
     PromptLevel, StatefulInteractiveElement, StrikethroughStyle, Styled, StyledText, Subscription, Task, UnderlineStyle, Window, actions, div,
@@ -31,11 +33,13 @@ pub(crate) const WIDTH: f32 = 340.;
 /// Streamed text reaches the chat at most this often, about once a frame.
 const FRAME: Duration = Duration::from_millis(16);
 
-/// One answer from the provider chosen in Settings › AI; blocks, so it runs off the UI thread.
-pub(crate) type Answer = Box<dyn FnOnce(&ai::Request, &AtomicBool, &mut dyn FnMut(&str)) -> Result<(), ai::AiError> + Send>;
+/// One answer from the provider chosen in Settings › AI, or the on-device model for a command
+/// (`ai::local::answer`), naming the model that answers first; blocks, so it runs off the UI thread.
+pub(crate) type Answer = Box<dyn FnOnce(&ai::Request, bool, &AtomicBool, &mut dyn FnMut(&str), &mut dyn FnMut(&str)) -> Result<(), ai::AiError> + Send>;
 
 #[derive(Default)]
 struct Stream {
+    model: Option<String>,
     text: String,
     end: Option<Result<(), String>>,
 }
@@ -56,6 +60,8 @@ pub(crate) struct Assistant {
     run: Option<Run>,
     /// A send found no connected provider; the column offers Settings › AI.
     connect: bool,
+    /// The tab picker is open.
+    picking: bool,
     _submit: Subscription,
 }
 
@@ -67,7 +73,7 @@ impl Assistant {
             TextInputEvent::Cancel => b.toggle_assistant(false, window, cx),
             _ => {}
         });
-        Assistant { open: false, toggled: None, from: 0., session: None, input, run: None, connect: false, _submit: submit }
+        Assistant { open: false, toggled: None, from: 0., session: None, input, run: None, connect: false, picking: false, _submit: submit }
     }
 }
 
@@ -87,8 +93,10 @@ impl Browser {
             rt.profile.ai_enabled = on;
         }
         self.sync_session();
+        self.sync_assistant_menus();
         crate::shared::others(cx, |b, _, cx| {
             b.sync_session();
+            b.sync_assistant_menus();
             cx.notify();
         });
         cx.notify();
@@ -201,7 +209,7 @@ impl Browser {
                 let events = self.events.clone();
                 let page = url.to_string();
                 view.page_text(&url, core::MAX_PILL_BYTES, move |text| {
-                    events.unbounded_send(Msg::AssistantPage(origin, page.clone(), title.clone(), text)).ok();
+                    events.unbounded_send(Msg::AssistantPill(origin, Pill::Page { url: page.clone(), title: title.clone(), text })).ok();
                 });
             }
             _ => self.add_pill(origin, Pill::Page { url: url.to_string(), title, text: String::new() }, cx),
@@ -215,13 +223,83 @@ impl Browser {
         }
     }
 
+    /// What `key`'s selection menu offers the assistant for its page now (`Model::assistant_menu`).
+    pub(crate) fn sync_assistant_menu(&self, key: TabKey) {
+        if let Some(view) = self.views.get(&key) {
+            view.set_assistant_menu(self.tab_url(key).and_then(|url| self.model.assistant_menu(&self.core, &url)));
+        }
+    }
+
+    fn sync_assistant_menus(&self) {
+        self.views.keys().for_each(|key| self.sync_assistant_menu(*key));
+    }
+
+    /// Ask Assistant about Selection, or one of its commands, from `key`'s page menu: the selection
+    /// is read in the page's isolated world only where the assistant may see the page now.
+    pub(crate) fn ask_selection(&mut self, key: TabKey, command: Option<String>, cx: &mut Context<Self>) {
+        let (Some(view), Some(url)) = (self.views.get(&key).cloned(), self.tab_url(key)) else { return };
+        let origin = self.model.assistant_origin(&self.core, Some(&url)).filter(|o| self.profile_of(key) == Some(o.profile));
+        let Some(origin) = origin.filter(|_| self.model.assistant_offered(&self.core, Some(&url))) else {
+            return self.show_toast_as(browser_core::toast::Tone::Warning, "This page cannot be shared with the assistant.", None, cx);
+        };
+        let events = self.events.clone();
+        view.selected_text(move |raw| {
+            events.unbounded_send(Msg::AssistantSelection(origin, url.clone(), raw, command.clone())).ok();
+        });
+    }
+
+    /// Opens the chat with the selection as a pill and, for a command, sends it with that
+    /// command's template: one click, one send.
+    pub(crate) fn selection_for_assistant(
+        &mut self,
+        origin: Origin,
+        url: &str,
+        raw: &str,
+        command: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(pill) = core::selection(url, raw) else {
+            return self.show_toast_as(browser_core::toast::Tone::Info, "No text that can be shared is selected.", None, cx);
+        };
+        self.toggle_assistant(true, window, cx);
+        self.add_pill(origin, pill, cx);
+        let custom = self.core.disk.ai_commands(origin.profile).unwrap_or_default();
+        if let Some(template) = command.and_then(|name| commands::for_selection(&custom, &name)) {
+            self.send(String::new(), &template, cx);
+        }
+    }
+
+    /// Adds another tab of the chat's space as a pill from its loaded page; a sleeping tab is
+    /// never woken for it.
+    fn add_tab(&mut self, key: TabKey, cx: &mut Context<Self>) {
+        self.assistant.picking = false;
+        let (Some(view), Some(url)) = (self.views.get(&key).cloned(), self.tab_url(key).and_then(|u| Url::parse(&u).ok())) else {
+            return self.show_toast_as(browser_core::toast::Tone::Info, "That tab is asleep. Open it to add it.", None, cx);
+        };
+        let Some(origin) = self.model.assistant_origin(&self.core, Some(url.as_str())).filter(|_| self.model.assistant_offered(&self.core, Some(url.as_str())))
+        else {
+            return self.show_toast_as(browser_core::toast::Tone::Warning, "This tab cannot be shared with the assistant.", None, cx);
+        };
+        let title = self.model.tab(key).map(|t| t.title.clone()).unwrap_or_default();
+        let events = self.events.clone();
+        let page = url.to_string();
+        view.page_text(&url, core::MAX_PILL_BYTES, move |text| {
+            events.unbounded_send(Msg::AssistantPill(origin, Pill::Tab { url: page.clone(), title: title.clone(), text })).ok();
+        });
+        cx.notify();
+    }
+
     fn send_question(&mut self, cx: &mut Context<Self>) {
+        let question = self.assistant.input.read(cx).text().to_owned();
+        if !question.trim().is_empty() {
+            self.send(question, core::ASK, cx);
+        }
+    }
+
+    fn send(&mut self, question: String, template: &str, cx: &mut Context<Self>) {
         self.sync_session();
         if self.assistant.session.as_ref().is_none_or(|s| !core::view(s).can_send) {
-            return;
-        }
-        let question = self.assistant.input.read(cx).text().to_owned();
-        if question.trim().is_empty() {
             return;
         }
         let Some((origin, on)) = self.page_origin() else { return };
@@ -233,11 +311,11 @@ impl Browser {
         let Some(session) = self.assistant.session.as_mut() else { return };
         let (shell, profile) = (&self.core, session.profile());
         let level_of = |url: &Url| shell.level(false, profile, Some(url)).unwrap_or(ShieldLevel::Lockdown);
-        let effects = session.send(&question, core::ASK, browser_core::now(), origin, on, level_of);
-        if effects.iter().any(|e| matches!(e, Effect::Start { .. })) {
+        let effects = session.send(&question, template, browser_core::now(), origin, on, level_of);
+        if template == core::ASK && effects.iter().any(|e| matches!(e, Effect::Start { .. })) {
             self.assistant.input.update(cx, |i, cx| i.set_text("", cx));
         }
-        self.run_effects(effects, Some(answer), cx);
+        self.run_effects(effects, Some((answer, core::on_device_task(template))), cx);
     }
 
     fn cancel_answer(&mut self, cx: &mut Context<Self>) {
@@ -254,22 +332,28 @@ impl Browser {
         }
     }
 
-    fn run_effects(&mut self, effects: Vec<Effect>, mut answer: Option<Answer>, cx: &mut Context<Self>) {
+    fn run_effects(&mut self, effects: Vec<Effect>, mut answer: Option<(Answer, bool)>, cx: &mut Context<Self>) {
         for effect in effects {
             match effect {
                 Effect::Start { id, request } => {
-                    let Some(answer) = answer.take() else { continue };
+                    let Some((answer, on_device)) = answer.take() else { continue };
                     let cancel = Arc::new(AtomicBool::new(false));
                     let stream = Arc::new(Mutex::new(Stream::default()));
                     let request = ai::Request { system: request.system(), page: None, question: request.user_message() };
                     let (thread_cancel, thread_stream) = (cancel.clone(), stream.clone());
                     std::thread::spawn(move || {
+                        let named_stream = thread_stream.clone();
+                        let mut named = |model: &str| {
+                            if let Ok(mut s) = named_stream.lock() {
+                                s.model = Some(model.to_owned());
+                            }
+                        };
                         let mut push = |text: &str| {
                             if let Ok(mut s) = thread_stream.lock() {
                                 s.text.push_str(text);
                             }
                         };
-                        let result = answer(&request, &thread_cancel, &mut push).map_err(|e| e.to_string());
+                        let result = answer(&request, on_device, &thread_cancel, &mut named, &mut push).map_err(|e| e.to_string());
                         if let Ok(mut s) = thread_stream.lock() {
                             s.end = Some(result);
                         }
@@ -297,12 +381,15 @@ impl Browser {
     /// Hands what arrived since the last frame to the session; false once the answer has ended.
     fn pump(&mut self, id: u64, cx: &mut Context<Self>) -> bool {
         let Some(run) = self.assistant.run.as_ref().filter(|r| r.id == id) else { return false };
-        let (text, end) = match run.stream.lock() {
-            Ok(mut s) => (std::mem::take(&mut s.text), s.end.take()),
-            Err(_) => (String::new(), Some(Err("the answer stopped".to_owned()))),
+        let (model, text, end) = match run.stream.lock() {
+            Ok(mut s) => (s.model.take(), std::mem::take(&mut s.text), s.end.take()),
+            Err(_) => (None, String::new(), Some(Err("the answer stopped".to_owned()))),
         };
         let Some(session) = self.assistant.session.as_mut() else { return false };
         let mut effects = Vec::new();
+        if let Some(model) = model {
+            effects.extend(session.apply(Event::AnsweredBy { id, model }));
+        }
         if !text.is_empty() {
             effects.extend(session.apply(Event::Chunk { id, text }));
         }
@@ -375,7 +462,7 @@ impl Browser {
         std::thread::spawn(move || {
             let req = ai::Request { system: request.system.to_owned(), page: None, question: request.prompt };
             let mut output = String::new();
-            let result = answer(&req, &AtomicBool::new(false), &mut |text| {
+            let result = answer(&req, false, &AtomicBool::new(false), &mut |_| {}, &mut |text| {
                 if output.len() <= ai::grouping::MAX_OUTPUT_BYTES {
                     output.push_str(text);
                 }
@@ -444,19 +531,36 @@ impl Browser {
 
 /// The provider chosen in Settings › AI, or `None` while the Claude API has no token. The token is
 /// read from the platform's secret store only, at the moment of a send. Ollama answers only through
-/// `ai::local::stream`, so a local choice never reaches the cloud.
+/// `ai::local::answer`, so a local choice never reaches the cloud; with the Claude API, a command
+/// stays on this Mac where its on-device model can answer.
 pub(crate) fn provider(store: &store::Store) -> Option<Answer> {
     let transport: Arc<dyn ai::Transport> = Arc::new(ai::UreqTransport);
     match browser_core::assistant::settings::provider(store) {
         Choice::ClaudeApi => {
             let api = ai::ClaudeApi::new(ai::secrets::load_token(&ai::secrets::Keyring).ok().flatten()?, None, transport);
-            Some(Box::new(move |req, cancel, on_text| ai::Provider::stream(&api, req, cancel, on_text)))
+            Some(Box::new(move |req, on_device, cancel, named, on_text| {
+                ai::local::answer(Model::Cloud(&api, Choice::ClaudeApi.name()), on_device_model(), on_device, req, cancel, named, on_text)
+            }))
         }
         Choice::Ollama => {
-            let model = ai::Ollama::new(browser_core::assistant::settings::ollama_model(store), transport);
-            Some(Box::new(move |req, cancel, on_text| ai::local::stream(&model, req, cancel, on_text)))
+            let name = browser_core::assistant::settings::ollama_model(store);
+            let label = format!("{} ({name})", Choice::Ollama.name());
+            let model = ai::Ollama::new(name, transport);
+            Some(Box::new(move |req, on_device, cancel, named, on_text| {
+                ai::local::answer(Model::Local(&model, &label), None, on_device, req, cancel, named, on_text)
+            }))
         }
     }
+}
+
+#[cfg(all(target_os = "macos", feature = "foundation-models"))]
+fn on_device_model() -> Option<(&'static dyn ai::LocalModel, &'static str)> {
+    Some((&engine::foundation_models::FoundationModel, browser_core::assistant::settings::ON_DEVICE))
+}
+
+#[cfg(not(all(target_os = "macos", feature = "foundation-models")))]
+fn on_device_model() -> Option<(&'static dyn ai::LocalModel, &'static str)> {
+    None
 }
 
 pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -> Option<AnyElement> {
@@ -484,6 +588,19 @@ pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Brow
         .bg(Theme::panel())
         .border_l_1()
         .border_color(Theme::separator())
+        // The window moves the focus on Tab only outside text fields; the column moves it from its
+        // question field too, so the keyboard reaches its links and buttons.
+        .on_key_down(|e: &gpui::KeyDownEvent, w, cx| {
+            let m = e.keystroke.modifiers;
+            if e.keystroke.key == "tab" && !(m.control || m.platform || m.alt || m.function) {
+                if m.shift {
+                    w.focus_prev()
+                } else {
+                    w.focus_next()
+                }
+                cx.stop_propagation();
+            }
+        })
         .child(
             div()
                 .h(px(ui::theme::TOOLBAR_HEIGHT))
@@ -529,24 +646,32 @@ fn open_settings_button(id: &'static str, cx: &mut Context<Browser>) -> gpui::St
 
 fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Browser>) -> AnyElement {
     let me = cx.entity().downgrade();
-    let rows = view.rows.iter().enumerate().map(|(ix, row)| match row.role {
-        Role::You => div()
-            .ml_auto()
-            .max_w(px(WIDTH - 48.))
-            .px_3()
-            .py_2()
-            .rounded(px(Theme::radius_row()))
-            .bg(Theme::accent_soft())
-            .child(row.text.clone())
-            .into_any_element(),
-        Role::Assistant => {
-            let mut answer = div().flex().flex_col().gap_2().children(markdown(&row.text, ix, &me));
-            if row.streaming {
-                answer = answer.child(ui::controls::spinner(ui::icon::ICON_SMALL, Theme::muted()));
+    let rows = view
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(ix, row)| match row.role {
+            Role::You => div()
+                .ml_auto()
+                .max_w(px(WIDTH - 48.))
+                .px_3()
+                .py_2()
+                .rounded(px(Theme::radius_row()))
+                .bg(Theme::accent_soft())
+                .child(row.text.clone())
+                .into_any_element(),
+            Role::Assistant => {
+                let mut answer = div().flex().flex_col().gap_2().children(markdown(&row.text, ix, &me));
+                if row.streaming {
+                    answer = answer.child(ui::controls::spinner(ui::icon::ICON_SMALL, Theme::muted()));
+                } else {
+                    answer = answer.children(link_list(&row.text, ix, cx));
+                }
+                answer.children(row.by.clone().map(|by| note(by).pt_0())).into_any_element()
             }
-            answer.into_any_element()
-        }
-    });
+        })
+        .collect::<Vec<_>>();
+    let picker = b.assistant.picking.then(|| tab_picker(b, cx));
     let chips = view
         .chips
         .iter()
@@ -621,6 +746,7 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                 })
                 .child(div().flex().flex_wrap().gap_1().children(chips))
                 .child(note(will_send).pt_0())
+                .children(picker)
                 .child(field(focused).child(b.assistant.input.clone()))
                 .child(
                     div()
@@ -628,11 +754,77 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                         .items_center()
                         .gap_2()
                         .child(tab_stop(button("assistant-add-page", "Add This Page", false)).on_click(cx.listener(|b, _, w, cx| b.ask_page(w, cx))))
+                        .child(tab_stop(button("assistant-add-tab", "Add Tab…", b.assistant.picking)).on_click(cx.listener(|b, _, _, cx| {
+                            b.assistant.picking = !b.assistant.picking;
+                            cx.notify();
+                        })))
                         .child(div().flex_1())
                         .child(send),
                 ),
         )
         .into_any_element()
+}
+
+/// The current space's other tabs the assistant may read; a sleeping one is shown but cannot be
+/// chosen, since adding it would load its page.
+fn tab_picker(b: &Browser, cx: &Context<Browser>) -> AnyElement {
+    let choices = b.model.assistant_tabs(&b.core, |key, t| b.tab_url(key).unwrap_or_else(|| t.url.clone()));
+    let list = div().id("assistant-tabs").max_h(px(180.)).overflow_y_scroll().flex().flex_col().gap_1();
+    if choices.is_empty() {
+        return list.child(note("No other tab here can be added.").pt_0()).into_any_element();
+    }
+    list.children(choices.into_iter().enumerate().map(|(ix, choice)| {
+        let row = div()
+            .id(("assistant-tab", ix))
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .h(px(26.))
+            .rounded(px(Theme::radius_small()))
+            .text_size(px(TEXT_SMALL))
+            .child(div().flex_1().min_w_0().one_line(choice.title.clone()));
+        if !choice.awake {
+            return row
+                .text_color(Theme::muted())
+                .child(div().flex_none().child("Asleep"))
+                .tooltip(tooltip("Open this tab to add it", None))
+                .into_any_element();
+        }
+        let key = choice.key;
+        tab_stop(row.hover(|s| s.bg(Theme::control())).cursor_pointer())
+            .tooltip(tooltip(choice.url, None))
+            .on_click(cx.listener(move |b, _, _, cx| b.add_tab(key, cx)))
+            .into_any_element()
+    }))
+    .into_any_element()
+}
+
+/// The links of an answer again as a list of tab stops, so the keyboard reaches each one: Tab and
+/// Shift-Tab move between them, Enter opens one through the same confirmation as a click.
+fn link_list(text: &str, row: usize, cx: &Context<Browser>) -> Option<AnyElement> {
+    let links: Vec<(String, String)> = ai::markdown::parse(text)
+        .into_iter()
+        .flat_map(|block| match block {
+            Block::Heading { spans, .. } | Block::Paragraph(spans) | Block::ListItem { spans, .. } | Block::Quote(spans) => spans,
+            Block::Code { .. } | Block::Rule => Vec::new(),
+        })
+        .filter_map(|span| span.link.map(|url| (links::shown(&span.text, &url), url)))
+        .collect();
+    (!links.is_empty()).then(|| {
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(note("Links").pt_0())
+            .children(links.into_iter().enumerate().map(|(ix, (shown, url))| {
+                tab_stop(
+                    div().id(("assistant-link", row * 1_000 + ix)).text_size(px(TEXT_SMALL)).text_color(Theme::accent_text()).cursor_pointer().child(shown),
+                )
+                .on_click(cx.listener(move |b, _, w, cx| b.open_answer_link(&url, w, cx)))
+            }))
+            .into_any_element()
+    })
 }
 
 /// An answer drawn natively: no remote images (they arrive as alt text), every link with its whole

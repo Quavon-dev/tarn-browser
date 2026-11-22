@@ -315,6 +315,7 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
         .prop("sortDownloads", move || json!(item.get().sort_downloads))
         .prop("dark", move || json!(!Theme::is_light()))
         .prop("splitLinks", move || json!(ui.wide()))
+        .prop("assistantMenu", move || json!(item.get().assistant))
         .prop("load", move || item.get().load.map_or(Value::Null, |l| json!({ "url": l.url, "seq": l.seq, "opener": l.opener, "file": l.file })))
         .prop("active", move || {
             let shown = ui.pane(key).is_some();

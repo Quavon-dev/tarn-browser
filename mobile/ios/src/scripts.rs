@@ -55,6 +55,16 @@ impl Inner {
         web.call_async(&NSString::from_str(&body), None, None, &world, Some(&block));
     }
 
+    /// Reads the selection for Ask Assistant about Selection or one of its commands, in the shell's
+    /// world, which hands over no text from a password or card field; nothing under Lockdown.
+    pub(crate) fn ask_selection(&self, command: Option<String>) {
+        let shown = self.web().and_then(|w| w.current_url()).map(|u| u.to_string()).unwrap_or_default();
+        let context = self.context.clone();
+        self.run(Some(page_scripts::SELECTED_TEXT.to_owned()), move |text| {
+            context.emit("assistantSelection", json!({ "url": shown, "text": browser_core::page_ops::selection_answer(&text), "command": command }))
+        });
+    }
+
     pub(crate) fn script_command(&self, name: &str, args: &Value) -> bool {
         let seq = args.get("seq").cloned().unwrap_or(Value::Null);
         let url = self.web().and_then(|w| w.current_url());

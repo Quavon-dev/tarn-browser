@@ -18,6 +18,16 @@ pub struct TabKey {
     pub id: Id,
 }
 
+/// A tab the assistant's tab picker lists.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TabChoice {
+    pub key: TabKey,
+    pub title: String,
+    pub url: String,
+    /// Its page is loaded and can be read; a sleeping tab shows as unavailable.
+    pub awake: bool,
+}
+
 pub const TEAR_OFF_EDGE: f32 = 12.;
 
 pub fn near_edge(x: f32, y: f32, width: f32, height: f32) -> bool {
@@ -596,6 +606,31 @@ impl Model {
         self.assistant_origin(core, page).is_some_and(|o| crate::assistant::allowed(o) && core.disk.profile(o.profile).is_ok_and(|p| p.ai_enabled))
     }
 
+    /// The command names a page's selection menu offers after Ask Assistant about Selection; none
+    /// where the assistant is not offered for `page`, so the menu shows no assistant entry.
+    pub fn assistant_menu<D: WebsiteData>(&self, core: &Core<D>, page: &str) -> Option<Vec<String>> {
+        let origin = self.assistant_origin(core, Some(page)).filter(|_| self.assistant_offered(core, Some(page)))?;
+        Some(crate::assistant::commands::names(&core.disk.ai_commands(origin.profile).unwrap_or_default()))
+    }
+
+    /// The chat's tab picker: the current space's other web tabs the assistant may read, with
+    /// their page's address from `url_of`. A sleeping tab is listed but not `awake`; it is never
+    /// woken to be read.
+    pub fn assistant_tabs<D: WebsiteData>(&self, core: &Core<D>, url_of: impl Fn(TabKey, &Tab) -> String) -> Vec<TabChoice> {
+        let Some(private) = self.current_space().map(|s| s.private).filter(|_| self.assistant_offered(core, None)) else { return Vec::new() };
+        self.tabs
+            .iter()
+            .map(|t| (TabKey { private, id: t.id }, t))
+            .filter(|(key, _)| self.active != Some(*key))
+            .filter_map(|(key, t)| {
+                let url = url_of(key, t);
+                let web = Url::parse(&url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"));
+                let allowed = web && self.assistant_offered(core, Some(&url));
+                allowed.then(|| TabChoice { key, title: crate::text::title_or_host(&t.title, &url), url, awake: self.lifecycle.live().any(|k| k == key) })
+            })
+            .collect()
+    }
+
     /// Whether the space at `ix` belongs to the profile, and the side, of the tab.
     pub fn same_profile<D: WebsiteData>(&self, core: &Core<D>, key: TabKey, ix: usize) -> bool {
         self.spaces.get(ix).is_some_and(|s| holds(s, key, self.profile_of(core, key)))
@@ -859,6 +894,37 @@ mod tests {
         model.reload_spaces(&core);
         model.switch_space(&core, 0).unwrap();
         (dir, core, model)
+    }
+
+    #[test]
+    fn the_tab_picker_lists_other_web_tabs_the_assistant_may_read_and_wakes_none() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let tab = |url: &str| core.disk.create_tab(s, TabKind::Ephemeral, None, url, "").unwrap().id;
+        let (active, awake, asleep, locked, local) =
+            (tab("https://a.test/"), tab("https://b.test/"), tab("https://c.test/"), tab("https://bank.test/"), tab("file:///x"));
+        model.reload_space(&core);
+        let profile = model.profile().unwrap().1;
+        core.disk.set_site_override(profile, "bank.test", Some(ShieldLevel::Lockdown)).unwrap();
+        core.open_profile(false, profile, || std::rc::Rc::new(|_| {}));
+        let key = |id| TabKey { private: false, id };
+        model.active = Some(key(active));
+        model.lifecycle.activate(key(awake));
+        model.lifecycle.activate(key(active));
+        let picked = |model: &Model| model.assistant_tabs(&core, |_, t| t.url.clone()).into_iter().map(|c| (c.key.id, c.awake)).collect::<Vec<_>>();
+        assert!(picked(&model).is_empty(), "nothing is listed with AI off");
+        assert_eq!(model.assistant_menu(&core, "https://a.test/"), None);
+        core.disk.set_profile_ai(profile, true).unwrap();
+        assert_eq!(picked(&model), [(awake, true), (asleep, false)], "not the active tab, a Lockdown site or a local file");
+        assert!(![locked, local].iter().any(|id| picked(&model).iter().any(|(p, _)| p == id)));
+        assert!(model.lifecycle.live().all(|k| k != key(asleep)), "listing wakes no tab");
+        assert_eq!(model.assistant_tabs(&core, |_, t| t.url.clone())[0].title, "b.test");
+        assert_eq!(model.assistant_menu(&core, "https://a.test/").map(|m| m.len()), Some(5));
+        assert_eq!(model.assistant_menu(&core, "https://bank.test/"), None, "a Lockdown page offers no assistant entry");
+        let ix = model.open_burner(&core).unwrap();
+        model.switch_space(&core, ix).unwrap();
+        core.open_profile(true, model.profile().unwrap().1, || std::rc::Rc::new(|_| {}));
+        assert!(picked(&model).is_empty(), "a burner lists nothing");
     }
 
     #[test]

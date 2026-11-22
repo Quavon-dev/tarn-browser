@@ -17,6 +17,16 @@ const TAG: &str = "tarn-block";
 
 pub const ASK: &str = "{question}";
 
+/// A send through a command rather than a typed question; a local model answers it when one is available.
+pub fn on_device_task(template: &str) -> bool {
+    template != ASK
+}
+
+/// The page's selection as a pill, bounded as `page_ops::selection`; none when nothing is selected.
+pub fn selection(url: &str, raw: &str) -> Option<Pill> {
+    crate::page_ops::selection(raw).map(|text| Pill::Selection { url: url.to_owned(), text })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileKind {
     Normal,
@@ -137,15 +147,30 @@ pub struct Turn {
     pub role: Role,
     pub text: String,
     pub interrupted: bool,
+    /// The model that gave an answer.
+    pub by: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     AddPill(Origin, Pill),
     RemovePill(usize),
-    Chunk { id: u64, text: String },
-    Done { id: u64 },
-    Failed { id: u64, message: String },
+    Chunk {
+        id: u64,
+        text: String,
+    },
+    Done {
+        id: u64,
+    },
+    Failed {
+        id: u64,
+        message: String,
+    },
+    /// The model that answers request `id`, as the chat names it.
+    AnsweredBy {
+        id: u64,
+        model: String,
+    },
     Cancel,
 }
 
@@ -279,8 +304,8 @@ impl Session {
         self.last_sent = Some(at_ms);
         self.streaming = Some(id);
         self.notice = None;
-        self.history.push(Turn { role: Role::You, text: request.question.clone(), interrupted: false });
-        self.history.push(Turn { role: Role::Assistant, text: String::new(), interrupted: false });
+        self.history.push(Turn { role: Role::You, text: request.question.clone(), interrupted: false, by: None });
+        self.history.push(Turn { role: Role::Assistant, text: String::new(), interrupted: false, by: None });
         vec![Effect::Start { id, request }, Effect::Render]
     }
 
@@ -340,6 +365,12 @@ impl Session {
                 self.streaming = None;
                 self.interrupt();
                 self.notice = Some(format!("The assistant could not answer: {}", clean(&message, MAX_NOTICE_BYTES).replace('\n', " ")));
+            }
+            Event::AnsweredBy { id, model } => {
+                let Some(answer) = self.history.last_mut().filter(|_| self.streaming == Some(id)) else {
+                    return Vec::new();
+                };
+                answer.by = Some(clean(&model, 128).replace('\n', " "));
             }
             Event::Cancel => {
                 let Some(id) = self.streaming.take() else {
@@ -504,6 +535,17 @@ pub mod commands {
     pub fn all(custom: &[store::AiCommand]) -> Vec<(String, String)> {
         BUILT_IN.iter().map(|(n, t)| ((*n).to_owned(), (*t).to_owned())).chain(custom.iter().map(|c| (c.name.clone(), c.template.clone()))).collect()
     }
+
+    /// The names a selection's menu lists, at most `MAX_MENU_COMMANDS`.
+    pub fn names(custom: &[store::AiCommand]) -> Vec<String> {
+        all(custom).into_iter().map(|(name, _)| name).take(engine::view_policy::MAX_MENU_COMMANDS).collect()
+    }
+
+    /// The template of the command `name` run on a selection, where `{page}` names the selection
+    /// too, so Summarize from a selection summarizes that selection.
+    pub fn for_selection(custom: &[store::AiCommand], name: &str) -> Option<String> {
+        all(custom).into_iter().find(|(n, _)| n == name).map(|(_, template)| template.replace("{page}", "{selection}"))
+    }
 }
 
 pub mod settings {
@@ -512,6 +554,8 @@ pub mod settings {
     pub const PROVIDER_KEY: &str = "ai_provider";
     pub const OLLAMA_MODEL_KEY: &str = "ai_ollama_model";
     pub const DEFAULT_OLLAMA_MODEL: &str = "llama3.2";
+    /// The system's on-device model, which answers commands in place of the Claude API where it can.
+    pub const ON_DEVICE: &str = "Apple's on-device model";
     const MAX_MODEL_CHARS: usize = 128;
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -636,6 +680,8 @@ pub struct Row {
     pub text: String,
     pub streaming: bool,
     pub interrupted: bool,
+    /// "Answered by …" under an answer.
+    pub by: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -656,7 +702,13 @@ pub fn view(session: &Session) -> ChatView {
         .history
         .iter()
         .enumerate()
-        .map(|(ix, t)| Row { role: t.role, text: t.text.clone(), streaming: streaming && ix == last, interrupted: t.interrupted })
+        .map(|(ix, t)| Row {
+            role: t.role,
+            text: t.text.clone(),
+            streaming: streaming && ix == last,
+            interrupted: t.interrupted,
+            by: t.by.as_ref().map(|m| format!("Answered by {m}")),
+        })
         .collect();
     let chips = session
         .pills
@@ -970,8 +1022,8 @@ mod tests {
         assert_eq!(
             v.rows,
             [
-                Row { role: Role::You, text: "What is it?".into(), streaming: false, interrupted: false },
-                Row { role: Role::Assistant, text: "It is a page.".into(), streaming: false, interrupted: false }
+                Row { role: Role::You, text: "What is it?".into(), streaming: false, interrupted: false, by: None },
+                Row { role: Role::Assistant, text: "It is a page.".into(), streaming: false, interrupted: false, by: None }
             ]
         );
         assert_eq!(v.will_send.len(), 3);
@@ -1002,7 +1054,7 @@ mod tests {
         assert!(s.apply(Event::Chunk { id, text: "late".into() }).is_empty());
         assert!(s.apply(Event::Done { id }).is_empty());
         assert!(s.apply(Event::Failed { id, message: "x".into() }).is_empty());
-        assert_eq!(view(&s).rows, [Row { role: Role::You, text: "first".into(), streaming: false, interrupted: true }]);
+        assert_eq!(view(&s).rows, [Row { role: Role::You, text: "first".into(), streaming: false, interrupted: true, by: None }]);
         assert!(view(&s).can_send);
 
         let (id, _) = started(&send(&mut s, "second", MIN_SEND_INTERVAL_MS));
@@ -1025,7 +1077,7 @@ mod tests {
         let mut s = session();
         let (id, _) = started(&send(&mut s, "a", 0));
         s.apply(Event::Done { id });
-        assert_eq!(view(&s).rows, [Row { role: Role::You, text: "a".into(), streaming: false, interrupted: true }]);
+        assert_eq!(view(&s).rows, [Row { role: Role::You, text: "a".into(), streaming: false, interrupted: true, by: None }]);
         assert!(view(&s).will_send.is_empty());
     }
 
@@ -1107,6 +1159,37 @@ mod tests {
         let mut s = session();
         s.apply(Event::AddPill(ME, sel("teh cat")));
         assert_eq!(compose(&s, &all[3].1, "").question, "Fix the spelling and grammar of Selection 1 and change nothing else.");
+    }
+
+    #[test]
+    fn a_selection_command_names_the_selection_and_runs_on_the_device() {
+        let custom = [store::AiCommand { id: 4, profile_id: 1, name: "TL;DR".into(), template: "Shorten {page}".into() }];
+        let mut s = session();
+        s.apply(Event::AddPill(ME, page("whole page")));
+        s.apply(Event::AddPill(ME, selection("https://a.test/p", "  chosen words \n").unwrap()));
+        let summarize = commands::for_selection(&custom, "Summarize").unwrap();
+        assert_eq!(compose(&s, &summarize, "").question, "Summarize Selection 1 in a few short paragraphs.");
+        assert_eq!(compose(&s, &commands::for_selection(&custom, "TL;DR").unwrap(), "").question, "Shorten Selection 1");
+        assert_eq!(commands::for_selection(&custom, "Nope"), None);
+        assert_eq!(commands::names(&custom).last().map(String::as_str), Some("TL;DR"));
+        assert!(on_device_task(&summarize) && !on_device_task(ASK));
+        assert_eq!(selection("https://a.test/p", " \n "), None, "nothing selected adds no pill");
+        let long = selection("https://a.test/p", &"é".repeat(crate::page_ops::SELECTION_MAX_BYTES)).unwrap();
+        assert!(matches!(long, Pill::Selection { text, .. } if text.len() <= crate::page_ops::SELECTION_MAX_BYTES));
+    }
+
+    #[test]
+    fn the_answer_names_the_model_that_gave_it() {
+        let mut s = session();
+        let (id, _) = started(&send(&mut s, "q", 0));
+        assert_eq!(s.apply(Event::AnsweredBy { id: id + 1, model: "Other".into() }), []);
+        assert_eq!(s.apply(Event::AnsweredBy { id, model: "On-device\nmodel".into() }), [Effect::Render]);
+        s.apply(Event::Chunk { id, text: "hi".into() });
+        s.apply(Event::Done { id });
+        assert_eq!(s.apply(Event::AnsweredBy { id, model: "Late".into() }), [], "a finished answer keeps its name");
+        let rows = view(&s).rows;
+        assert_eq!(rows[1].by.as_deref(), Some("Answered by On-device model"));
+        assert_eq!(rows[0].by, None);
     }
 
     #[test]

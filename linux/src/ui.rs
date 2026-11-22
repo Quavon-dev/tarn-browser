@@ -513,6 +513,7 @@ fn web_views(ui: Ui) -> View {
                     .prop("burstsOf", move || JsonValue::from(item.with(|v| v.opener.clone())))
                     .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
                     .prop("muted", move || JsonValue::from(item.with(|v| v.muted)))
+                    .prop("assistantMenu", move || item.with(|v| v.assistant.clone()))
                     .prop("inspectable", move || JsonValue::from(item.with(|v| v.inspectable)))
                     .prop("load", move || {
                         item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link, "file": v.file })))

@@ -199,6 +199,21 @@ pub extern "system" fn Java_dev_tarn_android_Native_selectedTextScript(mut env: 
     java_string(&mut env, Some(engine::page_scripts::SELECTED_TEXT.to_owned()))
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_askSelectionLabel(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::view_policy::ASK_SELECTION.to_owned()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_assistantCommandsLabel(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::view_policy::ASSISTANT_COMMANDS.to_owned()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_maxMenuCommands(_: JNIEnv, _: JClass) -> jint {
+    jint::try_from(engine::view_policy::MAX_MENU_COMMANDS).unwrap_or(jint::MAX)
+}
+
 /// `browser_core::page_ops::selection_answer` of a page-world answer, which the page may have forged.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_tarn_android_Native_selectionAnswer(mut env: JNIEnv, _: JClass, answer: JString) -> jstring {

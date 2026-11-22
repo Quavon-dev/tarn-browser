@@ -94,6 +94,7 @@ impl<D: Platform> Shell<D> {
                 }
             }
             "screenshot" => self.screenshot_event(key, data),
+            "assistantSelection" => self.selection_for_assistant(key, data),
             "textInserted" => self.text_inserted(key, data),
             "prompt" => return self.prompt(key, data),
             crate::extensions::MESSAGE => return self.extension_message(key, data, std::time::Instant::now()),

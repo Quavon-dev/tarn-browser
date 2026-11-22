@@ -19,6 +19,9 @@ serde_json.workspace = true
 url.workspace = true
 uuid.workspace = true
 
+[features]
+foundation-models = ["engine/foundation-models"]
+
 [target.'cfg(target_os = "ios")'.dependencies]
 nsh-platform-ios.workspace = true
 tarn-mobile-ios.workspace = true

@@ -85,6 +85,8 @@ pub struct ViewItem {
     pub link: bool,
     pub file: bool,
     pub muted: bool,
+    /// The `assistantMenu` prop: the selection menu's commands, or null where the assistant may not see the page.
+    pub assistant: Value,
     pub opener: String,
     pub active: bool,
     /// Its place in the split on screen.
@@ -394,6 +396,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 link: page.is_some_and(|p| p.link),
                 file: page.is_some_and(|p| p.file),
                 muted: b.muted_with(key, &muted),
+                assistant: page.and_then(|p| b.model.assistant_menu(&b.core, &p.url)).map_or(Value::Null, Value::from),
                 opener: page.and_then(|p| p.opener).map(|k| format!("{}-{}", k.private, k.id)).unwrap_or_default(),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
                 pane: panes.iter().position(|k| *k == key).filter(|_| shown),
@@ -432,6 +435,7 @@ fn peek_item(b: &Browser) -> Option<PeekItem> {
         link: true,
         file: false,
         muted: false,
+        assistant: Value::Null,
         opener: format!("{}-{}", key.private, key.id),
         active: true,
         pane: None,

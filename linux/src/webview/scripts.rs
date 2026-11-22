@@ -36,6 +36,14 @@ fn seq(args: &JsonValue) -> JsonValue {
     args["seq"].as_u64().map_or(JsonValue::Null, JsonValue::from)
 }
 
+/// Reads the selection for Ask Assistant about Selection or one of its commands, in the isolated
+/// world, which hands over no text from a password or card field; nothing under Lockdown.
+pub fn ask_selection(state: &Rc<State>, command: Option<String>) {
+    run(state, Some(page_scripts::SELECTED_TEXT.to_owned()), move |s, url, text| {
+        s.emit("assistantSelection", json!({ "url": url, "text": browser_core::page_ops::selection_answer(&text), "command": command }))
+    });
+}
+
 pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
     let seq = seq(args);
     let page = state.page.borrow().clone();

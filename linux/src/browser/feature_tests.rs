@@ -207,6 +207,47 @@ fn the_reader_opens_from_an_answer_for_the_page_on_screen() {
 }
 
 #[test]
+fn a_selection_and_a_loaded_tab_reach_the_assistant_and_a_sleeping_tab_is_never_read() {
+    use browser_core::assistant::Pill;
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    visit(&mut b, first, "https://a.test/");
+    let menu = |b: &Browser| crate::snapshot::views(b, true).into_iter().find(|v| v.key == first).map(|v| v.assistant);
+    assert_eq!(menu(&b), Some(Value::Null), "no assistant entry while AI is off");
+    let profile = b.model.profile().unwrap().1;
+    b.core.disk.set_profile_ai(profile, true).unwrap();
+    assert_eq!(menu(&b).unwrap()[0], "Summarize");
+
+    b.on_event(first, "assistantSelection", &json!({ "url": "https://a.test/", "text": " chosen ", "command": "Explain" }));
+    assert_eq!(
+        b.assistant_pages.pop(),
+        Some((
+            b.model.assistant_origin(&b.core, Some("https://a.test/")).unwrap(),
+            Pill::Selection { url: "https://a.test/".into(), text: "chosen".into() },
+            Some("Explain".into())
+        ))
+    );
+    b.on_event(first, "assistantSelection", &json!({ "url": "https://a.test/", "text": "" }));
+    assert!(b.assistant_pages.is_empty(), "nothing selected attaches nothing");
+
+    let second = b.new_tab("https://b.test/").unwrap();
+    visit(&mut b, second, "https://b.test/");
+    let listed: Vec<(TabKey, bool)> =
+        b.model.assistant_tabs(&b.core, |k, t| b.current_url(k).unwrap_or_else(|| t.url.clone())).into_iter().map(|c| (c.key, c.awake)).collect();
+    assert_eq!(listed, [(first, true)]);
+    b.outbox.clear();
+    b.read_tab_for_assistant(first);
+    let seq = asked(&b, "readText")[0]["seq"].as_u64().unwrap();
+    b.on_event(first, "pageText", &json!({ "seq": seq, "url": "https://a.test/", "text": "page a" }));
+    assert!(matches!(b.assistant_pages.pop(), Some((_, Pill::Tab { text, .. }, None)) if text == "page a"));
+
+    b.model.lifecycle.remove(first);
+    b.outbox.clear();
+    b.read_tab_for_assistant(first);
+    assert!(asked(&b, "readText").is_empty(), "a sleeping tab is never woken to be read");
+}
+
+#[test]
 fn page_text_is_kept_only_when_switched_on_and_never_in_private() {
     let (_dir, mut b) = browser();
     let key = b.model.active.unwrap();

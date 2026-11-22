@@ -4,7 +4,7 @@
 
 use std::sync::atomic::AtomicBool;
 
-use crate::provider::{AiError, Request};
+use crate::provider::{AiError, Provider, Request};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Availability {
@@ -54,6 +54,43 @@ pub fn route(choice: Choice, local: &Availability, on_device_task: bool) -> Rout
         (Choice::Local, Availability::NotSupported(why) | Availability::NeedsSetup(why)) => Route::Unavailable(why.clone()),
         (Choice::Cloud, Availability::Available) if on_device_task => Route::Local,
         (Choice::Cloud, _) => Route::Cloud,
+    }
+}
+
+/// The model the user chose, with the name the chat shows for it.
+pub enum Model<'a> {
+    Cloud(&'a dyn Provider, &'a str),
+    Local(&'a dyn LocalModel, &'a str),
+}
+
+/// Answers with `chosen`, or with `on_device` where `route` keeps `on_device_task` on the device;
+/// `named` hears which model answers before it streams. A local choice that cannot answer fails
+/// with its reason, and the cloud is asked only when it was chosen.
+pub fn answer(
+    chosen: Model<'_>,
+    on_device: Option<(&dyn LocalModel, &str)>,
+    on_device_task: bool,
+    req: &Request,
+    cancel: &AtomicBool,
+    named: &mut dyn FnMut(&str),
+    on_text: &mut dyn FnMut(&str),
+) -> Result<(), AiError> {
+    let model = match (chosen, on_device) {
+        (Model::Cloud(cloud, name), Some((local, local_name))) if on_device_task => match route(Choice::Cloud, &local.availability(), true) {
+            Route::Local => Model::Local(local, local_name),
+            _ => Model::Cloud(cloud, name),
+        },
+        (chosen, _) => chosen,
+    };
+    match model {
+        Model::Local(local, name) => {
+            named(name);
+            stream(local, req, cancel, on_text)
+        }
+        Model::Cloud(cloud, name) => {
+            named(name);
+            cloud.stream(req, cancel, on_text)
+        }
     }
 }
 
@@ -124,6 +161,55 @@ mod tests {
             assert!(matches!(out, Err(AiError::Unavailable(_))), "{show}");
             assert!(!asked.contains(&"chat".to_owned()), "{show}");
         }
+    }
+
+    struct Device(Availability, Mutex<u32>);
+
+    impl LocalModel for Device {
+        fn availability(&self) -> Availability {
+            self.0.clone()
+        }
+        fn respond(&self, _: &Request, _: &AtomicBool, on_text: &mut dyn FnMut(&str), _: Checked) -> Result<(), AiError> {
+            *self.1.lock().unwrap() += 1;
+            on_text("local");
+            Ok(())
+        }
+    }
+
+    struct Cloud(Mutex<u32>);
+
+    impl Provider for Cloud {
+        fn stream(&self, _: &Request, _: &AtomicBool, on_text: &mut dyn FnMut(&str)) -> Result<(), AiError> {
+            *self.0.lock().unwrap() += 1;
+            on_text("cloud");
+            Ok(())
+        }
+    }
+
+    fn ask(chosen_local: bool, device: &Device, on_device: bool, task: bool) -> (Result<String, AiError>, String, u32) {
+        let cloud = Cloud(Mutex::new(0));
+        let chosen = if chosen_local { Model::Local(device, "Ollama") } else { Model::Cloud(&cloud, "Claude API") };
+        let (mut out, mut name) = (String::new(), String::new());
+        let req = Request { system: "s".into(), page: None, question: "q".into() };
+        let on_device = on_device.then_some((device as &dyn LocalModel, "On-device model"));
+        let result = answer(chosen, on_device, task, &req, &AtomicBool::new(false), &mut |n| name = n.to_owned(), &mut |t| out.push_str(t));
+        let asked = *cloud.0.lock().unwrap();
+        (result.map(|()| out), name, asked)
+    }
+
+    #[test]
+    fn commands_stay_on_the_device_when_it_can_answer_and_say_who_answered() {
+        let ready = Device(Availability::Available, Mutex::new(0));
+        let (out, name, cloud) = ask(false, &ready, true, true);
+        assert_eq!((out.unwrap(), name.as_str(), cloud), ("local".to_owned(), "On-device model", 0));
+        let (out, name, cloud) = ask(false, &ready, true, false);
+        assert_eq!((out.unwrap(), name.as_str(), cloud), ("cloud".to_owned(), "Claude API", 1), "a typed question goes where the user chose");
+        let off = Device(Availability::NeedsSetup("Turn it on".into()), Mutex::new(0));
+        let (out, name, cloud) = ask(false, &off, true, true);
+        assert_eq!((out.unwrap(), name.as_str(), cloud), ("cloud".to_owned(), "Claude API", 1), "the cloud was chosen");
+        let (out, _, cloud) = ask(true, &off, false, true);
+        assert!(matches!(out, Err(AiError::Unavailable(ref why)) if why == "Turn it on"), "a local choice says why it cannot answer");
+        assert_eq!((cloud, *off.1.lock().unwrap()), (0, 0), "and never asks the cloud");
     }
 
     #[test]

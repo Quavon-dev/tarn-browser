@@ -56,6 +56,8 @@ struct Tab {
     last_find: RefCell<String>,
     /// Web Inspector may open from the page's menu, as in WebKit tabs (S10).
     inspectable: Cell<bool>,
+    /// The commands a selection's menu offers after Ask Assistant about Selection; none hides both.
+    assistant_menu: RefCell<Option<Vec<String>>>,
     #[cfg(target_os = "macos")]
     download_notice: Cell<Option<std::time::Instant>>,
     /// Shared with the pop-ups the tab opens (S23), as WebKit's are.
@@ -1514,6 +1516,10 @@ fn kept_item(id: i32, inspectable: bool) -> bool {
 
 /// The context-menu command Tarn adds after Open Link in New Tab.
 const OPEN_LINK_IN_SPLIT_VIEW: i32 = sys::cef_menu_id_t::MENU_ID_USER_FIRST as i32;
+/// Ask Assistant about Selection, its submenu and, after them, one id per command.
+const ASK_ASSISTANT: i32 = OPEN_LINK_IN_SPLIT_VIEW + 1;
+const ASSISTANT_COMMANDS: i32 = OPEN_LINK_IN_SPLIT_VIEW + 2;
+const FIRST_COMMAND: i32 = OPEN_LINK_IN_SPLIT_VIEW + 3;
 
 wrap_context_menu_handler! {
     struct TarnContextMenu {
@@ -1522,9 +1528,11 @@ wrap_context_menu_handler! {
     }
 
     impl ContextMenuHandler {
-        fn on_before_context_menu(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _params: Option<&mut ContextMenuParams>, model: Option<&mut MenuModel>) {
+        fn on_before_context_menu(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, params: Option<&mut ContextMenuParams>, model: Option<&mut MenuModel>) {
             let Some(model) = model else { return };
             let inspectable = tab(self.id).is_some_and(|t| t.inspectable.get());
+            let selected = params.is_some_and(|p| !CefString::from(&p.selection_text()).to_string().trim().is_empty());
+            let commands = tab(self.id).and_then(|t| t.assistant_menu.borrow().clone()).filter(|_| selected);
             // A separator stays only between two kept items.
             let mut after_item = false;
             for index in (0..model.count()).rev() {
@@ -1541,9 +1549,30 @@ wrap_context_menu_handler! {
             if let Ok(at) = usize::try_from(model.index_of(sys::IDC_CONTENT_CONTEXT_OPENLINKNEWTAB)) {
                 model.insert_item_at(at + 1, OPEN_LINK_IN_SPLIT_VIEW, Some(&CefString::from("Open Link in Split View")));
             }
+            if let Some(commands) = commands {
+                if model.count() > 0 {
+                    model.add_separator();
+                }
+                model.add_item(ASK_ASSISTANT, Some(&CefString::from(crate::view_policy::ASK_SELECTION)));
+                let sub = if commands.is_empty() { None } else { model.add_sub_menu(ASSISTANT_COMMANDS, Some(&CefString::from(crate::view_policy::ASSISTANT_COMMANDS))) };
+                if let Some(sub) = sub {
+                    for (id, name) in (FIRST_COMMAND..).zip(commands.iter().take(crate::view_policy::MAX_MENU_COMMANDS)) {
+                        sub.add_item(id, Some(&CefString::from(name.as_str())));
+                    }
+                }
+            }
         }
 
         fn on_context_menu_command(&self, browser: Option<&mut Browser>, _frame: Option<&mut Frame>, params: Option<&mut ContextMenuParams>, command_id: i32, _event_flags: EventFlags) -> i32 {
+            if command_id == ASK_ASSISTANT || (FIRST_COMMAND..FIRST_COMMAND + crate::view_policy::MAX_MENU_COMMANDS as i32).contains(&command_id) {
+                let Some(tab) = tab(self.id) else { return 0 };
+                let command = usize::try_from(command_id - FIRST_COMMAND).ok().and_then(|ix| tab.assistant_menu.borrow().as_ref()?.get(ix).cloned());
+                if command_id == ASK_ASSISTANT || command.is_some() {
+                    emit(&tab, Event::AssistantSelection(command));
+                    return 1;
+                }
+                return 0;
+            }
             if command_id != OPEN_LINK_IN_SPLIT_VIEW {
                 return 0;
             }
@@ -1885,6 +1914,7 @@ impl WebView {
             shell_chain: Cell::new(false),
             last_find: RefCell::new(String::new()),
             inspectable: Cell::new(false),
+            assistant_menu: RefCell::default(),
             #[cfg(target_os = "macos")]
             download_notice: Cell::new(None),
             recent_popups: Rc::default(),
@@ -2249,6 +2279,10 @@ impl WebView {
     pub fn ping(&self, done: impl Fn() + 'static) {
         let Some(host) = self.browser_host().filter(|_| !self.lockdown_view()) else { return done() };
         call(&self.0.tab, &host, "Runtime.evaluate", "{\"expression\":\"0\"}", move |_| done());
+    }
+
+    pub fn set_assistant_menu(&self, commands: Option<Vec<String>>) {
+        *self.0.tab.assistant_menu.borrow_mut() = commands;
     }
 
     pub fn selected_text(&self, done: impl Fn(String) + 'static) {

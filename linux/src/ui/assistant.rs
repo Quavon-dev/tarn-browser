@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use browser_core::assistant::{Origin, Pill};
+use browser_core::tabs::{TabChoice, TabKey};
 use nsh_core::prelude::*;
 use shield::ShieldLevel;
 use tarn_nsh_shared::assistant::{self, Platform};
@@ -16,7 +17,7 @@ fn transport() -> Arc<dyn ai::Transport> {
     Arc::new(ai::UreqTransport)
 }
 
-static PLATFORM: Platform = Platform { secrets: &ai::secrets::Keyring, transport, keyring: "the Secret Service keyring", ollama_gap: None };
+static PLATFORM: Platform = Platform { secrets: &ai::secrets::Keyring, transport, keyring: "the Secret Service keyring", ollama_gap: None, on_device: None };
 
 #[derive(Clone, Copy)]
 pub struct Host(pub Ui);
@@ -42,6 +43,14 @@ impl assistant::Host for Host {
         act(self.0, Browser::read_page_for_assistant);
     }
 
+    fn tabs(self) -> Vec<TabChoice> {
+        read(self.0, |b| b.model.assistant_tabs(&b.core, |key, t| b.current_url(key).unwrap_or_else(|| t.url.clone()))).unwrap_or_default()
+    }
+
+    fn read_tab(self, key: TabKey) {
+        act(self.0, |b| b.read_tab_for_assistant(key));
+    }
+
     fn open(self, url: Url) {
         act(self.0, |b| {
             b.new_tab(url.as_str());
@@ -62,9 +71,14 @@ pub fn open(ui: Ui, page: bool) {
     }
 }
 
-pub fn attach(ui: Ui, pages: Vec<(Origin, Pill)>) {
-    for (origin, pill) in pages {
-        ui.chat.attach(Host(ui), origin, pill);
+/// Attaches what was read for the chat; a selection opens the chat first and a selection's
+/// command sends it.
+pub fn attach(ui: Ui, pages: Vec<(Origin, Pill, Option<String>)>) {
+    for (origin, pill, command) in pages {
+        if matches!(pill, Pill::Selection { .. }) && !ui.assistant.get_untracked() {
+            open(ui, false);
+        }
+        ui.chat.ask_selection(Host(ui), origin, pill, command.as_deref());
     }
 }
 

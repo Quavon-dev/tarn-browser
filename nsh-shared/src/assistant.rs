@@ -7,13 +7,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
+use ai::local::Model;
 use ai::markdown::{Block, Span};
-use ai::{AiError, ApiToken, ClaudeApi, Ollama, Provider as _, Secrets, Transport};
+use ai::{AiError, ApiToken, ClaudeApi, Ollama, Secrets, Transport};
 use browser_core::assistant::links::{self, LinkAction};
 use browser_core::assistant::settings::{self, Provider};
 use browser_core::assistant::view as chat_view;
-use browser_core::assistant::{ASK, ChatView, Effect, Event, Origin, Pill, ProfileKind, Role, Session, allowed, commands};
+use browser_core::assistant::{ASK, ChatView, Effect, Event, Origin, Pill, ProfileKind, Role, Session, allowed, commands, on_device_task};
 use browser_core::cleanup;
+use browser_core::tabs::{TabChoice, TabKey};
 use nsh_base::{Input, input};
 use nsh_core::prelude::*;
 use shield::ShieldLevel;
@@ -41,6 +43,9 @@ pub struct Platform {
     pub keyring: &'static str,
     /// Why Ollama cannot answer on this client; none where it can.
     pub ollama_gap: Option<&'static str>,
+    /// The system's on-device model and its name, which answers commands in place of the Claude
+    /// API where it can; none where the client has none.
+    pub on_device: Option<(&'static dyn ai::LocalModel, &'static str)>,
 }
 
 pub trait Host: Copy + 'static {
@@ -53,6 +58,11 @@ pub trait Host: Copy + 'static {
     fn level_of(self, url: &Url) -> ShieldLevel;
     /// Asks the active page for its text; the shell hands it to `Chat::attach` as a `Pill::Page`.
     fn read_page(self);
+    /// The tab picker's tabs (`tabs::Model::assistant_tabs`).
+    fn tabs(self) -> Vec<TabChoice>;
+    /// Asks a loaded tab for its page text, never waking a sleeping one; the shell hands it to
+    /// `Chat::attach` as a `Pill::Tab`.
+    fn read_tab(self, key: TabKey);
     /// Opens `url` in a new tab of the current profile.
     fn open(self, url: Url);
 }
@@ -83,63 +93,83 @@ fn backend<H: Host>(host: H) -> Result<Backend, String> {
     }
 }
 
-/// Runs one request on the chosen provider; call off the main thread.
+/// Runs one request on the chosen provider, or a command (`on_device`) on the platform's
+/// on-device model where it can answer (`ai::local::answer`); `out` hears who answers, then the
+/// text. Call off the main thread.
 fn answer(
     backend: &Backend,
-    secrets: &dyn Secrets,
+    platform: &Platform,
     transport: Arc<dyn Transport>,
+    on_device: bool,
     req: &ai::Request,
     cancel: &AtomicBool,
-    on_text: &mut dyn FnMut(&str),
+    out: &mut dyn FnMut(Msg),
 ) -> Result<(), AiError> {
+    let out = std::cell::RefCell::new(out);
+    let named = &mut |m: &str| (out.borrow_mut())(Msg::Model(m.to_owned()));
+    let on_text = &mut |t: &str| (out.borrow_mut())(Msg::Text(t.to_owned()));
     match backend {
         Backend::Claude => {
-            let token = ai::secrets::load_token(secrets)?.ok_or_else(|| AiError::Unavailable(NOT_CONNECTED.into()))?;
-            ClaudeApi::new(token, None, transport).stream(req, cancel, on_text)
+            let token = ai::secrets::load_token(platform.secrets)?.ok_or_else(|| AiError::Unavailable(NOT_CONNECTED.into()))?;
+            let api = ClaudeApi::new(token, None, transport);
+            ai::local::answer(Model::Cloud(&api, Provider::ClaudeApi.name()), platform.on_device, on_device, req, cancel, named, on_text)
         }
-        Backend::Ollama(model) => ai::local::stream(&Ollama::new(model.clone(), transport), req, cancel, on_text),
+        Backend::Ollama(model) => {
+            let name = format!("{} ({model})", Provider::Ollama.name());
+            ai::local::answer(Model::Local(&Ollama::new(model.clone(), transport), &name), None, on_device, req, cancel, named, on_text)
+        }
     }
 }
 
 enum Msg {
+    Model(String),
     Text(String),
     End(Result<(), String>),
 }
 
-/// Everything that arrived since the last frame, as one chunk, and how the request ended if it did.
-fn drain(rx: &mpsc::Receiver<Msg>) -> (String, Option<Result<(), String>>) {
-    let mut text = String::new();
+/// Everything that arrived since the last frame: the model that answers, once named, the text as
+/// one chunk, and how the request ended if it did.
+fn drain(rx: &mpsc::Receiver<Msg>) -> (Option<String>, String, Option<Result<(), String>>) {
+    let (mut model, mut text) = (None, String::new());
     loop {
         match rx.try_recv() {
+            Ok(Msg::Model(m)) => model = Some(m),
             Ok(Msg::Text(t)) => text.push_str(&t),
-            Ok(Msg::End(end)) => return (text, Some(end)),
-            Err(mpsc::TryRecvError::Empty) => return (text, None),
-            Err(mpsc::TryRecvError::Disconnected) => return (text, Some(Err("the request stopped".into()))),
+            Ok(Msg::End(end)) => return (model, text, Some(end)),
+            Err(mpsc::TryRecvError::Empty) => return (model, text, None),
+            Err(mpsc::TryRecvError::Disconnected) => return (model, text, Some(Err("the request stopped".into()))),
         }
     }
 }
 
-/// Starts `req` on a background thread; `on_frame` gets the text of each frame (at most one call
-/// per `FRAME`) and `done` how it ended.
-fn run<H: Host>(host: H, req: ai::Request, cancel: Arc<AtomicBool>, on_frame: impl Fn(String) + 'static, done: impl FnOnce(Result<(), String>) + 'static) {
+/// Starts `req` on a background thread; `on_frame` gets the model once it is named and the text
+/// of each frame (at most one call per `FRAME`), and `done` how it ended.
+fn run<H: Host>(
+    host: H,
+    req: ai::Request,
+    on_device: bool,
+    cancel: Arc<AtomicBool>,
+    on_frame: impl Fn(Option<String>, String) + 'static,
+    done: impl FnOnce(Result<(), String>) + 'static,
+) {
     let backend = match backend(host) {
         Ok(b) => b,
         Err(why) => return done(Err(why)),
     };
-    let (secrets, transport) = (host.platform().secrets, (host.platform().transport)());
+    let (platform, transport) = (host.platform(), (host.platform().transport)());
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let sent = tx.clone();
-        let ended = answer(&backend, secrets, transport, &req, &cancel, &mut |t| drop(sent.send(Msg::Text(t.to_owned()))));
+        let ended = answer(&backend, platform, transport, on_device, &req, &cancel, &mut |m| drop(sent.send(m)));
         drop(tx.send(Msg::End(ended.map_err(|e| e.to_string()))));
     });
     Owner::detached().run(|| {
         drop(spawn(async move {
             loop {
                 timer(FRAME).await;
-                let (text, end) = drain(&rx);
-                if !text.is_empty() {
-                    on_frame(text);
+                let (model, text, end) = drain(&rx);
+                if model.is_some() || !text.is_empty() {
+                    on_frame(model, text);
                 }
                 if let Some(end) = end {
                     return done(end);
@@ -228,21 +258,39 @@ impl Chat {
         self.effects(host, effects);
     }
 
+    /// Sends the question field through `template`.
     pub fn send<H: Host>(self, host: H, template: &str) {
+        self.send_with(host, &self.question.get_untracked(), template);
+    }
+
+    /// Attaches the page's selection from the selection menu and, for a command, sends it with
+    /// that command's template and no question: one choice, one send.
+    pub fn ask_selection<H: Host>(self, host: H, origin: Origin, pill: Pill, command: Option<&str>) {
+        self.attach(host, origin, pill);
+        let custom = host.with_store(|s| s.ai_commands(origin.profile).unwrap_or_default());
+        if let Some(template) = command.and_then(|name| commands::for_selection(&custom, name)) {
+            self.send_with(host, "", &template);
+        }
+    }
+
+    fn send_with<H: Host>(self, host: H, question: &str, template: &str) {
         self.check();
         let Some(profile) = self.session.with(|s| s.as_ref().map(|(_, s)| s.profile())) else { return };
         let origin = host.origin().unwrap_or(Origin { profile, kind: ProfileKind::Private, level: ShieldLevel::Lockdown });
         let on = ai_on(host, profile);
-        let question = self.question.get_untracked();
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-        let effects = self.session.with(|s| s.as_mut().map(|(_, s)| s.send(&question, template, now, origin, on, |u| host.level_of(u)))).unwrap_or_default();
-        if effects.iter().any(|e| matches!(e, Effect::Start { .. })) {
+        let effects = self.session.with(|s| s.as_mut().map(|(_, s)| s.send(question, template, now, origin, on, |u| host.level_of(u)))).unwrap_or_default();
+        if template == ASK && effects.iter().any(|e| matches!(e, Effect::Start { .. })) {
             self.question.set(String::new());
         }
-        self.effects(host, effects);
+        self.effects_for(host, effects, on_device_task(template));
     }
 
     fn effects<H: Host>(self, host: H, effects: Vec<Effect>) {
+        self.effects_for(host, effects, false);
+    }
+
+    fn effects_for<H: Host>(self, host: H, effects: Vec<Effect>, on_device: bool) {
         for effect in effects {
             match effect {
                 Effect::Start { id, request } => {
@@ -252,8 +300,16 @@ impl Chat {
                     run(
                         host,
                         req,
+                        on_device,
                         cancel,
-                        move |text| self.apply(host, Event::Chunk { id, text }),
+                        move |model, text| {
+                            if let Some(model) = model {
+                                self.apply(host, Event::AnsweredBy { id, model });
+                            }
+                            if !text.is_empty() {
+                                self.apply(host, Event::Chunk { id, text });
+                            }
+                        },
                         move |end| {
                             if self.running.with(|r| r.as_ref().is_some_and(|(r, _)| *r == id)) {
                                 self.running.replace(None);
@@ -490,6 +546,42 @@ fn answer_view<H: Host>(host: H, markdown: &str) -> View {
     view().gap_2().children(ai::markdown::parse(markdown).into_iter().map(move |b| block(host, b)))
 }
 
+/// An answer's links again as buttons, so the keyboard reaches each one (Tab, then Enter) and
+/// opens it through the same confirmation as a press on the link.
+fn link_list<H: Host>(host: H, markdown: &str) -> Option<View> {
+    let links: Vec<(String, String)> = ai::markdown::parse(markdown)
+        .into_iter()
+        .flat_map(|block| match block {
+            Block::Heading { spans, .. } | Block::Paragraph(spans) | Block::ListItem { spans, .. } | Block::Quote(spans) => spans,
+            Block::Code { .. } | Block::Rule => Vec::new(),
+        })
+        .filter_map(|s| s.link.map(|url| (links::shown(&s.text, &url), url)))
+        .collect();
+    (!links.is_empty()).then(|| {
+        view().gap_1().child(hint("Links")).children(links.into_iter().map(move |(shown, url)| pill(shown, move || follow(host, &url)).into_element()))
+    })
+}
+
+/// The tab picker: the space's other tabs the assistant may read; a sleeping one is listed but
+/// cannot be chosen, since adding it would load its page.
+fn tab_picker<H: Host>(host: H, open: Signal<bool>) -> View {
+    let tabs = host.tabs();
+    if tabs.is_empty() {
+        return view().child(hint("No other tab here can be added."));
+    }
+    group().children(tabs.into_iter().map(move |t| {
+        if !t.awake {
+            return hint(format!("{} (asleep; open it to add it)", t.title)).into_element();
+        }
+        let key = t.key;
+        pill(t.title, move || {
+            open.set(false);
+            host.read_tab(key);
+        })
+        .into_element()
+    }))
+}
+
 /// The chat panel: the conversation, attached pills as chips, what a send will carry with its
 /// sizes, the question field and Send or Cancel.
 pub fn panel<H: Host>(host: H, chat: Chat, close: impl Fn() + Copy + 'static) -> AnyElement {
@@ -504,6 +596,7 @@ pub fn panel<H: Host>(host: H, chat: Chat, close: impl Fn() + Copy + 'static) ->
 /// The panel without its header, for a sheet that has its own.
 pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
     let notes_open = signal(false);
+    let tabs_open = signal(false);
     dynamic(move || {
         let Some(chat_view) = chat.view.get() else {
             let here = host.origin().is_some_and(allowed);
@@ -522,9 +615,9 @@ pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
                         let base = row.text.clone();
                         bubble.child(dynamic(move || Some(answer_view(host, &format!("{base}{}", chat.tail.get())))))
                     }
-                    Role::Assistant => bubble.child(answer_view(host, &row.text)),
+                    Role::Assistant => bubble.child(answer_view(host, &row.text)).children(link_list(host, &row.text)),
                 };
-                bubble.when(row.interrupted, |b| b.opacity(0.6).child(hint("Interrupted; not sent again."))).into_element()
+                bubble.children(row.by.clone().map(hint)).when(row.interrupted, |b| b.opacity(0.6).child(hint("Interrupted; not sent again."))).into_element()
             })
             .collect();
         let chips: Vec<AnyElement> = chat_view
@@ -568,8 +661,10 @@ pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
                         .flex_wrap()
                         .gap_1()
                         .child(pill("Attach Page", move || host.read_page()))
+                        .child(pill("Attach Tab", move || tabs_open.update(|o| *o = !*o)))
                         .child(pill("Attach Note", move || notes_open.update(|o| *o = !*o))),
                 )
+                .child(dynamic(move || tabs_open.get().then(|| tab_picker(host, tabs_open))))
                 .child(dynamic(move || notes_open.get().then(|| notes(host, chat, notes_open))))
                 .child(field("Ask about the page or anything", chat.question).multiline(true).min_h(px(64.)).on_submit(move |_: &str| chat.send(host, ASK)))
                 .child(
@@ -624,8 +719,9 @@ pub fn group_tabs<H: Host>(
     run(
         host,
         req,
+        false,
         cancel,
-        move |text| {
+        move |_, text| {
             let mut out = kept.borrow_mut();
             out.push_str(&text);
             if out.len() > ai::grouping::MAX_OUTPUT_BYTES {
@@ -708,23 +804,62 @@ mod tests {
         }
     }
 
-    fn ask(backend: &Backend, secrets: &FakeSecrets) -> (Result<String, AiError>, Vec<(String, String)>) {
+    fn platform(secrets: &'static FakeSecrets, on_device: Option<(&'static dyn ai::LocalModel, &'static str)>) -> Platform {
+        Platform { secrets, transport: || unreachable!(), keyring: "test", ollama_gap: None, on_device }
+    }
+
+    fn ask(backend: &Backend, secrets: &'static FakeSecrets) -> (Result<String, AiError>, Vec<(String, String)>) {
+        let (result, _, asked) = ask_on(backend, &platform(secrets, None), false);
+        (result, asked)
+    }
+
+    fn ask_on(backend: &Backend, platform: &Platform, on_device: bool) -> (Result<String, AiError>, String, Vec<(String, String)>) {
         let transport = Arc::new(FakeTransport::default());
         let req = ai::Request { system: "s".into(), page: None, question: "q".into() };
-        let mut out = String::new();
-        let result = answer(backend, secrets, transport.clone(), &req, &AtomicBool::new(false), &mut |t| out.push_str(t));
+        let (mut out, mut name) = (String::new(), String::new());
+        let result = answer(backend, platform, transport.clone(), on_device, &req, &AtomicBool::new(false), &mut |m| match m {
+            Msg::Model(n) => name = n,
+            Msg::Text(t) => out.push_str(&t),
+            Msg::End(_) => {}
+        });
         let asked = transport.0.lock().unwrap().clone();
-        (result.map(|()| out), asked)
+        (result.map(|()| out), name, asked)
+    }
+
+    struct Device;
+
+    impl ai::LocalModel for Device {
+        fn availability(&self) -> ai::Availability {
+            ai::Availability::Available
+        }
+        fn respond(&self, _: &ai::Request, _: &AtomicBool, on_text: &mut dyn FnMut(&str), _: ai::local::Checked) -> Result<(), AiError> {
+            on_text("device");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn commands_answer_on_the_device_and_name_it_while_questions_go_where_chosen() {
+        let secrets: &'static FakeSecrets = Box::leak(Box::new(FakeSecrets(Mutex::new(Some("test-key".into())))));
+        let with_device = platform(secrets, Some((&Device, "On-device")));
+        let (out, name, asked) = ask_on(&Backend::Claude, &with_device, true);
+        assert_eq!((out.unwrap().as_str(), name.as_str()), ("device", "On-device"));
+        assert!(asked.is_empty(), "a command the device answers sends nothing");
+        let (out, name, asked) = ask_on(&Backend::Claude, &with_device, false);
+        assert_eq!((out.unwrap().as_str(), name.as_str(), asked.len()), ("Hi", "Claude API", 1));
+        let (_, name, asked) = ask_on(&Backend::Ollama("llama3.2".into()), &with_device, true);
+        assert_eq!(name, "Ollama on this computer (llama3.2)", "a local choice keeps its own model");
+        assert!(asked.iter().all(|(url, _)| url.starts_with("http://127.0.0.1:11434/")));
     }
 
     #[test]
     fn claude_needs_a_stored_key_and_sends_it_only_to_anthropic() {
-        let secrets = FakeSecrets::default();
-        let (result, asked) = ask(&Backend::Claude, &secrets);
+        let secrets: &'static FakeSecrets = Box::leak(Box::default());
+        let (result, asked) = ask(&Backend::Claude, secrets);
         assert!(matches!(result, Err(AiError::Unavailable(ref m)) if m == NOT_CONNECTED));
         assert!(asked.is_empty(), "nothing is sent without a key");
-        ai::secrets::store_token(&secrets, &ApiToken::new("test-key".into())).unwrap();
-        let (result, asked) = ask(&Backend::Claude, &secrets);
+        ai::secrets::store_token(secrets, &ApiToken::new("test-key".into())).unwrap();
+        let (result, asked) = ask(&Backend::Claude, secrets);
         assert_eq!(result.unwrap(), "Hi");
         assert_eq!(asked.len(), 1);
         assert_eq!(asked[0].0, "https://api.anthropic.com/v1/messages");
@@ -733,8 +868,8 @@ mod tests {
 
     #[test]
     fn ollama_answers_on_loopback_without_the_key() {
-        let secrets = FakeSecrets(Mutex::new(Some("test-key".into())));
-        let (result, asked) = ask(&Backend::Ollama("llama3.2".into()), &secrets);
+        let secrets: &'static FakeSecrets = Box::leak(Box::new(FakeSecrets(Mutex::new(Some("test-key".into())))));
+        let (result, asked) = ask(&Backend::Ollama("llama3.2".into()), secrets);
         assert_eq!(result.unwrap(), "local");
         assert!(asked.iter().all(|(url, body)| url.starts_with("http://127.0.0.1:11434/") && !body.contains("test-key")));
         assert!(asked.iter().any(|(url, _)| url.ends_with("/api/chat")));
@@ -743,16 +878,17 @@ mod tests {
     #[test]
     fn a_frame_takes_every_chunk_so_far_as_one() {
         let (tx, rx) = mpsc::channel();
-        assert_eq!(drain(&rx), (String::new(), None));
+        assert_eq!(drain(&rx), (None, String::new(), None));
+        tx.send(Msg::Model("M".into())).unwrap();
         for t in ["a", "b", "c"] {
             tx.send(Msg::Text(t.into())).unwrap();
         }
-        assert_eq!(drain(&rx), ("abc".into(), None));
+        assert_eq!(drain(&rx), (Some("M".into()), "abc".into(), None));
         tx.send(Msg::Text("d".into())).unwrap();
         tx.send(Msg::End(Ok(()))).unwrap();
-        assert_eq!(drain(&rx), ("d".into(), Some(Ok(()))));
+        assert_eq!(drain(&rx), (None, "d".into(), Some(Ok(()))));
         drop(tx);
-        assert!(matches!(drain(&rx), (t, Some(Err(_))) if t.is_empty()), "a thread that died ends the request");
+        assert!(matches!(drain(&rx), (None, t, Some(Err(_))) if t.is_empty()), "a thread that died ends the request");
     }
 
     #[test]

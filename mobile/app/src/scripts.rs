@@ -25,6 +25,7 @@ pub enum Script {
     Icon,
     Media,
     Assistant,
+    AssistantTab,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -269,6 +270,9 @@ impl<D: Platform> Shell<D> {
             "pageText" if data.get("seq").and_then(Value::as_u64).and_then(|s| self.scripts.get(&s)).is_some_and(|(_, s)| *s == Script::Assistant) => {
                 self.page_for_assistant(key, data);
             }
+            "pageText" if data.get("seq").and_then(Value::as_u64).and_then(|s| self.scripts.get(&s)).is_some_and(|(_, s)| *s == Script::AssistantTab) => {
+                self.tab_for_assistant(key, data);
+            }
             "pageText" => {
                 if let Some(url) = self.answer_for(key, data, Script::Text)
                     && let (Some(id), Some(visit)) = (self.profile_id(), self.visits.get(&key).copied())
@@ -310,7 +314,43 @@ impl<D: Platform> Shell<D> {
         let Some(url) = self.answer_for(key, data, Script::Assistant).filter(|_| self.model.active == Some(key)) else { return };
         if let Some(origin) = self.model.assistant_origin(&self.core, Some(&url)) {
             let pill = browser_core::assistant::Pill::Page { title: self.page_title(key), text: text(data, "text"), url };
-            self.assistant_pages.push((origin, pill));
+            self.assistant_pages.push((origin, pill, None));
+        }
+    }
+
+    /// Reads another tab's loaded page for the assistant's tab picker; a sleeping tab is never
+    /// woken for it. The text arrives in `assistant_pages`.
+    pub fn read_tab_for_assistant(&mut self, key: TabKey) -> Vec<Effect> {
+        if !self.model.lifecycle.live().any(|k| k == key) || !web(&self.tab_url(key)) {
+            self.notice = Some("That tab is asleep or cannot be shared. Open it to add it.".into());
+            return Vec::new();
+        }
+        self.ask(key, Script::AssistantTab, "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT }))
+    }
+
+    fn tab_for_assistant(&mut self, key: TabKey, data: &Value) {
+        let Some(url) = self.answer_for(key, data, Script::AssistantTab).filter(|_| self.model.tab(key).is_some()) else { return };
+        if let Some(origin) = self.model.assistant_origin(&self.core, Some(&url)) {
+            let pill = browser_core::assistant::Pill::Tab { title: self.page_title(key), text: text(data, "text"), url };
+            self.assistant_pages.push((origin, pill, None));
+        }
+    }
+
+    /// The selection the page's menu sent (`assistantSelection`), where the assistant may still
+    /// see that page; a command sends it once the chat attached it.
+    pub(crate) fn selection_for_assistant(&mut self, key: TabKey, data: &Value) {
+        let Some(url) = self.current_page(key, data) else { return };
+        let here = |o: &browser_core::assistant::Origin| {
+            self.model.profile_of(&self.core, key) == Some(o.profile) && self.model.assistant_offered(&self.core, Some(&url))
+        };
+        let Some(origin) = self.model.assistant_origin(&self.core, Some(&url)).filter(here) else {
+            self.notice = Some("This page cannot be shared with the assistant.".into());
+            return;
+        };
+        let command = data.get("command").and_then(Value::as_str).map(str::to_owned);
+        match browser_core::assistant::selection(&url, &text(data, "text")) {
+            Some(pill) => self.assistant_pages.push((origin, pill, command)),
+            None => self.notice = Some("No text that can be shared is selected.".into()),
         }
     }
 
