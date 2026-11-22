@@ -278,8 +278,8 @@ pub fn clip_history_text(text: &str) -> &str {
     }
     &text[..end]
 }
-/// The longest custom assistant command template kept, in bytes.
 pub const MAX_AI_TEMPLATE: usize = 4096;
+pub const MAX_AI_NAME: usize = 64;
 /// The longest snippet text kept, in bytes, and the longest snippet name.
 pub const MAX_SNIPPET: usize = 16 * 1024;
 pub const MAX_SNIPPET_NAME: usize = 32;
@@ -293,13 +293,6 @@ pub fn valid_snippet_name(name: &str) -> bool {
 pub const MAX_NOTE_TITLE: usize = 200;
 pub const MAX_NOTE: usize = 64 * 1024;
 pub const MAX_NOTES: usize = 1000;
-
-/// A character a note never keeps: a control character other than a line break or tab, or a bidi,
-/// zero-width or tag character (kept in sync with `browser_core::text::is_bidi`).
-pub fn is_invisible(c: char) -> bool {
-    (c.is_control() && c != '\n' && c != '\t')
-        || matches!(c, '\u{061C}' | '\u{115F}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{E0000}'..='\u{E007F}')
-}
 
 /// The most CSS one site may keep, in bytes.
 pub const MAX_SITE_CSS: usize = 64 * 1024;
@@ -1119,7 +1112,8 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// A blank name or a template over `MAX_AI_TEMPLATE` bytes is refused.
+    /// A blank name, one over `MAX_AI_NAME` bytes or with control or invisible characters, or a
+    /// template over `MAX_AI_TEMPLATE` bytes is refused.
     pub fn create_ai_command(&self, profile_id: Id, name: &str, template: &str) -> Result<AiCommand> {
         check_ai_command(name, template)?;
         self.conn.execute("INSERT INTO ai_commands (profile_id, name, template) VALUES (?1, ?2, ?3)", params![profile_id, name, template])?;
@@ -1176,7 +1170,7 @@ impl Store {
     /// (`is_invisible`) and with the title on one line. Refused for a private profile, for an empty
     /// note, a title past `MAX_NOTE_TITLE` characters, text past `MAX_NOTE` bytes, or for a new note past `MAX_NOTES`.
     pub fn save_note(&self, profile_id: Id, id: Option<Id>, title: &str, body: &str) -> Result<Note> {
-        let visible = |s: &str| s.chars().filter(|c| !is_invisible(*c)).collect::<String>();
+        let visible = |s: &str| s.chars().filter(|c| !(c.is_control() && *c != '\n' && *c != '\t') && !crate::is_invisible(*c)).collect::<String>();
         let title = visible(title).split_whitespace().collect::<Vec<_>>().join(" ");
         let body = visible(body);
         if (title.is_empty() && body.trim().is_empty()) || title.chars().count() > MAX_NOTE_TITLE || body.len() > MAX_NOTE {
@@ -2052,7 +2046,8 @@ fn tab_row(r: &Row) -> rusqlite::Result<Tab> {
 }
 
 fn check_ai_command(name: &str, template: &str) -> Result<()> {
-    if name.trim().is_empty() || template.len() > MAX_AI_TEMPLATE {
+    if name.trim().is_empty() || name.len() > MAX_AI_NAME || name.chars().any(|c| c.is_control() || crate::is_invisible(c)) || template.len() > MAX_AI_TEMPLATE
+    {
         return Err(Error::Invalid("ai command"));
     }
     Ok(())
@@ -2591,6 +2586,19 @@ mod tests {
         let other = store.create_ai_command(2, "Other", "x").unwrap();
         assert!(store.create_ai_command(1, " ", "x").is_err());
         assert!(store.create_ai_command(1, "Big", &"x".repeat(MAX_AI_TEMPLATE + 1)).is_err());
+        for name in [
+            "a".repeat(MAX_AI_NAME + 1),
+            "Line\nbreak".into(),
+            "Bell\u{7}".into(),
+            "rtl\u{202e}".into(),
+            "iso\u{2066}".into(),
+            "Summ\u{AD}arize".into(),
+            "x\u{FE0F}".into(),
+        ] {
+            assert!(store.create_ai_command(1, &name, "x").is_err(), "{name:?}");
+            assert!(store.update_ai_command(1, tldr.id, &name, "x").is_err(), "{name:?}");
+        }
+        assert!(store.create_ai_command(2, &"é".repeat(MAX_AI_NAME / 2), "x").is_ok_and(|c| store.delete_ai_command(2, c.id).is_ok()));
         store.update_ai_command(2, tldr.id, "Taken", "y").unwrap();
         store.delete_ai_command(2, tldr.id).unwrap();
         assert_eq!(store.ai_commands(1).unwrap(), std::slice::from_ref(&tldr), "another profile cannot change it");

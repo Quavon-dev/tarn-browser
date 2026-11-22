@@ -213,6 +213,8 @@ pub struct State {
     pub no_tab: bool,
     pub no_page: bool,
     pub private: bool,
+    /// `assistant::allowed` for the active page and the profile's AI switch both say yes.
+    pub assistant: bool,
     pub muted: Option<bool>,
     pub reader: Option<bool>,
     pub custom_title: bool,
@@ -246,6 +248,8 @@ impl State {
             ToggleSplitView => tab && !self.split,
             CloseSplit | FocusNextPane | FocusPreviousPane | SwapPanes | RotateSplitLayout | RemoveFromSplitView => self.split,
             SaveSnapshot | Snapshots => !self.private,
+            Ask => self.assistant,
+            AskPage => tab && !self.no_page && self.assistant,
             ToggleMute => tab && self.muted.is_some(),
             ResetTitle => tab && self.custom_title,
             RenameTab => tab && self.renamable,
@@ -377,6 +381,16 @@ mod tests {
             ["Reload in WebKit"],
             "a file or blank page can still switch engines"
         );
+    }
+
+    #[test]
+    fn the_assistant_is_offered_only_where_it_is_allowed_and_about_a_page_only_with_one() {
+        let on = State { assistant: true, ..State::default() };
+        assert_eq!(names("ask a", on.clone()), ["Ask Assistant", "Ask About This Page"]);
+        assert!(names("ask a", State::default()).is_empty(), "private, burner, Lockdown or AI off");
+        for state in [State { no_page: true, ..on.clone() }, State { no_tab: true, ..on }] {
+            assert_eq!(names("ask a", state), ["Ask Assistant"]);
+        }
     }
 
     #[test]

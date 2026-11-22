@@ -421,18 +421,36 @@ synced.
 **Assistant:** `browser_core::assistant` is the chat every client renders and the rules its
 requests follow (threat model S2, S3, S9); it does not depend on the `ai` crate and sends nothing.
 `Session::new` binds a chat to one profile and refuses a private space, a burner tab, a Lockdown
-level or a profile whose `ai_enabled` is off (`store::Store::set_profile_ai`). `Session::apply` takes
-an `Event` (add or remove a pill, send, stream chunk, done, failed, cancel) and returns `Effect`s
-(start or stop a request by id, render); it allows one request at a time and at most one send per
-`MIN_SEND_INTERVAL_MS`, and ignores chunks of a stopped request. A `Pill` (page, tab, selection,
-note) is added only by an explicit event, and only from the session's own profile at a level
-`allowed` accepts. `compose` builds the request: `{question}`, `{page}` and `{selection}` are
-expanded in one pass over the template only, each pill becomes one `Block` with URLs stripped of
-query, fragment and sign-in, control and bidi characters dropped and `tarn-block` tags removed, at
-most `MAX_PILL_BYTES` a block and `MAX_TOTAL_BYTES` over pills and history. `commands::all` lists the
-built-ins and the profile's own (`store` table `ai_commands`, removed with the profile and by Delete
-everything). `links::classify` opens only `http`/`https` links without sign-in parts, asks before
-`mailto` and refuses the rest; `links::shown` always shows the whole address. `view` returns the
-`ChatView` a client draws: rows, pill chips, the blocks a send would carry with their sizes, the
-notice and the send and cancel states. `browser_core::palette` has `Command::Ask` and
-`Command::AskPage`; no client offers them until its chat UI exists.
+level or a profile whose `ai_enabled` is off (`store::Store::set_profile_ai`). Every `Origin` a
+client passes carries the page's effective Shield level, including its per-site setting, and a
+client drops the `Session` when its profile is deleted or reset or its AI switch is turned off.
+`Session::apply` takes an `Event` (add or remove a pill, stream chunk, done, failed, cancel) and
+`Session::send` a send; both return `Effect`s (start or stop a request by id, append a chunk to the
+last row, render). One request runs at a time, at most one send per `MIN_SEND_INTERVAL_MS`, and
+chunks of a stopped request are ignored. `send` takes the current `Origin`, the AI switch and the
+effective level of each pill's page now (`site::effective_level`): from a private space, a burner
+tab, a Lockdown page, another profile or with AI off it is refused and every pill dropped, and a
+pill whose page went to Lockdown, or whose address does not parse, is dropped and the send refused;
+a pill removed earlier is still checked. Either way every exchange made since a dropped pill was
+attached is marked interrupted. An answer stops at
+`MAX_PILL_BYTES`; a cancelled or failed exchange, or one whose answer stayed empty, loses its empty
+answer, stays visible as interrupted and is never sent again. A `Pill` (page, tab, selection with
+its page's address, note) is added only by an explicit event, only from the session's own profile
+at a level `allowed` accepts, and gets its label (`Page 2`) once when added. `compose` builds the
+request: `{question}`, `{page}` and `{selection}` are expanded in one pass over the template only,
+each pill becomes one `Block` with URLs stripped of query, fragment and sign-in, control, bidi and
+other invisible characters (`store::is_invisible`) dropped and `tarn-block` removed in any case, at
+most `MAX_PILL_BYTES` a block and `MAX_TOTAL_BYTES` over pills and history. Each request delimits
+its blocks with a tag holding a random `nonce` of its own (`Composed::wrapped`), named in its
+system prompt (`Composed::system`). `commands::all` lists the built-ins and the profile's own
+(`store` table `ai_commands`, names at most `store::MAX_AI_NAME` bytes without control or invisible
+characters, removed with the profile and by Delete everything). `links::classify` refuses every
+scheme but `http`, `https` and `mailto`, any sign-in parts and local and home-network hosts
+(`shield::rules::local_target`); the rest open only after a confirmation that shows the host and
+the whole address, `mailto` with its headers removed and refused when its address encodes `?`,
+`&`, a control or an invisible character. `links::shown` always shows the whole
+address. `view` returns the `ChatView` a client draws: rows, pill chips, the blocks a send would
+carry with their sizes, the notice and the send and cancel states. `browser_core::palette` has
+`Command::Ask` and `Command::AskPage` (which also needs a page), offered only when the client sets
+`State::assistant` from `assistant::allowed` and the AI switch; no client offers them until its
+chat UI exists.

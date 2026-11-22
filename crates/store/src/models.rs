@@ -205,7 +205,6 @@ pub struct SavedWindow {
     pub position: i64,
 }
 
-/// A profile's own assistant command; `browser_core::assistant::compose` expands its template.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiCommand {
     pub id: Id,
