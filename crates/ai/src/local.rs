@@ -15,8 +15,8 @@ pub enum Availability {
     NeedsSetup(String),
 }
 
-/// Proof that `stream` checked the model's availability; only `stream` can make one, so a local
-/// model runs through it alone.
+/// Proof that `stream` or `answer` checked the model's availability; only they can make one, so a
+/// local model runs through them alone.
 pub struct Checked(pub(crate) ());
 
 /// Both methods may block (Ollama asks its server), so call `stream` off the UI thread.
@@ -77,7 +77,10 @@ pub fn answer(
 ) -> Result<(), AiError> {
     let model = match (chosen, on_device) {
         (Model::Cloud(cloud, name), Some((local, local_name))) if on_device_task => match route(Choice::Cloud, &local.availability(), true) {
-            Route::Local => Model::Local(local, local_name),
+            Route::Local => {
+                named(local_name);
+                return local.respond(req, cancel, on_text, Checked(()));
+            }
             _ => Model::Cloud(cloud, name),
         },
         (chosen, _) => chosen,
@@ -147,6 +150,25 @@ mod tests {
             assert!(matches!(out, Err(AiError::Unavailable(_))), "{show:?}");
             assert!(!asked.contains(&"chat".to_owned()), "{show:?}");
         }
+    }
+
+    #[test]
+    fn a_command_kept_on_the_device_asks_ollama_once_whether_it_can_answer() {
+        let fake = Arc::new(Fake { show: Some((200, "{}")), asked: Mutex::default() });
+        let ollama = Ollama::new("llama3.2", fake.clone());
+        let cloud = Cloud(Mutex::new(0));
+        let req = Request { system: "s".into(), page: None, question: "q".into() };
+        let mut out = String::new();
+        let on_device = Some((&ollama as &dyn LocalModel, "Ollama"));
+        answer(Model::Cloud(&cloud, "Claude API"), on_device, true, &req, &AtomicBool::new(false), &mut |_| {}, &mut |t| out.push_str(t)).unwrap();
+        assert_eq!((out.as_str(), *cloud.0.lock().unwrap()), ("hi", 0));
+        assert_eq!(*fake.asked.lock().unwrap(), ["show", "chat"]);
+    }
+
+    #[test]
+    fn an_ollama_error_is_not_called_not_running() {
+        let (availability, _, _) = run("llama3.2", Some((500, "{\"error\":\"out of memory\"}")));
+        assert!(matches!(availability, Availability::NeedsSetup(ref why) if why != crate::ollama::NOT_RUNNING && why.contains("500")), "{availability:?}");
     }
 
     #[test]

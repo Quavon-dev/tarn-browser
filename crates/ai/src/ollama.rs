@@ -50,6 +50,7 @@ impl LocalModel for Ollama {
         let mut body = match provider::post_json(&*self.transport, &url, &[], &json!({ "model": self.model }), &cancel) {
             Ok(body) => body,
             Err(AiError::Status(404, _)) => return Availability::NeedsSetup(format!("Download {} in Ollama first.", self.model)),
+            Err(AiError::Status(code, _)) => return Availability::NeedsSetup(format!("Ollama answered with error {code}. Check Ollama, then try again.")),
             Err(_) => return Availability::NeedsSetup(NOT_RUNNING.into()),
         };
         let mut text = String::new();
