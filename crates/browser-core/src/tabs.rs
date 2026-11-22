@@ -8,6 +8,7 @@ use shield::ShieldLevel;
 use store::{Folder, Group, Id, SavedWindow, Space, Tab, TabKind, WebEngine};
 use url::Url;
 
+use crate::assistant::{Origin, ProfileKind};
 use crate::closed::ClosedTabs;
 use crate::{Core, WebsiteData};
 
@@ -576,6 +577,25 @@ impl Model {
         Some((key.private, self.profile_of(core, key)?))
     }
 
+    /// The assistant's `Origin` for `page` in the current space: its profile, whether it is private
+    /// or a burner and the page's effective Shield level, per-site setting included; none while
+    /// the profile is not open.
+    pub fn assistant_origin<D: WebsiteData>(&self, core: &Core<D>, page: Option<&str>) -> Option<Origin> {
+        let (private, profile) = self.profile()?;
+        let kind = match (self.burner_shown(), private) {
+            (true, _) => ProfileKind::Burner,
+            (false, true) => ProfileKind::Private,
+            (false, false) => ProfileKind::Normal,
+        };
+        let url = page.and_then(|u| Url::parse(u).ok());
+        Some(Origin { profile, kind, level: core.level(private, profile, url.as_ref())? })
+    }
+
+    /// Whether the palette offers Ask: the assistant is allowed for `page` and its profile has AI on.
+    pub fn assistant_offered<D: WebsiteData>(&self, core: &Core<D>, page: Option<&str>) -> bool {
+        self.assistant_origin(core, page).is_some_and(|o| crate::assistant::allowed(o) && core.disk.profile(o.profile).is_ok_and(|p| p.ai_enabled))
+    }
+
     /// Whether the space at `ix` belongs to the profile, and the side, of the tab.
     pub fn same_profile<D: WebsiteData>(&self, core: &Core<D>, key: TabKey, ix: usize) -> bool {
         self.spaces.get(ix).is_some_and(|s| holds(s, key, self.profile_of(core, key)))
@@ -839,6 +859,28 @@ mod tests {
         model.reload_spaces(&core);
         model.switch_space(&core, 0).unwrap();
         (dir, core, model)
+    }
+
+    #[test]
+    fn the_assistant_origin_carries_the_kind_and_the_sites_own_level() {
+        let (_dir, core, mut model) = opened();
+        let profile = model.profile().unwrap().1;
+        assert_eq!(model.assistant_origin(&core, Some("https://a.test/")), None, "an unopened profile has no origin");
+        core.disk.set_site_override(profile, "bank.test", Some(ShieldLevel::Lockdown)).unwrap();
+        core.open_profile(false, profile, || std::rc::Rc::new(|_| {}));
+        let origin = |model: &Model, page| model.assistant_origin(&core, page).map(|o| (o.kind, o.level));
+        assert_eq!(origin(&model, Some("https://a.test/")), Some((ProfileKind::Normal, ShieldLevel::Standard)));
+        assert_eq!(origin(&model, Some("https://bank.test/x")), Some((ProfileKind::Normal, ShieldLevel::Lockdown)));
+        assert!(!model.assistant_offered(&core, Some("https://a.test/")), "AI is off by default");
+        core.disk.set_profile_ai(profile, true).unwrap();
+        assert!(model.assistant_offered(&core, Some("https://a.test/")) && model.assistant_offered(&core, None));
+        assert!(!model.assistant_offered(&core, Some("https://bank.test/")));
+        let ix = model.open_burner(&core).unwrap();
+        model.switch_space(&core, ix).unwrap();
+        let burner = model.profile().unwrap().1;
+        core.open_profile(true, burner, || std::rc::Rc::new(|_| {}));
+        assert_eq!(origin(&model, None).map(|(kind, _)| kind), Some(ProfileKind::Burner));
+        assert!(!model.assistant_offered(&core, None));
     }
 
     #[test]

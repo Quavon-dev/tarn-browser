@@ -1,5 +1,7 @@
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
+use shield::ShieldLevel;
 use store::{Folder, Id, Tab, TabKind};
 
 use crate::closed::ClosedGroup;
@@ -288,7 +290,12 @@ pub fn clean_up<D: WebsiteData>(model: &mut Model, core: &Core<D>, url: impl Fn(
         return Some(CleanUp { text: "Could not sort the tabs".to_owned(), tone: Tone::Warning, undo: None });
     };
     let sort = crate::cleanup::plan(&tabs, &groups, url);
-    let applied = if sort.changed { crate::cleanup::apply(store, space_id, &sort).map(Some) } else { Ok(None) };
+    Some(apply_sort(model, core, (private, space_id), &sort))
+}
+
+fn apply_sort<D: WebsiteData>(model: &mut Model, core: &Core<D>, (private, space_id): (bool, Id), sort: &crate::cleanup::Sort) -> CleanUp {
+    let store = core.store(private);
+    let applied = if sort.changed { crate::cleanup::apply(store, space_id, sort).map(Some) } else { Ok(None) };
     let text = sort.summary(applied.is_ok(), 0, false);
     let tone = if applied.is_ok() { Tone::Info } else { Tone::Warning };
     if sort.changed {
@@ -298,7 +305,30 @@ pub fn clean_up<D: WebsiteData>(model: &mut Model, core: &Core<D>, url: impl Fn(
     if let Some(undo) = &undo {
         model.undo.push(crate::undo::Step::CleanUp(undo.clone()), private);
     }
-    Some(CleanUp { text, tone, undo: undo.map(|undo| (private, undo)) })
+    CleanUp { text, tone, undo: undo.map(|undo| (private, undo)) }
+}
+
+/// Clean Up's assistant request for the current space's loose tabs, only where the palette would
+/// offer Ask; `page` gives each tab's address and effective Shield level. The space comes back for
+/// `group_as_proposed`.
+pub fn assistant_grouping<D: WebsiteData>(
+    model: &Model,
+    core: &Core<D>,
+    page: impl Fn(&Tab) -> (String, ShieldLevel),
+) -> Option<((bool, Id), crate::cleanup::ai::Request)> {
+    let (private, space_id) = model.current_space().map(|s| (s.private, s.space.id))?;
+    let origin = model.assistant_origin(core, None).filter(|_| model.assistant_offered(core, None))?;
+    let tabs = core.store(private).tabs(space_id).ok()?;
+    Some(((private, space_id), crate::cleanup::ai::request(origin, &tabs, page)?))
+}
+
+/// Files the tabs of `space` the assistant grouped, of those it was `sent`, as an undoable Clean Up.
+pub fn group_as_proposed<D: WebsiteData>(model: &mut Model, core: &Core<D>, space: (bool, Id), sent: &HashSet<Id>, proposal: &[(String, Vec<Id>)]) -> CleanUp {
+    let store = core.store(space.0);
+    let (Ok(tabs), Ok(groups)) = (store.tabs(space.1), store.groups(space.1)) else {
+        return CleanUp { text: "Could not sort the tabs".to_owned(), tone: Tone::Warning, undo: None };
+    };
+    apply_sort(model, core, space, &crate::cleanup::ai::sort_from(&tabs, &groups, sent, proposal))
 }
 
 pub fn undo_sort<D: WebsiteData>(model: &mut Model, core: &Core<D>, (private, undo): &(bool, crate::cleanup::Undo)) -> bool {
@@ -618,6 +648,29 @@ mod tests {
         assert!(again.undo.is_none(), "a second run changes nothing");
         assert!(undo_sort(&mut model, &core, &sorted.undo.unwrap()));
         assert!(model.groups.is_empty(), "Undo Sort removes the group it made");
+    }
+
+    #[test]
+    fn the_assistant_groups_only_what_it_was_sent_and_undo_takes_it_back() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let tab = |url: &str| core.disk.create_tab(s, TabKind::Ephemeral, None, url, "T").unwrap().id;
+        let (a, b, later) = (tab("https://a.test/"), tab("https://b.test/"), tab("file:///x"));
+        model.reload_space(&core);
+        let profile = model.profile().unwrap().1;
+        core.open_profile(false, profile, || std::rc::Rc::new(|_| {}));
+        let page = |t: &Tab| (t.url.clone(), ShieldLevel::Standard);
+        assert!(assistant_grouping(&model, &core, page).is_none(), "nothing is sent with AI off");
+        core.disk.set_profile_ai(profile, true).unwrap();
+        let (space, request) = assistant_grouping(&model, &core, page).unwrap();
+        assert_eq!(request.sent, HashSet::from([a, b]));
+        let done = group_as_proposed(&mut model, &core, space, &request.sent, &[("Reading".into(), vec![a, b, later])]);
+        assert_eq!(done.tone, Tone::Info);
+        let grouped: Vec<Id> = model.tabs.iter().filter(|t| t.group_id.is_some()).map(|t| t.id).collect();
+        assert_eq!(grouped.len(), 2, "a tab that was not sent stays loose");
+        assert!(!grouped.contains(&later));
+        assert!(undo_sort(&mut model, &core, &done.undo.unwrap()));
+        assert!(model.groups.is_empty());
     }
 
     #[test]
