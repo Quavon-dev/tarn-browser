@@ -122,7 +122,7 @@ impl<D: Platform> Shell<D> {
     fn current_page(&self, key: TabKey, data: &Value) -> Option<String> {
         let url = text(data, "url");
         let page = self.pages.get(&key)?;
-        (page.committed.as_deref() == Some(url.as_str()) && !page.awaiting_commit).then_some(url)
+        browser_core::assistant::read_here(&url, page.committed.as_deref().filter(|_| !page.awaiting_commit)).then_some(url)
     }
 
     pub(crate) fn after_finished(&mut self, key: TabKey) -> Vec<Effect> {
@@ -322,7 +322,8 @@ impl<D: Platform> Shell<D> {
     /// Reads another tab's loaded page for the assistant's tab picker; a sleeping tab is never
     /// woken for it. The text arrives in `assistant_pages`.
     pub fn read_tab_for_assistant(&mut self, key: TabKey) -> Vec<Effect> {
-        if !self.model.lifecycle.live().any(|k| k == key) || !web(&self.tab_url(key)) {
+        let url = self.tab_url(key);
+        if !self.model.lifecycle.live().any(|k| k == key) || !web(&url) || !self.model.assistant_offered(&self.core, Some(&url)) {
             self.notice = Some("That tab is asleep or cannot be shared. Open it to add it.".into());
             return Vec::new();
         }

@@ -851,6 +851,10 @@ fn a_selection_and_a_loaded_tab_reach_the_assistant_and_a_sleeping_tab_is_never_
     let (_, pill, _) = shell.assistant_pages.pop().unwrap();
     assert!(matches!(pill, Pill::Tab { ref url, ref text, .. } if url == "https://a.test/" && text == "page a"));
 
+    shell.core.disk.set_profile_ai(profile, false).unwrap();
+    assert!(shell.read_tab_for_assistant(first).is_empty(), "a tab is read only where the assistant is offered");
+    shell.core.disk.set_profile_ai(profile, true).unwrap();
+
     shell.model.lifecycle.remove(first);
     assert!(shell.model.assistant_tabs(&shell.core, |_, t| t.url.clone()).iter().all(|c| !c.awake), "a sleeping tab shows as unavailable");
     assert!(shell.read_tab_for_assistant(first).is_empty(), "a sleeping tab is never woken to be read");

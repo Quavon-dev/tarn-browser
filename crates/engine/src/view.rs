@@ -163,7 +163,8 @@ impl WebView {
         both!(self, v => v.fetch_icon(origin, urls, max_bytes, done))
     }
 
-    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String) + 'static) {
+    /// The page's text (`page_scripts::page_text_script`) after the address it was read from.
+    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String, String) + 'static) {
         both!(self, v => v.page_text(origin, max_chars, done))
     }
 
@@ -173,9 +174,10 @@ impl WebView {
         both!(self, v => v.ping(done))
     }
 
-    /// The top document's selected text, at most `page_scripts::SELECTION_MAX` UTF-16 units, read
-    /// in the isolated world; empty under Lockdown. `browser_core::page_ops::selection` bounds it.
-    pub fn selected_text(&self, done: impl Fn(String) + 'static) {
+    /// The address the selection was read from and the top document's selected text, at most
+    /// `page_scripts::SELECTION_MAX` UTF-16 units, read in the isolated world; both empty under
+    /// Lockdown. `browser_core::page_ops::selection` bounds it.
+    pub fn selected_text(&self, done: impl Fn(String, String) + 'static) {
         both!(self, v => v.selected_text(done))
     }
 

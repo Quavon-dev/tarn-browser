@@ -129,10 +129,11 @@ pub(crate) enum Msg {
     Handover(TabKey, std::rc::Weak<WebView>, Option<engine::handover::Storage>),
     /// A page's article (`probe`: whether it has one), for the reader.
     Article(TabKey, Url, bool, String),
-    /// A page or another tab read for the assistant, with who asked.
-    AssistantPill(browser_core::assistant::Origin, browser_core::assistant::Pill),
-    /// The selection a tab's menu asked the assistant about: who asked, its page, the raw text and the command.
-    AssistantSelection(browser_core::assistant::Origin, String, String, Option<String>),
+    /// A page or another tab read for the assistant: the tab, who asked and the pill.
+    AssistantPill(TabKey, browser_core::assistant::Origin, browser_core::assistant::Pill),
+    /// The selection a tab's menu asked the assistant about: the tab, who asked, the page it was
+    /// read from, the raw text and the command.
+    AssistantSelection(TabKey, browser_core::assistant::Origin, String, String, Option<String>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -469,8 +470,12 @@ impl Browser {
                     Msg::Zap(key, page, selector) => b.zap_picked(key, page, selector, cx),
                     Msg::Article(key, url, probe, text) => b.on_article(key, url, probe, text, window, cx),
                     Msg::Peek(generation, event) => b.on_peek_event(generation, event, cx),
-                    Msg::AssistantPill(origin, pill) => b.add_pill(origin, pill, cx),
-                    Msg::AssistantSelection(origin, url, raw, command) => b.selection_for_assistant(origin, &url, &raw, command, window, cx),
+                    Msg::AssistantPill(key, origin, pill) => b.add_read_pill(key, origin, pill, cx),
+                    Msg::AssistantSelection(key, origin, url, raw, command) => {
+                        if browser_core::assistant::read_here(&url, b.tab_url(key).as_deref()) {
+                            b.selection_for_assistant(origin, &url, &raw, command, window, cx);
+                        }
+                    }
                     Msg::Handover(key, old, storage) => {
                         let current = b.views.get(&key).is_some_and(|v| old.upgrade().is_some_and(|o| Rc::ptr_eq(v, &o)));
                         if let (true, Some(url)) = (current, b.tab_url(key).and_then(|u| Url::parse(&u).ok())) {
@@ -2379,7 +2384,7 @@ impl Browser {
             return;
         }
         let events = self.events.clone();
-        view.page_text(url, store::MAX_HISTORY_TEXT, move |text| {
+        view.page_text(url, store::MAX_HISTORY_TEXT, move |_, text| {
             events.unbounded_send(Msg::PageText(profile_id, visit, page.clone(), text)).ok();
         });
     }

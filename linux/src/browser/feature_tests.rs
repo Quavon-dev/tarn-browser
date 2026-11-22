@@ -229,6 +229,8 @@ fn a_selection_and_a_loaded_tab_reach_the_assistant_and_a_sleeping_tab_is_never_
     );
     b.on_event(first, "assistantSelection", &json!({ "url": "https://a.test/", "text": "" }));
     assert!(b.assistant_pages.is_empty(), "nothing selected attaches nothing");
+    b.on_event(first, "assistantSelection", &json!({ "url": "https://a.test/left", "text": "old" }));
+    assert!(b.assistant_pages.is_empty(), "a selection from a page the tab has left is dropped");
 
     let second = b.new_tab("https://b.test/").unwrap();
     visit(&mut b, second, "https://b.test/");
@@ -240,6 +242,12 @@ fn a_selection_and_a_loaded_tab_reach_the_assistant_and_a_sleeping_tab_is_never_
     let seq = asked(&b, "readText")[0]["seq"].as_u64().unwrap();
     b.on_event(first, "pageText", &json!({ "seq": seq, "url": "https://a.test/", "text": "page a" }));
     assert!(matches!(b.assistant_pages.pop(), Some((_, Pill::Tab { text, .. }, None)) if text == "page a"));
+
+    b.core.disk.set_profile_ai(profile, false).unwrap();
+    b.outbox.clear();
+    b.read_tab_for_assistant(first);
+    assert!(asked(&b, "readText").is_empty(), "a tab is read only where the assistant is offered");
+    b.core.disk.set_profile_ai(profile, true).unwrap();
 
     b.model.lifecycle.remove(first);
     b.outbox.clear();

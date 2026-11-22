@@ -452,6 +452,21 @@ pub const SELECTED_TEXT: &str = r"let active = document.activeElement;
             const text = selection ? String(selection).slice(0, 65536) : '';
             return text.toWellFormed ? text.toWellFormed() : text;";
 
+/// `body` answering the address of the document it read, a newline, then its own answer, so the
+/// shell can drop an answer from a page the tab has left (`browser_core::assistant::read_here`).
+pub fn with_address(body: &str) -> String {
+    format!("const read = await (async () => {{ {body} }})();\n            return location.href + '\\n' + (typeof read === 'string' ? read : '');")
+}
+
+/// Hands `done` the address and the text a `with_address` body answered; both empty for an empty
+/// answer, as under Lockdown.
+pub fn split_address(done: impl Fn(String, String) + 'static) -> impl Fn(String) + 'static {
+    move |answer| {
+        let (url, text) = answer.split_once('\n').unwrap_or_default();
+        done(url.to_owned(), text.to_owned());
+    }
+}
+
 /// The furthest one `MediaCommand::SeekBy` moves, in seconds either way.
 pub const MEDIA_SEEK_MAX: f64 = 3600.;
 
@@ -575,6 +590,18 @@ mod tests {
         assert!(script.contains(&format!("execCommand('insertText', false, {})", handover::js_string(HOSTILE_CSS))));
         assert!(!script.contains("</script>"), "{script}");
         assert!(!script.contains("addEventListener"), "it listens for nothing");
+    }
+
+    #[test]
+    fn an_answer_names_the_address_it_was_read_from() {
+        let script = with_address(SELECTED_TEXT);
+        assert!(script.contains(SELECTED_TEXT) && script.ends_with("return location.href + '\\n' + (typeof read === 'string' ? read : '');"), "{script}");
+        let got = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let kept = got.clone();
+        let split = split_address(move |url, text| kept.borrow_mut().push((url, text)));
+        split("https://a.test/p\nline one\nline two".into());
+        split(String::new());
+        assert_eq!(*got.borrow(), [("https://a.test/p".into(), "line one\nline two".into()), (String::new(), String::new())]);
     }
 
     #[test]

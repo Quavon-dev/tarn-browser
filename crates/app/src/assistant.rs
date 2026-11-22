@@ -218,11 +218,21 @@ impl Browser {
             Some(view) if core::allowed(origin) => {
                 let events = self.events.clone();
                 let page = url.to_string();
-                view.page_text(&url, core::MAX_PILL_BYTES, move |text| {
-                    events.unbounded_send(Msg::AssistantPill(origin, Pill::Page { url: page.clone(), title: title.clone(), text })).ok();
+                view.page_text(&url, core::MAX_PILL_BYTES, move |read, text| {
+                    if core::read_here(&read, Some(&page)) {
+                        events.unbounded_send(Msg::AssistantPill(key, origin, Pill::Page { url: page.clone(), title: title.clone(), text })).ok();
+                    }
                 });
             }
             _ => self.add_pill(origin, Pill::Page { url: url.to_string(), title, text: String::new() }, cx),
+        }
+    }
+
+    /// Adds a pill `key`'s page answered, while the tab still shows the page it was read from.
+    pub(crate) fn add_read_pill(&mut self, key: TabKey, origin: Origin, pill: Pill, cx: &mut Context<Self>) {
+        let (Pill::Page { url, .. } | Pill::Tab { url, .. }) = &pill else { return };
+        if core::read_here(url, self.tab_url(key).as_deref()) {
+            self.add_pill(origin, pill, cx);
         }
     }
 
@@ -253,8 +263,10 @@ impl Browser {
             return self.show_toast_as(browser_core::toast::Tone::Warning, "This page cannot be shared with the assistant.", None, cx);
         };
         let events = self.events.clone();
-        view.selected_text(move |raw| {
-            events.unbounded_send(Msg::AssistantSelection(origin, url.clone(), raw, command.clone())).ok();
+        view.selected_text(move |read, raw| {
+            if core::read_here(&read, Some(&url)) {
+                events.unbounded_send(Msg::AssistantSelection(key, origin, read, raw, command.clone())).ok();
+            }
         });
     }
 
@@ -294,8 +306,10 @@ impl Browser {
         let title = self.model.tab(key).map(|t| t.title.clone()).unwrap_or_default();
         let events = self.events.clone();
         let page = url.to_string();
-        view.page_text(&url, core::MAX_PILL_BYTES, move |text| {
-            events.unbounded_send(Msg::AssistantPill(origin, Pill::Tab { url: page.clone(), title: title.clone(), text })).ok();
+        view.page_text(&url, core::MAX_PILL_BYTES, move |read, text| {
+            if core::read_here(&read, Some(&page)) {
+                events.unbounded_send(Msg::AssistantPill(key, origin, Pill::Tab { url: page.clone(), title: title.clone(), text })).ok();
+            }
         });
         cx.notify();
     }

@@ -48,6 +48,13 @@ pub fn allowed(origin: Origin) -> bool {
     origin.kind == ProfileKind::Normal && origin.level != ShieldLevel::Lockdown
 }
 
+/// Whether text a page answered for the assistant, read from `read_from`, still belongs to its
+/// tab, which shows `shown` now: an answer from a page the tab has left since is dropped.
+pub fn read_here(read_from: &str, shown: Option<&str>) -> bool {
+    let parsed = |u: &str| url::Url::parse(u).ok();
+    parsed(read_from).is_some_and(|read| shown.and_then(parsed) == Some(read))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pill {
     Page { url: String, title: String, text: String },
@@ -767,6 +774,16 @@ mod tests {
         }
         assert!(Session::new(Origin { level: ShieldLevel::Lockdown, ..ME }, true).is_none());
         assert!(allowed(Origin { level: ShieldLevel::Strict, ..ME }));
+    }
+
+    #[test]
+    fn text_counts_only_from_the_address_its_tab_shows_now() {
+        assert!(read_here("https://a.test/p", Some("https://a.test/p")));
+        assert!(read_here("https://A.test/p", Some("https://a.test/p")), "the same address however it is written");
+        assert!(!read_here("https://a.test/p", Some("https://a.test/q")), "the tab moved on");
+        assert!(!read_here("https://a.test/p", None));
+        assert!(!read_here("", Some("https://a.test/p")), "an answer without its address");
+        assert!(!read_here("", None));
     }
 
     #[test]

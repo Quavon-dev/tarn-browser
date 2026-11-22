@@ -138,8 +138,8 @@ impl Browser {
 
     pub(super) fn answered(&mut self, data: &Value, key: TabKey) -> Option<Request> {
         let request = self.requests.remove(&data["seq"].as_u64()?)?;
-        let url = self.pages.get(&key).map(|p| p.url.as_str()).unwrap_or_default();
-        (data["url"].as_str() == Some(url)).then_some(request)
+        let shown = self.pages.get(&key).map(|p| p.url.as_str());
+        browser_core::assistant::read_here(data["url"].as_str().unwrap_or_default(), shown).then_some(request)
     }
 
     pub(super) fn on_script_event(&mut self, key: TabKey, name: &str, data: &Value) {
@@ -222,7 +222,8 @@ impl Browser {
     /// Reads another tab's loaded page for the assistant's tab picker; a sleeping tab is never
     /// woken for it. The text arrives in `assistant_pages`.
     pub fn read_tab_for_assistant(&mut self, key: TabKey) {
-        if !self.model.lifecycle.live().any(|k| k == key) || self.unlocked(key).is_none() {
+        let offered = self.unlocked(key).is_some_and(|url| self.model.assistant_offered(&self.core, Some(url.as_str())));
+        if !self.model.lifecycle.live().any(|k| k == key) || !offered {
             return self.show_toast("That tab is asleep or cannot be shared. Open it to add it.", None);
         }
         self.ask(key, Request::AssistantTab(key), "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT }));
@@ -239,6 +240,9 @@ impl Browser {
     /// The selection the page's menu sent (`assistantSelection`), where the assistant may still
     /// see that page; a command sends it once the chat attached it.
     pub fn selection_for_assistant(&mut self, key: TabKey, url: &str, raw: &str, command: Option<String>) {
+        if !browser_core::assistant::read_here(url, self.pages.get(&key).map(|p| p.url.as_str())) {
+            return;
+        }
         let here = |o: &browser_core::assistant::Origin| {
             self.model.profile_of(&self.core, key) == Some(o.profile) && self.model.assistant_offered(&self.core, Some(url))
         };

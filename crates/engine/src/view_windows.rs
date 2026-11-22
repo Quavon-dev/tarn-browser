@@ -138,7 +138,7 @@ impl WebView {
         self.view.fetch_icon(origin, urls, max_bytes, done);
     }
 
-    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String) + 'static) {
+    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String, String) + 'static) {
         self.view.page_text(origin, max_chars, done);
     }
 
@@ -146,7 +146,7 @@ impl WebView {
         self.view.ping(done);
     }
 
-    pub fn selected_text(&self, done: impl Fn(String) + 'static) {
+    pub fn selected_text(&self, done: impl Fn(String, String) + 'static) {
         self.view.selected_text(done);
     }
 

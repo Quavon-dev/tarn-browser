@@ -2208,10 +2208,10 @@ impl WebView {
         }
     }
 
-    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String) + 'static) {
+    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String, String) + 'static) {
         match crate::page_scripts::page_text_script(origin, max_chars) {
-            Some(script) => self.run_isolated(&script, done),
-            None => done(String::new()),
+            Some(script) => self.run_isolated(&crate::page_scripts::with_address(&script), crate::page_scripts::split_address(done)),
+            None => done(String::new(), String::new()),
         }
     }
 
@@ -2285,8 +2285,8 @@ impl WebView {
         *self.0.tab.assistant_menu.borrow_mut() = commands;
     }
 
-    pub fn selected_text(&self, done: impl Fn(String) + 'static) {
-        self.read_isolated(crate::page_scripts::SELECTED_TEXT, done);
+    pub fn selected_text(&self, done: impl Fn(String, String) + 'static) {
+        self.read_isolated(&crate::page_scripts::with_address(crate::page_scripts::SELECTED_TEXT), crate::page_scripts::split_address(done));
     }
 
     pub fn media_state(&self, done: impl Fn(String) + 'static) {
