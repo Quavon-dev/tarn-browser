@@ -4,7 +4,7 @@ use gpui::{
     prelude::FluentBuilder, px,
 };
 use store::{Id, Note};
-use ui::controls::{button, field, group, note, row, section};
+use ui::controls::{button, field, group, note, row, section, tab_stop};
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::Theme;
 
@@ -46,8 +46,8 @@ impl Pane {
 }
 
 impl SettingsWindow {
-    /// The saved profile Settings edits notes for; none in a private space.
-    fn note_profile(&self, cx: &Context<Self>) -> Option<Id> {
+    /// The saved profile Settings edits notes and snippets for; none in a private space.
+    pub(super) fn saved_profile(&self, cx: &Context<Self>) -> Option<Id> {
         match self.browser.upgrade()?.read(cx).model.profile()? {
             (false, id) => Some(id),
             (true, _) => None,
@@ -55,7 +55,7 @@ impl SettingsWindow {
     }
 
     fn save_note(&mut self, cx: &mut Context<Self>) {
-        let Some(profile) = self.note_profile(cx) else { return };
+        let Some(profile) = self.saved_profile(cx) else { return };
         let pane = &self.notes;
         let draft = Draft { id: pane.editing, title: pane.title.read(cx).text().to_owned(), body: pane.body.read(cx).text().to_owned() };
         match draft.save(&crate::shared::core(cx).disk, profile) {
@@ -95,9 +95,9 @@ impl SettingsWindow {
         };
         let pane = &self.notes;
         let focused = |input: &Entity<TextInput>| input.focus_handle(cx).is_focused(window);
-        let saved = crate::shared::core(cx).disk.notes(profile).unwrap_or_default();
+        let saved = &s.notes;
         let query = pane.search.read(cx).text().to_owned();
-        let shown = rows(&saved, &query);
+        let shown = rows(saved, &query);
         let list = if shown.is_empty() {
             note(if saved.is_empty() { EMPTY } else { NO_MATCH }).into_any_element()
         } else {
@@ -108,12 +108,15 @@ impl SettingsWindow {
                     row(ix == 0)
                         .child(div().w(px(180.)).flex_none().child(label(r.title)))
                         .child(value(r.preview).flex_1().min_w_0().overflow_hidden())
-                        .child(button(("note-edit", ix), "Edit", false).on_click(cx.listener(move |this, _, window, cx| {
+                        .child(tab_stop(button(("note-edit", ix), "Edit", false)).on_click(cx.listener(move |this, _, window, cx| {
                             if let Some(note) = edit.clone() {
                                 this.edit_note(note, window, cx);
                             }
                         })))
-                        .child(button(("note-delete", ix), "Delete", false).on_click(cx.listener(move |this, _, _, cx| this.delete_note(profile, id, cx)))),
+                        .child(
+                            tab_stop(button(("note-delete", ix), "Delete", false))
+                                .on_click(cx.listener(move |this, _, _, cx| this.delete_note(profile, id, cx))),
+                        ),
                 );
             }
             list.into_any_element()
@@ -127,8 +130,8 @@ impl SettingsWindow {
             .flex()
             .justify_end()
             .gap_2()
-            .when(editing, |d| d.child(button("note-cancel", "Cancel", false).on_click(cx.listener(|this, _, _, cx| this.clear_note_editor(cx)))))
-            .child(button("note-save", if editing { "Save" } else { "Add" }, true).on_click(cx.listener(|this, _, _, cx| this.save_note(cx))));
+            .when(editing, |d| d.child(tab_stop(button("note-cancel", "Cancel", false)).on_click(cx.listener(|this, _, _, cx| this.clear_note_editor(cx)))))
+            .child(tab_stop(button("note-save", if editing { "Save" } else { "Add" }, true)).on_click(cx.listener(|this, _, _, cx| this.save_note(cx))));
         page.child(div().pt_2().child(field(focused(&pane.search)).w(px(320.)).py_0p5().child(pane.search.clone())))
             .child(div().pt_2().child(list))
             .child(section(if editing { "Edit note" } else { "New note" }))

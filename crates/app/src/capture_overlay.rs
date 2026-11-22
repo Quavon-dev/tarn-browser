@@ -12,8 +12,7 @@ use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
     AnyElement, AppContext, Bounds, Context, CursorStyle, Focusable, Image, ImageFormat, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Pixels, Point, Rgba, Styled, StyledImage, Window, canvas, div, img, prelude::FluentBuilder, px,
-    relative,
+    MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Pixels, Point, Styled, StyledImage, Window, canvas, div, img, prelude::FluentBuilder, px, relative,
 };
 use ui::controls::surface;
 use ui::theme::{Elevation, TEXT_SMALL, TEXT_TINY, Theme};
@@ -144,7 +143,7 @@ fn crop(png: &[u8], [x, y, width, height]: [f64; 4]) -> Option<Vec<u8>> {
 pub(crate) fn render(b: &Browser, key: TabKey, cx: &mut Context<Browser>) -> Option<AnyElement> {
     let overlay = b.capture_overlay.as_ref().filter(|o| o.key == key)?;
     let (w, h) = overlay.page;
-    let dim = Rgba { r: 0., g: 0., b: 0., a: crate::address::DIM };
+    let dim = Theme::scrim(crate::address::DIM);
     let band = |x: f32, y: f32, bw: f32, bh: f32| div().absolute().left(relative(x / w)).top(relative(y / h)).w(relative(bw / w)).h(relative(bh / h));
     let bounds = overlay.bounds.clone();
     let f = |p: (f32, f32)| (f64::from(p.0), f64::from(p.1));

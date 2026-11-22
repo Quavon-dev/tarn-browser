@@ -5,11 +5,11 @@ use std::time::Instant;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, App, AppContext, Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Rgba,
+    AnyElement, App, AppContext, Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, WindowHandle, canvas, div, point, prelude::FluentBuilder, px, size,
 };
 use ui::controls::{key_cap, surface};
-use ui::icon::{ICON_MEDIUM, Icon, icon};
+use ui::icon::{ICON_MEDIUM, ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, FADE, animate, popover_motion};
 use ui::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
@@ -225,14 +225,13 @@ impl Dim {
 impl Render for Dim {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let main = self.main;
-        let shade = |a: f32| Rgba { r: 0., g: 0., b: 0., a };
-        let dim = div().id("dim").size_full().rounded(px(Theme::radius_page())).bg(shade(DIM)).on_mouse_down(MouseButton::Left, move |_, _, cx| {
+        let dim = div().id("dim").size_full().rounded(px(Theme::radius_page())).bg(Theme::scrim(DIM)).on_mouse_down(MouseButton::Left, move |_, _, cx| {
             main.update(cx, |b, window, cx| b.close_command(window, cx)).ok();
         });
         if self.leaving {
-            animate(dim, "dim-out", EXIT, self.reduce, move |el, t| el.bg(shade(DIM * (1. - t))))
+            animate(dim, "dim-out", EXIT, self.reduce, move |el, t| el.bg(Theme::scrim(DIM * (1. - t))))
         } else {
-            animate(dim, "dim-in", FADE, self.reduce, move |el, t| el.bg(shade(DIM * t)))
+            animate(dim, "dim-in", FADE, self.reduce, move |el, t| el.bg(Theme::scrim(DIM * t)))
         }
     }
 }
@@ -307,7 +306,7 @@ impl Render for Palette {
                         .text_size(px(TEXT_SMALL))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(Theme::accent_text())
-                        .child(icon(Icon::ChevronLeft, 12., Theme::accent_text()))
+                        .child(icon(Icon::ChevronLeft, ICON_SMALL, Theme::accent_text()))
                         .child(ui::text::OneLine::one_line(div().min_w_0(), title)),
                 )
             })

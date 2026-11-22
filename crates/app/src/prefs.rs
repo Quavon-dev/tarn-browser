@@ -331,8 +331,11 @@ impl Browser {
         self.sidebar_open = open;
     }
 
+    /// Saves whether the sidebar is open; a window with tabs on top keeps it hidden.
     pub fn set_sidebar_open(&mut self, open: bool, cx: &mut Context<Self>) {
-        self.slide_sidebar(open);
+        if self.tab_placement == browser_core::layout::TabPlacement::Side {
+            self.slide_sidebar(open);
+        }
         browser_core::layout::save_sidebar(&self.core.disk, open).ok();
         self.close_peek(cx);
         self.hide_hover_card(cx);

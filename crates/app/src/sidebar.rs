@@ -582,7 +582,11 @@ fn tab_drop(
 
 /// Makes a sidebar row reachable with Tab and the arrow keys; Return and Space click it, and
 /// ⇧F10 or the menu key open its menu. A mouse press leaves the keyboard where it was.
-fn keyboard_row(row: Stateful<Div>, menu: impl Fn(&mut Browser, &mut Window, &mut Context<Browser>) + 'static, cx: &mut Context<Browser>) -> Stateful<Div> {
+pub(crate) fn keyboard_row(
+    row: Stateful<Div>,
+    menu: impl Fn(&mut Browser, &mut Window, &mut Context<Browser>) + 'static,
+    cx: &mut Context<Browser>,
+) -> Stateful<Div> {
     row.tab_index(0).focus(|s| s.shadow(focus_ring())).on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default()).on_key_down(cx.listener(
         move |b, e: &KeyDownEvent, window, cx| {
             if b.renaming.is_some() {

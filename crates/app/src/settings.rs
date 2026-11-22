@@ -201,6 +201,8 @@ struct Snapshot {
     card: Option<Card>,
     /// `None` outside an app bundle, which cannot become the default browser.
     default_browser: Option<bool>,
+    notes: Vec<store::Note>,
+    snippets: Rc<Vec<store::Snippet>>,
 }
 
 pub struct SettingsWindow {
@@ -377,6 +379,11 @@ impl SettingsWindow {
             permissions: if self.pane == SettingsPane::Permissions { b.profile_permissions() } else { Vec::new() },
             zapped: if self.pane == SettingsPane::Privacy { b.zapped(None) } else { Vec::new() },
             paused: if self.pane == SettingsPane::Privacy { b.paused_sites() } else { Vec::new() },
+            notes: match (self.pane, b.model.profile()) {
+                (SettingsPane::Notes, Some((false, id))) => b.core.disk.notes(id).unwrap_or_default(),
+                _ => Vec::new(),
+            },
+            snippets: if self.pane == SettingsPane::Snippets { b.core.snippets(b.model.profile()) } else { Rc::default() },
             profiles: stored.profiles,
             space_rules: if self.pane == SettingsPane::Profiles { b.space_rule_rows() } else { Vec::new() },
             developer: b.developer,

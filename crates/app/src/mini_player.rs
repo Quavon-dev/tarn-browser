@@ -7,8 +7,8 @@ use browser_core::page_ops::MediaState;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{AnyElement, Context, InteractiveElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Task, Window, div, px};
-use ui::controls::{icon_button, surface, tooltip};
-use ui::icon::{Icon, icon};
+use ui::controls::{icon_button, surface, tab_stop, tooltip};
+use ui::icon::{ICON, Icon, icon};
 use ui::motion::pop_in;
 use ui::text::OneLine;
 use ui::theme::{TEXT_SMALL, Theme};
@@ -90,19 +90,18 @@ pub(crate) fn render(b: &Browser, cx: &mut Context<Browser>) -> Option<AnyElemen
     let title = SharedString::from(ui::text::bounded_title(&state.title));
     let buttons = Control::ALL.into_iter().enumerate().map(|(ix, control)| {
         let glyph = Icon::named(control.glyph(playing)).unwrap_or(Icon::Info);
-        icon_button(("media-control", ix), glyph, true)
+        tab_stop(icon_button(("media-control", ix), glyph, true))
             .tooltip(tooltip(control.label(playing), None))
             .on_click(cx.listener(move |b, _, _, cx| b.press_media(control, cx)))
     });
-    let open = div()
-        .id("media-title")
+    let open = tab_stop(div().id("media-title"))
         .flex_1()
         .min_w_0()
         .flex()
         .items_center()
         .gap_1p5()
         .cursor_pointer()
-        .child(icon(Icon::named("music").unwrap_or(Icon::Info), 14., Theme::muted()))
+        .child(icon(Icon::Music, ICON, Theme::muted()))
         .child(div().flex_1().min_w_0().text_size(px(TEXT_SMALL)).one_line(title.clone()))
         .tooltip(tooltip(title, None))
         .on_click(cx.listener(move |b, _, window, cx| b.open_media_tab(key, window, cx)));

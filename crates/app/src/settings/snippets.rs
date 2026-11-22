@@ -4,7 +4,7 @@ use gpui::{
     prelude::FluentBuilder, px,
 };
 use store::{Id, Snippet};
-use ui::controls::{button, field, group, note, row, section};
+use ui::controls::{button, field, group, note, row, section, tab_stop};
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::Theme;
 
@@ -43,16 +43,8 @@ fn problem(name: &str, body: &str) -> Option<&'static str> {
 }
 
 impl SettingsWindow {
-    /// The saved profile Settings edits snippets for; none in a private space.
-    fn snippet_profile(&self, cx: &Context<Self>) -> Option<Id> {
-        match self.browser.upgrade()?.read(cx).model.profile()? {
-            (false, id) => Some(id),
-            (true, _) => None,
-        }
-    }
-
     fn save_snippet(&mut self, cx: &mut Context<Self>) {
-        let Some(profile) = self.snippet_profile(cx) else { return };
+        let Some(profile) = self.saved_profile(cx) else { return };
         let pane = &self.snippets;
         let (name, body) = (pane.name.read(cx).text().trim().to_owned(), pane.body.read(cx).text().to_owned());
         if let Some(problem) = problem(&name, &body) {
@@ -105,23 +97,23 @@ impl SettingsWindow {
         let Some(profile) = s.profile.as_ref().filter(|_| !s.private).map(|p| p.id) else {
             return page.child(note("Snippets belong to a saved profile. Open Settings from one of its spaces to edit them.")).into_any_element();
         };
-        let saved = crate::shared::core(cx).disk.snippets(profile).unwrap_or_default();
-        let list = if saved.is_empty() {
+        let list = if s.snippets.is_empty() {
             note("No snippets yet.").into_any_element()
         } else {
             let mut list = group();
-            for (ix, snippet) in saved.into_iter().enumerate() {
+            for (ix, snippet) in s.snippets.iter().enumerate() {
                 let (id, edit) = (snippet.id, snippet.clone());
                 list = list.child(
                     row(ix == 0)
                         .child(div().w(px(140.)).flex_none().child(label(snippet.name.clone())))
                         .child(value(preview(&snippet.body)).flex_1().min_w_0().overflow_hidden())
                         .child(
-                            button(("snippet-edit", ix), "Edit", false)
+                            tab_stop(button(("snippet-edit", ix), "Edit", false))
                                 .on_click(cx.listener(move |this, _, window, cx| this.edit_snippet(edit.clone(), window, cx))),
                         )
                         .child(
-                            button(("snippet-delete", ix), "Delete", false).on_click(cx.listener(move |this, _, _, cx| this.delete_snippet(profile, id, cx))),
+                            tab_stop(button(("snippet-delete", ix), "Delete", false))
+                                .on_click(cx.listener(move |this, _, _, cx| this.delete_snippet(profile, id, cx))),
                         ),
                 );
             }
@@ -138,8 +130,10 @@ impl SettingsWindow {
             .flex()
             .justify_end()
             .gap_2()
-            .when(editing, |d| d.child(button("snippet-cancel", "Cancel", false).on_click(cx.listener(|this, _, _, cx| this.clear_snippet_editor(cx)))))
-            .child(button("snippet-save", if editing { "Save" } else { "Add" }, true).on_click(cx.listener(|this, _, _, cx| this.save_snippet(cx))));
+            .when(editing, |d| {
+                d.child(tab_stop(button("snippet-cancel", "Cancel", false)).on_click(cx.listener(|this, _, _, cx| this.clear_snippet_editor(cx))))
+            })
+            .child(tab_stop(button("snippet-save", if editing { "Save" } else { "Add" }, true)).on_click(cx.listener(|this, _, _, cx| this.save_snippet(cx))));
         page.child(list)
             .child(section(if editing { "Edit snippet" } else { "New snippet" }))
             .child(editor)

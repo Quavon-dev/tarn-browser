@@ -1877,8 +1877,7 @@ impl Browser {
                 browser_core::palette::Row::Extra(_) => None,
             })
             .collect();
-        // Which engine the tab can switch to reads the profile and a lock file, so only once a
-        // switch command was ranked.
+        // Reading the switch target costs a profile and lock file read.
         if commands.iter().any(|(_, c)| matches!(c, Command::ReloadInChromium | Command::ReloadInWebKit)) {
             let to = self.model.active.and_then(|k| self.web_engine_switch(k));
             commands.retain(|(_, c)| match c {

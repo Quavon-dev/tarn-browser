@@ -2,12 +2,12 @@ use gpui::{
     AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled, div,
     prelude::FluentBuilder, px,
 };
-use ui::controls::{icon_button, tooltip};
+use ui::controls::{icon_button, tab_stop, tooltip};
 use ui::icon::Icon;
 use ui::theme::{TEXT, Theme};
 
 use crate::browser::{Browser, TabKey};
-use crate::sidebar::{SIDEBAR_MARGIN, tab_icon};
+use crate::sidebar::{SIDEBAR_MARGIN, keyboard_row, tab_icon};
 use crate::tabs::display_title;
 
 const TAB_WIDTH: f32 = 200.;
@@ -23,7 +23,7 @@ pub fn render(b: &mut Browser, cx: &mut Context<Browser>) -> AnyElement {
         .flex_none()
         .flex()
         .items_center()
-        .gap(px(4.))
+        .gap_1()
         .px(px(SIDEBAR_MARGIN))
         .pb(px(SIDEBAR_MARGIN))
         .overflow_x_scroll()
@@ -34,7 +34,7 @@ pub fn render(b: &mut Browser, cx: &mut Context<Browser>) -> AnyElement {
         })
         .children(tabs)
         .child(
-            icon_button("strip-new-tab", Icon::Plus, true)
+            tab_stop(icon_button("strip-new-tab", Icon::Plus, true))
                 .tooltip(crate::shortcuts::tip("New Tab", &crate::NewTab))
                 .on_click(cx.listener(|b, _, window, cx| b.new_tab_page(window, cx))),
         )
@@ -46,8 +46,7 @@ fn chip(b: &Browser, key: TabKey, pinned: bool, cx: &mut Context<Browser>) -> Op
     let active = b.model.active == Some(key);
     let title: SharedString = display_title(t).into();
     let asleep = b.sleeping(key) && !active;
-    let row = div()
-        .id(("strip-tab", key.id as u64))
+    let row = keyboard_row(div().id(("strip-tab", key.id as u64)), move |b, w, cx| b.tab_menu(key, w, cx), cx)
         .group("strip-tab")
         .h(px(Theme::tab_row()))
         .flex()
@@ -57,7 +56,7 @@ fn chip(b: &Browser, key: TabKey, pinned: bool, cx: &mut Context<Browser>) -> Op
         .cursor_pointer()
         .when(active, |d| d.bg(Theme::selected()).border_1().border_color(Theme::surface_edge()))
         .when(!active, |d| d.hover(|s| s.bg(Theme::hover())))
-        .child(tab_icon(b, &t.url, 16., asleep))
+        .child(tab_icon(b, &t.url, ui::icon::ICON_MEDIUM, asleep))
         .on_click(cx.listener(move |b, _, window, cx| b.switch_to(key, window, cx)))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, window, cx| b.tab_menu(key, window, cx)));
     let row = if pinned {
