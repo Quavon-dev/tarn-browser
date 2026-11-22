@@ -952,6 +952,7 @@ fn spaces(ui: Ui) -> impl IntoElement {
                     .selected(move || current() == ix)
                     .active(|s| s.bg(Theme::pressed))
                     .on_press(move || {
+                        tarn_nsh_shared::motion::space_switch();
                         ui.act(|s| {
                             s.choose_space(ix, browser_core::now());
                             Vec::new()

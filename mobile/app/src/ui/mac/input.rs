@@ -123,6 +123,7 @@ fn run(ui: Ui, action: Action) {
         Action::Settings => ui.toggle(Screen::Settings),
         Action::SwitchSpace(n) => {
             let Some(ix) = ui.read(|s| s.spaces().get(usize::from(n) - 1).map(|i| i.ix)) else { return };
+            tarn_nsh_shared::motion::space_switch();
             ui.act(|s| {
                 s.choose_space(ix, browser_core::now());
                 Vec::new()

@@ -16,6 +16,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - Shortcut tips: after a command runs from the command bar (and, on Linux, a panel menu), a notice
   may name its keyboard shortcut, at most three times per command, two days apart and never on a
   profile's first day; Settings › Appearance › Tips turns them off on every client.
+- Switching spaces springs on Linux, iOS and Android as on macOS and Windows, by click, keys or a
+  swipe; a second switch picks up from where the first stands, and Reduce Motion switches at once.
 - Compact density: Settings › Appearance turns on shorter rows and gaps in the sidebar on every
   client.
 - A page that stops responding for eight seconds shows a card with Wait and Reload on every client;

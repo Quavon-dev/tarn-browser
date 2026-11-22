@@ -253,11 +253,10 @@ impl Browser {
     /// Slides from the space at `from`, whose lists are given, to the current one, picking up
     /// wherever the old list was, mid-drag or mid-slide.
     pub(crate) fn slide_from(&mut self, from: usize, (tabs, folders, groups): (Vec<Tab>, Vec<Folder>, Vec<Group>)) {
-        let dir = if self.model.space_ix > from { 1. } else { -1. };
-        let start = self.slide_offset().unwrap_or(0.) + dir * self.sidebar_width;
-        self.slide = (from != self.model.space_ix && from < self.model.spaces.len() && !self.pref(Pref::ReduceMotion)).then(|| Slide {
+        let start = browser_core::sidebar::slide_start(self.slide_offset(), from, self.model.space_ix, self.sidebar_width, self.pref(Pref::ReduceMotion));
+        self.slide = start.filter(|_| from < self.model.spaces.len()).map(|offset| Slide {
             base: 0.,
-            offset: start,
+            offset,
             since: Some(Instant::now()),
             _expire: None,
             ix: Some(from),

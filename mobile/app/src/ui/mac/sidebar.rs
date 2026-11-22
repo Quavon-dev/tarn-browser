@@ -1000,7 +1000,10 @@ fn space_buttons(ui: Ui, strip: Memo<bar::SpaceStrip>) -> AnyElement {
             let face = if dot { view().w(px(6.)).h(px(6.)).rounded(px(3.)).bg(color).into_element() } else { glyphs::icon(glyph, GLYPH).into_element() };
             button()
                 .accessibility_label(name.clone())
-                .on_press(move || act(ui, |s| s.choose_space(ix, browser_core::now())))
+                .on_press(move || {
+                    tarn_nsh_shared::motion::space_switch();
+                    act(ui, |s| s.choose_space(ix, browser_core::now()))
+                })
                 .w(px(if dot { bar::SPACE_DOT } else { BUTTON }))
                 .h(px(BUTTON))
                 .flex_none()
@@ -1109,6 +1112,7 @@ pub(super) fn sidebar(ui: Ui) -> impl IntoElement {
                     let step = state.feed(p.x.0, p.y.0, Instant::now());
                     swipe.set(state);
                     if let Some(step) = step {
+                        tarn_nsh_shared::motion::space_switch();
                         act(ui, |s| {
                             if let Some(ix) = s.neighbour_space(step) {
                                 s.choose_space(ix, browser_core::now());

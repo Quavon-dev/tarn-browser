@@ -28,7 +28,7 @@ use nsh_core::prelude::*;
 use nsh_core::{LayoutCurve, LayoutTransition};
 use nsh_core::{Points, Size};
 use serde_json::json;
-use tarn_nsh_shared::motion::{POP, SLIDE, animate_next};
+use tarn_nsh_shared::motion::{POP, SLIDE, animate_next, space_switch};
 
 use crate::browser::{Browser, Notice, START_URL};
 use crate::controls::{self, body, icon_button, label, pill, row, small};
@@ -883,7 +883,7 @@ fn space_bar(ui: Ui) -> View {
             };
             let glyph_tint = tint.clone();
             let button = controls::row(name, move || {
-                animate_next(SLIDE);
+                space_switch();
                 act(ui, |b| b.switch_space_by_user(ix));
             })
             .w(move || px(if dot() { browser_core::sidebar::SPACE_DOT } else { SPACE_BUTTON }))
@@ -1038,7 +1038,7 @@ fn sidebar(ui: Ui) -> View {
                     if let WheelDelta::Points(p) = e.delta {
                         let step = BROWSERS.with_borrow_mut(|w| w.get_mut(&ui.window)?.swiped(p.x.0, p.y.0, std::time::Instant::now()));
                         if let Some(step) = step {
-                            animate_next(SLIDE);
+                            space_switch();
                             act(ui, |b| b.swipe_to(step));
                         }
                     }
@@ -2347,7 +2347,7 @@ fn bind_fixed(ui: Ui) {
     }
     for n in 1..=9usize {
         on_key(&format!("alt+{n}"), move |_| {
-            animate_next(SLIDE);
+            space_switch();
             act(ui, |b| b.space_number(n));
         });
     }

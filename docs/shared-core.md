@@ -328,6 +328,12 @@ rebuild the tab's view, Linux's component takes `reloadFresh`, which ends the vi
 (`webkit_web_view_terminate_web_process`) and reloads, and iOS and Android give the tab a new view
 (gaps in `docs/mobile-plan.md` and `docs/windows-plan.md`).
 
+**Space switching:** `browser_core::sidebar::slide_start` says where the next space's list starts
+its spring, from where a running slide or drag stands, or `None` under Reduce Motion (macOS and
+Windows). The spring's damping is the named token `SPRING_DAMPING` in `crates/ui/src/motion.rs`,
+mirrored in `nsh-shared/src/motion.rs`, whose `space_switch` animates Linux, iOS and Android's
+layout on that spring over `SLIDE` before a click, key or swipe switches the space.
+
 **Density:** `prefs::COMPACT` (Settings › Appearance, explained by `prefs::COMPACT_NOTE`) picks
 the second of each density token, `TAB_ROW` and `ROW_GAP`, defined once in `crates/ui/src/theme.rs`
 and mirrored in `nsh-shared/src/theme.rs` (a test keeps them equal); every shell reads them through

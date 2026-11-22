@@ -358,6 +358,14 @@ impl Swipe {
     }
 }
 
+/// Where the list of the space switched to starts its spring, `width` away on the side it comes
+/// from: a switch made mid-slide or mid-drag picks up where the old list stood (`shown`), so a
+/// second press retargets the spring instead of jumping. `None` with Reduce Motion: no slide.
+pub fn slide_start(shown: Option<f32>, from: usize, to: usize, width: f32, reduce: bool) -> Option<f32> {
+    let dir = if to > from { 1. } else { -1. };
+    (from != to && !reduce).then(|| shown.unwrap_or(0.) + dir * width)
+}
+
 pub fn neighbour_space(model: &Model, step: Step, allowed: impl Fn(&SpaceRef) -> bool) -> Option<usize> {
     let mut ix = model.space_ix;
     loop {
@@ -404,6 +412,15 @@ impl SpaceBar {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_second_switch_retargets_the_slide_from_where_it_stands() {
+        assert_eq!(slide_start(None, 0, 1, 250., false), Some(250.));
+        assert_eq!(slide_start(None, 2, 1, 250., false), Some(-250.));
+        assert_eq!(slide_start(Some(100.), 1, 2, 250., false), Some(350.), "mid-slide, it starts where the list stands");
+        assert_eq!(slide_start(None, 1, 1, 250., false), None);
+        assert_eq!(slide_start(None, 0, 1, 250., true), None, "Reduce Motion switches at once");
+    }
+
     use super::*;
     use crate::TestCore;
 
