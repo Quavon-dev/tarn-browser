@@ -8,12 +8,13 @@ pub enum Pane {
     Privacy,
     Permissions,
     Snippets,
+    Notes,
     Developer,
     Profiles,
     Shortcuts,
 }
 
-pub const PANES: [(Pane, &str); 11] = [
+pub const PANES: [(Pane, &str); 12] = [
     (Pane::Profile, "Protection"),
     (Pane::General, "General"),
     (Pane::Appearance, "Appearance"),
@@ -22,6 +23,7 @@ pub const PANES: [(Pane, &str); 11] = [
     (Pane::Privacy, "Privacy"),
     (Pane::Permissions, "Permissions"),
     (Pane::Snippets, "Snippets"),
+    (Pane::Notes, "Notes"),
     (Pane::Developer, "Developer"),
     (Pane::Profiles, "Profiles"),
     (Pane::Shortcuts, "Shortcuts"),
@@ -31,7 +33,18 @@ pub const GROUPS: [(&str, &[Pane]); 2] = [
     ("You", &[Pane::Profile, Pane::Profiles]),
     (
         "Browser",
-        &[Pane::General, Pane::Appearance, Pane::Tabs, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Snippets, Pane::Developer, Pane::Shortcuts],
+        &[
+            Pane::General,
+            Pane::Appearance,
+            Pane::Tabs,
+            Pane::Search,
+            Pane::Privacy,
+            Pane::Permissions,
+            Pane::Snippets,
+            Pane::Notes,
+            Pane::Developer,
+            Pane::Shortcuts,
+        ],
     ),
 ];
 
@@ -52,6 +65,7 @@ pub fn words(pane: Pane) -> &'static str {
         }
         Pane::Permissions => "camera microphone location pop-ups site answers allow block",
         Pane::Snippets => "text expand insert type template signature reply",
+        Pane::Notes => "notes write search ideas assistant",
         Pane::Developer => "web inspector developer tools local servers localhost",
         Pane::Profiles => "profile new edit delete space rules",
         Pane::Shortcuts => "keyboard keys",
@@ -76,6 +90,7 @@ pub fn icon(pane: Pane) -> &'static str {
         Pane::Privacy => crate::icons::HAND,
         Pane::Permissions => crate::icons::CAMERA,
         Pane::Snippets => crate::icons::FILE_TEXT,
+        Pane::Notes => crate::icons::PENCIL,
         Pane::Developer => crate::icons::CODE,
         Pane::Profiles => crate::icons::PERSON,
         Pane::Shortcuts => crate::icons::KEYBOARD,

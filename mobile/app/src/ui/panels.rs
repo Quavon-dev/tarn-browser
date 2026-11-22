@@ -655,7 +655,16 @@ impl tarn_nsh_shared::snippets::Host for Notes {
     }
 }
 
-const TOUCH_PANES: [Pane; 7] = [Pane::Profile, Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Snippets];
+impl tarn_nsh_shared::notes::Host for Notes {
+    fn profile(self) -> Option<store::Id> {
+        tarn_nsh_shared::snippets::Host::profile(self)
+    }
+    fn with_store<R>(self, f: impl FnOnce(&store::Store) -> R) -> R {
+        tarn_nsh_shared::snippets::Host::with_store(self, f)
+    }
+}
+
+const TOUCH_PANES: [Pane; 8] = [Pane::Profile, Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Snippets, Pane::Notes];
 
 pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
     let body = view().gap_2();
@@ -723,6 +732,7 @@ pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
         .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1()),
         Pane::Permissions => body.child(permissions(ui)),
         Pane::Snippets => body.child(tarn_nsh_shared::snippets::pane(Notes(ui))),
+        Pane::Notes => body.child(tarn_nsh_shared::notes::pane(Notes(ui))),
         Pane::Profiles => body.child(spaces(ui)),
         Pane::Tabs | Pane::Developer | Pane::Shortcuts => return None,
     })

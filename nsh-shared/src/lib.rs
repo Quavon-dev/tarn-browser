@@ -6,6 +6,7 @@ pub mod fog;
 pub mod icons;
 pub mod mini_player;
 pub mod motion;
+pub mod notes;
 pub mod page_overlay;
 pub mod panes;
 pub mod popover;

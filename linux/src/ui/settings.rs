@@ -38,6 +38,15 @@ impl tarn_nsh_shared::snippets::Host for Notes {
     }
 }
 
+impl tarn_nsh_shared::notes::Host for Notes {
+    fn profile(self) -> Option<store::Id> {
+        tarn_nsh_shared::snippets::Host::profile(self)
+    }
+    fn with_store<R>(self, f: impl FnOnce(&store::Store) -> R) -> R {
+        tarn_nsh_shared::snippets::Host::with_store(self, f)
+    }
+}
+
 fn card_of(b: &Browser) -> Option<(Card, bool)> {
     let space = b.model.current_space()?;
     let store = b.core.store(space.private);
@@ -745,6 +754,7 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             .child(view().pt_2().child(permissions(ui))),
         Pane::Shortcuts => body.child(view().pt_3().child(shortcut_rows(ui))),
         Pane::Snippets => body.child(view().pt_3().child(tarn_nsh_shared::snippets::pane(Notes(ui)))),
+        Pane::Notes => body.child(view().pt_3().child(tarn_nsh_shared::notes::pane(Notes(ui)))),
         Pane::Developer => super::devtools::pane(ui, body),
     })
 }

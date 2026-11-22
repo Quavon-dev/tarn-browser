@@ -8,6 +8,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Notes: Settings › Notes keeps a profile's own notes on every client, with search, a title and
+  text, edit and delete. They stay on the device, are never synced, go with the profile's export,
+  Delete everything and deleting the profile, and a private space or burner tab writes none.
 - The command bar answers sums ("12 * 4 + 2"), unit conversions ("5 km in mi", "1,5 km in m") and
   emoji searches (":rocket") offline on every client; picking the answer row copies it, while Enter
   alone still searches or opens what was typed. Dates, "24/7" and plain numbers get no answer.

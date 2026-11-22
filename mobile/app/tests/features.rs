@@ -236,6 +236,20 @@ fn snippets_expand_in_the_address_bar_and_insert_only_on_request() {
 }
 
 #[test]
+fn notes_save_in_the_profile_and_never_in_a_private_space() {
+    let (_dir, mut shell) = open();
+    let profile = shell.model.profile().unwrap().1;
+    let draft = browser_core::notes::Draft { id: None, title: "Trip".into(), body: "Reef".into() };
+    draft.save(&shell.core.disk, profile).unwrap();
+    assert_eq!(browser_core::notes::rows(&shell.core.disk.notes(profile).unwrap(), "reef")[0].title, "Trip");
+    shell.enter_private();
+    let (private, id) = shell.model.profile().unwrap();
+    assert!(private);
+    assert!(draft.save(shell.core.store(true), id).is_err(), "a private space writes no note");
+    assert!(shell.core.store(true).notes(id).unwrap().is_empty());
+}
+
+#[test]
 fn private_spaces_never_send_or_keep_zaps() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");
