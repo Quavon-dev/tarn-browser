@@ -21,26 +21,27 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
-### Assistant, Settings › AI and Group Tabs with the Assistant (2026-11-22)
+### Assistant: selection and other tabs as pills (2026-11-22)
 
-What it does: a per-profile AI switch in Settings › AI with the provider (Claude API key in the
-platform secret store, or Ollama on this computer); a chat beside the page that lists what a send
-carries, streams the answer and opens links only after a confirmation; Ask and Ask About This Page
-in the command bar; a Clean Up entry that proposes groups and sorts only after the person agrees.
-Never in a private space, burner tab or Lockdown.
-Shared API: `browser_core::assistant::{Session, Origin, allowed, view, links, settings}`,
-`Session::send` with the page's effective Shield level, `Composed::{system, user_message}`,
-`palette::State::assistant`, `browser_core::cleanup::ai::{request, sort_from}`, `ai::grouping::parse`,
-`ai::secrets`, `ai::local::stream` for Ollama.
-Reference: `crates/app/src/assistant.rs`, `crates/app/src/settings/ai.rs`.
+What it does: attach the page's selected text (`assistant::Pill::Selection`) or another open tab
+(`Pill::Tab`) to an assistant question, from the page's context menu or a long press.
+Shared API: `browser_core::assistant::Event::AddPill`, through `tarn_nsh_shared::assistant::Chat::attach`.
+Reference: `linux/src/browser/pages.rs` `read_page_for_assistant`, `mobile/app/src/scripts.rs`.
 
-- [x] Windows — same code in `crates/app`; built only on macOS so far, CI builds Windows
-- [ ] Linux — a side panel and a Settings › AI page in `linux/src/ui`, `palette::State::assistant`
-  in `linux/src/ui/tools.rs`, Secret Service through `ai::secrets::Keyring`
-- [ ] iOS — a sheet for the chat and a Settings › AI pane in `mobile/app`, Keychain token
-- [ ] Android — the same in `mobile/app`, token through `tarn_mobile_android::Keystore`
-- [ ] Selection pill (`Pill::Selection`) and Tab pills on every client, macOS included; chat links
-  reachable by keyboard on macOS and Windows
+- [ ] macOS — a context-menu entry on selected text and a tab picker in the chat (`crates/app/src/assistant.rs`); chat links reachable by keyboard
+- [ ] Windows — same as macOS (shares `crates/app`)
+- [ ] Linux — a context-menu entry on selected text in `linux/src/webview` and a tab picker in the chat
+- [ ] iOS — the edit menu of a selection in `mobile/ios`; a tab picker in the chat
+- [ ] Android — the text selection action mode in `TarnWebView`; a tab picker in the chat
+
+### Group with Assistant on phones (2026-11-22)
+
+What it does: Clean Up's Group with Assistant, which Linux and the iPad Mac layout show beside Clean Up.
+Shared API: `browser_core::sidebar::{assistant_grouping, group_as_proposed}`, `tarn_nsh_shared::assistant::group_tabs`.
+Reference: `mobile/app/src/ui/mac/sidebar.rs`, `mobile/app/src/ui/assistant.rs`.
+
+- [ ] iOS — the phone Tabs sheet has no Clean Up yet; add both there
+- [ ] Android — same as iOS
 
 ### Insert Snippet in the page's context menu (2026-11-22)
 

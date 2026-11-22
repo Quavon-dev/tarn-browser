@@ -313,6 +313,9 @@ decisions come from `browser_core::tarn_ext`.
   AI Edge libraries, new Gradle dependencies outside the platform. Ollama is not reachable either
   (`Fetch.post` is HTTPS only), so Android has no local model and `ai::local::route` answers
   Unavailable for a local choice there.
+- **Gap: Ollama on iOS.** Ollama does not run on iOS, so nothing answers on `127.0.0.1` there;
+  Settings › AI offers the Claude API only and names this reason (`mobile/app/src/platform.rs`
+  `ASSISTANT`).
 - **Gap: playing media on Android.** Android has no isolated world that runs as the user's gesture, so the
   `media` command's `play` is refused where the page's media needs one (`setMediaPlaybackRequiresUserGesture`);
   pause and seek work.

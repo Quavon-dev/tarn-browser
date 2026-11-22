@@ -453,5 +453,10 @@ the whole address, `mailto` with its headers removed and refused when its addres
 address. `view` returns the `ChatView` a client draws: rows, pill chips, the blocks a send would
 carry with their sizes, the notice and the send and cancel states. `browser_core::palette` has
 `Command::Ask` and `Command::AskPage` (which also needs a page), offered only when the client sets
-`State::assistant` from `assistant::allowed` and the AI switch; no client offers them until its
-chat UI exists.
+`State::assistant` from `assistant::allowed` and the AI switch (`tabs::Model::assistant_offered`,
+with `assistant_origin` giving the active page's `Origin`). `sidebar::assistant_grouping` and
+`group_as_proposed` are Clean Up's Group with Assistant for a window's current space. Linux, iOS
+and Android share Settings › AI, the chat and the grouping run in `tarn_nsh_shared::assistant`
+(`Host` for the shell's store, origin and page text; `Platform` for its secret store, transport
+and whether Ollama works there): providers stream on a background thread and the chat takes what
+arrived once a frame.

@@ -14,6 +14,13 @@ All notable changes to Tarn are documented in this file. The format is based on
   your own computer, and asks before opening any link in an answer. The sidebar's Group Tabs with
   the Assistant proposes groups for loose web tabs and sorts them only after you agree; Undo takes
   it back. Never in a private space, burner tab or Lockdown.
+- Assistant on Linux, iOS and Android: Settings › AI turns it on per profile, picks Claude API (the
+  key goes only into the system's secret store) or, on Linux, Ollama on this computer, and says what
+  is sent and when. The chat opens beside the page on Linux and the iPad Mac layout and as a sheet
+  on phones, from the command bar's Ask or the menu: attach the page or a note, see what a send will
+  carry with its size, ask, cancel; answers stream in with formatting, and a link opens only after a
+  confirmation showing its whole address. Clean Up gains Group with Assistant, applied after a
+  confirmation and undoable. Never in a private space, a burner tab or on a Lockdown page.
 - Notes: Settings › Notes keeps a profile's own notes on every client, with search, a title and
   text, edit and delete. They stay on the device, are never synced, go with the profile's export,
   Delete everything and deleting the profile, and a private space or burner tab writes none.
