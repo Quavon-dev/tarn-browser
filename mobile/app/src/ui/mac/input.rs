@@ -43,7 +43,6 @@ pub(super) fn offered(action: Action) -> bool {
             | Action::FindNext
             | Action::FindPrevious
             | Action::CopyMarkdownLink
-            | Action::TakeScreenshot
             | Action::PictureInPicture
             | Action::Print
             | Action::BookmarkTab
@@ -95,6 +94,7 @@ fn run(ui: Ui, action: Action) {
         Action::ZoomReset => zoom(ui, 0.0),
         Action::CopyLink => ui.copy_link(None, false),
         Action::CopyCleanLink => ui.copy_link(None, true),
+        Action::TakeScreenshot => ui.act(|s| s.take_screenshot()),
         Action::ToggleReader => ui.act(|s| if s.offers_reader() { s.open_reader() } else { Vec::new() }),
         Action::ShowHistory => ui.toggle(Screen::History),
         Action::ToggleDownloads => ui.toggle(Screen::Downloads),
@@ -156,7 +156,6 @@ fn run(ui: Ui, action: Action) {
         | Action::FindNext
         | Action::FindPrevious
         | Action::CopyMarkdownLink
-        | Action::TakeScreenshot
         | Action::PictureInPicture
         | Action::Print
         | Action::BookmarkTab

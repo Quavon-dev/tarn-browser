@@ -82,6 +82,9 @@ pub enum Command {
     Archived,
     PictureInPicture,
     TakeScreenshot,
+    CaptureArea,
+    CaptureElement,
+    CaptureFullPage,
     SavePdf,
     CopyMarkdownLink,
     CopyTitle,
@@ -99,7 +102,7 @@ pub enum Command {
     AskPage,
 }
 
-pub const COMMANDS: [(&str, &str, Command); 68] = [
+pub const COMMANDS: [(&str, &str, Command); 71] = [
     ("Settings", "preferences options", Command::Settings),
     ("Open File\u{2026}", "local disk html pdf image text document view", Command::OpenFile),
     ("New Tab Group", "group", Command::NewGroup),
@@ -152,7 +155,10 @@ pub const COMMANDS: [(&str, &str, Command); 68] = [
     ("Reading List", "read later saved pages", Command::ReadingList),
     ("Archived Tabs", "unused closed old bookmarks", Command::Archived),
     ("Picture in Picture", "video pip float", Command::PictureInPicture),
-    ("Take Screenshot", "capture image png", Command::TakeScreenshot),
+    ("Take Screenshot", "capture image png visible", Command::TakeScreenshot),
+    ("Capture Area", "screenshot region rectangle crop image png", Command::CaptureArea),
+    ("Capture Element", "screenshot pick part image png", Command::CaptureElement),
+    ("Capture Full Page", "screenshot whole long scrolling image png", Command::CaptureFullPage),
     ("Save Page as PDF", "export print", Command::SavePdf),
     ("Copy Link as Markdown", "url markdown", Command::CopyMarkdownLink),
     ("Copy Title", "page name", Command::CopyTitle),
@@ -234,6 +240,7 @@ impl State {
             ReloadInChromium | ReloadInWebKit => tab,
             Reader | SaveForLater | CopyLink | CopyCleanLink | CopyMarkdownLink | CopyTitle | ShowQrCode | Share | SavePdf | ZapElement | BookmarkTab
             | TakeScreenshot | DuplicateTab | PictureInPicture => tab,
+            CaptureArea | CaptureElement | CaptureFullPage => tab && !self.no_page,
             _ => true,
         }
     }
@@ -315,6 +322,11 @@ mod tests {
         assert_eq!(names("reopen", State { reopenable: true, ..State::default() }), ["Reopen Closed Tab"]);
         assert!(names("swap panes", State::default()).is_empty());
         assert!(names("close duplicate", State::default()).is_empty());
+        assert_eq!(names("capture area", State::default())[0], "Capture Area");
+        assert!(
+            !names("capture", State { no_page: true, ..State::default() }).iter().any(|n| n.starts_with("Capture")),
+            "a tab without a page has nothing to capture"
+        );
     }
 
     #[test]

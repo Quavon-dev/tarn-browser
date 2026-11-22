@@ -18,6 +18,7 @@ pub enum Request {
     Text(TabKey, Id),
     Find(TabKey, String),
     Pick(TabKey),
+    PickRect(TabKey, (f64, f64)),
     IconLinks(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     IconData(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     Capture { key: TabKey, profile: Id, url: String, started: i64 },
@@ -153,6 +154,7 @@ impl Browser {
                 let selector = data["selector"].as_str().unwrap_or_default().to_owned();
                 self.zap_picked(key, &selector);
             }
+            ("picked", Some(Request::PickRect(k, page))) if k == key => self.element_picked(key, data["rect"].as_str().unwrap_or_default(), page),
             _ => {}
         }
     }

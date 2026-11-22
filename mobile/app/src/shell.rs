@@ -138,6 +138,9 @@ pub struct Shell<D: Platform> {
     pub reader: Option<crate::scripts::Reader>,
     pub find_tabs: crate::scripts::FindTabs,
     pub picking: Option<(TabKey, u64)>,
+    /// Capture Element waiting for its pick: the tab, the request and the visible page in CSS pixels.
+    pub capturing: Option<(TabKey, u64, (f64, f64))>,
+    pub(crate) shots: HashMap<u64, crate::capture::Shot>,
     pub switched_at: Option<i64>,
     pub(crate) scripts: HashMap<u64, (TabKey, crate::scripts::Script)>,
     pub(crate) icon_asks: HashMap<TabKey, HashMap<IconAsk, engine::favicon::Ticket>>,
@@ -201,6 +204,8 @@ impl<D: Platform> Shell<D> {
             reader: None,
             find_tabs: crate::scripts::FindTabs::default(),
             picking: None,
+            capturing: None,
+            shots: HashMap::new(),
             switched_at: None,
             scripts: HashMap::new(),
             icon_asks: HashMap::new(),

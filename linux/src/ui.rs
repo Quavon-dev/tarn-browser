@@ -1,5 +1,6 @@
 mod appearance;
 mod blocking;
+mod capture;
 mod devtools;
 mod extensions;
 mod groups;
@@ -199,6 +200,7 @@ pub struct Ui {
     resizing: Signal<Option<browser_core::split::Divider>>,
     floating: Signal<peek::Floating>,
     hover_card: Signal<peek::HoverCard>,
+    page_overlay: Signal<Option<tarn_nsh_shared::page_overlay::Overlay>>,
     form: Signal<profiles::Form>,
     card_name: Signal<String>,
     card_space: Signal<String>,
@@ -507,6 +509,9 @@ fn web_views(ui: Ui) -> View {
                         if &*event.name == "iconData" {
                             return icon_data(ui, key, event.data.clone());
                         }
+                        if &*event.name == "snapshotRect" {
+                            return capture::shown(ui, key, &event.data);
+                        }
                         if &*event.name == "snapshot" {
                             return peek::shot(ui, key, &event.data["png"]);
                         }
@@ -527,6 +532,7 @@ fn web_views(ui: Ui) -> View {
         ))
         .child(link_bubble(ui))
         .child(link_peek::layer(ui))
+        .child(capture::layer(ui))
 }
 
 fn link_bubble(ui: Ui) -> AnyElement {
@@ -2323,6 +2329,9 @@ fn bound_keys(ui: Ui) -> AnyElement {
 }
 
 fn escape(ui: Ui) {
+    if capture::cancel(ui) {
+        return;
+    }
     if ui.find_tabs.get_untracked() {
         tools::close_find_tabs(ui);
     } else if ui.editing.get_untracked() {
@@ -2645,6 +2654,7 @@ fn new_ui(row: SavedWindow, torn: Option<browser_core::tabs::Torn>) -> Ui {
         resizing: signal(None),
         floating: signal(Default::default()),
         hover_card: signal(Default::default()),
+        page_overlay: signal(None),
         form: signal(profiles::Form::default()),
         card_name: signal(String::new()),
         card_space: signal(String::new()),

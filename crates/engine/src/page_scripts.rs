@@ -4,9 +4,10 @@ use crate::handover;
 
 /// Builds a selector of the shape `shield::lists::valid_zap` accepts: from the element up to the
 /// nearest unique id, or to a child of `<body>`, each step its tag, up to two classes and its
-/// position among siblings of the same tag.
+/// position among siblings of the same tag. `pick_rect_script` answers a rectangle instead.
 pub const PICKER: &str = r"if (window.tarnPick) window.tarnPick();
 return await new Promise(resolve => {
+    const asRect = typeof pickRect !== 'undefined';
     const ident = /^[A-Za-z_][A-Za-z0-9_-]*$/, tag = /^[a-z][a-z0-9-]*$/;
     const box = document.createElement('div');
     box.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;display:none;background:rgba(255,59,48,.2);outline:2px solid #ff3b30';
@@ -45,18 +46,27 @@ return await new Promise(resolve => {
         Object.assign(box.style, { display: 'block', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
     };
     const stop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
-    const click = e => { if (!e.isTrusted) return; stop(e); const s = target && selector(target); if (s) finish(s); };
+    const rectOf = el => { const r = el.getBoundingClientRect(); return JSON.stringify([r.left, r.top, r.width, r.height]); };
+    const click = e => { if (!e.isTrusted) return; stop(e); const s = target && (asRect ? rectOf(target) : selector(target)); if (s) finish(s); };
     const key = e => { if (e.isTrusted && e.key === 'Escape') { stop(e); finish(''); } };
     const events = [['mouseover', move], ['mousedown', stop], ['mouseup', stop], ['click', click], ['keydown', key]];
     const finish = s => {
         for (const [type, f] of events) removeEventListener(type, f, true);
         box.remove();
         window.tarnPick = null;
-        resolve(s);
+        if (asRect && s) requestAnimationFrame(() => requestAnimationFrame(() => resolve(s)));
+        else resolve(s);
     };
     window.tarnPick = () => finish('');
     for (const [type, f] of events) addEventListener(type, f, true);
 });";
+
+/// `PICKER` answering the picked element's rectangle in the visible page, `[x, y, width, height]`
+/// in CSS pixels as JSON, once its outline is off the screen; for Capture Element
+/// (`browser_core::capture::element_area`).
+pub fn pick_rect_script() -> String {
+    format!("const pickRect = true;\n{PICKER}")
+}
 
 /// Most snippets a page gives Find in Tabs, the characters of context on each side of a match, the
 /// longest query passed on, and how much of the page's text is searched.

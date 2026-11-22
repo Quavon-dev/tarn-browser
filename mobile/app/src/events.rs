@@ -93,6 +93,7 @@ impl<D: Platform> Shell<D> {
                     self.new_popup_tab(key, &url, flag("link"), flag("split"));
                 }
             }
+            "screenshot" => self.screenshot_event(key, data),
             "prompt" => return self.prompt(key, data),
             crate::extensions::MESSAGE => return self.extension_message(key, data, std::time::Instant::now()),
             "article" | "pageText" | "iconLinks" | "iconData" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
@@ -140,6 +141,9 @@ impl<D: Platform> Shell<D> {
             }
             if self.picking.is_some_and(|(k, _)| k == key) {
                 self.picking = None;
+            }
+            if self.capturing.is_some_and(|(k, ..)| k == key) {
+                self.capturing = None;
             }
         }
         if !committed {

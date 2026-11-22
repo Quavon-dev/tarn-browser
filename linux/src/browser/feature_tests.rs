@@ -1358,6 +1358,43 @@ fn a_screenshot_is_named_after_the_page_and_recorded_in_its_own_profile() {
 }
 
 #[test]
+fn captures_ask_the_page_for_an_area_and_an_element_through_the_picker() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    let profile = b.model.profile().unwrap().1;
+    visit(&mut b, key, "https://cap.test/page");
+    b.outbox.clear();
+    b.capture_full_page();
+    assert_eq!(asked(&b, "screenshot")[0]["fullPage"], true);
+    b.screenshot(key, json!({ "x": 10., "y": 20., "width": 100., "height": 50. }));
+    let area = asked(&b, "screenshot")[1].clone();
+    assert_eq!((area["x"].as_f64(), area["width"].as_f64(), area["name"].as_str()), (Some(10.), Some(100.), Some("T.png")));
+
+    b.outbox.clear();
+    b.capture_element((800., 600.));
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::capture::ELEMENT_HINT));
+    let pick = asked(&b, "pick")[0].clone();
+    assert_eq!(pick["rect"], true);
+    b.on_event(key, "picked", &json!({ "seq": pick["seq"], "url": "https://cap.test/page", "rect": "[-20, 500, 2000, 400]" }));
+    let shot = asked(&b, "screenshot")[0].clone();
+    assert_eq!([&shot["x"], &shot["y"], &shot["width"], &shot["height"]].map(|v| v.as_f64().unwrap()), [0., 500., 800., 100.], "cut to the visible page");
+    b.on_event(key, "screenshot", &json!({ "seq": shot["seq"], "path": "/d/page.png" }));
+    assert_eq!(b.core.disk.downloads(profile).unwrap().len(), 1);
+
+    b.outbox.clear();
+    b.capture_element((800., 600.));
+    let seq = asked(&b, "pick")[0]["seq"].clone();
+    b.on_event(key, "picked", &json!({ "seq": seq, "url": "https://cap.test/page", "rect": "" }));
+    assert!(asked(&b, "screenshot").is_empty() && b.toast.is_none(), "a cancelled pick captures nothing");
+
+    b.set_site_level(Some(ShieldLevel::Lockdown));
+    b.outbox.clear();
+    b.capture_element((800., 600.));
+    assert!(asked(&b, "pick").is_empty(), "no picker on a Lockdown page");
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::capture::NO_PICKER));
+}
+
+#[test]
 fn a_burner_screenshot_is_saved_but_not_recorded() {
     let (_dir, mut b) = browser();
     b.open_burner();

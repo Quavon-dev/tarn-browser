@@ -133,6 +133,45 @@ fn site_css_dark_mode_and_zaps_reach_the_component_and_reload_the_host() {
 }
 
 #[test]
+fn captures_save_an_area_or_a_picked_element_and_record_it_once() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://cap.test/page", "Q3 / Q4");
+    let key = active(&shell);
+    let full = shell.capture_full_page();
+    let args = command(&full, "screenshot").unwrap().clone();
+    assert_eq!((args["fullPage"].clone(), args["name"].clone()), (json!(true), json!("Q3 - Q4.png")));
+    let other = TabKey { private: key.private, id: key.id + 1 };
+    shell.event(other, "screenshot", &json!({ "seq": seq(&args), "path": "/d/elsewhere.png" }), 3);
+    assert!(shell.downloads().is_empty(), "only the tab asked answers");
+    shell.event(key, "screenshot", &json!({ "seq": seq(&args), "path": "/d/Q3 - Q4.png" }), 3);
+    shell.event(key, "screenshot", &json!({ "seq": seq(&args), "path": "/d/again.png" }), 3);
+    assert_eq!(shell.downloads().iter().map(|d| d.path.as_str()).collect::<Vec<_>>(), ["/d/Q3 - Q4.png"]);
+    assert_eq!(shell.notice.as_deref(), Some("Screenshot saved to Downloads"));
+
+    let picking = shell.capture_element((800., 600.));
+    let pick = command(&picking, "pick").unwrap().clone();
+    assert_eq!(pick["rect"], true);
+    let answer = shell.event(key, "picked", &json!({ "seq": seq(&pick), "url": "https://cap.test/page", "rect": "[-20, 500, 2000, 400]" }), 4);
+    let shot = command(&answer, "screenshot").unwrap().clone();
+    assert_eq!([&shot["x"], &shot["y"], &shot["width"], &shot["height"]].map(|v| v.as_f64().unwrap()), [0., 500., 800., 100.]);
+    assert!(shell.capturing.is_none());
+    shell.event(key, "screenshot", &json!({ "seq": seq(&shot), "message": "WebKit could not capture the page" }), 5);
+    assert_eq!(shell.notice.as_deref(), Some("Download failed: WebKit could not capture the page"));
+
+    shell.capture_element((800., 600.));
+    assert!(shell.capturing.is_some());
+    let cancel = shell.cancel_pick();
+    assert!(command(&cancel, "pickCancel").is_some() && shell.capturing.is_none());
+
+    let area = shell.screenshot(key, json!({ "x": 10., "y": 20., "width": 100., "height": 50. }));
+    assert_eq!(command(&area, "screenshot").unwrap()["width"], 100.);
+
+    shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
+    assert!(shell.capture_element((800., 600.)).is_empty(), "no picker on a Lockdown page");
+    assert_eq!(shell.notice.as_deref(), Some(browser_core::capture::NO_PICKER));
+}
+
+#[test]
 fn private_spaces_never_send_or_keep_zaps() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");

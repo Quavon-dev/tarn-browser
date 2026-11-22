@@ -85,6 +85,8 @@ final class Native {
 
     static native String picker();
 
+    static native String pickRect();
+
     static native String selectedTextScript();
 
     static native String mediaStateScript();

@@ -891,7 +891,12 @@ pub fn shield_card(ui: Ui) -> impl IntoElement {
 
 pub fn picking_banner(ui: Ui) -> impl IntoElement {
     dynamic(move || {
-        ui.read(|s| s.picking.is_some()).then(|| {
+        let hint = ui.read(|s| match (s.picking, s.capturing) {
+            (Some(_), _) => Some("Tap an element to hide it on this site."),
+            (None, Some(_)) => Some(browser_core::capture::ELEMENT_HINT_TOUCH),
+            (None, None) => None,
+        });
+        hint.map(|hint| {
             surface(Theme::radius_panel())
                 .flex_row()
                 .items_center()
@@ -902,7 +907,7 @@ pub fn picking_banner(ui: Ui) -> impl IntoElement {
                 .pr_1()
                 .py_1()
                 .shadow(Theme::elevation(4., 14.))
-                .child(label("Tap an element to hide it on this site.").flex_1())
+                .child(label(hint).flex_1())
                 .child(pill("Cancel", move || ui.act(|s| s.cancel_pick())))
         })
     })

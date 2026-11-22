@@ -402,6 +402,22 @@ fn menu(ui: Ui) -> impl IntoElement {
                             ui.act(|s| s.pick());
                         })
                     },
+                ))
+                .child(when(
+                    move || ui.read(|s| s.offers_capture()),
+                    move || {
+                        group()
+                            .child(row(icons::CAMERA, "Take Screenshot", move || {
+                                ui.show(Screen::Browse);
+                                ui.act(|s| s.take_screenshot());
+                            }))
+                            .child(row(icons::CAMERA, "Capture Area", move || super::capture::capture_area(ui)))
+                            .child(row(icons::CAMERA, "Capture Element", move || super::capture::capture_element(ui)))
+                            .child(row(icons::CAMERA, "Capture Full Page", move || {
+                                ui.show(Screen::Browse);
+                                ui.act(|s| s.capture_full_page());
+                            }))
+                    },
                 )),
         ))
         .child(framed(

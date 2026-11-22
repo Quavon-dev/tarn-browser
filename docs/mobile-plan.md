@@ -152,7 +152,7 @@ its own text and a selector hiding part of itself.
 | prop | `zaps` | object host→array of selectors | Hidden elements per host (`Store::zapped_elements`); the shell sends `{}` for private and burner spaces. iOS compiles `shield::lists::compile_zaps` into a `WKContentRuleList` and Linux into a `UserContentFilter` (the same JSON, each rule limited to its exact host); Android appends `shield::lists::zap_css(selectors)` to that host's sheet on the `styles` path. Never under Lockdown |
 | prop | `youtube` | bool | Block YouTube ads (`shield::groups::YOUTUBE_SETTING`, `block_youtube_ads`): the view adds the built-in `youtube_rules` and the page-world `shield::youtube::script` (bundle config) at document start, never under Lockdown; `ALWAYS_VISIBLE` runs in every view but Lockdown's either way (S24). Linux so far; iOS and Android still need it (`docs/port-backlog.md`). Default false |
 | prop | `sortDownloads` | bool | Finished files go into the Downloads subfolder `engine::downloads::folder_for(name)` names (`sorted_dir`, never following a link; other types stay at the top), with the same sanitised unique names. Default false |
-| command | `pick` | `{seq}` | Element picker: runs `engine::page_scripts::PICKER` on the top document; hovering (a tap on touch screens) outlines an element, a click picks it, Escape cancels. A second `pick` ends the first with an empty selector. Emits `picked` |
+| command | `pick` | `{seq}` | Element picker: runs `engine::page_scripts::PICKER` on the top document; hovering (a tap on touch screens) outlines an element, a click picks it, Escape cancels. A second `pick` ends the first with an empty selector. Emits `picked`. With `rect: true` (Capture Element) it runs `engine::page_scripts::pick_rect_script()` instead and answers `picked` `{seq, url, rect}`: the element's rectangle in the visible page as JSON `[x, y, width, height]` in CSS pixels, empty when cancelled or under Lockdown; the shell keeps only `browser_core::capture::element_area(rect, page)` |
 | command | `pickCancel` | none | Ends a running picker; it answers an empty selector |
 | event | `picked` | `{seq, url, selector}` | Empty when cancelled. The shell stores it only if `shield::lists::valid_zap(selector)`, the tab still shows `url`'s host, the space is not private or burner, and the host has fewer than `shield::lists::MAX_ZAPS_PER_SITE` |
 | command | `readArticle` | `{seq, probe}` | Runs `engine::reader::script(origin, probe)` (`origin` of the committed URL). The shell sends `probe: true` after each `finished` on an http(s) page to show the reader button, `false` to open the reader. Not on Android, where scripts run in the page world: there the shell probes nothing and offers the reader in the menu for every http(s) page |
@@ -175,6 +175,8 @@ its own text and a selector hiding part of itself.
 | command | `media` | `{action, seconds?}` | `play`, `pause` or `seekBy` on that element, checked with `browser_core::page_ops::media_command` and run as `engine::page_scripts::media_command_script`; no answer. WebKit runs it as the user's gesture; Android runs it in the page world without one, so `play` works only where the page has allowed playback |
 | command | `snapshotRect` | `{seq, fullPage: true}` or `{seq, x, y, width, height}` | Checked with `browser_core::page_ops::snapshot_area` (CSS pixels of the visible page, sides cut to `engine::view_policy::SNAPSHOT_MAX_SIDE`). iOS and Android draw only the visible page, so a full page is the visible one there (gap below) |
 | event | `snapshotRect` | `{seq, png}` | A PNG `data:` URI, or null when the area was refused or nothing was drawn |
+| command | `screenshot` | `{seq, name}`, plus `fullPage: true` or `x, y, width, height` | Saves the visible page, or the area (`browser_core::capture::area_args`, checked with `page_ops::snapshot_area`; a refused area saves nothing), as a new PNG under the sanitised `name` in the component's Downloads folder (`capture::save_new`; on Android the private session's folder in a private space) and copies it to the clipboard (Linux, iOS; not Android, see gaps) |
+| event | `screenshot` | `{seq, path}` or `{seq, message}` | The shell lists `path` in the tab's own profile store only while `Core::keeps_record_since` allows it (in memory for a private space) |
 | command | `downloadKeep` | `{id, keep}` | Answers `flagged`; anything but `keep: true` cancels. An unanswered one waits, like a paused one, after its component is destroyed |
 
 What the shells build from shared code without the component: copy a clean link
@@ -288,6 +290,9 @@ decisions come from `browser_core::tarn_ext`.
   and Android System WebView draws the whole document only after the app-wide
   `WebView.enableSlowWholeDocumentDraw()`, which slows every view; so `snapshotRect` with `fullPage` gives
   the visible page on both.
+- **Gap: screenshots on Android's clipboard.** Android's clipboard holds an image only as a content
+  URI, which any app reading the clipboard could then open, so the `screenshot` command saves the PNG
+  to Downloads without copying it.
 - **Gap: playing media on Android.** Android has no isolated world that runs as the user's gesture, so the
   `media` command's `play` is refused where the page's media needs one (`setMediaPlaybackRequiresUserGesture`);
   pause and seek work.

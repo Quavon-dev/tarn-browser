@@ -882,11 +882,9 @@ fn scale_down(pixels: &[u8], width: usize, height: usize, max_width: usize) -> (
     (out, w, h)
 }
 
-/// `snapshotRect`: a PNG of an area `browser_core::page_ops::snapshot_area` accepts, cut from the
-/// visible page, or the whole document when it fits `SNAPSHOT_MAX_SIDE` (WebKitGTK cannot clip a
-/// full-document snapshot, so a longer one answers none); under Lockdown a full page is the visible one.
+/// `snapshotRect`: a PNG of an area `browser_core::page_ops::snapshot_area` accepts (see
+/// `snapshot_texture`).
 fn snapshot_rect(state: &Rc<State>, web: &WebView, args: &JsonValue) {
-    use engine::view_policy::{SNAPSHOT_MAX_SIDE, SnapshotArea};
     let seq = args["seq"].as_u64().unwrap_or_default();
     let weak = Rc::downgrade(state);
     let answer = move |png: Option<glib::Bytes>| {
@@ -894,21 +892,37 @@ fn snapshot_rect(state: &Rc<State>, web: &WebView, args: &JsonValue) {
             state.emit("snapshotRect", json!({ "seq": seq, "png": png.map(|b| format!("data:image/png;base64,{}", glib::base64_encode(&b))) }));
         }
     };
-    let css_width = f64::from(web.width()) / web.zoom_level();
-    let whole = |texture: webkit6::gdk::Texture| texture.save_to_png_bytes();
     match browser_core::page_ops::snapshot_area(args) {
         None => answer(None),
+        area => snapshot_texture(state, web, area, move |texture| answer(texture.map(|t| t.save_to_png_bytes()))),
+    }
+}
+
+type Texture = webkit6::gdk::Texture;
+
+/// The visible page, an area of it in CSS pixels, or the whole document when it fits
+/// `SNAPSHOT_MAX_SIDE` (WebKitGTK cannot clip a full-document snapshot, so a longer one gives none);
+/// under Lockdown a full page is the visible one.
+fn snapshot_texture(state: &Rc<State>, web: &WebView, area: Option<engine::view_policy::SnapshotArea>, done: impl FnOnce(Option<Texture>) + 'static) {
+    use engine::view_policy::{SNAPSHOT_MAX_SIDE, SnapshotArea};
+    let visible = |web: &WebView, done: Box<dyn FnOnce(Option<Texture>)>| {
+        web.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| done(result.ok()))
+    };
+    match area {
+        None => visible(web, Box::new(done)),
         Some(SnapshotArea::Rect { x, y, width, height }) => {
-            web.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| {
-                answer(result.ok().and_then(|texture| {
-                    let bounds = pixel_rect([x, y, width, height], f64::from(texture.width()) / css_width, texture.width(), texture.height())?;
-                    Some(cropped_png(&texture, bounds))
-                }))
-            })
+            let css_width = f64::from(web.width()) / web.zoom_level();
+            visible(
+                web,
+                Box::new(move |texture| {
+                    done(texture.and_then(|texture| {
+                        let bounds = pixel_rect([x, y, width, height], f64::from(texture.width()) / css_width, texture.width(), texture.height())?;
+                        Some(cropped(&texture, bounds))
+                    }))
+                }),
+            )
         }
-        Some(SnapshotArea::FullPage) if scripts::locked(state) => {
-            web.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| answer(result.ok().map(whole)))
-        }
+        Some(SnapshotArea::FullPage) if scripts::locked(state) => visible(web, Box::new(done)),
         Some(SnapshotArea::FullPage) => {
             let view = web.clone();
             web.call_async_javascript_function(
@@ -920,9 +934,9 @@ fn snapshot_rect(state: &Rc<State>, web: &WebView, args: &JsonValue) {
                 move |result| {
                     let size = result.ok().filter(|v| v.is_string()).and_then(|v| serde_json::from_str::<[f64; 4]>(&v.to_str()).ok());
                     if !size.is_some_and(|[_, _, w, h]| w <= SNAPSHOT_MAX_SIDE && h <= SNAPSHOT_MAX_SIDE) {
-                        return answer(None);
+                        return done(None);
                     }
-                    view.snapshot(SnapshotRegion::FullDocument, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| answer(result.ok().map(whole)));
+                    view.snapshot(SnapshotRegion::FullDocument, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| done(result.ok()));
                 },
             );
         }
@@ -941,31 +955,26 @@ fn pixel_rect([x, y, width, height]: [f64; 4], per_css: f64, texture_width: i32,
     (x1 > x0 && y1 > y0).then_some([x0, y0, x1, y1])
 }
 
-fn cropped_png(texture: &webkit6::gdk::Texture, [x0, y0, x1, y1]: [usize; 4]) -> glib::Bytes {
+fn cropped(texture: &Texture, [x0, y0, x1, y1]: [usize; 4]) -> Texture {
     let width = texture.width() as usize;
     let mut pixels = vec![0u8; width * texture.height() as usize * 4];
     texture.download(&mut pixels, width * 4);
     let (w, h) = (x1 - x0, y1 - y0);
     let rows = crop(&pixels, width, [x0, y0, x1, y1]);
-    webkit6::gdk::MemoryTexture::new(w as i32, h as i32, webkit6::gdk::MemoryFormat::B8g8r8a8Premultiplied, &glib::Bytes::from_owned(rows), w * 4)
-        .save_to_png_bytes()
+    webkit6::gdk::MemoryTexture::new(w as i32, h as i32, webkit6::gdk::MemoryFormat::B8g8r8a8Premultiplied, &glib::Bytes::from_owned(rows), w * 4).upcast()
 }
 
 fn crop(pixels: &[u8], width: usize, [x0, y0, x1, y1]: [usize; 4]) -> Vec<u8> {
     (y0..y1).flat_map(|y| &pixels[(y * width + x0) * 4..(y * width + x1) * 4]).copied().collect()
 }
 
+/// `screenshot`: saves the visible page, or the area of `snapshot_area` the command names, under
+/// Downloads and copies it.
 fn screenshot(state: &Rc<State>, web: &WebView, args: &JsonValue) {
     let seq = args["seq"].as_u64().unwrap_or_default();
     let name = engine::downloads::sanitize_filename(args["name"].as_str().unwrap_or_default());
     let weak = Rc::downgrade(state);
-    let clipboard = web.clipboard();
-    web.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| {
-        let saved = result.map_err(|_| "WebKit could not capture the page".to_owned()).and_then(|texture| {
-            clipboard.set_texture(&texture);
-            let dir = session::downloads_dir();
-            std::fs::create_dir_all(&dir).and_then(|()| browser_core::capture::save_new(&dir, &name, &texture.save_to_png_bytes())).map_err(|e| e.to_string())
-        });
+    let answer = move |saved: Result<std::path::PathBuf, String>| {
         let Some(state) = weak.upgrade() else { return };
         state.emit(
             "screenshot",
@@ -974,6 +983,18 @@ fn screenshot(state: &Rc<State>, web: &WebView, args: &JsonValue) {
                 Err(message) => json!({ "seq": seq, "message": message }),
             },
         );
+    };
+    let area = browser_core::page_ops::snapshot_area(args);
+    if area.is_none() && (args.get("fullPage").is_some() || args.get("x").is_some()) {
+        return answer(Err("Nothing to capture in that area".to_owned()));
+    }
+    let clipboard = web.clipboard();
+    snapshot_texture(state, web, area, move |texture| {
+        answer(texture.ok_or_else(|| "WebKit could not capture the page".to_owned()).and_then(|texture| {
+            clipboard.set_texture(&texture);
+            let dir = session::downloads_dir();
+            std::fs::create_dir_all(&dir).and_then(|()| browser_core::capture::save_new(&dir, &name, &texture.save_to_png_bytes())).map_err(|e| e.to_string())
+        }))
     });
 }
 

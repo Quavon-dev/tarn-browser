@@ -23,7 +23,7 @@ const INPUT_ROW: f32 = 52.;
 const FOOTER: f32 = 36.;
 const PAD: f32 = 6.;
 const MARGIN: f32 = 16.;
-const DIM: f32 = 0.35;
+pub(crate) const DIM: f32 = 0.35;
 
 #[derive(Default)]
 pub struct Address {

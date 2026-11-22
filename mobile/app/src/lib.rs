@@ -1,3 +1,4 @@
+pub mod capture;
 pub mod data;
 pub mod events;
 pub mod extensions;

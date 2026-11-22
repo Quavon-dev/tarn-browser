@@ -1,5 +1,6 @@
 mod appearance;
 mod bars;
+mod capture;
 mod controls;
 mod extensions;
 mod mac;
@@ -83,6 +84,7 @@ pub struct Ui {
     pub field: ElementRef,
     pub fresh: Signal<Option<(TabKey, TabKey)>>,
     pub mac: Signal<bool>,
+    pub page_overlay: Signal<Option<tarn_nsh_shared::page_overlay::Overlay>>,
     pub popovers: mac::popovers::Anchors,
     pub root: Owner,
 }
@@ -115,6 +117,9 @@ impl Ui {
         if &*e.name == browser_core::extensions::STORE_EVENT {
             extensions::store_link(self, key, e.data["id"].as_str().unwrap_or_default());
         }
+        if &*e.name == "snapshotRect" {
+            return capture::shown(self, key, &e.data);
+        }
         if &*e.name == "iconData" {
             let (name, data) = (e.name.to_string(), e.data.clone());
             let encoded = data.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned();
@@ -130,8 +135,8 @@ impl Ui {
             });
             return;
         }
-        // A picked element is stored, and a pop-up may open in another profile's space.
-        self.run(|s| s.event(key, &e.name, &e.data, browser_core::now()), matches!(&*e.name, "picked" | "popup"));
+        // A picked element or a screenshot is stored, and a pop-up may open in another profile's space.
+        self.run(|s| s.event(key, &e.name, &e.data, browser_core::now()), matches!(&*e.name, "picked" | "popup" | "screenshot"));
     }
 
     fn run(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>, changed: bool) {
@@ -526,6 +531,7 @@ pub fn App() -> impl IntoElement {
         fresh: signal(None),
         mac: signal(false),
         root: Owner::current(),
+        page_overlay: signal(None),
         popovers: mac::popovers::Anchors::default(),
     };
     let extensions_open = std::cell::Cell::new(false);
@@ -615,6 +621,7 @@ pub fn App() -> impl IntoElement {
                 )
                 .child(each(move || pages.get(), |v: &ViewProps| (v.key, v.born), move |item, _| web_view(ui, item)))
                 .child(split::dividers(ui))
+                .child(capture::layer(ui))
                 .child(start(ui))
                 .child(bars::suggestions(ui))
                 .child(prompt::prompt_panel(ui))

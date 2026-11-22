@@ -6,12 +6,23 @@ use futures::channel::mpsc;
 use gpui::{ClipboardItem, Context, Div, Image, ImageFormat, InteractiveElement, actions};
 use url::Url;
 
+use browser_core::capture::{ELEMENT_HINT, NO_PICKER, element_area};
+use browser_core::toast::Tone;
+use engine::WebView;
+use engine::view_policy::SnapshotArea;
+use shield::ShieldLevel;
+
 use crate::browser::{Browser, TabKey, now};
 
-actions!(tarn, [TakeScreenshot, SavePdf, CopyMarkdownLink, CopyTitle, PictureInPicture]);
+pub(crate) type Done = Box<dyn Fn(Option<Vec<u8>>)>;
+
+actions!(tarn, [TakeScreenshot, CaptureArea, CaptureElement, CaptureFullPage, SavePdf, CopyMarkdownLink, CopyTitle, PictureInPicture]);
 
 pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
     root.on_action(cx.listener(|b, _: &TakeScreenshot, _, cx| b.capture(true, cx)))
+        .on_action(cx.listener(|b, _: &CaptureArea, w, cx| b.capture_area(w, cx)))
+        .on_action(cx.listener(|b, _: &CaptureElement, _, cx| b.capture_element(cx)))
+        .on_action(cx.listener(|b, _: &CaptureFullPage, _, cx| b.capture_full_page(cx)))
         .on_action(cx.listener(|b, _: &SavePdf, _, cx| b.capture(false, cx)))
         .on_action(cx.listener(|b, _: &CopyMarkdownLink, _, cx| b.copy_page(true, cx)))
         .on_action(cx.listener(|b, _: &CopyTitle, _, cx| b.copy_page(false, cx)))
@@ -26,15 +37,46 @@ impl Browser {
     /// Screenshot of the visible part of the active tab, or the whole page as PDF, saved to
     /// Downloads and listed in the tab's own profile store (in memory for private spaces).
     pub fn capture(&mut self, screenshot: bool, cx: &mut Context<Self>) {
-        let (Some(key), Some(view)) = (self.model.active, self.active_view()) else { return };
+        let Some(key) = self.model.active else { return };
+        self.capture_tab(key, screenshot, move |view, done| if screenshot { view.snapshot_png(None, done) } else { view.pdf(done) }, cx);
+    }
+
+    fn capture_full_page(&mut self, cx: &mut Context<Self>) {
+        let Some(key) = self.model.active else { return };
+        self.capture_tab(key, true, |view, done| view.snapshot_rect(SnapshotArea::FullPage, done), cx);
+    }
+
+    fn capture_element(&mut self, cx: &mut Context<Self>) {
+        let Some(key) = self.model.active else { return };
+        let (Some(view), Some((_, _, width, height))) = (self.views.get(&key).cloned(), self.link_rect(key)) else { return };
+        if self.level_for_tab(key, &self.tab_url(key).unwrap_or_default()) == ShieldLevel::Lockdown {
+            self.notify_offer(key, NO_PICKER.into(), None);
+            return cx.notify();
+        }
+        self.show_toast_as(Tone::Info, ELEMENT_HINT, None, cx);
+        let zoom = view.zoom();
+        let page = (f64::from(width) / zoom, f64::from(height) / zoom);
+        let (weak, (tx, mut rx)) = (Rc::downgrade(&view), mpsc::unbounded());
+        view.pick_rect(move |answer| drop(tx.unbounded_send(answer)));
+        cx.spawn(async move |this, cx| {
+            let Some(area) = rx.next().await.and_then(|answer| element_area(&answer, page)) else { return };
+            this.update(cx, |b, cx| {
+                if b.same_view(key, &weak) {
+                    b.capture_tab(key, true, move |view, done| view.snapshot_rect(area, done), cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Saves what `take` hands to its callback as `key`'s screenshot or PDF.
+    pub(crate) fn capture_tab(&mut self, key: TabKey, screenshot: bool, take: impl FnOnce(&WebView, Done), cx: &mut Context<Self>) {
+        let Some(view) = self.views.get(&key).cloned() else { return };
         let Some(profile_id) = self.profile_of(key) else { return };
         let page = (profile_id, self.tab_url(key).unwrap_or_default(), self.page_title(key));
         let (tx, mut rx) = mpsc::unbounded();
-        if screenshot {
-            view.snapshot_png(None, move |png| drop(tx.unbounded_send(png)));
-        } else {
-            view.pdf(move |pdf| drop(tx.unbounded_send(pdf)));
-        }
+        take(&view, Box::new(move |bytes| drop(tx.unbounded_send(bytes))));
         let started = now();
         cx.spawn(async move |this, cx| {
             if let Some(bytes) = rx.next().await {

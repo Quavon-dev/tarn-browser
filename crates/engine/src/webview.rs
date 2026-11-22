@@ -439,6 +439,12 @@ impl WebView {
         self.run_isolated(PICKER, done);
     }
 
+    /// `pick_element` answering the element's rectangle (`page_scripts::pick_rect_script`); empty
+    /// under Lockdown.
+    pub fn pick_rect(&self, done: impl Fn(String) + 'static) {
+        self.read_isolated(&crate::page_scripts::pick_rect_script(), done);
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         match icon_links_script(origin) {
             Some(script) => self.run_isolated(&script, done),

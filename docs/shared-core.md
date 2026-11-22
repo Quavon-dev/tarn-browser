@@ -42,10 +42,17 @@ Every shell's web view offers the same operations and reports the same events. T
   dialog) and `pdf` with the absolute `path` the user picked in the save dialog, printed there by
   WebKitGTK and reported on the download route as a finished download; iOS and Android have
   neither yet (`docs/port-backlog.md`); Linux's `snapshot` command answers with a `snapshot` event carrying a PNG
-  `data:` URI at most 752 px wide (the tab hover card), which iOS and Android do not take yet; NSH components: `screenshot` `{seq, name}`, which saves the visible page as a new PNG
+  `data:` URI at most 752 px wide (the tab hover card), which iOS and Android do not take yet; NSH components: `screenshot` `{seq, name}`, which saves the visible page, or with
+  `fullPage` or `x, y, width, height` (`browser_core::capture::area_args`) that area, as a new PNG
   under the sanitised `name` in Downloads (`browser_core::capture::save_new`), copies it to the
-  clipboard and answers with the event `screenshot` `{seq, path}` or `{seq, message}` (Linux; iOS
-  and Android do not have it yet);
+  clipboard (not on Android, `docs/mobile-plan.md`) and answers with the event `screenshot`
+  `{seq, path}` or `{seq, message}`;
+- `pick_rect`: the Zap picker (`page_scripts::pick_rect_script`) answering the picked element's
+  rectangle in the visible page instead of a selector, for Capture Element
+  (`browser_core::capture::element_area` cuts it to the page); empty when cancelled or under
+  Lockdown. NSH components: `pick` with `rect: true`, answered by `picked` `{seq, url, rect}`.
+  Capture Area draws its rectangle in the shell over a still snapshot of the page
+  (`capture::drag_area`), with no script on the page;
 - `selected_text`, `media_state`, `media_command` and `snapshot_rect`: the selection, the first
   audible media element (read, and play, pause or seek), and a PNG of a rectangle of the visible
   page or of the whole document. The reads are isolated-world scripts from `engine::page_scripts`

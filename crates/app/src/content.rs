@@ -137,6 +137,9 @@ fn banner(text: impl Into<SharedString>) -> gpui::Div {
 pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -> AnyElement {
     b.settle_motion(window, cx);
     b.settle_split();
+    if b.capture_overlay.as_ref().is_some_and(|o| b.model.active != Some(o.key)) {
+        b.capture_overlay = None;
+    }
     let reduce = b.pref(Pref::ReduceMotion);
     let page = b.model.active.map(|k| b.page(k)).unwrap_or_default();
     let error = page.error;
@@ -313,6 +316,11 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
             view.set_frame(0., 0., 0., 0.);
         }
         crate::devtools::render_json(key, json, cx)
+    } else if let Some(overlay) = b.model.active.and_then(|key| crate::capture_overlay::render(b, key, cx)) {
+        if let Some(view) = b.active_view() {
+            view.set_frame(0., 0., 0., 0.);
+        }
+        page_frame().relative().child(overlay).into_any_element()
     } else {
         let view = b.active_view();
         let preset = b.responsive_preset();
@@ -345,18 +353,14 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
             |_, _, _, _| {},
         )
         .size_full();
-        let frame = div()
-            .flex_1()
-            .min_h_0()
-            .rounded(px(Theme::radius_page()))
-            .bg(Theme::page())
-            .border_1()
-            .border_color(Theme::hairline())
-            .shadow(Elevation::Page.shadow());
-        frame.child(page).into_any_element()
+        page_frame().child(page).into_any_element()
     };
 
     panel.child(body).into_any_element()
+}
+
+fn page_frame() -> gpui::Div {
+    div().flex_1().min_h_0().rounded(px(Theme::radius_page())).bg(Theme::page()).border_1().border_color(Theme::hairline()).shadow(Elevation::Page.shadow())
 }
 
 const MAX_PROMPT_MESSAGE: usize = 600;

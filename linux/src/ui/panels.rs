@@ -726,6 +726,10 @@ fn tab_panel(ui: Ui) -> AnyElement {
             rows.push(tool(if shown { "Hide Reader" } else { "Show Reader" }, Command::Reader, Some(Action::ToggleReader)));
         }
         rows.push(tool("Zap Element", Command::ZapElement, None));
+        rows.push(tool("Take Screenshot", Command::Key(Action::TakeScreenshot), Some(Action::TakeScreenshot)));
+        rows.push(tool("Capture Area", Command::CaptureArea, None));
+        rows.push(tool("Capture Element", Command::CaptureElement, None));
+        rows.push(tool("Capture Full Page", Command::CaptureFullPage, None));
         if duplicates {
             rows.push(tool("Close Duplicate Tabs", Command::CloseDuplicates, None));
         }

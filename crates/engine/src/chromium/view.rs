@@ -2189,6 +2189,15 @@ impl WebView {
         self.run_isolated_as_gesture(crate::page_scripts::PICKER, true, done);
     }
 
+    /// The picker answering the element's rectangle (`page_scripts::pick_rect_script`); empty
+    /// under Lockdown.
+    pub fn pick_rect(&self, done: impl Fn(String) + 'static) {
+        if self.lockdown_view() {
+            return done(String::new());
+        }
+        self.run_isolated_as_gesture(&crate::page_scripts::pick_rect_script(), true, done);
+    }
+
     pub fn json_text(&self, origin: &Url, max_bytes: usize, done: impl Fn(String) + 'static) {
         match crate::page_scripts::json_text_script(origin, max_bytes) {
             Some(script) => self.run_isolated(&script, done),

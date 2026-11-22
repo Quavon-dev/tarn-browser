@@ -4,6 +4,7 @@ mod address;
 mod blocking;
 mod browser;
 mod capture;
+mod capture_overlay;
 mod content;
 mod devtools;
 mod dialog;
@@ -154,6 +155,9 @@ pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<
         C::SaveForLater => &reader::SaveForLater,
         C::PictureInPicture => &capture::PictureInPicture,
         C::TakeScreenshot => &capture::TakeScreenshot,
+        C::CaptureArea => &capture::CaptureArea,
+        C::CaptureElement => &capture::CaptureElement,
+        C::CaptureFullPage => &capture::CaptureFullPage,
         C::SavePdf => &capture::SavePdf,
         C::CopyMarkdownLink => &capture::CopyMarkdownLink,
         C::CopyTitle => &capture::CopyTitle,
@@ -225,7 +229,8 @@ impl Browser {
                 if b.page_fullscreen.is_on() { b.leave_page_fullscreen(w) } else { w.toggle_fullscreen() }
             }))
             .on_action(cx.listener(|b, _: &CloseOverlay, w, cx| {
-                if b.overlay_open() {
+                if b.close_capture_overlay(cx) {
+                } else if b.overlay_open() {
                     b.dismiss_overlay(w, cx);
                 } else if b.active_prompt().is_some() {
                     b.dismiss_prompt(w, cx);
@@ -517,6 +522,9 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
                     MenuItem::action("Print…", Print),
                     MenuItem::action("Save Page as PDF", capture::SavePdf),
                     MenuItem::action("Take Screenshot", capture::TakeScreenshot),
+                    MenuItem::action("Capture Area", capture::CaptureArea),
+                    MenuItem::action("Capture Element", capture::CaptureElement),
+                    MenuItem::action("Capture Full Page", capture::CaptureFullPage),
                     MenuItem::separator(),
                     MenuItem::action("Close Window", CloseWindow),
                     MenuItem::action(dynamic.close_tab, CloseTab),

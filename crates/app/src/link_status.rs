@@ -31,7 +31,7 @@ impl Browser {
         }
     }
 
-    fn link_rect(&self, key: TabKey) -> Option<Rect> {
+    pub(crate) fn link_rect(&self, key: TabKey) -> Option<Rect> {
         let rect = match self.split_shown.pane_rect(key) {
             Some(rect) => rect,
             None if self.model.active == Some(key) => self.link_status.page.get(),

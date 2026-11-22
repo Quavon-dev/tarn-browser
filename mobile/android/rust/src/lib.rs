@@ -173,6 +173,11 @@ pub extern "system" fn Java_dev_tarn_android_Native_picker(mut env: JNIEnv, _: J
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_pickRect(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::page_scripts::pick_rect_script()))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_tarn_android_Native_selectedTextScript(mut env: JNIEnv, _: JClass) -> jstring {
     java_string(&mut env, Some(engine::page_scripts::SELECTED_TEXT.to_owned()))
 }

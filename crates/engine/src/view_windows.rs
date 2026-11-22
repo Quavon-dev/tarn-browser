@@ -118,6 +118,10 @@ impl WebView {
         self.view.pick_element(done);
     }
 
+    pub fn pick_rect(&self, done: impl Fn(String) + 'static) {
+        self.view.pick_rect(done);
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         self.view.icon_links(origin, done);
     }

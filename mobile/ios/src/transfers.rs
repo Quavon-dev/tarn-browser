@@ -116,7 +116,7 @@ fn progress(download: &WKDownload) -> (u64, Option<u64>) {
     (u64::try_from(done).unwrap_or(0), u64::try_from(total).ok().filter(|t| *t > 0))
 }
 
-fn downloads_dir() -> Option<PathBuf> {
+pub(crate) fn downloads_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| Path::new(&home).join("Documents/Downloads"))
 }
 

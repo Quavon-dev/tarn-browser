@@ -17,6 +17,7 @@ pub mod icons {
     pub const SHIELD_CHECK: ImageAsset = asset!("icons/shield-check.svg");
     pub const PLUS: ImageAsset = asset!("icons/plus.svg");
     pub const CLOSE: ImageAsset = asset!("icons/close.svg");
+    pub const CAMERA: ImageAsset = asset!("icons/camera.svg");
     pub const HISTORY: ImageAsset = asset!("icons/history.svg");
     pub const DOWNLOADS: ImageAsset = asset!("icons/circle-arrow-down.svg");
     pub const GEAR: ImageAsset = asset!("icons/gear.svg");

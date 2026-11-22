@@ -20,12 +20,16 @@ use url::Url;
 use super::super::{Screen, Ui, bars};
 use crate::theme::{TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
 
-const OFFERED: [Command; 19] = [
+const OFFERED: [Command; 23] = [
     Command::OpenFile,
     Command::ReopenClosedTab,
     Command::TogglePin,
     Command::CloseDuplicates,
     Command::ZapElement,
+    Command::TakeScreenshot,
+    Command::CaptureArea,
+    Command::CaptureElement,
+    Command::CaptureFullPage,
     Command::Reader,
     Command::SaveForLater,
     Command::BurnerTab,
@@ -274,6 +278,7 @@ fn offered(ui: Ui, command: Command) -> bool {
         && match command {
             Command::Reader => ui.read(|s| s.offers_reader()),
             Command::ZapElement => ui.read(|s| s.zappable()),
+            Command::TakeScreenshot | Command::CaptureArea | Command::CaptureElement | Command::CaptureFullPage => ui.read(|s| s.offers_capture()),
             Command::BurnerTab => !ui.read(|s| s.in_burner() || <crate::data::Data as crate::data::Platform>::private_process()),
             Command::CopyLink | Command::CopyCleanLink | Command::ShowQrCode | Command::SaveForLater => ui.read(|s| s.share_url().is_some()),
             _ => true,
@@ -325,6 +330,10 @@ fn run(ui: Ui, command: Command) {
         }),
         Command::CloseDuplicates => quiet(|s| s.close_duplicates()),
         Command::ZapElement => ui.act(|s| s.pick()),
+        Command::TakeScreenshot => ui.act(|s| s.take_screenshot()),
+        Command::CaptureArea => super::super::capture::capture_area(ui),
+        Command::CaptureElement => super::super::capture::capture_element(ui),
+        Command::CaptureFullPage => ui.act(|s| s.capture_full_page()),
         Command::Reader => ui.act(|s| s.open_reader()),
         Command::SaveForLater => quiet(|s| {
             s.save_for_later(browser_core::now());

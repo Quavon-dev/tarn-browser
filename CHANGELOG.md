@@ -26,6 +26,10 @@ All notable changes to Tarn are documented in this file. The format is based on
   client.
 - A page that stops responding for eight seconds shows a card with Wait and Reload on every client;
   Reload starts the page again in a new view, and on Linux in a new web process.
+- Capture Area (drag over the page), Capture Element (pick it as Zap Element does) and Capture Full
+  Page join Take Screenshot on every client, and iOS and Android gain Take Screenshot. Captures are
+  saved to Downloads and copied (not on Android); iOS and Android capture the visible part of a full
+  page.
 
 ### Changed
 

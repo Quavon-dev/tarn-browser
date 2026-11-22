@@ -270,6 +270,7 @@ pub struct Browser {
     pub sidebar_width: f32,
     pub(crate) toast: crate::toast::Toasts,
     pub(crate) link_status: crate::link_status::LinkStatus,
+    pub(crate) capture_overlay: Option<crate::capture_overlay::Overlay>,
     /// New tabs whose first load is a page's link, so S10 judges every redirect hop.
     link_loads: HashMap<TabKey, Option<Url>>,
     pub suggestions: Vec<Suggestion>,
@@ -495,6 +496,7 @@ impl Browser {
             sidebar_width,
             toast: Default::default(),
             link_status: Default::default(),
+            capture_overlay: None,
             link_loads: HashMap::new(),
             suggestions: Vec::new(),
             selected: 0,

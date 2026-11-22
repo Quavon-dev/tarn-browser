@@ -87,7 +87,7 @@ fn web(url: &str) -> bool {
 }
 
 impl<D: Platform> Shell<D> {
-    fn next_seq(&mut self) -> u64 {
+    pub(crate) fn next_seq(&mut self) -> u64 {
         self.seq += 1;
         self.seq
     }
@@ -277,6 +277,7 @@ impl<D: Platform> Shell<D> {
             "iconLinks" => return self.icon_links(key, data),
             "iconData" => self.icon_event(key, name, data, favicon::normalize(&text(data, "text"))),
             "textFound" => self.text_found(key, data),
+            "picked" if self.capturing.is_some_and(|(k, ..)| k == key) => return self.capture_picked(key, data),
             "picked" => self.picked(key, data),
             "shielded" => self.shielded_event(key, data),
             _ => {}
@@ -354,14 +355,15 @@ impl<D: Platform> Shell<D> {
             self.notice = Some("Hidden elements are not kept in a private space.".into());
             return Vec::new();
         }
+        self.capturing = None;
         let seq = self.next_seq();
         self.picking = Some((key, seq));
         vec![Effect::Command(key, "pick", json!({ "seq": seq }))]
     }
 
     pub fn cancel_pick(&mut self) -> Vec<Effect> {
-        match self.picking.take() {
-            Some((key, _)) => vec![Effect::Command(key, "pickCancel", Value::Null)],
+        match self.picking.take().map(|(k, _)| k).or(self.capturing.take().map(|(k, ..)| k)) {
+            Some(key) => vec![Effect::Command(key, "pickCancel", Value::Null)],
             None => Vec::new(),
         }
     }

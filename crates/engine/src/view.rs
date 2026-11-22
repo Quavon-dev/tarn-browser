@@ -143,6 +143,12 @@ impl WebView {
         webkit_only!(self, v => v.pick_element(done), done(String::new()))
     }
 
+    /// Lets the user pick an element as `pick_element` does, answering its rectangle in the visible
+    /// page for `browser_core::capture::element_area`; empty when cancelled or under Lockdown.
+    pub fn pick_rect(&self, done: impl Fn(String) + 'static) {
+        both!(self, v => v.pick_rect(done))
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         both!(self, v => v.icon_links(origin, done))
     }

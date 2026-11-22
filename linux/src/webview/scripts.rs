@@ -77,6 +77,9 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             run(state, Some(page_scripts::media_state_script()), move |s, url, text| s.emit("mediaState", json!({ "seq": seq, "url": url, "text": text })))
         }
         "media" => run(state, browser_core::page_ops::media_command(args).map(page_scripts::media_command_script), |_, _, _| {}),
+        "pick" if args["rect"].as_bool() == Some(true) => {
+            run(state, Some(page_scripts::pick_rect_script()), move |s, url, rect| s.emit("picked", json!({ "seq": seq, "url": url, "rect": rect })))
+        }
         "pick" => run(state, Some(PICKER.to_owned()), move |s, url, selector| s.emit("picked", json!({ "seq": seq, "url": url, "selector": selector }))),
         "pickCancel" => run(state, Some(PICK_CANCEL.to_owned()), |_, _, _| {}),
         _ => return false,

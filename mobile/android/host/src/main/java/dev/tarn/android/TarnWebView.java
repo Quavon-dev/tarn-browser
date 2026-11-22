@@ -391,19 +391,21 @@ final class TarnWebView implements NshComponent {
                 runAsync(page == null ? null : Native.mediaCommandScript(Prompts.text(args, "action"), seconds), SCRIPT_WAIT_MS, text -> {});
             }
             case "snapshotRect" -> snapshotRect(seq, args);
+            case "screenshot" -> screenshot(seq, args);
             case "pick" -> {
                 endPick();
+                boolean rect = Boolean.TRUE.equals(args.get("rect"));
                 Consumer<String> done = new Consumer<>() {
                     @Override
-                    public void accept(String selector) {
+                    public void accept(String answer) {
                         if (pickDone != this) return;
                         pickDone = null;
                         pickToken = null;
-                        emit("picked", "seq", seq, "url", url, "selector", selector);
+                        emit("picked", "seq", seq, "url", url, rect ? "rect" : "selector", answer);
                     }
                 };
                 pickDone = done;
-                pickToken = runAsync(page == null ? null : Native.picker(), Long.MAX_VALUE, done);
+                pickToken = runAsync(page == null ? null : rect ? Native.pickRect() : Native.picker(), Long.MAX_VALUE, done);
             }
             case "pickCancel" -> {
                 if (web != null && javaScriptOn) web.evaluateJavascript(CANCEL_PICK, null);
@@ -416,27 +418,65 @@ final class TarnWebView implements NshComponent {
         return true;
     }
 
-    /** A PNG of the area {@code Native.snapshotArea} accepts; Android WebView draws only the visible page, so a full page is that. */
+    private static double[] area(Map<?, ?> args) {
+        return Native.snapshotArea(Boolean.TRUE.equals(args.get("fullPage")), number(args, "x"), number(args, "y"), number(args, "width"), number(args, "height"));
+    }
+
+    /** The area {@code Native.snapshotArea} gives, {@code [x, y, width, height]} or empty for all of it; Android WebView draws only the visible page, so a full page is that. */
     @SuppressWarnings("deprecation")
-    private void snapshotRect(Object seq, Map<?, ?> args) {
-        double[] area = web == null ? null : Native.snapshotArea(Boolean.TRUE.equals(args.get("fullPage")), number(args, "x"), number(args, "y"), number(args, "width"), number(args, "height"));
-        if (area == null || web.getWidth() <= 0 || web.getHeight() <= 0) {
-            emit("snapshotRect", "seq", seq, "png", null);
-            return;
-        }
+    private Bitmap drawn(double[] area) {
+        if (web == null || area == null || web.getWidth() <= 0 || web.getHeight() <= 0) return null;
         double scale = web.getScale();
         int left = area.length == 4 ? (int) Math.min(web.getWidth(), Math.floor(area[0] * scale)) : 0;
         int top = area.length == 4 ? (int) Math.min(web.getHeight(), Math.floor(area[1] * scale)) : 0;
         int right = area.length == 4 ? (int) Math.min(web.getWidth(), Math.ceil((area[0] + area[2]) * scale)) : web.getWidth();
         int bottom = area.length == 4 ? (int) Math.min(web.getHeight(), Math.ceil((area[1] + area[3]) * scale)) : web.getHeight();
-        if (right <= left || bottom <= top) {
-            emit("snapshotRect", "seq", seq, "png", null);
-            return;
-        }
+        if (right <= left || bottom <= top) return null;
         Bitmap bitmap = Bitmap.createBitmap(right - left, bottom - top, Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
         canvas.translate(-web.getScrollX() - left, -web.getScrollY() - top);
         web.draw(canvas);
+        return bitmap;
+    }
+
+    /**
+     * The visible page, or the area the command names, saved under Downloads (the private session's in a private space). It is not
+     * copied: Android's clipboard holds an image only as a content URI that any app reading the clipboard could open.
+     */
+    private void screenshot(Object seq, Map<?, ?> args) {
+        double[] area = args.containsKey("fullPage") || args.containsKey("x") ? area(args) : new double[0];
+        Bitmap bitmap = drawn(area);
+        if (bitmap == null) {
+            emit("screenshot", "seq", seq, "message", area == null ? "Nothing to capture in that area" : "The page could not be captured");
+            return;
+        }
+        File dir = Downloads.directory(context.getContext());
+        String name = Native.downloadName(Objects.requireNonNullElse(Prompts.text(args, "name"), ""));
+        FINDER.execute(() -> {
+            try {
+                java.nio.file.Files.createDirectories(dir.toPath());
+                File file;
+                synchronized (Downloads.class) {
+                    file = Downloads.unique(dir, name);
+                    try (java.io.OutputStream out = java.nio.file.Files.newOutputStream(file.toPath(), java.nio.file.StandardOpenOption.CREATE_NEW)) {
+                        if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) throw new IOException("The page could not be encoded");
+                    }
+                }
+                emit("screenshot", "seq", seq, "path", file.getPath());
+            } catch (IOException e) {
+                emit("screenshot", "seq", seq, "message", String.valueOf(e.getMessage()));
+            } finally {
+                bitmap.recycle();
+            }
+        });
+    }
+
+    private void snapshotRect(Object seq, Map<?, ?> args) {
+        Bitmap bitmap = drawn(area(args));
+        if (bitmap == null) {
+            emit("snapshotRect", "seq", seq, "png", null);
+            return;
+        }
         FINDER.execute(() -> {
             java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
             boolean done = bitmap.compress(Bitmap.CompressFormat.PNG, 100, png);

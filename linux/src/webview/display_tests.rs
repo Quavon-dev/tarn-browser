@@ -87,6 +87,13 @@ fn contract_v3_scripts_run_in_the_tarn_world_and_styles_and_zaps_apply() {
     assert!(scripts::command(&state, "pickCancel", &JsonValue::Null));
     assert!(spin_until(|| event(&state, "picked").is_some(), 20), "a cancelled pick answers");
     assert_eq!(event(&state, "picked").unwrap()["selector"], "");
+    state.events.borrow_mut().clear();
+    assert!(scripts::command(&state, "pick", &json!({ "seq": 8, "rect": true })));
+    spin_until(|| false, 1);
+    assert!(scripts::command(&state, "pickCancel", &JsonValue::Null));
+    assert!(spin_until(|| event(&state, "picked").is_some(), 20), "a cancelled rectangle pick answers");
+    let picked = event(&state, "picked").unwrap();
+    assert_eq!((picked["seq"].clone(), picked["rect"].clone(), picked.get("selector")), (json!(8), json!(""), None), "{picked}");
     eprintln!("v3 scripts, styles and zaps verified on {}", web.uri().unwrap_or_default());
 }
 
@@ -730,6 +737,19 @@ fn a_screenshot_saves_a_new_png_under_the_given_name_only() {
     let png = std::fs::read(&path).unwrap();
     std::fs::remove_file(&path).unwrap();
     assert!(png.starts_with(b"\x89PNG\r\n\x1a\n") && png.len() > 100);
+    state.events.borrow_mut().clear();
+    screenshot(&state, &web, &json!({ "seq": 4, "name": "tarn-display-area.png", "x": 10, "y": 10, "width": 50, "height": 40 }));
+    assert!(spin_until(|| event(&state, "screenshot").is_some(), 20), "the area screenshot answered");
+    let answer = event(&state, "screenshot").unwrap();
+    let path = std::path::PathBuf::from(answer["path"].as_str().unwrap_or_default());
+    let png = std::fs::read(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let side = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
+    assert_eq!((side(16), side(20)), (50, 40), "only the area is saved");
+    state.events.borrow_mut().clear();
+    screenshot(&state, &web, &json!({ "seq": 5, "name": "tarn-display-none.png", "x": -1, "y": 0, "width": 50, "height": 40 }));
+    assert!(spin_until(|| event(&state, "screenshot").is_some(), 20));
+    assert!(event(&state, "screenshot").unwrap()["message"].is_string(), "a malformed area saves nothing");
     window.destroy();
 }
 
