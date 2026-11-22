@@ -279,14 +279,21 @@ fn offered(ui: Ui, command: Command) -> bool {
         }
 }
 
-fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
+#[derive(Clone, PartialEq)]
+enum Pick {
+    Copy(String),
+    Run(Command),
+}
+
+/// The answer rows of `query`, then the commands it names.
+fn commands(ui: Ui, query: &str) -> Vec<(String, Pick)> {
     let state = state(ui);
-    palette::rows(query, state, |c| offered(ui, c), &[])
-        .into_iter()
-        .filter_map(|(name, row)| match row {
-            Row::Command(c) => Some((name, c)),
+    let answers = palette::answers(query).into_iter().map(|a| (a.label, Pick::Copy(a.copy)));
+    answers
+        .chain(palette::rows(query, state, |c| offered(ui, c), &[]).into_iter().filter_map(|(name, row)| match row {
+            Row::Command(c) => Some((name, Pick::Run(c))),
             Row::Extra(_) => None,
-        })
+        }))
         .collect()
 }
 
@@ -341,10 +348,13 @@ fn run(ui: Ui, command: Command) {
     }
 }
 
-fn pick(ui: Ui, command: Command) {
+fn pick(ui: Ui, pick: Pick) {
     ui.fresh.set(None);
     close_palette(ui);
-    run(ui, command);
+    match pick {
+        Pick::Copy(text) => ui.copy_answer(text),
+        Pick::Run(command) => run(ui, command),
+    }
 }
 
 fn go(ui: Ui, text: String) {
@@ -360,13 +370,13 @@ fn submit(ui: Ui, text: String, completed: Option<(String, String)>) {
     let commands = commands(ui, &text);
     if listing(&text) {
         if let Some((_, command)) = commands.get(picked.saturating_sub(1)) {
-            pick(ui, *command);
+            pick(ui, command.clone());
         }
         return;
     }
     if picked > 0 {
         if let Some((_, command)) = commands.get(picked - 1) {
-            return pick(ui, *command);
+            return pick(ui, command.clone());
         }
         if let Some(url) = ui.suggest.with_untracked(|s| s.get(picked - 1 - commands.len()).map(|h| h.url.clone())) {
             return go(ui, url);
@@ -433,14 +443,20 @@ fn command_rows(ui: Ui) -> impl IntoElement {
     let listed = computed(move || commands(ui, &ui.address.get()));
     dynamic(move || {
         let found = listed.get();
-        let shown = !found.is_empty();
-        let items = found.into_iter().enumerate().map(move |(ix, (name, command))| {
-            row(name.clone(), move || pick(ui, command))
+        let shown = found.iter().any(|(_, p)| matches!(p, Pick::Run(_)));
+        let items = found.into_iter().enumerate().map(move |(ix, (name, pick_row))| {
+            let (glyph, command) = match &pick_row {
+                Pick::Copy(_) => (glyphs::COPY, None),
+                Pick::Run(c) => (glyphs::glyph(browser_core::command::glyph(&name)), Some(*c)),
+            };
+            row(name.clone(), move || pick(ui, pick_row.clone()))
                 .bg(move || picked_fill(picked(ui, ix + 1)))
-                .child(row_glyph(glyphs::glyph(browser_core::command::glyph(&name)), move || picked(ui, ix + 1)))
+                .child(row_glyph(glyph, move || picked(ui, ix + 1)))
                 .child(row_name(name, Theme::text()))
+                .children(command.is_none().then(|| row_detail(palette::ANSWER_DETAIL.to_owned())))
                 .children(
-                    shortcuts::for_command(command)
+                    command
+                        .and_then(shortcuts::for_command)
                         .filter(|a| super::input::offered(*a))
                         .and_then(|a| shortcuts::keys_for(a, super::input::keyboard()))
                         .map(|k| key_caps(&k)),

@@ -1141,7 +1141,7 @@ fn submit(ui: Ui, query: Signal<String>, text: String) {
     // The command list shows commands only: Enter runs the picked one, or nothing.
     if tools::listing(&query.get_untracked()) {
         if let Some((_, command)) = tools::commands(ui, &query.get_untracked()).get(picked.saturating_sub(1)) {
-            tools::pick(ui, *command);
+            tools::pick(ui, command.clone());
         }
         return;
     }
@@ -1150,7 +1150,7 @@ fn submit(ui: Ui, query: Signal<String>, text: String) {
     }
     let commands = tools::commands(ui, &query.get_untracked());
     if let Some((_, command)) = commands.get(picked - 1) {
-        return tools::pick(ui, *command);
+        return tools::pick(ui, command.clone());
     }
     let row = picked - 1 - commands.len();
     if let Some(key) = ui.tabs.with_untracked(|t| t.get(row).map(|t| t.key)) {

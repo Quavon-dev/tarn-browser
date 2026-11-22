@@ -24,8 +24,10 @@ const READER_SIZES: [f32; 6] = [14., 16., 18., 20., 23., 26.];
 const READER_WIDTHS: [(f32, &str); 2] = [(620., "Narrow"), (820., "Wide")];
 const QR_SIZE: f32 = 204.;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    /// An answer of `palette::answers`, copied when run.
+    Copy(String),
     CloseDuplicates,
     ZapElement,
     Reader,
@@ -181,18 +183,22 @@ pub fn commands(ui: Ui, query: &str) -> Vec<(String, Command)> {
     };
     let offered = |c: palette::Command| command_for(c).is_some() && (c != palette::Command::ImportBrowserData || browser_core::import::available());
     let extra: Vec<(String, &str)> = spaces.iter().map(|(l, _)| (l.clone(), "space workspace")).collect();
-    palette::rows(query, state, offered, &extra)
-        .into_iter()
-        .filter_map(|(label, row)| match row {
+    let answers = palette::answers(query).into_iter().map(|a| (a.label, Command::Copy(a.copy)));
+    answers
+        .chain(palette::rows(query, state, offered, &extra).into_iter().filter_map(|(label, row)| match row {
             palette::Row::Command(c) => Some((label, command_for(c)?)),
             palette::Row::Extra(ix) => Some((label, Command::Space(spaces[ix].1))),
-        })
+        }))
         .collect()
 }
 
 pub fn run(ui: Ui, command: Command) {
     ui.panel.set(Panel::None);
     match command {
+        Command::Copy(text) => {
+            set_clipboard(text);
+            act(ui, |b| b.show_toast_as(browser_core::toast::Tone::Success, "Copied", None));
+        }
         Command::CloseDuplicates => act(ui, Browser::close_duplicates),
         Command::ZapElement => act(ui, Browser::zap_element),
         Command::Reader => act(ui, Browser::toggle_reader),
@@ -369,9 +375,9 @@ pub fn toast_bar(ui: Ui) -> AnyElement {
     })
 }
 
-fn action(command: Command) -> Option<Action> {
+fn action(command: &Command) -> Option<Action> {
     match command {
-        Command::Key(action) => Some(action),
+        Command::Key(action) => Some(*action),
         Command::CopyLink => Some(Action::CopyLink),
         Command::CopyCleanLink => Some(Action::CopyCleanLink),
         Command::CopyMarkdownLink => Some(Action::CopyMarkdownLink),
@@ -388,7 +394,7 @@ fn action(command: Command) -> Option<Action> {
 pub fn command_rows(ui: Ui, query: Signal<String>) -> AnyElement {
     dynamic(move || {
         let rows = commands(ui, &query.get());
-        let shown = !rows.is_empty();
+        let shown = rows.iter().any(|(_, c)| !matches!(c, Command::Copy(_)));
         let items: Vec<AnyElement> = rows
             .into_iter()
             .enumerate()
@@ -399,12 +405,17 @@ pub fn command_rows(ui: Ui, query: Signal<String>) -> AnyElement {
                         at.reveal(RevealOptions::default().vertical(ScrollAlignment::Nearest));
                     }
                 });
-                let keys = action(command).and_then(|a| super::shortcut_of(ui, a));
-                super::suggestion_row(name.clone(), move || pick(ui, command))
+                let keys = action(&command).and_then(|a| super::shortcut_of(ui, a));
+                let (glyph, detail) = match command {
+                    Command::Copy(_) => (icons::COPY, Some(palette::ANSWER_DETAIL)),
+                    _ => (icons::glyph(browser_core::command::glyph(&name)), None),
+                };
+                super::suggestion_row(name.clone(), move || pick(ui, command.clone()))
                     .element_ref(&at)
                     .bg(move || super::picked_fill(ui, ix + 1))
-                    .child(super::row_glyph(ui, icons::glyph(browser_core::command::glyph(&name)), move || ix + 1))
+                    .child(super::row_glyph(ui, glyph, move || ix + 1))
                     .child(label(name).flex_1().truncate())
+                    .children(detail.map(super::detail))
                     .children(keys.map(|k| tarn_nsh_shared::controls::key_caps(&k)))
                     .into_element()
             })
@@ -497,7 +508,7 @@ pub fn share_panel(ui: Ui) -> AnyElement {
         )
         .child(icon_button(icons::CLOSE, "Close", move || show(ui, Panel::None)));
     let item = |name: &'static str, command: Command, action: Option<Action>| {
-        super::panels::menu_row(name, action.and_then(|a| super::shortcut_of(ui, a)), move || run(ui, command))
+        super::panels::menu_row(name, action.and_then(|a| super::shortcut_of(ui, a)), move || run(ui, command.clone()))
     };
     super::panels::popover()
         .gap_1()

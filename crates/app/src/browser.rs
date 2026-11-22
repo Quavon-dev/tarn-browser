@@ -145,6 +145,8 @@ pub enum Target {
     Action(Box<dyn gpui::Action>),
     /// A tab whose text, or title and address, contains the query.
     Find(TabKey, String),
+    /// An answer of `palette::answers`, which Enter copies.
+    Copy(String),
 }
 
 pub struct Suggestion {
@@ -1779,6 +1781,8 @@ impl Browser {
             };
             out.insert(0, Suggestion { label: ui::text::bounded_url(&shown), detail: ui::text::bounded_url(&detail), target });
         }
+        let answers = browser_core::palette::answers(&query).into_iter();
+        out.splice(0..0, answers.map(|a| Suggestion { label: a.label, detail: browser_core::palette::ANSWER_DETAIL.to_owned(), target: Target::Copy(a.copy) }));
         let typed = out.len();
         let listed: HashSet<TabKey> = out.iter().filter_map(|s| if let Target::Tab(k) = s.target { Some(k) } else { None }).collect();
         let completed = completion.as_ref().map(|c| c.url.as_str());
@@ -1894,6 +1898,11 @@ impl Browser {
                 self.close_command(window, cx);
                 window.dispatch_action(action, cx);
                 return;
+            }
+            Target::Copy(text) => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+                self.close_command(window, cx);
+                return self.show_toast_as(browser_core::toast::Tone::Success, "Copied", None, cx);
             }
             Target::Url(u) => u.clone(),
             Target::Input(Input::Navigate(u)) => self.clean_user_load(u.clone(), cx),

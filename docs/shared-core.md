@@ -299,6 +299,13 @@ The tab, motion and gesture switches and the accent choice are stored under the 
 
 The NSH shells for Linux, iOS and Android (`docs/nsh-plan.md` P2–P4) sit on `browser-core`.
 
+**Command bar answers:** `browser_core::palette::answers` gives the rows the command bar answers
+offline, listed first on every client, with Enter or a tap copying `Answer::copy`: `palette::calc`
+evaluates `+ - * / % ^`, parentheses and decimals (at most `calc::MAX_INPUT` bytes, nesting bounded,
+finite results only), `palette::units` converts length, mass, temperature, volume, data size and time
+("5 km in mi"), and `palette::emoji` finds emoji by name after a `:` in a built-in table. Nothing is
+fetched, so there is no currency conversion.
+
 **Assistant:** `browser_core::assistant` is the chat every client renders and the rules its
 requests follow (threat model S2, S3, S9); it does not depend on the `ai` crate and sends nothing.
 `Session::new` binds a chat to one profile and refuses a private space, a burner tab, a Lockdown

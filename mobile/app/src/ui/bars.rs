@@ -203,6 +203,13 @@ fn address_input(ui: Ui) -> nsh_base::Input {
             }
         })
         .on_submit(move |value: &str| {
+            if ui.picked.get_untracked().is_none()
+                && let Some(answer) = browser_core::palette::answers(value).into_iter().next()
+            {
+                ui.editing.set(false);
+                dismiss_keyboard();
+                return ui.copy_answer(answer.copy);
+            }
             let picked = ui.picked.get_untracked().and_then(|ix| ui.suggest.with_untracked(|rows| rows.get(ix).map(|h| h.url.clone())));
             let typed = picked.or_else(|| completed.get_untracked().filter(|(full, _)| full == value).map(|(_, url)| url)).unwrap_or_else(|| value.to_owned());
             ui.editing.set(false);
@@ -446,24 +453,42 @@ fn bind_suggestion_keys(ui: Ui) {
 
 pub fn suggestions(ui: Ui) -> impl IntoElement {
     let found = move || if ui.editing.get() { ui.suggest.get() } else { Vec::new() };
+    let answers = move || if ui.editing.get() { ui.address.with(|a| browser_core::palette::answers(a)) } else { Vec::new() };
+    let answer_rows = each(
+        answers,
+        |a: &browser_core::palette::Answer| a.label.clone(),
+        move |a, _| {
+            let answer = a.get_untracked();
+            let copy = answer.copy.clone();
+            detail_row(None, answer.label, Some(small(browser_core::palette::ANSWER_DETAIL).into_element()), move || {
+                ui.editing.set(false);
+                dismiss_keyboard();
+                ui.copy_answer(copy.clone());
+            })
+            .border_b(px(0.))
+            .rounded(px(Theme::radius_row()))
+        },
+    );
     let list = scroll().flex_shrink(1.).style_when(move || ui.wide(), |s| s.flex_1()).child(suggestion_keys(ui)).child(
-        surface(Theme::radius_panel()).p_1().m_2().style_when(move || found().is_empty(), |s| s.hidden()).child(each(
-            found,
-            |h: &store::HistoryEntry| h.url.clone(),
-            move |h, ix| {
-                let entry = h.get_untracked();
-                let url = entry.url.clone();
-                let name = browser_core::command::display_title("", &entry.title, &url);
-                detail_row(Some(icons::GLOBE), name, Some(address_caption(&url, 1, true)), move || {
-                    ui.editing.set(false);
-                    dismiss_keyboard();
-                    ui.act(|s| s.navigate(&url));
-                })
-                .border_b(px(0.))
-                .rounded(px(Theme::radius_row()))
-                .bg(move || if ui.picked.get() == Some(ix.get()) { Theme::selected() } else { Theme::clear() })
-            },
-        )),
+        surface(Theme::radius_panel()).p_1().m_2().style_when(move || found().is_empty() && answers().is_empty(), |s| s.hidden()).child(answer_rows).child(
+            each(
+                found,
+                |h: &store::HistoryEntry| h.url.clone(),
+                move |h, ix| {
+                    let entry = h.get_untracked();
+                    let url = entry.url.clone();
+                    let name = browser_core::command::display_title("", &entry.title, &url);
+                    detail_row(Some(icons::GLOBE), name, Some(address_caption(&url, 1, true)), move || {
+                        ui.editing.set(false);
+                        dismiss_keyboard();
+                        ui.act(|s| s.navigate(&url));
+                    })
+                    .border_b(px(0.))
+                    .rounded(px(Theme::radius_row()))
+                    .bg(move || if ui.picked.get() == Some(ix.get()) { Theme::selected() } else { Theme::clear() })
+                },
+            ),
+        ),
     );
     view().flex_1().style_when(move || !ui.editing.get() || ui.mac.get(), |s| s.hidden()).style_when(move || !ui.wide(), |s| s.justify_end()).child(list)
 }

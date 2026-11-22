@@ -1,6 +1,31 @@
 use crate::command::rank_commands;
 
+pub mod calc;
+pub mod emoji;
+pub mod units;
+
 pub const PLAIN_ROOM: usize = 4;
+
+/// A row the command bar answers itself, offline: a sum, a unit conversion or an emoji. Enter
+/// copies `copy`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Answer {
+    pub label: String,
+    pub copy: String,
+}
+
+pub const ANSWER_DETAIL: &str = "Copy";
+
+/// The answer rows for `query`, first in the list: a result of `calc` or `units`, else the emoji
+/// `emoji::search` finds.
+pub fn answers(query: &str) -> Vec<Answer> {
+    let value = calc::evaluate(query).map(|v| (calc::format(v), String::new())).or_else(|| units::convert(query).map(|(v, unit)| (calc::format(v), unit)));
+    if let Some((number, unit)) = value {
+        let label = if unit.is_empty() { format!("= {number}") } else { format!("= {number} {unit}") };
+        return vec![Answer { label, copy: number }];
+    }
+    emoji::search(query).into_iter().map(|(emoji, name)| Answer { label: format!("{emoji}  {name}"), copy: emoji.to_owned() }).collect()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Command {
@@ -334,6 +359,15 @@ mod tests {
         let toast = State { toast: Some("Undo \u{2014} Tab closed".into()), ..State::default() };
         assert_eq!(names("notification action", toast), ["Undo \u{2014} Tab closed"]);
         assert!(names("notification action", State::default()).is_empty());
+    }
+
+    #[test]
+    fn answers_copy_a_result_a_conversion_or_an_emoji() {
+        assert_eq!(answers("6 * 7"), [Answer { label: "= 42".into(), copy: "42".into() }]);
+        assert_eq!(answers("2 km in m")[0].label, "= 2000 m");
+        assert_eq!(answers("2 km in m")[0].copy, "2000");
+        assert_eq!(answers(":taco")[0].copy, "\u{1F32E}");
+        assert!(answers("42").is_empty() && answers("rust language").is_empty() && answers("> copy").is_empty());
     }
 
     #[test]

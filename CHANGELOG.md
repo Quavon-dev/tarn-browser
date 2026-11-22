@@ -6,6 +6,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- The command bar answers sums ("12 * 4 + 2"), unit conversions ("5 km in mi") and emoji searches
+  (":rocket") offline on every client; Enter or a tap copies the answer.
+
 ### Changed
 
 - The command bar lists the same commands on every client from one shared list. macOS and Windows

@@ -206,6 +206,15 @@ impl Ui {
         }
     }
 
+    /// Copies an answer row of the address field.
+    pub fn copy_answer(self, text: String) {
+        set_clipboard(text);
+        self.act(|s| {
+            s.toast_as(browser_core::toast::Tone::Success, "Copied".into());
+            Vec::new()
+        });
+    }
+
     pub fn edit_address(self) {
         if self.mac.get_untracked() {
             mac::open_palette(self);
