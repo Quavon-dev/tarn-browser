@@ -14,7 +14,6 @@ pub const EMPTY: &str = "No notes yet.";
 pub const NO_MATCH: &str = "No notes match.";
 pub const UNTITLED: &str = "Untitled";
 
-/// One row of the notes list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub id: Id,
@@ -80,7 +79,7 @@ impl Draft {
         if self.title.trim().is_empty() && self.body.trim().is_empty() {
             return Err("Write a title or some text.".into());
         }
-        if self.title.len() > MAX_NOTE_TITLE {
+        if self.title.chars().count() > MAX_NOTE_TITLE {
             return Err(format!("A title holds up to {MAX_NOTE_TITLE} characters."));
         }
         if self.body.len() > MAX_NOTE {
@@ -125,6 +124,7 @@ mod tests {
         let draft = |id, title: &str, body: &str| Draft { id, title: title.into(), body: body.into() };
         assert!(draft(None, " ", "\n").save(&store, profile).is_err());
         assert!(draft(None, &"t".repeat(MAX_NOTE_TITLE + 1), "x").save(&store, profile).is_err());
+        assert!(draft(None, &"é".repeat(MAX_NOTE_TITLE), "x").save(&store, profile).is_ok(), "the limit counts characters");
         assert!(draft(None, "t", &"x".repeat(MAX_NOTE + 1)).save(&store, profile).is_err());
         let saved = draft(None, "Trip", "Day 1").save(&store, profile).unwrap();
         let edited = Draft { body: "Day 2".into(), ..Draft::of(&saved) }.save(&store, profile).unwrap();

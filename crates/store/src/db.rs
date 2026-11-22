@@ -288,7 +288,8 @@ pub const MAX_SNIPPET_NAME: usize = 32;
 pub fn valid_snippet_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= MAX_SNIPPET_NAME && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
 }
-/// The longest note title and note text kept, in bytes, and the most notes a profile keeps.
+/// The longest note title kept, in characters, the longest note text, in bytes, and the most notes a
+/// profile keeps.
 pub const MAX_NOTE_TITLE: usize = 200;
 pub const MAX_NOTE: usize = 64 * 1024;
 pub const MAX_NOTES: usize = 1000;
@@ -1164,7 +1165,6 @@ impl Store {
         Ok(())
     }
 
-    /// The profile's notes, last edited first.
     pub fn notes(&self, profile_id: Id) -> Result<Vec<Note>> {
         let mut stmt = self.conn.prepare("SELECT id, profile_id, title, body, updated FROM notes WHERE profile_id = ?1 ORDER BY updated DESC, id DESC")?;
         let rows =
@@ -1174,12 +1174,12 @@ impl Store {
 
     /// Adds a note (`id` none) or replaces the profile's note `id`, without invisible characters
     /// (`is_invisible`) and with the title on one line. Refused for a private profile, for an empty
-    /// note, past `MAX_NOTE_TITLE` or `MAX_NOTE` bytes, or for a new note past `MAX_NOTES`.
+    /// note, a title past `MAX_NOTE_TITLE` characters, text past `MAX_NOTE` bytes, or for a new note past `MAX_NOTES`.
     pub fn save_note(&self, profile_id: Id, id: Option<Id>, title: &str, body: &str) -> Result<Note> {
         let visible = |s: &str| s.chars().filter(|c| !is_invisible(*c)).collect::<String>();
         let title = visible(title).split_whitespace().collect::<Vec<_>>().join(" ");
         let body = visible(body);
-        if (title.is_empty() && body.trim().is_empty()) || title.len() > MAX_NOTE_TITLE || body.len() > MAX_NOTE {
+        if (title.is_empty() && body.trim().is_empty()) || title.chars().count() > MAX_NOTE_TITLE || body.len() > MAX_NOTE {
             return Err(Error::Invalid("note"));
         }
         let updated = now_ms();
@@ -2514,6 +2514,9 @@ mod tests {
             assert!(store.save_note(1, None, title, body).is_err(), "{title:?}");
         }
         assert!(store.save_note(1, Some(9999), "t", "x").is_err(), "no such note");
+        assert!(store.save_note(1, None, &"é".repeat(MAX_NOTE_TITLE), "x").is_ok(), "the title limit counts characters");
+        assert!(store.save_note(1, None, &"é".repeat(MAX_NOTE_TITLE + 1), "x").is_err());
+        store.delete_note(1, store.notes(1).unwrap()[0].id).unwrap();
         store.delete_note(2, note.id).unwrap();
         assert_eq!(store.notes(1).unwrap().len(), 2, "another profile's id deletes nothing");
         assert!(store.export_profile(1).unwrap().contains("\"notes\""));
