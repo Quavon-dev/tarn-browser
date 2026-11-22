@@ -24,6 +24,13 @@ pub const ASSISTANT_COMMANDS: &str = "Ask Assistant to";
 /// The most commands that menu lists.
 pub const MAX_MENU_COMMANDS: usize = 32;
 
+/// The `assistantMenu` prop: the command names, at most `MAX_MENU_COMMANDS`; anything but a list
+/// hides the entries.
+pub fn menu_commands(value: &serde_json::Value) -> Option<Vec<String>> {
+    let names = value.as_array()?.iter().filter_map(serde_json::Value::as_str).take(MAX_MENU_COMMANDS);
+    Some(names.map(str::to_owned).collect())
+}
+
 /// The longest side of a snapshot, in CSS pixels, so a page cannot ask for an unbounded bitmap.
 pub const SNAPSHOT_MAX_SIDE: f64 = 16384.;
 
@@ -323,6 +330,14 @@ impl RestoredHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_assistant_menu_prop_takes_names_only_from_a_list() {
+        use serde_json::json;
+        assert_eq!(menu_commands(&serde_json::Value::Null), None);
+        assert_eq!(menu_commands(&json!(["Explain", 3, "Fix Spelling"])), Some(vec!["Explain".to_owned(), "Fix Spelling".to_owned()]));
+        assert_eq!(menu_commands(&json!(vec!["x"; 40])).map(|m| m.len()), Some(MAX_MENU_COMMANDS));
+    }
 
     #[test]
     fn a_snapshot_holds_at_most_its_pixel_budget_at_the_engines_scale() {

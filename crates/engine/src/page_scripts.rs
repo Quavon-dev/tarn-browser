@@ -610,6 +610,7 @@ mod tests {
         for token in ["cc-.+", "current-password", "new-password", "one-time-code"] {
             assert!(SELECTED_TEXT.contains(token), "{token}");
         }
+        assert!(SELECTED_TEXT.contains(&format!(".slice(0, {SELECTION_MAX})")), "the script cuts at SELECTION_MAX");
     }
 
     #[test]

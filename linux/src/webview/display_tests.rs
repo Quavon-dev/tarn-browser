@@ -115,13 +115,6 @@ fn insert_text_types_into_the_focused_field_only() {
 }
 
 #[test]
-fn the_assistant_menu_prop_takes_names_only_from_a_list() {
-    assert_eq!(assistant_menu(&JsonValue::Null), None);
-    assert_eq!(assistant_menu(&json!(["Explain", 3, "Fix Spelling"])), Some(vec!["Explain".to_owned(), "Fix Spelling".to_owned()]));
-    assert_eq!(assistant_menu(&json!(vec!["x"; 40])).map(|m| m.len()), Some(engine::view_policy::MAX_MENU_COMMANDS));
-}
-
-#[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn ask_assistant_reads_the_selection_with_its_command_but_never_a_secret_field() {
     gtk::init().expect("a display");

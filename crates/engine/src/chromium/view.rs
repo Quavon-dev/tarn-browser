@@ -58,6 +58,8 @@ struct Tab {
     inspectable: Cell<bool>,
     /// The commands a selection's menu offers after Ask Assistant about Selection; none hides both.
     assistant_menu: RefCell<Option<Vec<String>>>,
+    /// The commands the open menu shows, as the list may change while it shows.
+    shown_commands: RefCell<Vec<String>>,
     #[cfg(target_os = "macos")]
     download_notice: Cell<Option<std::time::Instant>>,
     /// Shared with the pop-ups the tab opens (S23), as WebKit's are.
@@ -1533,6 +1535,9 @@ wrap_context_menu_handler! {
             let inspectable = tab(self.id).is_some_and(|t| t.inspectable.get());
             let selected = params.is_some_and(|p| !CefString::from(&p.selection_text()).to_string().trim().is_empty());
             let commands = tab(self.id).and_then(|t| t.assistant_menu.borrow().clone()).filter(|_| selected);
+            if let Some(tab) = tab(self.id) {
+                *tab.shown_commands.borrow_mut() = commands.clone().unwrap_or_default();
+            }
             // A separator stays only between two kept items.
             let mut after_item = false;
             for index in (0..model.count()).rev() {
@@ -1566,7 +1571,7 @@ wrap_context_menu_handler! {
         fn on_context_menu_command(&self, browser: Option<&mut Browser>, _frame: Option<&mut Frame>, params: Option<&mut ContextMenuParams>, command_id: i32, _event_flags: EventFlags) -> i32 {
             if command_id == ASK_ASSISTANT || (FIRST_COMMAND..FIRST_COMMAND + crate::view_policy::MAX_MENU_COMMANDS as i32).contains(&command_id) {
                 let Some(tab) = tab(self.id) else { return 0 };
-                let command = usize::try_from(command_id - FIRST_COMMAND).ok().and_then(|ix| tab.assistant_menu.borrow().as_ref()?.get(ix).cloned());
+                let command = usize::try_from(command_id - FIRST_COMMAND).ok().and_then(|ix| tab.shown_commands.borrow().get(ix).cloned());
                 if command_id == ASK_ASSISTANT || command.is_some() {
                     emit(&tab, Event::AssistantSelection(command));
                     return 1;
@@ -1915,6 +1920,7 @@ impl WebView {
             last_find: RefCell::new(String::new()),
             inspectable: Cell::new(false),
             assistant_menu: RefCell::default(),
+            shown_commands: RefCell::default(),
             #[cfg(target_os = "macos")]
             download_notice: Cell::new(None),
             recent_popups: Rc::default(),

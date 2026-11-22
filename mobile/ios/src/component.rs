@@ -657,10 +657,7 @@ impl NativeComponent for TarnWebView {
                     return;
                 }
                 "assistantMenu" => {
-                    let names = value
-                        .and_then(Value::as_array)
-                        .map(|a| a.iter().filter_map(Value::as_str).take(engine::view_policy::MAX_MENU_COMMANDS).map(str::to_owned).collect());
-                    props.assistant_menu = names;
+                    props.assistant_menu = value.and_then(engine::view_policy::menu_commands);
                     return;
                 }
                 "styles" => props.styles = crate::scripts::host_map(value).into_iter().filter_map(|(h, v)| Some((h, v.as_str()?.to_owned()))).collect(),

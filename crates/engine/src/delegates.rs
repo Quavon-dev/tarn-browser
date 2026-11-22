@@ -295,7 +295,7 @@ define_class!(
 
         #[unsafe(method(askAssistant:))]
         fn ask_assistant(&self, sender: &NSMenuItem) {
-            let command = usize::try_from(sender.tag()).ok().and_then(|ix| self.ivars().assistant_menu.borrow().as_ref()?.get(ix).cloned());
+            let command = (sender.tag() >= 0).then(|| sender.title().to_string());
             self.emit(Event::AssistantSelection(command));
         }
 
@@ -902,7 +902,8 @@ impl Delegate {
     }
 
     /// Ask Assistant about Selection and the Ask Assistant to submenu, after a separator; each
-    /// sends `askAssistant:` with its command's index as tag, or -1 for the question itself.
+    /// sends `askAssistant:` with its command's index as tag, or -1 for the question itself; the
+    /// command is read from the item's title, as the list may change while the menu shows.
     fn add_assistant_items(&self, menu: &NSMenu, commands: &[String]) {
         let mtm = self.mtm();
         let item = |title: &str, tag: isize| {

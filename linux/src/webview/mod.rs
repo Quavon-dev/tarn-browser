@@ -510,12 +510,6 @@ fn link_menu(state: &std::rc::Weak<State>, menu: &webkit6::ContextMenu, hit: &we
     menu.insert(&ContextMenuItem::from_gaction(&split, "Open Link in Split View", None), at as i32 + 1);
 }
 
-/// The `assistantMenu` prop: the command names, at most `MAX_MENU_COMMANDS`; anything but a list hides the entries.
-fn assistant_menu(value: &JsonValue) -> Option<Vec<String>> {
-    let names = value.as_array()?.iter().filter_map(|v| v.as_str()).take(engine::view_policy::MAX_MENU_COMMANDS);
-    Some(names.map(str::to_owned).collect())
-}
-
 /// Ask Assistant about Selection and its Ask Assistant to submenu on selected text, where the shell
 /// set the commands; each reads the selection and emits `assistantSelection`.
 fn assistant_menu_items(state: &std::rc::Weak<State>, menu: &webkit6::ContextMenu, hit: &webkit6::HitTestResult) {
@@ -1348,7 +1342,7 @@ impl NativeComponent for TarnWebView {
             "sortDownloads" => return state.sort_downloads.set(value.as_bool().unwrap_or(false)),
             "muted" => return mute(state, value.as_bool().unwrap_or(false)),
             "assistantMenu" => {
-                *state.assistant_menu.borrow_mut() = assistant_menu(value);
+                *state.assistant_menu.borrow_mut() = engine::view_policy::menu_commands(value);
                 return;
             }
             "load" => {
