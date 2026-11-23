@@ -1,9 +1,10 @@
 //! Converts EasyList-style filter lists into WebKit content rule lists (S20).
 
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use adblock::content_blocking::CbType;
-use adblock::lists::{FilterSet, ParseOptions, RuleTypes};
+use adblock::lists::{FilterSet, ParseOptions, ParsedLine, RuleTypes, parse_filter};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use url::Host;
@@ -14,7 +15,7 @@ pub const MAX_RULES_PER_LIST: usize = 50_000;
 
 /// Bumped when the conversion changes, so stored lists are rebuilt.
 /// Includes the pinned `adblock` version, whose conversion output can change between releases.
-const COMPILER_VERSION: &[u8] = b"tarn-shield-lists-2/adblock-0.13.5";
+const COMPILER_VERSION: &[u8] = b"tarn-shield-lists-3/adblock-0.13.5";
 
 /// Element hiding applies to every page, so generic rules are capped harder than site rules.
 pub const MAX_GENERIC_HIDE: usize = 10_000;
@@ -84,16 +85,80 @@ pub fn compile(lists: &[&str], shared: &[&str]) -> Compiled {
 /// The network rules of `lists` plus only the exceptions of `shared`; `debug` keeps the rule text
 /// that content-blocking conversion needs.
 pub(crate) fn network_set(lists: &[&str], shared: &[&str], debug: bool) -> FilterSet {
-    let opts = || ParseOptions { rule_types: RuleTypes::NetworkOnly, ..ParseOptions::default() };
+    let clean = |list: &str| if debug { without_invalid_domain_entries(list) } else { list.to_owned() };
     let mut set = FilterSet::new(debug);
     for list in lists {
-        set.add_filter_list((*list).to_owned(), opts());
+        set.add_filter_list(clean(list), network_only());
     }
     for list in shared {
-        let exceptions: String = list.lines().filter(|l| l.starts_with("@@")).flat_map(|l| [l, "\n"]).collect();
-        set.add_filter_list(exceptions, opts());
+        let exceptions: String = list.lines().filter(|l| l.trim_start().starts_with("@@")).flat_map(|l| [l, "\n"]).collect();
+        set.add_filter_list(clean(&exceptions), network_only());
     }
     set
+}
+
+fn network_only() -> ParseOptions {
+    ParseOptions { rule_types: RuleTypes::NetworkOnly, ..ParseOptions::default() }
+}
+
+/// `list` with the `$domain=` entries that IDNA rejects taken out of its network rules, which
+/// `adblock` panics on when converting them to content-blocking rules. Other lines are kept byte
+/// for byte.
+pub fn without_invalid_domain_entries(list: &str) -> String {
+    list.split_inclusive('\n')
+        .filter_map(|text| {
+            let line = text.strip_suffix('\n').unwrap_or(text);
+            match without_invalid_domains(line) {
+                Some(same) if same == line.trim() => Some(text.into()),
+                _ if !matches!(parse_filter(line, false, network_only()), Ok(ParsedLine::Network(_))) => Some(text.into()),
+                cleaned => cleaned.map(|rule| Cow::Owned(rule.into_owned() + "\n")),
+            }
+        })
+        .collect()
+}
+
+/// The rule as the content-blocking conversion reads it (the first `domain=` after the first `$`,
+/// up to a `,`) without the entries IDNA rejects. Such an entry matches no site, so the rule keeps
+/// its meaning: `None` when it was limited to sites and none is left, `~invalid` (a reserved name)
+/// when nothing that names a site is left. `None` too when the parser would read other options
+/// (it takes those after the last `$`, and any later `domain=` or `from=`), so a rewrite never
+/// widens a rule.
+fn without_invalid_domains(line: &str) -> Option<Cow<'_, str>> {
+    let line = line.trim();
+    let Some(start) = line.find('$').and_then(|d| line[d..].find("domain=").map(|i| d + i + "domain=".len())) else {
+        return Some(line.into());
+    };
+    let end = line[start..].find(',').map_or(line.len(), |i| start + i);
+    let valid = |entry: &&str| {
+        let domain = entry.strip_prefix('~').unwrap_or(entry);
+        domain.is_ascii() || domain.starts_with('/') || {
+            let domain = domain.to_lowercase();
+            domain.is_ascii() || idna::domain_to_ascii(&domain).is_ok()
+        }
+    };
+    let (kept, dropped): (Vec<&str>, Vec<&str>) = line[start..end].split('|').partition(valid);
+    if dropped.is_empty() {
+        return Some(line.into());
+    }
+    let one_option_list = line.find('$') == line.rfind('$')
+        && matches!(line.as_bytes()[start - "domain=".len() - 1], b'$' | b',')
+        && line[line.find('$').unwrap_or_default()..]
+            .split([',', '$'])
+            .map(|o| o.trim_start_matches('~'))
+            .filter(|o| o.starts_with("domain=") || o.starts_with("from="))
+            .count()
+            == 1;
+    let site = |entry: &&&str| {
+        let domain = entry.strip_prefix('~').unwrap_or(entry);
+        !domain.is_empty() && !(domain.starts_with('/') && domain.ends_with('/'))
+    };
+    let limits = |d: &&str| !d.starts_with('~') && !(d.starts_with('/') && d.ends_with('/'));
+    let limited = dropped.iter().chain(&kept).any(limits);
+    if !one_option_list || kept.iter().any(|d| d.starts_with('/')) || (limited && !kept.iter().any(|d| limits(d) && !d.is_empty())) {
+        return None;
+    }
+    let kept = if kept.iter().any(|d| site(&d)) { kept.join("|") } else { "~invalid".to_owned() };
+    Some(format!("{}{kept}{}", &line[..start], &line[end..]).into())
 }
 
 /// What `compile` would name its output, without compiling.
@@ -600,9 +665,9 @@ mod tests {
     #[test]
     fn shared_exceptions_reach_other_categories_and_change_the_fingerprint() {
         let own = compile(&["||tracker.example^\n"], &[]);
-        let shared = compile(&["||tracker.example^\n"], &["@@||ok.example^\n||other.example^\n"]);
+        let shared = compile(&["||tracker.example^\n"], &["@@||ok.example^\n||other.example^\n  @@||indented.example^\n"]);
         let text = Value::Array(rules(&shared)).to_string();
-        assert!(text.contains("ok\\\\.example") && !text.contains("other"), "{text}");
+        assert!(text.contains("ok\\\\.example") && text.contains("indented") && !text.contains("other"), "{text}");
         assert_ne!(own.fingerprint, shared.fingerprint);
     }
 
@@ -660,5 +725,55 @@ mod tests {
     #[test]
     fn empty_input_yields_no_chunks() {
         assert!(compile(&["! only a comment\n##.ad"], &[]).chunks.is_empty());
+    }
+
+    #[test]
+    fn domains_idna_rejects_do_not_panic() {
+        let list = "||ads.example^$domain=a.\u{751}le.org\n  @@||ok.example^$domain=ab.\u{31d}x|~x.org\n||b\u{fc}cher.example^$domain=b\u{fc}cher.example \n";
+        let text = Value::Array(rules(&compile(&[list], &[list]))).to_string();
+        assert!(!text.contains("ads\\\\.example") && !text.contains("ok\\\\.example"), "{text}");
+        assert!(text.contains("*xn--bcher-kva.example"), "{text}");
+        let mixed = compile(&["||mixed.example^$domain=good.example|a.\u{751}le.org\n||everywhere.example^$domain=~a.\u{751}le.org\n"], &[]);
+        let text = Value::Array(rules(&mixed)).to_string();
+        assert!(text.contains("mixed\\\\.example") && text.contains("*good.example") && !text.contains("le.org"), "{text}");
+        assert!(text.contains("everywhere\\\\.example") && text.contains("*invalid"), "{text}");
+    }
+
+    #[test]
+    fn invalid_domains_are_removed_keeping_the_rules_meaning() {
+        let bad = "a.\u{751}le.org";
+        let cases = [
+            ("  ||a^$script  ", Some("||a^$script")),
+            ("||a^$domain=b\u{fc}cher.de|\u{212a}.de|/x\\.(com|org)/", Some("||a^$domain=b\u{fc}cher.de|\u{212a}.de|/x\\.(com|org)/")),
+            (&format!("||a^$domain=good.com|{bad}|~no.com,script"), Some("||a^$domain=good.com|~no.com,script")),
+            (&format!("||a^$domain=good.com|~{bad}"), Some("||a^$domain=good.com")),
+            (&format!("||a^$domain={bad}"), None),
+            (&format!("||a^$domain=~ok.com|{bad}"), None),
+            (&format!("||a^$third-party,domain=~{bad}"), Some("||a^$third-party,domain=~invalid")),
+            (&format!("||a^$domain=~{bad}|~{bad},script"), Some("||a^$domain=~invalid,script")),
+            (&format!("@@||a^$domain=~{bad}"), Some("@@||a^$domain=~invalid")),
+            (&format!("||a^$domain=~/re/|~{bad}"), Some("||a^$domain=~invalid")),
+            (&format!("||a^$domain=/re/|{bad}"), None),
+            (&format!("||a^$domain={bad}|"), None),
+            (&format!("@@||a^$domain=~{bad}|"), None),
+            (&format!("||a^$domain=|~{bad}|~ok.com"), None),
+            (&format!("||a^$xdomain=~{bad}"), None),
+            (&format!("@@||x.com/$domain=~z^$domain={bad}"), None),
+            (&format!("||a^$from=x.com,domain=~{bad}"), None),
+            (&format!("||a^$domain=~{bad},from=x.com"), None),
+            (&format!("@@||a^$domain=~{bad},domain=good.com"), None),
+            (&format!("||a^$domain=~{bad},~from=good.com"), None),
+            (&format!("@@||a^$domain=~{bad},~domain=good.com"), None),
+            (&format!("||t.com^$domain=/x|~ok.com|~{bad}"), None),
+            (&format!("@@||t.com^$domain=/x|~ok.com|~{bad}"), None),
+        ];
+        for (line, expected) in cases {
+            assert_eq!(without_invalid_domains(line).as_deref(), expected, "{line}");
+        }
+        let hiding = format!("example.com##a[href$=\"?domain={bad}\"]");
+        let list = format!("  ||ok.example^\n{hiding}\n||a^$domain={bad}\n||b^$domain=ok.com|{bad}\n");
+        assert_eq!(without_invalid_domain_entries(&list), format!("  ||ok.example^\n{hiding}\n||b^$domain=ok.com\n"));
+        let crlf = "||a^\r\r\n||b^$domain=ok.com|a.\u{751}le.org\r\n";
+        assert_eq!(without_invalid_domain_entries(crlf), "||a^\r\r\n||b^$domain=ok.com\n");
     }
 }

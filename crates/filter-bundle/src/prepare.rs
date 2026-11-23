@@ -285,6 +285,7 @@ pub fn prepare(o: &Options) -> Result<Vec<Prepared>, String> {
         match s.format {
             Format::Filters => {
                 let text = preprocess(&raw, &|inc| read(&format!("{}+{inc}", s.name)), false).map_err(|e| format!("{}: {e}", s.name))?;
+                let text = shield::lists::without_invalid_domain_entries(&text);
                 let count = text.lines().filter(|l| is_rule(l)).count() as u64;
                 check_count(&s.name, count, s.min, s.max)?;
                 // A cookie list's `$popup` rule must not block a whole site under Block pop-ups.
@@ -447,7 +448,7 @@ mod tests {
     fn fixture(dir: &Path, previous: Option<(&str, u64)>) -> Result<Vec<Prepared>, String> {
         let raw = dir.join("raw");
         fs::create_dir_all(&raw).unwrap();
-        fs::write(raw.join("ads"), "! title\n||ads.example^\n||pop.example^$popup\n!#include extra.txt\n").unwrap();
+        fs::write(raw.join("ads"), "! title\n||ads.example^\n||pop.example^$popup\n||idna.example^$domain=a.\u{751}le.org\n!#include extra.txt\n").unwrap();
         fs::write(raw.join("ads+extra.txt"), "##.banner\n").unwrap();
         fs::write(raw.join("bad"), "0.0.0.0 evil.example\n0.0.0.0 a.evil.example\nco.uk\nmail.google.com\nphish.example\n").unwrap();
         let sources = dir.join("sources.json");
@@ -500,7 +501,8 @@ mod tests {
         assert_eq!(fs::read_to_string(out.join("malware-rules.txt")).unwrap(), "a.evil.example\nevil.example\nphish.example\n");
         let set = DomainSet::from_bytes(&fs::read(out.join("malware.set")).unwrap()).unwrap();
         assert!(set.contains("evil.example") && set.contains("x.phish.example") && !set.contains("example.co.uk"));
-        assert!(fs::read_to_string(out.join("ads.txt")).unwrap().contains("##.banner"));
+        let ads = fs::read_to_string(out.join("ads.txt")).unwrap();
+        assert!(ads.contains("##.banner") && !ads.contains("idna.example"), "{ads}");
         let entries: Vec<Prepared> = serde_json::from_slice(&fs::read(out.join(ENTRIES)).unwrap()).unwrap();
         assert_eq!(entries, prepared);
     }

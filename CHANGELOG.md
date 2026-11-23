@@ -123,6 +123,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   when its selection could be attached.
 - An Ollama error is no longer reported as Ollama not running. Snippets and assistant command templates are saved without
   invisible or control characters, as notes are.
+- Shield leaves out `$domain=` entries of a filter list rule that are not valid internationalized
+  domain names and keeps the rest of the rule; a rule limited only to such sites is left out.
 
 ## [0.1.6] - 2026-11-21
 

@@ -8,8 +8,12 @@ before it uses anything in it (threat S20).
    [`packaging/filters/sources.json`](../packaging/filters/sources.json) and the `!#include` files
    they name (plain file names from the same folder only), fetches the last published
    `manifest.json`, and runs `filter-bundle prepare`. That step applies uBlock Origin's `!#if`
-   blocks for Tarn's tokens, inlines includes, normalises hosts files, wildcard lists and `||host^`
-   rules to hostnames, drops public suffixes, single labels and the hosts in
+   blocks for Tarn's tokens, inlines includes, removes `$domain=` entries that are not valid IDNA
+   names from network rules (a rule limited only to such sites is dropped, and so is one whose
+   site options its parser and the content-blocking conversion would read differently: more than
+   one `$`, or more than one `domain=` or `from=` option; on every client, since older releases
+   cannot convert it), normalises hosts files, wildcard lists
+   and `||host^` rules to hostnames, drops public suffixes, single labels and the hosts in
    `shield::domains::PROTECTED`, checks each source against its `min`/`max` count, refuses a file
    whose count shrank by more than a fifth or grew by more than half since the last bundle, and
    writes the bundle files with `entries.json`.
