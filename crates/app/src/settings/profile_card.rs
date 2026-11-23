@@ -63,9 +63,6 @@ fn protected_sites(card: &Card) -> Div {
 }
 
 impl SettingsWindow {
-    /// The card's next frame: draws its faces off the main thread when the card changes, moves
-    /// the tilt, glow, flip and press a step towards their goals, and asks for another frame
-    /// until they arrive.
     fn card_frame(&mut self, card: &Card, reduce: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<Arc<RenderImage>> {
         const RATES: [f32; 5] = [12., 12., 8., 6.5, 25.];
         let m = &mut self.motion;
@@ -111,7 +108,6 @@ impl SettingsWindow {
         m.drawn.as_ref().map(|(_, _, image)| image.clone())
     }
 
-    /// The first pane: the profile's Shield card, its week, and what Tarn does for it and talks to.
     pub(super) fn profile_tab(&mut self, s: &Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(card) = s.card.clone() else { return note("No profile is open.").into_any_element() };
         let target = s.profile.as_ref().map(|p| (s.private, p.id));
