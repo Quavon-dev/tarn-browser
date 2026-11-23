@@ -242,6 +242,13 @@ pub fn same_origin(challenge: &Url, page: Option<&Url>) -> bool {
 }
 
 /// Sign-in requests are shown only for the page's own origin and only for a few failed tries.
+/// The HTTPS origin a TLS client certificate request names by host and port; an IPv6 host comes
+/// bare or bracketed.
+pub fn tls_challenge(host: &str, port: i32) -> Option<Url> {
+    let host = if host.contains(':') && !host.starts_with('[') { format!("[{host}]") } else { host.to_owned() };
+    Url::parse(&format!("https://{host}:{port}")).ok()
+}
+
 pub fn may_ask_credentials(challenge: &Url, page: Option<&Url>, failures: u32) -> bool {
     failures < MAX_AUTH_ATTEMPTS && same_origin(challenge, page)
 }
@@ -559,5 +566,16 @@ mod tests {
         assert_eq!(title(&"x".repeat(5000)).len(), MAX_TITLE);
         assert_eq!(without_credentials("https://u:p@a.test/f?x"), "https://a.test/f?x");
         assert_eq!(without_credentials("not a url"), "");
+    }
+
+    #[test]
+    fn a_certificate_request_names_an_https_origin() {
+        let origin = |host, port| tls_challenge(host, port).as_ref().and_then(crate::page::serialized_origin);
+        assert_eq!(origin("a.test", 443).as_deref(), Some("https://a.test"));
+        assert_eq!(origin("a.test", 8443).as_deref(), Some("https://a.test:8443"));
+        assert_eq!(origin("::1", 443).as_deref(), Some("https://[::1]"));
+        assert_eq!(origin("[::1]", 8443).as_deref(), Some("https://[::1]:8443"));
+        assert!(may_ask_credentials(&tls_challenge("a.test", 443).unwrap(), Some(&u("https://a.test/x")), 0));
+        assert!(tls_challenge("a test", 443).is_none());
     }
 }

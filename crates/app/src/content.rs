@@ -393,6 +393,7 @@ fn kind_name(kind: &PromptKind) -> &'static str {
         PromptKind::Microphone => "microphone",
         PromptKind::CameraAndMicrophone => "camera+microphone",
         PromptKind::Credentials { .. } => "credentials",
+        PromptKind::ClientCertificate { .. } => "certificate",
         PromptKind::ExtensionAccess { .. } => "extension",
         PromptKind::MaliciousDownload { .. } => "malicious download",
     }
@@ -416,6 +417,7 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
         PromptKind::Credentials { realm } => {
             (origin, format!("asks you to sign in{}", if realm.is_empty() { String::new() } else { format!(" ({})", ui::text::bounded_title(realm)) }))
         }
+        PromptKind::ClientCertificate { .. } => (origin, "asks for a certificate to identify you".into()),
         PromptKind::ExtensionAccess { extension, key } => (
             format!("The extension \u{201C}{}\u{201D}", crate::extensions::shown(extension)),
             format!("({}) wants to read and change {origin}", b.extension_badge(key)),
@@ -464,6 +466,7 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
         PromptKind::MaliciousDownload { .. } => buttons
             .child(secure_button("prompt-accept", "Keep Anyway", false).text_color(Secure::danger()).on_click(answer(false, true)))
             .child(secure_button("prompt-decline", "Cancel Download", true).on_click(answer(false, false))),
+        PromptKind::ClientCertificate { .. } => buttons.child(silence()).child(secure_ghost_button("prompt-decline", "Cancel").on_click(answer(false, false))),
         PromptKind::Credentials { .. } => buttons
             .child(silence())
             .child(secure_ghost_button("prompt-decline", "Cancel").on_click(answer(false, false)))
@@ -472,6 +475,10 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
             .child(silence())
             .child(secure_ghost_button("prompt-decline", "Cancel").on_click(answer(false, false)))
             .child(secure_button("prompt-accept", "OK", true).on_click(answer(false, true))),
+    };
+    let certificates = match &prompt.kind {
+        PromptKind::ClientCertificate { names } => Some(names.clone()),
+        _ => None,
     };
     let card = floating()
         .px_3()
@@ -497,9 +504,17 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
                 )
                 .child(buttons),
         )
-        .when(prompt.insecure, |d| d.child(div().text_color(Secure::warning()).child("This connection is not secure: the password would be sent unencrypted.")))
+        .when(prompt.insecure && matches!(prompt.kind, PromptKind::Credentials { .. }), |d| {
+            d.child(div().text_color(Secure::warning()).child("This connection is not secure: the password would be sent unencrypted."))
+        })
         .when(matches!(prompt.kind, PromptKind::Text { .. }), |d| d.child(field(b.prompt_input.clone())))
-        .when(matches!(prompt.kind, PromptKind::Credentials { .. }), |d| d.child(field(b.auth_user.clone())).child(field(b.auth_pass.clone())));
+        .when(matches!(prompt.kind, PromptKind::Credentials { .. }), |d| d.child(field(b.auth_user.clone())).child(field(b.auth_pass.clone())))
+        .when_some(certificates, |d, names| {
+            d.children(names.iter().enumerate().map(|(i, name)| {
+                secure_button(("prompt-certificate", i), ui::text::bounded_title(name), false)
+                    .on_click(cx.listener(move |b: &mut Browser, _, w, cx| b.choose_certificate(i, w, cx)))
+            }))
+        });
     Some((title, card))
 }
 

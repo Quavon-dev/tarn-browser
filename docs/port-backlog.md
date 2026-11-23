@@ -21,6 +21,28 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Client certificate picker (2026-11-23)
+
+What it does: when the page's own site asks for a TLS client certificate, a tab-modal prompt lists
+the certificates the user has that the server accepts and sends only the one they pick; Cancel
+sends none and the page loads as it would without one. Other sites never get to ask.
+Shared API: `engine::PromptKind::ClientCertificate { names }`, `engine::Prompt::choose(index)`;
+NSH clients use the `"certificate"` kind with `browser_core::prompts::{Prompt::ask, meaning}` and
+`browser_core::glyphs::glyph`, and `view_policy::may_ask_credentials` for the origin check.
+Reference: `crates/engine/src/delegates.rs` (`auth_challenge`, `keychain_identities`),
+`crates/engine/src/chromium/view.rs` (`on_select_client_certificate`, `ask_certificate`),
+`crates/app/src/content.rs` (`prompt_card`), `crates/app/src/browser/events.rs`
+(`choose_certificate`).
+
+- [x] Windows — same code in `crates/app` and the Chromium engine
+- [ ] Linux — WebKitGTK raises `AuthenticationScheme::ClientCertificateRequested`, which
+  `authenticate` in `linux/src/webview/mod.rs` cancels; GTK has no system certificate store, so
+  answering it needs a way to pick a certificate file and `Credential::for_certificate`
+- [ ] iOS — `challenge` in `mobile/ios/src/handler.rs` takes the default handling; an app cannot
+  read the system's identities, so this needs certificates imported into Tarn's own keychain
+- [ ] Android — `onReceivedClientCertRequest` in `TarnWebView` with
+  `KeyChain.choosePrivateKeyAlias`, behind the same origin check
+
 ### Insert Snippet in the page's context menu (2026-11-22)
 
 What it does: right-clicking (long-pressing) a text field on a page offers Insert Snippet…, which

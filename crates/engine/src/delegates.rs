@@ -7,8 +7,14 @@ use std::rc::Rc;
 use std::time::{Instant, SystemTime};
 
 use block2::{DynBlock, RcBlock};
+use core_foundation::array::{CFArray, CFArrayRef};
+use core_foundation::base::{CFType, CFTypeRef, TCFType};
+use core_foundation::boolean::CFBoolean;
+use core_foundation::date::CFDate;
+use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
+use core_foundation::string::{CFString, CFStringRef};
 use objc2::rc::{Retained, Weak};
-use objc2::runtime::{AnyObject, Bool, NSObjectProtocol, ProtocolObject, Sel};
+use objc2::runtime::{AnyClass, AnyObject, Bool, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::sel;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
 use objc2_app_kit::{
@@ -16,14 +22,15 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{
     NSArray, NSData, NSDictionary, NSError, NSHTTPURLResponse, NSObject, NSProgressReporting, NSRect, NSString, NSTimer, NSURL, NSURLAuthenticationChallenge,
-    NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLCredential, NSURLProtectionSpace, NSURLQuarantinePropertiesKey,
-    NSURLResponse, NSURLSessionAuthChallengeDisposition,
+    NSURLAuthenticationMethodClientCertificate, NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLCredential,
+    NSURLCredentialPersistence, NSURLProtectionSpace, NSURLQuarantinePropertiesKey, NSURLResponse, NSURLSessionAuthChallengeDisposition,
 };
 use objc2_web_kit::{
     WKDownload, WKDownloadDelegate, WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
     WKNavigationResponse, WKNavigationResponsePolicy, WKNavigationType, WKOpenPanelParameters, WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebView,
     WKWebViewConfiguration, WKWebpagePreferences, WKWebsiteDataStore, WKWindowFeatures,
 };
+use security_framework::identity::SecIdentity;
 use shield::ShieldLevel;
 use url::Url;
 
@@ -55,6 +62,63 @@ fn previous_failures(challenge: &NSURLAuthenticationChallenge) -> isize {
     unsafe {
         let send: Getter = std::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn());
         send(challenge, sel!(previousFailureCount))
+    }
+}
+
+/// The Keychain identities (certificate plus private key) valid now and, when the server names
+/// the issuers it accepts, issued by one of them; each named by its certificate's subject.
+fn keychain_identities(issuers: Option<Retained<NSArray<NSData>>>) -> (Vec<String>, Vec<SecIdentity>) {
+    #[link(name = "Security", kind = "framework")]
+    unsafe extern "C" {
+        static kSecClass: CFStringRef;
+        static kSecClassIdentity: CFStringRef;
+        static kSecReturnRef: CFStringRef;
+        static kSecMatchLimit: CFStringRef;
+        static kSecMatchLimitAll: CFStringRef;
+        static kSecMatchIssuers: CFStringRef;
+        static kSecMatchValidOnDate: CFStringRef;
+        fn SecItemCopyMatching(query: CFDictionaryRef, result: *mut CFTypeRef) -> i32;
+    }
+    // SAFETY: the Security framework's constant keys are valid for the life of the process;
+    // NSArray<NSData> is toll-free bridged to a CFArray of CFData, retained by `issuers` while the
+    // query is built; SecItemCopyMatching returns a +1 CFArray of SecIdentityRef for a
+    // kSecReturnRef, kSecMatchLimitAll identity query, or nothing on failure.
+    unsafe {
+        let key = |k: CFStringRef| CFString::wrap_under_get_rule(k);
+        let mut query = vec![
+            (key(kSecClass), key(kSecClassIdentity).into_CFType()),
+            (key(kSecReturnRef), CFBoolean::true_value().into_CFType()),
+            (key(kSecMatchLimit), key(kSecMatchLimitAll).into_CFType()),
+            (key(kSecMatchValidOnDate), CFDate::now().into_CFType()),
+        ];
+        if let Some(issuers) = issuers.filter(|i| i.count() > 0) {
+            query.push((key(kSecMatchIssuers), CFType::wrap_under_get_rule(Retained::as_ptr(&issuers).cast())));
+        }
+        let query = CFDictionary::from_CFType_pairs(&query);
+        let mut found: CFTypeRef = std::ptr::null();
+        if SecItemCopyMatching(query.as_concrete_TypeRef(), &mut found) != 0 || found.is_null() {
+            return Default::default();
+        }
+        let found = CFArray::<SecIdentity>::wrap_under_create_rule(found as CFArrayRef);
+        found.iter().filter_map(|identity| Some((identity.certificate().ok()?.subject_summary(), identity.clone()))).unzip()
+    }
+}
+
+pub(crate) fn identity_credential(identity: &SecIdentity) -> Option<Retained<NSURLCredential>> {
+    type Make = unsafe extern "C-unwind" fn(*const AnyClass, Sel, *const c_void, *const NSArray, NSURLCredentialPersistence) -> *mut NSURLCredential;
+    // SAFETY: `objc_msgSend` called with the exact signature of `+[NSURLCredential
+    // credentialWithIdentity:certificates:persistence:]` and a live SecIdentityRef; it returns a
+    // +0 credential or nil, which is retained.
+    unsafe {
+        let send: Make = std::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn());
+        let made = send(
+            <NSURLCredential as objc2::ClassType>::class(),
+            sel!(credentialWithIdentity:certificates:persistence:),
+            identity.as_concrete_TypeRef().cast(),
+            std::ptr::null(),
+            NSURLCredentialPersistence::ForSession,
+        );
+        Retained::retain(made)
     }
 }
 
@@ -112,6 +176,8 @@ pub(crate) struct DelegateState {
     pub recent_downloads: Rc<RefCell<VecDeque<Instant>>>,
     /// Set when the user silences the page's dialogs; cleared on the next committed navigation.
     pub silenced: Rc<Cell<bool>>,
+    /// Client certificate answers of the page being loaded or shown; a new page asks again.
+    pub certificates: Rc<RefCell<prompts::Certificates>>,
     /// Address of the main-frame load between its start and its commit or failure; an external-scheme
     /// request then may come from a server redirect, so its source frame is not named.
     pub provisional: Cell<Option<usize>>,
@@ -161,6 +227,7 @@ impl DelegateState {
             recent_popups: Rc::default(),
             recent_downloads: Rc::default(),
             silenced: Rc::default(),
+            certificates: Rc::default(),
             committed_origin: RefCell::default(),
             committed_url: RefCell::default(),
             web_origin: RefCell::default(),
@@ -579,12 +646,14 @@ define_class!(
             };
             let method = space.authenticationMethod();
             // SAFETY: reading Foundation's constant strings.
-            let http_auth = unsafe {
-                method.isEqualToString(NSURLAuthenticationMethodHTTPBasic)
-                    || method.isEqualToString(NSURLAuthenticationMethodHTTPDigest)
+            let (http_auth, client_certificate) = unsafe {
+                (
+                    method.isEqualToString(NSURLAuthenticationMethodHTTPBasic) || method.isEqualToString(NSURLAuthenticationMethodHTTPDigest),
+                    method.isEqualToString(NSURLAuthenticationMethodClientCertificate),
+                )
             };
-            // Server trust and client certificates keep WebKit's default handling (S7).
-            if !http_auth {
+            // Server trust keeps WebKit's default handling (S7).
+            if !http_auth && !client_certificate {
                 handler.call((NSURLSessionAuthChallengeDisposition::PerformDefaultHandling, std::ptr::null_mut()));
                 return;
             }
@@ -598,26 +667,55 @@ define_class!(
             // other ports of the same host. WebKit moves the URL to a navigation's target before
             // its challenge arrives.
             let origin = challenger.as_ref().and_then(serialized_origin);
+            // A refused certificate request goes on without one, which servers that only ask for
+            // a certificate optionally accept.
+            let refuse = if client_certificate {
+                NSURLSessionAuthChallengeDisposition::PerformDefaultHandling
+            } else {
+                NSURLSessionAuthChallengeDisposition::CancelAuthenticationChallenge
+            };
             let Some(origin) = origin.filter(|o| page.as_ref().and_then(serialized_origin).as_ref() == Some(o)) else {
-                handler.call((NSURLSessionAuthChallengeDisposition::CancelAuthenticationChallenge, std::ptr::null_mut()));
+                handler.call((refuse, std::ptr::null_mut()));
                 return;
             };
-            if previous_failures(challenge) >= MAX_AUTH_ATTEMPTS
-                || self.ivars().silenced.get()
-                || !within_burst(&self.ivars().recent_prompts, PROMPT_BURST)
-            {
-                handler.call((NSURLSessionAuthChallengeDisposition::CancelAuthenticationChallenge, std::ptr::null_mut()));
+            if previous_failures(challenge) >= MAX_AUTH_ATTEMPTS {
+                handler.call((refuse, std::ptr::null_mut()));
                 return;
             }
-            let realm = space.realm().map(|r| r.to_string()).unwrap_or_default();
-            let insecure = !space.receivesCredentialSecurely();
+            if client_certificate && prompts::Certificates::join(&self.ivars().certificates, &origin, &handler.copy()) {
+                return;
+            }
+            if self.ivars().silenced.get()
+                || !within_burst(&self.ivars().recent_prompts, PROMPT_BURST)
+            {
+                handler.call((refuse, std::ptr::null_mut()));
+                return;
+            }
+            let (kind, reply) = if client_certificate {
+                let (names, identities) = keychain_identities(space.distinguishedNames());
+                if identities.is_empty() {
+                    handler.call((refuse, std::ptr::null_mut()));
+                    return;
+                }
+                let state = self.ivars().certificates.clone();
+                let page = {
+                    let mut certificates = state.borrow_mut();
+                    certificates.waiting.insert(origin.clone(), Vec::new());
+                    certificates.page
+                };
+                let ask = prompts::CertificateAsk { origin: origin.clone(), page, identities, state };
+                (PromptKind::ClientCertificate { names }, Reply::Certificate(handler.copy(), ask))
+            } else {
+                let realm = space.realm().map(|r| r.to_string()).unwrap_or_default();
+                (PromptKind::Credentials { realm }, Reply::Credentials(handler.copy()))
+            };
             let prompt = Prompt {
                 origin,
                 top_origin: None,
-                insecure,
+                insecure: !space.receivesCredentialSecurely(),
                 message: String::new(),
-                kind: PromptKind::Credentials { realm },
-                reply: Some(Reply::Credentials(handler.copy())),
+                kind,
+                reply: Some(reply),
                 suppress: self.ivars().silenced.clone(),
             };
             self.emit(Event::Prompt(prompt));
@@ -627,6 +725,7 @@ define_class!(
         fn did_start_provisional(&self, _web_view: &WKWebView, navigation: Option<&WKNavigation>) {
             let id = navigation_id(navigation);
             self.ivars().provisional.set(Some(id));
+            self.ivars().certificates.borrow_mut().next_page();
             if navigation_id(self.ivars().user_load.borrow().as_deref()) != id {
                 self.ivars().user_load.take();
             }

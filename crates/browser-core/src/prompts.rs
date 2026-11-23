@@ -31,6 +31,7 @@ pub fn meaning(kind: &str) -> Option<&'static str> {
         "location" | "geolocation" => "The site sees where you are while this tab is open.",
         "notifications" => "The site can show notifications while Tarn runs.",
         "credentials" => "Your name and password go to this site only.",
+        "certificate" => "The certificate you pick goes to this site only and tells it who you are.",
         "extension" => "The extension can read and change pages on this site.",
         "malicious download" => "The file comes from a site on the malware list.",
         "external" => "Tarn hands the link to the app that opens it.",
@@ -61,6 +62,7 @@ impl Prompt {
                 None => "asks you to sign in".to_owned(),
             },
             "camera+microphone" | "camera and microphone" => "wants to use your camera and microphone".to_owned(),
+            "certificate" => "asks for a certificate to identify you".to_owned(),
             kind => format!("wants to use your {kind}"),
         }
     }
@@ -190,6 +192,7 @@ mod tests {
         assert_eq!(ask("camera+microphone", None), "wants to use your camera and microphone");
         assert_eq!(ask("credentials", Some("")), "asks you to sign in");
         assert_eq!(ask("credentials", Some("Admin")), "asks you to sign in (Admin)");
+        assert_eq!(ask("certificate", None), "asks for a certificate to identify you");
         assert!(ask("credentials", Some(&"r".repeat(5000))).len() < 600);
     }
 }
