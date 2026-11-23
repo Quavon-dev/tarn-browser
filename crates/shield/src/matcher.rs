@@ -94,6 +94,12 @@ mod tests {
     }
 
     #[test]
+    fn keeps_rules_whose_domains_idna_rejects() {
+        let m = Matcher::new(&["||ads.example^$domain=~a.\u{751}le.org\n"], &[], &[]);
+        assert!(m.blocks("https://ads.example/x.js", "https://news.test/", "script"));
+    }
+
+    #[test]
     fn blocks_listed_third_party_requests() {
         let m = Matcher::new(&[ADS], &[TRACKERS], &[]);
         let page = "https://news.test/article";
