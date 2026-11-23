@@ -1,5 +1,5 @@
 use crate::claude_api::ApiToken;
-use crate::provider::AiError;
+use crate::error::AiError;
 
 const SERVICE: &str = "de.quavon.tarn";
 const ACCOUNT: &str = "anthropic-api-token";
@@ -35,7 +35,7 @@ mod apple {
     use security_framework::passwords::{delete_generic_password, get_generic_password};
 
     use super::{Keyring, Secrets};
-    use crate::provider::AiError;
+    use crate::error::AiError;
 
     const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
 
@@ -77,7 +77,7 @@ mod apple {
 #[cfg(windows)]
 mod windows {
     use super::{Keyring, Secrets};
-    use crate::provider::AiError;
+    use crate::error::AiError;
 
     fn target(service: &str, account: &str) -> String {
         format!("{service}/{account}")
@@ -110,7 +110,7 @@ mod linux {
     use oo7::dbus::{Collection, Service};
 
     use super::{Keyring, Secrets};
-    use crate::provider::AiError;
+    use crate::error::AiError;
 
     fn failed(e: oo7::dbus::Error) -> AiError {
         AiError::Secrets(e.to_string())

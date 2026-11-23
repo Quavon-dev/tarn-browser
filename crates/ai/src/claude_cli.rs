@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use crate::provider::{AiError, Provider, Request};
+use crate::error::AiError;
+use crate::provider::{Provider, Request};
 
 const HELPER: &str = "tarn-cli-bridge";
 

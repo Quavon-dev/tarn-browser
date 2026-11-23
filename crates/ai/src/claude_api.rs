@@ -4,7 +4,8 @@ use std::sync::atomic::AtomicBool;
 
 use serde_json::json;
 
-use crate::provider::{self, AiError, Provider, Request};
+use crate::error::AiError;
+use crate::provider::{self, Provider, Request};
 use crate::transport::Transport;
 
 const URL: &str = "https://api.anthropic.com/v1/messages";
@@ -159,11 +160,11 @@ mod tests {
         crate::secrets::store_token(&secrets, &token()).unwrap();
         let outputs = [
             format!("{:?}", crate::secrets::load_token(&secrets)),
-            format!("{:?}", crate::provider::AiError::Secrets("x".into())),
+            format!("{:?}", crate::error::AiError::Secrets("x".into())),
             format!("{:?}", token()),
             format!("{:#?}", ClaudeApi::new(token(), Some("m".into()), Arc::new(UreqTransport))),
             format!("{:?}", req()),
-            format!("{:?}", crate::provider::AiError::Status(401, "x".into())),
+            format!("{:?}", crate::error::AiError::Status(401, "x".into())),
             format!("{:?}", crate::ollama::Ollama::new("m", Arc::new(UreqTransport))),
             format!("{:?}", crate::claude_cli::ClaudeCli::new("/usr/bin/false".into(), None)),
         ];
