@@ -519,7 +519,7 @@ define_class!(
                     handler.call((WKNavigationActionPolicy::Cancel, prefs));
                 }
                 nav_policy::LevelAction::Rebuild => {
-                    self.emit(Event::ShieldLevelChanged(url));
+                    self.emit(if user_started { Event::ShieldLevelChanged(url) } else { Event::RebuildForLink(url) });
                     handler.call((WKNavigationActionPolicy::Cancel, prefs));
                 }
                 nav_policy::LevelAction::Continue { javascript } => {

@@ -66,13 +66,13 @@ pub enum Event {
     /// with `WebView::adopt` or drop it to discard.
     #[cfg(any(target_os = "macos", windows))]
     Popup(Popup),
-    /// A load the shell started needs a different Shield level than this view was built with;
-    /// the shell must load it in a view built for that level. Page-initiated navigations are
-    /// never reported this way: they continue in place with the new site's JavaScript setting.
+    /// The user's own load needs a different Shield level than this view was built with; the
+    /// shell must load it in a view built for that level. Page-initiated navigations are never
+    /// reported this way: they continue in place with the new site's JavaScript setting.
     ShieldLevelChanged(Url),
-    /// Windows: a page-started main-frame navigation crossed the Lockdown boundary, which a
-    /// Chromium view cannot do in place; the shell rebuilds the view for the URL's level and loads
-    /// it as the page's link.
+    /// A load that is the page's needs a view built for another level: on macOS a link load the
+    /// shell made for a page, on Windows a page-started navigation across the Lockdown boundary.
+    /// The shell rebuilds the view for the URL's level and loads it as the page's link.
     RebuildForLink(Url),
     /// A page-started main-frame navigation in a Chromium view to a site at `lockdown`, cancelled
     /// before any request; only the user may load it, in WebKit.

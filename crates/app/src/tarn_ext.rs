@@ -384,9 +384,7 @@ fn answered(core: &Rc<AppCore>, answer: Answer, cx: &mut App) {
         && let Some(tab) = answer.tab
     {
         crate::shared::each(cx, |b, _, _| {
-            if let Some(view) = b.views.get(&TabKey { private: false, id: tab as Id }) {
-                view.reload();
-            }
+            b.reload_view(TabKey { private: false, id: tab as Id }, false);
         });
     }
 }
