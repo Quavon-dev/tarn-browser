@@ -118,7 +118,7 @@ jobs:
     needs: batch
     if: ${{ !cancelled() && needs.batch.result != 'skipped' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-build-fuzzers:v1@sha256:6cf6c58751d21ec3dcfe7792c78e07fe83ec705cbdb07b89793596213c8094a7
         env:
@@ -135,7 +135,7 @@ jobs:
         env:
           CFL_PLATFORM: 'github'
           DRY_RUN: 'false'
-          FUZZ_SECONDS: '600'
+          FUZZ_SECONDS: '3600'
           GITHUB_TOKEN: ${{ github.token }}
           GIT_STORE_BRANCH: 'main'
           GIT_STORE_BRANCH_COVERAGE: 'gh-pages'
