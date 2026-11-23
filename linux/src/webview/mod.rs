@@ -563,6 +563,93 @@ fn opener(state: &State, page: Option<&Url>) -> Site {
     Site { popups: if site.popups == PopupRule::Allow { PopupRule::Default } else { site.popups }, ..site }
 }
 
+fn opens_popup(state: &Rc<State>, action: &webkit6::NavigationAction, nav_type: NavigationType, uri: &str, gesture: bool, link: bool) -> bool {
+    let peek = gesture && is_peek(action);
+    if link && gesture && (peek || action.mouse_button() == 2 || action.modifiers() & CONTROL_MASK != 0) {
+        open_popup(state, uri, true, nav_type == NavigationType::LinkClicked, false, peek, false);
+        return true;
+    }
+    false
+}
+
+fn gated(state: &Rc<State>, uri: &str, blocked: Option<Category>, main_frame: bool, from_shell: bool) -> bool {
+    match nav_policy::gate(blocked, main_frame, from_shell, false) {
+        GateAction::Allow => false,
+        GateAction::Warn(category) | GateAction::Notice(category) => {
+            state.listed(uri, category);
+            true
+        }
+        GateAction::Cancel => true,
+    }
+}
+
+fn store_install_intercepted(state: &Rc<State>, url: &Url, store: engine::nav_policy::StoreNav) -> bool {
+    if engine::nav_policy::store_link_asks(store)
+        && let Some(id) = engine::tarn_ext::store_install(url)
+    {
+        state.emit(engine::tarn_ext::STORE_EVENT, json!({ "id": id }));
+        return true;
+    }
+    false
+}
+
+fn allow_navigation(state: &Rc<State>, web: &WebView, action: &webkit6::NavigationAction, url: &Url, javascript: bool, main_frame: bool) {
+    let nav_type = action.navigation_type();
+    let form = matches!(nav_type, NavigationType::FormSubmitted | NavigationType::FormResubmitted);
+    let get = action.request().and_then(|r| r.http_method()).is_none_or(|m| m.eq_ignore_ascii_case("GET"));
+    if form && !get {
+        *state.posted.borrow_mut() = Some(url.clone());
+    }
+    if !javascript && let Some(settings) = WebViewExt::settings(web) {
+        settings.set_enable_javascript(false);
+    }
+    if main_frame {
+        state.main_pending.set(true);
+    }
+}
+
+fn upgrade_navigation(state: &Rc<State>, web: &WebView, target: Url, nav: &Navigation) {
+    state.shielded("https_upgrade", target.as_str());
+    *state.upgraded.borrow_mut() = Some((target.to_string(), nav.user_link, nav.from_shell || nav.user_step));
+    if nav.from_shell {
+        *state.shell_url.borrow_mut() = Some(target.to_string());
+    }
+    let web = web.clone();
+    glib::idle_add_local_once(move || web.load_uri(target.as_str()));
+}
+
+fn apply_verdict(
+    state: &Rc<State>,
+    web: &WebView,
+    action: &webkit6::NavigationAction,
+    nav: &Navigation,
+    uri: &str,
+    main_frame: bool,
+    verdict: Verdict,
+) -> bool {
+    match verdict {
+        Verdict::Allow { javascript } => {
+            allow_navigation(state, web, action, nav.url, javascript, main_frame);
+            return false;
+        }
+        Verdict::Blocked(reason) => {
+            if reason == "local_network" {
+                state.shielded("local_network", uri);
+            }
+            state.emit("blocked", json!({ "url": uri, "reason": reason }))
+        }
+        Verdict::Rebuild => state.emit("blocked", json!({ "url": uri, "reason": "rebuild" })),
+        Verdict::External => {
+            if nav.from_shell || state.admit_prompt() {
+                let origin = if nav.from_shell { String::new() } else { state.origin() };
+                state.emit("external", json!({ "url": uri, "origin": origin }));
+            }
+        }
+        Verdict::Upgrade(target) => upgrade_navigation(state, web, target, nav),
+    }
+    true
+}
+
 fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::PolicyDecision) -> bool {
     let Some((action, uri)) = navigation_uri(decision) else {
         decision.ignore();
@@ -573,9 +660,7 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
     let nav_type = action.navigation_type();
     let gesture = action.is_user_gesture();
     let link = matches!(nav_type, NavigationType::LinkClicked | NavigationType::FormSubmitted);
-    let peek = gesture && is_peek(&action);
-    if link && gesture && (peek || action.mouse_button() == 2 || action.modifiers() & CONTROL_MASK != 0) {
-        open_popup(state, &uri, true, nav_type == NavigationType::LinkClicked, false, peek, false);
+    if opens_popup(state, &action, nav_type, &uri, gesture, link) {
         decision.ignore();
         return true;
     }
@@ -592,23 +677,8 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
     let redirect = action.is_redirect();
     let main_frame = from_shell || step || gesture || upgraded.is_some() || (redirect && state.main_pending.get());
     let site = state.site(&url);
-    match nav_policy::gate(site.blocked, main_frame, from_shell, false) {
-        GateAction::Allow => {}
-        GateAction::Warn(category) | GateAction::Notice(category) => {
-            state.listed(&uri, category);
-            decision.ignore();
-            return true;
-        }
-        GateAction::Cancel => {
-            decision.ignore();
-            return true;
-        }
-    }
     let store = engine::nav_policy::StoreNav { redirect, shell_load: from_shell, page_link, clicked: nav_type == NavigationType::LinkClicked && gesture };
-    if engine::nav_policy::store_link_asks(store)
-        && let Some(id) = engine::tarn_ext::store_install(&url)
-    {
-        state.emit(engine::tarn_ext::STORE_EVENT, json!({ "id": id }));
+    if gated(state, &uri, site.blocked, main_frame, from_shell) || store_install_intercepted(state, &url, store) {
         decision.ignore();
         return true;
     }
@@ -626,46 +696,11 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
         file_open,
     };
     let verdict = policy::navigation(&state.levels.borrow(), state.level.get(), &nav);
-    match verdict {
-        Verdict::Allow { javascript } => {
-            let form = matches!(nav_type, NavigationType::FormSubmitted | NavigationType::FormResubmitted);
-            let get = action.request().and_then(|r| r.http_method()).is_none_or(|m| m.eq_ignore_ascii_case("GET"));
-            if form && !get {
-                *state.posted.borrow_mut() = Some(url.clone());
-            }
-            if !javascript && let Some(settings) = WebViewExt::settings(web) {
-                settings.set_enable_javascript(false);
-            }
-            if main_frame {
-                state.main_pending.set(true);
-            }
-            return false;
-        }
-        Verdict::Blocked(reason) => {
-            if reason == "local_network" {
-                state.shielded("local_network", &uri);
-            }
-            state.emit("blocked", json!({ "url": uri, "reason": reason }))
-        }
-        Verdict::Rebuild => state.emit("blocked", json!({ "url": uri, "reason": "rebuild" })),
-        Verdict::External => {
-            if from_shell || state.admit_prompt() {
-                let origin = if from_shell { String::new() } else { state.origin() };
-                state.emit("external", json!({ "url": uri, "origin": origin }));
-            }
-        }
-        Verdict::Upgrade(target) => {
-            state.shielded("https_upgrade", target.as_str());
-            *state.upgraded.borrow_mut() = Some((target.to_string(), nav.user_link, nav.from_shell || nav.user_step));
-            if from_shell {
-                *state.shell_url.borrow_mut() = Some(target.to_string());
-            }
-            let web = web.clone();
-            glib::idle_add_local_once(move || web.load_uri(target.as_str()));
-        }
+    let ignore = apply_verdict(state, web, &action, &nav, &uri, main_frame, verdict);
+    if ignore {
+        decision.ignore();
     }
-    decision.ignore();
-    true
+    ignore
 }
 
 fn prompt(state: &Rc<State>, pending: Pending, data: JsonValue) {
