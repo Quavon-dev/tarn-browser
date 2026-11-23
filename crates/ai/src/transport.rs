@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use url::{Host, Url};
 
-use crate::provider::AiError;
+use crate::error::AiError;
 
 pub struct Response<'a> {
     pub status: u16,
@@ -63,7 +63,7 @@ mod ureq_transport {
     use ureq::tls::{RootCerts, TlsConfig};
 
     use super::{Response, Transport, guard};
-    use crate::provider::AiError;
+    use crate::error::AiError;
 
     /// Talks TLS itself with the platform's certificate verifier; Android's needs JNI setup, so
     /// the Android host brings its own transport.

@@ -145,7 +145,24 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     let error = page.error;
     let mut items: Vec<(Ghost, gpui::Div)> = Vec::new();
     let mut push = |id: &'static str, text: String, color: Rgba, card: gpui::Div| items.push(((id, text.into(), color), card));
+    warning_banners(b, cx, &mut push);
+    page_banners(b, page.notice, page.offer.as_ref(), error, cx, &mut push);
 
+    if !b.overlay_open() {
+        if let Some((title, card)) = prompt_card(b, window, cx) {
+            push("prompt-card", title, Theme::text(), card);
+        }
+        if b.find_open && b.active_json().is_none() {
+            push("find-bar", String::new(), Theme::text(), find_bar(b, window, cx));
+        }
+    }
+
+    let panel = floating_panel(b, items, reduce, window);
+    let body = page_body(b, window, page.blocked.as_ref(), reduce, cx);
+    panel.child(body).into_any_element()
+}
+
+fn warning_banners(b: &Browser, cx: &mut Context<Browser>, push: &mut impl FnMut(&'static str, String, Rgba, gpui::Div)) {
     let rules_warning = engine::builtin_rules_failed()
         .then(|| "Tarn's built-in protections failed to load: local-network blocking and HTTPS upgrades are off until Tarn restarts.".to_owned());
     for (id, warning) in [("banner-storage", &b.core.storage_warning), ("banner-window", &b.warning), ("banner-rules", &rules_warning)] {
@@ -169,9 +186,19 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 .child(secure_button("ext-cancel", "Cancel", false).on_click(cx.listener(|b, _, _, cx| b.resolve_external(false, cx)))),
         );
     }
-    if let Some(message) = page.notice {
+}
+
+fn page_banners(
+    b: &Browser,
+    notice: Option<String>,
+    offer: Option<&crate::blocking::Offer>,
+    error: Option<String>,
+    cx: &mut Context<Browser>,
+    push: &mut impl FnMut(&'static str, String, Rgba, gpui::Div),
+) {
+    if let Some(message) = notice {
         let text = ui::text::bounded_title(&message);
-        let offer = page.offer.as_ref().map(|o| match o {
+        let offer = offer.map(|o| match o {
             crate::blocking::Offer::Open(_) => "Open Anyway",
             crate::blocking::Offer::NewTab(_) => "Open Once",
             crate::blocking::Offer::WebKit(_) => "Open in WebKit",
@@ -220,58 +247,48 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 .child(secure_button("err-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| b.dismiss_error(cx)))),
         );
     }
+}
 
-    if !b.overlay_open() {
-        if let Some((title, card)) = prompt_card(b, window, cx) {
-            push("prompt-card", title, Theme::text(), card);
-        }
-        if b.find_open && b.active_json().is_none() {
-            let focused = b.find_input.focus_handle(cx).is_focused(window);
-            push(
-                "find-bar",
-                String::new(),
-                Theme::text(),
-                surface(Theme::radius_panel())
-                    .mb_2()
-                    .flex_none()
-                    .shadow(Elevation::Floating.shadow())
-                    .when(focused, |d| d.border_color(Theme::accent()))
-                    .text_size(px(TEXT))
-                    .h(px(40.))
-                    .pl_3()
-                    .pr_1()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(icon(Icon::Search, 14., Theme::muted()))
-                    .child(div().flex_1().min_w_0().overflow_hidden().child(b.find_input.clone()))
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_size(px(TEXT_SMALL))
-                            .text_color(if matches!(b.find_count, Some((0, _))) { Theme::danger() } else { Theme::faint() })
-                            .child(browser_core::find::count_label(b.find_count.map(|c| c.0), b.find_count.and_then(|c| c.1))),
-                    )
-                    .child(div().w(px(1.)).h(px(18.)).flex_none().bg(Theme::separator()))
-                    .child(
-                        icon_button("find-prev", Icon::ChevronUp, true)
-                            .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
-                            .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
-                    )
-                    .child(
-                        icon_button("find-next", Icon::ChevronDown, true)
-                            .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
-                            .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
-                    )
-                    .child(
-                        icon_button("find-close", Icon::Close, true)
-                            .tooltip(tooltip("Done", Some("Esc".into())))
-                            .on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
-                    ),
-            );
-        }
-    }
+fn find_bar(b: &Browser, window: &mut Window, cx: &mut Context<Browser>) -> gpui::Div {
+    let focused = b.find_input.focus_handle(cx).is_focused(window);
+    surface(Theme::radius_panel())
+        .mb_2()
+        .flex_none()
+        .shadow(Elevation::Floating.shadow())
+        .when(focused, |d| d.border_color(Theme::accent()))
+        .text_size(px(TEXT))
+        .h(px(40.))
+        .pl_3()
+        .pr_1()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(icon(Icon::Search, 14., Theme::muted()))
+        .child(div().flex_1().min_w_0().overflow_hidden().child(b.find_input.clone()))
+        .child(
+            div()
+                .flex_none()
+                .text_size(px(TEXT_SMALL))
+                .text_color(if matches!(b.find_count, Some((0, _))) { Theme::danger() } else { Theme::faint() })
+                .child(browser_core::find::count_label(b.find_count.map(|c| c.0), b.find_count.and_then(|c| c.1))),
+        )
+        .child(div().w(px(1.)).h(px(18.)).flex_none().bg(Theme::separator()))
+        .child(
+            icon_button("find-prev", Icon::ChevronUp, true)
+                .tooltip(crate::shortcuts::tip("Previous", &crate::FindPrevious))
+                .on_click(cx.listener(|b, _, _, cx| b.find(true, cx))),
+        )
+        .child(
+            icon_button("find-next", Icon::ChevronDown, true)
+                .tooltip(crate::shortcuts::tip("Next", &crate::FindNext))
+                .on_click(cx.listener(|b, _, _, cx| b.find(false, cx))),
+        )
+        .child(
+            icon_button("find-close", Icon::Close, true).tooltip(tooltip("Done", Some("Esc".into()))).on_click(cx.listener(|b, _, w, cx| b.close_find(w, cx))),
+        )
+}
 
+fn floating_panel(b: &mut Browser, items: Vec<(Ghost, gpui::Div)>, reduce: bool, window: &mut Window) -> gpui::Div {
     let present: Vec<Ghost> = items.iter().map(|(g, _)| g.clone()).collect();
     if !present.iter().map(|g| g.0).eq(b.floating.shown.iter().map(|g| g.0)) {
         b.layout_changed();
@@ -288,15 +305,17 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     }
     let left = 8. - GUTTER_SHIFT * b.sidebar_shown();
     let area = div().absolute().top_0().bottom(px(8.)).left(px(left)).right(px(8.)).child(crate::address::measure(b.address.content.clone()));
-    let panel = div().flex_1().min_h_0().relative().flex().flex_col().p(px(8.)).pt_0().pl(px(left)).text_color(Theme::text()).child(area).children(cards);
+    div().flex_1().min_h_0().relative().flex().flex_col().p(px(8.)).pt_0().pl(px(left)).text_color(Theme::text()).child(area).children(cards)
+}
 
+fn page_body(b: &mut Browser, window: &mut Window, blocked: Option<&crate::blocking::BlockedPage>, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
     let exit = b.overlay_exit.map(|at| progress(at, EXIT));
     let leaving = |body: AnyElement| match exit {
         Some(t) => pop_out(div().flex_1().flex().flex_col().child(body), t).into_any_element(),
         None => body,
     };
 
-    let body: AnyElement = if let Some(editor) = crate::profiles::render_editor(b, window, cx) {
+    if let Some(editor) = crate::profiles::render_editor(b, window, cx) {
         leaving(editor)
     } else if b.shortcuts_open {
         leaving(pop_in(div().flex_1().min_h_0().flex().flex_col().child(crate::shortcuts::render(&b.shortcuts_scroll, cx)), "shortcuts", reduce))
@@ -306,7 +325,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         leaving(start(b, reduce, cx))
     } else if let Some(split) = crate::split::render(b, window, cx) {
         split
-    } else if let Some(blocked) = &page.blocked {
+    } else if let Some(blocked) = blocked {
         if let Some(view) = b.active_view() {
             view.set_frame(0., 0., 0., 0.);
         }
@@ -322,41 +341,43 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
         }
         page_frame().relative().child(overlay).into_any_element()
     } else {
-        let view = b.active_view();
-        let preset = b.responsive_preset();
-        let slide = b.sidebar_slide().filter(|_| preset.is_none());
-        let held = b.sidebar_held.clone();
-        let alpha = b.page_fade.as_ref().map_or(1., |(_, at)| progress(*at, FADE));
-        let link_rect = b.link_status.page.clone();
-        let page = canvas(
-            move |bounds, window, _| {
-                let Some(view) = view else { return };
-                view.set_alpha(alpha.into());
-                let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
-                let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-                let fit = preset.map(|preset| devkit::responsive::fit(&preset, w, h));
-                let page = fit.as_ref().map_or((x, y, w, h), |fit| (x + fit.x, y + fit.y, fit.width, fit.height));
-                let width = held_width(&held, &view, page.2, slide);
-                view.set_frame(page.0.into(), page.1.into(), width.into(), page.3.into());
-                if let Some(fit) = fit {
-                    // WebKit's page zoom stops at 0.3; below that the CSS viewport is narrower than the preset.
-                    let scale = f64::from(fit.scale).max(engine::MIN_ZOOM);
-                    if (view.zoom() - scale).abs() > 0.001 {
-                        view.set_zoom(scale);
-                    }
-                }
-                // A refresh during prepaint is dropped; the link bubble follows the page on the next frame.
-                if link_rect.replace(page) != page {
-                    window.on_next_frame(|window, _| window.refresh());
-                }
-            },
-            |_, _, _, _| {},
-        )
-        .size_full();
-        page_frame().child(page).into_any_element()
-    };
+        page_view(b)
+    }
+}
 
-    panel.child(body).into_any_element()
+fn page_view(b: &Browser) -> AnyElement {
+    let view = b.active_view();
+    let preset = b.responsive_preset();
+    let slide = b.sidebar_slide().filter(|_| preset.is_none());
+    let held = b.sidebar_held.clone();
+    let alpha = b.page_fade.as_ref().map_or(1., |(_, at)| progress(*at, FADE));
+    let link_rect = b.link_status.page.clone();
+    let page = canvas(
+        move |bounds, window, _| {
+            let Some(view) = view else { return };
+            view.set_alpha(alpha.into());
+            let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
+            let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+            let fit = preset.map(|preset| devkit::responsive::fit(&preset, w, h));
+            let page = fit.as_ref().map_or((x, y, w, h), |fit| (x + fit.x, y + fit.y, fit.width, fit.height));
+            let width = held_width(&held, &view, page.2, slide);
+            view.set_frame(page.0.into(), page.1.into(), width.into(), page.3.into());
+            if let Some(fit) = fit {
+                // WebKit's page zoom stops at 0.3; below that the CSS viewport is narrower than the preset.
+                let scale = f64::from(fit.scale).max(engine::MIN_ZOOM);
+                if (view.zoom() - scale).abs() > 0.001 {
+                    view.set_zoom(scale);
+                }
+            }
+            // A refresh during prepaint is dropped; the link bubble follows the page on the next frame.
+            if link_rect.replace(page) != page {
+                window.on_next_frame(|window, _| window.refresh());
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .size_full();
+    page_frame().child(page).into_any_element()
 }
 
 fn page_frame() -> gpui::Div {

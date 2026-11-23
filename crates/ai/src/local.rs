@@ -4,7 +4,8 @@
 
 use std::sync::atomic::AtomicBool;
 
-use crate::provider::{AiError, Provider, Request};
+use crate::error::AiError;
+use crate::provider::{Provider, Request};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Availability {
@@ -102,7 +103,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::Ollama;
+    use crate::ollama::Ollama;
     use crate::transport::{Response, Transport};
 
     /// Answers `/api/show` with `show` (none: Ollama is not running) and `/api/chat` with one word,

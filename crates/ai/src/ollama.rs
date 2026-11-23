@@ -4,8 +4,9 @@ use std::sync::atomic::AtomicBool;
 
 use serde_json::json;
 
+use crate::error::AiError;
 use crate::local::{Availability, Checked, LocalModel};
-use crate::provider::{self, AiError, Request};
+use crate::provider::{self, Request};
 use crate::transport::Transport;
 
 const BASE: &str = "http://127.0.0.1:11434";
