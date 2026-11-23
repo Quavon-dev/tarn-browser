@@ -94,7 +94,22 @@ mod mac {
         nightly: Cell<bool>,
         version: String,
         /// A check asked for while Sparkle's session ran; Sparkle drops those itself.
-        check_pending: Cell<bool>,
+        check_pending: Cell<Option<Pending>>,
+        /// The channel of the last check session started for the user.
+        checked: Cell<Option<bool>>,
+    }
+
+    #[derive(Clone, Copy)]
+    struct Pending {
+        nightly: bool,
+        /// Asked for by a channel switch, not by Check Now.
+        switched: bool,
+    }
+
+    /// Whether a queued check runs once Sparkle is idle: a check the user asked for on the same
+    /// channel, which just ended, has answered it.
+    fn still_due(pending: Pending, finished: Option<isize>, checked: Option<bool>) -> bool {
+        !(finished == Some(USER_CHECK) && checked == Some(pending.nightly))
     }
 
     impl Ivars {
@@ -105,6 +120,9 @@ mod mac {
 
     /// `SPUAppcastSigningValidationStatusSucceeded` in Sparkle 2.10.1's `SPUAppcastSigningValidationStatus.h`.
     const SIGNING_SUCCEEDED: isize = 1;
+
+    /// `SPUUpdateCheckUpdates`, a check the user asked for, in Sparkle 2.10.1's `SPUUpdateCheck.h`.
+    const USER_CHECK: isize = 0;
 
     define_class!(
         #[unsafe(super(NSObject))]
@@ -182,16 +200,41 @@ mod mac {
 
             /// Sparkle lets its delegate start a new session from here.
             #[unsafe(method(updater:didFinishUpdateCycleForUpdateCheck:error:))]
-            fn did_finish_update_cycle(&self, updater: &AnyObject, _check: isize, _error: Option<&NSError>) {
-                if self.ivars().check_pending.replace(false) {
-                    // SAFETY: `updater` is the live `SPUUpdater`; `checkForUpdates` takes no arguments.
-                    unsafe {
-                        let _: () = msg_send![updater, checkForUpdates];
-                    }
-                }
+            fn did_finish_update_cycle(&self, updater: &AnyObject, check: isize, _error: Option<&NSError>) {
+                self.run_pending_check(updater, Some(check));
+            }
+
+            /// Sparkle is idle again after scheduling the next check, which it also does at launch
+            /// without finishing a cycle.
+            #[unsafe(method(updater:willScheduleUpdateCheckAfterDelay:))]
+            fn will_schedule_update_check(&self, updater: &AnyObject, _delay: f64) {
+                self.run_pending_check(updater, None);
             }
         }
     );
+
+    impl Delegate {
+        fn run_pending_check(&self, updater: &AnyObject, finished: Option<isize>) {
+            let ivars = self.ivars();
+            if ivars.check_pending.take().is_some_and(|pending| still_due(pending, finished, ivars.checked.get())) {
+                self.check(updater);
+            }
+        }
+
+        /// Starts a check, or brings an update Sparkle shows to the front.
+        fn check(&self, updater: &AnyObject) {
+            // SAFETY: `updater` is the live `SPUUpdater`; `sessionInProgress` is a BOOL getter and
+            // `checkForUpdates` takes no arguments.
+            let started = unsafe {
+                let session: bool = msg_send![updater, sessionInProgress];
+                let _: () = msg_send![updater, checkForUpdates];
+                !session
+            };
+            if started {
+                self.ivars().checked.set(Some(self.ivars().nightly()));
+            }
+        }
+    }
 
     /// Sparkle's `SPUStandardUpdaterController`; main thread only.
     pub struct Updater {
@@ -228,7 +271,8 @@ mod mac {
                 nightly_feed,
                 nightly: Cell::new(nightly),
                 version,
-                check_pending: Cell::new(false),
+                check_pending: Cell::new(None),
+                checked: Cell::new(None),
             };
             let delegate = Delegate::alloc(mtm).set_ivars(ivars);
             // SAFETY: NSObject's designated initializer on a freshly allocated instance.
@@ -263,6 +307,10 @@ mod mac {
                 let updater: Retained<AnyObject> = msg_send![&self.controller, updater];
                 let _: () = msg_send![&updater, setAutomaticallyChecksForUpdates: on];
             }
+            let pending = &self.delegate.ivars().check_pending;
+            if !on && pending.get().is_some_and(|p| p.switched) {
+                pending.take();
+            }
         }
 
         /// Switches between the Release and Nightly feeds and, while automatic checks are on, checks
@@ -275,24 +323,35 @@ mod mac {
                 msg_send![&updater, automaticallyChecksForUpdates]
             };
             if automatic {
-                self.check_now();
+                self.request_check(true);
             }
         }
 
         /// Checks now and shows Sparkle's progress and result windows; while Sparkle's session
         /// runs, once that session ends.
         pub fn check_now(&self) {
-            let none: Option<&AnyObject> = None;
-            // SAFETY: `updater` is a non-null property of the live controller; `canCheckForUpdates` is a
-            // BOOL getter and `checkForUpdates:` the controller's action method, whose sender may be nil.
-            unsafe {
+            self.request_check(false);
+        }
+
+        fn request_check(&self, switched: bool) {
+            // SAFETY: `updater` is a non-null property of the live controller; `sessionInProgress` and
+            // `canCheckForUpdates` are BOOL getters.
+            let (updater, session, can) = unsafe {
                 let updater: Retained<AnyObject> = msg_send![&self.controller, updater];
-                // Sparkle can check, or bring an update it shows to the front, unless a session is busy.
-                let busy: bool = !msg_send![&updater, canCheckForUpdates];
-                self.delegate.ivars().check_pending.set(busy);
-                if !busy {
-                    let _: () = msg_send![&self.controller, checkForUpdates: none];
-                }
+                let session: bool = msg_send![&updater, sessionInProgress];
+                let can: bool = msg_send![&updater, canCheckForUpdates];
+                (updater, session, can)
+            };
+            // While Sparkle shows an update it can still check: Check Now brings that update to the
+            // front, but a channel switch waits for it to close and checks the new channel.
+            let busy = if switched { session } else { !can };
+            let ivars = self.delegate.ivars();
+            if busy {
+                // A queued Check Now stays one when a switch joins it.
+                let switched = switched && ivars.check_pending.get().is_none_or(|p| p.switched);
+                ivars.check_pending.set(Some(Pending { nightly: ivars.nightly(), switched }));
+            } else {
+                self.delegate.check(&updater);
             }
         }
 
@@ -307,6 +366,16 @@ mod mac {
         }
 
         pub fn quitting(&self) {}
+    }
+
+    #[test]
+    fn a_queued_check_runs_unless_a_check_on_its_channel_just_answered_it() {
+        let pending = Pending { nightly: true, switched: false };
+        assert!(!still_due(pending, Some(USER_CHECK), Some(true)));
+        assert!(still_due(pending, Some(USER_CHECK), Some(false)));
+        assert!(still_due(pending, Some(USER_CHECK), None));
+        assert!(still_due(pending, Some(1), Some(true)));
+        assert!(still_due(pending, None, Some(true)));
     }
 }
 

@@ -113,8 +113,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Fixed
 
 - macOS: Check Now works right after switching to the Nightly channel, without restarting Tarn. A
-  check asked for while Sparkle is still busy now runs once it finishes instead of doing nothing,
-  and switching channels with automatic checks on shows the result of checking the new channel.
+  check asked for while Tarn is still checking in the background now runs once that check ends
+  instead of doing nothing, and switching channels with automatic checks on checks the new channel
+  in the open, unless an update of the other channel is already downloaded.
 - iOS and Android: with the keyboard up, a tap on a button in a sheet, a pop-over, the assistant
   chat or the address bar's suggestions now presses it instead of only closing the keyboard, so
   New Note, a settings switch or an answer row work on the first tap.
