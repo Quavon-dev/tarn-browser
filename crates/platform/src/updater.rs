@@ -93,21 +93,16 @@ mod mac {
         nightly_feed: Option<Retained<NSString>>,
         nightly: Cell<bool>,
         version: String,
-        /// A check asked for while Sparkle's session ran; Sparkle drops those itself.
         check_pending: Cell<Option<Pending>>,
-        /// The channel of the last check session started for the user.
         checked: Cell<Option<bool>>,
     }
 
     #[derive(Clone, Copy)]
     struct Pending {
         nightly: bool,
-        /// Asked for by a channel switch, not by Check Now.
         switched: bool,
     }
 
-    /// Whether a queued check runs once Sparkle is idle: a check the user asked for on the same
-    /// channel, which just ended, has answered it.
     fn still_due(pending: Pending, finished: Option<isize>, checked: Option<bool>) -> bool {
         !(finished == Some(USER_CHECK) && checked == Some(pending.nightly))
     }
@@ -121,7 +116,6 @@ mod mac {
     /// `SPUAppcastSigningValidationStatusSucceeded` in Sparkle 2.10.1's `SPUAppcastSigningValidationStatus.h`.
     const SIGNING_SUCCEEDED: isize = 1;
 
-    /// `SPUUpdateCheckUpdates`, a check the user asked for, in Sparkle 2.10.1's `SPUUpdateCheck.h`.
     const USER_CHECK: isize = 0;
 
     define_class!(
@@ -198,14 +192,11 @@ mod mac {
                 }
             }
 
-            /// Sparkle lets its delegate start a new session from here.
             #[unsafe(method(updater:didFinishUpdateCycleForUpdateCheck:error:))]
             fn did_finish_update_cycle(&self, updater: &AnyObject, check: isize, _error: Option<&NSError>) {
                 self.run_pending_check(updater, Some(check));
             }
 
-            /// Sparkle is idle again after scheduling the next check, which it also does at launch
-            /// without finishing a cycle.
             #[unsafe(method(updater:willScheduleUpdateCheckAfterDelay:))]
             fn will_schedule_update_check(&self, updater: &AnyObject, _delay: f64) {
                 self.run_pending_check(updater, None);
@@ -221,7 +212,6 @@ mod mac {
             }
         }
 
-        /// Starts a check, or brings an update Sparkle shows to the front.
         fn check(&self, updater: &AnyObject) {
             // SAFETY: `updater` is the live `SPUUpdater`; `sessionInProgress` is a BOOL getter and
             // `checkForUpdates` takes no arguments.
@@ -342,12 +332,9 @@ mod mac {
                 let can: bool = msg_send![&updater, canCheckForUpdates];
                 (updater, session, can)
             };
-            // While Sparkle shows an update it can still check: Check Now brings that update to the
-            // front, but a channel switch waits for it to close and checks the new channel.
             let busy = if switched { session } else { !can };
             let ivars = self.delegate.ivars();
             if busy {
-                // A queued Check Now stays one when a switch joins it.
                 let switched = switched && ivars.check_pending.get().is_none_or(|p| p.switched);
                 ivars.check_pending.set(Some(Pending { nightly: ivars.nightly(), switched }));
             } else {
