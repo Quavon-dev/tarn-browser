@@ -199,6 +199,12 @@ impl Render for Browser {
     }
 }
 
+macro_rules! indexed_actions {
+    ($root:ident, $cx:ident, $method:ident: $($action:ident => $ix:expr),*) => {
+        $($root = $root.on_action($cx.listener(|b, _: &$action, w, cx| b.$method($ix, w, cx)));)*
+    };
+}
+
 impl Browser {
     fn render_root(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         self.follow_theme();
@@ -215,9 +221,58 @@ impl Browser {
         if self.hidden_field_focused(window, cx) || (std::mem::take(&mut self.refocus) || stranded) && !self.overlay_open() && self.active_prompt().is_none() {
             window.focus(&self.focus_handle(cx));
         }
-        let [back, forward, close_tab, bookmark, print, stop, reload, reload_fresh] =
-            [&Back as &dyn gpui::Action, &Forward, &CloseTab, &BookmarkTab, &Print, &StopLoading, &Reload, &ReloadFromOrigin].map(|a| !self.idle(a));
-        let mut root = div()
+        let mut root = self.root_shell(cx);
+        root = self.root_tab_actions(root, cx);
+        root = self.root_listeners(root, cx);
+        root = self.root_late_actions(root, cx);
+        let shown = self.sidebar_shown();
+        // A list taken away under the pointer sends no hover-out.
+        if shown < 1. {
+            self.motion.pointer = None;
+        }
+        let sidebar = (shown > 0.).then(|| {
+            div()
+                .flex_none()
+                .flex()
+                .justify_end()
+                .child(timed(engine::startup::SIDEBAR_FRAME, || sidebar::render(self, cx)))
+                .when(shown < 1., |d| d.w(px((self.sidebar_width + sidebar::SIDEBAR_MARGIN) * shown)).overflow_hidden().opacity(shown))
+        });
+        if self.page_fullscreen.is_on() && !self.page_fullscreen_holds() {
+            self.leave_page_fullscreen(window);
+        }
+        if let Some(view) = self.active_view().filter(|_| self.page_fullscreen.is_on()) {
+            let page = canvas(
+                move |bounds, _, _| {
+                    view.set_frame(
+                        f32::from(bounds.origin.x).into(),
+                        f32::from(bounds.origin.y).into(),
+                        f32::from(bounds.size.width).into(),
+                        f32::from(bounds.size.height).into(),
+                    )
+                },
+                |_, _, _, _| {},
+            );
+            return root.bg(gpui::black()).child(page.size_full()).into_any_element();
+        }
+        root.children(sidebar)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .flex_col()
+                    .child(timed("toolbar", || toolbar::render(self, cx)))
+                    .when(self.tab_placement == TabPlacement::Top, |d| d.child(tab_strip::render(self, cx)))
+                    .child(timed("content", || content::render(self, window, cx))),
+            )
+            .children(assistant::render(self, window, cx))
+            .into_any_element()
+    }
+
+    fn root_shell(&self, cx: &mut Context<Self>) -> gpui::Div {
+        div()
             .key_context("Browser")
             .track_focus(&self.focus_handle(cx))
             .size_full()
@@ -277,6 +332,12 @@ impl Browser {
                     }
                 }),
             )
+    }
+
+    fn root_tab_actions(&self, mut root: gpui::Div, cx: &mut Context<Self>) -> gpui::Div {
+        let [back, forward, close_tab, bookmark, print, stop, reload, reload_fresh] =
+            [&Back as &dyn gpui::Action, &Forward, &CloseTab, &BookmarkTab, &Print, &StopLoading, &Reload, &ReloadFromOrigin].map(|a| !self.idle(a));
+        root = root
             .on_action(cx.listener(|b, _: &NewTab, w, cx| b.new_tab_page(w, cx)))
             .on_action(cx.listener(|b, _: &NewChromiumWindow, w, cx| b.new_chromium_window(w, cx)))
             .on_action(cx.listener(|b, _: &profiles::NewProfile, w, cx| b.open_profile_editor(None, w, cx)))
@@ -331,13 +392,12 @@ impl Browser {
             .on_action(cx.listener(|b, _: &library::SaveSnapshot, w, cx| b.save_snapshot(w, cx)))
             .on_action(cx.listener(|b, _: &library::RestoreSnapshot, w, cx| b.open_library(library::Page::Snapshots, None, w, cx)))
             .on_action(cx.listener(|b, _: &ToggleAutoHideSidebar, _, cx| b.set_pref(prefs::Pref::AutoHideSidebar, !b.pref(prefs::Pref::AutoHideSidebar), cx)));
-        macro_rules! indexed_actions {
-            ($method:ident: $($action:ident => $ix:expr),*) => {
-                $(root = root.on_action(cx.listener(|b, _: &$action, w, cx| b.$method($ix, w, cx)));)*
-            };
-        }
-        indexed_actions!(select_tab: Tab1 => 1, Tab2 => 2, Tab3 => 3, Tab4 => 4, Tab5 => 5, Tab6 => 6, Tab7 => 7, Tab8 => 8, LastTab => 9);
-        indexed_actions!(cycle_tab: NextTab => true, PreviousTab => false);
+        indexed_actions!(root, cx, select_tab: Tab1 => 1, Tab2 => 2, Tab3 => 3, Tab4 => 4, Tab5 => 5, Tab6 => 6, Tab7 => 7, Tab8 => 8, LastTab => 9);
+        indexed_actions!(root, cx, cycle_tab: NextTab => true, PreviousTab => false);
+        root
+    }
+
+    fn root_listeners(&self, mut root: gpui::Div, cx: &mut Context<Self>) -> gpui::Div {
         root = assistant::listen(menubar::listen(root, self, cx), cx);
         root = tabs::listen(root, cx);
         let page = self.model.active.is_some();
@@ -354,7 +414,11 @@ impl Browser {
                 .on_action(cx.listener(|b, _: &text_input::SelectAll, w, _| b.edit_page(E::SelectAll, w)));
         }
         root = root.on_action(cx.listener(|b, _: &text_input::Undo, w, cx| b.undo(w, cx)));
-        indexed_actions!(switch_space: Space1 => 0, Space2 => 1, Space3 => 2, Space4 => 3, Space5 => 4, Space6 => 5, Space7 => 6, Space8 => 7, Space9 => 8);
+        root
+    }
+
+    fn root_late_actions(&self, mut root: gpui::Div, cx: &mut Context<Self>) -> gpui::Div {
+        indexed_actions!(root, cx, switch_space: Space1 => 0, Space2 => 1, Space3 => 2, Space4 => 3, Space5 => 4, Space6 => 5, Space7 => 6, Space8 => 7, Space9 => 8);
         root = root
             .when(!self.idle(&ReopenClosedTab), |d| d.on_action(cx.listener(|b, _: &ReopenClosedTab, w, cx| b.reopen_closed_tab(w, cx))))
             .when(!self.idle(&CloseAllTabs), |d| d.on_action(cx.listener(|b, _: &CloseAllTabs, w, cx| b.close_all_tabs(w, cx))))
@@ -382,50 +446,7 @@ impl Browser {
             // The mouse's buttons never arrive here, `watch_navigation_buttons` takes them; GPUI reports swipe events as these.
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Back), cx.listener(|b, _, _, _| b.swipe_history(true)))
             .on_mouse_down(MouseButton::Navigate(NavigationDirection::Forward), cx.listener(|b, _, _, _| b.swipe_history(false)));
-        let shown = self.sidebar_shown();
-        // A list taken away under the pointer sends no hover-out.
-        if shown < 1. {
-            self.motion.pointer = None;
-        }
-        let sidebar = (shown > 0.).then(|| {
-            div()
-                .flex_none()
-                .flex()
-                .justify_end()
-                .child(timed(engine::startup::SIDEBAR_FRAME, || sidebar::render(self, cx)))
-                .when(shown < 1., |d| d.w(px((self.sidebar_width + sidebar::SIDEBAR_MARGIN) * shown)).overflow_hidden().opacity(shown))
-        });
-        if self.page_fullscreen.is_on() && !self.page_fullscreen_holds() {
-            self.leave_page_fullscreen(window);
-        }
-        if let Some(view) = self.active_view().filter(|_| self.page_fullscreen.is_on()) {
-            let page = canvas(
-                move |bounds, _, _| {
-                    view.set_frame(
-                        f32::from(bounds.origin.x).into(),
-                        f32::from(bounds.origin.y).into(),
-                        f32::from(bounds.size.width).into(),
-                        f32::from(bounds.size.height).into(),
-                    )
-                },
-                |_, _, _, _| {},
-            );
-            return root.bg(gpui::black()).child(page.size_full()).into_any_element();
-        }
-        root.children(sidebar)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .flex()
-                    .flex_col()
-                    .child(timed("toolbar", || toolbar::render(self, cx)))
-                    .when(self.tab_placement == TabPlacement::Top, |d| d.child(tab_strip::render(self, cx)))
-                    .child(timed("content", || content::render(self, window, cx))),
-            )
-            .children(assistant::render(self, window, cx))
-            .into_any_element()
+        root
     }
 }
 

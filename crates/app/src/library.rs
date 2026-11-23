@@ -46,6 +46,11 @@ const IMPORT_TIMEOUT: Duration = Duration::from_secs(120);
 const MEMORY_REFRESH: Duration = Duration::from_secs(2);
 const DELETE_KEY: &str = if cfg!(windows) { "Delete" } else { "⌘⌫" };
 
+mod actions;
+mod browser_api;
+mod entries;
+use entries::*;
+
 actions!(library, [SaveSnapshot, RestoreSnapshot]);
 
 pub(crate) use browser_core::shield_card::date;
@@ -85,263 +90,6 @@ fn snapshot_error(e: LoadError) -> &'static str {
         LoadError::Missing => "This snapshot no longer exists.",
         LoadError::Unreadable => "This snapshot could not be read.",
         LoadError::NewerVersion => "This snapshot was saved by a newer version of Tarn.",
-    }
-}
-
-impl Browser {
-    pub(crate) fn reload_bookmarks(&mut self, cx: &mut Context<Self>) {
-        self.bookmarks_of = self.model.profile();
-        if let Some(space) = self.model.current_space() {
-            self.set_bookmarks(self.store(space.private).bookmarks(space.space.profile_id).unwrap_or_default());
-        }
-        cx.notify();
-    }
-
-    pub fn is_bookmarked(&self, url: &str) -> bool {
-        bookmarks::find(&self.bookmarks, url).is_some()
-    }
-
-    fn bookmark_target(&self, key: Option<TabKey>) -> Option<(String, String)> {
-        let tab = key.or(self.model.active).and_then(|k| self.model.tab(k))?;
-        let url = self.tab_url(self.model.key(tab)).unwrap_or_else(|| tab.url.clone());
-        (!url.is_empty()).then(|| (browser_core::text::stored_title_or_host(&tab.title, &url), url))
-    }
-
-    /// The top-level folder Save for Later files pages into, if it exists.
-    pub(crate) fn reading_list(&self) -> Option<Id> {
-        bookmarks::reading_list(&self.bookmarks)
-    }
-
-    /// Files the active page into the Reading List bookmark folder, made on first use, so it is
-    /// kept, exported and deleted like any bookmark.
-    pub fn save_for_later(&mut self, cx: &mut Context<Self>) {
-        let (Some((title, url)), Some(space)) = (self.bookmark_target(None), self.model.current_space()) else { return };
-        let (private, profile_id) = (space.private, space.space.profile_id);
-        self.reload_bookmarks(cx);
-        let saved = bookmarks::save_for_later(self.store(private), profile_id, &self.bookmarks, &url, &title, now());
-        self.reload_bookmarks(cx);
-        let (tone, text) = browser_core::toast::reading_list(saved);
-        self.show_toast_as(tone, text, None, cx);
-    }
-
-    /// Bookmarks the tab, or returns its bookmark when it already has one.
-    pub fn bookmark_tab(&mut self, key: Option<TabKey>, cx: &mut Context<Self>) -> Option<Id> {
-        let (title, url) = self.bookmark_target(key)?;
-        let space = self.model.current_space()?;
-        let id = bookmarks::bookmark(self.store(space.private), space.space.profile_id, &self.bookmarks, &url, &title, now())?;
-        self.reload_bookmarks(cx);
-        Some(id)
-    }
-
-    pub fn unbookmark_tab(&mut self, key: Option<TabKey>, cx: &mut Context<Self>) {
-        let Some((_, url)) = self.bookmark_target(key) else { return };
-        bookmarks::unbookmark(self.store(self.model.private()), &self.bookmarks, &url);
-        self.reload_bookmarks(cx);
-    }
-
-    /// Saves every tab into a new dated folder and opens the library on its name field.
-    pub fn bookmark_all_tabs(&mut self, cx: &mut Context<Self>) {
-        let Some(space) = self.model.current_space().filter(|_| !self.model.tabs.is_empty()) else { return };
-        let pages: Vec<(&str, String)> = self
-            .model
-            .tabs
-            .iter()
-            .filter(|t| !t.url.is_empty())
-            .map(|t| (t.title.as_str(), self.tab_url(self.model.key(t)).unwrap_or_else(|| t.url.clone())))
-            .collect();
-        let Some(folder) = bookmarks::bookmark_all(self.store(space.private), space.space.profile_id, pages.iter().map(|(t, u)| (*t, u.as_str())), now())
-        else {
-            return;
-        };
-        self.reload_bookmarks(cx);
-        if let Some(main) = self.peek.main {
-            cx.defer(move |cx| {
-                main.update(cx, |b, window, cx| b.show_library(Some(folder), window, cx)).ok();
-            });
-        }
-    }
-
-    pub fn new_bookmark_folder(&mut self, parent: Option<Id>, cx: &mut Context<Self>) -> Option<Id> {
-        let space = self.model.current_space()?;
-        let id = bookmarks::new_folder(self.store(space.private), space.space.profile_id, parent, now())?;
-        self.reload_bookmarks(cx);
-        Some(id)
-    }
-
-    pub fn rename_bookmark(&mut self, id: Id, title: &str, cx: &mut Context<Self>) {
-        self.store(self.model.private()).rename_bookmark(id, title).ok();
-        self.reload_bookmarks(cx);
-    }
-
-    pub fn move_bookmark(&mut self, id: Id, parent: Option<Id>, cx: &mut Context<Self>) {
-        self.store(self.model.private()).move_bookmark(id, parent).ok();
-        self.reload_bookmarks(cx);
-    }
-
-    pub fn delete_bookmark(&mut self, id: Id, cx: &mut Context<Self>) {
-        self.store(self.model.private()).delete_bookmark(id).ok();
-        self.reload_bookmarks(cx);
-    }
-
-    /// Switches to a tab already showing `url`, otherwise opens it in a new one.
-    pub fn open_url(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if self.command_mode.is_some() {
-            self.close_command(window, cx);
-        }
-        if let Some(key) = self.model.tabs.iter().find(|t| t.url == url).map(|t| self.model.key(t)) {
-            return self.activate(key, window, cx);
-        }
-        if let Ok(url) = url::Url::parse(url) {
-            let before = self.model.active;
-            self.new_tab(&url, window, cx);
-            if self.model.active != before && self.is_bookmarked(url.as_str()) {
-                self.mark_typed(&url);
-            }
-        }
-    }
-
-    /// Saves the current space's tabs as a snapshot named after it and opens the library on its name.
-    pub fn save_snapshot(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(space) = self.model.current_space() else { return };
-        let name = format!("{} {}", space.space.name, date(now()));
-        if let Some(saved) = snapshot::save(self.store(space.private), space, &name, now()) {
-            self.open_library(Page::Snapshots, Some(Named::Snapshot(saved.id)), window, cx);
-        }
-    }
-
-    /// The current profile's snapshots, newest first; a private space has none.
-    pub(crate) fn snapshots(&self) -> Vec<Snapshot> {
-        self.model.current_space().filter(|s| !s.private).and_then(|s| self.store(false).snapshots(s.space.profile_id).ok()).unwrap_or_default()
-    }
-
-    pub fn rename_snapshot(&mut self, saved: &Snapshot, name: &str) {
-        self.store(false).rename_snapshot(saved.profile_id, saved.id, name).ok();
-    }
-
-    pub fn delete_snapshot(&mut self, saved: &Snapshot) {
-        self.store(false).delete_snapshot(saved.profile_id, saved.id).ok();
-    }
-
-    /// Opens the snapshot's tabs in a new space of its profile, or at the end of the current space.
-    pub fn restore_snapshot(&mut self, saved: &Snapshot, new_space: bool, window: &mut Window, cx: &mut Context<Self>) -> Result<(), &'static str> {
-        let Some(current) = self.model.current_space().filter(|s| !s.private && s.space.profile_id == saved.profile_id).map(|s| s.space.id) else {
-            return Err("Switch to a space of this snapshot's profile to restore it.");
-        };
-        let store = self.store(false);
-        let snapshot = SpaceSnapshot::load(store, saved.profile_id, saved.id).map_err(snapshot_error)?;
-        let target = if new_space {
-            let names = std::iter::once(saved.name.clone()).chain((2..50).map(|n| format!("{} {n}", saved.name)));
-            let name = names.filter_map(|n| crate::spaces::space_name(&n, &self.model.spaces, false, Some(saved.profile_id), None)).next();
-            let space = store.create_space(saved.profile_id, name.as_deref().unwrap_or("Snapshot"), "");
-            space.map_err(|_| "Tarn could not create a space for this snapshot.")?.id
-        } else {
-            current
-        };
-        let last = snapshot.restore(store, target);
-        if new_space {
-            self.reload_spaces();
-            if let Some(ix) = self.model.spaces.iter().position(|s| !s.private && s.space.id == target) {
-                self.switch_space(ix, window, cx);
-            }
-        } else {
-            self.reload_space();
-        }
-        if let Some(id) = last {
-            self.activate(TabKey { private: false, id }, window, cx);
-        }
-        Self::sync_other_windows(cx);
-        cx.notify();
-        Ok(())
-    }
-
-    pub(crate) fn downloads(&self) -> Vec<Download> {
-        self.model.current_space().and_then(|s| self.store(s.private).downloads(s.space.profile_id).ok()).unwrap_or_default()
-    }
-
-    /// Removes one entry, or with `None` the whole list; the files stay.
-    pub fn remove_download(&mut self, id: Option<Id>) {
-        let Some(space) = self.model.current_space() else { return };
-        let (store, profile_id) = (self.store(space.private), space.space.profile_id);
-        match id {
-            Some(id) => store.delete_download(profile_id, id),
-            None => store.clear_downloads(profile_id),
-        }
-        .ok();
-    }
-
-    pub(crate) fn close_library(&mut self, cx: &mut Context<Self>) {
-        if let Some(handle) = self.library.take() {
-            cx.defer(move |cx| drop(handle.update(cx, |library, window, cx| library.close(true, window, cx))));
-            cx.notify();
-        }
-    }
-
-    pub fn toggle_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match self.library {
-            Some(_) => self.close_library(cx),
-            // The click that took focus from the library already closed it; it must not reopen it.
-            None if self.library_closed.is_some_and(|t| t.elapsed() < ui::motion::REOPEN_GUARD) => {}
-            None => self.show_library(None, window, cx),
-        }
-    }
-
-    /// Opens the library above the space row; with `edit`, on that bookmark with its name field open.
-    pub fn show_library(&mut self, edit: Option<Id>, window: &mut Window, cx: &mut Context<Self>) {
-        let page = match edit.and_then(|id| self.bookmarks.iter().find(|b| b.id == id)) {
-            Some(bm) => Page::Bookmarks(bm.parent_id),
-            None => Page::Home,
-        };
-        self.open_library(page, edit.map(Named::Bookmark), window, cx);
-    }
-
-    /// Opens the library on `page`; with `edit`, that row's name field is open.
-    pub(crate) fn open_library(&mut self, page: Page, edit: Option<Named>, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(handle) = self.library {
-            cx.defer(move |cx| drop(handle.update(cx, |library, window, cx| library.go(page, window, cx))));
-            return;
-        }
-        let Some(main) = window.window_handle().downcast::<Browser>().or(self.peek.main) else { return };
-        let inset = SIDEBAR_MARGIN;
-        self.peek.owns[0] = self.peek.is_window(window);
-        if !self.peek.owns[0] {
-            self.close_peek(cx);
-        }
-        let anchor = self.main_bounds(window);
-        let room = f32::from(anchor.size.height) - 2. * inset - SPACE_ROW - TOOLBAR_HEIGHT - SEARCH_HEIGHT - 2.;
-        let max_list = room.max(ROW * 3.);
-        let downloads = self.downloads();
-        let snapshots = self.snapshots();
-        let sources = if page == Page::Import { detect_sources() } else { Vec::new() };
-        let history = self.model.current_space().and_then(|s| self.store(s.private).history(s.space.profile_id, HISTORY_LOAD).ok()).unwrap_or_default();
-        let rows: Vec<&HistoryEntry> = history.iter().collect();
-        let listed = entries(self, page, "", &rows, &downloads, &snapshots, &sources);
-        let height = px(card_height(&listed, row_boundary(&listed, max_list)));
-        let (x, bottom, width) = (inset + 4., f32::from(anchor.size.height) - inset - SPACE_ROW, CARD_WIDTH.min(self.sidebar_width - 8.));
-        let bounds = Bounds::new(point(anchor.origin.x + px(x), anchor.origin.y + px(bottom) - height), size(px(width), height));
-        let display = window.display(cx).map(|d| d.id());
-        let browser = cx.entity().downgrade();
-        // The new window renders from the browser at once, so it must open after this update ends.
-        cx.defer(move |cx| {
-            let handle = cx.open_window(popup_options(bounds, display, true), |window, cx| {
-                if let Some(host) = engine::Host::from_window(window) {
-                    host.hide_on_deactivate();
-                    host.round_corners(0., 0., 0., 0., f64::from(ui::theme::Theme::radius_panel()));
-                }
-                cx.new(|cx| LibraryWindow {
-                    page,
-                    fit: Some(Fit { x, bottom, width, max_list }),
-                    sources: sources.clone(),
-                    ..LibraryWindow::new(browser.clone(), main, history, downloads.clone(), edit, window, cx)
-                })
-            });
-            browser
-                .update(cx, |b, cx| {
-                    b.library = handle.ok();
-                    cx.notify();
-                })
-                .ok();
-            crate::peek::popovers_over_peek(&browser, cx);
-        });
     }
 }
 
@@ -406,196 +154,6 @@ enum Entry {
     Divider,
     Empty(String),
     Row(Row),
-}
-
-fn row(item: Item, title: String, bookmark: Option<Id>) -> Entry {
-    Entry::Row(Row { item, title, named: bookmark.map(Named::Bookmark), detail: None })
-}
-
-fn bookmark_row(bm: &Bookmark) -> Entry {
-    let item = match &bm.url {
-        Some(url) => Item::Url(url.clone()),
-        None => Item::Folder(bm.id),
-    };
-    row(item, title_or_host(&bm.title, bm.url.as_deref().unwrap_or_default()), Some(bm.id))
-}
-
-fn entries(b: &Browser, page: Page, query: &str, history: &[&HistoryEntry], downloads: &[Download], snapshots: &[Snapshot], sources: &[Source]) -> Vec<Entry> {
-    let matches = |title: &str, url: &str| library::matches(query, title, url);
-    let store = b.store(b.model.private());
-    let bookmarks = &b.bookmarks;
-    let found = |limit| library::bookmarks(bookmarks, query).take(limit).map(bookmark_row);
-    let visits = history;
-    let history = |limit| visits.iter().take(limit).map(|h| row(Item::Url(h.url.clone()), title_or_host(&h.title, &h.url), None));
-    let downloads = |limit| {
-        let now = now();
-        library::downloads(downloads, query).take(limit).map(move |d| download_row(store, d, now))
-    };
-    let mut out = Vec::new();
-    match page {
-        Page::Home => {
-            let tabs = library::open_tabs(&b.model.tabs, query);
-            if query.is_empty() || !tabs.is_empty() {
-                out.push(Entry::Header("Open Tabs", Some(tabs.len())));
-            }
-            if query.is_empty() && tabs.is_empty() {
-                out.push(Entry::Empty("No open tabs".into()));
-            }
-            out.extend(tabs.into_iter().take(MAX_ROWS).map(|t| row(Item::Tab(b.model.key(t)), title_or_host(&t.title, &t.url), None)));
-            if !query.is_empty() {
-                let sections: [(&str, Vec<Entry>); 3] =
-                    [("Bookmarks", found(MAX_ROWS).collect()), ("History", history(MAX_ROWS).collect()), ("Downloads", downloads(MAX_ROWS).collect())];
-                for (name, rows) in sections.into_iter().filter(|(_, rows)| !rows.is_empty()) {
-                    out.push(Entry::Header(name, None));
-                    out.extend(rows);
-                }
-                if out.is_empty() {
-                    out.push(Entry::Empty(empty_text(page, query)));
-                }
-            }
-            out.push(Entry::Header("Library", None));
-            out.push(row(Item::Page(Page::History), "History".into(), None));
-            out.push(row(Item::Page(Page::Bookmarks(None)), "Bookmarks".into(), None));
-            if let Some(folder) = b.reading_list() {
-                out.push(row(Item::Page(Page::Bookmarks(Some(folder))), bookmarks::READING_LIST.into(), None));
-            }
-            out.push(row(Item::Page(Page::Downloads), "Downloads".into(), None));
-            if !b.model.private() {
-                out.push(row(Item::Page(Page::Snapshots), "Snapshots".into(), None));
-            }
-            out.push(row(Item::Page(Page::Memory), "Memory".into(), None));
-            if query.is_empty() && data::available() {
-                out.push(row(Item::Page(Page::Import), "Import Browser Data".into(), None));
-            }
-        }
-        Page::History => {
-            out.push(Entry::Back("History".into()));
-            let now = now();
-            let starts = library::day_starts(store, now);
-            let mut last = None;
-            for h in visits.iter().take(MAX_LIST) {
-                let day = library::history_day(h.visited_at, starts);
-                if last.replace(day) != Some(day) {
-                    out.push(Entry::Header(day, None));
-                }
-                out.push(visit_row(store, h, now));
-            }
-        }
-        Page::Bookmarks(folder) => {
-            let name = folder.and_then(|id| bookmarks.iter().find(|bm| bm.id == id)).map_or("Bookmarks".into(), |bm| bounded_title(&bm.title));
-            out.push(Entry::Back(name));
-            if query.is_empty() {
-                out.extend(bookmarks.iter().filter(|bm| bm.parent_id == folder).map(bookmark_row));
-            } else {
-                out.extend(found(MAX_LIST));
-            }
-        }
-        Page::Downloads => {
-            out.push(Entry::Back("Downloads".into()));
-            out.extend(downloads(MAX_LIST));
-            if out.len() > 1 && query.is_empty() {
-                out.push(Entry::Divider);
-                out.push(row(Item::ClearDownloads, "Clear List".into(), None));
-            }
-        }
-        Page::Snapshots => {
-            out.push(Entry::Back("Snapshots".into()));
-            if snapshots.is_empty() {
-                out.push(Entry::Empty("Save a space with “Save Space as Snapshot”".into()));
-            }
-            let now = now();
-            out.extend(snapshots.iter().filter(|s| matches(&s.name, "")).map(|s| {
-                let detail = Some(ago(store, s.created_at, now));
-                Entry::Row(Row { item: Item::Snapshot(s.clone()), title: bounded_title(&s.name), named: Some(Named::Snapshot(s.id)), detail })
-            }));
-        }
-        Page::Memory => {
-            out.push(Entry::Back("Memory".into()));
-            let costs = b.tab_costs();
-            let mut tabs: Vec<(TabKey, &Tab)> = b.model.tabs.iter().filter(|t| matches(&t.title, &t.url)).map(|t| (b.model.key(t), t)).collect();
-            tabs.sort_by_key(|(key, t)| (Reverse(costs.get(key).map_or(0, |c| c.footprint)), Reverse(t.last_active)));
-            out.extend(tabs.into_iter().map(|(key, t)| {
-                let detail = crate::memory::detail(costs.get(&key).copied(), b.sleeping(key));
-                Entry::Row(Row { item: Item::Tab(key), title: title_or_host(&t.title, &t.url), named: None, detail: Some(detail) })
-            }));
-            if out.len() > 1 && query.is_empty() {
-                out.push(Entry::Divider);
-                out.push(row(Item::SleepInactive, "Sleep All Inactive Tabs".into(), None));
-            }
-        }
-        Page::Import => {
-            out.push(Entry::Back("Import Browser Data".into()));
-            if sources.is_empty() {
-                out.push(Entry::Empty("No supported browser found".into()));
-            }
-            out.extend(
-                sources.iter().enumerate().filter(|(_, s)| matches(s.browser.name(), &s.label)).map(|(ix, s)| {
-                    Entry::Row(Row { item: Item::Source(ix), title: s.browser.name().into(), named: None, detail: Some(bounded_title(&s.label)) })
-                }),
-            );
-        }
-    }
-    if out.len() == 1 {
-        out.push(Entry::Empty(empty_text(page, query)));
-    }
-    out
-}
-
-fn tally(n: usize) -> Option<String> {
-    (n > 0).then(|| thousands(n as u64))
-}
-
-/// Rows listed on a page; on a page cut at `MAX_LIST` the cap reads "200+", never as the total.
-fn listed_tally(n: usize, capped: bool) -> Option<String> {
-    if capped && n >= MAX_LIST { Some(format!("{MAX_LIST}+")) } else { tally(n) }
-}
-
-fn empty_text(page: Page, query: &str) -> String {
-    if !query.is_empty() {
-        return format!("No results for “{}”", bounded_title(query));
-    }
-    match page {
-        Page::History => "No history yet",
-        Page::Bookmarks(None) => "No bookmarks yet",
-        Page::Bookmarks(Some(_)) => "This folder is empty",
-        Page::Downloads => "No downloads yet",
-        _ => "Nothing here",
-    }
-    .into()
-}
-
-fn entry_height(entry: &Entry) -> f32 {
-    match entry {
-        Entry::Header(..) => HEADER_ROW,
-        Entry::Back(_) => BACK_ROW,
-        Entry::Empty(_) => EMPTY_ROW,
-        Entry::Divider => DIVIDER,
-        Entry::Row(r) if r.detail.is_some() => DETAIL_ROW,
-        Entry::Row(_) => ROW,
-    }
-}
-
-/// The tallest list up to `max_list` that ends below a row, so a cut list never shows a heading or
-/// divider without the row under it, or half a row; `max_list` when the whole list fits.
-fn row_boundary(entries: &[Entry], max_list: f32) -> f32 {
-    let mut end = LIST_PAD;
-    let mut fit = None;
-    for (ix, entry) in entries.iter().enumerate() {
-        end += entry_height(entry) + if ix > 0 { 1. } else { 0. };
-        if end > max_list {
-            return fit.unwrap_or(max_list);
-        }
-        if !matches!(entry, Entry::Header(..) | Entry::Divider) {
-            fit = Some(end);
-        }
-    }
-    max_list
-}
-
-/// The card's height for `entries`, with the list capped at `max_list`.
-fn card_height(entries: &[Entry], max_list: f32) -> f32 {
-    let list: f32 = entries.iter().map(entry_height).sum::<f32>() + entries.len().saturating_sub(1) as f32 + LIST_PAD;
-    SEARCH_HEIGHT + 2. + list.min(max_list)
 }
 
 pub struct LibraryWindow {
@@ -934,370 +492,92 @@ impl LibraryWindow {
         cx.notify();
     }
 
-    fn begin_rename(&mut self, named: Named, window: &mut Window, cx: &mut Context<Self>) {
-        let title = match named {
-            Named::Bookmark(id) => self.browser.upgrade().and_then(|b| b.read(cx).bookmarks.iter().find(|bm| bm.id == id).map(|bm| bm.title.clone())),
-            Named::Snapshot(id) => self.snapshots.iter().find(|s| s.id == id).map(|s| s.name.clone()),
-        };
-        let Some(title) = title else { return };
-        let input = cx.new(|cx| {
-            let mut input = TextInput::new("Name", cx);
-            input.set_text(title, cx);
-            input.select_all_from_start(cx);
-            input
-        });
-        let events = cx.subscribe_in(&input, window, |this, _, event, window, cx| match event {
-            TextInputEvent::Submit => this.end_rename(true, window, cx),
-            TextInputEvent::Cancel => this.end_rename(false, window, cx),
-            TextInputEvent::MenuClosed if !window.is_window_active() && !this.holding => this.close(false, window, cx),
-            _ => {}
-        });
-        let focus = input.focus_handle(cx);
-        let blur = cx.on_blur(&focus, window, |this, window, cx| this.end_rename(true, window, cx));
-        window.focus(&focus);
-        self.renaming = Some((named, input, [events, blur]));
-        cx.notify();
+    fn back_row(&self, title: String, tally: Option<String>, on_bookmarks: bool, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id("library-back")
+            .h(px(BACK_ROW))
+            .px_1()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1()
+            .rounded(px(Theme::radius_row()))
+            .cursor_pointer()
+            .font_weight(FontWeight::SEMIBOLD)
+            .hover(|s| s.bg(Theme::hover()))
+            .child(icon(Icon::ChevronLeft, 14., Theme::muted()))
+            .child(div().flex_1().one_line(SharedString::from(title)))
+            .children(tally.map(|n| div().flex_none().px_1().text_size(px(TEXT_SMALL)).font_weight(FontWeight::NORMAL).text_color(Theme::muted()).child(n)))
+            .when(on_bookmarks, |d| {
+                d.child(icon_button("library-new-folder", Icon::FolderPlus, true).tooltip(tooltip("New Folder", None)).on_click(cx.listener(
+                    |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.new_folder(window, cx);
+                    },
+                )))
+            })
+            .on_click(cx.listener(|this, _, window, cx| this.back(window, cx)))
+            .into_any_element()
     }
 
-    fn end_rename(&mut self, commit: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((named, input, _)) = self.renaming.take() else { return };
-        let title = input.read(cx).text().trim().to_owned();
-        if commit && !title.is_empty() {
-            match named {
-                Named::Bookmark(id) => drop(self.browser.update(cx, |b, cx| b.rename_bookmark(id, &title, cx))),
-                Named::Snapshot(id) => {
-                    if let Some(saved) = self.snapshots.iter().find(|s| s.id == id).cloned() {
-                        self.browser.update(cx, |b, _| b.rename_snapshot(&saved, &title)).ok();
-                        self.reload_snapshots(cx);
-                    }
-                }
-            }
+    fn search_box(&self, empty_query: bool, cx: &mut Context<Self>) -> gpui::Div {
+        div()
+            .m_1p5()
+            .h(px(SEARCH_HEIGHT - 12.))
+            .px_2()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_2()
+            .rounded(px(Theme::radius_row()))
+            .bg(Theme::raised())
+            .child(icon(Icon::Search, 14., Theme::muted()))
+            .child(div().flex_1().min_w_0().child(self.query.clone()))
+            .when(empty_query, |d| d.child(key_hint(crate::shortcuts::shown(&crate::ToggleLibrary, cx))))
+    }
+
+    fn row_title(&self, r: &Row, editing: Option<Entity<TextInput>>, detail: Option<String>, cx: &mut Context<Self>) -> AnyElement {
+        match (editing, detail) {
+            (Some(input), _) => div()
+                .flex_1()
+                .min_w_0()
+                .px_1()
+                .rounded(px(Theme::radius_row()))
+                .bg(Theme::raised())
+                .on_mouse_down_out(cx.listener(|this, _, window, cx| this.end_rename(true, window, cx)))
+                .child(input)
+                .into_any_element(),
+            (None, Some(detail)) => div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(div().one_line(SharedString::from(r.title.clone())))
+                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(detail)))
+                .into_any_element(),
+            (None, None) => div().flex_1().one_line(SharedString::from(r.title.clone())).into_any_element(),
         }
-        window.focus(&self.query.focus_handle(cx));
-        cx.notify();
     }
 
-    fn new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let parent = match self.page {
-            Page::Bookmarks(folder) => folder,
+    fn row_aside(&self, r: &Row, b: Option<&Browser>) -> (Option<String>, Option<String>) {
+        let inside = |folder: Option<Id>| b.map_or(0, |b| b.bookmarks.iter().filter(|bm| bm.parent_id == folder).count());
+        // Shortened from the left like the toolbar's host (S5), so the registrable domain stays visible.
+        let host =
+            |url: Option<String>| url.and_then(|url| tab_host(&url)).filter(|host| *host != r.title).map(|host| browser_core::command::host_tail(&host, 16));
+        let aside = match &r.item {
+            Item::Url(url) => host(Some(url.clone())),
+            Item::Tab(key) if r.detail.is_none() => host(b.and_then(|b| b.tab_url(*key))),
+            Item::Page(Page::Bookmarks(None)) => tally(b.map_or(0, |b| b.bookmarks.iter().filter(|bm| bm.url.is_some()).count())),
+            Item::Page(Page::Bookmarks(Some(id))) | Item::Folder(id) => tally(inside(Some(*id))),
+            Item::Page(Page::Downloads) => tally(self.downloads.len()),
+            Item::Page(Page::Snapshots) => tally(self.snapshots.len()),
             _ => None,
         };
-        let Some(id) = self.browser.update(cx, |b, cx| b.new_bookmark_folder(parent, cx)).ok().flatten() else { return };
-        self.go(Page::Bookmarks(parent), window, cx);
-        self.select(Named::Bookmark(id), cx);
-        self.begin_rename(Named::Bookmark(id), window, cx);
-    }
-
-    fn delete(&mut self, named: Named, window: &mut Window, cx: &mut Context<Self>) {
-        let id = match named {
-            Named::Bookmark(id) => id,
-            Named::Snapshot(id) => {
-                let Some(saved) = self.snapshots.iter().find(|s| s.id == id).cloned() else { return };
-                let message = format!("Delete the snapshot “{}”?", bounded_title(&saved.name));
-                return self.confirm(&message, None, "Delete", window, cx, move |this, cx| {
-                    this.browser.update(cx, |b, _| b.delete_snapshot(&saved)).ok();
-                    this.reload_snapshots(cx);
-                });
-            }
-        };
-        let Some(browser) = self.browser.upgrade() else { return };
-        let b = browser.read(cx);
-        let Some(bm) = b.bookmarks.iter().find(|bm| bm.id == id) else { return };
-        let message = if bookmarks::subtree(&b.bookmarks, id).len() == 1 {
-            format!("Delete the bookmark “{}”?", bounded_title(&bm.title))
-        } else {
-            format!("Delete “{}” and everything in it?", bounded_title(&bm.title))
-        };
-        self.confirm(&message, None, "Delete", window, cx, move |this, cx| {
-            this.browser.update(cx, |b, cx| b.delete_bookmark(id, cx)).ok();
-        });
-    }
-
-    fn remove_history(&mut self, url: String, cx: &mut Context<Self>) {
-        self.browser.update(cx, |b, cx| b.remove_history_url(&url, cx)).ok();
-        self.history.retain(|h| h.url != url);
-        *self.history_hits.borrow_mut() = None;
-        self.shown = self.rows(cx);
-        cx.notify();
-    }
-
-    /// Delete, F2 and Shift+F10 act on the selected row; the delete keys only while the search
-    /// field is empty, so they still edit its text.
-    fn on_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let key = &event.keystroke;
-        let Some((_, r)) = self.shown.get(self.selected).cloned() else { return };
-        if self.renaming.is_some() || self.holding || event.is_held {
-            return;
+        // A row with a detail line shows its host there, so the title keeps the row's width.
+        match (&r.detail, aside) {
+            (Some(detail), Some(host)) if matches!(r.item, Item::Url(_)) => (None, Some(format!("{detail} · {host}"))),
+            (detail, aside) => (aside, detail.clone()),
         }
-        match key.key.as_str() {
-            "f2" if !key.modifiers.modified() => match r.named {
-                Some(named) => self.begin_rename(named, window, cx),
-                None => return,
-            },
-            "f10" if key.modifiers.shift => self.row_menu(r.item.clone(), r.named, window, cx),
-            _ => return,
-        }
-        cx.stop_propagation();
-    }
-
-    /// Deletes the selected row for Delete or ⌘⌫ while the search field is empty, before the
-    /// field, which holds the focus, takes the key.
-    fn delete_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((_, r)) = self.shown.get(self.selected).cloned() else { return cx.propagate() };
-        if self.renaming.is_some() || self.holding || !self.query.read(cx).text().is_empty() {
-            return cx.propagate();
-        }
-        match (r.named, visit(&r)) {
-            (Some(named), _) => self.delete(named, window, cx),
-            (None, Some(url)) => self.remove_history(url.to_owned(), cx),
-            _ => return cx.propagate(),
-        }
-        cx.stop_propagation();
-    }
-
-    fn confirm(
-        &mut self,
-        message: &str,
-        detail: Option<&str>,
-        action: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
-    ) {
-        let answer = self.ask(PromptLevel::Warning, message, detail, &[action, "Cancel"], window, cx);
-        cx.spawn_in(window, async move |this, cx| {
-            let yes = answer.await == Ok(0);
-            this.update_in(cx, |this, window, cx| {
-                this.answered(window, cx);
-                if yes {
-                    then(this, cx);
-                }
-                window.focus(&this.query.focus_handle(cx));
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    /// A dialog draws inside the popover, so the popover takes its full height while one is up.
-    fn ask(
-        &mut self,
-        level: PromptLevel,
-        message: &str,
-        detail: Option<&str>,
-        answers: &[&str],
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> oneshot::Receiver<usize> {
-        self.holding = true;
-        if let Some(fit) = &self.fit {
-            self.place(SEARCH_HEIGHT + 2. + fit.max_list, window, cx);
-        }
-        crate::dialog::ask(level, message, detail, answers, window, cx)
-    }
-
-    fn answered(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.holding = false;
-        self.refit(window, cx);
-    }
-
-    fn alert(&mut self, message: &str, detail: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        let answer = self.ask(PromptLevel::Info, message, detail, &["OK"], window, cx);
-        cx.spawn_in(window, async move |this, cx| {
-            answer.await.ok();
-            this.update_in(cx, |this, window, cx| {
-                this.answered(window, cx);
-                window.focus(&this.query.focus_handle(cx));
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    /// Asks which data to bring from a source into the current space's profile, then reads it in
-    /// the background (where macOS may show its keychain prompt) and writes it.
-    fn start_import(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(source), Some(browser)) = (self.sources.get(ix).cloned(), self.browser.upgrade()) else { return };
-        let b = browser.read(cx);
-        let Some(space) = b.model.current_space() else { return };
-        let (private, profile_id, core) = (space.private, space.space.profile_id, b.core.clone());
-        if core.importing.get() {
-            return self.alert("An import is already running.", None, window, cx);
-        }
-        if core.import_target(private, profile_id).is_err() {
-            let detail = "Private and Lockdown profiles keep website data in memory only, so imported sign-ins would not last.";
-            return self.alert("Switch to a space of a normal profile to import into it.", Some(detail), window, cx);
-        }
-        let name = source.browser.name();
-        let profile = core.disk.profile(profile_id).map(|p| p.name).unwrap_or_default();
-        let data::Confirm { message, detail, cookies } = data::confirm(&source, &profile, ui::controls::THIS_DEVICE);
-        let sealed = !cookies;
-        let buttons: &[&str] = if sealed { &["Import", "Cancel"] } else { &["Import All", "History and Bookmarks Only", "Cancel"] };
-        let answer = self.ask(PromptLevel::Info, &message, Some(&detail), buttons, window, cx);
-        let (weak_browser, main) = (self.browser.clone(), self.main);
-        cx.spawn_in(window, async move |this, cx| {
-            let cookies = match answer.await {
-                Ok(0) => !sealed,
-                Ok(1) if !sealed => false,
-                _ => return drop(this.update_in(cx, |this, window, cx| this.answered(window, cx))),
-            };
-            if core.importing.replace(true) {
-                this.update_in(cx, |this, window, cx| {
-                    this.answered(window, cx);
-                    this.alert("An import is already running.", None, window, cx);
-                })
-                .ok();
-                return;
-            }
-            let kinds = Kinds { cookies, history: true, bookmarks: true };
-            let browser_kind = source.browser;
-            let read = cx.background_executor().spawn(async move { data::read(&source, kinds) }).await;
-            let (tx, rx) = oneshot::channel();
-            let summary = match core.import(profile_id, browser_kind, read, move |r| drop(tx.send(r))) {
-                // The engine answers each cookie write; a store closed meanwhile may never answer.
-                Ok(()) => match futures::future::select(rx, cx.background_executor().timer(IMPORT_TIMEOUT)).await {
-                    futures::future::Either::Left((report, _)) => data::summary(name, report.ok().as_ref()),
-                    futures::future::Either::Right(_) => data::summary(name, None),
-                },
-                Err(_) => "Nothing was imported: this profile can no longer take imported data.".into(),
-            };
-            core.importing.set(false);
-            let same_profile = weak_browser
-                .update(cx, |b, cx| {
-                    b.reload_bookmarks(cx);
-                    b.model.current_space().is_some_and(|s| !s.private && s.space.profile_id == profile_id)
-                })
-                .unwrap_or(false);
-            this.update_in(cx, |this, window, cx| {
-                this.answered(window, cx);
-                if same_profile {
-                    this.history = core.disk.history(profile_id, HISTORY_LOAD).unwrap_or_default();
-                    this.history_hits.take();
-                }
-                if !window.is_window_active() {
-                    this.close(false, window, cx);
-                }
-            })
-            .ok();
-            main.update(cx, |_, window, cx| drop(window.prompt(PromptLevel::Info, &format!("Import from {name}"), Some(&summary), &["OK"], cx))).ok();
-        })
-        .detach();
-    }
-
-    fn run(&mut self, cmd: Cmd, window: &mut Window, cx: &mut Context<Self>) {
-        match cmd {
-            Cmd::Open(item) => self.open(item, window, cx),
-            Cmd::OpenInNewTab(url) => {
-                if let Ok(url) = url::Url::parse(&url) {
-                    self.main
-                        .update(cx, |b, window, cx| {
-                            let before = b.model.active;
-                            b.new_tab(&url, window, cx);
-                            if b.model.active != before && b.is_bookmarked(url.as_str()) {
-                                b.mark_typed(&url);
-                            }
-                        })
-                        .ok();
-                }
-                self.close(true, window, cx);
-            }
-            Cmd::Rename(named) => self.begin_rename(named, window, cx),
-            Cmd::Move(id, parent) => {
-                self.browser.update(cx, |b, cx| b.move_bookmark(id, parent, cx)).ok();
-            }
-            Cmd::Delete(named) => self.delete(named, window, cx),
-            Cmd::Restore(saved, new_space) => self.restore(saved, new_space, window, cx),
-            Cmd::NewFolder => self.new_folder(window, cx),
-            Cmd::ToggleBookmark(key) => {
-                self.browser
-                    .update(cx, |b, cx| match b.tab_url(key).is_some_and(|url| b.is_bookmarked(&url)) {
-                        true => b.unbookmark_tab(Some(key), cx),
-                        false => drop(b.bookmark_tab(Some(key), cx)),
-                    })
-                    .ok();
-            }
-            Cmd::CopyLink(url) => cx.write_to_clipboard(ClipboardItem::new_string(url)),
-            Cmd::RemoveDownload(id) => self.remove_download(Some(id), cx),
-            Cmd::RemoveHistory(url) => self.remove_history(url, cx),
-        }
-    }
-
-    fn row_menu(&mut self, item: Item, named: Option<Named>, window: &mut Window, cx: &mut Context<Self>) {
-        cx.stop_propagation();
-        let Some(browser) = self.browser.upgrade() else { return };
-        let b = browser.read(cx);
-        let Some(host) = b.host.clone() else { return };
-        let url = match &item {
-            Item::Url(url) => Some(url.clone()),
-            Item::Tab(key) => b.tab_url(*key),
-            _ => None,
-        };
-        let item_key = item.clone();
-        let history = match &item {
-            Item::Url(url) if named.is_none() => Some(url.clone()),
-            _ => None,
-        };
-        let mut items = match &item {
-            Item::Download(d) => {
-                let mut items = vec![MenuItem::action(ui::controls::REVEAL, Cmd::Open(item.clone()))];
-                items.extend((!d.url.is_empty()).then(|| MenuItem::action("Copy Download Link", Cmd::CopyLink(d.url.clone()))));
-                items.extend([MenuItem::Separator, MenuItem::action("Remove from List", Cmd::RemoveDownload(d.id))]);
-                items
-            }
-            Item::Snapshot(saved) => vec![
-                MenuItem::action("Restore in New Space", Cmd::Restore(saved.clone(), true)),
-                MenuItem::action("Restore in This Space", Cmd::Restore(saved.clone(), false)),
-                MenuItem::Separator,
-                MenuItem::action("Rename", Cmd::Rename(Named::Snapshot(saved.id))),
-                MenuItem::action("Delete…", Cmd::Delete(Named::Snapshot(saved.id))),
-            ],
-            _ => vec![MenuItem::action("Open", Cmd::Open(item))],
-        };
-        let bookmarked = url.as_deref().is_some_and(|url| b.is_bookmarked(url));
-        if let Some(url) = url {
-            items.extend([MenuItem::action("Open in New Tab", Cmd::OpenInNewTab(url.clone())), MenuItem::action("Copy Link", Cmd::CopyLink(url))]);
-        }
-        if let Item::Tab(key) = item_key {
-            items.push(MenuItem::action(if bookmarked { "Remove Bookmark" } else { "Bookmark Tab" }, Cmd::ToggleBookmark(key)));
-        }
-        if let Some(url) = history {
-            items.extend([MenuItem::Separator, MenuItem::action("Remove from History", Cmd::RemoveHistory(url))]);
-        }
-        if let Some(Named::Bookmark(id)) = named {
-            let parent = b.bookmarks.iter().find(|bm| bm.id == id).and_then(|bm| bm.parent_id);
-            let mut folders = vec![MenuItem::action("Bookmarks", Cmd::Move(id, None)).checked(parent.is_none()).enabled(parent.is_some())];
-            folders.extend(
-                bookmarks::move_targets(&b.bookmarks, id)
-                    .into_iter()
-                    .map(|f| MenuItem::action(bounded_title(&f.title), Cmd::Move(id, Some(f.id))).checked(parent == Some(f.id)).enabled(parent != Some(f.id))),
-            );
-            items.extend([
-                MenuItem::Separator,
-                MenuItem::action("Rename", Cmd::Rename(Named::Bookmark(id))),
-                MenuItem::Submenu("Move to Folder".into(), folders),
-                MenuItem::action("New Folder", Cmd::NewFolder),
-                MenuItem::Separator,
-                MenuItem::action("Delete", Cmd::Delete(Named::Bookmark(id))),
-            ]);
-        }
-        self.holding = true;
-        cx.spawn_in(window, async move |this, cx| {
-            let (tx, rx) = oneshot::channel();
-            menu::show(&host, crate::menu_glyphs::with_glyphs(items), None, move |cmd| {
-                tx.send(cmd).ok();
-            });
-            let cmd = rx.await.ok();
-            this.update_in(cx, |this, window, cx| {
-                this.holding = false;
-                match cmd {
-                    Some(cmd) => this.run(cmd, window, cx),
-                    None if !window.is_window_active() => this.close(false, window, cx),
-                    None => {}
-                }
-            })
-            .ok();
-        })
-        .detach();
     }
 
     fn render_row(&self, ix: usize, r: Row, leading: AnyElement, cx: &mut Context<Self>) -> AnyElement {
@@ -1320,44 +600,8 @@ impl LibraryWindow {
             _ => None,
         };
         let has_actions = r.named.is_some() || visited.is_some() || sleepable.is_some();
-        let inside = |folder: Option<Id>| b.map_or(0, |b| b.bookmarks.iter().filter(|bm| bm.parent_id == folder).count());
-        // Shortened from the left like the toolbar's host (S5), so the registrable domain stays visible.
-        let host =
-            |url: Option<String>| url.and_then(|url| tab_host(&url)).filter(|host| *host != r.title).map(|host| browser_core::command::host_tail(&host, 16));
-        let aside = match &r.item {
-            Item::Url(url) => host(Some(url.clone())),
-            Item::Tab(key) if r.detail.is_none() => host(b.and_then(|b| b.tab_url(*key))),
-            Item::Page(Page::Bookmarks(None)) => tally(b.map_or(0, |b| b.bookmarks.iter().filter(|bm| bm.url.is_some()).count())),
-            Item::Page(Page::Bookmarks(Some(id))) | Item::Folder(id) => tally(inside(Some(*id))),
-            Item::Page(Page::Downloads) => tally(self.downloads.len()),
-            Item::Page(Page::Snapshots) => tally(self.snapshots.len()),
-            _ => None,
-        };
-        // A row with a detail line shows its host there, so the title keeps the row's width.
-        let (aside, detail) = match (&r.detail, aside) {
-            (Some(detail), Some(host)) if matches!(r.item, Item::Url(_)) => (None, Some(format!("{detail} · {host}"))),
-            (detail, aside) => (aside, detail.clone()),
-        };
-        let title: AnyElement = match (editing, detail) {
-            (Some(input), _) => div()
-                .flex_1()
-                .min_w_0()
-                .px_1()
-                .rounded(px(Theme::radius_row()))
-                .bg(Theme::raised())
-                .on_mouse_down_out(cx.listener(|this, _, window, cx| this.end_rename(true, window, cx)))
-                .child(input)
-                .into_any_element(),
-            (None, Some(detail)) => div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(div().one_line(SharedString::from(r.title.clone())))
-                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(detail)))
-                .into_any_element(),
-            (None, None) => div().flex_1().one_line(SharedString::from(r.title.clone())).into_any_element(),
-        };
+        let (aside, detail) = self.row_aside(&r, b);
+        let title = self.row_title(&r, editing, detail, cx);
         div()
             .id(("library-row", ix))
             .h(px(if r.detail.is_some() { DETAIL_ROW } else { ROW }))
@@ -1434,6 +678,23 @@ impl LibraryWindow {
     }
 }
 
+fn leading_icon(b: &Browser, item: &Item) -> AnyElement {
+    match item {
+        Item::Tab(key) => b.model.tab(*key).map_or_else(|| icon(Icon::Search, 16., Theme::muted()).into_any_element(), |t| site_icon(b, &t.url, 16.)),
+        Item::Url(url) => site_icon(b, url, 16.),
+        Item::Folder(_) => icon(Icon::Folder, 16., Theme::muted()).into_any_element(),
+        Item::Page(Page::History) => icon(Icon::History, 16., Theme::muted()).into_any_element(),
+        Item::Page(Page::Downloads) => icon(Icon::Download, 16., Theme::muted()).into_any_element(),
+        Item::Download(d) => site_icon(b, &d.url, 16.),
+        Item::Snapshot(_) | Item::Page(Page::Snapshots) => icon(Icon::Group, 16., Theme::muted()).into_any_element(),
+        Item::ClearDownloads => icon(Icon::Trash, 16., Theme::muted()).into_any_element(),
+        Item::Page(Page::Import) | Item::Source(_) => icon(Icon::AppWindow, 16., Theme::muted()).into_any_element(),
+        Item::Page(Page::Memory) => icon(Icon::Gauge, 16., Theme::muted()).into_any_element(),
+        Item::SleepInactive => div().size(px(16.)).flex_none().into_any_element(),
+        Item::Page(_) => icon(Icon::Bookmark, 16., Theme::muted()).into_any_element(),
+    }
+}
+
 impl Render for LibraryWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.scroll.offset() != self.hovered_at {
@@ -1459,22 +720,7 @@ impl Render for LibraryWindow {
             .into_iter()
             .map(|e| {
                 let leading = match &e {
-                    Entry::Row(r) => Some(match &r.item {
-                        Item::Tab(key) => {
-                            b.model.tab(*key).map_or_else(|| icon(Icon::Search, 16., Theme::muted()).into_any_element(), |t| site_icon(b, &t.url, 16.))
-                        }
-                        Item::Url(url) => site_icon(b, url, 16.),
-                        Item::Folder(_) => icon(Icon::Folder, 16., Theme::muted()).into_any_element(),
-                        Item::Page(Page::History) => icon(Icon::History, 16., Theme::muted()).into_any_element(),
-                        Item::Page(Page::Downloads) => icon(Icon::Download, 16., Theme::muted()).into_any_element(),
-                        Item::Download(d) => site_icon(b, &d.url, 16.),
-                        Item::Snapshot(_) | Item::Page(Page::Snapshots) => icon(Icon::Group, 16., Theme::muted()).into_any_element(),
-                        Item::ClearDownloads => icon(Icon::Trash, 16., Theme::muted()).into_any_element(),
-                        Item::Page(Page::Import) | Item::Source(_) => icon(Icon::AppWindow, 16., Theme::muted()).into_any_element(),
-                        Item::Page(Page::Memory) => icon(Icon::Gauge, 16., Theme::muted()).into_any_element(),
-                        Item::SleepInactive => div().size(px(16.)).flex_none().into_any_element(),
-                        Item::Page(_) => icon(Icon::Bookmark, 16., Theme::muted()).into_any_element(),
-                    }),
+                    Entry::Row(r) => Some(leading_icon(b, &r.item)),
                     _ => None,
                 };
                 (e, leading)
@@ -1499,34 +745,7 @@ impl Render for LibraryWindow {
                     .pb_1()
                     .children(n.and_then(tally).map(|n| div().font_weight(FontWeight::NORMAL).text_color(Theme::faint()).child(n)))
                     .into_any_element(),
-                Entry::Back(title) => div()
-                    .id("library-back")
-                    .h(px(BACK_ROW))
-                    .px_1()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .gap_1()
-                    .rounded(px(Theme::radius_row()))
-                    .cursor_pointer()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .hover(|s| s.bg(Theme::hover()))
-                    .child(icon(Icon::ChevronLeft, 14., Theme::muted()))
-                    .child(div().flex_1().one_line(SharedString::from(title)))
-                    .children(
-                        listed_tally(listed, capped)
-                            .map(|n| div().flex_none().px_1().text_size(px(TEXT_SMALL)).font_weight(FontWeight::NORMAL).text_color(Theme::muted()).child(n)),
-                    )
-                    .when(on_bookmarks, |d| {
-                        d.child(icon_button("library-new-folder", Icon::FolderPlus, true).tooltip(tooltip("New Folder", None)).on_click(cx.listener(
-                            |this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.new_folder(window, cx);
-                            },
-                        )))
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| this.back(window, cx)))
-                    .into_any_element(),
+                Entry::Back(title) => self.back_row(title, listed_tally(listed, capped), on_bookmarks, cx),
                 Entry::Divider => div().mx_2().my_1p5().h(px(1.)).flex_none().bg(Theme::hairline()).into_any_element(),
                 Entry::Empty(text) => empty(text).h(px(EMPTY_ROW)).px_2().into_any_element(),
                 Entry::Row(r) => {
@@ -1536,19 +755,7 @@ impl Render for LibraryWindow {
             });
         }
         let empty_query = self.query.read(cx).text().is_empty();
-        let search = div()
-            .m_1p5()
-            .h(px(SEARCH_HEIGHT - 12.))
-            .px_2()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap_2()
-            .rounded(px(Theme::radius_row()))
-            .bg(Theme::raised())
-            .child(icon(Icon::Search, 14., Theme::muted()))
-            .child(div().flex_1().min_w_0().child(self.query.clone()))
-            .when(empty_query, |d| d.child(key_hint(crate::shortcuts::shown(&crate::ToggleLibrary, cx))));
+        let search = self.search_box(empty_query, cx);
         let list = match (self.turn, self.backward) {
             (0, _) => list.into_any_element(),
             (turn, backward) => {

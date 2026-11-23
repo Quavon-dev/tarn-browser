@@ -145,7 +145,7 @@ page instead of a banner that moves it, only while the tab that was in front is 
 download's toast disappears after 5 seconds, a warning stays until dismissed and nothing replaces it.
 Toasts about downloads keep the security colours (S29).
 Shared API: `browser_core::toast::download`.
-Reference: `crates/app/src/browser.rs` (`notify_download`), `crates/app/src/toast.rs` (`show_tab_toast`,
+Reference: `crates/app/src/browser/views.rs` (`notify_download`), `crates/app/src/toast.rs` (`show_tab_toast`,
 `secure_card`).
 
 - [x] Windows — same code in `crates/app`
@@ -159,7 +159,7 @@ Reference: `crates/app/src/browser.rs` (`notify_download`), `crates/app/src/toas
 What it does: Settings › Privacy › Passkeys and security keys (on by default) turns WebAuthn sign-in
 on or off for pages; off, `PublicKeyCredential` is gone from pages once they reload.
 Shared API: `browser_core::settings::{PASSKEYS, PASSKEYS_NOTE, passkeys}`; `engine::WebView::set_passkeys`.
-Reference: `crates/app/src/browser/context.rs` (`view_prefs`), `crates/app/src/settings.rs` (Sign-in),
+Reference: `crates/app/src/browser/context.rs` (`view_prefs`), `crates/app/src/settings/privacy.rs` (Sign-in),
 `crates/engine/src/webview.rs` (`set_passkeys`).
 
 - [ ] Windows and macOS Chromium tabs — CEF has no per-view WebAuthn switch; Chromium's
@@ -179,7 +179,7 @@ script of Tarn's runs on the page.
 Shared API: `engine::page_scripts::{PAGE_KEEP, page_keep, PageKeep, scroll_script}`;
 `engine::WebView::{page_keep, scroll_to}`.
 Reference: `crates/app/src/tabs.rs` (`sleep_keeping_scroll`), `crates/app/src/browser.rs`
-(`PageState::scroll_back`, `Event::Finished`).
+(`PageState::scroll_back`), `crates/app/src/browser/events.rs` (`Event::Finished`).
 
 - [x] Windows — same code in `crates/app`, `crates/engine/src/view_windows.rs`
 - [ ] Linux — run `PAGE_KEEP` in the isolated world before `sleep_tab` / `unload` in
@@ -206,7 +206,7 @@ responsive sizes, local servers) and the Developer profile; the Web Inspector ne
 pages.
 Shared API: `devkit::SETTING`, `Store::create_dev_profile`, `Profile::is_dev`;
 `tarn_nsh_shared::panes::Pane::Developer`.
-macOS reference: `crates/app/src/settings.rs` (`developer`); Linux: `linux/src/browser/devtools.rs`,
+macOS reference: `crates/app/src/settings/privacy.rs` (`developer`); Linux: `linux/src/browser/devtools.rs`,
 `linux/src/ui/settings.rs`.
 
 - [x] Windows — same code in `crates/app`
@@ -236,7 +236,7 @@ What it does: the share menu saves the page as a PDF (listed in Downloads) and o
 dialog.
 Shared API: `browser_core::text::capture_name` (the PDF's file name); web view operations `pdf`
 and `print` (`docs/shared-core.md` §1).
-macOS reference: `crates/app/src/share.rs`, `crates/app/src/capture.rs`, `crates/app/src/browser.rs` (`print`).
+macOS reference: `crates/app/src/share.rs`, `crates/app/src/capture.rs`, `crates/app/src/browser/events.rs` (`print`).
 
 - [x] Windows
 - [x] Linux
@@ -252,7 +252,7 @@ search, rename, move, delete and New Folder.
 Shared API: `browser_core::bookmarks::{bookmark, unbookmark, bookmark_all, new_folder, move_targets, subtree, recent, search,
 save_for_later, reading_list_pages, title_or_host}`;
 `store::Store::{rename_bookmark, move_bookmark, delete_bookmark}`.
-macOS reference: `crates/app/src/library.rs` (`Page::Bookmarks`, `row_menu`), `crates/app/src/menubar.rs` (Bookmarks menu).
+macOS reference: `crates/app/src/library.rs` (`Page::Bookmarks`), `crates/app/src/library/actions.rs` (`row_menu`), `crates/app/src/menubar.rs` (Bookmarks menu).
 
 - [x] Windows — same code in `crates/app`
 - [x] Linux — `linux/src/ui/library.rs` (`bookmarks_panel`), `linux/src/browser/bookmarks.rs`
