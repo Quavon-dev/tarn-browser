@@ -1394,7 +1394,11 @@ impl NativeComponent for TarnWebView {
                 web.terminate_web_process();
                 web.reload();
             }
-            "back" | "forward" | "reload" | "reloadFromOrigin" | "reloadFresh" => {}
+            "reload" | "reloadFromOrigin" | "reloadFresh" => {
+                state.loaded_seq.set(None);
+                load(state, None);
+            }
+            "back" | "forward" => {}
             "clearCache" => session::clear_cache(&web),
             "stop" => web.stop_loading(),
             "focus" => {

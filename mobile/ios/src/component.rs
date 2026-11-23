@@ -488,6 +488,14 @@ impl Inner {
                     let started = if name == "reload" { web.reload() } else { web.reload_from_origin() };
                     if started.is_none() {
                         self.shell_history.set(false);
+                        let wanted = {
+                            let props = self.props.borrow();
+                            let url = props.load.as_ref().and_then(|(u, _)| Url::parse(u).ok());
+                            url.map(|u| (u, props.opener.as_deref().and_then(|o| Url::parse(o).ok()), props.file))
+                        };
+                        if let Some((url, opener, file)) = wanted.filter(|_| web.current_url().is_none()) {
+                            self.load(&url, opener, file);
+                        }
                     }
                 }
             },

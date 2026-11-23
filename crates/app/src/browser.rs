@@ -98,6 +98,9 @@ pub struct PageState {
     /// retrying cannot run the counters up.
     pub local_counted: bool,
     pub https_counted: bool,
+    /// The address the user last loaded in this tab, until a page commits; Reload loads it again
+    /// while the view has no page.
+    pub retry: Option<Url>,
     /// The page shown now has an article for the reader.
     pub article: bool,
     /// The address the user last opened in this tab from the address field or a bookmark, until a
@@ -861,12 +864,16 @@ impl Browser {
     /// Moves a live view of `key` from another window here, with its page and history.
     fn adopt_view(&mut self, key: TabKey, cx: &mut Context<Self>) -> Option<Rc<WebView>> {
         let host = self.host.clone()?;
-        let mut taken = None;
+        let (mut taken, mut link) = (None, None);
         crate::shared::others(cx, |b, window, cx| {
+            link = link.take().or_else(|| b.link_loads.remove(&key));
             if taken.is_none() {
                 taken = b.give_up_view(key, window, cx);
             }
         });
+        if let Some(from) = link {
+            self.link_loads.insert(key, from);
+        }
         let Some((view, page)) = taken else {
             // A view still held there was hibernated; the tab's opened file comes along all the same.
             let mut opened = None;
@@ -1282,7 +1289,6 @@ impl Browser {
             return Some(view);
         }
         let tab = self.model.tab(key).cloned()?;
-        let as_link = self.link_loads.get(&key).cloned();
         self.create_view(key, &tab.url, cx).inspect(|view| {
             let restorable = self.level_for(&tab.url).policy().save_interaction_state;
             let saved = self.store(key.private).interaction_state(key.id).ok().flatten();
@@ -1290,23 +1296,31 @@ impl Browser {
             let ours = |state: &&[u8]| !cfg!(windows) || engine::view_policy::SavedHistory::from_bytes(state).is_some();
             let url = Url::parse(&tab.url).ok();
             // A restored history is never an Open File (S6), so an opened file loads afresh.
-            let opened = url.is_some() && self.pages.get(&key).and_then(|p| p.opened_file.as_ref()) == url.as_ref();
+            let opened = url.as_ref().is_some_and(|u| self.opened_file(key, u));
             match saved.as_deref().filter(|state| !opened && restorable && !view.is_chromium() && ours(state)) {
                 Some(state) => view.restore_interaction_state(state),
                 None => {
                     if let Some(url) = url {
-                        match &as_link {
-                            _ if opened => view.load_file(&url),
-                            // Says why a file tab no Open File vouches for stays empty.
-                            _ if url.scheme() == "file" => view.load(&url),
-                            _ if nav_policy::decide(&url, Source::Sync) != Decision::Allow => {}
-                            Some(from) => view.load_link(&url, from.as_ref()),
-                            None => view.load(&url),
-                        }
+                        self.load_tab_url(key, view, url);
                     }
                 }
             }
         })
+    }
+
+    fn opened_file(&self, key: TabKey, url: &Url) -> bool {
+        self.pages.get(&key).and_then(|p| p.opened_file.as_ref()) == Some(url)
+    }
+
+    fn load_tab_url(&self, key: TabKey, view: &WebView, url: Url) {
+        match self.link_loads.get(&key) {
+            _ if self.opened_file(key, &url) => view.load_file(&url),
+            // Says why a file tab no Open File vouches for stays empty.
+            _ if url.scheme() == "file" => view.load(&url),
+            _ if nav_policy::decide(&url, Source::Sync) != Decision::Allow => {}
+            Some(from) => view.load_link(&url, from.as_ref()),
+            None => view.load(&url),
+        }
     }
 
     fn save_state(&self, key: TabKey) {
@@ -1342,6 +1356,7 @@ impl Browser {
         self.model.lifecycle.remove(key);
         if let Some(page) = self.pages.get_mut(&key) {
             page.loading = false;
+            page.retry = None;
         }
         if self.model.active == Some(key) {
             self.model.active = None;
@@ -1373,6 +1388,10 @@ impl Browser {
     }
 
     pub fn navigate(&mut self, url: &Url, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(key) = self.model.active {
+            self.link_loads.remove(&key);
+            self.pages.entry(key).or_default().retry = Some(url.clone());
+        }
         match (self.active_view(), self.model.active) {
             (Some(view), Some(key)) if view.is_chromium() && self.level_for(url.as_str()) == ShieldLevel::Lockdown => self.rebuild_view(key, url, cx),
             (Some(view), _) => view.load(url),
@@ -2218,6 +2237,7 @@ impl Browser {
                 // A link stays the page's until it shows a page: a view slept or never made loads it as a link again.
                 if url.as_str() != "about:blank" {
                     self.link_loads.remove(&key);
+                    self.pages.entry(key).or_default().retry = None;
                 }
                 self.drop_prompts(key, cx);
                 self.tarn_committed(key, &url, window, cx);
@@ -2565,7 +2585,7 @@ impl Browser {
 
     /// Rebuilds the tab's view for a page's navigation, which the new view judges as the page's link.
     fn rebuild_view_for_link(&mut self, key: TabKey, url: &Url, cx: &mut Context<Self>) {
-        let opener = self.views.get(&key).and_then(|v| v.url());
+        let opener = self.link_loads.get(&key).cloned().unwrap_or_else(|| self.views.get(&key).and_then(|v| v.url()));
         self.rebuild_view_loading(key, url, None, Some(opener), cx);
     }
 
@@ -2579,7 +2599,9 @@ impl Browser {
         if self.model.tab(key).is_some() && self.views.remove(&key).is_some() {
             self.forget_media(key);
             // The old view's last events are dropped; the new one says when its load starts.
-            self.pages.entry(key).or_default().loading = false;
+            let page = self.pages.entry(key).or_default();
+            page.loading = false;
+            page.retry = link.is_none().then(|| url.clone());
             self.drop_prompts(key, cx);
             let active = self.model.active == Some(key);
             let visible = (active || self.in_split(key)) && !self.overlay_open();
@@ -2897,6 +2919,7 @@ impl Browser {
         view.set_dark(!ui::theme::Theme::is_light());
         self.view_prefs(&view);
         self.views.insert(key, Rc::new(view));
+        self.link_loads.insert(key, None);
         self.attach_tarn(key);
         self.reload_space();
         self.activate(key, window, cx);
@@ -2943,11 +2966,9 @@ impl Browser {
     }
 
     pub fn reload_page(&mut self, from_origin: bool, cx: &mut Context<Self>) {
-        let (Some(key), Some(v)) = (self.model.active, self.active_view()) else { return };
-        if from_origin {
-            v.reload_from_origin()
-        } else {
-            v.reload()
+        let Some(key) = self.model.active else { return };
+        if !self.reload_view(key, from_origin) {
+            return;
         }
         self.reload_spin = Some((key, Instant::now()));
         cx.spawn(async move |this, cx| {
@@ -2956,6 +2977,22 @@ impl Browser {
         })
         .detach();
         cx.notify();
+    }
+
+    pub(crate) fn reload_view(&self, key: TabKey, from_origin: bool) -> bool {
+        let Some(v) = self.views.get(&key) else { return false };
+        let page = self.pages.get(&key);
+        let unloaded = (v.url().is_none() && !page.is_some_and(|p| p.loading))
+            .then(|| page.and_then(|p| p.retry.clone()).or_else(|| self.model.tab(key).and_then(|t| Url::parse(&t.url).ok())))
+            .flatten();
+        if let Some(url) = unloaded {
+            self.load_tab_url(key, v, url)
+        } else if from_origin {
+            v.reload_from_origin()
+        } else {
+            v.reload()
+        }
+        true
     }
 
     pub fn stop_loading(&mut self, cx: &mut Context<Self>) {
@@ -3150,9 +3187,7 @@ impl Browser {
             this.update(&mut async_cx, |b, cx| {
                 let message = if count == 0 { format!("{host} had no stored data.") } else { format!("Cleared stored data for {host}.") };
                 b.notify_offer(key, message, None);
-                if let Some(view) = b.views.get(&key) {
-                    view.reload();
-                }
+                b.reload_view(key, false);
                 cx.notify();
             })
             .ok();

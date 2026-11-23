@@ -112,6 +112,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Retry and Reload now work on a tab whose first page never loaded (for example a router's page
+  that fails under Strict's HTTPS-only rule); they did nothing and left a blank page, also after
+  the site was set to Standard.
 - macOS: Check Now works right after switching to the Nightly channel, without restarting Tarn. A
   check asked for while Tarn is still checking in the background now runs once that check ends
   instead of doing nothing, and switching channels with automatic checks on checks the new channel

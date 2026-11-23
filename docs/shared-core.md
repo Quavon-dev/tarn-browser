@@ -115,7 +115,8 @@ Every shell's web view offers the same operations and reports the same events. T
 - `Loading(bool)` on macOS and Windows, `started` and `stopped` on Linux, iOS and Android: a
   main-frame load began before it commits, or ended without `Finished` or `Failed` (a stop, a
   cancel, a load that turned into a download);
-- `Blocked`, `PopupBlocked`, `Popup`, `ShieldLevelChanged`;
+- `Blocked`, `PopupBlocked`, `Popup`, `ShieldLevelChanged`; `RebuildForLink` on macOS and
+  Windows, for a load that is the page's and needs a view built for another level;
 - `Prompt`, `PeekLink`, `ExternalScheme`, `ContentProcessTerminated`; `PeekLink` is `peek {url}`
   on Linux, sent only for the user's own Shift-click under the pop-up rules; iOS and Android have
   no Shift-click and send none;
