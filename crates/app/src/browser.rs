@@ -1282,7 +1282,6 @@ impl Browser {
             return Some(view);
         }
         let tab = self.model.tab(key).cloned()?;
-        let as_link = self.link_loads.get(&key).cloned();
         self.create_view(key, &tab.url, cx).inspect(|view| {
             let restorable = self.level_for(&tab.url).policy().save_interaction_state;
             let saved = self.store(key.private).interaction_state(key.id).ok().flatten();
@@ -1290,23 +1289,31 @@ impl Browser {
             let ours = |state: &&[u8]| !cfg!(windows) || engine::view_policy::SavedHistory::from_bytes(state).is_some();
             let url = Url::parse(&tab.url).ok();
             // A restored history is never an Open File (S6), so an opened file loads afresh.
-            let opened = url.is_some() && self.pages.get(&key).and_then(|p| p.opened_file.as_ref()) == url.as_ref();
+            let opened = url.as_ref().is_some_and(|u| self.opened_file(key, u));
             match saved.as_deref().filter(|state| !opened && restorable && !view.is_chromium() && ours(state)) {
                 Some(state) => view.restore_interaction_state(state),
                 None => {
                     if let Some(url) = url {
-                        match &as_link {
-                            _ if opened => view.load_file(&url),
-                            // Says why a file tab no Open File vouches for stays empty.
-                            _ if url.scheme() == "file" => view.load(&url),
-                            _ if nav_policy::decide(&url, Source::Sync) != Decision::Allow => {}
-                            Some(from) => view.load_link(&url, from.as_ref()),
-                            None => view.load(&url),
-                        }
+                        self.load_tab_url(key, view, url);
                     }
                 }
             }
         })
+    }
+
+    fn opened_file(&self, key: TabKey, url: &Url) -> bool {
+        self.pages.get(&key).and_then(|p| p.opened_file.as_ref()) == Some(url)
+    }
+
+    fn load_tab_url(&self, key: TabKey, view: &WebView, url: Url) {
+        match self.link_loads.get(&key) {
+            _ if self.opened_file(key, &url) => view.load_file(&url),
+            // Says why a file tab no Open File vouches for stays empty.
+            _ if url.scheme() == "file" => view.load(&url),
+            _ if nav_policy::decide(&url, Source::Sync) != Decision::Allow => {}
+            Some(from) => view.load_link(&url, from.as_ref()),
+            None => view.load(&url),
+        }
     }
 
     fn save_state(&self, key: TabKey) {
@@ -2897,6 +2904,7 @@ impl Browser {
         view.set_dark(!ui::theme::Theme::is_light());
         self.view_prefs(&view);
         self.views.insert(key, Rc::new(view));
+        self.link_loads.insert(key, None);
         self.attach_tarn(key);
         self.reload_space();
         self.activate(key, window, cx);
@@ -2944,7 +2952,10 @@ impl Browser {
 
     pub fn reload_page(&mut self, from_origin: bool, cx: &mut Context<Self>) {
         let (Some(key), Some(v)) = (self.model.active, self.active_view()) else { return };
-        if from_origin {
+        let unloaded = (v.url().is_none() && !self.loading(key)).then(|| self.model.tab(key).and_then(|t| Url::parse(&t.url).ok())).flatten();
+        if let Some(url) = unloaded {
+            self.load_tab_url(key, &v, url)
+        } else if from_origin {
             v.reload_from_origin()
         } else {
             v.reload()

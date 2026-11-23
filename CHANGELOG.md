@@ -112,6 +112,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Retry and Reload now work on a tab whose first page never loaded (for example a router's page
+  that fails under Strict's HTTPS-only rule); they did nothing and left a blank page, also after
+  the site was set to Standard.
 - iOS and Android: with the keyboard up, a tap on a button in a sheet, a pop-over, the assistant
   chat or the address bar's suggestions now presses it instead of only closing the keyboard, so
   New Note, a settings switch or an answer row work on the first tap.
