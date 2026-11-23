@@ -81,7 +81,13 @@ fn tier(query: &Query, page: &Page, text: &mut String) -> Option<(u8, i64)> {
         return Some((3, 0));
     }
     text.clear();
-    text.extend(page.title.chars().chain([' ']).chain(page.url.chars()).flat_map(fold));
+    for part in [page.title, " ", page.url] {
+        if part.is_ascii() {
+            text.extend(part.bytes().map(|b| char::from(b.to_ascii_lowercase())));
+        } else {
+            text.extend(part.chars().flat_map(fold));
+        }
+    }
     let words = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty());
     if query.words.iter().all(|q| words.clone().any(|w| w.starts_with(q))) {
         return Some((2, 0));
@@ -96,19 +102,21 @@ pub fn rank_pages(query: &str, pages: &[Page], now: i64) -> Vec<usize> {
     let lowered: String = query.trim().chars().flat_map(fold).collect();
     let query = Query { text: &lowered, words: lowered.split_whitespace().collect(), chars: fuzzy_query(&lowered) };
     let mut text = String::new();
-    let mut best: HashMap<&str, i64> = HashMap::new();
-    for page in pages {
-        let score = best.entry(page.url).or_default();
-        *score = (*score).max(frecency(page.visits, page.last_visit, now));
+    let mut by_url: HashMap<&str, (i64, bool, usize)> = HashMap::with_capacity(pages.len());
+    for (ix, page) in pages.iter().enumerate() {
+        let (best, open, _) = by_url.entry(page.url).or_insert((0, false, ix));
+        *best = (*best).max(frecency(page.visits, page.last_visit, now));
+        *open |= page.open;
     }
-    let open: HashSet<&str> = pages.iter().filter(|p| p.open).map(|p| p.url).collect();
-    let mut seen = HashSet::new();
     let mut ranked: Vec<_> = pages
         .iter()
         .enumerate()
-        .filter(|(_, p)| p.open || !open.contains(p.url) && seen.insert(p.url))
         .filter_map(|(ix, p)| {
-            tier(&query, p, &mut text).map(|(tier, fuzzy)| ((Reverse(tier), Reverse(fuzzy), Reverse(best[p.url]), Reverse(p.last_visit), ix), ix))
+            let (best, url_open, first) = by_url[p.url];
+            if !p.open && (url_open || first != ix) {
+                return None;
+            }
+            tier(&query, p, &mut text).map(|(tier, fuzzy)| ((Reverse(tier), Reverse(fuzzy), Reverse(best), Reverse(p.last_visit), ix), ix))
         })
         .collect();
     ranked.sort_unstable();
@@ -537,6 +545,24 @@ mod tests {
         assert_eq!(rank_rows("exam", &pages, 2, |_| false, NOW), [1, 2], "the more recent tab stands for both");
         assert_eq!(rank_rows("exam", &pages, 2, |ix| ix == 1, NOW), [0, 2], "with the current tab left out, the other one shows");
         assert_eq!(rank_rows("exam", &pages[2..], 0, |_| false, NOW), [0]);
+    }
+
+    #[test]
+    fn ascii_and_mixed_pages_fold_alike() {
+        let pages = [page("https://A.test/PATH", "MixedCase Title", 1, 0), page("https://b.test/Ärzte", "Praxis ÄRZTE", 1, 0)];
+        assert_eq!(rank_pages("mixedc", &pages, NOW), [0]);
+        assert_eq!(rank_pages("TITLE", &pages, NOW), [0]);
+        assert_eq!(rank_pages("mxct", &pages, NOW), [0]);
+        assert_eq!(rank_pages("a.test/path", &pages, NOW), [0]);
+        assert_eq!(rank_pages("ärz", &pages, NOW), [1]);
+        assert_eq!(rank_pages("prx", &pages, NOW), [1]);
+    }
+
+    #[test]
+    fn history_keeps_its_first_entry_per_url_with_the_best_frecency() {
+        let pages = [page("https://a.test/", "First", 1, 200), page("https://ab.test/", "Ab", 5, 0), page("https://a.test/", "Second", 50, 0)];
+        assert_eq!(rank_pages("a", &pages, NOW), [0, 1], "the first entry stands for its url with the later entry's frecency");
+        assert_eq!(rank_pages("second", &pages, NOW), Vec::<usize>::new(), "the later entry's title is not searched");
     }
 
     #[test]

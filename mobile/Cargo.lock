@@ -107,6 +107,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai"
+version = "0.1.6"
+dependencies = [
+ "futures-lite",
+ "oo7",
+ "platform",
+ "pulldown-cmark",
+ "rustls",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "ureq",
+ "url",
+]
+
+[[package]]
 name = "alloc-no-stdlib"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1537,6 +1553,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 name = "engine"
 version = "0.1.6"
 dependencies = [
+ "ai",
  "base64 0.22.1",
  "block2",
  "cef",
@@ -1789,9 +1806,9 @@ dependencies = [
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -3885,6 +3902,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "platform"
+version = "0.1.6"
+dependencies = [
+ "base64 0.22.1",
+ "block2",
+ "ed25519-dalek 3.0.0",
+ "objc2",
+ "objc2-foundation",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "ureq",
+ "url",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "png"
 version = "0.17.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4058,6 +4093,17 @@ name = "psl-types"
 version = "2.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
+
+[[package]]
+name = "pulldown-cmark"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
+dependencies = [
+ "bitflags 2.13.2",
+ "memchr",
+ "unicase",
+]
 
 [[package]]
 name = "pxfm"
@@ -5235,6 +5281,7 @@ dependencies = [
 name = "tarn-mobile"
 version = "0.1.6"
 dependencies = [
+ "ai",
  "browser-core",
  "engine",
  "nsh-base",
@@ -5257,6 +5304,7 @@ dependencies = [
 name = "tarn-mobile-android"
 version = "0.1.6"
 dependencies = [
+ "ai",
  "browser-core",
  "engine",
  "jni 0.21.1",
@@ -5289,11 +5337,13 @@ dependencies = [
 name = "tarn-nsh-shared"
 version = "0.1.0"
 dependencies = [
+ "ai",
  "browser-core",
  "nsh-base",
  "nsh-core",
  "shield",
  "store",
+ "url",
 ]
 
 [[package]]
@@ -5660,6 +5710,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "unicase"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
+
+[[package]]
 name = "unicode-bidi"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5791,9 +5847,9 @@ dependencies = [
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

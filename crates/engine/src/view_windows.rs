@@ -75,6 +75,10 @@ impl WebView {
         self.view.set_gestures(on);
     }
 
+    pub fn set_assistant_menu(&self, commands: Option<Vec<String>>) {
+        self.view.set_assistant_menu(commands);
+    }
+
     /// Chromium keeps its own WebAuthn: CEF has no per-view switch for it (docs/port-backlog.md).
     pub fn set_passkeys(&self, _on: bool) {}
 
@@ -118,6 +122,14 @@ impl WebView {
         self.view.pick_element(done);
     }
 
+    pub fn pick_rect(&self, done: impl Fn(String) + 'static) {
+        self.view.pick_rect(done);
+    }
+
+    pub fn insert_text(&self, text: &str, done: impl Fn(String) + 'static) {
+        self.view.insert_text(text, done);
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         self.view.icon_links(origin, done);
     }
@@ -126,8 +138,28 @@ impl WebView {
         self.view.fetch_icon(origin, urls, max_bytes, done);
     }
 
-    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String) + 'static) {
+    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String, String) + 'static) {
         self.view.page_text(origin, max_chars, done);
+    }
+
+    pub fn ping(&self, done: impl Fn() + 'static) {
+        self.view.ping(done);
+    }
+
+    pub fn selected_text(&self, done: impl Fn(String, String) + 'static) {
+        self.view.selected_text(done);
+    }
+
+    pub fn media_state(&self, done: impl Fn(String) + 'static) {
+        self.view.media_state(done);
+    }
+
+    pub fn media_command(&self, command: crate::page_scripts::MediaCommand) {
+        self.view.media_command(command);
+    }
+
+    pub fn snapshot_rect(&self, area: crate::view_policy::SnapshotArea, done: impl Fn(Option<Vec<u8>>) + 'static) {
+        self.view.snapshot_rect(area, done);
     }
 
     pub fn article(&self, origin: &Url, probe: bool, done: impl Fn(String) + 'static) {

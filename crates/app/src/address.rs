@@ -5,11 +5,11 @@ use std::time::Instant;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, App, AppContext, Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Rgba,
+    AnyElement, App, AppContext, Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, WindowHandle, canvas, div, point, prelude::FluentBuilder, px, size,
 };
 use ui::controls::{key_cap, surface};
-use ui::icon::{ICON_MEDIUM, Icon, icon};
+use ui::icon::{ICON_MEDIUM, ICON_SMALL, Icon, icon};
 use ui::motion::{EXIT, FADE, animate, popover_motion};
 use ui::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
@@ -23,7 +23,7 @@ const INPUT_ROW: f32 = 52.;
 const FOOTER: f32 = 36.;
 const PAD: f32 = 6.;
 const MARGIN: f32 = 16.;
-const DIM: f32 = 0.35;
+pub(crate) const DIM: f32 = 0.35;
 
 #[derive(Default)]
 pub struct Address {
@@ -225,14 +225,13 @@ impl Dim {
 impl Render for Dim {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let main = self.main;
-        let shade = |a: f32| Rgba { r: 0., g: 0., b: 0., a };
-        let dim = div().id("dim").size_full().rounded(px(Theme::radius_page())).bg(shade(DIM)).on_mouse_down(MouseButton::Left, move |_, _, cx| {
+        let dim = div().id("dim").size_full().rounded(px(Theme::radius_page())).bg(Theme::scrim(DIM)).on_mouse_down(MouseButton::Left, move |_, _, cx| {
             main.update(cx, |b, window, cx| b.close_command(window, cx)).ok();
         });
         if self.leaving {
-            animate(dim, "dim-out", EXIT, self.reduce, move |el, t| el.bg(shade(DIM * (1. - t))))
+            animate(dim, "dim-out", EXIT, self.reduce, move |el, t| el.bg(Theme::scrim(DIM * (1. - t))))
         } else {
-            animate(dim, "dim-in", FADE, self.reduce, move |el, t| el.bg(shade(DIM * t)))
+            animate(dim, "dim-in", FADE, self.reduce, move |el, t| el.bg(Theme::scrim(DIM * t)))
         }
     }
 }
@@ -282,7 +281,35 @@ impl Render for Palette {
             .border_color(Theme::hairline())
             .text_size(px(TEXT_TITLE))
             .child(icon(Icon::Search, ICON_MEDIUM, Theme::muted()))
-            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(ui::text_input::mirror(b.command.clone())))
+            .child(ui::motion::shake(
+                div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(ui::text_input::mirror(b.command.clone())),
+                ("palette-shake", b.rejected),
+                b.rejected == 0 || b.pref(Pref::ReduceMotion),
+            ))
+            .when(b.rejected > 0 && b.pref(Pref::ReduceMotion), |d| {
+                d.child(div().flex_none().text_size(px(TEXT_SMALL)).text_color(Theme::danger()).child(browser_core::palette::INVALID_ADDRESS))
+            })
+            .when_some(b.actions_page.as_ref().map(|(title, _)| title.clone()), |d, title| {
+                d.child(
+                    div()
+                        .h(px(22.))
+                        .max_w(px(240.))
+                        .px_2()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap_1()
+                        .rounded(px(Theme::radius_small()))
+                        .border_1()
+                        .border_color(Theme::hairline())
+                        .bg(Theme::accent_soft())
+                        .text_size(px(TEXT_SMALL))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(Theme::accent_text())
+                        .child(icon(Icon::ChevronLeft, ICON_SMALL, Theme::accent_text()))
+                        .child(ui::text::OneLine::one_line(div().min_w_0(), title)),
+                )
+            })
             .when(commands, |d| {
                 d.child(
                     div()
@@ -303,7 +330,13 @@ impl Render for Palette {
                         .child("Commands"),
                 )
             });
-        let rows = suggestion_rows(b).into_iter().enumerate().map(|(ix, row)| {
+        let more = |ix: usize, more: gpui::Stateful<gpui::Div>| {
+            more.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                cx.stop_propagation();
+                main.update(cx, |b, _, cx| b.open_actions(ix, cx)).ok();
+            })
+        };
+        let rows = suggestion_rows(b, more).into_iter().enumerate().map(|(ix, row)| {
             row.on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 main.update(cx, |b, window, cx| b.submit_command(ix, window, cx)).ok();
             })
@@ -322,8 +355,9 @@ impl Render for Palette {
             .text_color(Theme::faint())
             .child(hint(&["↵"], "Run"))
             .child(hint(&["↑", "↓"], "Move"))
+            .when(b.actions_page.is_none(), |d| d.child(hint(&["\u{2192}"], "Actions")))
             .child(div().flex_1())
-            .child(hint(&["esc"], "Close"));
+            .child(hint(&["esc"], if b.actions_page.is_some() { "Back" } else { "Close" }));
         let card = surface(Theme::radius_card())
             .size_full()
             .flex()

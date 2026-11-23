@@ -275,8 +275,15 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Hide Reader", "book-open"),
     ("Stop Loading", "close"),
     ("Close Window", "close"),
+    ("Enter or Exit Full Screen", "app-window"),
+    ("Ask", "sparkles"),
+    ("Import Browser Data", "folder-open"),
+    ("Archived Tabs", "archive"),
     ("Picture in Picture", "picture-in-picture-2"),
     ("Take Screenshot", "camera"),
+    ("Capture", "camera"),
+    ("Measure", "code"),
+    ("Insert Snippet", "file-text"),
     ("Save Page as PDF", "file-down"),
     ("Print", "printer"),
     ("Share", "share"),
@@ -329,6 +336,11 @@ pub enum Section {
     Tabs,
     Suggestions,
     History,
+    Now,
+    Favorites,
+    RecentTabs,
+    Frequent,
+    QuickActions,
 }
 
 impl Section {
@@ -338,6 +350,11 @@ impl Section {
             Section::Tabs => "TABS",
             Section::Suggestions => "SUGGESTIONS",
             Section::History => "HISTORY",
+            Section::Now => "NOW",
+            Section::Favorites => "FAVORITES",
+            Section::RecentTabs => "RECENT TABS",
+            Section::Frequent => "FREQUENT",
+            Section::QuickActions => "QUICK ACTIONS",
         }
     }
 }

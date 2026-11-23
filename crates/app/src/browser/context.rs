@@ -2,10 +2,12 @@ use engine::menu::{self, Item};
 use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
 use gpui::{ClipboardItem, Context, Pixels, Point, PromptLevel, Window, px};
-use store::{Counter, Id, SavedWindow, Tab, TabKind, WebEngine};
+use store::{Counter, Id, SavedWindow, Tab, WebEngine};
 use url::Url;
 
 use browser_core::closed::{Closed, ClosedGroup, ClosedTab};
+use browser_core::tab_menu;
+use browser_core::undo::Step;
 
 use super::{Browser, TabKey, now};
 use crate::groups::RenameTarget;
@@ -62,6 +64,7 @@ pub enum Cmd {
     CloseSplit(TabKey),
     SwitchWebEngine(TabKey, WebEngine),
     ProfileShield(shield::ShieldLevel),
+    Organize(browser_core::sidebar::Organize),
 }
 
 impl Browser {
@@ -69,102 +72,77 @@ impl Browser {
         self.hide_hover_card(cx);
         let Some(tab) = self.model.tab(key) else { return };
         let active = self.model.active == Some(key);
-        let ephemeral = tab.kind == TabKind::Ephemeral;
-        let group = tab.group_id;
-        let unpinned = self.model.ephemeral_keys();
-        let below = !browser_core::sidebar::tabs_below(&self.model, key).is_empty();
-        let others = unpinned.iter().any(|k| *k != key);
-        let spaces: Vec<Item<Cmd>> = self
-            .model
-            .move_targets(&self.core, key)
-            .into_iter()
-            .map(|ix| Item::action(ui::text::bounded_title(&self.model.spaces[ix].space.name), Cmd::MoveToSpace(key, ix)))
-            .collect();
-        let mut items = vec![
-            if active {
-                Item::action("Reload", Cmd::Reload(key)).key(crate::shortcuts::keys(&crate::Reload, cx))
-            } else {
-                Item::action("Open", Cmd::Open(key))
-            },
-            Item::action("Duplicate", Cmd::Duplicate(key)),
-        ];
-        if cfg!(feature = "chromium") && !key.private {
-            let to = self.web_engine_switch(key);
-            let label = if self.tab_web_engine(key) == WebEngine::Chromium { "Reload in WebKit" } else { "Reload in Chromium" };
-            items.push(match to {
-                Some(engine) => Item::action(label, Cmd::SwitchWebEngine(key, engine)),
-                None => Item::action(label, Cmd::SwitchWebEngine(key, WebEngine::Chromium)).enabled(false),
-            });
-        }
-        items.extend([
-            Item::Separator,
-            Item::action("Copy Link", Cmd::CopyLink(key, false)).key(if active { crate::shortcuts::keys(&crate::CopyLink, cx) } else { String::new() }),
-            Item::action("Copy Clean Link", Cmd::CopyLink(key, true)).key(if active {
-                crate::shortcuts::keys(&crate::CopyCleanLink, cx)
-            } else {
-                String::new()
-            }),
-            Item::action("Bookmark Tab…", Cmd::Bookmark(key)).key(if active { crate::shortcuts::keys(&crate::BookmarkTab, cx) } else { String::new() }),
-            Item::Separator,
-            self.split_menu(key, cx),
-            Item::Separator,
-            Item::action(crate::tabs::state_label(&crate::TogglePin, !ephemeral).unwrap_or_default(), Cmd::TogglePin(key))
-                .key(if active { crate::shortcuts::keys(&crate::TogglePin, cx) } else { String::new() })
-                .enabled(!self.model.burner_shown()),
-            Item::action(if tab.kind == TabKind::Tile { "Remove from Tiles" } else { "Add to Tiles" }, Cmd::ToggleTile(key))
-                .enabled(!self.model.burner_shown()),
-        ]);
-        items.push(Item::action("Rename", Cmd::Rename(RenameTarget::Tab(key.id))).enabled(tab.kind != TabKind::Tile));
-        if !tab.custom_title.is_empty() {
-            items.push(Item::action("Reset Title", Cmd::ResetTitle(key)));
-        }
-        if let Some(host) = self.pinned_drift(key).and_then(|u| u.host_str().map(ui::text::bounded_title)) {
-            items.push(Item::action(format!("Return to {host}"), Cmd::ReturnToPinned(key)));
-            items.push(Item::action("Set Pinned URL to Current Page", Cmd::SetPinnedUrl(key)));
-        }
-        items.push(Item::Separator);
-        if !spaces.is_empty() {
-            items.push(Item::Submenu("Move to Space".into(), spaces));
-        }
-        if ephemeral {
-            let mut groups: Vec<Item<Cmd>> = self
-                .model
-                .groups
-                .iter()
-                .filter(|g| Some(g.id) != group)
-                .map(|g| {
-                    let dot = engine::menu::Image::Dot(crate::sidebar::group_rgb(g));
-                    Item::action(ui::text::bounded_title(&g.name), Cmd::SetGroup(key, Some(g.id))).image(Some(dot))
-                })
-                .collect();
-            if !groups.is_empty() {
-                groups.push(Item::Separator);
-            }
-            groups.push(Item::action("New Group", Cmd::NewGroup(Some(key))));
-            items.push(Item::Submenu("Add to Group".into(), groups));
-            if group.is_some() {
-                items.push(Item::action("Remove from Group", Cmd::SetGroup(key, None)));
-            }
-        }
         let rest = self.model.other_tabs(key);
-        let sleepers = rest.iter().any(|k| !self.sleeping(*k) && self.model.active != Some(*k) && !self.in_split(*k));
-        items.extend([
-            Item::Separator,
-            self.mute_item(key),
-            Item::action("Sleep Tab", Cmd::Sleep(vec![key])).enabled(!active && !self.sleeping(key) && !self.in_split(key)),
-            Item::action("Sleep Other Tabs", Cmd::Sleep(rest)).enabled(sleepers),
-            Item::Separator,
-            Item::action(if ephemeral { "Close Tab" } else { "Unload Tab" }, Cmd::Close(key)).key(if active {
-                crate::shortcuts::keys(&crate::CloseTab, cx)
-            } else {
-                String::new()
-            }),
-        ]);
-        if ephemeral {
-            items.push(Item::action("Close Other Tabs", Cmd::CloseOthers(key)).enabled(others));
-            items.push(Item::action("Close Tabs Below", Cmd::CloseBelow(key)).enabled(below));
-        }
+        let state = tab_menu::Tab {
+            kind: tab.kind,
+            active,
+            has_link: self.tab_url(key).is_some(),
+            engine: (cfg!(feature = "chromium") && !key.private).then(|| (self.tab_web_engine(key), self.web_engine_switch(key).is_some())),
+            split: self.splits.menu(self.model.active, key),
+            split_view: true,
+            burner: self.model.burner_shown(),
+            custom_title: !tab.custom_title.is_empty(),
+            drift: self.pinned_drift(key).and_then(|u| u.host_str().map(ui::text::bounded_title)),
+            grouped: tab.group_id.is_some(),
+            muted: self.tab_url(key).and_then(|u| super::tab_host(&u)).map(|_| self.tab_muted(key)),
+            sleepable: !active && !self.sleeping(key) && !self.in_split(key),
+            sleep_others: rest.iter().any(|k| !self.sleeping(*k) && self.model.active != Some(*k) && !self.in_split(*k)),
+            others: self.model.ephemeral_keys().iter().any(|k| *k != key),
+            below: !browser_core::sidebar::tabs_below(&self.model, key).is_empty(),
+            spaces: self.model.move_targets(&self.core, key).into_iter().map(|ix| (ix, ui::text::bounded_title(&self.model.spaces[ix].space.name))).collect(),
+            groups: self.model.groups.iter().filter(|g| Some(g.id) != tab.group_id).map(|g| (g.id, ui::text::bounded_title(&g.name))).collect(),
+        };
+        let items = self.tab_menu_items(key, tab_menu::items(&state, |_| true), &rest, cx);
         self.show_menu(items, window, cx);
+    }
+
+    fn tab_menu_items(&self, key: TabKey, items: Vec<tab_menu::Item>, rest: &[TabKey], cx: &gpui::App) -> Vec<Item<Cmd>> {
+        use tab_menu::Command as C;
+        items
+            .into_iter()
+            .map(|item| match item {
+                tab_menu::Item::Separator => Item::Separator,
+                tab_menu::Item::Submenu(name, inner) => Item::Submenu(name.into(), self.tab_menu_items(key, inner, rest, cx)),
+                tab_menu::Item::Command(command, label, enabled, shortcut) => {
+                    let cmd = match command {
+                        C::Reload => Cmd::Reload(key),
+                        C::Open => Cmd::Open(key),
+                        C::Duplicate => Cmd::Duplicate(key),
+                        C::SwitchEngine => Cmd::SwitchWebEngine(key, self.web_engine_switch(key).unwrap_or(WebEngine::Chromium)),
+                        C::CopyLink => Cmd::CopyLink(key, false),
+                        C::CopyCleanLink => Cmd::CopyLink(key, true),
+                        C::Bookmark => Cmd::Bookmark(key),
+                        C::Split => Cmd::Split(key),
+                        C::LeaveSplit => Cmd::LeaveSplit(key),
+                        C::RotateSplit => Cmd::RotateSplit(key),
+                        C::CloseSplit => Cmd::CloseSplit(key),
+                        C::TogglePin => Cmd::TogglePin(key),
+                        C::ToggleTile => Cmd::ToggleTile(key),
+                        C::Rename => Cmd::Rename(RenameTarget::Tab(key.id)),
+                        C::ResetTitle => Cmd::ResetTitle(key),
+                        C::ReturnToPinned => Cmd::ReturnToPinned(key),
+                        C::SetPinnedUrl => Cmd::SetPinnedUrl(key),
+                        C::MoveToSpace(ix) => Cmd::MoveToSpace(key, ix),
+                        C::AddToGroup(id) => Cmd::SetGroup(key, Some(id)),
+                        C::NewGroup => Cmd::NewGroup(Some(key)),
+                        C::RemoveFromGroup => Cmd::SetGroup(key, None),
+                        C::ToggleMute => Cmd::ToggleMute(key),
+                        C::Sleep => Cmd::Sleep(vec![key]),
+                        C::SleepOthers => Cmd::Sleep(rest.to_vec()),
+                        C::Unload | C::Close => Cmd::Close(key),
+                        C::CloseOthers => Cmd::CloseOthers(key),
+                        C::CloseBelow => Cmd::CloseBelow(key),
+                    };
+                    let dot = match command {
+                        C::AddToGroup(id) => self.model.groups.iter().find(|g| g.id == id).map(|g| engine::menu::Image::Dot(crate::sidebar::group_rgb(g))),
+                        _ => None,
+                    };
+                    let keys = shortcut.and_then(crate::shortcuts::gpui_action).map_or(String::new(), |a| crate::shortcuts::keys(a, cx));
+                    let item = Item::action(label, cmd).enabled(enabled).key(keys);
+                    if dot.is_some() { item.image(dot) } else { item }
+                }
+            })
+            .collect()
     }
 
     pub fn folder_menu(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
@@ -226,6 +204,19 @@ impl Browser {
                 .enabled(!self.model.ephemeral_keys().is_empty()),
             Item::action("Close Duplicate Tabs", Cmd::CloseDuplicates).enabled(!self.duplicate_tabs().is_empty()),
         ];
+        self.show_menu(items, window, cx);
+    }
+
+    pub fn organize_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use browser_core::sidebar::{Organize, cleanable, organize};
+        let assistant = self.assistant_origin().is_some_and(|(o, on)| on && browser_core::assistant::allowed(o));
+        let items = organize(cleanable(&self.model), assistant)
+            .into_iter()
+            .map(|(label, o)| {
+                let item = Item::action(label, Cmd::Organize(o));
+                if o == Organize::NewGroup { item.key(crate::shortcuts::keys(&crate::NewGroup, cx)) } else { item }
+            })
+            .collect();
         self.show_menu(items, window, cx);
     }
 
@@ -391,6 +382,12 @@ impl Browser {
                 let keys = browser_core::sidebar::tabs_below(&self.model, key);
                 self.close_tabs(keys, window, cx);
             }
+            Cmd::Organize(o) => match o {
+                browser_core::sidebar::Organize::NewGroup => self.new_group(self.model.active, window, cx),
+                browser_core::sidebar::Organize::NewFolder => self.new_folder(None, window, cx),
+                browser_core::sidebar::Organize::CleanUp => self.clean_up_tabs(cx),
+                browser_core::sidebar::Organize::GroupWithAssistant => self.group_tabs_with_assistant(window, cx),
+            },
             Cmd::CloseDuplicates => {
                 let keys = self.duplicate_tabs();
                 self.close_tabs(keys, window, cx);
@@ -446,22 +443,6 @@ impl Browser {
         }
     }
 
-    /// The tab menu's Split View entries. The shortcuts act on the active tab, so only its menu
-    /// names them.
-    fn split_menu(&self, key: TabKey, cx: &gpui::App) -> Item<Cmd> {
-        let menu = self.splits.menu(self.model.active, key);
-        let keys = |action: &dyn gpui::Action, on: bool| if on && self.model.active == Some(key) { crate::shortcuts::keys(action, cx) } else { String::new() };
-        Item::Submenu(
-            "Split View".into(),
-            vec![
-                Item::action(menu.entry.label(), Cmd::Split(key)).enabled(menu.enabled).key(keys(&crate::split::ToggleSplitView, menu.enabled)),
-                Item::action("Remove from Split View", Cmd::LeaveSplit(key)).enabled(menu.member).key(keys(&crate::split::RemoveFromSplitView, menu.member)),
-                Item::action("Rotate Layout", Cmd::RotateSplit(key)).enabled(menu.member).key(keys(&crate::split::RotateSplitLayout, menu.member)),
-                Item::action("Close Split View", Cmd::CloseSplit(key)).enabled(menu.member).key(keys(&crate::split::ToggleSplitView, menu.member)),
-            ],
-        )
-    }
-
     pub(crate) fn tab_url(&self, key: TabKey) -> Option<String> {
         self.views.get(&key).and_then(|v| v.url()).map(String::from).or_else(|| self.model.tab(key).map(|t| t.url.clone()))
     }
@@ -506,7 +487,7 @@ impl Browser {
             if self.page(key).opened_file.as_ref() == Some(&url) && !self.model.burner_shown() {
                 self.new_file_tab(&url, engine, window, cx);
             } else {
-                self.new_tab_in(&url, engine, window, cx);
+                self.new_tab_in(&url, engine, browser_core::tabs::Opened::Typed, window, cx);
             }
             if let Some(copy) = self.model.active.filter(|k| *k != key) {
                 self.model.place_copy(&self.core, copy, key);
@@ -579,7 +560,7 @@ impl Browser {
             return;
         }
         let text = browser_core::toast::closed(group.is_some(), tabs.len());
-        let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs, group });
+        let serial = self.model.push_closed(Closed { private, profile_id, space_id, tabs, group });
         self.show_toast(text, Some(crate::toast::Action::Undo(serial)), cx);
     }
 
@@ -624,19 +605,55 @@ impl Browser {
             }
         };
         let sort = browser_core::cleanup::plan(&tabs, &groups, |t| self.tab_url(TabKey { private, id: t.id }).unwrap_or_else(|| t.url.clone()));
-        let applied = if sort.changed { browser_core::cleanup::apply(self.store(private), space_id, &sort).map(Some) } else { Ok(None) };
+        self.apply_sort(private, space_id, &sort, archived, cx);
+    }
+
+    /// Applies a Clean Up sort, own or the assistant's, with Undo in the window and its toast.
+    pub(crate) fn apply_sort(&mut self, private: bool, space_id: Id, sort: &browser_core::cleanup::Sort, archived: usize, cx: &mut Context<Self>) {
+        let applied = if sort.changed { browser_core::cleanup::apply(self.store(private), space_id, sort).map(Some) } else { Ok(None) };
         if let Err(e) = &applied {
             eprintln!("tarn: Clean Up could not sort the tabs: {e}");
         }
         let text = sort.summary(applied.is_ok(), archived, crate::prefs::archive_after(&self.core.disk).is_some());
         let tone = if applied.is_ok() { browser_core::toast::Tone::Info } else { browser_core::toast::Tone::Warning };
         let undo = applied.ok().flatten();
+        if let Some(undo) = &undo {
+            self.model.undo.push(Step::CleanUp(undo.clone()), private);
+        }
         if sort.changed {
             self.reload_space();
             Self::sync_other_windows(cx);
         }
         self.show_toast_as(tone, text, undo.map(|undo| crate::toast::Action::UndoSort(Box::new((private, undo)))), cx);
         cx.notify();
+    }
+
+    /// Undo that no text field took: the page's own while it has the focus, else the window's
+    /// newest close, Clean Up or sidebar move.
+    pub(crate) fn undo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.focus.is_focused(window) {
+            #[cfg(windows)]
+            self.edit_page(engine::chromium::EditCommand::Undo, window);
+            return;
+        }
+        if let Some(step) = self.model.pop_undo(&self.core) {
+            self.run_undo(step, false, window, cx);
+        }
+    }
+
+    /// Takes back `step`, from Undo or a toast's Undo button; `private` is the space a Clean Up ran in.
+    pub(crate) fn run_undo(&mut self, step: Step, private: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.model.undo.forget(&step);
+        match step {
+            Step::Closed(serial) => self.reopen_closed(Some(serial), window, cx),
+            Step::CleanUp(undo) => self.undo_sort((private, undo), cx),
+            Step::Moved(from) => {
+                from.revert(&mut self.model, &self.core);
+                self.reload_space();
+                Self::sync_other_windows(cx);
+                cx.notify();
+            }
+        }
     }
 
     /// Puts back what Clean Up sorted, in whichever space it sorted.

@@ -9,9 +9,17 @@ pub struct Theme;
 
 pub const TOOLBAR_HEIGHT: f32 = 46.;
 pub const ROW_HEIGHT: f32 = 34.;
+/// Sidebar and tab strip rows and the gap between them, regular then compact (`prefs::COMPACT`).
+pub const TAB_ROW: [f32; 2] = [30., 24.];
+pub const ROW_GAP: [f32; 2] = [1., 0.];
 pub const TEXT: f32 = 13.;
 pub const TEXT_SMALL: f32 = 11.5;
 pub const TEXT_TITLE: f32 = 15.;
+/// The system's monospaced font, for code.
+#[cfg(not(windows))]
+pub const MONO_FONT: &str = "Menlo";
+#[cfg(windows)]
+pub const MONO_FONT: &str = "Consolas";
 /// A modal card's heading.
 pub const TEXT_HEADING: f32 = 18.;
 /// A letter in a small badge.
@@ -40,6 +48,7 @@ pub const PROFILE_COLORS: [(&str, u32); 8] = [
 static TOKENS: RwLock<Tokens> = RwLock::new(Tokens::DARK);
 static FONT: RwLock<Option<SharedString>> = RwLock::new(None);
 static LIGHT: AtomicBool = AtomicBool::new(false);
+static COMPACT: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU32 = AtomicU32::new(0);
 static ACCENT_TEXT: AtomicU32 = AtomicU32::new(0);
 
@@ -71,6 +80,15 @@ impl Theme {
     }
     pub fn is_light() -> bool {
         LIGHT.load(Ordering::Relaxed)
+    }
+    pub fn set_compact(on: bool) {
+        COMPACT.store(on, Ordering::Relaxed);
+    }
+    pub fn tab_row() -> f32 {
+        TAB_ROW[usize::from(COMPACT.load(Ordering::Relaxed))]
+    }
+    pub fn row_gap() -> f32 {
+        ROW_GAP[usize::from(COMPACT.load(Ordering::Relaxed))]
     }
     /// The theme's interface font, else the system font.
     pub fn font() -> SharedString {
@@ -226,6 +244,10 @@ impl Theme {
     }
     pub fn radius_card() -> f32 {
         get(|t| t.radius[5])
+    }
+    /// The black wash that dims a page under a layer over it, at `alpha`.
+    pub fn scrim(alpha: f32) -> Rgba {
+        Rgba { r: 0., g: 0., b: 0., a: alpha }
     }
     pub fn danger() -> Rgba {
         Secure::danger()

@@ -10,7 +10,7 @@ use engine::view_policy::{self, Levels};
 use nsh_platform_ios::{ComponentContext, Components, NativeComponent};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, NSObjectProtocol, ProtocolObject};
-use objc2::{MainThreadMarker, MainThreadOnly, Message, msg_send, sel};
+use objc2::{MainThreadMarker, Message, msg_send, sel};
 use objc2_foundation::{NSError, NSInteger, NSNumber, NSOperationQueue, NSString, NSURL, NSURLCredential, NSURLCredentialPersistence, NSURLRequest};
 use objc2_ui_kit::{UIUserInterfaceStyle, UIView, UIViewAutoresizing};
 use objc2_web_kit::{
@@ -69,6 +69,8 @@ pub(crate) struct Props {
     active: bool,
     dark: bool,
     pub(crate) split_links: bool,
+    /// The commands a selection's edit menu offers after Ask Assistant about Selection; none hides both.
+    pub(crate) assistant_menu: Option<Vec<String>>,
 }
 
 impl Props {
@@ -257,7 +259,7 @@ impl Inner {
         };
         // SAFETY: main thread (marker); the configuration copied the controller, and this getter returns that copy.
         let controller = unsafe { configuration.userContentController() };
-        let web = WebView::init_with(WebView::alloc(mtm), self.root.bounds(), &configuration);
+        let web = crate::handler::PageWebView::make(mtm, self.root.bounds(), &configuration);
         web.setAutoresizingMask(UIViewAutoresizing::FlexibleWidth | UIViewAutoresizing::FlexibleHeight);
         web.set_back_forward_gestures(true);
         apply_dark(&web, self.props.borrow().dark);
@@ -652,6 +654,10 @@ impl NativeComponent for TarnWebView {
                 "dark" => props.dark = value.and_then(Value::as_bool).unwrap_or(false),
                 "splitLinks" => {
                     props.split_links = value.and_then(Value::as_bool).unwrap_or(false);
+                    return;
+                }
+                "assistantMenu" => {
+                    props.assistant_menu = value.and_then(engine::view_policy::menu_commands);
                     return;
                 }
                 "styles" => props.styles = crate::scripts::host_map(value).into_iter().filter_map(|(h, v)| Some((h, v.as_str()?.to_owned()))).collect(),

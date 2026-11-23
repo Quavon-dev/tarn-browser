@@ -18,6 +18,59 @@ pub const DEFAULT_LEVEL_KEY: &str = "*";
 pub const MAX_PROMPTS: usize = 8;
 pub const MIN_PAGE_ZOOM: f64 = 0.5;
 pub const MAX_PAGE_ZOOM: f64 = 3.0;
+/// The selection menu's assistant entries, with the command names the shell sets after them.
+pub const ASK_SELECTION: &str = "Ask Assistant about Selection";
+pub const ASSISTANT_COMMANDS: &str = "Ask Assistant to";
+/// The most commands that menu lists.
+pub const MAX_MENU_COMMANDS: usize = 32;
+
+/// The `assistantMenu` prop: the command names, at most `MAX_MENU_COMMANDS`; anything but a list
+/// hides the entries.
+pub fn menu_commands(value: &serde_json::Value) -> Option<Vec<String>> {
+    let names = value.as_array()?.iter().filter_map(serde_json::Value::as_str).take(MAX_MENU_COMMANDS);
+    Some(names.map(str::to_owned).collect())
+}
+
+/// The longest side of a snapshot, in CSS pixels, so a page cannot ask for an unbounded bitmap.
+pub const SNAPSHOT_MAX_SIDE: f64 = 16384.;
+
+/// The most device pixels one snapshot holds, 256 MiB as RGBA, however long the page.
+pub const SNAPSHOT_MAX_PIXELS: f64 = 64. * 1024. * 1024.;
+
+/// `height` cut so `width` × `height` CSS pixels at `scale` device pixels each fit
+/// `SNAPSHOT_MAX_PIXELS`; `None` when not one row does. A scale below 1 or not finite counts as 1.
+pub fn snapshot_height(width: f64, height: f64, scale: f64) -> Option<f64> {
+    let scale = if scale.is_finite() { scale.max(1.) } else { 1. };
+    let rows = (SNAPSHOT_MAX_PIXELS / (width * scale * scale)).floor();
+    (rows >= 1.).then(|| height.min(rows))
+}
+
+/// What `snapshot_rect` captures: a rectangle of the visible page in CSS pixels from its top-left
+/// corner, or the whole document.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SnapshotArea {
+    Rect { x: f64, y: f64, width: f64, height: f64 },
+    FullPage,
+}
+
+impl SnapshotArea {
+    /// A rectangle with a finite, non-negative origin and sides of at least one pixel, cut to
+    /// `SNAPSHOT_MAX_SIDE` and its height to `snapshot_height` at `scale`.
+    pub fn rect(x: f64, y: f64, width: f64, height: f64, scale: f64) -> Option<Self> {
+        let side = |v: f64| (v.is_finite() && v >= 1.).then(|| v.min(SNAPSHOT_MAX_SIDE));
+        let origin = |v: f64| (v.is_finite() && v >= 0.).then_some(v.min(SNAPSHOT_MAX_SIDE));
+        let width = side(width)?;
+        Some(SnapshotArea::Rect { x: origin(x)?, y: origin(y)?, width, height: snapshot_height(width, side(height)?, scale)? })
+    }
+
+    /// The area as an engine drawing at `scale` takes it: a rectangle cut again by `rect`.
+    pub fn at_scale(self, scale: f64) -> Option<Self> {
+        match self {
+            SnapshotArea::Rect { x, y, width, height } => SnapshotArea::rect(x, y, width, height, scale),
+            SnapshotArea::FullPage => Some(self),
+        }
+    }
+}
 
 pub fn zoom_factor(factor: f64) -> f64 {
     if factor.is_finite() { factor.clamp(MIN_PAGE_ZOOM, MAX_PAGE_ZOOM) } else { 1.0 }
@@ -277,6 +330,26 @@ impl RestoredHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_assistant_menu_prop_takes_names_only_from_a_list() {
+        use serde_json::json;
+        assert_eq!(menu_commands(&serde_json::Value::Null), None);
+        assert_eq!(menu_commands(&json!(["Explain", 3, "Fix Spelling"])), Some(vec!["Explain".to_owned(), "Fix Spelling".to_owned()]));
+        assert_eq!(menu_commands(&json!(vec!["x"; 40])).map(|m| m.len()), Some(MAX_MENU_COMMANDS));
+    }
+
+    #[test]
+    fn a_snapshot_holds_at_most_its_pixel_budget_at_the_engines_scale() {
+        let rect = |height: f64, scale: f64| SnapshotArea::rect(0., 0., 16384., height, scale);
+        assert_eq!(rect(16384., 1.), Some(SnapshotArea::Rect { x: 0., y: 0., width: 16384., height: 4096. }));
+        assert_eq!(rect(16384., 2.), Some(SnapshotArea::Rect { x: 0., y: 0., width: 16384., height: 1024. }));
+        assert_eq!(rect(300., 2.), Some(SnapshotArea::Rect { x: 0., y: 0., width: 16384., height: 300. }));
+        assert_eq!(rect(300., f64::NAN), rect(300., 1.), "an unknown scale counts as 1");
+        assert_eq!(SnapshotArea::rect(0., 0., 16384., 10., 1e6), None, "not one row fits");
+        assert_eq!(rect(16384., 1.).and_then(|a| a.at_scale(4.)), Some(SnapshotArea::Rect { x: 0., y: 0., width: 16384., height: 256. }));
+        assert_eq!(SnapshotArea::FullPage.at_scale(3.), Some(SnapshotArea::FullPage));
+    }
 
     #[test]
     fn a_restored_history_steps_both_ways_and_a_new_page_ends_its_forward_list() {

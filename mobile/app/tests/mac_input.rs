@@ -34,11 +34,16 @@ fn the_mac_layout_answers_the_macos_keys() {
     tabs(&mut app, 1);
 
     app.press_key("mod+t").unwrap();
-    tabs(&mut app, 2);
+    app.wait_for("id:palette-field").unwrap();
+    tabs(&mut app, 1);
     app.press_key("escape").unwrap();
+    app.wait_for_gone("id:palette-field", WAIT).unwrap();
     tabs(&mut app, 1);
 
     app.press_key("mod+t").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    app.type_text("id:palette-field", "example.org").unwrap();
+    app.submit("id:palette-field").unwrap();
     tabs(&mut app, 2);
     app.press_key("mod+k").unwrap();
     app.press_key("escape").unwrap();

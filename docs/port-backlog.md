@@ -21,6 +21,51 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Insert Snippet in the page's context menu (2026-11-22)
+
+What it does: right-clicking (long-pressing) a text field on a page offers Insert Snippet…, which
+opens the same snippet list as the command bar; macOS and Windows also take multi-line snippet text
+in Settings, as the NSH pane does.
+Shared API: `palette::Command::InsertSnippet`, `browser_core::snippets`; web view operation
+`insert_text` / component `insertText`.
+Reference: `crates/app/src/snippets.rs`, `linux/src/browser/snippets.rs`,
+`nsh-shared/src/snippets.rs`.
+
+- [ ] macOS — an entry in WebKit's editable-field menu (`crates/engine/src/delegates.rs`,
+  `context_menu`) and Chromium's, sent to the shell as an engine event; a multi-line field for the
+  text in `crates/app/src/settings/snippets.rs` (`ui::TextInput` is one line)
+- [ ] Windows — the same in `crates/app` and the Chromium menu
+- [ ] Linux — WebKitGTK's `context-menu` signal for editable targets in `linux/src/webview`
+- [ ] iOS — the edit menu of a focused field in `mobile/ios`
+- [ ] Android — the text selection action mode in `TarnWebView`
+
+### Measure (2026-11-22)
+
+What it does: a developer tool that shows rulers and a box the user drags over a still of the page,
+labelled with its size and position in CSS pixels; offered only with the developer tools on.
+Shared API: `browser_core::measure::{ticks, css_box, label, HINT}`, `palette::Command::Measure`
+with `palette::State::developer`; `tarn_nsh_shared::page_overlay` (`Purpose::Measure`).
+Reference: `crates/app/src/capture_overlay.rs`, `linux/src/ui/capture.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux
+- [ ] iOS — needs the Settings › Developer pane first (entry below); then a two-tap distance on the
+  shared overlay in `mobile/app`, with `State::developer` from `devkit::SETTING`
+- [ ] Android — same as iOS
+
+### Mini-player while the sidebar is hidden (2026-11-22)
+
+What it does: the mini-player of a tab left playing stays reachable when the sidebar is hidden,
+as on macOS, where the floating sidebar shows it.
+Shared API: `browser_core::media::Player`; `tarn_nsh_shared::mini_player`.
+Reference: `crates/app/src/mini_player.rs`, `crates/app/src/sidebar.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `linux/src/ui.rs` draws the mini-player and runs its poll timer in the sidebar only;
+  show it (and keep the timer) while the sidebar is hidden
+- [x] iOS — above the bottom bar on phones, in the sidebar on iPad
+- [x] Android — above the bottom bar
+
 ### Springy pop-ups and cards (2026-11-21)
 
 What it does: pop-ups, toasts, cards, link previews, hover cards, the Library's page turn, the
@@ -170,28 +215,6 @@ macOS reference: `crates/app/src/settings.rs` (`developer`); Linux: `linux/src/b
   `WKWebView.isInspectable` in `mobile/ios` behind the switch, off under Lockdown
 - [ ] Android — the same pane and `WebView.setWebContentsDebuggingEnabled` in `TarnWebView`, which
   turns it off today, behind the switch
-
-### Shared tablet tables that macOS and Linux still duplicate (2026-11-17)
-
-What it does: the tablet Mac layout reads its tab menu, keyboard shortcuts, command palette and trackpad
-swipe from `browser-core`; macOS, Windows and Linux still keep their own copies, which can drift.
-Shared API: `browser_core::tab_menu::items`, `browser_core::shortcuts::{SECTIONS, bindings, table}`,
-`browser_core::palette::{COMMANDS, rows}`, `browser_core::sidebar::Swipe`.
-macOS reference: `crates/app/src/browser/context.rs` (`tab_menu`), `crates/app/src/settings.rs` (`SHORTCUTS`),
-`crates/app/src/lib.rs` (`COMMANDS`), `crates/app/src/gestures.rs` (`Swipe`).
-
-- [ ] Windows — same as macOS (shares `crates/app`)
-- [ ] macOS — not a mechanical swap: the tab menu has entries the core list lacks (Reload in Chromium,
-  Bookmark Tab, Mute, Sleep, Return to pinned URL, the Split View and Add to Group submenus, key hints);
-  `SHORTCUTS` covers actions the core table does not (Close All Tabs, split panes, Print, Picture in
-  Picture, …) and binds GPUI actions; `COMMANDS` dispatches GPUI actions; `Swipe` reads touch phases
-  and natural scrolling, where the core one times wheel pauses. Each needs the core type extended
-  first. `Step` and the space neighbour already come from `browser_core::sidebar`.
-- [ ] Linux — `linux/src/shortcuts.rs` keeps user-editable bindings the core table cannot hold yet;
-  `linux/src/ui/tools.rs` (`commands`) and the This Tab panel are its palette and tab menu.
-  `Swipe`, `Step` and the space neighbour already come from `browser_core::sidebar`.
-- [x] iOS — the tablet Mac layout uses all four
-- [x] Android — same as iOS
 
 ### Tab sleeping choices and the Suggestions switch (2026-11-17)
 

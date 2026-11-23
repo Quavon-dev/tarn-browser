@@ -62,6 +62,25 @@ impl Browser {
         self.model.reload_space(&self.core);
     }
 
+    /// Pings the shown page, as `engine::lifecycle::Hang` asks, every `PING_EVERY`.
+    pub fn ping_page(&mut self, now: std::time::Instant) {
+        match self.model.active {
+            Some(key) if self.hang.ping(key, now) => self.outbox.push((key, "ping", serde_json::json!({ "seq": 0 }))),
+            Some(_) => {}
+            None => self.hang.forget(),
+        }
+    }
+
+    pub fn wait_for_page(&mut self) {
+        self.hang.wait(std::time::Instant::now());
+    }
+
+    /// Reload on the hung-page card: WebKitGTK ends the view's web process and loads the page in a new one.
+    pub fn reload_hung(&mut self) {
+        self.hang.forget();
+        self.command("reloadFresh", serde_json::Value::Null);
+    }
+
     pub fn sleeping(&self, key: TabKey) -> bool {
         self.model.active != Some(key) && !self.elsewhere.contains(&key) && !self.model.lifecycle.live().any(|k| k == key)
     }
@@ -231,13 +250,29 @@ mod tests {
     }
 
     #[test]
+    fn undo_reopens_the_last_close_not_yet_reopened() {
+        let (_dir, mut b) = browser();
+        let urls = |b: &Browser| b.model.tabs.iter().map(|t| t.url.clone()).collect::<Vec<_>>();
+        let a = b.new_tab("https://a.test/").unwrap();
+        b.close_tab(a);
+        let c = b.new_tab("https://c.test/").unwrap();
+        b.close_tab(c);
+        b.reopen();
+        assert!(urls(&b).contains(&"https://c.test/".to_owned()) && !urls(&b).contains(&"https://a.test/".to_owned()));
+        b.undo();
+        assert!(urls(&b).contains(&"https://a.test/".to_owned()), "the close reopened since is skipped");
+        b.undo();
+        assert_eq!(urls(&b).len(), 3, "nothing is left to undo");
+    }
+
+    #[test]
     fn a_duplicate_lands_below_its_tab() {
         let (_dir, mut b) = browser();
         let first = b.model.active.unwrap();
         let second = b.new_tab("https://2.test/").unwrap();
         b.duplicate_tab(first);
         let copy = b.model.active.unwrap();
-        assert_eq!(b.model.ephemeral_keys(), [first, copy, second]);
+        assert_eq!(b.model.ephemeral_keys(), [second, first, copy]);
     }
 
     #[test]
@@ -246,7 +281,7 @@ mod tests {
         let pinned = b.model.active.unwrap();
         b.pin_toggle(pinned);
         let tab = |b: &mut Browser, n: u8| b.new_tab(&format!("https://{n}.test/")).unwrap();
-        let (one, two, three) = (tab(&mut b, 1), tab(&mut b, 2), tab(&mut b, 3));
+        let (three, two, one) = (tab(&mut b, 3), tab(&mut b, 2), tab(&mut b, 1));
         assert_eq!(b.model.tabs_below(one), [two, three]);
         b.close_below(two);
         assert!(b.model.tab(three).is_none() && b.model.tab(two).is_some());

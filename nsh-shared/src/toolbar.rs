@@ -251,7 +251,7 @@ pub fn palette(field: impl IntoElement, listing: impl Fn() -> bool + 'static, li
         .shadow(Theme::elevation(18., 48.))
         .overflow_hidden()
         .child(head)
-        .child(scroll().flex_shrink(1.).child(list))
+        .child(scroll().flex_shrink(1.).keyboard_taps(KeyboardTaps::Handled).child(list))
         .child(footer);
     let dim = nsh_base::button().accessibility_label("Close").on_press(close).absolute().inset_0().bg(rgba(PALETTE_DIM));
     view().absolute().inset_0().flex_col().items_center().px_4().child(fading(dim)).child(view().flex_grow(1.)).child(popping(card)).child(view().flex_grow(6.))

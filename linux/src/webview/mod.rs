@@ -101,6 +101,8 @@ struct State {
     zap_filter: RefCell<Option<String>>,
     sort_downloads: Cell<bool>,
     youtube: Cell<bool>,
+    /// The commands a selection's menu offers after Ask Assistant about Selection; none hides both.
+    assistant_menu: RefCell<Option<Vec<String>>>,
     processes: RefCell<std::collections::HashSet<i32>>,
     process: Cell<Option<i32>>,
     #[cfg(test)]
@@ -508,6 +510,31 @@ fn link_menu(state: &std::rc::Weak<State>, menu: &webkit6::ContextMenu, hit: &we
     menu.insert(&ContextMenuItem::from_gaction(&split, "Open Link in Split View", None), at as i32 + 1);
 }
 
+fn assistant_menu_items(state: &std::rc::Weak<State>, menu: &webkit6::ContextMenu, hit: &webkit6::HitTestResult) {
+    use webkit6::{ContextMenu, ContextMenuItem};
+    let Some(s) = state.upgrade().filter(|_| hit.context_is_selection()) else { return };
+    let Some(commands) = s.assistant_menu.borrow().clone() else { return };
+    let item = |name: &str, label: &str, command: Option<String>| {
+        let action = gio::SimpleAction::new(name, None);
+        let state = state.clone();
+        action.connect_activate(move |_, _| {
+            if let Some(s) = state.upgrade() {
+                scripts::ask_selection(&s, command.clone());
+            }
+        });
+        ContextMenuItem::from_gaction(&action, label, None)
+    };
+    menu.append(&ContextMenuItem::new_separator());
+    menu.append(&item("ask-assistant", engine::view_policy::ASK_SELECTION, None));
+    if !commands.is_empty() {
+        let sub = ContextMenu::new();
+        for (ix, name) in commands.into_iter().enumerate() {
+            sub.append(&item(&format!("ask-assistant-{ix}"), &name, Some(name.clone())));
+        }
+        menu.append(&ContextMenuItem::with_submenu(engine::view_policy::ASSISTANT_COMMANDS, &sub));
+    }
+}
+
 /// `by_page`: a window the page opens, which its site's pop-up rule and the domain sets judge; a
 /// link the user opens in a new tab is judged when that tab loads it. `split` puts the tab beside
 /// the page in split view.
@@ -882,17 +909,109 @@ fn scale_down(pixels: &[u8], width: usize, height: usize, max_width: usize) -> (
     (out, w, h)
 }
 
+fn snapshot_rect(state: &Rc<State>, web: &WebView, args: &JsonValue) {
+    let seq = args["seq"].as_u64().unwrap_or_default();
+    let weak = Rc::downgrade(state);
+    let answer = move |png: Option<glib::Bytes>| {
+        if let Some(state) = weak.upgrade() {
+            state.emit("snapshotRect", json!({ "seq": seq, "png": png.map(|b| format!("data:image/png;base64,{}", glib::base64_encode(&b))) }));
+        }
+    };
+    match browser_core::page_ops::snapshot_area(args, device_scale(web)) {
+        None => answer(None),
+        area => snapshot_texture(state, web, area, move |texture| answer(texture.map(|t| t.save_to_png_bytes()))),
+    }
+}
+
+type Texture = webkit6::gdk::Texture;
+
+fn device_scale(web: &WebView) -> f64 {
+    f64::from(web.scale_factor()) * web.zoom_level()
+}
+
+/// WebKitGTK cannot clip a full-document snapshot, so a document over `SNAPSHOT_MAX_SIDE` or
+/// `SNAPSHOT_MAX_PIXELS` gives none.
+fn snapshot_texture(state: &Rc<State>, web: &WebView, area: Option<engine::view_policy::SnapshotArea>, done: impl FnOnce(Option<Texture>) + 'static) {
+    use engine::view_policy::{SNAPSHOT_MAX_PIXELS, SnapshotArea};
+    let done = move |texture: Option<Texture>| done(texture.filter(|t| f64::from(t.width()) * f64::from(t.height()) <= SNAPSHOT_MAX_PIXELS));
+    let visible = |web: &WebView, done: Box<dyn FnOnce(Option<Texture>)>| {
+        web.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| done(result.ok()))
+    };
+    match area {
+        None => visible(web, Box::new(done)),
+        Some(SnapshotArea::Rect { x, y, width, height }) => {
+            let css_width = f64::from(web.width()) / web.zoom_level();
+            visible(
+                web,
+                Box::new(move |texture| {
+                    done(texture.and_then(|texture| {
+                        let bounds = pixel_rect([x, y, width, height], f64::from(texture.width()) / css_width, texture.width(), texture.height())?;
+                        Some(cropped(&texture, bounds))
+                    }))
+                }),
+            )
+        }
+        Some(SnapshotArea::FullPage) if scripts::locked(state) => visible(web, Box::new(done)),
+        Some(SnapshotArea::FullPage) => {
+            let (view, scale) = (web.clone(), device_scale(web));
+            web.call_async_javascript_function(
+                engine::page_scripts::DOCUMENT_SIZE,
+                None,
+                Some(scripts::WORLD),
+                None,
+                None::<&gio::Cancellable>,
+                move |result| {
+                    let answer = result.ok().filter(|v| v.is_string()).map(|v| v.to_str().to_string()).unwrap_or_default();
+                    let size = serde_json::from_str::<[f64; 4]>(&answer).ok();
+                    let fits = engine::page_scripts::document_size(&answer, scale);
+                    let Some([_, _, w, h]) = fits.filter(|[_, _, fw, fh]| size.is_some_and(|[_, _, w, h]| w == *fw && h == *fh)) else { return done(None) };
+                    view.snapshot(SnapshotRegion::FullDocument, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| {
+                        done(result.ok().filter(|t| as_checked((t.width(), t.height()), [w, h], scale)))
+                    });
+                },
+            );
+        }
+    }
+}
+
+/// The size limits were checked on the document as measured, so a page that grew before WebKit drew
+/// it is refused.
+fn as_checked((texture_width, texture_height): (i32, i32), [width, height]: [f64; 2], scale: f64) -> bool {
+    f64::from(texture_width) <= (width * scale).ceil() && f64::from(texture_height) <= (height * scale).ceil()
+}
+
+/// The texture pixels `[x0, y0, x1, y1]` a CSS-pixel `[x, y, width, height]` covers at `per_css`
+/// texture pixels each, inside the texture; `None` when nothing of it is.
+fn pixel_rect([x, y, width, height]: [f64; 4], per_css: f64, texture_width: i32, texture_height: i32) -> Option<[usize; 4]> {
+    if !per_css.is_finite() || per_css <= 0. {
+        return None;
+    }
+    let edge = |v: f64, max: i32| (v * per_css).clamp(0., f64::from(max.max(0))) as usize;
+    let (x0, y0) = (edge(x, texture_width), edge(y, texture_height));
+    let (x1, y1) = (edge((x + width).ceil(), texture_width), edge((y + height).ceil(), texture_height));
+    (x1 > x0 && y1 > y0).then_some([x0, y0, x1, y1])
+}
+
+fn cropped(texture: &Texture, [x0, y0, x1, y1]: [usize; 4]) -> Texture {
+    let width = texture.width() as usize;
+    let mut pixels = vec![0u8; width * texture.height() as usize * 4];
+    texture.download(&mut pixels, width * 4);
+    let (w, h) = (x1 - x0, y1 - y0);
+    let rows = crop(&pixels, width, [x0, y0, x1, y1]);
+    webkit6::gdk::MemoryTexture::new(w as i32, h as i32, webkit6::gdk::MemoryFormat::B8g8r8a8Premultiplied, &glib::Bytes::from_owned(rows), w * 4).upcast()
+}
+
+fn crop(pixels: &[u8], width: usize, [x0, y0, x1, y1]: [usize; 4]) -> Vec<u8> {
+    (y0..y1).flat_map(|y| &pixels[(y * width + x0) * 4..(y * width + x1) * 4]).copied().collect()
+}
+
+/// `screenshot`: saves the visible page, or the area of `snapshot_area` the command names, under
+/// Downloads, and copies it when the command says `copy` (never for a private space).
 fn screenshot(state: &Rc<State>, web: &WebView, args: &JsonValue) {
     let seq = args["seq"].as_u64().unwrap_or_default();
     let name = engine::downloads::sanitize_filename(args["name"].as_str().unwrap_or_default());
     let weak = Rc::downgrade(state);
-    let clipboard = web.clipboard();
-    web.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gio::Cancellable>, move |result| {
-        let saved = result.map_err(|_| "WebKit could not capture the page".to_owned()).and_then(|texture| {
-            clipboard.set_texture(&texture);
-            let dir = session::downloads_dir();
-            std::fs::create_dir_all(&dir).and_then(|()| browser_core::capture::save_new(&dir, &name, &texture.save_to_png_bytes())).map_err(|e| e.to_string())
-        });
+    let answer = move |saved: Result<std::path::PathBuf, String>| {
         let Some(state) = weak.upgrade() else { return };
         state.emit(
             "screenshot",
@@ -901,6 +1020,20 @@ fn screenshot(state: &Rc<State>, web: &WebView, args: &JsonValue) {
                 Err(message) => json!({ "seq": seq, "message": message }),
             },
         );
+    };
+    let area = browser_core::page_ops::snapshot_area(args, device_scale(web));
+    if area.is_none() && (args.get("fullPage").is_some() || args.get("x").is_some()) {
+        return answer(Err("Nothing to capture in that area".to_owned()));
+    }
+    let clipboard = (args["copy"].as_bool() == Some(true)).then(|| web.clipboard());
+    snapshot_texture(state, web, area, move |texture| {
+        answer(texture.ok_or_else(|| "WebKit could not capture the page".to_owned()).and_then(|texture| {
+            if let Some(clipboard) = &clipboard {
+                clipboard.set_texture(&texture);
+            }
+            let dir = session::downloads_dir();
+            std::fs::create_dir_all(&dir).and_then(|()| browser_core::capture::save_new(&dir, &name, &texture.save_to_png_bytes())).map_err(|e| e.to_string())
+        }))
     });
 }
 
@@ -1063,6 +1196,7 @@ fn connect(state: &Rc<State>, web: &WebView) {
     let w = weak.clone();
     web.connect_context_menu(move |_, menu, hit| {
         link_menu(&w, menu, hit);
+        assistant_menu_items(&w, menu, hit);
         false
     });
     if let Some(finder) = web.find_controller() {
@@ -1206,6 +1340,10 @@ impl NativeComponent for TarnWebView {
             "blocking" => return set_blocking(state, value),
             "sortDownloads" => return state.sort_downloads.set(value.as_bool().unwrap_or(false)),
             "muted" => return mute(state, value.as_bool().unwrap_or(false)),
+            "assistantMenu" => {
+                *state.assistant_menu.borrow_mut() = engine::view_policy::menu_commands(value);
+                return;
+            }
             "load" => {
                 *state.load.borrow_mut() = value["url"].as_str().zip(value["seq"].as_u64()).map(|(u, s)| (u.to_owned(), s));
                 state.load_link.set(value["link"].as_bool() == Some(true));
@@ -1251,7 +1389,12 @@ impl NativeComponent for TarnWebView {
                 state.user_step.set(true);
                 web.reload_bypass_cache();
             }
-            "back" | "forward" | "reload" | "reloadFromOrigin" => {}
+            "reloadFresh" if web.uri().is_some_and(|u| !u.is_empty()) => {
+                state.user_step.set(true);
+                web.terminate_web_process();
+                web.reload();
+            }
+            "back" | "forward" | "reload" | "reloadFromOrigin" | "reloadFresh" => {}
             "clearCache" => session::clear_cache(&web),
             "stop" => web.stop_loading(),
             "focus" => {
@@ -1265,6 +1408,7 @@ impl NativeComponent for TarnWebView {
             "pdf" => save_pdf(state, &web, args),
             "snapshot" => snapshot(state, &web),
             "screenshot" => screenshot(state, &web, args),
+            "snapshotRect" => snapshot_rect(state, &web, args),
             "zoom" => {
                 let factor = policy::zoom_factor(args["factor"].as_f64().unwrap_or(1.0));
                 state.zoom.set(factor);

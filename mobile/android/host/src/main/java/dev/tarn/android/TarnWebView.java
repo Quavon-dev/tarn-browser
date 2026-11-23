@@ -114,6 +114,7 @@ final class TarnWebView implements NshComponent {
     private boolean sortDownloads;
     private boolean dark;
     private boolean splitLinks;
+    private List<String> assistantMenu;
     private boolean builtDark;
     private String appliedContent;
     private final List<ScriptHandler> contentScripts = new ArrayList<>();
@@ -161,6 +162,10 @@ final class TarnWebView implements NshComponent {
             case "dark" -> dark = Boolean.TRUE.equals(value);
             case "splitLinks" -> {
                 splitLinks = Boolean.TRUE.equals(value);
+                return;
+            }
+            case "assistantMenu" -> {
+                assistantMenu = parseCommands(value);
                 return;
             }
             case "load" -> {
@@ -236,6 +241,26 @@ final class TarnWebView implements NshComponent {
     }
 
     private static final String DEFAULT_LEVEL_KEY = "*";
+
+    private static List<String> parseCommands(Object value) {
+        if (!(value instanceof List<?> list)) return null;
+        int max = Native.maxMenuCommands();
+        List<String> names = new ArrayList<>();
+        for (Object item : list) if (item instanceof String name && names.size() < max) names.add(name);
+        return List.copyOf(names);
+    }
+
+    private void askSelection(String command) {
+        Page page = top;
+        String url = page == null ? "" : page.url();
+        runAsync(page == null ? null : Native.selectedTextScript(), SCRIPT_WAIT_MS, text -> {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("url", url);
+            data.put("text", Native.selectionAnswer(text));
+            if (command != null) data.put("command", command);
+            emitMap("assistantSelection", data);
+        });
+    }
 
     private static Map<String, String> parseStyles(Object value) {
         if (!(value instanceof Map<?, ?> map)) return Map.of();
@@ -384,19 +409,34 @@ final class TarnWebView implements NshComponent {
                     search.accept(text);
                 });
             }
+            case "insertText" -> {
+                String text = Prompts.text(args, "text");
+                String body = page == null || text == null ? null : Native.insertTextScript(text);
+                runAsync(body, SCRIPT_WAIT_MS, answer -> emit("textInserted", "seq", seq, "inserted", Native.inserted(answer)));
+            }
+            case "ping" -> runSync(page == null ? null : Native.pingScript(), answer -> emit("pong", "seq", seq));
+            case "readSelection" -> runAsync(page == null ? null : Native.selectedTextScript(), SCRIPT_WAIT_MS, text -> emit("selection", "seq", seq, "url", url, "text", Native.selectionAnswer(text)));
+            case "readMedia" -> runAsync(page == null ? null : Native.mediaStateScript(), SCRIPT_WAIT_MS, text -> emit("mediaState", "seq", seq, "url", url, "text", Native.mediaAnswer(text)));
+            case "media" -> {
+                double seconds = args.get("seconds") instanceof Number n ? n.doubleValue() : Double.NaN;
+                runAsync(page == null ? null : Native.mediaCommandScript(Prompts.text(args, "action"), seconds), SCRIPT_WAIT_MS, text -> {});
+            }
+            case "snapshotRect" -> snapshotRect(seq, args);
+            case "screenshot" -> screenshot(seq, args);
             case "pick" -> {
                 endPick();
+                boolean rect = Boolean.TRUE.equals(args.get("rect"));
                 Consumer<String> done = new Consumer<>() {
                     @Override
-                    public void accept(String selector) {
+                    public void accept(String answer) {
                         if (pickDone != this) return;
                         pickDone = null;
                         pickToken = null;
-                        emit("picked", "seq", seq, "url", url, "selector", selector);
+                        emit("picked", "seq", seq, "url", url, rect ? "rect" : "selector", answer);
                     }
                 };
                 pickDone = done;
-                pickToken = runAsync(page == null ? null : Native.picker(), Long.MAX_VALUE, done);
+                pickToken = runAsync(page == null ? null : rect ? Native.pickRect() : Native.picker(), Long.MAX_VALUE, done);
             }
             case "pickCancel" -> {
                 if (web != null && javaScriptOn) web.evaluateJavascript(CANCEL_PICK, null);
@@ -407,6 +447,76 @@ final class TarnWebView implements NshComponent {
             }
         }
         return true;
+    }
+
+    @SuppressWarnings("deprecation")
+    private double[] area(Map<?, ?> args) {
+        double scale = web == null ? 1 : web.getScale();
+        return Native.snapshotArea(Boolean.TRUE.equals(args.get("fullPage")), number(args, "x"), number(args, "y"), number(args, "width"), number(args, "height"), scale);
+    }
+
+    /** Android WebView draws only the visible page, so a full page is that. */
+    @SuppressWarnings("deprecation")
+    private Bitmap drawn(double[] area) {
+        if (web == null || area == null || web.getWidth() <= 0 || web.getHeight() <= 0) return null;
+        double scale = web.getScale();
+        int left = area.length == 4 ? (int) Math.min(web.getWidth(), Math.floor(area[0] * scale)) : 0;
+        int top = area.length == 4 ? (int) Math.min(web.getHeight(), Math.floor(area[1] * scale)) : 0;
+        int right = area.length == 4 ? (int) Math.min(web.getWidth(), Math.ceil((area[0] + area[2]) * scale)) : web.getWidth();
+        int bottom = area.length == 4 ? (int) Math.min(web.getHeight(), Math.ceil((area[1] + area[3]) * scale)) : web.getHeight();
+        if (right <= left || bottom <= top) return null;
+        Bitmap bitmap = Bitmap.createBitmap(right - left, bottom - top, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+        canvas.translate(-web.getScrollX() - left, -web.getScrollY() - top);
+        web.draw(canvas);
+        return bitmap;
+    }
+
+    /** Not copied: Android's clipboard holds an image only as a content URI that any app reading the clipboard could open. */
+    private void screenshot(Object seq, Map<?, ?> args) {
+        double[] area = args.containsKey("fullPage") || args.containsKey("x") ? area(args) : new double[0];
+        Bitmap bitmap = drawn(area);
+        if (bitmap == null) {
+            emit("screenshot", "seq", seq, "message", area == null ? "Nothing to capture in that area" : "The page could not be captured");
+            return;
+        }
+        File dir = Downloads.directory(context.getContext());
+        String name = Native.downloadName(Objects.requireNonNullElse(Prompts.text(args, "name"), ""));
+        FINDER.execute(() -> {
+            try {
+                java.nio.file.Files.createDirectories(dir.toPath());
+                File file;
+                synchronized (Downloads.class) {
+                    file = Downloads.unique(dir, name);
+                    try (java.io.OutputStream out = java.nio.file.Files.newOutputStream(file.toPath(), java.nio.file.StandardOpenOption.CREATE_NEW)) {
+                        if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) throw new IOException("The page could not be encoded");
+                    }
+                }
+                emit("screenshot", "seq", seq, "path", file.getPath());
+            } catch (IOException e) {
+                emit("screenshot", "seq", seq, "message", String.valueOf(e.getMessage()));
+            } finally {
+                bitmap.recycle();
+            }
+        });
+    }
+
+    private void snapshotRect(Object seq, Map<?, ?> args) {
+        Bitmap bitmap = drawn(area(args));
+        if (bitmap == null) {
+            emit("snapshotRect", "seq", seq, "png", null);
+            return;
+        }
+        FINDER.execute(() -> {
+            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+            boolean done = bitmap.compress(Bitmap.CompressFormat.PNG, 100, png);
+            bitmap.recycle();
+            emit("snapshotRect", "seq", seq, "png", done ? "data:image/png;base64," + android.util.Base64.encodeToString(png.toByteArray(), android.util.Base64.NO_WRAP) : null);
+        });
+    }
+
+    private static double number(Map<?, ?> args, String key) {
+        return args.get(key) instanceof Number n ? n.doubleValue() : Double.NaN;
     }
 
     private void keepFindCache() {
@@ -504,6 +614,7 @@ final class TarnWebView implements NshComponent {
         }
         int theme = dark ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar;
         PageView view = new PageView(new ContextThemeWrapper(context.getContext(), theme), noPersonalizedLearning);
+        view.setAssistantMenu(() -> assistantMenu, this::askSelection);
         builtDark = dark;
         Stores.attach(view, name);
         configure(view, name);
@@ -991,7 +1102,7 @@ final class TarnWebView implements NshComponent {
     private void emitMap(String event, Map<String, Object> data) {
         Host.onMain(() -> {
             if (destroyed) return;
-            Hooks.log("tab " + tab + " event " + event + " " + data);
+            if (Hooks.LOGS) Hooks.log("tab " + tab + " event " + event + " " + (data.containsKey("png") ? data.keySet() : data));
             context.emit(event, data);
         });
     }

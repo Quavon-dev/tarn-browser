@@ -17,6 +17,7 @@ pub mod icons {
     pub const SHIELD_CHECK: ImageAsset = asset!("icons/shield-check.svg");
     pub const PLUS: ImageAsset = asset!("icons/plus.svg");
     pub const CLOSE: ImageAsset = asset!("icons/close.svg");
+    pub const CAMERA: ImageAsset = asset!("icons/camera.svg");
     pub const HISTORY: ImageAsset = asset!("icons/history.svg");
     pub const DOWNLOADS: ImageAsset = asset!("icons/circle-arrow-down.svg");
     pub const GEAR: ImageAsset = asset!("icons/gear.svg");
@@ -29,6 +30,7 @@ pub mod icons {
     pub const BOOK_OPEN: ImageAsset = asset!("icons/book-open.svg");
     pub const BOOKMARK: ImageAsset = asset!("icons/bookmark.svg");
     pub const FLAME: ImageAsset = asset!("icons/flame.svg");
+    pub const SPARKLES: ImageAsset = asset!("icons/sparkles.svg");
     pub const PAUSE: ImageAsset = asset!("icons/pause.svg");
     pub const PLAY: ImageAsset = asset!("icons/play.svg");
     pub const TRASH: ImageAsset = asset!("icons/trash.svg");

@@ -65,6 +65,8 @@ pub struct ViewProps {
     pub zaps: BTreeMap<String, Vec<String>>,
     pub sort_downloads: bool,
     pub load: Option<Load>,
+    /// The selection menu's assistant commands; none where the assistant may not see the page.
+    pub assistant: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -77,6 +79,7 @@ pub struct ProfileProps {
     pub theme_styles: Vec<(String, String)>,
     pub zaps: BTreeMap<String, Vec<String>>,
     pub sort_downloads: bool,
+    pub assistant: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -119,6 +122,7 @@ pub struct Shell<D: Platform> {
     pub wide: bool,
     pub layout: browser_core::layout::Layout,
     pub sidebar_open: bool,
+    pub tab_placement: browser_core::layout::TabPlacement,
     pub pages: HashMap<TabKey, Page>,
     pub prompts: Vec<PromptRequest>,
     pub external: Option<(TabKey, String)>,
@@ -132,11 +136,22 @@ pub struct Shell<D: Platform> {
     pub(crate) download_notices: Vec<(String, bool)>,
     pub(crate) cleared_downloads: Option<(String, (bool, Id), Vec<Download>)>,
     pub sort_undo: Option<(String, (bool, browser_core::cleanup::Undo))>,
+    /// Pages, tabs and selections read for the assistant, with the command a selection runs, for
+    /// the chat to attach.
+    pub assistant_pages: Vec<(browser_core::assistant::Origin, browser_core::assistant::Pill, Option<String>)>,
     pub transfers: Vec<crate::scripts::Transfer>,
     pub transfers_moved: std::time::Instant,
     pub reader: Option<crate::scripts::Reader>,
     pub find_tabs: crate::scripts::FindTabs,
     pub picking: Option<(TabKey, u64)>,
+    /// Capture Element waiting for its pick: the tab, the request and the visible page in CSS pixels.
+    pub capturing: Option<(TabKey, u64, (f64, f64))>,
+    pub shots: HashMap<u64, crate::capture::Shot>,
+    pub player: browser_core::media::Player,
+    /// Insert Snippet waiting for its answer: the tab and the request.
+    pub inserting: Option<(TabKey, u64)>,
+    /// The tab and committed address Insert Snippet opened on.
+    pub(crate) snippet_page: Option<(TabKey, String)>,
     pub switched_at: Option<i64>,
     pub(crate) scripts: HashMap<u64, (TabKey, crate::scripts::Script)>,
     pub(crate) icon_asks: HashMap<TabKey, HashMap<IconAsk, engine::favicon::Ticket>>,
@@ -145,6 +160,7 @@ pub struct Shell<D: Platform> {
     loads: HashMap<TabKey, Load>,
     pub(crate) visits: HashMap<TabKey, Id>,
     pub(crate) crashed: HashSet<TabKey>,
+    pub hang: engine::lifecycle::Hang<TabKey>,
     pub(crate) seq: u64,
     pub themes: crate::themes::Themes,
     pub ext: crate::extensions::Runtime,
@@ -171,6 +187,7 @@ impl<D: Platform> Shell<D> {
         let themes = crate::themes::Themes::open(&core.disk, dir);
         let layout = browser_core::layout::Layout::load(&core.disk);
         let sidebar_open = browser_core::layout::sidebar_open(&core.disk);
+        let tab_placement = browser_core::layout::TabPlacement::load(&core.disk);
         let opened = dir.join("Opened");
         browser_core::open_file::clear(&opened);
         let mut shell = Shell {
@@ -180,6 +197,7 @@ impl<D: Platform> Shell<D> {
             wide: false,
             layout,
             sidebar_open,
+            tab_placement,
             pages: HashMap::new(),
             prompts: Vec::new(),
             external: None,
@@ -192,11 +210,17 @@ impl<D: Platform> Shell<D> {
             download_notices: Vec::new(),
             cleared_downloads: None,
             sort_undo: None,
+            assistant_pages: Vec::new(),
             transfers: Vec::new(),
             transfers_moved: std::time::Instant::now(),
             reader: None,
             find_tabs: crate::scripts::FindTabs::default(),
             picking: None,
+            capturing: None,
+            shots: HashMap::new(),
+            player: Default::default(),
+            inserting: None,
+            snippet_page: None,
             switched_at: None,
             scripts: HashMap::new(),
             icon_asks: HashMap::new(),
@@ -205,6 +229,7 @@ impl<D: Platform> Shell<D> {
             loads: HashMap::new(),
             visits: HashMap::new(),
             crashed: HashSet::new(),
+            hang: Default::default(),
             seq: 0,
             themes,
             ext: crate::extensions::Runtime::default(),
@@ -289,6 +314,7 @@ impl<D: Platform> Shell<D> {
             theme_styles: self.theme_styles(private, profile_id),
             zaps,
             sort_downloads: self.setting_on(crate::scripts::SORT_DOWNLOADS),
+            assistant: self.model.assistant_commands(&self.core),
         })
     }
 
@@ -316,6 +342,7 @@ impl<D: Platform> Shell<D> {
                 zaps: props.zaps.clone(),
                 sort_downloads: props.sort_downloads,
                 load: self.loads.get(&key).cloned(),
+                assistant: self.model.assistant_menu_for(&self.core, props.assistant.as_ref(), &self.tab_url(key)),
             })
             .collect()
     }
@@ -330,6 +357,7 @@ impl<D: Platform> Shell<D> {
         if self.model.tab(key).is_none() {
             return;
         }
+        let _span = (self.model.active != Some(key)).then(|| engine::startup::span(engine::startup::TAB_SWITCH));
         self.model.active = Some(key);
         if self.external.as_ref().is_some_and(|(k, _)| *k != key) {
             self.external = None;
@@ -418,14 +446,25 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn navigate(&mut self, text: &str) -> Vec<Effect> {
-        self.open_input(text, false)
+        self.open_input(text, false, false)
     }
 
     pub fn navigate_typed(&mut self, text: &str) -> Vec<Effect> {
-        self.open_input(text, self.search_shortcuts())
+        self.open_input(text, self.search_shortcuts(), false)
     }
 
-    fn open_input(&mut self, text: &str, shortcuts: bool) -> Vec<Effect> {
+    /// Whether typed `text` names an address Tarn does not open; the field says so instead of opening it.
+    pub fn rejects(&self, text: &str) -> bool {
+        matches!(classify_input(text, &ENGINES[self.search_engine()], self.search_shortcuts()), Some(Input::Rejected))
+    }
+
+    /// Opens what was typed in a new tab: the address field opened by New Tab creates the tab
+    /// only once the user picks something to open.
+    pub fn open_typed_in_new_tab(&mut self, text: &str) -> Vec<Effect> {
+        self.open_input(text, self.search_shortcuts(), true)
+    }
+
+    fn open_input(&mut self, text: &str, shortcuts: bool, new_tab: bool) -> Vec<Effect> {
         let engine = &ENGINES[self.search_engine()];
         let input = match classify_input(text, engine, shortcuts) {
             Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(self.model.profile(), url))),
@@ -434,7 +473,7 @@ impl<D: Platform> Shell<D> {
         let credit = matches!(input, Some(Input::Navigate(_)));
         match input {
             Some(Input::Navigate(url) | Input::Search(url)) => {
-                match self.model.active {
+                match self.model.active.filter(|_| !new_tab) {
                     Some(key) => self.load_in(key, url.as_str(), None),
                     None => {
                         self.new_tab(Some(url.as_str()));
@@ -476,16 +515,6 @@ impl<D: Platform> Shell<D> {
         if self.close_tabs(&[key]).is_some() {
             self.toast("Tab closed".into());
         }
-    }
-
-    pub fn discard_new_tab(&mut self, key: TabKey, back: TabKey) {
-        if self.model.active != Some(key) || !self.active_url().is_empty() || self.loads.contains_key(&key) || self.model.tab(back).is_none() {
-            return;
-        }
-        self.forget(key);
-        self.store().delete_tab(key.id).ok();
-        self.model.reload_space(&self.core);
-        self.activate(back);
     }
 
     pub(crate) fn close_tabs(&mut self, keys: &[TabKey]) -> Option<u64> {
@@ -547,7 +576,7 @@ impl<D: Platform> Shell<D> {
                 web_engine: None,
             })
             .collect();
-        let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id, tabs: closed, group });
+        let serial = self.model.push_closed(Closed { private, profile_id, space_id, tabs: closed, group });
         for (key, _) in &tabs {
             self.forget(*key);
             self.store().delete_tab(key.id).ok();
@@ -572,6 +601,7 @@ impl<D: Platform> Shell<D> {
         self.pages.remove(&key);
         self.loads.remove(&key);
         self.prompts.retain(|p| p.tab != key);
+        self.shots.retain(|_, shot| shot.key != key);
         if self.external.as_ref().is_some_and(|(k, _)| *k == key) {
             self.external = None;
         }
@@ -641,6 +671,7 @@ impl<D: Platform> Shell<D> {
         if !self.model.spaces.get(ix).is_some_and(Self::shows) {
             return;
         }
+        let _span = (ix != self.model.space_ix).then(|| engine::startup::span(engine::startup::SPACE_SWITCH)).flatten();
         let leaving_burner = self.in_burner() && ix != self.model.space_ix;
         if self.model.switch_space(&self.core, ix).is_none() {
             return;
@@ -900,6 +931,7 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn suggest_from(&self, history: &[HistoryEntry], typed: &str, value: &str) -> (Vec<HistoryEntry>, Option<suggest::Completion>) {
+        let _span = engine::startup::span(engine::startup::PALETTE_QUERY);
         let (rows, completion) = suggest::edit(typed, value, &self.model.tabs, history, SUGGESTIONS, browser_core::now());
         (rows.into_iter().cloned().collect(), completion)
     }
@@ -943,7 +975,7 @@ impl<D: Platform> Shell<D> {
             return;
         }
         let beside = split && self.wide && (self.model.active == Some(opener) || self.shown_split().is_some_and(|s| s.panes().contains(&opener)));
-        let Some(key) = self.model.new_tab(&self.core, "", None) else { return };
+        let Some(key) = self.model.open_tab(&self.core, "", None, browser_core::tabs::Opened::Link(opener)) else { return };
         self.model.reload_space(&self.core);
         self.load_in(key, url, Some(from));
         if beside {
@@ -954,6 +986,41 @@ impl<D: Platform> Shell<D> {
 
     pub fn active_command(&self, name: &'static str, args: Value) -> Vec<Effect> {
         self.model.active.map(|k| vec![Effect::Command(k, name, args)]).unwrap_or_default()
+    }
+
+    /// Pings the shown page, as `engine::lifecycle::Hang` asks, every `PING_EVERY`.
+    pub fn ping_page(&mut self, now: std::time::Instant) -> Vec<Effect> {
+        match self.model.active {
+            Some(key) if self.hang.ping(key, now) => vec![Effect::Command(key, "ping", serde_json::json!({ "seq": 0 }))],
+            Some(_) => Vec::new(),
+            None => {
+                self.hang.forget();
+                Vec::new()
+            }
+        }
+    }
+
+    pub fn hung(&self) -> bool {
+        self.model.active.is_some() && self.hang.hung(std::time::Instant::now()) == self.model.active
+    }
+
+    pub fn wait_for_page(&mut self) -> Vec<Effect> {
+        self.hang.wait(std::time::Instant::now());
+        Vec::new()
+    }
+
+    /// Reload on the hung-page card: the tab gets a new view, loaded at the page's address.
+    pub fn reload_hung(&mut self) -> Vec<Effect> {
+        self.hang.forget();
+        if let Some(key) = self.model.active {
+            let url = self.pages.get(&key).map(|p| p.url.clone()).filter(|u| !u.is_empty());
+            self.unmount(key);
+            self.activate(key);
+            if let Some(url) = url {
+                self.load_in(key, &url, None);
+            }
+        }
+        Vec::new()
     }
 
     pub fn dismiss_error(&mut self) -> Vec<Effect> {

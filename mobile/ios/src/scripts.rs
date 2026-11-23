@@ -4,11 +4,14 @@ use std::rc::Rc;
 
 use block2::RcBlock;
 use engine::page_scripts::{self, PICKER};
+use engine::view_policy::SnapshotArea;
 use objc2::MainThreadOnly;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2_foundation::{NSError, NSString};
-use objc2_web_kit::{WKContentRuleList, WKContentRuleListStore, WKContentWorld, WKUserScript, WKUserScriptInjectionTime};
+use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+use objc2_foundation::{NSData, NSDataBase64EncodingOptions, NSError, NSString};
+use objc2_ui_kit::{UIImage, UIPasteboard};
+use objc2_web_kit::{WKContentRuleList, WKContentRuleListStore, WKContentWorld, WKSnapshotConfiguration, WKUserScript, WKUserScriptInjectionTime};
 use serde_json::{Value, json};
 use shield::ShieldLevel;
 
@@ -52,6 +55,15 @@ impl Inner {
         web.call_async(&NSString::from_str(&body), None, None, &world, Some(&block));
     }
 
+    /// In the shell's world, so the page cannot lift the password and card field guard.
+    pub(crate) fn ask_selection(&self, command: Option<String>) {
+        let shown = self.web().and_then(|w| w.current_url()).map(|u| u.to_string()).unwrap_or_default();
+        let context = self.context.clone();
+        self.run(Some(page_scripts::SELECTED_TEXT.to_owned()), move |text| {
+            context.emit("assistantSelection", json!({ "url": shown, "text": browser_core::page_ops::selection_answer(&text), "command": command }))
+        });
+    }
+
     pub(crate) fn script_command(&self, name: &str, args: &Value) -> bool {
         let seq = args.get("seq").cloned().unwrap_or(Value::Null);
         let url = self.web().and_then(|w| w.current_url());
@@ -83,6 +95,33 @@ impl Inner {
                 let body = (!query.is_empty()).then(|| page_scripts::find_text_script(query));
                 self.run(body, move |text| context.emit("textFound", json!({ "seq": seq, "url": shown, "snippets": page_scripts::find_snippets(&text) })));
             }
+            "ping" => self.run(Some(page_scripts::PING.to_owned()), move |_| context.emit("pong", json!({ "seq": seq }))),
+            "readSelection" => self.run(Some(page_scripts::SELECTED_TEXT.to_owned()), move |text| {
+                context.emit("selection", json!({ "seq": seq, "url": shown, "text": browser_core::page_ops::selection_answer(&text) }))
+            }),
+            "readMedia" => self.run(Some(page_scripts::media_state_script()), move |text| {
+                context.emit("mediaState", json!({ "seq": seq, "url": shown, "text": browser_core::page_ops::media_answer(&text) }))
+            }),
+            "insertText" => {
+                let body =
+                    args.get("text").and_then(Value::as_str).filter(|t| t.len() <= browser_core::snippets::MAX_SNIPPET).map(page_scripts::insert_text_script);
+                self.run(body, move |answer| context.emit("textInserted", json!({ "seq": seq, "inserted": browser_core::snippets::inserted(&answer) })));
+            }
+            "media" => self.run(browser_core::page_ops::media_command(args).map(page_scripts::media_command_script), |_| {}),
+            "snapshotRect" => self.snapshot_rect(args, move |png| context.emit("snapshotRect", json!({ "seq": seq, "png": png }))),
+            "screenshot" => self.screenshot(args, move |saved| {
+                context.emit(
+                    "screenshot",
+                    match saved {
+                        Ok(path) => json!({ "seq": seq, "path": path }),
+                        Err(message) => json!({ "seq": seq, "message": message }),
+                    },
+                )
+            }),
+            "pick" if args.get("rect").and_then(Value::as_bool) == Some(true) => self
+                .run(Some(format!("{TAPPABLE}{}{TAPPABLE_END}", page_scripts::pick_rect_script())), move |rect| {
+                    context.emit("picked", json!({ "seq": seq, "url": shown, "rect": rect }))
+                }),
             "pick" => self.run(Some(format!("{TAPPABLE}{PICKER}{TAPPABLE_END}")), move |selector| {
                 context.emit("picked", json!({ "seq": seq, "url": shown, "selector": selector }))
             }),
@@ -96,6 +135,56 @@ impl Inner {
             _ => return false,
         }
         true
+    }
+
+    fn snapshot_rect(&self, args: &Value, done: impl Fn(Option<String>) + 'static) {
+        let Some(area) = browser_core::page_ops::snapshot_area(args, self.device_scale()) else { return done(None) };
+        self.snapshot_png(Some(area), move |data| {
+            done(data.map(|d| format!("data:image/png;base64,{}", d.base64EncodedStringWithOptions(NSDataBase64EncodingOptions(0)))))
+        });
+    }
+
+    /// Never copied for a private space, whose pasteboard item could reach another device.
+    fn screenshot(&self, args: &Value, done: impl Fn(Result<String, String>) + 'static) {
+        let area = browser_core::page_ops::snapshot_area(args, self.device_scale());
+        if area.is_none() && (args.get("fullPage").is_some() || args.get("x").is_some()) {
+            return done(Err("Nothing to capture in that area".into()));
+        }
+        let name = engine::downloads::sanitize_filename(args.get("name").and_then(Value::as_str).unwrap_or_default());
+        let copy = args.get("copy").and_then(Value::as_bool) == Some(true);
+        self.snapshot_png(area, move |data| {
+            done(data.ok_or_else(|| "WebKit could not capture the page".to_owned()).and_then(|data| {
+                if copy {
+                    UIPasteboard::generalPasteboard().setData_forPasteboardType(&data, &NSString::from_str("public.png"));
+                }
+                let dir = crate::transfers::downloads_dir().ok_or_else(|| "The Downloads folder could not be found".to_owned())?;
+                std::fs::create_dir_all(&dir)
+                    .and_then(|()| browser_core::capture::save_new(&dir, &name, &data.to_vec()))
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .map_err(|e| e.to_string())
+            }))
+        });
+    }
+
+    fn device_scale(&self) -> f64 {
+        self.web().map_or(1., |web| web.scroll_view().zoomScale() * web.contentScaleFactor())
+    }
+
+    /// WKWebView on iOS draws only the visible page, so a full page (or none named) is that.
+    fn snapshot_png(&self, area: Option<SnapshotArea>, done: impl Fn(Option<Retained<NSData>>) + 'static) {
+        let Some(web) = self.web() else { return done(None) };
+        // SAFETY: main thread (marker); plain getters and setters on a live view and a fresh
+        // configuration; WebKit copies the block and passes an image or null for the call's duration.
+        unsafe {
+            let config = WKSnapshotConfiguration::new(self.mtm);
+            if let Some(SnapshotArea::Rect { x, y, width, height }) = area {
+                let scale = web.scroll_view().zoomScale();
+                config.setRect(CGRect::new(CGPoint::new(x * scale, y * scale), CGSize::new(width * scale, height * scale)));
+            }
+            config.setAfterScreenUpdates(false);
+            let handler = RcBlock::new(move |image: *mut UIImage, _: *mut NSError| done(image.as_ref().and_then(|image| image.png_representation())));
+            web.take_snapshot(Some(&config), &handler);
+        }
     }
 
     pub(crate) fn apply_content(self: &Rc<Self>) {

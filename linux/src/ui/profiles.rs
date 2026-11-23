@@ -223,6 +223,7 @@ fn space_actions_with(ui: Ui, key: SpaceKey, deletable: bool) -> View {
 
 fn edit_space(ui: Ui, key: SpaceKey) {
     ui.panel.set(Panel::None);
+    tarn_nsh_shared::motion::space_switch();
     act(ui, |b| {
         if let Some(ix) = b.model.spaces.iter().position(|s| (s.private, s.space.id) == key) {
             b.switch_space_by_user(ix);
@@ -301,6 +302,7 @@ pub fn profiles_pane(ui: Ui) -> View {
                     let mut deleted = false;
                     act(ui, |b| deleted = b.delete_profile(id));
                     if deleted {
+                        super::forget_chats();
                         browser_core::ext_package::remove_tree(&crate::data::root().join("extensions").join(id.to_string())).ok();
                         super::sync_others(ui);
                     }

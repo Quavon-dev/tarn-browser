@@ -58,6 +58,8 @@ pub fn panel(ui: Ui) -> impl IntoElement {
             Screen::Reader => sheets::reader(ui).into_element(),
             Screen::FindTabs => sheets::find_tabs(ui).into_element(),
             Screen::Qr => sheets::qr(ui).into_element(),
+            Screen::Snippets => sheets::insert_snippet(ui).into_element(),
+            Screen::Assistant => tarn_nsh_shared::assistant::body(super::assistant::Host(ui), ui.chat),
             Screen::ReadingList => sheets::reading_list(ui).into_element(),
             Screen::Move(key) => sheets::move_tab(ui, key).into_element(),
             Screen::SpaceNew => sheets::space_card(ui, None).into_element(),
@@ -119,7 +121,7 @@ fn sheet(ui: Ui, screen: Screen, body: AnyElement) -> impl IntoElement {
                     .child(text("Done").text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::accent_text)),
             ),
         )
-        .child(scroll().key(name).flex_1().child(view().gap_3().px_3().pt_2().pb_6().child(body)))
+        .child(scroll().key(name).flex_1().keyboard_taps(KeyboardTaps::Handled).child(view().gap_3().px_3().pt_2().pb_6().child(body)))
 }
 
 fn group() -> View {
@@ -191,13 +193,7 @@ fn tabs(ui: Ui) -> impl IntoElement {
                 .flex_row()
                 .flex_wrap()
                 .gap_2()
-                .child(pill("New Tab", move || {
-                    ui.act(|s| {
-                        s.new_tab(None);
-                        Vec::new()
-                    });
-                    ui.show(Screen::Browse);
-                }))
+                .child(pill("New Tab", move || super::bars::open_new_tab(ui)))
                 .child(pill("Burner Tab", move || {
                     ui.act(|s| {
                         s.open_burner();
@@ -214,6 +210,20 @@ fn tabs(ui: Ui) -> impl IntoElement {
                             })
                         })
                     })
+                }))
+                .child(dynamic(move || {
+                    ui.read(|s| browser_core::sidebar::cleanable(&s.model)).then(|| {
+                        pill("Clean Up", move || {
+                            ui.act(|s| {
+                                s.clean_up();
+                                Vec::new()
+                            })
+                        })
+                    })
+                }))
+                .child(dynamic(move || {
+                    ui.read(|s| browser_core::sidebar::cleanable(&s.model) && s.model.assistant_offered(&s.core, None))
+                        .then(|| pill("Group with Assistant", move || super::assistant::group_tabs(ui)))
                 }))
                 .child(dynamic(move || {
                     (ui.wide() && ui.read(|s| s.shown_split().is_some())).then(|| {
@@ -315,13 +325,7 @@ fn menu(ui: Ui) -> impl IntoElement {
         .gap_2()
         .child(framed(
             group()
-                .child(row(icons::PLUS, "New Tab", move || {
-                    ui.act(|s| {
-                        s.new_tab(None);
-                        Vec::new()
-                    });
-                    ui.show(Screen::Browse);
-                }))
+                .child(row(icons::PLUS, "New Tab", move || super::bars::open_new_tab(ui)))
                 .child(row(icons::FOLDER_OPEN, "Open File…", move || open_file(ui)))
                 .child(
                     when(private, move || {
@@ -354,6 +358,10 @@ fn menu(ui: Ui) -> impl IntoElement {
                             ui.show(Screen::Browse);
                         })
                     },
+                ))
+                .child(when(
+                    move || ui.read(|s| s.model.assistant_offered(&s.core, Some(&s.active_url()).filter(|u| !u.is_empty()).map(String::as_str))),
+                    move || row(icons::SPARKLES, "Ask Assistant", move || super::assistant::open(ui, false)),
                 ))
                 .child(when(
                     move || ui.read(|s| !s.model.closed_tabs.is_empty()),
@@ -401,6 +409,23 @@ fn menu(ui: Ui) -> impl IntoElement {
                             ui.show(Screen::Browse);
                             ui.act(|s| s.pick());
                         })
+                    },
+                ))
+                .child(when(
+                    move || ui.read(|s| s.offers_capture()),
+                    move || {
+                        group()
+                            .child(row(icons::CAMERA, "Take Screenshot", move || {
+                                ui.show(Screen::Browse);
+                                ui.act(|s| s.take_screenshot());
+                            }))
+                            .child(row(icons::CAMERA, "Capture Area", move || super::capture::capture_area(ui)))
+                            .child(row(icons::CAMERA, "Capture Element", move || super::capture::capture_element(ui)))
+                            .child(row(icons::CAMERA, "Capture Full Page", move || {
+                                ui.show(Screen::Browse);
+                                ui.act(|s| s.capture_full_page());
+                            }))
+                            .child(row(icons::PENCIL, "Insert Snippet\u{2026}", move || sheets::open_insert_snippet(ui)))
                     },
                 )),
         ))
@@ -579,7 +604,7 @@ pub(super) fn settings(ui: Ui) -> impl IntoElement {
         .map(|&pane| -> Part {
             (
                 Box::new(move |q: &str| panes::matches(pane, q)),
-                Box::new(move || view().gap_2().child(pane_heading(pane)).children(pane_body(ui, pane)).into_element()),
+                Box::new(move || view().children(pane_body(ui, pane).map(|body| view().gap_2().child(pane_heading(pane)).child(body))).into_element()),
             )
         })
         .collect();
@@ -619,13 +644,55 @@ pub(super) fn settings(ui: Ui) -> impl IntoElement {
         .child(blocks)
 }
 
-const TOUCH_PANES: [Pane; 6] = [Pane::Profile, Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions];
+#[derive(Clone, Copy)]
+struct Notes(Ui);
+
+impl tarn_nsh_shared::snippets::Host for Notes {
+    fn profile(self) -> Option<store::Id> {
+        self.0.read_data(|s| s.model.profile().filter(|(private, _)| !private).map(|(_, id)| id))
+    }
+    fn with_store<R>(self, f: impl FnOnce(&store::Store) -> R) -> R {
+        self.0.read_data(|s| f(&s.core.disk))
+    }
+    fn changed(self) {
+        self.0.act(|s| {
+            s.snippets_changed();
+            Vec::new()
+        });
+    }
+}
+
+impl tarn_nsh_shared::notes::Host for Notes {
+    fn profile(self) -> Option<store::Id> {
+        tarn_nsh_shared::snippets::Host::profile(self)
+    }
+    fn with_store<R>(self, f: impl FnOnce(&store::Store) -> R) -> R {
+        tarn_nsh_shared::snippets::Host::with_store(self, f)
+    }
+}
+
+const TOUCH_PANES: [Pane; 9] =
+    [Pane::Profile, Pane::General, Pane::Appearance, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Snippets, Pane::Notes, Pane::Ai];
 
 pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
     let body = view().gap_2();
     Some(match pane {
         Pane::Profile => body.child(sheets::shield_card(ui)),
         Pane::General => body
+            .child(section("New tab opens"))
+            .child(segmented(
+                [("Address bar", false), ("Empty tab", true)]
+                    .into_iter()
+                    .map(|(name, empty)| {
+                        let key = browser_core::prefs::NEW_TAB_START_PAGE.key;
+                        (
+                            name.to_owned(),
+                            Box::new(move || ui.read_data(|s| s.setting_on(key)) == empty) as Box<dyn Fn() -> bool>,
+                            Box::new(move || ui.act(|s| s.set_setting_on(key, empty))) as Box<dyn Fn()>,
+                        )
+                    })
+                    .collect(),
+            ))
             .child(section("Downloads"))
         .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
             ui.act(|s| {
@@ -686,6 +753,10 @@ pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
         }).collect::<Vec<_>>())))
         .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1()),
         Pane::Permissions => body.child(permissions(ui)),
+        Pane::Snippets => body.child(tarn_nsh_shared::snippets::pane(Notes(ui))),
+        Pane::Notes => body.child(tarn_nsh_shared::notes::pane(Notes(ui))),
+        Pane::Ai if !tarn_nsh_shared::assistant::offered(super::assistant::Host(ui)) => return None,
+        Pane::Ai => body.child(tarn_nsh_shared::assistant::settings_pane(super::assistant::Host(ui), ui.chat)),
         Pane::Profiles => body.child(spaces(ui)),
         Pane::Tabs | Pane::Developer | Pane::Shortcuts => return None,
     })
@@ -697,7 +768,9 @@ pub(super) fn your_data(ui: Ui) -> View {
             ui.act(|s| {
                 s.clear_data();
                 Vec::new()
-            })
+            });
+            tarn_nsh_shared::assistant::forget_chats();
+            ui.chat.close();
         })
     }))))
 }
@@ -952,6 +1025,7 @@ fn spaces(ui: Ui) -> impl IntoElement {
                     .selected(move || current() == ix)
                     .active(|s| s.bg(Theme::pressed))
                     .on_press(move || {
+                        tarn_nsh_shared::motion::space_switch();
                         ui.act(|s| {
                             s.choose_space(ix, browser_core::now());
                             Vec::new()

@@ -34,6 +34,7 @@ impl Browser {
         Theme::set_tokens(prefs::accented(p.tokens, store), p.meta.scheme, p.font.clone());
         Theme::set_search_effect(library::search_effect(store, &active));
         tarn_nsh_shared::motion::set_reduced(prefs::REDUCE_MOTION.on(store));
+        Theme::set_compact(prefs::COMPACT.on(store));
         self.themes.active = active;
     }
 

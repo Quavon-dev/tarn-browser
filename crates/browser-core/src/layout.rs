@@ -42,6 +42,46 @@ impl Layout {
     }
 }
 
+pub const TABS_SETTING: &str = "layout.tabs";
+
+/// Where a window lists its tabs: in the sidebar, or in a strip across the top with the sidebar
+/// hidden. Each window keeps its own; the last one picked is where new windows start.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TabPlacement {
+    #[default]
+    Side,
+    Top,
+}
+
+impl TabPlacement {
+    pub fn key(self) -> &'static str {
+        match self {
+            TabPlacement::Side => "side",
+            TabPlacement::Top => "top",
+        }
+    }
+
+    pub fn load(store: &Store) -> TabPlacement {
+        match store.setting(TABS_SETTING).ok().flatten().as_deref() {
+            Some("top") => TabPlacement::Top,
+            _ => TabPlacement::Side,
+        }
+    }
+
+    /// The other placement, kept for the windows opened from now on.
+    pub fn toggled(self, store: &Store) -> TabPlacement {
+        let next = if self == TabPlacement::Top { TabPlacement::Side } else { TabPlacement::Top };
+        store.set_setting(TABS_SETTING, next.key()).ok();
+        next
+    }
+
+    /// What a window shows: phones and the touch layout keep their bottom bar, so only a layout
+    /// with a sidebar (desktop, a tablet's Mac layout) puts tabs on top.
+    pub fn shown(self, sidebar_layout: bool) -> TabPlacement {
+        if sidebar_layout { self } else { TabPlacement::Side }
+    }
+}
+
 pub fn sidebar_open(store: &Store) -> bool {
     store.setting(SIDEBAR_SETTING).ok().flatten().as_deref() != Some("off")
 }
@@ -166,6 +206,18 @@ mod tests {
         assert!(!sidebar_open(&store));
         save_sidebar(&store, true).unwrap();
         assert!(sidebar_open(&store));
+    }
+
+    #[test]
+    fn tabs_start_at_the_side_and_new_windows_take_the_last_pick() {
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(TabPlacement::load(&store), TabPlacement::Side);
+        assert_eq!(TabPlacement::Side.toggled(&store), TabPlacement::Top);
+        assert_eq!(TabPlacement::load(&store), TabPlacement::Top);
+        assert_eq!(TabPlacement::Top.toggled(&store), TabPlacement::Side);
+        assert_eq!(TabPlacement::load(&store), TabPlacement::Side);
+        assert_eq!(TabPlacement::Top.shown(true), TabPlacement::Top);
+        assert_eq!(TabPlacement::Top.shown(false), TabPlacement::Side, "a phone keeps its bottom bar");
     }
 
     #[test]

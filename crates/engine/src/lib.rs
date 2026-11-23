@@ -5,6 +5,8 @@ pub mod cookies;
 pub mod downloads;
 pub mod events;
 pub mod favicon;
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "foundation-models"))]
+pub mod foundation_models;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub mod handover;
 pub mod lifecycle;

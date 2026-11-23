@@ -311,7 +311,7 @@ final class Downloads {
         }
     }
 
-    private static File unique(File dir, String name) {
+    static File unique(File dir, String name) {
         File file = new File(dir, name);
         int dot = name.lastIndexOf('.');
         String stem = dot > 0 ? name.substring(0, dot) : name;

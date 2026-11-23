@@ -23,6 +23,9 @@ pub enum Script {
     Text,
     IconLinks,
     Icon,
+    Media,
+    Assistant,
+    AssistantTab,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,12 +90,12 @@ fn web(url: &str) -> bool {
 }
 
 impl<D: Platform> Shell<D> {
-    fn next_seq(&mut self) -> u64 {
+    pub(crate) fn next_seq(&mut self) -> u64 {
         self.seq += 1;
         self.seq
     }
 
-    fn ask(&mut self, key: TabKey, script: Script, name: &'static str, mut args: Value) -> Vec<Effect> {
+    pub(crate) fn ask(&mut self, key: TabKey, script: Script, name: &'static str, mut args: Value) -> Vec<Effect> {
         let seq = self.next_seq();
         args["seq"] = json!(seq);
         self.scripts.retain(|_, (k, s)| !(*k == key && *s == script));
@@ -107,7 +110,7 @@ impl<D: Platform> Shell<D> {
         self.scripts.retain(|_, (k, _)| *k != key);
     }
 
-    fn answer_for(&mut self, key: TabKey, data: &Value, script: Script) -> Option<String> {
+    pub(crate) fn answer_for(&mut self, key: TabKey, data: &Value, script: Script) -> Option<String> {
         let seq = data.get("seq").and_then(Value::as_u64)?;
         if self.scripts.get(&seq) != Some(&(key, script)) {
             return None;
@@ -119,7 +122,7 @@ impl<D: Platform> Shell<D> {
     fn current_page(&self, key: TabKey, data: &Value) -> Option<String> {
         let url = text(data, "url");
         let page = self.pages.get(&key)?;
-        (page.committed.as_deref() == Some(url.as_str()) && !page.awaiting_commit).then_some(url)
+        browser_core::assistant::read_here(&url, page.committed.as_deref().filter(|_| !page.awaiting_commit)).then_some(url)
     }
 
     pub(crate) fn after_finished(&mut self, key: TabKey) -> Vec<Effect> {
@@ -264,6 +267,12 @@ impl<D: Platform> Shell<D> {
                     }
                 }
             }
+            "pageText" if data.get("seq").and_then(Value::as_u64).and_then(|s| self.scripts.get(&s)).is_some_and(|(_, s)| *s == Script::Assistant) => {
+                self.page_for_assistant(key, data);
+            }
+            "pageText" if data.get("seq").and_then(Value::as_u64).and_then(|s| self.scripts.get(&s)).is_some_and(|(_, s)| *s == Script::AssistantTab) => {
+                self.tab_for_assistant(key, data);
+            }
             "pageText" => {
                 if let Some(url) = self.answer_for(key, data, Script::Text)
                     && let (Some(id), Some(visit)) = (self.profile_id(), self.visits.get(&key).copied())
@@ -277,11 +286,74 @@ impl<D: Platform> Shell<D> {
             "iconLinks" => return self.icon_links(key, data),
             "iconData" => self.icon_event(key, name, data, favicon::normalize(&text(data, "text"))),
             "textFound" => self.text_found(key, data),
+            "mediaState" => self.media_answered(key, data),
+            "picked" if self.capturing.is_some_and(|(k, ..)| k == key) => return self.capture_picked(key, data),
             "picked" => self.picked(key, data),
             "shielded" => self.shielded_event(key, data),
             _ => {}
         }
         Vec::new()
+    }
+
+    /// The assistant's `Origin` for the active page, or the current space with no page.
+    pub fn assistant_origin(&self) -> Option<browser_core::assistant::Origin> {
+        let url = self.active_url();
+        self.model.assistant_origin(&self.core, Some(&url).filter(|u| !u.is_empty()).map(String::as_str))
+    }
+
+    /// Reads the active web page's text for the assistant; it arrives in `assistant_pages`.
+    pub fn read_page_for_assistant(&mut self) -> Vec<Effect> {
+        let here = self.assistant_origin().is_some_and(browser_core::assistant::allowed);
+        let Some(key) = self.model.active.filter(|_| here && web(&self.active_url())) else {
+            self.notice = Some("This page cannot be shared with the assistant.".into());
+            return Vec::new();
+        };
+        self.ask(key, Script::Assistant, "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT }))
+    }
+
+    fn page_for_assistant(&mut self, key: TabKey, data: &Value) {
+        let Some(url) = self.answer_for(key, data, Script::Assistant).filter(|_| self.model.active == Some(key)) else { return };
+        if let Some(origin) = self.model.assistant_origin(&self.core, Some(&url)) {
+            let pill = browser_core::assistant::Pill::Page { title: self.page_title(key), text: text(data, "text"), url };
+            self.assistant_pages.push((origin, pill, None));
+        }
+    }
+
+    /// Reads another tab's loaded page for the assistant's tab picker; a sleeping tab is never
+    /// woken for it. The text arrives in `assistant_pages`.
+    pub fn read_tab_for_assistant(&mut self, key: TabKey) -> Vec<Effect> {
+        let url = self.tab_url(key);
+        if !self.model.lifecycle.live().any(|k| k == key) || !web(&url) || !self.model.assistant_offered(&self.core, Some(&url)) {
+            self.notice = Some("That tab is asleep or cannot be shared. Open it to add it.".into());
+            return Vec::new();
+        }
+        self.ask(key, Script::AssistantTab, "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT }))
+    }
+
+    fn tab_for_assistant(&mut self, key: TabKey, data: &Value) {
+        let Some(url) = self.answer_for(key, data, Script::AssistantTab).filter(|_| self.model.tab(key).is_some()) else { return };
+        if let Some(origin) = self.model.assistant_origin(&self.core, Some(&url)) {
+            let pill = browser_core::assistant::Pill::Tab { title: self.page_title(key), text: text(data, "text"), url };
+            self.assistant_pages.push((origin, pill, None));
+        }
+    }
+
+    /// The selection the page's menu sent (`assistantSelection`), where the assistant may still
+    /// see that page; a command sends it once the chat attached it.
+    pub(crate) fn selection_for_assistant(&mut self, key: TabKey, data: &Value) {
+        let Some(url) = self.current_page(key, data) else { return };
+        let here = |o: &browser_core::assistant::Origin| {
+            self.model.profile_of(&self.core, key) == Some(o.profile) && self.model.assistant_offered(&self.core, Some(&url))
+        };
+        let Some(origin) = self.model.assistant_origin(&self.core, Some(&url)).filter(here) else {
+            self.notice = Some("This page cannot be shared with the assistant.".into());
+            return;
+        };
+        let command = data.get("command").and_then(Value::as_str).map(str::to_owned);
+        match browser_core::assistant::selection(&url, &text(data, "text")) {
+            Some(pill) => self.assistant_pages.push((origin, pill, command)),
+            None => self.notice = Some("No text that can be shared is selected.".into()),
+        }
     }
 
     pub fn page_title(&self, key: TabKey) -> String {
@@ -354,14 +426,15 @@ impl<D: Platform> Shell<D> {
             self.notice = Some("Hidden elements are not kept in a private space.".into());
             return Vec::new();
         }
+        self.capturing = None;
         let seq = self.next_seq();
         self.picking = Some((key, seq));
         vec![Effect::Command(key, "pick", json!({ "seq": seq }))]
     }
 
     pub fn cancel_pick(&mut self) -> Vec<Effect> {
-        match self.picking.take() {
-            Some((key, _)) => vec![Effect::Command(key, "pickCancel", Value::Null)],
+        match self.picking.take().map(|(k, _)| k).or(self.capturing.take().map(|(k, ..)| k)) {
+            Some(key) => vec![Effect::Command(key, "pickCancel", Value::Null)],
             None => Vec::new(),
         }
     }

@@ -106,7 +106,7 @@ pub(super) fn close(ui: Ui) {
 
 pub(super) fn edge(ui: Ui) -> AnyElement {
     dynamic(move || {
-        let shown = !ui.sidebar.get() && !ui.floating.with(|f| f.hover.open);
+        let shown = !ui.sidebar.get() && !ui.snap.with(|s| s.tabs_top) && !ui.floating.with(|f| f.hover.open);
         shown.then(|| {
             view()
                 .absolute()

@@ -4,15 +4,19 @@
 mod data;
 mod host;
 mod policy;
+mod secrets;
 pub mod system;
 pub mod tarn_ext;
+mod transport;
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JObject, JObjectArray, JString};
-use jni::sys::{jboolean, jint, jlong, jobjectArray, jstring};
+use jni::sys::{jboolean, jdouble, jdoubleArray, jint, jlong, jobjectArray, jstring};
 
 pub use data::{Data, PRIVATE_PREFIX};
 pub use host::{Host, Space, close_private_space, host, open_private_space, space};
+pub use secrets::Keystore;
+pub use transport::HostTransport;
 
 /// Filter lists for every view in this process; `None` switches them off.
 pub fn install_filters(matcher: Option<shield::matcher::Matcher>) {
@@ -166,6 +170,99 @@ pub extern "system" fn Java_dev_tarn_android_Native_fetchIconScript(mut env: JNI
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_tarn_android_Native_picker(mut env: JNIEnv, _: JClass) -> jstring {
     java_string(&mut env, Some(engine::page_scripts::PICKER.to_owned()))
+}
+
+/// `insert_text_script` of `text`; null for a text longer than a snippet.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_insertTextScript(mut env: JNIEnv, _: JClass, text: JString) -> jstring {
+    let script = string(&mut env, &text).filter(|t| t.len() <= browser_core::snippets::MAX_SNIPPET).map(|t| engine::page_scripts::insert_text_script(&t));
+    java_string(&mut env, script)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_inserted(mut env: JNIEnv, _: JClass, answer: JString) -> jboolean {
+    jboolean::from(browser_core::snippets::inserted(&string(&mut env, &answer).unwrap_or_default()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_pickRect(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::page_scripts::pick_rect_script()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_pingScript(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::page_scripts::PING.to_owned()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_selectedTextScript(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::page_scripts::SELECTED_TEXT.to_owned()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_askSelectionLabel(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::view_policy::ASK_SELECTION.to_owned()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_assistantCommandsLabel(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::view_policy::ASSISTANT_COMMANDS.to_owned()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_maxMenuCommands(_: JNIEnv, _: JClass) -> jint {
+    jint::try_from(engine::view_policy::MAX_MENU_COMMANDS).unwrap_or(jint::MAX)
+}
+
+/// `browser_core::page_ops::selection_answer` of a page-world answer, which the page may have forged.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_selectionAnswer(mut env: JNIEnv, _: JClass, answer: JString) -> jstring {
+    let answer = string(&mut env, &answer).unwrap_or_default();
+    java_string(&mut env, Some(browser_core::page_ops::selection_answer(&answer)))
+}
+
+/// `browser_core::page_ops::media_answer` of a page-world answer, which the page may have forged.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_mediaAnswer(mut env: JNIEnv, _: JClass, answer: JString) -> jstring {
+    let answer = string(&mut env, &answer).unwrap_or_default();
+    java_string(&mut env, Some(browser_core::page_ops::media_answer(&answer)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_mediaStateScript(mut env: JNIEnv, _: JClass) -> jstring {
+    java_string(&mut env, Some(engine::page_scripts::media_state_script()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_mediaCommandScript(mut env: JNIEnv, _: JClass, action: JString, seconds: jdouble) -> jstring {
+    let args = serde_json::json!({ "action": string(&mut env, &action), "seconds": seconds });
+    java_string(&mut env, browser_core::page_ops::media_command(&args).map(engine::page_scripts::media_command_script))
+}
+
+/// `[x, y, width, height]` of an accepted snapshot rectangle, empty for the full page, null when refused.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_snapshotArea(
+    env: JNIEnv,
+    _: JClass,
+    full_page: jboolean,
+    x: jdouble,
+    y: jdouble,
+    width: jdouble,
+    height: jdouble,
+    scale: jdouble,
+) -> jdoubleArray {
+    use engine::view_policy::SnapshotArea;
+    let args = serde_json::json!({ "fullPage": full_page != 0, "x": x, "y": y, "width": width, "height": height });
+    let values = match browser_core::page_ops::snapshot_area(&args, scale) {
+        None => return std::ptr::null_mut(),
+        Some(SnapshotArea::FullPage) => Vec::new(),
+        Some(SnapshotArea::Rect { x, y, width, height }) => vec![x, y, width, height],
+    };
+    let Ok(array) = env.new_double_array(values.len() as i32) else { return std::ptr::null_mut() };
+    if env.set_double_array_region(&array, 0, &values).is_err() {
+        return std::ptr::null_mut();
+    }
+    array.into_raw()
 }
 
 #[unsafe(no_mangle)]

@@ -20,6 +20,9 @@ pub enum Protection {
 
 #[derive(Debug)]
 pub enum Event {
+    /// The user chose Ask Assistant about Selection (`None`) or a command of the selection menu
+    /// `WebView::set_assistant_menu` set; the shell reads the selection with `selected_text`.
+    AssistantSelection(Option<String>),
     /// The page started (`true`) or stopped (`false`) loading, before it commits or after it ends;
     /// WebKit says only when a main-frame load starts, `Finished` and `Failed` end it.
     Loading(bool),

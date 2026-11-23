@@ -152,7 +152,7 @@ its own text and a selector hiding part of itself.
 | prop | `zaps` | object host→array of selectors | Hidden elements per host (`Store::zapped_elements`); the shell sends `{}` for private and burner spaces. iOS compiles `shield::lists::compile_zaps` into a `WKContentRuleList` and Linux into a `UserContentFilter` (the same JSON, each rule limited to its exact host); Android appends `shield::lists::zap_css(selectors)` to that host's sheet on the `styles` path. Never under Lockdown |
 | prop | `youtube` | bool | Block YouTube ads (`shield::groups::YOUTUBE_SETTING`, `block_youtube_ads`): the view adds the built-in `youtube_rules` and the page-world `shield::youtube::script` (bundle config) at document start, never under Lockdown; `ALWAYS_VISIBLE` runs in every view but Lockdown's either way (S24). Linux so far; iOS and Android still need it (`docs/port-backlog.md`). Default false |
 | prop | `sortDownloads` | bool | Finished files go into the Downloads subfolder `engine::downloads::folder_for(name)` names (`sorted_dir`, never following a link; other types stay at the top), with the same sanitised unique names. Default false |
-| command | `pick` | `{seq}` | Element picker: runs `engine::page_scripts::PICKER` on the top document; hovering (a tap on touch screens) outlines an element, a click picks it, Escape cancels. A second `pick` ends the first with an empty selector. Emits `picked` |
+| command | `pick` | `{seq}` | Element picker: runs `engine::page_scripts::PICKER` on the top document; hovering (a tap on touch screens) outlines an element, a click picks it, Escape cancels. A second `pick` ends the first with an empty selector. Emits `picked`. With `rect: true` (Capture Element) it runs `engine::page_scripts::pick_rect_script()` instead and answers `picked` `{seq, url, rect}`: the element's rectangle in the visible page as JSON `[x, y, width, height]` in CSS pixels, empty when cancelled or under Lockdown; the shell keeps only `browser_core::capture::element_area(rect, page)` |
 | command | `pickCancel` | none | Ends a running picker; it answers an empty selector |
 | event | `picked` | `{seq, url, selector}` | Empty when cancelled. The shell stores it only if `shield::lists::valid_zap(selector)`, the tab still shows `url`'s host, the space is not private or burner, and the host has fewer than `shield::lists::MAX_ZAPS_PER_SITE` |
 | command | `readArticle` | `{seq, probe}` | Runs `engine::reader::script(origin, probe)` (`origin` of the committed URL). The shell sends `probe: true` after each `finished` on an http(s) page to show the reader button, `false` to open the reader. Not on Android, where scripts run in the page world: there the shell probes nothing and offers the reader in the menu for every http(s) page |
@@ -168,6 +168,19 @@ its own text and a selector hiding part of itself.
 | event | `shielded` | `{kind, url}` | For the per-profile Shield counters (`Store::count`, shown by `Store::shield_week`): `https_upgrade` (`Counter::HttpsUpgrades`), `local_network` (`LocalBlocked`), `listed` (`ListedStopped`: a page stopped because a domain set names its site) and `popup` (`PopupsBlocked`: a pop-up refused for lacking a gesture; the shell skips it when `shield::rules::local_target(url)`, as macOS does). The shell counts each kind at most once per committed page |
 | event | `download` | v2 payload plus `id`, and the states below | `id` (string, unique for the app's run) is on every `download` event. `started` adds `pausable` (bool). New states: `progress` `{id, done, total?}` at most twice a second while saving; `paused` `{id, done}`; `resumed` `{id}`; `flagged` `{id, name, host}`: the request, response or page host is on the switched-on malware set (`engine::downloads::flagged_source` over `[request, response, page]` with the component's `nav_policy::Site`), even for a host the user let through for browsing; the file waits, unsaved, until `downloadKeep`. A paused download never kept is checked again (request and page) before it resumes. A declined download ends without a `failed` event |
 | command | `downloadPause`, `downloadResume`, `downloadCancel` | `{id}` | Only for a `pausable` download; iOS keeps WebKit's resume data in memory, Android keeps the `.part` file it was writing (resumed with `Range` and `If-Range`). Cancel removes the part already saved. Downloads belong to the app, not to a view (as on macOS): closing or unmounting the tab that started one keeps it running or paused, and its later events reach the shell through any live view (held until one exists); the shell matches them by `id`, sends commands through any live view and records the finished or failed file in the profile it started in |
+| command | `readSelection` | `{seq}` | Runs `engine::page_scripts::SELECTED_TEXT`: the top document's selection, empty while a password, `cc-*`, `current-password`, `new-password` or `one-time-code` field has the focus, also inside a shadow root |
+| event | `selection` | `{seq, url, text}` | The component emits only `browser_core::page_ops::selection_answer` of the answer (Android checks it in Rust, as the page world may forge it); the shell keeps only `browser_core::page_ops::selection(text)` (trimmed, at most `SELECTION_MAX_BYTES`, `None` when blank) |
+| command | `ping` | `{seq}` | The hung-page ping (`engine::lifecycle::Hang`): runs `engine::page_scripts::PING`, which reads nothing (page world on Android). Under Lockdown it answers at once, so a hang is not noticed there |
+| event | `pong` | `{seq}` | The page ran the ping; the shell calls `Hang::answered` and redraws only when the hung-page card appears or goes |
+| command | `readMedia` | `{seq}` | Runs `engine::page_scripts::media_state_script()`: the first audible media element; it fetches nothing |
+| event | `mediaState` | `{seq, url, text}` | The component emits only `browser_core::page_ops::media_answer` of the answer (in Rust on Android); the shell keeps only `browser_core::page_ops::MediaState::parse(text)`; empty means none |
+| command | `media` | `{action, seconds?}` | `play`, `pause` or `seekBy` on that element, checked with `browser_core::page_ops::media_command` and run as `engine::page_scripts::media_command_script`; no answer. WebKit runs it as the user's gesture; Android runs it in the page world without one, so `play` works only where the page has allowed playback |
+| command | `snapshotRect` | `{seq, fullPage: true}` or `{seq, x, y, width, height}` | Checked with `browser_core::page_ops::snapshot_area` (CSS pixels of the visible page, sides cut to `engine::view_policy::SNAPSHOT_MAX_SIDE` and the height to `SNAPSHOT_MAX_PIXELS` at the component's device scale). iOS and Android draw only the visible page, so a full page is the visible one there (gap below) |
+| event | `snapshotRect` | `{seq, png}` | A PNG `data:` URI, or null when the area was refused or nothing was drawn |
+| command | `screenshot` | `{seq, name, copy}`, plus `fullPage: true` or `x, y, width, height` | Saves the visible page, or the area (`browser_core::capture::area_args`, checked with `page_ops::snapshot_area`; a refused area saves nothing), as a new PNG under the sanitised `name` in the component's Downloads folder (`capture::save_new`; on Android the private session's folder in a private space) and copies it to the clipboard when `copy` is true (Linux, iOS; not Android, see gaps). The shell sends `copy: browser_core::capture::copies(private)`, so a private space or burner tab never puts a capture on the clipboard or the pasteboard; a missing `copy` copies nothing |
+| command | `insertText` | `{seq, text}` | Insert Snippet: runs `engine::page_scripts::insert_text_script(text)` (client world on iOS, page world on Android), which types the text into the focused text field; the shell sends it only while the tab still shows the committed address Insert Snippet opened on (else `snippets::PAGE_CHANGED`); text over `browser_core::snippets::MAX_SNIPPET` bytes is refused, and nothing runs under Lockdown |
+| event | `textInserted` | `{seq, inserted}` | `browser_core::snippets::inserted` of the script's answer; false when no field had the focus |
+| event | `screenshot` | `{seq, path}` or `{seq, message}` | The shell lists `path` in the tab's own profile store only while `Core::keeps_record_since` allows it (in memory for a private space) |
 | command | `downloadKeep` | `{id, keep}` | Answers `flagged`; anything but `keep: true` cancels. An unanswered one waits, like a paused one, after its component is destroyed |
 
 What the shells build from shared code without the component: copy a clean link
@@ -181,7 +194,17 @@ rows of dark modules with a one-module border; the macOS app keeps CoreImage), s
 link; iOS and Android need a native share sheet from their host).
 
 v3 platform differences:
-- Android runs the picker, reader and page-text scripts in the page world (no isolated world, no bridge);
+- Android runs the picker, reader and page-text scripts, and also `insertText`, `readSelection`,
+  the assistant's selection read, `readMedia`, `media` and `ping`, in the page world: Android WebView
+  offers no isolated world (`evaluateJavascript` always runs in the page's own world) and Tarn keeps no
+  bridge. So the page can see a snippet as it is typed, forge any answer (Rust checks every one:
+  `selection_answer`, `media_answer`, `snippets::inserted`, `capture::element_area`), and `play` runs
+  without the user's gesture. The scripts' own guards hold there only against an honest page: a page
+  can override what `SELECTED_TEXT` uses to refuse a password or card field and what
+  `insert_text_script` uses to find the focused field, so it can hand the assistant other text than
+  the selection, a field's included, or take a snippet into another of its fields. Rust still bounds
+  and trims every answer (`selection_answer`, `SELECTION_MAX_BYTES`) and refuses a snippet over
+  `snippets::MAX_SNIPPET`;
   `findText` reads the page's text there with `page_text_script` (at most 1,000,000 characters) and matches
   the query in Rust (`tarn-mobile-android`'s `find_snippets`, case-insensitive, 60 characters of context), so
   the query never reaches the page; it sends snippets and `matched`, the page's total. A view reads a page's
@@ -277,6 +300,30 @@ decisions come from `browser_core::tarn_ext`.
 - **Gap: the link under the pointer.** Neither WKWebView on iOS nor Android System WebView reports the
   element under a hovering pointer, so the status bubble the desktop clients show for a hovered link has
   nothing to show; a touch has no hover, and a long press shows the link in its menu.
+- **Gap: full-page snapshots.** WKWebView on iOS draws only the visible part of the page into a snapshot,
+  and Android System WebView draws the whole document only after the app-wide
+  `WebView.enableSlowWholeDocumentDraw()`, which slows every view; so `snapshotRect` with `fullPage` gives
+  the visible page on both.
+- **Gap: screenshots on Android's clipboard.** Android's clipboard holds an image only as a content
+  URI, which any app reading the clipboard could then open, so the `screenshot` command saves the PNG
+  to Downloads without copying it.
+- **Gap: a signal that a page started playing.** Neither WKWebView on iOS nor Android System WebView
+  reports when a page starts playing media, so the mini-player (`browser_core::media::Player`) asks a
+  tab when the user leaves it, after a button press and while its media plays; media that starts later
+  in a tab already left shows once the tab is asked again.
+- **On-device model.** iOS answers with Apple's on-device model (`engine::foundation_models`,
+  `tarn-mobile-ios` feature `foundation-models`, iOS 26 SDK), which never leaves the device.
+- **Gap: an on-device model on Android.** The Android SDK has no public on-device language model API
+  (`android.jar` up to API 37 has none); Gemini Nano is reached only through Google's ML Kit GenAI or
+  AI Edge libraries, new Gradle dependencies outside the platform. Ollama is not reachable either
+  (`Fetch.post` is HTTPS only), so Android has no local model and `ai::local::route` answers
+  Unavailable for a local choice there.
+- **Gap: Ollama on iOS.** Ollama does not run on iOS, so nothing answers on `127.0.0.1` there;
+  Settings › AI offers the Claude API only and names this reason (`mobile/app/src/platform.rs`
+  `ASSISTANT`).
+- **Gap: playing media on Android.** Android has no isolated world that runs as the user's gesture, so the
+  `media` command's `play` is refused where the page's media needs one (`setMediaPlaybackRequiresUserGesture`);
+  pause and seek work.
 - **Network rules.** `set_rule_lists` parses each list with `engine::content_rules`; the component applies
   them per request in `shouldInterceptRequest` and in the main-frame checks of `shellLoad`, link navigations
   and history steps, never at Lockdown (the view's or the site's level). As with Shield on Android, an
@@ -815,9 +862,9 @@ Kept from the macOS design: a Safari-style address capsule that shows only the h
 in amber for http, long hosts cut from the start, S5) and the full URL selected while editing, with the
 shield button inside it naming the level only when it is not Standard (amber shield in the private space)
 and Share at its right end while a page is loaded (hidden on an empty tab and while editing); New Tab works
-like ⌘T: it opens an empty tab with the address field focused, the keyboard up and history suggestions as you
-type, and Cancel on a tab nothing was typed into discards it and returns to the tab before (the Mac never
-creates a tab when its new-tab command bar is dismissed);
+like ⌘T: it opens the address field over the current page, the keyboard up and the empty bar's sections
+showing, and creates the tab only when a result is picked, so Cancel creates nothing (`prefs::NEW_TAB_START_PAGE`,
+Settings › New tab opens › Empty tab, opens an empty tab first as before);
 surface cards for the prompt card, notices and the find bar; pill buttons with a pressed fill; segmented
 controls for the Shield level and search engine; switches with the accent track; tiles with radius 14 and an
 accent ring for the active tab; the brand mark on an empty tab over the drifting ASCII fog
@@ -879,6 +926,10 @@ The Profile pane's Shield card offers Flip, Change Design and Share Card but no 
 0.5.0's save dialog answers at once with no path on iOS and Android (`nsh_core::file_dialog`), and the
 mobile workspace has no SVG rasterizer to make the PNG the desktop clients save. Share Card hands the
 card to the system share sheet, whose Save to Files (iOS) or a target app (Android) keeps a copy.
+The hung-page card's Reload gives the tab a new view; on Android every WebView shares the app's one
+renderer process, and `WebViewRenderProcess.terminate()` would end every tab's pages with it, so a page
+that keeps that renderer busy can stay hung after Reload until it lets go. iOS has no public call that
+ends one `WKWebView`'s content process; the new view gets whichever process WebKit picks.
 Sidebar tab rows and tiles drag (to reorder, pin, tile, file into a folder or a group) with a trackpad
 or mouse only: NSH 0.5.0 has pans but no lift-to-drag interaction, a long press already opens the tab's
 menu, and a finger pan on a row would take the list's scrolling; a touch user pins, tiles and groups

@@ -68,27 +68,26 @@ fn new_tab(ui: Ui) -> impl IntoElement {
     icon_button(icons::PLUS, "New Tab", move || open_new_tab(ui))
 }
 
+/// Opens the address field over the current page; the tab is created once the user opens
+/// something from it, or at once when Settings asks for an empty tab.
 pub(super) fn open_new_tab(ui: Ui) {
-    let before = ui.read(|s| s.model.active);
-    let mut opened = None;
-    ui.act(|s| {
-        opened = s.new_tab(None);
-        Vec::new()
-    });
+    let empty = ui.read(|s| s.setting_on(browser_core::prefs::NEW_TAB_START_PAGE.key));
+    if empty {
+        ui.act(|s| {
+            s.new_tab(None);
+            Vec::new()
+        });
+    }
     ui.show(Screen::Browse);
-    ui.fresh.set(opened.zip(before).filter(|(k, b)| k != b));
+    ui.new_tab.set(!empty);
     ui.edit_address();
 }
 
 pub(super) fn cancel(ui: Ui) {
     ui.editing.set(false);
+    ui.actions.set(None);
     dismiss_keyboard();
-    let Some((key, before)) = ui.fresh.get_untracked() else { return };
-    ui.fresh.set(None);
-    ui.act(|s| {
-        s.discard_new_tab(key, before);
-        Vec::new()
-    });
+    ui.new_tab.set(false);
 }
 
 fn shield_button(ui: Ui) -> impl IntoElement {
@@ -172,17 +171,19 @@ fn address_input(ui: Ui) -> nsh_base::Input {
     let completed = signal(None::<(String, String)>);
     let history = signal(std::rc::Rc::new(Vec::<store::HistoryEntry>::new()));
     let resting = move || ui.read(|s| browser_core::command::display_host(&s.active_url()));
-    input()
+    ui.shaking(input())
         .element_ref(&field)
         .value(move || if ui.editing.get() { ui.address.get() } else { resting() })
         .on_focus(move || {
-            let current = ui.read(|s| s.active_url());
+            let current = if ui.new_tab.get_untracked() { String::new() } else { ui.read(|s| s.active_url()) };
             let end = current.encode_utf16().count() as u32;
             ui.address.set(current);
             typed.set(String::new());
             completed.set(None);
             ui.picked.set(None);
             ui.suggest.set(Vec::new());
+            ui.actions.set(None);
+            ui.rejected.set(0);
             history.set(std::rc::Rc::new(ui.read(|s| s.suggestion_history())));
             ui.editing.set(true);
             field.set_selection(0, end);
@@ -190,6 +191,13 @@ fn address_input(ui: Ui) -> nsh_base::Input {
         .on_change(move |value: &str| {
             if !ui.editing.get_untracked() || value == ui.address.get_untracked() {
                 return;
+            }
+            ui.rejected.set(0);
+            if let Some(full) = ui.read(|s| s.expand_snippet(value)) {
+                typed.set(full.clone());
+                completed.set(None);
+                ui.suggest.set(Vec::new());
+                return super::caret_at_end(ui.address, field, full);
             }
             let (rows, completion) = ui.read(|s| s.suggest_from(&history.get_untracked(), &typed.get_untracked(), value));
             typed.set(value.to_owned());
@@ -205,11 +213,13 @@ fn address_input(ui: Ui) -> nsh_base::Input {
         .on_submit(move |value: &str| {
             let picked = ui.picked.get_untracked().and_then(|ix| ui.suggest.with_untracked(|rows| rows.get(ix).map(|h| h.url.clone())));
             let typed = picked.or_else(|| completed.get_untracked().filter(|(full, _)| full == value).map(|(_, url)| url)).unwrap_or_else(|| value.to_owned());
+            if ui.rejects(&typed) {
+                return;
+            }
             ui.editing.set(false);
-            ui.fresh.set(None);
             ui.screen.set(Screen::Browse);
             dismiss_keyboard();
-            ui.act(|s| s.navigate_typed(&typed));
+            ui.open_typed(&typed);
         })
         .keyboard_type(KeyboardType::Url)
         .return_key_type(ReturnKeyType::Go)
@@ -322,6 +332,27 @@ pub fn page_error(ui: Ui) -> impl IntoElement {
                 .child(label(format!("This page could not be loaded: {e}")).flex_1().test_id("page-error").text_color(Theme::danger))
                 .child(accent_pill("Retry", move || ui.act(|s| s.active_command("reload", Value::Null))))
                 .child(pill("Dismiss", move || ui.act(|s| s.dismiss_error())))
+        })
+    })
+}
+
+pub fn page_hang(ui: Ui) -> impl IntoElement {
+    dynamic(move || {
+        let hung = ui.read(|s| s.hung() && s.active_page().is_none_or(|p| p.error.is_none()));
+        (hung && ui.screen.get() == Screen::Browse && !ui.editing.get()).then(|| {
+            surface(Theme::radius_panel())
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .mx_3()
+                .my_1()
+                .pl_4()
+                .pr_1()
+                .py_1()
+                .shadow(Theme::elevation(4., 14.))
+                .child(label(engine::lifecycle::HANG_NOTE).flex_1().test_id("page-hang").text_color(Theme::warning))
+                .child(pill("Wait", move || ui.act(|s| s.wait_for_page())))
+                .child(accent_pill("Reload", move || ui.act(|s| s.reload_hung())))
         })
     })
 }
@@ -444,26 +475,152 @@ fn bind_suggestion_keys(ui: Ui) {
     }
 }
 
+/// A row with a trailing button that opens the row's actions page.
+fn with_more(ui: Ui, row: impl IntoElement, item: browser_core::palette::Item, name: String) -> View {
+    let more = button()
+        .accessibility_label(SharedString::from(format!("Actions for {name}")))
+        .w(px(TOUCH_TARGET))
+        .h(px(TOUCH_TARGET))
+        .items_center()
+        .justify_center()
+        .rounded(px(Theme::radius_row()))
+        .active(|s| s.bg(Theme::pressed))
+        .on_press(move || {
+            ui.picked.set(None);
+            ui.actions.set(Some((item.clone(), name.clone(), None)));
+        })
+        .child(view().text_color(Theme::muted).child(glyphs::icon(glyphs::ELLIPSIS, ICON)));
+    view().flex_row().items_center().child(view().flex_1().child(row)).child(more)
+}
+
+/// The actions page of the row the More button was pressed on, with Back to the list.
+fn action_rows(ui: Ui, item: browser_core::palette::Item, name: String) -> View {
+    let back = button()
+        .accessibility_label("Back to List")
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .min_h(px(TOUCH_TARGET))
+        .px_3()
+        .active(|s| s.bg(Theme::pressed))
+        .on_press(move || ui.actions.set(None))
+        .child(view().text_color(Theme::accent_text).child(glyphs::icon(glyphs::CHEVRON_LEFT, ICON)))
+        .child(label(name).number_of_lines(1).flex_1());
+    let rows_ = super::mac::item_actions(ui, &item).into_iter().map(move |(name, action)| {
+        let item = item.clone();
+        let glyph = glyphs::glyph(browser_core::command::glyph(&name));
+        button()
+            .accessibility_label(SharedString::from(name.clone()))
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .min_h(px(TOUCH_TARGET))
+            .px_3()
+            .rounded(px(Theme::radius_row()))
+            .active(|s| s.bg(Theme::pressed))
+            .on_press(move || super::mac::run_action(ui, item.clone(), action))
+            .child(view().text_color(Theme::muted).child(glyphs::icon(glyph, ICON)))
+            .child(label(name).number_of_lines(1).flex_1())
+            .into_element()
+    });
+    view().flex_col().child(back).children(rows_.collect::<Vec<_>>())
+}
+
+/// The empty field's sections on a phone: a caps header per section and a touch-sized row per entry.
+fn section_rows(ui: Ui, sectioned: &super::mac::Sectioned) -> View {
+    let mut list = view().flex_col();
+    for (ix, (section, entry)) in sectioned.iter().enumerate() {
+        if ix == 0 || sectioned[ix - 1].0 != *section {
+            list = list.child(view().px_3().pt_2().pb_1().child(tarn_nsh_shared::controls::caps_label(section.title())));
+        }
+        let glyph = match &entry.item {
+            browser_core::palette::Item::Command(_) => glyphs::glyph(browser_core::command::glyph(&entry.label)),
+            browser_core::palette::Item::Tab(_) => glyphs::APP_WINDOW,
+            browser_core::palette::Item::Bookmark(_) => glyphs::BOOKMARK,
+            browser_core::palette::Item::History(_) => glyphs::GLOBE,
+        };
+        let item = entry.item.clone();
+        let row_ = button()
+            .accessibility_label(SharedString::from(entry.label.clone()))
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .min_h(px(TOUCH_TARGET))
+            .px_3()
+            .rounded(px(Theme::radius_row()))
+            .active(|s| s.bg(Theme::pressed))
+            .on_press(move || super::mac::open_entry(ui, item.clone()))
+            .child(view().text_color(Theme::muted).child(glyphs::icon(glyph, ICON)))
+            .child(
+                view()
+                    .flex_1()
+                    .child(label(entry.label.clone()).number_of_lines(1))
+                    .children((!entry.detail.is_empty()).then(|| small(entry.detail.clone()).number_of_lines(1))),
+            );
+        list = list.child(with_more(ui, row_, entry.item.clone(), entry.label.clone()));
+    }
+    list
+}
+
 pub fn suggestions(ui: Ui) -> impl IntoElement {
-    let found = move || if ui.editing.get() { ui.suggest.get() } else { Vec::new() };
-    let list = scroll().flex_shrink(1.).style_when(move || ui.wide(), |s| s.flex_1()).child(suggestion_keys(ui)).child(
-        surface(Theme::radius_panel()).p_1().m_2().style_when(move || found().is_empty(), |s| s.hidden()).child(each(
-            found,
-            |h: &store::HistoryEntry| h.url.clone(),
-            move |h, ix| {
-                let entry = h.get_untracked();
-                let url = entry.url.clone();
-                let name = browser_core::command::display_title("", &entry.title, &url);
-                detail_row(Some(icons::GLOBE), name, Some(address_caption(&url, 1, true)), move || {
-                    ui.editing.set(false);
-                    dismiss_keyboard();
-                    ui.act(|s| s.navigate(&url));
-                })
-                .border_b(px(0.))
-                .rounded(px(Theme::radius_row()))
-                .bg(move || if ui.picked.get() == Some(ix.get()) { Theme::selected() } else { Theme::clear() })
-            },
-        )),
+    let paged = move || ui.editing.get() && ui.actions.with(Option::is_some);
+    let sectioned = move || ui.editing.get() && !paged() && ui.address.with(|a| browser_core::palette::sectioned(a));
+    let action_list = dynamic(move || ui.actions.get().filter(|_| ui.editing.get()).map(|(item, name, _)| action_rows(ui, item, name)));
+    let section_list = dynamic(move || {
+        (ui.editing.get() && !ui.mac.get()).then(|| {
+            let listed = super::mac::sections(ui);
+            dynamic(move || sectioned().then(|| section_rows(ui, &listed)))
+        })
+    });
+    let found = move || if ui.editing.get() && !paged() { ui.suggest.get() } else { Vec::new() };
+    let answers = move || if ui.editing.get() && !paged() { ui.address.with(|a| browser_core::palette::answers(a)) } else { Vec::new() };
+    let answer_rows = each(
+        answers,
+        |a: &browser_core::palette::Answer| a.label.clone(),
+        move |a, _| {
+            let answer = a.get_untracked();
+            let copy = answer.copy.clone();
+            detail_row(None, answer.label, Some(small(browser_core::palette::ANSWER_DETAIL).into_element()), move || {
+                ui.editing.set(false);
+                dismiss_keyboard();
+                ui.copy_answer(copy.clone());
+            })
+            .border_b(px(0.))
+            .rounded(px(Theme::radius_row()))
+        },
     );
-    view().flex_1().style_when(move || !ui.editing.get() || ui.mac.get(), |s| s.hidden()).style_when(move || !ui.wide(), |s| s.justify_end()).child(list)
+    let list = scroll().flex_shrink(1.).style_when(move || ui.wide(), |s| s.flex_1()).child(suggestion_keys(ui)).child(ui.invalid_note()).child(
+        surface(Theme::radius_panel())
+            .p_1()
+            .m_2()
+            .style_when(move || found().is_empty() && answers().is_empty() && !sectioned() && !paged(), |s| s.hidden())
+            .child(action_list)
+            .child(section_list)
+            .child(answer_rows)
+            .child(each(
+                found,
+                |h: &store::HistoryEntry| h.url.clone(),
+                move |h, ix| {
+                    let entry = h.get_untracked();
+                    let url = entry.url.clone();
+                    let name = browser_core::command::display_title("", &entry.title, &url);
+                    let item = browser_core::palette::Item::History(url.clone());
+                    let row_ = detail_row(Some(icons::GLOBE), name.clone(), Some(address_caption(&url, 1, true)), move || {
+                        ui.editing.set(false);
+                        dismiss_keyboard();
+                        ui.open_typed(&url);
+                    })
+                    .border_b(px(0.))
+                    .rounded(px(Theme::radius_row()));
+                    with_more(ui, row_, item, name)
+                        .rounded(px(Theme::radius_row()))
+                        .bg(move || if ui.picked.get() == Some(ix.get()) { Theme::selected() } else { Theme::clear() })
+                },
+            )),
+    );
+    view()
+        .flex_1()
+        .style_when(move || !ui.editing.get() || ui.mac.get(), |s| s.hidden())
+        .style_when(move || !ui.wide(), |s| s.justify_end())
+        .child(list.keyboard_taps(KeyboardTaps::Handled))
 }

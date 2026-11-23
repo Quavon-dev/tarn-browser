@@ -4,6 +4,7 @@ use store::{Id, Store, Tab, TabKind, WebEngine};
 
 use crate::bookmarks::top_folder;
 use crate::tabs::{Model, SpaceRef, TabKey};
+use crate::undo::Step;
 use crate::{Core, WebsiteData};
 
 const MAX_CLOSED_TABS: usize = 20;
@@ -155,6 +156,11 @@ impl ClosedTabs {
         self.entries.last().map(|(serial, _)| *serial)
     }
 
+    /// Whether entry `serial` is still kept and its space still exists.
+    pub fn reopenable(&self, serial: u64, spaces: &[SpaceRef]) -> bool {
+        self.entries.iter().any(|(s, closed)| *s == serial && closed.space_ix(spaces).is_some())
+    }
+
     /// Drops the tabs of deleted spaces, so a space that later reuses the id never receives them.
     pub fn retain(&mut self, spaces: &[SpaceRef]) {
         self.entries.retain(|(_, c)| c.space_ix(spaces).is_some());
@@ -237,6 +243,26 @@ impl Archive {
 }
 
 impl Model {
+    /// Puts tabs closed together on the reopen stack and, outside a private space, on the undo
+    /// stack; the entry's serial.
+    pub fn push_closed(&mut self, closed: Closed) -> u64 {
+        let private = closed.private;
+        let serial = self.closed_tabs.push(closed);
+        self.undo.push(Step::Closed(serial), private);
+        serial
+    }
+
+    /// The newest step Undo can still take back; a step whose closed tabs were reopened since, or
+    /// whose space or moved tab is gone, is skipped.
+    pub fn pop_undo<D: WebsiteData>(&mut self, core: &Core<D>) -> Option<Step> {
+        let (closed, spaces) = (&self.closed_tabs, &self.spaces);
+        self.undo.pop(|step| match step {
+            Step::Closed(serial) => closed.reopenable(*serial, spaces),
+            Step::CleanUp(undo) => spaces.iter().any(|s| !s.private && s.space.id == undo.space_id()),
+            Step::Moved(from) => core.store(from.key.private).tab(from.key.id).is_ok(),
+        })
+    }
+
     /// The spaces with unpinned tabs unused for `max_age`, so they outlive a restart as bookmarks;
     /// the shell runs each in turn. The active tab is stamped first, so a tab in use never counts
     /// as unused once left.

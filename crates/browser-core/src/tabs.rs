@@ -1,13 +1,14 @@
 //! One window's spaces and tabs: which space it shows, that space's tabs, folders and groups,
 //! the active tab, the live tabs' lifecycle and the tabs it closed. The shell keeps the views.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use engine::lifecycle::Lifecycle;
 use shield::ShieldLevel;
 use store::{Folder, Group, Id, SavedWindow, Space, Tab, TabKind, WebEngine};
 use url::Url;
 
+use crate::assistant::{Origin, ProfileKind};
 use crate::closed::ClosedTabs;
 use crate::{Core, WebsiteData};
 
@@ -15,6 +16,16 @@ use crate::{Core, WebsiteData};
 pub struct TabKey {
     pub private: bool,
     pub id: Id,
+}
+
+/// A tab the assistant's tab picker lists.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TabChoice {
+    pub key: TabKey,
+    pub title: String,
+    pub url: String,
+    /// Its page is loaded and can be read; a sleeping tab shows as unavailable.
+    pub awake: bool,
 }
 
 pub const TEAR_OFF_EDGE: f32 = 12.;
@@ -71,12 +82,25 @@ pub struct Model {
     pub active: Option<TabKey>,
     pub lifecycle: Lifecycle<TabKey>,
     pub closed_tabs: ClosedTabs,
+    /// What Undo takes back: closes, Clean Ups and sidebar moves of this window.
+    pub undo: crate::undo::Stack,
     /// The saved active tab, picked once the window's space is shown.
     pub(crate) restore_tab: Option<Id>,
     /// The private-store space of this window's burner tab; other windows' burners stay hidden.
     pub burner: Option<Id>,
     burner_profile: Option<Id>,
     pub confined: Option<(bool, Id)>,
+    /// Each tab a link opened, with the tab it opened from, in memory only.
+    openers: HashMap<TabKey, TabKey>,
+}
+
+/// How a new tab was opened, which decides where `Model::insert_index` puts it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opened {
+    /// Typed, a new tab, or opened from outside a page.
+    Typed,
+    /// A link or a pop-up of this tab.
+    Link(TabKey),
 }
 
 impl Model {
@@ -94,10 +118,12 @@ impl Model {
             active: None,
             lifecycle: Lifecycle::new(live_tabs),
             closed_tabs: ClosedTabs::default(),
+            undo: crate::undo::Stack::default(),
             restore_tab: None,
             burner: None,
             burner_profile: None,
             confined: None,
+            openers: HashMap::new(),
         }
     }
 
@@ -412,22 +438,62 @@ impl Model {
         live.or_else(|| candidates.into_iter().find(|k| !live_elsewhere(*k)))
     }
 
-    pub fn new_tab<D: WebsiteData>(&self, core: &Core<D>, url: &str, web_engine: Option<WebEngine>) -> Option<TabKey> {
+    /// A new unpinned tab, typed: on top of the unpinned tabs.
+    pub fn new_tab<D: WebsiteData>(&mut self, core: &Core<D>, url: &str, web_engine: Option<WebEngine>) -> Option<TabKey> {
+        self.open_tab(core, url, web_engine, Opened::Typed)
+    }
+
+    /// A new unpinned tab placed by `insert_index`; a link's tab joins its opener's group.
+    pub fn open_tab<D: WebsiteData>(&mut self, core: &Core<D>, url: &str, web_engine: Option<WebEngine>, opened: Opened) -> Option<TabKey> {
         let space = self.current_space()?;
-        let store = core.store(space.private);
+        let (private, store) = (space.private, core.store(space.private));
         let tab = store.create_tab(space.space.id, TabKind::Ephemeral, None, url, "").ok()?;
         if let Some(engine) = web_engine {
             store.set_tab_web_engine(tab.id, Some(engine)).ok();
         }
-        Some(TabKey { private: space.private, id: tab.id })
+        let key = TabKey { private, id: tab.id };
+        let group = match opened {
+            Opened::Link(opener) => self.tab(opener).filter(|t| t.kind == TabKind::Ephemeral && t.folder_id.is_none()).and_then(|t| t.group_id),
+            Opened::Typed => None,
+        };
+        store.move_tab_to(tab.id, TabKind::Ephemeral, None, self.insert_index(opened), group.map(Some)).ok();
+        let tabs = &self.tabs;
+        self.openers.retain(|k, _| tabs.iter().any(|t| t.id == k.id && private == k.private));
+        if let Opened::Link(opener) = opened {
+            self.openers.insert(key, opener);
+        }
+        Some(key)
     }
 
-    /// Moves `copy`, a new tab at the end of the unpinned tabs, just below the unpinned tab `of`
-    /// and into its group.
+    /// Where a new tab goes among the loose unpinned tabs of the current space: a typed or new
+    /// tab on top, a link's tab after its opener and the tabs opened from it, or from those, just
+    /// below it, in opening order. A link from a pinned tab, a tile, a folder or another space opens
+    /// on top.
+    pub fn insert_index(&self, opened: Opened) -> usize {
+        let Opened::Link(opener) = opened else { return 0 };
+        let mut zone: Vec<&Tab> = self.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.folder_id.is_none()).collect();
+        zone.sort_by_key(|t| t.position);
+        let Some(at) = zone.iter().position(|t| self.key(t) == opener) else { return 0 };
+        let opened_from = |t: &&&Tab| {
+            let mut key = self.key(t);
+            for _ in 0..self.openers.len() {
+                match self.openers.get(&key) {
+                    Some(from) if *from == opener => return true,
+                    Some(from) => key = *from,
+                    None => return false,
+                }
+            }
+            false
+        };
+        let stacked = zone[at + 1..].iter().take_while(opened_from).count();
+        at + 1 + stacked
+    }
+
+    /// Moves `copy`, a new unpinned tab, just below the unpinned tab `of` and into its group.
     pub fn place_copy<D: WebsiteData>(&self, core: &Core<D>, copy: TabKey, of: TabKey) {
         let Some(of) = self.tab(of).filter(|t| t.kind == TabKind::Ephemeral && t.id != copy.id) else { return };
         let store = core.store(copy.private);
-        if store.move_tab(copy.id, TabKind::Ephemeral, None, self.zone_index(of) + 1).is_ok() && of.group_id.is_some() {
+        if store.move_tab(copy.id, TabKind::Ephemeral, None, self.drop_index(copy, of, true)).is_ok() && of.group_id.is_some() {
             store.set_tab_group(copy.id, of.group_id).ok();
         }
     }
@@ -519,6 +585,61 @@ impl Model {
     pub fn active_profile<D: WebsiteData>(&self, core: &Core<D>) -> Option<(bool, Id)> {
         let key = self.active?;
         Some((key.private, self.profile_of(core, key)?))
+    }
+
+    /// The assistant's `Origin` for `page` in the current space: its profile, whether it is private
+    /// or a burner and the page's effective Shield level, per-site setting included; none while
+    /// the profile is not open.
+    pub fn assistant_origin<D: WebsiteData>(&self, core: &Core<D>, page: Option<&str>) -> Option<Origin> {
+        let (private, profile) = self.profile()?;
+        let kind = match (self.burner_shown(), private) {
+            (true, _) => ProfileKind::Burner,
+            (false, true) => ProfileKind::Private,
+            (false, false) => ProfileKind::Normal,
+        };
+        let url = page.and_then(|u| Url::parse(u).ok());
+        Some(Origin { profile, kind, level: core.level(private, profile, url.as_ref())? })
+    }
+
+    /// Whether the palette offers Ask: the assistant is allowed for `page` and its profile has AI on.
+    pub fn assistant_offered<D: WebsiteData>(&self, core: &Core<D>, page: Option<&str>) -> bool {
+        self.assistant_origin(core, page).is_some_and(|o| crate::assistant::allowed(o) && core.disk.profile(o.profile).is_ok_and(|p| p.ai_enabled))
+    }
+
+    /// The command names a page's selection menu offers after Ask Assistant about Selection; none
+    /// where the assistant is not offered for `page`, so the menu shows no assistant entry.
+    pub fn assistant_menu<D: WebsiteData>(&self, core: &Core<D>, page: &str) -> Option<Vec<String>> {
+        self.assistant_menu_for(core, self.assistant_commands(core).as_ref(), page)
+    }
+
+    /// What every page's selection menu in the current profile may offer, read from the store once
+    /// per profile change; none where its kind or AI switch keeps the assistant off.
+    pub fn assistant_commands<D: WebsiteData>(&self, core: &Core<D>) -> Option<Vec<String>> {
+        let profile = self.assistant_origin(core, None).filter(|o| o.kind == ProfileKind::Normal)?.profile;
+        core.disk.profile(profile).is_ok_and(|p| p.ai_enabled).then(|| crate::assistant::commands::names(&core.disk.ai_commands(profile).unwrap_or_default()))
+    }
+
+    /// `assistant_menu` from `commands` (`assistant_commands`), deciding only `page`'s level.
+    pub fn assistant_menu_for<D: WebsiteData>(&self, core: &Core<D>, commands: Option<&Vec<String>>, page: &str) -> Option<Vec<String>> {
+        commands.filter(|_| self.assistant_origin(core, Some(page)).is_some_and(crate::assistant::allowed)).cloned()
+    }
+
+    /// The chat's tab picker: the current space's other web tabs the assistant may read, with
+    /// their page's address from `url_of`. A sleeping tab is listed but not `awake`; it is never
+    /// woken to be read.
+    pub fn assistant_tabs<D: WebsiteData>(&self, core: &Core<D>, url_of: impl Fn(TabKey, &Tab) -> String) -> Vec<TabChoice> {
+        let Some(private) = self.current_space().map(|s| s.private).filter(|_| self.assistant_offered(core, None)) else { return Vec::new() };
+        self.tabs
+            .iter()
+            .map(|t| (TabKey { private, id: t.id }, t))
+            .filter(|(key, _)| self.active != Some(*key))
+            .filter_map(|(key, t)| {
+                let url = url_of(key, t);
+                let web = Url::parse(&url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"));
+                let allowed = web && self.assistant_offered(core, Some(&url));
+                allowed.then(|| TabChoice { key, title: crate::text::title_or_host(&t.title, &url), url, awake: self.lifecycle.live().any(|k| k == key) })
+            })
+            .collect()
     }
 
     /// Whether the space at `ix` belongs to the profile, and the side, of the tab.
@@ -787,6 +908,65 @@ mod tests {
     }
 
     #[test]
+    fn the_tab_picker_lists_other_web_tabs_the_assistant_may_read_and_wakes_none() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let tab = |url: &str| core.disk.create_tab(s, TabKind::Ephemeral, None, url, "").unwrap().id;
+        let (active, awake, asleep, locked, local) =
+            (tab("https://a.test/"), tab("https://b.test/"), tab("https://c.test/"), tab("https://bank.test/"), tab("file:///x"));
+        model.reload_space(&core);
+        let profile = model.profile().unwrap().1;
+        core.disk.set_site_override(profile, "bank.test", Some(ShieldLevel::Lockdown)).unwrap();
+        core.open_profile(false, profile, || std::rc::Rc::new(|_| {}));
+        let key = |id| TabKey { private: false, id };
+        model.active = Some(key(active));
+        model.lifecycle.activate(key(awake));
+        model.lifecycle.activate(key(active));
+        let picked = |model: &Model| model.assistant_tabs(&core, |_, t| t.url.clone()).into_iter().map(|c| (c.key.id, c.awake)).collect::<Vec<_>>();
+        assert!(picked(&model).is_empty(), "nothing is listed with AI off");
+        assert_eq!(model.assistant_menu(&core, "https://a.test/"), None);
+        core.disk.set_profile_ai(profile, true).unwrap();
+        assert_eq!(picked(&model), [(awake, true), (asleep, false)], "not the active tab, a Lockdown site or a local file");
+        assert!(![locked, local].iter().any(|id| picked(&model).iter().any(|(p, _)| p == id)));
+        assert!(model.lifecycle.live().all(|k| k != key(asleep)), "listing wakes no tab");
+        assert_eq!(model.assistant_tabs(&core, |_, t| t.url.clone())[0].title, "b.test");
+        assert_eq!(model.assistant_menu(&core, "https://a.test/").map(|m| m.len()), Some(5));
+        assert_eq!(model.assistant_menu(&core, "https://bank.test/"), None, "a Lockdown page offers no assistant entry");
+        let commands = model.assistant_commands(&core);
+        assert_eq!(model.assistant_menu_for(&core, commands.as_ref(), "https://a.test/"), model.assistant_menu(&core, "https://a.test/"));
+        assert_eq!(model.assistant_menu_for(&core, commands.as_ref(), "https://bank.test/"), None);
+        core.disk.set_profile_ai(profile, false).unwrap();
+        assert_eq!(model.assistant_commands(&core), None, "AI off offers no command");
+        core.disk.set_profile_ai(profile, true).unwrap();
+        let ix = model.open_burner(&core).unwrap();
+        model.switch_space(&core, ix).unwrap();
+        core.open_profile(true, model.profile().unwrap().1, || std::rc::Rc::new(|_| {}));
+        assert!(picked(&model).is_empty(), "a burner lists nothing");
+    }
+
+    #[test]
+    fn the_assistant_origin_carries_the_kind_and_the_sites_own_level() {
+        let (_dir, core, mut model) = opened();
+        let profile = model.profile().unwrap().1;
+        assert_eq!(model.assistant_origin(&core, Some("https://a.test/")), None, "an unopened profile has no origin");
+        core.disk.set_site_override(profile, "bank.test", Some(ShieldLevel::Lockdown)).unwrap();
+        core.open_profile(false, profile, || std::rc::Rc::new(|_| {}));
+        let origin = |model: &Model, page| model.assistant_origin(&core, page).map(|o| (o.kind, o.level));
+        assert_eq!(origin(&model, Some("https://a.test/")), Some((ProfileKind::Normal, ShieldLevel::Standard)));
+        assert_eq!(origin(&model, Some("https://bank.test/x")), Some((ProfileKind::Normal, ShieldLevel::Lockdown)));
+        assert!(!model.assistant_offered(&core, Some("https://a.test/")), "AI is off by default");
+        core.disk.set_profile_ai(profile, true).unwrap();
+        assert!(model.assistant_offered(&core, Some("https://a.test/")) && model.assistant_offered(&core, None));
+        assert!(!model.assistant_offered(&core, Some("https://bank.test/")));
+        let ix = model.open_burner(&core).unwrap();
+        model.switch_space(&core, ix).unwrap();
+        let burner = model.profile().unwrap().1;
+        core.open_profile(true, burner, || std::rc::Rc::new(|_| {}));
+        assert_eq!(origin(&model, None).map(|(kind, _)| kind), Some(ProfileKind::Burner));
+        assert!(!model.assistant_offered(&core, None));
+    }
+
+    #[test]
     fn a_tab_dragged_out_moves_to_a_space_only_its_window_lists() {
         let (_dir, core, mut model) = opened();
         let space = model.current_space().unwrap().space.id;
@@ -971,6 +1151,39 @@ mod tests {
     }
 
     #[test]
+    fn typed_tabs_go_on_top_and_link_tabs_stack_after_their_opener() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let pinned = core.disk.create_tab(s, TabKind::Pinned, None, "https://pinned.test/", "").unwrap().id;
+        let open = |model: &mut Model, opened: Opened| {
+            let key = model.open_tab(&core, "https://a.test/", None, opened).unwrap();
+            model.reload_space(&core);
+            key
+        };
+        let loose = |model: &Model| model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral).map(|t| t.id).collect::<Vec<_>>();
+        let a = open(&mut model, Opened::Typed);
+        let b = open(&mut model, Opened::Typed);
+        assert_eq!(loose(&model), [b.id, a.id], "typed tabs go on top");
+        let a1 = open(&mut model, Opened::Link(a));
+        let a2 = open(&mut model, Opened::Link(a));
+        let b1 = open(&mut model, Opened::Link(b));
+        assert_eq!(loose(&model), [b.id, b1.id, a.id, a1.id, a2.id], "links stack after their opener in opening order");
+        let a11 = open(&mut model, Opened::Link(a1));
+        assert_eq!(loose(&model), [b.id, b1.id, a.id, a1.id, a11.id, a2.id]);
+        let a3 = open(&mut model, Opened::Link(a));
+        assert_eq!(loose(&model)[3..], [a1.id, a11.id, a2.id, a3.id], "a stack holds the tabs opened from its tabs too");
+        let from_pinned = open(&mut model, Opened::Link(TabKey { private: false, id: pinned }));
+        assert_eq!(loose(&model)[0], from_pinned.id);
+        let group = core.disk.create_group(s, "G").unwrap().id;
+        core.disk.set_tab_group(b.id, Some(group)).unwrap();
+        model.reload_space(&core);
+        let grouped = open(&mut model, Opened::Link(b));
+        assert_eq!(model.tab(grouped).unwrap().group_id, Some(group), "a link's tab joins its opener's group");
+        let typed = open(&mut model, Opened::Typed);
+        assert_eq!(model.tab(typed).unwrap().group_id, None);
+    }
+
+    #[test]
     fn a_copy_lands_below_its_tab_in_the_same_group() {
         let (_dir, core, mut model) = opened();
         let s = model.spaces[0].space.id;
@@ -982,6 +1195,13 @@ mod tests {
         model.reload_space(&core);
         let key = |id| TabKey { private: false, id };
         model.place_copy(&core, key(copy), key(b));
+        model.reload_space(&core);
+        let first = model.new_tab(&core, "https://a.test/", None).unwrap();
+        model.reload_space(&core);
+        model.place_copy(&core, first, key(a));
+        model.reload_space(&core);
+        assert_eq!(model.tabs.iter().map(|t| t.id).collect::<Vec<_>>(), [a, first.id, b, copy, c], "a copy from above lands below too");
+        core.disk.delete_tab(first.id).unwrap();
         model.reload_space(&core);
         assert_eq!(model.tabs.iter().map(|t| t.id).collect::<Vec<_>>(), [a, b, copy, c]);
         assert_eq!(model.tab(key(copy)).unwrap().group_id, Some(group));
@@ -1250,7 +1470,7 @@ mod tests {
 
     #[test]
     fn new_tabs_join_the_current_space_with_the_engine_asked_for() {
-        let (_dir, core, model) = opened();
+        let (_dir, core, mut model) = opened();
         let key = model.new_tab(&core, "https://a.test/", Some(WebEngine::Chromium)).unwrap();
         let tab = core.disk.tab(key.id).unwrap();
         assert_eq!((tab.space_id, tab.kind, tab.web_engine), (model.spaces[0].space.id, TabKind::Ephemeral, Some(WebEngine::Chromium)));

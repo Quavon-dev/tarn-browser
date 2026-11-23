@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Instant, UNIX_EPOCH};
 
+use browser_core::palette::{Command, Item};
 use browser_core::suggest::{self, Page};
 use engine::nav_policy::{self, Decision, Source};
 use engine::{DataStore, Event, Host, Popup, Prompt, PromptKind, WebView};
@@ -74,7 +75,7 @@ impl Browser {
 }
 
 use browser_core::closed::ClosedTab;
-pub use browser_core::tabs::{SpaceRef, TabKey, folder_tree};
+pub use browser_core::tabs::{Opened, SpaceRef, TabKey, folder_tree};
 
 #[derive(Default, Clone)]
 pub struct PageState {
@@ -128,6 +129,11 @@ pub(crate) enum Msg {
     Handover(TabKey, std::rc::Weak<WebView>, Option<engine::handover::Storage>),
     /// A page's article (`probe`: whether it has one), for the reader.
     Article(TabKey, Url, bool, String),
+    /// A page or another tab read for the assistant: the tab, who asked and the pill.
+    AssistantPill(TabKey, browser_core::assistant::Origin, browser_core::assistant::Pill),
+    /// The selection a tab's menu asked the assistant about: the tab, who asked, the page it was
+    /// read from, the raw text and the command.
+    AssistantSelection(TabKey, browser_core::assistant::Origin, String, String, Option<String>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -135,6 +141,7 @@ pub enum CommandMode {
     NewTab,
     Current,
     FindInTabs,
+    Snippets,
 }
 
 pub enum Target {
@@ -144,9 +151,17 @@ pub enum Target {
     Action(Box<dyn gpui::Action>),
     /// A tab whose text, or title and address, contains the query.
     Find(TabKey, String),
+    /// An answer of `palette::answers`, which Enter copies.
+    Copy(String),
+    /// A snippet's body, which Enter types into the page; empty for the row saying there are none.
+    Snippet(String),
+    /// A row of the actions page: what it acts on and what it does.
+    Act(Item, browser_core::palette::Action),
 }
 
 pub struct Suggestion {
+    /// The empty bar's section the row is listed in; `None` derives it from the target.
+    pub section: Option<browser_core::command::Section>,
     pub label: String,
     pub detail: String,
     pub target: Target,
@@ -263,9 +278,14 @@ pub struct Browser {
     #[cfg(feature = "translation")]
     pub(crate) translation_offered: HashSet<(bool, Id, String)>,
     pub sidebar_open: bool,
+    pub(crate) tab_placement: browser_core::layout::TabPlacement,
     pub sidebar_width: f32,
     pub(crate) toast: crate::toast::Toasts,
     pub(crate) link_status: crate::link_status::LinkStatus,
+    pub(crate) capture_overlay: Option<crate::capture_overlay::Overlay>,
+    pub(crate) mini_player: crate::mini_player::MiniPlayer,
+    /// The tab and committed address Insert Snippet opened on.
+    pub(crate) snippet_page: Option<(TabKey, String)>,
     /// New tabs whose first load is a page's link, so S10 judges every redirect hop.
     link_loads: HashMap<TabKey, Option<Url>>,
     pub suggestions: Vec<Suggestion>,
@@ -275,6 +295,11 @@ pub struct Browser {
     /// The last page-text search: profile, query and the visits it found.
     history_text: Option<(Id, String, Vec<HistoryEntry>)>,
     history_text_search: Option<Task<()>>,
+    /// The actions page in the command bar: the row it acts on, and the row to return to.
+    pub(crate) actions_page: Option<(String, usize)>,
+    /// How often Enter met an address Tarn cannot open since the field last changed; the field
+    /// shakes each time, or says so under Reduce Motion.
+    pub(crate) rejected: u64,
     /// The query and completion the suggestions were last built for, so a late text search can
     /// rebuild them without completing the field again.
     suggested: Option<(String, Option<suggest::Completion>)>,
@@ -303,6 +328,7 @@ pub struct Browser {
     pub space_switched_at: Option<i64>,
     /// When Reload was last asked for, so its arrow spins at least `SPIN` even for a cached page.
     pub(crate) reload_spin: Option<(TabKey, Instant)>,
+    pub(crate) hang: engine::lifecycle::Hang<TabKey>,
     /// A display frame is booked to redraw the spinners.
     spinning: bool,
     /// The profile whose bookmarks `bookmarks` holds; `reload_bookmarks` refreshes them.
@@ -374,6 +400,7 @@ pub struct Browser {
     /// The button the next menu drops from; without one it opens at the pointer.
     pub(crate) menu_at: Option<Bounds<Pixels>>,
     pub(crate) link_peek: crate::link_peek::LinkPeek,
+    pub(crate) assistant: crate::assistant::Assistant,
     pub(crate) splits: browser_core::split::Splits<TabKey>,
     pub(crate) split_shown: crate::split::Shown,
     /// The row a dragged tab is over, when the drop would split with it what the drop does, and
@@ -431,6 +458,7 @@ impl Browser {
         let find_input = cx.new(|cx| TextInput::new("Find in page", cx));
         let prompt_subs = [&prompt_input, &auth_user, &auth_pass].map(|input| cx.subscribe_in(input, window, Self::on_prompt_input_event));
         let find_sub = cx.subscribe_in(&find_input, window, Self::on_find_event);
+        let assistant = crate::assistant::Assistant::new(window, cx);
         let (tx, mut rx) = mpsc::unbounded::<Msg>();
         let events_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(msg) = rx.next().await {
@@ -451,6 +479,12 @@ impl Browser {
                     Msg::Zap(key, page, selector) => b.zap_picked(key, page, selector, cx),
                     Msg::Article(key, url, probe, text) => b.on_article(key, url, probe, text, window, cx),
                     Msg::Peek(generation, event) => b.on_peek_event(generation, event, cx),
+                    Msg::AssistantPill(key, origin, pill) => b.add_read_pill(key, origin, pill, cx),
+                    Msg::AssistantSelection(key, origin, url, raw, command) => {
+                        if browser_core::assistant::read_here(&url, b.tab_url(key).as_deref()) {
+                            b.selection_for_assistant(origin, &url, &raw, command, window, cx);
+                        }
+                    }
                     Msg::Handover(key, old, storage) => {
                         let current = b.views.get(&key).is_some_and(|v| old.upgrade().is_some_and(|o| Rc::ptr_eq(v, &o)));
                         if let (true, Some(url)) = (current, b.tab_url(key).and_then(|u| Url::parse(&u).ok())) {
@@ -465,7 +499,8 @@ impl Browser {
             }
         });
         let live_tabs = crate::prefs::live_tabs(disk);
-        let sidebar_open = crate::prefs::sidebar_open(disk);
+        let tab_placement = browser_core::layout::TabPlacement::load(disk);
+        let sidebar_open = crate::prefs::sidebar_open(disk) && tab_placement == browser_core::layout::TabPlacement::Side;
         let sidebar_width = crate::prefs::sidebar_width(disk);
         let mut browser = Browser {
             core,
@@ -485,9 +520,13 @@ impl Browser {
             #[cfg(feature = "translation")]
             translation_offered: HashSet::new(),
             sidebar_open,
+            tab_placement,
             sidebar_width,
             toast: Default::default(),
             link_status: Default::default(),
+            capture_overlay: None,
+            mini_player: Default::default(),
+            snippet_page: None,
             link_loads: HashMap::new(),
             suggestions: Vec::new(),
             selected: 0,
@@ -495,6 +534,8 @@ impl Browser {
             history_cache: Vec::new(),
             history_text: None,
             history_text_search: None,
+            actions_page: None,
+            rejected: 0,
             suggested: None,
             pending_external: None,
             downloads_popover: Default::default(),
@@ -513,6 +554,7 @@ impl Browser {
             refocus: false,
             space_switched_at: None,
             reload_spin: None,
+            hang: Default::default(),
             spinning: false,
             bookmarks_of: None,
             burner_return: None,
@@ -530,7 +572,7 @@ impl Browser {
             focus: cx.focus_handle(),
             _tasks: vec![events_task],
             _subscriptions: [subscription, find_sub].into_iter().chain(prompt_subs).collect(),
-            swipe: crate::gestures::Swipe::new(engine::menu::natural_scrolling()),
+            swipe: crate::gestures::Swipe::natural(engine::menu::natural_scrolling()),
             pan: Default::default(),
             #[cfg(windows)]
             wheel: None,
@@ -572,6 +614,7 @@ impl Browser {
             app_menu_anchor: Default::default(),
             menu_at: None,
             link_peek: Default::default(),
+            assistant,
             splits: Default::default(),
             split_shown: Default::default(),
             split_drop: None,
@@ -624,6 +667,7 @@ impl Browser {
         browser.watch_navigation_buttons(window, cx);
         browser.watch_split_clicks(window, cx);
         browser.watch_peek_pointer(window, cx);
+        browser.watch_hangs(cx);
         browser.developer = browser.core.disk.setting(DEVELOPER_SETTING).ok().flatten().as_deref() == Some("on");
         if browser.developer {
             browser.refresh_local_servers(cx);
@@ -1157,6 +1201,7 @@ impl Browser {
             return;
         }
         let switched = self.model.active != Some(key);
+        let _span = switched.then(|| engine::startup::span(engine::startup::TAB_SWITCH)).flatten();
         if switched {
             self.leave_page_fullscreen(window);
         }
@@ -1175,6 +1220,9 @@ impl Browser {
             } else {
                 prev.set_visible(false);
             }
+        }
+        if let Some(prev) = self.model.active.filter(|p| *p != key) {
+            self.ask_media(prev, cx);
         }
         let left = Instant::now();
         self.seen.extend(self.model.active.into_iter().chain([key]).map(|k| (k, left)));
@@ -1276,6 +1324,7 @@ impl Browser {
     /// Drops this window's view of `key`, and the fade still showing it.
     fn take_view(&mut self, key: TabKey) -> Option<Rc<WebView>> {
         self.typed_in.remove(&key);
+        self.forget_media(key);
         let view = self.views.remove(&key)?;
         if self.page_fade.as_ref().is_some_and(|(fading, _)| Rc::ptr_eq(fading, &view)) {
             self.page_fade = None;
@@ -1306,18 +1355,19 @@ impl Browser {
     }
 
     pub fn new_tab(&mut self, url: &Url, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_tab_in(url, None, window, cx);
+        self.new_tab_in(url, None, Opened::Typed, window, cx);
     }
 
-    /// A new tab whose `tabs.web_engine` is `web_engine`, as for a copy or a pop-up of a tab.
-    pub(crate) fn new_tab_in(&mut self, url: &Url, web_engine: Option<WebEngine>, window: &mut Window, cx: &mut Context<Self>) {
+    /// A new tab whose `tabs.web_engine` is `web_engine`, as for a copy or a pop-up of a tab,
+    /// placed as `opened` says.
+    pub(crate) fn new_tab_in(&mut self, url: &Url, web_engine: Option<WebEngine>, opened: Opened, window: &mut Window, cx: &mut Context<Self>) {
         if self.model.burner_shown()
             && let Some(key) = self.model.tabs.first().map(|t| self.model.key(t))
         {
             self.activate(key, window, cx);
             return self.navigate(url, window, cx);
         }
-        let Some(key) = self.model.new_tab(&self.core, url.as_str(), web_engine.or(self.saved.web_engine)) else { return };
+        let Some(key) = self.model.open_tab(&self.core, url.as_str(), web_engine.or(self.saved.web_engine), opened) else { return };
         self.reload_space();
         self.activate(key, window, cx);
     }
@@ -1441,6 +1491,7 @@ impl Browser {
         if self.abandoned || ix >= self.model.spaces.len() || self.in_main(window, cx, move |b, window, cx| b.switch_space(ix, window, cx)) {
             return;
         }
+        let _span = (ix != self.model.space_ix).then(|| engine::startup::span(engine::startup::SPACE_SWITCH)).flatten();
         self.commit_rename(cx);
         self.hide_hover_card(cx);
         if self.command_mode.is_some() {
@@ -1487,9 +1538,13 @@ impl Browser {
             CommandMode::Current => {
                 self.active_view().and_then(|v| v.url()).map(String::from).or_else(|| self.model.active_tab().map(|t| t.url.clone())).unwrap_or_default()
             }
-            CommandMode::NewTab | CommandMode::FindInTabs => String::new(),
+            CommandMode::NewTab | CommandMode::FindInTabs | CommandMode::Snippets => String::new(),
         };
-        let placeholder = if mode == CommandMode::FindInTabs { "Find in this space's tabs" } else { "Search or enter address" };
+        let placeholder = match mode {
+            CommandMode::FindInTabs => "Find in this space's tabs",
+            CommandMode::Snippets => "Insert a snippet",
+            _ => "Search or enter address",
+        };
         let private = self.model.private();
         self.history_cache = self.model.current_space().map(|s| s.space.profile_id).and_then(|p| self.store(private).history(p, 2000).ok()).unwrap_or_default();
         self.history_text = None;
@@ -1552,6 +1607,8 @@ impl Browser {
         let field = self.command_mode.is_some();
         let covered = field || self.shortcuts_open;
         self.launcher_from = None;
+        self.actions_page = None;
+        self.rejected = 0;
         self.close_inline(cx);
         self.overlay_exit = None;
         self.command_mode = None;
@@ -1613,9 +1670,17 @@ impl Browser {
 
     fn on_command_event(&mut self, _: &Entity<TextInput>, event: &TextInputEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
-            TextInputEvent::Changed => self.update_suggestions(cx),
+            TextInputEvent::Changed => {
+                self.rejected = 0;
+                if self.command_mode != Some(CommandMode::Snippets) {
+                    self.expand_snippet(cx);
+                }
+                self.update_suggestions(cx)
+            }
             TextInputEvent::Submit => self.submit_command(self.selected, window, cx),
+            TextInputEvent::Cancel if self.actions_page.is_some() => self.leave_actions(cx),
             TextInputEvent::Cancel => self.dismiss_overlay(window, cx),
+            TextInputEvent::PastEnd => self.open_actions(self.selected, cx),
             TextInputEvent::Up => self.select_suggestion(false, cx),
             TextInputEvent::Down => self.select_suggestion(true, cx),
             TextInputEvent::MenuClosed if !window.is_window_active() && self.inline_editing() => self.close_command(window, cx),
@@ -1637,7 +1702,7 @@ impl Browser {
         }
         command::rank_commands(query, rows.iter().map(|(label, _)| (label.as_str(), "space workspace")))
             .into_iter()
-            .map(|ix| Suggestion { label: rows[ix].0.clone(), detail: String::new(), target: Target::Action(rows[ix].1.boxed_clone()) })
+            .map(|ix| Suggestion { section: None, label: rows[ix].0.clone(), detail: String::new(), target: Target::Action(rows[ix].1.boxed_clone()) })
             .collect()
     }
 
@@ -1645,8 +1710,106 @@ impl Browser {
         self.suggest(None, cx);
     }
 
+    /// What an actions page can act on for a row, if anything.
+    pub(crate) fn row_item(&self, s: &Suggestion) -> Option<Item> {
+        use browser_core::command::Section;
+        match &s.target {
+            Target::Tab(key) | Target::Find(key, _) => Some(Item::Tab(key.id)),
+            Target::Url(u) if s.section == Some(Section::Favorites) => Some(Item::Bookmark(u.to_string())),
+            Target::Url(u) => Some(Item::History(u.to_string())),
+            Target::Input(Input::Command(ix)) => browser_core::palette::COMMANDS.get(*ix).map(|c| Item::Command(c.2)),
+            _ => None,
+        }
+    }
+
+    /// Lists the actions of row `ix` in place of the rows; Esc goes back to them.
+    pub(crate) fn open_actions(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if !matches!(self.command_mode, Some(CommandMode::NewTab | CommandMode::Current)) || self.actions_page.is_some() {
+            return;
+        }
+        let Some((row, item)) = self.suggestions.get(ix).and_then(|s| Some((s, self.row_item(s)?))) else { return };
+        let title = row.label.clone();
+        let spaces: Vec<String> = match item {
+            Item::Tab(id) => {
+                let key = TabKey { private: self.model.private(), id };
+                self.model.move_targets(&self.core, key).into_iter().map(|ix| self.model.spaces[ix].space.name.clone()).collect()
+            }
+            _ => Vec::new(),
+        };
+        let names: Vec<&str> = spaces.iter().map(String::as_str).collect();
+        let shortcut = match item {
+            Item::Command(c) => crate::command_action(c).map(|a| crate::shortcuts::shown(a, cx)).unwrap_or_default(),
+            _ => String::new(),
+        };
+        self.suggestions = browser_core::palette::actions(&item, &names)
+            .into_iter()
+            .map(|(label, action)| {
+                let detail = if action == browser_core::palette::Action::Run { shortcut.clone() } else { String::new() };
+                Suggestion { section: None, label, detail, target: Target::Act(item.clone(), action) }
+            })
+            .collect();
+        self.actions_page = Some((title, ix));
+        self.select_suggestion_at(0, cx);
+    }
+
+    pub(crate) fn leave_actions(&mut self, cx: &mut Context<Self>) {
+        let Some((_, back)) = self.actions_page.take() else { return };
+        self.suggest(self.suggested.clone(), cx);
+        self.select_suggestion_at(back, cx);
+    }
+
+    /// Runs an action of the actions page, mostly as the row it stands for would run.
+    fn run_action(&mut self, ix: usize, item: Item, action: browser_core::palette::Action, window: &mut Window, cx: &mut Context<Self>) {
+        use browser_core::palette::Action;
+        let private = self.model.private();
+        let url = match &item {
+            Item::Tab(id) => self.tab_url(TabKey { private, id: *id }).map(|u| u.to_string()),
+            Item::Bookmark(u) | Item::History(u) => Some(u.clone()),
+            Item::Command(_) => None,
+        };
+        let target = match (item, action) {
+            (Item::Command(c), Action::Run) => Target::Input(Input::Command(c.index())),
+            (Item::Tab(id), Action::Switch) => Target::Tab(TabKey { private, id }),
+            (Item::Tab(id), Action::Close) => {
+                self.close_command(window, cx);
+                return self.close_tab(TabKey { private, id }, window, cx);
+            }
+            (Item::Tab(id), Action::MoveToSpace(n)) => {
+                let key = TabKey { private, id };
+                let Some(space) = self.model.move_targets(&self.core, key).get(n).copied() else { return };
+                self.close_command(window, cx);
+                return self.move_to_space(key, space, window, cx);
+            }
+            (Item::History(u), Action::RemoveFromHistory) => {
+                self.remove_history_url(&u, cx);
+                self.actions_page = None;
+                return self.suggest(None, cx);
+            }
+            (_, Action::CopyLink) => match url {
+                Some(u) => Target::Copy(u),
+                None => return,
+            },
+            (_, Action::OpenInNewTab) => {
+                self.command_mode = Some(CommandMode::NewTab);
+                match url.and_then(|u| Url::parse(&u).ok()) {
+                    Some(u) => Target::Url(u),
+                    None => return,
+                }
+            }
+            (_, Action::Open) => match url.and_then(|u| Url::parse(&u).ok()) {
+                Some(u) => Target::Url(u),
+                None => return,
+            },
+            _ => return,
+        };
+        self.actions_page = None;
+        self.suggestions[ix].target = target;
+        self.submit_command(ix, window, cx);
+    }
+
     pub(crate) fn refresh_open_suggestions(&mut self, cx: &mut Context<Self>) {
         if self.command_mode.is_some()
+            && self.actions_page.is_none()
             && let Some(again) = self.suggested.clone()
         {
             self.suggest(Some(again), cx);
@@ -1656,63 +1819,106 @@ impl Browser {
     /// Builds the suggestions for the field's text, or `again` for the query and completion they
     /// were last built for.
     fn suggest(&mut self, again: Option<(String, Option<suggest::Completion>)>, cx: &mut Context<Self>) {
+        let _span =
+            (again.is_none() && self.command_mode != Some(CommandMode::FindInTabs)).then(|| engine::startup::span(engine::startup::PALETTE_QUERY)).flatten();
         let rebuilt = again.is_some();
+        if rebuilt && self.actions_page.is_some() {
+            return;
+        }
+        self.actions_page = None;
         let (query, kept) = again.map_or_else(|| (self.command.read(cx).text().trim().to_owned(), None), |(q, c)| (q, Some(c)));
         if !rebuilt {
             (self.history_text_search, self.suggested) = (None, None);
         }
-        if self.command_mode == Some(CommandMode::FindInTabs) {
-            return self.find_in_tabs(query, cx);
+        match self.command_mode {
+            Some(CommandMode::FindInTabs) => return self.find_in_tabs(query, cx),
+            Some(CommandMode::Snippets) => return self.snippet_rows(&query, cx),
+            _ => {}
         }
         let mut out = Vec::new();
-        let mut commands = command::rank_commands(&query, crate::COMMANDS.iter().map(|c| (c.0, c.1)));
-        let has_site = self.site().is_some();
-        commands.retain(|ix| has_site || !crate::COMMANDS[*ix].2.partial_eq(&crate::site_settings::SiteSettings));
-        // Which engine the tab can switch to reads the profile and a lock file, so only when a
-        // switch command is ranked at all.
-        let switching = commands.iter().any(|ix| {
-            let action = crate::COMMANDS[*ix].2;
-            action.partial_eq(&crate::tabs::ReloadInChromium) || action.partial_eq(&crate::tabs::ReloadInWebKit)
-        });
-        let to = self.model.active.filter(|_| switching).and_then(|k| self.web_engine_switch(k));
-        let private = self.model.private();
-        let zappable = self.site().is_some_and(|(k, u)| self.zappable(k, &u));
-        let titled = self.model.active_tab().is_some_and(|t| !t.custom_title.is_empty());
-        let drifted = self.model.active.and_then(|k| self.pinned_drift(k)).is_some();
-        let split = self.model.active.is_some_and(|a| self.splits.contains(a));
-        let pinned = self.model.active_tab().is_some_and(|t| t.kind != store::TabKind::Ephemeral);
-        let muted = self.model.active.is_some_and(|k| self.tab_muted(k));
-        let reopenable = !self.model.closed_tabs.is_empty();
-        let toast_command = self.toast_command();
-        let duplicates = !self.duplicate_tabs().is_empty();
-        commands.retain(|ix| {
-            let action = crate::COMMANDS[*ix].2;
-            let is = |a: &dyn gpui::Action| action.partial_eq(a);
-            !(is(&crate::tabs::ReloadInChromium) && to != Some(WebEngine::Chromium)
-                || is(&crate::tabs::ReloadInWebKit) && to != Some(WebEngine::WebKit)
-                || private && (is(&crate::library::SaveSnapshot) || is(&crate::library::RestoreSnapshot))
-                || !zappable && is(&crate::zaps::ZapElement)
-                || !titled && is(&crate::tabs::ResetTabTitle)
-                || !drifted && (is(&crate::tabs::ReturnToPinnedUrl) || is(&crate::tabs::SetPinnedUrl))
-                || !reopenable && is(&crate::ReopenClosedTab)
-                || toast_command.is_none() && is(&crate::toast::ToastAction)
-                || !duplicates && is(&crate::tabs::CloseDuplicateTabs)
-                || !split
-                    && (is(&crate::split::FocusNextPane)
-                        || is(&crate::split::FocusPreviousPane)
-                        || is(&crate::split::SwapPanes)
-                        || is(&crate::split::RotateSplitLayout)
-                        || is(&crate::split::RemoveFromSplitView)
-                        || is(&crate::split::CloseSplitView)))
-        });
-        let command = |ix: usize| {
-            let (label, _, action) = crate::COMMANDS[ix];
-            let is = |a: &dyn gpui::Action| action.partial_eq(a);
-            let on = is(&crate::TogglePin) && pinned || is(&crate::menubar::ToggleMute) && muted || is(&crate::split::ToggleSplitView) && split;
-            let shown = crate::tabs::state_label(action, on).map(str::to_owned);
-            let label = shown.or_else(|| toast_command.clone().filter(|_| is(&crate::toast::ToastAction))).unwrap_or_else(|| label.to_owned());
-            Suggestion { label, detail: crate::shortcuts::shown(action, cx), target: Target::Input(Input::Command(ix)) }
+        let site = self.site();
+        let tab = self.model.active_tab();
+        let idle = |a: &dyn gpui::Action| self.idle(a);
+        let state = browser_core::palette::State {
+            pinned: tab.is_some_and(|t| t.kind != store::TabKind::Ephemeral),
+            split: self.model.active.is_some_and(|a| self.splits.contains(a)),
+            reopenable: !idle(&crate::ReopenClosedTab),
+            duplicates: !self.duplicate_tabs().is_empty(),
+            no_tab: tab.is_none(),
+            no_page: self.model.active.and_then(|k| self.tab_url(k)).is_none(),
+            private: self.model.private(),
+            muted: self.model.active.filter(|_| !idle(&crate::menubar::ToggleMute)).map(|k| self.tab_muted(k)),
+            custom_title: tab.is_some_and(|t| !t.custom_title.is_empty()),
+            renamable: tab.is_some(),
+            drifted: self.model.active.and_then(|k| self.pinned_drift(k)).is_some(),
+            sleep_others: true,
+            unpinned: !idle(&crate::CloseAllTabs),
+            loading: !idle(&crate::StopLoading),
+            toast: self.toast_command(),
+            reader: Some(self.reader_shown()),
+            developer: self.devtools_on(),
+            assistant: self.assistant_allowed(),
+            ..Default::default()
         };
+        let zappable = site.as_ref().is_some_and(|(k, u)| self.zappable(*k, u));
+        let offered = |c: Command| {
+            crate::command_action(c).is_some()
+                && match c {
+                    Command::ZapElement => zappable,
+                    Command::SiteSettings => site.is_some(),
+                    Command::ImportBrowserData => browser_core::import::available(),
+                    _ => true,
+                }
+        };
+        let mut commands: Vec<(String, Command)> = browser_core::palette::ranked(&query, &state, offered, &[])
+            .into_iter()
+            .filter_map(|(label, row)| match row {
+                browser_core::palette::Row::Command(c) => Some((label, c)),
+                browser_core::palette::Row::Extra(_) => None,
+            })
+            .collect();
+        // Reading the switch target costs a profile and lock file read.
+        if commands.iter().any(|(_, c)| matches!(c, Command::ReloadInChromium | Command::ReloadInWebKit)) {
+            let to = self.model.active.and_then(|k| self.web_engine_switch(k));
+            commands.retain(|(_, c)| match c {
+                Command::ReloadInChromium => to == Some(WebEngine::Chromium),
+                Command::ReloadInWebKit => to == Some(WebEngine::WebKit),
+                _ => true,
+            });
+        }
+        let command = |(label, c): (String, Command)| {
+            let detail = crate::command_action(c).map(|a| crate::shortcuts::shown(a, cx)).unwrap_or_default();
+            Suggestion { section: None, label, detail, target: Target::Input(Input::Command(c.index())) }
+        };
+        if browser_core::palette::sectioned(&query) {
+            let private = self.model.private();
+            let data = browser_core::palette::Data {
+                tabs: &self.model.tabs,
+                active: self.model.active.map(|k| k.id),
+                bookmarks: &self.bookmarks,
+                history: &self.history_cache,
+                now: now(),
+            };
+            let mut out = Vec::new();
+            for (section, entries) in browser_core::palette::sections(&state, offered, &data) {
+                for entry in entries {
+                    let row = match entry.item {
+                        Item::Command(c) => command((entry.label, c)),
+                        Item::Tab(id) => Suggestion { section: None, label: entry.label, detail: entry.detail, target: Target::Tab(TabKey { private, id }) },
+                        Item::Bookmark(url) | Item::History(url) => {
+                            let Ok(url) = Url::parse(&url) else { continue };
+                            Suggestion { section: None, label: entry.label, detail: entry.detail, target: Target::Url(url) }
+                        }
+                    };
+                    out.push(Suggestion { section: Some(section), ..row });
+                }
+            }
+            self.suggestions = out;
+            self.selected = usize::MAX;
+            self.suggested = Some((query, None));
+            cx.notify();
+            return;
+        }
         let space_rows = self.space_commands(&query);
         if query.starts_with('>') {
             self.suggestions = commands.into_iter().map(command).chain(space_rows).collect();
@@ -1726,9 +1932,9 @@ impl Browser {
         if let Some(Input::Navigate(u)) = &input {
             out.extend(self.open_tabs_at(&self.clean_user_url(u.clone())));
         }
-        let exact = commands.first().is_some_and(|ix| crate::COMMANDS[*ix].0.eq_ignore_ascii_case(&query));
+        let exact = commands.first().is_some_and(|(label, c)| label.eq_ignore_ascii_case(&query) || c.label().eq_ignore_ascii_case(&query));
         if exact {
-            out.extend(commands.iter().copied().map(command));
+            out.extend(commands.iter().cloned().map(command));
         }
         if let Some(input) = input {
             let (label, detail) = match &input {
@@ -1738,7 +1944,7 @@ impl Browser {
                 Input::Rejected => (query.clone(), "This kind of address cannot be opened".to_owned()),
                 Input::Command(_) => unreachable!("classify_input never names a command"),
             };
-            out.push(Suggestion { label, detail, target: Target::Input(input) });
+            out.push(Suggestion { section: None, label, detail, target: Target::Input(input) });
         }
         if !exact {
             out.extend(commands.into_iter().map(command));
@@ -1767,8 +1973,19 @@ impl Browser {
                     (Target::Input(Input::Navigate(c.url.clone())), detail)
                 }
             };
-            out.insert(0, Suggestion { label: ui::text::bounded_url(&shown), detail: ui::text::bounded_url(&detail), target });
+            out.insert(0, Suggestion { section: None, label: ui::text::bounded_url(&shown), detail: ui::text::bounded_url(&detail), target });
         }
+        let answers = browser_core::palette::answers(&query);
+        let answered = answers.len();
+        out.splice(
+            0..0,
+            answers.into_iter().map(|a| Suggestion {
+                section: None,
+                label: a.label,
+                detail: browser_core::palette::ANSWER_DETAIL.to_owned(),
+                target: Target::Copy(a.copy),
+            }),
+        );
         let typed = out.len();
         let listed: HashSet<TabKey> = out.iter().filter_map(|s| if let Target::Tab(k) = s.target { Some(k) } else { None }).collect();
         let completed = completion.as_ref().map(|c| c.url.as_str());
@@ -1797,6 +2014,7 @@ impl Browser {
         found.truncate(room - ranked.len());
         let history_row = |url: &str, title: &str| {
             Url::parse(url).ok().map(|target| Suggestion {
+                section: None,
                 label: ui::text::bounded_title(if title.is_empty() { url } else { title }),
                 detail: ui::text::bounded_url(url.trim_start_matches("https://").trim_end_matches('/')),
                 target: Target::Url(target),
@@ -1806,6 +2024,7 @@ impl Browser {
             let page = pages[ix];
             if ix < tabs.len() {
                 out.push(Suggestion {
+                    section: None,
                     label: ui::text::bounded_title(if page.title.is_empty() { page.url } else { page.title }),
                     detail: "Switch to Tab".to_owned(),
                     target: Target::Tab(TabKey { private, id: tabs[ix].id }),
@@ -1820,7 +2039,7 @@ impl Browser {
         // An empty field highlights nothing, so Enter opens nothing until the user picks a row.
         let chosen = self.suggestions.get(self.selected).filter(|_| rebuilt).map(|s| (s.label.clone(), s.detail.clone()));
         self.suggestions = out;
-        let first = if query.is_empty() { usize::MAX } else { 0 };
+        let first = if query.is_empty() { None } else { browser_core::palette::default_row(answered, self.suggestions.len()) }.unwrap_or(usize::MAX);
         self.selected = chosen.and_then(|(label, detail)| self.suggestions.iter().position(|s| s.label == label && s.detail == detail)).unwrap_or(first);
         self.suggested = Some((query.clone(), completion.clone()));
         self.history_text_search = search_later.map(|profile| self.search_history_text_later(profile, query, cx));
@@ -1874,9 +2093,11 @@ impl Browser {
                 return self.open_text_match(key, query, window, cx);
             }
             Target::Input(Input::Command(ix)) => {
-                let action = crate::COMMANDS[*ix].2.boxed_clone();
+                let Some((name, action)) = browser_core::palette::COMMANDS.get(*ix).and_then(|c| Some((c.0, crate::command_action(c.2)?))) else { return };
+                let keys = crate::shortcuts::shown(action, cx);
                 self.close_command(window, cx);
-                window.dispatch_action(action, cx);
+                window.dispatch_action(action.boxed_clone(), cx);
+                cx.defer_in(window, move |b, window, cx| b.offer_hint(name, &keys, window, cx));
                 return;
             }
             Target::Action(action) => {
@@ -1884,6 +2105,20 @@ impl Browser {
                 self.close_command(window, cx);
                 window.dispatch_action(action, cx);
                 return;
+            }
+            Target::Snippet(body) => {
+                let body = body.clone();
+                self.close_command(window, cx);
+                return self.type_snippet(&body, cx);
+            }
+            Target::Act(item, action) => {
+                let (item, action) = (item.clone(), *action);
+                return self.run_action(ix, item, action, window, cx);
+            }
+            Target::Copy(text) => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+                self.close_command(window, cx);
+                return self.show_toast_as(browser_core::toast::Tone::Success, "Copied", None, cx);
             }
             Target::Url(u) => u.clone(),
             Target::Input(Input::Navigate(u)) => self.clean_user_load(u.clone(), cx),
@@ -1894,7 +2129,10 @@ impl Browser {
                 self.close_command(window, cx);
                 return;
             }
-            Target::Input(Input::Rejected) => return,
+            Target::Input(Input::Rejected) => {
+                self.rejected += 1;
+                return cx.notify();
+            }
         };
         let group = self.new_tab_group.take();
         self.close_command(window, cx);
@@ -1912,7 +2150,7 @@ impl Browser {
                     self.set_tab_group(key, Some(group), cx);
                 }
             }
-            CommandMode::Current | CommandMode::FindInTabs => {
+            CommandMode::Current | CommandMode::FindInTabs | CommandMode::Snippets => {
                 self.navigate(&url, window, cx);
                 if credit {
                     self.mark_typed(&url);
@@ -1934,6 +2172,7 @@ impl Browser {
             .tabs_showing(&self.core, url)
             .into_iter()
             .map(|(key, t, space)| Suggestion {
+                section: None,
                 label: ui::text::bounded_title(if t.title.is_empty() { &t.url } else { &t.title }),
                 detail: browser_core::tabs::switch_detail(space.as_deref()),
                 target: Target::Tab(key),
@@ -1972,6 +2211,7 @@ impl Browser {
         match event {
             Event::Loading(on) => self.pages.entry(key).or_default().loading = on,
             Event::LinkHovered(link) => return self.link_hovered(key, link.as_deref(), cx),
+            Event::AssistantSelection(command) => return self.ask_selection(key, command, cx),
             Event::Committed { url, title, can_go_back, can_go_forward } => {
                 self.link_hovered(key, None, cx);
                 engine::startup::mark("first page commit");
@@ -1984,6 +2224,7 @@ impl Browser {
                 self.json_pages.remove(&key);
                 let previous = self.store(key.private).tab(key.id).ok().and_then(|t| tab_host(&t.url));
                 self.page_changed(key, &url, &title, can_go_back, can_go_forward, true);
+                self.sync_assistant_menu(key);
                 // An Open Anyway offer belongs to the page that was refused, not to the next one; the
                 // blank document a new view starts with is no page.
                 if let Some(page) = self.pages.get_mut(&key).filter(|p| url.as_str() != "about:blank" && matches!(p.offer, Some(Offer::Open(_)))) {
@@ -2166,7 +2407,7 @@ impl Browser {
                 if let Some(ix) = routed {
                     self.switch_space(ix, window, cx);
                 }
-                if let Some(tab) = self.model.new_tab(&self.core, url.as_str(), engine) {
+                if let Some(tab) = self.model.open_tab(&self.core, url.as_str(), engine, Opened::Link(key)) {
                     self.reload_space();
                     self.link_loads.insert(tab, from.clone());
                     if split && routed.is_none() {
@@ -2304,7 +2545,7 @@ impl Browser {
             return;
         }
         let events = self.events.clone();
-        view.page_text(url, store::MAX_HISTORY_TEXT, move |text| {
+        view.page_text(url, store::MAX_HISTORY_TEXT, move |_, text| {
             events.unbounded_send(Msg::PageText(profile_id, visit, page.clone(), text)).ok();
         });
     }
@@ -2336,6 +2577,7 @@ impl Browser {
     /// With `link`, the URL loads as a link from that page (or from none), not as typed.
     fn rebuild_view_loading(&mut self, key: TabKey, url: &Url, storage: Option<engine::handover::Storage>, link: Option<Option<Url>>, cx: &mut Context<Self>) {
         if self.model.tab(key).is_some() && self.views.remove(&key).is_some() {
+            self.forget_media(key);
             // The old view's last events are dropped; the new one says when its load starts.
             self.pages.entry(key).or_default().loading = false;
             self.drop_prompts(key, cx);
@@ -2616,7 +2858,7 @@ impl Browser {
                 }
                 cx.notify();
             }
-            TextInputEvent::MenuClosed => {}
+            TextInputEvent::MenuClosed | TextInputEvent::PastEnd => {}
         }
     }
 
@@ -2918,7 +3160,20 @@ impl Browser {
     }
 
     pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        if self.tab_placement == browser_core::layout::TabPlacement::Top {
+            return self.toggle_tabs_on_top(cx);
+        }
         self.set_sidebar_open(!self.sidebar_open, cx);
+    }
+
+    /// Tabs on top hide this window's sidebar without forgetting whether it was open.
+    pub fn toggle_tabs_on_top(&mut self, cx: &mut Context<Self>) {
+        self.tab_placement = self.tab_placement.toggled(&self.core.disk);
+        let open = self.tab_placement == browser_core::layout::TabPlacement::Side && crate::prefs::sidebar_open(&self.core.disk);
+        self.slide_sidebar(open);
+        self.close_peek(cx);
+        self.hide_hover_card(cx);
+        cx.notify();
     }
 
     pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -3220,8 +3475,10 @@ impl Browser {
         crate::shared::others(cx, |b, _, cx| {
             b.forget_history(private, profile_id);
             b.toast.forget(target);
+            b.forget_assistant(profile_id);
             cx.notify();
         });
+        self.forget_assistant(profile_id);
         for key in keys {
             self.hibernate(key, cx);
         }

@@ -141,11 +141,32 @@ impl Browser {
         let text = sort.summary(applied.is_ok(), archived, closed::archive_after(&self.core.disk).is_some());
         let tone = if applied.is_ok() { browser_core::toast::Tone::Info } else { browser_core::toast::Tone::Warning };
         let undo = applied.ok().flatten();
+        if let Some(undo) = &undo {
+            self.model.undo.push(browser_core::undo::Step::CleanUp(undo.clone()), private);
+        }
         if sort.changed {
             self.model.reload_space(&self.core);
             self.regrouped();
         }
         self.show_toast_as(tone, text, undo.map(|undo| super::ToastAction::UndoSort(Box::new((private, undo)))));
+    }
+
+    /// Clean Up's assistant request for the current space's loose tabs, and that space.
+    pub fn assistant_grouping(&self) -> Option<((bool, Id), cleanup::ai::Request)> {
+        let private = self.model.private();
+        browser_core::sidebar::assistant_grouping(&self.model, &self.core, |t| {
+            let key = TabKey { private, id: t.id };
+            let url = self.current_url(key).unwrap_or_else(|| t.url.clone());
+            let level = self.level_for(key, &url);
+            (url, level)
+        })
+    }
+
+    /// Files the tabs the assistant grouped, of those it was sent, as an undoable Clean Up.
+    pub fn apply_assistant_groups(&mut self, space: (bool, Id), sent: &std::collections::HashSet<Id>, proposal: &[(String, Vec<Id>)]) {
+        let done = browser_core::sidebar::group_as_proposed(&mut self.model, &self.core, space, sent, proposal);
+        self.regrouped();
+        self.show_toast_as(done.tone, done.text, done.undo.map(|undo| super::ToastAction::UndoSort(Box::new(undo))));
     }
 
     /// Puts back what Clean Up sorted, in whichever space it sorted.
@@ -161,7 +182,7 @@ impl Browser {
         self.regrouped();
     }
 
-    fn current_url(&self, key: TabKey) -> Option<String> {
+    pub fn current_url(&self, key: TabKey) -> Option<String> {
         self.pages.get(&key).map(|p| p.url.clone()).filter(|u| !u.is_empty())
     }
 }

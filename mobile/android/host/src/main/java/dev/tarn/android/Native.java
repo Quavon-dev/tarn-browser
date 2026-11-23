@@ -85,6 +85,32 @@ final class Native {
 
     static native String picker();
 
+    static native String pickRect();
+
+    static native String insertTextScript(String text);
+
+    static native boolean inserted(String answer);
+
+    static native String pingScript();
+
+    static native String selectedTextScript();
+
+    static native String askSelectionLabel();
+
+    static native String assistantCommandsLabel();
+
+    static native int maxMenuCommands();
+
+    static native String selectionAnswer(String answer);
+
+    static native String mediaAnswer(String answer);
+
+    static native String mediaStateScript();
+
+    static native String mediaCommandScript(String action, double seconds);
+
+    static native double[] snapshotArea(boolean fullPage, double x, double y, double width, double height, double scale);
+
     static native String findTextScript(String page);
 
     static native String[] findSnippets(String text, String query);

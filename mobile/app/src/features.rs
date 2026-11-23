@@ -4,6 +4,7 @@ use browser_core::bookmarks;
 use browser_core::snapshot::{self, SpaceSnapshot};
 use browser_core::split::{Share, Split};
 use browser_core::tabs::{TabKey, duplicates};
+use browser_core::undo::Step;
 use store::{Bookmark, Counter, Id, Snapshot};
 use url::Url;
 
@@ -29,6 +30,17 @@ impl<D: Platform> Shell<D> {
         self.notice = Some(text);
     }
 
+    /// A notice naming `keys` after `command` ran from the command bar, if the profile's hint
+    /// throttle allows one and no other notice shows; none in a private space or a burner tab.
+    pub fn offer_hint(&mut self, command: &str, keys: &str, typing: bool) {
+        if self.notice.is_some() {
+            return;
+        }
+        if let Some(text) = self.core.feature_hint(self.model.profile(), command, keys, browser_core::now(), typing) {
+            self.toast_as(browser_core::toast::Tone::Info, text);
+        }
+    }
+
     pub fn notice_tone(&self) -> browser_core::toast::Tone {
         self.tone.as_ref().filter(|(text, _)| self.notice.as_ref() == Some(text)).map_or_else(Default::default, |(_, tone)| *tone)
     }
@@ -43,14 +55,32 @@ impl<D: Platform> Shell<D> {
         self.sort_undo = sorted.undo.map(|undo| (sorted.text, undo));
     }
 
+    /// Clean Up's assistant request for the current space's loose tabs, and that space.
+    pub fn assistant_grouping(&self) -> Option<((bool, store::Id), browser_core::cleanup::ai::Request)> {
+        let private = self.model.private();
+        browser_core::sidebar::assistant_grouping(&self.model, &self.core, |t| {
+            let key = TabKey { private, id: t.id };
+            let url = self.tab_url(key);
+            let level = self.model.level_for(&self.core, key, &url);
+            (url, level)
+        })
+    }
+
+    /// Files the tabs the assistant grouped, of those it was sent, as an undoable Clean Up.
+    pub fn group_as_proposed(&mut self, space: (bool, store::Id), sent: &std::collections::HashSet<store::Id>, proposal: &[(String, Vec<store::Id>)]) {
+        let done = browser_core::sidebar::group_as_proposed(&mut self.model, &self.core, space, sent, proposal);
+        self.toast_as(done.tone, done.text.clone());
+        self.sort_undo = done.undo.map(|undo| (done.text, undo));
+    }
+
     pub fn can_undo_sort(&self) -> bool {
         self.sort_undo.as_ref().is_some_and(|(text, _)| self.notice.as_ref() == Some(text))
     }
 
     pub fn undo_sort(&mut self) {
-        let Some((_, undo)) = self.sort_undo.take() else { return };
+        let Some((_, (private, undo))) = self.sort_undo.take() else { return };
         self.notice = None;
-        if !browser_core::sidebar::undo_sort(&mut self.model, &self.core, &undo) {
+        if !self.run_undo(Step::CleanUp(undo), private) {
             self.toast_as(browser_core::toast::Tone::Warning, "Could not undo the sort".to_owned());
         }
     }
@@ -88,8 +118,28 @@ impl<D: Platform> Shell<D> {
     pub fn undo_close(&mut self) -> bool {
         let Some((_, serial)) = self.undo.take().filter(|(_, s)| self.model.closed_tabs.newest() == Some(*s)) else { return false };
         self.notice = None;
-        let Some((ix, closed)) = self.model.closed_tabs.take(serial, &self.model.spaces) else { return false };
-        self.restore_closed(ix, closed)
+        self.run_undo(Step::Closed(serial), false)
+    }
+
+    /// The hardware keyboard's Undo outside a text field and the page: the newest close, Clean Up
+    /// or sidebar move that can still be taken back; one that fails gives way to the next.
+    pub fn undo_last(&mut self) -> bool {
+        while let Some(step) = self.model.pop_undo(&self.core) {
+            if self.run_undo(step, false) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Takes back `step`, from Undo or a toast's Undo button; `private` is the space a Clean Up ran in.
+    pub fn run_undo(&mut self, step: Step, private: bool) -> bool {
+        self.model.undo.forget(&step);
+        match step {
+            Step::Closed(serial) => self.model.closed_tabs.take(serial, &self.model.spaces).is_some_and(|(ix, closed)| self.restore_closed(ix, closed)),
+            Step::CleanUp(undo) => browser_core::sidebar::undo_sort(&mut self.model, &self.core, &(private, undo)),
+            Step::Moved(from) => from.revert(&mut self.model, &self.core),
+        }
     }
 
     pub(crate) fn tab_url(&self, key: TabKey) -> String {
@@ -491,7 +541,20 @@ impl<D: Platform> Shell<D> {
         Vec::new()
     }
 
+    pub fn tabs_on_top(&self) -> bool {
+        self.tab_placement == browser_core::layout::TabPlacement::Top
+    }
+
+    /// Tabs on top hide the sidebar of the Mac layout; back at the side it shows as it was.
+    pub fn toggle_tabs_on_top(&mut self) {
+        self.tab_placement = self.tab_placement.toggled(&self.core.disk);
+        browser_core::prompts::restart(&mut self.transfers_moved, std::time::Instant::now() + tarn_nsh_shared::motion::SLIDE);
+    }
+
     pub fn toggle_sidebar(&mut self) {
+        if self.tabs_on_top() {
+            return self.toggle_tabs_on_top();
+        }
         self.sidebar_open = !self.sidebar_open;
         // The downloads pop-over hangs from the sidebar, so the slide moves its Keep button.
         browser_core::prompts::restart(&mut self.transfers_moved, std::time::Instant::now() + tarn_nsh_shared::motion::SLIDE);

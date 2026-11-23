@@ -4,12 +4,14 @@ mod settings;
 mod sidebar;
 mod toolbar;
 
+pub(super) use toolbar::{Sectioned, item_actions, open_entry, run_action, sections};
+
 use nsh_core::prelude::*;
 
 use super::{Screen, Ui};
 
 pub(super) fn owns(screen: Screen) -> bool {
-    settings::owns(screen) || popovers::owns(screen)
+    settings::owns(screen) || popovers::owns(screen) || screen == Screen::Assistant
 }
 
 pub(super) fn pane_width() -> f32 {
@@ -35,16 +37,22 @@ pub(super) fn frame<T: IntoElements, B: IntoElements>(
         .flex_1()
         .relative()
         .child(
-            view().flex_1().flex_row().child(when(move || mac() && ui.read_data(|s| s.sidebar_open), move || sidebar::sidebar(ui))).child(
-                view()
-                    .flex_1()
-                    .relative()
-                    .child(when(move || !mac(), touch_top))
-                    .child(when(mac, move || toolbar::toolbar(ui)))
-                    .child(content)
-                    .child(when(move || !mac(), touch_bottom))
-                    .child(when(mac, move || toolbar::palette(ui))),
-            ),
+            view()
+                .flex_1()
+                .flex_row()
+                .child(when(move || mac() && ui.read_data(|s| s.sidebar_open && !s.tabs_on_top()), move || sidebar::sidebar(ui)))
+                .child(
+                    view()
+                        .flex_1()
+                        .relative()
+                        .child(when(move || !mac(), touch_top))
+                        .child(when(mac, move || toolbar::toolbar(ui)))
+                        .child(when(move || mac() && ui.read_data(|s| s.tabs_on_top()), move || sidebar::strip(ui)))
+                        .child(content)
+                        .child(when(move || !mac(), touch_bottom))
+                        .child(when(mac, move || toolbar::palette(ui))),
+                )
+                .child(when(move || mac() && ui.screen.get() == Screen::Assistant, move || super::assistant::column(ui))),
         )
         .child(when(mac, move || popovers::popovers(ui)))
         .child(when(mac, move || settings::window(ui)))

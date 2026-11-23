@@ -17,6 +17,8 @@ pub const RADIUS_PANEL: f32 = Tokens::DARK.radius[4];
 pub const RADIUS_CARD: f32 = Tokens::DARK.radius[5];
 pub const TOOLBAR_HEIGHT: f32 = 46.;
 pub const ROW_HEIGHT: f32 = 34.;
+pub const TAB_ROW: [f32; 2] = [30., 24.];
+pub const ROW_GAP: [f32; 2] = [1., 0.];
 pub const TEXT: f32 = 13.;
 pub const TEXT_SMALL: f32 = 11.5;
 pub const TEXT_TITLE: f32 = 15.;
@@ -40,6 +42,7 @@ static TOKENS: RwLock<Tokens> = RwLock::new(Tokens::DARK);
 pub const SYSTEM_FONT: &str = "system-ui";
 static FONT: RwLock<Option<String>> = RwLock::new(None);
 static LIGHT: AtomicBool = AtomicBool::new(false);
+static COMPACT: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Default)]
 struct Revision;
@@ -100,6 +103,19 @@ impl Theme {
     pub fn is_light() -> bool {
         track();
         LIGHT.load(Ordering::Relaxed)
+    }
+    pub fn set_compact(on: bool) {
+        if COMPACT.swap(on, Ordering::Relaxed) != on {
+            changed();
+        }
+    }
+    pub fn tab_row() -> f32 {
+        track();
+        TAB_ROW[usize::from(COMPACT.load(Ordering::Relaxed))]
+    }
+    pub fn row_gap() -> f32 {
+        track();
+        ROW_GAP[usize::from(COMPACT.load(Ordering::Relaxed))]
     }
     pub fn font() -> Option<SharedString> {
         track();
@@ -360,6 +376,9 @@ mod tests {
         assert!(gpui.contains(accents) && include_str!("theme.rs").split("#[cfg(test)]").next().unwrap().contains(accents), "one accent list for every client");
         for (name, hex) in PROFILE_COLORS.iter() {
             assert!(gpui.contains(&format!("(\"{name}\", {hex:#08x})")), "{name}");
+        }
+        for line in [format!("pub const TAB_ROW: [f32; 2] = {TAB_ROW:?};"), format!("pub const ROW_GAP: [f32; 2] = {ROW_GAP:?};")] {
+            assert!(gpui.contains(&line.replace(".0", ".")), "{line}");
         }
         let monogram = MONOGRAM.iter().map(|c| format!("{c:#08x}")).collect::<Vec<_>>().join(", ");
         assert!(gpui.contains(&format!("const MONOGRAM: [u32; 10] = [{monogram}];")));

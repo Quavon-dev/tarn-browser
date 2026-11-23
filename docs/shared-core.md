@@ -42,10 +42,56 @@ Every shell's web view offers the same operations and reports the same events. T
   dialog) and `pdf` with the absolute `path` the user picked in the save dialog, printed there by
   WebKitGTK and reported on the download route as a finished download; iOS and Android have
   neither yet (`docs/port-backlog.md`); Linux's `snapshot` command answers with a `snapshot` event carrying a PNG
-  `data:` URI at most 752 px wide (the tab hover card), which iOS and Android do not take yet; NSH components: `screenshot` `{seq, name}`, which saves the visible page as a new PNG
+  `data:` URI at most 752 px wide (the tab hover card), which iOS and Android do not take yet; NSH components: `screenshot` `{seq, name}`, which saves the visible page, or with
+  `fullPage` or `x, y, width, height` (`browser_core::capture::area_args`) that area, as a new PNG
   under the sanitised `name` in Downloads (`browser_core::capture::save_new`), copies it to the
-  clipboard and answers with the event `screenshot` `{seq, path}` or `{seq, message}` (Linux; iOS
-  and Android do not have it yet);
+  clipboard (not on Android, `docs/mobile-plan.md`) and answers with the event `screenshot`
+  `{seq, path}` or `{seq, message}`;
+- `pick_rect`: the Zap picker (`page_scripts::pick_rect_script`) answering the picked element's
+  rectangle in the visible page instead of a selector, for Capture Element
+  (`browser_core::capture::element_area` cuts it to the page); empty when cancelled or under
+  Lockdown. NSH components: `pick` with `rect: true`, answered by `picked` `{seq, url, rect}`.
+  Capture Area draws its rectangle in the shell over a still snapshot of the page
+  (`capture::drag_area`), with no script on the page, and so does the developer Measure tool
+  (`browser_core::measure`, offered with `palette::State::developer`, where Web Inspector is);
+- `insert_text`: Insert Snippet types a `store::Snippet`'s text into the page's focused text field
+  (`page_scripts::insert_text_script`, isolated world, Android's page world, nothing under
+  Lockdown) and answers whether it did (`browser_core::snippets::inserted`). Every shell remembers
+  the tab and committed address the list opened on and types nothing once the tab shows another
+  (`snippets::PAGE_CHANGED`). NSH components: `insertText` `{seq, text}`, answered by
+  `textInserted` `{seq, inserted}`. Typing `;name` in a shell field expands there
+  (`snippets::expand`); nothing on the page listens for keys. The profile's snippets are read once
+  into `Core::snippets`, shared by every window, and forgotten by `Core::snippets_changed` after an
+  edit, `reset_profile_data` or a shell's profile deletion; it takes the space's `(private, id)` and
+  answers none for a private space, whose snippets the store never saves;
+- `selected_text`, `media_state`, `media_command` and `snapshot_rect`: the selection, the first
+  audible media element (read, and play, pause or seek), and a PNG of a rectangle of the visible
+  page or of the whole document. The reads are isolated-world scripts from `engine::page_scripts`
+  that answer empty under Lockdown; `browser_core::page_ops` checks every answer and command
+  (`selection`, `MediaState::parse`, `media_command`, `snapshot_area`); components emit only
+  `selection_answer` and `media_answer` of a script's answer. NSH components:
+  `readSelection` (`selection`), `ping` (`pong`), `readMedia` (`mediaState`), `media` and `snapshotRect`
+  (`snapshotRect`), `docs/mobile-plan.md` §2. `set_assistant_menu(Option<Vec<String>>)` (NSH prop
+  `assistantMenu`, a list of command names or null, read by `view_policy::menu_commands`; at most
+  `view_policy::MAX_MENU_COMMANDS`) gives
+  a selection's menu `view_policy::ASK_SELECTION` and an `ASSISTANT_COMMANDS` submenu with the
+  names; null shows neither. A choice is `Event::AssistantSelection(command)`, after which the shell
+  reads `selected_text`; NSH components read the selection themselves and emit
+  `assistantSelection` `{url, text, command}` with `selection_answer` of it. Shells set the list
+  from `tabs::Model::assistant_menu` for the page shown (WebKit's menu on macOS, Chromium's on
+  macOS and Windows, WebKitGTK's `context-menu` on Linux, the edit menu of a `WKWebView` subclass
+  on iOS, the text selection action mode of `PageView` on Android, where the floating toolbar has no
+  submenus and lists the commands in its overflow). A full page is the document cut to
+  `view_policy::SNAPSHOT_MAX_SIDE` and its height to `SNAPSHOT_MAX_PIXELS` at the device scale
+  (`view_policy::snapshot_height`, also for rectangles) on macOS and Windows; Linux takes it only
+  when the document fits those uncut (WebKitGTK cannot clip a full-document snapshot), answers
+  none otherwise and drops any larger texture; iOS and
+  Android draw only the visible page. The window's mini-player is `browser_core::media::Player`:
+  shells ask `media_state` of a tab when the engine says it plays (Linux's `playing` event, the
+  macOS and Windows background probe), when the user leaves it and after a button press, and
+  again every `media::POLL` only while the shown media plays; its buttons send
+  `media::Control::command` (`args` for NSH components). Its title is `text::bounded_title` of the
+  page's media title or the tab's title on every client;
 - isolated-world reads for the shell: `icon_links`, `fetch_icon` (NSH components: `readIconLinks`
   and `fetchIcon` with the requesting `page`, `docs/mobile-plan.md` §2), `json_text`; Android
   has no isolated world and runs those scripts in the page world, so a shell must not send it
@@ -214,6 +260,46 @@ Later, moves, recent and search) `browser_core::bookmarks`.
 The engine choice already follows this: engine resolution is in `store` (`WebEngine::resolve`),
 and `engine::cookies` and `shield::matcher` are in shared crates.
 
+The AI providers (`ai::ClaudeApi`, `ai::Ollama`) send through `ai::Transport`: a POST with headers
+and a JSON body whose streamed answer fails past a byte cap or once the cancel flag is set, with no
+redirects. Before anything is sent, `ai::transport::allowed` admits only `https://api.anthropic.com`
+and plain HTTP to `127.0.0.1` (Ollama). macOS, Windows, Linux and iOS use `ai::UreqTransport`
+(rustls with the platform's certificate verifier). Android uses
+`tarn_mobile_android::HostTransport`, which streams through the Java host's `Fetch.post`: that
+keeps the host's TLS key policy (`StrongKeys`) and proxy hooks, where rustls's platform verifier
+would need its Kotlin component bundled into the APK and initialised over JNI. `Fetch.post` accepts
+HTTPS only, so Ollama is not reachable on Android. Neither transport uses a system or user proxy:
+`UreqTransport` sets `proxy(None)`, and `Hooks.proxy` is `NO_PROXY` in a release build; only a debug
+build's test proxy (`Hooks.debugProxy`) applies there.
+
+Local models implement `ai::LocalModel`: `availability()` (`Available`, `NotSupported(reason)` or
+`NeedsSetup(reason)`) and `respond`, which takes a `local::Checked` token only `ai::local::stream`
+and `ai::local::answer` can make, after checking availability once, so they are the one way to run them: it asks the model only when it is available and
+otherwise fails with `AiError::Unavailable` and that reason; nothing falls back to a cloud provider.
+Both may block (Ollama asks its server), so shells call `stream` off the UI thread. `ai::local::route(choice, availability, on_device_task)` is the assistant's rule for
+who answers: a local choice is answered locally or not at all, and a selection command or summary
+stays on the device whenever a local model is available, even with the cloud chosen.
+`ai::local::answer(chosen, on_device, on_device_task, …)` applies it for every client and names the
+model that answers before it streams (`assistant::Event::AnsweredBy`, shown as "Answered by …");
+`assistant::on_device_task` makes every command an on-device task. The cloud is the platform's
+on-device model's only alternative when the cloud was chosen; Ollama, a local choice, keeps its
+own model. Backends:
+`engine::foundation_models::FoundationModel` on macOS and iOS (Apple's on-device model through the
+Swift shim `crates/engine/src/foundation_models.swift`, built by `crates/engine/build.rs` with the
+`foundation-models` feature, which needs the macOS or iOS 26 SDK; `app/foundation-models`,
+`tarn-mobile/foundation-models` and `tarn-mobile-ios/foundation-models` forward it), and `ai::Ollama` on loopback, available once Ollama answers `/api/show` for a model that runs on
+this machine: a `-cloud` or `:cloud` name or a reported remote host is refused (macOS, Windows,
+Linux). Windows and Android have no
+on-device model (`docs/windows-plan.md` §8, `docs/mobile-plan.md`).
+
+The Claude API token lives behind `ai::Secrets` (`get`, `set`, `delete` by service and account;
+`ai::secrets::{store_token, load_token, delete_token}`), never in a file or the database.
+`ai::secrets::Keyring` is the Keychain on macOS and iOS, the Credential Manager on Windows and the
+Secret Service over D-Bus on Linux (`oo7`, as `import` already uses). Android uses
+`tarn_mobile_android::Keystore`: the host's `Secrets.java` seals each value with AES-GCM under a key
+generated in the Android Keystore and keeps only the sealed bytes in private preferences, which the
+app excludes from backups.
+
 ## 3. `browser-core`
 
 **What it holds:** a new crate with the browser model and no UI types. That means the app-level state
@@ -244,9 +330,19 @@ host passes `base`. `container` and `staleness` are macOS-only.
 space's tabs, folders and groups, the open folders, the active tab, the tab lifecycle and the
 reopen stack, with the sidebar's tab order, number-key slots, cycling, the tab a close selects,
 the tab to show when none is active, new tabs, pin, folder, group and move-to-space commands,
-which space a window reopens on and the private space. `browser_core::closed` has the reopen stack
+which space a window reopens on and the private space. Where a new tab goes is one rule,
+`Model::insert_index` (`Model::open_tab` with `Opened::Typed` or `Opened::Link(opener)`): a typed or new
+tab on top of the unpinned tabs, a tab a link or pop-up opened after its opener and the tabs opened
+from it before, in opening order, in the opener's group; the openers are kept in memory only.
+`browser_core::undo::Stack` (`Model::undo`) is the window's Undo: `Model::push_closed` puts a close on
+the reopen stack and the undo stack, `sidebar::drop_tab` and `sidebar::clean_up` add the move or Clean
+Up they made, and `Model::pop_undo` gives the newest step still undoable; each client runs a `Step`
+(reopen that entry, `cleanup::undo`, `undo::Move::revert`) for ⌘Z or Ctrl+Z that no text field or
+page took and for a toast's Undo, which first drops the step. Nothing of a private space or burner
+tab is kept (threat model S8).
+`browser_core::closed` has the reopen stack
 and the archive of unused tabs with its Settings › Tabs choice (`ARCHIVE_AFTER`, `archive_after`,
-`ARCHIVE_INTERVAL`); `browser_core::cleanup` is Clean Up (`plan`, `apply`, `cleanable`, `summary`); `Core::{level, has_override, web_engine}` resolve per tab. The
+`ARCHIVE_INTERVAL`); `browser_core::cleanup` is Clean Up (`plan`, `apply`, `cleanable`, `summary`; `cleanup::ai::request` and `sort_from` build an assistant grouping request from loose tabs' ids, hosts and titles, never in a private space, burner tab or Lockdown, and turn a checked proposal into the same undoable `Sort`); `Core::{level, has_override, web_engine}` resolve per tab. The
 GPUI `Browser` keeps the views and what only a shell has (pages, prompts, find, favicons,
 rendering, gestures, menus, text inputs, windows) and calls the model; it passes in what the
 model cannot see, such as whether another window shows a tab and a live view's current URL.
@@ -270,3 +366,143 @@ The tab, motion and gesture switches and the accent choice are stored under the 
 `browser_core::prefs`.
 
 The NSH shells for Linux, iOS and Android (`docs/nsh-plan.md` P2–P4) sit on `browser-core`.
+
+**Shortcut tips:** `browser_core::hints::Throttle` decides whether a toast names a command's
+shortcut after it ran from the command bar (`Throttle::hint`, text `hints::text`): at most
+`MAX_SHOWS` times per command, never in a profile's first day, at least `QUIET` (two days) after the
+profile's last tip, never while the user is typing (on macOS and Windows: while a text field has the
+keyboard), and never once Settings turns off
+`prefs::FEATURE_HINTS` (Settings › Appearance › Tips on every client, explained by `hints::NOTE`).
+Counters live in the profile's `feature_hints` rows, which go with the profile; a private space or
+burner tab offers none (`Core::feature_hint` takes the space's `(private, id)`, and the store
+refuses to count for a private profile). macOS and Windows offer one after a command bar command, Linux after a
+command bar or panel menu command, the iPad keyboard layout after a command bar command; a command
+that showed its own toast gets none.
+
+**Hung pages:** `engine::lifecycle::Hang` decides when the shown page counts as hung: each shell
+pings it every `PING_EVERY` with `engine::page_scripts::PING`, which reads nothing and answers
+only once the page's main thread runs it (macOS and Windows `WebView::ping`: WebKit's client
+world, Chromium one `Runtime.evaluate` of a constant in the page's world; NSH components `ping`,
+answered by `pong`: the isolated world on Linux and iOS, the page world on Android, which has no
+other). A page whose main thread is stuck never answers, and the shell shows a card (`HANG_NOTE`)
+once a ping has gone unanswered for `HANG_AFTER`. Blind spot: under Lockdown no script of Tarn's
+runs, so every engine answers a ping at once and a hung Lockdown page shows no card. iOS and
+Android redraw only when the card appears or goes, never for a ping or its answer.
+Wait hides it for another `HANG_AFTER`; Reload gives the page a fresh start: macOS and Windows
+rebuild the tab's view, Linux's component takes `reloadFresh`, which ends the view's web process
+(`webkit_web_view_terminate_web_process`) and reloads, and iOS and Android give the tab a new view
+(gaps in `docs/mobile-plan.md` and `docs/windows-plan.md`).
+
+**Tabs on top:** `browser_core::layout::TabPlacement` (`Side` or `Top`) is each window's own,
+toggled by `shortcuts::Action::ToggleTabsOnTop` (`mod+alt+shift+t`) and the command bar's
+`palette::Command::TabsOnTop`; `TabPlacement::toggled` stores the pick for new windows and `shown`
+keeps phones and the touch layout at the side. `browser_core::sidebar::strip` lists the strip:
+tiles and pinned tabs (as icons), then the other tabs in the sidebar's order, including every tab of
+a collapsed folder or group, so none is out of reach while the sidebar hides. With tabs on top the
+sidebar hides without forgetting its own setting and no floating sidebar appears at the edge;
+ToggleSidebar brings the side back. macOS and Windows (`crates/app/src/tab_strip.rs`), Linux
+(`tab_strip` in `linux/src/ui.rs`, rows in `Snapshot::strip`) and the iPad Mac layout
+(`strip` in `mobile/app/src/ui/mac/sidebar.rs`) draw it under the toolbar.
+
+**Space switching:** `browser_core::sidebar::slide_start` says where the next space's list starts
+its spring, from where a running slide or drag stands, or `None` under Reduce Motion (macOS and
+Windows). The spring is critically damped: `spring` in `crates/ui/src/motion.rs`, and
+`SPRING_DAMPING` in `nsh-shared/src/motion.rs`, whose `space_switch` animates Linux, iOS and
+Android's layout on that spring over `SLIDE` before a click, key or swipe switches the space.
+
+**Density:** `prefs::COMPACT` (Settings › Appearance, explained by `prefs::COMPACT_NOTE`) picks
+the second of each density token, `TAB_ROW` and `ROW_GAP`, defined once in `crates/ui/src/theme.rs`
+and mirrored in `nsh-shared/src/theme.rs` (a test keeps them equal); every shell reads them through
+`Theme::tab_row` and `Theme::row_gap`, set with `Theme::set_compact` when the pref is read.
+
+**Command bar answers:** `browser_core::palette::answers` gives the rows the command bar answers
+offline, listed first on every client, labels cut to `MAX_ANSWER_LABEL`; picking one (arrow keys
+then Enter, a click or a tap) copies `Answer::copy`. An answer row is never the default:
+`palette::default_row` gives the first row after them, so Enter alone runs what was typed (search
+or navigate) on macOS, Windows, Linux, iPad and phone. `palette::calc` evaluates `+ - * / % ^`,
+parentheses and decimals with at least one operator between two numbers (a signed number, or digits
+joined only by `-` or `/` such as a date or "24/7", gets no answer unless typed after `=`; at most
+`calc::MAX_INPUT` bytes, nesting bounded, finite results only, exponent notation outside 1e-9 to
+1e15), `palette::units` converts length, mass, temperature, volume, data size and time ("5 km in mi",
+"1,5 km in m", "12 in to cm"), and `palette::emoji` finds emoji by name after a `:` in a built-in
+table. Nothing is fetched, so there is no currency conversion.
+
+**Command bar sections:** while nothing is typed (`palette::sectioned`), every client lists
+`palette::sections(state, offered, data)` instead of ranked rows, under `command::Section` headers:
+Now (commands for the current tab), Favorites (pinned tabs, then top-level bookmarks), Recent Tabs
+(the `SECTION_ROWS` most recently used other tabs), Frequent (history by `suggest::frecency`) and
+Quick Actions; empty sections are left out and a page shows once. `palette::Data` carries the
+space's tabs, the active tab, the profile's bookmarks and the history the bar already loaded. A
+private space lists no Recent Tabs and no Frequent rows. Nothing is highlighted until the user
+moves, so Enter on the empty field opens nothing.
+
+**Command bar actions:** `palette::actions(item, spaces)` is the actions page of a row
+(`palette::Item`: a command, a tab, a bookmark or a history page), named and in order; `spaces`
+names the client's move targets for a tab, so `Action::MoveToSpace(ix)` indexes them. ⌘K (Ctrl+K)
+already opens the command bar (`shortcuts::Action::CommandBar`), so the page opens with → when the
+field's caret is at the end with nothing selected (desktop and the iPad Mac layout), with the row's
+… button, or with a row's More button on phones; Esc (Back on phones) returns to the rows.
+
+**Invalid address:** Enter on typed input that `command::classify_input` rejects
+(`Input::Rejected`) opens nothing; the field shakes sideways once for `palette::SHAKE` (the
+`SHAKE` token in `crates/ui/src/motion.rs` and `nsh-shared/src/motion.rs`) along `palette::shake`,
+and each new Enter shakes it again. Under Reduce Motion it does not move and shows
+`palette::INVALID_ADDRESS` beside it until the text changes.
+
+**Notes:** `browser_core::notes` is the notes list and editor every client renders: `rows(notes,
+query)` filters by title and text without case (title matches first, last edited first) and gives
+each row its shown title (`notes::title`: the title, else the first line, else `UNTITLED`) and a
+preview line; `Draft::save` checks a draft and saves it through `store::Store::save_note`, which
+drops invisible characters (`store::is_invisible`), caps the title at `MAX_NOTE_TITLE`, the text at
+`MAX_NOTE` and a profile at `MAX_NOTES` notes, and refuses a private profile. `notes::as_pill`
+gives the `assistant::Pill::Note` that attaches a note to a question. Notes live in the profile
+table `notes`, so export, Delete everything and deleting the profile cover them; they are never
+synced.
+
+**Assistant:** `browser_core::assistant` is the chat every client renders and the rules its
+requests follow (threat model S2, S3, S9); it does not depend on the `ai` crate and sends nothing.
+`Session::new` binds a chat to one profile and refuses a private space, a burner tab, a Lockdown
+level or a profile whose `ai_enabled` is off (`store::Store::set_profile_ai`). Every `Origin` a
+client passes carries the page's effective Shield level, including its per-site setting, and a
+client drops the `Session` when its profile is deleted or reset or its AI switch is turned off.
+`Session::apply` takes an `Event` (add or remove a pill, stream chunk, done, failed, cancel) and
+`Session::send` a send; both return `Effect`s (start or stop a request by id, append a chunk to the
+last row, render). One request runs at a time, at most one send per `MIN_SEND_INTERVAL_MS`, and
+chunks of a stopped request are ignored. `send` takes the current `Origin`, the AI switch and the
+effective level of each pill's page now (`site::effective_level`): from a private space, a burner
+tab, a Lockdown page, another profile or with AI off it is refused and every pill dropped, and a
+pill whose page went to Lockdown, or whose address does not parse, is dropped and the send refused;
+a pill removed earlier is still checked. Either way every exchange made since a dropped pill was
+attached is marked interrupted. An answer stops at
+`MAX_PILL_BYTES`; a cancelled or failed exchange, or one whose answer stayed empty, loses its empty
+answer, stays visible as interrupted and is never sent again. A `Pill` (page, tab, selection with
+its page's address, note) is added only by an explicit event, only from the session's own profile
+at a level `allowed` accepts, and gets its label (`Page 2`) once when added. `compose` builds the
+request: `{question}`, `{page}` and `{selection}` are expanded in one pass over the template only,
+each pill becomes one `Block` with URLs stripped of query, fragment and sign-in, control, bidi and
+other invisible characters (`store::is_invisible`) dropped and `tarn-block` removed in any case, at
+most `MAX_PILL_BYTES` a block and `MAX_TOTAL_BYTES` over pills and history. Each request delimits
+its blocks with a tag holding a random `nonce` of its own (`Composed::wrapped`), named in its
+system prompt (`Composed::system`); `Composed::user_message` is the user turn a provider sends.
+`selection(url, raw)` makes a selection pill bounded by `page_ops::selection`, and
+`commands::for_selection` the template a selection's menu command sends with no question, where
+`{page}` names the selection. `tabs::Model::assistant_tabs` is the chat's tab picker: the current
+space's other web tabs the assistant may read, each `awake` only while its view is live; a
+sleeping tab is listed but never woken to be read.
+`settings` keeps the provider (Claude API or Ollama on this computer) and the Ollama model name. `commands::all` lists the built-ins and the profile's own
+(`store` table `ai_commands`, names at most `store::MAX_AI_NAME` bytes without control or invisible
+characters, removed with the profile and by Delete everything). `links::classify` refuses every
+scheme but `http`, `https` and `mailto`, any sign-in parts and local and home-network hosts
+(`shield::rules::local_target`); the rest open only after a confirmation that shows the host and
+the whole address, `mailto` with its headers removed and refused when its address encodes `?`,
+`&`, a control or an invisible character. `links::shown` always shows the whole
+address. `view` returns the `ChatView` a client draws: rows, pill chips, the blocks a send would
+carry with their sizes, the notice and the send and cancel states. `browser_core::palette` has
+`Command::Ask` and `Command::AskPage` (which also needs a page), offered only when the client sets
+`State::assistant` from `assistant::allowed` and the AI switch (`tabs::Model::assistant_offered`,
+with `assistant_origin` giving the active page's `Origin`). `sidebar::assistant_grouping` and
+`group_as_proposed` are Clean Up's Group with Assistant for a window's current space. Linux, iOS
+and Android share Settings › AI, the chat and the grouping run in `tarn_nsh_shared::assistant`
+(`Host` for the shell's store, origin and page text; `Platform` for its secret store, transport
+and whether Ollama works there): providers stream on a background thread and the chat takes what
+arrived once a frame.

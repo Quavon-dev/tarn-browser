@@ -18,10 +18,15 @@ pub enum Request {
     Text(TabKey, Id),
     Find(TabKey, String),
     Pick(TabKey),
+    PickRect(TabKey, (f64, f64)),
+    Media(TabKey),
+    Insert(TabKey),
     IconLinks(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     IconData(TabKey, super::icons::Profile, String, engine::favicon::Ticket),
     Capture { key: TabKey, profile: Id, url: String, started: i64 },
     Json(TabKey),
+    Assistant(TabKey),
+    AssistantTab(TabKey),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -133,8 +138,8 @@ impl Browser {
 
     pub(super) fn answered(&mut self, data: &Value, key: TabKey) -> Option<Request> {
         let request = self.requests.remove(&data["seq"].as_u64()?)?;
-        let url = self.pages.get(&key).map(|p| p.url.as_str()).unwrap_or_default();
-        (data["url"].as_str() == Some(url)).then_some(request)
+        let shown = self.pages.get(&key).map(|p| p.url.as_str());
+        browser_core::assistant::read_here(data["url"].as_str().unwrap_or_default(), shown).then_some(request)
     }
 
     pub(super) fn on_script_event(&mut self, key: TabKey, name: &str, data: &Value) {
@@ -145,6 +150,8 @@ impl Browser {
             }
             ("article", Some(Request::Read(k))) if k == key => self.open_article(key, text),
             ("pageText", Some(Request::Text(k, visit))) if k == key => self.keep_text(key, visit, text),
+            ("pageText", Some(Request::Assistant(k))) if k == key => self.page_for_assistant(key, text),
+            ("pageText", Some(Request::AssistantTab(k))) if k == key => self.tab_for_assistant(key, text),
             ("textFound", Some(Request::Find(k, query))) if k == key && query == self.find_query => {
                 let snippets: Vec<String> = data["snippets"].as_array().into_iter().flatten().filter_map(|s| s.as_str()).map(str::to_owned).collect();
                 self.add_text_rows(key, engine::page_scripts::find_snippets(&snippets.join("\n")));
@@ -153,6 +160,8 @@ impl Browser {
                 let selector = data["selector"].as_str().unwrap_or_default().to_owned();
                 self.zap_picked(key, &selector);
             }
+            ("mediaState", Some(Request::Media(k))) if k == key => self.media_answered(key, text),
+            ("picked", Some(Request::PickRect(k, page))) if k == key => self.element_picked(key, data["rect"].as_str().unwrap_or_default(), page),
             _ => {}
         }
     }
@@ -184,6 +193,65 @@ impl Browser {
         if !key.private && !self.setting_off(HISTORY_TEXT) && !text.trim().is_empty() {
             self.core.disk.set_history_text(profile, visit, &url, store::clip_history_text(text)).ok();
             self.text_found.clear();
+        }
+    }
+
+    /// The assistant's `Origin` for the active page, or the current space with no page.
+    pub fn assistant_origin(&self) -> Option<browser_core::assistant::Origin> {
+        let url = self.model.active.and_then(|k| self.pages.get(&k)).map(|p| p.url.clone());
+        self.model.assistant_origin(&self.core, url.as_deref())
+    }
+
+    /// Reads the active page's text for the assistant; it arrives in `assistant_pages`.
+    pub fn read_page_for_assistant(&mut self) {
+        let here = self.assistant_origin().is_some_and(browser_core::assistant::allowed);
+        let Some(key) = self.model.active.filter(|k| here && self.unlocked(*k).is_some()) else {
+            return self.show_toast("This page cannot be shared with the assistant", None);
+        };
+        self.ask(key, Request::Assistant(key), "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT }));
+    }
+
+    fn page_for_assistant(&mut self, key: TabKey, text: &str) {
+        let Some(page) = self.pages.get(&key).filter(|_| self.model.active == Some(key)) else { return };
+        let (url, title) = (page.url.clone(), page.title.clone());
+        if let Some(origin) = self.model.assistant_origin(&self.core, Some(&url)) {
+            self.assistant_pages.push((origin, browser_core::assistant::Pill::Page { url, title, text: text.to_owned() }, None));
+        }
+    }
+
+    /// Reads another tab's loaded page for the assistant's tab picker; a sleeping tab is never
+    /// woken for it. The text arrives in `assistant_pages`.
+    pub fn read_tab_for_assistant(&mut self, key: TabKey) {
+        let offered = self.unlocked(key).is_some_and(|url| self.model.assistant_offered(&self.core, Some(url.as_str())));
+        if !self.model.lifecycle.live().any(|k| k == key) || !offered {
+            return self.show_toast("That tab is asleep or cannot be shared. Open it to add it.", None);
+        }
+        self.ask(key, Request::AssistantTab(key), "readText", json!({ "maxChars": store::MAX_HISTORY_TEXT }));
+    }
+
+    fn tab_for_assistant(&mut self, key: TabKey, text: &str) {
+        let Some(page) = self.pages.get(&key) else { return };
+        let (url, title) = (page.url.clone(), page.title.clone());
+        if let Some(origin) = self.model.assistant_origin(&self.core, Some(&url)).filter(|_| self.model.tab(key).is_some()) {
+            self.assistant_pages.push((origin, browser_core::assistant::Pill::Tab { url, title, text: text.to_owned() }, None));
+        }
+    }
+
+    /// The selection the page's menu sent (`assistantSelection`), where the assistant may still
+    /// see that page; a command sends it once the chat attached it.
+    pub fn selection_for_assistant(&mut self, key: TabKey, url: &str, raw: &str, command: Option<String>) {
+        if !browser_core::assistant::read_here(url, self.pages.get(&key).map(|p| p.url.as_str())) {
+            return;
+        }
+        let here = |o: &browser_core::assistant::Origin| {
+            self.model.profile_of(&self.core, key) == Some(o.profile) && self.model.assistant_offered(&self.core, Some(url))
+        };
+        let Some(origin) = self.model.assistant_origin(&self.core, Some(url)).filter(here) else {
+            return self.show_toast("This page cannot be shared with the assistant", None);
+        };
+        match browser_core::assistant::selection(url, raw) {
+            Some(pill) => self.assistant_pages.push((origin, pill, command)),
+            None => self.show_toast("No text that can be shared is selected", None),
         }
     }
 

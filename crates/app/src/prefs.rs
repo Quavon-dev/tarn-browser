@@ -32,10 +32,12 @@ pub enum Pref {
     SortDownloads,
     LocalhostFromApps,
     Passkeys,
+    FeatureHints,
+    CompactDensity,
 }
 
 impl Pref {
-    pub const ALL: [Pref; 24] = [
+    pub const ALL: [Pref; 26] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
@@ -60,6 +62,8 @@ impl Pref {
         Pref::SortDownloads,
         Pref::LocalhostFromApps,
         Pref::Passkeys,
+        Pref::FeatureHints,
+        Pref::CompactDensity,
     ];
 
     pub(crate) fn key(self) -> &'static str {
@@ -88,6 +92,8 @@ impl Pref {
             Pref::SortDownloads => "sort_downloads",
             Pref::LocalhostFromApps => browser_core::incoming::LOCALHOST_FROM_APPS,
             Pref::Passkeys => browser_core::settings::PASSKEYS,
+            Pref::FeatureHints => browser_core::prefs::FEATURE_HINTS.key,
+            Pref::CompactDensity => browser_core::prefs::COMPACT.key,
         }
     }
 
@@ -108,6 +114,7 @@ impl Pref {
                 | Pref::ExtensionsEverySite
                 | Pref::LocalhostFromApps
                 | Pref::Passkeys
+                | Pref::FeatureHints
         )
     }
 
@@ -324,8 +331,11 @@ impl Browser {
         self.sidebar_open = open;
     }
 
+    /// Saves whether the sidebar is open; a window with tabs on top keeps it hidden.
     pub fn set_sidebar_open(&mut self, open: bool, cx: &mut Context<Self>) {
-        self.slide_sidebar(open);
+        if self.tab_placement == browser_core::layout::TabPlacement::Side {
+            self.slide_sidebar(open);
+        }
         browser_core::layout::save_sidebar(&self.core.disk, open).ok();
         self.close_peek(cx);
         self.hide_hover_card(cx);
@@ -486,6 +496,8 @@ mod tests {
             (Pref::NewTabStartPage, prefs::NEW_TAB_START_PAGE),
             (Pref::ClosePrevious, prefs::CLOSE_SELECTS_PREVIOUS),
             (Pref::TearOffTemporary, prefs::TEAR_OFF_TEMPORARY),
+            (Pref::FeatureHints, prefs::FEATURE_HINTS),
+            (Pref::CompactDensity, prefs::COMPACT),
         ] {
             assert_eq!((pref.key(), pref.default()), (switch.key, switch.default), "{pref:?}");
         }

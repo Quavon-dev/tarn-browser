@@ -15,7 +15,7 @@ and the web view contract in `shared-core.md`.
 | Engine bindings: the web view contract over each platform's engine | `crates/engine` (WebKit, Chromium/CEF), `linux/src/webview` (WebKitGTK), `mobile/ios` (WKWebView), `mobile/android` (Android System WebView) | every client |
 | Platform services: updater, XPC | `crates/platform` | macOS, Windows |
 | Import from other browsers | `crates/import` | macOS |
-| AI integration and its CLI helper | `crates/ai`, `crates/cli-bridge` | not built into any client |
+| AI integration and its CLI helper | `crates/ai`, `crates/cli-bridge` | `ai` is linked by `linux/` and `mobile/android`; no client UI uses it yet |
 | Sync file format | `crates/sync` | not built into any client |
 | Release and filter-list pipelines | `.github/workflows/`, `crates/filter-bundle` | GitHub Actions |
 

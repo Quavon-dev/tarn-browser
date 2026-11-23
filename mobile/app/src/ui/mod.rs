@@ -1,8 +1,11 @@
 mod appearance;
+mod assistant;
 mod bars;
+mod capture;
 mod controls;
 mod extensions;
 mod mac;
+mod media;
 mod panels;
 mod prompt;
 mod share;
@@ -12,7 +15,7 @@ mod split;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use browser_core::tabs::TabKey;
 use nsh_core::prelude::*;
@@ -58,6 +61,8 @@ pub enum Screen {
     Licence(usize),
     Extensions,
     ExtensionPopup,
+    Snippets,
+    Assistant,
 }
 
 thread_local! {
@@ -80,10 +85,17 @@ pub struct Ui {
     pub address: Signal<String>,
     pub editing: Signal<bool>,
     pub suggest: Signal<Vec<store::HistoryEntry>>,
+    /// The command bar's actions page: the row it is for, its name and the row picked before it.
+    pub actions: Signal<Option<(browser_core::palette::Item, String, Option<usize>)>>,
     pub field: ElementRef,
-    pub fresh: Signal<Option<(TabKey, TabKey)>>,
+    /// The address field was opened by New Tab: what the user opens from it gets a new tab.
+    pub new_tab: Signal<bool>,
+    /// Submits of an address Tarn does not open since the field was last edited; each shakes it.
+    pub rejected: Signal<u32>,
     pub mac: Signal<bool>,
+    pub page_overlay: Signal<Option<tarn_nsh_shared::page_overlay::Overlay>>,
     pub popovers: mac::popovers::Anchors,
+    pub chat: tarn_nsh_shared::assistant::Chat,
     pub root: Owner,
 }
 
@@ -115,6 +127,12 @@ impl Ui {
         if &*e.name == browser_core::extensions::STORE_EVENT {
             extensions::store_link(self, key, e.data["id"].as_str().unwrap_or_default());
         }
+        if &*e.name == "pong" {
+            return self.run_quietly(|s| s.event(key, &e.name, &e.data, browser_core::now()));
+        }
+        if &*e.name == "snapshotRect" {
+            return capture::shown(self, key, &e.data);
+        }
         if &*e.name == "iconData" {
             let (name, data) = (e.name.to_string(), e.data.clone());
             let encoded = data.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned();
@@ -130,36 +148,32 @@ impl Ui {
             });
             return;
         }
-        // A picked element is stored, and a pop-up may open in another profile's space.
-        self.run(|s| s.event(key, &e.name, &e.data, browser_core::now()), matches!(&*e.name, "picked" | "popup"));
+        // A picked element or a screenshot is stored, and a pop-up may open in another profile's space.
+        self.run(|s| s.event(key, &e.name, &e.data, browser_core::now()), matches!(&*e.name, "picked" | "popup" | "screenshot"));
     }
 
     fn run(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>, changed: bool) {
-        let effects = SHELL.with(|s| {
-            let mut shell = s.borrow_mut();
-            let shell = shell.as_mut().expect("the shell opens with the app");
-            let mut effects = f(shell);
-            effects.extend(shell.take_effects());
-            effects
-        });
+        let effects = apply(f);
+        let pages = SHELL.with(|s| s.borrow_mut().as_mut().map(|s| std::mem::take(&mut s.assistant_pages)).unwrap_or_default());
+        self.chat.sync(assistant::Host(self));
+        if !pages.is_empty() {
+            assistant::attach(self, pages);
+        }
         self.rev.update(|r| *r += 1);
         if changed {
             self.changes.update(|r| *r += 1);
         }
-        for effect in effects {
-            match effect {
-                Effect::Command(key, name, args) => VIEWS.with(|v| {
-                    if let Some(view) = v.borrow().get(&key) {
-                        view.command(name, args);
-                    }
-                }),
-                Effect::PagePost(install_id, kind, json) => extensions::post(install_id, kind, json),
-                Effect::Open(url) => {
-                    spawn(async move {
-                        let _ = open_url(url).await;
-                    });
-                }
-            }
+        dispatch(effects);
+    }
+
+    /// Redraws only when the hung-page card appears or goes, so a ping or its answer never rebuilds an open form.
+    fn run_quietly(self, f: impl FnOnce(&mut AppShell) -> Vec<Effect>) {
+        thread_local!(static DRAWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
+        let effects = apply(f);
+        let hung = SHELL.with(|s| s.borrow().as_ref().is_some_and(AppShell::hung));
+        dispatch(effects);
+        if DRAWN.with(|d| d.replace(hung)) != hung {
+            self.act_on_screen(|_| Vec::new());
         }
     }
 
@@ -168,7 +182,7 @@ impl Ui {
             dismiss_keyboard();
         }
         self.editing.set(false);
-        self.fresh.set(None);
+        self.new_tab.set(false);
         if screen == Screen::Find {
             self.act(|s| {
                 s.found = None;
@@ -206,6 +220,52 @@ impl Ui {
         }
     }
 
+    /// Whether `text` is an address Tarn does not open; if so the field shakes, or with Reduce
+    /// Motion shows `invalid_note`, and nothing navigates.
+    pub fn rejects(self, text: &str) -> bool {
+        let rejected = untracked(|| self.read(|s| s.rejects(text)));
+        if rejected {
+            self.rejected.update(|n| *n += 1);
+        }
+        rejected
+    }
+
+    /// Binds the address field's shake, replayed on every rejected submit.
+    pub fn shaking<E: Element>(self, field: E) -> E {
+        let shake = motion();
+        effect(move || {
+            if self.rejected.get() > 0 && !reduce_motion() {
+                let spec = MotionSpec::new(KeyframeTiming::new(tarn_nsh_shared::motion::ms(tarn_nsh_shared::motion::SHAKE)).easing(Easing::Linear))
+                    .values(MotionChannel::TranslateX, (0..=12).map(|i| browser_core::palette::shake(i as f32 / 12.)));
+                drop(untracked(|| shake.play(spec)));
+            }
+        });
+        field.bind_motion(&shake)
+    }
+
+    /// The note that replaces the shake when motion is reduced.
+    pub fn invalid_note(self) -> impl IntoElement {
+        dynamic(move || {
+            (self.rejected.get() > 0 && reduce_motion())
+                .then(|| text(browser_core::palette::INVALID_ADDRESS).text_size(px(crate::theme::TEXT)).text_color(Theme::danger()).px_3().py_1())
+        })
+    }
+
+    /// Opens typed text or an address in the current tab, or in a new tab when New Tab opened the field.
+    pub fn open_typed(self, text: &str) {
+        let new_tab = self.new_tab.get_untracked();
+        self.new_tab.set(false);
+        self.act(|s| if new_tab { s.open_typed_in_new_tab(text) } else { s.navigate_typed(text) });
+    }
+
+    pub fn copy_answer(self, text: String) {
+        set_clipboard(text);
+        self.act(|s| {
+            s.toast_as(browser_core::toast::Tone::Success, "Copied".into());
+            Vec::new()
+        });
+    }
+
     pub fn edit_address(self) {
         if self.mac.get_untracked() {
             mac::open_palette(self);
@@ -231,6 +291,13 @@ impl Ui {
     }
 }
 
+/// A field's text after a `;name` expanded, with the caret after it.
+pub(super) fn caret_at_end(text: Signal<String>, field: ElementRef, full: String) {
+    let end = full.encode_utf16().count() as u32;
+    text.set(full);
+    field.set_selection(end, end);
+}
+
 fn shell_dir() -> std::path::PathBuf {
     Data::data_dir().or_else(|| browser_core::data_dir(data_dir().as_deref())).unwrap_or_else(|| std::env::temp_dir().join("tarn"))
 }
@@ -243,6 +310,36 @@ fn open_shell() {
             *s.borrow_mut() = Some(AppShell::open(&dir));
         }
     });
+}
+
+fn apply(f: impl FnOnce(&mut AppShell) -> Vec<Effect>) -> Vec<Effect> {
+    SHELL.with(|s| {
+        let mut shell = s.borrow_mut();
+        let shell = shell.as_mut().expect("the shell opens with the app");
+        let before = shell.model.active;
+        let mut effects = f(shell);
+        effects.extend(shell.settle_media(before));
+        effects.extend(shell.take_effects());
+        effects
+    })
+}
+
+fn dispatch(effects: Vec<Effect>) {
+    for effect in effects {
+        match effect {
+            Effect::Command(key, name, args) => VIEWS.with(|v| {
+                if let Some(view) = v.borrow().get(&key) {
+                    view.command(name, args);
+                }
+            }),
+            Effect::PagePost(install_id, kind, json) => extensions::post(install_id, kind, json),
+            Effect::Open(url) => {
+                spawn(async move {
+                    let _ = open_url(url).await;
+                });
+            }
+        }
+    }
 }
 
 fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
@@ -262,6 +359,7 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
         .prop("sortDownloads", move || json!(item.get().sort_downloads))
         .prop("dark", move || json!(!Theme::is_light()))
         .prop("splitLinks", move || json!(ui.wide()))
+        .prop("assistantMenu", move || json!(item.get().assistant))
         .prop("load", move || item.get().load.map_or(Value::Null, |l| json!({ "url": l.url, "seq": l.seq, "opener": l.opener, "file": l.file })))
         .prop("active", move || {
             let shown = ui.pane(key).is_some();
@@ -513,11 +611,15 @@ pub fn App() -> impl IntoElement {
         address: signal(String::new()),
         editing: signal(false),
         suggest: signal(Vec::new()),
+        actions: signal(None),
         field: element_ref(),
-        fresh: signal(None),
+        new_tab: signal(false),
+        rejected: signal(0),
         mac: signal(false),
         root: Owner::current(),
+        page_overlay: signal(None),
         popovers: mac::popovers::Anchors::default(),
+        chat: tarn_nsh_shared::assistant::Chat::new(),
     };
     let extensions_open = std::cell::Cell::new(false);
     effect(move || {
@@ -578,6 +680,8 @@ pub fn App() -> impl IntoElement {
     };
     follow();
     set_interval(Duration::from_secs(60), follow);
+    set_interval(engine::lifecycle::PING_EVERY, move || ui.run_quietly(|s| s.ping_page(Instant::now())));
+    media::poll(ui);
     extensions::start(ui);
     view()
         .flex_1()
@@ -600,10 +704,13 @@ pub fn App() -> impl IntoElement {
                         .style_when(move || ui.browsing(), |s| s.absolute().top(px(0.)).left(px(0.)).right(px(0.)))
                         .child(notice(ui))
                         .child(sheets::picking_banner(ui))
-                        .child(bars::page_error(ui)),
+                        .child(bars::page_error(ui))
+                        .child(bars::page_hang(ui)),
                 )
                 .child(each(move || pages.get(), |v: &ViewProps| (v.key, v.born), move |item, _| web_view(ui, item)))
                 .child(split::dividers(ui))
+                .child(capture::layer(ui))
+                .child(media::bar(ui, false))
                 .child(start(ui))
                 .child(bars::suggestions(ui))
                 .child(prompt::prompt_panel(ui))

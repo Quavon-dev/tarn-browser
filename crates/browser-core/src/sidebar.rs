@@ -1,5 +1,7 @@
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
+use shield::ShieldLevel;
 use store::{Folder, Id, Tab, TabKind};
 
 use crate::closed::ClosedGroup;
@@ -48,9 +50,9 @@ fn tab_rows(model: &Model, splits: &Splits<TabKey>, tabs: &[&Tab], depth: usize)
         .collect()
 }
 
-fn folder_rows(model: &Model, splits: &Splits<TabKey>, folder: &Folder, depth: usize, rows: &mut Vec<Row>) {
+fn folder_rows(model: &Model, splits: &Splits<TabKey>, folder: &Folder, depth: usize, open_all: bool, rows: &mut Vec<Row>) {
     rows.push(Row { kind: RowKind::Folder(folder.id), depth });
-    if !model.expanded.contains(&folder.id) {
+    if !open_all && !model.expanded.contains(&folder.id) {
         let tree = folder_tree(&model.folders, folder.id);
         let active = sorted(model, |t| t.folder_id.is_some_and(|f| tree.contains(&f)) && model.active == Some(model.key(t)));
         rows.extend(tab_rows(model, splits, &active, depth + 1));
@@ -59,7 +61,7 @@ fn folder_rows(model: &Model, splits: &Splits<TabKey>, folder: &Folder, depth: u
     let tabs = sorted(model, |t| t.kind == TabKind::Pinned && t.folder_id == Some(folder.id));
     rows.extend(tab_rows(model, splits, &tabs, depth + 1));
     for child in children(model, Some(folder.id)) {
-        folder_rows(model, splits, child, depth + 1, rows);
+        folder_rows(model, splits, child, depth + 1, open_all, rows);
     }
 }
 
@@ -70,19 +72,25 @@ fn children(model: &Model, parent: Option<Id>) -> Vec<&Folder> {
 }
 
 pub fn sidebar(model: &Model, splits: &Splits<TabKey>) -> Sidebar {
+    rows(model, splits, false)
+}
+
+/// `open_all` lists every folder's and group's tabs as if none were collapsed.
+fn rows(model: &Model, splits: &Splits<TabKey>, open_all: bool) -> Sidebar {
     let tiles = sorted(model, |t| t.kind == TabKind::Tile).into_iter().map(|t| model.key(t)).collect();
     let mut pinned: Vec<Vec<Row>> =
         tab_rows(model, splits, &sorted(model, |t| t.kind == TabKind::Pinned && t.folder_id.is_none()), 0).into_iter().map(|r| vec![r]).collect();
     for folder in children(model, None) {
         let mut block = Vec::new();
-        folder_rows(model, splits, folder, 0, &mut block);
+        folder_rows(model, splits, folder, 0, open_all, &mut block);
         pinned.push(block);
     }
     let groups = model
         .groups
         .iter()
         .map(|g| {
-            let tabs = sorted(model, |t| t.kind == TabKind::Ephemeral && t.group_id == Some(g.id) && (!g.collapsed || model.active == Some(model.key(t))));
+            let tabs =
+                sorted(model, |t| t.kind == TabKind::Ephemeral && t.group_id == Some(g.id) && (open_all || !g.collapsed || model.active == Some(model.key(t))));
             (g.id, tab_rows(model, splits, &tabs, 0))
         })
         .collect();
@@ -90,8 +98,53 @@ pub fn sidebar(model: &Model, splits: &Splits<TabKey>) -> Sidebar {
     Sidebar { tiles, pinned, groups, loose }
 }
 
+/// The tab strip of a window with tabs on top (`layout::TabPlacement::Top`): the pinned tabs as
+/// icons, then the other tabs, in the sidebar's order, also those of collapsed folders and groups.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Strip {
+    pub pinned: Vec<TabKey>,
+    pub tabs: Vec<TabKey>,
+}
+
+pub fn strip(model: &Model) -> Strip {
+    let bar = rows(model, &Splits::default(), true);
+    let keys = |rows: &[Row]| -> Vec<TabKey> {
+        rows.iter()
+            .flat_map(|r| match &r.kind {
+                RowKind::Tab(key) => vec![*key],
+                RowKind::Split(keys) => keys.clone(),
+                RowKind::Folder(_) => Vec::new(),
+            })
+            .collect()
+    };
+    let pinned = bar.tiles.iter().copied().chain(bar.pinned.iter().flat_map(|block| keys(block))).collect();
+    let tabs = bar.groups.iter().flat_map(|(_, rows)| keys(rows)).chain(keys(&bar.loose)).collect();
+    Strip { pinned, tabs }
+}
+
 pub fn cleanable(model: &Model) -> bool {
     !model.burner_shown() && crate::cleanup::cleanable(&model.tabs)
+}
+
+pub const ORGANIZE: &str = "Organize Tabs";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Organize {
+    NewGroup,
+    NewFolder,
+    CleanUp,
+    GroupWithAssistant,
+}
+
+pub fn organize(cleanable: bool, assistant: bool) -> Vec<(&'static str, Organize)> {
+    let mut items = vec![("New Tab Group", Organize::NewGroup), ("New Folder", Organize::NewFolder)];
+    if cleanable {
+        items.push(("Clean Up", Organize::CleanUp));
+        if assistant {
+            items.push(("Group with Assistant", Organize::GroupWithAssistant));
+        }
+    }
+    items
 }
 
 fn takes(model: &Model, kind: TabKind) -> bool {
@@ -219,7 +272,11 @@ fn place<D: WebsiteData>(model: &mut Model, core: &Core<D>, dragged: TabKey, at:
         return None;
     }
     let group = (at.kind == TabKind::Ephemeral).then_some(at.group);
+    let from = crate::undo::Move::of(model, dragged);
     core.store(dragged.private).move_tab_to(dragged.id, at.kind, at.folder, index, group).ok()?;
+    if let Some(from) = from {
+        model.undo.push(crate::undo::Step::Moved(from), dragged.private);
+    }
     let old = model.reload_space(core);
     model.expanded.extend(at.folder);
     Some(old)
@@ -254,13 +311,51 @@ pub fn clean_up<D: WebsiteData>(model: &mut Model, core: &Core<D>, url: impl Fn(
         return Some(CleanUp { text: "Could not sort the tabs".to_owned(), tone: Tone::Warning, undo: None });
     };
     let sort = crate::cleanup::plan(&tabs, &groups, url);
-    let applied = if sort.changed { crate::cleanup::apply(store, space_id, &sort).map(Some) } else { Ok(None) };
+    Some(apply_sort(model, core, (private, space_id), &sort))
+}
+
+fn apply_sort<D: WebsiteData>(model: &mut Model, core: &Core<D>, (private, space_id): (bool, Id), sort: &crate::cleanup::Sort) -> CleanUp {
+    let store = core.store(private);
+    let applied = if sort.changed { crate::cleanup::apply(store, space_id, sort).map(Some) } else { Ok(None) };
     let text = sort.summary(applied.is_ok(), 0, false);
     let tone = if applied.is_ok() { Tone::Info } else { Tone::Warning };
     if sort.changed {
         model.reload_space(core);
     }
-    Some(CleanUp { text, tone, undo: applied.ok().flatten().map(|undo| (private, undo)) })
+    let undo = applied.ok().flatten();
+    if let Some(undo) = &undo {
+        model.undo.push(crate::undo::Step::CleanUp(undo.clone()), private);
+    }
+    CleanUp { text, tone, undo: undo.map(|undo| (private, undo)) }
+}
+
+/// Clean Up's assistant request for the current space's loose tabs, only where the palette would
+/// offer Ask; `page` gives each tab's address and effective Shield level. The space comes back for
+/// `group_as_proposed`.
+pub fn assistant_grouping<D: WebsiteData>(
+    model: &Model,
+    core: &Core<D>,
+    page: impl Fn(&Tab) -> (String, ShieldLevel),
+) -> Option<((bool, Id), crate::cleanup::ai::Request)> {
+    let (private, space_id) = model.current_space().map(|s| (s.private, s.space.id))?;
+    let origin = model.assistant_origin(core, None).filter(|_| model.assistant_offered(core, None))?;
+    let tabs = core.store(private).tabs(space_id).ok()?;
+    Some(((private, space_id), crate::cleanup::ai::request(origin, &tabs, page)?))
+}
+
+/// Whether a grouping asked for in `space` may still be shown and applied: that space is still the
+/// current one and the assistant is still allowed there with its profile's AI on.
+pub fn grouping_here<D: WebsiteData>(model: &Model, core: &Core<D>, space: (bool, Id)) -> bool {
+    model.current_space().map(|s| (s.private, s.space.id)) == Some(space) && model.assistant_offered(core, None)
+}
+
+/// Files the tabs of `space` the assistant grouped, of those it was `sent`, as an undoable Clean Up.
+pub fn group_as_proposed<D: WebsiteData>(model: &mut Model, core: &Core<D>, space: (bool, Id), sent: &HashSet<Id>, proposal: &[(String, Vec<Id>)]) -> CleanUp {
+    let store = core.store(space.0);
+    let (Ok(tabs), Ok(groups)) = (store.tabs(space.1), store.groups(space.1)) else {
+        return CleanUp { text: "Could not sort the tabs".to_owned(), tone: Tone::Warning, undo: None };
+    };
+    apply_sort(model, core, space, &crate::cleanup::ai::sort_from(&tabs, &groups, sent, proposal))
 }
 
 pub fn undo_sort<D: WebsiteData>(model: &mut Model, core: &Core<D>, (private, undo): &(bool, crate::cleanup::Undo)) -> bool {
@@ -292,20 +387,49 @@ pub enum Step {
 const SWIPE_THRESHOLD: f32 = 60.;
 const SWIPE_GAP: Duration = Duration::from_millis(200);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    Started,
+    Moved,
+    Ended,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Swipe {
     dx: f32,
     dy: f32,
     armed: bool,
     last: Option<Instant>,
+    natural: bool,
 }
 
 impl Swipe {
+    pub fn natural(natural: bool) -> Self {
+        Swipe { natural, ..Swipe::default() }
+    }
+
+    fn restart(&mut self) {
+        *self = Swipe { armed: true, ..Swipe::natural(self.natural) };
+    }
+
     pub fn feed(&mut self, dx: f32, dy: f32, at: Instant) -> Option<Step> {
         if self.last.is_none_or(|last| at.saturating_duration_since(last) > SWIPE_GAP) {
-            *self = Swipe { armed: true, ..Swipe::default() };
+            self.restart();
         }
         self.last = Some(at);
+        self.moved(dx, dy)
+    }
+
+    pub fn touch(&mut self, phase: Phase, dx: f32, dy: f32) -> Option<Step> {
+        match phase {
+            Phase::Started => self.restart(),
+            Phase::Ended => self.armed = false,
+            Phase::Moved => return self.moved(dx, dy),
+        }
+        None
+    }
+
+    fn moved(&mut self, dx: f32, dy: f32) -> Option<Step> {
         if !self.armed {
             return None;
         }
@@ -317,8 +441,16 @@ impl Swipe {
             return None;
         }
         self.armed = false;
-        Some(if self.dx > 0. { Step::Next } else { Step::Previous })
+        Some(if (self.dx > 0.) != self.natural { Step::Next } else { Step::Previous })
     }
+}
+
+/// Where the list of the space switched to starts its spring, `width` away on the side it comes
+/// from: a switch made mid-slide or mid-drag picks up where the old list stood (`shown`), so a
+/// second press retargets the spring instead of jumping. `None` with Reduce Motion: no slide.
+pub fn slide_start(shown: Option<f32>, from: usize, to: usize, width: f32, reduce: bool) -> Option<f32> {
+    let dir = if to > from { 1. } else { -1. };
+    (from != to && !reduce).then(|| shown.unwrap_or(0.) + dir * width)
 }
 
 pub fn neighbour_space(model: &Model, step: Step, allowed: impl Fn(&SpaceRef) -> bool) -> Option<usize> {
@@ -367,6 +499,24 @@ impl SpaceBar {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn organize_offers_clean_up_only_with_tabs_to_sort_and_the_assistant_only_when_allowed() {
+        use super::{Organize, organize};
+        let names = |c, a| organize(c, a).into_iter().map(|(_, o)| o).collect::<Vec<_>>();
+        assert_eq!(names(false, true), [Organize::NewGroup, Organize::NewFolder]);
+        assert_eq!(names(true, false), [Organize::NewGroup, Organize::NewFolder, Organize::CleanUp]);
+        assert_eq!(names(true, true), [Organize::NewGroup, Organize::NewFolder, Organize::CleanUp, Organize::GroupWithAssistant]);
+    }
+
+    #[test]
+    fn a_second_switch_retargets_the_slide_from_where_it_stands() {
+        assert_eq!(slide_start(None, 0, 1, 250., false), Some(250.));
+        assert_eq!(slide_start(None, 2, 1, 250., false), Some(-250.));
+        assert_eq!(slide_start(Some(100.), 1, 2, 250., false), Some(350.), "mid-slide, it starts where the list stands");
+        assert_eq!(slide_start(None, 1, 1, 250., false), None);
+        assert_eq!(slide_start(None, 0, 1, 250., true), None, "Reduce Motion switches at once");
+    }
+
     use super::*;
     use crate::TestCore;
 
@@ -384,6 +534,37 @@ mod tests {
         let t = core.disk.create_tab(s, kind, folder, "https://a.test/", "").unwrap();
         model.reload_space(core);
         model.key(&t)
+    }
+
+    #[test]
+    fn the_strip_lists_pinned_tabs_then_the_others_in_sidebar_order() {
+        let (_dir, core, mut model) = opened();
+        let tile = tab(&core, &mut model, TabKind::Tile, None);
+        let pinned = tab(&core, &mut model, TabKind::Pinned, None);
+        let (a, b) = (tab(&core, &mut model, TabKind::Ephemeral, None), tab(&core, &mut model, TabKind::Ephemeral, None));
+        let shown = strip(&model);
+        assert_eq!(shown.pinned, [tile, pinned]);
+        assert_eq!(shown.tabs, model.ephemeral_keys());
+        assert!(shown.tabs.contains(&a) && shown.tabs.contains(&b));
+    }
+
+    #[test]
+    fn the_strip_reaches_tabs_inside_collapsed_folders_and_groups() {
+        let (_dir, core, mut model) = opened();
+        let outer = new_folder(&mut model, &core, None).unwrap();
+        let inner = new_folder(&mut model, &core, Some(outer)).unwrap();
+        let (top, deep) = (tab(&core, &mut model, TabKind::Pinned, Some(outer)), tab(&core, &mut model, TabKind::Pinned, Some(inner)));
+        let grouped = tab(&core, &mut model, TabKind::Ephemeral, None);
+        let group = new_group(&mut model, &core, Some(grouped)).unwrap();
+        let open = strip(&model);
+        model.toggle_folder(outer);
+        model.toggle_folder(inner);
+        assert!(model.toggle_group(&core, group));
+        model.active = None;
+        let shown = strip(&model);
+        assert_eq!(shown, open, "collapsing hides nothing from the strip");
+        assert_eq!(shown.pinned, [top, deep]);
+        assert_eq!(shown.tabs, [grouped]);
     }
 
     #[test]
@@ -506,6 +687,34 @@ mod tests {
     }
 
     #[test]
+    fn the_assistant_groups_only_what_it_was_sent_and_undo_takes_it_back() {
+        let (_dir, core, mut model) = opened();
+        let s = model.spaces[0].space.id;
+        let tab = |url: &str| core.disk.create_tab(s, TabKind::Ephemeral, None, url, "T").unwrap().id;
+        let (a, b, later) = (tab("https://a.test/"), tab("https://b.test/"), tab("file:///x"));
+        model.reload_space(&core);
+        let profile = model.profile().unwrap().1;
+        core.open_profile(false, profile, || std::rc::Rc::new(|_| {}));
+        let page = |t: &Tab| (t.url.clone(), ShieldLevel::Standard);
+        assert!(assistant_grouping(&model, &core, page).is_none(), "nothing is sent with AI off");
+        core.disk.set_profile_ai(profile, true).unwrap();
+        let (space, request) = assistant_grouping(&model, &core, page).unwrap();
+        assert_eq!(request.sent, HashSet::from([a, b]));
+        assert!(grouping_here(&model, &core, space));
+        assert!(!grouping_here(&model, &core, (true, space.1)), "another space is not where it was asked");
+        core.disk.set_profile_ai(profile, false).unwrap();
+        assert!(!grouping_here(&model, &core, space), "AI turned off since the request");
+        core.disk.set_profile_ai(profile, true).unwrap();
+        let done = group_as_proposed(&mut model, &core, space, &request.sent, &[("Reading".into(), vec![a, b, later])]);
+        assert_eq!(done.tone, Tone::Info);
+        let grouped: Vec<Id> = model.tabs.iter().filter(|t| t.group_id.is_some()).map(|t| t.id).collect();
+        assert_eq!(grouped.len(), 2, "a tab that was not sent stays loose");
+        assert!(!grouped.contains(&later));
+        assert!(undo_sort(&mut model, &core, &done.undo.unwrap()));
+        assert!(model.groups.is_empty());
+    }
+
+    #[test]
     fn only_the_next_row_of_the_same_list_slides_under_a_closed_tab() {
         let key = |id| TabKey { private: false, id };
         let row = |id| Row { kind: RowKind::Tab(key(id)), depth: 0 };
@@ -570,6 +779,42 @@ mod tests {
     }
 
     #[test]
+    fn undo_takes_back_moves_and_closes_newest_first() {
+        let (_dir, core, mut model) = opened();
+        let (a, b) = (tab(&core, &mut model, TabKind::Ephemeral, None), tab(&core, &mut model, TabKind::Ephemeral, None));
+        let group = model.new_group(&core, Some(a)).unwrap().id;
+        model.reload_space(&core);
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, None, None)).is_some());
+        let space = model.current_space().map(|s| (s.space.profile_id, s.space.id)).unwrap();
+        let serial = model.push_closed(crate::closed::Closed { private: false, profile_id: space.0, space_id: space.1, tabs: Vec::new(), group: None });
+        assert_eq!(model.pop_undo(&core), Some(crate::undo::Step::Closed(serial)));
+        let Some(crate::undo::Step::Moved(from)) = model.pop_undo(&core) else { panic!("the move is next") };
+        assert!(from.revert(&mut model, &core));
+        let back = model.tab(a).unwrap();
+        assert_eq!((back.kind, back.group_id, model.ephemeral_keys()), (TabKind::Ephemeral, Some(group), vec![a, b]));
+        let serial = model.push_closed(crate::closed::Closed { private: false, profile_id: space.0, space_id: space.1, tabs: Vec::new(), group: None });
+        model.closed_tabs.take(serial, &[]);
+        assert_eq!(model.pop_undo(&core), None, "a close reopened since is skipped");
+        model.push_closed(crate::closed::Closed { private: true, profile_id: space.0, space_id: space.1, tabs: Vec::new(), group: None });
+        assert!(model.undo.is_empty() && !model.closed_tabs.is_empty(), "a private close is reopenable but never kept for Undo");
+    }
+
+    #[test]
+    fn undo_skips_steps_whose_tab_or_space_is_gone() {
+        let (_dir, core, mut model) = opened();
+        let (a, b) = (tab(&core, &mut model, TabKind::Ephemeral, None), tab(&core, &mut model, TabKind::Ephemeral, None));
+        assert!(drop_tab(&mut model, &core, b, DropAt::zone(TabKind::Pinned, None, None)).is_some());
+        assert!(drop_tab(&mut model, &core, a, DropAt::zone(TabKind::Pinned, None, None)).is_some());
+        core.disk.delete_tab(a.id).unwrap();
+        model.reload_space(&core);
+        let profile = model.spaces[0].space.profile_id;
+        model.push_closed(crate::closed::Closed { private: false, profile_id: profile, space_id: 999, tabs: Vec::new(), group: None });
+        let Some(crate::undo::Step::Moved(from)) = model.pop_undo(&core) else { panic!("the gone space's close and the gone tab's move are skipped") };
+        assert_eq!(from.key, b);
+        assert_eq!(model.pop_undo(&core), None);
+    }
+
+    #[test]
     fn a_dropped_tab_moves_into_the_zone_folder_or_group_it_lands_on() {
         let (_dir, core, mut model) = opened();
         let (a, b, c) = (
@@ -624,6 +869,31 @@ mod tests {
         assert_eq!(s.feed(-70., 0., ms(400)), Some(Step::Previous), "a pause starts the next gesture");
         assert_eq!(s.feed(10., -70., ms(800)), None, "a vertical scroll");
         assert_eq!(s.feed(100., 0., ms(810)), None, "stays vertical until it pauses");
+    }
+
+    #[test]
+    fn touch_phases_bound_one_gesture_and_natural_scrolling_flips_it() {
+        let mut s = Swipe::natural(true);
+        assert_eq!(s.touch(Phase::Moved, -100., 0.), None, "momentum without a started gesture");
+        s.touch(Phase::Started, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, -40., 0.), None);
+        assert_eq!(s.touch(Phase::Moved, -40., 5.), Some(Step::Next));
+        assert_eq!(s.touch(Phase::Moved, -200., 0.), None, "the rest of the gesture");
+        s.touch(Phase::Ended, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, 70., 0.), None, "after the fingers lift");
+        s.touch(Phase::Started, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, 70., 0.), Some(Step::Previous));
+        s.touch(Phase::Started, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, 0., 80.), None, "a vertical scroll");
+        assert_eq!(s.touch(Phase::Moved, -200., 0.), None, "stays vertical until the next gesture");
+        s.touch(Phase::Started, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, -70., 40.), None, "too steep");
+
+        let mut s = Swipe::natural(false);
+        s.touch(Phase::Started, 0., 0.);
+        assert_eq!(s.touch(Phase::Moved, -70., 0.), Some(Step::Previous));
+        let mut s = Swipe::natural(true);
+        assert_eq!(s.feed(-70., 0., Instant::now()), Some(Step::Next), "timed wheel gestures follow the setting too");
     }
 
     #[test]

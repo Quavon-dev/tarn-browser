@@ -9,10 +9,12 @@ pub mod icons;
 pub mod library;
 pub mod link_peek;
 pub mod links;
+mod media;
 pub mod pages;
 pub mod profile_data;
 pub mod profiles;
 mod site;
+mod snippets;
 pub mod spaces;
 mod split;
 pub mod swipe;
@@ -29,7 +31,8 @@ use browser_core::command::{ENGINES, Input, classify_input, engine_key};
 use browser_core::prefs::{self, Switch};
 use browser_core::prompts::Prompt;
 use browser_core::suggest;
-use browser_core::tabs::{Model, TabKey, Torn};
+use browser_core::tabs::{Model, Opened, TabKey, Torn};
+use browser_core::undo::Step;
 use browser_core::{Core, now};
 use engine::nav_policy::{self, Decision, Source};
 use serde_json::{Value, json};
@@ -129,6 +132,8 @@ pub struct Browser {
     pub model: Model,
     pub pages: HashMap<TabKey, Page>,
     pub outbox: Vec<(TabKey, &'static str, Value)>,
+    pub hang: engine::lifecycle::Hang<TabKey>,
+    pub tab_placement: browser_core::layout::TabPlacement,
     pub notice: Option<Notice>,
     pub downloads: Vec<DownloadItem>,
     pub toast: Option<Toast>,
@@ -145,6 +150,9 @@ pub struct Browser {
     pub samples: crate::memory::Samples,
     pub used: HashMap<TabKey, std::time::Instant>,
     pub playing: HashSet<TabKey>,
+    pub player: browser_core::media::Player,
+    /// The tab and committed address Insert Snippet opened on.
+    snippet_page: Option<(TabKey, String)>,
     pub swipe: swipe::Swipe,
     pub released: Vec<crate::data::StoreKey>,
     pub retired: Vec<String>,
@@ -158,6 +166,9 @@ pub struct Browser {
     pub elsewhere: HashSet<TabKey>,
     /// Tabs this window closed or moved between lists; other windows holding them reload theirs.
     pub forgotten: Vec<TabKey>,
+    /// Pages, tabs and selections read for the assistant, with the command a selection runs, for
+    /// the window's chat to attach.
+    pub assistant_pages: Vec<(browser_core::assistant::Origin, browser_core::assistant::Pill, Option<String>)>,
     /// Groups this window deleted; other windows drop them from their reopen stacks.
     pub forgotten_groups: Vec<(bool, Id)>,
     /// The space whose groups this window changed; other windows showing it reload it.
@@ -211,6 +222,7 @@ impl Browser {
     }
 
     pub fn new(core: Rc<Core<Data>>, window: SavedWindow, torn: Option<Torn>, elsewhere: HashSet<TabKey>, themes: themes::Themes) -> Browser {
+        let tab_placement = browser_core::layout::TabPlacement::load(&core.disk);
         let mut model = Model::new(browser_core::settings::live_tabs(&core.disk));
         model.reload_spaces(&core);
         let mut browser = Browser {
@@ -218,6 +230,8 @@ impl Browser {
             model,
             pages: HashMap::new(),
             outbox: Vec::new(),
+            hang: Default::default(),
+            tab_placement,
             notice: None,
             downloads: Vec::new(),
             toast: None,
@@ -234,6 +248,8 @@ impl Browser {
             samples: Default::default(),
             used: HashMap::new(),
             playing: HashSet::new(),
+            player: Default::default(),
+            snippet_page: None,
             swipe: Default::default(),
             released: Vec::new(),
             retired: Vec::new(),
@@ -246,6 +262,7 @@ impl Browser {
             favicons: Default::default(),
             elsewhere,
             forgotten: Vec::new(),
+            assistant_pages: Vec::new(),
             forgotten_groups: Vec::new(),
             regrouped_space: None,
             themes,
@@ -286,6 +303,7 @@ impl Browser {
     }
 
     pub fn switch_space(&mut self, ix: usize) {
+        let _span = (ix != self.model.space_ix).then(|| engine::startup::span(engine::startup::SPACE_SWITCH)).flatten();
         let burning = self.model.burner_shown();
         self.close_reader();
         if self.model.switch_space(&self.core, ix).is_none() {
@@ -349,12 +367,26 @@ impl Browser {
         self.toast = (!self.toasts_waiting.is_empty()).then(|| self.toasts_waiting.remove(0));
     }
 
+    /// A toast naming `keys` after `command` ran from a menu or the command bar, if the profile's
+    /// hint throttle allows one and no other toast shows; none in a private space or a burner tab.
+    pub fn offer_hint(&mut self, command: &str, keys: &str, typing: bool) {
+        if self.toast.is_some() {
+            return;
+        }
+        if let Some(text) = self.core.feature_hint(self.model.profile(), command, keys, now(), typing) {
+            self.show_toast_as(browser_core::toast::Tone::Info, text, None);
+        }
+    }
+
     pub fn take_toast_action(&mut self) {
         let action = self.toast.as_ref().and_then(|t| t.action.clone());
         self.dismiss_toast();
         match action {
             Some(ToastAction::Undo(serial)) => self.undo_close(serial),
-            Some(ToastAction::UndoSort(sort)) => self.undo_sort(*sort),
+            Some(ToastAction::UndoSort(sort)) => {
+                let (private, undo) = *sort;
+                self.run_undo(Step::CleanUp(undo), private);
+            }
             Some(ToastAction::RestoreDownloads(cleared)) => {
                 let (private, profile, rows) = *cleared;
                 self.core.restore_downloads(private, profile, &rows);
@@ -365,6 +397,7 @@ impl Browser {
 
     pub fn activate(&mut self, key: TabKey) {
         let Some(tab) = self.model.tab(key).cloned() else { return };
+        let _span = (self.model.active != Some(key)).then(|| engine::startup::span(engine::startup::TAB_SWITCH));
         if self.model.active != Some(key) {
             self.hovered_link.clear();
             self.close_reader();
@@ -401,7 +434,11 @@ impl Browser {
     }
 
     pub fn new_tab(&mut self, url: &str) -> Option<TabKey> {
-        let key = self.model.new_tab(&self.core, url, None)?;
+        self.open_tab(url, Opened::Typed)
+    }
+
+    pub fn open_tab(&mut self, url: &str, opened: Opened) -> Option<TabKey> {
+        let key = self.model.open_tab(&self.core, url, None, opened)?;
         self.model.reload_space(&self.core);
         self.activate(key);
         Some(key)
@@ -439,12 +476,22 @@ impl Browser {
         }
     }
 
+    /// What the address field makes of `text` in this space.
+    fn typed_input(&self, text: &str) -> Option<Input> {
+        let (private, profile) = self.profile_of_space()?;
+        classify_input(text, &ENGINES[input::engine_index(self.core.store(private), private, profile)], self.search_shortcuts())
+    }
+
+    /// Whether `text` is an address Tarn does not open, which the field shakes at instead.
+    pub fn rejects(&self, text: &str) -> bool {
+        matches!(self.typed_input(text), Some(Input::Rejected))
+    }
+
     pub fn navigate_in(&mut self, text: &str, new_tab: bool) {
         let Some((private, profile)) = self.profile_of_space() else { return };
         let blank = self.active_page().is_none_or(|p| p.url.is_empty() || p.url == START_URL);
         let new_tab = new_tab && !blank;
-        let engine = &ENGINES[input::engine_index(self.core.store(private), private, profile)];
-        let input = match classify_input(text, engine, self.search_shortcuts()) {
+        let input = match self.typed_input(text) {
             Some(Input::Navigate(url)) => Some(Input::Navigate(self.core.clean_counted_url(Some((private, profile)), url))),
             input => input,
         };
@@ -463,8 +510,7 @@ impl Browser {
                 }
             }
             Some(Input::External(url)) => self.notice = Some(Notice::External { url: url.to_string(), origin: String::new() }),
-            Some(Input::Rejected | Input::Command(_)) => self.notice = Some(Notice::Message("Tarn does not open this kind of address.".into())),
-            None => {}
+            Some(Input::Rejected | Input::Command(_)) | None => {}
         }
     }
 
@@ -508,7 +554,7 @@ impl Browser {
         }
         if !burner && !closed.is_empty() {
             let text = browser_core::toast::closed(group.is_some(), closed.len());
-            let serial = self.model.closed_tabs.push(Closed { private, profile_id, space_id: first.space_id, tabs: closed, group });
+            let serial = self.model.push_closed(Closed { private, profile_id, space_id: first.space_id, tabs: closed, group });
             self.show_toast(text, Some(ToastAction::Undo(serial)));
         }
         self.model.reload_space(&self.core);
@@ -542,10 +588,33 @@ impl Browser {
     }
 
     fn undo_close(&mut self, serial: u64) {
-        if self.model.closed_tabs.newest() != Some(serial) {
-            return;
+        if self.model.closed_tabs.newest() == Some(serial) {
+            self.run_undo(Step::Closed(serial), false);
         }
-        self.reopen();
+    }
+
+    /// Ctrl+Z outside a text field and the page: the newest close, Clean Up or sidebar move.
+    pub fn undo(&mut self) {
+        if let Some(step) = self.model.pop_undo(&self.core) {
+            self.run_undo(step, false);
+        }
+    }
+
+    /// Takes back `step`, from Undo or a toast's Undo button; `private` is the space a Clean Up ran in.
+    pub fn run_undo(&mut self, step: Step, private: bool) {
+        self.model.undo.forget(&step);
+        match step {
+            Step::Closed(serial) => {
+                if let Some((ix, closed)) = self.model.closed_tabs.take(serial, &self.model.spaces) {
+                    self.restore_closed(ix, closed);
+                }
+            }
+            Step::CleanUp(undo) => self.undo_sort((private, undo)),
+            Step::Moved(from) => {
+                from.revert(&mut self.model, &self.core);
+                self.regrouped();
+            }
+        }
     }
 
     pub fn reopen(&mut self) {
@@ -832,6 +901,14 @@ impl Browser {
         !self.setting_off(COMPACT_TOOLBAR)
     }
 
+    pub fn tabs_on_top(&self) -> bool {
+        self.tab_placement == browser_core::layout::TabPlacement::Top
+    }
+
+    pub fn toggle_tabs_on_top(&mut self) {
+        self.tab_placement = self.tab_placement.toggled(&self.core.disk);
+    }
+
     pub fn auto_hide_sidebar(&self) -> bool {
         !self.setting_off(AUTO_HIDE_SIDEBAR)
     }
@@ -932,6 +1009,7 @@ impl Browser {
                 }
                 self.on_page(key, name == "finished", data);
             }
+            "assistantSelection" => self.selection_for_assistant(key, &text("url"), &text("text"), data["command"].as_str().map(str::to_owned)),
             "hover" => {
                 self.hovered_link.set(key, data["url"].as_str());
             }
@@ -980,7 +1058,7 @@ impl Browser {
                 let url = text("url");
                 let split = data["split"].as_bool() == Some(true) && (self.model.active == Some(key) || self.in_split(key)) && !self.model.burner_shown();
                 if !(data["link"].as_bool() == Some(true) && self.open_routed(&url))
-                    && let Some(popup) = self.new_tab(&url)
+                    && let Some(popup) = self.open_tab(&url, Opened::Link(key))
                 {
                     self.pages.entry(popup).or_default().opener = Some(key);
                     if split {
@@ -992,7 +1070,7 @@ impl Browser {
                 }
             }
             link_peek::PEEK_EVENT => self.open_link_peek(key, &text("url")),
-            "article" | "pageText" | "textFound" | "picked" => self.on_script_event(key, name, data),
+            "article" | "pageText" | "textFound" | "picked" | "mediaState" => self.on_script_event(key, name, data),
             "iconLinks" => self.on_icon_event(key, data, None),
             "shielded" => self.on_shielded(key, data),
             "process" => {
@@ -1007,16 +1085,19 @@ impl Browser {
                     page.found = data["matched"].as_u64();
                 }
             }
+            "pong" => self.hang.answered(key),
             "crashed" => {
                 self.hovered_link.set(key, None);
                 self.on_crash(key);
             }
             "fullscreen" => self.on_fullscreen(key, data),
             "screenshot" => self.on_snapshot(key, data),
+            "textInserted" => self.text_inserted(key, data),
             "pressed" if self.in_split(key) && self.model.active != Some(key) => self.activate(key),
             "playing" => {
                 if data["playing"].as_bool() == Some(true) {
                     self.playing.insert(key);
+                    self.ask_media(key);
                 } else {
                     self.playing.remove(&key);
                 }
@@ -1121,7 +1202,7 @@ impl Browser {
         if let Some(Notice::NewTab { key, url, .. }) = self.notice.take_if(|n| matches!(n, Notice::NewTab { .. }))
             && self.model.tab(key).is_some()
         {
-            self.new_tab(&url);
+            self.open_tab(&url, Opened::Link(key));
         }
     }
 

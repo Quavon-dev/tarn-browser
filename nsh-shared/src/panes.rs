@@ -7,12 +7,15 @@ pub enum Pane {
     Search,
     Privacy,
     Permissions,
+    Snippets,
+    Notes,
+    Ai,
     Developer,
     Profiles,
     Shortcuts,
 }
 
-pub const PANES: [(Pane, &str); 10] = [
+pub const PANES: [(Pane, &str); 13] = [
     (Pane::Profile, "Protection"),
     (Pane::General, "General"),
     (Pane::Appearance, "Appearance"),
@@ -20,6 +23,9 @@ pub const PANES: [(Pane, &str); 10] = [
     (Pane::Search, "Search"),
     (Pane::Privacy, "Privacy"),
     (Pane::Permissions, "Permissions"),
+    (Pane::Snippets, "Snippets"),
+    (Pane::Notes, "Notes"),
+    (Pane::Ai, "AI"),
     (Pane::Developer, "Developer"),
     (Pane::Profiles, "Profiles"),
     (Pane::Shortcuts, "Shortcuts"),
@@ -27,7 +33,22 @@ pub const PANES: [(Pane, &str); 10] = [
 
 pub const GROUPS: [(&str, &[Pane]); 2] = [
     ("You", &[Pane::Profile, Pane::Profiles]),
-    ("Browser", &[Pane::General, Pane::Appearance, Pane::Tabs, Pane::Search, Pane::Privacy, Pane::Permissions, Pane::Developer, Pane::Shortcuts]),
+    (
+        "Browser",
+        &[
+            Pane::General,
+            Pane::Appearance,
+            Pane::Tabs,
+            Pane::Search,
+            Pane::Privacy,
+            Pane::Permissions,
+            Pane::Snippets,
+            Pane::Notes,
+            Pane::Ai,
+            Pane::Developer,
+            Pane::Shortcuts,
+        ],
+    ),
 ];
 
 pub fn name(pane: Pane) -> &'static str {
@@ -39,13 +60,16 @@ pub fn words(pane: Pane) -> &'static str {
     match pane {
         Pane::Profile => "shield level standard strict lockdown card filter lists site overrides connections default browser",
         Pane::General => "downloads folders import about version licence source privacy imprint",
-        Pane::Appearance => "theme dark light match system accent colour color motion reduce toolbar compact sidebar search bar effect",
+        Pane::Appearance => "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips",
         Pane::Tabs => "awake sleep memory new tab start page close archive gestures swipe drag tear off temporary full window",
         Pane::Search => "search engine suggestions history text shortcuts bangs",
         Pane::Privacy => {
             "block ads trackers cookie banners youtube pop-ups malware adult zoom muted hidden elements connections history clear export delete data"
         }
         Pane::Permissions => "camera microphone location pop-ups site answers allow block",
+        Pane::Snippets => "text expand insert type template signature reply",
+        Pane::Notes => "notes write search ideas assistant",
+        Pane::Ai => "assistant chat claude api key ollama model provider group tabs",
         Pane::Developer => "web inspector developer tools local servers localhost",
         Pane::Profiles => "profile new edit delete space rules",
         Pane::Shortcuts => "keyboard keys",
@@ -69,6 +93,9 @@ pub fn icon(pane: Pane) -> &'static str {
         Pane::Search => crate::icons::SEARCH,
         Pane::Privacy => crate::icons::HAND,
         Pane::Permissions => crate::icons::CAMERA,
+        Pane::Snippets => crate::icons::FILE_TEXT,
+        Pane::Notes => crate::icons::PENCIL,
+        Pane::Ai => crate::icons::SPARKLES,
         Pane::Developer => crate::icons::CODE,
         Pane::Profiles => crate::icons::PERSON,
         Pane::Shortcuts => crate::icons::KEYBOARD,
@@ -93,6 +120,7 @@ mod tests {
         let found = |q: &str| PANES.iter().filter(|(p, _)| matches(*p, q)).map(|(_, n)| *n).collect::<Vec<_>>();
         assert_eq!(found("lockd"), ["Protection"]);
         assert_eq!(found("COOKIE ban"), ["Privacy"]);
+        assert_eq!(found("density"), ["Appearance"]);
         assert_eq!(found("").len(), PANES.len());
         assert!(found("ock").is_empty());
     }

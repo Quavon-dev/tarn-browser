@@ -85,6 +85,8 @@ pub struct ViewItem {
     pub link: bool,
     pub file: bool,
     pub muted: bool,
+    /// The `assistantMenu` prop: the selection menu's commands, or null where the assistant may not see the page.
+    pub assistant: Value,
     pub opener: String,
     pub active: bool,
     /// Its place in the split on screen.
@@ -131,6 +133,9 @@ pub struct Snapshot {
     pub secure: bool,
     pub private: bool,
     pub rows: Vec<Row>,
+    /// Tabs on top: the strip's tabs, pinned ones first (`browser_core::sidebar::strip`); empty at the side.
+    pub strip: Vec<Row>,
+    pub tabs_top: bool,
     /// The tile grid above the pinned tabs.
     pub tiles: Vec<Row>,
     pub views: Vec<ViewItem>,
@@ -147,6 +152,8 @@ pub struct Snapshot {
     pub zoom: f64,
     pub found: Option<u64>,
     pub error: Option<String>,
+    /// The shown page has stopped answering (`engine::lifecycle::Hang`).
+    pub hung: bool,
     pub blocked: Option<crate::browser::blocking::BlockedPage>,
     pub prompt: Option<Prompt>,
     pub notice: Option<Notice>,
@@ -167,6 +174,9 @@ pub struct Snapshot {
     pub responsive: Option<devkit::responsive::Preset>,
     pub json: Option<std::rc::Rc<devkit::json_view::Tree>>,
     pub local_servers: Option<Vec<u16>>,
+    /// The mini-player: its tab, title and whether it plays.
+    pub media: Option<(TabKey, String, bool)>,
+    pub media_polls: bool,
 }
 
 pub fn tab_label(tab: &Tab, b: &Browser, key: TabKey) -> String {
@@ -220,34 +230,48 @@ fn tab_rows(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows
     }
 }
 
+fn strip_rows(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
+    if !b.tabs_on_top() {
+        return Vec::new();
+    }
+    let strip = browser_core::sidebar::strip(&b.model);
+    let muted = b.muted_sites();
+    let row = |k: &TabKey, pinned: bool| Some(Row { pinned, ..tab_row(b, heavy, b.model.tab(*k)?, 0, &muted) });
+    strip.pinned.iter().filter_map(|k| row(k, true)).chain(strip.tabs.iter().filter_map(|k| row(k, false))).collect()
+}
+
 fn tab_list(b: &Browser, heavy: &HashSet<TabKey>, zone: Zone, depth: usize, rows: &mut Vec<Row>) {
     let mut tabs: Vec<&Tab> =
         b.model.tabs.iter().filter(|t| t.folder_id == zone.folder && t.group_id == zone.group && zone.kind.is_none_or(|k| t.kind == k)).collect();
     tabs.sort_by_key(|t| t.position);
     let muted = if tabs.is_empty() { Vec::new() } else { b.muted_sites() };
     for tab in tabs {
-        let key = b.model.key(tab);
-        let url = b.pages.get(&key).map(|p| p.url.as_str()).filter(|u| !u.is_empty()).unwrap_or(&tab.url);
-        let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
-        rows.push(Row {
-            kind: RowKind::Tab(key),
-            label: tab_label(tab, b, key),
-            icon: String::new(),
-            burner: b.model.burner_shown(),
-            heavy: heavy.contains(&key),
-            asleep: b.model.active != Some(key) && !b.elsewhere.contains(&key) && !b.model.lifecycle.live().any(|k| k == key),
-            loading: b.pages.get(&key).is_some_and(|p| p.loading),
-            playing: b.playing.contains(&key),
-            muted: b.muted_with(key, &muted),
-            split: b.splits.contains(key).then(|| b.in_split(key)),
-            host,
-            depth,
-            active: b.model.active == Some(key),
-            pinned: tab.kind == TabKind::Pinned,
-            open: false,
-            panes: Vec::new(),
-            color: 0,
-        });
+        rows.push(tab_row(b, heavy, tab, depth, &muted));
+    }
+}
+
+fn tab_row(b: &Browser, heavy: &HashSet<TabKey>, tab: &Tab, depth: usize, muted: &[String]) -> Row {
+    let key = b.model.key(tab);
+    let url = b.pages.get(&key).map(|p| p.url.as_str()).filter(|u| !u.is_empty()).unwrap_or(&tab.url);
+    let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+    Row {
+        kind: RowKind::Tab(key),
+        label: tab_label(tab, b, key),
+        icon: String::new(),
+        burner: b.model.burner_shown(),
+        heavy: heavy.contains(&key),
+        asleep: b.model.active != Some(key) && !b.elsewhere.contains(&key) && !b.model.lifecycle.live().any(|k| k == key),
+        loading: b.pages.get(&key).is_some_and(|p| p.loading),
+        playing: b.playing.contains(&key),
+        muted: b.muted_with(key, muted),
+        split: b.splits.contains(key).then(|| b.in_split(key)),
+        host,
+        depth,
+        active: b.model.active == Some(key),
+        pinned: tab.kind == TabKind::Pinned,
+        open: false,
+        panes: Vec::new(),
+        color: 0,
     }
 }
 
@@ -344,6 +368,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
     let sort_downloads = !b.setting_off(crate::browser::pages::SORT_DOWNLOADS);
     let youtube = b.setting_on(shield::groups::YOUTUBE_SETTING);
     let developer = b.developer();
+    let commands = b.model.assistant_commands(&b.core);
     let mut keys: Vec<TabKey> = b.model.lifecycle.live().filter(|k| b.model.tab(*k).is_some()).collect();
     keys.sort_by_key(|k| k.id);
     let mut site = HashMap::new();
@@ -372,6 +397,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 link: page.is_some_and(|p| p.link),
                 file: page.is_some_and(|p| p.file),
                 muted: b.muted_with(key, &muted),
+                assistant: page.and_then(|p| b.model.assistant_menu_for(&b.core, commands.as_ref(), &p.url)).map_or(Value::Null, Value::from),
                 opener: page.and_then(|p| p.opener).map(|k| format!("{}-{}", k.private, k.id)).unwrap_or_default(),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
                 pane: panes.iter().position(|k| *k == key).filter(|_| shown),
@@ -410,6 +436,7 @@ fn peek_item(b: &Browser) -> Option<PeekItem> {
         link: true,
         file: false,
         muted: false,
+        assistant: Value::Null,
         opener: format!("{}-{}", key.private, key.id),
         active: true,
         pane: None,
@@ -453,6 +480,8 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         secure: !page.url.starts_with("http:"),
         private,
         rows: rows_with(b, &heavy),
+        strip: strip_rows(b, &heavy),
+        tabs_top: b.tabs_on_top(),
         tiles: tiles_with(b, &heavy),
         views: views(b, web_shown && !blank),
         split: split.filter(|_| web_shown).map(|s| split_view(b, s)),
@@ -468,6 +497,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         zoom: if page.zoom > 0.0 { page.zoom } else { 1.0 },
         found: page.found,
         error: page.error.clone(),
+        hung: b.model.active.is_some() && b.hang.hung(std::time::Instant::now()) == b.model.active,
         blocked: page.blocked.clone(),
         prompt: page.prompts.front().cloned(),
         notice: b.notice.clone(),
@@ -491,6 +521,8 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         responsive: b.responsive_preset(),
         json: b.active_json(),
         local_servers: b.local_servers.clone(),
+        media: b.mini_player(),
+        media_polls: b.player.polls(),
     }
 }
 

@@ -87,7 +87,78 @@ fn contract_v3_scripts_run_in_the_tarn_world_and_styles_and_zaps_apply() {
     assert!(scripts::command(&state, "pickCancel", &JsonValue::Null));
     assert!(spin_until(|| event(&state, "picked").is_some(), 20), "a cancelled pick answers");
     assert_eq!(event(&state, "picked").unwrap()["selector"], "");
+    state.events.borrow_mut().clear();
+    assert!(scripts::command(&state, "pick", &json!({ "seq": 8, "rect": true })));
+    spin_until(|| false, 1);
+    assert!(scripts::command(&state, "pickCancel", &JsonValue::Null));
+    assert!(spin_until(|| event(&state, "picked").is_some(), 20), "a cancelled rectangle pick answers");
+    let picked = event(&state, "picked").unwrap();
+    assert_eq!((picked["seq"].clone(), picked["rect"].clone(), picked.get("selector")), (json!(8), json!(""), None), "{picked}");
     eprintln!("v3 scripts, styles and zaps verified on {}", web.uri().unwrap_or_default());
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn insert_text_types_into_the_focused_field_only() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    let none = ask(&state, "insertText", json!({ "seq": 1, "text": "hello" }), "textInserted");
+    assert_eq!(none, json!({ "seq": 1, "inserted": false }), "no field has the focus");
+    page_eval(&web, "const t = document.createElement('textarea'); t.id = 'note'; document.body.append(t); t.focus(); 'ok'");
+    let typed = ask(&state, "insertText", json!({ "seq": 2, "text": "Best,\nAda" }), "textInserted");
+    assert_eq!(typed, json!({ "seq": 2, "inserted": true }));
+    assert_eq!(page_eval(&web, "document.getElementById('note').value"), "Best,\nAda");
+    let long = "a".repeat(browser_core::snippets::MAX_SNIPPET + 1);
+    assert_eq!(ask(&state, "insertText", json!({ "seq": 3, "text": long }), "textInserted")["inserted"], false, "a longer text is refused");
+    assert_eq!(page_eval(&web, "document.getElementById('note').value"), "Best,\nAda");
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn ask_assistant_reads_the_selection_with_its_command_but_never_a_secret_field() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    let asked = |command: Option<&str>| {
+        state.events.borrow_mut().clear();
+        scripts::ask_selection(&state, command.map(str::to_owned));
+        assert!(spin_until(|| event(&state, "assistantSelection").is_some(), 20), "the selection was read");
+        event(&state, "assistantSelection").unwrap()
+    };
+    page_eval(&web, "getSelection().selectAllChildren(document.getElementById('p')); 'ok'");
+    let read = asked(Some("Explain"));
+    assert!(read["text"].as_str().unwrap().starts_with("The quick zebrafish"), "{read}");
+    assert_eq!(read["command"], "Explain");
+    assert!(read["url"].as_str().is_some_and(|u| !u.is_empty()));
+    assert_eq!(asked(None)["command"], JsonValue::Null);
+    page_eval(
+        &web,
+        "const f = document.createElement('input'); f.type = 'password'; f.value = 'typed value'; document.body.append(f); f.focus(); f.select(); 'ok'",
+    );
+    assert_eq!(asked(None)["text"], "", "a password field's text never reaches the assistant");
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn the_selection_is_read_but_never_from_a_secret_field() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    page_eval(&web, "getSelection().selectAllChildren(document.getElementById('p')); 'ok'");
+    let read = ask(&state, "readSelection", json!({ "seq": 1 }), "selection");
+    assert!(read["text"].as_str().unwrap().starts_with("The quick zebrafish"), "{read}");
+    for (field, autocomplete) in [("input", "one-time-code"), ("input", "section-a cc-number"), ("textarea", "new-password")] {
+        page_eval(
+            &web,
+            &format!(
+                "(() => {{ const host = document.createElement('div'); document.body.append(host);
+                 const f = host.attachShadow({{ mode: 'open' }}).appendChild(document.createElement('{field}'));
+                 f.setAttribute('autocomplete', '{autocomplete}'); f.value = '4111111111111111'; f.focus(); f.select(); return 'ok'; }})()"
+            ),
+        );
+        assert_eq!(ask(&state, "readSelection", json!({ "seq": 2 }), "selection")["text"], "", "{field} {autocomplete}");
+    }
 }
 
 #[test]
@@ -500,6 +571,24 @@ fn a_snapshot_is_scaled_down_to_the_card_width() {
 }
 
 #[test]
+fn a_full_page_texture_larger_than_the_checked_document_is_refused() {
+    assert!(as_checked((800, 2000), [800., 2000.], 1.));
+    assert!(as_checked((1601, 4001), [800.4, 2000.4], 2.), "a fraction rounds up");
+    assert!(!as_checked((800, 2001), [800., 2000.], 1.), "the page grew after it was measured");
+    assert!(!as_checked((1601, 4000), [800., 2000.], 2.));
+}
+
+#[test]
+fn a_snapshot_area_is_cut_inside_the_texture() {
+    assert_eq!(pixel_rect([10., 5., 20., 10.], 2., 1000, 1000), Some([20, 10, 60, 30]));
+    assert_eq!(pixel_rect([90., 0., 50., 10.], 1., 100, 100), Some([90, 0, 100, 10]), "cut at the edge");
+    assert_eq!(pixel_rect([200., 0., 10., 10.], 1., 100, 100), None, "outside the visible page");
+    assert_eq!(pixel_rect([0., 0., 10., 10.], f64::NAN, 100, 100), None);
+    let pixels: Vec<u8> = (0..9u8).flat_map(|p| [p, p, p, 255]).collect();
+    assert_eq!(crop(&pixels, 3, [1, 1, 3, 2]), vec![4, 4, 4, 255, 5, 5, 5, 255]);
+}
+
+#[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn a_muted_view_stays_muted_when_rebuilt_and_unmutes() {
     gtk::init().expect("a display");
@@ -720,6 +809,26 @@ fn a_screenshot_saves_a_new_png_under_the_given_name_only() {
     let png = std::fs::read(&path).unwrap();
     std::fs::remove_file(&path).unwrap();
     assert!(png.starts_with(b"\x89PNG\r\n\x1a\n") && png.len() > 100);
+    state.events.borrow_mut().clear();
+    screenshot(&state, &web, &json!({ "seq": 4, "name": "tarn-display-area.png", "x": 10, "y": 10, "width": 50, "height": 40 }));
+    assert!(spin_until(|| event(&state, "screenshot").is_some(), 20), "the area screenshot answered");
+    let answer = event(&state, "screenshot").unwrap();
+    let path = std::path::PathBuf::from(answer["path"].as_str().unwrap_or_default());
+    let png = std::fs::read(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let side = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
+    assert_eq!((side(16), side(20)), (50, 40), "only the area is saved");
+    state.events.borrow_mut().clear();
+    screenshot(&state, &web, &json!({ "seq": 6, "name": "tarn-display-full.png", "fullPage": true }));
+    assert!(spin_until(|| event(&state, "screenshot").is_some(), 20), "the full-page screenshot answered");
+    let answer = event(&state, "screenshot").unwrap();
+    let path = std::path::PathBuf::from(answer["path"].as_str().unwrap_or_default());
+    assert!(std::fs::read(&path).is_ok_and(|png| png.starts_with(b"\x89PNG")), "a full page as measured is saved: {answer}");
+    std::fs::remove_file(&path).unwrap();
+    state.events.borrow_mut().clear();
+    screenshot(&state, &web, &json!({ "seq": 5, "name": "tarn-display-none.png", "x": -1, "y": 0, "width": 50, "height": 40 }));
+    assert!(spin_until(|| event(&state, "screenshot").is_some(), 20));
+    assert!(event(&state, "screenshot").unwrap()["message"].is_string(), "a malformed area saves nothing");
     window.destroy();
 }
 

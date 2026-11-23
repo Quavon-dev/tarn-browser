@@ -135,4 +135,41 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.submit("id:palette-field").unwrap();
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
     app.wait_for("Pin tabs from their menu").unwrap();
+
+    app.press_key("mod+l").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    app.clear("id:palette-field").unwrap();
+    for section in ["NOW", "QUICK ACTIONS"] {
+        app.wait_for(section).unwrap();
+    }
+    app.wait_for("label:Copy Link").unwrap();
+    app.press_key("down").unwrap();
+    app.press_key("right").unwrap();
+    app.wait_for("label:Run").unwrap();
+    assert!(!app.screen().shows("QUICK ACTIONS"), "Right opens the picked row's actions");
+    app.press_key("escape").unwrap();
+    app.wait_for("QUICK ACTIONS").unwrap();
+    app.press_key("right").unwrap();
+    app.wait_for("label:Run").unwrap();
+    app.press_key("left").unwrap();
+    app.wait_for("QUICK ACTIONS").unwrap();
+    app.press("label:Show History").unwrap();
+    app.wait_for_gone("id:palette-field", WAIT).unwrap();
+
+    app.press_key("mod+l").unwrap();
+    app.wait_for("id:palette-field").unwrap();
+    app.clear("id:palette-field").unwrap();
+    let tabs = app.screen().count("id:tab").unwrap();
+    app.type_text("id:palette-field", "view-source:https://a.test").unwrap();
+    app.submit("id:palette-field").unwrap();
+    assert!(app.wait_for_gone("id:palette-field", std::time::Duration::from_millis(500)).is_err(), "an address Tarn cannot open shakes the field");
+    assert_eq!(app.screen().count("id:tab").unwrap(), tabs, "and opens nothing");
+    assert!(!app.screen().shows(browser_core::palette::INVALID_ADDRESS));
+    app.set_environment("reduce motion", |e| e.reduce_motion = true).unwrap();
+    app.submit("id:palette-field").unwrap();
+    app.wait_for(browser_core::palette::INVALID_ADDRESS).unwrap();
+    app.type_text("id:palette-field", "x").unwrap();
+    app.wait_for_gone(browser_core::palette::INVALID_ADDRESS, WAIT).unwrap();
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("id:palette-field", WAIT).unwrap();
 }

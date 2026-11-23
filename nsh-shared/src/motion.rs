@@ -52,6 +52,15 @@ pub const RISE: f32 = 5.;
 pub const SCRIM: f32 = 0.45;
 pub const SPIN_TURN: Duration = Duration::from_millis(900);
 pub const RELOAD_SPIN: Duration = Duration::from_millis(600);
+pub const SPRING_DAMPING: f32 = 1.;
+pub const SHAKE: Duration = browser_core::palette::SHAKE;
+
+/// One sideways shake of `palette::shake` over `SHAKE`.
+pub fn shake() -> MotionSpec {
+    const STEPS: u16 = 24;
+    MotionSpec::new(KeyframeTiming::new(ms(SHAKE)).easing(Easing::Linear))
+        .values(MotionChannel::TranslateX, (0..=STEPS).map(|i| browser_core::palette::shake(f32::from(i) / f32::from(STEPS))))
+}
 
 pub fn fading<E: Element>(element: E) -> E {
     element.bind_motion(&fade_in())
@@ -68,6 +77,15 @@ pub fn layout(duration: Duration) -> LayoutTransition {
 pub fn animate_next(moving: Duration) {
     if !reduced() {
         animate_layout(LayoutAnimation { create: Some(layout(POP)), update: Some(layout(moving)), delete: Some(layout(EXIT)) });
+    }
+}
+
+/// A space switch: what moves springs over `SLIDE`, and a second switch picks up wherever the
+/// first stands; nothing moves under Reduce Motion.
+pub fn space_switch() {
+    if !reduced() {
+        let spring = LayoutTransition::new(LayoutCurve::FittedSpring { damping_ratio: SPRING_DAMPING }, ms(SLIDE));
+        animate_layout(LayoutAnimation { create: Some(layout(POP)), update: Some(spring), delete: Some(layout(EXIT)) });
     }
 }
 

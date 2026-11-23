@@ -1,14 +1,17 @@
 #![forbid(unsafe_code)]
 
 mod address;
+mod assistant;
 mod blocking;
 mod browser;
 mod capture;
+mod capture_overlay;
 mod content;
 mod devtools;
 mod dialog;
 mod downloads;
 use browser_core::ext_package;
+use browser_core::layout::TabPlacement;
 mod ext_sources;
 mod extensions;
 mod filters;
@@ -22,6 +25,7 @@ mod link_status;
 mod memory;
 mod menu_glyphs;
 mod menubar;
+mod mini_player;
 mod peek;
 mod prefs;
 mod profiles;
@@ -34,8 +38,10 @@ mod shield_card;
 mod shortcuts;
 mod sidebar;
 mod site_settings;
+mod snippets;
 mod spaces;
 mod split;
+mod tab_strip;
 mod tabs;
 mod tarn_ext;
 mod tear_off;
@@ -87,6 +93,7 @@ actions!(
         Space8,
         Space9,
         ToggleSidebar,
+        ToggleTabsOnTop,
         Settings,
         CloseOverlay,
     ]
@@ -98,65 +105,83 @@ actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAut
 actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, BurnerTab]);
 actions!(tarn, [CloseWindow, StopLoading, ReloadFromOrigin, NewPrivateWindow, NewBurnerWindow]);
 
-/// Actions the command bar offers: label, search keywords, action.
-pub(crate) const COMMANDS: &[(&str, &str, &dyn gpui::Action)] = &[
-    ("Settings", "preferences options", &Settings),
-    ("Open File…", "local html pdf image text document view", &OpenFile),
-    ("New Tab Group", "group", &NewGroup),
-    ("Bookmark Tab…", "favorite save", &BookmarkTab),
-    ("Bookmark All Tabs", "favorite save", &BookmarkAllTabs),
-    ("New Space", "workspace profile", &NewSpace),
-    ("Edit Space", "workspace rename color icon", &spaces::EditSpace),
-    ("Private Space", "incognito", &PrivateSpace),
-    ("Burner Tab", "throwaway incognito temporary private", &BurnerTab),
-    ("New Profile", "account", &profiles::NewProfile),
-    ("Edit Profile", "account", &profiles::EditProfile),
-    ("Reopen Closed Tab", "undo restore", &ReopenClosedTab),
-    ("Notification Action", "toast undo reveal restart", &toast::ToastAction),
-    ("Toggle Sidebar", "show hide", &ToggleSidebar),
-    ("Auto-Hide Sidebar", "floating", &ToggleAutoHideSidebar),
-    ("Compact Toolbar", "toggle address", &ToggleCompactToolbar),
-    ("Close All Tabs", "clear", &CloseAllTabs),
-    ("Show Library", "bookmarks history", &ToggleLibrary),
-    ("Save Space as Snapshot", "session tabs save", &library::SaveSnapshot),
-    ("Restore Snapshot…", "session tabs open", &library::RestoreSnapshot),
-    ("Show Downloads", "files", &ToggleDownloads),
-    ("Duplicate Tab", "copy", &DuplicateTab),
-    ("Reload in Chromium", "engine chrome switch", &tabs::ReloadInChromium),
-    ("Reload in WebKit", "engine safari switch", &tabs::ReloadInWebKit),
-    ("Copy Link", "url address", &CopyLink),
-    ("Copy Clean Link", "url tracking parameters utm strip", &CopyCleanLink),
-    ("Pin or Unpin Tab", "", &TogglePin),
-    ("Mute or Unmute Site", "sound audio silence", &menubar::ToggleMute),
-    ("Show History", "visited", &menubar::ShowHistory),
-    ("Rename Tab", "title name", &tabs::RenameTab),
-    ("Reset Tab Title", "rename name", &tabs::ResetTabTitle),
-    ("Return to Pinned URL", "home back pinned", &tabs::ReturnToPinnedUrl),
-    ("Set Pinned URL to Current Page", "pinned home", &tabs::SetPinnedUrl),
-    ("Sleep Other Tabs", "hibernate unload memory", &tabs::SleepOtherTabs),
-    ("Show Memory Use", "ram cpu energy process task manager sleep", &menubar::ShowMemory),
-    ("Close Duplicate Tabs", "same page dedupe clean up", &tabs::CloseDuplicateTabs),
-    ("Site Settings", "shield permissions zoom mute clear data", &site_settings::SiteSettings),
-    ("Zap Element", "hide remove element block", &zaps::ZapElement),
-    ("Open in Split View", "open or close side by side tabs grid four", &split::ToggleSplitView),
-    ("Focus Next Pane", "split view switch", &split::FocusNextPane),
-    ("Focus Previous Pane", "split view switch", &split::FocusPreviousPane),
-    ("Swap Split Panes", "split view exchange move", &split::SwapPanes),
-    ("Rotate Split Layout", "split view stacked side by side rows columns", &split::RotateSplitLayout),
-    ("Remove Tab from Split View", "split pane leave", &split::RemoveFromSplitView),
-    ("Close Split View", "split panes end separate", &split::CloseSplitView),
-    ("Reader", "article reading view text", &reader::ToggleReader),
-    ("Save for Later", "reading list read later bookmark", &reader::SaveForLater),
-    ("Picture in Picture", "video pip float", &capture::PictureInPicture),
-    ("Take Screenshot", "capture image png", &capture::TakeScreenshot),
-    ("Save Page as PDF", "export print", &capture::SavePdf),
-    ("Copy Link as Markdown", "url markdown", &capture::CopyMarkdownLink),
-    ("Copy Title", "page name", &capture::CopyTitle),
-    ("Share", "send airdrop mail messages link", &qr::ShareLink),
-    ("Show QR Code", "phone scan link", &qr::ShowQrCode),
-    ("Find in Tabs", "search text all pages", &find_tabs::FindInTabs),
-    ("Keyboard Shortcuts", "help keys cheat sheet", &shortcuts::ToggleShortcuts),
-];
+pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<&'static dyn gpui::Action> {
+    use browser_core::palette::Command as C;
+    Some(match command {
+        C::Settings => &Settings,
+        C::OpenFile => &OpenFile,
+        C::NewGroup => &NewGroup,
+        C::BookmarkTab => &BookmarkTab,
+        C::BookmarkAllTabs => &BookmarkAllTabs,
+        C::NewSpace => &NewSpace,
+        C::EditSpace => &spaces::EditSpace,
+        C::PrivateSpace => &PrivateSpace,
+        C::BurnerTab => &BurnerTab,
+        C::NewProfile => &profiles::NewProfile,
+        C::EditProfile => &profiles::EditProfile,
+        C::ReopenClosedTab => &ReopenClosedTab,
+        C::ToastAction => &toast::ToastAction,
+        C::ToggleSidebar => &ToggleSidebar,
+        C::TabsOnTop => &ToggleTabsOnTop,
+        C::AutoHideSidebar => &ToggleAutoHideSidebar,
+        C::CompactToolbar => &ToggleCompactToolbar,
+        C::CloseAllTabs => &CloseAllTabs,
+        C::ShowLibrary => &ToggleLibrary,
+        C::SaveSnapshot => &library::SaveSnapshot,
+        C::Snapshots => &library::RestoreSnapshot,
+        C::ShowDownloads => &ToggleDownloads,
+        C::DuplicateTab => &DuplicateTab,
+        C::ReloadInChromium => &tabs::ReloadInChromium,
+        C::ReloadInWebKit => &tabs::ReloadInWebKit,
+        C::CopyLink => &CopyLink,
+        C::CopyCleanLink => &CopyCleanLink,
+        C::TogglePin => &TogglePin,
+        C::ToggleMute => &menubar::ToggleMute,
+        C::ShowHistory => &menubar::ShowHistory,
+        C::RenameTab => &tabs::RenameTab,
+        C::ResetTitle => &tabs::ResetTabTitle,
+        C::ReturnToPinned => &tabs::ReturnToPinnedUrl,
+        C::SetPinnedUrl => &tabs::SetPinnedUrl,
+        C::SleepOthers => &tabs::SleepOtherTabs,
+        C::Memory => &menubar::ShowMemory,
+        C::CloseDuplicates => &tabs::CloseDuplicateTabs,
+        C::SiteSettings => &site_settings::SiteSettings,
+        C::ZapElement => &zaps::ZapElement,
+        C::ToggleSplitView => &split::ToggleSplitView,
+        C::FocusNextPane => &split::FocusNextPane,
+        C::FocusPreviousPane => &split::FocusPreviousPane,
+        C::SwapPanes => &split::SwapPanes,
+        C::RotateSplitLayout => &split::RotateSplitLayout,
+        C::RemoveFromSplitView => &split::RemoveFromSplitView,
+        C::CloseSplit => &split::CloseSplitView,
+        C::Reader => &reader::ToggleReader,
+        C::SaveForLater => &reader::SaveForLater,
+        C::PictureInPicture => &capture::PictureInPicture,
+        C::TakeScreenshot => &capture::TakeScreenshot,
+        C::CaptureArea => &capture::CaptureArea,
+        C::InsertSnippet => &snippets::InsertSnippet,
+        C::Measure => &capture::Measure,
+        C::CaptureElement => &capture::CaptureElement,
+        C::CaptureFullPage => &capture::CaptureFullPage,
+        C::SavePdf => &capture::SavePdf,
+        C::CopyMarkdownLink => &capture::CopyMarkdownLink,
+        C::CopyTitle => &capture::CopyTitle,
+        C::Share => &qr::ShareLink,
+        C::ShowQrCode => &qr::ShowQrCode,
+        C::FindInTabs => &find_tabs::FindInTabs,
+        C::NewWindow => &NewWindow,
+        C::FullScreen => &ToggleFullScreen,
+        C::StopLoading => &StopLoading,
+        C::ReloadFromOrigin => &ReloadFromOrigin,
+        C::CloseWindow => &CloseWindow,
+        C::KeyboardShortcuts => &shortcuts::ToggleShortcuts,
+        C::ManageBookmarks => &menubar::ManageBookmarks,
+        C::ImportBrowserData => &menubar::ImportBrowserData,
+        C::Ask => &assistant::Ask,
+        C::AskPage => &assistant::AskPage,
+        C::ReadingList | C::Archived => return None,
+    })
+}
 
 impl Render for Browser {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -178,6 +203,7 @@ impl Browser {
     fn render_root(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         self.follow_theme();
         ui::motion::set_reduced(self.pref(prefs::Pref::ReduceMotion));
+        ui::theme::Theme::set_compact(self.pref(prefs::Pref::CompactDensity));
         self.note_motion();
         // The menu bar is the app's; only the window in front decides what it lists.
         if window.is_window_active() {
@@ -202,6 +228,7 @@ impl Browser {
             .font_family(Theme::font())
             .text_size(px(ui::theme::TEXT))
             .on_action(cx.listener(|b, _: &ToggleSidebar, _, cx| b.toggle_sidebar(cx)))
+            .on_action(cx.listener(|b, _: &ToggleTabsOnTop, _, cx| b.toggle_tabs_on_top(cx)))
             .on_action(cx.listener(|b, _: &Settings, w, cx| b.open_settings(w, cx)))
             .on_action(cx.listener(|b, _: &AboutTarn, w, cx| b.open_settings_pane(settings::SettingsPane::General, w, cx)))
             .on_action(cx.listener(|b, _: &ToggleFullScreen, w, _| {
@@ -209,7 +236,8 @@ impl Browser {
                 if b.page_fullscreen.is_on() { b.leave_page_fullscreen(w) } else { w.toggle_fullscreen() }
             }))
             .on_action(cx.listener(|b, _: &CloseOverlay, w, cx| {
-                if b.overlay_open() {
+                if b.close_capture_overlay(cx) {
+                } else if b.overlay_open() {
                     b.dismiss_overlay(w, cx);
                 } else if b.active_prompt().is_some() {
                     b.dismiss_prompt(w, cx);
@@ -310,22 +338,22 @@ impl Browser {
         }
         indexed_actions!(select_tab: Tab1 => 1, Tab2 => 2, Tab3 => 3, Tab4 => 4, Tab5 => 5, Tab6 => 6, Tab7 => 7, Tab8 => 8, LastTab => 9);
         indexed_actions!(cycle_tab: NextTab => true, PreviousTab => false);
-        root = menubar::listen(root, self, cx);
+        root = assistant::listen(menubar::listen(root, self, cx), cx);
         root = tabs::listen(root, cx);
         let page = self.model.active.is_some();
         root = toast::listen(root.when(page, |r| qr::listen(reader::listen(r, cx), cx)), cx);
-        root = find_tabs::listen(shortcuts::listen(root, cx).when(page, |r| capture::listen(split::listen(r, cx), cx)), cx);
+        root = find_tabs::listen(shortcuts::listen(root, cx).when(page, |r| snippets::listen(capture::listen(split::listen(r, cx), cx), cx)), cx);
         #[cfg(windows)]
         {
             use engine::chromium::EditCommand as E;
             root = root
-                .on_action(cx.listener(|b, _: &text_input::Undo, w, _| b.edit_page(E::Undo, w)))
                 .on_action(cx.listener(|b, _: &text_input::Redo, w, _| b.edit_page(E::Redo, w)))
                 .on_action(cx.listener(|b, _: &text_input::Cut, w, _| b.edit_page(E::Cut, w)))
                 .on_action(cx.listener(|b, _: &text_input::Copy, w, _| b.edit_page(E::Copy, w)))
                 .on_action(cx.listener(|b, _: &text_input::Paste, w, _| b.edit_page(E::Paste, w)))
                 .on_action(cx.listener(|b, _: &text_input::SelectAll, w, _| b.edit_page(E::SelectAll, w)));
         }
+        root = root.on_action(cx.listener(|b, _: &text_input::Undo, w, cx| b.undo(w, cx)));
         indexed_actions!(switch_space: Space1 => 0, Space2 => 1, Space3 => 2, Space4 => 3, Space5 => 4, Space6 => 5, Space7 => 6, Space8 => 7, Space9 => 8);
         root = root
             .when(!self.idle(&ReopenClosedTab), |d| d.on_action(cx.listener(|b, _: &ReopenClosedTab, w, cx| b.reopen_closed_tab(w, cx))))
@@ -364,7 +392,7 @@ impl Browser {
                 .flex_none()
                 .flex()
                 .justify_end()
-                .child(timed("sidebar", || sidebar::render(self, cx)))
+                .child(timed(engine::startup::SIDEBAR_FRAME, || sidebar::render(self, cx)))
                 .when(shown < 1., |d| d.w(px((self.sidebar_width + sidebar::SIDEBAR_MARGIN) * shown)).overflow_hidden().opacity(shown))
         });
         if self.page_fullscreen.is_on() && !self.page_fullscreen_holds() {
@@ -393,20 +421,17 @@ impl Browser {
                     .flex()
                     .flex_col()
                     .child(timed("toolbar", || toolbar::render(self, cx)))
+                    .when(self.tab_placement == TabPlacement::Top, |d| d.child(tab_strip::render(self, cx)))
                     .child(timed("content", || content::render(self, window, cx))),
             )
+            .children(assistant::render(self, window, cx))
             .into_any_element()
     }
 }
 
 fn timed<T>(section: &'static str, f: impl FnOnce() -> T) -> T {
-    if !engine::startup::frames_traced() {
-        return f();
-    }
-    let started = std::time::Instant::now();
-    let built = f();
-    engine::startup::frame(section, started.elapsed());
-    built
+    let _span = engine::startup::span(section);
+    f()
 }
 
 pub(crate) fn bind_keys(cx: &mut App, keymap: &[(String, &'static dyn gpui::Action)]) {
@@ -425,6 +450,7 @@ pub(crate) fn bind_keys(cx: &mut App, keymap: &[(String, &'static dyn gpui::Acti
         KeyBinding::new(&shortcuts::platform("alt-cmd-right"), NextTab, None),
         KeyBinding::new(&shortcuts::platform("alt-cmd-left"), PreviousTab, None),
         KeyBinding::new("escape", CloseOverlay, Some("Browser")),
+        KeyBinding::new("shift-escape", assistant::ToggleAssistant, Some("Browser")),
         KeyBinding::new("escape", CloseOverlay, Some("Settings")),
         KeyBinding::new("f6", FocusNextRegion, Some("Browser")),
         KeyBinding::new("shift-f6", FocusPreviousRegion, Some("Browser")),
@@ -505,6 +531,9 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
                     MenuItem::action("Print…", Print),
                     MenuItem::action("Save Page as PDF", capture::SavePdf),
                     MenuItem::action("Take Screenshot", capture::TakeScreenshot),
+                    MenuItem::action("Capture Area", capture::CaptureArea),
+                    MenuItem::action("Capture Element", capture::CaptureElement),
+                    MenuItem::action("Capture Full Page", capture::CaptureFullPage),
                     MenuItem::separator(),
                     MenuItem::action("Close Window", CloseWindow),
                     MenuItem::action(dynamic.close_tab, CloseTab),
@@ -522,6 +551,7 @@ pub(crate) fn menus(dynamic: menubar::Dynamic) -> (Vec<Menu>, MenuMarks) {
                 MenuItem::os_action("Copy", text_input::Copy, OsAction::Copy),
                 MenuItem::os_action("Paste", text_input::Paste, OsAction::Paste),
                 MenuItem::os_action("Select All", text_input::SelectAll, OsAction::SelectAll),
+                MenuItem::action("Insert Snippet\u{2026}", snippets::InsertSnippet),
                 MenuItem::separator(),
                 MenuItem::action("Find…", Find),
                 MenuItem::action("Find Next", FindNext),

@@ -220,21 +220,16 @@ fn tabs_open_close_and_reopen() {
 }
 
 #[test]
-fn an_untouched_new_tab_is_discarded_and_the_last_tab_returns() {
+fn what_new_tab_opens_gets_a_tab_and_nothing_else_does() {
     let (_dir, mut shell) = open();
     shell.navigate("https://a.test/");
     let first = active(&shell);
-    let fresh = shell.new_tab(None).unwrap();
-    shell.discard_new_tab(fresh, first);
-    assert_eq!(shell.tab_count(), 1);
-    assert_eq!(active(&shell), first);
-    assert!(!shell.reopen_closed(), "a discarded new tab is not a closed tab");
-
-    let typed = shell.new_tab(None).unwrap();
-    shell.navigate("https://b.test/");
-    shell.discard_new_tab(typed, first);
-    assert_eq!(shell.tab_count(), 2, "a new tab that loads something stays");
-    assert_eq!(active(&shell), typed);
+    shell.navigate_typed("https://b.test/");
+    assert_eq!((shell.tab_count(), active(&shell)), (1, first), "typing over a page loads in its tab");
+    shell.open_typed_in_new_tab("https://c.test/");
+    assert_eq!(shell.tab_count(), 2);
+    assert_ne!(active(&shell), first);
+    assert!(!shell.reopen_closed(), "nothing was created and thrown away");
 }
 
 #[test]
@@ -1149,4 +1144,30 @@ fn store_links_install_only_from_a_profile_tab_outside_lockdown() {
     shell.burn();
     assert!(shell.set_default_level(ShieldLevel::Lockdown));
     assert!(!shell.store_link_allowed(active(&shell)), "never in a Lockdown profile");
+}
+
+#[test]
+fn the_shown_page_is_pinged_and_offers_wait_and_reload_once_it_stops_answering() {
+    let (_dir, mut shell) = open();
+    finish(&mut shell, "https://slow.test/", "Slow");
+    let key = active(&shell);
+    let silent = std::time::Instant::now() - engine::lifecycle::HANG_AFTER;
+    let pinged = shell.ping_page(silent);
+    assert!(matches!(pinged.as_slice(), [Effect::Command(k, "ping", _)] if *k == key), "{pinged:?}");
+    assert!(shell.ping_page(std::time::Instant::now()).is_empty(), "one ping at a time");
+    assert!(shell.hung());
+    shell.wait_for_page();
+    assert!(!shell.hung(), "Wait hides the card");
+    shell.event(key, "pong", &json!({ "seq": 0 }), 3);
+    assert_eq!(shell.ping_page(silent).len(), 1, "an answer lets the next ping go");
+    assert!(shell.hung());
+    shell.event(key, "pong", &json!({ "seq": 0 }), 4);
+    assert!(!shell.hung(), "the answer hides the card");
+    shell.ping_page(silent);
+    let born = shell.views()[0].born;
+    shell.reload_hung();
+    assert!(!shell.hung());
+    let view = &shell.views()[0];
+    assert!(view.born > born, "Reload gives the tab a new view");
+    assert_eq!(view.load.as_ref().map(|l| l.url.as_str()), Some("https://slow.test/"));
 }

@@ -57,13 +57,13 @@ pub fn render_json(key: TabKey, page: &JsonPage, cx: &mut Context<Browser>) -> A
         .child(button("json-raw", "Raw", page.tree.raw).on_click(cx.listener(move |b, _, _, cx| b.set_json_raw(key, true, cx))));
 
     let body = if page.tree.raw {
-        div().p_3().font_family("Menlo").text_size(px(TEXT_SMALL)).child(page.pretty.clone()).into_any_element()
+        div().p_3().font_family(ui::theme::MONO_FONT).text_size(px(TEXT_SMALL)).child(page.pretty.clone()).into_any_element()
     } else {
         let rows = &page.tree.rows;
         let truncated = page.tree.truncated();
         div()
             .py_2()
-            .font_family("Menlo")
+            .font_family(ui::theme::MONO_FONT)
             .text_size(px(TEXT_SMALL))
             .children(rows.iter().enumerate().map(|(ix, row)| {
                 let expandable = row.expandable();

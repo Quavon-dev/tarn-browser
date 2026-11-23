@@ -162,6 +162,95 @@ pub fn fetch(url: &str, max: u64, agent: &str, stall_ms: u64, total_ms: u64) -> 
     result.unwrap_or_else(|| Err(unavailable()))
 }
 
+/// A response body still being read in the Java host; dropping it closes the connection.
+pub(crate) struct Stream(GlobalRef);
+
+pub(crate) fn post(url: &str, headers: &[(&str, &str)], body: &[u8], stall_ms: u64, total_ms: u64) -> Result<(u16, Stream), String> {
+    let unavailable = || "The network is not available.".to_owned();
+    let bridge = BRIDGE.get().ok_or_else(unavailable)?;
+    let mut env = bridge.vm.attach_current_thread_permanently().map_err(|e| e.to_string())?;
+    let result = env
+        .with_local_frame(16, |env| -> jni::errors::Result<Option<Result<(u16, Stream), String>>> {
+            let url = env.new_string(url)?;
+            let pairs: Vec<String> = headers.iter().flat_map(|(k, v)| [(*k).to_owned(), (*v).to_owned()]).collect();
+            let Some(pairs) = strings(env, &pairs) else { return Ok(None) };
+            let body = env.byte_array_from_slice(body)?;
+            let ms = |v: u64| JValue::Int(i32::try_from(v).unwrap_or(i32::MAX));
+            let args = [JValue::Object(&url), JValue::Object(&pairs), JValue::Object(&body), ms(stall_ms), ms(total_ms)];
+            let class: &JClass = bridge.class.as_obj().into();
+            let reply = env.call_static_method(class, "post", "(Ljava/lang/String;[Ljava/lang/String;[BII)[Ljava/lang/Object;", &args)?.l()?;
+            let array: &JObjectArray = (&reply).into();
+            let first = JString::from(env.get_object_array_element(array, 0)?);
+            let first: String = env.get_string(&first)?.into();
+            if env.get_array_length(array)? == 1 {
+                return Ok(Some(Err(first)));
+            }
+            let Ok(status) = first.parse() else { return Ok(None) };
+            let stream = env.get_object_array_element(array, 1)?;
+            Ok(Some(Ok((status, Stream(env.new_global_ref(stream)?)))))
+        })
+        .ok()
+        .flatten();
+    if env.exception_check().unwrap_or(false) {
+        env.exception_clear().ok();
+    }
+    result.unwrap_or_else(|| Err(unavailable()))
+}
+
+impl std::io::Read for Stream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let failed = || std::io::Error::other("the connection failed");
+        let bridge = BRIDGE.get().ok_or_else(failed)?;
+        let mut env = bridge.vm.attach_current_thread_permanently().map_err(|_| failed())?;
+        let len = i32::try_from(buf.len().min(16 * 1024)).map_err(|_| failed())?;
+        let result = env.with_local_frame(4, |env| -> jni::errors::Result<Vec<u8>> {
+            let chunk = env.new_byte_array(len)?;
+            let n = env.call_method(&self.0, "read", "([B)I", &[JValue::Object(&chunk)])?.i()?;
+            let mut bytes = env.convert_byte_array(&chunk)?;
+            bytes.truncate(usize::try_from(n).unwrap_or(0));
+            Ok(bytes)
+        });
+        if env.exception_check().unwrap_or(false) {
+            env.exception_clear().ok();
+        }
+        let bytes = result.map_err(|_| failed())?;
+        buf[..bytes.len()].copy_from_slice(&bytes);
+        Ok(bytes.len())
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        if let Some(mut env) = BRIDGE.get().and_then(|b| b.vm.attach_current_thread_permanently().ok())
+            && env.call_method(&self.0, "close", "()V", &[]).is_err()
+            && env.exception_check().unwrap_or(false)
+        {
+            env.exception_clear().ok();
+        }
+    }
+}
+
+/// Calls one of the host's `secret*` methods; a Java exception (Keystore or storage failure) is an
+/// error, never an empty answer.
+pub(crate) fn secret(method: &str, signature: &str, values: &[&str]) -> Result<Option<String>, String> {
+    let unavailable = || "The secret store is not available.".to_owned();
+    let bridge = BRIDGE.get().ok_or_else(unavailable)?;
+    let mut env = bridge.vm.attach_current_thread_permanently().map_err(|_| unavailable())?;
+    let result = env.with_local_frame(8, |env| -> jni::errors::Result<Option<String>> {
+        let strings = values.iter().map(|v| env.new_string(v).map(JObject::from)).collect::<jni::errors::Result<Vec<_>>>()?;
+        let args: Vec<JValue> = strings.iter().map(JValue::Object).collect();
+        let class: &JClass = bridge.class.as_obj().into();
+        match env.call_static_method(class, method, signature, &args)? {
+            jni::objects::JValueGen::Object(reply) if !reply.is_null() => Ok(Some(env.get_string(&JString::from(reply))?.into())),
+            _ => Ok(None),
+        }
+    });
+    if env.exception_check().unwrap_or(false) {
+        env.exception_clear().ok();
+    }
+    result.map_err(|_| unavailable())
+}
+
 pub fn release_store(store: &str) -> bool {
     call_string("releaseStore", store)
 }

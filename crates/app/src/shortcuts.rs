@@ -7,16 +7,44 @@ use gpui::{
 use ui::controls::{key_hint, surface};
 use ui::theme::{Elevation, TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
+use browser_core::shortcuts::{self as core, Action as Shortcut, Keyboard, Keystrokes};
+
 use crate::browser::Browser;
-use crate::settings::SHORTCUTS;
 
 actions!(tarn, [ToggleShortcuts]);
 
-/// The keys of a shortcut-list row: an action the user can rebind with its default keys, or keys
-/// fixed to a range of actions or to text editing, as shown.
+/// The keys of a shortcut-list row: an action the user can rebind, or keys fixed to a range of
+/// actions or to text editing, as shown.
 pub(crate) enum Keys {
-    Bound(&'static str, &'static dyn Action),
+    Bound(Shortcut),
     Fixed(&'static str),
+}
+
+pub(crate) const FIXED: [(Shortcut, &str, &str); 11] = [
+    (Shortcut::CloseAllTabs, "Select tab 1–8", "⌘1 ⌘2 ⌘3 ⌘4 ⌘5 ⌘6 ⌘7 ⌘8"),
+    (Shortcut::PreviousTab, "Next or previous tab, other keys", "⌘} ⌘{ ⌥⌘→ ⌥⌘←"),
+    (Shortcut::ZoomIn, "Zoom in, other key", "⌘+"),
+    (Shortcut::Print, "Open link in a peek", "⇧-click"),
+    (Shortcut::BurnerTab, "Switch to space 1–9", "⌃1 … ⌃9"),
+    (Shortcut::ToggleShortcuts, "Open the menu", "F10"),
+    (Shortcut::ToggleShortcuts, "Move between page, address field and sidebar", "F6  ⇧F6"),
+    (Shortcut::ToggleShortcuts, "Close command bar, overlay, popover or link peek", "Esc"),
+    (Shortcut::ToggleShortcuts, "Open or close the assistant", "⇧Esc"),
+    (Shortcut::ToggleShortcuts, "Undo / Redo", "⌘Z  ⇧⌘Z"),
+    (Shortcut::ToggleShortcuts, "Quit", "⌘Q"),
+];
+
+pub(crate) fn sections() -> Vec<(&'static str, Vec<(&'static str, Keys)>)> {
+    core::SECTIONS
+        .iter()
+        .map(|(name, rows)| {
+            let items = rows.iter().flat_map(|(label, action, _)| {
+                let fixed = FIXED.iter().filter(move |(after, _, keys)| after == action && (*keys != "F10" || cfg!(windows)));
+                MAC.offered(*action).then_some((*label, Keys::Bound(*action))).into_iter().chain(fixed.map(|(_, label, keys)| (*label, Keys::Fixed(keys))))
+            });
+            (*name, items.collect())
+        })
+        .collect()
 }
 
 /// Keys no rebindable action may take: the fixed rows' bindings, text fields' own and ⌘⇥.
@@ -63,21 +91,6 @@ pub(crate) const RESERVED: [&str; 40] = [
     "alt-cmd-left",
 ];
 
-const PREFIX: &str = "keymap.";
-
-/// The setting holding the user's keys for an action.
-pub(crate) fn setting_key(action: &dyn Action) -> String {
-    format!("{PREFIX}{}", action.name())
-}
-
-/// Every rebindable row: label, default keys and action, in list order.
-pub(crate) fn bindable() -> impl Iterator<Item = (&'static str, &'static str, &'static dyn Action)> {
-    SHORTCUTS.iter().flat_map(|(_, rows)| rows.iter()).filter_map(|(label, keys)| match keys {
-        Keys::Bound(keys, action) => Some((*label, *keys, *action)),
-        Keys::Fixed(_) => None,
-    })
-}
-
 /// One keystroke in GPUI's canonical form, if it can be a shortcut: ⌘ or ⌃ with a key.
 pub(crate) fn parse_keys(raw: &str) -> Result<String, &'static str> {
     let keystroke = Keystroke::parse(&raw.trim().replace("secondary-", "cmd-"))
@@ -99,45 +112,115 @@ fn unparse(keystroke: &Keystroke) -> String {
     keystroke.unparse().replace("win-", "cmd-").replace("super-", "cmd-")
 }
 
-/// The label of what already uses `keys`, other than `action`, given each action's keys.
-/// Keys compare as GPUI binds them, so two canonical keys that land on one Windows key collide.
-pub(crate) fn conflict(keys: &str, action: &dyn Action, keymap: &[(String, &'static dyn Action)]) -> Option<&'static str> {
-    let bound = |keys: &str| Keystroke::parse(&platform(keys)).map(|k| k.unparse()).ok();
-    let mine = bound(keys);
-    // ⌘⇥, ⌃⌘Space and the Emacs keys are macOS's own; on Windows ⌘⇥ would land on Ctrl+Tab, Tarn's
-    // next tab, and ⌃E on Ctrl+E, which ⌘E maps to.
-    let os_only = |r: &&str| cfg!(windows) && matches!(*r, "cmd-tab" | "ctrl-cmd-space" | "ctrl-a" | "ctrl-e" | "ctrl-k");
-    if RESERVED.iter().filter(|r| !os_only(r)).any(|r| bound(r) == mine) {
-        return Some("a fixed shortcut");
-    }
-    let (_, other) = keymap.iter().find(|(k, a)| !macos_only(*a) && bound(k) == mine && !a.partial_eq(action))?;
-    bindable().find(|(_, _, a)| a.partial_eq(*other)).map(|(label, ..)| label)
+fn bound(keys: &str) -> Option<String> {
+    Keystroke::parse(&platform(keys)).map(|k| k.unparse()).ok()
 }
 
-/// Each rebindable action's keys: the valid stored ones, else the default. Saving and resetting
-/// refuse taken keys, so a stored key that still collides (an edited database) falls back.
+pub(crate) struct Mac;
+
+pub(crate) const MAC: Mac = Mac;
+
+impl Keystrokes for Mac {
+    fn keyboard(&self) -> Keyboard {
+        Keyboard::Apple
+    }
+
+    fn offered(&self, action: Shortcut) -> bool {
+        gpui_action(action).is_some_and(|a| !macos_only(a))
+    }
+
+    fn written(&self, keys: &str) -> String {
+        let keys = keys.replace("mod", "cmd").replace('+', "-");
+        parse_keys(&keys).unwrap_or(keys)
+    }
+
+    fn parse(&self, raw: &str) -> Result<String, &'static str> {
+        parse_keys(raw)
+    }
+
+    fn fixed(&self, keys: &str) -> bool {
+        // ⌘⇥, ⌃⌘Space and the Emacs keys are macOS's own; on Windows ⌘⇥ would land on Ctrl+Tab, Tarn's
+        // next tab, and ⌃E on Ctrl+E, which ⌘E maps to.
+        let os_only = |r: &&str| cfg!(windows) && matches!(*r, "cmd-tab" | "ctrl-cmd-space" | "ctrl-a" | "ctrl-e" | "ctrl-k");
+        let mine = bound(keys);
+        RESERVED.iter().filter(|r| !os_only(r)).any(|r| bound(r) == mine)
+    }
+
+    fn same(&self, a: &str, b: &str) -> bool {
+        bound(a) == bound(b)
+    }
+
+    fn display(&self, keys: &str) -> String {
+        ui::controls::keys(&display(keys))
+    }
+}
+
+pub(crate) fn gpui_action(action: Shortcut) -> Option<&'static dyn Action> {
+    use Shortcut as S;
+    Some(match action {
+        S::NewTab => &crate::NewTab,
+        S::OpenLocation => &crate::OpenLocation,
+        S::OpenFile => &crate::OpenFile,
+        S::CloseTab => &crate::CloseTab,
+        S::ReopenClosedTab => &crate::ReopenClosedTab,
+        S::CloseAllTabs => &crate::CloseAllTabs,
+        S::NextTab => &crate::NextTab,
+        S::PreviousTab => &crate::PreviousTab,
+        S::LastTab => &crate::LastTab,
+        S::TogglePin => &crate::TogglePin,
+        S::NewGroup => &crate::NewGroup,
+        S::ToggleSplitView => &crate::split::ToggleSplitView,
+        S::FocusNextPane => &crate::split::FocusNextPane,
+        S::FocusPreviousPane => &crate::split::FocusPreviousPane,
+        S::SwapPanes => &crate::split::SwapPanes,
+        S::RotateSplitLayout => &crate::split::RotateSplitLayout,
+        S::RemoveFromSplitView => &crate::split::RemoveFromSplitView,
+        S::Reload => &crate::Reload,
+        S::ReloadFromOrigin => &crate::ReloadFromOrigin,
+        S::StopLoading => &crate::StopLoading,
+        S::Back => &crate::Back,
+        S::Forward => &crate::Forward,
+        S::Find => &crate::Find,
+        S::FindNext => &crate::FindNext,
+        S::FindPrevious => &crate::FindPrevious,
+        S::FindInTabs => &crate::find_tabs::FindInTabs,
+        S::ZoomIn => &crate::ZoomIn,
+        S::ZoomOut => &crate::ZoomOut,
+        S::ZoomReset => &crate::ZoomReset,
+        S::CopyLink => &crate::CopyLink,
+        S::CopyCleanLink => &crate::CopyCleanLink,
+        S::CopyMarkdownLink => &crate::capture::CopyMarkdownLink,
+        S::TakeScreenshot => &crate::capture::TakeScreenshot,
+        S::ToggleReader => &crate::reader::ToggleReader,
+        S::PictureInPicture => &crate::capture::PictureInPicture,
+        S::Print => &crate::Print,
+        S::BookmarkTab => &crate::BookmarkTab,
+        S::ToggleLibrary => &crate::ToggleLibrary,
+        S::ToggleDownloads => &crate::ToggleDownloads,
+        S::ManageBookmarks => &crate::menubar::ManageBookmarks,
+        S::ShowHistory => &crate::menubar::ShowHistory,
+        S::NewWindow => &crate::NewWindow,
+        S::CloseWindow => &crate::CloseWindow,
+        S::ToggleSidebar => &crate::ToggleSidebar,
+        S::ToggleTabsOnTop => &crate::ToggleTabsOnTop,
+        S::NewSpace => &crate::NewSpace,
+        S::PrivateSpace => &crate::PrivateSpace,
+        S::BurnerTab => &crate::BurnerTab,
+        S::Minimize => &crate::menubar::Minimize,
+        S::ToggleFullScreen => &crate::ToggleFullScreen,
+        S::HideTarn => &crate::HideTarn,
+        S::HideOthers => &crate::HideOthers,
+        S::Settings => &crate::Settings,
+        S::ToggleShortcuts => &ToggleShortcuts,
+        S::CommandBar | S::SelectTab(_) | S::SwitchSpace(_) => return None,
+    })
+}
+
 pub(crate) fn keymap(stored: &HashMap<String, String>) -> Vec<(String, &'static dyn Action)> {
-    let default = |keys: &str| parse_keys(keys).unwrap_or_else(|_| keys.to_owned());
-    let chosen = |action: &dyn Action| stored.get(&setting_key(action)).and_then(|k| parse_keys(k).ok());
-    let mut keymap: Vec<(String, &'static dyn Action)> = bindable().map(|(_, keys, a)| (chosen(a).unwrap_or_else(|| default(keys)), a)).collect();
-    // A fallback can collide with a row already checked, so repeat until nothing changes.
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for (ix, (_, keys, action)) in bindable().enumerate() {
-            if keymap[ix].0 != default(keys) && conflict(&keymap[ix].0, action, &keymap).is_some() {
-                keymap[ix].0 = default(keys);
-                changed = true;
-            }
-        }
-    }
-    keymap
+    core::keymap(&MAC, stored).into_iter().filter_map(|(keys, action)| Some((keys, gpui_action(action)?))).collect()
 }
 
-/// The stored keys of every rebindable action.
-pub(crate) fn stored(disk: &store::Store) -> HashMap<String, String> {
-    disk.settings_with_prefix(PREFIX).unwrap_or_default().into_iter().collect()
-}
+pub(crate) use core::stored;
 
 /// Binds every key again with the stored overrides and lets the menus show the new keys.
 pub(crate) fn rebind(cx: &mut App) {
@@ -159,16 +242,6 @@ pub(crate) fn macos_only(action: &dyn Action) -> bool {
             || action.partial_eq(&crate::HideOthers)
             || action.partial_eq(&crate::ShowAll)
             || action.partial_eq(&crate::menubar::BringAllToFront))
-}
-
-/// Whether a shortcut row applies on this system: the macOS-only commands and the Windows menu key
-/// are listed only where they work.
-pub(crate) fn listed(keys: &Keys) -> bool {
-    match keys {
-        Keys::Fixed("F10") => cfg!(windows),
-        Keys::Bound(_, action) => !macos_only(*action),
-        Keys::Fixed(_) => true,
-    }
 }
 
 pub(crate) fn binding(keys: &str, action: &dyn Action) -> Option<KeyBinding> {
@@ -308,17 +381,17 @@ impl Browser {
 }
 
 pub fn render(scroll: &ScrollHandle, cx: &mut Context<Browser>) -> AnyElement {
-    let column = |(title, items): &(&'static str, &'static [(&'static str, Keys)])| {
+    let column = |(title, items): &(&'static str, Vec<(&'static str, Keys)>)| {
         div()
             .w(px(250.))
             .flex()
             .flex_col()
             .gap_1()
             .child(div().pb_1().text_size(px(TEXT_SMALL)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::muted()).child(title.to_uppercase()))
-            .children(items.iter().filter(|(_, keys)| listed(keys)).map(|(action, keys)| {
+            .children(items.iter().map(|(action, keys)| {
                 div().flex().flex_wrap().gap_x_3().child(div().max_w_full().child(*action)).child(
                     key_hint(match keys {
-                        Keys::Bound(_, action) => shown(*action, cx),
+                        Keys::Bound(action) => gpui_action(*action).map_or(String::new(), |a| shown(a, cx)),
                         Keys::Fixed(keys) => (*keys).to_owned(),
                     })
                     .flex_none()
@@ -347,7 +420,7 @@ pub fn render(scroll: &ScrollHandle, cx: &mut Context<Browser>) -> AnyElement {
                 .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).child("Keyboard Shortcuts"))
                 .child(key_hint("Esc to close")),
         )
-        .child(div().flex().flex_wrap().gap_6().children(SHORTCUTS.iter().map(column)));
+        .child(div().flex().flex_wrap().gap_6().children(sections().iter().map(column)));
     // A click beside the sheet closes it, as one outside a pop-up does.
     div()
         .flex_1()
@@ -400,29 +473,56 @@ mod tests {
 
     #[test]
     fn the_defaults_are_valid_and_distinct() {
-        let defaults = keymap(&HashMap::new());
-        assert_eq!(defaults.len(), bindable().count());
-        for ((keys, action), (_, default, _)) in defaults.iter().zip(bindable()) {
-            assert_eq!(parse_keys(default).as_deref(), Ok(keys.as_str()), "{default} is not a valid shortcut");
-            assert_eq!(conflict(keys, *action, &defaults), None, "{default} is taken twice");
+        let defaults = core::keymap(&MAC, &HashMap::new());
+        assert_eq!(defaults.len(), core::rebindable(&MAC).count());
+        for (keys, action) in &defaults {
+            assert_eq!(parse_keys(keys).as_deref(), Ok(keys.as_str()), "{action:?} has no valid default");
+            assert_eq!(core::conflict(&MAC, keys, *action, &defaults), None, "{keys} is taken twice");
         }
     }
 
     #[test]
-    fn taken_and_reserved_keys_conflict() {
+    fn every_offered_action_keeps_its_stored_setting_and_default() {
+        for (_, action) in core::rebindable(&MAC) {
+            let gpui = gpui_action(action).unwrap();
+            assert_eq!(action.setting_key(), format!("keymap.{}", gpui.name()), "keys stored for {action:?} still apply");
+        }
         let map = keymap(&HashMap::new());
-        assert_eq!(conflict("cmd-shift-t", &crate::NewTab, &map), Some("Reopen closed tab"));
-        assert_eq!(conflict("cmd-shift-t", &crate::ReopenClosedTab, &map), None, "an action keeps its own keys");
-        assert_eq!(conflict("cmd-c", &crate::NewTab, &map), Some("a fixed shortcut"));
-        assert_eq!(conflict("cmd-3", &crate::NewTab, &map), Some("a fixed shortcut"));
-        assert_eq!(conflict("cmd-shift-z", &crate::NewTab, &map), Some("a fixed shortcut"));
-        assert_eq!(conflict("alt-cmd-k", &crate::NewTab, &map), None);
-        assert_eq!(conflict("cmd-h", &crate::NewTab, &map), (!cfg!(windows)).then_some("Hide Tarn"), "macOS-only actions hold no keys on Windows");
+        let keys = |action: &dyn Action| map.iter().find(|(_, a)| a.partial_eq(action)).map(|(k, _)| k.as_str());
+        for (action, default) in [
+            (&crate::Back as &dyn Action, "cmd-["),
+            (&crate::split::ToggleSplitView, "ctrl-cmd-n"),
+            (&crate::capture::CopyMarkdownLink, "alt-shift-cmd-c"),
+            (&crate::capture::TakeScreenshot, "alt-cmd-s"),
+            (&crate::reader::ToggleReader, "alt-cmd-r"),
+            (&crate::menubar::ShowHistory, "cmd-y"),
+            (&crate::ToggleDownloads, "shift-cmd-j"),
+            (&crate::CopyCleanLink, "ctrl-shift-cmd-c"),
+            (&crate::ToggleFullScreen, "ctrl-cmd-f"),
+            (&crate::StopLoading, "cmd-."),
+            (&crate::find_tabs::FindInTabs, "shift-cmd-f"),
+        ] {
+            assert_eq!(keys(action).map(|k| parse_keys(k).unwrap()), Some(parse_keys(default).unwrap()), "{}", action.name());
+        }
+        assert!(sections().iter().all(|(_, rows)| rows.iter().all(|(_, keys)| !matches!(keys, Keys::Bound(Shortcut::CommandBar)))));
+    }
+
+    #[test]
+    fn taken_and_reserved_keys_conflict() {
+        let map = core::keymap(&MAC, &HashMap::new());
+        let conflict = |keys: &str, action| core::conflict(&MAC, keys, action, &map);
+        assert_eq!(conflict("cmd-shift-t", Shortcut::NewTab), Some("Reopen closed tab"));
+        assert_eq!(conflict("cmd-shift-t", Shortcut::ReopenClosedTab), None, "an action keeps its own keys");
+        assert_eq!(conflict("cmd-c", Shortcut::NewTab), Some("a fixed shortcut"));
+        assert_eq!(conflict("cmd-3", Shortcut::NewTab), Some("a fixed shortcut"));
+        assert_eq!(conflict("cmd-shift-z", Shortcut::NewTab), Some("a fixed shortcut"));
+        assert_eq!(conflict("alt-cmd-k", Shortcut::NewTab), None);
+        assert_eq!(conflict("cmd-h", Shortcut::NewTab), (!cfg!(windows)).then_some("Hide Tarn"), "macOS-only actions hold no keys on Windows");
     }
 
     #[test]
     fn stored_keys_may_take_defaults_that_moved_away() {
-        let stored = HashMap::from([(setting_key(&crate::NewTab), "cmd-l".to_owned()), (setting_key(&crate::OpenLocation), "cmd-t".to_owned())]);
+        let stored = HashMap::from([(Shortcut::NewTab.setting_key(), "cmd-l".to_owned()), (Shortcut::OpenLocation.setting_key(), "cmd-t".to_owned())]);
         let map = keymap(&stored);
         let keys = |action: &dyn Action| map.iter().find(|(_, a)| a.partial_eq(action)).map(|(k, _)| k.as_str());
         assert_eq!((keys(&crate::NewTab), keys(&crate::OpenLocation)), (Some("cmd-l"), Some("cmd-t")));
@@ -430,11 +530,12 @@ mod tests {
 
     #[test]
     fn a_fallback_never_leaves_two_actions_on_one_key() {
-        let stored = HashMap::from([(setting_key(&crate::NewTab), "cmd-l".to_owned()), (setting_key(&crate::OpenLocation), "cmd-r".to_owned())]);
+        let stored = HashMap::from([(Shortcut::NewTab.setting_key(), "cmd-l".to_owned()), (Shortcut::OpenLocation.setting_key(), "cmd-r".to_owned())]);
         let map = keymap(&stored);
         let keys = |action: &dyn Action| map.iter().find(|(_, a)| a.partial_eq(action)).map(|(k, _)| k.as_str());
         assert_eq!((keys(&crate::NewTab), keys(&crate::OpenLocation), keys(&crate::Reload)), (Some("cmd-t"), Some("cmd-l"), Some("cmd-r")));
-        assert!(map.iter().all(|(k, a)| conflict(k, *a, &map).is_none()));
+        let map = core::keymap(&MAC, &stored);
+        assert!(map.iter().all(|(k, a)| core::conflict(&MAC, k, *a, &map).is_none()));
     }
 
     #[test]
@@ -453,13 +554,13 @@ mod tests {
     #[test]
     fn valid_free_overrides_replace_the_defaults() {
         let stored = HashMap::from([
-            (setting_key(&crate::NewTab), "alt-cmd-k".to_owned()),
-            (setting_key(&crate::Reload), "cmd-shift-t".to_owned()),
-            (setting_key(&crate::Back), "cmd-left".to_owned()),
-            (setting_key(&crate::Print), "nonsense-".to_owned()),
-            (setting_key(&crate::Find), "cmd-c".to_owned()),
+            (Shortcut::NewTab.setting_key(), "alt-cmd-k".to_owned()),
+            (Shortcut::Reload.setting_key(), "cmd-shift-t".to_owned()),
+            (Shortcut::Back.setting_key(), "cmd-left".to_owned()),
+            (Shortcut::Print.setting_key(), "nonsense-".to_owned()),
+            (Shortcut::Find.setting_key(), "cmd-c".to_owned()),
         ]);
-        assert_eq!(setting_key(&crate::NewTab), "keymap.tarn::NewTab");
+        assert_eq!(Shortcut::NewTab.setting_key(), "keymap.tarn::NewTab");
         let map = keymap(&stored);
         let keys = |action: &dyn Action| map.iter().find(|(_, a)| a.partial_eq(action)).map(|(k, _)| k.as_str());
         assert_eq!(keys(&crate::NewTab), Some("alt-cmd-k"));

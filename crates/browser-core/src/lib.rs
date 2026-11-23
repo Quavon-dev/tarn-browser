@@ -13,6 +13,7 @@ use shield::matcher::Matcher;
 use store::{Id, Profile, Store, WebEngine};
 use url::Url;
 
+pub mod assistant;
 pub mod bookmarks;
 pub mod capture;
 pub mod cleanup;
@@ -30,6 +31,7 @@ pub mod fog;
 pub mod fullscreen;
 pub mod github;
 pub mod glyphs;
+pub mod hints;
 pub mod hover;
 pub mod icon;
 pub mod import;
@@ -38,7 +40,11 @@ pub mod layout;
 pub mod library;
 pub mod licences;
 pub mod link_status;
+pub mod measure;
+pub mod media;
+pub mod notes;
 pub mod open_file;
+pub mod page_ops;
 pub mod palette;
 pub mod permissions;
 pub mod prefs;
@@ -53,6 +59,7 @@ pub mod shortcuts;
 pub mod sidebar;
 pub mod site;
 pub mod snapshot;
+pub mod snippets;
 pub mod space_card;
 pub mod split;
 #[cfg(any(target_os = "macos", windows))]
@@ -67,6 +74,7 @@ pub mod theme_fetch;
 pub mod theme_library;
 pub mod tls;
 pub mod toast;
+pub mod undo;
 pub mod windows;
 
 pub use data::WebsiteData;
@@ -169,6 +177,7 @@ pub struct Core<D: WebsiteData> {
     judged: Cell<Option<(i64, std::time::Instant)>>,
     /// Profiles of the private store that each hold one window's burner tab.
     pub burners: RefCell<HashSet<Id>>,
+    snippets: RefCell<Option<(Id, Rc<Vec<store::Snippet>>)>>,
     store_link_at: Cell<Option<std::time::Instant>>,
 }
 
@@ -214,6 +223,7 @@ impl<D: WebsiteData> Core<D> {
             #[cfg(any(target_os = "macos", windows))]
             judged: Cell::new(None),
             burners: RefCell::default(),
+            snippets: RefCell::default(),
             store_link_at: Cell::default(),
         }
     }

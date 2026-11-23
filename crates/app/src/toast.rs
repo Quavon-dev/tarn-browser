@@ -177,6 +177,20 @@ impl Browser {
         self.show_toast_as(Tone::Info, text, action, cx);
     }
 
+    /// After `command` ran from the command bar: a toast naming its `keys`, if the profile's
+    /// hint throttle allows one and the command showed no toast of its own; none in a private
+    /// space, a burner tab or while a text field has the keyboard.
+    pub(crate) fn offer_hint(&mut self, command: &str, keys: &str, window: &Window, cx: &mut Context<Self>) {
+        if self.live_toast().is_some() {
+            return;
+        }
+        let field = window.context_stack().iter().any(|c| c.contains("TextInput"));
+        let typing = self.command_mode.is_some() || self.renaming.is_some() || field;
+        if let Some(text) = self.core.feature_hint(self.model.profile(), command, keys, browser_core::now(), typing) {
+            self.show_toast_as(Tone::Info, text, None, cx);
+        }
+    }
+
     pub(crate) fn show_toast_as(&mut self, tone: Tone, text: impl Into<SharedString>, action: Option<Action>, cx: &mut Context<Self>) {
         let wait = if action.is_some() { ACTION_TIME } else { TOAST_TIME };
         self.show_toast_for(tone, text.into(), action, (None, None), wait, cx);
@@ -251,8 +265,13 @@ impl Browser {
         self.toast.hovered = false;
         let Some(toast) = self.live_toast().map(|t| t.serial).and_then(|serial| self.toast.take(serial)) else { return };
         match toast.action {
-            Some(Action::Undo(serial)) if self.model.closed_tabs.newest() == Some(serial) => self.reopen_closed_tab(window, cx),
-            Some(Action::UndoSort(record)) => self.undo_sort(*record, cx),
+            Some(Action::Undo(serial)) if self.model.closed_tabs.newest() == Some(serial) => {
+                self.run_undo(browser_core::undo::Step::Closed(serial), false, window, cx)
+            }
+            Some(Action::UndoSort(record)) => {
+                let (private, undo) = *record;
+                self.run_undo(browser_core::undo::Step::CleanUp(undo), private, window, cx)
+            }
             Some(Action::Reveal(path)) => engine::reveal_in_finder(&path),
             Some(Action::RestartToUpdate) => crate::shared::restart_to_update(cx),
             Some(Action::RestoreDownloads(cleared)) => {

@@ -3,59 +3,23 @@ use gpui::{Context, ScrollDelta, ScrollWheelEvent, TouchPhase, Window};
 use crate::browser::Browser;
 use crate::prefs::Pref;
 
-const THRESHOLD: f32 = 60.;
 /// A pause in wheel events that ends a Windows touchpad gesture, and a wheel line in pixels.
 #[cfg(windows)]
 const WHEEL_PAUSE: std::time::Duration = std::time::Duration::from_millis(180);
 #[cfg(windows)]
 const WHEEL_LINE: f32 = 40.;
 
-pub use browser_core::sidebar::Step;
+pub use browser_core::sidebar::{Step, Swipe};
 
-/// Turns a two-finger horizontal trackpad swipe into at most one step per gesture.
-#[derive(Default)]
-pub struct Swipe {
-    dx: f32,
-    dy: f32,
-    armed: bool,
-    inverted: bool,
-}
-
-fn step(dx: f32, natural: bool) -> Step {
-    if (dx > 0.) == natural { Step::Previous } else { Step::Next }
-}
-
-impl Swipe {
-    pub fn new(natural: bool) -> Self {
-        Swipe { inverted: !natural, ..Swipe::default() }
-    }
-
-    pub fn feed(&mut self, phase: TouchPhase, delta: ScrollDelta) -> Option<Step> {
-        let ScrollDelta::Pixels(delta) = delta else { return None };
-        match phase {
-            TouchPhase::Started => {
-                *self = Swipe { armed: true, inverted: self.inverted, ..Swipe::default() };
-                None
-            }
-            TouchPhase::Ended => {
-                self.armed = false;
-                None
-            }
-            TouchPhase::Moved if self.armed => {
-                self.dx += f32::from(delta.x);
-                self.dy += f32::from(delta.y);
-                if self.dy.abs() > THRESHOLD {
-                    self.armed = false;
-                }
-                if !self.armed || self.dx.abs() < THRESHOLD || self.dx.abs() < 2. * self.dy.abs() {
-                    return None;
-                }
-                self.armed = false;
-                Some(step(self.dx, !self.inverted))
-            }
-            TouchPhase::Moved => None,
-        }
-    }
+fn touch(swipe: &mut Swipe, phase: TouchPhase, delta: ScrollDelta) -> Option<Step> {
+    use browser_core::sidebar::Phase;
+    let ScrollDelta::Pixels(delta) = delta else { return None };
+    let phase = match phase {
+        TouchPhase::Started => Phase::Started,
+        TouchPhase::Moved => Phase::Moved,
+        TouchPhase::Ended => Phase::Ended,
+    };
+    swipe.touch(phase, f32::from(delta.x), f32::from(delta.y))
 }
 
 /// A touchpad scrolls by fractions of a wheel line; a mouse's wheel, tilted too, by whole lines.
@@ -136,9 +100,9 @@ impl Browser {
             return None;
         }
         if matches!(event.touch_phase, TouchPhase::Started) {
-            self.swipe = Swipe::new(engine::menu::natural_scrolling());
+            self.swipe = Swipe::natural(engine::menu::natural_scrolling());
         }
-        self.swipe.feed(event.touch_phase, event.delta)
+        touch(&mut self.swipe, event.touch_phase, event.delta)
     }
 
     /// Anywhere over the sidebar: the list follows the fingers to the previous or next space.
@@ -275,29 +239,31 @@ mod tests {
     use gpui::{point, px};
 
     fn moved(swipe: &mut Swipe, x: f32, y: f32) -> Option<Step> {
-        swipe.feed(TouchPhase::Moved, ScrollDelta::Pixels(point(px(x), px(y))))
+        touch(swipe, TouchPhase::Moved, ScrollDelta::Pixels(point(px(x), px(y))))
     }
 
     #[test]
     fn one_step_per_gesture_past_the_threshold() {
-        let mut swipe = Swipe::default();
+        let mut swipe = Swipe::natural(true);
         assert_eq!(moved(&mut swipe, -100., 0.), None, "momentum without a started gesture");
-        swipe.feed(TouchPhase::Started, ScrollDelta::Pixels(point(px(0.), px(0.))));
+        touch(&mut swipe, TouchPhase::Started, ScrollDelta::Pixels(point(px(0.), px(0.))));
         assert_eq!(moved(&mut swipe, -40., 0.), None);
         assert_eq!(moved(&mut swipe, -40., 5.), Some(Step::Next));
         assert_eq!(moved(&mut swipe, -200., 0.), None);
-        swipe.feed(TouchPhase::Ended, ScrollDelta::Pixels(point(px(0.), px(0.))));
-        swipe.feed(TouchPhase::Started, ScrollDelta::Pixels(point(px(0.), px(0.))));
+        touch(&mut swipe, TouchPhase::Ended, ScrollDelta::Pixels(point(px(0.), px(0.))));
+        touch(&mut swipe, TouchPhase::Started, ScrollDelta::Pixels(point(px(0.), px(0.))));
         assert_eq!(moved(&mut swipe, 70., 0.), Some(Step::Previous));
     }
 
     #[test]
     fn natural_scrolling_off_flips_the_direction() {
-        assert_eq!((step(70., true), step(-70., true)), (Step::Previous, Step::Next));
-        assert_eq!((step(70., false), step(-70., false)), (Step::Next, Step::Previous));
-        let mut swipe = Swipe::new(false);
-        swipe.feed(TouchPhase::Started, ScrollDelta::Pixels(point(px(0.), px(0.))));
-        assert_eq!(moved(&mut swipe, -70., 0.), Some(Step::Previous));
+        let step = |dx: f32, natural: bool| {
+            let mut swipe = Swipe::natural(natural);
+            touch(&mut swipe, TouchPhase::Started, ScrollDelta::Pixels(point(px(0.), px(0.))));
+            moved(&mut swipe, dx, 0.)
+        };
+        assert_eq!((step(70., true), step(-70., true)), (Some(Step::Previous), Some(Step::Next)));
+        assert_eq!((step(70., false), step(-70., false)), (Some(Step::Next), Some(Step::Previous)));
     }
 
     fn pan(pan: &mut Pan, phase: TouchPhase, x: f32, y: f32) -> Option<Drag> {
@@ -352,12 +318,12 @@ mod tests {
 
     #[test]
     fn vertical_scrolls_and_wheels_never_step() {
-        let mut swipe = Swipe::default();
-        swipe.feed(TouchPhase::Started, ScrollDelta::Pixels(point(px(0.), px(0.))));
+        let mut swipe = Swipe::natural(true);
+        touch(&mut swipe, TouchPhase::Started, ScrollDelta::Pixels(point(px(0.), px(0.))));
         assert_eq!(moved(&mut swipe, 0., 80.), None);
         assert_eq!(moved(&mut swipe, -200., 0.), None);
-        swipe.feed(TouchPhase::Started, ScrollDelta::Pixels(point(px(0.), px(0.))));
+        touch(&mut swipe, TouchPhase::Started, ScrollDelta::Pixels(point(px(0.), px(0.))));
         assert_eq!(moved(&mut swipe, -70., 40.), None);
-        assert_eq!(swipe.feed(TouchPhase::Moved, ScrollDelta::Lines(point(-10., 0.))), None);
+        assert_eq!(touch(&mut swipe, TouchPhase::Moved, ScrollDelta::Lines(point(-10., 0.))), None);
     }
 }

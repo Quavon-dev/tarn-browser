@@ -333,7 +333,11 @@ impl Browser {
         let Some(deleted) = browser_core::profiles::delete(&self.core.disk, id) else { return };
         let own_store = deleted.own_store;
         Self::sync_other_windows(cx);
-        crate::shared::others(cx, |b, _, _| b.forget_history(false, id));
+        crate::shared::others(cx, |b, _, _| {
+            b.forget_history(false, id);
+            b.forget_assistant(id);
+        });
+        self.forget_assistant(id);
         #[cfg(feature = "chromium")]
         self.wipe_chromium(&own_store, &own_store);
         crate::ext_package::remove_tree(&crate::extensions::root().join(id.to_string())).ok();
@@ -349,6 +353,7 @@ impl Browser {
         crate::zaps::forget(&own_store);
         self.forget_favicons((false, id));
         self.core.wiped_at.borrow_mut().remove(&(false, id));
+        self.core.snippets_changed();
         self.pages.retain(|k, _| k.private || self.core.disk.tab(k.id).is_ok());
         if !deleted.still_used {
             engine::DataStore::wipe_persistent(&deleted.store);

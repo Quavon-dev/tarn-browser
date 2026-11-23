@@ -279,7 +279,7 @@ impl Browser {
             Offer::NewTab(url) => {
                 if !self.open_routed(&url, window, cx) {
                     let engine = self.model.tab(key).and_then(|t| t.web_engine);
-                    self.new_tab_in(&url, engine, window, cx);
+                    self.new_tab_in(&url, engine, browser_core::tabs::Opened::Link(key), window, cx);
                 }
             }
             Offer::Reload => {

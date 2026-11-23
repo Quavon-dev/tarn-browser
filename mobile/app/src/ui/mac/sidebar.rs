@@ -15,9 +15,9 @@ use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::motion::{popping, spinner};
 use tarn_nsh_shared::popover::{self as pop, Anchor};
 use tarn_nsh_shared::sidebar::{
-    BUTTON, CLOSE_GAP, CLOSE_WIDTH, FOOTER_HEIGHT, GLYPH, HEADER_HEIGHT, HEADER_INSET, INDENT, INNER_PAD, MARGIN, MENU_WIDTH, ROW_GAP, ROW_INSET, STATE_GLYPH,
-    TAB_ROW, TILE_GAP, TILE_ICON, WIDTH, chosen_icon, divider, glyph_button, group_avatar, group_color, menu_heading, menu_item, menu_separator, new_tab_mark,
-    progress_ring, tile_grid,
+    BUTTON, CLOSE_GAP, CLOSE_WIDTH, FOOTER_HEIGHT, GLYPH, HEADER_HEIGHT, HEADER_INSET, INDENT, INNER_PAD, MARGIN, MENU_WIDTH, ROW_INSET, STATE_GLYPH, TILE_GAP,
+    TILE_ICON, WIDTH, chosen_icon, divider, glyph_button, group_avatar, group_color, menu_heading, menu_item, menu_separator, new_tab_mark, progress_ring,
+    tile_grid,
 };
 
 use super::super::{AppShell, Screen, Ui, bars, panels};
@@ -29,6 +29,7 @@ enum Target {
     Folder(Id),
     Group(Id),
     Space,
+    Organize,
     FolderIcon(Id),
     GroupIcon(Id),
 }
@@ -126,6 +127,7 @@ fn menu_items(bar: Bar, target: Target) -> View {
         Target::Folder(id) => folder_items(bar, id),
         Target::Group(id) => group_items(bar, id),
         Target::Space => space_items(bar),
+        Target::Organize => organize_items(bar),
         Target::FolderIcon(_) | Target::GroupIcon(_) => return icon_picker(bar, target),
     };
     view().flex_col().children(items)
@@ -139,11 +141,16 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
             kind: t.kind,
             active: s.model.active == Some(key),
             has_link: s.web_link_of(key).is_some(),
+            engine: None,
             split: s.splits.menu(s.model.active, key),
             split_view: ui.wide(),
             burner: s.model.burner_shown(),
             custom_title: !t.custom_title.is_empty(),
+            drift: None,
             grouped: t.group_id.is_some(),
+            muted: None,
+            sleepable: false,
+            sleep_others: false,
             others: !bar::other_unpinned(&s.model, key).is_empty(),
             below: !bar::tabs_below(&s.model, key).is_empty(),
             spaces: if s.in_burner() { Vec::new() } else { s.move_targets(key) },
@@ -152,12 +159,24 @@ fn tab_items(bar: Bar, key: TabKey) -> Vec<AnyElement> {
     }) else {
         return Vec::new();
     };
-    tab_menu::items(&tab)
+    tab_entries(bar, key, tab_menu::items(&tab, offered))
+}
+
+fn offered(command: tab_menu::Command) -> bool {
+    use tab_menu::Command as C;
+    !matches!(
+        command,
+        C::SwitchEngine | C::Bookmark | C::RotateSplit | C::CloseSplit | C::ReturnToPinned | C::SetPinnedUrl | C::ToggleMute | C::Sleep | C::SleepOthers
+    )
+}
+
+fn tab_entries(bar: Bar, key: TabKey, items: Vec<tab_menu::Item>) -> Vec<AnyElement> {
+    items
         .into_iter()
-        .map(|entry| match entry {
-            tab_menu::Item::Command(command, label, enabled) => item(bar, label, enabled, move |ui| run_tab(bar, ui, key, command)),
-            tab_menu::Item::Heading(name) => menu_heading(name).into_element(),
-            tab_menu::Item::Separator => menu_separator().into_element(),
+        .flat_map(|entry| match entry {
+            tab_menu::Item::Command(command, label, enabled, _) => vec![item(bar, label, enabled, move |ui| run_tab(bar, ui, key, command))],
+            tab_menu::Item::Submenu(name, inner) => std::iter::once(menu_heading(name).into_element()).chain(tab_entries(bar, key, inner)).collect(),
+            tab_menu::Item::Separator => vec![menu_separator().into_element()],
         })
         .collect()
 }
@@ -206,11 +225,12 @@ fn run_tab(bar: Bar, ui: Ui, key: TabKey, command: tab_menu::Command) {
         C::Close => act(ui, |s| s.close_or_unload(key)),
         C::CloseOthers => act(ui, |s| s.close_many(&bar::other_unpinned(&s.model, key))),
         C::CloseBelow => act(ui, |s| s.close_many(&bar::tabs_below(&s.model, key))),
+        C::SwitchEngine | C::Bookmark | C::RotateSplit | C::CloseSplit | C::ReturnToPinned | C::SetPinnedUrl | C::ToggleMute | C::Sleep | C::SleepOthers => {}
     }
 }
 
 fn change_icon(bar: Bar, target: Target) -> AnyElement {
-    item(bar, "Change Icon…", true, move |_| open_menu(bar, target, Point::new(Points(0.), Points(TAB_ROW))))
+    item(bar, "Change Icon…", true, move |_| open_menu(bar, target, Point::new(Points(0.), Points(Theme::tab_row()))))
 }
 
 fn stored_icon(ui: Ui, target: Target) -> String {
@@ -330,6 +350,26 @@ fn group_items(bar: Bar, id: Id) -> Vec<AnyElement> {
     ]
 }
 
+fn organize_items(bar: Bar) -> Vec<AnyElement> {
+    let (cleanable, assistant) = bar.ui.read(|s| (bar::cleanable(&s.model), s.model.assistant_offered(&s.core, None)));
+    bar::organize(cleanable, assistant)
+        .into_iter()
+        .map(|(label, o)| {
+            item(bar, label, true, move |ui| match o {
+                bar::Organize::NewGroup => act(ui, |s| {
+                    let active = s.model.active;
+                    bar::new_group(&mut s.model, &s.core, active);
+                }),
+                bar::Organize::NewFolder => act(ui, |s| {
+                    bar::new_folder(&mut s.model, &s.core, None);
+                }),
+                bar::Organize::CleanUp => act(ui, |s| s.clean_up()),
+                bar::Organize::GroupWithAssistant => super::super::assistant::group_tabs(ui),
+            })
+        })
+        .collect()
+}
+
 fn space_items(bar: Bar) -> Vec<AnyElement> {
     let (ix, private) = bar.ui.read(|s| (s.model.space_ix, s.model.current_space().is_none_or(|c| c.private)));
     vec![
@@ -374,7 +414,7 @@ fn press(bar: Bar, target: Target) {
         Target::Group(id) => act(ui, |s| {
             s.model.toggle_group(&s.core, id);
         }),
-        Target::Space | Target::FolderIcon(_) | Target::GroupIcon(_) => {}
+        Target::Space | Target::Organize | Target::FolderIcon(_) | Target::GroupIcon(_) => {}
     }
 }
 
@@ -440,7 +480,7 @@ fn tab_row(bar: Bar, key: TabKey, depth: usize) -> View {
         .relative()
         .flex_row()
         .items_center()
-        .h(px(TAB_ROW))
+        .h(move || px(Theme::tab_row()))
         .pl(px(ROW_INSET + depth as f32 * INDENT))
         .pr(px(2.))
         .gap(px(CLOSE_GAP))
@@ -600,7 +640,7 @@ fn rename_field(bar: Bar, key: TabKey) -> AnyElement {
         .on_blur(move || done(true))
         .flex_1()
         .min_w(px(0.))
-        .h(px(TAB_ROW - 8.))
+        .h(move || px(Theme::tab_row() - 8.))
         .px_1()
         .rounded(px(Theme::radius_small()))
         .bg(Theme::raised)
@@ -614,7 +654,7 @@ fn row(bar: Bar, r: &Row) -> View {
         RowKind::Tab(key) => tab_row(bar, *key, r.depth),
         RowKind::Split(panes) => view()
             .flex_row()
-            .gap(px(ROW_GAP))
+            .gap(move || px(Theme::row_gap()))
             .pl(px(r.depth as f32 * INDENT))
             .children(panes.iter().map(|k| view().flex_1().min_w(px(0.)).child(tab_row(bar, *k, 0)))),
         RowKind::Folder(id) => folder_row(bar, *id, r.depth),
@@ -635,7 +675,7 @@ fn folder_row(bar: Bar, id: Id, depth: usize) -> View {
         .on_press(move || press(bar, Target::Folder(id)))
         .flex_row()
         .items_center()
-        .h(px(TAB_ROW))
+        .h(move || px(Theme::tab_row()))
         .pl(px(ROW_INSET + depth as f32 * INDENT))
         .pr(px(ROW_INSET))
         .gap(px(CLOSE_GAP))
@@ -653,7 +693,7 @@ fn folder_row(bar: Bar, id: Id, depth: usize) -> View {
 
 fn pinned_block(bar: Bar, block: Vec<Row>) -> View {
     let ui = bar.ui;
-    let list = view().flex_col().gap(px(ROW_GAP)).children(block.iter().map(|r| row(bar, r)));
+    let list = view().flex_col().gap(move || px(Theme::row_gap())).children(block.iter().map(|r| row(bar, r)));
     let Some(RowKind::Folder(id)) = block.first().map(|r| r.kind.clone()) else { return list };
     let open = move || ui.read(|s| s.model.expanded.contains(&id));
     view()
@@ -668,7 +708,7 @@ fn pinned(bar: Bar) -> View {
     let ui = bar.ui;
     let area = view()
         .flex_col()
-        .gap(px(ROW_GAP))
+        .gap(move || px(Theme::row_gap()))
         .mt_1()
         .min_h(px(12.))
         .rounded(px(Theme::radius_row()))
@@ -677,7 +717,7 @@ fn pinned(bar: Bar) -> View {
             move || ui.read(|s| !s.model.tabs.iter().any(|t| t.kind == TabKind::Pinned) && s.model.folders.is_empty()),
             move || {
                 view()
-                    .h(px(TAB_ROW))
+                    .h(move || px(Theme::tab_row()))
                     .px(px(ROW_INSET))
                     .justify_center()
                     .rounded(px(Theme::radius_row()))
@@ -739,7 +779,7 @@ fn new_tab_row(bar: Bar) -> View {
         .flex_1()
         .flex_row()
         .items_center()
-        .h(px(TAB_ROW))
+        .h(move || px(Theme::tab_row()))
         .pl(px(ROW_INSET))
         .gap(px(CLOSE_GAP))
         .rounded(px(Theme::radius_row()))
@@ -748,31 +788,14 @@ fn new_tab_row(bar: Bar) -> View {
         .active(|s| s.bg(Theme::pressed()))
         .child(new_tab_mark())
         .child(text("New Tab").text_size(px(TEXT)).flex_1());
-    view()
-        .flex_row()
-        .items_center()
-        .pr(px(2.))
-        .child(new)
-        .child(glyph_button(glyphs::GROUP, "New Tab Group", Placement::Top, move || {
-            act(ui, |s| {
-                let active = s.model.active;
-                bar::new_group(&mut s.model, &s.core, active);
-            })
-        }))
-        .child(glyph_button(glyphs::FOLDER_PLUS, "New Folder", Placement::Top, move || {
-            act(ui, |s| {
-                bar::new_folder(&mut s.model, &s.core, None);
-            })
-        }))
-        .child(when(
-            move || ui.read(|s| bar::cleanable(&s.model)),
-            move || {
-                glyph_button(glyphs::BROOM_SPARKLES, "Clean Up: sorts tabs into groups by what each page is. Runs on this device.", Placement::Top, move || {
-                    act(ui, |s| s.clean_up())
-                })
-                .accessibility_label("Clean Up")
-            },
-        ))
+    view().flex_row().items_center().pr(px(2.)).child(new).child(
+        view()
+            .relative()
+            .child(glyph_button(glyphs::ELLIPSIS, bar::ORGANIZE, Placement::Top, move || {
+                open_menu(bar, Target::Organize, Point::new(Points(0.), Points(BUTTON)))
+            }))
+            .child(menu_anchor(bar, Target::Organize)),
+    )
 }
 
 fn group_card(bar: Bar, id: Id) -> View {
@@ -786,7 +809,7 @@ fn group_card(bar: Bar, id: Id) -> View {
         .on_press(move || press(bar, Target::Group(id)))
         .flex_row()
         .items_center()
-        .h(px(TAB_ROW - 2.))
+        .h(move || px(Theme::tab_row() - 2.))
         .pl(px(6.))
         .pr(px(2.))
         .gap_2()
@@ -804,7 +827,7 @@ fn group_card(bar: Bar, id: Id) -> View {
     let tabs = move || bar.layout.with(|l| l.groups.iter().find(|(g, _)| *g == id).map(|(_, rows)| rows.clone()).unwrap_or_default());
     let card = view()
         .flex_col()
-        .gap(px(ROW_GAP))
+        .gap(move || px(Theme::row_gap()))
         .my(px(2.))
         .p(px(INNER_PAD))
         .rounded(px(Theme::radius_tile()))
@@ -817,7 +840,7 @@ fn group_card(bar: Bar, id: Id) -> View {
             move || {
                 view()
                     .flex_col()
-                    .gap(px(ROW_GAP))
+                    .gap(move || px(Theme::row_gap()))
                     .p(px(INNER_PAD))
                     .overflow_hidden()
                     .rounded(px(Theme::radius_row() + INNER_PAD))
@@ -834,9 +857,9 @@ fn ephemeral(bar: Bar) -> View {
     let ui = bar.ui;
     let area = view()
         .flex_col()
-        .gap(px(ROW_GAP))
+        .gap(move || px(Theme::row_gap()))
         .min_h(px(120.))
-        .pb(px(TAB_ROW * 2.))
+        .pb(move || px(Theme::tab_row() * 2.))
         .child(new_tab_row(bar))
         .child(each(
             move || ui.read(|s| s.model.groups.iter().map(|g| g.id).collect::<Vec<_>>()),
@@ -982,7 +1005,10 @@ fn space_buttons(ui: Ui, strip: Memo<bar::SpaceStrip>) -> AnyElement {
             let face = if dot { view().w(px(6.)).h(px(6.)).rounded(px(3.)).bg(color).into_element() } else { glyphs::icon(glyph, GLYPH).into_element() };
             button()
                 .accessibility_label(name.clone())
-                .on_press(move || act(ui, |s| s.choose_space(ix, browser_core::now())))
+                .on_press(move || {
+                    tarn_nsh_shared::motion::space_switch();
+                    act(ui, |s| s.choose_space(ix, browser_core::now()))
+                })
                 .w(px(if dot { bar::SPACE_DOT } else { BUTTON }))
                 .h(px(BUTTON))
                 .flex_none()
@@ -1091,6 +1117,7 @@ pub(super) fn sidebar(ui: Ui) -> impl IntoElement {
                     let step = state.feed(p.x.0, p.y.0, Instant::now());
                     swipe.set(state);
                     if let Some(step) = step {
+                        tarn_nsh_shared::motion::space_switch();
                         act(ui, |s| {
                             if let Some(ix) = s.neighbour_space(step) {
                                 s.choose_space(ix, browser_core::now());
@@ -1100,5 +1127,59 @@ pub(super) fn sidebar(ui: Ui) -> impl IntoElement {
                 })
                 .child(scroll().flex_1().child(list)),
         )
+        .child(super::super::media::bar(ui, true))
         .child(footer(ui))
+}
+
+/// Tabs on top: the pinned tabs as icons, then the others, in a strip under the toolbar.
+pub(super) fn strip(ui: Ui) -> impl IntoElement {
+    let strip = computed(move || ui.read(|s| bar::strip(&s.model)));
+    let chips = move || strip.with(|t| t.pinned.iter().map(|k| (*k, true)).chain(t.tabs.iter().map(|k| (*k, false))).collect::<Vec<_>>());
+    view()
+        .flex_row()
+        .items_center()
+        .gap(px(4.))
+        .px(px(MARGIN))
+        .pb(px(MARGIN))
+        .accessible(true)
+        .label("Tabs")
+        .child(each(chips, |(k, _)| *k, move |item, _| strip_chip(ui, item.get_untracked())))
+        .child(glyph_button(glyphs::PLUS, "New Tab", Placement::Bottom, move || bars::open_new_tab(ui)))
+}
+
+fn strip_chip(ui: Ui, (key, pinned): (TabKey, bool)) -> AnyElement {
+    let active = move || ui.read(|s| s.model.active == Some(key));
+    let title = move || SharedString::from(ui.read(|s| s.tab_title(key)));
+    let chip = pressable_view()
+        .test_id("strip-tab")
+        .label(title)
+        .on_press(move |_: &PressEvent| activate(ui, key))
+        .flex_row()
+        .items_center()
+        .h(move || px(Theme::tab_row()))
+        .gap(px(8.))
+        .rounded(px(Theme::radius_row()))
+        .bg(move || if active() { Theme::selected() } else { Theme::clear() })
+        .active(|s| s.bg(Theme::pressed()))
+        .border_1()
+        .border_color(move || if active() { Theme::surface_edge() } else { Theme::clear() })
+        .child(view().w(px(GLYPH)).h(px(GLYPH)).flex_none().items_center().justify_center().child(tab_icon(ui, key, GLYPH, 14.)));
+    if pinned {
+        return chip.w(move || px(Theme::tab_row() + 6.)).justify_center().into_element();
+    }
+    chip.flex_1()
+        .min_w(px(0.))
+        .max_w(px(200.))
+        .pl(px(ROW_INSET))
+        .pr(px(2.))
+        .child(
+            text(title)
+                .text_size(px(TEXT))
+                .text_color(move || if ui.read(|s| asleep(s, key)) && !active() { Theme::asleep() } else { Theme::text() })
+                .style_when(active, |s| s.font_weight(FontWeight::MEDIUM))
+                .flex_1()
+                .truncate(),
+        )
+        .child(glyph_button(glyphs::CLOSE, "Close Tab", Placement::Bottom, move || act(ui, |s| s.close_or_unload(key))))
+        .into_element()
 }

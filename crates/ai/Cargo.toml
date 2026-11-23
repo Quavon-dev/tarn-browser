@@ -11,12 +11,18 @@ publish.workspace = true
 url.workspace = true
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
-ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
-rustls = { version = "=0.23.46", default-features = false, features = ["ring"] }
 pulldown-cmark = { version = "=0.13.6", default-features = false }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(not(target_os = "android"))'.dependencies]
+ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 security-framework = "=3.7.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+oo7 = { version = "=0.5.0", default-features = false, features = ["async-std", "native_crypto"] }
+futures-lite = "=2.6.1"
 
 [target.'cfg(windows)'.dependencies]
 platform.workspace = true

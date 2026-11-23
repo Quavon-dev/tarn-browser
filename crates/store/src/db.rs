@@ -10,8 +10,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use shield::ShieldLevel;
 
 use crate::models::{
-    Bookmark, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Profile, SavedWindow, Schedule, ShieldDay,
-    ShieldStats, Slot, Snapshot, Space, SpaceRule, Tab, TabKind, WebEngine,
+    AiCommand, Bookmark, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Note, Profile, SavedWindow, Schedule,
+    ShieldDay, ShieldStats, Slot, Snapshot, Snippet, Space, SpaceRule, Tab, TabKind, WebEngine,
 };
 
 const MIGRATIONS: &[&str] = &[
@@ -200,12 +200,40 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE groups ADD COLUMN icon TEXT NOT NULL DEFAULT '';
      ALTER TABLE folders ADD COLUMN icon TEXT NOT NULL DEFAULT '';",
     "ALTER TABLE spaces ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0;",
+    "CREATE TABLE ai_commands (
+         id INTEGER PRIMARY KEY,
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         name TEXT NOT NULL,
+         template TEXT NOT NULL
+     );
+     CREATE INDEX ai_commands_profile ON ai_commands(profile_id);",
+    "CREATE TABLE feature_hints (
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         hint TEXT NOT NULL,
+         shown INTEGER NOT NULL,
+         last_at INTEGER NOT NULL,
+         PRIMARY KEY (profile_id, hint)
+     );",
+    "CREATE TABLE snippets (
+         id INTEGER PRIMARY KEY,
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         name TEXT NOT NULL,
+         body TEXT NOT NULL,
+         UNIQUE (profile_id, name)
+     );",
+    "CREATE TABLE notes (
+         id INTEGER PRIMARY KEY,
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         title TEXT NOT NULL,
+         body TEXT NOT NULL,
+         updated INTEGER NOT NULL
+     );",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
 const PROFILE_NEUTRAL: [&str; 3] = ["settings", "themes", "windows"];
 /// Every table holding profile data, with the filter that selects one profile's rows.
-const PROFILE_TABLES: [(&str, &str); 26] = [
+const PROFILE_TABLES: [(&str, &str); 30] = [
     ("profiles", "id = ?1"),
     ("spaces", "profile_id = ?1"),
     ("folders", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
@@ -232,6 +260,10 @@ const PROFILE_TABLES: [(&str, &str); 26] = [
     ("space_rules", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
     ("zapped_elements", "profile_id = ?1"),
     ("extension_storage", "profile_id = ?1"),
+    ("ai_commands", "profile_id = ?1"),
+    ("feature_hints", "profile_id = ?1"),
+    ("snippets", "profile_id = ?1"),
+    ("notes", "profile_id = ?1"),
 ];
 /// Sites kept per profile for the privacy report's list.
 const MAX_SHIELD_SITES: i64 = 200;
@@ -246,6 +278,22 @@ pub fn clip_history_text(text: &str) -> &str {
     }
     &text[..end]
 }
+pub const MAX_AI_TEMPLATE: usize = 4096;
+pub const MAX_AI_NAME: usize = 64;
+/// The longest snippet text kept, in bytes, and the longest snippet name.
+pub const MAX_SNIPPET: usize = 16 * 1024;
+pub const MAX_SNIPPET_NAME: usize = 32;
+
+/// A snippet name: 1 to `MAX_SNIPPET_NAME` lowercase ASCII letters, digits, `-` or `_`.
+pub fn valid_snippet_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_SNIPPET_NAME && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+}
+/// The longest note title kept, in characters, the longest note text, in bytes, and the most notes a
+/// profile keeps.
+pub const MAX_NOTE_TITLE: usize = 200;
+pub const MAX_NOTE: usize = 64 * 1024;
+pub const MAX_NOTES: usize = 1000;
+
 /// The most CSS one site may keep, in bytes.
 pub const MAX_SITE_CSS: usize = 64 * 1024;
 /// The largest theme file kept, in bytes (`browser_core::theme::MAX_THEME_BYTES`).
@@ -376,6 +424,12 @@ impl Store {
 
     pub fn set_profile_shield_level(&self, id: Id, level: ShieldLevel) -> Result<()> {
         self.conn.execute("UPDATE profiles SET shield_level = ?2 WHERE id = ?1", params![id, level.as_str()])?;
+        self.settings_changed();
+        Ok(())
+    }
+
+    pub fn set_profile_ai(&self, id: Id, enabled: bool) -> Result<()> {
+        self.conn.execute("UPDATE profiles SET ai_enabled = ?2 WHERE id = ?1", params![id, enabled])?;
         self.settings_changed();
         Ok(())
     }
@@ -1049,6 +1103,136 @@ impl Store {
 
     pub fn rename_snapshot(&self, profile_id: Id, id: Id, name: &str) -> Result<()> {
         self.conn.execute("UPDATE snapshots SET name = ?3 WHERE profile_id = ?1 AND id = ?2", params![profile_id, id, name])?;
+        Ok(())
+    }
+
+    pub fn ai_commands(&self, profile_id: Id) -> Result<Vec<AiCommand>> {
+        let mut stmt = self.conn.prepare("SELECT id, profile_id, name, template FROM ai_commands WHERE profile_id = ?1 ORDER BY id")?;
+        let rows = stmt.query_map([profile_id], |r| Ok(AiCommand { id: r.get(0)?, profile_id: r.get(1)?, name: r.get(2)?, template: r.get(3)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// A blank name, one over `MAX_AI_NAME` bytes or with control or invisible characters, or a
+    /// template over `MAX_AI_TEMPLATE` bytes is refused; the template is saved `visible`.
+    pub fn create_ai_command(&self, profile_id: Id, name: &str, template: &str) -> Result<AiCommand> {
+        let template = check_ai_command(name, template)?;
+        self.conn.execute("INSERT INTO ai_commands (profile_id, name, template) VALUES (?1, ?2, ?3)", params![profile_id, name, template])?;
+        Ok(AiCommand { id: self.conn.last_insert_rowid(), profile_id, name: name.to_owned(), template })
+    }
+
+    pub fn update_ai_command(&self, profile_id: Id, id: Id, name: &str, template: &str) -> Result<()> {
+        let template = check_ai_command(name, template)?;
+        self.conn.execute("UPDATE ai_commands SET name = ?3, template = ?4 WHERE profile_id = ?1 AND id = ?2", params![profile_id, id, name, template])?;
+        Ok(())
+    }
+
+    pub fn delete_ai_command(&self, profile_id: Id, id: Id) -> Result<()> {
+        self.conn.execute("DELETE FROM ai_commands WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
+        self.checkpoint().ok();
+        Ok(())
+    }
+
+    pub fn snippets(&self, profile_id: Id) -> Result<Vec<Snippet>> {
+        let mut stmt = self.conn.prepare("SELECT id, profile_id, name, body FROM snippets WHERE profile_id = ?1 ORDER BY name")?;
+        let rows = stmt.query_map([profile_id], |r| Ok(Snippet { id: r.get(0)?, profile_id: r.get(1)?, name: r.get(2)?, body: r.get(3)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Saves `body`, `visible`, under `name`, replacing the profile's snippet of that name.
+    /// Refused for a private profile, an invalid name (`valid_snippet_name`), an empty body or one
+    /// over `MAX_SNIPPET` bytes.
+    pub fn save_snippet(&self, profile_id: Id, name: &str, body: &str) -> Result<Snippet> {
+        let body = visible(body);
+        if !valid_snippet_name(name) || body.trim().is_empty() || body.len() > MAX_SNIPPET {
+            return Err(Error::Invalid("snippet"));
+        }
+        let id = match self.conn.query_row(
+            "INSERT INTO snippets (profile_id, name, body) SELECT id, ?2, ?3 FROM profiles WHERE id = ?1 AND NOT is_private
+             ON CONFLICT (profile_id, name) DO UPDATE SET body = ?3 RETURNING id",
+            params![profile_id, name, body],
+            |r| r.get(0),
+        ) {
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Err(Error::Invalid("snippet")),
+            other => other?,
+        };
+        Ok(Snippet { id, profile_id, name: name.to_owned(), body })
+    }
+
+    pub fn delete_snippet(&self, profile_id: Id, id: Id) -> Result<()> {
+        self.conn.execute("DELETE FROM snippets WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
+        self.checkpoint().ok();
+        Ok(())
+    }
+
+    pub fn notes(&self, profile_id: Id) -> Result<Vec<Note>> {
+        let mut stmt = self.conn.prepare("SELECT id, profile_id, title, body, updated FROM notes WHERE profile_id = ?1 ORDER BY updated DESC, id DESC")?;
+        let rows =
+            stmt.query_map([profile_id], |r| Ok(Note { id: r.get(0)?, profile_id: r.get(1)?, title: r.get(2)?, body: r.get(3)?, updated: r.get(4)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Adds a note (`id` none) or replaces the profile's note `id`, `visible` and with the title on
+    /// one line. Refused for a private profile, for an empty
+    /// note, a title past `MAX_NOTE_TITLE` characters, text past `MAX_NOTE` bytes, or for a new note past `MAX_NOTES`.
+    pub fn save_note(&self, profile_id: Id, id: Option<Id>, title: &str, body: &str) -> Result<Note> {
+        let title = visible(title).split_whitespace().collect::<Vec<_>>().join(" ");
+        let body = visible(body);
+        if (title.is_empty() && body.trim().is_empty()) || title.chars().count() > MAX_NOTE_TITLE || body.len() > MAX_NOTE {
+            return Err(Error::Invalid("note"));
+        }
+        let updated = now_ms();
+        let id = match id {
+            None => self.conn.query_row(
+                "INSERT INTO notes (profile_id, title, body, updated)
+                 SELECT id, ?2, ?3, ?4 FROM profiles
+                 WHERE id = ?1 AND NOT is_private AND (SELECT COUNT(*) FROM notes WHERE profile_id = ?1) < ?5
+                 RETURNING id",
+                params![profile_id, title, body, updated, MAX_NOTES as i64],
+                |r| r.get(0),
+            ),
+            Some(id) => self.conn.query_row(
+                "UPDATE notes SET title = ?3, body = ?4, updated = ?5
+                 WHERE id = ?2 AND profile_id = ?1 AND profile_id IN (SELECT id FROM profiles WHERE NOT is_private)
+                 RETURNING id",
+                params![profile_id, id, title, body, updated],
+                |r| r.get(0),
+            ),
+        };
+        let id = match id {
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Err(Error::Invalid("note")),
+            other => other?,
+        };
+        Ok(Note { id, profile_id, title, body, updated })
+    }
+
+    pub fn delete_note(&self, profile_id: Id, id: Id) -> Result<()> {
+        self.conn.execute("DELETE FROM notes WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
+        self.checkpoint().ok();
+        Ok(())
+    }
+
+    /// When the profile was created, when it last showed any feature hint, and how often it
+    /// showed `hint`.
+    pub fn hint_counts(&self, profile_id: Id, hint: &str) -> Result<(i64, Option<i64>, i64)> {
+        Ok(self.conn.query_row(
+            "SELECT created_at, (SELECT MAX(last_at) FROM feature_hints WHERE profile_id = ?1),
+                    COALESCE((SELECT shown FROM feature_hints WHERE profile_id = ?1 AND hint = ?2), 0)
+             FROM profiles WHERE id = ?1",
+            params![profile_id, hint],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?)
+    }
+
+    /// Counts a shown hint; refused for a private profile.
+    pub fn count_hint(&self, profile_id: Id, hint: &str, now: i64) -> Result<()> {
+        let counted = self.conn.execute(
+            "INSERT INTO feature_hints (profile_id, hint, shown, last_at) SELECT id, ?2, 1, ?3 FROM profiles WHERE id = ?1 AND NOT is_private
+             ON CONFLICT (profile_id, hint) DO UPDATE SET shown = shown + 1, last_at = ?3",
+            params![profile_id, hint, now],
+        )?;
+        if counted == 0 {
+            return Err(Error::Invalid("hint"));
+        }
         Ok(())
     }
 
@@ -1869,6 +2053,20 @@ fn tab_row(r: &Row) -> rusqlite::Result<Tab> {
     })
 }
 
+fn check_ai_command(name: &str, template: &str) -> Result<String> {
+    if name.trim().is_empty() || name.len() > MAX_AI_NAME || name.chars().any(|c| c.is_control() || crate::is_invisible(c)) || template.len() > MAX_AI_TEMPLATE
+    {
+        return Err(Error::Invalid("ai command"));
+    }
+    Ok(visible(template))
+}
+
+/// `text` without invisible characters (`is_invisible`) or control characters other than line
+/// breaks and tabs.
+fn visible(text: &str) -> String {
+    text.chars().filter(|c| !(c.is_control() && *c != '\n' && *c != '\t') && !crate::is_invisible(*c)).collect()
+}
+
 fn invalid(column: usize) -> rusqlite::Error {
     rusqlite::Error::InvalidColumnType(column, "enum".into(), rusqlite::types::Type::Text)
 }
@@ -2287,6 +2485,163 @@ mod tests {
         assert!(store.snapshots(1).unwrap().is_empty());
         store.delete_profile(2).unwrap();
         assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn feature_hints_count_per_profile_and_go_with_the_profile_and_its_reset() {
+        let mut store = store_before("CREATE TABLE feature_hints");
+        store.conn.execute_batch("INSERT INTO profiles (id, name, data_store_uuid, created_at) VALUES (1, 'P', 'u1', 5), (2, 'Q', 'u2', 6);").unwrap();
+        store.migrate().unwrap();
+        assert_eq!(store.hint_counts(1, "Copy Link").unwrap(), (5, None, 0));
+        store.count_hint(1, "Copy Link", 10).unwrap();
+        store.count_hint(1, "Copy Link", 20).unwrap();
+        store.count_hint(1, "Reader", 15).unwrap();
+        assert_eq!(store.hint_counts(1, "Copy Link").unwrap(), (5, Some(20), 2));
+        assert_eq!(store.hint_counts(2, "Copy Link").unwrap(), (6, None, 0), "counters are per profile");
+        assert!(store.export_profile(1).unwrap().contains("\"feature_hints\""));
+        store.reset_profile(1, "S").unwrap();
+        assert_eq!(store.hint_counts(1, "Copy Link").unwrap().2, 0);
+        store.count_hint(2, "Reader", 1).unwrap();
+        store.delete_profile(2).unwrap();
+        assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM feature_hints", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn notes_are_clean_capped_per_profile_and_go_with_the_profile_and_its_reset() {
+        let mut store = store_before("CREATE TABLE notes");
+        store.conn.execute_batch("INSERT INTO profiles (id, name, data_store_uuid, created_at) VALUES (1, 'P', 'u1', 5), (2, 'Q', 'u2', 6);").unwrap();
+        store.migrate().unwrap();
+        let note = store.save_note(1, None, " Reef\n\u{202e}trip\u{7} ", "Day 1\u{200b}\n\tsnorkel\u{feff}").unwrap();
+        assert_eq!((note.title.as_str(), note.body.as_str()), ("Reef trip", "Day 1\n\tsnorkel"));
+        let edited = store.save_note(1, Some(note.id), "Reef trip", "Day 2").unwrap();
+        assert_eq!(edited.id, note.id);
+        store.save_note(1, None, "", "Only text").unwrap();
+        assert_eq!(store.notes(1).unwrap().iter().map(|n| n.body.as_str()).collect::<Vec<_>>(), ["Only text", "Day 2"]);
+        assert!(store.notes(2).unwrap().is_empty(), "notes are per profile");
+        assert!(store.save_note(2, Some(note.id), "x", "y").is_err(), "another profile cannot edit it");
+        for (title, body) in [("", " \n"), ("\u{202e}", "\u{200b}"), (&"t".repeat(MAX_NOTE_TITLE + 1), "x"), ("t", &"x".repeat(MAX_NOTE + 1))] {
+            assert!(store.save_note(1, None, title, body).is_err(), "{title:?}");
+        }
+        assert!(store.save_note(1, Some(9999), "t", "x").is_err(), "no such note");
+        assert!(store.save_note(1, None, &"é".repeat(MAX_NOTE_TITLE), "x").is_ok(), "the title limit counts characters");
+        assert!(store.save_note(1, None, &"é".repeat(MAX_NOTE_TITLE + 1), "x").is_err());
+        store.delete_note(1, store.notes(1).unwrap()[0].id).unwrap();
+        store.delete_note(2, note.id).unwrap();
+        assert_eq!(store.notes(1).unwrap().len(), 2, "another profile's id deletes nothing");
+        assert!(store.export_profile(1).unwrap().contains("\"notes\""));
+        store.reset_profile(1, "S").unwrap();
+        assert!(store.notes(1).unwrap().is_empty());
+        store.save_note(2, None, "x", "y").unwrap();
+        store.delete_profile(2).unwrap();
+        assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM notes", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn notes_are_never_written_for_a_private_profile_and_stop_at_the_cap() {
+        let store = Store::open_in_memory().unwrap();
+        let private = store.create_profile("Private", "u-p", true).unwrap().id;
+        assert!(matches!(store.save_note(private, None, "t", "x"), Err(Error::Invalid("note"))));
+        assert!(store.notes(private).unwrap().is_empty());
+        let saved = store.create_profile("P", "u1", false).unwrap().id;
+        let id = store.save_note(saved, None, "t", "x").unwrap().id;
+        store.conn.execute("UPDATE profiles SET is_private = 1 WHERE id = ?1", [saved]).unwrap();
+        assert!(store.save_note(saved, Some(id), "t", "changed").is_err(), "nor edited once private");
+        store.conn.execute("UPDATE profiles SET is_private = 0 WHERE id = ?1", [saved]).unwrap();
+        for i in 1..MAX_NOTES {
+            store.save_note(saved, None, &i.to_string(), "x").unwrap();
+        }
+        assert!(store.save_note(saved, None, "one more", "x").is_err());
+        assert!(store.save_note(saved, Some(id), "t", "an edit still saves").is_ok());
+    }
+
+    #[test]
+    fn snippets_are_checked_per_profile_and_go_with_the_profile_and_its_reset() {
+        let mut store = store_before("CREATE TABLE snippets");
+        store.conn.execute_batch("INSERT INTO profiles (id, name, data_store_uuid, created_at) VALUES (1, 'P', 'u1', 5), (2, 'Q', 'u2', 6);").unwrap();
+        store.migrate().unwrap();
+        let sig = store.save_snippet(1, "sig", "Best,\nAda").unwrap();
+        assert_eq!(store.save_snippet(1, "sig", "Thanks,\nAda").unwrap().id, sig.id, "a name keeps its row");
+        store.save_snippet(1, "addr", "1 Reef Road").unwrap();
+        assert_eq!(
+            store.snippets(1).unwrap().iter().map(|s| (s.name.as_str(), s.body.as_str())).collect::<Vec<_>>(),
+            [("addr", "1 Reef Road"), ("sig", "Thanks,\nAda")]
+        );
+        assert!(store.snippets(2).unwrap().is_empty(), "snippets are per profile");
+        for (name, body) in [
+            ("", "x"),
+            ("Sig", "x"),
+            ("a b", "x"),
+            (";sig", "x"),
+            (&"a".repeat(MAX_SNIPPET_NAME + 1), "x"),
+            ("ok", " \n"),
+            ("ok", &"x".repeat(MAX_SNIPPET + 1)),
+        ] {
+            assert!(store.save_snippet(1, name, body).is_err(), "{name:?}");
+        }
+        store.delete_snippet(2, sig.id).unwrap();
+        assert_eq!(store.snippets(1).unwrap().len(), 2, "another profile's id deletes nothing");
+        assert!(store.export_profile(1).unwrap().contains("\"snippets\""));
+        store.reset_profile(1, "S").unwrap();
+        assert!(store.snippets(1).unwrap().is_empty());
+        store.save_snippet(2, "x", "y").unwrap();
+        store.delete_profile(2).unwrap();
+        assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM snippets", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn snippets_and_hints_skip_private_profiles_and_texts_drop_invisible_characters() {
+        let store = Store::open_in_memory().unwrap();
+        let private = store.create_profile("Private", "u-p", true).unwrap().id;
+        assert!(matches!(store.save_snippet(private, "sig", "x"), Err(Error::Invalid("snippet"))));
+        assert!(store.snippets(private).unwrap().is_empty());
+        assert!(store.count_hint(private, "Reader", 1).is_err());
+        assert_eq!(store.hint_counts(private, "Reader").unwrap().2, 0);
+        let saved = store.create_profile("P", "u1", false).unwrap().id;
+        assert_eq!(store.save_snippet(saved, "sig", "Best\u{202e},\u{7}\n\tAda\u{200b}").unwrap().body, "Best,\n\tAda");
+        assert_eq!(store.snippets(saved).unwrap()[0].body, "Best,\n\tAda");
+        assert!(store.save_snippet(saved, "blank", "\u{200b}\u{7}").is_err());
+        let command = store.create_ai_command(saved, "Short", "Shorten\u{202e} {page}\u{7}\n").unwrap();
+        assert_eq!(command.template, "Shorten {page}\n");
+        store.update_ai_command(saved, command.id, "Short", "a\u{2066}b").unwrap();
+        assert_eq!(store.ai_commands(saved).unwrap()[0].template, "ab");
+    }
+
+    #[test]
+    fn ai_commands_upgrade_stay_per_profile_and_go_with_the_profile_and_its_reset() {
+        let mut store = store_before("CREATE TABLE ai_commands");
+        store.conn.execute_batch("INSERT INTO profiles (id, name, data_store_uuid) VALUES (1, 'P', 'u1'), (2, 'Q', 'u2');").unwrap();
+        store.migrate().unwrap();
+        assert!(!store.profile(1).unwrap().ai_enabled);
+        store.set_profile_ai(1, true).unwrap();
+        assert!(store.profile(1).unwrap().ai_enabled && !store.profile(2).unwrap().ai_enabled);
+        let tldr = store.create_ai_command(1, "TL;DR", "Shorten {page}").unwrap();
+        let other = store.create_ai_command(2, "Other", "x").unwrap();
+        assert!(store.create_ai_command(1, " ", "x").is_err());
+        assert!(store.create_ai_command(1, "Big", &"x".repeat(MAX_AI_TEMPLATE + 1)).is_err());
+        for name in [
+            "a".repeat(MAX_AI_NAME + 1),
+            "Line\nbreak".into(),
+            "Bell\u{7}".into(),
+            "rtl\u{202e}".into(),
+            "iso\u{2066}".into(),
+            "Summ\u{AD}arize".into(),
+            "x\u{FE0F}".into(),
+        ] {
+            assert!(store.create_ai_command(1, &name, "x").is_err(), "{name:?}");
+            assert!(store.update_ai_command(1, tldr.id, &name, "x").is_err(), "{name:?}");
+        }
+        assert!(store.create_ai_command(2, &"é".repeat(MAX_AI_NAME / 2), "x").is_ok_and(|c| store.delete_ai_command(2, c.id).is_ok()));
+        store.update_ai_command(2, tldr.id, "Taken", "y").unwrap();
+        store.delete_ai_command(2, tldr.id).unwrap();
+        assert_eq!(store.ai_commands(1).unwrap(), std::slice::from_ref(&tldr), "another profile cannot change it");
+        store.update_ai_command(1, tldr.id, "Short", "Shorten {selection}").unwrap();
+        assert_eq!(store.ai_commands(1).unwrap()[0].template, "Shorten {selection}");
+        assert!(store.export_profile(1).unwrap().contains("\"ai_commands\""));
+        store.reset_profile(1, "S").unwrap();
+        assert!(store.ai_commands(1).unwrap().is_empty());
+        assert_eq!(store.ai_commands(2).unwrap(), [other]);
+        store.delete_profile(2).unwrap();
+        assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM ai_commands", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
     }
 
     #[test]

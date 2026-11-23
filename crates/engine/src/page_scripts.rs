@@ -4,9 +4,10 @@ use crate::handover;
 
 /// Builds a selector of the shape `shield::lists::valid_zap` accepts: from the element up to the
 /// nearest unique id, or to a child of `<body>`, each step its tag, up to two classes and its
-/// position among siblings of the same tag.
+/// position among siblings of the same tag. `pick_rect_script` answers a rectangle instead.
 pub const PICKER: &str = r"if (window.tarnPick) window.tarnPick();
 return await new Promise(resolve => {
+    const asRect = typeof pickRect !== 'undefined';
     const ident = /^[A-Za-z_][A-Za-z0-9_-]*$/, tag = /^[a-z][a-z0-9-]*$/;
     const box = document.createElement('div');
     box.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;display:none;background:rgba(255,59,48,.2);outline:2px solid #ff3b30';
@@ -45,18 +46,41 @@ return await new Promise(resolve => {
         Object.assign(box.style, { display: 'block', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
     };
     const stop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
-    const click = e => { if (!e.isTrusted) return; stop(e); const s = target && selector(target); if (s) finish(s); };
+    const rectOf = el => { const r = el.getBoundingClientRect(); return JSON.stringify([r.left, r.top, r.width, r.height]); };
+    const click = e => { if (!e.isTrusted) return; stop(e); const s = target && (asRect ? rectOf(target) : selector(target)); if (s) finish(s); };
     const key = e => { if (e.isTrusted && e.key === 'Escape') { stop(e); finish(''); } };
     const events = [['mouseover', move], ['mousedown', stop], ['mouseup', stop], ['click', click], ['keydown', key]];
     const finish = s => {
         for (const [type, f] of events) removeEventListener(type, f, true);
         box.remove();
         window.tarnPick = null;
-        resolve(s);
+        if (asRect && s) requestAnimationFrame(() => requestAnimationFrame(() => resolve(s)));
+        else resolve(s);
     };
     window.tarnPick = () => finish('');
     for (const [type, f] of events) addEventListener(type, f, true);
 });";
+
+/// `PICKER` answering the picked element's rectangle in the visible page, `[x, y, width, height]`
+/// in CSS pixels as JSON, once its outline is off the screen; for Capture Element
+/// (`browser_core::capture::element_area`).
+pub fn pick_rect_script() -> String {
+    format!("const pickRect = true;\n{PICKER}")
+}
+
+/// Types `text` into the focused text field of the top document with the editing command the
+/// page's own undo knows, as the user's explicit Insert Snippet; answers "1" when a field had the
+/// focus and "" otherwise (none, read only, or a password field). It listens for nothing. An async
+/// function body for the engine's isolated world, run as the user's gesture.
+pub fn insert_text_script(text: &str) -> String {
+    let text = handover::js_string(text);
+    format!(
+        r"const el = document.activeElement;
+            const typed = el && el.localName === 'input' && /^(text|search|email|url|tel)$/.test(el.type);
+            if (!el || !(el.isContentEditable || el.localName === 'textarea' || typed) || el.readOnly || el.disabled) return '';
+            return document.execCommand('insertText', false, {text}) ? '1' : '';"
+    )
+}
 
 /// Most snippets a page gives Find in Tabs, the characters of context on each side of a match, the
 /// longest query passed on, and how much of the page's text is searched.
@@ -278,8 +302,9 @@ pub const REMOVE_SITE_STYLES: &str = "globalThis.tarnSiteStyle = null; document.
 /// `*` (every host), several joined by `,`. The element moves to the end of the root once parsed, after `<body>`, so it
 /// wins ties against the page's own sheets.
 ///
-/// `DARK_CSS` gets its own element ahead of the rest, enabled only while the page looks light: the
-/// first opaque background of `<body>` or `<html>`, else the page's colour scheme, else white. It
+/// `DARK_CSS` gets its own element ahead of the rest, enabled only while the page looks light: a
+/// page whose own colour scheme is dark (or light and dark while the system is dark) never is; else
+/// the first opaque background of `<body>` or `<html>` decides, else white. It
 /// is decided again on `DOMContentLoaded`, `load` and, 100 ms after the last one, changes to the
 /// theme attributes of `<html>` and `<body>`, to `<html>`'s children or to the system's appearance.
 pub fn site_styles_script(styles: &[(String, String)]) -> Option<String> {
@@ -297,9 +322,10 @@ pub fn site_styles_script(styles: &[(String, String)]) -> Option<String> {
         const s = sheet(css), d = css !== all && sheet(D); globalThis.tarnSiteStyle = s; let t; \
         const bg = e => {{ const c = e ? getComputedStyle(e).backgroundColor : ''; const v = c.startsWith('rgb') ? c.match(/[\\d.]+/g).map(Number) : []; \
         return v.length > 2 && v[3] !== 0 ? 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2] > 128 : null; }}; \
-        const light = () => {{ const b = bg(document.body); if (b !== null) return b; d.media = 'not all'; const r = bg(document.documentElement); if (r !== null) return r; \
-        const m = document.querySelector('meta[name=color-scheme]'); const cs = getComputedStyle(document.documentElement).colorScheme + ' ' + (m ? m.content : ''); \
-        return !cs.includes('dark') || (cs.includes('light') && !matchMedia('(prefers-color-scheme: dark)').matches); }}; \
+        const light = () => {{ d.media = 'not all'; const m = document.querySelector('meta[name=color-scheme]'); \
+        const cs = getComputedStyle(document.documentElement).colorScheme + ' ' + (m ? m.content : ''); \
+        if (cs.includes('dark') && (!cs.includes('light') || matchMedia('(prefers-color-scheme: dark)').matches)) return false; \
+        const b = bg(document.body); if (b !== null) return b; const r = bg(document.documentElement); return r !== null ? r : true; }}; \
         const check = () => {{ if (globalThis.tarnSiteStyle !== s) return o.disconnect(); if (!document.documentElement) return; \
         const want = light() ? '' : 'not all'; if (d.media !== want) d.media = want; \
         if (document.body) o.observe(document.body, {{ attributes: true, attributeFilter: ['class', 'style', 'bgcolor'] }}); }}; \
@@ -360,10 +386,13 @@ pub fn theme_sheets(value: &serde_json::Value) -> Vec<(String, String)> {
 }
 
 /// Forced dark mode: the page is inverted and its media inverted back. The page keeps a light
-/// colour scheme, as a dark one would be inverted to light.
+/// colour scheme, as a dark one would be inverted to light. The top layer is drawn outside
+/// `<html>`'s filter: dialogs and pop-overs there are inverted on their own, and what is in full
+/// screen shows as it is.
 pub const DARK_CSS: &str = "html { color-scheme: light !important; filter: invert(1) hue-rotate(180deg) !important; background-color: #fff; } \
-    img, video, picture, canvas, iframe, embed, object, svg image, [style*=\"url(\"] { filter: invert(1) hue-rotate(180deg) !important; } \
-    :is(picture, embed, object, [style*=\"url(\"]) :is(img, video, picture, canvas, iframe, svg image, [style*=\"url(\"]) { filter: none !important; }";
+    img, video, picture, canvas, iframe, embed, object, input[type=image], svg image, [style*=\"url(\"], :is(:modal, :popover-open) { filter: invert(1) hue-rotate(180deg) !important; } \
+    :is(picture, embed, object, [style*=\"url(\"]) :is(img, video, picture, canvas, iframe, svg image, [style*=\"url(\"]), \
+    :fullscreen, :fullscreen :is(img, video, picture, canvas, iframe, embed, object, svg image, [style*=\"url(\"]) { filter: none !important; }";
 
 /// Each host's style sheet: forced dark first, then the user's own CSS, which may adjust it.
 pub fn site_styles(css: Vec<(String, String)>, dark: Vec<String>) -> Vec<(String, String)> {
@@ -404,6 +433,99 @@ pub const PICTURE_IN_PICTURE: &str = r"const area = v => v.clientWidth * v.clien
                 return 'pip';
             }
             return 'refused';";
+
+/// `lifecycle::Hang`'s ping: it reads nothing, and answers only once the page's main thread is free.
+pub const PING: &str = "return '';";
+
+/// Most UTF-16 units of the page's selection `SELECTED_TEXT` hands over.
+pub const SELECTION_MAX: usize = 64 * 1024;
+
+/// The top document's selected text, at most `SELECTION_MAX` UTF-16 units; empty while a password,
+/// card or one-time-code field has the focus, also inside a shadow root. An async function body for
+/// the engine's isolated world.
+pub const SELECTED_TEXT: &str = r"let active = document.activeElement;
+            while (active && active.shadowRoot && active.shadowRoot.activeElement) active = active.shadowRoot.activeElement;
+            const secret = t => /^(cc-.+|current-password|new-password|one-time-code)$/.test(t);
+            if (active && ((active.localName === 'input' && active.type === 'password')
+                || String(active.getAttribute && active.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/).some(secret))) return '';
+            const selection = getSelection();
+            const text = selection ? String(selection).slice(0, 65536) : '';
+            return text.toWellFormed ? text.toWellFormed() : text;";
+
+/// `body` answering the address of the document it read, a newline, then its own answer, so the
+/// shell can drop an answer from a page the tab has left (`browser_core::assistant::read_here`).
+pub fn with_address(body: &str) -> String {
+    format!("const read = await (async () => {{ {body} }})();\n            return location.href + '\\n' + (typeof read === 'string' ? read : '');")
+}
+
+/// Hands `done` the address and the text a `with_address` body answered; both empty for an empty
+/// answer, as under Lockdown.
+pub fn split_address(done: impl Fn(String, String) + 'static) -> impl Fn(String) + 'static {
+    move |answer| {
+        let (url, text) = answer.split_once('\n').unwrap_or_default();
+        done(url.to_owned(), text.to_owned());
+    }
+}
+
+/// The furthest one `MediaCommand::SeekBy` moves, in seconds either way.
+pub const MEDIA_SEEK_MAX: f64 = 3600.;
+
+/// What the shell asks of the page's first audible media element.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MediaCommand {
+    Play,
+    Pause,
+    SeekBy(f64),
+}
+
+/// The first audible media element of the top document: playing, else paused after it started.
+const MEDIA_PICK: &str = r"const media = [...document.querySelectorAll('video, audio')].slice(0, 200);
+            const audible = m => !m.muted && m.volume > 0 && m.readyState > 0 && !m.ended;
+            const m = media.find(m => audible(m) && !m.paused) || media.find(m => audible(m) && m.currentTime > 0);
+            if (!m) return '';
+            ";
+
+/// Answers the first audible media element as JSON `{playing, title, duration, position}`, with
+/// the media session's title, else the document's; empty when there is none. It only reads: no
+/// artwork is fetched. An async function body for the engine's isolated world.
+pub fn media_state_script() -> String {
+    format!(
+        r"{MEDIA_PICK}const meta = navigator.mediaSession && navigator.mediaSession.metadata;
+            const time = v => Number.isFinite(v) && v >= 0 ? v : null;
+            const title = String((meta && meta.title) || document.title || '').slice(0, {});
+            return JSON.stringify({{ playing: !m.paused, title: title.toWellFormed ? title.toWellFormed() : title, duration: time(m.duration), position: time(m.currentTime) }});",
+        crate::view_policy::MAX_TITLE
+    )
+}
+
+/// Plays, pauses or seeks the element `media_state_script` reads; a seek stays inside the media.
+/// An async function body for the engine's isolated world, run as the user's gesture.
+pub fn media_command_script(command: MediaCommand) -> String {
+    let action = match command {
+        MediaCommand::Play => "await m.play().catch(() => {});".to_owned(),
+        MediaCommand::Pause => "m.pause();".to_owned(),
+        MediaCommand::SeekBy(by) => {
+            let by = if by.is_finite() { by.clamp(-MEDIA_SEEK_MAX, MEDIA_SEEK_MAX) } else { 0. };
+            format!("m.currentTime = Math.max(0, Math.min(Number.isFinite(m.duration) ? m.duration : Infinity, m.currentTime + ({by})));")
+        }
+    };
+    format!("{MEDIA_PICK}{action}\n            return '';")
+}
+
+/// The document's scroll offset and size as `[x, y, width, height]` in CSS pixels, for an engine
+/// that needs a full-page snapshot's area spelled out.
+pub const DOCUMENT_SIZE: &str = r"const d = document.documentElement;
+            return JSON.stringify([scrollX, scrollY, Math.max(d.scrollWidth, d.clientWidth), Math.max(d.scrollHeight, d.clientHeight)]);";
+
+/// `DOCUMENT_SIZE`'s answer, the size cut to `view_policy::SNAPSHOT_MAX_SIDE` and its height to
+/// what fits `view_policy::SNAPSHOT_MAX_PIXELS` at `scale` device pixels per CSS pixel.
+pub fn document_size(answer: &str, scale: f64) -> Option<[f64; 4]> {
+    let [x, y, w, h]: [f64; 4] = serde_json::from_str(answer).ok()?;
+    let side = |v: f64| (v.is_finite() && v >= 1.).then(|| v.min(crate::view_policy::SNAPSHOT_MAX_SIDE));
+    let offset = |v: f64| if v.is_finite() { v.max(0.) } else { 0. };
+    let w = side(w)?;
+    Some([offset(x), offset(y), w, crate::view_policy::snapshot_height(w, side(h)?, scale)?])
+}
 
 /// What sleeping would lose on a page: whether the user changed a form field, and the scroll offset.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -460,6 +582,48 @@ mod tests {
         assert_eq!(page_keep(""), PageKeep::default(), "Lockdown and failed scripts answer empty");
         assert!(scroll_script((f64::NAN, -3.)).contains("left: 0, top: 0,"));
         assert!(scroll_script((0., 640.)).contains("left: 0, top: 640,"));
+    }
+
+    #[test]
+    fn inserted_text_stays_a_string_literal() {
+        let script = insert_text_script(HOSTILE_CSS);
+        assert!(script.contains(&format!("execCommand('insertText', false, {})", handover::js_string(HOSTILE_CSS))));
+        assert!(!script.contains("</script>"), "{script}");
+        assert!(!script.contains("addEventListener"), "it listens for nothing");
+    }
+
+    #[test]
+    fn an_answer_names_the_address_it_was_read_from() {
+        let script = with_address(SELECTED_TEXT);
+        assert!(script.contains(SELECTED_TEXT) && script.ends_with("return location.href + '\\n' + (typeof read === 'string' ? read : '');"), "{script}");
+        let got = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let kept = got.clone();
+        let split = split_address(move |url, text| kept.borrow_mut().push((url, text)));
+        split("https://a.test/p\nline one\nline two".into());
+        split(String::new());
+        assert_eq!(*got.borrow(), [("https://a.test/p".into(), "line one\nline two".into()), (String::new(), String::new())]);
+    }
+
+    #[test]
+    fn the_selection_read_skips_secret_fields_inside_shadow_roots_too() {
+        assert!(SELECTED_TEXT.contains("active.shadowRoot.activeElement"));
+        for token in ["cc-.+", "current-password", "new-password", "one-time-code"] {
+            assert!(SELECTED_TEXT.contains(token), "{token}");
+        }
+        assert!(SELECTED_TEXT.contains(&format!(".slice(0, {SELECTION_MAX})")), "the script cuts at SELECTION_MAX");
+    }
+
+    #[test]
+    fn document_size_is_bounded_and_media_seeks_stay_finite() {
+        let max = crate::view_policy::SNAPSHOT_MAX_SIDE;
+        assert_eq!(document_size("[10, -5, 1280, 1e9]", 1.), Some([10., 0., 1280., max]));
+        assert_eq!(document_size("[0, 0, 1280, 16000]", 2.), Some([0., 0., 1280., 13107.]), "at most 64 MiP at the screen's scale");
+        assert_eq!(document_size("[0, 0, 16384, 16384]", 1.), Some([0., 0., 16384., 4096.]));
+        assert_eq!(document_size("[0, 0, 0, 800]", 1.), None);
+        assert_eq!(document_size("[0, 0, 800]", 1.), None);
+        assert_eq!(document_size("", 1.), None, "Lockdown answers empty");
+        assert!(media_command_script(MediaCommand::SeekBy(f64::INFINITY)).contains("m.currentTime + (0)"));
+        assert!(media_command_script(MediaCommand::SeekBy(-1e9)).contains(&format!("m.currentTime + ({})", -MEDIA_SEEK_MAX)));
     }
 
     use super::*;
@@ -730,6 +894,9 @@ mod javascript_core_tests {
         assert_eq!(scheme("light dark", None, true), "off,css");
         assert_eq!(scheme("light dark", None, false), "dark,css");
         assert_eq!(scheme("normal", Some("dark"), false), "off,css");
+        assert_eq!(dark_sheets(true, "rgb(255, 255, 255)", NONE, "dark", None, false, None), "off,css", "the page's own dark scheme comes first");
+        assert_eq!(dark_sheets(true, "rgb(255, 255, 255)", NONE, "light dark", None, true, None), "off,css");
+        assert_eq!(dark_sheets(true, "rgb(255, 255, 255)", NONE, "light dark", None, false, None), "dark,css");
         assert_eq!(dark_sheets(true, "rgb(250, 250, 250)", NONE, "normal", None, false, Some("rgb(13, 17, 23)")), "off,css", "a theme switch");
         assert_eq!(dark_sheets(true, "rgb(13, 17, 23)", NONE, "normal", None, false, Some("rgb(255, 255, 255)")), "dark,css");
         assert_eq!(dark_sheets(false, "rgb(255, 255, 255)", NONE, "normal", None, false, None), "css");

@@ -133,6 +133,128 @@ fn site_css_dark_mode_and_zaps_reach_the_component_and_reload_the_host() {
 }
 
 #[test]
+fn captures_save_an_area_or_a_picked_element_and_record_it_once() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://cap.test/page", "Q3 / Q4");
+    let key = active(&shell);
+    let full = shell.capture_full_page();
+    let args = command(&full, "screenshot").unwrap().clone();
+    assert_eq!((args["fullPage"].clone(), args["name"].clone(), args["copy"].clone()), (json!(true), json!("Q3 - Q4.png"), json!(true)));
+    let other = TabKey { private: key.private, id: key.id + 1 };
+    shell.event(other, "screenshot", &json!({ "seq": seq(&args), "path": "/d/elsewhere.png" }), 3);
+    assert!(shell.downloads().is_empty(), "only the tab asked answers");
+    shell.event(key, "screenshot", &json!({ "seq": seq(&args), "path": "/d/Q3 - Q4.png" }), 3);
+    shell.event(key, "screenshot", &json!({ "seq": seq(&args), "path": "/d/again.png" }), 3);
+    assert_eq!(shell.downloads().iter().map(|d| d.path.as_str()).collect::<Vec<_>>(), ["/d/Q3 - Q4.png"]);
+    assert_eq!(shell.notice.as_deref(), Some("Screenshot saved to Downloads"));
+
+    let picking = shell.capture_element((800., 600.));
+    let pick = command(&picking, "pick").unwrap().clone();
+    assert_eq!(pick["rect"], true);
+    let answer = shell.event(key, "picked", &json!({ "seq": seq(&pick), "url": "https://cap.test/page", "rect": "[-20, 500, 2000, 400]" }), 4);
+    let shot = command(&answer, "screenshot").unwrap().clone();
+    assert_eq!([&shot["x"], &shot["y"], &shot["width"], &shot["height"]].map(|v| v.as_f64().unwrap()), [0., 500., 800., 100.]);
+    assert!(shell.capturing.is_none());
+    shell.event(key, "screenshot", &json!({ "seq": seq(&shot), "message": "WebKit could not capture the page" }), 5);
+    assert_eq!(shell.notice.as_deref(), Some("Download failed: WebKit could not capture the page"));
+
+    shell.capture_element((800., 600.));
+    assert!(shell.capturing.is_some());
+    let cancel = shell.cancel_pick();
+    assert!(command(&cancel, "pickCancel").is_some() && shell.capturing.is_none());
+
+    let area = shell.screenshot(key, json!({ "x": 10., "y": 20., "width": 100., "height": 50. }));
+    assert_eq!(command(&area, "screenshot").unwrap()["width"], 100.);
+
+    shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
+    assert!(shell.capture_element((800., 600.)).is_empty(), "no picker on a Lockdown page");
+    assert_eq!(shell.notice.as_deref(), Some(browser_core::capture::NO_PICKER));
+
+    shell.new_tab(Some("https://cap.test/kept"));
+    shell.take_screenshot();
+    shell.close_tab(key);
+    assert!(shell.shots.values().all(|s| s.key != key) && !shell.shots.is_empty(), "a closed tab's captures are dropped, others kept");
+
+    shell.enter_private();
+    visit(&mut shell, "https://cap.test/private", "Private");
+    let private = shell.take_screenshot();
+    assert_eq!(command(&private, "screenshot").unwrap()["copy"], false, "a private capture never reaches the pasteboard");
+}
+
+#[test]
+fn the_mini_player_follows_the_tab_left_playing_and_sends_its_controls() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://music.test/", "Music");
+    let key = active(&shell);
+    shell.new_tab(None);
+    visit(&mut shell, "https://b.test/", "B");
+    let asked = shell.settle_media(Some(key));
+    let args = command(&asked, "readMedia").expect("the tab left is asked for its media").clone();
+    shell.event(key, "mediaState", &json!({ "seq": seq(&args), "url": "https://music.test/", "text": r#"{"playing":true,"title":"","position":1}"# }), 3);
+    assert_eq!(shell.mini_player(), Some((key, "Music".to_owned(), true)), "an untitled media shows its tab's title");
+    assert!(command(&shell.poll_media(), "readMedia").is_some(), "polls while it plays");
+
+    let pressed = shell.press_media(browser_core::media::Control::PlayPause);
+    assert_eq!(command(&pressed, "media"), Some(&json!({ "action": "pause" })));
+    assert!(command(&pressed, "readMedia").is_some(), "asked again after the press");
+    assert!(shell.poll_media().is_empty(), "nothing polls while paused");
+
+    shell.activate(key);
+    assert_eq!(shell.mini_player(), None, "the tab on screen has its own controls");
+    shell.close_or_unload(key);
+    shell.settle_media(None);
+    assert_eq!(shell.player.tab(), None);
+}
+
+#[test]
+fn snippets_expand_in_the_address_bar_and_insert_only_on_request() {
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://form.test/", "Form");
+    let key = active(&shell);
+    let profile = shell.model.profile().unwrap().1;
+    shell.core.disk.save_snippet(profile, "sig", "Best,\nAda").unwrap();
+    shell.snippets_changed();
+    assert_eq!(shell.expand_snippet("hi ;sig").as_deref(), Some("hi Best, Ada"));
+    assert_eq!(shell.expand_snippet("hi;sig"), None);
+
+    assert!(shell.insert_snippet("x").is_empty(), "only from an opened list");
+    assert_eq!(shell.snippet_target(), Some(key));
+    let typed = shell.insert_snippet("Best,\nAda");
+    let args = command(&typed, "insertText").unwrap().clone();
+    assert_eq!(args["text"], "Best,\nAda");
+    shell.event(key, "textInserted", &json!({ "seq": seq(&args) + 1, "inserted": false }), 3);
+    assert!(shell.inserting.is_some(), "another request's answer is dropped");
+    shell.event(key, "textInserted", &json!({ "seq": seq(&args), "inserted": false }), 3);
+    assert_eq!(shell.notice.as_deref(), Some(browser_core::snippets::NO_FIELD));
+
+    shell.snippet_target();
+    visit(&mut shell, "https://elsewhere.test/", "Elsewhere");
+    assert!(shell.insert_snippet("secret").is_empty(), "nothing is typed into a page the list was not opened on");
+    assert_eq!(shell.notice.as_deref(), Some(browser_core::snippets::PAGE_CHANGED));
+
+    shell.set_site_level(Some(shield::ShieldLevel::Lockdown));
+    assert_eq!(shell.snippet_target(), None);
+    assert!(shell.insert_snippet("x").is_empty());
+    assert_eq!(shell.notice.as_deref(), Some(browser_core::snippets::NO_INSERT));
+    shell.enter_private();
+    assert!(shell.snippets().is_empty(), "a private space has no snippets on disk");
+}
+
+#[test]
+fn notes_save_in_the_profile_and_never_in_a_private_space() {
+    let (_dir, mut shell) = open();
+    let profile = shell.model.profile().unwrap().1;
+    let draft = browser_core::notes::Draft { id: None, title: "Trip".into(), body: "Reef".into() };
+    draft.save(&shell.core.disk, profile).unwrap();
+    assert_eq!(browser_core::notes::rows(&shell.core.disk.notes(profile).unwrap(), "reef")[0].title, "Trip");
+    shell.enter_private();
+    let (private, id) = shell.model.profile().unwrap();
+    assert!(private);
+    assert!(draft.save(shell.core.store(true), id).is_err(), "a private space writes no note");
+    assert!(shell.core.store(true).notes(id).unwrap().is_empty());
+}
+
+#[test]
 fn private_spaces_never_send_or_keep_zaps() {
     let (_dir, mut shell) = open();
     visit(&mut shell, "https://a.test/", "A");
@@ -702,4 +824,44 @@ fn private_spaces_show_icons_without_storing_them() {
     shell.close_private();
     assert!(shell.site_icon("https://p.test/").is_none());
     assert!(TestShell::open(dir.path()).site_icon("https://p.test/").is_none());
+}
+
+#[test]
+fn a_selection_and_a_loaded_tab_reach_the_assistant_and_a_sleeping_tab_is_never_read() {
+    use browser_core::assistant::Pill;
+    let (_dir, mut shell) = open();
+    visit(&mut shell, "https://a.test/", "A");
+    let first = active(&shell);
+    let menu = |shell: &TestShell| shell.views().into_iter().find(|v| v.key == first).and_then(|v| v.assistant);
+    assert_eq!(menu(&shell), None, "the selection menu has no assistant entry while AI is off");
+    let profile = shell.model.profile().unwrap().1;
+    shell.core.disk.set_profile_ai(profile, true).unwrap();
+    assert_eq!(menu(&shell).unwrap()[..2], ["Summarize", "Explain"]);
+
+    shell.event(first, "assistantSelection", &json!({ "url": "https://a.test/", "text": " chosen words ", "command": "Explain" }), 3);
+    let (_, pill, chosen) = shell.assistant_pages.pop().unwrap();
+    assert_eq!(pill, Pill::Selection { url: "https://a.test/".into(), text: "chosen words".into() });
+    assert_eq!(chosen.as_deref(), Some("Explain"));
+    shell.event(first, "assistantSelection", &json!({ "url": "https://old.test/", "text": "x" }), 4);
+    shell.event(first, "assistantSelection", &json!({ "url": "https://a.test/", "text": "" }), 5);
+    assert!(shell.assistant_pages.is_empty(), "a selection from a page no longer shown, or none, attaches nothing");
+
+    shell.new_tab(None);
+    visit(&mut shell, "https://b.test/", "B");
+    let listed: Vec<(TabKey, bool)> = shell.model.assistant_tabs(&shell.core, |_, t| t.url.clone()).into_iter().map(|c| (c.key, c.awake)).collect();
+    assert_eq!(listed, [(first, true)], "the picker lists the other tab, not the active one");
+    let effects = shell.read_tab_for_assistant(first);
+    let args = command(&effects, "readText").unwrap().clone();
+    shell.event(first, "pageText", &json!({ "seq": seq(&args), "url": "https://a.test/", "text": "page a" }), 6);
+    let (_, pill, _) = shell.assistant_pages.pop().unwrap();
+    assert!(matches!(pill, Pill::Tab { ref url, ref text, .. } if url == "https://a.test/" && text == "page a"));
+
+    shell.core.disk.set_profile_ai(profile, false).unwrap();
+    assert!(shell.read_tab_for_assistant(first).is_empty(), "a tab is read only where the assistant is offered");
+    shell.core.disk.set_profile_ai(profile, true).unwrap();
+
+    shell.model.lifecycle.remove(first);
+    assert!(shell.model.assistant_tabs(&shell.core, |_, t| t.url.clone()).iter().all(|c| !c.awake), "a sleeping tab shows as unavailable");
+    assert!(shell.read_tab_for_assistant(first).is_empty(), "a sleeping tab is never woken to be read");
+    assert!(shell.notice.is_some());
 }

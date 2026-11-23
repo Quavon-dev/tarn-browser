@@ -482,6 +482,12 @@ fn devtools(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .on_click(cx.listener(|b, _, _, cx| b.cycle_responsive(cx))),
         )
         .child(
+            icon_button("measure", Icon::Code, has_page)
+                .when(has_page, tab_stop)
+                .tooltip(tooltip("Measure", None))
+                .on_click(cx.listener(|b, _, w, cx| b.open_overlay(crate::capture_overlay::Purpose::Measure, w, cx))),
+        )
+        .child(
             icon_button("clear-site-data", Icon::Trash, has_page)
                 .when(has_page, tab_stop)
                 .tooltip(tooltip("Clear Site Data", None))

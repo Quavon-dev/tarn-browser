@@ -143,6 +143,18 @@ impl WebView {
         webkit_only!(self, v => v.pick_element(done), done(String::new()))
     }
 
+    /// Lets the user pick an element as `pick_element` does, answering its rectangle in the visible
+    /// page for `browser_core::capture::element_area`; empty when cancelled or under Lockdown.
+    pub fn pick_rect(&self, done: impl Fn(String) + 'static) {
+        both!(self, v => v.pick_rect(done))
+    }
+
+    /// Types `text` into the page's focused text field for Insert Snippet; answers "1" when it did
+    /// (`browser_core::snippets::inserted`), empty otherwise and under Lockdown.
+    pub fn insert_text(&self, text: &str, done: impl Fn(String) + 'static) {
+        both!(self, v => v.insert_text(text, done))
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         both!(self, v => v.icon_links(origin, done))
     }
@@ -151,8 +163,37 @@ impl WebView {
         both!(self, v => v.fetch_icon(origin, urls, max_bytes, done))
     }
 
-    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String) + 'static) {
+    /// The page's text (`page_scripts::page_text_script`) after the address it was read from.
+    pub fn page_text(&self, origin: &Url, max_chars: usize, done: impl Fn(String, String) + 'static) {
         both!(self, v => v.page_text(origin, max_chars, done))
+    }
+
+    /// Calls `done` once the page ran `page_scripts::PING` (`lifecycle::Hang`); at once under
+    /// Lockdown, where no script of Tarn's runs, so a hang goes unnoticed there.
+    pub fn ping(&self, done: impl Fn() + 'static) {
+        both!(self, v => v.ping(done))
+    }
+
+    /// The address the selection was read from and the top document's selected text, at most
+    /// `page_scripts::SELECTION_MAX` UTF-16 units, read in the isolated world; both empty under
+    /// Lockdown. `browser_core::page_ops::selection` bounds it.
+    pub fn selected_text(&self, done: impl Fn(String, String) + 'static) {
+        both!(self, v => v.selected_text(done))
+    }
+
+    /// The first audible media element as `page_scripts::media_state_script` answers it, for
+    /// `browser_core::page_ops::MediaState::parse`; empty under Lockdown.
+    pub fn media_state(&self, done: impl Fn(String) + 'static) {
+        both!(self, v => v.media_state(done))
+    }
+
+    pub fn media_command(&self, command: crate::page_scripts::MediaCommand) {
+        both!(self, v => v.media_command(command))
+    }
+
+    /// A PNG of `area`; a full page is cut to `view_policy::SNAPSHOT_MAX_SIDE`.
+    pub fn snapshot_rect(&self, area: crate::view_policy::SnapshotArea, done: impl Fn(Option<Vec<u8>>) + 'static) {
+        both!(self, v => v.snapshot_rect(area, done))
     }
 
     pub fn article(&self, origin: &Url, probe: bool, done: impl Fn(String) + 'static) {
@@ -203,6 +244,12 @@ impl WebView {
 
     pub fn pdf(&self, done: impl Fn(Option<Vec<u8>>) + 'static) {
         webkit_only!(self, v => v.pdf(done), done(None))
+    }
+
+    /// What a selection's menu offers the assistant (`Event::AssistantSelection`): `None` shows no
+    /// assistant entry, as where the assistant is not allowed for the page.
+    pub fn set_assistant_menu(&self, commands: Option<Vec<String>>) {
+        both!(self, v => v.set_assistant_menu(commands))
     }
 
     /// Chromium tabs keep Chromium's own WebAuthn: CEF has no per-view switch for it.

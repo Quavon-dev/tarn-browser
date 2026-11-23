@@ -38,6 +38,73 @@ mod system {
     }
 }
 
+#[cfg(all(target_os = "ios", feature = "foundation-models"))]
+const ON_DEVICE: Option<(&dyn ai::LocalModel, &str)> = Some((&engine::foundation_models::FoundationModel, browser_core::assistant::settings::ON_DEVICE));
+
+#[cfg(all(target_os = "ios", not(feature = "foundation-models")))]
+const ON_DEVICE: Option<(&dyn ai::LocalModel, &str)> = None;
+
+#[cfg(target_os = "ios")]
+pub static ASSISTANT: tarn_nsh_shared::assistant::Platform = tarn_nsh_shared::assistant::Platform {
+    secrets: &ai::secrets::Keyring,
+    transport: || std::sync::Arc::new(ai::UreqTransport),
+    keyring: "the Keychain on this device",
+    ollama_gap: Some("Ollama does not run on iOS."),
+    on_device: ON_DEVICE,
+};
+
+#[cfg(target_os = "android")]
+pub static ASSISTANT: tarn_nsh_shared::assistant::Platform = tarn_nsh_shared::assistant::Platform {
+    secrets: &tarn_mobile_android::Keystore,
+    transport: || std::sync::Arc::new(tarn_mobile_android::HostTransport),
+    keyring: "the Android Keystore",
+    ollama_gap: Some("Android sends assistant requests over HTTPS only, and Ollama answers over plain HTTP."),
+    on_device: None,
+};
+
+/// A build for neither phone keeps no key and sends nothing.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub static ASSISTANT: tarn_nsh_shared::assistant::Platform = tarn_nsh_shared::assistant::Platform {
+    secrets: &Unavailable,
+    transport: || std::sync::Arc::new(Unavailable),
+    keyring: "this build's secret store",
+    ollama_gap: Some("This build has no network transport."),
+    on_device: None,
+};
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[derive(Debug)]
+struct Unavailable;
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+impl ai::Secrets for Unavailable {
+    fn get(&self, _: &str, _: &str) -> Result<Option<String>, ai::AiError> {
+        Err(ai::AiError::Secrets("this build has none".into()))
+    }
+
+    fn set(&self, _: &str, _: &str, _: &str) -> Result<(), ai::AiError> {
+        Err(ai::AiError::Secrets("this build has none".into()))
+    }
+
+    fn delete(&self, _: &str, _: &str) -> Result<(), ai::AiError> {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+impl ai::Transport for Unavailable {
+    fn post<'a>(
+        &self,
+        _: &str,
+        _: &[(&str, &str)],
+        _: &[u8],
+        _: u64,
+        _: &'a std::sync::atomic::AtomicBool,
+    ) -> Result<ai::transport::Response<'a>, ai::AiError> {
+        Err(ai::AiError::Network("This build has no network transport.".into()))
+    }
+}
+
 pub struct Transport;
 
 impl Hop for Transport {

@@ -6,6 +6,9 @@ license.workspace = true
 publish.workspace = true
 rust-version.workspace = true
 
+[features]
+foundation-models = ["engine/foundation-models"]
+
 [dependencies]
 browser-core.workspace = true
 engine.workspace = true
@@ -21,7 +24,7 @@ objc2 = "0.6.5"
 objc2-core-foundation = "0.3.2"
 objc2-foundation = "0.3.2"
 objc2-ui-kit = "0.3.2"
-objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-foundation", "WKContentRuleList", "WKContentRuleListStore", "WKContentWorld", "WKDownload", "WKDownloadDelegate", "WKFindConfiguration", "WKFindResult", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKPreferences", "WKScriptMessage", "WKScriptMessageHandler", "WKSecurityOrigin", "WKUIDelegate", "WKURLSchemeHandler", "WKURLSchemeTask", "WKUserContentController", "WKUserScript", "WKWebViewConfiguration", "WKWebpagePreferences", "WKWebsiteDataRecord", "WKWebsiteDataStore", "WKWindowFeatures"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-foundation", "WKContentRuleList", "WKContentRuleListStore", "WKContentWorld", "WKDownload", "WKDownloadDelegate", "WKFindConfiguration", "WKFindResult", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKPreferences", "WKScriptMessage", "WKScriptMessageHandler", "WKSecurityOrigin", "WKSnapshotConfiguration", "WKUIDelegate", "WKURLSchemeHandler", "WKURLSchemeTask", "WKUserContentController", "WKUserScript", "WKWebViewConfiguration", "WKWebpagePreferences", "WKWebsiteDataRecord", "WKWebsiteDataStore", "WKWindowFeatures"] }
 
 [lints]
 workspace = true

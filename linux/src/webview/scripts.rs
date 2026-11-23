@@ -36,6 +36,14 @@ fn seq(args: &JsonValue) -> JsonValue {
     args["seq"].as_u64().map_or(JsonValue::Null, JsonValue::from)
 }
 
+/// Reads the selection for Ask Assistant about Selection or one of its commands, in the isolated
+/// world, which hands over no text from a password or card field; nothing under Lockdown.
+pub fn ask_selection(state: &Rc<State>, command: Option<String>) {
+    run(state, Some(page_scripts::SELECTED_TEXT.to_owned()), move |s, url, text| {
+        s.emit("assistantSelection", json!({ "url": url, "text": browser_core::page_ops::selection_answer(&text), "command": command }))
+    });
+}
+
 pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
     let seq = seq(args);
     let page = state.page.borrow().clone();
@@ -70,7 +78,24 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             let body = page.as_ref().filter(|_| max > 0).and_then(|p| page_scripts::json_text_script(p, max));
             run(state, body, move |s, url, text| s.emit("jsonText", json!({ "seq": seq, "url": url, "text": text })));
         }
+        "ping" => run(state, Some(page_scripts::PING.to_owned()), move |s, _, _| s.emit("pong", json!({ "seq": seq }))),
+        "readSelection" => {
+            run(state, Some(page_scripts::SELECTED_TEXT.to_owned()), move |s, url, text| {
+                s.emit("selection", json!({ "seq": seq, "url": url, "text": browser_core::page_ops::selection_answer(&text) }))
+            });
+        }
+        "readMedia" => run(state, Some(page_scripts::media_state_script()), move |s, url, text| {
+            s.emit("mediaState", json!({ "seq": seq, "url": url, "text": browser_core::page_ops::media_answer(&text) }))
+        }),
+        "media" => run(state, browser_core::page_ops::media_command(args).map(page_scripts::media_command_script), |_, _, _| {}),
+        "pick" if args["rect"].as_bool() == Some(true) => {
+            run(state, Some(page_scripts::pick_rect_script()), move |s, url, rect| s.emit("picked", json!({ "seq": seq, "url": url, "rect": rect })))
+        }
         "pick" => run(state, Some(PICKER.to_owned()), move |s, url, selector| s.emit("picked", json!({ "seq": seq, "url": url, "selector": selector }))),
+        "insertText" => {
+            let body = args["text"].as_str().filter(|t| t.len() <= browser_core::snippets::MAX_SNIPPET).map(page_scripts::insert_text_script);
+            run(state, body, move |s, _, answer| s.emit("textInserted", json!({ "seq": seq, "inserted": browser_core::snippets::inserted(&answer) })));
+        }
         "pickCancel" => run(state, Some(PICK_CANCEL.to_owned()), |_, _, _| {}),
         _ => return false,
     }

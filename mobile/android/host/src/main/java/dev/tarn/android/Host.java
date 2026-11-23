@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.security.GeneralSecurityException;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -187,6 +188,22 @@ final class Host {
 
     static Object[] fetch(String url, long max, String agent, int stallMs, int totalMs) {
         return Fetch.get(url, max, agent, stallMs, totalMs);
+    }
+
+    static Object[] post(String url, String[] headers, byte[] body, int stallMs, int totalMs) {
+        return Fetch.post(url, headers, body, stallMs, totalMs);
+    }
+
+    static String secretGet(String name) throws GeneralSecurityException {
+        return Secrets.get(app, name);
+    }
+
+    static void secretSet(String name, String value) throws GeneralSecurityException {
+        Secrets.set(app, name, value);
+    }
+
+    static void secretDelete(String name) throws GeneralSecurityException {
+        Secrets.delete(app, name);
     }
 
     static void onMain(Runnable task) {

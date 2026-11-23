@@ -1,4 +1,4 @@
-use browser_core::shortcuts::{self, Action};
+use browser_core::shortcuts::{self, Action, Keyboard};
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use serde_json::Value;
@@ -22,6 +22,40 @@ fn select_tab(ui: Ui, action: Action) {
         });
         ui.show(Screen::Browse);
     }
+}
+
+pub(super) fn keyboard() -> Keyboard {
+    if apple_keys() { Keyboard::Apple } else { Keyboard::Other }
+}
+
+pub(super) fn offered(action: Action) -> bool {
+    !matches!(
+        action,
+        Action::CloseAllTabs
+            | Action::NewGroup
+            | Action::ToggleSplitView
+            | Action::FocusNextPane
+            | Action::FocusPreviousPane
+            | Action::SwapPanes
+            | Action::RotateSplitLayout
+            | Action::RemoveFromSplitView
+            | Action::StopLoading
+            | Action::FindNext
+            | Action::FindPrevious
+            | Action::CopyMarkdownLink
+            | Action::PictureInPicture
+            | Action::Print
+            | Action::BookmarkTab
+            | Action::ToggleLibrary
+            | Action::ManageBookmarks
+            | Action::NewWindow
+            | Action::CloseWindow
+            | Action::Minimize
+            | Action::ToggleFullScreen
+            | Action::HideTarn
+            | Action::HideOthers
+            | Action::ToggleShortcuts
+    )
 }
 
 fn zoom(ui: Ui, delta: f64) {
@@ -60,6 +94,7 @@ fn run(ui: Ui, action: Action) {
         Action::ZoomReset => zoom(ui, 0.0),
         Action::CopyLink => ui.copy_link(None, false),
         Action::CopyCleanLink => ui.copy_link(None, true),
+        Action::TakeScreenshot => ui.act(|s| s.take_screenshot()),
         Action::ToggleReader => ui.act(|s| if s.offers_reader() { s.open_reader() } else { Vec::new() }),
         Action::ShowHistory => ui.toggle(Screen::History),
         Action::ToggleDownloads => ui.toggle(Screen::Downloads),
@@ -88,6 +123,7 @@ fn run(ui: Ui, action: Action) {
         Action::Settings => ui.toggle(Screen::Settings),
         Action::SwitchSpace(n) => {
             let Some(ix) = ui.read(|s| s.spaces().get(usize::from(n) - 1).map(|i| i.ix)) else { return };
+            tarn_nsh_shared::motion::space_switch();
             ui.act(|s| {
                 s.choose_space(ix, browser_core::now());
                 Vec::new()
@@ -104,18 +140,46 @@ fn run(ui: Ui, action: Action) {
             s.toggle_sidebar();
             Vec::new()
         }),
+        Action::ToggleTabsOnTop => ui.act(|s| {
+            s.toggle_tabs_on_top();
+            Vec::new()
+        }),
+        Action::CloseAllTabs
+        | Action::NewGroup
+        | Action::ToggleSplitView
+        | Action::FocusNextPane
+        | Action::FocusPreviousPane
+        | Action::SwapPanes
+        | Action::RotateSplitLayout
+        | Action::RemoveFromSplitView
+        | Action::StopLoading
+        | Action::FindNext
+        | Action::FindPrevious
+        | Action::CopyMarkdownLink
+        | Action::PictureInPicture
+        | Action::Print
+        | Action::BookmarkTab
+        | Action::ToggleLibrary
+        | Action::ManageBookmarks
+        | Action::NewWindow
+        | Action::CloseWindow
+        | Action::Minimize
+        | Action::ToggleFullScreen
+        | Action::HideTarn
+        | Action::HideOthers
+        | Action::ToggleShortcuts => {}
     }
 }
 
 pub(super) fn bindings(ui: Ui) -> impl IntoElement {
-    for (keys, action) in shortcuts::bindings(apple_keys()) {
+    for (keys, action) in shortcuts::bindings(keyboard(), offered) {
         on_key_with(&keys, ALWAYS, move |_| run(ui, action));
     }
-    view().child(when(
-        move || ui.editing.get(),
-        move || {
-            on_key_with("escape", ALWAYS, move |_| bars::cancel(ui));
-            view()
-        },
-    ))
+    on_key_with("mod+z", KeyOptions { when: When::NotEditing, ..KeyOptions::default() }, move |_| {
+        ui.act(|s| {
+            s.undo_last();
+            Vec::new()
+        })
+    });
+    view()
 }

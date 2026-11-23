@@ -260,6 +260,7 @@ Linux, Reader is <kbd>Ctrl+Alt+E</kbd>, since <kbd>Ctrl+Alt+R</kbd> rotates the 
 | ⌘N | New window |
 | ⌘T | New tab: the command palette opens over a shown page, otherwise the command card, with the cursor in it |
 | ⌘L | Edit the current tab's address in the command palette |
+| → | In the command palette, with the cursor at the end: the highlighted row's actions (Esc goes back) |
 | ⌘W | Close tab (pinned tabs and tiles are unloaded, not removed) |
 | ⇧⌘T | Reopen closed tab |
 | ⇧⌘K | Close all tabs |
@@ -290,8 +291,10 @@ Linux, Reader is <kbd>Ctrl+Alt+E</kbd>, since <kbd>Ctrl+Alt+R</kbd> rotates the 
 | ⌘R | Reload (the arrow spins while the page loads) |
 | ⇧⌘R | Reload without cache |
 | ⌘F / ⌘G / ⇧⌘G | Find in page / next / previous |
+| ⇧⌘F | Find in tabs |
 | ⌘P | Print |
 | ⌘S | Show or hide the sidebar |
+| ⌥⇧⌘T | Tabs on top: a strip of tabs above the page in place of the sidebar, and back |
 | ⌘, | Settings window (Shield level, site overrides, history); ⌘W or Esc closes it |
 | ⌘= / ⌘- / ⌘0 | Zoom in / out / reset |
 | ⌃1 … ⌃9 | Switch space |
@@ -416,8 +419,11 @@ startup change on the same machine. WebKit keeps the temporary profile's website
 since the previous one (`interval`), the whole render and its `sidebar`, `toolbar` and `content`
 parts, and `tarn-frame resize` or `tarn-frame move` each time a web view's native frame changes size
 or only position; Windows sets the frame on every call, so there every call prints one of them. Render times cover
-building the element tree; GPUI's layout and paint show in `interval`. The output carries section
-names and numbers only.
+building the element tree; GPUI's layout and paint show in `interval`. Every client also prints
+`tab-switch`, `space-switch` and `palette-query` for each switch and each query typed into the
+address or command field. The output carries section names and numbers only.
+`cargo run --release -p engine --example frame-summary < log` prints each section's count, median
+and 95th percentile.
 
 </details>
 

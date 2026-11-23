@@ -93,9 +93,14 @@ impl<D: Platform> Shell<D> {
                     self.new_popup_tab(key, &url, flag("link"), flag("split"));
                 }
             }
+            "screenshot" => self.screenshot_event(key, data),
+            "assistantSelection" => self.selection_for_assistant(key, data),
+            "textInserted" => self.text_inserted(key, data),
             "prompt" => return self.prompt(key, data),
             crate::extensions::MESSAGE => return self.extension_message(key, data, std::time::Instant::now()),
-            "article" | "pageText" | "iconLinks" | "iconData" | "textFound" | "picked" | "shielded" => return self.script_event(key, name, data),
+            "article" | "pageText" | "iconLinks" | "iconData" | "textFound" | "picked" | "shielded" | "mediaState" => {
+                return self.script_event(key, name, data);
+            }
             "found" => {
                 let number = |field: &str| data.get(field).and_then(Value::as_u64).map(|n| n as usize);
                 self.found = number("matched").map(|n| (n, number("current")));
@@ -107,6 +112,7 @@ impl<D: Platform> Shell<D> {
                 }
             }
             "pressed" if self.wide && self.model.active != Some(key) && self.shown_split().is_some_and(|s| s.panes().contains(&key)) => self.activate(key),
+            "pong" => self.hang.answered(key),
             "crashed" => return self.crashed(key),
             _ => {}
         }
@@ -139,6 +145,9 @@ impl<D: Platform> Shell<D> {
             }
             if self.picking.is_some_and(|(k, _)| k == key) {
                 self.picking = None;
+            }
+            if self.capturing.is_some_and(|(k, ..)| k == key) {
+                self.capturing = None;
             }
         }
         if !committed {

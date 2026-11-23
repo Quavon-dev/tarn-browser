@@ -72,6 +72,8 @@ fn the_command_card_opens_what_was_typed_in_a_new_tab() {
     b.navigate_in("https://first.test/", true);
     assert_eq!((b.model.active, b.model.tabs.len()), (Some(first), count), "a blank tab takes it");
     visit(&mut b, first, "https://kept.test/");
+    b.navigate_in("", true);
+    assert_eq!(b.model.tabs.len(), count, "Enter with nothing typed opens no tab");
     b.navigate_in("https://new.test/", true);
     let opened = b.model.active.unwrap();
     assert_ne!(opened, first);
@@ -204,6 +206,55 @@ fn the_reader_opens_from_an_answer_for_the_page_on_screen() {
     let seq = asked(&b, "readArticle").last().unwrap()["seq"].as_u64().unwrap();
     b.on_event(key, "article", &json!({ "seq": seq, "url": "https://news.test/b", "text": "" }));
     assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some("No article found on this page"));
+}
+
+#[test]
+fn a_selection_and_a_loaded_tab_reach_the_assistant_and_a_sleeping_tab_is_never_read() {
+    use browser_core::assistant::Pill;
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    visit(&mut b, first, "https://a.test/");
+    let menu = |b: &Browser| crate::snapshot::views(b, true).into_iter().find(|v| v.key == first).map(|v| v.assistant);
+    assert_eq!(menu(&b), Some(Value::Null), "no assistant entry while AI is off");
+    let profile = b.model.profile().unwrap().1;
+    b.core.disk.set_profile_ai(profile, true).unwrap();
+    assert_eq!(menu(&b).unwrap()[0], "Summarize");
+
+    b.on_event(first, "assistantSelection", &json!({ "url": "https://a.test/", "text": " chosen ", "command": "Explain" }));
+    assert_eq!(
+        b.assistant_pages.pop(),
+        Some((
+            b.model.assistant_origin(&b.core, Some("https://a.test/")).unwrap(),
+            Pill::Selection { url: "https://a.test/".into(), text: "chosen".into() },
+            Some("Explain".into())
+        ))
+    );
+    b.on_event(first, "assistantSelection", &json!({ "url": "https://a.test/", "text": "" }));
+    assert!(b.assistant_pages.is_empty(), "nothing selected attaches nothing");
+    b.on_event(first, "assistantSelection", &json!({ "url": "https://a.test/left", "text": "old" }));
+    assert!(b.assistant_pages.is_empty(), "a selection from a page the tab has left is dropped");
+
+    let second = b.new_tab("https://b.test/").unwrap();
+    visit(&mut b, second, "https://b.test/");
+    let listed: Vec<(TabKey, bool)> =
+        b.model.assistant_tabs(&b.core, |k, t| b.current_url(k).unwrap_or_else(|| t.url.clone())).into_iter().map(|c| (c.key, c.awake)).collect();
+    assert_eq!(listed, [(first, true)]);
+    b.outbox.clear();
+    b.read_tab_for_assistant(first);
+    let seq = asked(&b, "readText")[0]["seq"].as_u64().unwrap();
+    b.on_event(first, "pageText", &json!({ "seq": seq, "url": "https://a.test/", "text": "page a" }));
+    assert!(matches!(b.assistant_pages.pop(), Some((_, Pill::Tab { text, .. }, None)) if text == "page a"));
+
+    b.core.disk.set_profile_ai(profile, false).unwrap();
+    b.outbox.clear();
+    b.read_tab_for_assistant(first);
+    assert!(asked(&b, "readText").is_empty(), "a tab is read only where the assistant is offered");
+    b.core.disk.set_profile_ai(profile, true).unwrap();
+
+    b.model.lifecycle.remove(first);
+    b.outbox.clear();
+    b.read_tab_for_assistant(first);
+    assert!(asked(&b, "readText").is_empty(), "a sleeping tab is never woken to be read");
 }
 
 #[test]
@@ -414,7 +465,7 @@ fn a_split_shows_its_panes_and_a_closed_pane_hands_the_focus_on() {
     assert!(shown.contains(&(first, Some(0))) && shown.contains(&(second, Some(2))));
     assert_eq!(snap.split.as_ref().map(|s| (s.panes.len(), s.dividers.len())), Some((3, 2)));
     let rows = crate::snapshot::rows(&b);
-    assert_eq!(rows.iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), [crate::snapshot::RowKind::Split(first)], "a split lists as one row");
+    assert_eq!(rows.iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), [crate::snapshot::RowKind::Split(third)], "a split lists as one row");
     assert_eq!(rows[0].panes.iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), [first, third, second].map(crate::snapshot::RowKind::Tab), "in layout order");
     assert!(rows[0].panes.iter().all(|r| r.split == Some(true)));
     assert!(crate::snapshot::snapshot(&b, false).split.is_none(), "a panel covers the split");
@@ -492,9 +543,9 @@ fn a_tab_dropped_on_a_grouped_row_joins_its_group_and_other_windows_reload() {
 #[test]
 fn a_dragged_tab_takes_the_place_of_the_row_it_lands_on() {
     let (_dir, mut b) = browser();
-    let a = b.model.active.unwrap();
+    let d = b.model.active.unwrap();
     let c = b.new_tab("https://c.test/").unwrap();
-    let d = b.new_tab("https://d.test/").unwrap();
+    let a = b.new_tab("https://a.test/").unwrap();
     let order = |b: &Browser| b.model.ephemeral_keys();
     assert_eq!(order(&b), [a, c, d]);
     b.move_tab_to(d, a, false);
@@ -792,7 +843,7 @@ fn tabs_are_bookmarked_once_filed_into_folders_and_reopened_from_them() {
     let marks = b.bookmarks();
     assert_eq!(
         marks.iter().filter(|m| m.parent_id == Some(folder)).filter_map(|m| m.url.as_deref()).collect::<Vec<_>>(),
-        ["https://a.test/", "https://b.test/"]
+        ["https://b.test/", "https://a.test/"]
     );
     let sub = b.new_bookmark_folder(Some(folder)).unwrap();
     b.rename_bookmark(sub, "  Work  ");
@@ -850,7 +901,7 @@ fn groups_hold_tabs_collapse_to_the_active_one_and_reopen_as_a_group() {
     let c = b.new_tab("https://c.test/").unwrap();
     let id = b.new_group(Some(a)).unwrap();
     b.set_tab_group(c, Some(id));
-    assert_eq!(pane_keys(&group_row(&b, id)), [a, c].map(crate::snapshot::RowKind::Tab));
+    assert_eq!(pane_keys(&group_row(&b, id)), [c, a].map(crate::snapshot::RowKind::Tab));
     let loose: Vec<_> = crate::snapshot::rows(&b).into_iter().filter(|r| matches!(r.kind, crate::snapshot::RowKind::Tab(_))).map(|r| r.kind).collect();
     assert_eq!(loose, [crate::snapshot::RowKind::Tab(first)], "grouped tabs show only in their card");
     b.toggle_group(id);
@@ -1338,6 +1389,7 @@ fn a_screenshot_is_named_after_the_page_and_recorded_in_its_own_profile() {
     let requests = asked(&b, "screenshot");
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["name"], "Q3 - Q4 report.png");
+    assert_eq!(requests[0]["copy"], true);
     let seq = requests[0]["seq"].clone();
     let other = b.new_tab("https://b.test/").unwrap();
     b.on_event(other, "screenshot", &json!({ "seq": seq, "path": "/d/elsewhere.png" }));
@@ -1355,6 +1407,144 @@ fn a_screenshot_is_named_after_the_page_and_recorded_in_its_own_profile() {
     let seq = asked(&b, "screenshot").last().unwrap()["seq"].clone();
     b.on_event(key, "screenshot", &json!({ "seq": seq, "message": "WebKit could not capture the page" }));
     assert_eq!(b.notice, Some(Notice::Message("Download failed: WebKit could not capture the page".into())));
+
+    b.private_space();
+    b.take_screenshot();
+    assert_eq!(asked(&b, "screenshot").last().unwrap()["copy"], false, "a private capture never reaches the clipboard");
+}
+
+#[test]
+fn captures_ask_the_page_for_an_area_and_an_element_through_the_picker() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    let profile = b.model.profile().unwrap().1;
+    visit(&mut b, key, "https://cap.test/page");
+    b.outbox.clear();
+    b.capture_full_page();
+    assert_eq!(asked(&b, "screenshot")[0]["fullPage"], true);
+    b.screenshot(key, json!({ "x": 10., "y": 20., "width": 100., "height": 50. }));
+    let area = asked(&b, "screenshot")[1].clone();
+    assert_eq!((area["x"].as_f64(), area["width"].as_f64(), area["name"].as_str()), (Some(10.), Some(100.), Some("T.png")));
+
+    b.outbox.clear();
+    b.capture_element((800., 600.));
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::capture::ELEMENT_HINT));
+    let pick = asked(&b, "pick")[0].clone();
+    assert_eq!(pick["rect"], true);
+    b.on_event(key, "picked", &json!({ "seq": pick["seq"], "url": "https://cap.test/page", "rect": "[-20, 500, 2000, 400]" }));
+    let shot = asked(&b, "screenshot")[0].clone();
+    assert_eq!([&shot["x"], &shot["y"], &shot["width"], &shot["height"]].map(|v| v.as_f64().unwrap()), [0., 500., 800., 100.], "cut to the visible page");
+    b.on_event(key, "screenshot", &json!({ "seq": shot["seq"], "path": "/d/page.png" }));
+    assert_eq!(b.core.disk.downloads(profile).unwrap().len(), 1);
+
+    b.outbox.clear();
+    b.capture_element((800., 600.));
+    let seq = asked(&b, "pick")[0]["seq"].clone();
+    b.on_event(key, "picked", &json!({ "seq": seq, "url": "https://cap.test/page", "rect": "" }));
+    assert!(asked(&b, "screenshot").is_empty() && b.toast.is_none(), "a cancelled pick captures nothing");
+
+    b.set_site_level(Some(ShieldLevel::Lockdown));
+    b.outbox.clear();
+    b.capture_element((800., 600.));
+    assert!(asked(&b, "pick").is_empty(), "no picker on a Lockdown page");
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::capture::NO_PICKER));
+}
+
+#[test]
+fn the_mini_player_shows_playing_media_of_a_tab_off_screen_and_sends_its_controls() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://music.test/");
+    b.outbox.clear();
+    b.on_event(key, "playing", &json!({ "playing": true }));
+    let seq = asked(&b, "readMedia")[0]["seq"].clone();
+    b.on_event(
+        key,
+        "mediaState",
+        &json!({ "seq": seq, "url": "https://music.test/", "text": r#"{"playing":true,"title":"Song","duration":100,"position":3}"# }),
+    );
+    assert!(b.player.polls());
+    assert_eq!(b.mini_player(), None, "the tab on screen has its own controls");
+    let other = b.new_tab("https://b.test/").unwrap();
+    b.activate(other);
+    assert_eq!(b.mini_player(), Some((key, "Song".to_owned(), true)));
+
+    b.outbox.clear();
+    b.press_media(browser_core::media::Control::PlayPause);
+    assert_eq!(b.outbox[0], (key, "media", json!({ "action": "pause" })));
+    assert_eq!(b.mini_player().map(|m| m.2), Some(false));
+    assert!(!b.player.polls() && asked(&b, "readMedia").len() == 1, "asked again after the press");
+    b.poll_media();
+    assert_eq!(asked(&b, "readMedia").len(), 1, "nothing polls while paused");
+
+    b.outbox.clear();
+    b.settle_media(Some(other));
+    assert!(asked(&b, "readMedia").is_empty(), "a tab still shown is not asked");
+    b.close_tab(key);
+    b.settle_media(None);
+    assert_eq!(b.player.tab(), None, "a closed tab leaves the mini-player");
+}
+
+#[test]
+fn measure_opens_over_a_still_of_the_page_only_with_the_developer_tools_on() {
+    use tarn_nsh_shared::page_overlay::Purpose;
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://site.test/");
+    let offered = |b: &Browser| {
+        let state = browser_core::palette::State { developer: b.devtools_on(), ..browser_core::palette::State::default() };
+        browser_core::palette::rows("measure", state, |_| true, &[]).iter().any(|(name, _)| name == "Measure")
+    };
+    b.outbox.clear();
+    assert!(!offered(&b) && b.page_still(Purpose::Measure, (800., 600.)).is_none());
+    assert!(asked(&b, "snapshotRect").is_empty(), "nothing is asked of the page");
+
+    b.set_developer(true);
+    assert!(offered(&b));
+    let overlay = b.page_still(Purpose::Measure, (800., 600.)).unwrap();
+    assert_eq!((overlay.purpose, overlay.key, overlay.page), (Purpose::Measure, key, (800., 600.)));
+    let still = asked(&b, "snapshotRect")[0].clone();
+    assert_eq!((still["seq"].as_u64(), still["width"].as_f64(), still["height"].as_f64()), (Some(overlay.seq), Some(800.), Some(600.)));
+}
+
+#[test]
+fn snippets_expand_in_shell_fields_and_insert_only_on_request() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    let profile = b.model.profile().unwrap().1;
+    visit(&mut b, key, "https://form.test/");
+    assert_eq!(b.expand_snippet("see ;sig"), None);
+    b.core.disk.save_snippet(profile, "sig", "Best,\nAda").unwrap();
+    assert_eq!(b.expand_snippet("see ;sig"), None, "cached until the pane says it changed");
+    b.snippets_changed();
+    assert_eq!(b.expand_snippet("see ;sig").as_deref(), Some("see Best, Ada"));
+
+    b.outbox.clear();
+    assert_eq!(b.snippet_target(), Some(key));
+    b.insert_snippet("Best,\nAda");
+    let request = asked(&b, "insertText")[0].clone();
+    assert_eq!(request["text"], "Best,\nAda");
+    b.on_event(key, "textInserted", &json!({ "seq": request["seq"], "inserted": true }));
+    assert!(b.toast.is_none());
+    b.insert_snippet("x");
+    assert_eq!(asked(&b, "insertText").len(), 1, "one pick per opened list");
+    b.snippet_target();
+    b.insert_snippet("x");
+    let seq = asked(&b, "insertText").last().unwrap()["seq"].clone();
+    b.on_event(key, "textInserted", &json!({ "seq": seq, "inserted": false }));
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::snippets::NO_FIELD));
+
+    b.snippet_target();
+    visit(&mut b, key, "https://elsewhere.test/");
+    b.insert_snippet("secret");
+    assert_eq!(asked(&b, "insertText").len(), 2, "nothing is typed into a page the list was not opened on");
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::snippets::PAGE_CHANGED));
+
+    b.set_site_level(Some(ShieldLevel::Lockdown));
+    assert_eq!(b.snippet_target(), None);
+    assert_eq!(b.toast.as_ref().map(|t| t.text.as_str()), Some(browser_core::snippets::NO_INSERT));
+    b.private_space();
+    assert!(b.snippets().is_empty(), "a private space has no snippets on disk");
 }
 
 #[test]
@@ -1450,6 +1640,31 @@ fn a_full_screen_page_alone_fills_a_split() {
     let snap = crate::snapshot::snapshot(&b, true);
     assert!(snap.split.is_none());
     assert_eq!(snap.views.iter().filter(|v| v.active).map(|v| (v.key, v.pane)).collect::<Vec<_>>(), [(active, None)]);
+}
+
+#[test]
+fn a_reset_or_deleted_profile_leaves_none_of_its_snippets_cached() {
+    let (_dir, mut b) = browser();
+    let first = b.current_profile().unwrap();
+    b.core.disk.save_snippet(first, "sig", "Ada").unwrap();
+    b.snippets_changed();
+    assert_eq!(b.snippets().len(), 1);
+    b.delete_profile_data();
+    assert!(b.snippets().is_empty(), "Delete everything takes them");
+    let new = browser_core::profiles::NewProfile {
+        name: "Work",
+        color: "red",
+        level: ShieldLevel::Standard,
+        engine: browser_core::command::ENGINES[0].name,
+        share: None,
+        space: ["Desk", "green", "code"],
+    };
+    b.create_profile(&new).unwrap();
+    let work = b.current_profile().unwrap();
+    b.core.disk.save_snippet(work, "sig", "Work").unwrap();
+    assert_eq!(b.snippets().len(), 1);
+    assert!(b.delete_profile(work));
+    assert!(b.core.snippets(Some((false, work))).is_empty(), "a later profile with the same id starts with none");
 }
 
 #[test]
@@ -1682,4 +1897,62 @@ fn a_hovered_link_shows_until_the_pointer_leaves_or_the_page_changes() {
     b.on_event(key, "blocked", &json!({ "url": "https://evil.test/x", "reason": "listed", "category": "malware" }));
     assert!(blocked_page(&b).is_some());
     assert_eq!(crate::snapshot::snapshot(&b, true).link, None, "a blocked page covers the view");
+}
+
+#[test]
+fn the_shown_page_is_pinged_and_offers_wait_and_reload_once_it_stops_answering() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://slow.test/");
+    b.outbox.clear();
+    let silent = std::time::Instant::now() - engine::lifecycle::HANG_AFTER;
+    let hung = |b: &Browser| crate::snapshot::snapshot(b, true).hung;
+    b.ping_page(silent);
+    b.ping_page(std::time::Instant::now());
+    assert_eq!(asked(&b, "ping").len(), 1, "one ping at a time");
+    assert!(asked(&b, "readSelection").is_empty(), "the ping reads nothing of the page");
+    assert!(hung(&b));
+    b.wait_for_page();
+    assert!(!hung(&b), "Wait hides the card");
+    b.on_event(key, "pong", &json!({ "seq": 0 }));
+    b.ping_page(silent);
+    assert_eq!(asked(&b, "ping").len(), 2, "an answer lets the next ping go");
+    assert!(hung(&b));
+    b.on_event(key, "pong", &json!({ "seq": 0 }));
+    assert!(!hung(&b), "the answer hides the card");
+    b.ping_page(silent);
+    b.reload_hung();
+    assert_eq!(b.outbox.last().map(|(k, n, _)| (*k, *n)), Some((key, "reloadFresh")));
+    assert!(!hung(&b));
+}
+
+#[test]
+fn the_empty_command_bar_lists_sections_and_a_private_space_no_recent_or_frequent_rows() {
+    use browser_core::command::Section;
+    use browser_core::palette::State;
+    let (_dir, mut b) = browser();
+    let first = b.model.active.unwrap();
+    visit(&mut b, first, "https://a.test/");
+    let second = b.new_tab("https://b.test/").unwrap();
+    visit(&mut b, second, "https://b.test/");
+    let history = [store::HistoryEntry { url: "https://c.test/".into(), title: "C".into(), visited_at: 0, visits: 3, typed: 0 }];
+    let heads = |b: &Browser, state: &State| b.palette_sections(state, |_| true, &history).into_iter().map(|(s, _)| s).collect::<Vec<_>>();
+    let shown = heads(&b, &State::default());
+    assert!(shown.contains(&Section::RecentTabs) && shown.contains(&Section::Frequent) && shown.contains(&Section::QuickActions), "{shown:?}");
+    b.private_space();
+    assert!(b.model.private());
+    let shown = heads(&b, &State { private: true, ..State::default() });
+    assert!(!shown.contains(&Section::RecentTabs) && !shown.contains(&Section::Frequent), "{shown:?}");
+}
+
+#[test]
+fn an_address_tarn_does_not_open_is_refused_without_a_notice_or_a_load() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://kept.test/");
+    assert!(b.rejects("javascript:alert(1)") && !b.rejects("example.com") && !b.rejects("rust language"));
+    let (count, load) = (b.model.tabs.len(), b.pages[&key].load.clone());
+    b.navigate_in("javascript:alert(1)", true);
+    assert_eq!((b.model.tabs.len(), b.pages[&key].load.clone()), (count, load));
+    assert!(b.notice.is_none(), "the field shakes instead");
 }

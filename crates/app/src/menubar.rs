@@ -46,7 +46,7 @@ pub struct SwitchToSpace {
 }
 
 /// Actions on the active tab's page, which do nothing while no tab is open.
-const NEED_A_TAB: [&dyn Action; 22] = [
+const NEED_A_TAB: [&dyn Action; 26] = [
     &crate::BookmarkTab,
     &crate::Print,
     &crate::Reload,
@@ -58,6 +58,10 @@ const NEED_A_TAB: [&dyn Action; 22] = [
     &crate::capture::CopyMarkdownLink,
     &crate::capture::CopyTitle,
     &crate::capture::TakeScreenshot,
+    &crate::capture::CaptureArea,
+    &crate::capture::CaptureElement,
+    &crate::capture::CaptureFullPage,
+    &crate::snippets::InsertSnippet,
     &crate::capture::SavePdf,
     &crate::capture::PictureInPicture,
     &crate::qr::ShareLink,
@@ -212,7 +216,7 @@ impl Browser {
         self.model.active_tab().map(|t| t.custom_title.is_empty()).hash(&mut hash);
         self.model.active.and_then(|k| self.pinned_drift(k)).map(|u| u.host_str().map(str::to_owned)).hash(&mut hash);
         (self.model.active.is_some_and(|a| self.splits.contains(a)), self.site().is_some(), self.reader_shown()).hash(&mut hash);
-        (self.sidebar_open, self.pref(crate::prefs::Pref::CompactToolbar), self.pref(crate::prefs::Pref::AutoHideSidebar)).hash(&mut hash);
+        (self.sidebar_open, self.tab_placement, self.pref(crate::prefs::Pref::CompactToolbar), self.pref(crate::prefs::Pref::AutoHideSidebar)).hash(&mut hash);
         let signature = hash.finish();
         if self.menu.signature != signature {
             self.menu.signature = signature;
@@ -381,6 +385,7 @@ impl Browser {
         let auto_hide = self.pref(crate::prefs::Pref::AutoHideSidebar);
         let mut view_items = vec![
             view.action(if self.sidebar_open { "Hide Sidebar" } else { "Show Sidebar" }, crate::ToggleSidebar),
+            view.item("Tabs on Top", Box::new(crate::ToggleTabsOnTop), None, self.tab_placement == browser_core::layout::TabPlacement::Top),
             view.item("Compact Toolbar", Box::new(crate::ToggleCompactToolbar), None, compact),
             view.item("Auto-Hide Sidebar", Box::new(crate::ToggleAutoHideSidebar), None, auto_hide),
             MenuItem::separator(),

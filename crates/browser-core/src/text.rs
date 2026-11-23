@@ -55,10 +55,7 @@ pub fn capture_name(title: &str, url: Option<&url::Url>, ext: &str) -> String {
     format!("{}.{ext}", engine::downloads::sanitize_filename(&base.replace(['/', '\\'], "-")))
 }
 
-pub fn is_bidi(c: char) -> bool {
-    // Kept in sync with engine::downloads and ai::page_context, which cannot depend on `browser-core`.
-    matches!(c, '\u{061C}' | '\u{115F}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{E0000}'..='\u{E007F}')
-}
+pub use store::is_bidi;
 
 pub fn title_or_host(title: &str, url: &str) -> String {
     bounded_title(&stored_title_or_host(title, url))

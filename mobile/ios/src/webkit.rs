@@ -6,9 +6,10 @@ use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{MainThreadOnly, extern_class, extern_methods};
 use objc2_core_foundation::CGRect;
 use objc2_foundation::{NSData, NSError, NSObject, NSString, NSURL, NSURLRequest};
-use objc2_ui_kit::{UIResponder, UIView};
+use objc2_ui_kit::{UIImage, UIResponder, UIScrollView, UIView};
 use objc2_web_kit::{
-    WKContentWorld, WKDownload, WKFindConfiguration, WKFindResult, WKFrameInfo, WKNavigation, WKNavigationDelegate, WKUIDelegate, WKWebViewConfiguration,
+    WKContentWorld, WKDownload, WKFindConfiguration, WKFindResult, WKFrameInfo, WKNavigation, WKNavigationDelegate, WKSnapshotConfiguration, WKUIDelegate,
+    WKWebViewConfiguration,
 };
 
 extern_class!(
@@ -73,6 +74,10 @@ impl WebView {
         pub fn resume_download(&self, data: &NSData, done: &DynBlock<dyn Fn(NonNull<WKDownload>)>);
         #[unsafe(method(findString:withConfiguration:completionHandler:))]
         pub fn find(&self, text: &NSString, configuration: Option<&WKFindConfiguration>, done: &DynBlock<dyn Fn(NonNull<WKFindResult>)>);
+        #[unsafe(method(takeSnapshotWithConfiguration:completionHandler:))]
+        pub fn take_snapshot(&self, configuration: Option<&WKSnapshotConfiguration>, done: &DynBlock<dyn Fn(*mut UIImage, *mut NSError)>);
+        #[unsafe(method(scrollView))]
+        pub fn scroll_view(&self) -> Retained<UIScrollView>;
         #[unsafe(method(pauseAllMediaPlaybackWithCompletionHandler:))]
         pub fn pause_media(&self, done: Option<&DynBlock<dyn Fn()>>);
         #[unsafe(method(addObserver:forKeyPath:options:context:))]

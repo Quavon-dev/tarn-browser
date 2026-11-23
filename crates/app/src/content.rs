@@ -137,6 +137,9 @@ fn banner(text: impl Into<SharedString>) -> gpui::Div {
 pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -> AnyElement {
     b.settle_motion(window, cx);
     b.settle_split();
+    if b.capture_overlay.as_ref().is_some_and(|o| b.model.active != Some(o.key)) {
+        b.capture_overlay = None;
+    }
     let reduce = b.pref(Pref::ReduceMotion);
     let page = b.model.active.map(|k| b.page(k)).unwrap_or_default();
     let error = page.error;
@@ -188,6 +191,18 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
                 .text_color(Theme::warning())
                 .when_some(offer, |d, label| d.child(secure_button("notice-offer", label, false).on_click(cx.listener(|b, _, w, cx| b.take_offer(w, cx)))))
                 .child(secure_button("notice-dismiss", "Dismiss", false).on_click(cx.listener(|b, _, _, cx| b.dismiss_error(cx)))),
+        );
+    }
+    if let Some(key) = b.hang.hung(Instant::now()).filter(|k| b.model.active == Some(*k) && error.is_none()) {
+        let text = engine::lifecycle::HANG_NOTE;
+        push(
+            "banner-hang",
+            text.to_owned(),
+            Theme::warning(),
+            banner(text)
+                .text_color(Theme::warning())
+                .child(secure_button("hang-wait", "Wait", false).on_click(cx.listener(|b, _, _, cx| b.wait_for_page(cx))))
+                .child(secure_button("hang-reload", "Reload", true).on_click(cx.listener(move |b, _, _, cx| b.reload_hung(key, cx)))),
         );
     }
     if let Some(message) = error {
@@ -301,6 +316,11 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
             view.set_frame(0., 0., 0., 0.);
         }
         crate::devtools::render_json(key, json, cx)
+    } else if let Some(overlay) = b.model.active.and_then(|key| crate::capture_overlay::render(b, key, cx)) {
+        if let Some(view) = b.active_view() {
+            view.set_frame(0., 0., 0., 0.);
+        }
+        page_frame().relative().child(overlay).into_any_element()
     } else {
         let view = b.active_view();
         let preset = b.responsive_preset();
@@ -333,18 +353,14 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
             |_, _, _, _| {},
         )
         .size_full();
-        let frame = div()
-            .flex_1()
-            .min_h_0()
-            .rounded(px(Theme::radius_page()))
-            .bg(Theme::page())
-            .border_1()
-            .border_color(Theme::hairline())
-            .shadow(Elevation::Page.shadow());
-        frame.child(page).into_any_element()
+        page_frame().child(page).into_any_element()
     };
 
     panel.child(body).into_any_element()
+}
+
+fn page_frame() -> gpui::Div {
+    div().flex_1().min_h_0().rounded(px(Theme::radius_page())).bg(Theme::page()).border_1().border_color(Theme::hairline()).shadow(Elevation::Page.shadow())
 }
 
 const MAX_PROMPT_MESSAGE: usize = 600;
@@ -471,11 +487,13 @@ fn suggestion_tile(b: &Browser, s: &Suggestion, selected: bool) -> gpui::Div {
     let url = match &s.target {
         Target::Tab(key) | Target::Find(key, _) => b.model.tab(*key).map(|t| t.url.clone()),
         Target::Url(u) | Target::Input(Input::Navigate(u)) => Some(u.to_string()),
-        Target::Input(_) | Target::Action(_) => None,
+        Target::Input(_) | Target::Action(_) | Target::Copy(_) | Target::Snippet(_) | Target::Act(..) => None,
     };
     let glyph = match &s.target {
-        Target::Input(Input::Command(_)) | Target::Action(_) => Icon::named(browser_core::command::glyph(&s.label)).unwrap_or(Icon::Command),
+        Target::Input(Input::Command(_)) | Target::Action(_) | Target::Act(..) => Icon::named(browser_core::command::glyph(&s.label)).unwrap_or(Icon::Command),
         Target::Input(Input::External(_)) => Icon::AppWindow,
+        Target::Copy(_) => Icon::Copy,
+        Target::Snippet(_) => Icon::FileText,
         _ => Icon::Search,
     };
     let fill = if selected { Theme::accent() } else { Theme::control() };
@@ -496,19 +514,40 @@ fn section(target: &Target) -> Section {
         Target::Input(ui::command::Input::Command(_)) | Target::Action(_) => Section::Commands,
         Target::Tab(_) | Target::Find(..) => Section::Tabs,
         Target::Url(_) => Section::History,
-        Target::Input(_) => Section::Suggestions,
+        Target::Input(_) | Target::Copy(_) | Target::Snippet(_) | Target::Act(..) => Section::Suggestions,
     }
 }
 
 pub fn sections(rows: &[Suggestion]) -> Vec<Option<Section>> {
-    browser_core::command::section_headers(&rows.iter().map(|s| section(&s.target)).collect::<Vec<_>>())
+    if rows.iter().any(|s| matches!(s.target, Target::Act(..))) {
+        return vec![None; rows.len()];
+    }
+    browser_core::command::section_headers(&rows.iter().map(|s| s.section.unwrap_or_else(|| section(&s.target))).collect::<Vec<_>>())
+}
+
+/// The row's button that opens its actions page; shown on the highlighted or hovered row.
+pub(crate) fn more_button(ix: usize, label: &str, selected: bool) -> Stateful<gpui::Div> {
+    div()
+        .id(("suggestion-more", ix))
+        .size(px(24.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(Theme::radius_small()))
+        .cursor_pointer()
+        .hover(|s| s.bg(Theme::hover()))
+        .when(!selected, |d| d.opacity(0.).group_hover("suggestion", |s| s.opacity(1.)))
+        .tooltip(tooltip(format!("Actions for {label}"), Some("\u{2192}".into())))
+        .child(icon(Icon::Ellipsis, ICON_SMALL, Theme::muted()))
 }
 
 fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div> {
     let selected = ix == b.selected;
     let rejected = matches!(s.target, Target::Input(ui::command::Input::Rejected));
-    let command = section(&s.target) == Section::Commands;
+    let command = section(&s.target) == Section::Commands || matches!(s.target, Target::Act(..));
     list_row(("suggestion", ix), selected)
+        .group("suggestion")
         .h(px(SUGGESTION_ROW))
         .mx_1p5()
         .px_1p5()
@@ -521,18 +560,19 @@ fn suggestion_row(b: &Browser, ix: usize, s: &Suggestion) -> Stateful<gpui::Div>
         })
 }
 
-pub fn suggestion_rows(b: &Browser) -> Vec<Stateful<gpui::Div>> {
+pub fn suggestion_rows(b: &Browser, more: impl Fn(usize, Stateful<gpui::Div>) -> Stateful<gpui::Div>) -> Vec<Stateful<gpui::Div>> {
     let headers = sections(&b.suggestions);
     b.suggestions
         .iter()
         .enumerate()
         .map(|(ix, s)| {
+            let actions = (b.actions_page.is_none() && b.row_item(s).is_some()).then(|| more(ix, more_button(ix, &s.label, ix == b.selected)));
             div()
                 .id(("suggestion-item", ix))
                 .flex()
                 .flex_col()
                 .children(headers[ix].map(|h| crate::address::section_header(h.title())))
-                .child(ui::motion::stagger_in(suggestion_row(b, ix, s), ("suggestion-in", ix), ix, b.pref(Pref::ReduceMotion)))
+                .child(ui::motion::stagger_in(suggestion_row(b, ix, s).children(actions), ("suggestion-in", ix), ix, b.pref(Pref::ReduceMotion)))
         })
         .collect()
 }
@@ -582,7 +622,15 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
         .border_t_1()
         .border_color(Theme::hairline())
         .children(
-            suggestion_rows(b).into_iter().enumerate().map(|(ix, row)| row.on_click(cx.listener(move |b, _, window, cx| b.submit_command(ix, window, cx)))),
+            suggestion_rows(b, |ix, more| {
+                more.on_click(cx.listener(move |b, _, _, cx| {
+                    cx.stop_propagation();
+                    b.open_actions(ix, cx);
+                }))
+            })
+            .into_iter()
+            .enumerate()
+            .map(|(ix, row)| row.on_click(cx.listener(move |b, _, window, cx| b.submit_command(ix, window, cx)))),
         );
     let (space_at, shield_at) = (std::rc::Rc::<std::cell::Cell<_>>::default(), std::rc::Rc::<std::cell::Cell<_>>::default());
     let card = surface(Theme::radius_card())
@@ -606,7 +654,10 @@ fn start(b: &Browser, reduce: bool, cx: &mut Context<Browser>) -> AnyElement {
                 .text_size(px(TEXT_TITLE))
                 .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, _, cx| b.suggestion_key(e, cx)))
                 .child(icon(Icon::Search, ICON_MEDIUM, Theme::accent()))
-                .child(div().flex_1().overflow_hidden().child(input)),
+                .child(ui::motion::shake(div().flex_1().overflow_hidden().child(input), ("start-shake", b.rejected), b.rejected == 0 || reduce))
+                .when(b.rejected > 0 && reduce, |d| {
+                    d.child(div().flex_none().text_size(px(TEXT_SMALL)).text_color(Theme::danger()).child(browser_core::palette::INVALID_ADDRESS))
+                }),
         )
         .when(typing && !b.suggestions.is_empty(), |d| d.child(suggestions))
         .child(

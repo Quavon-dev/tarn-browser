@@ -11,8 +11,8 @@ is at https://tarnbrowser.com/privacy.
 ## What stays on your device
 
 History (and, only if you turn on Settings › Search › Search the text of visited pages, up to 4 KB
-of each visited page's text), cookies, cache, open tabs, permissions, downloads, favicons, settings
-and the Shield card's counters (tracking parameters removed, pages upgraded to HTTPS, local-network
+of each visited page's text), cookies, cache, open tabs, permissions, downloads, favicons, settings,
+how often and when each shortcut tip was shown, your snippets, your notes, and the Shield card's counters (tracking parameters removed, pages upgraded to HTTPS, local-network
 visits blocked, pages on block lists stopped, pop-ups blocked and requests blocked by the Chromium
 engine's filter; in total, per day for the last seven days and per site for the sites protected
 most) with its design value are stored only on your Mac, separately for each profile, in
@@ -77,7 +77,13 @@ Settings › Privacy › Connections Tarn makes on macOS and Windows.
 | Theme catalog and downloads | GitHub (the repository you name, or the official catalog in `Quavon-dev/tarn-themes`, not offered yet because its signing key is not set) | Your IP address and which repository or theme you install or check | Only when you click Install, Check for Updates or Show Official Themes in Settings › Appearance, on every client; on macOS and Windows switch off with the same Settings › Privacy switch as extensions; Linux, iOS and Android have no such switch yet (themes from a file or the clipboard keep working) |
 | Site icon | The site you are on, or a server it already loaded from (such as its CDN, without cookies), through the tab's web engine with your Shield rules | Same as visiting the site | After a page loads over https; never under Lockdown; cleared with history |
 | Translation (builds with the `translation` feature) | Nobody: Apple's Translation framework runs on your Mac | Nothing. Only language packs you installed in System Settings › General › Language & Region › Translation Languages are used; Tarn never downloads one | Only when you click Translate on the banner; never under Lockdown |
-| AI request (only if you enable AI) | Anthropic, or Ollama on your own Mac | The page content you choose to send | Not built yet |
+| AI request (only if you enable AI) | Anthropic, or Ollama on your own computer (loopback only, never one of Ollama's cloud models) | Your question, the earlier turns of that chat and only what you attach: a page's address without query or fragment, its title and text, or a note; when you ask it to sort tabs, the host name and title of each loose web tab in the space (never a path, a local file or a home-network page) | Only when you press Send, a command or Group with Assistant, in a profile whose switch in Settings › AI is on; never from a private space, a burner tab or a Lockdown page. On macOS, Windows, Linux, iOS and Android (Ollama on macOS, Windows and Linux only) |
+
+A local model makes no connection beyond your own device. "Local" means Apple's on-device model
+(builds with the `foundation-models` feature, on macOS and iOS; only the system's on-device model,
+never Apple's cloud models) or Ollama on `127.0.0.1` with a model Ollama runs on your computer:
+Tarn asks Ollama about the model first and refuses one that runs in Ollama's cloud (a `-cloud` or
+`:cloud` name, or a remote host). A local choice is answered on your device or not at all.
 
 ## Chromium tabs
 

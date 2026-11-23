@@ -17,8 +17,10 @@ path = "src/main.rs"
 [features]
 chromium = ["engine/chromium"]
 translation = ["engine/translation"]
+foundation-models = ["engine/foundation-models"]
 
 [dependencies]
+ai = { path = "../ai" }
 devkit.workspace = true
 platform.workspace = true
 browser-core.workspace = true

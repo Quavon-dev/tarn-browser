@@ -6,7 +6,9 @@
 //! already keeps at least twice in one of their own groups, and in no other group, joins that
 //! group instead, unless it is a known site whose category already has a group; a group named
 //! after a category teaches no host. No group is ever named after a site, and only loose tabs move into groups.
+//! `ai` is the one exception to "no model runs": an assistant's grouping, asked for by the user.
 
+pub mod ai;
 mod rules;
 
 use std::collections::{HashMap, HashSet};
@@ -204,27 +206,43 @@ pub fn plan(tabs: &[Tab], groups: &[Group], url: impl Fn(&Tab) -> String) -> Sor
     group_order.extend(new_groups.iter().enumerate().map(|(i, &c)| (Some(c), Slot::New(i))));
     group_order.sort_by_key(|&(category, _)| category.map_or(0, |c| c + 1));
 
+    let new_groups = new_groups.iter().map(|&c| (CATEGORIES[c].name.to_owned(), CATEGORIES[c].color.to_owned(), CATEGORIES[c].icon.to_owned())).collect();
+    let group_order = group_order.into_iter().map(|(_, s)| s).collect();
+    build(
+        &zone,
+        groups,
+        &slots,
+        new_groups,
+        group_order,
+        |members, slot, receiving| {
+            if slot == Slot::Loose || receiving { by_host(members, &hosts) } else { members }
+        },
+    )
+}
+
+fn build(
+    zone: &[&Tab],
+    groups: &[Group],
+    slots: &HashMap<Id, Slot>,
+    new_groups: Vec<(String, String, String)>,
+    group_order: Vec<Slot>,
+    arrange: impl for<'t> Fn(Vec<&'t Tab>, Slot, bool) -> Vec<&'t Tab>,
+) -> Sort {
     let slot_of = |t: &Tab| slots.get(&t.id).copied().unwrap_or(t.group_id.map_or(Slot::Loose, Slot::Group));
     let receiving: HashSet<Slot> = slots.values().copied().collect();
     let mut order: Vec<(Id, Slot)> = Vec::with_capacity(zone.len());
-    for slot in group_order.iter().map(|&(_, s)| s).chain([Slot::Loose]) {
+    for slot in group_order.iter().copied().chain([Slot::Loose]) {
         let members: Vec<&Tab> = zone.iter().copied().filter(|t| slot_of(t) == slot).collect();
-        let members = if slot == Slot::Loose || receiving.contains(&slot) { by_host(members, &hosts) } else { members };
-        order.extend(members.into_iter().map(|t| (t.id, slot)));
+        order.extend(arrange(members, slot, receiving.contains(&slot)).into_iter().map(|t| (t.id, slot)));
     }
 
     let moved = slots.len();
     let old_order: Vec<(Id, Slot)> = zone.iter().map(|t| (t.id, t.group_id.map_or(Slot::Loose, Slot::Group))).collect();
     let in_slot = |list: &[(Id, Slot)], slot: Slot| list.iter().filter(|(_, s)| *s == slot).map(|(id, _)| *id).collect::<Vec<_>>();
-    let tabs_reordered = group_order.iter().map(|&(_, s)| s).chain([Slot::Loose]).any(|s| in_slot(&order, s) != in_slot(&old_order, s));
-    let groups_reordered = group_order.iter().map(|&(_, s)| s).collect::<Vec<_>>() != groups.iter().map(|g| Slot::Group(g.id)).collect::<Vec<_>>();
+    let tabs_reordered = group_order.iter().copied().chain([Slot::Loose]).any(|s| in_slot(&order, s) != in_slot(&old_order, s));
+    let groups_reordered = group_order != groups.iter().map(|g| Slot::Group(g.id)).collect::<Vec<_>>();
     Sort {
-        layout: Layout {
-            new_groups: new_groups.iter().map(|&c| (CATEGORIES[c].name.to_owned(), CATEGORIES[c].color.to_owned(), CATEGORIES[c].icon.to_owned())).collect(),
-            tabs: order,
-            groups: group_order.into_iter().map(|(_, s)| s).collect(),
-            ..Default::default()
-        },
+        layout: Layout { new_groups, tabs: order, groups: group_order, ..Default::default() },
         moved,
         changed: moved > 0 || tabs_reordered || groups_reordered,
         tabs_reordered,
@@ -255,6 +273,12 @@ pub struct Undo {
     /// one deleted since is left alone.
     created: Vec<(Id, String)>,
     opened: Vec<(Id, String)>,
+}
+
+impl Undo {
+    pub fn space_id(&self) -> Id {
+        self.space_id
+    }
 }
 
 /// Applies the sort to `space_id` at once, or not at all.

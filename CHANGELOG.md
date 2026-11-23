@@ -6,6 +6,124 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- An actions page for each command bar row: → with the cursor at the end of the field (⌘K already
+  opens the bar), the row's … button, or on phones its More button lists what the row can do — a
+  tab: Switch, Close, Copy Link, Move to another space; a history page: Open, Open in New Tab, Copy
+  Link, Remove from History; a bookmark: Open, Open in New Tab, Copy Link; a command: Run with its
+  shortcut. Esc goes back to the rows.
+- The empty command bar lists sections on every client: Now (commands for the current tab),
+  Favorites (pinned tabs and top-level bookmarks), Recent Tabs (the five most recently used other
+  tabs), Frequent (most visited pages) and Quick Actions. A private space lists no Recent Tabs and
+  no Frequent pages.
+- Ask Assistant about Selection on every client: selected text's menu (the context menu on macOS,
+  Windows and Linux, the edit menu on iOS, the selection toolbar on Android) attaches the selection
+  to the chat, and Ask Assistant to runs Summarize, Explain, Improve Writing, Fix Spelling,
+  Translate or the profile's own commands on it with one choice. Answers stay in the chat and say
+  which model gave them; commands use the system's on-device model where it can answer and the
+  Claude API was chosen, and a local choice that cannot answer says why instead of asking the cloud.
+- The assistant chat attaches another open tab of the space from Add Tab… (Attach Tab on Linux,
+  iOS and Android); a sleeping tab is shown as asleep and never loaded for it. Links in an answer
+  are also listed under it, reachable with Tab and opened with Enter after the usual confirmation.
+- Clean Up and Group with Assistant in the phone Tabs sheet on iOS and Android.
+- Assistant on macOS and Windows, off until you turn it on per profile in Settings › AI: ⇧Esc or
+  the command bar's Ask and Ask About This Page open a chat column beside the page. It lists every
+  page it would send and its size, sends only when you press Send, to the Claude API or Ollama on
+  your own computer, and asks before opening any link in an answer. The sidebar's Group Tabs with
+  the Assistant proposes groups for loose web tabs and sorts them only after you agree; Undo takes
+  it back. Never in a private space, burner tab or Lockdown.
+- Assistant on Linux, iOS and Android: Settings › AI turns it on per profile, picks Claude API (the
+  key goes only into the system's secret store) or, on Linux, Ollama on this computer, and says what
+  is sent and when. The chat opens beside the page on Linux and the iPad Mac layout and as a sheet
+  on phones, from the command bar's Ask or the menu: attach the page or a note, see what a send will
+  carry with its size, ask, cancel; answers stream in with formatting, and a link opens only after a
+  confirmation showing its whole address. Clean Up gains Group with Assistant, applied after a
+  confirmation and undoable. Never in a private space, a burner tab or on a Lockdown page; moving
+  to another profile or one of those ends the chat.
+- Notes: Settings › Notes keeps a profile's own notes on every client, with search, a title and
+  text, edit and delete. They stay on the device, are never synced, go with the profile's export,
+  Delete everything and deleting the profile, and a private space or burner tab writes none.
+- The command bar answers sums ("12 * 4 + 2"), unit conversions ("5 km in mi", "1,5 km in m") and
+  emoji searches (":rocket") offline on every client; picking the answer row copies it, while Enter
+  alone still searches or opens what was typed. Dates, "24/7" and plain numbers get no answer.
+- Undo (⌘Z, Ctrl+Z) outside a text field and the page takes back the last closed tabs, Clean Up or
+  tab moved in the sidebar, one step at a time, on macOS, Windows, Linux and iPad with a keyboard; a
+  toast's Undo runs the same step. A private space or burner tab keeps nothing to undo.
+- Shortcut tips: after a command runs from the command bar (and, on Linux, a panel menu), a notice
+  may name its keyboard shortcut, at most three times per command, two days apart and never on a
+  profile's first day; Settings › Appearance › Tips turns them off on every client.
+- Tabs on top: ⌥⇧⌘T (Ctrl+Alt+Shift+T), the command bar's Tabs on Top or macOS's View menu puts
+  a window's tabs in a strip above the page, pinned tabs as icons first and the tabs of collapsed
+  folders and groups too, and hides its sidebar;
+  the same keys bring the sidebar back. On macOS, Windows, Linux and iPad with the Mac layout;
+  phones keep their bottom bar. New windows start with the last choice.
+- Switching spaces springs on Linux, iOS and Android as on macOS and Windows, by click, keys or a
+  swipe; a second switch picks up from where the first stands, and Reduce Motion switches at once.
+- Compact density: Settings › Appearance turns on shorter rows and gaps in the sidebar on every
+  client.
+- A page that stops responding for eight seconds shows a card with Wait and Reload on every client;
+  Reload starts the page again in a new view, and on Linux in a new web process. The check reads
+  nothing of the page, and a Lockdown page, which runs no script of Tarn's, is not checked.
+- Capture Area (drag over the page), Capture Element (pick it as Zap Element does) and Capture Full
+  Page join Take Screenshot on every client, and iOS and Android gain Take Screenshot. Captures are
+  saved to Downloads and copied (not on Android, nor in a private space or burner tab); iOS and
+  Android capture the visible part of a full page.
+- A mini-player shows the media of a tab you left playing, on every client: its title, play or
+  pause and 15 seconds back or forward; clicking the title goes back to the tab. It reads only the
+  page's own title and asks the page nothing while nothing plays.
+- Measure, a developer tool on macOS, Windows and Linux: rulers and a box you drag over a still
+  of the page give sizes and positions in CSS pixels. It is offered where Web Inspector is
+  (Settings › Developer or a Developer profile) and runs nothing on the page.
+- Snippets: text you keep per profile in Settings › Snippets. Typing `;name` in the address or
+  command bar puts it there, and Insert Snippet… (command bar, Edit menu, Linux tab panel, mobile menu) types it into the
+  page's focused field, and only into the page the list was opened on. Deleting the profile or its
+  data removes them at once; private spaces have none.
+
+### Changed
+
+- The sidebar's New Tab row has one Organize Tabs button (…) in place of four: New Tab Group, New
+  Folder, Clean Up and Group with Assistant are in its menu, on every client.
+- Enter on an address Tarn cannot open shakes the field instead of going anywhere, on every
+  client; with Reduce Motion the field stays still and says "Can’t open this address".
+- New Tab on iOS and Android opens the address bar over the current page like ⌘T on macOS,
+  Windows and Linux: the tab is created only when you pick a result, and Cancel creates nothing.
+  Settings › New tab opens › Empty tab keeps the old behaviour, as the Start page choice does on
+  desktop.
+- The command bar lists the same commands on every client from one shared list. macOS and Windows
+  add New Window, Enter or Exit Full Screen, Stop Loading, Reload Without Cache, Close Window,
+  Manage Bookmarks and Import Browser Data; Linux calls Memory "Show Memory Use";
+  macOS and Windows name Reader Show Reader or Hide Reader, as Linux does;
+  a private space no longer offers snapshots on Linux, iOS and Android.
+- Keyboard shortcuts come from one shared table on every client. macOS and Windows add Find in
+  Tabs (⇧⌘F, Ctrl+Shift+F), which takes those keys back from a custom shortcut that used them; Linux lists the split view keys under Tabs, as macOS does. Choosing a
+  shortcut's default keys again forgets the choice, and Reset All on Linux no longer refuses while
+  one action holds another's default keys.
+- The tab menu lists the same entries in the same order on every client. Linux's tab panel gains
+  Reload or Open, Rotate Layout, Close Split View and greyed-out entries that do not apply, and
+  shows the Split View, Move to Space and Add to Group entries as sections; iOS and Android group the
+  split view entries under Split View.
+- Address and command field suggestions rank a long history faster on every client.
+- New tabs open on top of the unpinned tabs, and a tab opened from a link or pop-up opens just
+  below the tab it came from, after the tabs opened from that tab before, on every client.
+- Dark pages: forced dark mode leaves a site alone when its own colour scheme is dark (or follows
+  the system while the system is dark), even before its background loads, and keeps dialogs,
+  pop-overs and full-screen video looking right on every client.
+
+### Fixed
+
+- iOS and Android: with the keyboard up, a tap on a button in a sheet, a pop-over, the assistant
+  chat or the address bar's suggestions now presses it instead of only closing the keyboard, so
+  New Note, a settings switch or an answer row work on the first tap.
+- Settings search finds Compact density and Shortcut tips in Appearance by "density" and "tips" on
+  every client.
+- macOS and Windows: tabs on top, the mini player and the Notes and Snippets settings are reachable
+  with Tab, and Auto-Hide Sidebar no longer shows the sidebar beside tabs on top. Settings › AI says
+  what a send carries in the same words as the other clients, and a selection command is sent only
+  when its selection could be attached.
+- An Ollama error is no longer reported as Ollama not running. Snippets and assistant command templates are saved without
+  invisible or control characters, as notes are.
+
 ## [0.1.6] - 2026-11-21
 
 ### Fixed

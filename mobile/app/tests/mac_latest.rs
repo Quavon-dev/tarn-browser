@@ -65,7 +65,7 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     app.press_key("escape").unwrap();
     app.wait_for_gone("Create Space", WAIT).unwrap();
     app.press_key("mod+s").unwrap();
-    app.wait_for_gone("label:New Folder", WAIT).unwrap();
+    app.wait_for_gone("label:Organize Tabs", WAIT).unwrap();
     app.press("label:Home").unwrap();
     app.press("label:New Space…").unwrap();
     app.wait_for("Create Space").unwrap();
@@ -74,8 +74,9 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     app.press_key("escape").unwrap();
     app.wait_for_gone("Create Space", WAIT).unwrap();
     app.press_key("mod+s").unwrap();
-    app.wait_for("label:New Folder").unwrap();
+    app.wait_for("label:Organize Tabs").unwrap();
 
+    app.press("label:Organize Tabs").unwrap();
     app.press("label:New Folder").unwrap();
     app.wait_for("label:Folder 1").unwrap();
     app.long_press("label:Folder 1").unwrap();
@@ -89,9 +90,10 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     app.press("label:Remove").unwrap();
     app.wait_for_gone("🚀", WAIT).unwrap();
 
-    open(&mut app, "https://github.com/a");
-    open(&mut app, "https://gitlab.com/b");
     open(&mut app, "https://example.com/");
+    open(&mut app, "https://gitlab.com/b");
+    open(&mut app, "https://github.com/a");
+    app.press("label:Organize Tabs").unwrap();
     app.press("label:Clean Up").unwrap();
     app.wait_for("Sorted 2 tabs into groups").unwrap();
     app.wait_for("label:Development").unwrap();

@@ -10,9 +10,11 @@ description = "Design tokens, icons and controls shared by Tarn's Native Shell a
 [workspace]
 
 [dependencies]
+ai = { path = "../crates/ai" }
 browser-core = { path = "../crates/browser-core" }
 store = { path = "../crates/store" }
 shield = { path = "../crates/shield" }
+url = "=2.5.9"
 nsh-core = "=0.5.0"
 nsh-base = "=0.5.0"
 

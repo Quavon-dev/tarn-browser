@@ -13,6 +13,7 @@ pub const SWEEP: f32 = 14.;
 pub const STAGGER: Duration = Duration::from_millis(22);
 pub const SETTLE: Duration = Duration::from_millis(300);
 pub const POPUP_TRAVEL: f32 = 6.;
+pub const SHAKE: Duration = browser_core::palette::SHAKE;
 /// How soon after a pop-up closed a click on its button does not reopen it: the click that took
 /// the focus from the pop-up has already closed it.
 pub const REOPEN_GUARD: Duration = Duration::from_millis(300);
@@ -109,6 +110,11 @@ pub fn popover_motion<E: Styled + IntoElement + 'static>(element: E, id: &'stati
     } else {
         animate_linear(element, (id, 0u64), SETTLE, reduce, |e, t| e.opacity(arrive(t).0).top(px(POPUP_TRAVEL * (1. - spring(t)))))
     }
+}
+
+/// Shakes `element` sideways once when it first appears with this `id`; a new id shakes it again.
+pub fn shake<E: Styled + IntoElement + 'static>(element: E, id: impl Into<ElementId>, reduce: bool) -> AnyElement {
+    animate_linear(element, id, SHAKE, reduce, |e, t| e.relative().left(px(browser_core::palette::shake(t))))
 }
 
 pub fn fade_in<E: Styled + IntoElement + 'static>(element: E, id: impl Into<ElementId>, reduce: bool) -> AnyElement {

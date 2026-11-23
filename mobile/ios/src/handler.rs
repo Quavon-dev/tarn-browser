@@ -6,12 +6,13 @@ use std::rc::{Rc, Weak};
 use block2::{DynBlock, RcBlock};
 use engine::view_policy;
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool, NSObjectProtocol};
+use objc2::runtime::{AnyObject, Bool, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
+use objc2_core_foundation::CGRect;
 use objc2_foundation::{
     NSArray, NSDictionary, NSError, NSHTTPURLResponse, NSInteger, NSObject, NSString, NSURL, NSURLAuthenticationChallenge, NSURLCredential,
 };
-use objc2_ui_kit::{UIAction, UIContextMenuConfiguration, UIMenu, UIMenuElement};
+use objc2_ui_kit::{UIAction, UIContextMenuConfiguration, UIMenu, UIMenuBuilder, UIMenuElement, UIMenuOptions, UIMenuRoot, UIMenuSystem, UIResponder, UIView};
 use objc2_web_kit::{
     WKDownload, WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationResponse,
     WKNavigationResponsePolicy, WKNavigationType, WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebViewConfiguration, WKWebpagePreferences,
@@ -52,6 +53,67 @@ pub(crate) fn security_origin(origin: &WKSecurityOrigin) -> Option<Url> {
     let (scheme, host, port) = unsafe { (origin.protocol().to_string(), origin.host().to_string(), origin.port()) };
     let port = if port > 0 { format!(":{port}") } else { String::new() };
     Url::parse(&format!("{scheme}://{host}{port}/")).ok()
+}
+
+define_class!(
+    // SAFETY: a WKWebView that only adds entries to the menus UIKit builds for it; it has no ivars.
+    #[unsafe(super(WebView, UIView, UIResponder, NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "TarnPageWebView"]
+    pub struct PageWebView;
+
+    unsafe impl NSObjectProtocol for PageWebView {}
+
+    impl PageWebView {
+        // A selection's edit menu gains Ask Assistant about Selection and the Ask Assistant to
+        // submenu where the shell set the commands for this page; each reads the selection.
+        #[unsafe(method(buildMenuWithBuilder:))]
+        fn build_menu(&self, builder: &ProtocolObject<dyn UIMenuBuilder>) {
+            // SAFETY: UIKit's own entries first, with the builder it passed, as the method expects.
+            let _: () = unsafe { msg_send![super(self), buildMenuWithBuilder: builder] };
+            let mtm = self.mtm();
+            if *builder.system() != *UIMenuSystem::contextSystem(mtm) {
+                return;
+            }
+            // SAFETY: main-thread query of the view itself; WebKit offers Copy only over a selected range.
+            let selected: bool = unsafe { msg_send![self, canPerformAction: objc2::sel!(copy:), withSender: None::<&AnyObject>] };
+            if !selected {
+                return;
+            }
+            // SAFETY: main-thread read of the view's own UI delegate, a `Handler` or nil.
+            let delegate: Option<Retained<AnyObject>> = unsafe { msg_send![self, UIDelegate] };
+            let Some(inner) = delegate.and_then(|d| d.downcast::<Handler>().ok()).and_then(|h| h.inner()) else { return };
+            let Some(commands) = inner.props.borrow().assistant_menu.clone() else { return };
+            let action = |title: &str, command: Option<String>| -> Retained<UIMenuElement> {
+                let inner = Rc::downgrade(&inner);
+                let ask = RcBlock::new(move |_: NonNull<UIAction>| {
+                    if let Some(inner) = inner.upgrade() {
+                        inner.ask_selection(command.clone());
+                    }
+                });
+                // SAFETY: the handler is a valid block, which UIKit copies; no image or identifier.
+                let action = unsafe { UIAction::actionWithTitle_image_identifier_handler(&NSString::from_str(title), None, None, RcBlock::as_ptr(&ask), mtm) };
+                Retained::into_super(action)
+            };
+            let mut items = vec![action(view_policy::ASK_SELECTION, None)];
+            if !commands.is_empty() {
+                let children: Vec<Retained<UIMenuElement>> = commands.into_iter().map(|name| action(&name.clone(), Some(name))).collect();
+                let sub = UIMenu::menuWithTitle_children(&NSString::from_str(view_policy::ASSISTANT_COMMANDS), &NSArray::from_retained_slice(&children), mtm);
+                items.push(Retained::into_super(sub));
+            }
+            let menu = UIMenu::menuWithTitle_image_identifier_options_children(&NSString::new(), None, None, UIMenuOptions::DisplayInline, &NSArray::from_retained_slice(&items), mtm);
+            // SAFETY: `UIMenuRoot` is UIKit's constant identifier of every menu's root.
+            builder.insertChildMenu_atEndOfMenuForIdentifier(&menu, unsafe { UIMenuRoot });
+        }
+    }
+);
+
+impl PageWebView {
+    pub(crate) fn make(mtm: MainThreadMarker, frame: CGRect, configuration: &WKWebViewConfiguration) -> Retained<WebView> {
+        // SAFETY: WKWebView's designated initializer, on the main thread (marker); the subclass adds no ivars.
+        let web: Retained<Self> = unsafe { msg_send![Self::alloc(mtm), initWithFrame: frame, configuration: configuration] };
+        Retained::into_super(web)
+    }
 }
 
 define_class!(

@@ -1,10 +1,11 @@
 use std::fmt;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::time::Duration;
 
 use serde_json::json;
 
 use crate::provider::{self, AiError, Provider, Request};
+use crate::transport::Transport;
 
 const URL: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
@@ -35,11 +36,12 @@ pub struct ClaudeApi {
     token: ApiToken,
     model: String,
     url: String,
+    transport: Arc<dyn Transport>,
 }
 
 impl ClaudeApi {
-    pub fn new(token: ApiToken, model: Option<String>) -> Self {
-        Self { token, model: model.unwrap_or_else(|| DEFAULT_MODEL.into()), url: URL.into() }
+    pub fn new(token: ApiToken, model: Option<String>, transport: Arc<dyn Transport>) -> Self {
+        Self { token, model: model.unwrap_or_else(|| DEFAULT_MODEL.into()), url: URL.into(), transport }
     }
 }
 
@@ -52,9 +54,8 @@ impl Provider for ClaudeApi {
             "system": req.system,
             "messages": [{ "role": "user", "content": req.user_message() }],
         });
-        let agent = provider::agent(Duration::from_secs(600));
-        let post = agent.post(&self.url).header("x-api-key", self.token.expose()).header("anthropic-version", API_VERSION);
-        let reader = provider::post_json(post, &body)?;
+        let headers = [("x-api-key", self.token.expose()), ("anthropic-version", API_VERSION)];
+        let reader = provider::post_json(&*self.transport, &self.url, &headers, &body, cancel)?;
         provider::for_each_line(reader, cancel, |line| {
             let Some(data) = line.strip_prefix("data:") else {
                 return Ok(false);
@@ -81,11 +82,12 @@ mod tests {
     use super::*;
     use crate::page_context::PageContext;
     use crate::provider::test_server::serve;
+    use crate::transport::UreqTransport;
 
     const SECRET: &str = "sk-ant-TESTSECRET-0123456789";
 
     fn api(url: String) -> ClaudeApi {
-        ClaudeApi { url, ..ClaudeApi::new(ApiToken::new(SECRET.into()), None) }
+        ClaudeApi { url, ..ClaudeApi::new(ApiToken::new(SECRET.into()), None, Arc::new(UreqTransport)) }
     }
 
     fn req() -> Request {
@@ -133,23 +135,40 @@ mod tests {
     }
 
     #[test]
+    fn never_sends_to_a_host_outside_the_allowlist() {
+        #[derive(Debug)]
+        struct Unreachable;
+        impl Transport for Unreachable {
+            fn post<'a>(&self, _: &str, _: &[(&str, &str)], _: &[u8], _: u64, _: &'a AtomicBool) -> Result<crate::transport::Response<'a>, AiError> {
+                panic!("the token reached the transport");
+            }
+        }
+        let api = ClaudeApi { url: "https://evil.test/v1/messages".into(), ..ClaudeApi::new(ApiToken::new(SECRET.into()), None, Arc::new(Unreachable)) };
+        assert!(matches!(api.stream(&req(), &AtomicBool::new(false), &mut |_| {}), Err(AiError::Network(_))));
+    }
+
+    #[test]
     fn only_anthropic_host() {
-        assert_eq!(ClaudeApi::new(ApiToken::new(String::new()), None).url, "https://api.anthropic.com/v1/messages");
+        assert_eq!(ClaudeApi::new(ApiToken::new(String::new()), None, Arc::new(UreqTransport)).url, "https://api.anthropic.com/v1/messages");
     }
 
     #[test]
     fn token_never_in_debug_output() {
         let token = || ApiToken::new(SECRET.into());
+        let secrets = crate::secrets::tests::Memory::default();
+        crate::secrets::store_token(&secrets, &token()).unwrap();
         let outputs = [
+            format!("{:?}", crate::secrets::load_token(&secrets)),
+            format!("{:?}", crate::provider::AiError::Secrets("x".into())),
             format!("{:?}", token()),
-            format!("{:#?}", ClaudeApi::new(token(), Some("m".into()))),
+            format!("{:#?}", ClaudeApi::new(token(), Some("m".into()), Arc::new(UreqTransport))),
             format!("{:?}", req()),
             format!("{:?}", crate::provider::AiError::Status(401, "x".into())),
-            format!("{:?}", crate::ollama::Ollama::new("m")),
+            format!("{:?}", crate::ollama::Ollama::new("m", Arc::new(UreqTransport))),
             format!("{:?}", crate::claude_cli::ClaudeCli::new("/usr/bin/false".into(), None)),
         ];
-        for out in outputs {
-            assert!(!out.contains(SECRET) && !out.contains("TESTSECRET"), "{out}");
+        for (ix, out) in outputs.iter().enumerate() {
+            assert!(!out.contains(SECRET) && !out.contains("TESTSECRET"), "output {ix} shows the token");
         }
     }
 }

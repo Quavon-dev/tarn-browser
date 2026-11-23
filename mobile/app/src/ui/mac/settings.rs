@@ -67,16 +67,24 @@ fn nav(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
                     .font_weight(FontWeight::BOLD)
                     .text_color(Theme::faint),
             )
-            .children(members.iter().filter(|p| !matches!(p, Pane::Tabs | Pane::Developer)).map(move |p| {
-                let p = *p;
-                nav_row(panes::name(p), panes::icon(p), shown(p), move || {
-                    pane.set(p);
-                    if ui.screen.get_untracked() != Screen::Settings {
-                        ui.show(Screen::Settings);
-                    }
-                })
-                .into_element()
-            }))
+            .children(
+                members
+                    .iter()
+                    .filter(move |p| {
+                        !matches!(p, Pane::Tabs | Pane::Developer)
+                            && (**p != Pane::Ai || tarn_nsh_shared::assistant::offered(super::super::assistant::Host(ui)))
+                    })
+                    .map(move |p| {
+                        let p = *p;
+                        nav_row(panes::name(p), panes::icon(p), shown(p), move || {
+                            pane.set(p);
+                            if ui.screen.get_untracked() != Screen::Settings {
+                                ui.show(Screen::Settings);
+                            }
+                        })
+                        .into_element()
+                    }),
+            )
             .child(when(
                 move || last_group(ix) && !private(ui),
                 move || nav_row(EXTENSIONS, glyphs::SPARKLES, move || ui.screen.get() == Screen::Extensions, move || ui.show(Screen::Extensions)),
@@ -91,7 +99,7 @@ fn nav(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
         .bg(Theme::panel_nav)
         .border_r_1()
         .border_color(Theme::separator)
-        .child(scroll().flex_1().child(view().pb_4().children(groups.collect::<Vec<_>>())))
+        .child(scroll().flex_1().keyboard_taps(KeyboardTaps::Handled).child(view().pb_4().children(groups.collect::<Vec<_>>())))
 }
 
 fn last_group(ix: usize) -> bool {
@@ -186,8 +194,8 @@ fn header(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
 fn shortcuts() -> View {
     let note =
         if cfg!(target_os = "android") { "Shortcuts work with a hardware keyboard; Ctrl stands for ⌘." } else { "Shortcuts work with a hardware keyboard." };
-    view().gap_2().child(text(note).pt_3().px_1().text_size(px(TEXT_SMALL)).text_color(Theme::muted)).children(shortcuts::table(apple_keys()).into_iter().map(
-        |(name, rows)| {
+    view().gap_2().child(text(note).pt_3().px_1().text_size(px(TEXT_SMALL)).text_color(Theme::muted)).children(
+        shortcuts::table(super::input::keyboard(), super::input::offered).into_iter().map(|(name, rows)| {
             view().child(section(name)).child(group().children(rows.into_iter().enumerate().map(|(ix, (does, keys))| {
                 view()
                     .flex_row()
@@ -200,8 +208,8 @@ fn shortcuts() -> View {
                     .child(text(keys).text_size(px(TEXT)).text_color(Theme::muted))
                     .into_element()
             })))
-        },
-    ))
+        }),
+    )
 }
 
 fn profiles(ui: Ui) -> View {
@@ -254,7 +262,13 @@ fn content(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
     let key = move || format!("{:?}{:?}", ui.screen.get(), pane.get());
     view().flex_1().min_w(px(0.)).h_full().child(header(ui, pane)).child(dynamic(move || {
         let shown = key();
-        Some(scroll().key(shown).flex_1().child(view().w_full().max_w(px(CONTENT_WIDTH)).self_center().px_8().pt_1().pb_8().child(body(ui, pane))))
+        Some(
+            scroll()
+                .key(shown)
+                .flex_1()
+                .keyboard_taps(KeyboardTaps::Handled)
+                .child(view().w_full().max_w(px(CONTENT_WIDTH)).self_center().px_8().pt_1().pb_8().child(body(ui, pane))),
+        )
     }))
 }
 
