@@ -93,6 +93,8 @@ mod mac {
         nightly_feed: Option<Retained<NSString>>,
         nightly: Cell<bool>,
         version: String,
+        /// A check asked for while Sparkle's session ran; Sparkle drops those itself.
+        check_pending: Cell<bool>,
     }
 
     impl Ivars {
@@ -177,6 +179,17 @@ mod mac {
                     (self.ivars().report)(Report::CriticalFound);
                 }
             }
+
+            /// Sparkle lets its delegate start a new session from here.
+            #[unsafe(method(updater:didFinishUpdateCycleForUpdateCheck:error:))]
+            fn did_finish_update_cycle(&self, updater: &AnyObject, _check: isize, _error: Option<&NSError>) {
+                if self.ivars().check_pending.replace(false) {
+                    // SAFETY: `updater` is the live `SPUUpdater`; `checkForUpdates` takes no arguments.
+                    unsafe {
+                        let _: () = msg_send![updater, checkForUpdates];
+                    }
+                }
+            }
         }
     );
 
@@ -209,7 +222,14 @@ mod mac {
             let class = AnyClass::get(c"SPUStandardUpdaterController")?;
             let feed = feed?;
             let nightly_feed = super::nightly_feed(&feed).map(|f| NSString::from_str(&f));
-            let ivars = Ivars { report: Box::new(report), feed: NSString::from_str(&feed), nightly_feed, nightly: Cell::new(nightly), version };
+            let ivars = Ivars {
+                report: Box::new(report),
+                feed: NSString::from_str(&feed),
+                nightly_feed,
+                nightly: Cell::new(nightly),
+                version,
+                check_pending: Cell::new(false),
+            };
             let delegate = Delegate::alloc(mtm).set_ivars(ivars);
             // SAFETY: NSObject's designated initializer on a freshly allocated instance.
             let delegate: Retained<Delegate> = unsafe { msg_send![super(delegate), init] };
@@ -246,26 +266,33 @@ mod mac {
         }
 
         /// Switches between the Release and Nightly feeds and, while automatic checks are on, checks
-        /// the chosen one in the background.
+        /// the chosen one as Check Now does.
         pub fn set_nightly(&self, on: bool) {
             self.delegate.ivars().nightly.set(on);
-            // SAFETY: `updater` is a non-null property of the live controller; the getter returns a
-            // BOOL and `checkForUpdatesInBackground` takes no arguments.
-            unsafe {
+            // SAFETY: `updater` is a non-null property of the live controller; the getter returns a BOOL.
+            let automatic: bool = unsafe {
                 let updater: Retained<AnyObject> = msg_send![&self.controller, updater];
-                let automatic: bool = msg_send![&updater, automaticallyChecksForUpdates];
-                if automatic {
-                    let _: () = msg_send![&updater, checkForUpdatesInBackground];
-                }
+                msg_send![&updater, automaticallyChecksForUpdates]
+            };
+            if automatic {
+                self.check_now();
             }
         }
 
-        /// Checks now and shows Sparkle's progress and result windows.
+        /// Checks now and shows Sparkle's progress and result windows; while Sparkle's session
+        /// runs, once that session ends.
         pub fn check_now(&self) {
             let none: Option<&AnyObject> = None;
-            // SAFETY: `checkForUpdates:` is the controller's action method; the sender may be nil.
+            // SAFETY: `updater` is a non-null property of the live controller; `canCheckForUpdates` is a
+            // BOOL getter and `checkForUpdates:` the controller's action method, whose sender may be nil.
             unsafe {
-                let _: () = msg_send![&self.controller, checkForUpdates: none];
+                let updater: Retained<AnyObject> = msg_send![&self.controller, updater];
+                // Sparkle can check, or bring an update it shows to the front, unless a session is busy.
+                let busy: bool = !msg_send![&updater, canCheckForUpdates];
+                self.delegate.ivars().check_pending.set(busy);
+                if !busy {
+                    let _: () = msg_send![&self.controller, checkForUpdates: none];
+                }
             }
         }
 
