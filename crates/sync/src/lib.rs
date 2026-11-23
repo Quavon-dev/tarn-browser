@@ -2,16 +2,17 @@
 #![forbid(unsafe_code)]
 
 mod file;
+mod model;
 
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use engine::nav_policy::{Decision, Source, decide};
-use serde::{Deserialize, Serialize};
 use shield::ShieldLevel;
 use url::Url;
 
 pub use file::{KdfParams, MAX_FILE_LEN, SALT_LEN, SyncKey, header_kdf, open, open_with_key, seal, seal_with_key};
+pub use model::{Folder, Meta, Setting, Snapshot, Space, SyncError, SyncId, Tab, TabKind};
 
 pub const MAX_SPACES: usize = 100;
 pub const MAX_FOLDERS: usize = 2_000;
@@ -22,96 +23,6 @@ pub const MAX_ICON_LEN: usize = 64;
 pub const MAX_URL_LEN: usize = 8_192;
 /// How far ahead of this device's clock a remote timestamp may be.
 pub const MAX_CLOCK_SKEW_MS: i64 = 24 * 60 * 60 * 1000;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SyncError {
-    TooLarge,
-    Truncated,
-    BadMagic,
-    UnsupportedVersion,
-    WeakKdf,
-    CostlyKdf,
-    /// Wrong passphrase or tampered file; the two cannot be told apart.
-    Decrypt,
-    /// The file belongs to another sync set or passphrase (different salt or KDF parameters).
-    KeyMismatch,
-    Malformed,
-    TooMany,
-    TooLong,
-    BadId,
-    /// A timestamp is negative or too far in the future; it would win every later merge.
-    BadTime,
-    Rng,
-}
-
-/// 32 lowercase hex characters (UUID v4, simple form).
-pub type SyncId = String;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Meta {
-    /// Milliseconds since the Unix epoch.
-    pub updated_at: i64,
-    pub device: SyncId,
-    pub deleted: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Space {
-    pub id: SyncId,
-    pub name: String,
-    pub icon: String,
-    pub position: i64,
-    pub meta: Meta,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Folder {
-    pub id: SyncId,
-    pub space: SyncId,
-    pub parent: Option<SyncId>,
-    pub name: String,
-    pub position: i64,
-    pub meta: Meta,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TabKind {
-    Tile,
-    Pinned,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Tab {
-    pub id: SyncId,
-    pub space: SyncId,
-    pub folder: Option<SyncId>,
-    pub kind: TabKind,
-    pub url: String,
-    pub title: String,
-    pub position: i64,
-    pub meta: Meta,
-}
-
-/// Keys: `shield_level`, `site_override:<host>`; values: Shield level names.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Setting {
-    pub key: String,
-    pub value: String,
-    pub meta: Meta,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Snapshot {
-    pub device: SyncId,
-    /// Incremented by the writing device on every write. Rejecting a lower value than last seen
-    /// from this device (rollback) and checking `device` against the file name is the caller's job.
-    pub seq: u64,
-    pub spaces: Vec<Space>,
-    pub folders: Vec<Folder>,
-    pub tabs: Vec<Tab>,
-    pub settings: Vec<Setting>,
-}
 
 trait Item: Ord {
     fn key(&self) -> &str;

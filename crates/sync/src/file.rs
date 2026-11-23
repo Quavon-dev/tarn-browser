@@ -3,7 +3,7 @@ use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use zeroize::Zeroizing;
 
-use crate::{Snapshot, SyncError};
+use crate::model::{Snapshot, SyncError};
 
 const MAGIC: &[u8; 8] = b"TARNSYNC";
 const VERSION: u16 = 1;
