@@ -454,6 +454,8 @@ fn a_split_shows_its_panes_and_a_closed_pane_hands_the_focus_on() {
     visit(&mut b, first, "https://a.test/");
     let second = b.new_tab("https://b.test/").unwrap();
     let third = b.new_tab("https://c.test/").unwrap();
+    // Both tabs can open within the same millisecond; the later one is the more recent.
+    b.model.touch(&b.core, third, browser_core::now() + 1);
     b.activate(first);
     b.open_split();
     assert_eq!(b.shown_split().map(|s| s.panes().to_vec()), Some(vec![first, third]), "the most recently used tab joins");

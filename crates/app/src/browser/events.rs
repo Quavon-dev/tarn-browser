@@ -547,6 +547,16 @@ impl Browser {
         self.after_prompt(window, cx);
     }
 
+    pub(crate) fn choose_certificate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(key) = self.model.active else { return };
+        if self.prompt_guarded() {
+            return;
+        }
+        let Some(prompt) = self.prompts.get_mut(&key).and_then(VecDeque::pop_front) else { return };
+        prompt.choose(index);
+        self.after_prompt(window, cx);
+    }
+
     /// Esc declines the prompt in front, as Cancel or Deny does, without remembering the answer.
     pub(crate) fn dismiss_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.remember_permission = false;
@@ -579,10 +589,12 @@ impl Browser {
         }
     }
 
-    /// A permission prompt's Allow and Remember, and Keep Anyway on a malware warning, ignore clicks for a
+    /// A permission prompt's Allow and Remember, Keep Anyway on a malware warning and a certificate choice ignore clicks for a
     /// moment after they appear, so a page cannot time a click to land on them.
     pub(crate) fn prompt_guarded(&self) -> bool {
-        self.active_prompt().is_some_and(|p| p.kind.is_permission() || matches!(p.kind, PromptKind::MaliciousDownload { .. })) && !self.layout_stable()
+        self.active_prompt()
+            .is_some_and(|p| p.kind.is_permission() || matches!(p.kind, PromptKind::MaliciousDownload { .. } | PromptKind::ClientCertificate { .. }))
+            && !self.layout_stable()
     }
 
     pub(super) fn on_prompt_input_event(&mut self, input: &Entity<TextInput>, event: &TextInputEvent, window: &mut Window, cx: &mut Context<Self>) {

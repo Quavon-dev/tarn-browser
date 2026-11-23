@@ -66,7 +66,9 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
 - **Page requests:** camera and microphone ask with the page's origin as in WebKit tabs (screen
   capture is refused); HTTP Basic and Digest ask only for the page's own origin or the one its
   main frame is navigating to, three times at most per page load (proxy and integrated
-  authentication are refused); a link to another app's scheme (`mailto:`, `tel:`) asks before it
+  authentication are refused); a client certificate is asked for under the same origin rule,
+  never for a proxy, and Cancel sends none, which Chromium then keeps for that host until Tarn
+  restarts; a link to another app's scheme (`mailto:`, `tel:`) asks before it
   is handed to Windows. Shift-click opens a link in a peek; Ctrl- and middle-click and the page
   menu's Open Link in New Tab open a tab under the pop-up rules, its first load judged as the
   page's link (S10). The page menu keeps Chrome's editing, link, image and media items; saving
@@ -275,7 +277,7 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
 | `WKContentRuleList` (Shield, private-network rule, HTTPS upgrade) | `AddWebResourceRequestedFilter("*", ALL)` + `WebResourceRequested` handler that evaluates the `adblock-rust` engine in-process | No compile step and no per-list limit; cost is a callback per request, so the engine must answer in microseconds (bench gate). HTTPS-only: cancel and re-navigate main-frame HTTP; subresources blocked. |
 | `interactionState` | No equivalent | The back list cannot be restored; only the URL is. Documented loss. |
 | Navigation delegate (`decidePolicyForNavigationAction`) | `NavigationStarting` (cancel), `FrameNavigationStarting`, `NewWindowRequested` (popups, gesture via `IsUserInitiated`) | `nav_policy::decide` called from the same places; `Source` mapping unchanged. |
-| JS dialogs, permissions, HTTP auth | `ScriptDialogOpening` (deferral, tab-modal GPUI prompt), `PermissionRequested`, `BasicAuthenticationRequested` | Origin shown in every prompt (S5). |
+| JS dialogs, permissions, HTTP auth, client certificates | `ScriptDialogOpening` (deferral, tab-modal GPUI prompt), `PermissionRequested`, `BasicAuthenticationRequested`, CEF `OnSelectClientCertificate` | Origin shown in every prompt (S5). |
 | TLS errors | `ServerCertificateErrorDetected` | Never `AlwaysAllow`; no bypass at any level (S7). |
 | Content-process crash reload | `ProcessFailed` | Same rate limit. |
 | Script message handlers (none) | `AreHostObjectsAllowed = FALSE`, `IsWebMessageEnabled = FALSE`, no `AddHostObjectToScript` | S1 holds. Also `AreDevToolsEnabled` only in the dev profile; `AreDefaultContextMenusEnabled` reviewed. |

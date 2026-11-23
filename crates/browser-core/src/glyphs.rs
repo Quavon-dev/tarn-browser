@@ -4,7 +4,7 @@ pub fn glyph(kind: &str) -> &'static str {
         "microphone" => "mic",
         "location" | "geolocation" => "map-pin",
         "notifications" => "bell",
-        "credentials" => "key-round",
+        "credentials" | "certificate" => "key-round",
         "extension" => "shield",
         "alert" | "confirm" | "download" | "malicious download" => "triangle-alert",
         "external" => "external-link",

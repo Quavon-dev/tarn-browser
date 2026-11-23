@@ -900,6 +900,18 @@ wrap_request_handler! {
             1
         }
 
+        // CEF's UI thread. Left unanswered, Chromium would send the first certificate unasked.
+        fn on_select_client_certificate(&self, _browser: Option<&mut Browser>, is_proxy: i32, host: Option<&CefString>, port: i32, certificates: Option<&[Option<X509Certificate>]>, callback: Option<&mut SelectClientCertificateCallback>) -> i32 {
+            let Some(callback) = callback else { return 1 };
+            let certificates: Vec<X509Certificate> = certificates.unwrap_or_default().iter().flatten().cloned().collect();
+            if is_proxy == 1 || certificates.is_empty() {
+                callback.select(None);
+                return 1;
+            }
+            ask_certificate(self.id, &string(host), port, certificates, callback.clone());
+            1
+        }
+
         fn on_certificate_error(&self, _browser: Option<&mut Browser>, _cert_error: Errorcode, _request_url: Option<&CefString>, _ssl_info: Option<&mut Sslinfo>, callback: Option<&mut Callback>) -> i32 {
             if let Some(callback) = callback {
                 callback.cancel();
@@ -1270,6 +1282,26 @@ fn ask_credentials(id: u64, origin_url: &str, realm: &str, callback: &AuthCallba
     let insecure = !origin.starts_with("https:");
     let kind = crate::PromptKind::Credentials { realm: crate::page::bounded(realm) };
     emit(&tab, Event::Prompt(crate::Prompt::answered(origin, None, insecure, String::new(), kind, reply, tab.silenced.clone())));
+}
+
+/// As for credentials, only the page's own origin, or the one its main frame is navigating to,
+/// may ask; any other request, and Cancel, go on without a certificate.
+fn ask_certificate(id: u64, host: &str, port: i32, certificates: Vec<X509Certificate>, callback: SelectClientCertificateCallback) {
+    let challenge = crate::view_policy::tls_challenge(host, port);
+    let origin = challenge.as_ref().and_then(crate::page::serialized_origin);
+    let (Some(tab), Some(challenge), Some(origin)) = (tab(id), challenge, origin) else { return callback.select(None) };
+    let (page, navigating) = (page_url(tab.browser.borrow().as_ref()), tab.navigating.borrow().as_deref().and_then(|o| Url::parse(o).ok()));
+    let own = [page, navigating].iter().any(|p| crate::view_policy::may_ask_credentials(&challenge, p.as_ref(), 0));
+    if !own || tab.silenced.get() || !crate::page::within_burst(&tab.recent_prompts, crate::page::PROMPT_BURST) {
+        return callback.select(None);
+    }
+    let names = certificates.iter().map(|c| c.subject().map(|s| CefString::from(&s.display_name()).to_string()).unwrap_or_default()).collect();
+    let reply = Box::new(move |answer: Option<(String, Option<(String, String)>)>| {
+        let mut chosen = answer.and_then(|(index, _)| index.parse::<usize>().ok()).and_then(|i| certificates.get(i).cloned());
+        callback.select(chosen.as_mut());
+    });
+    let kind = crate::PromptKind::ClientCertificate { names };
+    emit(&tab, Event::Prompt(crate::Prompt::answered(origin, None, false, String::new(), kind, reply, tab.silenced.clone())));
 }
 
 /// Drops a step into the restored list that did not navigate, and the marks it set for its load.
