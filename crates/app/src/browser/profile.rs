@@ -85,7 +85,7 @@ impl Browser {
     }
 
     pub fn set_profile_shield(&mut self, level: ShieldLevel, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(target) = self.shield_target() else { return };
+        let Some(target) = self.shield_target().filter(|(private, id)| !self.model.shield_fixed(*private, *id)) else { return };
         if !self.shield_wipes_data(level) {
             return self.apply_profile_shield(target, level, window, cx);
         }
@@ -446,7 +446,9 @@ impl Browser {
     /// Lockdown pages get no extra requests.
     pub(super) fn request_favicon(&mut self, key: TabKey, url: &Url) {
         let lockdown = self.level_for_tab(key, url.as_str()) == ShieldLevel::Lockdown;
-        let (Some(profile_id), Some(host)) = (self.profile_of(key), favicon::icon_host(url, lockdown)) else { return };
+        let (Some(profile_id), Some(host)) = (self.profile_of(key).filter(|_| self.model.agent_profile.is_none()), favicon::icon_host(url, lockdown)) else {
+            return;
+        };
         self.load_favicons(key.private, profile_id);
         let Some(view) = self.views.get(&key) else { return };
         let profile = (key.private, profile_id);

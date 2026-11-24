@@ -148,7 +148,7 @@ impl Browser {
     #[cfg(feature = "chromium")]
     pub(crate) fn web_engine_for(&mut self, key: TabKey, url: &str) -> WebEngine {
         let tab = self.model.tab(key).and_then(|t| t.web_engine);
-        let Some((private, profile_id)) = self.model.profile() else { return WebEngine::WebKit };
+        let Some((private, profile_id)) = self.model.profile().filter(|_| self.model.agent_profile.is_none()) else { return WebEngine::WebKit };
         self.runtime(private, profile_id);
         self.core.web_engine(private, profile_id, tab, Url::parse(url).ok().as_ref()).unwrap_or(WebEngine::WebKit)
     }
@@ -157,11 +157,13 @@ impl Browser {
     pub(crate) fn web_view(&mut self, host: &Host, private: bool, profile_id: Id, url: &str, sink: Rc<dyn Fn(Event)>) -> Option<WebView> {
         let developer = self.developer;
         let sets = self.core.sets.clone();
+        let extensions = self.model.agent_profile.is_none();
         let rt = self.runtime(private, profile_id)?;
         let site_for = browser_core::site::site_for(rt.profile.clone(), rt.overrides.clone(), rt.rules.clone(), sets);
         let site = Url::parse(url).map_or(nav_policy::Site::new(rt.profile.shield_level), |u| site_for(&u));
         let inspectable = (developer || rt.profile.is_dev) && site.level != ShieldLevel::Lockdown;
-        Some(WebView::new(host, &rt.data, site.level, site.filtered, inspectable, site_for, sink))
+        let features = engine::Features { filtered: site.filtered, extensions };
+        Some(WebView::new(host, &rt.data, site.level, features, inspectable, site_for, sink))
     }
 
     #[cfg_attr(not(feature = "chromium"), allow(unused_variables))]
@@ -210,6 +212,7 @@ impl Browser {
         view.set_corner_radius(page_corner());
         view.set_dark(!ui::theme::Theme::is_light());
         self.view_prefs(&view);
+        crate::agent::gate_view(key, &view, cx);
         self.views.insert(key, view.clone());
         self.attach_tarn(key);
         Some(view)

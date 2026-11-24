@@ -3,7 +3,7 @@ name = "ai"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Experimental AI providers (Claude API, Claude CLI, Ollama) for page summaries and tab grouping; not wired into the app."
+description = "AI providers (Claude API, Claude CLI, Ollama) for Tarn's assistant, page summaries and tab grouping."
 repository.workspace = true
 publish.workspace = true
 

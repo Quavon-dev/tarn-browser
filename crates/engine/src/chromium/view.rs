@@ -50,6 +50,7 @@ struct Tab {
     shell_load: RefCell<Option<Url>>,
     /// Files this view showed through `load_file`; only they get Open File's credit (S6).
     opened_files: RefCell<std::collections::HashSet<Url>>,
+    agent_gate: RefCell<Option<crate::agent_scripts::Gate>>,
     /// The main-frame navigation under way started in the shell, so its redirects may reach a
     /// private address (S10).
     shell_chain: Cell<bool>,
@@ -745,6 +746,10 @@ wrap_request_handler! {
                 && let Some(id) = crate::tarn_ext::store_install(&url)
             {
                 emit(&tab, Event::StoreInstall(id));
+                return 1;
+            }
+            if !shell && tab.agent_gate.borrow().as_ref().is_some_and(|gate| !gate(&url)) {
+                emit(&tab, Event::AgentHeld(url));
                 return 1;
             }
             let opened = tab.opened_files.borrow().contains(&url);
@@ -1868,6 +1873,7 @@ impl WebView {
         tab.lockdown_view.set(opener.lockdown_view.get());
         tab.filtered.set(opener.filtered.get());
         tab.inspectable.set(opener.inspectable.get());
+        *tab.agent_gate.borrow_mut() = opener.agent_gate.borrow().clone();
         if let Some(downloads) = opener.downloads.get() {
             let _ = tab.downloads.set(downloads.clone());
         }
@@ -1948,6 +1954,7 @@ impl WebView {
             found: RefCell::new(None),
             shell_load: RefCell::new(None),
             opened_files: RefCell::default(),
+            agent_gate: RefCell::default(),
             shell_chain: Cell::new(false),
             last_find: RefCell::new(String::new()),
             inspectable: Cell::new(false),
@@ -2271,6 +2278,14 @@ impl WebView {
             return done(String::new());
         }
         self.run_isolated_as_gesture(&crate::page_scripts::insert_text_script(text), true, done);
+    }
+
+    pub fn set_agent_gate(&self, gate: Option<crate::agent_scripts::Gate>) {
+        *self.0.tab.agent_gate.borrow_mut() = gate;
+    }
+
+    pub fn agent(&self, source: &str, done: impl Fn(String) + 'static) {
+        self.read_isolated(source, done);
     }
 
     pub fn json_text(&self, origin: &Url, max_bytes: usize, done: impl Fn(String) + 'static) {
@@ -2785,6 +2800,10 @@ impl WebView {
         // Not while a page loads, whose end would cancel the step, nor from the blank page a view starts on.
         if tab.restored_step.borrow().is_some() || tab.loading.get() || left.as_str() == "about:blank" || self.browser_host().is_none() {
             return;
+        }
+        // The step loads as the shell's, so the agent's gate is asked here.
+        if tab.agent_gate.borrow().as_ref().is_some_and(|gate| !gate(&target)) {
+            return emit(tab, Event::AgentHeld(target));
         }
         *tab.restored_step.borrow_mut() = Some((back, target.clone(), left));
         *tab.shell_load.borrow_mut() = Some(target.clone());

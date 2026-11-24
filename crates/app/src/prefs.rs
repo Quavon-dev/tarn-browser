@@ -34,10 +34,13 @@ pub enum Pref {
     Passkeys,
     FeatureHints,
     CompactDensity,
+    AgentControl,
+    AgentProfile,
+    AgentTabs,
 }
 
 impl Pref {
-    pub const ALL: [Pref; 26] = [
+    pub const ALL: [Pref; 29] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
@@ -64,6 +67,9 @@ impl Pref {
         Pref::Passkeys,
         Pref::FeatureHints,
         Pref::CompactDensity,
+        Pref::AgentControl,
+        Pref::AgentProfile,
+        Pref::AgentTabs,
     ];
 
     pub(crate) fn key(self) -> &'static str {
@@ -94,6 +100,9 @@ impl Pref {
             Pref::Passkeys => browser_core::settings::PASSKEYS,
             Pref::FeatureHints => browser_core::prefs::FEATURE_HINTS.key,
             Pref::CompactDensity => browser_core::prefs::COMPACT.key,
+            Pref::AgentControl => browser_core::agent::SETTING,
+            Pref::AgentProfile => browser_core::agent::SETTING_PROFILE,
+            Pref::AgentTabs => browser_core::agent::SETTING_TABS,
         }
     }
 
@@ -254,9 +263,15 @@ impl Browser {
                 #[cfg(windows)]
                 engine::set_swipe_navigation(on);
             }
+            if pref == Pref::AgentControl {
+                crate::agent::set_enabled(on, cx);
+            }
+            if matches!(pref, Pref::AgentProfile | Pref::AgentTabs) {
+                crate::agent::recheck(cx);
+            }
             if matches!(pref, Pref::Gestures | Pref::Passkeys) {
-                self.apply_view_prefs();
-                crate::shared::others(cx, |b, _, _| b.apply_view_prefs());
+                self.apply_view_prefs(cx);
+                crate::shared::others(cx, |b, _, cx| b.apply_view_prefs(cx));
             }
             if let (Pref::UpdateChecks, Some(updater)) = (pref, &self.core.updater) {
                 updater.set_automatic(on);

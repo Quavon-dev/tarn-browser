@@ -97,6 +97,9 @@ pub fn command(state: &Rc<State>, name: &str, args: &JsonValue) -> bool {
             run(state, body, move |s, _, answer| s.emit("textInserted", json!({ "seq": seq, "inserted": browser_core::snippets::inserted(&answer) })));
         }
         "pickCancel" => run(state, Some(PICK_CANCEL.to_owned()), |_, _, _| {}),
+        "agent" => {
+            run(state, args["body"].as_str().map(str::to_owned), move |s, url, text| s.emit("agentAnswer", json!({ "seq": seq, "url": url, "text": text })))
+        }
         _ => return false,
     }
     true
