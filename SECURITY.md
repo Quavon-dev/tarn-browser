@@ -85,6 +85,19 @@ must show `TeamIdentifier=CFV35FGSHF`, and `spctl -a -vv /Applications/Tarn.app`
 verifies its EdDSA-signed feed and archive, and the Windows updater the Ed25519-signed
 `windows-update.json` and the installer's SHA-256 (`docs/cryptography.md`).
 
+The Android APK on GitHub (`Tarn-<tag>-android.apk`) is signed with Tarn's sideload key. Its
+certificate's SHA-256 fingerprint is:
+
+```text
+fc92b1019fa1ed0df5dad6589941d815e5a0cdc5716868bb9d06a79d708e03b0
+```
+
+`apksigner verify --print-certs Tarn-<tag>-android.apk` must print it as the only signer's
+certificate SHA-256 digest. Nightly and release APKs use the same key and package name. Android
+refuses an update signed with another key. Play Store installs are signed by Google Play with a
+different key, so switching between a Play install and the sideload APK requires uninstalling
+first.
+
 ## Dependency and code scanning
 
 Every pull request is checked by `cargo deny` (known vulnerabilities in RustSec, yanked crates,

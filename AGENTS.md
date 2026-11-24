@@ -209,7 +209,7 @@ Security and privacy
    signing keys off CI. Pass the Android sideload key only to the dedicated signing job, which
    runs no build code and verifies the APK against the pinned signing certificate
    before uploading it. A release may also start on GitHub (`start-release.yml`): its `sign` job
-   creates the `v*` tag with the update app once a maintainer has approved the `release-signing`
+   creates the `v*` tag with the update app once a maintainer has approved its `release-signing`
    deployment, in place of a maintainer's signed tag. Mobile store signing and uploads may run in
    protected store-publishing environments, separately from builds, after release checksum and
    provenance verification. Store credentials never reach build jobs, pull requests or nightly builds.
@@ -217,10 +217,19 @@ Security and privacy
    IPC listener per running data directory for agent control. It is off by default, opens only
    after the user opts in, and accepts connections only from the same OS user account. Each
    connection needs explicit approval in Tarn before receiving browser data or controlling a
-   tab. It may use only a dedicated throwaway profile at Strict with per-site approval. Turning
-   the setting off closes the listener and ends the session, including profile cleanup. This
-   exception permits no TCP listener, local HTTP API, remote-debugging port, page-to-shell bridge
-   or new outbound request by the shell.
+   tab. By default it uses a dedicated throwaway profile at Strict with per-site approval. Two
+   further modes are allowed, each off by default behind its own setting that only the user can
+   switch in Tarn: the agent opens its own tabs in a profile the user picks, with that profile's
+   cookies and logins, or it controls tabs the user already has open. In these modes each site
+   needs the user's approval in Tarn and the approved list starts empty for every session; the
+   profile's Shield level applies and is never lowered for the agent; private-space tabs stay
+   out of reach; every tab the agent controls shows a visible indicator with a one-click stop; a
+   form submission, a payment or a filled secret field needs the user's confirmation; and the
+   agent gets no access to saved passwords, passkeys or autofill. Turning the setting off closes
+   the listener and ends the session, including cleanup of the throwaway profile; in the other
+   modes it releases every tab and leaves the user's data as it was. This exception permits no
+   TCP listener, local HTTP API, remote-debugging port, page-to-shell bridge or new outbound
+   request by the shell.
 8. **No new or changed connections.** Do not add a request the shell makes, or change the
    receiver, content or frequency of one listed in `PRIVACY.md` ("Connections the browser itself
    makes"). No telemetry, analytics, accounts or crash upload. Exception, decided by the
@@ -246,8 +255,9 @@ The person's machine
     committing them or retaining working copies. Do not inspect unrelated credentials.
     When the person explicitly requests Android sideload signing setup, create a dedicated key,
     transfer its credentials directly to `release-signing` and `nightly-signing`, and place a
-    recoverable backup in offline storage designated by the person. Do not print or commit the
-    credentials, retain temporary working copies or inspect unrelated credentials. The public
+    recoverable, encrypted backup in offline storage designated by the person. Pass passwords
+    through standard input or the environment, never as command arguments. Do not print or commit
+    the credentials, retain temporary working copies or inspect unrelated credentials. The public
     certificate fingerprint may be shared and pinned in the workflow and `SECURITY.md`.
 14. **No release actions.** Do not run `scripts/notarize.sh`, `scripts/dmg.sh`,
     `scripts/appcast.sh`, `scripts/windows-feed.sh` or `scripts/publish-release.sh`, create or move
