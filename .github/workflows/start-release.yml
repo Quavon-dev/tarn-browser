@@ -1,8 +1,9 @@
 name: Start release
 
 # Releases main's latest commit as v<version> from the version files (docs/release.md, "Releases").
-# Builds every client without keys; the sign job then waits for a maintainer to approve its
-# release-signing deployment, creates the tag with the update app, signs and publishes.
+# Builds every client without keys; the sign and sign-android jobs then wait for a maintainer to
+# approve their release-signing deployments, sign creates the tag with the update app, and the
+# release is signed and published.
 on:
   workflow_dispatch:
     inputs:
@@ -50,7 +51,7 @@ jobs:
           [[ "$ci" == "completed success" ]] || { echo "::error::CI on $COMMIT is '${ci:-missing}'; wait for it to pass"; exit 1; }
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Releasing $COMMIT as $tag. Approve the release-signing deployments of this run (sign, and sign-android once the Android key is pinned) when its builds finish." >> "$GITHUB_STEP_SUMMARY"
+          echo "Releasing $COMMIT as $tag. Approve the release-signing deployments of this run (sign and sign-android) when its builds finish." >> "$GITHUB_STEP_SUMMARY"
 
   release:
     needs: check

@@ -156,8 +156,7 @@ both; that section becomes the release notes), merge it, wait for its CI on `mai
 › Start release (tick "Security release" for a critical one). `start-release.yml` checks that CI
 passed on `main`'s latest commit, that every version file carries the same version and that
 `v<version>` does not exist, then calls `release.yml` for every client. Approve the run's
-`release-signing` deployments, `sign` and (once the Android fingerprint is pinned) `sign-android`,
-once its builds have finished (decline neither: `assets` needs both): the `sign` job creates the tag
+`release-signing` deployments, `sign` and `sign-android`, once its builds have finished (decline neither: `assets` needs both): the `sign` job creates the tag
 `v<version>` with the update app (the tag ruleset lets the app create `v*` tags, not GitHub
 Actions), signs, and the release is published a few minutes later. If a later job fails after the
 tag exists, re-run the failed jobs; to start over, a maintainer deletes the tag first.

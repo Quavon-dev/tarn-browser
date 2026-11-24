@@ -850,9 +850,9 @@ applies there.
 
 Not on iOS or Android, a platform gap: the stores decide which build a phone installs, so Settings ›
 General › Nightly builds (macOS and Windows, `docs/release.md` "Update channels") has no counterpart.
-The nightly pre-release carries the unsigned iOS build and, once the sideload key is pinned, the
-signed Android APK for testers; nightlies for phones would go through TestFlight and the Play
-internal testing track, uploaded by hand from a commit that raised the build number (`docs/release.md`, "Store submission").
+The nightly pre-release carries the unsigned iOS build and the signed Android APK for testers;
+nightlies for phones would go through TestFlight and the Play internal testing track, uploaded by
+hand from a commit that raised the build number (`docs/release.md`, "Store submission").
 
 ## 5. Design
 
