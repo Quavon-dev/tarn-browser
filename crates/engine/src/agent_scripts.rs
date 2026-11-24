@@ -133,13 +133,11 @@ const center = el => { const r = el.getBoundingClientRect(); return { clientX: r
 const fire = (el, type, init) => el.dispatchEvent(new (type.startsWith('pointer') ? PointerEvent : type.startsWith('key') ? KeyboardEvent : MouseEvent)(type, Object.assign({ bubbles: true, cancelable: true, composed: true, view: window }, init)));
 const setValue = (el, value, ours) => {
     const proto = el.localName === 'textarea' ? HTMLTextAreaElement.prototype : el.localName === 'select' ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
-    const before = el.value;
     Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
     const set = el.value;
     if (ours) st.filled.set(el, set);
     el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    if (ours && el.value !== set && el.value !== before) st.filled.set(el, el.value);
 };
 const submit = el => { const form = el.form || el.closest('form'); if (!form) return false; if (form.requestSubmit) form.requestSubmit(); else form.submit(); return true; };
 const editable = el => el.isContentEditable || el.localName === 'textarea' || (el.localName === 'input' && !/^(checkbox|radio|submit|button|reset|image|file|range|color|hidden)$/.test(el.type));

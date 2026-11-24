@@ -181,7 +181,7 @@ mod imp {
     /// In the data folder, or for a folder whose path is too long for a socket address, in the
     /// temporary folder under a name of its own; `ours` refuses one another user made there.
     fn path(data_dir: &Path) -> io::Result<PathBuf> {
-        let fits = |p: &PathBuf| p.as_os_str().len() < 100;
+        let fits = |p: &PathBuf| p.as_os_str().len() < 100 && staged(p).is_some_and(|s| s.as_os_str().len() < 100);
         let inside = data_dir.join(SOCKET);
         if fits(&inside) {
             return Ok(inside);
@@ -198,14 +198,18 @@ mod imp {
         Ok(meta.file_type().is_socket() && meta.uid() == owner && meta.mode() & 0o077 == 0)
     }
 
+    fn staged(path: &Path) -> Option<PathBuf> {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+        Some(path.parent()?.join(format!(".t{:08x}", nanos ^ std::process::id().rotate_left(16))).join("s"))
+    }
+
     /// Binds in a new folder only this user can enter, makes the socket 0600 there, then moves
     /// it into place, so it is never reachable with the umask's permissions.
     fn bind_private(path: &Path) -> io::Result<(UnixListener, u64)> {
         use std::os::unix::fs::DirBuilderExt;
         let parent = path.parent().ok_or_else(|| io::Error::other("the agent socket has no folder"))?;
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
-        let staging = parent.join(format!(".t{}-{nanos:x}", std::process::id()));
-        let staged = staging.join("s");
+        let staged = staged(path).ok_or_else(|| io::Error::other("the agent socket has no folder"))?;
+        let staging = staged.parent().unwrap_or(parent).to_owned();
         if staged.as_os_str().len() >= 100 {
             return Err(io::Error::other("no path short enough for the agent socket"));
         }
@@ -470,6 +474,17 @@ mod tests {
         let stale = std::os::unix::net::UnixListener::bind(dir.path().join("agent.sock")).unwrap();
         drop(stale);
         drop(Listener::bind(dir.path()).unwrap());
+
+        let base = tempfile::tempdir().unwrap();
+        let pad = 88usize.saturating_sub(base.path().as_os_str().len() + 1).max(1);
+        let deep = base.path().join("d".repeat(pad));
+        std::fs::create_dir(&deep).unwrap();
+        std::fs::set_permissions(&deep, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(deep.join("agent.sock").as_os_str().len() < 100, "the socket itself would fit");
+        let listener = Listener::bind(&deep).expect("a folder whose staging path is too long falls back to the temporary folder");
+        assert!(connect(&deep).is_ok());
+        drop(listener);
+
         std::fs::write(dir.path().join("agent.sock"), "not a socket").unwrap();
         assert!(Listener::bind(dir.path()).is_err());
         assert!(dir.path().join("agent.sock").exists());
