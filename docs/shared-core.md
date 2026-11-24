@@ -387,8 +387,11 @@ world, Chromium one `Runtime.evaluate` of a constant in the page's world; NSH co
 answered by `pong`: the isolated world on Linux and iOS, the page world on Android, which has no
 other). A page whose main thread is stuck never answers, and the shell shows a card (`HANG_NOTE`)
 once a ping has gone unanswered for `HANG_AFTER`. Blind spot: under Lockdown no script of Tarn's
-runs, so every engine answers a ping at once and a hung Lockdown page shows no card. iOS and
-Android redraw only when the card appears or goes, never for a ping or its answer.
+runs, so every engine answers a ping at once and a hung Lockdown page shows no card. The ping
+is skipped, and an unanswered one forgotten, while the app is in the background on every client
+(not only the window being in the background, so a link peek or other window of the app does not
+stop it). Linux, iOS and Android redraw only when the card appears or goes, never for a ping or
+its answer.
 Wait hides it for another `HANG_AFTER`; Reload gives the page a fresh start: macOS and Windows
 rebuild the tab's view, Linux's component takes `reloadFresh`, which ends the view's web process
 (`webkit_web_view_terminate_web_process`) and reloads, and iOS and Android give the tab a new view

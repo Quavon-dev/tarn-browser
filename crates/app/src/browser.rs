@@ -391,6 +391,7 @@ pub struct Browser {
     pub(crate) drawn_at: Option<Instant>,
     pub(crate) page_fade: Option<(Rc<WebView>, Instant)>,
     pub(crate) overlay_exit: Option<Instant>,
+    pub(crate) watch: crate::content::Watch,
     pub(crate) fog: gpui::Entity<crate::content::Fog>,
     pub(crate) search_fx: gpui::Entity<crate::content::SearchFx>,
     pub(crate) floating: crate::content::Floating,
@@ -509,6 +510,7 @@ impl Browser {
         let tab_placement = browser_core::layout::TabPlacement::load(disk);
         let sidebar_open = crate::prefs::sidebar_open(disk) && tab_placement == browser_core::layout::TabPlacement::Side;
         let sidebar_width = crate::prefs::sidebar_width(disk);
+        let watch = crate::content::Watch::default();
         let mut browser = Browser {
             core,
             warning: None,
@@ -607,8 +609,9 @@ impl Browser {
             drawn_at: None,
             page_fade: None,
             overlay_exit: None,
-            fog: cx.new(|_| Default::default()),
-            search_fx: cx.new(|_| Default::default()),
+            fog: cx.new(|_| watch.fog()),
+            search_fx: cx.new(|_| watch.search_fx()),
+            watch,
             floating: Default::default(),
             bookmarks: Vec::new(),
             motion: Default::default(),

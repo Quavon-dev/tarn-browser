@@ -497,7 +497,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         zoom: if page.zoom > 0.0 { page.zoom } else { 1.0 },
         found: page.found,
         error: page.error.clone(),
-        hung: b.model.active.is_some() && b.hang.hung(std::time::Instant::now()) == b.model.active,
+        hung: b.hung(),
         blocked: page.blocked.clone(),
         prompt: page.prompts.front().cloned(),
         notice: b.notice.clone(),

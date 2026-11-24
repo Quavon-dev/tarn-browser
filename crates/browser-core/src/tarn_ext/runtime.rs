@@ -181,6 +181,10 @@ impl<P, I: Clone> Runtime<P, I> {
         self.profiles.get(&profile).into_iter().flat_map(|p| p.loaded.values())
     }
 
+    pub fn has_installs(&self) -> bool {
+        self.profiles.keys().any(|&p| self.installs(p).next().is_some())
+    }
+
     pub fn scripts(&self, profile: Id) -> Vec<Rc<WorldScripts>> {
         self.installs(profile).map(|l| l.scripts.clone()).collect()
     }
@@ -557,6 +561,8 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert_eq!((actions[0].install_id.as_str(), actions[0].state.title.as_str(), actions[0].icon), ("aa", "Shop helper", Some(7)));
         assert!(rt.actions(2, None).is_empty());
+        assert!(rt.has_installs());
+        assert!(!Rt::default().has_installs());
         assert_eq!(rt.loaded(1, "bb").map(|l| l.package.manifest.version.as_str()), Some("2.1"));
     }
 

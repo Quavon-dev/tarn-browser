@@ -85,6 +85,14 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Less work while idle, for battery, on every client: the start page's fog and search bar effect
+  hold their frame after a minute without input in the window, stop their timers, and move on from
+  that frame at the next input; while Tarn is not the active app it no longer checks every two
+  seconds whether the shown page still answers; extension messages, a title that did not change
+  and memory samples no longer redraw the window unless the heavy tabs or the Memory page change;
+  the extension timer on Linux, iOS and Android does nothing without an installed extension;
+  Chromium's Shield counts are written once a minute in one transaction, and only when something
+  was blocked.
 - The sidebar's New Tab row has one Organize Tabs button (…) in place of four: New Tab Group, New
   Folder, Clean Up and Group with Assistant are in its menu, on every client.
 - Enter on an address Tarn cannot open shakes the field instead of going anywhere, on every

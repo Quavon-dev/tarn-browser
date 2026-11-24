@@ -255,6 +255,7 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         let regrouped = b.regrouped_space.take();
         let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key)) && b.active_json().is_none();
         let snap = snapshot::snapshot(b, shown);
+        b.heavy_shown = b.heavy_tabs();
         if ui.snap.with_untracked(|s| s.notice != snap.notice || s.prompt != snap.prompt || s.error != snap.error) {
             b.settle_downloads();
         }
@@ -308,11 +309,7 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         ui.root.run(|| drop(set_timeout(RETIRE_DELAY, || crate::data::wipe_retired(&crate::data::root(), &core().disk))));
     }
     tools::expire_toast(ui);
-    for (key, name, args) in commands {
-        if let Some(r) = REFS.with_borrow(|refs| refs.get(&(ui.window, key)).map(|(_, r)| *r)) {
-            r.command(name, args);
-        }
-    }
+    send_commands(ui, commands);
     if rebuild {
         ui.rev.update(|r| *r += 1);
     }
@@ -326,6 +323,56 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         if read(other, |b| shows(b) || forgotten.iter().any(|k| b.model.tab(*k).is_some() || b.pages.contains_key(k))) == Some(true) {
             act_dyn(other, &mut Browser::sync_shared, true);
         }
+    }
+}
+
+fn send_commands(ui: Ui, commands: Vec<(TabKey, &'static str, serde_json::Value)>) {
+    for (key, name, args) in commands {
+        if let Some(r) = REFS.with_borrow(|refs| refs.get(&(ui.window, key)).map(|(_, r)| *r)) {
+            r.command(name, args);
+        }
+    }
+}
+
+/// Pings the shown page while the app is in front; the snapshot is rebuilt only when the hung-page card appears or goes.
+fn ping(ui: Ui) {
+    let active = untracked(lifecycle) == nsh_core::platform::Lifecycle::Active;
+    let sent = BROWSERS.with_borrow_mut(|windows| {
+        let b = windows.get_mut(&ui.window)?;
+        b.ping_page(std::time::Instant::now(), active);
+        Some((std::mem::take(&mut b.outbox), b.hung()))
+    });
+    let Some((commands, hung)) = sent else { return };
+    send_commands(ui, commands);
+    if ui.snap.with_untracked(|s| s.hung) != hung {
+        act_quietly(ui, |_| {});
+    }
+}
+
+/// A page's answer to `ping`; the snapshot is rebuilt only when the hung-page card goes.
+fn pong(ui: Ui, key: TabKey, data: &serde_json::Value) {
+    let hung = BROWSERS.with_borrow_mut(|windows| {
+        let b = windows.get_mut(&ui.window)?;
+        b.on_event(key, "pong", data);
+        Some(b.hung())
+    });
+    if hung.is_some_and(|hung| ui.snap.with_untracked(|s| s.hung) != hung) {
+        act_quietly(ui, |_| {});
+    }
+}
+
+/// Samples the page processes; the snapshot is rebuilt only when the heavy tabs change or the Memory panel shows the costs.
+fn sample(ui: Ui) {
+    let changed = BROWSERS.with_borrow_mut(|windows| {
+        let b = windows.get_mut(&ui.window)?;
+        b.sample_processes();
+        let heavy = b.heavy_tabs();
+        let changed = heavy != b.heavy_shown;
+        b.heavy_shown = heavy;
+        Some(changed)
+    });
+    if changed == Some(true) || ui.panel.get_untracked() == Panel::Memory {
+        act_quietly(ui, |_| {});
     }
 }
 
@@ -547,6 +594,9 @@ fn web_views(ui: Ui) -> View {
                         }
                         if &*event.name == "snapshot" {
                             return peek::shot(ui, key, &event.data["png"]);
+                        }
+                        if &*event.name == "pong" {
+                            return pong(ui, key, &event.data);
                         }
                         if &*event.name == "jsonText" {
                             return devtools::json_text(ui, key, event.data.clone());
@@ -2032,6 +2082,7 @@ fn start_card(ui: Ui) -> AnyElement {
             }
             let field = input()
                 .value(move || ui.command.get())
+                .on_key_press(|_: &str| tarn_nsh_shared::motion::touched())
                 .on_change(move |v: &str| {
                     let _span = engine::startup::span(engine::startup::PALETTE_QUERY);
                     // A new query reads the history again, so visits since the last one show.
@@ -2483,6 +2534,7 @@ const NEED_A_TAB: [Action; 16] = [
 ];
 
 fn run_action(ui: Ui, action: Action) {
+    tarn_nsh_shared::motion::touched();
     if NEED_A_TAB.contains(&action) && !ui.snap.with_untracked(|s| s.tab) {
         return;
     }
@@ -2998,12 +3050,12 @@ fn browser_window(ui: Ui) -> AnyElement {
             b.idle_tick(windows);
         })
     }));
-    drop(set_interval(engine::lifecycle::PING_EVERY, move || act_quietly(ui, |b| b.ping_page(std::time::Instant::now()))));
+    drop(set_interval(engine::lifecycle::PING_EVERY, move || ping(ui)));
     drop(set_interval(SAMPLE_TICK, move || {
         if ui.speaking.get_untracked() && !crate::speech::speaking() {
             ui.speaking.set(false);
         }
-        act_quietly(ui, |b| b.sample_processes());
+        sample(ui);
     }));
     drop(set_interval(browser_core::closed::ARCHIVE_INTERVAL, move || {
         act_quietly(ui, |b| {
@@ -3027,7 +3079,7 @@ fn browser_window(ui: Ui) -> AnyElement {
         untracked(|| apply_color_scheme(ui, light));
     });
     let full = computed(move || ui.snap.with(|s| s.fullscreen));
-    view()
+    tarn_nsh_shared::motion::watching(view())
         .flex_row()
         .size_full()
         .relative()

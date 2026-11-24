@@ -1,18 +1,13 @@
 use std::f32::consts::TAU;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use browser_core::effects::{self, Effect, Particle};
 use nsh_core::element::{BoxShadow, Color};
-use nsh_core::platform::Lifecycle;
 use nsh_core::prelude::*;
 
 use crate::theme::{Theme, themed};
 
 pub use effects::STILL;
-
-pub fn animates(effect: Effect, reduce_motion: bool, lifecycle: Lifecycle) -> bool {
-    effect.fps() > 0. && !reduce_motion && lifecycle == Lifecycle::Active
-}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Dot {
@@ -74,12 +69,13 @@ pub fn search_fx(row: f32) -> AnyElement {
         }
         let t = signal(STILL);
         let size = signal((0f32, 0f32));
+        crate::motion::while_active(
+            Duration::from_secs_f32(1. / effect.fps().max(1.)),
+            || true,
+            move |held| t.set(effects::clock(held + Duration::from_secs_f32(STILL))),
+        );
         nsh_core::prelude::effect(move || {
-            if animates(effect, crate::motion::reduced(), lifecycle()) {
-                let start = Instant::now();
-                let task = set_interval(Duration::from_secs_f32(1. / effect.fps()), move || t.set(effects::clock(start.elapsed())));
-                cleanup(move || task.cancel());
-            } else {
+            if crate::motion::reduced() {
                 t.set(STILL);
             }
         });
@@ -119,16 +115,6 @@ pub fn search_fx(row: f32) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn effects_animate_only_in_the_active_window_without_reduce_motion() {
-        assert!(animates(Effect::Flames, false, Lifecycle::Active));
-        assert!(animates(Effect::Glow, false, Lifecycle::Active));
-        assert!(!animates(Effect::Flames, true, Lifecycle::Active), "Reduce Motion keeps a still frame");
-        assert!(!animates(Effect::Flames, false, Lifecycle::Inactive), "a window in the background stops");
-        assert!(!animates(Effect::Sparkle, false, Lifecycle::Background));
-        assert!(!animates(Effect::None, false, Lifecycle::Active));
-    }
 
     #[test]
     fn every_particle_is_a_soft_glow_and_sparks_add_a_glint() {

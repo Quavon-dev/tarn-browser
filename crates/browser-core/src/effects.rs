@@ -4,6 +4,42 @@ pub const STILL: f32 = 0.4;
 
 /// Frames per second the shells request while an effect is on screen in the active window.
 pub const FPS: f32 = 24.;
+/// Time without input in a window after which its start page animations hold their frame.
+pub const IDLE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Whether a start page animation keeps moving `since_input` after its window's last input.
+pub fn awake(since_input: std::time::Duration) -> bool {
+    since_input < IDLE
+}
+
+/// Whether a pointer at `to`, last counted at `from`, has moved for `awake`: AppKit repeats the
+/// moves of a resting pointer a point apart, which must not keep an animation running.
+pub fn moved(from: (f32, f32), to: (f32, f32)) -> bool {
+    (from.0 - to.0).abs() + (from.1 - to.1).abs() >= 4.
+}
+/// Time a start page animation has run, counted only between consecutive awake ticks, so a tick
+/// after a pause or an idle spell adds nothing and the frame resumes where it was held.
+#[derive(Default)]
+pub struct Clock {
+    held: std::time::Duration,
+    last: Option<std::time::Instant>,
+}
+
+impl Clock {
+    /// The time shown at `now` while `awake`; `None` while not, when the clock holds `held`.
+    pub fn tick(&mut self, now: std::time::Instant, awake: bool) -> Option<std::time::Duration> {
+        if !awake {
+            self.last = None;
+            return None;
+        }
+        self.held += self.last.replace(now).map_or(std::time::Duration::ZERO, |last| now.saturating_duration_since(last));
+        Some(self.held)
+    }
+
+    pub fn held(&self) -> std::time::Duration {
+        self.held
+    }
+}
 const MAX_PARTICLES: usize = 480;
 /// Circles stacked in one flame tongue, base to tip.
 const TONGUE: usize = 7;
@@ -306,6 +342,30 @@ mod tests {
         assert_eq!(tint((0.2, 0.3, 0.4), 0.), (0.2, 0.3, 0.4));
         assert!(clock(std::time::Duration::from_secs(3 * 86_400)) < 600.);
         assert_eq!((Effect::None.fps(), Effect::Glow.fps(), Effect::Flames.fps()), (0., FPS, FPS));
+    }
+
+    #[test]
+    fn animations_hold_after_a_minute_without_input() {
+        assert!(awake(std::time::Duration::ZERO));
+        assert!(awake(IDLE - std::time::Duration::from_millis(1)));
+        assert!(!awake(IDLE));
+        assert!(!awake(std::time::Duration::from_secs(3600)));
+        assert!(!moved((10., 10.), (11., 10.)));
+        assert!(moved((10., 10.), (14., 10.)));
+        assert!(moved((10., 10.), (8., 8.)));
+    }
+
+    #[test]
+    fn the_clock_adds_time_only_between_awake_ticks() {
+        use std::time::{Duration, Instant};
+        let (mut clock, t0) = (Clock::default(), Instant::now());
+        let at = |s| t0 + Duration::from_secs(s);
+        assert_eq!(clock.tick(at(0), true), Some(Duration::ZERO));
+        assert_eq!(clock.tick(at(1), true), Some(Duration::from_secs(1)));
+        assert_eq!(clock.tick(at(100), false), None);
+        assert_eq!(clock.held(), Duration::from_secs(1));
+        assert_eq!(clock.tick(at(200), true), Some(Duration::from_secs(1)), "the first tick after a pause adds nothing");
+        assert_eq!(clock.tick(at(201), true), Some(Duration::from_secs(2)));
     }
 
     #[test]

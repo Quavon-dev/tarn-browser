@@ -171,6 +171,11 @@ impl<T: Copy + Eq> Hang<T> {
         (now.saturating_duration_since(from) >= HANG_AFTER).then_some(self.tab).flatten()
     }
 
+    /// Whether the shown tab `active` is the hung one.
+    pub fn hung_on(&self, active: Option<T>, now: Instant) -> bool {
+        active.is_some() && self.hung(now) == active
+    }
+
     /// Wait: the card goes until the page has stayed silent for another `HANG_AFTER`.
     pub fn wait(&mut self, now: Instant) {
         self.waited = Some(now);
@@ -200,6 +205,7 @@ mod tests {
         hang.wait(at(HANG_AFTER));
         assert_eq!(hang.hung(at(HANG_AFTER * 2 - PING)), None, "Wait hides the card");
         assert_eq!(hang.hung(at(HANG_AFTER * 2)), Some(1), "and it comes back while the page stays silent");
+        assert!(hang.hung_on(Some(1), at(HANG_AFTER * 2)) && !hang.hung_on(Some(2), at(HANG_AFTER * 2)) && !hang.hung_on(None, at(HANG_AFTER * 2)));
         hang.answered(1);
         assert_eq!(hang.hung(at(HANG_AFTER * 3)), None);
         assert!(hang.ping(1, at(HANG_AFTER * 3)));
