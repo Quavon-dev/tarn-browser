@@ -209,10 +209,11 @@ Security and privacy
    signing keys off CI. Pass the Android sideload key only to the dedicated signing job, which
    runs no build code and verifies the APK against the pinned signing certificate
    before uploading it. A release may also start on GitHub (`start-release.yml`): its `sign` job
-   creates the `v*` tag with the update app once a maintainer has approved the `release-signing`
+   creates the `v*` tag with the update app once a maintainer has approved its `release-signing`
    deployment, in place of a maintainer's signed tag. Mobile store signing and uploads may run in
    protected store-publishing environments, separately from builds, after release checksum and
-   provenance verification. Store credentials never reach build jobs, pull requests or nightly builds.
+   provenance verification. Store credentials never reach build jobs, pull requests or nightly
+   builds.
 8. **No new or changed connections.** Do not add a request the shell makes, or change the
    receiver, content or frequency of one listed in `PRIVACY.md` ("Connections the browser itself
    makes"). No telemetry, analytics, accounts or crash upload. Exception, decided by the
@@ -238,8 +239,9 @@ The person's machine
     committing them or retaining working copies. Do not inspect unrelated credentials.
     When the person explicitly requests Android sideload signing setup, create a dedicated key,
     transfer its credentials directly to `release-signing` and `nightly-signing`, and place a
-    recoverable backup in offline storage designated by the person. Do not print or commit the
-    credentials, retain temporary working copies or inspect unrelated credentials. The public
+    recoverable, encrypted backup in offline storage designated by the person. Pass passwords
+    through standard input or the environment, never as command arguments. Do not print or commit
+    the credentials, retain temporary working copies or inspect unrelated credentials. The public
     certificate fingerprint may be shared and pinned in the workflow and `SECURITY.md`.
 14. **No release actions.** Do not run `scripts/notarize.sh`, `scripts/dmg.sh`,
     `scripts/appcast.sh`, `scripts/windows-feed.sh` or `scripts/publish-release.sh`, create or move
