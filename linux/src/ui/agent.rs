@@ -282,7 +282,7 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op) {
 fn page_op(ui: Ui, run: u64, key: TabKey, op: Op) -> Option<Raw<TabKey>> {
     with(|a| match &op {
         Op::Script(..) => drop(a.scripts.insert(run, Wait::Script)),
-        Op::Text => drop(a.scripts.insert(run, Wait::Text)),
+        Op::Text(_) => drop(a.scripts.insert(run, Wait::Text)),
         Op::Screenshot => drop(a.scripts.insert(run, Wait::Shot)),
         _ => {}
     });
@@ -298,8 +298,8 @@ fn page_op(ui: Ui, run: u64, key: TabKey, op: Op) -> Option<Raw<TabKey>> {
             Op::Forward => b.forward(),
             Op::Reload => b.reload(),
             Op::Script(body) => b.outbox.push((key, "agent", json!({ "seq": run, "body": body }))),
-            Op::Text => {
-                let body = b.pages.get(&key).and_then(|p| Url::parse(&p.url).ok()).and_then(|u| engine::page_scripts::page_text_script(&u, MAX_TEXT_CHARS));
+            Op::Text(page) => {
+                let body = engine::page_scripts::page_text_script(&page, MAX_TEXT_CHARS);
                 b.outbox.push((key, "agent", json!({ "seq": run, "body": body })));
             }
             Op::Screenshot => b.outbox.push((key, "snapshot", json!({ "seq": run }))),

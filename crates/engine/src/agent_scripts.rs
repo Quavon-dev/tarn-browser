@@ -18,10 +18,17 @@ pub type Gate = std::rc::Rc<dyn Fn(&url::Url) -> bool>;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Act<'a> {
     Click,
-    Type { text: &'a str, submit: bool },
+    Type {
+        text: &'a str,
+        submit: bool,
+    },
     Select(&'a str),
     Key(&'a str),
-    Scroll { down: bool },
+    Scroll {
+        down: bool,
+    },
+    /// Submit the form of a field the agent already typed into, after the user allowed it.
+    Submit,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -140,8 +147,13 @@ switch (act.kind) {
         el.focus();
         if (el.isContentEditable) { document.execCommand('selectAll'); document.execCommand('insertText', false, act.text); }
         else setValue(el, act.text);
-        if (act.submit && !confirmed && filledSensitive()) return 'confirm';
+        if (act.submit && !confirmed && filledSensitive()) return 'confirm:typed';
         if (act.submit && !submit(el)) { fire(el, 'keydown', { key: 'Enter', code: 'Enter' }); fire(el, 'keyup', { key: 'Enter', code: 'Enter' }); }
+        return 'ok';
+    }
+    case 'submit': {
+        if (guard()) return 'confirm';
+        if (!submit(el)) { fire(el, 'keydown', { key: 'Enter', code: 'Enter' }); fire(el, 'keyup', { key: 'Enter', code: 'Enter' }); }
         return 'ok';
     }
     case 'select': {
@@ -189,6 +201,7 @@ impl AgentScript<'_> {
                     Act::Select(value) => format!("{{ kind: 'select', value: {} }}", js_string(value)),
                     Act::Key(key) => format!("{{ kind: 'key', key: {} }}", js_string(key)),
                     Act::Scroll { down } => format!("{{ kind: 'scroll', down: {down} }}"),
+                    Act::Submit => "{ kind: 'submit' }".to_string(),
                 };
                 format!("const target = {target}, confirmed = {confirmed}, act = {act};\n{COMMON}\n{ACT}")
             }

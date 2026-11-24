@@ -234,10 +234,7 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op, cx: &mut App) {
                     return Some(Raw::Done);
                 }
                 Op::Script(source) => view.agent(&source, move |raw| send(Raw::Script(raw))),
-                Op::Text => match b.tab_url(key).and_then(|u| Url::parse(&u).ok()) {
-                    Some(page) => view.page_text(&page, MAX_TEXT_CHARS, move |_, text| send(Raw::Text(text))),
-                    None => return Some(Raw::Unavailable),
-                },
+                Op::Text(page) => view.page_text(&page, MAX_TEXT_CHARS, move |_, text| send(Raw::Text(text))),
                 Op::Screenshot => view.snapshot_png(Some(agent::SCREENSHOT_WIDTH), move |png| send(Raw::Png(png.map(|p| engine::agent_scripts::base64(&p))))),
                 Op::Open(_) | Op::Load(_) | Op::Close => {}
             }

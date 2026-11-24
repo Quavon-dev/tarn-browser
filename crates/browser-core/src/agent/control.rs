@@ -64,8 +64,9 @@ pub enum Op {
     Reload,
     /// Run this agent script in the tab's isolated world; answer `Raw::Script`.
     Script(String),
-    /// Read the page's text, at most `MAX_TEXT_CHARS`; answer `Raw::Text`.
-    Text,
+    /// Read the text of this page, at most `MAX_TEXT_CHARS`, and nothing once the tab shows
+    /// another origin; answer `Raw::Text`.
+    Text(Url),
     /// A PNG of the visible page; answer `Raw::Png` with it base64-encoded.
     Screenshot,
 }
@@ -114,6 +115,8 @@ pub struct Banner {
 struct Call<C> {
     tool: Tool,
     token: C,
+    /// The user allowed submitting what the agent already typed: submit only, type nothing again.
+    submit_only: bool,
 }
 
 enum Then<K, C> {
@@ -171,7 +174,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
 
     /// A tool call from connection `conn`.
     pub fn call(&mut self, conn: u64, client: Option<&str>, tool: Tool, token: C, ctx: &Ctx<K>) -> Vec<Effect<K, C>> {
-        let call = Call { tool, token };
+        let call = Call { tool, token, submit_only: false };
         if !ctx.enabled {
             return vec![Effect::Reply(call.token, Outcome::Error(super::OFF.into()))];
         }
@@ -305,9 +308,10 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             }
             (Tool::Screenshot { .. }, _) => Outcome::Error("Tarn could not take a screenshot of this tab.".into()),
             (_, Raw::Script(raw)) => match raw.as_str() {
-                "confirm" if !running.confirmed => {
+                "confirm" | "confirm:typed" if !running.confirmed => {
                     let site = page.as_ref().and_then(super::site_of).unwrap_or_default();
-                    return self.hold(Ask::Sensitive(site), Then::Call(running.call), page, ctx.now);
+                    let call = Call { submit_only: raw == "confirm:typed", ..running.call };
+                    return self.hold(Ask::Sensitive(site), Then::Call(call), page, ctx.now);
                 }
                 "stale" => Outcome::Error("That element is gone; take a new snapshot.".into()),
                 "refused:password" => Outcome::Error("Tarn never lets an agent type into a password field. Use ask_user so the user signs in.".into()),
@@ -506,10 +510,14 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             Tool::Forward { .. } => Op::Forward,
             Tool::Reload { .. } => Op::Reload,
             Tool::Snapshot { .. } => script(AgentScript::Snapshot),
-            Tool::ReadText { .. } => Op::Text,
+            Tool::ReadText { .. } => match &page {
+                Some(page) => Op::Text(page.clone()),
+                None => return self.finish(call, None, Outcome::Error(LOCKED.into()), ctx.now),
+            },
             Tool::Screenshot { .. } => script(AgentScript::Sensitive),
             Tool::WaitFor { text, .. } => script(AgentScript::Wait { text: text.as_deref() }),
             Tool::Click { target, .. } => act(*target, Act::Click),
+            Tool::Type { target, .. } if call.submit_only => act(*target, Act::Submit),
             Tool::Type { target, text, submit, .. } => act(*target, Act::Type { text, submit: *submit }),
             Tool::Select { target, value, .. } => act(*target, Act::Select(value)),
             Tool::PressKey { key, .. } => act(0, Act::Key(key.name())),
@@ -817,6 +825,31 @@ mod tests {
         let e = ans(&mut c, Choice::Allow, &ctx(&moved, 4300));
         let [(_, Some(3), Op::Script(src))] = &runs(&e)[..] else { panic!("{e:?}") };
         assert!(src.contains("confirmed = false"), "another page gets a fresh check");
+    }
+
+    #[test]
+    fn a_submit_allowed_after_typing_submits_without_typing_again() {
+        let mut c = approved(Choice::Act);
+        let tabs = [page(3, "https://shop.test/pay")];
+        c.call(1, None, Tool::TabsList, "l", &ctx(&tabs, 2000));
+        c.call(1, None, Tool::Type { tab: 1, target: 4, text: "4111".into(), submit: true }, "t", &ctx(&tabs, 4000));
+        let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 4100));
+        let run = runs(&e)[0].0;
+        c.raw(run, Raw::Script("confirm:typed".into()), &ctx(&tabs, 4200));
+        let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 4300));
+        let [(_, Some(3), Op::Script(src))] = &runs(&e)[..] else { panic!("{e:?}") };
+        assert!(src.contains("kind: 'submit'") && src.contains("confirmed = true") && !src.contains("4111"), "{src}");
+    }
+
+    #[test]
+    fn read_text_reads_only_the_page_that_was_checked() {
+        let mut c = approved(Choice::Look);
+        let tabs = [page(3, "https://a.test/doc")];
+        c.call(1, None, Tool::TabsList, "l", &ctx(&tabs, 2000));
+        c.call(1, None, Tool::ReadText { tab: 1 }, "r", &ctx(&tabs, 4000));
+        let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 4100));
+        let [(_, Some(3), Op::Text(url))] = &runs(&e)[..] else { panic!("{e:?}") };
+        assert_eq!(url.as_str(), "https://a.test/doc");
     }
 
     #[test]
