@@ -286,6 +286,7 @@ impl Browser {
             return;
         }
         let switched = self.model.active != Some(key);
+        let before = self.screen_tabs();
         let _span = switched.then(|| engine::startup::span(engine::startup::TAB_SWITCH)).flatten();
         if switched {
             self.leave_page_fullscreen(window);
@@ -347,6 +348,7 @@ impl Browser {
                 }
             }
         }
+        self.screen_changed(before, cx);
         self.model.touch(&self.core, key, now());
         if !self.overlay_open() {
             window.focus(&self.focus);
@@ -594,6 +596,7 @@ impl Browser {
         if self.command_mode.is_some() {
             self.close_command(window, cx);
         }
+        let before = self.screen_tabs();
         if let Some(view) = self.active_view() {
             view.set_visible(false);
         }
@@ -612,6 +615,7 @@ impl Browser {
         self.space_shown(&[]);
         self.slide_from(from, old);
         self.pick_active(window, cx);
+        self.screen_changed(before, cx);
         if burning && !self.model.burner_shown() {
             self.burn(cx);
         }

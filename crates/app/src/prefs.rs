@@ -34,10 +34,11 @@ pub enum Pref {
     Passkeys,
     FeatureHints,
     CompactDensity,
+    AutoPictureInPicture,
 }
 
 impl Pref {
-    pub const ALL: [Pref; 26] = [
+    pub const ALL: [Pref; 27] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
@@ -64,6 +65,7 @@ impl Pref {
         Pref::Passkeys,
         Pref::FeatureHints,
         Pref::CompactDensity,
+        Pref::AutoPictureInPicture,
     ];
 
     pub(crate) fn key(self) -> &'static str {
@@ -94,6 +96,7 @@ impl Pref {
             Pref::Passkeys => browser_core::settings::PASSKEYS,
             Pref::FeatureHints => browser_core::prefs::FEATURE_HINTS.key,
             Pref::CompactDensity => browser_core::prefs::COMPACT.key,
+            Pref::AutoPictureInPicture => browser_core::prefs::AUTO_PICTURE_IN_PICTURE.key,
         }
     }
 
@@ -115,6 +118,7 @@ impl Pref {
                 | Pref::LocalhostFromApps
                 | Pref::Passkeys
                 | Pref::FeatureHints
+                | Pref::AutoPictureInPicture
         )
     }
 
@@ -353,10 +357,12 @@ impl Browser {
     pub fn new_tab_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let replaced = self.model.active.filter(|_| self.pref(Pref::NewTabStartPage) && !self.overlay_open() && !self.inline_editing());
         if replaced.is_some() {
+            let before = self.screen_tabs();
             if let Some(view) = self.active_view() {
                 view.set_visible(false);
             }
             self.model.active = None;
+            self.screen_changed(before, cx);
         }
         // Before the sidebar closes, so a click in it still hands the field to the main window.
         self.open_command(CommandMode::NewTab, window, cx);
@@ -498,6 +504,7 @@ mod tests {
             (Pref::TearOffTemporary, prefs::TEAR_OFF_TEMPORARY),
             (Pref::FeatureHints, prefs::FEATURE_HINTS),
             (Pref::CompactDensity, prefs::COMPACT),
+            (Pref::AutoPictureInPicture, prefs::AUTO_PICTURE_IN_PICTURE),
         ] {
             assert_eq!((pref.key(), pref.default()), (switch.key, switch.default), "{pref:?}");
         }

@@ -38,7 +38,8 @@ Every shell's web view offers the same operations and reports the same events. T
   engine says (Chromium), the highlighted match (NSH components: the `clearFind` command,
   WebKitGTK `search_finish` on Linux, and `current` in `found` on
   Android);
-- `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture`; Linux has `print` (the GTK print
+- `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture` (`page_scripts::PipMode`: the user's
+  toggle, or enter and exit when a tab with playing video leaves and returns to the screen); Linux has `print` (the GTK print
   dialog) and `pdf` with the absolute `path` the user picked in the save dialog, printed there by
   WebKitGTK and reported on the download route as a finished download; iOS and Android have
   neither yet (`docs/port-backlog.md`); Linux's `snapshot` command answers with a `snapshot` event carrying a PNG

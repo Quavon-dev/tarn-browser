@@ -334,6 +334,10 @@ Trackpad (Settings › Tabs › Trackpad gestures): swipe left or right over the
 spaces; swipe over the address field to step through tabs; swipe right over the toolbar to show the
 sidebar. The mouse's back and forward buttons always navigate.
 
+A video playing with sound moves into Picture in Picture when you switch to another tab, and back
+into its page when you return (Settings › Tabs › Picture in Picture when switching tabs; macOS
+WebKit tabs and Windows).
+
 </details>
 
 <details>

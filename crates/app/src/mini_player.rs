@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use browser_core::media::{Control, POLL};
 use browser_core::page_ops::MediaState;
+use engine::page_scripts::PipMode;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{AnyElement, Context, InteractiveElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Task, Window, div, px};
@@ -18,6 +19,7 @@ use crate::browser::{Browser, TabKey};
 #[derive(Default)]
 pub struct MiniPlayer {
     pub(crate) player: browser_core::media::Player,
+    auto_pip: browser_core::media::AutoPip,
     poll: Option<Task<()>>,
 }
 
@@ -59,9 +61,72 @@ impl Browser {
         }));
     }
 
-    /// Drops `key` from the mini-player once its view is gone.
+    /// Drops `key` from the mini-player once its view is gone; a video Tarn moved into Picture in
+    /// Picture comes back out, since the tab closes or shows in another window.
     pub(crate) fn forget_media(&mut self, key: TabKey) {
         self.mini_player.player.forget(key);
+        if self.mini_player.auto_pip.take(key) {
+            self.exit_pip(key);
+        }
+    }
+
+    /// The tabs on screen: the active tab, or every pane of its split.
+    pub(crate) fn screen_tabs(&self) -> Vec<TabKey> {
+        let active = self.model.active;
+        active.and_then(|k| self.splits.of(k)).map_or_else(|| active.into_iter().collect(), |s| s.panes().to_vec())
+    }
+
+    /// After the tabs on screen changed from `before`: a playing video of a tab that left moves
+    /// into Picture in Picture, and one Tarn moved there comes back once its tab returns.
+    pub(crate) fn screen_changed(&mut self, before: Vec<TabKey>, cx: &mut Context<Self>) {
+        let now = self.screen_tabs();
+        for gone in before.into_iter().filter(|k| !now.contains(k)) {
+            self.leave_for_pip(gone, cx);
+        }
+        for back in now {
+            if self.mini_player.auto_pip.take(back) {
+                self.exit_pip(back);
+            }
+        }
+    }
+
+    /// Asks the engine first whether the page plays (on WebKit its own playback state), so a page
+    /// that plays nothing gets no script, and with it no gesture, when its tab leaves the screen.
+    fn leave_for_pip(&mut self, key: TabKey, cx: &mut Context<Self>) {
+        if !self.pref(crate::prefs::Pref::AutoPictureInPicture) {
+            return;
+        }
+        let Some(view) = self.views.get(&key) else { return };
+        let (weak, (tx, mut rx)) = (Rc::downgrade(view), mpsc::unbounded());
+        view.media_playing(move |playing| drop(tx.unbounded_send(playing)));
+        cx.spawn(async move |this, cx| {
+            if rx.next().await != Some(true) {
+                return;
+            }
+            this.update(cx, |b, cx| {
+                let Some(view) = weak.upgrade().filter(|_| b.same_view(key, &weak) && !b.screen_tabs().contains(&key)) else { return };
+                let (tx, mut rx) = mpsc::unbounded();
+                view.picture_in_picture(PipMode::Enter, move |result| drop(tx.unbounded_send(result)));
+                cx.spawn(async move |this, cx| {
+                    let Some(result) = rx.next().await else { return };
+                    this.update(cx, |b, _| {
+                        if b.same_view(key, &weak) && b.mini_player.auto_pip.answered(key, &result, b.screen_tabs().contains(&key)) {
+                            b.exit_pip(key);
+                        }
+                    })
+                    .ok();
+                })
+                .detach();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn exit_pip(&self, key: TabKey) {
+        if let Some(view) = self.views.get(&key) {
+            view.picture_in_picture(PipMode::Exit, |_| {});
+        }
     }
 
     fn press_media(&mut self, control: Control, cx: &mut Context<Self>) {

@@ -8,6 +8,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- A video playing with sound moves into Picture in Picture when you switch to another tab, and
+  back into its page when you return; a window you opened yourself in that tab stays. Settings › Tabs turns it
+  off. macOS (WebKit tabs) and Windows.
 - Assistant chats are kept: each profile lists its chats to search, open, rename and delete, and
   Settings › AI deletes them all. An answer can be copied and retried and its question edited;
   code blocks get Copy; `/` lists the commands; the chat header picks the provider and Claude

@@ -26,8 +26,8 @@ use crate::delegates::{Delegate, DelegateState, serialized_origin, to_url};
 use crate::extensions::Tab;
 use crate::handover::{self, Storage};
 use crate::page_scripts::{
-    PICKER, PICTURE_IN_PICTURE, fetch_icon_script, find_count, find_count_script, find_snippets, find_text_script, icon_links_script, json_text_script,
-    page_text_script,
+    PICKER, PipMode, fetch_icon_script, find_count, find_count_script, find_snippets, find_text_script, icon_links_script, json_text_script, page_text_script,
+    picture_in_picture_script,
 };
 use crate::{DataStore, Event};
 
@@ -731,11 +731,14 @@ impl WebView {
         }
     }
 
-    /// Moves the largest playing video (else the largest video) into Picture in Picture, or back
-    /// out of it. WebKit treats the shell's script as a user gesture. `done` receives "pip",
-    /// "exit", "none" or "refused".
-    pub fn picture_in_picture(&self, done: impl Fn(String) + 'static) {
-        self.run_isolated(PICTURE_IN_PICTURE, done);
+    /// Moves the page's video into Picture in Picture or back out of it, as `mode` says. WebKit
+    /// treats the shell's script as a user gesture. `done` receives "pip", "open", "exit", "none"
+    /// or "refused"; the automatic modes run nothing under Lockdown.
+    pub fn picture_in_picture(&self, mode: PipMode, done: impl Fn(String) + 'static) {
+        if mode != PipMode::Toggle && self._delegate.level() == ShieldLevel::Lockdown {
+            return done("refused".into());
+        }
+        self.run_isolated(&picture_in_picture_script(mode), done);
     }
 
     pub fn title(&self) -> String {

@@ -257,8 +257,8 @@ impl WebView {
         webkit_only!(self, v => v.set_passkeys(on), ())
     }
 
-    pub fn picture_in_picture(&self, done: impl Fn(String) + 'static) {
-        webkit_only!(self, v => v.picture_in_picture(done), done("refused".into()))
+    pub fn picture_in_picture(&self, mode: crate::page_scripts::PipMode, done: impl Fn(String) + 'static) {
+        webkit_only!(self, v => v.picture_in_picture(mode, done), done("refused".into()))
     }
 
     pub fn title(&self) -> String {

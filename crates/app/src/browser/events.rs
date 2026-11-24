@@ -391,8 +391,9 @@ impl Browser {
         link: Option<Option<Url>>,
         cx: &mut Context<Self>,
     ) {
-        if self.model.tab(key).is_some() && self.views.remove(&key).is_some() {
+        if self.model.tab(key).is_some() && self.views.contains_key(&key) {
             self.forget_media(key);
+            self.views.remove(&key);
             // The old view's last events are dropped; the new one says when its load starts.
             let page = self.pages.entry(key).or_default();
             page.loading = false;

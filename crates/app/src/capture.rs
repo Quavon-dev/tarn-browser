@@ -144,7 +144,7 @@ impl Browser {
     fn picture_in_picture(&mut self, cx: &mut Context<Self>) {
         let (Some(key), Some(view)) = (self.model.active, self.active_view()) else { return };
         let (weak, (tx, mut rx)) = (Rc::downgrade(&view), mpsc::unbounded());
-        view.picture_in_picture(move |result| drop(tx.unbounded_send(result)));
+        view.picture_in_picture(engine::page_scripts::PipMode::Toggle, move |result| drop(tx.unbounded_send(result)));
         cx.spawn(async move |this, cx| {
             let notice = match rx.next().await.as_deref() {
                 Some("none") => "This page has no video",
