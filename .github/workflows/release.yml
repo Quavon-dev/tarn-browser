@@ -44,6 +44,14 @@ on:
         required: false
       HOMEBREW_TAP_DEPLOY_KEY:
         required: false
+      ANDROID_SIDELOAD_KEYSTORE:
+        required: false
+      ANDROID_SIDELOAD_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_SIDELOAD_KEY_ALIAS:
+        required: false
+      ANDROID_SIDELOAD_KEY_PASSWORD:
+        required: false
 
 permissions: {}
 
@@ -306,6 +314,7 @@ jobs:
     if: (github.event_name == 'push' && inputs.commit == '' || inputs.nightly || inputs.full) && github.triggering_actor != format('{0}[bot]', vars.CHROMIUM_UPDATE_APP_SLUG)
     outputs:
       android: ${{ steps.android.outputs.artifact-id }}
+      apk: ${{ steps.apk.outputs.artifact-id }}
       sbom: ${{ steps.android-sbom.outputs.artifact-id }}
     runs-on: ubuntu-24.04
     permissions:
@@ -336,14 +345,20 @@ jobs:
       - name: Android (unsigned)
         run: |
           GRADLE_TASK="assembleRelease bundleRelease" mobile/android/build.sh
-          mkdir "$RUNNER_TEMP/out-android"
-          cp mobile/android/host/build/outputs/apk/release/*.apk "$RUNNER_TEMP/out-android/Tarn-${TAG}-android-unsigned.apk"
+          mkdir "$RUNNER_TEMP/out-android" "$RUNNER_TEMP/out-apk"
+          cp mobile/android/host/build/outputs/apk/release/*.apk "$RUNNER_TEMP/out-apk/Tarn-${TAG}-android-unsigned.apk"
           cp mobile/android/host/build/outputs/bundle/release/*.aab "$RUNNER_TEMP/out-android/Tarn-${TAG}-android-unsigned.aab"
       - id: android
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android
           path: ${{ runner.temp }}/out-android/
+          if-no-files-found: error
+      - id: apk
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-apk-unsigned
+          path: ${{ runner.temp }}/out-apk/
           if-no-files-found: error
       - name: Android Java SBOM
         run: |
@@ -361,6 +376,64 @@ jobs:
           name: android-sbom
           path: ${{ runner.temp }}/out-android-sbom/
           if-no-files-found: error
+
+  # Android installs no unsigned APK. Signs the sideload APK with its own key, runs no build code,
+  # and publishes it only when its certificate matches the pinned fingerprint SECURITY.md lists.
+  sign-android:
+    needs: [android, fuzz, deny]
+    if: ${{ !cancelled() && needs.android.result == 'success' && needs.fuzz.result == 'success' && needs.deny.result == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.nightly && 'nightly-signing' || 'release-signing' }}
+    permissions: {}
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    env:
+      ANDROID_SIDELOAD_CERT_SHA256: "@ANDROID_SIDELOAD_CERT_SHA256@"
+      ANDROID_BUILD_TOOLS: "36.0.0"
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.android.outputs.apk }}
+          path: unsigned
+          merge-multiple: true
+      # Aligns the build job's APK in a step that holds no secret.
+      - run: |
+          set -euo pipefail
+          [[ "$ANDROID_SIDELOAD_CERT_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "ANDROID_SIDELOAD_CERT_SHA256 is not a SHA-256" >&2; exit 1; }
+          [[ "$(ls -A unsigned)" == "Tarn-${TAG}-android-unsigned.apk" ]] || { echo "the APK artifact must hold only Tarn-${TAG}-android-unsigned.apk" >&2; exit 1; }
+          tools="$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS"
+          [[ -x "$tools/apksigner" && -x "$tools/zipalign" ]] || { echo "build-tools $ANDROID_BUILD_TOOLS is missing on this runner" >&2; exit 1; }
+          echo "TOOLS=$tools" >> "$GITHUB_ENV"
+          mkdir aligned
+          "$tools/zipalign" -f -P 16 4 "unsigned/Tarn-${TAG}-android-unsigned.apk" aligned/Tarn.apk
+      - env:
+          KEYSTORE: ${{ secrets.ANDROID_SIDELOAD_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIDELOAD_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIDELOAD_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIDELOAD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ -n "$KEYSTORE" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]] \
+            || { echo "set the ANDROID_SIDELOAD_* secrets in this signing environment (docs/release.md)" >&2; exit 1; }
+          keys="$RUNNER_TEMP/keys"
+          mkdir "$keys" signed
+          trap 'rm -rf "$keys"' EXIT
+          base64 --decode <<<"$KEYSTORE" > "$keys/sideload.jks"
+          apk="signed/Tarn-${TAG}-android.apk"
+          "$TOOLS/apksigner" sign --ks "$keys/sideload.jks" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$apk" aligned/Tarn.apk
+          certs="$("$TOOLS/apksigner" verify --print-certs "$apk")"
+          digests="$(sed -n 's/^.*Signer.* certificate SHA-256 digest: //p' <<<"$certs" | sort -u)"
+          [[ "$digests" == "$ANDROID_SIDELOAD_CERT_SHA256" ]] || { echo "the APK's signing certificate is not the one SECURITY.md lists" >&2; exit 1; }
+          rm -f "$apk.idsig"
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-apk
+          path: signed/
+          if-no-files-found: error
+          retention-days: 1
 
   # Signs in a job that runs no build code, with keys that only the signing environments hold
   # (docs/release.md, threat model S4): the macOS bundle with the Developer ID certificate,
@@ -572,8 +645,8 @@ jobs:
   # Engine updates (chromium-update.yml) and manual runs ship the macOS bundle alone, without
   # waiting for the rest.
   assets:
-    needs: [build, sign, sbom, windows, linux, ios, android]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.sign.result == 'success' && needs.sbom.result == 'success' && ((github.event_name != 'push' || inputs.commit != '') && !inputs.nightly && !inputs.full || (needs.windows.result == 'success' && needs.linux.result == 'success' && needs.ios.result == 'success' && needs.android.result == 'success')) }}
+    needs: [build, sign, sbom, windows, linux, ios, android, sign-android]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.sign.result == 'success' && needs.sbom.result == 'success' && ((github.event_name != 'push' || inputs.commit != '') && !inputs.nightly && !inputs.full || (needs.windows.result == 'success' && needs.linux.result == 'success' && needs.ios.result == 'success' && needs.android.result == 'success' && needs.sign-android.result == 'success')) }}
     outputs:
       dist: ${{ steps.dist.outputs.artifact-id }}
     runs-on: ubuntu-24.04
@@ -637,6 +710,12 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: github.event_name == 'push' && inputs.commit == '' || inputs.nightly || inputs.full
         with:
+          artifact-ids: ${{ needs.sign-android.outputs.artifact }}
+          path: artifacts/android-apk
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: github.event_name == 'push' && inputs.commit == '' || inputs.nightly || inputs.full
+        with:
           artifact-ids: ${{ needs.android.outputs.sbom }}
           path: artifacts/android-sbom
           merge-multiple: true
@@ -673,7 +752,8 @@ jobs:
             take linux "tarn_${version}_debian*_amd64.deb" "tarn_${version}_ubuntu*_amd64.deb" \
               "tarn-${version}-*.x86_64.rpm" "tarn-${version}-*-x86_64.pkg.tar.zst"
             take ios "Tarn-${TAG}-ios-unsigned.zip"
-            take android "Tarn-${TAG}-android-unsigned.apk" "Tarn-${TAG}-android-unsigned.aab"
+            take android "Tarn-${TAG}-android-unsigned.aab"
+            take android-apk "Tarn-${TAG}-android.apk"
             take android-sbom "Tarn-${TAG}-android-java.cdx.json"
           fi
           if [[ "$MACOS_ONLY" != true ]]; then

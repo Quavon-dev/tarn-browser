@@ -31,9 +31,10 @@ feeds ("Signing in CI") and publishes a GitHub release with:
   `.pkg.tar.zst`, each built in a clean container by `linux/packaging/build-all.sh`.
 - `Tarn-<tag>-ios-unsigned.zip` (`nsh package --target ios`, built with Xcode 26.3 and the iOS 26 SDK; the bundle
   carries `PrivacyInfo.xcprivacy` from `mobile/ios` and the toolchain's `DT*` Info.plist keys),
-  `Tarn-<tag>-android-unsigned.apk` (`assembleRelease`, for sideloading) and
-  `Tarn-<tag>-android-unsigned.aab` (`bundleRelease`, for Google Play): unsigned build outputs. Protected store jobs sign and upload the iOS bundle and Android AAB
-  after verification ("Store submission"); the APK remains unsigned. Only Quavon UG
+  `Tarn-<tag>-android-unsigned.aab` (`bundleRelease`, for Google Play): unsigned build outputs.
+  Protected store jobs sign and upload the iOS bundle and Android AAB after verification ("Store
+  submission"). `Tarn-<tag>-android.apk` (`assembleRelease`, for sideloading) is signed by the
+  `sign-android` job ("Signing in CI"). Only Quavon UG
   (haftungsbeschränkt) may submit them to the app stores (`LICENSE-APP-STORE.md`).
 - CycloneDX SBOMs, one per client, each listing the crates built into it for that client's target
   (`cargo cyclonedx`): `Tarn-<tag>.cdx.json` (macOS app, plus the embedded Sparkle framework and
@@ -47,7 +48,8 @@ feeds ("Signing in CI") and publishes a GitHub release with:
   applied in their build. A macOS-only release carries the macOS SBOM alone.
 - `SHA256SUMS` for every file.
 
-Nothing is published until a maintainer approves the run's `release-signing` deployment. Every build
+Nothing is published until a maintainer approves the run's `release-signing` deployments (`sign`,
+and `sign-android` when the run built Android). Every build
 job first runs `scripts/check-version.sh <tag>` (the macOS build skips it for engine updates, every
 job for nightly builds), so a release tag needs the same version in the root, `linux/` and `mobile/`
 manifests, `mobile/app/nsh.json`, the Android Gradle file, the RPM spec and the PKGBUILD. Engine
@@ -124,6 +126,17 @@ and:
    installer (`scripts/windows-feed.sh`);
 5. deletes the keychain and the key files.
 
+Android installs no unsigned APK. When the run built Android and `fuzz` and `deny` passed, the
+`sign-android` job, which runs no build code and checks out nothing, enters the same environment,
+aligns the `android` job's APK
+(`zipalign -P 16`) and signs it with `apksigner` from the pinned build-tools and the sideload key
+(`ANDROID_SIDELOAD_*`). It
+publishes `Tarn-<tag>-android.apk` only when the signature's single certificate matches
+`ANDROID_SIDELOAD_CERT_SHA256` in `release.yml`, the fingerprint `SECURITY.md` lists, and deletes
+the keystore when it ends. Nightly and release APKs share this key and the package name, so a
+nightly APK installs as an update over a sideloaded release. A release needs this job's
+`release-signing` deployment approved as well as `sign`'s.
+
 The `assets` job takes the signed files with the rest, writes `SHA256SUMS` and attests them, and
 `publish` publishes the release, marks the highest published version as the latest release (an older
 one finishing late never takes over the feeds), gives that release the newest signed Windows feed of
@@ -139,15 +152,16 @@ To release from GitHub, raise the version in every client in a pull request and 
 both; that section becomes the release notes), merge it, wait for its CI on `main`, then run Actions
 › Start release (tick "Security release" for a critical one). `start-release.yml` checks that CI
 passed on `main`'s latest commit, that every version file carries the same version and that
-`v<version>` does not exist, then calls `release.yml` for every client. Approve the run's
-`release-signing` deployment once its builds have finished: the `sign` job creates the tag
+`v<version>` does not exist, then calls `release.yml` for every client. Approve the run's two
+`release-signing` deployments, `sign-android` and `sign`, once its builds have finished (decline
+neither: `assets` needs both): the `sign` job creates the tag
 `v<version>` with the update app (the tag ruleset lets the app create `v*` tags, not GitHub
 Actions), signs, and the release is published a few minutes later. If a later job fails after the
 tag exists, re-run the failed jobs; to start over, a maintainer deletes the tag first.
 
 The same release can start from a maintainer's machine: `scripts/publish-release.sh` (with `git`
 and `gh`) runs the same checks, pushes a signed tag `v<version>` (`--critical` for a security
-release) and points to the run, whose `release-signing` deployment is approved the same way.
+release) and points to the run, whose `release-signing` deployments are approved the same way.
 
 `scripts/notarize.sh` refuses an ad-hoc signature, a signature that is not "Developer ID
 Application", one without a secure timestamp or without the hardened runtime, and anything
@@ -388,8 +402,8 @@ The `android-store` environment holds base64 `ANDROID_UPLOAD_KEYSTORE`,
 `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS` and `ANDROID_UPLOAD_KEY_PASSWORD`.
 This is the Play upload key; Google Play App Signing retains the separate app signing key.
 `jarsigner` signs only the attested AAB and verifies its signature. The sideload APK is never signed
-or uploaded by this workflow. A future sideload release must use its own key, whose certificate
-fingerprint belongs in `SECURITY.md` before publication.
+or uploaded by this workflow; `release.yml` signs it with its own sideload key ("Signing in CI"),
+whose certificate fingerprint `SECURITY.md` lists.
 
 Google authentication uses GitHub OIDC through the official `google-github-actions/auth` action,
 pinned to v3.0.0 commit `7c6bc770dae815cd3e89ee6cdf493a5fab2cc093` (Apache-2.0). This action is
@@ -471,8 +485,12 @@ Applied by hand in the repository and organisation settings; no workflow changes
       hold the secrets `MACOS_CERTIFICATE_P12` (the Developer ID Application certificate and key,
       base64 of the `.p12`), `MACOS_CERTIFICATE_PASSWORD`, `NOTARY_API_KEY` (the App Store Connect
       API key's `.p8` text), `NOTARY_API_KEY_ID`, `NOTARY_API_ISSUER` and
-      `SPARKLE_ED_PRIVATE_KEY`. Create both before the first run: GitHub creates a missing one
-      without these rules. No repository-level secret of these names exists.
+      `SPARKLE_ED_PRIVATE_KEY`, and the Android sideload key: `ANDROID_SIDELOAD_KEYSTORE` (base64
+      of the keystore), `ANDROID_SIDELOAD_KEYSTORE_PASSWORD`, `ANDROID_SIDELOAD_KEY_ALIAS` and
+      `ANDROID_SIDELOAD_KEY_PASSWORD`. Its certificate's SHA-256 is pinned in `release.yml`
+      (`ANDROID_SIDELOAD_CERT_SHA256`) and listed in `SECURITY.md`; the key has an offline backup,
+      since installed APKs accept updates only from it. Create both before the first run: GitHub
+      creates a missing one without these rules. No repository-level secret of these names exists.
 - [ ] Update app: a GitHub App owned by the organisation, installed on this repository only,
       with contents and pull requests read and write and nothing else. Environment
       `chromium-update` with deployment branches limited to `main`, holding the variable
@@ -512,7 +530,8 @@ Applied by hand in the repository and organisation settings; no workflow changes
   build, release assembly and nightly jobs hold none of them.
 - **Accessed** only by the one job that needs each one: `sign` for the Apple and notary credentials
   and the update key (`SPARKLE_ED_PRIVATE_KEY`, which signs both the Sparkle feed and the Windows
-  feed); the `open` and `tag` jobs of `chromium-update.yml` and `sign` for the update app key; the signing job
+  feed); `sign-android` for the Android sideload key; the `open` and `tag` jobs of
+  `chromium-update.yml` and `sign` for the update app key; the signing job
   of `filter-lists.yml` for `FILTER_SIGNING_KEY`; the `build` job of `linux-repo.yml` for
   `LINUX_REPO_GPG_KEY` and `LINUX_REPO_GPG_PASSPHRASE`, its `aur` job for `AUR_SSH_PRIVATE_KEY`;
   the `homebrew` job of `release.yml` for `HOMEBREW_TAP_DEPLOY_KEY`.

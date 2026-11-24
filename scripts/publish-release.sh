@@ -51,5 +51,5 @@ $CRITICAL && message+=(-m critical)
 ask "Tag origin/main ($(git -C "$NEW" log -1 --format='%h %s' origin/main)) as $TAG$($CRITICAL && echo ', critical'), signed, and push it?" || exit 0
 git -C "$NEW" tag -s "$TAG" origin/main "${message[@]}"
 git -C "$NEW" push origin "refs/tags/$TAG"
-echo "Pushed $TAG. Approve its release-signing deployment once the builds finish:"
+echo "Pushed $TAG. Approve its release-signing deployments (sign and sign-android) once the builds finish:"
 echo "  https://github.com/$R/actions/workflows/release.yml"
