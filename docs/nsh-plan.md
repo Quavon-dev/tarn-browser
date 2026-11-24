@@ -441,6 +441,18 @@ These figures were measured with particles drawn as solid dots; since 2026-11-21
 glow (a radial gradient here, a blurred shadow on macOS and Windows), and Glow runs at 24 fps with
 a light running around the card instead of a ring pulsing at 8 fps; not yet measured again.
 
+### Agent control on Linux
+
+`linux/src/ui/agent.rs` runs `browser_core::agent::control` over `engine::agent_socket::Server` (threat
+model S31), with the same switch, bar, throwaway window and setup text as macOS; `tarn --mcp` is handled in
+`main` before NSH starts (in the Flatpak, `flatpak run --command=tarn de.quavon.tarn --mcp`). The component
+takes `agent {seq, body}` and the `agentSites` prop and reports `agentAnswer` and `agentHeld`; page text is
+read through `agent` (the `readText` command stops at the history limit). Gap: WebKitGTK does not say which
+frame a navigation targets, so the gate holds link clicks and form submissions (a click in a frame too) but
+not a navigation a script starts without a click, which the existing gate treats the same way. Screenshots
+are the 752 px `snapshot`. Checked by a display test (an agent script answers; a held navigation does not
+load); the window, bar and switch are compiled and unit-tested, not run against an agent.
+
 ## 7. Testing
 
 - **Shared tests:**

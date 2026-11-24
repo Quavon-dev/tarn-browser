@@ -1,4 +1,5 @@
 mod actions;
+mod agent;
 mod appearance;
 mod assistant;
 mod blocking;
@@ -578,6 +579,7 @@ fn web_views(ui: Ui) -> View {
                     .prop("sortDownloads", move || JsonValue::from(item.with(|v| v.sort_downloads)))
                     .prop("muted", move || JsonValue::from(item.with(|v| v.muted)))
                     .prop("assistantMenu", move || item.with(|v| v.assistant.clone()))
+                    .prop("agentSites", move || item.with(|v| v.agent_sites.clone()))
                     .prop("inspectable", move || JsonValue::from(item.with(|v| v.inspectable)))
                     .prop("load", move || {
                         item.with(|v| v.load.as_ref().map_or(JsonValue::Null, |(u, s)| json!({ "url": u, "seq": s, "link": v.link, "file": v.file })))
@@ -594,7 +596,16 @@ fn web_views(ui: Ui) -> View {
                             return capture::shown(ui, key, &event.data);
                         }
                         if &*event.name == "snapshot" {
-                            return peek::shot(ui, key, &event.data["png"]);
+                            if !agent::shot(key, &event.data["png"]) {
+                                peek::shot(ui, key, &event.data["png"]);
+                            }
+                            return;
+                        }
+                        if &*event.name == "agentAnswer" {
+                            return agent::answered(ui, &event.data);
+                        }
+                        if &*event.name == "agentHeld" {
+                            return agent::held_navigation(ui, key, &event.data);
                         }
                         if &*event.name == "pong" {
                             return pong(ui, key, &event.data);
@@ -2836,8 +2847,12 @@ fn open_browser_window(row: SavedWindow, torn: Option<browser_core::tabs::Torn>)
 }
 
 fn close_window(ui: Ui, here: &WindowRef) {
+    agent::window_closed(ui);
     if WINDOWS.with_borrow(|windows| windows.len()) <= 1 {
-        act(ui, |b| b.model.release_confined(&b.core));
+        act(ui, |b| {
+            b.burn_agent();
+            b.model.release_confined(&b.core);
+        });
         return quit();
     }
     extensions::show_popup(ui, None);
@@ -2876,17 +2891,48 @@ fn route_downloads() {
     }));
 }
 
-fn new_ui(row: SavedWindow, torn: Option<browser_core::tabs::Torn>) -> Ui {
-    let window = NEXT_WINDOW.with(|n| {
+fn next_window() -> u64 {
+    NEXT_WINDOW.with(|n| {
         n.set(n.get() + 1);
         n.get()
-    });
+    })
+}
+
+fn themes(core: &Core<Data>) -> crate::browser::themes::Themes {
+    BROWSERS
+        .with_borrow(|windows| windows.values().next().map(|b| b.themes.clone()))
+        .unwrap_or_else(|| crate::browser::themes::Themes::open(&core.disk, &crate::data::root().join("filters")))
+}
+
+/// Opens an AI agent's window (S31); false when its throwaway profile could not be made.
+fn open_agent_window() -> bool {
+    let core = core();
+    let Some(browser) = Browser::new_agent(core.clone(), SavedWindow::default(), themes(&core)) else { return false };
+    let browser = Cell::new(Some(browser));
+    let mut attributes = WindowAttributes::default();
+    attributes.close_on_press = Some(false);
+    open_window(window().title("Tarn").default_size(Size { width: Points(WINDOW_SIZE.0), height: Points(WINDOW_SIZE.1) }).attributes(attributes).content(
+        move || match browser.take() {
+            Some(browser) => {
+                let ui = ui_for(next_window(), browser);
+                agent::opened(ui);
+                browser_window(ui)
+            }
+            None => view().into_element(),
+        },
+    ));
+    true
+}
+
+fn new_ui(row: SavedWindow, torn: Option<browser_core::tabs::Torn>) -> Ui {
+    let window = next_window();
     let elsewhere = BROWSERS.with_borrow(|windows| live_elsewhere(windows, window));
     let core = core();
-    let themes = BROWSERS
-        .with_borrow(|windows| windows.values().next().map(|b| b.themes.clone()))
-        .unwrap_or_else(|| crate::browser::themes::Themes::open(&core.disk, &crate::data::root().join("filters")));
-    let mut browser = Browser::new(core, row, torn, elsewhere, themes);
+    let themes = themes(&core);
+    ui_for(window, Browser::new(core, row, torn, elsewhere, themes))
+}
+
+fn ui_for(window: u64, mut browser: Browser) -> Ui {
     browser.downloads = BROWSERS.with_borrow(|windows| windows.values().next().map(|b| b.downloads.clone())).unwrap_or_default();
     let auto_hide = browser.auto_hide_sidebar() || browser.tabs_on_top();
     BROWSERS.with_borrow_mut(|windows| windows.insert(window, browser));
@@ -3109,6 +3155,7 @@ fn browser_window(ui: Ui) -> AnyElement {
                 .child(when(move || !full.get(), move || toolbar(ui)))
                 .child(when(move || !full.get() && ui.snap.with(|s| s.tabs_top), move || themed(move || tab_strip(ui))))
                 .child(themed(move || extensions::popup_panel(ui)))
+                .child(agent::bar(ui))
                 .child(notice_bar(ui))
                 .child(when(move || !full.get(), move || error_bar(ui)))
                 .child(when(move || !full.get(), move || hang_bar(ui)))
@@ -3146,6 +3193,7 @@ pub fn App() -> impl IntoElement {
     main_window().set(attributes);
     route_downloads();
     extensions::route(core());
+    agent::init();
     let saved = Browser::saved_windows(&core());
     LAUNCHING.set(saved.len().max(1));
     let mut rows = saved.into_iter();

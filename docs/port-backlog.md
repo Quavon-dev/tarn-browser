@@ -28,10 +28,7 @@ own over a local MCP socket, off by default, with the user approving the agent, 
 click on a page holding a filled password or payment field (threat model S31).
 Shared API: `browser_core::agent::{mcp, control}` (`mcp::serve`, `control::Controller`),
 `engine::agent_socket`, `engine::agent_scripts`, `tabs::Model::open_agent` and `burn_agent`.
-Reference: `crates/app/src/agent.rs`.
-
-- [ ] Linux — `linux/src/ui/agent.rs` over `agent_socket::Server` and `control::Controller`, the
-  `agent` command, `agentSites` prop and `agentHeld` event in `linux/src/webview`.
+Reference: `crates/app/src/agent.rs`, `linux/src/ui/agent.rs`.
 
 - [ ] iOS — no local process can reach an app's socket while it is in the background; needs a
   design (for example an agent inside the app) before any port.

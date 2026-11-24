@@ -87,6 +87,8 @@ pub struct ViewItem {
     pub muted: bool,
     /// The `assistantMenu` prop: the selection menu's commands, or null where the assistant may not see the page.
     pub assistant: Value,
+    /// The `agentSites` prop: the sites an agent window's gate lets through, or null for no gate.
+    pub agent_sites: Value,
     pub opener: String,
     pub active: bool,
     /// Its place in the split on screen.
@@ -157,6 +159,7 @@ pub struct Snapshot {
     pub blocked: Option<crate::browser::blocking::BlockedPage>,
     pub prompt: Option<Prompt>,
     pub notice: Option<Notice>,
+    pub agent: Option<browser_core::agent::control::Banner>,
     pub folders: Vec<(Id, String)>,
     pub toast: Option<crate::browser::Toast>,
     pub link: Option<(TabKey, String)>,
@@ -398,6 +401,7 @@ pub fn views(b: &Browser, shown: bool) -> Vec<ViewItem> {
                 file: page.is_some_and(|p| p.file),
                 muted: b.muted_with(key, &muted),
                 assistant: page.and_then(|p| b.model.assistant_menu_for(&b.core, commands.as_ref(), &p.url)).map_or(Value::Null, Value::from),
+                agent_sites: b.agent_sites.clone().map_or(Value::Null, Value::from),
                 opener: page.and_then(|p| p.opener).map(|k| format!("{}-{}", k.private, k.id)).unwrap_or_default(),
                 active: shown && (b.model.active == Some(key) || panes.contains(&key)),
                 pane: panes.iter().position(|k| *k == key).filter(|_| shown),
@@ -437,6 +441,7 @@ fn peek_item(b: &Browser) -> Option<PeekItem> {
         file: false,
         muted: false,
         assistant: Value::Null,
+        agent_sites: b.agent_sites.clone().map_or(Value::Null, Value::from),
         opener: format!("{}-{}", key.private, key.id),
         active: true,
         pane: None,
@@ -505,6 +510,7 @@ pub fn snapshot_with(b: &Browser, web_shown: bool, heavy: &HashSet<TabKey>) -> S
         blocked: page.blocked.clone(),
         prompt: page.prompts.front().cloned(),
         notice: b.notice.clone(),
+        agent: b.agent_banner.clone(),
         folders: b.model.folders.iter().map(|f| (f.id, f.name.clone())).collect(),
         toast: b.toast.clone(),
         link: b

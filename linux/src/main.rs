@@ -24,6 +24,16 @@ use nsh_platform_linux::{ComponentContext, Components, NativeComponent};
 const APP_ID: &str = "de.quavon.tarn";
 
 fn main() -> impl std::process::Termination {
+    if std::env::args().nth(1).as_deref() == Some("--mcp") {
+        let relayed = engine::agent_socket::relay(&data::root(), browser_core::agent::NOT_RUNNING);
+        std::process::exit(relayed.map_or_else(
+            |e| {
+                eprintln!("tarn: {e}");
+                1
+            },
+            |()| 0,
+        ));
+    }
     set_density(Density::Desktop);
     let root = data::root();
     if let Err(e) = webview::session::create_private_dir(&root) {

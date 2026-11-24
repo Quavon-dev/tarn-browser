@@ -105,6 +105,8 @@ struct State {
     assistant_menu: RefCell<Option<Vec<String>>>,
     processes: RefCell<std::collections::HashSet<i32>>,
     process: Cell<Option<i32>>,
+    /// The sites an AI agent's window lets page-started navigations reach; `None` is no gate.
+    agent_sites: RefCell<Option<HashSet<String>>>,
     #[cfg(test)]
     events: RefCell<Vec<(String, JsonValue)>>,
 }
@@ -593,6 +595,15 @@ fn store_install_intercepted(state: &Rc<State>, url: &Url, store: engine::nav_po
     false
 }
 
+fn agent_held(state: &State, url: &Url, page_started: bool) -> bool {
+    let held =
+        page_started && state.agent_sites.borrow().as_ref().is_some_and(|sites| browser_core::agent::site_of(url).is_some_and(|site| !sites.contains(&site)));
+    if held {
+        state.emit("agentHeld", json!({ "url": url.as_str() }));
+    }
+    held
+}
+
 fn allow_navigation(state: &Rc<State>, web: &WebView, action: &webkit6::NavigationAction, url: &Url, javascript: bool, main_frame: bool) {
     let nav_type = action.navigation_type();
     let form = matches!(nav_type, NavigationType::FormSubmitted | NavigationType::FormResubmitted);
@@ -678,7 +689,12 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
     let main_frame = from_shell || step || gesture || upgraded.is_some() || (redirect && state.main_pending.get());
     let site = state.site(&url);
     let store = engine::nav_policy::StoreNav { redirect, shell_load: from_shell, page_link, clicked: nav_type == NavigationType::LinkClicked && gesture };
-    if gated(state, &uri, site.blocked, main_frame, from_shell) || store_install_intercepted(state, &url, store) {
+    let shell_started = from_shell || step || upgraded.as_ref().is_some_and(|(_, _, user)| *user);
+    let top = main_frame || nav_type != NavigationType::Other;
+    if gated(state, &uri, site.blocked, main_frame, from_shell)
+        || store_install_intercepted(state, &url, store)
+        || agent_held(state, &url, top && !shell_started)
+    {
         decision.ignore();
         return true;
     }
@@ -1377,6 +1393,10 @@ impl NativeComponent for TarnWebView {
             "muted" => return mute(state, value.as_bool().unwrap_or(false)),
             "assistantMenu" => {
                 *state.assistant_menu.borrow_mut() = engine::view_policy::menu_commands(value);
+                return;
+            }
+            "agentSites" => {
+                *state.agent_sites.borrow_mut() = value.as_array().map(|sites| sites.iter().filter_map(|s| s.as_str()).map(str::to_owned).collect());
                 return;
             }
             "load" => {

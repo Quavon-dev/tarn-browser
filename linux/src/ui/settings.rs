@@ -833,7 +833,9 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
         Pane::Shortcuts => body.child(view().pt_3().child(shortcut_rows(ui))),
         Pane::Snippets => body.child(view().pt_3().child(tarn_nsh_shared::snippets::pane(Notes(ui)))),
         Pane::Notes => body.child(view().pt_3().child(tarn_nsh_shared::notes::pane(Notes(ui)))),
-        Pane::Ai => body.child(view().pt_3().child(tarn_nsh_shared::assistant::settings_pane(super::assistant::Host(ui), ui.chat))),
+        Pane::Ai => {
+            body.child(view().pt_3().child(tarn_nsh_shared::assistant::settings_pane(super::assistant::Host(ui), ui.chat))).child(super::agent::settings(ui))
+        }
         Pane::Developer => super::devtools::pane(ui, body),
     })
 }

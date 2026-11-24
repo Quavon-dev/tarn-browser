@@ -58,7 +58,9 @@ Every shell's web view offers the same operations and reports the same events. T
   built by `browser_core::agent::control`) in the isolated world, never as the user's gesture,
   and answers its text, empty under Lockdown; `set_agent_gate`
   holds a page-started main-frame navigation the gate refuses, cancelled before any request, and
-  reports `AgentHeld`. NSH components do not have them yet (`docs/port-backlog.md`);
+  reports `AgentHeld`. NSH components: `agent` `{seq, body}` answered by `agentAnswer`
+  `{seq, url, text}`, the `agentSites` prop and the `agentHeld` `{url}` event; iOS and Android do
+  not have them yet (`docs/port-backlog.md`);
 - `insert_text`: Insert Snippet types a `store::Snippet`'s text into the page's focused text field
   (`page_scripts::insert_text_script`, isolated world, Android's page world, nothing under
   Lockdown) and answers whether it did (`browser_core::snippets::inserted`). Every shell remembers

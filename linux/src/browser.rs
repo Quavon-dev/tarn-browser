@@ -193,6 +193,10 @@ pub struct Browser {
     responsive_zoom: HashMap<TabKey, f64>,
     text_rows: usize,
     burner_return: Option<(bool, Id)>,
+    /// In an AI agent's window: the sites its tabs' page-started navigations may reach (`None`
+    /// lets everything through), and its bar.
+    pub agent_sites: Option<Vec<String>>,
+    pub agent_banner: Option<browser_core::agent::control::Banner>,
     window: SavedWindow,
     seq: u64,
     toast_serial: u64,
@@ -223,10 +227,29 @@ impl Browser {
     }
 
     pub fn new(core: Rc<Core<Data>>, window: SavedWindow, torn: Option<Torn>, elsewhere: HashSet<TabKey>, themes: themes::Themes) -> Browser {
+        let mut browser = Browser::unlaunched(core, window, elsewhere, themes);
+        let ix = torn.and_then(|t| browser.model.launch_torn(&browser.core, t)).unwrap_or_else(|| browser.model.launch_space(&browser.core, &browser.window));
+        browser.switch_space(ix);
+        browser.apply_theme();
+        browser
+    }
+
+    /// A window for an AI agent (S31), kept to a throwaway profile's space and never saved; its
+    /// gate lets nothing through until the agent's session says otherwise.
+    pub fn new_agent(core: Rc<Core<Data>>, window: SavedWindow, themes: themes::Themes) -> Option<Browser> {
+        let mut browser = Browser::unlaunched(core, window, HashSet::new(), themes);
+        let ix = browser.model.open_agent(&browser.core)?;
+        browser.agent_sites = Some(Vec::new());
+        browser.switch_space(ix);
+        browser.apply_theme();
+        Some(browser)
+    }
+
+    fn unlaunched(core: Rc<Core<Data>>, window: SavedWindow, elsewhere: HashSet<TabKey>, themes: themes::Themes) -> Browser {
         let tab_placement = browser_core::layout::TabPlacement::load(&core.disk);
         let mut model = Model::new(browser_core::settings::live_tabs(&core.disk));
         model.reload_spaces(&core);
-        let mut browser = Browser {
+        Browser {
             core,
             model,
             pages: HashMap::new(),
@@ -284,14 +307,12 @@ impl Browser {
             responsive_zoom: HashMap::new(),
             text_rows: 0,
             burner_return: None,
+            agent_sites: None,
+            agent_banner: None,
             window,
             seq: 0,
             toast_serial: 0,
-        };
-        let ix = torn.and_then(|t| browser.model.launch_torn(&browser.core, t)).unwrap_or_else(|| browser.model.launch_space(&browser.core, &browser.window));
-        browser.switch_space(ix);
-        browser.apply_theme();
-        browser
+        }
     }
 
     fn profile_of_space(&self) -> Option<(bool, Id)> {
@@ -1056,6 +1077,7 @@ impl Browser {
                 self.on_blocked(key, &text("url"), &text("reason"));
             }
             "external" => self.notice = Some(Notice::External { url: text("url"), origin: text("origin") }),
+            "popup" | link_peek::PEEK_EVENT if self.model.agent_profile.is_some() => {}
             "popup" => {
                 let url = text("url");
                 let split = data["split"].as_bool() == Some(true) && (self.model.active == Some(key) || self.in_split(key)) && !self.model.burner_shown();
@@ -1203,6 +1225,7 @@ impl Browser {
     pub fn open_blocked_popup(&mut self) {
         if let Some(Notice::NewTab { key, url, .. }) = self.notice.take_if(|n| matches!(n, Notice::NewTab { .. }))
             && self.model.tab(key).is_some()
+            && self.model.agent_profile.is_none()
         {
             self.open_tab(&url, Opened::Link(key));
         }
@@ -1210,6 +1233,10 @@ impl Browser {
 
     fn on_prompt(&mut self, key: TabKey, data: &Value) {
         let Some(prompt) = Prompt::from_event(data) else { return };
+        if self.model.agent_profile.is_some() && prompt.is_permission() {
+            self.outbox.push((key, "answer", json!({ "id": prompt.id, "accept": false })));
+            return;
+        }
         if prompt.remembered_at(self.level_for(key, &prompt.origin))
             && let Some(profile) = self.model.profile_of(&self.core, key)
             && let Some(decision) = self.core.store(key.private).permission(profile, &prompt.origin, &prompt.kind).ok().flatten()
@@ -1264,11 +1291,54 @@ impl Browser {
 
     pub fn close_window(&mut self) {
         self.burn();
+        self.burn_agent();
         self.model.release_confined(&self.core);
         self.core.disk.delete_window(self.window.id).ok();
     }
 
+    /// Deletes everything of an agent window's profile and releases its website data, as `burn`.
+    pub fn burn_agent(&mut self) {
+        let Some(profile) = self.model.agent_profile else { return };
+        if let Some(store) = self.core.profiles.borrow().get(&(true, profile)).map(|rt| rt.data.key.burner()) {
+            self.released.push(store);
+        }
+        let keys: Vec<TabKey> = self.model.tabs.iter().map(|t| self.model.key(t)).collect();
+        keys.into_iter().for_each(|key| self.forget_tab(key));
+        self.favicons.forget(&(true, profile));
+        self.model.burn_agent(&self.core);
+    }
+
+    /// A new tab whose first load counts as a link, so Shield judges every hop of it (S10), or as
+    /// typed for a loopback address `nav_policy::app_link_typed` lets through.
+    pub fn open_link_tab(&mut self, url: &str, typed: bool) -> Option<TabKey> {
+        let key = self.new_tab(url)?;
+        self.pages.entry(key).or_default().link = !typed;
+        Some(key)
+    }
+
+    /// Shows `key` and loads `url` there as a link, or as typed as `open_link_tab` says.
+    pub fn load_link_in(&mut self, key: TabKey, url: &str, typed: bool) {
+        if self.agent_show(key) {
+            self.load(key, url);
+            self.pages.entry(key).or_default().link = !typed;
+        }
+    }
+
+    /// Makes an agent's tab the shown one, so its view is awake.
+    pub fn agent_show(&mut self, key: TabKey) -> bool {
+        if self.model.tab(key).is_none() {
+            return false;
+        }
+        if self.model.active != Some(key) {
+            self.activate(key);
+        }
+        true
+    }
+
     pub fn tear_off(&mut self, key: TabKey) -> Option<(SavedWindow, Torn)> {
+        if self.model.agent_profile.is_some() {
+            return None;
+        }
         let tab = self.model.tab(key).cloned()?;
         let url = self.pages.get(&key).map(|p| p.url.clone()).filter(|u| !u.is_empty()).unwrap_or(tab.url);
         let torn = self.model.tear_off(&self.core, key, &url, prefs::TEAR_OFF_TEMPORARY.on(&self.core.disk))?;

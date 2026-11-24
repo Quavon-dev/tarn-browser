@@ -116,6 +116,35 @@ fn insert_text_types_into_the_focused_field_only() {
 
 #[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn an_agent_script_answers_and_its_gate_holds_a_page_started_navigation() {
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    let answer = ask(&state, "agent", json!({ "seq": 3, "body": "return document.querySelector('h1').innerText;" }), "agentAnswer");
+    assert_eq!(answer, json!({ "seq": 3, "url": "http://page.test/", "text": "Title" }));
+    let site = browser_core::agent::site_of(&Url::parse("http://page.test/").unwrap()).unwrap();
+    *state.agent_sites.borrow_mut() = Some(HashSet::from([site]));
+    let click = |href: &str| format!("const a = document.createElement('a'); a.href = '{href}'; document.body.append(a); a.click(); 'ok'");
+    let decided = |state: &State, url: &str| state.events.borrow().iter().any(|(n, d)| n == "decided" && d["url"] == url);
+    state.events.borrow_mut().clear();
+    page_eval(&web, &click("http://page.test/next"));
+    assert!(spin_until(|| decided(&state, "http://page.test/next"), 20), "the allowed link reached the policy");
+    assert!(event(&state, "agentHeld").is_none(), "a link to an allowed site goes through: {:?}", state.events.borrow());
+    spin_until(|| event(&state, "finished").is_some() || event(&state, "failed").is_some(), 30);
+    state.events.borrow_mut().clear();
+    web.load_html(PAGE, Some("http://page.test/"));
+    assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page loaded");
+    state.events.borrow_mut().clear();
+    page_eval(&web, &click("http://other.test/away"));
+    assert!(spin_until(|| event(&state, "agentHeld").is_some(), 20), "the gate held the link: {:?}", state.events.borrow());
+    assert_eq!(event(&state, "agentHeld").unwrap(), json!({ "url": "http://other.test/away" }));
+    spin_until(|| false, 1);
+    assert_eq!(web.uri().unwrap_or_default(), "http://page.test/", "the held navigation never loaded");
+    assert!(event(&state, "started").is_none(), "{:?}", state.events.borrow());
+}
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
 fn ask_assistant_reads_the_selection_with_its_command_but_never_a_secret_field() {
     gtk::init().expect("a display");
     let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
